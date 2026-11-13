@@ -12,7 +12,7 @@ import { UiIcon, UiIconButton, useMoreEdges } from '../../ui/index.ts';
 import { cellText, gridWindow, isComplete, isNumeric, nextSort, sortRows, windowLabel } from './table.ts';
 import type { VisualProps } from './visuals.ts';
 
-const props = withDefaults(defineProps<VisualProps>(), { pager: undefined });
+const props = withDefaults(defineProps<VisualProps>(), { pager: undefined, opener: undefined });
 
 const strip = ref<HTMLElement | null>(null);
 /** The sides with columns beyond them; any at all pins the first column. */
@@ -66,6 +66,7 @@ const ariaSort = (column: string): 'ascending' | 'descending' | 'none' => (sort.
                   <UiIcon v-if="sort?.column === column.name" :name="sort.dir === 'asc' ? 'chevron-up' : 'chevron-down'" :size="12" />
                 </button>
               </th>
+              <th v-if="opener" class="row-tools" scope="col"><span class="sr-only">{{ opener.label }}</span></th>
             </tr>
           </thead>
           <tbody>
@@ -73,6 +74,9 @@ const ariaSort = (column: string): 'ascending' | 'descending' | 'none' => (sort.
               <td v-for="(column, c) in table.columns" :key="column.name" :class="{ num: isNumeric(column), mono: column.kind === 'json' || column.kind === 'uuid' }">
                 <span v-if="cellText(row[c], column) === undefined" class="empty">null</span>
                 <span v-else class="cell" :title="cellText(row[c], column)">{{ cellText(row[c], column) }}</span>
+              </td>
+              <td v-if="opener" class="row-tools">
+                <UiIconButton v-if="opener.has(row)" icon="more" :label="opener.label" size="sm" data-testid="result-row-open" @click="opener.open(row)" />
               </td>
             </tr>
           </tbody>
@@ -117,6 +121,10 @@ tbody tr:hover td { background: var(--surface-2); }
 .pinned td:first-child { background: var(--surface); }
 .pinned tbody tr:hover td:first-child { background: var(--surface-2); }
 .pinned td:first-child .cell, .pinned th:first-child .name { max-width: 40cqi; overflow: hidden; text-overflow: ellipsis; }
+.row-tools { position: sticky; right: 0; z-index: 1; width: 1%; padding: 2px var(--space-1); background: var(--surface); text-align: right; box-shadow: inset 1px 0 0 var(--border); }
+th.row-tools { background: var(--surface-2); }
+td.row-tools { vertical-align: middle; }
+tbody tr:hover td.row-tools { background: var(--surface-2); }
 .cell { display: block; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .empty { color: var(--text-faint); font-style: italic; }
 .none { margin: 0; padding: var(--space-3); color: var(--text-dim); font-size: var(--text-sm); }

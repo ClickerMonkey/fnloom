@@ -3,9 +3,10 @@
  * connects with `serve`. The implementation is split by concern behind these interfaces, so each part is tested with
  * injected seams (a temp folder, a fake shell, a fake clock) and `createFsImpl` wires the real ones together.
  */
-import type { ContentRef, ResourceLink } from '@harness/core';
+import type { ChangeSet, ContentRef, ResourceLink } from '@harness/core';
 import type { ConfigOf, Infer } from '@harness/sdk';
 import type { CommandOutput, EntryValue, FsContract, Root } from '../shared/index.ts';
+import type { Sensitivity } from './sensitive.ts';
 
 export type { CommandOutput, EntryValue };
 
@@ -105,6 +106,32 @@ export interface GitStatus {
 export interface Git {
   /** The status, or `undefined` when the folder isn't in a git work tree. */
   status(folder: string, signal?: AbortSignal): Promise<GitStatus | undefined>;
+}
+
+/** Which files git ignores. An interface so the sensitivity rules are tested without git where git doesn't matter. */
+export interface IgnoreCheck {
+  /** The absolute paths (normalized) among these that the git work tree each is in ignores. */
+  ignored(paths: readonly string[], signal?: AbortSignal): Promise<ReadonlySet<string>>;
+}
+
+/** One `bash` call being watched for the files it changes. */
+export interface CaptureSession {
+  /** Stop watching and say what changed since `start`. Call once, after the command ended. */
+  finish(signal?: AbortSignal): Promise<ChangeSet>;
+}
+
+/**
+ * Finds the files a command changed: inside git from `git status` and diffs taken before and after it, outside git
+ * from a file watcher started with it (`server/changes.ts`).
+ */
+export interface ChangeCapture {
+  /** Start watching a call that runs in `cwd`; the guard places changed files in roots and the rules mark sensitive ones. */
+  start(input: { cwd: string; guard: PathGuard; sensitivity: Sensitivity }, signal?: AbortSignal): Promise<CaptureSession>;
+  /**
+   * Note that another fs call (a write, an edit) works on `path` until the returned function is called, so a command
+   * running in the same tree meanwhile lists its changes as not certain.
+   */
+  busy(path: string): () => void;
 }
 
 /** Restarts the process shortly after the current run has answered. */

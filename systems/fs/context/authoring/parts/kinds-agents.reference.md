@@ -67,7 +67,7 @@ interface KindImpl<P, Cfg = unknown> {
 }
 ```
 
-Refers to: [`CostEstimate`](context:fs/authoring.core-types#core-costestimate), [`Json`](context:fs/authoring.core-types#core-json), [`KindDescription`](context:fs/authoring.core-types#core-kinddescription), [`PreviewAnswer`](context:fs/authoring.core-types#core-previewanswer), [`UndoOutcome`](context:fs/authoring.core-types#core-undooutcome).
+Refers to: [`CostEstimate`](context:fs/authoring.core-types.fn-facts-ts#core-costestimate), [`Json`](context:fs/authoring.core-types.primitives-ts#core-json), [`KindDescription`](context:fs/authoring.core-types.contextdecl#core-kinddescription), [`PreviewAnswer`](context:fs/authoring.core-types.approvals-ts#core-previewanswer), [`UndoOutcome`](context:fs/authoring.core-types.run-ts#core-undooutcome).
 
 #### `KindEstimateInput`
 
@@ -82,7 +82,7 @@ interface KindEstimateInput {
 }
 ```
 
-Refers to: [`CostEstimate`](context:fs/authoring.core-types#core-costestimate), [`Json`](context:fs/authoring.core-types#core-json).
+Refers to: [`CostEstimate`](context:fs/authoring.core-types.fn-facts-ts#core-costestimate), [`Json`](context:fs/authoring.core-types.primitives-ts#core-json).
 
 #### `KindCheckCtx`
 
@@ -97,7 +97,7 @@ interface KindCheckCtx {
 }
 ```
 
-Refers to: [`GinTypeDef`](context:fs/authoring.core-types#core-gintypedef), [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`GinTypeDef`](context:fs/authoring.core-types.gin-ts#core-gintypedef), [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `KindRunCtx`
 
@@ -113,7 +113,7 @@ interface KindRunCtx<Cfg = unknown> extends Omit<FnCtx<UntypedFn, Cfg>, 'fns' | 
 }
 ```
 
-Refers to: [`Json`](context:fs/authoring.core-types#core-json), [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname), [`StepStatus`](context:fs/authoring.core-types#core-stepstatus).
+Refers to: [`Json`](context:fs/authoring.core-types.primitives-ts#core-json), [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname), [`StepStatus`](context:fs/authoring.core-types.run-ts#core-stepstatus).
 
 #### `KindRef`
 
@@ -134,7 +134,7 @@ interface KindRef<N extends QualifiedName, P> {
 }
 ```
 
-Refers to: [`Json`](context:fs/authoring.core-types#core-json), [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`Json`](context:fs/authoring.core-types.primitives-ts#core-json), [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `AnyKindRef`
 
@@ -144,7 +144,7 @@ type · `import { AnyKindRef } from '@harness/sdk'`
 type AnyKindRef = KindRef<QualifiedName, unknown>;
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `kindFn`
 
@@ -188,10 +188,12 @@ interface KindFnInput<P, A, R, T extends StatusTemplates = StatusTemplates> {
   effects?: FnEffects;
   /** How many of its examples go into the model's prompt with it (the hub's default when absent); the rest page with `hub/fn_examples`. */
   promptExamples?: number;
+  /** The API group it is listed in (`SystemInfo.groups`); the general group when absent. */
+  group?: string;
 }
 ```
 
-Refers to: [`Audience`](context:fs/authoring.core-types#core-audience), [`FnEffects`](context:fs/authoring.core-types#core-fneffects), [`FnRouting`](context:fs/authoring.core-types#core-fnrouting).
+Refers to: [`Audience`](context:fs/authoring.core-types.primitives-ts#core-audience), [`FnEffects`](context:fs/authoring.core-types.contextdecl#core-fneffects), [`FnRouting`](context:fs/authoring.core-types.contextdecl#core-fnrouting).
 
 #### `KindFnTypes`
 
@@ -217,7 +219,7 @@ interface UntypedFn {
 }
 ```
 
-Refers to: [`Json`](context:fs/authoring.core-types#core-json).
+Refers to: [`Json`](context:fs/authoring.core-types.primitives-ts#core-json).
 
 #### `agent`
 
@@ -282,7 +284,7 @@ interface AgentInput<A, R, T extends StatusTemplates = StatusTemplates> {
 }
 ```
 
-Refers to: [`Audience`](context:fs/authoring.core-types#core-audience), [`FnEffects`](context:fs/authoring.core-types#core-fneffects), [`FnRouting`](context:fs/authoring.core-types#core-fnrouting), [`ModelChoice`](context:fs/authoring.core-types#core-modelchoice).
+Refers to: [`Audience`](context:fs/authoring.core-types.primitives-ts#core-audience), [`FnEffects`](context:fs/authoring.core-types.contextdecl#core-fneffects), [`FnRouting`](context:fs/authoring.core-types.contextdecl#core-fnrouting), [`ModelChoice`](context:fs/authoring.core-types.llm-ts#core-modelchoice).
 
 #### `AgentFnTypes`
 
@@ -368,6 +370,10 @@ interface AuthoringAgentInput<S, D> {
   readonly fixes?: number;
   /** Model rounds; `HARNESS_AUTHORING_ROUNDS` when absent. */
   readonly rounds?: number;
+  /** `find: false`: the agent is handed what it builds on, so it starts in `inspect` (no find tools, no `reuse`). */
+  readonly stages?: { readonly find?: boolean };
+  /** Names for the built-in tools when the job wants its own words (default `draft` and `save`). */
+  readonly toolNames?: { readonly draft?: string; readonly save?: string };
 }
 ```
 
@@ -431,7 +437,8 @@ class AuthoringSession<S, D> {
   readonly request: string;
   /** The authoring fn's own state (the database, the instance, the type registry, …). */
   readonly state: S;
-  constructor(request: string, state: S);
+  /** `skip`: stages the agent has no use for, done from the start (`find` for an agent handed what it builds on). */
+  constructor(request: string, state: S, skip: readonly SkippableStage[] = []);
   /** The current stage: the first one not done, `fix` while the last check failed, `save` once it passed. */
   get stage(): "check" | "find" | "inspect" | "draft" | "fix" | "save";
   /** Whether a tool of a stage may be offered now: every stage before it is done, and the run is still going. */
@@ -482,6 +489,16 @@ The stages a tool belongs to (`check` and `fix` are the built-in `draft` tool's;
 
 ```ts
 type ToolStage = 'find' | 'inspect' | 'draft';
+```
+
+#### `SkippableStage`
+
+type · `import { SkippableStage } from '@harness/sdk/server'`
+
+The stage an agent may leave out: `find`, when it is handed what it builds on.
+
+```ts
+type SkippableStage = 'find';
 ```
 
 #### `DraftCheck`

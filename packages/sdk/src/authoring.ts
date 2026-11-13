@@ -12,6 +12,9 @@
  * - **Check and fix:** the `draft` tool checks every draft at once and answers with the problems; a draft that fails
  *   moves the agent to `fix`. Past the fix cap (`HARNESS_AUTHORING_FIXES`) the run fails with the last problems.
  * - **Save:** `save` is offered only after a draft checked clean. `reuse` (in `find`) answers with an existing fn.
+ * - **Shape:** an agent handed what it builds on (a widget is given its source fn) skips `find` (`stages: { find:
+ *   false }`), and may name its draft and save tools for its job (`toolNames: { draft: 'widget_check', save:
+ *   'widget_save' }`).
  *
  * The loop is aeye's own (`ai.prompt` with tools); this helper adds no second loop.
  */
@@ -36,6 +39,9 @@ export type AuthoringStage = (typeof AUTHORING_STAGES)[number];
 
 /** The stages a tool belongs to (`check` and `fix` are the built-in `draft` tool's; `save` the built-in `save`). */
 export type ToolStage = 'find' | 'inspect' | 'draft';
+
+/** The stage an agent may leave out: `find`, when it is handed what it builds on. */
+export type SkippableStage = 'find';
 
 /**
  * What an authoring fn answers the chat model with: the saved fn, what it does, how to call it again, and a short
@@ -135,9 +141,11 @@ export class AuthoringSession<S, D> {
   /** The authoring fn's own state (the database, the instance, the type registry, …). */
   readonly state: S;
 
-  constructor(request: string, state: S) {
+  /** `skip`: stages the agent has no use for, done from the start (`find` for an agent handed what it builds on). */
+  constructor(request: string, state: S, skip: readonly SkippableStage[] = []) {
     this.request = request;
     this.state = state;
+    for (const stage of skip) { this.#done.add(stage); }
   }
 
   /** The current stage: the first one not done, `fix` while the last check failed, `save` once it passed. */
@@ -287,6 +295,10 @@ export interface AuthoringAgentInput<S, D> {
   readonly fixes?: number;
   /** Model rounds; `HARNESS_AUTHORING_ROUNDS` when absent. */
   readonly rounds?: number;
+  /** `find: false`: the agent is handed what it builds on, so it starts in `inspect` (no find tools, no `reuse`). */
+  readonly stages?: { readonly find?: boolean };
+  /** Names for the built-in tools when the job wants its own words (default `draft` and `save`). */
+  readonly toolNames?: { readonly draft?: string; readonly save?: string };
 }
 
 /** Why an authoring run stopped without a fn. */
@@ -302,15 +314,17 @@ export class AuthoringError extends Error {
   }
 }
 
-/** What each stage is for, shown to the model with the stage it is in. */
-const STAGE_GUIDE: Readonly<Record<AuthoringStage, string>> = {
-  find: 'Find what exists first: search for an existing fn or the pieces you need. If an existing fn already does it, reuse it.',
-  inspect: 'Inspect what you will build on: load the details (types, fields, examples) of what the search found. Load only what you need.',
-  draft: 'Write the draft with the draft tool. Its args are checked against the real schema.',
-  check: 'The draft is being checked.',
-  fix: 'The last draft has problems. Fix exactly those problems and call draft again with the whole corrected draft.',
-  save: 'The draft checked clean. Call save to keep it.',
-};
+/** What each stage is for, shown to the model with the stage it is in, in the words of the agent's tool names. */
+function stageGuide(names: { readonly draft: string; readonly save: string }): Readonly<Record<AuthoringStage, string>> {
+  return {
+    find: 'Find what exists first: search for an existing fn or the pieces you need. If an existing fn already does it, reuse it.',
+    inspect: 'Inspect what you will build on: load the details (types, fields, examples, a sample) you need. Load only what you need.',
+    draft: `Write the draft with ${names.draft}. Its args are checked against the real schema.`,
+    check: 'The draft is being checked.',
+    fix: `The last draft has problems. Fix exactly those problems and call ${names.draft} again with the whole corrected draft.`,
+    save: `The draft checked clean. Call ${names.save} to keep it.`,
+  };
+}
 
 /** A declared authoring agent: run it inside a fn with the run's `ctx.ai()`. */
 export interface AuthoringAgent<S, D> {
@@ -322,12 +336,17 @@ export interface AuthoringAgent<S, D> {
 export function authoringAgent<S, D>(def: AuthoringAgentInput<S, D>): AuthoringAgent<S, D> {
   const fixCap = def.fixes ?? authoringEnv.get('HARNESS_AUTHORING_FIXES');
   const rounds = def.rounds ?? authoringEnv.get('HARNESS_AUTHORING_ROUNDS');
+  const names = { draft: def.toolNames?.draft ?? 'draft', save: def.toolNames?.save ?? 'save' };
+  const guide = stageGuide(names);
+  const skip: SkippableStage[] = def.stages?.find === false ? ['find'] : [];
+  const misplaced = skip.length === 0 ? [] : def.tools.filter((tool) => tool.stage === 'find').map((tool) => tool.name);
+  if (misplaced.length > 0) { throw new Error(`${def.name} skips find, so it can't have find tools (${misplaced.join(', ')}).`); }
   return {
     name: def.name,
     async run(ai, request, state) {
-      const session = new AuthoringSession<S, D>(request, state);
+      const session = new AuthoringSession<S, D>(request, state, skip);
       const draftTool = authoringTool<S, D, { draft: D }>({
-        name: 'draft',
+        name: names.draft,
         stage: 'draft',
         description: `Write (or rewrite) the whole draft: ${def.draft.description} It is checked at once; the answer lists every problem, or says it is clean.`,
         schema: (s) => z.object({ draft: typeof def.draft.schema === 'function' ? def.draft.schema(s) : def.draft.schema }),
@@ -335,17 +354,17 @@ export function authoringAgent<S, D>(def: AuthoringAgentInput<S, D>): AuthoringA
           const check = await def.check(draft, s);
           s.checked(draft, check);
           if (check.problems.length === 0) {
-            return [`Clean.${check.note === undefined ? '' : `\n${check.note}`}`, check.preview === undefined ? '' : `Preview:\n${JSON.stringify(check.preview, null, 2)}`, 'Call save to keep it.'].filter((line) => line !== '').join('\n');
+            return [`Clean.${check.note === undefined ? '' : `\n${check.note}`}`, check.preview === undefined ? '' : `Preview:\n${JSON.stringify(check.preview, null, 2)}`, `Call ${names.save} to keep it.`].filter((line) => line !== '').join('\n');
           }
           if (s.fixes >= fixCap) {
             s.stop(check);
             return 'Too many fixes: stop now and answer that it could not be written.';
           }
-          return [`Problems (${check.problems.length}); fix them and call draft again with the whole draft:`, ...check.problems.map((p) => `- ${p}`), check.note ?? ''].filter((line) => line !== '').join('\n');
+          return [`Problems (${check.problems.length}); fix them and call ${names.draft} again with the whole draft:`, ...check.problems.map((p) => `- ${p}`), check.note ?? ''].filter((line) => line !== '').join('\n');
         },
       });
       const save = ai.tool({
-        name: 'save',
+        name: names.save,
         description: 'Save the draft that checked clean as a fn. Answer after this with one line saying what you saved.',
         schema: z.object({}),
         applicable: () => session.going && session.stage === 'save',
@@ -354,11 +373,11 @@ export function authoringAgent<S, D>(def: AuthoringAgentInput<S, D>): AuthoringA
           if (draft === undefined) throw new Error('There is no draft to save.');
           const result = await def.save(draft, session);
           session.finish(result);
-          session.done('save', 'save');
+          session.done('save', names.save);
           return `Saved ${result.fn} (version ${result.version}). Now answer in one line.`;
         },
       });
-      const reuseDef = def.reuse?.bind(def);
+      const reuseDef = skip.length === 0 ? def.reuse?.bind(def) : undefined;
       const tools: [AeyeTool, ...AeyeTool[]] = [
         draftTool.make(ai, session),
         save,
@@ -381,7 +400,7 @@ export function authoringAgent<S, D>(def: AuthoringAgentInput<S, D>): AuthoringA
         name: def.name,
         description: def.description,
         content: `${def.instructions}\n\n<request>\n{{request}}\n</request>\n\nYou are in the {{stage}} stage. {{guide}}`,
-        input: () => ({ request: session.request, stage: session.stage, guide: STAGE_GUIDE[session.stage] }),
+        input: () => ({ request: session.request, stage: session.stage, guide: guide[session.stage] }),
         tools,
         dynamic: true,
         toolIterations: rounds,
@@ -391,7 +410,7 @@ export function authoringAgent<S, D>(def: AuthoringAgentInput<S, D>): AuthoringA
         metadata: { model: def.model ?? HUB_MODEL },
         validate: () => {
           if (session.going) {
-            throw new Error(`Nothing is saved yet: you are in the ${session.stage} stage. ${STAGE_GUIDE[session.stage]}`);
+            throw new Error(`Nothing is saved yet: you are in the ${session.stage} stage. ${guide[session.stage]}`);
           }
         },
       });

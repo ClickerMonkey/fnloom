@@ -15,7 +15,7 @@ choices:
     when: "Pick this to go on in order: Context and commands."
 ---
 
-## 11. Settings and attachments
+## 12. Settings and attachments
 
 ### Settings
 

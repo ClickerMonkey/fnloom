@@ -16,6 +16,8 @@ import type { EventBus } from '../bus.ts';
 import type { HubStore } from '../store/index.ts';
 import type { HubSettings } from './env.ts';
 import { HUB_INFO } from './info.ts';
+import { StoreHubIdentity } from './identity.ts';
+import { HUB_SYSTEM } from '../catalog/availability.ts';
 import type { HubKeys } from './keys.ts';
 import type { HubModules, HubServices, ModuleBuild, ModuleContext, ModuleFactory, ModuleKey } from './index.ts';
 
@@ -44,16 +46,18 @@ export type ApiServices = HubServices['api'] & { readonly auth: AdminAuthenticat
 /** Make the api module's services. */
 export function apiServices(base: BaseServices, parts: ApiParts): ApiServices {
   const { settings, store, clock, log, bus } = base;
+  const identity = new StoreHubIdentity({ store, bus, clock, envName: settings.hubEnv.HARNESS_NAME, version: HUB_INFO.version, hub: HUB_SYSTEM });
   return {
+    identity,
     auth: new AdminAuthenticator({
-      store, clock, hub: HUB_INFO, secret: parts.keys.jwtSecret, hasher: new ScryptHasher(settings.authEnv.HARNESS_PASSWORD_COST),
+      store, clock, identity, secret: parts.keys.jwtSecret, hasher: new ScryptHasher(settings.authEnv.HARNESS_PASSWORD_COST),
       accessTtl: settings.authEnv.HARNESS_ACCESS_TTL, refreshTtl: settings.authEnv.HARNESS_REFRESH_TTL,
     }),
     content: new FileContentStore({
       files: parts.files, presign: parts.presign, maxUpload: settings.httpEnv.HARNESS_MAX_UPLOAD, presignTtl: settings.httpEnv.HARNESS_PRESIGN_TTL, clock,
     }),
     push: new WebPushService({
-      store, sender: parts.pushSender, publicKey: parts.keys.vapid.publicKey,
+      store, sender: parts.pushSender, publicKey: parts.keys.vapid.publicKey, identity,
       onError: (error, subscription) => { log.warn('push.failed', { push: subscription.id, user: subscription.user }, error); },
     }),
     relay: new BusEventRelay(bus),
@@ -70,7 +74,7 @@ export interface Assembly {
 }
 
 /** The modules in the order `builds` builds them (an order only; each still builds what it reads first). */
-const MODULE_ORDER = ['catalog', 'link', 'index', 'metrics', 'models', 'execution', 'contextor', 'resources', 'chat', 'mcp', 'access', 'connections', 'fns'] as const satisfies readonly ModuleKey[];
+const MODULE_ORDER = ['catalog', 'link', 'index', 'metrics', 'models', 'execution', 'contextor', 'resources', 'chat', 'mcp', 'access', 'connections', 'fns', 'data'] as const satisfies readonly ModuleKey[];
 
 /** Put the hub's services together. */
 export function assemble(base: BaseServices, api: HubServices['api'], modules: HubModules, extras: Omit<ModuleContext, 'hub'>): Assembly {
@@ -106,6 +110,7 @@ export function assemble(base: BaseServices, api: HubServices['api'], modules: H
     access: once('access', modules.access),
     connections: once('connections', modules.connections),
     fns: once('fns', modules.fns),
+    data: once('data', modules.data),
   } as const satisfies { readonly [K in ModuleKey]: () => ModuleBuild<HubServices[K]> };
   const hub: HubServices = {
     ...base,
@@ -123,6 +128,7 @@ export function assemble(base: BaseServices, api: HubServices['api'], modules: H
     get access() { return built.access().services; },
     get connections() { return built.connections().services; },
     get fns() { return built.fns().services; },
+    get data() { return built.data().services; },
   };
   const context: ModuleContext = { ...extras, hub };
   return { hub, builds: () => MODULE_ORDER.map((key) => built[key]()) };

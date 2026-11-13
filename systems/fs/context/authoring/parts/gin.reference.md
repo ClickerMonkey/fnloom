@@ -53,7 +53,7 @@ Any JSON. The LLM and the input form get no structure from it, so prefer a real 
 function json(): GinType<Json>;
 ```
 
-Refers to: [`Json`](context:fs/authoring.core-types#core-json).
+Refers to: [`Json`](context:fs/authoring.core-types.primitives-ts#core-json).
 
 #### `parseValue`
 
@@ -76,7 +76,7 @@ A checked value as JSON for the wire (dates as ISO strings, absent optional fiel
 function encodeValue<T>(type: GinType<T>, value: T): Json;
 ```
 
-Refers to: [`Json`](context:fs/authoring.core-types#core-json).
+Refers to: [`Json`](context:fs/authoring.core-types.primitives-ts#core-json).
 
 #### `wireType`
 
@@ -88,7 +88,7 @@ A gin type's JSON definition, as it travels to the hub.
 function wireType(type: GinType): GinTypeDef;
 ```
 
-Refers to: [`GinTypeDef`](context:fs/authoring.core-types#core-gintypedef).
+Refers to: [`GinTypeDef`](context:fs/authoring.core-types.gin-ts#core-gintypedef).
 
 #### `referencesOf`
 
@@ -102,7 +102,7 @@ for itself from the wire definition (`TypeRecord.references`); this is for code 
 function referencesOf(type: GinType): QualifiedName[];
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `loadTypes`
 
@@ -116,7 +116,7 @@ definition is invalid.
 function loadTypes(definitions: TypeDefinitions): LoadedTypes;
 ```
 
-Refers to: [`TypeDefinitions`](context:fs/authoring.core-types#core-typedefinitions).
+Refers to: [`TypeDefinitions`](context:fs/authoring.core-types.records-systems-ts#core-typedefinitions).
 
 #### `LoadedTypes`
 
@@ -133,7 +133,7 @@ interface LoadedTypes {
 }
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `ginOf`
 

@@ -41,9 +41,9 @@ Doc a field the LLM must fill in carefully with `g.field(type, { docs })`:
 
 **Values at runtime.** Fns receive values already parsed by their gin types, in plain JS form (timestamps as `Date`).
 To check a value yourself use `parseValue(type, value)` (throws a gin error naming the problem); to turn a value into
-JSON for storage use `encodeValue(type, value)` (dates as ISO strings). The notes store reads and writes its file with
-the contract's own type, so a file that doesn't fit is refused instead of read wrongly (`server/store.ts` in **Worked
-examples**): `parseValue(g.list(Note.shape), JSON.parse(text))` to read, `JSON.stringify(encodeValue(g.list(Note.shape), list))`
+JSON for storage use `encodeValue(type, value)` (dates as ISO strings). Read a file the system keeps with its own type,
+so a file that doesn't fit is refused instead of read wrongly: `parseValue(g.list(Entry), JSON.parse(text))` to read,
+`JSON.stringify(encodeValue(g.list(Entry), list))`
 to write.
 
 To read values of another system's named type at runtime, ask the hub for its definition

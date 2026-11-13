@@ -14,7 +14,7 @@ async function make(status: (endpoint: string) => number) {
   const store = await testStore();
   const sender = recordingPush(status);
   const errors: unknown[] = [];
-  const push = new WebPushService({ store, sender, publicKey: 'BPub', onError: (error) => { errors.push(error); } });
+  const push = new WebPushService({ store, sender, publicKey: 'BPub', identity: { identity: () => Promise.resolve({ name: 'Family Desk', source: 'env' as const, version: '1' }) }, onError: (error) => { errors.push(error); } });
   const subscribe = (n: number, who = user) => store.table('pushSubscriptions').insert({
     id: PushId.parse(`psh_${n}`), user: who, endpoint: `https://push.example/${n}`, keys: { p256dh: 'p', auth: 'a' }, device: 'd', createdAt: n,
   });
@@ -29,7 +29,8 @@ describe('WebPushService', () => {
     await subscribe(3, ActorId.parse('act_other'));
     await expect(push.send(user, notification)).resolves.toEqual({ sent: 1, gone: 1 });
     expect(sender.sent.map((s) => s.endpoint).sort()).toEqual(['https://push.example/1', 'https://push.example/2']);
-    expect(JSON.parse(sender.sent[0]?.payload ?? '{}')).toEqual(JSON.parse(pushPayload(notification)));
+    expect(JSON.parse(sender.sent[0]?.payload ?? '{}')).toEqual(JSON.parse(pushPayload(notification, 'Family Desk')));
+    expect(JSON.parse(sender.sent[0]?.payload ?? '{}')).toMatchObject({ title: `Family Desk: ${notification.title}` });
     await expect(store.table('pushSubscriptions').get(PushId.parse('psh_2'))).resolves.toBeUndefined();
     await expect(store.table('pushSubscriptions').get(PushId.parse('psh_3'))).resolves.toBeDefined();
   });

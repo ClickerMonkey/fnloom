@@ -15,6 +15,7 @@ import { LlmCallTab, RunTab, TAB_KEYS } from '../chat/logic/inspect.ts';
 import { BrowserQuery } from '../resources/logic/browse.ts';
 import { ContextBrowseQuery, ContextItemQuery } from '../context/logic/context.ts';
 import { GraphUrl } from '../graph/url.ts';
+import { DataSetsUrl, RecordsUrl, typeParts } from '../data/logic/data.ts';
 import { InboxFilter } from '../state/inbox.ts';
 import { OPEN_KEY } from '../state/push-payload.ts';
 import { NEEDS_APPROVAL, queryParam } from '../state/query.ts';
@@ -65,6 +66,9 @@ export const ROUTES = {
   context: 'context',
   contextItem: 'context-item',
   graph: 'graph',
+  data: 'data',
+  dataWidgets: 'data-widgets',
+  dataType: 'data-type',
   connect: 'connect',
   settings: 'settings',
   design: 'design',
@@ -73,7 +77,7 @@ export const ROUTES = {
 export type RouteName = (typeof ROUTES)[keyof typeof ROUTES];
 
 /** The settings sections, each its own URL. */
-export const SettingsSection = z.enum(['appearance', 'notifications', 'account']);
+export const SettingsSection = z.enum(['appearance', 'notifications', 'account', 'hub']);
 export type SettingsSection = z.infer<typeof SettingsSection>;
 
 /** The panels a chat can have open besides inspectors. */
@@ -118,6 +122,10 @@ export const QUERIES = {
   [ROUTES.contextItem]: ContextItemQuery,
   /** The graph's filters, search, focus and collapsed systems. */
   [ROUTES.graph]: GraphUrl,
+  /** The stored types' words and system; a type's records page's words, filters, sort and first row (build 8). */
+  [ROUTES.data]: DataSetsUrl,
+  [ROUTES.dataWidgets]: z.object({ q: z.string() }).partial(),
+  [ROUTES.dataType]: RecordsUrl,
   [ROUTES.modelCalls]: z.object({ q: z.string(), run: RunId, call: ModelCallId, [TAB_KEYS.llm]: LlmCallTab }).partial(),
   [ROUTES.fns]: z.object({ q: z.string() }).partial(),
   [ROUTES.mcps]: z.object({ create: z.literal('1') }).partial(),
@@ -205,6 +213,14 @@ export const links = {
   context: (query: RouteQuery<typeof ROUTES.context> = {}): RouteLocationRaw => ({ name: ROUTES.context, ...queryOf(ROUTES.context, query) }),
   /** The graph of every system's items and how they connect, with its filters (build 7). */
   graph: (query: RouteQuery<typeof ROUTES.graph> = {}): RouteLocationRaw => ({ name: ROUTES.graph, ...queryOf(ROUTES.graph, query) }),
+  /** The stored types the person sees, by system (build 8). */
+  data: (query: RouteQuery<typeof ROUTES.data> = {}): RouteLocationRaw => ({ name: ROUTES.data, ...queryOf(ROUTES.data, query) }),
+  /** The saved widgets. */
+  dataWidgets: (query: RouteQuery<typeof ROUTES.dataWidgets> = {}): RouteLocationRaw => ({ name: ROUTES.dataWidgets, ...queryOf(ROUTES.dataWidgets, query) }),
+  /** One stored type's records (`notes/Note` is `/data/notes/Note`), with one record open when `id` is given. */
+  dataType: (type: QualifiedName, query: RouteQuery<typeof ROUTES.dataType> = {}, id?: string): RouteLocationRaw => ({
+    name: ROUTES.dataType, params: { ...typeParts(type), ...(id === undefined ? {} : { id }) }, ...queryOf(ROUTES.dataType, query),
+  }),
   /** One context item with its links both ways (`fs/guide` is `/context/fs/guide`). */
   contextItem: (item: QualifiedName, query: RouteQuery<typeof ROUTES.contextItem> = {}): RouteLocationRaw => {
     const { system, local } = splitName(item);
@@ -260,6 +276,9 @@ export const routes: RouteRecordRaw[] = [
   { path: '/explore/:system/:instance/:path(.*)*', name: ROUTES.explore, component: () => import('../pages/ExplorePage.vue'), meta: { title: 'Files' } },
   { path: '/context', name: ROUTES.context, component: () => import('../pages/ContextPage.vue'), meta: { title: 'Context' } },
   { path: '/graph', name: ROUTES.graph, component: () => import('../pages/GraphPage.vue'), meta: { title: 'Graph' } },
+  { path: '/data', name: ROUTES.data, component: () => import('../pages/DataPage.vue'), meta: { title: 'Data' } },
+  { path: '/data/widgets', name: ROUTES.dataWidgets, component: () => import('../pages/DataPage.vue'), meta: { title: 'Widgets' } },
+  { path: '/data/:system/:local/:id?', name: ROUTES.dataType, component: () => import('../pages/DataTypePage.vue'), meta: { title: 'Data' } },
   { path: '/context/:system/:local(.+)', name: ROUTES.contextItem, component: () => import('../pages/ContextItemPage.vue'), meta: { title: 'Context' } },
   { path: '/pair/:pairing', name: ROUTES.pair, component: () => import('../pages/PairPage.vue'), meta: { title: 'Pair a system', admin: true } },
   { path: '/connect/:system', name: ROUTES.connect, component: () => import('../pages/ConnectPage.vue'), meta: { title: 'Connect' } },

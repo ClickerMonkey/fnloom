@@ -17,12 +17,13 @@ import {
   type ConnectResult, type DecideAnswer, type KindEstimateAnswer, type FleetInstance, type HubModelInfo, type PreviewAnswer, type ProposedRun, type InstanceName, type ModelForward, type ModelForwardResult, type PairingInfo, type AdminNotice,
   type AutoPairGrant, type AutoPairProof, type ConfigValue, type HandlerAnswer, type HubLinkSpec, type ImportReport, type JsonObject, type LinkSession, type LlmForward,
   type LlmForwardChunk, type LogLine, type Manifest, type ManifestPatch, type OutcomeWire, type PairingId, type QualifiedName,
-  type PairingGrant, type PairingGrantRequest, type ResourceRead, type RunControl, type Section, type RunInfo, type RunRequest, type RunSettled, type StateOwner, type SystemLinkSpec, type TypeDefinitions, type UserInfo, ActorId, SystemName,
+  type PairingGrant, type PairingGrantRequest, type ResourceRead, type ResourceHit, type MentionResourceSearch, type FlagsAnswer, type MentionOption as WireMentionOption, type RunControl, type Section, type RunInfo, type RunRequest, type RunSettled, type StateOwner, type SystemLinkSpec, type TypeDefinitions, type UserInfo, ActorId, SystemName,
 } from '@harness/core';
 import type { z } from 'zod';
 import type { AdminNotices, AiSource, Decisions, Fleets, FnSearch, Proposals, SystemPlace } from '../ctx.ts';
 import { fakeHubAi, streamOf } from './fake-models.ts';
 import { FakeHubFns } from './fake-hub-fns.ts';
+import { FakeRecords, type StoredTypeDecl } from './fake-records.ts';
 import { contentHash } from './content.ts';
 import { LinkHost, type LinkHostDeps } from './host.ts';
 import { MemoryJournal } from './journal.ts';
@@ -260,6 +261,17 @@ export class FakeHub {
   // ─── Scripted behaviour ─────────────────────────────────────────────────────
   /** The hub's kept fns (`hub/save_fn`, `hub/fn_get`, `searchFns`, `fnExamples`), in memory. */
   readonly fns = new FakeHubFns();
+  /**
+   * The data system in memory (`ctx.data`): records of the stored types the system declared, or of another system's
+   * types put in `storedTypes`, answered like the hub does, as `TEST_USER`. Read them back with `data.of(type)`.
+   */
+  readonly data: FakeRecords = new FakeRecords((name) => this.#storedType(name), () => TEST_USER.id);
+  /** Other systems' stored types the data system knows, by qualified name. */
+  readonly storedTypes = new Map<QualifiedName, StoredTypeDecl>();
+  /** Resource searches a mention provider made (`ctx.resources.search` in `search`), in order. */
+  readonly mentionSearches: MentionResourceSearch[] = [];
+  /** Answers a mention provider's resource search (default: no hits). */
+  onMentionResources: (search: MentionResourceSearch) => Promise<ResourceHit[]> = () => Promise.resolve([]);
   /** Settles a child call. Default: `hub/save_fn` and `hub/fn_get` by `fns`, anything else done with `null`. */
   onCall: (call: FakeHub['calls'][number]) => Promise<RunSettled> = (call) => Promise.resolve(this.fns.settle(call) ?? { status: 'done', result: null });
   /** Answers a run's handler. Default: refused. */
@@ -436,6 +448,34 @@ export class FakeHub {
   /** Ask the connected system what a run would do (`preview`), as the hub does before an approval. */
   preview(body: SystemBody<'preview'>): Promise<PreviewAnswer> {
     return this.peer().call('preview', body);
+  }
+
+  /** The declaration of a stored type: the system's own (its latest manifest) or one put in `storedTypes`. */
+  #storedType(name: QualifiedName): StoredTypeDecl | undefined {
+    const other = this.storedTypes.get(name);
+    if (other !== undefined) { return other; }
+    for (const manifest of [...this.manifests].reverse()) {
+      const decl = manifest.types.find((type) => qualify(manifest.name, type.name) === name);
+      if (decl !== undefined) { return decl.records === undefined ? undefined : { ...decl, records: decl.records }; }
+    }
+    return undefined;
+  }
+
+  /** Ask the connected system which sensitive files a run would touch (`flags`), as the hub does before a run. */
+  flags(body: SystemBody<'flags'>): Promise<FlagsAnswer> {
+    return this.peer().call('flags', body);
+  }
+
+  /**
+   * Ask the connected system for `@` options (`mentions`) as `TEST_USER`, with a fresh mention request, so its provider
+   * may search resources (`ctx.resources.search`, answered by `onMentionResources` and kept in `mentionSearches`).
+   */
+  mentions(provider: string, query: string): Promise<WireMentionOption[]> {
+    const now = Date.now();
+    return this.peer().call('mentions', {
+      provider, query, user: TEST_USER, actor: TEST_USER.id, session: mintId('session'), request: mintId('mentionRequest'),
+      time: { now, timeZone: 'UTC', local: new Date(now).toISOString() },
+    });
   }
 
   /** Ask the connected system what a fn of one of its kinds costs (`estimate`), as the hub does for `FnFacts.cost`. */
@@ -626,24 +666,21 @@ export class FakeHub {
         pairingInfo: ({ data }) => { this.pairingInfos.push(data); },
         notifyAdmins: ({ data }) => { this.notices.push(data); },
         reportRefusal: ({ data }) => { this.hostRefusals.push(data); },
-        // build 8: platform lane gives the fake hub the data system and mention search
-        mentionResources: () => notServed('mentionResources'),
-        records: () => notServed('records'),
-        record: () => notServed('record'),
-        recordTable: () => notServed('recordTable'),
-        saveRecord: () => notServed('saveRecord'),
-        removeRecord: () => notServed('removeRecord'),
+        mentionResources: async ({ data }) => {
+          this.mentionSearches.push(data);
+          return { hits: await this.onMentionResources(data) };
+        },
+        records: ({ data }) => this.data.find(data),
+        record: ({ data }) => this.data.get(data),
+        recordTable: ({ data }) => this.data.table(data),
+        saveRecord: ({ data }) => this.data.save(data),
+        removeRecord: ({ data }) => this.data.remove(data),
       });
   }
 }
 
 /** How long a fake pairing grant lasts, like the real hub's short-lived grant. */
 const PAIRING_GRANT_MS = 10 * 60_000;
-
-/** A hub link endpoint the fake hub does not answer yet. */
-function notServed(endpoint: string): never {
-  throw new Error(`the fake hub does not serve ${endpoint} yet`);
-}
 
 /** A plain value as JSON, the way it would cross the wire. */
 function jsonOf(value: unknown): Json {

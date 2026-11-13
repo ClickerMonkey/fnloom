@@ -98,7 +98,7 @@ export class FixtureCatalog implements Catalog {
   async availability(name: QualifiedName): Promise<Availability> { return Promise.resolve(this.unavailable.get(name) ?? true); }
   async check(system: SystemName, type: GinTypeDef, value: unknown): Promise<string[]> { return Promise.resolve(this.checker(system, type, value)); }
 
-  importManifest = refuse; importPatch = refuse; forgetInstance = refuse; reimport = refuse; refreshAvailability = refuse; manifest = refuse; kind = refuse; typeClosure = refuse; declare = refuse;
+  importManifest = refuse; importPatch = refuse; forgetInstance = refuse; reimport = refuse; refreshAvailability = refuse; indexStoredFns = refuse; manifest = refuse; kind = refuse; typeClosure = refuse; declare = refuse;
   signature = (): Promise<FnSignature> => refuse();
 }
 
@@ -369,7 +369,8 @@ export async function chatRig() {
   const { log, records: logs } = memoryLog();
   catalog.addFn('hub', { name: 'chat', kind: AGENT_KIND, description: 'The chat agent.' });
   const deps: ChatDeps = {
-    settings: { chat: chatEnv.parse(), queue: { HARNESS_ACTIVE_WINDOW: 120_000 }, model: { HARNESS_SUGGESTIONS: 6 } },
+    // notices go out at once here; the grace has its own test
+    settings: { chat: { ...chatEnv.parse(), HARNESS_CONFIG_NOTICE_GRACE: 0 }, queue: { HARNESS_ACTIVE_WINDOW: 120_000 }, model: { HARNESS_SUGGESTIONS: 6 } },
     log, clock: () => now, random, bus, store, catalog, link, runs, agents, limits, search: index, suggest: index, llm, push, hubActor: actorId('act_hub'),
     // the real visibility over the rig's store, with no per-person systems
     access: new StoreAccessService({

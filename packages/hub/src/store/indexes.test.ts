@@ -98,6 +98,12 @@ describe('vector index', () => {
     expect(await store.vectors.nearest(TEST_EMBEDDER, [0, 1, 0], 5, [])).toEqual([]);
   });
 
+  it('keeps to a `within` list that names items with no vector yet', async () => {
+    const within = [{ kind: 'fn' as const, key: 'x' }, { kind: 'context' as const, key: 'not-embedded' }, { kind: 'context' as const, key: 'y' }];
+    expect((await store.vectors.nearest(TEST_EMBEDDER, [1, 0.1, 0], 10, kinds, within)).map((h) => h.key)).toEqual(['x', 'y']);
+    expect(await store.vectors.nearest(TEST_EMBEDDER, [1, 0, 0], 10, kinds, [{ kind: 'fn', key: 'nothing' }])).toEqual([]);
+  });
+
   it('replaces a vector on upsert and removes by kind and key', async () => {
     await store.vectors.upsert(TEST_EMBEDDER, [{ kind: 'fn', key: 'x', vector: [0, 0, 1] }]);
     expect((await store.vectors.nearest(TEST_EMBEDDER, [0, 0, 1], 1))[0]?.key).toBe('x');

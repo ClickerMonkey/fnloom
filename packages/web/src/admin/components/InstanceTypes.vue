@@ -2,11 +2,12 @@
 /**
  * The types an instance made (a database's table types): each one's name, what it is, and whether a change to it
  * waits for approval; opening one shows its type. Only one is open at a time. `detailed` (a system's page) also says
- * on every row where it was declared (its contract or while running) and its version.
+ * on every row where it was declared (its contract or while running) and its version. An open type shows its history.
  */
 import type { TypeRecord } from '@harness/core';
 import { ref } from 'vue';
 import GinTypeView from '../../gin/GinTypeView.vue';
+import ItemHistory from '../../components/versions/ItemHistory.vue';
 import { DECLARED_WORDS } from '../../context/logic/context.ts';
 import { UiBadge, UiIcon } from '../../ui/index.ts';
 
@@ -30,6 +31,7 @@ const toggle = (name: string): void => { open.value = open.value === name ? '' :
       </button>
       <div v-if="open === type.name" class="body">
         <GinTypeView :model-value="type.def" readonly :label="type.name" />
+        <ItemHistory :item="{ system: type.system, section: 'types', name: type.name }" />
       </div>
     </li>
   </ul>

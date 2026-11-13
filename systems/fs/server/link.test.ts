@@ -15,7 +15,7 @@ import { fsEnv } from './env.ts';
 import { createFsImpl } from './impl.ts';
 import { fileUri } from './paths.ts';
 import { DiskSnapshots } from './snapshots.ts';
-import { FakeGit, FakeOpener, FakeRestarter, FakeShell, configFor, tempFolder } from './testing.ts';
+import { FakeChanges, FakeGit, NO_IGNORES, FakeOpener, FakeRestarter, FakeShell, configFor, tempFolder } from './testing.ts';
 
 const settings = { ...fsEnv.parse(), FS_SAFE_COMMANDS: ['ls'], FS_COMMAND_TIMEOUT: 1_000 };
 
@@ -45,6 +45,8 @@ describe('fs over the link', () => {
       documents: new AeyeDocuments(createDefaultResourceRegistry()),
       restarter: new FakeRestarter(),
       watch: () => () => undefined,
+      changes: new FakeChanges(),
+      ignores: NO_IGNORES,
       now: () => 0,
     });
     hub = new FakeHub({ config: configFor(root) });

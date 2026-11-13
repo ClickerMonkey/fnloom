@@ -17,9 +17,10 @@ import AppTopBar from './AppTopBar.vue';
 import { navEntries } from './nav.ts';
 import { useSignOut } from './signOut.ts';
 import { showFavicon } from './favicon.ts';
+import { tabTitle } from './title.ts';
 import { links, notificationTarget, ROUTES } from './routes.ts';
 
-const { session, keeper, layout, toasts, inbox, connection, admin, chat } = useStores();
+const { session, identity, keeper, layout, toasts, inbox, connection, admin, chat } = useStores();
 const signOut = useSignOut();
 const route = useRoute();
 const router = useRouter();
@@ -36,7 +37,7 @@ const entries = computed(() => navEntries(route, session.user.value, { inbox: in
 const title = computed(() => {
   if (layout.pageTitle.value !== undefined) { return layout.pageTitle.value; }
   const page = route.name === ROUTES.connect ? chat.connections.nav.value.find((entry) => entry.system === route.params['system']) : undefined;
-  return page?.title ?? route.meta.title ?? 'Harness';
+  return page?.title ?? route.meta.title ?? identity.name.value;
 });
 /** A page with its own header (an open chat) takes the whole height on a compact screen: one header, not two. */
 const topBar = computed(() => compact.value && route.meta.ownHeader !== true);
@@ -45,8 +46,12 @@ const inboxAnchor = shallowRef<HTMLElement | null>(null);
 
 // staying signed in, and leaving when the session ends (the router's guard handles arriving signed out)
 watch(signedIn, (isIn, was) => {
+  // the hub's name: the sign-in page shows it too, and asking again on sign-in picks up a rename made meanwhile
+  void identity.load();
   if (isIn) {
     keeper.start();
+    // renames show live while signed in
+    identity.start();
     inbox.start();
     // the per-person systems' pages (a calendar to connect) join the nav
     void chat.connections.load(true);
@@ -54,12 +59,13 @@ watch(signedIn, (isIn, was) => {
   }
   keeper.stop();
   inbox.stop();
+  identity.stop();
   if (was === true && route.meta.public !== true) { void router.replace(links.signIn(route.fullPath)); }
 }, { immediate: true });
 
-// the tab says how many things need you, in its title and with a dot on its icon
-watch([title, inbox.unread], ([page, unread]) => {
-  document.title = `${unread > 0 ? `(${unread > 99 ? '99+' : unread}) ` : ''}${page} · Harness`;
+// the tab says how many things need you, in its title and with a dot on its icon; the hub's name ends it
+watch([title, inbox.unread, identity.name], ([page, unread, name]) => {
+  document.title = tabTitle(page, unread, name);
   showFavicon(document, unread > 0);
 }, { immediate: true });
 
@@ -92,13 +98,13 @@ async function readAll(): Promise<void> {
   <div class="shell" :class="{ bare, compact, 'no-bar': compact && !topBar, collapsed: !compact && layout.collapsed }">
     <template v-if="!bare">
       <AppSidebar
-        v-if="!compact" class="side" :entries="entries" :user="session.user.value" :unread="inbox.unread.value" :collapsed="layout.collapsed"
+        v-if="!compact" class="side" :brand="identity.name.value" :entries="entries" :user="session.user.value" :unread="inbox.unread.value" :collapsed="layout.collapsed"
         @toggle="layout.toggleSidebar()" @inbox="openInbox" @settings="router.push(links.settings())" @sign-out="signOut"
       />
       <AppTopBar v-else-if="topBar" :title="title" :unread="inbox.unread.value" @menu="layout.drawerOpen.value = true" @inbox="openInbox" />
       <UiModal v-if="compact" v-model:open="layout.drawerOpen.value" placement="left" label="Navigation" width="300px">
         <AppSidebar
-          :entries="entries" :user="session.user.value" :unread="inbox.unread.value" :collapsible="false"
+          :brand="identity.name.value" :entries="entries" :user="session.user.value" :unread="inbox.unread.value" :collapsible="false"
           @inbox="openInbox" @settings="router.push(links.settings())" @sign-out="signOut" @navigate="layout.drawerOpen.value = false"
         />
       </UiModal>

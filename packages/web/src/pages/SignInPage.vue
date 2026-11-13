@@ -12,7 +12,10 @@ import { links, safeNext } from '../app/routes.ts';
 import { useStores } from '../state/stores.ts';
 import { UiBanner, UiButton, UiInput, UiSkeleton } from '../ui/index.ts';
 
-const form = useStores().signInForm();
+const { signInForm, identity } = useStores();
+const form = signInForm();
+const hubName = identity.name;
+const version = identity.version;
 const input = reactive({ email: form.remembered.email ?? '', password: '', name: '', remember: form.remembered.remember });
 const route = useRoute();
 const router = useRouter();
@@ -49,7 +52,7 @@ async function submit(): Promise<void> {
 <template>
   <div class="wrap">
     <div class="card">
-      <AppBrand class="brand" :size="36" />
+      <AppBrand class="brand" :name="hubName" :size="36" />
       <template v-if="form.loading.value">
         <UiSkeleton shape="lines" :lines="1" />
         <UiSkeleton shape="block" :size="40" />
@@ -59,7 +62,7 @@ async function submit(): Promise<void> {
       <form v-else class="form" method="post" action="" novalidate data-testid="sign-in-form" @submit.prevent="submit">
         <div class="titles">
           <h1 class="title">{{ form.needsAdmin ? 'Set up your hub' : 'Welcome back' }}</h1>
-          <p class="lead">{{ form.needsAdmin ? 'Make the admin account. You can add people later.' : `Sign in to ${form.setup.value?.name ?? 'your hub'}.` }}</p>
+          <p class="lead">{{ form.needsAdmin ? 'Make the admin account. You can add people later.' : `Sign in to ${hubName}.` }}</p>
         </div>
         <UiBanner v-if="form.problem.value !== ''" tone="danger" data-testid="sign-in-problem">{{ form.problem.value }}</UiBanner>
         <UiInput v-if="form.needsAdmin" v-model="input.name" label="Your name" name="name" autocomplete="name" required :error="form.fields.value.name ?? ''" autofocus />
@@ -75,7 +78,7 @@ async function submit(): Promise<void> {
         </label>
         <UiButton type="submit" variant="primary" size="lg" block :loading="form.busy.value">{{ form.needsAdmin ? 'Create account and sign in' : 'Sign in' }}</UiButton>
       </form>
-      <p v-if="form.setup.value" class="version">{{ form.setup.value.name }} · {{ form.setup.value.version }}</p>
+      <p v-if="version !== ''" class="version" data-testid="hub-version">{{ hubName }} · {{ version }}</p>
     </div>
   </div>
 </template>

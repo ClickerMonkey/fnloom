@@ -1,112 +1,98 @@
 /**
- * The notes system's implementation: every fn, method, kind, dynamic context, hook, mention, action and resource the
- * contract declares, built from injected dependencies (`NotesDeps`) so tests run it with an in-memory store and a fixed
- * clock. Its type is computed from the contract: leaving anything out, or adding anything undeclared, doesn't compile.
+ * The notes system's implementation: every fn, method, kind, dynamic context, hook, mention and action the contract
+ * declares. Notes are records of the stored type `Note`, kept and searched by the hub through `ctx.data`: the system
+ * keeps no file of notes and never loads them all; every read is a query with a page, and search runs in the hub's
+ * database. Its type is computed from the contract: leaving anything out, or adding anything undeclared, doesn't
+ * compile.
  */
-import type { ResourceStat, ResourceUri, UndoOutcome } from '@harness/core';
-import { encodeValue, parseValue, wireType, type HookContribution, type ResourceProvider, type SystemImpl } from '@harness/sdk';
-import { Note, StampArgs, notes, type BeforeValue, type NoteValue } from '../shared/index.ts';
+import { RecordId, type UndoOutcome } from '@harness/core';
+import { encodeValue, parseValue, wireType, type Data, type HookContribution, type StoredRecord, type SystemImpl } from '@harness/sdk';
+import { NoteEntry, StampArgs, notes, type BeforeValue, type NoteEntryValue, type NoteValue } from '../shared/index.ts';
 import type { NotesSettings } from './env.ts';
-import type { NoteStore, NotesConfig, OpenStore } from './index.ts';
+import type { NotesConfig } from './index.ts';
 
 // #region deps
 /** Everything the implementation is built from. */
 export interface NotesDeps {
   readonly settings: NotesSettings;
-  /** Opens an instance's store from its data folder. */
-  readonly open: OpenStore;
-  readonly now: () => Date;
-  /** A new note id. */
-  readonly newId: () => string;
 }
 // #endregion deps
+
+/** The stored type's ref, which every `ctx.data` call takes. */
+const Note = notes.types.Note;
 
 /** Tags as stored: trimmed, lowercase, each once. */
 export function cleanTags(tags: readonly string[]): string[] {
   return [...new Set(tags.map((tag) => tag.trim().toLowerCase()).filter((tag) => tag !== ''))];
 }
 
-/** Whether a note matches words (all of them, in its title or text) and a tag. */
-function matches(note: NoteValue, query: string | undefined, tag: string | undefined): boolean {
-  const haystack = `${note.title}\n${note.text}`.toLowerCase();
-  const words = (query ?? '').toLowerCase().split(/\s+/).filter((word) => word !== '');
-  return words.every((word) => haystack.includes(word)) && (tag === undefined || note.tags.includes(tag.toLowerCase()));
+/** A stored note as fns return it: the record's id and time with the note. */
+export function entryOf(record: StoredRecord<NoteValue>): NoteEntryValue {
+  return { id: record.id, ...record.value, updatedAt: new Date(record.updatedAt) };
 }
 
-/** A note as markdown, for resources and context. */
+/** A note as markdown, for context and mentions. */
 function markdownOf(note: NoteValue): string {
   return `# ${note.title}\n\n${note.text}\n\n${note.tags.map((tag) => `#${tag}`).join(' ')}`.trimEnd();
 }
 
-const ROOT: ResourceUri = 'notes://all/';
-const uriOf = (id: string): ResourceUri => `notes://all/${encodeURIComponent(id)}`;
-const idOf = (uri: ResourceUri): string | undefined => (uri.startsWith(ROOT) && uri.length > ROOT.length ? decodeURIComponent(uri.slice(ROOT.length)) : undefined);
-const statOf = (note: NoteValue): ResourceStat => ({
-  uri: uriOf(note.id), name: note.title, type: 'record', format: 'markdown', mime: 'text/markdown', modifiedAt: note.updatedAt.getTime(), version: String(note.updatedAt.getTime()),
-});
+/** A record id from a fn's text arg; `undefined` when it can't be one (the caller's mistake). */
+function recordId(text: string): RecordId | undefined {
+  const parsed = RecordId.safeParse(text);
+  return parsed.success ? parsed.data : undefined;
+}
+
+/** One note by its id, or `undefined` when there is none (or it isn't the asker's). */
+async function noteById(data: Data, id: string): Promise<StoredRecord<NoteValue> | undefined> {
+  const record = recordId(id);
+  return record === undefined ? undefined : await data.get(Note, record);
+}
+
+/** The filter for notes with a tag: the hub runs it in its database. */
+const tagFilter = (tag: string | undefined) => (tag === undefined ? [] : [{ field: 'tags', op: 'contains' as const, value: tag.toLowerCase() }]);
 
 /** Build the notes implementation. */
 export function createNotesImpl(deps: NotesDeps): SystemImpl<(typeof notes)['defs']> {
   const s = deps.settings;
-  // the store of the instance that started last, for the resource provider (which gets no context)
-  let current: NoteStore | undefined;
 
   // #region undo-helper
-  /** Put a note back as it was before a change: delete it if it didn't exist, else restore it. */
-  async function restore(store: NoteStore, before: BeforeValue): Promise<UndoOutcome> {
+  /** Put a note back as it was before a change: remove it if it didn't exist, else save it as it was. */
+  async function restore(data: Data, before: BeforeValue): Promise<UndoOutcome> {
+    const id = recordId(before.id);
     if (before.note === null) {
-      return (await store.delete(before.id)) ? { status: 'undone', summary: `Removed note ${before.id} again.` } : { status: 'gone' };
+      return id !== undefined && (await data.remove(Note, id)) ? { status: 'undone', summary: `Removed note ${before.id} again.` } : { status: 'gone' };
     }
-    await store.put(before.note);
+    // a note still there is saved over; a removed one comes back as a new record
+    const exists = id === undefined ? undefined : await data.get(Note, id);
+    await data.save(Note, before.note, exists === undefined ? {} : { id: exists.id });
     return { status: 'undone', summary: `Restored "${before.note.title}".` };
   }
   // #endregion undo-helper
 
-  /** A new note, or undefined when the store is full. */
-  async function create(store: NoteStore, config: NotesConfig, input: { title: string; text: string; tags: readonly string[] }): Promise<NoteValue | undefined> {
-    if ((await store.all()).length >= config.maxNotes) { return undefined; }
-    const note: NoteValue = { id: deps.newId(), title: input.title.trim(), text: input.text, tags: cleanTags([...config.defaultTags, ...input.tags]), pinned: false, updatedAt: deps.now() };
-    await store.put(note);
-    return note;
+  /** Save a new note with the config's default tags; `undefined` when one with that title exists already. */
+  async function create(data: Data, config: NotesConfig, input: { title: string; text: string; tags: readonly string[] }): Promise<NoteEntryValue | undefined> {
+    const title = input.title.trim();
+    // one query with a filter and a limit of one: never a load of every note to look
+    const same = await data.find(Note, { query: { filters: [{ field: 'title', op: 'is', value: title }], limit: 1 } });
+    if (same.items.length > 0) { return undefined; }
+    return entryOf(await data.save(Note, { title, text: input.text, tags: cleanTags([...config.defaultTags, ...input.tags]), pinned: false }));
   }
 
-  const full = (config: NotesConfig) => `There are already ${config.maxNotes} notes, the most this system keeps. Remove one first.`;
-
-  // #region impl-resources
-  const resources: ResourceProvider = {
-    roots: () => Promise.resolve([{ uri: ROOT, name: 'Notes', description: 'Every note, as markdown.', index: 'all', ignore: [], watch: false }]),
-    async list(uri) {
-      if (uri !== ROOT || current === undefined) { return { items: [] }; }
-      return { items: (await current.all()).map(statOf) };
-    },
-    async stat(uri) {
-      const id = idOf(uri);
-      const note = id === undefined ? undefined : await current?.get(id);
-      return note === undefined ? undefined : statOf(note);
-    },
-    async read(uri) {
-      const id = idOf(uri);
-      const note = id === undefined ? undefined : await current?.get(id);
-      if (note === undefined) { throw new Error(`There is no note at ${uri}.`); }
-      return { stat: statOf(note), text: { inline: markdownOf(note) } };
-    },
-  };
-  // #endregion impl-resources
+  const taken = (title: string) => `There is already a note titled "${title}". Pick another title, or change that note.`;
 
   return {
     fns: {
       // #region impl-add
       add: {
         async run(args, ctx) {
-          const store = deps.open(ctx.dataDir);
-          const note = await create(store, ctx.config, { title: args.title, text: args.text, tags: args.tags ?? [] });
+          const note = await create(ctx.data, ctx.config, { title: args.title, text: args.text, tags: args.tags ?? [] });
           // a real refusal, not a mistake in the args: `fail` with the `caller` class and a stable code
-          if (note === undefined) { return ctx.fail('caller', full(ctx.config), { code: 'full' }); }
+          if (note === undefined) { return ctx.fail('caller', taken(args.title), { code: 'taken' }); }
           ctx.attach(notes.attachments.note, note, `Added ${note.title}`);
           // the undo payload is typed by the contract's `undo` type
           return ctx.done(note, { undo: { id: note.id, note: null } });
         },
-        undo: (payload, ctx) => restore(deps.open(ctx.dataDir), payload),
+        undo: (payload, ctx) => restore(ctx.data, payload),
       },
       // #endregion impl-add
       // #region impl-find
@@ -118,72 +104,75 @@ export function createNotesImpl(deps: NotesDeps): SystemImpl<(typeof notes)['def
             // the caller's mistake: an agent gets the problem back and tries again
             return ctx.invalid([{ path: 'query', message: 'Give a query or a tag; there is no earlier search to repeat.' }]);
           }
-          const all = await deps.open(ctx.dataDir).all();
-          const found: NoteValue[] = [];
-          // about twenty updates whatever the size: each one travels to the hub and on to the chat
-          const every = Math.max(1, Math.floor(all.length / 20));
-          all.forEach((note, index) => {
-            if (matches(note, query, args.tag)) { found.push(note); }
-            if ((index + 1) % every === 0) { ctx.progress.set((index + 1) / all.length, `${found.length} found`); }
+          ctx.progress.set(0.1, 'Searching');
+          // the hub searches by words and meaning and filters by tag in its database; one page comes back
+          const limit = args.limit ?? s.NOTES_FIND_LIMIT;
+          const page = await ctx.data.find(Note, {
+            ...(query === undefined ? {} : { search: query }),
+            query: { filters: tagFilter(args.tag), limit },
           });
           if (query !== undefined) { await ctx.state.set({ lastQuery: query }); }
-          return ctx.done({ notes: found.slice(0, args.limit ?? s.NOTES_FIND_LIMIT), total: found.length });
+          return ctx.done({ notes: page.items.map(entryOf), more: page.cursor !== undefined });
         },
       },
       // #endregion impl-find
       // #region impl-remove
       remove: {
         async run(args, ctx) {
-          const store = deps.open(ctx.dataDir);
-          const note = await store.get(args.id);
+          const note = await noteById(ctx.data, args.id);
           if (note === undefined) { return ctx.invalid([{ path: 'id', message: `There is no note ${args.id}.` }]); }
           // the effective setting for the run's person, merged with their groups'
           const editing = await ctx.setting(notes.settings.editing);
           if (editing?.confirmRemove === true) {
             // `confirm` is optional, so the compiler makes the fn check it is there
             if (ctx.handlers.confirm === undefined) { return ctx.fail('caller', 'Removing a note asks first, and this caller cannot answer.', { code: 'denied' }); }
-            if (!(await ctx.handlers.confirm({ title: note.title }))) { return ctx.cancelled(); }
+            if (!(await ctx.handlers.confirm({ title: note.value.title }))) { return ctx.cancelled(); }
           }
-          await store.delete(note.id);
-          return ctx.done({ removed: true }, { undo: { id: note.id, note } });
+          await ctx.data.remove(Note, note.id);
+          return ctx.done({ removed: true }, { undo: { id: note.id, note: note.value } });
         },
-        undo: (payload, ctx) => restore(deps.open(ctx.dataDir), payload),
+        undo: (payload, ctx) => restore(ctx.data, payload),
       },
       // #endregion impl-remove
       // #region impl-tidy
       tidy: {
         async run(_args, ctx) {
-          const store = deps.open(ctx.dataDir);
-          // a resumed run starts where it paused
+          // a resumed run starts at the page it paused on
           let saved = ctx.resume?.state.saved ?? 0;
+          let cursor = ctx.resume?.state.cursor;
           // asked to pause: say where to resume from; the run settles as paused and `ctx.signal` aborts
-          ctx.onPause(() => ({ saved }));
+          ctx.onPause(() => ({ saved, ...(cursor === undefined ? {} : { cursor }) }));
           ctx.progress.step('scan', 'active');
-          const all = await store.all();
-          ctx.progress.step('scan', 'done', `${all.length} notes`);
-          ctx.progress.step('merge', 'active');
-          const changed = all.flatMap((note) => {
-            const tags = cleanTags(note.tags);
-            return tags.join('\n') === note.tags.join('\n') ? [] : [{ ...note, tags, updatedAt: deps.now() }];
-          });
-          ctx.progress.step('merge', 'done', `${changed.length} to change`);
-          ctx.progress.step('save', 'active');
-          for (const note of changed.slice(saved)) {
-            if (ctx.signal.aborted) { return ctx.cancelled({ partial: { merged: saved } }); }
-            await store.put(note);
-            saved += 1;
-          }
-          ctx.progress.step('save', 'done');
-          return ctx.done({ merged: changed.length });
+          let merged = 0;
+          // a page at a time, in a stable order: every note is seen once and never all held at once
+          do {
+            const page = await ctx.data.find(Note, { query: { sort: [{ field: 'title', dir: 'asc' }], limit: s.NOTES_TIDY_PAGE, ...(cursor === undefined ? {} : { cursor }) } });
+            ctx.progress.step('merge', 'active');
+            for (const note of page.items) {
+              if (ctx.signal.aborted) { return ctx.cancelled({ partial: { merged } }); }
+              const tags = cleanTags(note.value.tags);
+              if (tags.join('\n') === note.value.tags.join('\n')) { continue; }
+              ctx.progress.step('save', 'active');
+              // `expect`: if someone changed the note meanwhile, the save fails instead of losing their change
+              await ctx.data.save(Note, { ...note.value, tags }, { id: note.id, expect: note.version });
+              merged += 1;
+              saved += 1;
+            }
+            cursor = page.cursor;
+          } while (cursor !== undefined);
+          ctx.progress.step('scan', 'done');
+          ctx.progress.step('merge', 'done', `${merged} changed`);
+          ctx.progress.step('save', 'done', `${saved} saved`);
+          return ctx.done({ merged });
         },
       },
       // #endregion impl-tidy
       // #region impl-review
       review: {
         async run(args, ctx) {
-          const note = await deps.open(ctx.dataDir).get(args.id);
+          const note = await noteById(ctx.data, args.id);
           if (note === undefined) { return ctx.invalid([{ path: 'id', message: `There is no note ${args.id}.` }]); }
-          ctx.attach(notes.attachments.note, note, note.title);
+          ctx.attach(notes.attachments.note, entryOf(note), note.value.title);
           // waits for the renderer's submit; the hub keeps it if the system is offline meanwhile
           return ctx.done(await ctx.form());
         },
@@ -205,13 +194,12 @@ export function createNotesImpl(deps: NotesDeps): SystemImpl<(typeof notes)['def
     },
     // #region impl-method
     types: {
-      Note: {
+      NoteEntry: {
         pin: {
           async run(self, args, ctx) {
-            const store = deps.open(ctx.dataDir);
-            const note = await store.get(self.id);
+            const note = await noteById(ctx.data, self.id);
             if (note === undefined) { return ctx.invalid([{ path: 'self', message: `Note ${self.id} no longer exists.` }]); }
-            await store.put({ ...note, pinned: args.pinned, updatedAt: deps.now() });
+            await ctx.data.save(Note, { ...note.value, pinned: args.pinned }, { id: note.id });
             return ctx.done(args.pinned);
           },
         },
@@ -226,36 +214,39 @@ export function createNotesImpl(deps: NotesDeps): SystemImpl<(typeof notes)['def
         // everything else about a stamp fn, worked out from its payload
         describe: () => Promise.resolve({
           args: wireType(StampArgs),
-          returns: wireType(Note.shape),
+          returns: wireType(NoteEntry.shape),
           deps: [],
           operations: { cancel: true, pause: false, undo: false, background: true },
         }),
         async run(payload, args, ctx) {
           // a kind's args arrive as JSON the hub checked against `describe`; read them with the same gin type
           const input = parseValue(StampArgs, args);
-          const note = await create(deps.open(ctx.dataDir), ctx.config, { title: payload.title, text: input.text, tags: payload.tags });
-          if (note === undefined) { return ctx.fail('caller', full(ctx.config), { code: 'full' }); }
-          return ctx.done(encodeValue(Note.shape, note));
+          // titles are unique, so a stamp's note is titled by the stamp and the start of its text
+          const title = `${payload.title}: ${input.text.slice(0, 40)}`;
+          const note = await create(ctx.data, ctx.config, { title, text: input.text, tags: payload.tags });
+          if (note === undefined) { return ctx.fail('caller', taken(title), { code: 'taken' }); }
+          return ctx.done(encodeValue(NoteEntry.shape, note));
         },
       },
     },
     // #endregion impl-kind
     // #region impl-context
     context: {
+      // the newest few, by query (newest change first), never all of them
       recent: async (args, ctx) => {
-        const all = await deps.open(ctx.dataDir).all();
-        const shown = all.filter((note) => args.tag === undefined || note.tags.includes(args.tag.toLowerCase())).slice(0, s.NOTES_FIND_LIMIT);
-        if (shown.length === 0) { return args.tag === undefined ? 'There are no notes yet.' : `No note has the tag "${args.tag}".`; }
-        return shown.map(markdownOf).join('\n\n---\n\n');
+        const page = await ctx.data.find(Note, { query: { filters: tagFilter(args.tag), limit: s.NOTES_FIND_LIMIT } });
+        if (page.items.length === 0) { return args.tag === undefined ? 'There are no notes yet.' : `No note has the tag "${args.tag}".`; }
+        return page.items.map((note) => markdownOf(note.value)).join('\n\n---\n\n');
       },
     },
     // #endregion impl-context
     // #region impl-hook
     hooks: {
       pinned: async (input, ctx) => {
-        const pinned = (await deps.open(ctx.dataDir).all()).filter((note) => note.pinned).slice(0, s.NOTES_HOOK_TITLES);
+        // the pinned ones only, filtered by the hub, a few at most
+        const pinned = await ctx.data.find(Note, { query: { filters: [{ field: 'pinned', op: 'is', value: true }], limit: s.NOTES_HOOK_TITLES } });
         const blocks: HookContribution[] = [];
-        if (pinned.length > 0) { blocks.push({ type: 'text', tag: 'pinned-notes', text: `Pinned notes: ${pinned.map((note) => `"${note.title}"`).join(', ')}.` }); }
+        if (pinned.items.length > 0) { blocks.push({ type: 'text', tag: 'pinned-notes', text: `Pinned notes: ${pinned.items.map((note) => `"${note.value.title}"`).join(', ')}.` }); }
         if (/\bnotes?\b/i.test(input.text)) { blocks.push({ type: 'suggest-context', items: [{ context: notes.context.guide, why: 'The message is about notes.' }] }); }
         return blocks;
       },
@@ -265,21 +256,20 @@ export function createNotesImpl(deps: NotesDeps): SystemImpl<(typeof notes)['def
     mentions: {
       notes: {
         async search(query, ctx) {
-          return (await deps.open(ctx.dataDir).all())
-            .filter((note) => matches(note, query, undefined))
-            .slice(0, 20)
-            .map((note) => ({ label: note.title, hint: note.tags.join(', '), icon: 'note', target: { id: note.id } }));
+          // the hub's search: by words and meaning, best first, one small page
+          const page = await ctx.data.find(Note, { search: query, query: { limit: 20 } });
+          return page.items.map((note) => ({ label: note.value.title, hint: note.value.tags.join(', '), icon: 'note', target: { id: note.id } }));
         },
         async hover(target, ctx) {
-          const note = await deps.open(ctx.dataDir).get(target.id);
+          const note = await noteById(ctx.data, target.id);
           if (note === undefined) { return undefined; }
-          // returning the value as a Note lets the card offer Note's `pin` method
-          return { title: note.title, subtitle: note.tags.join(', '), body: note.text.slice(0, 280), open: { resource: uriOf(note.id) }, value: note };
+          // returning the value as a NoteEntry lets the card offer its `pin` method
+          return { title: note.value.title, subtitle: note.value.tags.join(', '), body: note.value.text.slice(0, 280), value: entryOf(note) };
         },
         async llm(target, ctx) {
-          const note = await deps.open(ctx.dataDir).get(target.id);
+          const note = await noteById(ctx.data, target.id);
           if (note === undefined) { return `Note ${target.id} no longer exists.`; }
-          return `Note "${note.title}" (id ${note.id}) in the notes system:\n\n${markdownOf(note)}`;
+          return `Note "${note.value.title}" (id ${note.id}) in the notes system:\n\n${markdownOf(note.value)}`;
         },
       },
     },
@@ -287,23 +277,21 @@ export function createNotesImpl(deps: NotesDeps): SystemImpl<(typeof notes)['def
     // #region impl-action
     actions: {
       pin: async (input, ctx) => {
-        const store = deps.open(ctx.dataDir);
-        const note = await store.get(input.id);
+        const note = await noteById(ctx.data, input.id);
         if (note === undefined) { return false; }
-        await store.put({ ...note, pinned: input.pinned, updatedAt: deps.now() });
+        await ctx.data.save(Note, { ...note.value, pinned: input.pinned }, { id: note.id });
         return true;
       },
     },
     // #endregion impl-action
-    resources,
     // #region impl-lifecycle
     lifecycle: {
-      started: async (ctx) => {
-        current = deps.open(ctx.dataDir);
-        ctx.log.info('notes.started', { notes: (await current.all()).length, instance: ctx.instance });
+      started: (ctx) => {
+        ctx.log.info('notes.started', { instance: ctx.instance });
+        return Promise.resolve();
       },
       configured: (ctx) => {
-        ctx.log.info('notes.configured', { maxNotes: ctx.config.maxNotes, before: ctx.previous?.maxNotes ?? null });
+        ctx.log.info('notes.configured', { defaultTags: ctx.config.defaultTags.length, before: ctx.previous?.defaultTags.length ?? null });
         return Promise.resolve();
       },
     },

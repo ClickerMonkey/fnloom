@@ -11,8 +11,9 @@ import {
 } from '@harness/core';
 import type { HubStore } from '../store/index.ts';
 import type { Authenticator, PasswordHasher } from './index.ts';
-import { first, PAGE } from './paging.ts';
+import { firstRow } from '../store/rows.ts';
 import { sha256Hex } from '../link/keys.ts';
+import type { HubIdentityService } from '../boot/identity.ts';
 
 /** Who access tokens come from and are for; the bearer middleware checks both. */
 export const ACCESS_TOKEN = { issuer: 'harness-hub', audience: 'web' } as const;
@@ -26,7 +27,8 @@ export interface AuthOptions {
   readonly accessTtl: number;
   /** A session not refreshed for this long ends. */
   readonly refreshTtl: number;
-  readonly hub: { readonly name: string; readonly version: string };
+  /** The hub's display name and version, for the sign-in and setup page. */
+  readonly identity: Pick<HubIdentityService, 'identity'>;
   readonly clock: () => number;
   readonly random?: IdRandom;
 }
@@ -39,8 +41,8 @@ export const normalEmail = (email: string): string => email.trim().toLowerCase()
 /** The user with this email (in any case), or undefined. */
 export function findUserByEmail(store: HubStore, email: string): Promise<UserActor | undefined> {
   const wanted = normalEmail(email);
-  return first(
-    (cursor) => store.table('actors').find({ where: { kind: 'user' }, limit: PAGE, cursor }),
+  return firstRow(
+    store.table('actors'), { where: { kind: 'user' } },
     (actor): actor is UserActor => actor.kind === 'user' && normalEmail(actor.email) === wanted,
   );
 }
@@ -56,7 +58,8 @@ export class AdminAuthenticator implements Authenticator {
   }
 
   async setup(): Promise<SetupState> {
-    return { needsAdmin: !(await this.#hasUsers()), name: this.#o.hub.name, version: this.#o.hub.version };
+    const { name, version } = await this.#o.identity.identity();
+    return { needsAdmin: !(await this.#hasUsers()), name, version };
   }
 
   async createAdmin(input: { email: string; name: string; password: string; device: string }): Promise<Tokens | undefined> {

@@ -15,7 +15,7 @@ choices:
     when: "Pick this to go on in order: Hooks."
 ---
 
-## 12. Context and commands
+## 13. Context and commands
 
 **Context** is text for the LLM: a guide, a skill, a reference, the state of something. The hub suggests it when a
 message is about it, an agent can always have it (`alwaysFor`, `agent({ context })`), and a person loads it with a
@@ -62,11 +62,11 @@ _From `scripts/docs/example/server/impl.ts`:_
 
 ```ts
 context: {
+  // the newest few, by query (newest change first), never all of them
   recent: async (args, ctx) => {
-    const all = await deps.open(ctx.dataDir).all();
-    const shown = all.filter((note) => args.tag === undefined || note.tags.includes(args.tag.toLowerCase())).slice(0, s.NOTES_FIND_LIMIT);
-    if (shown.length === 0) { return args.tag === undefined ? 'There are no notes yet.' : `No note has the tag "${args.tag}".`; }
-    return shown.map(markdownOf).join('\n\n---\n\n');
+    const page = await ctx.data.find(Note, { query: { filters: tagFilter(args.tag), limit: s.NOTES_FIND_LIMIT } });
+    if (page.items.length === 0) { return args.tag === undefined ? 'There are no notes yet.' : `No note has the tag "${args.tag}".`; }
+    return page.items.map((note) => markdownOf(note.value)).join('\n\n---\n\n');
   },
 },
 ```

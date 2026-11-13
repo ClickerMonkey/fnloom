@@ -15,7 +15,7 @@ choices:
     when: "Pick this to go on in order: Kinds and agents."
 ---
 
-## 9. Outcomes: done, invalid input, failed, paused, cancelled, undo
+## 10. Outcomes: done, invalid input, failed, paused, cancelled, undo
 
 Every run ends in an **outcome**, built with the ctx helpers, which are typed to the fn (its result, undo and resume
 types). Return exactly one; never throw to report something the caller should hear.
@@ -51,12 +51,15 @@ after a restart, with only the payload and an `UndoCtx`.
 _From `scripts/docs/example/server/impl.ts`:_
 
 ```ts
-/** Put a note back as it was before a change: delete it if it didn't exist, else restore it. */
-async function restore(store: NoteStore, before: BeforeValue): Promise<UndoOutcome> {
+/** Put a note back as it was before a change: remove it if it didn't exist, else save it as it was. */
+async function restore(data: Data, before: BeforeValue): Promise<UndoOutcome> {
+  const id = recordId(before.id);
   if (before.note === null) {
-    return (await store.delete(before.id)) ? { status: 'undone', summary: `Removed note ${before.id} again.` } : { status: 'gone' };
+    return id !== undefined && (await data.remove(Note, id)) ? { status: 'undone', summary: `Removed note ${before.id} again.` } : { status: 'gone' };
   }
-  await store.put(before.note);
+  // a note still there is saved over; a removed one comes back as a new record
+  const exists = id === undefined ? undefined : await data.get(Note, id);
+  await data.save(Note, before.note, exists === undefined ? {} : { id: exists.id });
   return { status: 'undone', summary: `Restored "${before.note.title}".` };
 }
 ```
@@ -74,28 +77,33 @@ _From `scripts/docs/example/server/impl.ts`:_
 ```ts
 tidy: {
   async run(_args, ctx) {
-    const store = deps.open(ctx.dataDir);
-    // a resumed run starts where it paused
+    // a resumed run starts at the page it paused on
     let saved = ctx.resume?.state.saved ?? 0;
+    let cursor = ctx.resume?.state.cursor;
     // asked to pause: say where to resume from; the run settles as paused and `ctx.signal` aborts
-    ctx.onPause(() => ({ saved }));
+    ctx.onPause(() => ({ saved, ...(cursor === undefined ? {} : { cursor }) }));
     ctx.progress.step('scan', 'active');
-    const all = await store.all();
-    ctx.progress.step('scan', 'done', `${all.length} notes`);
-    ctx.progress.step('merge', 'active');
-    const changed = all.flatMap((note) => {
-      const tags = cleanTags(note.tags);
-      return tags.join('\n') === note.tags.join('\n') ? [] : [{ ...note, tags, updatedAt: deps.now() }];
-    });
-    ctx.progress.step('merge', 'done', `${changed.length} to change`);
-    ctx.progress.step('save', 'active');
-    for (const note of changed.slice(saved)) {
-      if (ctx.signal.aborted) { return ctx.cancelled({ partial: { merged: saved } }); }
-      await store.put(note);
-      saved += 1;
-    }
-    ctx.progress.step('save', 'done');
-    return ctx.done({ merged: changed.length });
+    let merged = 0;
+    // a page at a time, in a stable order: every note is seen once and never all held at once
+    do {
+      const page = await ctx.data.find(Note, { query: { sort: [{ field: 'title', dir: 'asc' }], limit: s.NOTES_TIDY_PAGE, ...(cursor === undefined ? {} : { cursor }) } });
+      ctx.progress.step('merge', 'active');
+      for (const note of page.items) {
+        if (ctx.signal.aborted) { return ctx.cancelled({ partial: { merged } }); }
+        const tags = cleanTags(note.value.tags);
+        if (tags.join('\n') === note.value.tags.join('\n')) { continue; }
+        ctx.progress.step('save', 'active');
+        // `expect`: if someone changed the note meanwhile, the save fails instead of losing their change
+        await ctx.data.save(Note, { ...note.value, tags }, { id: note.id, expect: note.version });
+        merged += 1;
+        saved += 1;
+      }
+      cursor = page.cursor;
+    } while (cursor !== undefined);
+    ctx.progress.step('scan', 'done');
+    ctx.progress.step('merge', 'done', `${merged} changed`);
+    ctx.progress.step('save', 'done', `${saved} saved`);
+    return ctx.done({ merged });
   },
 },
 ```

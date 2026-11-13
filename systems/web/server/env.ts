@@ -57,8 +57,6 @@ export const webEnv = env({
   WEB_CRAWL_CACHE_TTL: z.number().int().min(1_000).default(120_000),
   /** The robots.txt user-agent token crawls are matched by (groups for `*` apply too). */
   WEB_ROBOTS_AGENT: z.string().min(1).default('harness-web'),
-  /** Recently read pages the `@` mention offers. */
-  WEB_RECENT_PAGES: z.number().int().min(0).default(50),
 }).add(systemState('web'));
 
 /** The web system's settings, resolved. */

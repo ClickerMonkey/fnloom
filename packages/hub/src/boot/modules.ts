@@ -30,6 +30,9 @@ import { registerAdminFns } from './admin-fns.ts';
 import { registerReadFns } from './read-fns.ts';
 import { registerHubFns } from './hub-fns.ts';
 import { HUB_INFO } from './info.ts';
+import { migrateOldVersions } from '../catalog/versions.ts';
+import { withHubGroups } from './hub-groups.ts';
+import { mentionSearchPlugin } from '../chat/mention-search.ts';
 import type { HubModules, HubServices, ModuleContext, ModuleFactory } from './index.ts';
 import { contextorModule } from '../contextor/create.ts';
 import { registerContextorFns } from '../contextor/fns.ts';
@@ -39,6 +42,10 @@ import { modelsModule } from '../models/create.ts';
 import { resourcesModule } from '../resources/create.ts';
 import { registerResourceFns } from '../resources/fns.ts';
 import { accessModule } from '../access/create.ts';
+import { dataModule } from '../data/create.ts';
+import { registerDataFns } from '../data/fns.ts';
+import { registerWidgetFns, widgetServiceOf } from '../widgets/fns.ts';
+import type { WidgetService } from '../widgets/service.ts';
 import { connectionsModule } from '../connections/create.ts';
 import { fnsModule } from '../fns/create.ts';
 
@@ -54,7 +61,8 @@ export interface ModuleSeams {
 
 /** Import the hub's own contract, so its agent and fns resolve like any system's. Refused entries fail the start. */
 async function importHubContract(catalog: Catalog, log: Logger): Promise<void> {
-  const report = await catalog.importManifest(await manifestOf(hub, { version: HUB_INFO.version }));
+  // its fns in their API groups, so the catalog writes the hub's API index like any system's
+  const report = await catalog.importManifest(withHubGroups(await manifestOf(hub, { version: HUB_INFO.version })));
   if (report.refused.length > 0) {
     throw new Error(`the hub's own contract was refused: ${report.refused.map((r) => `${r.name}: ${r.problems.join('; ')}`).join(' | ')}`);
   }
@@ -87,7 +95,13 @@ function systemsModules(seams: ModuleSeams): Pick<HubModules, 'catalog' | 'link'
     catalog: (context) => {
       const { catalog } = systemsOf(context);
       // the hub's own contract (its chat agent, its fns, mentions and types) is in the catalog like any system's
-      return { services: catalog, hooks: { work: { up: () => importHubContract(catalog, context.hub.log) } } };
+      // build 5's fn versions and build 7's type versions move into the one history table before anything imports
+      const up = async (): Promise<void> => {
+        await migrateOldVersions(context.hub.store, context.hub.log);
+        await catalog.indexStoredFns();
+        await importHubContract(catalog, context.hub.log);
+      };
+      return { services: catalog, hooks: { work: { up } } };
     },
     link: (context) => {
       const { hub } = context;
@@ -138,7 +152,9 @@ const chatModule: ModuleFactory<'chat'> = ({ hub, hubActor }) => {
         if ((await hub.store.table('runs').get(data.run))?.system !== link.system) { throw reject(403, 'NOT_YOUR_RUN', `run ${data.run} is not ${link.system}'s`); }
         return chat.suggestions.forSystem(data);
       },
-    }))],
+    })), mentionSearchPlugin({
+      requests: () => chat.mentionRequests, store: () => hub.store, search: () => hub.index.search, catalog: () => hub.catalog, access: (actor) => hub.access.scope(actor),
+    })],
   };
 };
 
@@ -167,6 +183,9 @@ export function registerHubContract(module: { readonly hubFns: ExecutionModule['
   registerPersonFns(module.hubFns, {
     person: () => (person ??= personOperations(hub)), explore: () => (explore ??= exploreOperations(hub)), adminReads: () => (adminReads ??= adminReadOperations(hub)),
   });
+  registerDataFns(module.hubFns, { data: () => hub.data, access: (actor) => hub.access.scope(actor) });
+  let widgets: WidgetService | undefined;
+  registerWidgetFns(module.hubFns, () => (widgets ??= widgetServiceOf(hub)));
   registerMcpFns(module.hubFns, { tokens: () => hub.mcp.tokens, settings: hub.settings.mcpEnv });
   registerResourceFns(module.hubFns, { resources: () => hub.resources, store: () => hub.store, llm: () => hub.execution.llm, mcpScope, access: (actor) => hub.access.scope(actor) });
   registerContextorFns(module.hubFns, {
@@ -188,6 +207,7 @@ export function hubModules(seams: ModuleSeams = {}): HubModules {
     ...BUILD_2_MODULES,
     ...BUILD_4_MODULES,
     ...BUILD_5_MODULES,
+    ...BUILD_8_MODULES,
   };
 }
 
@@ -205,6 +225,11 @@ export const BUILD_4_MODULES = {
   access: accessModule,
   connections: connectionsModule,
 } as const satisfies Pick<HubModules, 'access' | 'connections'>;
+
+/** Build 8's modules: the data system. */
+export const BUILD_8_MODULES = {
+  data: dataModule,
+} as const satisfies Pick<HubModules, 'data'>;
 
 /** Build 5's modules: fns search, examples, facts, the chat fn mode, browser logs. */
 export const BUILD_5_MODULES = {

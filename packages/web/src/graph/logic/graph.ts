@@ -248,14 +248,23 @@ export interface EdgeElement {
   readonly classes: string;
 }
 
-/** The short name drawn on a node: the part after its system (the cluster names the system). */
+/** The short name drawn on a node: the part after its system (the cluster names the system), for a context part after its root item. */
 export function shortName(node: GraphNode): string {
   if (node.kind === 'system' || node.system === undefined || node.external) { return node.name; }
   for (const sep of ['/', '.', ':']) {
     const prefix = `${node.system}${sep}`;
-    if (node.name.startsWith(prefix)) { return node.name.slice(prefix.length); }
+    if (node.name.startsWith(prefix)) { return node.kind === 'context' ? partName(node.name.slice(prefix.length)) : node.name.slice(prefix.length); }
   }
   return node.name;
+}
+
+/**
+ * A context part's name without its root item's, which every part of a guide repeats (`authoring.topics.begin` is
+ * `topics.begin`), so a big guide's labels fit beside each other; hovering shows the whole name.
+ */
+function partName(local: string): string {
+  const at = local.indexOf('.');
+  return at < 0 || at === local.length - 1 ? local : local.slice(at + 1);
 }
 
 /**

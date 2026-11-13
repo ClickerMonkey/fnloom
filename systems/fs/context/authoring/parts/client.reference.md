@@ -56,7 +56,7 @@ interface ClientRenderers<C extends ContractShape> {
 }
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `ClientModule`
 
@@ -104,7 +104,7 @@ interface FnView<T extends FnTypes> {
 }
 ```
 
-Refers to: [`FnError`](context:fs/authoring.core-types#core-fnerror), [`RunId`](context:fs/authoring.core-types#core-runid), [`RunStatus`](context:fs/authoring.core-types#core-runstatus).
+Refers to: [`FnError`](context:fs/authoring.core-types.run-ts#core-fnerror), [`RunId`](context:fs/authoring.core-types.primitives-ts#core-runid), [`RunStatus`](context:fs/authoring.core-types.run-ts#core-runstatus).
 
 #### `FnViewOf`
 
@@ -185,7 +185,7 @@ interface MentionView<T> {
 }
 ```
 
-Refers to: [`MentionHover`](context:fs/authoring.core-types#core-mentionhover), [`TypeDisplay`](context:fs/authoring.core-types#core-typedisplay).
+Refers to: [`MentionHover`](context:fs/authoring.core-types.manifestpatch#core-mentionhover), [`TypeDisplay`](context:fs/authoring.core-types.manifestpatch#core-typedisplay).
 
 #### `ResourceView`
 
@@ -205,7 +205,7 @@ interface ResourceView {
 }
 ```
 
-Refers to: [`FormKind`](context:fs/authoring.core-types#core-formkind), [`ResourceStat`](context:fs/authoring.core-types#core-resourcestat), [`SectionKey`](context:fs/authoring.core-types#core-sectionkey).
+Refers to: [`FormKind`](context:fs/authoring.core-types.resources-ts#core-formkind), [`ResourceStat`](context:fs/authoring.core-types.resources-ts#core-resourcestat), [`SectionKey`](context:fs/authoring.core-types.resources-ts#core-sectionkey).
 
 #### `SystemClient`
 
@@ -228,7 +228,7 @@ interface SystemClient<C extends ContractShape> {
 }
 ```
 
-Refers to: [`RunId`](context:fs/authoring.core-types#core-runid).
+Refers to: [`RunId`](context:fs/authoring.core-types.primitives-ts#core-runid).
 
 #### `WithSystem`
 
@@ -258,7 +258,7 @@ interface Delivery<R> {
 }
 ```
 
-Refers to: [`DeliveryId`](context:fs/authoring.core-types#core-deliveryid), [`DeliveryStatus`](context:fs/authoring.core-types#core-deliverystatus).
+Refers to: [`DeliveryId`](context:fs/authoring.core-types.primitives-ts#core-deliveryid), [`DeliveryStatus`](context:fs/authoring.core-types.records-runs-ts#core-deliverystatus).
 
 #### `ResourceViewerEntry`
 
@@ -332,7 +332,7 @@ interface ResourceViewerProps {
 }
 ```
 
-Refers to: [`ResourceUri`](context:fs/authoring.core-types#core-resourceuri), [`SectionKey`](context:fs/authoring.core-types#core-sectionkey).
+Refers to: [`ResourceUri`](context:fs/authoring.core-types.resources-ts#core-resourceuri), [`SectionKey`](context:fs/authoring.core-types.resources-ts#core-sectionkey).
 
 #### `INPUT_ANSWERS`
 
@@ -365,7 +365,7 @@ Whether the hub has more than one person (a reactive getter), so a renderer offe
 const ACCESS_INFO: InjectionKey<Readonly<AccessInfo>>;
 ```
 
-Refers to: [`AccessInfo`](context:fs/authoring.core-types#core-accessinfo).
+Refers to: [`AccessInfo`](context:fs/authoring.core-types.access-ts#core-accessinfo).
 
 #### `SHARE_EDITOR`
 
@@ -392,7 +392,7 @@ interface ShareEditorProps {
 }
 ```
 
-Refers to: [`ShareRule`](context:fs/authoring.core-types#core-sharerule).
+Refers to: [`ShareRule`](context:fs/authoring.core-types.access-ts#core-sharerule).
 
 #### `InputAnswer`
 
@@ -404,7 +404,7 @@ A form's answer as it was sent: the run's `input-answer` part, without its type 
 type InputAnswer = Omit<Extract<MessagePart, { type: 'input-answer' }>, 'type'>;
 ```
 
-Refers to: [`MessagePart`](context:fs/authoring.core-types#core-messagepart).
+Refers to: [`MessagePart`](context:fs/authoring.core-types.records-chat-ts#core-messagepart).
 
 #### `InputAnswers`
 
@@ -421,7 +421,7 @@ interface InputAnswers {
 }
 ```
 
-Refers to: [`RunId`](context:fs/authoring.core-types#core-runid).
+Refers to: [`RunId`](context:fs/authoring.core-types.primitives-ts#core-runid).
 
 #### `ValueEditorProps`
 
@@ -438,7 +438,7 @@ interface ValueEditorProps {
 }
 ```
 
-Refers to: [`Json`](context:fs/authoring.core-types#core-json).
+Refers to: [`Json`](context:fs/authoring.core-types.primitives-ts#core-json).
 
 #### `buildClient`
 
@@ -537,7 +537,7 @@ interface WireViews {
 }
 ```
 
-Refers to: [`Json`](context:fs/authoring.core-types#core-json), [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`Json`](context:fs/authoring.core-types.primitives-ts#core-json), [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `Mount`
 
@@ -566,13 +566,13 @@ interface InputMount extends Mount<'input'> {
 }
 ```
 
-Refers to: [`Json`](context:fs/authoring.core-types#core-json).
+Refers to: [`Json`](context:fs/authoring.core-types.primitives-ts#core-json).
 
 #### `VisualView`
 
 interface · `import { VisualView } from '@harness/sdk'`
 
-The props of a visual (an entry of a registry such as `database/query-visuals`): the rows to draw.
+The props of a visual (an entry of a registry such as the hub's `hub/visuals`): the rows to draw.
 
 ```ts
 interface VisualView {
@@ -580,7 +580,7 @@ interface VisualView {
 }
 ```
 
-Refers to: [`ResultTable`](context:fs/authoring.core-types#core-resulttable).
+Refers to: [`ResultTable`](context:fs/authoring.core-types.registries-ts#core-resulttable).
 
 #### `VisualEntry`
 
@@ -588,16 +588,17 @@ interface · `import { VisualEntry } from '@harness/sdk'`
 
 One visual a system adds to a registry: whether a result fits it and how much of it it shows well (`VisualFit`,
 score 0 to 1; the table scores 0), and the component that draws it. Keep `match` cheap and pure: it runs for
-every result the person sees.
+every result the person sees. Without `match`, the contribution's declared shape (`visual({ shape })`) judges the fit
+(`declaredFit`) with `DECLARED_FIT_SCORE`; a visual needs one or the other.
 
 ```ts
 interface VisualEntry<C extends ContractShape> {
-  match(table: ResultTable): VisualFit;
+  match?(table: ResultTable): VisualFit;
   component: Renderer<VisualView & WithSystem<C>>;
 }
 ```
 
-Refers to: [`ResultTable`](context:fs/authoring.core-types#core-resulttable), [`VisualFit`](context:fs/authoring.core-types#core-visualfit).
+Refers to: [`ResultTable`](context:fs/authoring.core-types.registries-ts#core-resulttable), [`VisualFit`](context:fs/authoring.core-types.registries-ts#core-visualfit).
 
 #### `VisualOption`
 
@@ -613,13 +614,15 @@ interface VisualOption {
   readonly label: string;
   /** An icon name from the web app's icon set, when the contribution names one. */
   readonly icon?: string;
+  /** The data it draws, when the contribution declares it (its channels, for a widget's bindings). */
+  readonly shape?: VisualShape;
   readonly fit: VisualFit;
   readonly component: Component;
   readonly props: VisualView & WithSystem<ContractShape>;
 }
 ```
 
-Refers to: [`VisualFit`](context:fs/authoring.core-types#core-visualfit).
+Refers to: [`VisualFit`](context:fs/authoring.core-types.registries-ts#core-visualfit), [`VisualShape`](context:fs/authoring.core-types.registries-ts#core-visualshape).
 
 #### `VisualSource`
 
@@ -633,7 +636,7 @@ interface VisualSource {
 }
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname), [`ResultTable`](context:fs/authoring.core-types#core-resulttable).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname), [`ResultTable`](context:fs/authoring.core-types.registries-ts#core-resulttable).
 
 #### `VISUALS`
 

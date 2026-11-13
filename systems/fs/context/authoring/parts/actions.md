@@ -15,7 +15,7 @@ choices:
     when: "Pick this to go on in order: Model providers."
 ---
 
-## 15. Actions
+## 16. Actions
 
 An **action** is a typed message the system's renderers send it ("pin", "approve", "load more"). Declare it with
 `action({ description, input, returns?, state?, expires? })`: without `returns` it returns nothing, `state` declares
@@ -41,10 +41,9 @@ _From `scripts/docs/example/server/impl.ts`:_
 ```ts
 actions: {
   pin: async (input, ctx) => {
-    const store = deps.open(ctx.dataDir);
-    const note = await store.get(input.id);
+    const note = await noteById(ctx.data, input.id);
     if (note === undefined) { return false; }
-    await store.put({ ...note, pinned: input.pinned, updatedAt: deps.now() });
+    await ctx.data.save(Note, { ...note.value, pinned: input.pinned }, { id: note.id });
     return true;
   },
 },

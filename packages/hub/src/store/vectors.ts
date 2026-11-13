@@ -17,6 +17,8 @@ import { StoreError } from './errors.ts';
 import { WITHIN_CHUNK, type IndexedItem, type VectorIndex } from './index.ts';
 
 const Nearest = z.object({ kind: IndexedKind, key: z.string(), distance: z.number() });
+/** An id the table has. */
+const Present = z.object({ id: z.string() });
 
 /** The `vec0` table of an embedder: readable, and unique even when two names slug the same. */
 export function vectorTable(embedder: string): string {
@@ -138,7 +140,10 @@ export class SqliteVectorIndex implements VectorIndex {
     const k = Math.floor(limit);
     if (k < 1 || kinds?.length === 0 || within?.length === 0) return [];
     const byKind = kinds === undefined ? sql`` : sql`and kind in (${sql.join([...kinds])})`;
-    const search = async (ids: readonly string[] | undefined) => {
+    const search = async (given: readonly string[] | undefined) => {
+      // sqlite-vec finds nothing at all when the id list names an item with no vector, so keep to the ones that have one
+      const ids = given === undefined ? undefined : await this.#present(table, given);
+      if (ids?.length === 0) return [];
       const byId = ids === undefined ? sql`` : sql`and id in (${sql.join([...ids])})`;
       const result = await sql`
         select kind, key, distance from ${sql.table(table)}
@@ -151,6 +156,12 @@ export class SqliteVectorIndex implements VectorIndex {
       ? await search(undefined)
       : (await Promise.all(chunks(within.map((item) => compositeKey(item.kind, item.key)), WITHIN_CHUNK).map(search))).flat().sort((a, b) => a.distance - b.distance).slice(0, k);
     return found.map((hit) => ({ kind: hit.kind, key: hit.key, score: similarity(hit.distance) }));
+  }
+
+  /** The ids of a list that have a vector in the table. */
+  async #present(table: string, ids: readonly string[]): Promise<string[]> {
+    const result = await sql`select id from ${sql.table(table)} where id in (${sql.join([...ids])})`.execute(this.#scope.db);
+    return result.rows.map((row) => Present.parse(row).id);
   }
 
   /** The embedder's table, or undefined while it has none (no size ensured yet). */

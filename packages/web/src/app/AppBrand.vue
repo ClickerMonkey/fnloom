@@ -1,10 +1,15 @@
 <script setup lang="ts">
-/** The harness mark (a hub with three connected systems) and, unless `markOnly`, its name. */
-withDefaults(defineProps<{ markOnly?: boolean; size?: number }>(), { markOnly: false, size: 28 });
+/** The hub's mark (a hub with three connected systems) and, unless `markOnly`, its display name. */
+withDefaults(defineProps<{
+  /** The hub's display name (`IdentityStore.name`). */
+  name: string;
+  markOnly?: boolean;
+  size?: number;
+}>(), { markOnly: false, size: 28 });
 </script>
 
 <template>
-  <span class="brand">
+  <span class="brand" :title="markOnly ? name : undefined">
     <svg class="mark" :width="size" :height="size" viewBox="0 0 32 32" aria-hidden="true">
       <rect width="32" height="32" rx="9" class="tile" />
       <g class="lines" stroke-width="2" stroke-linecap="round">
@@ -15,7 +20,7 @@ withDefaults(defineProps<{ markOnly?: boolean; size?: number }>(), { markOnly: f
       <circle cx="23" cy="9" r="2.3" class="node" />
       <circle cx="16" cy="24" r="2.3" class="node" />
     </svg>
-    <span v-if="!markOnly" class="name">Harness</span>
+    <span v-if="!markOnly" class="name" data-testid="brand-name">{{ name }}</span>
   </span>
 </template>
 
@@ -25,5 +30,5 @@ withDefaults(defineProps<{ markOnly?: boolean; size?: number }>(), { markOnly: f
 .tile { fill: var(--accent); }
 .lines { stroke: var(--on-accent); opacity: 0.7; }
 .hub, .node { fill: var(--on-accent); }
-.name { font-weight: var(--weight-strong); font-size: var(--text-lg); letter-spacing: -0.02em; white-space: nowrap; }
+.name { overflow: hidden; text-overflow: ellipsis; font-weight: var(--weight-strong); font-size: var(--text-lg); letter-spacing: -0.02em; white-space: nowrap; }
 </style>

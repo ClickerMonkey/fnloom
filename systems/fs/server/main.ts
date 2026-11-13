@@ -14,6 +14,7 @@ import { SystemName } from '@harness/core';
 import { createDefaultResourceRegistry } from '@aeye/resources/default';
 import { AllowlistProxy, CrashPolicy, NodeStarter, RESTART_CODE, loggedHost, placeFolders, rendererFolder, scrubbedEnv, serve, type RunningSystem } from '@harness/sdk/server';
 import { fs } from '../shared/index.ts';
+import { CommandChanges } from './changes.ts';
 import { AeyeDocuments } from './documents.ts';
 import { fsEnv } from './env.ts';
 import { CliGit } from './git.ts';
@@ -23,6 +24,7 @@ import { tsxLoader } from './loader.ts';
 import { createFsImpl } from './impl.ts';
 import type { Restarter, WatchFolder } from './index.ts';
 import { PlatformOpener } from './reveal.ts';
+import { GitIgnores } from './sensitive.ts';
 import { SupervisedRunner } from './runner.ts';
 import { endpointOf } from './socket-guard.ts';
 import { platformProbe } from './stale.ts';
@@ -85,6 +87,20 @@ const hosting = new Hosting({
   },
 });
 
+// change capture and gitignore checks read whole statuses and diffs, so their git keeps more output than a command's
+const gitExec = new NodeExec({ outputMax: settings.FS_GIT_OUTPUT_MAX, progressEvery: settings.FS_PROGRESS_EVERY });
+const ignores = new GitIgnores(gitExec, settings.FS_GIT_WORK_TIMEOUT);
+const changes = new CommandChanges({
+  exec: gitExec,
+  ignores,
+  watch: watchFolder,
+  now: () => Date.now(),
+  limits: {
+    maxFiles: settings.FS_CHANGES_MAX_FILES, diffMaxBytes: settings.FS_DIFF_MAX_BYTES, diffTotalBytes: settings.FS_CHANGES_DIFF_TOTAL,
+    gitTimeout: settings.FS_GIT_WORK_TIMEOUT, settle: settings.FS_CHANGES_SETTLE, ignore: settings.FS_IGNORE, scratch: join(cacheDir, 'changes'),
+  },
+});
+
 const server = createFsImpl({
   settings,
   shell: new NodeShell(shell, processLimits),
@@ -94,6 +110,8 @@ const server = createFsImpl({
   documents: new AeyeDocuments(createDefaultResourceRegistry()),
   restarter,
   watch: watchFolder,
+  changes,
+  ignores,
   hosting,
   grantPairing: (request) => running.grantPairing(request),
   now: () => Date.now(),

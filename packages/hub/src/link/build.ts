@@ -7,11 +7,11 @@
  */
 import type { Logger } from '@ayepi/log';
 import type { Peers } from '@ayepi/core';
-import { QualifiedName, type SystemLinkSpec } from '@harness/core';
+import { QualifiedName, WIDGET_KIND, type Json, type SystemLinkSpec } from '@harness/core';
 import type { HubSettings } from '../boot/env.ts';
 import type { EventBus } from '../bus.ts';
 import { StoreCatalog } from '../catalog/catalog.ts';
-import type { Catalog } from '../catalog/index.ts';
+import type { Catalog, KindDescriber } from '../catalog/index.ts';
 import { EmbedBatcher } from '../index/batch.ts';
 import { SystemEmbedders } from '../index/embedders.ts';
 import type { IndexTuning } from '../index/env.ts';
@@ -25,7 +25,8 @@ import { HybridSearch } from '../store/hybrid.ts';
 import type { HubStore } from '../store/index.ts';
 import { StoreConfigService } from './config.ts';
 import { PeerLinkService } from './connections.ts';
-import { LinkKindDescriber } from './describer.ts';
+import { LinkKindDescriber, RoutedKindDescriber } from './describer.ts';
+import { describeWidget } from '../widgets/service.ts';
 import { SystemEventRelay } from './events.ts';
 import { LinkHandshake, linkPlugin } from './handlers.ts';
 import type { SystemTokens } from './index.ts';
@@ -76,7 +77,7 @@ export interface SystemsOptions {
   /** The typed callers of connected systems, shared with the hub link server (default a new registry). */
   readonly peers?: Peers<SystemLinkSpec>;
   /** Replace the catalog (tests); default the store catalog with kinds described over the link. */
-  readonly catalog?: (describer: LinkKindDescriber) => Catalog;
+  readonly catalog?: (describer: KindDescriber) => Catalog;
   /** Where embed calls to system embedders are recorded (the metrics module's log, looked up when used). */
   readonly calls?: () => Pick<ModelCallLog, 'begin'>;
 }
@@ -95,8 +96,9 @@ export function buildSystems(options: SystemsOptions) {
   const query = QualifiedName.parse(settings.model.HARNESS_EMBEDDER_QUERY);
 
   const connections = new PeerLinkService({ log, clock, ...(options.peers === undefined ? {} : { peers: options.peers }) });
-  const describer = new LinkKindDescriber(connections);
-  const catalog = options.catalog?.(describer) ?? new StoreCatalog({ store, bus, log, clock, describer });
+  // the hub's own kinds are described here (a widget's signature is its source's), every other one by its system
+  const describer = new RoutedKindDescriber(new Map([[WIDGET_KIND, (payload: Json) => describeWidget((name) => catalog.fn(name), payload)]]), new LinkKindDescriber(connections));
+  const catalog: Catalog = options.catalog?.(describer) ?? new StoreCatalog({ store, bus, log, clock, describer });
   const instances = new InstanceKeeper({ store, bus, catalog, links: connections });
   const configSecrets = new ConfigSecretKeeper(options.secrets);
   const autoPairs = new StoreAutoPairs({

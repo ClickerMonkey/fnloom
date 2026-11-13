@@ -10,7 +10,7 @@
  */
 import {
   ADMIN_TAG, adminSlice, chatSlice, CONTENT_HASH_PATTERN, ChatModeConfig, contextorSlice, contextSlice, ContextorConfig, DETAIL_LEVELS, ERROR_CLASSES,
-  graphSlice, mcpsSlice, metricsSlice, accessSlice, autoPairSlice, connectionsSlice, explorerSlice, suggestionsSlice, MintMcpTokenArgs, modelsSlice, OWN_TAG, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, RUN_STATUSES, runsSlice,
+  graphSlice, versionsSlice, dataSlice, COLUMN_KINDS, GinTypeDef, Json, LocalName, MakeWidgetArgs, QualifiedName, ResultTable, VisualChannel, WIDGET_KIND, WidgetCheck, WidgetSpec, mcpsSlice, metricsSlice, accessSlice, autoPairSlice, connectionsSlice, explorerSlice, suggestionsSlice, MintMcpTokenArgs, modelsSlice, OWN_TAG, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, RUN_STATUSES, runsSlice,
   LIST_NAMES, querySlice, Section, settingsSlice, systemsSlice, LlmContentPart, ModelLimits, LINK_TARGET_KINDS, type Display,
   FnExample, FnExamplesPage, FnExamplesQuery, FnRouting, FnSearchPage, FnSearchQuery, LoadContextResult, ShareRule, type RegistryEffect,
 } from '@harness/core';
@@ -19,6 +19,7 @@ import { fn, type FnExampleOf } from './fn.ts';
 import { kind, mention, sectioner, type } from './declare.ts';
 import { g, json, type GinType } from './gin.ts';
 import { system } from './system.ts';
+import { channel, visual } from './widgets.ts';
 import { ginAs, ginOf, toolArgsOf, type ToolArgs } from './zod-gin.ts';
 
 /** A web endpoint a hub fn stands for: its body is the fn's args and its response the fn's result. */
@@ -53,6 +54,8 @@ export const HUB_READ_ENDPOINTS = {
   query: querySlice.endpoints.query,
   /** The graph of systems' fns, context, types and parts, and how they connect. */
   graph: graphSlice.endpoints.graph,
+  /** Build 8: any item's version history (fns, types, context, kinds, commands, components, ...). */
+  item_versions: versionsSlice.endpoints.itemVersions,
 } as const satisfies Record<string, EndpointLike>;
 
 /** A hub read fn's name. */
@@ -94,6 +97,23 @@ export const HUB_PERSON_ENDPOINTS = {
   connection_update: connectionsSlice.endpoints.updateConnection,
   connection_disconnect: connectionsSlice.endpoints.disconnect,
 } as const satisfies Record<string, EndpointLike>;
+
+/**
+ * Build 8, the data system (`core/data.ts`) as fns: stored types and their records, as the run's person. The reads
+ * are tagged `read`; saving and removing a record ask unless a policy allows it.
+ */
+export const HUB_DATA_ENDPOINTS = {
+  data_sets: dataSlice.endpoints.dataSets,
+  records_find: dataSlice.endpoints.records,
+  record_get: dataSlice.endpoints.record,
+  records_table: dataSlice.endpoints.recordTable,
+  record_versions: dataSlice.endpoints.recordVersions,
+  record_save: dataSlice.endpoints.saveRecord,
+  record_remove: dataSlice.endpoints.removeRecord,
+} as const satisfies Record<string, EndpointLike>;
+
+/** A data fn's name. */
+export type HubDataFnName = keyof typeof HUB_DATA_ENDPOINTS;
 
 /** A person's write fn's name. */
 export type HubPersonFnName = keyof typeof HUB_PERSON_ENDPOINTS;
@@ -266,7 +286,72 @@ const readFns = {
       { args: { effects: ['fns'], nodeKinds: ['fn', 'kind'] }, note: 'Every fn that creates or changes fns, and the kinds it makes.' },
     ],
   ),
+  item_versions: readFn(
+    'The version history of one item a system declared or added while running (a fn, type, context item, kind, command, component, provider, ...): each version\'s declaration, how it changed, and who saved it, newest first.',
+    'Use it to say what changed in an item and when ("what did the trip form look like before?", "when did fs/read change?"): give the system, the section and the name as the system page lists it (qualified, like `input/trip`, or a `/command`). Each version holds the whole declaration; compare two to say what changed. Page with a small limit.',
+    HUB_READ_ENDPOINTS.item_versions,
+    [
+      { args: { system: 'input', section: 'fns', name: 'input/trip', limit: 5 }, note: 'The last five versions of a saved form.' },
+      { args: { system: 'fs', section: 'context', name: 'fs/authoring' }, note: 'How a guide changed over time.' },
+    ],
+  ),
 } satisfies Record<HubReadFnName, unknown>;
+
+/** The data system's fns (`HUB_DATA_ENDPOINTS`). */
+const dataFns = {
+  data_sets: readFn(
+    'The stored types (the data system\'s record sets) you can see, each with how many records it holds and when one last changed.',
+    'Use it to find where data lives before reading or saving records: it names each stored type (`notes/Note`) with its description and its record count. Filter by `text` or `system`.',
+    HUB_DATA_ENDPOINTS.data_sets,
+    [{ args: { text: 'notes' }, note: 'The stored types about notes.' }, { args: { system: 'notes', limit: 20 } }],
+  ),
+  records_find: readFn(
+    'Records of one stored type: filtered and sorted on its fields, searched by words (and meaning, when the type is embedded), a page at a time.',
+    'Use it to answer questions about stored data ("my notes about Oslo", "tasks due this week"): name the `type`, put conditions in `query.filters` on its top-level fields (is, in, >, <, between, contains, empty), a `query.sort`, and words in `search`. Keep `query.limit` small and page with the cursor. For a table to draw, use hub/records_table.',
+    HUB_DATA_ENDPOINTS.records_find,
+    [
+      { args: { type: 'notes/Note', search: 'Oslo trip', query: { limit: 5 } }, note: 'The five notes that best match some words.' },
+      { args: { type: 'tasks/Task', query: { filters: [{ field: 'done', op: 'is', value: false }], sort: [{ field: 'due', dir: 'asc' }], limit: 10 } }, note: 'Open tasks, soonest first.' },
+    ],
+  ),
+  record_get: readFn(
+    'One record of a stored type by its id, with its value, version and who changed it last.',
+    'Use it to read one record whose id you have (from hub/records_find or a row of a table) before changing it: pass its `version` as `expect` to hub/record_save so a change made meanwhile is not lost.',
+    HUB_DATA_ENDPOINTS.record_get,
+    [{ args: { type: 'notes/Note', id: 'rec_01HZX3' } }],
+  ),
+  records_table: readFn(
+    'Records of one stored type as a table (one column per field, then the record id), offset-paged: what widgets and the result view draw.',
+    'Use it when the person wants to see records laid out (a grid, a chart) or to save a widget: it takes the same filters, sort and search as hub/records_find, with `offset` and `limit` for paging. Its last column is the record id, which row actions use.',
+    HUB_DATA_ENDPOINTS.records_table,
+    [{ args: { type: 'tasks/Task', query: { sort: [{ field: 'due', dir: 'asc' }] }, limit: 20 }, note: 'The first twenty tasks as a table.' }],
+  ),
+  record_versions: readFn(
+    'A record\'s history, newest first: each version\'s value, how it changed, and who changed it.',
+    'Use it to say what a record looked like before or who changed it ("what did the note say yesterday?"). Page with a small limit.',
+    HUB_DATA_ENDPOINTS.record_versions,
+    [{ args: { type: 'notes/Note', id: 'rec_01HZX3', limit: 5 } }],
+  ),
+  record_save: writeFn(
+    'Add a record to a stored type, or replace one (with its id); the value is checked against the type.',
+    'Use it when the person asks to keep or change data. Leave out `id` to add a record; to change one, read it first and pass its id with the whole new value and `expect` set to the version you read, so someone else\'s change made meanwhile is refused rather than lost. A value that does not fit the type is refused with what is wrong.',
+    HUB_DATA_ENDPOINTS.record_save,
+    [
+      { args: { type: 'notes/Note', value: { title: 'Oslo trip', body: 'Book the train.' } }, note: 'A new note.' },
+      { args: { type: 'tasks/Task', id: 'rec_01HZX3', value: { title: 'Pay rent', done: true }, expect: 3 }, note: 'Mark a task done, if nobody changed it since version 3.' },
+    ],
+    [],
+    [...changes('create', 'records'), ...changes('update', 'records')],
+  ),
+  record_remove: writeFn(
+    'Remove a record of a stored type; its history stays.',
+    'Use it only when the person asks to delete a record. Say what you removed; its versions can still be read with hub/record_versions.',
+    HUB_DATA_ENDPOINTS.record_remove,
+    [{ args: { type: 'notes/Note', id: 'rec_01HZX3' } }],
+    [],
+    changes('remove', 'records'),
+  ),
+} satisfies Record<HubDataFnName, unknown>;
 
 /** The hub's write fns on resources, context and memory (`HUB_WRITE_ENDPOINTS`). */
 const writeFns = {
@@ -469,6 +554,7 @@ const CHAT_BASE = [
   'You are a helpful assistant inside harness. Use tools when they help, say what you did, and keep answers short.',
   'Find fns and context with hub/fns_search. Loading a context (hub/load_context) loads what it imports too, and the fns it brings join your tools.',
   'When a context lists where to go next, load the one choice that fits, one step at a time, and only what the request needs.',
+  'A fn that returns a table (a query, hub/records_table) is drawn as a table or chart the person can switch; when they want to keep such a view, call hub/make_widget with the fn and what they want.',
 ].join(' ');
 
 /** The small-model chat agent's base prompt: the same, in the static toolset's words. */
@@ -477,8 +563,41 @@ const CHAT_SMALL_BASE = [
   'Loading a context brings what it imports and its fns. When it lists where to go next, load the one choice that fits, a step at a time.',
 ].join(' ');
 
+/** `hub/widget_source`: a fn whose result is a table, and the args to run a small sample with. */
+export const WidgetSourceArgs = z.object({ source: QualifiedName, args: Json.optional() });
+/** What `hub/widget_source` answers: the fn's description, its args type, and a sample of its result. */
+export const WidgetSourceInfo = z.object({ fn: QualifiedName, description: z.string(), args: GinTypeDef, sample: ResultTable });
+/** One visual that fits a sample, with the channels its bindings fill. */
+export const WidgetVisualFit = z.object({ visual: z.string(), label: z.string(), channels: z.array(VisualChannel), rows: z.object({ min: z.number(), max: z.number().optional() }), whole: z.boolean() });
+/** `hub/widget_check`'s answer: every problem (none when the spec is fine), and the visuals that still fit. */
+export const WidgetCheckAnswer = z.object({ problems: z.array(z.string()), visuals: z.array(z.string()) });
+/** `hub/widget_save`: the widget's name, one line about it, its spec, and whether to save over a widget of that name. */
+export const WidgetSaveArgs = z.object({ name: LocalName, description: z.string().min(1), spec: WidgetSpec, replace: z.boolean().optional() });
+
+/** The widget agent's instructions (`hub/make_widget`), after product's widget-authoring lessons. */
+const MAKE_WIDGET = [
+  'You make a widget: a saved view of one fn whose result is a table, drawn with the visuals that fit it, a control for each of its args, a pager, and actions on its rows.',
+  'Work in this order. 1. Call hub/widget_source with the source fn (and sample args when it needs some) to see its args and a sample of its result.',
+  '2. Call hub/widget_visuals the same way to see which visuals fit that result and the channels each binds (label, value, series ...).',
+  '3. Write the spec: a title in the words of the person; the visuals they asked for first (a bar for comparing, a value for one number, the table always fits), binding each channel to columns of a kind it takes;',
+  'a control per arg the person should change (label it plainly, give choices when the values are few, pin an arg the person fixed, hide one they never need); paging args under `paging` when the source pages; and `actions` only to narrow or relabel the row actions.',
+  '4. Call hub/widget_check with the spec and the sample; fix every problem it lists and check again. 5. Call hub/widget_save with a short snake_case name and one line about the widget.',
+  'Never invent columns, args or visuals: use only what the tools showed. If the source does not return a table, say so and stop.',
+  'Example: for "tasks due this week as a bar chart by person", the source hub/records_table with type tasks/Task gives columns title, owner, due, done; bind bar label to owner and value to a count column if there is one, else offer the table and say a count is not in the result.',
+].join(' ');
+
 /** The hub's contract. */
-export const hub = system('hub', { description: 'The hub: search and load fns and context, follow runs, ask people, and run agents.' })
+export const hub = system('hub', {
+  description: 'The hub: search and load fns and context, follow runs, ask people, and run agents.',
+  registries: {
+    visuals: { description: 'Every visual a table result can be drawn with (a table, bars, a single value, ...): each system adds its own, with the shape of data it draws.', data: ginAs(ResultTable) },
+  },
+  // the table every result fits, drawn by the web app itself; systems add the rest
+  contributes: [visual({
+    name: 'table', label: 'Table', description: 'Every column and row, sortable.', icon: 'table',
+    shape: { channels: [channel('columns', 'Columns', COLUMN_KINDS, { required: false, many: true })], rows: { min: 0 }, whole: false },
+  })],
+})
   .with({
     types: {
       ContentRef: type({
@@ -493,6 +612,11 @@ export const hub = system('hub', { description: 'The hub: search and load fns an
       }),
     },
     kinds: {
+      widget: kind({
+        description: 'A widget: a saved view of a fn that returns a table, drawn with the visuals that fit it, with a control per arg, a pager and row actions.',
+        applicability: 'Use when a person wants to keep a table or chart of a fn\'s result to look at again (made by hub/make_widget).',
+        payload: ginAs(WidgetSpec),
+      }),
       llm: kind({
         description: 'An agent: an LLM with instructions, tools and context, callable like any fn.',
         applicability: 'Use for work that needs judgement, reading or writing in natural language, or several tool calls.',
@@ -699,12 +823,52 @@ export const hub = system('hub', { description: 'The hub: search and load fns an
       tables: sectioner({ description: 'One section per table (large tables in row groups, the header repeated).', match: { form: 'table' } }),
     },
   })
-  .with({ fns: { ...readFns, ...writeFns, ...personFns, ...exploreFns } })
+  .with({ fns: { ...readFns, ...writeFns, ...personFns, ...exploreFns, ...dataFns } })
   .with(({ fns, kinds }) => {
     // one search (`fns_search`), loading fns (with the same check as `load`) and context, examples, runs and people
     const tools = [fns.fns_search.name, fns.load_fns.name, fns.load_context.name, fns.fn_examples.name, fns.run_status.name, fns.ask_user.name];
     return {
       fns: {
+        widget_source: fn({
+          description: 'A fn that returns a table, for a widget: its description, its args type, and a small sample of its result.',
+          instructions: 'Call it first when making a widget. Give `args` when the source needs some to run (the sample uses a small page). The sample\'s columns are all a widget may bind.',
+          examples: [{ args: { source: 'hub/records_table', args: { type: 'tasks/Task' } }, note: 'The tasks table and its columns.' }],
+          args: ginAs(WidgetSourceArgs), returns: ginAs(WidgetSourceInfo), tags: [READ_TAG], display: 'hidden',
+        }),
+        widget_visuals: fn({
+          description: 'The visuals whose declared shape fits a fn\'s result, each with the channels its bindings fill and the column kinds they take.',
+          instructions: 'Call it after hub/widget_source with the same source and args. Offer the visuals that fit what the person asked for; the table fits every result.',
+          examples: [{ args: { source: 'hub/records_table', args: { type: 'tasks/Task' } } }],
+          args: ginAs(WidgetSourceArgs), returns: g.list(ginAs(WidgetVisualFit)), tags: [READ_TAG], display: 'hidden',
+        }),
+        widget_check: fn({
+          description: 'Check a widget spec against a sample of its source\'s result: every problem in words, and the visuals that still fit.',
+          instructions: 'Call it with the spec you wrote and the sample from hub/widget_source; fix every problem and check again before saving.',
+          examples: [{ args: { spec: { title: 'Open tasks', source: 'hub/records_table', visuals: [{ visual: 'table', bind: {} }], controls: [] }, sample: { columns: [], rows: [], offset: 0, truncated: false, sort: [] } } }],
+          args: ginAs(WidgetCheck), returns: ginAs(WidgetCheckAnswer), tags: [READ_TAG], display: 'hidden',
+        }),
+        widget_save: fn({
+          description: 'Save a widget (a fn of the hub\'s widget kind) from a checked spec, or replace one of that name.',
+          instructions: 'Call it last, once hub/widget_check finds no problem. Name it in snake_case after what it shows (`open_tasks_by_person`); give `replace` only to change a widget the person asked to change.',
+          examples: [{ args: { name: 'open_tasks', description: 'Open tasks, soonest first.', spec: { title: 'Open tasks', source: 'hub/records_table', visuals: [{ visual: 'table', bind: {} }], controls: [{ arg: 'type', pinned: 'tasks/Task' }] } } }],
+          args: ginAs(WidgetSaveArgs), returns: g.obj({ fn: g.text(), created: g.bool() }),
+          effects: { registry: [{ thing: 'fns', action: 'create', kind: WIDGET_KIND }, { thing: 'fns', action: 'update', kind: WIDGET_KIND }] },
+        }),
+        make_widget: kinds.llm.fn({
+          description: 'Make or change a widget: a saved view of a fn\'s table result, with the visuals, controls, paging and row actions the person asks for.',
+          instructions: 'Call it when the person wants to keep a table or chart of a fn\'s result ("save this as a chart", "make a widget of my open tasks"): give the source fn, what they want in their words, and the widget to change when there is one. It checks the spec against a real result before saving.',
+          examples: [
+            { args: { source: 'hub/records_table', request: 'my open tasks as a table, soonest first' }, note: 'A new widget over stored records.' },
+            { args: { source: 'database/overdue_invoices', request: 'show it as bars by customer', widget: 'hub/overdue_invoices' }, note: 'Change a saved widget.' },
+          ],
+          payload: {
+            instructions: MAKE_WIDGET,
+            tools: ['hub/widget_source', 'hub/widget_visuals', 'hub/widget_check', 'hub/widget_save'],
+            canLoad: {}, maxTools: 8, context: [], hooks: [], toolExecution: 'sequential', maxIterations: 12,
+          },
+          args: ginAs(MakeWidgetArgs),
+          returns: g.text(),
+        }),
         chat: kinds.llm.fn({
           description: 'The chat agent: answers people in a session with every tool the session allows.',
           instructions: 'The hub runs it for every message in a session that names no other agent. Call it from another fn only to hand a whole conversation turn to the chat agent.',

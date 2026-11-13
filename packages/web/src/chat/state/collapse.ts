@@ -5,10 +5,11 @@
  * reload keeps it. "Collapse all" writes each card's own choice; there is no separate mode. The newest choices are
  * kept, up to a cap.
  */
-import { RunId, type RunStatus } from '@harness/core';
+import { RunId, type Run, type RunStatus } from '@harness/core';
 import type { Ref } from 'vue';
 import { z } from 'zod';
 import { persisted, type KeyValueStore } from '../../state/persisted.ts';
+import { showsRows } from '../../components/widgets/widgets.ts';
 
 export const COLLAPSE_KEY = 'harness.runCards';
 /** How many choices are remembered. */
@@ -21,10 +22,15 @@ const Choice = z.tuple([RunId, z.boolean()]);
 export interface CollapsibleRun {
   readonly id: RunId;
   readonly status: RunStatus;
+  readonly outcome?: Run['outcome'] | undefined;
 }
 
-/** Whether an untouched card starts collapsed: only once its run finished well (or was undone). */
+/**
+ * Whether an untouched card starts collapsed: only once its run finished well (or was undone), and not when what it
+ * returned is rows (a widget or a result table), which is the answer the person asked to see.
+ */
 export function collapsedByDefault(run: CollapsibleRun): boolean {
+  if (run.status === 'done' && run.outcome?.status === 'done' && showsRows(run.outcome.result)) { return false; }
   return run.status === 'done' || run.status === 'undone';
 }
 

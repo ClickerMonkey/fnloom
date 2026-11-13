@@ -4,7 +4,8 @@
  * from a bundle an admin approved, and supervised. Other systems import this to call its fns with typed refs; its server
  * implements it and its client draws it.
  */
-import { type Infer, type ValueOf, agent, arg, attachment, context, fn, g, handler, hook, hub, linear, mention, setting, system, type } from '@harness/sdk';
+import { ChangeSet, SensitivityRule } from '@harness/core';
+import { type Infer, type ValueOf, agent, arg, attachment, context, fn, ginAs, g, handler, hook, hub, linear, mention, setting, system, type } from '@harness/sdk';
 import { HostedState, HostedStatus, InstallArgs, InstallResult, RestartArgs, StatusArgs, StopArgs, StopResult } from './hosting.ts';
 
 export * from './hosting.ts';
@@ -50,6 +51,15 @@ export const Root = g.obj({
 /** What a command printed and how it ended. */
 export const CommandResult = g.obj({ exitCode: g.num({ whole: true }), stdout: g.text(), stderr: g.text() });
 
+/** What a command changed: the files, with a diff for each small text file in git (core `changes.ts`). */
+export const Changes = ginAs(ChangeSet);
+
+/** What `bash` returns: what the command printed, how it ended, and the files it changed when they could be found. */
+export const BashResult = g.obj({ exitCode: g.num({ whole: true }), stdout: g.text(), stderr: g.text(), changes: g.optional(Changes) });
+
+/** How many sensitive files a listing or search left out (`server/sensitive.ts`). */
+const hidden = () => g.field(g.optional(g.num({ min: 0, whole: true })), { docs: 'Sensitive files left out (gitignored, env files, keys, credentials). Read one by its path if the task needs it; the person is asked first.' });
+
 /** The shell setting: whether commands may run at all, and which command prefixes run without asking. */
 export const ShellPolicy = g.obj({ allowed: g.bool(), safe: g.list(g.text()) });
 
@@ -72,6 +82,12 @@ export const fs = system('fs', {
   // its authoring agents use models; installs wait for an admin and pair what they start; it keeps each person's cwd,
   // reads the shell setting, serves and announces resources, and shares the fns it writes
   grants: { hub: ['ai', 'approvals', 'fns', 'state', 'settings', 'resources', 'search'], calls: ['hub/search_resources'] },
+  // its API groups: the hub indexes its fns by them (`fs/api`, `fs/api.<group>`)
+  groups: [
+    { name: 'files', title: 'Files', description: 'Read, write, edit, delete and search files under the roots, and ask questions about the code.' },
+    { name: 'shell', title: 'Shell', description: 'Run commands (builds, tests, git) in a working folder; each command lists the files it changed.' },
+    { name: 'systems', title: 'Systems', description: 'Install, check, restart and stop the systems this machine hosts, and restart fs itself.' },
+  ],
 })
   .with({
     // set by an admin in the hub; the server gets it typed when it starts
@@ -80,8 +96,11 @@ export const fs = system('fs', {
       roots: g.list(Root),
       // its own source folder, so it can change itself and restart
       self: g.optional(g.text()),
-      // globs of files never served as resources (a name, or a path from the root with `/`; `!` serves one again);
-      // left out: env files but .env.example, keys, credentials (see server/secrets.ts); [] serves everything
+      // which files are sensitive and what reads and writes of them do (server/sensitive.ts); left out: the defaults
+      // (gitignored files, env files but the example, keys, credentials, tokens and passwords in content); [] trusts all
+      sensitive: g.optional(g.list(ginAs(SensitivityRule))),
+      // before build 8: globs of files never served as resources (`!` serves one again); turned into rules when
+      // `sensitive` is absent
       secrets: g.optional(g.list(g.text())),
     }),
     types: { Entry },
@@ -98,6 +117,7 @@ export const fs = system('fs', {
     },
     fns: {
       read: fn({
+        group: 'files',
         description: 'Read a text file, or part of it by line.',
         instructions: 'Read a file before you change or explain it. Paths are relative to a root (`src/app.ts`) or start with a root\'s name when there are several. For a long file read a window with `offset` (the first line, from 0) and `limit` (how many lines); `truncated` says more follows. Binary files are refused: use the resource tools for those.',
         examples: [
@@ -105,6 +125,8 @@ export const fs = system('fs', {
           { args: { path: 'src/server/main.ts', offset: 120, limit: 60 }, note: 'Lines 121 to 180 of a long file.' },
         ],
         effects: { mode: 'read', free: true },
+        // the hub asks which sensitive files a call touches first (server/sensitive.ts)
+        flags: true,
         args: g.obj({ path: path(), offset: g.optional(g.num({ min: 0, whole: true })), limit: g.optional(g.num({ min: 1, whole: true })) }),
         returns: g.obj({ text: g.text(), lines: g.num(), truncated: g.bool() }),
         status: {
@@ -116,10 +138,13 @@ export const fs = system('fs', {
         tags: ['read'],
       }),
       write: fn({
+        group: 'files',
         description: 'Write a file, creating it if needed.',
         instructions: 'Use it for a new file, or to replace a whole small file. For a change to an existing file use edit, so the rest stays as it is. Folders are made as needed. The old content is kept, so the write can be undone.',
         examples: [{ args: { path: 'notes/todo.md', text: '# To do\n\n- Write the tests\n' }, result: { created: true }, note: 'A new file.' }],
         effects: { mode: 'write', free: true },
+        // the hub asks which sensitive files a call touches first (server/sensitive.ts)
+        flags: true,
         args: g.obj({ path: path(), text: hub.types.LongText }),
         returns: g.obj({ created: g.bool() }),
         status: {
@@ -131,6 +156,7 @@ export const fs = system('fs', {
         undo: Previous,
       }),
       edit: fn({
+        group: 'files',
         description: 'Replace exact text in a file.',
         instructions: 'Read the file first and copy `find` exactly as it is there, spaces and line breaks included, with enough around it to be unique; the edit fails when it matches nothing or (without `all`) more than once. Set `all` to replace every match (renaming a word). It can be undone.',
         examples: [
@@ -138,6 +164,8 @@ export const fs = system('fs', {
           { args: { path: 'docs/guide.md', find: 'colour', replace: 'color', all: true }, result: { replacements: 4 }, note: 'Every match.' },
         ],
         effects: { mode: 'write', free: true },
+        // the hub asks which sensitive files a call touches first (server/sensitive.ts)
+        flags: true,
         args: g.obj({ path: path(), find: g.text({ minLength: 1 }), replace: g.text(), all: g.optional(g.bool()) }),
         returns: g.obj({ replacements: g.num() }),
         status: {
@@ -149,12 +177,15 @@ export const fs = system('fs', {
         undo: Previous,
       }),
       list: fn({
+        group: 'files',
         description: 'List a folder.',
         instructions: 'Use it to see what a folder holds before guessing names. `depth` 2 or more lists inside subfolders too (up to 5); prefer glob to find files by name anywhere. `.` is the root.',
         examples: [{ args: { path: '.' }, note: 'The root\'s top level.' }, { args: { path: 'src', depth: 2 } }],
         effects: { mode: 'read', free: true },
+        // the hub asks which sensitive files a call touches first (server/sensitive.ts)
+        flags: true,
         args: g.obj({ path: path(), depth: g.optional(g.num({ min: 1, max: 5, whole: true })) }),
-        returns: g.obj({ entries: g.list(Entry.shape) }),
+        returns: g.obj({ entries: g.list(Entry.shape), hidden: hidden() }),
         status: {
           active: { one: 'Listing {args.path}…', many: 'Listing {n} folders…' },
           retry: { one: 'Retrying listing {args.path}…', many: 'Retrying {n} folder lists…' },
@@ -164,6 +195,7 @@ export const fs = system('fs', {
         tags: ['read'],
       }),
       glob: fn({
+        group: 'files',
         description: 'Find paths matching a glob.',
         instructions: 'Use it to find files by name or path. The pattern is relative to the root (every root when none is given); a pattern without `/`, like `*.md`, matches file names at any depth; `**` matches any folders. Folders the system ignores (node_modules, .git) are left out.',
         examples: [
@@ -171,8 +203,10 @@ export const fs = system('fs', {
           { args: { pattern: 'src/**/*.test.ts', root: 'app' }, note: 'Tests under src in one root.' },
         ],
         effects: { mode: 'read', free: true },
+        // the hub asks which sensitive files a call touches first (server/sensitive.ts)
+        flags: true,
         args: g.obj({ pattern: g.text(), root: g.optional(g.text()) }),
-        returns: g.obj({ paths: g.list(g.text()) }),
+        returns: g.obj({ paths: g.list(g.text()), hidden: hidden() }),
         status: {
           active: { one: 'Finding {args.pattern}…', many: 'Running {n} path searches…' },
           retry: { one: 'Retrying the search for {args.pattern}…', many: 'Retrying {n} path searches…' },
@@ -182,6 +216,7 @@ export const fs = system('fs', {
         tags: ['read'],
       }),
       grep: fn({
+        group: 'files',
         description: 'Search file contents with a regular expression.',
         instructions: 'Use it to find where something is used or defined before reading files. The pattern is a JavaScript regular expression tested on each line (escape `.`, `(` and the like). Narrow big searches with `glob` (`*.ts`, `src/**/*.vue`) and `limit`. Each match gives the path and line, so read around it next.',
         examples: [
@@ -189,8 +224,10 @@ export const fs = system('fs', {
           { args: { pattern: 'TODO|FIXME', glob: 'src/**', limit: 50 } },
         ],
         effects: { mode: 'read', free: true },
+        // the hub asks which sensitive files a call touches first (server/sensitive.ts)
+        flags: true,
         args: g.obj({ pattern: g.text(), root: g.optional(g.text()), glob: g.optional(g.text()), limit: g.optional(g.num({ min: 1, whole: true })) }),
-        returns: g.obj({ matches: g.list(g.obj({ path: g.text(), line: g.num(), text: g.text() })) }),
+        returns: g.obj({ matches: g.list(g.obj({ path: g.text(), line: g.num(), text: g.text() })), hidden: hidden() }),
         progress: linear,
         status: {
           active: { one: 'Searching for {args.pattern}…', many: 'Running {n} searches…' },
@@ -201,6 +238,7 @@ export const fs = system('fs', {
         tags: ['read'],
       }),
       cd: fn({
+        group: 'shell',
         description: 'Change the working folder for later commands in this chat.',
         instructions: 'Set it once instead of passing `cwd` to every bash call; it lasts for this chat. The folder must be inside a root.',
         examples: [{ args: { path: 'packages/web' }, result: { cwd: 'packages/web' } }],
@@ -212,8 +250,9 @@ export const fs = system('fs', {
         display: 'hidden',
       }),
       bash: fn({
+        group: 'shell',
         description: 'Run a shell command. It runs in the working folder set with cd unless cwd is given.',
-        instructions: 'Use it to build, test, run git or any tool the files need; prefer read, grep and glob to look at files. Commands your shell setting does not mark safe ask the person first. Give a `timeout` for long builds. Check `exitCode` and `stderr`: a non-zero exit is a failed command, not a failed call.',
+        instructions: 'Use it to build, test, run git or any tool the files need; prefer read, grep and glob to look at files. Commands your shell setting does not mark safe ask the person first. Give a `timeout` for long builds. Check `exitCode` and `stderr`: a non-zero exit is a failed command, not a failed call. `changes` lists the files the command changed (with diffs in git), so you need not run git diff to see them.',
         examples: [
           { args: { command: 'git status --short' }, note: 'What changed.' },
           { args: { command: 'npm test -- --run src/app.test.ts', timeout: 120_000 }, note: 'One test file, with two minutes.' },
@@ -221,8 +260,10 @@ export const fs = system('fs', {
         ],
         // a command can do anything a shell can, deleting included; it spends no model money itself
         effects: { mode: 'delete', free: true },
+        // the hub asks which sensitive files a call touches first (server/sensitive.ts)
+        flags: true,
         args: g.obj({ command: g.text(), cwd: g.optional(g.text()), timeout: g.field(g.optional(g.duration()), { docs: `How long the command may run, in milliseconds (30000 is 30 seconds); at least ${String(COMMAND_TIMEOUT_MIN)}. Leave empty for the default.` }) }),
-        returns: CommandResult,
+        returns: BashResult,
         state: Shell,
         progress: linear,
         status: {
@@ -241,10 +282,13 @@ export const fs = system('fs', {
         },
       }),
       remove: fn({
+        group: 'files',
         description: 'Delete a file.',
         instructions: 'Only for a file the person asked to delete or one you made and no longer need. Folders are refused. The content is kept, so it can be undone.',
         examples: [{ args: { path: 'notes/scratch.md' }, result: { removed: true } }],
         effects: { mode: 'delete', free: true },
+        // the hub asks which sensitive files a call touches first (server/sensitive.ts)
+        flags: true,
         args: g.obj({ path: path() }),
         returns: g.obj({ removed: g.bool() }),
         status: {
@@ -256,6 +300,7 @@ export const fs = system('fs', {
         undo: Previous,
       }),
       restart: fn({
+        group: 'systems',
         description: 'Restart this system so changes to its code go live. It reconnects on its own.',
         instructions: 'Only after changing this system\'s own code (its `self` folder) and checking it builds. Say why in `reason`; runs in progress stop.',
         examples: [{ args: { reason: 'Added the tree command; reload it.' } }],
@@ -265,6 +310,7 @@ export const fs = system('fs', {
         operations: { cancel: false, background: false },
       }),
       install_system: fn({
+        group: 'systems',
         description: 'Build, check and start a system folder on this machine, and connect it to the hub, once an admin approves.',
         instructions: [
           'After writing or changing a system folder: builds, checks and starts it on this machine and connects it to the hub. Call it again after each change; it restarts the system with the new code.',
@@ -297,6 +343,7 @@ export const fs = system('fs', {
         tags: ['admin', 'systems'],
       }),
       system_status: fn({
+        group: 'systems',
         description: 'The systems this machine hosts: each one\'s state, version, process, restarts in the last hour and the end of its output.',
         instructions: 'Call it after install_system, restart_system or a crash to see whether a hosted system is up, and read `output` to find why it stopped. Give `system` for one; empty lists all.',
         examples: [
@@ -313,6 +360,7 @@ export const fs = system('fs', {
         tags: ['read', 'systems'],
       }),
       restart_system: fn({
+        group: 'systems',
         description: 'Restart a system this machine hosts, with the code an admin approved.',
         instructions: 'Use it when a hosted system is stuck, crashed or was disabled after too many crashes. It runs the approved bundle again; it never picks up changed code (call install_system for that). Say why in `reason`.',
         examples: [{ args: { system: 'random', reason: 'It stopped answering after the hub restarted.' }, result: { state: 'connected' } }],
@@ -323,6 +371,7 @@ export const fs = system('fs', {
         tags: ['systems'],
       }),
       stop_system: fn({
+        group: 'systems',
         description: 'Stop a system this machine hosts; with `remove`, also delete its hosted folders.',
         instructions: 'It stays stopped (also after fs restarts) until install_system or restart_system starts it again. `remove` deletes its bundle, state and data for good, so the person is asked first; use it only when they want the system gone.',
         examples: [
@@ -423,3 +472,5 @@ export type ShellPolicyValue = Infer<typeof ShellPolicy>;
 export type FileTargetValue = Infer<typeof FileTarget>;
 /** What undo needs to put a file back. */
 export type PreviousValue = Infer<typeof Previous>;
+/** What `bash` returns. */
+export type BashOutput = Infer<typeof BashResult>;

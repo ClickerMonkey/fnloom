@@ -14,6 +14,8 @@ import { isSettled } from '@harness/core';
 import { argSummary, INPUT_PROBLEM_WORDS, invalidAfter, resultBrief, runElapsed, runError, runInvalid, runResult, statusDetail, STATUS_LOOK, type RunView } from '../logic/runs.ts';
 import type { RunTab as Tab } from '../logic/inspect.ts';
 import GinValueView from '../../gin/GinValueView.vue';
+import ChangeSetView from '../../components/changes/ChangeSetView.vue';
+import { changeSetOf } from '../../components/changes/changes.ts';
 import RunDot from './RunDot.vue';
 import RunProgress from './RunProgress.vue';
 
@@ -36,6 +38,7 @@ const tabs = computed<TabItem<Tab>[]>(() => [
   { value: 'overview', label: 'Overview' },
   { value: 'args', label: 'Args' },
   { value: 'result', label: 'Result' },
+  ...(changes.value === undefined ? [] : [{ value: 'changes' as const, label: 'Changes', count: changes.value.files.length }]),
   ...((props.run?.errors.length ?? 0) > 0 ? [{ value: 'errors' as const, label: 'Errors', count: props.run?.errors.length ?? 0 }] : []),
   { value: 'json', label: 'JSON' },
 ]);
@@ -43,6 +46,8 @@ const tabs = computed<TabItem<Tab>[]>(() => [
 const error = computed(() => (props.run === undefined ? undefined : runError(props.run)));
 const invalid = computed(() => (props.run === undefined ? undefined : runInvalid(props.run)));
 const result = computed(() => (props.run === undefined ? undefined : runResult(props.run)));
+/** What the call changed (a command's files), when its result says. */
+const changes = computed(() => changeSetOf(result.value));
 const elapsed = computed(() => (props.run === undefined ? undefined : runElapsed(props.run, props.now)));
 /** The args and result in brief, for the overview. */
 const about = computed(() => argSummary(props.run?.args, 200));
@@ -120,6 +125,7 @@ const json = computed(() => JSON.stringify(props.record ?? props.run ?? null, nu
             </template>
             <p v-if="readable(value === 'args' ? run.args : result).length === 0" class="dim">{{ value === 'args' ? 'No args.' : 'No result yet.' }}</p>
           </dl>
+          <div v-else-if="value === 'changes' && changes !== undefined" class="pane"><ChangeSetView :changes="changes" /></div>
           <ol v-else-if="value === 'errors'" class="errors pane" data-testid="run-errors">
             <li v-for="entry in run.errors" :key="entry.attempt">
               <strong>Attempt {{ entry.attempt }}</strong> · {{ entry.error.class }} · {{ fullTime(entry.at) }}

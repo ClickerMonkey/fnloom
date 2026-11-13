@@ -18,6 +18,9 @@ export const template = system('template', {
   description: 'TODO: what this system offers, in one sentence.',
   // TODO: what it may do through the hub (HUB_CAPABILITIES); the example agent uses a model and reads a setting
   grants: { hub: ['ai', 'settings'] },
+  // groups: its API groups, each `{ name, title, description }`; the hub indexes its fns by them (`<system>/api`,
+  // `<system>/api.<group>`) so a model finds a fn by walking the groups. Each fn names its own with `group`.
+  // TODO: declare groups once there are fns, or delete this comment.
 })
   .with({
     // config: what the system needs before it can be used, as one gin object type (`g.obj({ ... })`). An admin sets
@@ -42,7 +45,8 @@ export const template = system('template', {
 
     // fns: native fns, each made with `fn({ description, args, returns, ... })`. Optional parts change what the server
     // must implement: `undo` (an undo implementation), `resume` (it can pause), `progress` (`linear` or `steps`),
-    // `handlers` (`handler({ ... })`), `deps` (fn refs it may call), `state`, `form`, `status`, `display`, `tags`.
+    // `handlers` (`handler({ ... })`), `deps` (fn refs it may call), `state`, `form`, `status`, `display`, `tags`,
+    // `group` (one of the system's `groups`).
     // Every fn needs `instructions` written for the model (when to use it, how, what it returns, pitfalls), `examples`
     // (`{ args, result?, note? }`, checked against its types) and `effects` (`{ mode, reads, writes, free }`).
     // TODO: declare fns, or delete this comment.

@@ -15,7 +15,7 @@ choices:
     when: "Pick this to go on in order: Calling other fns."
 ---
 
-## 20. The run context and services
+## 21. The run context and services
 
 Every implementation gets a context (`ctx`) typed by what it implements.
 

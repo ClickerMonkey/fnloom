@@ -30,6 +30,18 @@ export const fsEnv = env({
   FS_PROGRESS_EVERY: z.number().int().min(1).default(500),
   /** Largest change (before plus after, in characters) attached as a diff. */
   FS_DIFF_MAX: z.number().int().min(0).default(400_000),
+  /** Most changed files a `bash` call's change set lists. */
+  FS_CHANGES_MAX_FILES: z.number().int().min(1).default(200),
+  /** Largest changed file (and its diff) a `bash` change set shows as a diff, in bytes; larger ones are listed as large. */
+  FS_DIFF_MAX_BYTES: z.number().int().min(1).default(200_000),
+  /** Most characters of diff one change set carries in all (it goes to the model with the result); later files are listed as large. */
+  FS_CHANGES_DIFF_TOTAL: z.number().int().min(0).default(40_000),
+  /** How long after a command ends its change watcher still listens, for events reported late. */
+  FS_CHANGES_SETTLE: z.number().int().min(0).default(150),
+  /** How long one git command for change capture or a gitignore check may take. */
+  FS_GIT_WORK_TIMEOUT: z.number().int().min(1).default(15_000),
+  /** Characters of a git command's output kept for change capture (a status of a large work tree, a diff). */
+  FS_GIT_OUTPUT_MAX: z.number().int().min(1).default(4_000_000),
   /** Most matches `grep` returns when no limit is given. */
   FS_GREP_LIMIT: z.number().int().min(1).default(200),
   /** Most files one `grep` or `glob` looks at. */

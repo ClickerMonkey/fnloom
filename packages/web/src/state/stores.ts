@@ -7,13 +7,17 @@ import type { AdminStore } from '../admin/state/admin.ts';
 import type { ChatStore } from '../chat/state/chat.ts';
 import type { SessionKeeper, SignInForm } from './auth.ts';
 import type { ConnectionStore } from './connection.ts';
+import type { IdentityStore } from './identity.ts';
 import type { InboxStore } from './inbox.ts';
 import type { LayoutStore } from './layout.ts';
 import type { PushStore } from './push.ts';
 import type { ResourcesStore } from '../resources/state/resources.ts';
 import type { ContextStore } from '../context/state/context.ts';
 import type { FnInfoStore } from '../fns/state/fn-info.ts';
+import type { FnNotices } from '../fns/state/fn-notices.ts';
 import type { GraphStore } from '../graph/state/graph.ts';
+import type { DataStore } from '../data/state/data.ts';
+import type { ItemVersionsSource } from '../components/versions/versions.ts';
 import type { ClientLogs } from './client-logs.ts';
 import type { SessionStore } from './session.ts';
 import type { ThemeStore } from './theme.ts';
@@ -22,6 +26,8 @@ import type { Toasts } from './toasts.ts';
 /** Every store the shell and pages use. */
 export interface Stores {
   readonly session: SessionStore;
+  /** The hub's display name and version, live. */
+  readonly identity: IdentityStore;
   readonly keeper: SessionKeeper;
   readonly theme: ThemeStore;
   readonly layout: LayoutStore;
@@ -42,8 +48,14 @@ export interface Stores {
   readonly context: ContextStore;
   /** One fn's view (the fn modal and the fn page): what it is, its facts and its examples. */
   readonly fns: FnInfoStore;
+  /** Each fn's notice ("This usually takes about 3 minutes."), for the approval and running cards. */
+  readonly fnNotices: FnNotices;
   /** A new graph view (the graph page, a system's Graph tab), each with its own query and page. */
   readonly graph: () => GraphStore;
+  /** The Data pages (build 8): stored types, their records, saved widgets and the actions rows offer. */
+  readonly data: DataStore;
+  /** Any item's version history (build 8), a page at a time. */
+  readonly itemVersions: ItemVersionsSource;
   /** The browser's logs and API traffic, sent to the hub. */
   readonly logs: ClientLogs;
 }

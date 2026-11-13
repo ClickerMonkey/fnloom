@@ -38,7 +38,7 @@ Everything a system contributes is namespaced by its name: the `notes` system's 
    admin reviews it in the hub and presses Go live before anything it offers can be called, so tell the person to do
    that. Read [Common mistakes](context:fs/authoring.mistakes) before you finish.
 
-Three rules hold everywhere, and the compiler enforces them:
+Four rules hold everywhere; the compiler enforces the first three:
 
 - **One source of types.** Every shape (args, results, config, payloads, settings, attachments, state, forms) is written
   once as a gin type; every TypeScript type is inferred from it. Never write a TypeScript type a gin type already
@@ -47,9 +47,14 @@ Three rules hold everywhere, and the compiler enforces them:
   `notes.settings.editing`). Refer to things through refs, so a reference to something that doesn't exist doesn't compile.
 - **The contract declares, the server implements.** Everything declared must be implemented, and nothing undeclared
   can be.
+- **Data lives in the hub.** What a system keeps for people (notes, tasks, anything shared or looked up later) is
+  records of a stored type (`type({ records })`), read and written with `ctx.data` and searched by the hub's database
+  ([Stored types and the data system](context:fs/authoring.data)). Never keep it in a file or database of the system's own, and never load a
+  whole set to filter or search it in code: every read is a query with a page. A system's folder (`ctx.dataDir`) holds
+  only its own config, keys and caches.
 
 The worked example throughout is the **notes** system (`scripts/docs/example`, shown whole in [Worked examples](context:fs/authoring.examples)): notes with
-titles and tags, kept per instance in the hub-given data folder. Every code sample in this guide is a region of a file
+titles and tags, kept and searched by the hub as records of a stored type. Every code sample in this guide is a region of a file
 that `npm run typecheck` compiles, so each is correct for this version of the SDK.
 
 **Imports.** Contracts and renderers import from `@harness/sdk` (pure, safe in the browser). Server code imports

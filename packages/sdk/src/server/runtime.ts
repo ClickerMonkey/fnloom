@@ -5,7 +5,7 @@
  */
 import { implement, reject, server, type Server } from '@ayepi/core';
 import {
-  CostEstimate, EXPORT_NOT_READY, systemLinkSpec, type KindEstimateAnswer, type KindEstimateRequest,
+  CostEstimate, EXPORT_NOT_READY, FlagsAnswer, systemLinkSpec, type KindEstimateAnswer, type KindEstimateRequest, type MentionRequestId,
   type ActorId, type ConfigValue, type DeliveryId, type HookBlock, type Json, type KindDescription, type MentionHover,
   type MentionOption as WireMentionOption, type ResourceRead, type ResourceUri, type RunId, type RunInfo, type Section, type SessionId,
   type StopReason, type SystemEvent, type SystemLinkSpec, type TimeInfo, type UndoOutcome, type UserInfo, type ValidateAnswer, type ValidateRequest, type PreviewAnswer, type PreviewRequest,
@@ -18,6 +18,7 @@ import type { LocalContent } from './content.ts';
 import { HubLlm } from './llm.ts';
 import type { ScopedLog } from './log.ts';
 import { ProviderServer } from './providers.ts';
+import { HubData } from './data.ts';
 import { HubResources } from './resources.ts';
 import { HubTypes } from './types.ts';
 import { runReporting, servicesFor, type RunEnvironment, type Track } from './run.ts';
@@ -140,6 +141,7 @@ export class SystemRuntime<C extends ContractShape> {
       ai: () => llm.listed(),
       resources: new HubResources(env.hub, env.content, { signal }),
       types: new HubTypes(env.hub, signal),
+      data: new HubData(env.hub, { signal }),
       log: this.#log,
       signal,
       ...proposals({ system: env.system, hub: env.hub, signal }),
@@ -223,8 +225,7 @@ export class SystemRuntime<C extends ContractShape> {
       validate: ({ data, signal }) => this.#validate(data, signal),
       preview: ({ data, signal }) => this.#preview(data, signal),
       estimate: ({ data, signal }) => this.#estimate(data, signal),
-      // build 8: platform lane answers from the fn's `flags` hook; until then no fn declares `flags`
-      flags: () => ({ flags: [] }),
+      flags: ({ data, signal }) => this.#flags(data, signal),
       providerChat: ({ data, signal }) => this.#providers.chat(data, signal),
       providerEmbed: ({ data, signal }) => this.#providers.embed(data, signal),
       connectStart: ({ data, signal }) => this.#connect().start(data, this.systemCtx(signal)),
@@ -327,6 +328,19 @@ export class SystemRuntime<C extends ContractShape> {
       case 'method':
         return { refused: `Method ${data.fn} has no preview.` };
     }
+  }
+
+  /**
+   * Which sensitive files a run would touch: the fn's `flags(args, ctx)`, each flag checked against core's schema. A fn
+   * without the hook (it declared no `flags`, so the hub doesn't ask) touches none.
+   */
+  async #flags(data: PreviewRequest, signal: AbortSignal): Promise<FlagsAnswer> {
+    const target = this.#parts.table.target(data.fn, data.kind ?? 'native');
+    if (typeof target === 'string') { throw reject(404, 'NOT_FOUND', target); }
+    if (target.kind !== 'native' || target.impl.flags === undefined) { return { flags: [] }; }
+    const ctx = { ...this.systemCtx(signal), run: data.run, user: data.user };
+    const flags = await target.impl.flags(decodeOrThrow(target.def.args, data.args, 'The args'), ctx);
+    return FlagsAnswer.parse({ flags });
   }
 
   /**
@@ -466,9 +480,12 @@ export class SystemRuntime<C extends ContractShape> {
     return { def, provider };
   }
 
-  #mentionCtx(asker: AskerWire & { session: SessionId }, signal: AbortSignal): MentionCtx {
+  /** A mention's context; with the hub's `@` search request, `ctx.resources.search` searches as the person asking. */
+  #mentionCtx(asker: AskerWire & { session: SessionId; request?: MentionRequestId | undefined }, signal: AbortSignal): MentionCtx {
     const ask: AskerCtx = { session: asker.session, user: asker.user, time: asker.time };
-    return { ...this.systemCtx(signal), ...ask };
+    const env = this.#parts.env;
+    const resources = new HubResources(env.hub, env.content, { signal, ...(asker.request === undefined ? {} : { mention: asker.request }) });
+    return { ...this.systemCtx(signal), resources, ...ask };
   }
 
   async #event(event: SystemEvent): Promise<void> {

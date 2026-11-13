@@ -5,6 +5,8 @@ import { AGENT_KIND, type RunInput } from '../execution/index.ts';
 import { AGENT, ALICE, calls, executionRig, says, SESSION, until, type ExecutionRig } from '../execution/testing.ts';
 import { openScope, type AccessScope } from '../access/index.ts';
 import { registerHubFns, UNDECLARED_CHANGE } from './hub-fns.ts';
+import { writeItemVersions } from '../catalog/versions.ts';
+import { Json as JsonValue } from '@harness/core';
 import { linkPayload } from '../testing.ts';
 
 let rig: ExecutionRig | undefined;
@@ -267,12 +269,14 @@ describe('saved fns (build 5)', () => {
       store: () => r.store,
       catalog: () => ({
         fn: (name) => r.catalog.fn(name), fns: (filter) => r.catalog.fns(filter), availability: (name) => r.catalog.availability(name), context: (name) => r.catalog.context(name), type: () => r.catalog.type(), kind: () => r.catalog.kind(),
-        declare: (system, decl, by) => {
+        declare: async (system, decl, by) => {
           const name = QualifiedName.parse(`${system}/${decl.name}`);
           const existing = r.catalog.records.get(name);
           if (existing === undefined) r.catalog.add(system, decl.name, fn({ description: decl.description, args: g.obj({}), returns: g.bool(), tags: ['read'] }));
           r.catalog.set(name, { decl, origin: 'runtime', addedBy: by, updatedAt: 3 });
-          return Promise.resolve({ added: existing === undefined ? [name] : [], updated: existing === undefined ? [] : [name], removed: [], refused: [] });
+          // as the store catalog does: every save is a version
+          await writeItemVersions(r.store, system, [{ section: 'fns', name, change: existing === undefined ? 'added' : 'changed', decl: JsonValue.parse(decl) }], 3, by);
+          return { added: existing === undefined ? [name] : [], updated: existing === undefined ? [] : [name], removed: [], refused: [] };
         },
       }),
       facts: () => ({ registry: (names) => Promise.resolve(new Map(names.map((name) => [name, r.catalog.records.get(name)?.decl.effects?.registry ?? []]))) }),
@@ -314,6 +318,9 @@ describe('saved fns (build 5)', () => {
     expect(owned).toEqual([{ fn: 'input/trip', owner: ALICE, visibility: 'private' }]);
     // an example keeps only the parts it has, so the catalog can hash the decl as JSON
     expect(Object.keys(r.catalog.records.get(QualifiedName.parse('input/trip'))?.decl.examples?.[0] ?? {})).toEqual(['args']);
-    expect((await r.store.table('fnVersions').find({ limit: 5 })).items).toMatchObject([{ fn: 'input/trip', number: 1, decl: { description: 'Asks for a trip.' } }]);
+    expect((await r.store.table('itemVersions').find({ order: [['number', 'asc']], limit: 5 })).items).toMatchObject([
+      { name: 'input/trip', section: 'fns', number: 1, change: 'added', decl: { description: 'Asks for a trip.' }, savedBy: ALICE },
+      { name: 'input/trip', number: 2, change: 'changed', decl: { description: 'Asks for a trip and who goes.' } },
+    ]);
   });
 });

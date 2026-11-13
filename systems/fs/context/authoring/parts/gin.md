@@ -53,7 +53,7 @@ inferred beside them:
 _From `scripts/docs/example/shared/index.ts`:_
 
 ```ts
-/** What undo needs to put a note back: the note as it was, or null when there was none. */
+/** What undo needs to put a note back: its record id and the note as it was, or null when there was none. */
 export const Before = g.obj({ id: g.text(), note: g.nullable(Note.shape) });
 
 /** The search `find` ran last in this session, kept in session state so a later `find` can repeat it. */
@@ -74,8 +74,10 @@ _From `scripts/docs/example/shared/index.ts`:_
 ```ts
 /** The notes contract's type. */
 export type NotesContract = typeof notes;
-/** A note, as fns return it. */
+/** A note, as it is stored. */
 export type NoteValue = ValueOf<typeof Note>;
+/** A saved note, as fns return it. */
+export type NoteEntryValue = ValueOf<typeof NoteEntry>;
 /** What undo needs to put a note back. */
 export type BeforeValue = Infer<typeof Before>;
 /** A person's answer to `review`. */
@@ -91,16 +93,15 @@ _From `scripts/docs/example/shared/index.ts`:_
 ```ts
 // what the system needs before it can be used; an admin sets it in the hub, and `ctx.config` has it, typed
 config: g.obj({
-  maxNotes: g.field(g.num({ min: 1, whole: true }), { docs: 'The most notes kept; adding one more is refused.' }),
-  defaultTags: g.list(g.text()),
+  defaultTags: g.field(g.list(g.text()), { docs: 'Tags every new note gets.' }),
 }),
 ```
 
 **Values at runtime.** Fns receive values already parsed by their gin types, in plain JS form (timestamps as `Date`).
 To check a value yourself use `parseValue(type, value)` (throws a gin error naming the problem); to turn a value into
-JSON for storage use `encodeValue(type, value)` (dates as ISO strings). The notes store reads and writes its file with
-the contract's own type, so a file that doesn't fit is refused instead of read wrongly (`server/store.ts` in **Worked
-examples**): `parseValue(g.list(Note.shape), JSON.parse(text))` to read, `JSON.stringify(encodeValue(g.list(Note.shape), list))`
+JSON for storage use `encodeValue(type, value)` (dates as ISO strings). Read a file the system keeps with its own type,
+so a file that doesn't fit is refused instead of read wrongly: `parseValue(g.list(Entry), JSON.parse(text))` to read,
+`JSON.stringify(encodeValue(g.list(Entry), list))`
 to write.
 
 To read values of another system's named type at runtime, ask the hub for its definition

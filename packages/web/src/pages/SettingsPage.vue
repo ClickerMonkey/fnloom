@@ -10,24 +10,29 @@ import { useSignOut } from '../app/signOut.ts';
 import { useParamChoice } from '../app/url.ts';
 import { useStores } from '../state/stores.ts';
 import type { PushState } from '../state/push.ts';
+import HubNameCard from '../components/HubNameCard.vue';
 import ThemePicker from '../components/ThemePicker.vue';
 import { UiAvatar, UiBadge, UiBanner, UiButton, UiCard, UiSwitch, UiTabs, type TabItem } from '../ui/index.ts';
 
-const { theme, layout, session, push, toasts } = useStores();
+const { theme, layout, session, push, toasts, identity } = useStores();
 const signOut = useSignOut();
 const section = useParamChoice('section', SettingsSection, 'appearance');
 
-const TABS: readonly TabItem<SettingsSection>[] = [
+const isAdmin = computed(() => session.user.value?.role === 'admin');
+/** The sections; the hub's own settings are for admins. */
+const tabs = computed<readonly TabItem<SettingsSection>[]>(() => [
   { value: 'appearance', label: 'Appearance' },
   { value: 'notifications', label: 'Notifications' },
   { value: 'account', label: 'Account' },
-];
+  ...(isAdmin.value ? [{ value: 'hub' as const, label: 'Hub' }] : []),
+]);
 
 /** Where each section's settings apply. */
 const WHERE = {
   appearance: 'These apply on this device.',
   notifications: 'These apply on this device.',
   account: 'Your account on this hub.',
+  hub: 'These apply to everyone on this hub.',
 } as const satisfies Record<SettingsSection, string>;
 
 /** What the push card says for each state. */
@@ -47,11 +52,16 @@ const pushOn = computed({
 });
 
 onMounted(() => { void push.check(); });
+
+async function rename(name: string | null): Promise<void> {
+  const outcome = await identity.rename(name);
+  if (outcome.ok) { toasts.ok(name === null ? 'Back to the default name' : 'Hub name saved'); }
+}
 </script>
 
 <template>
   <AppPage title="Settings" :description="WHERE[section]">
-    <UiTabs v-model="section" :tabs="TABS" label="Settings sections">
+    <UiTabs v-model="section" :tabs="tabs" label="Settings sections">
       <template #default="{ value }">
         <div v-if="value === 'appearance'" class="stack">
           <UiCard title="Theme" subtitle="Follow your device, or pick one.">
@@ -75,6 +85,11 @@ onMounted(() => { void push.check(); });
             />
             <UiBanner v-if="push.problem.value !== ''" tone="danger">{{ push.problem.value }}</UiBanner>
           </UiCard>
+        </div>
+        <div v-else-if="value === 'hub' && isAdmin" class="stack">
+          <HubNameCard
+            :name="identity.name.value" :source="identity.source.value" :busy="identity.saving.busy.value" :problem="identity.saving.problem.value" @save="rename"
+          />
         </div>
         <div v-else class="stack">
           <UiCard v-if="user" title="Account">

@@ -17,6 +17,7 @@ import AttachmentCard from './AttachmentCard.vue';
 import LinkCard from './LinkCard.vue';
 import MessageActions from './MessageActions.vue';
 import PartList from './PartList.vue';
+import { useFnNotice } from '../../fns/state/fn-notices.ts';
 import RunCard from './RunCard.vue';
 import SuggestionChips from './SuggestionChips.vue';
 import type { MessageAction, RenderView } from './types.ts';
@@ -63,6 +64,7 @@ const emit = defineEmits<{
   background: [run: RunId];
   link: [link: Link];
 }>();
+const noticeOf = useFnNotice();
 
 type Attachment = Extract<MessagePart, { type: 'attachment' }>;
 /** What its runs attached, in order. */
@@ -127,7 +129,7 @@ onMounted(() => {
       </div>
       <div v-if="runs.length > 0" class="runs">
         <RunCard
-          v-for="run in runs" :key="run.id" :run="run" :now="now" :collapsed="collapsed(run)" :view="viewOf(run)" :byline="mine ? 'You ran this' : `${authorName} ran this`"
+          v-for="run in runs" :key="run.id" :run="run" :now="now" :collapsed="collapsed(run)" :view="viewOf(run)" :notice="noticeOf(run.fn)" :byline="mine ? 'You ran this' : `${authorName} ran this`"
           @open="emit('run', run.id)" @toggle="emit('runToggle', run.id, $event)" @background="emit('background', run.id)"
         />
         <template v-for="output in outputs" :key="output.key">

@@ -1,8 +1,8 @@
 /**
  * The roots served as resources: `file://` URIs for folders and files, folder listings by page, reads with text and
  * links (through `Documents`), and change reports from watching the roots. Each file's `format` lets the hub pick a
- * sectioner (headings for markdown, symbols for code) and a viewer for it. Files the config marks as secrets (see
- * `secrets.ts`) are never listed, read or reported.
+ * sectioner (headings for markdown, symbols for code) and a viewer for it. Files the sensitivity rules hide by name (see
+ * `sensitive.ts`) are never listed, read or reported.
  */
 import { join } from 'node:path';
 import type { Page, ReadWant, ResourceChange, ResourceLink, ResourceRead, ResourceRoot, ResourceStat, ResourceUri } from '@harness/core';
@@ -12,7 +12,7 @@ import type { Documents, Located, PathGuard, WatchFolder } from './index.ts';
 import { lastSegment } from '../shared/format.ts';
 import { fileUri, inside, normalize, uriPath } from './paths.ts';
 import { FsProblem } from './problem.ts';
-import type { SecretFilter } from './secrets.ts';
+import type { Sensitivity } from './sensitive.ts';
 import { collect, type WalkEntry } from './walk.ts';
 
 /** How resources are served. */
@@ -35,13 +35,13 @@ export function versionOf(modifiedAt: Date, size: number): string {
 /** The fs system's resource provider. The guard and secrets come from the current config, so they follow its changes. */
 export class FsResources implements ResourceProvider {
   private readonly guard: () => PathGuard;
-  private readonly secrets: () => SecretFilter;
+  private readonly secrets: () => Pick<Sensitivity, 'hides'>;
   private readonly files: FileService;
   private readonly documents: Documents;
   private readonly limits: ResourceLimits;
   private readonly watchFolder: WatchFolder;
 
-  constructor(deps: { guard: () => PathGuard; secrets: () => SecretFilter; files: FileService; documents: Documents; limits: ResourceLimits; watch: WatchFolder }) {
+  constructor(deps: { guard: () => PathGuard; secrets: () => Pick<Sensitivity, 'hides'>; files: FileService; documents: Documents; limits: ResourceLimits; watch: WatchFolder }) {
     this.guard = deps.guard;
     this.secrets = deps.secrets;
     this.files = deps.files;

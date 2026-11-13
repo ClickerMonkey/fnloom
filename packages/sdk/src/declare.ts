@@ -9,7 +9,7 @@ import type {
   SectionMatch, SettingEditor, SettingMerge, StatusTemplates, StepStatus, TypeDisplay, UndoOutcome, Usd,
 } from '@harness/core';
 import { sectionKeys as structuralKeys } from '@aeye/resources/section-keys';
-import { SectionKey as SectionKeySchema } from '@harness/core';
+import { RecordStorage, SectionKey as SectionKeySchema } from '@harness/core';
 import type { ActionCtx, AskerCtx, FnCall, FnCtx, PreviewCtx, SystemCtx, UndoCtx } from './ctx.ts';
 import type { FnTypes, Outcome, UntypedFn } from './fn.ts';
 import { g, type GinType } from './gin.ts';
@@ -27,6 +27,22 @@ export interface TypeDef<T, M extends Methods> {
   readonly shape: GinType<T>;
   readonly display: TypeDisplay;
   readonly methods: M;
+  /** Set when the hub keeps records of the type (the data system): read and write them with `ctx.data`. */
+  readonly records: RecordStorage | undefined;
+}
+
+/** Top-level text fields of T: what a stored type's text search may match. */
+export type TextKeys<T> = { [K in keyof T]-?: T[K] extends string | undefined ? K : never }[keyof T] & string;
+
+/**
+ * How the hub keeps records of a type (`type({ records })`), typed by the type: `table` for many records or `value`
+ * for one; `shared` (everyone who sees the type sees them) or `person` (each record its owner's); the text fields
+ * text search matches, in order of weight, and whether records are embedded for search by meaning.
+ */
+export interface RecordsInput<T> {
+  shape: RecordStorage['shape'];
+  owner: RecordStorage['owner'];
+  search?: { text?: TextKeys<T>[]; embed?: boolean };
 }
 export type AnyTypeDef = TypeDef<unknown, Methods>;
 
@@ -34,14 +50,24 @@ export type AnyTypeDef = TypeDef<unknown, Methods>;
  * Declare a named type. Methods are native fns called on a value of the type: a person can run them from a mention's
  * card, and code can call them through the type's ref. They are offered to the LLM only when their `visibility`
  * says so.
+ *
+ * With `records`, the type is stored: the hub keeps its records, checks each against the type, versions every change
+ * and searches them in its database (`ctx.data.find`, the Data page, `hub/records_*`). Shared data lives there, never
+ * in a system's own folder.
  */
 export function type<T, const M extends Methods = {}>(def: {
   description: string;
   shape: GinType<T>;
   display: Omit<TypeDisplay, 'title' | 'subtitle'> & { title?: NamingKeys<T>; subtitle?: NamingKeys<T> };
   methods?: M;
+  records?: RecordsInput<T>;
 }): TypeDef<T, M> {
-  return { description: def.description, shape: def.shape, display: { ...def.display }, methods: orDefault(def.methods, {}) };
+  const records = def.records === undefined ? undefined : RecordStorage.parse({
+    shape: def.records.shape,
+    owner: def.records.owner,
+    search: { text: [...(def.records.search?.text ?? [])], embed: def.records.search?.embed ?? false },
+  });
+  return { description: def.description, shape: def.shape, display: { ...def.display }, methods: orDefault(def.methods, {}), records };
 }
 
 /** The value type of a declared type. */

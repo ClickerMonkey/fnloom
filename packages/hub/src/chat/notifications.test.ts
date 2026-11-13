@@ -1,5 +1,7 @@
 import { IDS, SystemName, type Approval, type HandlerCall, type PairingRequest } from '@harness/core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { StoreNotifications } from './notifications.ts';
+import { MemoryPresence } from './presence.ts';
 import { chatWorld, gin, settle } from './testing.ts';
 
 const approval = (status: Approval['status'] = 'pending'): Approval => ({
@@ -171,5 +173,25 @@ describe('approvers', () => {
     expect(await w.chat.approvers.approvers({ by: 'hub' }, w.admin.id)).toEqual([]);
     // a run a system proposed outside any run: every enabled admin
     expect(await w.chat.approvers.approvers({ by: 'admins' }, w.admin.id)).toEqual([w.admin.id]);
+  });
+
+  it('hold a needs-config notice for the grace, and drop it when the system connects first', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const w = await chatWorld();
+      const notices = new StoreNotifications({ ...w.deps, settings: { ...w.deps.settings, chat: { ...w.deps.settings.chat, HARNESS_CONFIG_NOTICE_GRACE: 30_000 } } }, new MemoryPresence(w.deps));
+      const stop = notices.start();
+      w.bus.publish('system.status', { system: SystemName.parse('fs'), status: 'needs-config' });
+      w.bus.publish('system.status', { system: SystemName.parse('git'), status: 'needs-config' });
+      await vi.advanceTimersByTimeAsync(10_000);
+      w.bus.publish('system.status', { system: SystemName.parse('fs'), status: 'connected' });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect((await notices.list(w.admin.id, {})).items).toEqual([]);
+      await vi.advanceTimersByTimeAsync(10_001);
+      await vi.waitFor(async () => { expect((await notices.list(w.admin.id, {})).items.map((n) => n.title)).toEqual(['git needs config']); });
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

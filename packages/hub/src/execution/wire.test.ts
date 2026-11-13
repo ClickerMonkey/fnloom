@@ -41,6 +41,29 @@ describe('messages', () => {
     expect(replyText('plain')).toBe('plain');
     expect(replyText({ a: [1] })).toBe('{"a":[1]}');
   });
+
+  it('lists the changed files of a command for the model without their diffs, which the run keeps', () => {
+    const result = {
+      exitCode: 0, stdout: 'ok', stderr: '',
+      changes: {
+        source: 'git', cwd: '/repo', ignored: 2, truncated: false,
+        files: [
+          { path: 'src/a.ts', root: 'repo', status: 'modified', diff: '@@ -1 +1 @@\n-a\n+b\n', added: 1, removed: 1, certain: true },
+          { path: 'logo.png', root: 'repo', status: 'added', noDiff: 'binary', certain: false },
+        ],
+      },
+    };
+    const text = replyText(result);
+    expect(text).toBe([
+      '{"exitCode":0,"stdout":"ok","stderr":""}',
+      'Changed files (git):',
+      '- modified repo:src/a.ts (+1 -1)',
+      '- added repo:logo.png, no diff: binary, maybe the change of another call',
+      '(2 ignored by git)',
+    ].join('\n'));
+    expect(text).not.toContain('@@');
+    expect(replyText({ changes: 'not a change set' })).toBe('{"changes":"not a change set"}');
+  });
 });
 
 describe('requests', () => {

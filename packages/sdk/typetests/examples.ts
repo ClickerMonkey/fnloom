@@ -27,6 +27,10 @@ expectType<Equal<Infer<typeof fs.types.Entry.methods.reveal.args>, { self: Value
 type({ description: 'x', shape: g.obj({ name: g.text() }), display: { label: 'X', title: 'name' } });
 // @ts-expect-error the title must be one of the type's fields
 type({ description: 'x', shape: g.obj({ name: g.text() }), display: { label: 'X', title: 'nmae' } });
+// a stored type: the hub keeps its records and searches its text fields
+type({ description: 'x', shape: g.obj({ name: g.text(), size: g.num() }), display: { label: 'X', title: 'name' }, records: { shape: 'table', owner: 'shared', search: { text: ['name'] } } });
+// @ts-expect-error a stored type's search fields must be its own text fields
+type({ description: 'x', shape: g.obj({ name: g.text(), size: g.num() }), display: { label: 'X' }, records: { shape: 'table', owner: 'shared', search: { text: ['size'] } } });
 expectType<Equal<typeof fs.fns.read.name, 'fs/read'>>(true);
 expectType<Equal<typeof fs.fns.explore.name, 'fs/explore'>>(true);
 expectType<Equal<typeof fs.types.Entry.name, 'fs/Entry'>>(true);

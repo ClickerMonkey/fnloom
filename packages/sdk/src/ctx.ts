@@ -6,7 +6,7 @@ import type {
   ActorId, AllowedOperations, ConnectionUpdate, ContentRef, DeliveryId, Detail, InstanceName, ModelForward, ModelForwardResult, ErrorClass, FnError, InputProblem, Json, Link, ModelChoice, Operations, QualifiedName,
   ResourceHit, ResourceLink, ResourceStat, ResourceUri, RunId, RunInfo, RunStatus, RunUpdate, Section, SectionKey, SessionId, TimeInfo, Usd,
   Duration, RunConnection, ShareRule, TypeDefinitions, UserInfo, ApprovalPreview, DecideAnswer, DecideCandidate, FleetInstance, ProposalApprover, ProposedRun, FnSearchQuery, FnSearchPage, FnExamplesQuery, FnExamplesPage,
-  ApprovedRun, AdminNotice,
+  ApprovedRun, AdminNotice, DataRecord, ListQuery, RecordId, ResultTable,
 } from '@harness/core';
 import type { FnTypes, HandlerArgs, Handlers, HandlersInRun, HasRequiredHandlers, Outcome, ProgressReporter, Deps } from './fn.ts';
 import type { GinType } from './gin.ts';
@@ -71,7 +71,51 @@ export interface Resources {
   text(uri: ResourceUri, sections?: SectionKey[]): Promise<string>;
   links(uri: ResourceUri): Promise<ResourceLink[]>;
   sections(uri: ResourceUri): Promise<Section[]>;
+  /**
+   * Search resources by words and meaning. Only in a mention provider's `search`: the hub ties it to the person's `@`
+   * search and searches as them. Elsewhere it refuses (`LinkGap`); a fn declares `hub.fns.search_resources` as a dep.
+   */
   search(query: string, options?: { roots?: ResourceUri[]; limit?: number }): Promise<ResourceHit[]>;
+}
+
+/** A record of a stored type, its value decoded to the type. */
+export type StoredRecord<T> = Omit<DataRecord, 'value'> & { readonly value: T };
+
+/** A stored type as `ctx.data` takes it: the type's ref (`contract.types.Note`, or another system's). */
+export type StoredType<T> = GinType<T> & { readonly name: QualifiedName };
+
+/** Which records `ctx.data.find` and `ctx.data.table` give: filters and sorts on the type's top-level fields, and search. */
+export interface RecordFind {
+  /** Filters (all must hold), sort keys and a page, on the type's top-level fields; the hub refuses an unknown field. */
+  readonly query?: ListQuery;
+  /** Ranks by text over the type's `records.search.text` fields, and by meaning when the type is embedded. */
+  readonly search?: string;
+}
+
+/**
+ * The data system: records of stored types (`type({ records })`), kept, checked, versioned and searched by the hub.
+ * In a run it acts as the run's person (a `person` type gives only their records); outside a run, as the system.
+ * Every read is a query with a page: never load a whole set to filter it in code. Needs the `data` hub grant.
+ *
+ * ```ts
+ * const saved = await ctx.data.save(contract.types.Note, { title: 'Milk', body: 'Buy oat milk.' });
+ * const { items } = await ctx.data.find(contract.types.Note, { search: 'groceries', query: { limit: 5 } });
+ * ```
+ */
+export interface Data {
+  /** One page of records, best match first when searching, else by the query's sort (newest change first). */
+  find<T>(type: StoredType<T>, find?: RecordFind): Promise<{ readonly items: StoredRecord<T>[]; readonly cursor?: string }>;
+  /** One record by id; `undefined` when it is gone or not the asker's to see. */
+  get<T>(type: StoredType<T>, id: RecordId): Promise<StoredRecord<T> | undefined>;
+  /** The same records as a `ResultTable` (one column per field, then `id`), offset-paged: what widgets draw. */
+  table<T>(type: StoredType<T>, find?: Omit<RecordFind, 'query'> & { readonly query?: Omit<ListQuery, 'cursor' | 'limit'>; readonly offset?: number; readonly limit?: number }): Promise<ResultTable>;
+  /**
+   * Add a record (no `id`) or replace one. `expect` fails the save when the record moved past that version (someone
+   * else changed it meanwhile). A `value` type has one record: leave `id` out.
+   */
+  save<T>(type: StoredType<T>, value: T, options?: { readonly id?: RecordId; readonly expect?: number }): Promise<StoredRecord<T>>;
+  /** Remove a record (its versions stay); false when there was none. */
+  remove(type: StoredType<unknown>, id: RecordId): Promise<boolean>;
 }
 
 /** Named types any system declared, from the hub. */
@@ -119,6 +163,8 @@ export interface Services extends SystemPlace, AiSource, AdminNotices {
   readonly resources: Resources;
   /** Named types from any system, with what they reference. */
   readonly types: Types;
+  /** Records of stored types, as the run's person. */
+  readonly data: Data;
   /** Attach something to the assistant message this run belongs to. The data is checked. */
   attach<A>(attachment: AttachmentRef<QualifiedName, A>, data: A, title: string): void;
   /** Attach a link to a resource, URL, file or run. */
@@ -205,6 +251,8 @@ export interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets
   readonly llm: Llm;
   readonly resources: Resources;
   readonly types: Types;
+  /** Records of stored types, as the system itself (no run, so no person: `person` types are refused). */
+  readonly data: Data;
   readonly log: Log;
   readonly signal: AbortSignal;
 }

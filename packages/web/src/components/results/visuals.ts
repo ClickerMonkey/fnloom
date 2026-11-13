@@ -1,17 +1,14 @@
 /**
- * The query visual registry on the web side: every visual that can draw a result table, each with match logic that
+ * The hub's visual registry (`hub/visuals`, build 8) on the web side: every visual that can draw a result table, each with match logic that
  * says whether it fits the table and how much of it it shows well (`VisualFit`). The app has its own (the table,
  * which always fits with the lowest score; a bar chart; a single value), and systems contribute more from their
  * client bundles (`Manifest.contributes`), which replace a built-in one of the same name. The result view shows the
  * best fit first and lets the person switch between all that fit.
  */
-import { tableFit, type ResultTable, type VisualFit } from '@harness/core';
+import { tableFit, type Json, type ResultTable, type VisualFit } from '@harness/core';
 import type { Component } from 'vue';
 import { ICONS, type IconName } from '../../ui/icons.ts';
 import type { ResultPager } from './table.ts';
-
-/** The local name of the query visual registry a system hosts (`database/query-visuals`). */
-export const QUERY_VISUALS = 'query-visuals';
 
 /** The props every visual is drawn with. */
 export interface VisualProps {
@@ -19,6 +16,17 @@ export interface VisualProps {
   readonly title: string;
   /** Ask the table's fn for other rows; absent when the table can't be asked again. */
   readonly pager?: ResultPager | undefined;
+  /** Open what a row offers (a widget's row actions, a record); visuals that draw rows show a button per row. */
+  readonly opener?: RowOpener | undefined;
+}
+
+/** A button on each row that opens what it offers. */
+export interface RowOpener {
+  /** The button's label ("Actions", "Open"). */
+  readonly label: string;
+  /** Whether a row offers anything; rows that don't get no button. */
+  has(row: readonly Json[]): boolean;
+  open(row: readonly Json[]): void;
 }
 
 /** A visual: its name and how the switcher shows it, its match logic and its component. */

@@ -11,7 +11,7 @@ import type { NoteValue, notes } from '../shared/index.ts';
 const props = defineProps<InputViewOf<typeof notes, 'Note'>>();
 const emit = defineEmits<{ 'update:modelValue': [value: NoteValue] }>();
 
-const current = computed<NoteValue>(() => props.modelValue ?? { id: '', title: '', text: '', tags: [], pinned: false, updatedAt: new Date() });
+const current = computed<NoteValue>(() => props.modelValue ?? { title: '', text: '', tags: [], pinned: false });
 
 function change(patch: Partial<NoteValue>): void {
   emit('update:modelValue', { ...current.value, ...patch });

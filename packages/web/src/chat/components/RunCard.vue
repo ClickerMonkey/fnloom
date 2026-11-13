@@ -14,6 +14,8 @@ import { fnLabel } from '../logic/labels.ts';
 import { MAIN_INSTANCE, isSettled } from '@harness/core';
 import { argSummary, invalidLine, invalidSummary, isBusy, repeatsArgs, resultBrief, runElapsed, runError, runInvalid, runDeclined, runResult, runStopped, runText, shownStatus, type RunView } from '../logic/runs.ts';
 import RendererHost from './RendererHost.vue';
+import TableResult from '../../components/widgets/TableResult.vue';
+import { showsRows } from '../../components/widgets/widgets.ts';
 import RunDot from './RunDot.vue';
 import RunProgress from './RunProgress.vue';
 import type { RenderView } from './types.ts';
@@ -26,7 +28,9 @@ const props = withDefaults(defineProps<{
   view?: RenderView<'fn'> | undefined;
   /** Who started it, when it wasn't the agent ("You ran this"). */
   byline?: string;
-}>(), { view: undefined, byline: '' });
+  /** Its fn's notice ("This usually takes about 3 minutes."), shown until it ends. */
+  notice?: string;
+}>(), { view: undefined, byline: '', notice: '' });
 
 const emit = defineEmits<{ open: []; toggle: [collapsed: boolean]; background: [] }>();
 
@@ -50,8 +54,11 @@ const brief = computed(() => resultBrief(result.value));
 /** What it is doing now, while it runs, when the words add to the line (a renderer shows its own, but not approvals or questions). */
 const showStatus = computed(() => !isSettled(props.run.status) && !repeatsArgs(words.value, summary.value)
   && (props.view === undefined || props.run.asking === true || props.run.status === 'awaiting-approval'));
-const showResult = computed(() => props.view === undefined && brief.value !== '' && props.run.status === 'done');
-const hasBody = computed(() => showStatus.value || (props.run.progress !== undefined && !isSettled(props.run.status)) || props.view !== undefined || showResult.value);
+/** A finished result that is rows (a widget's, or a result table): drawn as such rather than in brief. */
+const rows = computed(() => props.view === undefined && props.run.status === 'done' && showsRows(result.value));
+const showResult = computed(() => props.view === undefined && !rows.value && brief.value !== '' && props.run.status === 'done');
+const showNotice = computed(() => props.notice !== '' && !isSettled(props.run.status));
+const hasBody = computed(() => showStatus.value || showNotice.value || (props.run.progress !== undefined && !isSettled(props.run.status)) || props.view !== undefined || rows.value || showResult.value);
 /** The instance it ran on, shown when the system runs as a fleet (anything but its main instance). */
 const instance = computed(() => (props.run.instance === undefined || props.run.instance === MAIN_INSTANCE ? undefined : props.run.instance));
 const canBackground = computed(() => props.run.allowed?.background === true && !props.run.background && !isSettled(props.run.status));
@@ -85,9 +92,11 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
     </header>
     <div v-if="!collapsed && hasBody" class="body">
       <p v-if="showStatus" class="status" data-testid="run-status"><span :class="{ shimmer: active }">{{ words }}</span></p>
+      <p v-if="showNotice" class="notice" data-testid="run-notice"><UiIcon name="clock" :size="13" /><span>{{ notice }}</span></p>
       <RunProgress v-if="run.progress && !isSettled(run.status)" :progress="run.progress" />
       <RendererHost v-if="view" :view="view" :label="label" @inspect="emit('open')" />
-      <pre v-else-if="showResult" class="result">{{ brief }}</pre>
+      <TableResult v-else-if="rows" :value="result" :fn="run.fn" :args="run.args" :title="label" :view-key="run.id" />
+      <pre v-else-if="showResult" class="brief">{{ brief }}</pre>
     </div>
   </article>
 </template>
@@ -123,6 +132,7 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
 .instance { padding: 0 6px; border-radius: var(--radius-full); background: var(--surface-2); color: var(--text-dim); font-family: var(--mono); max-width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ticking { color: var(--accent); }
 .body { display: grid; gap: var(--space-2); min-width: 0; padding: 0 var(--space-3) var(--space-3); }
+.notice { display: flex; align-items: center; gap: var(--space-1); margin: 0; color: var(--text-dim); font-size: var(--text-xs); }
 .status { margin: 0; color: var(--text-dim); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .tag {
   display: inline-flex; align-items: center; gap: 2px; padding: 0 6px; border-radius: var(--radius-full);
@@ -132,7 +142,7 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
   background: linear-gradient(90deg, var(--text-dim) 40%, var(--text-faint) 50%, var(--text-dim) 60%) 0 0 / 300% 100%;
   -webkit-background-clip: text; background-clip: text; color: transparent; animation: ui-shimmer 2.2s linear infinite;
 }
-.result {
+.brief {
   margin: 0; max-height: 200px; overflow: auto; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--code-bg);
   font-family: var(--mono); font-size: var(--text-xs); white-space: pre-wrap; overflow-wrap: anywhere;
 }

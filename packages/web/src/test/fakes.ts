@@ -22,6 +22,10 @@ import { fakeResources } from '../resources/test/fakes.ts';
 import { fakeContext } from '../context/test/fakes.ts';
 import { fakeFnsApi } from '../fns/test/fakes.ts';
 import { FnInfoStore } from '../fns/state/fn-info.ts';
+import { FnNotices } from '../fns/state/fn-notices.ts';
+import { DataStore } from '../data/state/data.ts';
+import { fakeDataApi } from '../data/test/fakes.ts';
+import { IdentityStore } from '../state/identity.ts';
 import { GraphStore } from '../graph/state/graph.ts';
 import { fakeGraphApi } from '../graph/test/fakes.ts';
 import { ClientLogs } from '../state/client-logs.ts';
@@ -136,6 +140,10 @@ export function fakeApi() {
       signOut: fakeCaller<'signOut'>(() => Promise.resolve()),
       me: fakeCaller<'me'>(() => Promise.resolve(tokens().user)),
     },
+    identity: {
+      identity: fakeCaller<'identity'>(() => Promise.resolve({ name: 'Test hub', source: 'setting' as const, version: '1.0.0' })),
+      setHubName: fakeCaller<'setHubName'>(({ name }) => Promise.resolve({ name: name ?? 'Harness', source: name === null ? 'default' as const : 'setting' as const, version: '1.0.0' })),
+    },
     notifications: {
       list: fakeCaller<'notifications'>(() => Promise.resolve({ items: [] })),
       markRead: fakeCaller<'readNotifications'>(() => Promise.resolve()),
@@ -186,8 +194,10 @@ export function fakeStores(options: { signedIn?: boolean; api?: ReturnType<typeo
   const resources = fakeResources();
   const context = fakeContext();
   const fns = fakeFnsApi();
+  const data = fakeDataApi();
   const stores: Stores = {
     session,
+    identity: new IdentityStore(api.identity, events.subscribe, store),
     keeper: new SessionKeeper(api.auth, session),
     theme: new ThemeStore({ store, media: fakeMedia().media, root: document.documentElement }),
     layout: new LayoutStore(store),
@@ -200,9 +210,12 @@ export function fakeStores(options: { signedIn?: boolean; api?: ReturnType<typeo
     resources: resources.resources,
     context: context.context,
     fns: new FnInfoStore(fns, events.subscribe),
+    fnNotices: new FnNotices(fns),
     graph: () => new GraphStore(fakeGraphApi()),
+    data: new DataStore(data, fns),
+    itemVersions: (query) => data.itemVersions.call(query),
     logs: new ClientLogs({ send: fakeCaller<'clientLogs'>(() => Promise.resolve({ uri: 'hub://logs/test.jsonl', written: 1 })), signedIn: () => false, page: () => '/' }),
     push: new PushStore(api.notifications, fakePush(), () => 'Test browser'),
   };
-  return { stores, api, events, connection, store, chat, admin, resources, context, fns };
+  return { stores, api, events, connection, store, chat, admin, resources, context, fns, data };
 }

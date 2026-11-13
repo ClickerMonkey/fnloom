@@ -5,14 +5,14 @@ title: "Named types and methods"
 description: "Writing a harness system: Named types and methods."
 summary: "Named types (type()) and the methods on them."
 parent: "fs/authoring.topics.types"
-next: "fs/authoring.fns"
+next: "fs/authoring.data"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash"]
 tags: ["authoring"]
 choices:
   - to: "fs/authoring.named-types.reference"
     when: "Pick this when you need the exact signatures and options."
-  - to: "fs/authoring.fns"
-    when: "Pick this to go on in order: Fns."
+  - to: "fs/authoring.data"
+    when: "Pick this to go on in order: Stored types and the data system."
 ---
 
 ## 5. Named types and methods
@@ -23,9 +23,28 @@ people in a consistent way, that other systems can use as a field and that `@` m
 _From `scripts/docs/example/shared/index.ts`:_
 
 ```ts
-/** A note: a titled text with tags. A named type, so other systems can use it as a field and mentions show it. */
+/**
+ * A note: a titled text with tags. A stored type (`records`): the hub keeps the notes, one record each, checks them
+ * against this shape, versions every change and searches them, by words in the title and text and by meaning. Notes
+ * are shared by everyone who can see the type (`owner: 'shared'`), so hooks and mentions read them too; a type whose
+ * records are each one person's (`owner: 'person'`) is read in runs, as that person. Its record carries its id,
+ * version and times; the value doesn't.
+ */
 export const Note = type({
   description: 'A note: a titled text with tags.',
+  shape: g.obj({
+    title: g.text({ minLength: 1 }),
+    text: hub.types.LongText,
+    tags: g.list(g.text()),
+    pinned: g.bool(),
+  }),
+  display: { label: 'Note', plural: 'Notes', icon: 'note', color: '#d9a400', title: 'title' },
+  records: { shape: 'table', owner: 'shared', search: { text: ['title', 'text'], embed: true } },
+});
+
+/** A note as fns return it and cards show it: the stored note with its record id and when it last changed. */
+export const NoteEntry = type({
+  description: 'A saved note: its record id, when it last changed, and the note.',
   shape: g.obj({
     id: g.text({ minLength: 1 }),
     title: g.text({ minLength: 1 }),
@@ -58,13 +77,12 @@ _From `scripts/docs/example/server/impl.ts`:_
 
 ```ts
 types: {
-  Note: {
+  NoteEntry: {
     pin: {
       async run(self, args, ctx) {
-        const store = deps.open(ctx.dataDir);
-        const note = await store.get(self.id);
+        const note = await noteById(ctx.data, self.id);
         if (note === undefined) { return ctx.invalid([{ path: 'self', message: `Note ${self.id} no longer exists.` }]); }
-        await store.put({ ...note, pinned: args.pinned, updatedAt: deps.now() });
+        await ctx.data.save(Note, { ...note.value, pinned: args.pinned }, { id: note.id });
         return ctx.done(args.pinned);
       },
     },

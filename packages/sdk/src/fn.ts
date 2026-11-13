@@ -201,6 +201,10 @@ export interface FnDef<T extends FnTypes> {
   readonly effects: FnEffects | undefined;
   /** How many examples go into the prompt with it. */
   readonly promptExamples: number | undefined;
+  /** The API group it is listed in (`SystemInfo.groups`); the general group when undefined. */
+  readonly group: string | undefined;
+  /** Whether the hub asks its implementation's `flags(args, ctx)` which sensitive files a run would touch first. */
+  readonly flags: boolean;
   /** Phantom: lets the SDK read T back out of a def. Never set at runtime. */
   readonly types?: T;
 }
@@ -272,6 +276,14 @@ export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends Pro
   effects?: FnEffects;
   /** How many of its examples go into the model's prompt with it (the hub's default when absent); the rest page with `hub/fn_examples`. */
   promptExamples?: number;
+  /** The API group it is listed in: one of the system's `groups` (`system(name, { groups })`); the general group when absent. */
+  group?: string;
+  /**
+   * The fn touches files that may be sensitive (env files, keys, gitignored files): before every run the hub asks its
+   * implementation's `flags(args, ctx)` which ones, then refuses, asks the person or goes ahead by the rules' actions.
+   * Requires `flags` in the implementation.
+   */
+  flags?: true;
 }
 
 /** The types of a native fn. */
@@ -317,6 +329,8 @@ export function fn<
     routing: def.routing,
     effects: def.effects,
     promptExamples: def.promptExamples,
+    group: def.group,
+    flags: def.flags === true,
   };
 }
 
@@ -350,6 +364,8 @@ export interface KindFnInput<P, A, R, T extends StatusTemplates = StatusTemplate
   effects?: FnEffects;
   /** How many of its examples go into the model's prompt with it (the hub's default when absent); the rest page with `hub/fn_examples`. */
   promptExamples?: number;
+  /** The API group it is listed in (`SystemInfo.groups`); the general group when absent. */
+  group?: string;
 }
 
 /** The types of a fn of some kind. Its deps, handlers and progress come from the kind at runtime. */
@@ -392,6 +408,8 @@ export function kindFn<N extends `${string}/${string}`, P, A, R, const T extends
     routing: def.routing,
     effects: def.effects,
     promptExamples: def.promptExamples,
+    group: def.group,
+    flags: false,
   };
 }
 

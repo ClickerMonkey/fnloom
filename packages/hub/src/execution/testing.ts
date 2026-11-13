@@ -16,7 +16,7 @@ import {
   type OutcomeWire, type ProviderKind, type QualifiedName, type ResolvedLimits, type RunRequest, type Session, type SessionId, type Turn,
   type TurnId, type TurnStatus, type UndoOutcome, type UserInfo, type RunControlAction, type SuggestionRecord,
   type ProviderChat, type ProviderChunk, type ProviderEmbed, type ProviderEmbedResult, type ValidateAnswer, type ValidateRequest,
-  type ConnectFinish, type ContextDecl, type ConnectResult, type ConnectStart, type RunConnection, type PreviewAnswer, type PreviewRequest,
+  type ConnectFinish, type ContextDecl, type ConnectResult, type ConnectStart, type RunConnection, type PreviewAnswer, type PreviewRequest, type FlagsAnswer,
 } from '@harness/core';
 import { z } from 'zod';
 import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
@@ -199,6 +199,7 @@ export class TestCatalog implements Catalog {
   importPatch(): never { throw new Error('not in execution tests'); }
   forgetInstance(): never { throw new Error('not in execution tests'); }
   refreshAvailability(): never { throw new Error('not in execution tests'); }
+  indexStoredFns(): never { throw new Error('not in execution tests'); }
   /** No kind records here: runs of kind fns are worded by their fn's status templates or the defaults. */
   kind(): ReturnType<Catalog['kind']> { return Promise.resolve(undefined); }
   /** No named types here: test fns use plain gin types. */
@@ -235,6 +236,8 @@ export interface SystemBehaviour {
   disconnect: (input: Pick<RunConnection, 'id' | 'owner' | 'credentials'>) => void;
   /** What a run of a fn that always asks would do (build 5). */
   preview: (input: PreviewRequest) => PreviewAnswer;
+  /** The sensitive files a run of a fn that declares `flags` would touch (build 8). */
+  flags: (input: PreviewRequest) => FlagsAnswer;
 }
 
 /** A system connected to the rig over an in-process socket, serving `systemLinkSpec` for real. */
@@ -243,6 +246,7 @@ export class TestSystem {
   readonly requests: RunRequest[] = [];
   readonly validations: ValidateRequest[] = [];
   readonly previews: PreviewRequest[] = [];
+  readonly flagged: PreviewRequest[] = [];
   readonly chats: ProviderChat[] = [];
   readonly children: Array<{ parent: string; key: string; run: string; update?: unknown }> = [];
   readonly behaviour: SystemBehaviour = {
@@ -257,6 +261,7 @@ export class TestSystem {
     connectFinish: () => ({ account: { label: 'ada@example.com' }, credentials: { access: 'a1', refresh: 'r1' } }),
     disconnect: () => undefined,
     preview: () => ({ preview: { title: 'Do it', parts: [], irreversible: false } }),
+    flags: () => ({ flags: [] }),
   };
   conn: WsConn | undefined;
   readonly #controller = new AbortController();
@@ -274,8 +279,7 @@ export class TestSystem {
       content: notHere, embed: notHere, hook: notHere, mentions: notHere, mentionHover: notHere, mentionText: notHere, event: notHere, action: notHere,
       form: notHere, restart: notHere, stop: notHere, configure: notHere, export: notHere, estimate: notHere,
       preview: ({ data }) => { this.previews.push(data); return this.behaviour.preview(data); },
-      // build 8: hub lane gives the fake system `flags` answers for the gate tests
-      flags: () => ({ flags: [] }),
+      flags: ({ data }) => { this.flagged.push(data); return this.behaviour.flags(data); },
       validate: ({ data }) => { this.validations.push(data); return this.behaviour.validate(data); },
       providerChat: ({ data }) => { this.chats.push(data); return this.behaviour.providerChat(data); },
       providerEmbed: ({ data }) => this.behaviour.providerEmbed(data),

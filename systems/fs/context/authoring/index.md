@@ -10,7 +10,7 @@ choices:
   - to: "fs/authoring.topics.begin"
     when: "Pick this first when you make a new system or install, test or fix one."
   - to: "fs/authoring.topics.types"
-    when: "Pick this when you write args, results, config or a named type."
+    when: "Pick this when you write args, results, config or a named type, or the system keeps data."
   - to: "fs/authoring.topics.fns"
     when: "Pick this when you declare or implement a fn, a kind or an agent."
   - to: "fs/authoring.topics.declare"
@@ -18,7 +18,7 @@ choices:
   - to: "fs/authoring.topics.server"
     when: "Pick this when you write server code, call the hub, or handle config and lifecycle."
   - to: "fs/authoring.topics.client"
-    when: "Pick this when the system draws its results, inputs or resources in the app."
+    when: "Pick this when the system draws its results, inputs or resources in the app, or adds a visual."
   - to: "fs/authoring.topics.examples"
     when: "Pick this to copy from a complete example, or to look up a core type."
 ---

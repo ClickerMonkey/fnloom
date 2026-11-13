@@ -291,7 +291,8 @@ onBeforeUnmount(() => {
       <div v-else class="start" :class="{ split: compact }">
         <SessionList v-if="compact" ref="list" class="home-list side-list" v-bind="listBind" home-shown v-on="listOn" />
         <UiEmpty class="home" icon="chat" tone="accent" title="Start a conversation" body="Chat with your agent, and run the fns your connected systems offer." data-testid="chat-home">
-          <template #actions><UiButton variant="primary" icon="plus" :loading="sessions.creating.value" @click="create">New chat</UiButton></template>
+          <!-- the list beside it already has New chat: the empty state offers its own only when no list shows -->
+          <template v-if="!listColumn && !compact" #actions><UiButton variant="primary" icon="plus" :loading="sessions.creating.value" @click="create">New chat</UiButton></template>
         </UiEmpty>
       </div>
     </main>

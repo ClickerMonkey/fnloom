@@ -33,7 +33,7 @@ function pin(id: string, pinned: boolean): void {
         </button>
       </li>
     </ul>
-    <p v-if="view.result" class="total">{{ view.result.notes.length }} of {{ view.result.total }}</p>
+    <p v-if="view.result" class="total">{{ view.result.notes.length }} found{{ view.result.more ? ', more past these' : '' }}</p>
     <p v-if="view.error" class="problem">{{ view.error.message }}</p>
   </article>
 </template>

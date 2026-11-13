@@ -54,6 +54,7 @@ Anything else needs a capability in `grants.hub`:
 | handing back refreshed credentials of a `connect` system | `hub: ['connections']` |
 | `ctx.setting(ref)` | `hub: ['settings']` |
 | `ctx.state` (`get`, `set`, `update`, `clear`) | `hub: ['state']` |
+| `ctx.data` (`find`, `get`, `table`, `save`, `remove`) | `hub: ['data']` |
 | a hub secret by name | its name in `secrets` (its own config secrets are always its own) |
 | a host on the network, a path outside its folders (hosted by fs only) | the host in `network`, the path in `files` |
 

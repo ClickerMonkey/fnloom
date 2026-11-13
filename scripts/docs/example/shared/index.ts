@@ -1,17 +1,37 @@
 /**
- * The notes system's contract: titled notes with tags, kept per instance in its data folder. It is the authoring guide's
- * worked example, so it uses one of nearly everything a contract can declare: config, a named type with a method, a
- * setting, an attachment, a kind, native fns (undo, handlers, progress, pause and resume, session state, a form),
- * context, a hook, a mention provider, an action and an agent.
+ * The notes system's contract: titled notes with tags, kept and searched by the hub as records of a
+ * stored type (the data system), never in a file of the system's own. It is the authoring guide's worked example, so
+ * it uses one of nearly everything a contract can declare: config, a stored type, a named type with a method, a
+ * setting, an attachment, a kind, native fns in API groups (undo, handlers, progress, pause and resume, session
+ * state, a form), context, a hook, a mention provider, an action and an agent.
  */
 import {
   type Infer, type ValueOf, action, agent, arg, attachment, context, fn, g, handler, hook, hub, kind, linear, mention, setting, steps, system, type,
 } from '@harness/sdk';
 
 // #region note-type
-/** A note: a titled text with tags. A named type, so other systems can use it as a field and mentions show it. */
+/**
+ * A note: a titled text with tags. A stored type (`records`): the hub keeps the notes, one record each, checks them
+ * against this shape, versions every change and searches them, by words in the title and text and by meaning. Notes
+ * are shared by everyone who can see the type (`owner: 'shared'`), so hooks and mentions read them too; a type whose
+ * records are each one person's (`owner: 'person'`) is read in runs, as that person. Its record carries its id,
+ * version and times; the value doesn't.
+ */
 export const Note = type({
   description: 'A note: a titled text with tags.',
+  shape: g.obj({
+    title: g.text({ minLength: 1 }),
+    text: hub.types.LongText,
+    tags: g.list(g.text()),
+    pinned: g.bool(),
+  }),
+  display: { label: 'Note', plural: 'Notes', icon: 'note', color: '#d9a400', title: 'title' },
+  records: { shape: 'table', owner: 'shared', search: { text: ['title', 'text'], embed: true } },
+});
+
+/** A note as fns return it and cards show it: the stored note with its record id and when it last changed. */
+export const NoteEntry = type({
+  description: 'A saved note: its record id, when it last changed, and the note.',
   shape: g.obj({
     id: g.text({ minLength: 1 }),
     title: g.text({ minLength: 1 }),
@@ -30,7 +50,7 @@ export const Note = type({
 // #endregion note-type
 
 // #region shapes
-/** What undo needs to put a note back: the note as it was, or null when there was none. */
+/** What undo needs to put a note back: its record id and the note as it was, or null when there was none. */
 export const Before = g.obj({ id: g.text(), note: g.nullable(Note.shape) });
 
 /** The search `find` ran last in this session, kept in session state so a later `find` can repeat it. */
@@ -51,20 +71,26 @@ export const StampArgs = g.obj({ text: g.text({ minLength: 1 }) });
 export const notes = system('notes', {
   description: 'Notes: write, find and tidy titled notes with tags.',
   // #region grants
-  // find keeps its last query (state), remove reads the editing setting (settings), and share asks the person
-  // through hub/ask_user (fns, and that fn in calls); its agent runs on the hub, so it needs no ai of its own
-  grants: { hub: ['fns', 'settings', 'state'], calls: ['hub/ask_user'] },
+  // notes are hub records (data), find keeps its last query (state), remove reads the editing setting (settings), and
+  // share asks the person through hub/ask_user (fns, and that fn in calls); its agent runs on the hub, so it needs no ai
+  grants: { hub: ['data', 'fns', 'settings', 'state'], calls: ['hub/ask_user'] },
   // #endregion grants
+  // #region groups
+  // its API in groups: the hub lists each group's fns under `notes/api.<group>` for a model to walk
+  groups: [
+    { name: 'notes', title: 'Notes', description: 'Add, find, tidy and remove notes.' },
+    { name: 'sharing', title: 'Sharing', description: 'Review and publish a note.' },
+  ],
+  // #endregion groups
 })
   .with({
     // #region config
     // what the system needs before it can be used; an admin sets it in the hub, and `ctx.config` has it, typed
     config: g.obj({
-      maxNotes: g.field(g.num({ min: 1, whole: true }), { docs: 'The most notes kept; adding one more is refused.' }),
-      defaultTags: g.list(g.text()),
+      defaultTags: g.field(g.list(g.text()), { docs: 'Tags every new note gets.' }),
     }),
     // #endregion config
-    types: { Note },
+    types: { Note, NoteEntry },
     // #region setting
     settings: {
       editing: setting({
@@ -76,7 +102,7 @@ export const notes = system('notes', {
     },
     // #endregion setting
     attachments: {
-      note: attachment({ description: 'A note, drawn as a card.', data: Note.shape }),
+      note: attachment({ description: 'A note, drawn as a card.', data: NoteEntry.shape }),
     },
     // #region kind
     kinds: {
@@ -94,12 +120,13 @@ export const notes = system('notes', {
       add: fn({
         description: 'Add a note.',
         instructions: 'Give it a short title. Tags are lowercase words; the config adds its default tags.',
+        group: 'notes',
         args: g.obj({
           title: g.text({ minLength: 1 }),
           text: hub.types.LongText,
           tags: g.optional(g.list(g.text())),
         }),
-        returns: Note.shape,
+        returns: NoteEntry.shape,
         // example calls agents see on its card and when they get its args wrong; a wrong example doesn't compile
         examples: [{ args: { title: 'Groceries', text: 'Milk, eggs, bread.', tags: ['home'] }, note: 'A short title and lowercase tags.' }],
         // declaring an undo type makes it undoable, and the server must implement `undo`
@@ -114,13 +141,14 @@ export const notes = system('notes', {
       // #endregion fn-add
       // #region fn-find
       find: fn({
-        description: 'Find notes by words in their title or text, or by tag.',
+        description: 'Find notes by words or meaning in their title or text, or by tag; the best matches first.',
+        group: 'notes',
         args: g.obj({
           query: g.optional(g.text()),
           tag: g.optional(g.text()),
           limit: g.optional(g.num({ min: 1, max: 50, whole: true })),
         }),
-        returns: g.obj({ notes: g.list(Note.shape), total: g.num({ min: 0, whole: true }) }),
+        returns: g.obj({ notes: g.list(NoteEntry.shape), more: g.bool() }),
         // reads and writes `lastQuery` in the session's state; only fns that declare it see it
         state: LastSearch,
         progress: linear,
@@ -132,6 +160,7 @@ export const notes = system('notes', {
       // #region fn-remove
       remove: fn({
         description: 'Delete a note.',
+        group: 'notes',
         args: g.obj({ id: g.text({ minLength: 1 }) }),
         returns: g.obj({ removed: g.bool() }),
         undo: Before,
@@ -143,17 +172,19 @@ export const notes = system('notes', {
       // #endregion fn-remove
       // #region fn-tidy
       tidy: fn({
-        description: 'Merge tags that differ only in case or spaces, across every note.',
+        description: 'Merge tags that differ only in case or spaces, across every note, a page at a time.',
+        group: 'notes',
         args: g.obj({}),
         returns: g.obj({ merged: g.num({ min: 0, whole: true }) }),
         progress: steps({ scan: 'Read every note', merge: 'Merge the tags', save: 'Save the notes' }),
         // declaring a resume type makes it pausable: it returns this when paused and gets it back on resume
-        resume: g.obj({ saved: g.num({ min: 0, whole: true }) }),
+        resume: g.obj({ saved: g.num({ min: 0, whole: true }), cursor: g.optional(g.text()) }),
       }),
       // #endregion fn-tidy
       // #region fn-review
       review: fn({
         description: 'Ask the person to approve a note before it is shared. Returns their decision.',
+        group: 'sharing',
         args: g.obj({ id: g.text({ minLength: 1 }) }),
         returns: Review,
         // the run waits in `await ctx.form()` until the renderer submits this
@@ -196,7 +227,7 @@ export const notes = system('notes', {
     // #region mention-decl
     mentions: {
       // `@` in the chat finds notes; chips and cards show them as Note (its label, icon, color and its pin method)
-      notes: mention({ title: 'Notes', description: 'Any note, by its title.', target: g.obj({ id: g.text() }), of: types.Note }),
+      notes: mention({ title: 'Notes', description: 'Any note, by its title.', target: g.obj({ id: g.text() }), of: types.NoteEntry }),
     },
     // #endregion mention-decl
     fns: {
@@ -205,7 +236,8 @@ export const notes = system('notes', {
         description: 'Capture a thought in the inbox.',
         payload: { title: 'Inbox', tags: ['inbox'] },
         args: StampArgs,
-        returns: Note.shape,
+        returns: NoteEntry.shape,
+        group: 'notes',
       }),
     },
   }))
@@ -225,6 +257,7 @@ export const notes = system('notes', {
       // calls other fns through its deps, by ref: its own system's `review` and the hub's `ask_user`
       publish: fn({
         description: 'Share a note once the person approves it.',
+        group: 'sharing',
         args: g.obj({ id: g.text({ minLength: 1 }) }),
         returns: g.obj({ published: g.bool(), note: g.optional(g.text()) }),
         deps: { review: fns.review, ask: hub.fns.ask_user },
@@ -239,8 +272,10 @@ export const notes = system('notes', {
 // #region value-types
 /** The notes contract's type. */
 export type NotesContract = typeof notes;
-/** A note, as fns return it. */
+/** A note, as it is stored. */
 export type NoteValue = ValueOf<typeof Note>;
+/** A saved note, as fns return it. */
+export type NoteEntryValue = ValueOf<typeof NoteEntry>;
 /** What undo needs to put a note back. */
 export type BeforeValue = Infer<typeof Before>;
 /** A person's answer to `review`. */

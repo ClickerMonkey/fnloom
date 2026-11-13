@@ -9,6 +9,7 @@
  * Live: a change to this item or one it links with reloads it.
  */
 import AccessControl from '../components/access/AccessControl.vue';
+import ItemHistory from '../components/versions/ItemHistory.vue';
 import { QualifiedName, type ContextLink, type LinkTarget } from '@harness/core';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -133,6 +134,7 @@ async function save(draft: MemoryDraft): Promise<void> {
             <div v-if="body !== ''" class="text" data-testid="context-text"><UiMarkdown :source="body" :navigate="navigate" /></div>
             <p v-else class="none">Its system writes this text when it is loaded.</p>
           </UiCard>
+          <ItemHistory :item="{ system: record.system, section: 'context', name: record.name }" />
         </div>
         <div class="side">
           <UiCard v-if="choices.length > 0" :title="`Choices · ${choices.length}`" subtitle="What the model may load next, and when." compact data-testid="context-choices">

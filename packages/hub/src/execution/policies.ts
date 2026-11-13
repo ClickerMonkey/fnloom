@@ -148,6 +148,7 @@ export class HubPolicyEngine implements PolicyEngine {
     const chosen = choosePolicy(await allRows(store.table('policies')), fn, actor, clock());
     const policy = chosen?.decision ?? fallback(fn, chosen === undefined ? (await this.#facts(input.caller)).kind : undefined);
     if (policy.effect === 'deny') return policy;
+    if (input.sensitive === true) return this.#approval(input, TURN_USER, undefined);
     const always = fn.decl.approval;
     // auto mode's classifier stands in for the fallback ask; a policy that says ask, or a fn that always asks, still asks
     if (input.autoAllowed === true && chosen === undefined && always === undefined && input.ask === undefined) return { effect: 'allow' };
@@ -166,15 +167,20 @@ export class HubPolicyEngine implements PolicyEngine {
     const remembered = input.session === undefined || always?.remember === false ? undefined : await this.#rememberedForSession(fn.name, input.actor, input.session);
     if (remembered !== undefined) return remembered;
     if (always === undefined && decision.approver.by === 'turn-user' && input.caller === input.turnUser) return { effect: 'allow' };
-    // only now is the system asked what the run would do: a denied, allowed or remembered run costs no preview
+    return this.#approval(input, decision.approver, chosen?.decision.effect !== 'ask' || input.ask !== undefined ? undefined : chosen.id);
+  }
+
+  /** Make the approval a run waits on, with its preview (asked for only now: a denied, allowed or remembered run costs none). */
+  async #approval(input: DecideInput, approver: Approver, policy: Approval['policy']): Promise<RunDecision> {
+    const { clock } = this.#deps;
     const preview = input.preview === undefined ? undefined : await input.preview();
     if (input.preview !== undefined && preview === undefined) return { effect: 'deny', reason: `${input.fn} can't show what it would do` };
     const approval: Approval = {
       id: mintId('approval', this.#deps.random),
       run: input.run,
       fn: input.fn,
-      ...(chosen?.decision.effect !== 'ask' || input.ask !== undefined ? {} : { policy: chosen.id }),
-      approver: decision.approver,
+      ...(policy === undefined ? {} : { policy }),
+      approver,
       status: 'pending',
       decisions: [],
       createdAt: clock(),
@@ -210,7 +216,9 @@ export class HubPolicyEngine implements PolicyEngine {
     const approvers = await this.#deps.approvers.approvers(approval.approver, turnUser);
     if (!approvers.includes(input.by)) throw new Error(`${input.by} can't answer approval ${id}`);
     // a fn whose approvals may not be remembered (writes, schema changes) is asked about every time
-    const remember = (await this.#deps.catalog.fn(approval.fn))?.decl.approval?.remember === false ? 'once' : input.remember;
+    // nor is a call that touches sensitive files (its card lists them)
+    const flagged = approval.preview?.parts.some((part) => part.type === 'flags') === true;
+    const remember = flagged || (await this.#deps.catalog.fn(approval.fn))?.decl.approval?.remember === false ? 'once' : input.remember;
     return this.#record(approval, run, turnUser, { ...input, remember });
   }
 

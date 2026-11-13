@@ -15,7 +15,7 @@ choices:
     when: "Pick this to go on in order: Common mistakes."
 ---
 
-## 25. Testing
+## 27. Testing
 
 Every system tests itself with the SDK's **test kit** (`@harness/sdk/testing`), in vitest, with no setup:
 
@@ -30,6 +30,15 @@ Every system tests itself with the SDK's **test kit** (`@harness/sdk/testing`), 
   marked `real` and skipped without `OPENROUTER_API_KEY`.
 - **Kinds.** `kit.kindProps('<kind>', payload)` gives the problems the kind finds in a payload and the fn props it
   derives.
+- **Data.** The fake hub answers `ctx.data` from records in memory, like the hub (filters, sorts, text search, pages,
+  versions, `expect`, person-owned types refused outside runs): `kit.records('<Type>')` reads what runs saved, and
+  `kit.hub.data.save(...)` puts records in first. Another system's stored type goes in `kit.hub.storedTypes`.
+- **Sensitive files and mentions.** `kit.flags('<fn>', args)` gives the flags its `flags` hook answers, as the hub
+  asks before a run. `kit.mentions('<provider>', query)` gives a mention provider's options and the resource searches
+  it made (answer them with `kit.hub.onMentionResources`).
+- **Files and commands.** `scratchFolder({ git: true, files })` makes a temp folder (a git repository with the files
+  committed) to run file and command fns in: change a file, add an untracked or ignored one, and check the change set
+  or the flags a fn reports. `repo.dispose()` removes it.
 - **Context.** `contextFolder(dir, contract)` checks the context folder: every file parses, every link resolves (fenced
   code is skipped), and `fns` maps each context to the fns it brings. Expect `problems` to be empty.
 - **Components.** `preview({ name, module: new URL('./ResultView.vue', import.meta.url), states })` draws a component in
@@ -60,61 +69,64 @@ definitions (`onTypes`), resource reads (`onResource`), and setting values (`set
 _From `scripts/docs/example/server/notes.test.ts`:_
 
 ```ts
-const CONFIG = { maxNotes: 2, defaultTags: ['Mine'] };
+const CONFIG = { defaultTags: ['Mine'] };
 
-/** Serve the notes system to a fake hub with an in-memory store, and wait until it is ready. */
-async function start(): Promise<{ hub: FakeHub; running: RunningSystem<'notes'> }> {
-  let next = 0;
-  const impl = createNotesImpl({
-    settings: notesEnv.parse(),
-    open: storesBy(() => new MemoryNoteStore()),
-    now: () => new Date(Date.UTC(2026, 0, 1)),
-    newId: () => `n${++next}`,
-  });
-  const hub = new FakeHub({ config: CONFIG });
-  const running = await serve(notes, impl, { hub: 'ws://hub.test/link', state: 'unused', version: '0.1.0' }, hub.host());
-  await running.ready();
-  return { hub, running };
+let kit: TestSystem<'notes', (typeof notes)['defs']> | undefined;
+afterEach(async () => {
+  await kit?.stop();
+  kit = undefined;
+});
+
+/** Serve the notes system to a fake hub and wait until it is ready. */
+async function start(): Promise<TestSystem<'notes', (typeof notes)['defs']>> {
+  kit = await testHub(notes, createNotesImpl({ settings: notesEnv.parse() }), { config: CONFIG });
+  return kit;
 }
 
 describe('notes over the link', () => {
-  let running: RunningSystem<'notes'> | undefined;
-  afterEach(async () => {
-    await running?.stop();
-    running = undefined;
+  it('declares its stored type and its API groups', async () => {
+    const manifest = await manifestOf(notes, { version: '0.1.0' });
+    expect(manifest.types.find((type) => type.name === 'Note')?.records).toMatchObject({ shape: 'table', owner: 'shared' });
+    expect(manifest.groups?.map((group) => group.name)).toEqual(['notes', 'sharing']);
+    expect(manifest.fns.find((fn) => fn.name === 'review')?.group).toBe('sharing');
   });
 
-  it('sends a manifest with everything the contract declares', async () => {
-    const started = await start();
-    running = started.running;
-    const manifest = started.hub.manifests[0];
-    expect(manifest?.name).toBe('notes');
-    // local names: the hub qualifies them with the system's name
-    expect(manifest?.fns.map((f) => f.name)).toEqual(['add', 'find', 'remove', 'tidy', 'review', 'inbox', 'librarian', 'publish', 'Note.pin']);
-    expect(manifest?.context.map((c) => c.name)).toEqual(['guide', 'recent']);
+  it('adds a note as a hub record with the default tags, and refuses a second with the same title', async () => {
+    const notesKit = await start();
+    const { result, hubCalls } = await notesKit.call('add', { title: 'Plan', text: 'Write the guide.', tags: ['Work'] });
+    expect(result).toMatchObject({ title: 'Plan', tags: ['mine', 'work'] });
+    expect(result.id).toMatch(/^rec_/);
+    expect(hubCalls.attachments).toHaveLength(1);
+    expect(notesKit.records('Note').map((record) => record.title)).toEqual(['Plan']);
+    const again = await notesKit.run('add', { title: 'Plan', text: 'Again.' });
+    expect(again.outcome).toMatchObject({ status: 'failed', error: { class: 'caller', code: 'taken' } });
   });
 
-  it('adds a note with the default tags, and refuses one past the limit', async () => {
-    const started = await start();
-    running = started.running;
-    const added = await started.hub.run('notes/add', { title: 'Plan', text: 'Write the guide.', tags: ['Work'] });
-    expect(added).toMatchObject({ status: 'done', result: { id: 'n1', title: 'Plan', tags: ['mine', 'work'] } });
-    expect(started.hub.attachments).toHaveLength(1);
-    await started.hub.run('notes/add', { title: 'Two', text: '…' });
-    const third = await started.hub.run('notes/add', { title: 'Three', text: '…' });
-    expect(third).toMatchObject({ status: 'failed', error: { class: 'caller', code: 'full' } });
+  it('finds by words and by tag in the hub, and answers nothing to search for as invalid input', async () => {
+    const notesKit = await start();
+    await notesKit.call('add', { title: 'Plan', text: 'Write the guide.', tags: ['work'] });
+    await notesKit.call('add', { title: 'Milk', text: 'Buy oat milk.', tags: ['home'] });
+    expect((await notesKit.call('find', { query: 'oat' })).result.notes.map((note) => note.title)).toEqual(['Milk']);
+    expect((await notesKit.call('find', { tag: 'work' })).result.notes.map((note) => note.title)).toEqual(['Plan']);
+    const outcome = await notesKit.run('find', {});
+    expect(outcome.outcome).toMatchObject({ status: 'invalid-input', invalid: { problems: [{ path: 'query' }] } });
   });
 
-  it('answers a search with nothing to search for as invalid input, not an error', async () => {
-    const started = await start();
-    running = started.running;
-    const outcome = await started.hub.run('notes/find', {});
-    expect(outcome).toMatchObject({ status: 'invalid-input', invalid: { problems: [{ path: 'query' }] } });
+  it('tidies tags a page at a time, saving only the notes that change', async () => {
+    const notesKit = await start();
+    await notesKit.call('add', { title: 'Plan', text: 'x', tags: [] });
+    const id = notesKit.records('Note')[0]?.id;
+    if (id === undefined) { throw new Error('add saved no record'); }
+    // a tag written another way, as another system might have saved it
+    notesKit.hub.data.save({ type: 'notes/Note', id, value: { title: 'Plan', text: 'x', tags: ['Work ', 'work'], pinned: false } });
+    expect((await notesKit.call('tidy', {})).result).toEqual({ merged: 1 });
+    expect(notesKit.records('Note')[0]?.value).toMatchObject({ tags: ['work'] });
   });
 });
 ```
 
-Also unit-test the parts behind each interface (a store, a parser) directly, with temp folders and fixed clocks. Keep
+Also unit-test the parts behind each interface (a parser, a client of an outside service) directly, with temp
+folders and fixed clocks. Keep
 tests that call real services (a model, an API) in `*.live.test.ts` files, marked and minimal; `npm run test:live` runs
 them, `npm test` skips them.
 

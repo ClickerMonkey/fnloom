@@ -15,7 +15,7 @@ choices:
     when: "Pick this to go on in order: The hub contract."
 ---
 
-## 17. Resources, embedders and sectioners
+## 18. Resources, embedders and sectioners
 
 ### Resources
 
@@ -34,30 +34,9 @@ URIs are absolute (`notes://all/n1`, `file:///…`) and belong to the system who
 goes through the hub (`ctx.resources.text(uri)` from any system), which routes each URI to the system that serves it.
 Build readers on `@aeye/resources` where they fit; the fs system serves folders this way.
 
-The notes system serves each note as markdown under `notes://all/`, so the hub indexes and searches them:
-
-_From `scripts/docs/example/server/impl.ts`:_
-
-```ts
-const resources: ResourceProvider = {
-  roots: () => Promise.resolve([{ uri: ROOT, name: 'Notes', description: 'Every note, as markdown.', index: 'all', ignore: [], watch: false }]),
-  async list(uri) {
-    if (uri !== ROOT || current === undefined) { return { items: [] }; }
-    return { items: (await current.all()).map(statOf) };
-  },
-  async stat(uri) {
-    const id = idOf(uri);
-    const note = id === undefined ? undefined : await current?.get(id);
-    return note === undefined ? undefined : statOf(note);
-  },
-  async read(uri) {
-    const id = idOf(uri);
-    const note = id === undefined ? undefined : await current?.get(id);
-    if (note === undefined) { throw new Error(`There is no note at ${uri}.`); }
-    return { stat: statOf(note), text: { inline: markdownOf(note) } };
-  },
-};
-```
+Serve resources for things that live outside the hub (files, pages, an external store); records of a stored type
+need none, since the hub already keeps and searches them ([Stored types and the data system](context:fs/authoring.data)). The fs system is the
+reference provider (`systems/fs/server/resources.ts`).
 
 ### Embedders
 

@@ -23,7 +23,7 @@ type Callers<D extends Deps> = {
 };
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `Caller`
 
@@ -58,7 +58,7 @@ interface CallOptions<H extends Handlers> {
 }
 ```
 
-Refers to: [`Duration`](context:fs/authoring.core-types#core-duration), [`InstanceName`](context:fs/authoring.core-types#core-instancename), [`Usd`](context:fs/authoring.core-types#core-usd).
+Refers to: [`Duration`](context:fs/authoring.core-types.primitives-ts#core-duration), [`InstanceName`](context:fs/authoring.core-types.primitives-ts#core-instancename), [`Usd`](context:fs/authoring.core-types.primitives-ts#core-usd).
 
 #### `FnCall`
 
@@ -81,7 +81,7 @@ interface FnCall<R> extends PromiseLike<R> {
 }
 ```
 
-Refers to: [`RunId`](context:fs/authoring.core-types#core-runid), [`RunUpdate`](context:fs/authoring.core-types#core-runupdate).
+Refers to: [`RunId`](context:fs/authoring.core-types.primitives-ts#core-runid), [`RunUpdate`](context:fs/authoring.core-types.run-ts#core-runupdate).
 
 #### `Settled`
 
@@ -96,7 +96,7 @@ type Settled<R> =
 | { status: 'cancelled' };
 ```
 
-Refers to: [`FnError`](context:fs/authoring.core-types#core-fnerror).
+Refers to: [`FnError`](context:fs/authoring.core-types.run-ts#core-fnerror).
 
 #### `CallFailed`
 
@@ -113,7 +113,7 @@ class CallFailed extends Error {
 }
 ```
 
-Refers to: [`FnError`](context:fs/authoring.core-types#core-fnerror), [`RunId`](context:fs/authoring.core-types#core-runid).
+Refers to: [`FnError`](context:fs/authoring.core-types.run-ts#core-fnerror), [`RunId`](context:fs/authoring.core-types.primitives-ts#core-runid).
 
 #### `HandlerFailed`
 
@@ -130,4 +130,4 @@ class HandlerFailed extends Error {
 }
 ```
 
-Refers to: [`FnError`](context:fs/authoring.core-types#core-fnerror).
+Refers to: [`FnError`](context:fs/authoring.core-types.run-ts#core-fnerror).

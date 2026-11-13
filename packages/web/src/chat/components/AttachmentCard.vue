@@ -1,15 +1,14 @@
 <script setup lang="ts">
 /**
  * A typed attachment a fn added to an answer: drawn by its system's attachment renderer (the fs diff view); when it has
- * none and its data is a result table (a query's rows), by the result view with its system's query visuals
- * (`<system>/query-visuals`); else as its title and a short look at its data.
+ * none and its data is a result table (a query's rows), by the result view with the hub's visuals (`hub/visuals`, which
+ * every system contributes to); else as its title and a short look at its data.
  */
-import { QualifiedName, ResultTable, type Json } from '@harness/core';
+import { HUB_VISUALS, QualifiedName, ResultTable, type Json } from '@harness/core';
 import { computed, ref } from 'vue';
 import { UiIcon } from '../../ui/index.ts';
 import ResultBlock from '../../components/results/ResultBlock.vue';
-import { QUERY_VISUALS } from '../../components/results/visuals.ts';
-import { fnLabel, systemOf } from '../logic/labels.ts';
+import { fnLabel } from '../logic/labels.ts';
 import RendererHost from './RendererHost.vue';
 import type { RenderView } from './types.ts';
 
@@ -25,7 +24,7 @@ const props = withDefaults(defineProps<{
 const open = ref(false);
 const peek = computed(() => JSON.stringify(props.data, null, 2));
 const table = computed(() => { const parsed = ResultTable.safeParse(props.data); return parsed.success ? parsed.data : undefined; });
-const registry = computed(() => QualifiedName.parse(`${systemOf(props.attachment)}/${QUERY_VISUALS}`));
+const registry = QualifiedName.parse(HUB_VISUALS);
 </script>
 
 <template>

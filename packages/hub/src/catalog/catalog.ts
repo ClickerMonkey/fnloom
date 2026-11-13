@@ -6,10 +6,10 @@
 import type { Type } from '@aeye/gin';
 import type { Logger } from '@ayepi/log';
 import {
-  Json, MANIFEST_SECTION_NAMES, noFnStats, QualifiedName, qualify, runtimeNames, splitName,
+  apiContextName, Json, MANIFEST_SECTION_NAMES, noFnStats, QualifiedName, qualify, runtimeNames, splitName,
   type ActorId, type Availability, type ContextDecl, type ContextRecord, type FnDecl, type FnRecord, type GinTypeDef, type ImportReport,
   type KindDecl, type KindRecord, type Manifest, type ManifestPatch, type ManifestSection, type SectionDecl, type SystemName,
-  type InstanceName, type TypeDecl, type TypeRecord, type DeclaredBy,
+  type InstanceName, type TypeDecl, type TypeRecord, type DeclaredBy, type FnLink, type ApiGroupDecl,
 } from '@harness/core';
 import { canonicalJson, sha256 } from '@harness/sdk';
 import { z } from 'zod';
@@ -19,9 +19,11 @@ import { contextTokens } from '../contextor/tokens.ts';
 import type { HubStore } from '../store/index.ts';
 import { AvailabilityRules, heldFns, sameAvailability, systemAvailability, systemOf, unavailable } from './availability.ts';
 import type { Catalog, CatalogEntry, FnSignature, KindDescriber } from './index.ts';
-import { allRows } from '../store/rows.ts';
+import { allRows, rows } from '../store/rows.ts';
 import { GinScopes, messageOf, type TypeLookup } from './scope.ts';
 import { Serial } from './serial.ts';
+import { itemChanges, writeItemVersions } from './versions.ts';
+import { apiIndexDecls, isApiIndexName } from './api-index.ts';
 
 /** What the catalog needs. */
 export interface CatalogOptions {
@@ -118,8 +120,6 @@ interface ImportWork {
   readonly described: Map<string, FnDecl>;
   /** The named types each described fn's payload references, from its kind's description. */
   readonly describedTypes: Map<string, readonly string[]>;
-  /** Fn records and type mentions of other systems, read once per import when a change needs them. */
-  others?: Promise<{ fns: FnRecord[] }>;
 }
 
 /** The catalog, kept in the hub store. */
@@ -129,11 +129,6 @@ export class StoreCatalog implements Catalog {
   readonly #types = new Map<string, TypeRecord>();
   readonly #manifests = new Map<string, Manifest>();
   readonly #signatures = new Map<string, { version: string; signature: FnSignature }>();
-  /**
-   * The named types each kind fn's description said its payload references (`KindDescription.types`), so a change to
-   * one re-describes the fn. Kept in memory: after a restart the kind's system re-describes every fn as it connects.
-   */
-  readonly #describedTypes = new Map<string, readonly string[]>();
   #loaded: Promise<void> | undefined;
 
   private readonly options: CatalogOptions;
@@ -311,13 +306,37 @@ export class StoreCatalog implements Catalog {
       const problems = await this.#checkFn(work, decl, existing);
       if (problems.length > 0) { return { ...emptyReport(), refused: [{ name, problems }] }; }
       const stored = work.described.get(decl.name) ?? decl;
-      await this.options.store.table('fns').put(await this.#fnRecord(system, stored, existing, 'runtime', by));
-      this.#rememberTypes(name, work, decl.name);
+      const record = await this.#fnRecord(system, stored, existing, 'runtime', by);
+      await this.options.store.tx(async (tx) => {
+        await tx.table('fns').put(record);
+        await this.#writeIndexes(tx, record, work.describedTypes.get(decl.name));
+        // the version is the declaration as the person saved it; an unchanged save writes none
+        if (existing === undefined || existing.version !== record.version) {
+          await writeItemVersions(tx, system, [{ section: 'fns', name, change: existing === undefined ? 'added' : 'changed', decl: Json.parse(decl), declaredBy: 'runtime' }], this.options.clock(), by);
+        }
+      });
       await this.#refresh();
-      const record = await this.fn(name);
-      this.#announce([name], [], record === undefined ? [] : [record]);
+      const saved = await this.fn(name);
+      this.#announce([name], [], saved === undefined ? [] : [saved]);
       return { ...emptyReport(), ...(existing === undefined ? { added: [name] } : { updated: [name] }) };
     });
+  }
+
+  /**
+   * Write the index rows (`fnSignatureTypes`, `fnLinks`) of every stored fn, once, on a hub whose fns were stored
+   * before build 8 kept them: a migration, read page by page. Returns how many fns it indexed (none when the rows exist).
+   */
+  async indexStoredFns(): Promise<number> {
+    const { store } = this.options;
+    if ((await store.table('fnLinks').count()) > 0 || (await store.table('fnSignatureTypes').count()) > 0) { return 0; }
+    await this.#load();
+    let indexed = 0;
+    for await (const fn of rows(store.table('fns'))) {
+      await store.tx((tx) => this.#writeIndexes(tx, fn, undefined));
+      indexed += 1;
+    }
+    if (indexed > 0) { this.options.log.info('catalog.fns.indexed', { fns: indexed }); }
+    return indexed;
   }
 
   // ─── Availability ─────────────────────────────────────────────────────────
@@ -357,9 +376,54 @@ export class StoreCatalog implements Catalog {
   async #redescribeKindsOf(system: SystemName): Promise<FnRecord[]> {
     const { store } = this.options;
     if (systemAvailability(system, await store.table('systems').get(system), { staged: false }) !== true) { return []; }
-    const kindNames = new Set<string>((await allRows(store.table('kinds'), { where: { system } })).map((k) => k.name));
-    if (kindNames.size === 0) { return []; }
-    return this.#redescribe((await allRows(store.table('fns'))).filter((fn) => kindNames.has(fn.decl.kind)));
+    const kindNames = (await allRows(store.table('kinds'), { where: { system } })).map((k) => k.name);
+    if (kindNames.length === 0) { return []; }
+    // the fns of its kinds, from the links the fns' transactions keep
+    const names = (await allRows(store.table('fnLinks'), { where: { to: { in: kindNames.flatMap((k) => qualifiedOnly([k])) }, link: 'kind' } })).map((row) => row.fn);
+    return this.#redescribe(await this.#records(names));
+  }
+
+  /** A fn's `fnLinks` rows: one per fn it depends on, and one to its kind. */
+  async #writeLinks(store: HubStore, fn: FnRecord, fresh: boolean): Promise<void> {
+    const table = store.table('fnLinks');
+    const links: FnLink[] = [
+      ...qualifiedOnly(fn.decl.deps).map((to): FnLink => ({ fn: fn.name, to, link: 'dep', system: fn.system })),
+      ...(fn.decl.kind === 'native' ? [] : qualifiedOnly([fn.decl.kind]).map((to): FnLink => ({ fn: fn.name, to, link: 'kind', system: fn.system }))),
+    ];
+    const keep = new Set(links.map((l) => `${l.link}:${l.to}`));
+    for (const row of fresh ? [] : await allRows(table, { where: { fn: fn.name } })) {
+      if (!keep.has(`${row.link}:${row.to}`)) { await table.remove({ fn: row.fn, to: row.to, link: row.link }); }
+    }
+    await table.putAll(links);
+  }
+
+  /** Remove a fn's index rows with it. */
+  async #removeIndexes(store: HubStore, name: QualifiedName): Promise<void> {
+    for (const row of await allRows(store.table('fnSignatureTypes'), { where: { fn: name } })) { await store.table('fnSignatureTypes').remove({ fn: row.fn, type: row.type }); }
+    for (const row of await allRows(store.table('fnLinks'), { where: { fn: name } })) { await store.table('fnLinks').remove({ fn: row.fn, to: row.to, link: row.link }); }
+  }
+
+  /** The fn records of some names, leaving out any gone. */
+  async #records(names: readonly QualifiedName[]): Promise<FnRecord[]> {
+    const fns = this.options.store.table('fns');
+    return (await Promise.all([...new Set(names)].map((name) => fns.get(name)))).filter((fn) => fn !== undefined);
+  }
+
+  /**
+   * Keep a fn's index rows, in the fn's transaction: the named types its signature mentions (its args and result as
+   * written, and the types its kind said its payload references) in `fnSignatureTypes`, and the fns it depends on and its
+   * kind in `fnLinks`. A kind fn not described this time keeps the types its last description gave.
+   */
+  async #writeIndexes(store: HubStore, fn: FnRecord, described: readonly string[] | undefined, fresh = false): Promise<void> {
+    // a fn stored for the first time has no rows to replace
+    await this.#writeLinks(store, fn, fresh);
+    const table = store.table('fnSignatureTypes');
+    const before = fresh ? [] : await allRows(table, { where: { fn: fn.name } });
+    const kept = fn.decl.kind !== 'native' && described === undefined ? before.map((row) => row.type) : [];
+    const named = new Set<string>([...kept, ...(described ?? []), ...[fn.decl.args, fn.decl.returns].flatMap((def) => this.#scopes.mentions(def))]);
+    const types = qualifiedOnly(named);
+    for (const row of before) { if (!types.includes(row.type)) { await table.remove({ fn: row.fn, type: row.type }); } }
+    await table.putAll(types.map((type) => ({ fn: fn.name, type, kind: fn.decl.kind, system: fn.system })));
   }
 
   /**
@@ -376,28 +440,28 @@ export class StoreCatalog implements Catalog {
       const declared = this.#manifests.get(fn.system)?.fns.find((d) => d.name === splitName(fn.name).local) ?? fn.decl;
       const problems = await this.#describe(work, declared);
       if (problems.length > 0) { log.warn('catalog.describe.refused', { fn: fn.name, problems }); continue; }
-      this.#rememberTypes(fn.name, work, declared.name);
       const described = work.described.get(declared.name);
-      if (described === undefined || sameDecl(described, fn.decl)) { continue; }
-      written.push(await store.table('fns').put(await this.#fnRecord(fn.system, described, fn, fn.origin, fn.addedBy)));
+      const types = work.describedTypes.get(declared.name);
+      if (described === undefined || sameDecl(described, fn.decl)) {
+        if (types !== undefined) { await this.#writeIndexes(store, fn, types); }
+        continue;
+      }
+      const record = await this.#fnRecord(fn.system, described, fn, fn.origin, fn.addedBy);
+      written.push(await store.tx(async (tx) => {
+        const put = await tx.table('fns').put(record);
+        await this.#writeIndexes(tx, put, types);
+        return put;
+      }));
     }
     return written;
   }
 
   /** Kind fns whose signature or described payload names one of `types`, leaving out `skip` (just imported). */
   async #referencing(types: ReadonlySet<string>, skip: ReadonlySet<string>): Promise<FnRecord[]> {
-    if (types.size === 0) { return []; }
-    return (await allRows(this.options.store.table('fns'))).filter((fn) => {
-      if (fn.decl.kind === 'native' || skip.has(fn.name)) { return false; }
-      const named = [...(this.#describedTypes.get(fn.name) ?? []), ...[fn.decl.args, fn.decl.returns].flatMap((def) => this.#scopes.mentions(def))];
-      return named.some((name) => types.has(name));
-    });
-  }
-
-  /** Keep the named types a fn's kind said its payload references (nothing for a fn not described this time). */
-  #rememberTypes(fn: string, work: ImportWork, local: string): void {
-    const types = work.describedTypes.get(local);
-    if (types !== undefined) { this.#describedTypes.set(fn, types); }
+    const named = qualifiedOnly(types);
+    if (named.length === 0) { return []; }
+    const rows = await allRows(this.options.store.table('fnSignatureTypes'), { where: { type: { in: named } } });
+    return this.#records(rows.filter((row) => row.kind !== 'native' && !skip.has(row.fn)).map((row) => row.fn));
   }
 
   // ─── The import itself ────────────────────────────────────────────────────
@@ -471,6 +535,7 @@ export class StoreCatalog implements Catalog {
     const now = clock();
 
     const fnWrites: FnRecord[] = [];
+    const apiChanged: QualifiedName[] = [];
     const systemRow = await store.table('systems').get(system);
     // an installed system's context stays off with the rest of it until it goes live
     const contextSwitchedOff = systemRow?.enabled.context === false || systemRow?.stage === 'installed';
@@ -478,12 +543,6 @@ export class StoreCatalog implements Catalog {
       for (const decl of accepted.types) {
         const name = qualify(system, decl.name);
         if (changedNames.has(name) || force || this.#types.get(name)?.declaredBy !== declaredBy('types', decl.name)) {
-          // the definition it replaces is kept, numbered, with its meta (a table's schema hash at that version)
-          const old = before.types.find((t) => t.name === decl.name);
-          if (old !== undefined && !sameDecl(old, decl)) {
-            const number = (await tx.table('typeVersions').count({ type: name })) + 1;
-            await tx.table('typeVersions').put({ id: `${name}#${number}`, type: name, number, decl: old, ...(old.instance === undefined ? {} : { instance: old.instance }), savedAt: now });
-          }
           await tx.table('types').put(this.#typeRecord(system, decl, now, declaredBy('types', decl.name), await hashOf(decl)));
         }
       }
@@ -500,6 +559,7 @@ export class StoreCatalog implements Catalog {
         if (existing !== undefined && existing.origin === origin && sameDecl(existing.decl, described)) { continue; }
         const record = await this.#fnRecord(system, described, existing, origin, undefined);
         fnWrites.push(await tx.table('fns').put(record));
+        await this.#writeIndexes(tx, record, work.describedTypes.get(decl.name), existing === undefined);
         if (!changedNames.has(name)) { report.updated.push(name); changedNames.add(name); }
       }
       for (const decl of accepted.context) {
@@ -519,15 +579,22 @@ export class StoreCatalog implements Catalog {
           await writeDerivedLinks(tx, record, now);
         }
       }
+      // the API index items list the fns as this import leaves them
+      apiChanged.push(...await this.#writeApiIndex(tx, system, accepted, next.groups ?? [], now, contextSwitchedOff));
       for (const name of removedFrom.get('fns') ?? []) {
         // a fn a person saved (`addedBy`) is never in a manifest, so only the system's own go
         const gone = await tx.table('fns').get(name);
-        if (gone !== undefined && (gone.origin === 'contract' || gone.addedBy === undefined)) { await tx.table('fns').remove(name); }
+        if (gone !== undefined && (gone.origin === 'contract' || gone.addedBy === undefined)) {
+          await tx.table('fns').remove(name);
+          await this.#removeIndexes(tx, name);
+        }
       }
       for (const name of removedFrom.get('types') ?? []) { await tx.table('types').remove(name); }
       for (const name of removedFrom.get('kinds') ?? []) { await tx.table('kinds').remove(name); }
       for (const name of removedFrom.get('context') ?? []) { await tx.table('context').remove(name); await removeLinksFrom(tx, name); }
       await tx.table('manifests').put({ system, manifest: stored, importedAt: now });
+      // every item that changed gets a version (a type's keeps its meta: a table's schema hash at that version)
+      await writeItemVersions(tx, system, itemChanges(previous, stored), now);
     });
 
     this.#manifests.set(system, stored);
@@ -536,8 +603,6 @@ export class StoreCatalog implements Catalog {
       const name = qualify(system, decl.name);
       this.#types.set(name, this.#typeRecord(system, decl, now, declaredBy('types', decl.name), await hashOf(decl)));
     }
-    for (const name of removedFrom.get('fns') ?? []) { this.#describedTypes.delete(name); }
-    for (const fn of fnWrites) { this.#rememberTypes(fn.name, work, splitName(fn.name).local); }
     const changedTypes = new Set<string>([
       ...accepted.types.map((t) => qualify(system, t.name)).filter((name) => changedNames.has(name)), ...(removedFrom.get('types') ?? []),
     ]);
@@ -547,8 +612,43 @@ export class StoreCatalog implements Catalog {
     const availabilityChanged = await this.#refresh();
     const fns = new Map<string, FnRecord>([...fnWrites, ...redescribed, ...availabilityChanged].map((r) => [r.name, r]));
     this.#announce([...report.added, ...report.updated], report.removed, [...fns.values()]);
+    for (const name of apiChanged) { this.options.bus.publish('context.changed', { name }); }
     log.info('catalog.imported', { system, added: report.added.length, updated: report.updated.length, removed: report.removed.length, refused: report.refused.length });
     return report;
+  }
+
+  /**
+   * Write a system's API index items (`api-index.ts`) for the fns this import accepted: changed ones rewritten, a group
+   * that no longer has fns removed (found from the index item's own choices, so nothing is scanned). An item the system
+   * declares itself under the same name is left to it. Returns the names written or removed.
+   */
+  async #writeApiIndex(tx: HubStore, system: SystemName, accepted: SectionLists, groups: readonly ApiGroupDecl[], now: number, off: boolean): Promise<QualifiedName[]> {
+    const own = new Set<string>(accepted.context.map((decl) => qualify(system, decl.name)));
+    const decls = apiIndexDecls(system, accepted.fns, groups).filter((decl) => !own.has(qualify(system, decl.name)));
+    const table = tx.table('context');
+    const previous = await table.get(apiContextName(system));
+    const wanted = new Set<string>(decls.map((decl) => qualify(system, decl.name)));
+    const changed: QualifiedName[] = [];
+    const before: QualifiedName[] = previous === undefined || own.has(previous.name) ? [] : [previous.name, ...(previous.decl.choices ?? []).map((choice) => choice.to)];
+    for (const name of before) {
+      if (wanted.has(name) || own.has(name) || !isApiIndexName(system, name)) { continue; }
+      await table.remove(name);
+      await removeLinksFrom(tx, name);
+      changed.push(name);
+    }
+    for (const decl of decls) {
+      const name = qualify(system, decl.name);
+      const existing = name === previous?.name ? previous : await table.get(name);
+      if (existing !== undefined && sameDecl(existing.decl, decl)) { continue; }
+      const record = await table.put({
+        ...await this.#contextRecord(tx, system, decl, decls, now), origin: { type: 'system' }, declaredBy: 'runtime', version: await hashOf(decl),
+        ...(existing?.disabled === undefined ? {} : { disabled: existing.disabled }),
+        ...(existing?.systemOff === undefined ? (off ? { systemOff: true } : {}) : { systemOff: existing.systemOff }),
+      });
+      await writeDerivedLinks(tx, record, now);
+      changed.push(name);
+    }
+    return changed;
   }
 
   /** Publish what changed, with the fn records that changed. */
@@ -592,14 +692,10 @@ export class StoreCatalog implements Catalog {
     for (const type of this.#types.values()) {
       if (type.system !== work.system && this.#scopes.mentions(type.def).includes(name)) { return true; }
     }
-    const { fns } = await this.#others(work);
-    return fns.some((fn) => [fn.decl.args, fn.decl.returns].some((def) => this.#scopes.mentions(def).includes(name)));
-  }
-
-  /** Fn records of other systems, read once per import. */
-  #others(work: ImportWork): Promise<{ fns: FnRecord[] }> {
-    work.others ??= allRows(this.options.store.table('fns')).then((fns) => ({ fns: fns.filter((fn) => fn.system !== work.system) }));
-    return work.others;
+    const [type] = qualifiedOnly([name]);
+    if (type === undefined) { return false; }
+    // the fns whose signature names it, from the index the fns' transactions keep
+    return (await allRows(this.options.store.table('fnSignatureTypes'), { where: { type } })).some((row) => row.system !== work.system);
   }
 
   /** A fn's types parse, its kind accepts and describes its payload, and a change keeps faith with its dependents. */
@@ -616,8 +712,8 @@ export class StoreCatalog implements Catalog {
     if (existing === undefined) { return []; }
     const next = work.described.get(decl.name) ?? decl;
     const name = qualify(work.system, decl.name);
-    const { fns } = await this.#others(work);
-    const dependents = fns.filter((fn) => fn.decl.deps.includes(name)).map((fn) => fn.name);
+    // other systems' fns that depend on it, from the links the fns' transactions keep
+    const dependents = (await allRows(this.options.store.table('fnLinks'), { where: { to: name, link: 'dep' } })).filter((row) => row.system !== work.system).map((row) => row.fn);
     if (dependents.length === 0) { return []; }
     const { types: [newArgs, newReturns, oldArgs, oldReturns], scope } = this.#scopes.parse([next.args, next.returns, existing.decl.args, existing.decl.returns], work.lookup);
     if (newArgs === undefined || newReturns === undefined || oldArgs === undefined || oldReturns === undefined) { return ['its signature did not parse']; }
@@ -710,6 +806,8 @@ export class StoreCatalog implements Catalog {
       ...(decl.audience === undefined ? {} : { audience: decl.audience }),
       // and what its system keeps about it (build 6), read back through `types` and `ctx.types`
       ...(decl.meta === undefined ? {} : { meta: decl.meta }),
+      // and, for a stored type, how the hub keeps its records (build 8, the data system)
+      ...(decl.records === undefined ? {} : { records: decl.records }),
     };
   }
 
@@ -771,6 +869,11 @@ export class StoreCatalog implements Catalog {
     })();
     return this.#loaded;
   }
+}
+
+/** The names that are qualified names (a gin mention of a built-in type is not). */
+function qualifiedOnly(names: Iterable<string>): QualifiedName[] {
+  return [...names].flatMap((name) => { const parsed = QualifiedName.safeParse(name); return parsed.success ? [parsed.data] : []; });
 }
 
 /** Whether a type is gin's `any` (an author who gave no args type). */

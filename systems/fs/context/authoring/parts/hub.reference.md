@@ -21,7 +21,7 @@ The hub's contract.
 const hub: typeof hub; // too large to print: see its section
 ```
 
-Refers to: [`FnExamplesPage`](context:fs/authoring.core-types#core-fnexamplespage), [`FnExamplesQuery`](context:fs/authoring.core-types#core-fnexamplesquery), [`FnSearchPage`](context:fs/authoring.core-types#core-fnsearchpage), [`FnSearchQuery`](context:fs/authoring.core-types#core-fnsearchquery), [`LoadContextResult`](context:fs/authoring.core-types#core-loadcontextresult), [`MintMcpTokenArgs`](context:fs/authoring.core-types#core-mintmcptokenargs), [`ResourceOutlineArgs`](context:fs/authoring.core-types#core-resourceoutlineargs), [`ResourceSendArgs`](context:fs/authoring.core-types#core-resourcesendargs), [`Section`](context:fs/authoring.core-types#core-section).
+Refers to: [`FnExamplesPage`](context:fs/authoring.core-types.fn-facts-ts#core-fnexamplespage), [`FnExamplesQuery`](context:fs/authoring.core-types.fn-facts-ts#core-fnexamplesquery), [`FnSearchPage`](context:fs/authoring.core-types.fn-facts-ts#core-fnsearchpage), [`FnSearchQuery`](context:fs/authoring.core-types.fn-facts-ts#core-fnsearchquery), [`LoadContextResult`](context:fs/authoring.core-types.context-files-ts#core-loadcontextresult), [`MintMcpTokenArgs`](context:fs/authoring.core-types.records-mcps-ts#core-mintmcptokenargs), [`ResourceOutlineArgs`](context:fs/authoring.core-types.resource-forms-ts#core-resourceoutlineargs), [`ResourceSendArgs`](context:fs/authoring.core-types.resource-forms-ts#core-resourcesendargs), [`Section`](context:fs/authoring.core-types.resources-ts#core-section).
 
 #### `HubContract`
 
@@ -122,6 +122,8 @@ const HUB_READ_ENDPOINTS = {
   query: querySlice.endpoints.query,
   /** The graph of systems' fns, context, types and parts, and how they connect. */
   graph: graphSlice.endpoints.graph,
+  /** Build 8: any item's version history (fns, types, context, kinds, commands, components, ...). */
+  item_versions: versionsSlice.endpoints.itemVersions,
 } as const satisfies Record<string, EndpointLike>;
 ```
 
@@ -302,7 +304,7 @@ const LlmPayloadType = g.obj({
 });
 ```
 
-Refers to: [`ModelLimits`](context:fs/authoring.core-types#core-modellimits).
+Refers to: [`ModelLimits`](context:fs/authoring.core-types.modes-ts#core-modellimits).
 
 #### `ModelChoiceType`
 
@@ -324,7 +326,7 @@ A chat mode's settings, as a gin type: core's `ChatModeConfig` input (defaults m
 const ChatModeType: GinType<{ type: "tools"; } | { type: "static"; protocol?: "text" | "auto" | "native" | undefined; placement?: "system-end" | "tail" | undefined; loadDetail?: "signature" | "listed" | "full" | undefined; }>;
 ```
 
-Refers to: [`ChatModeConfig`](context:fs/authoring.core-types#core-chatmodeconfig).
+Refers to: [`ChatModeConfig`](context:fs/authoring.core-types.modes-ts#core-chatmodeconfig).
 
 #### `ContextorType`
 
@@ -336,7 +338,7 @@ A contextor's settings, as a gin type: core's `ContextorConfig` input (defaults 
 const ContextorType = ginAs(ContextorConfig);
 ```
 
-Refers to: [`ContextorConfig`](context:fs/authoring.core-types#core-contextorconfig).
+Refers to: [`ContextorConfig`](context:fs/authoring.core-types.modes-ts#core-contextorconfig).
 
 #### `FnErrorType`
 
@@ -358,7 +360,7 @@ A fn as `hub/fn_get` gives it.
 const StoredFn: ObjType<{ fn: string; kind: string; description: string; version: number; available: boolean; instructions?: string | undefined; payload?: z.core.util.JSONType | undefined; owner?: string | undefined; routing?: { to: "instance"; instance: string; } | { to: "any"; } | undefined; }>;
 ```
 
-Refers to: [`FnRouting`](context:fs/authoring.core-types#core-fnrouting).
+Refers to: [`FnRouting`](context:fs/authoring.core-types.contextdecl#core-fnrouting).
 
 #### `SaveFnArgs`
 
@@ -381,7 +383,7 @@ const SaveFnArgs = g.obj({
 });
 ```
 
-Refers to: [`FnExample`](context:fs/authoring.core-types#core-fnexample), [`FnRouting`](context:fs/authoring.core-types#core-fnrouting), [`ShareRule`](context:fs/authoring.core-types#core-sharerule).
+Refers to: [`FnExample`](context:fs/authoring.core-types.contextdecl#core-fnexample), [`FnRouting`](context:fs/authoring.core-types.contextdecl#core-fnrouting), [`ShareRule`](context:fs/authoring.core-types.access-ts#core-sharerule).
 
 #### `SAVE_FN_TAKEN`
 

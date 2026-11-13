@@ -3,9 +3,9 @@
  * disagree, and checked against core's `Manifest` schema before it leaves.
  */
 import {
-  DeclaredLink, Json, LinkTarget, Manifest, SystemName, splitName, SYSTEM_EVENT_TYPES,
+  DeclaredLink, GENERAL_GROUP, Json, LinkTarget, Manifest, SystemName, splitName, SYSTEM_EVENT_TYPES,
   type ActionDecl, type ClientAssets, type ConnectDecl, type ContextDecl, type FnDecl, type HandlerDecl, type QualifiedName, type SystemEventType,
-  type TypeDecl, GinTypeDef,
+  type TypeDecl, type ApiGroupDecl, GinTypeDef,
 } from '@harness/core';
 import { z } from 'zod';
 import type { AnyContextDef, AnyTypeDef, ContextLinkTarget } from './declare.ts';
@@ -68,6 +68,8 @@ export function fnDecl(name: string, def: AnyFnDef): FnDecl {
     ...(def.routing === undefined ? {} : { routing: def.routing }),
     ...(def.effects === undefined ? {} : { effects: def.effects }),
     ...(def.promptExamples === undefined ? {} : { promptExamples: def.promptExamples }),
+    ...(def.group === undefined ? {} : { group: def.group }),
+    ...(def.flags ? { flags: true } : {}),
   };
 }
 
@@ -93,6 +95,7 @@ function typeDecl(name: string, def: AnyTypeDef): TypeDecl {
     def: wireType(def.shape),
     display: { ...def.display },
     methods: Object.keys(def.methods),
+    ...(def.records === undefined ? {} : { records: { ...def.records, search: { ...def.records.search, text: [...def.records.search.text] } } }),
   };
 }
 
@@ -200,7 +203,23 @@ export function manifestBody(contract: AnyContract, options: ManifestOptions): O
     ...(contract.configSecrets.length === 0 ? {} : { configSecrets: checkedSecrets(contract.name, wireType(defs.config), contract.configSecrets) }),
     ...(contract.grants === undefined ? {} : { grants: contract.grants }),
     ...(contract.configComponent === undefined ? {} : { configComponent: contract.configComponent }),
+    ...(contract.groups.length === 0 ? {} : { groups: checkedGroups(contract.name, contract.groups, fns) }),
   };
+}
+
+/** The API groups, checked: names are unique and every group a fn names is declared (a fn with none is general). */
+function checkedGroups(system: string, groups: readonly ApiGroupDecl[], fns: readonly FnDecl[]): ApiGroupDecl[] {
+  const names = new Set<string>();
+  for (const group of groups) {
+    if (names.has(group.name)) { throw new Error(`system ${system}: API group ${group.name} is declared twice.`); }
+    names.add(group.name);
+  }
+  for (const fn of fns) {
+    if (fn.group !== undefined && fn.group !== GENERAL_GROUP && !names.has(fn.group)) {
+      throw new Error(`system ${system}: fn ${fn.name} is in API group ${fn.group}, which system(${JSON.stringify(system)}, { groups }) does not declare.`);
+    }
+  }
+  return groups.map((group) => ({ ...group }));
 }
 
 /** The config's secret paths, checked: each must name a text field (optional or nullable allowed) of the config type. */

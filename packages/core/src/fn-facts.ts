@@ -270,6 +270,14 @@ export type FnTypeUse = z.infer<typeof FnTypeUse>;
 export const FnSignatureType = z.object({ fn: QualifiedName, type: QualifiedName, kind: FnKindName, system: SystemName });
 export type FnSignatureType = z.infer<typeof FnSignatureType>;
 
+/**
+ * Build 8: a fn's direct link to a fn it depends on (`FnDecl.deps`, `dep`) or to the kind it is a fn of (`kind`): the
+ * `fnLinks` table, written by the catalog in the fn's transaction, so the catalog finds a fn's dependents and a kind's
+ * fns by querying, not by loading every fn (`fnUses`, the facts module's deep list, is worked out after the change).
+ */
+export const FnLink = z.object({ fn: QualifiedName, to: QualifiedName, link: z.enum(['dep', 'kind']), system: SystemName });
+export type FnLink = z.infer<typeof FnLink>;
+
 /** One fn another uses, deeply (the `fnUses` table), so a change to `uses` refreshes the facts of `fn` in the database. */
 export const FnUse = z.object({ fn: QualifiedName, uses: QualifiedName });
 export type FnUse = z.infer<typeof FnUse>;

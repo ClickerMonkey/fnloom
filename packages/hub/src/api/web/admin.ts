@@ -10,7 +10,7 @@ import {
   adminSlice, UserView, type BudgetView, type LlmSummary, type SettingView, type TableName,
 } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
-import { collect, PAGE } from '../paging.ts';
+import { allRows } from '../../store/rows.ts';
 import { userInfo, type FullHandlers } from './access.ts';
 import type { AdminOperations } from '../admin-ops.ts';
 import type { HubReads } from '../reads.ts';
@@ -22,7 +22,7 @@ const PAGE_SIZE = 50;
 
 /** Every row of a small table (rules, categories). */
 function all<T extends TableName>(hub: Pick<HubServices, 'store'>, table: T) {
-  return collect((cursor) => hub.store.table(table).find({ limit: PAGE, cursor }));
+  return allRows(hub.store.table(table));
 }
 
 /** The admin reads plugin. */

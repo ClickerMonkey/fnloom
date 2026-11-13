@@ -72,6 +72,9 @@ describe('google-calendar over the link', () => {
     expect(googleCalendar.name).toBe(packageManifest.name);
     expect(ConnectDecl.parse(CALENDAR_CONNECT).fns).toMatchObject({ list_events: { on: true, ask: false }, create_event: { on: true, ask: true }, delete_event: { on: false } });
     expect(Object.keys(CALENDAR_CONNECT.fns).sort()).toEqual(hub.manifests[0]?.fns.map((f) => f.name).sort());
+    // every fn is in one of its API groups, which the hub indexes (`<system>/api.<group>`)
+    expect(hub.manifests[0]?.groups?.map((group) => group.name)).toEqual(['events', 'changes']);
+    for (const decl of hub.manifests[0]?.fns ?? []) { expect(['events', 'changes'], decl.name).toContain(decl.group); }
   });
 
   it('fails every fn plainly without a connection', async () => {

@@ -29,6 +29,7 @@ export const OUTLINE: readonly Topic[] = [
     title: 'Named types and methods',
     exports: ['type', 'TypeDef', 'AnyTypeDef', 'ValueOf', 'NamingKeys', 'TypeRef', 'AnyTypeRef', 'Methods', 'MethodName', 'MethodArgs', 'MethodRefs', 'MethodImpl'],
   },
+  { id: 'data', title: 'Stored types and the data system', exports: ['TextKeys', 'RecordsInput', 'Data', 'StoredRecord', 'StoredType', 'RecordFind'] },
   {
     id: 'fns',
     title: 'Fns',
@@ -58,7 +59,7 @@ export const OUTLINE: readonly Topic[] = [
       'kind', 'KindDef', 'KindImpl', 'KindEstimateInput', 'KindCheckCtx', 'KindRunCtx', 'KindRef', 'AnyKindRef', 'kindFn', 'KindFnInput', 'KindFnTypes', 'UntypedFn',
       'agent', 'AgentInput', 'AgentFnTypes', 'LlmPayload', 'LlmKind',
       'authoringAgent', 'AuthoringAgent', 'AuthoringAgentInput', 'authoringTool', 'AuthoringTool', 'AuthoringToolInput', 'AuthoringSession', 'AuthoringStage', 'AUTHORING_STAGES',
-      'ToolStage', 'DraftCheck', 'Disclosure', 'authoredFn', 'AuthoredFn', 'AuthoringError', 'authoringEnv',
+      'ToolStage', 'SkippableStage', 'DraftCheck', 'Disclosure', 'authoredFn', 'AuthoredFn', 'AuthoringError', 'authoringEnv',
     ],
   },
   { id: 'settings-attachments', title: 'Settings and attachments', exports: ['setting', 'SettingDef', 'SettingRef', 'attachment', 'AttachmentDef', 'AttachmentRef'] },
@@ -118,6 +119,14 @@ export const OUTLINE: readonly Topic[] = [
     ],
   },
   {
+    id: 'widgets',
+    title: 'Visuals and widgets',
+    exports: [
+      'HUB_VISUALS', 'WIDGET_KIND', 'visual', 'VisualInput', 'channel', 'fittingVisuals', 'FittingVisual', 'DECLARED_FIT_SCORE', 'visualMatch',
+      'widgetArgs', 'widgetControls', 'WidgetControlView', 'checkWidget', 'WidgetCheckInput', 'WidgetCheckResult', 'widgetSpecSchema', 'WidgetSchemaInput', 'widgetActionOptions', 'RowFn',
+    ],
+  },
+  {
     id: 'packaging',
     title: 'Packaging: system.json, build, pack, install',
     exports: [
@@ -132,10 +141,11 @@ export const OUTLINE: readonly Topic[] = [
       'FakeModelLink', 'fakeHubAi', 'replyChunks', 'FakeModelOptions', 'FakeReply', 'checkContextFolder', 'contextFolderLinks', 'CheckedContext', 'KnownNames',
       'testHub', 'TestSystem', 'TestHubOptions', 'callFn', 'CallNotDone', 'TestCall', 'TestRun', 'TestOutcome', 'HubCalls', 'FnNameOf', 'FnArgsOf', 'FnResultOf', 'KindNameOf', 'KindPayloadOf', 'KindProps',
       'mockModel', 'toolCall', 'ScriptStep', 'ModelRecording', 'RecordedModelLink', 'RecordingOptions', 'realModel', 'RealModelTest', 'OpenRouterModelLink', 'OpenRouterOptions',
-      'preview', 'PreviewOptions', 'SavedShot', 'renderHtml', 'galleryHtml', 'PreviewIndex', 'PREVIEW_INDEX', 'PREVIEW_THEMES', 'PreviewTheme', 'contextFolder', 'TestedContext', 'OtherNames', 'kitEnv'],
+      'preview', 'PreviewOptions', 'SavedShot', 'renderHtml', 'galleryHtml', 'PreviewIndex', 'PREVIEW_INDEX', 'PREVIEW_THEMES', 'PreviewTheme', 'contextFolder', 'TestedContext', 'OtherNames', 'kitEnv',
+      'scratchFolder', 'ScratchFolder', 'ScratchOptions', 'FakeRecords', 'StoredTypeDecl'],
   },
   { id: 'mistakes', title: 'Common mistakes', exports: [] },
-  { id: 'examples', title: 'Worked examples', exports: [] },
+  { id: 'examples', title: 'Worked examples', exports: [], each: 'all' },
   {
     id: 'internals',
     title: 'Runtime internals',
@@ -156,5 +166,5 @@ export const OUTLINE: readonly Topic[] = [
       'FollowedResponse', 'HostLookup', 'RedirectOptions', 'RedirectProblems',
     ],
   },
-  { id: 'core-types', title: 'Core types', exports: [], reference: true },
+  { id: 'core-types', title: 'Core types', exports: [], reference: true, each: 'top' },
 ];

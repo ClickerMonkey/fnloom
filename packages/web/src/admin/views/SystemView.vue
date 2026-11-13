@@ -280,7 +280,7 @@ async function act(action: SystemAction, version?: string): Promise<void> {
         >
           <PartsByKind
             v-model:part="part" :groups="groups" :roots="roots" :root-page="rootPage" :owner-page="ownerPage" :is-on="review === undefined ? undefined : partOn"
-            :busy="reviews.switching.busy.value" @switch="switchPart"
+            :busy="reviews.switching.busy.value" :system="name" @switch="switchPart"
           />
         </LoadState>
         <SystemGraph v-else-if="tab === 'graph' && name" :system="name" />

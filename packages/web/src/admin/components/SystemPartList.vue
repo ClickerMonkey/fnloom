@@ -7,10 +7,11 @@
  * opening one shows its declaration, and a part that belongs to a fn or context item links to that item's page. When
  * switchable (build 7), each root and part has its own on/off switch.
  */
-import type { ItemRef, QualifiedName, ResourceRoot, SystemPart, SystemPartSection } from '@harness/core';
+import type { ItemRef, QualifiedName, ResourceRoot, SystemName, SystemPart, SystemPartSection } from '@harness/core';
 import { ref } from 'vue';
 import type { RouteLocationRaw } from 'vue-router';
 import { AUDIENCE_WORDS, DECLARED_WORDS } from '../../context/logic/context.ts';
+import ItemHistory from '../../components/versions/ItemHistory.vue';
 import { UiBadge, UiCodeBlock, UiIcon, UiSwitch } from '../../ui/index.ts';
 import { PART_SECTION_WORDS, shortVersion, type PartGroup } from '../logic/systems.ts';
 
@@ -25,7 +26,9 @@ const props = withDefaults(defineProps<{
   isOn?: ((item: ItemRef) => boolean) | undefined;
   /** A switch is being sent. */
   busy?: boolean;
-}>(), { isOn: undefined, busy: false });
+  /** The system the parts are of: an open part then shows its version history. */
+  system?: SystemName | undefined;
+}>(), { isOn: undefined, busy: false, system: undefined });
 const emit = defineEmits<{ switch: [item: ItemRef, on: boolean] }>();
 const rootRef = (root: ResourceRoot): ItemRef => ({ section: 'roots', name: root.uri });
 const partRef = (part: SystemPart): ItemRef => ({ section: part.section, name: part.name });
@@ -88,6 +91,7 @@ const toggle = (part: SystemPart): void => { open.value = open.value === keyOf(p
               Open {{ part.owner }}
             </RouterLink>
             <UiCodeBlock :code="JSON.stringify(part.decl, null, 2)" language="json" :max-height="320" wrap />
+            <ItemHistory v-if="system" :item="{ system, section: part.section, name: part.name }" />
           </div>
         </li>
       </ul>

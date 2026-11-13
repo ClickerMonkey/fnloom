@@ -41,6 +41,14 @@ describe('visibility', () => {
     expect(await access.info()).toEqual({ multiUser: false });
   });
 
+  it('keeps nothing between requests: a row written by another hub process is seen at once', async () => {
+    const { access, store } = await world();
+    expect((await access.scope(BEN)).seesFn({ name: READ, system: FS })).toBe(true);
+    await store.table('access').put({ key: 'fn:fs/read', target: { kind: 'fn', fn: READ }, sharing: { owner: ADA, visibility: 'private', with: [] }, setBy: ADA, updatedAt: 1 });
+    expect((await access.scope(BEN)).seesFn({ name: READ, system: FS })).toBe(false);
+    expect(await access.sharing({ kind: 'fn', fn: READ })).toEqual({ owner: ADA, visibility: 'private', with: [] });
+  });
+
   it('keeps private things to their owner, shares with people and groups, and lets admins see all', async () => {
     const { access, bus } = await world();
     await access.set(ADA, { kind: 'system', system: FS }, { visibility: 'private', with: [] });

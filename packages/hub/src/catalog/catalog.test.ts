@@ -335,11 +335,17 @@ describe('patches, runtime fns and re-imports', () => {
     expect((await catalog.fn(QualifiedName.parse('shop/find')))?.origin).toBe('runtime');
     expect((await catalog.fn(QualifiedName.parse('shop/get')))?.origin).toBe('contract');
     expect((await catalog.type(QualifiedName.parse('shop/Product')))?.meta).toEqual({ schemaHash: 'abc' });
-    expect((await store.table('typeVersions').get('shop/Product#1'))?.decl.description).toBe(product.description);
+    // every item has its history: the first import's versions, then each change, numbered per item
+    const version = async (section: string, name: string, number: number) => store.table('itemVersions').get(`shop:${section}:${name}#${String(number)}`);
+    expect(await version('types', 'shop/Product', 1)).toMatchObject({ change: 'added', declaredBy: 'contract', decl: { description: product.description } });
+    expect(await version('types', 'shop/Product', 2)).toMatchObject({ change: 'changed', decl: { description: 'A product.', meta: { schemaHash: 'abc' } } });
+    expect(await version('fns', 'shop/find', 1)).toMatchObject({ change: 'added', declaredBy: 'runtime' });
+    expect(await version('fns', 'shop/get', 2)).toBeUndefined();
     // a later patch that doesn't touch it leaves the runtime fn the running system's
     await catalog.importPatch(SHOP, { hash: 'h3', upsert: { types: [{ ...product, meta: { schemaHash: 'def' } }] }, remove: {} });
     expect((await catalog.fn(QualifiedName.parse('shop/find')))?.origin).toBe('runtime');
-    expect((await store.table('typeVersions').get('shop/Product#2'))?.decl.meta).toEqual({ schemaHash: 'abc' });
+    expect((await version('types', 'shop/Product', 3))?.decl).toMatchObject({ meta: { schemaHash: 'def' } });
+    expect(await version('fns', 'shop/find', 2)).toBeUndefined();
     expect((await catalog.manifest(SHOP))?.providers).toEqual([]);
   });
 

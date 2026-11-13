@@ -7,6 +7,9 @@ import { StoreError } from './errors.ts';
 import { afterCursor, all, makeCursor, orderBy, orderColumns, whereCondition } from './query.ts';
 import { KEY_COLUMN } from './schema.ts';
 
+/** The most cells one `putAll` statement binds. */
+const PUT_CELLS = 900;
+
 /** A table in a scope (the store, or a transaction). */
 export class SqliteTable<Row, Key> implements Table<Row, Key> {
   readonly #scope: Scope;
@@ -67,6 +70,23 @@ export class SqliteTable<Row, Key> implements Table<Row, Key> {
       .onConflict((oc) => oc.column(KEY_COLUMN).doUpdateSet(fields))
       .execute();
     return encoded.row;
+  }
+
+  async putAll(rows: readonly Row[]): Promise<void> {
+    if (rows.length === 0) return;
+    const encoded = rows.map((row) => this.#codec.encode(row).cells);
+    const columns = [...this.#codec.layout.keys()];
+    // a few hundred cells a statement keeps well inside SQLite's bound-parameter limit
+    const size = Math.max(1, Math.floor(PUT_CELLS / (columns.length + 1)));
+    await this.#scope.atomic(async (scope) => {
+      for (let at = 0; at < encoded.length; at += size) {
+        await scope.db
+          .insertInto(this.name)
+          .values(encoded.slice(at, at + size))
+          .onConflict((oc) => oc.column(KEY_COLUMN).doUpdateSet((eb) => Object.fromEntries(columns.map((column) => [column, eb.ref(`excluded.${column}`)]))))
+          .execute();
+      }
+    });
   }
 
   async update(input: Key, patch: Partial<Row>): Promise<Row> {

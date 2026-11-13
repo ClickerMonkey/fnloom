@@ -11,6 +11,7 @@ import { computed } from 'vue';
 import ApprovalCard from '../../components/approvals/ApprovalCard.vue';
 import { approvableTogether } from '../../components/approvals/rules.ts';
 import { UiButton, UiIcon } from '../../ui/index.ts';
+import { useFnNotice } from '../../fns/state/fn-notices.ts';
 import { fnLabel } from '../logic/labels.ts';
 import type { ApprovalView } from './types.ts';
 
@@ -19,6 +20,7 @@ const emit = defineEmits<{ decide: [id: ApprovalId, approve: boolean, remember: 
 
 /** How many of the others are listed by name. */
 const LISTED = 3;
+const noticeOf = useFnNotice();
 
 const current = computed(() => props.items[0]);
 const others = computed(() => props.items.slice(1));
@@ -33,7 +35,7 @@ function decide(approve: boolean, remember: Remember, reason: string): void {
 <template>
   <ApprovalCard
     v-if="current" class="tray" bounded :data-approval="current.id" :ident="current.id" :fn="current.fn" :description="current.description" :args="current.args"
-    :preview="current.preview" :rememberable="current.rememberable" @decide="decide"
+    :preview="current.preview" :rememberable="current.rememberable" :notice="noticeOf(current.fn)" @decide="decide"
   >
     <template v-if="others.length > 0" #after>
       <div class="others" data-testid="approvals-others">

@@ -23,8 +23,9 @@ export interface HitLookups {
  */
 export async function seesHit(access: AccessScope, lookups: HitLookups, hit: Pick<SearchHit, 'kind' | 'key'>, session?: SessionId): Promise<boolean> {
   if (hit.kind === 'section') return access.seesUri(parseSectionIndexKey(hit.key).uri);
-  // messages carry no session the person could be checked against; examples are read through their fn (`hub/fn_examples`)
-  if (hit.kind === 'message' || hit.kind === 'example') return false;
+  // messages carry no session the person could be checked against; examples are read through their fn (`hub/fn_examples`);
+  // records are searched only through the data system, which checks their type and owner
+  if (hit.kind === 'message' || hit.kind === 'example' || hit.kind === 'record') return false;
   const name = QualifiedName.safeParse(hit.key);
   if (!name.success) return false;
   const { system } = splitName(name.data);

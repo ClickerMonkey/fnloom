@@ -74,7 +74,8 @@ describe('filters', () => {
 
   it('focuses on a node and its neighbourhood, reaching into other systems', async () => {
     const page = await graph.query({ focus: { node: 'fn:tasks/add', hops: 1 } }, access);
-    expect(ids(page)).toEqual(['fn:notes/read', 'fn:tasks/add', 'system:tasks']);
+    // the API index item of its group brings it
+    expect(ids(page)).toEqual(['context:tasks/api.general', 'fn:notes/read', 'fn:tasks/add', 'system:tasks']);
     const two = await graph.query({ focus: { node: 'fn:tasks/add', hops: 2 } }, access);
     expect(ids(two)).toEqual(expect.arrayContaining(['type:notes/Note', 'context:notes/guide', 'system:notes']));
   });

@@ -14,7 +14,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch 
 import { UiIconButton, UiSpinner } from '../../ui/index.ts';
 import { useDarkTheme } from '../../ui/theme.ts';
 import { graphElements, kindLabel, moreId, NODE_KIND_COLORS, packGroups, pickOf, type GraphPick } from '../logic/graph.ts';
-import { graphStyle, resolveColors, shapeClip } from '../palette.ts';
+import { graphStyle, MIN_LABEL_PX, NODE_LABEL_PX, resolveColors, shapeClip } from '../palette.ts';
 import GraphDetails from './GraphDetails.vue';
 
 const props = withDefaults(defineProps<{
@@ -46,6 +46,8 @@ let moved = false;
 const FIT_PADDING = 40;
 /** The most a graph opens zoomed in (a small graph isn't blown up); it opens fitting the whole graph. */
 const START_ZOOM_MAX = 1.3;
+/** The least a graph opens zoomed in: item labels are readable (build 8); a graph larger than the box opens on its busiest item, with Fit all. */
+const START_ZOOM_MIN = (MIN_LABEL_PX + 1) / NODE_LABEL_PX;
 /** Room between two systems' clusters, and between rows of them, in graph units. */
 const CLUSTER_GAP = 72;
 /** Counts draws, so a layout still running for a page that was replaced doesn't frame the new one. */
@@ -104,7 +106,7 @@ async function layOut(core: Core): Promise<void> {
     // the cluster goes in with its children: the force layout reads a child's parent from the elements it lays out
     const layout = group.union(group.parent()).union(group.edgesWith(group)).layout({
       name: 'cose', animate: false, fit: false, randomize: true, nodeDimensionsIncludeLabels: true, padding: 0, componentSpacing: 48,
-      nodeRepulsion: () => 9000, idealEdgeLength: () => 70, nodeOverlap: 24, gravity: 2, numIter: 1500,
+      nodeRepulsion: () => 16_000, idealEdgeLength: () => 110, nodeOverlap: 48, gravity: 2, numIter: 1500,
     });
     const stopped = layout.promiseOn('layoutstop');
     layout.run();
@@ -125,7 +127,8 @@ async function layOut(core: Core): Promise<void> {
 
 /**
  * Frame the whole graph on first view (and after a resize, until the person pans or zooms), never zoomed in past
- * `START_ZOOM_MAX`. Labels too small to read at that zoom stay hidden until zoomed in (the style's minimum size).
+ * `START_ZOOM_MAX` nor out past `START_ZOOM_MIN`, where labels still read: a graph too big for that opens centred on
+ * its busiest item, and the crop hint offers Fit all.
  */
 function frameView(): void {
   const core = cy.value;
@@ -136,6 +139,10 @@ function frameView(): void {
   if (core.zoom() > START_ZOOM_MAX) {
     core.zoom(START_ZOOM_MAX);
     core.center();
+  } else if (core.zoom() < START_ZOOM_MIN) {
+    core.zoom(START_ZOOM_MIN);
+    const busiest = core.nodes().not('.cluster').max((node) => (node.isNode() ? node.degree(false) : 0));
+    core.center(busiest.ele);
   }
   checkCrop();
 }

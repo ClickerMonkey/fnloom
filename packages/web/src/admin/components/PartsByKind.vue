@@ -4,7 +4,7 @@
  * commands, providers, components, examples, ... each with its count, only the kinds it has) and that kind's list,
  * each item with its switch when the page offers them. The kind shown is in the URL (`?part=`).
  */
-import type { ItemRef, QualifiedName, ResourceRoot, SystemPartSection } from '@harness/core';
+import type { ItemRef, QualifiedName, ResourceRoot, SystemName, SystemPartSection } from '@harness/core';
 import { computed } from 'vue';
 import type { RouteLocationRaw } from 'vue-router';
 import { partChoices, shownPart, type PartGroup } from '../logic/systems.ts';
@@ -18,7 +18,9 @@ const props = withDefaults(defineProps<{
   ownerPage: (section: SystemPartSection, owner: QualifiedName) => RouteLocationRaw;
   isOn?: ((item: ItemRef) => boolean) | undefined;
   busy?: boolean;
-}>(), { isOn: undefined, busy: false });
+  /** The system the parts are of, for their version history. */
+  system?: SystemName | undefined;
+}>(), { isOn: undefined, busy: false, system: undefined });
 const emit = defineEmits<{ switch: [item: ItemRef, on: boolean] }>();
 const part = defineModel<PartTab>('part', { required: true });
 
@@ -38,7 +40,7 @@ const groups = computed(() => props.groups.filter((group) => group.section === s
       </button>
     </div>
     <SystemPartList
-      :groups="groups" :roots="shown === 'roots' ? roots : []" :root-page="rootPage" :owner-page="ownerPage" :is-on="isOn" :busy="busy"
+      :groups="groups" :roots="shown === 'roots' ? roots : []" :root-page="rootPage" :owner-page="ownerPage" :is-on="isOn" :busy="busy" :system="system"
       @switch="(item, on) => emit('switch', item, on)"
     />
   </div>

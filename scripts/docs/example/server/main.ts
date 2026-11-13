@@ -1,8 +1,7 @@
 /**
- * The notes system's process: reads its settings, builds the implementation with notes kept as JSON in each instance's
- * data folder, builds its renderers, and serves both to the hub (pairing the first time).
+ * The notes system's process: reads its settings, builds the implementation (its notes are hub records), builds its
+ * renderers, and serves both to the hub (pairing the first time).
  */
-import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildClient } from '@harness/sdk/build';
@@ -10,18 +9,12 @@ import { loggedHost, serve } from '@harness/sdk/server';
 import { notes } from '../shared/index.ts';
 import { notesEnv } from './env.ts';
 import { createNotesImpl } from './impl.ts';
-import { JsonNoteStore, storesBy } from './store.ts';
 
 // #region main
 const settings = notesEnv.parse();
 const { host, log } = loggedHost(notes.name);
 
-const impl = createNotesImpl({
-  settings,
-  open: storesBy((dataDir) => new JsonNoteStore(dataDir)),
-  now: () => new Date(),
-  newId: () => randomUUID(),
-});
+const impl = createNotesImpl({ settings });
 
 // the renderers, built into the state folder and uploaded to the hub on connect
 const clientFolder = join(settings.HARNESS_SYSTEM_STATE, 'client');

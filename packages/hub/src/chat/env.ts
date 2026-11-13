@@ -9,6 +9,7 @@ import { z } from 'zod';
 export const chatEnv = env({
   HARNESS_MENTION_TIMEOUT: z.number().int().min(100).default(5_000).describe('How long a system has to write a mention\'s LLM text when a message is sent.'),
   HARNESS_MENTION_SEARCH_TIMEOUT: z.number().int().min(100).default(3_000).describe('How long a system has to answer `@` search and hover.'),
+  HARNESS_MENTION_REQUEST_TTL: z.number().int().min(1_000).default(120_000).describe('How long a system may search the hub\'s resources for an `@` search the hub sent it, as the person mentioning.'),
   HARNESS_DELIVERY_TIMEOUT: z.number().int().min(100).default(30_000).describe('How long a system has to answer one delivered action or form.'),
   HARNESS_MESSAGE_PAGE: z.number().int().min(1).max(200).default(50).describe('Messages per page when a request gives no limit.'),
   HARNESS_SESSION_PAGE: z.number().int().min(1).max(200).default(30).describe('Sessions per page when a request gives no limit.'),
@@ -17,6 +18,7 @@ export const chatEnv = env({
   HARNESS_SUGGEST_THRESHOLD: z.number().min(0).max(1).default(0.15).describe('The least score (0 to 1, the best match scores 1) a fn or context item needs to be suggested with a message when the decision model is off.'),
   HARNESS_SUGGEST_DECISION_TIMEOUT: z.number().int().min(500).default(4_000).describe('How long the suggestion decision model has to choose before the score decides; a sent message waits this long at most before it shows.'),
   HARNESS_CACHE_LOOKBACK: z.number().int().min(1).max(500).default(50).describe('How many of a session\'s model calls are looked through to tell whether a reply missed the prompt cache.'),
+  HARNESS_CONFIG_NOTICE_GRACE: z.number().int().min(0).default(30_000).describe('How long a system may sit in "needs config" before the admins get an inbox notice; a system that connects configured within it gets none (as a fresh hub\'s systems usually do).'),
   HARNESS_UNDO_RUNS: z.number().int().min(1).default(500).describe('The most runs one turn\'s undo looks at.'),
 });
 

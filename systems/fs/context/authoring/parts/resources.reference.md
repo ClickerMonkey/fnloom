@@ -29,7 +29,7 @@ interface ResourceProvider {
 }
 ```
 
-Refers to: [`Page`](context:fs/authoring.core-types#core-page), [`ReadWant`](context:fs/authoring.core-types#core-readwant), [`ResourceChange`](context:fs/authoring.core-types#core-resourcechange), [`ResourceRead`](context:fs/authoring.core-types#core-resourceread), [`ResourceRoot`](context:fs/authoring.core-types#core-resourceroot), [`ResourceStat`](context:fs/authoring.core-types#core-resourcestat), [`ResourceUri`](context:fs/authoring.core-types#core-resourceuri).
+Refers to: [`Page`](context:fs/authoring.core-types.primitives-ts#core-page), [`ReadWant`](context:fs/authoring.core-types.resources-ts#core-readwant), [`ResourceChange`](context:fs/authoring.core-types.resources-ts#core-resourcechange), [`ResourceRead`](context:fs/authoring.core-types.resources-ts#core-resourceread), [`ResourceRoot`](context:fs/authoring.core-types.resources-ts#core-resourceroot), [`ResourceStat`](context:fs/authoring.core-types.resources-ts#core-resourcestat), [`ResourceUri`](context:fs/authoring.core-types.resources-ts#core-resourceuri).
 
 #### `embedder`
 
@@ -56,7 +56,7 @@ interface EmbedderDef {
 }
 ```
 
-Refers to: [`Usd`](context:fs/authoring.core-types#core-usd).
+Refers to: [`Usd`](context:fs/authoring.core-types.primitives-ts#core-usd).
 
 #### `EmbedderImpl`
 
@@ -82,7 +82,7 @@ interface EmbedderRef<N extends QualifiedName> {
 }
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `sectioner`
 
@@ -94,7 +94,7 @@ Declare a sectioner.
 function sectioner(def: { description: string; match: SectionMatch; }): SectionerDef;
 ```
 
-Refers to: [`SectionMatch`](context:fs/authoring.core-types#core-sectionmatch).
+Refers to: [`SectionMatch`](context:fs/authoring.core-types.resources-ts#core-sectionmatch).
 
 #### `SectionerDef`
 
@@ -109,7 +109,7 @@ interface SectionerDef {
 }
 ```
 
-Refers to: [`SectionMatch`](context:fs/authoring.core-types#core-sectionmatch).
+Refers to: [`SectionMatch`](context:fs/authoring.core-types.resources-ts#core-sectionmatch).
 
 #### `SectionerImpl`
 
@@ -121,7 +121,7 @@ A sectioner's implementation. Keys must come from structure (`sectionKey(path)`)
 type SectionerImpl = (text: string, stat: ResourceStat) => Promise<Section[]>;
 ```
 
-Refers to: [`ResourceStat`](context:fs/authoring.core-types#core-resourcestat), [`Section`](context:fs/authoring.core-types#core-section).
+Refers to: [`ResourceStat`](context:fs/authoring.core-types.resources-ts#core-resourcestat), [`Section`](context:fs/authoring.core-types.resources-ts#core-section).
 
 #### `SectionerRef`
 
@@ -136,7 +136,7 @@ interface SectionerRef<N extends QualifiedName> {
 }
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `sectionKeys`
 
@@ -150,4 +150,4 @@ gets ` ~2`, ` ~3` so keys stay unique while still coming from structure.
 function sectionKeys(paths: readonly (readonly string[])[]): SectionKey[];
 ```
 
-Refers to: [`SectionKey`](context:fs/authoring.core-types#core-sectionkey).
+Refers to: [`SectionKey`](context:fs/authoring.core-types.resources-ts#core-sectionkey).

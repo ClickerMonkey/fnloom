@@ -2,12 +2,14 @@
 import { adminApi, systemLogEvents, type AdminApi, type SystemLogEvents } from '../admin/api.ts';
 import { chatApi, sessionEvents, type ChatApi, type SessionEvents } from '../chat/api.ts';
 import { authApi, type AuthApi } from './auth.ts';
+import { identityApi, type IdentityApi } from './identity.ts';
 import type { Connection, Hub } from './client.ts';
 import { notificationsApi, userEvents, type NotificationsApi, type UserEvents } from './notifications.ts';
 import { resourceEvents, resourcesApi, type ResourceEvents, type ResourcesApi } from '../resources/api/resources.ts';
 import { contextApi, contextEvents, type ContextApi, type ContextEvents } from '../context/api/context.ts';
 import { fnsApi, type FnsApi } from '../fns/api.ts';
 import { graphApi, type GraphApi } from '../graph/api/graph.ts';
+import { dataApi, type DataApi } from '../data/api.ts';
 
 /**
  * The app's callers. Spelled out by each area's own type, so the compiler refers to them by name rather than writing
@@ -15,6 +17,7 @@ import { graphApi, type GraphApi } from '../graph/api/graph.ts';
  */
 export interface Api {
   readonly auth: AuthApi;
+  readonly identity: IdentityApi;
   readonly notifications: NotificationsApi;
   readonly userEvents: UserEvents;
   readonly chat: ChatApi;
@@ -26,6 +29,8 @@ export interface Api {
   readonly context: ContextApi;
   readonly fns: FnsApi;
   readonly graph: GraphApi;
+  /** The data system, widgets' row actions and items' version history (build 8). */
+  readonly data: DataApi;
   readonly contextEvents: ContextEvents;
   readonly connection: Connection;
 }
@@ -34,6 +39,7 @@ export interface Api {
 export function createApi(hub: Hub): Api {
   return {
     auth: authApi(hub),
+    identity: identityApi(hub),
     notifications: notificationsApi(hub),
     userEvents: userEvents(hub),
     chat: chatApi(hub),
@@ -45,6 +51,7 @@ export function createApi(hub: Hub): Api {
     context: contextApi(hub),
     fns: fnsApi(hub),
     graph: graphApi(hub),
+    data: dataApi(hub),
     contextEvents: contextEvents(userEvents(hub)),
     connection: hub.connection,
   };

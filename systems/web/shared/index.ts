@@ -111,14 +111,25 @@ export const ReadResult = g.obj({
 /** What `web/fetch_raw` gives the hub: core's `RawPage`, the shape the hub reads the result with. */
 export const RawPage = ginAs(CoreRawPage);
 
-/** The pages mention's target: a URL. */
-export const PageTarget = g.obj({ url: g.text({ minLength: 1 }) });
+/** The pages mention's target: a URL the person typed (not read yet), or a page the hub keeps (its resource and title). */
+export const PageTarget = g.or([
+  g.obj({ url: g.field(g.text({ minLength: 1 }), { docs: 'A URL the person typed, not read yet.' }) }),
+  g.obj({
+    uri: g.field(g.text({ minLength: 1 }), { docs: 'The hub resource a kept page is (`hub://resources/web/…`).' }),
+    title: g.field(g.optional(g.text()), { docs: "The kept page's title." }),
+  }),
+]);
 
 const url = () => g.field(g.text({ minLength: 1 }), { docs: 'An http or https URL. A bare address like `example.com/docs` is read as https.' });
 
 /** The web system's contract. */
 export const web = system('web', {
   description: 'Search the web and read web pages, which are kept as hub resources.',
+  // its API groups: the hub indexes its fns by them (`web/api`, `web/api.<group>`)
+  groups: [
+    { name: 'search', title: 'Search', description: 'Search the web; the results are kept as a hub resource.' },
+    { name: 'pages', title: 'Pages', description: 'Read one page, crawl a site, or fetch a page raw; every page is kept as a hub resource.' },
+  ],
   // pages it reads are uploaded and kept as hub resources
   grants: { hub: ['resources', 'fns'], calls: ['hub/resource_import', 'hub/resource_read'] },
 })
@@ -134,6 +145,7 @@ export const web = system('web', {
     types: { Page },
     fns: {
       search: fn({
+        group: 'search',
         description: 'Search the web. Gives titles, URLs and short snippets, best first, and a short answer when there is one.',
         instructions: [
           'Use it for anything current or outside what you know: search first, then read the one or two best pages with web/read before answering; snippets alone are often out of context.',
@@ -169,6 +181,7 @@ export const web = system('web', {
         tags: ['read', 'web'],
       }),
       read: fn({
+        group: 'pages',
         description: 'Read a web page as clean markdown. The page is kept as a hub resource, so it can be read again, searched and made into context.',
         instructions: [
           'Use it on a URL from a search, the person or another page. The page is cleaned to its main text (no menus or ads) and kept as a hub resource (`uri`), so read more of it later with hub/resource_read and an `offset` instead of reading the URL again.',
@@ -195,6 +208,7 @@ export const web = system('web', {
         tags: ['read', 'web'],
       }),
       crawl: fn({
+        group: 'pages',
         description: 'Crawl a site from a start page: follow its links a few levels deep and keep every page as a hub resource under one folder, so the pages can be searched and made into context.',
         instructions: 'Use it when a question needs a whole site or section (docs, a blog), not one page. Keep `maxPages` small and narrow with `include` (`/docs/**`); `depth` 1 is the start page and the pages it links to. Then search the pages under `root` with hub/search_resources, or read them with hub/resource_read. The site\'s robots.txt is respected, and only links (not images or scripts) are followed.',
         args: g.obj({
@@ -223,6 +237,7 @@ export const web = system('web', {
         tags: ['read', 'web'],
       }),
       fetch_raw: fn({
+        group: 'pages',
         description: 'Fetch a URL\'s raw content for the hub: its bytes by ref, type, final URL and status. Script-built pages are rendered first.',
         instructions: 'The hub calls it while importing a URL as a resource; people and models use web/read. Private and loopback addresses are refused unless the config allows them.',
         examples: [{ args: { url: 'https://example.com/report.pdf' } }],
@@ -238,7 +253,7 @@ export const web = system('web', {
   })
   .with(({ fns, types }) => ({
     mentions: {
-      pages: mention({ title: 'Web pages', description: 'A URL you type, or a page read recently.', target: PageTarget, of: types.Page }),
+      pages: mention({ title: 'Web pages', description: 'A URL you type, or a web page the hub keeps.', target: PageTarget, of: types.Page }),
     },
     context: {
       guide: context({

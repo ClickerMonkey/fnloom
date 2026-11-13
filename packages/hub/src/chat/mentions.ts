@@ -18,6 +18,7 @@ import { ChatError, messageOf } from './errors.ts';
 import type { MentionAsk, MentionProvider, MentionRequest, MentionService } from './index.ts';
 import type { People } from './people.ts';
 import { allowsSystem, asQualified, callSystem, entryOf, participantOf, searchSystems } from './support.ts';
+import type { MentionRequests } from './mention-requests.ts';
 
 /** How many results the hub's own providers return. */
 const HUB_RESULTS = 10;
@@ -133,9 +134,11 @@ export class HubMentions implements MentionProvider {
 /** Every other system's mention providers, asked over the link as the person mentioning. */
 export class LinkedMentions implements MentionProvider {
   readonly #deps: Pick<ChatDeps, 'link' | 'settings'>;
+  readonly #requests: Pick<MentionRequests, 'mint'>;
 
-  constructor(deps: Pick<ChatDeps, 'link' | 'settings'>) {
+  constructor(deps: Pick<ChatDeps, 'link' | 'settings'>, requests: Pick<MentionRequests, 'mint'>) {
     this.#deps = deps;
+    this.#requests = requests;
   }
 
   serves(provider: QualifiedName): boolean {
@@ -143,7 +146,9 @@ export class LinkedMentions implements MentionProvider {
   }
 
   async search(ask: MentionAsk, query: string): Promise<MentionOption[]> {
-    return this.#call(ask, this.#deps.settings.chat.HARNESS_MENTION_SEARCH_TIMEOUT, (peer, body, signal) => peer.call('mentions', { ...body, query }, { signal }));
+    // the search is tied to the person asking, so the system may search the hub's resources for them (`mentionResources`)
+    const request = await this.#requests.mint({ system: SystemName.parse(splitName(ask.provider).system), actor: ask.actor, session: ask.session });
+    return this.#call(ask, this.#deps.settings.chat.HARNESS_MENTION_SEARCH_TIMEOUT, (peer, body, signal) => peer.call('mentions', { ...body, query, request }, { signal }));
   }
 
   async hover(ask: MentionAsk, target: Json): Promise<MentionHover | undefined> {

@@ -1,68 +1,90 @@
+import { SectionKey, type Json, type ResourceHit, type ResourceStat, type ResourceUri } from '@harness/core';
+import type { Resources } from '@harness/sdk';
 import { describe, expect, it } from 'vitest';
-import { PageMentions, RecentPages, pageValue, type RecentPage } from './mentions.ts';
+import { PageMentions, WEB_PAGES_ROOT, pageValue, pagesOf, type PageMentionCtx } from './mentions.ts';
 
-const page = (url: string, more: Partial<RecentPage> = {}): RecentPage => ({ url, finalUrl: url, title: `Title of ${url}`, uri: undefined, rendered: false, at: 0, ...more });
+const VUE: ResourceUri = 'hub://resources/web/vuejs.org/guide/introduction';
+const REPORT: ResourceUri = 'hub://resources/web/example.com/report';
 
-describe('RecentPages', () => {
-  it('keeps the newest pages first, at most the limit, and keeps a known resource uri', () => {
-    const recent = new RecentPages(2);
-    recent.add(page('https://a.example/', { uri: 'hub://resources/a' }));
-    recent.add(page('https://b.example/'));
-    recent.add(page('https://a.example/'));
-    recent.add(page('https://c.example/'));
-    expect(recent.all().map((p) => p.url)).toEqual(['https://c.example/', 'https://a.example/']);
-    expect(recent.get('https://a.example/')?.uri).toBe('hub://resources/a');
-  });
+function hit(uri: ResourceUri, title: string, section?: string): ResourceHit {
+  return { uri, title, preview: `${title}: the text that matched`, score: 1, ...(section === undefined ? {} : { section: SectionKey.parse(section) }) };
+}
 
-  it('finds a page by the URL it ended up at, and keeps nothing with a limit of 0', () => {
-    const recent = new RecentPages(5);
-    recent.add(page('https://short.example/x', { finalUrl: 'https://long.example/article' }));
-    expect(recent.get('https://long.example/article')?.url).toBe('https://short.example/x');
-    const none = new RecentPages(0);
-    none.add(page('https://a.example/'));
-    expect(none.all()).toEqual([]);
+/** A mention ctx whose resources answer from a list, recording each search, and whose log keeps warnings. */
+function ctxOf(hits: ResourceHit[] | Error, stats: Readonly<Record<string, ResourceStat>> = {}): PageMentionCtx & { searches: Array<{ query: string; roots?: ResourceUri[]; limit?: number }>; warnings: Array<Record<string, Json> | undefined> } {
+  const searches: Array<{ query: string; roots?: ResourceUri[]; limit?: number }> = [];
+  const warnings: Array<Record<string, Json> | undefined> = [];
+  const resources: Resources = {
+    stat: (uri) => Promise.resolve(stats[uri]),
+    text: () => Promise.reject(new Error('not read here')),
+    links: () => Promise.resolve([]),
+    sections: () => Promise.resolve([]),
+    search: (query, options) => {
+      searches.push({ query, ...options });
+      return hits instanceof Error ? Promise.reject(hits) : Promise.resolve(hits);
+    },
+  };
+  const log: PageMentionCtx['log'] = { debug: () => undefined, info: () => undefined, warn: (_key, fields) => { warnings.push(fields); }, error: () => undefined };
+  return { resources, log, searches, warnings };
+}
+
+describe('pagesOf', () => {
+  it('keeps one hit per kept page, best first, up to the limit, and nothing outside the web pages', () => {
+    const hits = [hit(VUE, 'Vue', 'intro'), hit(VUE, 'Vue', 'setup'), hit('hub://resources/uploads/a.md', 'Upload'), hit(REPORT, 'Report')];
+    expect(pagesOf(hits, 5).map((h) => h.uri)).toEqual([VUE, REPORT]);
+    expect(pagesOf(hits, 1).map((h) => h.uri)).toEqual([VUE]);
   });
 });
 
 describe('PageMentions', () => {
-  const recent = new RecentPages(10);
-  recent.add(page('https://vuejs.org/guide/introduction', { title: 'Introduction | Vue.js', uri: 'hub://resources/vue-intro', rendered: true }));
-  recent.add(page('https://example.com/report', { title: 'Quarterly report' }));
-  const mentions = new PageMentions(recent, 5);
+  const mentions = new PageMentions(5);
 
-  it('offers the URL being typed first, then recent pages that match', async () => {
-    const options = await mentions.search('example.com/new?token=secret');
+  it('offers the URL being typed first, then kept pages the hub finds for the person, under the web root', async () => {
+    const ctx = ctxOf([hit(REPORT, 'Quarterly report')]);
+    const options = await mentions.search('example.com/new?token=secret', ctx);
     expect(options[0]).toMatchObject({ label: 'example.com · new', icon: 'globe', target: { url: 'https://example.com/new?token=secret' } });
     expect(options[0]?.hint).toBe('Read https://example.com/new?token=redacted');
     expect(JSON.stringify(options.map((o) => [o.label, o.hint]))).not.toContain('secret');
-    expect((await mentions.search('vue')).map((o) => o.label)).toEqual(['Introduction | Vue.js']);
-    expect((await mentions.search('')).map((o) => o.label)).toEqual(['Quarterly report', 'Introduction | Vue.js']);
+    expect(options[1]).toMatchObject({ label: 'Quarterly report', target: { uri: REPORT, title: 'Quarterly report' } });
+    expect(ctx.searches).toEqual([{ query: 'example.com/new?token=secret', roots: [WEB_PAGES_ROOT], limit: 5 }]);
   });
 
-  it('names a typed URL it has read by its title, without offering it twice', async () => {
-    const options = await mentions.search('https://example.com/report');
-    expect(options.map((o) => o.label)).toEqual(['Quarterly report']);
-    expect(options[0]?.hint).toBe('example.com');
+  it('searches nothing for empty text', async () => {
+    const ctx = ctxOf([hit(REPORT, 'Quarterly report')]);
+    expect(await mentions.search('  ', ctx)).toEqual([]);
+    expect(ctx.searches).toEqual([]);
   });
 
-  it('draws a hover card from what it knows, opening the kept resource', async () => {
-    const card = await mentions.hover({ url: 'https://vuejs.org/guide/introduction' });
-    expect(card).toMatchObject({
-      title: 'Introduction | Vue.js',
-      subtitle: 'https://vuejs.org/guide/introduction',
-      fields: [{ label: 'Site', value: 'vuejs.org' }, { label: 'Read', value: 'Rendered in the browser' }],
-      open: { resource: 'hub://resources/vue-intro' },
-      value: { url: 'https://vuejs.org/guide/introduction', title: 'Introduction | Vue.js', domain: 'vuejs.org' },
+  it('still offers the typed URL when the hub refuses the search, and logs why', async () => {
+    const ctx = ctxOf(new Error('The mention request is stale.'));
+    expect((await mentions.search('vuejs.org', ctx)).map((o) => o.label)).toEqual(['vuejs.org']);
+    expect(ctx.warnings).toEqual([{ message: 'The mention request is stale.' }]);
+  });
+
+  it('draws a kept page\'s card from the hub, and none once it is gone', async () => {
+    const stat: ResourceStat = { uri: VUE, name: 'Introduction | Vue.js', type: 'page', version: 'v1', modifiedAt: Date.UTC(2026, 10, 3) };
+    const ctx = ctxOf([], { [VUE]: stat });
+    expect(await mentions.hover({ uri: VUE, title: 'Introduction | Vue.js' }, ctx)).toEqual({
+      title: 'Introduction | Vue.js', subtitle: 'A web page the hub keeps', fields: [{ label: 'Read', value: '2026-11-03' }], open: { resource: VUE, title: 'Introduction | Vue.js' },
     });
-    const unread = await mentions.hover({ url: 'https://new.example/page?api_key=k' });
+    expect(await mentions.hover({ uri: REPORT }, ctx)).toBeUndefined();
+    expect(await mentions.hover({ uri: 'file:///etc/passwd' }, ctx)).toBeUndefined();
+    const escaping = { uri: 'hub://resources/web/../uploads/secret.md', name: 'secret', type: 'file', version: 'v1' } satisfies ResourceStat;
+    expect(await mentions.hover({ uri: escaping.uri }, ctxOf([], { [escaping.uri]: escaping }))).toBeUndefined();
+    expect(await mentions.llm({ uri: escaping.uri })).toContain("isn't a web page the hub keeps");
+  });
+
+  it('draws a typed URL\'s card without fetching it, redacting credentials', async () => {
+    const unread = await mentions.hover({ url: 'https://new.example/page?api_key=k' }, ctxOf([]));
     expect(unread).toMatchObject({ title: 'new.example · page', subtitle: 'https://new.example/page?api_key=redacted', open: { url: 'https://new.example/page?api_key=k' } });
     expect(unread?.body).toContain('web/read');
-    expect(await mentions.hover({ url: 'not a url' })).toBeUndefined();
+    expect(await mentions.hover({ url: 'not a url' }, ctxOf([]))).toBeUndefined();
   });
 
   it('tells the LLM how to read a page', async () => {
     expect(await mentions.llm({ url: 'example.com/x' })).toBe('Web page https://example.com/x. Read it with web/read {"url":"https://example.com/x"}.');
-    expect(await mentions.llm({ url: 'https://vuejs.org/guide/introduction' })).toContain('hub/resource_read {"uri":"hub://resources/vue-intro"}');
+    expect(await mentions.llm({ uri: VUE, title: 'Introduction | Vue.js' })).toBe(`Web page "Introduction | Vue.js" (the hub resource ${VUE}). Read it with hub/resource_read {"uri":"${VUE}"}.`);
+    expect(await mentions.llm({ uri: 'file:///etc/passwd' })).toBe('"file:///etc/passwd" isn\'t a web page the hub keeps.');
     expect(await mentions.llm({ url: 'nope' })).toBe('"nope" isn\'t a web address.');
   });
 

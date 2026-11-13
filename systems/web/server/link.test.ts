@@ -85,6 +85,9 @@ describe('web over the link', () => {
 
   it('sends a manifest with its fns, the Page type, the mention and the guide', () => {
     const manifest = hub.manifests[0];
+    // every fn is in one of its API groups, which the hub indexes (`<system>/api.<group>`)
+    expect(manifest?.groups?.map((group) => group.name)).toEqual(['search', 'pages']);
+    for (const decl of manifest?.fns ?? []) { expect(['search', 'pages'], decl.name).toContain(decl.group); }
     expect(manifest?.name).toBe('web');
     const fns = new Map(manifest?.fns.map((f) => [f.name, f]));
     for (const decl of manifest?.fns ?? []) {
@@ -135,7 +138,6 @@ describe('web over the link', () => {
     const ref = typeof result === 'object' && result !== null && !Array.isArray(result) ? result['content'] : undefined;
     const hash = typeof ref === 'object' && ref !== null && !Array.isArray(ref) ? ref['hash'] : undefined;
     expect(typeof hash === 'string' ? new TextDecoder().decode(hub.content.get(hash)) : undefined).toBe(ARTICLE);
-    expect(server.recent.get('https://example.com/')?.title).toBe('An article');
   });
 
   it('renders an empty app root before handing it over, under auto', async () => {
@@ -151,7 +153,7 @@ describe('web over the link', () => {
     expect(done(await hub.run('web/fetch_raw', { url: 'http://127.0.0.1:4300/' }))).toMatchObject({ title: 'An article' });
   });
 
-  it('reads a page through the hub: imports it, reads its primary form, and remembers it for mentions', async () => {
+  it('reads a page through the hub: imports it and reads its primary form', async () => {
     const calls: Array<{ fn: string; args: Json }> = [];
     hub.onCall = (call): Promise<RunSettled> => {
       calls.push({ fn: call.fn, args: call.args });
@@ -165,12 +167,15 @@ describe('web over the link', () => {
       { fn: 'hub/resource_import', args: { url: 'https://example.com/', render: 'always' } },
       { fn: 'hub/resource_read', args: { uri: 'hub://resources/web/article', maxChars: 40 } },
     ]);
-    expect(server.recent.get('https://example.com/')?.uri).toBe('hub://resources/web/article');
+  });
 
+  it('offers a typed URL as a mention over the link, and tells the LLM to read it', async () => {
     const time = { now: 0, timeZone: 'UTC', local: '1970-01-01T00:00:00Z' };
     const asker = { session: mintId('session'), actor: TEST_USER.id, user: TEST_USER, time };
-    const options = await hub.peer().call('mentions', { ...asker, provider: 'pages', query: 'article' });
-    expect(options[0]).toMatchObject({ label: 'An article', target: { url: 'https://example.com/' } });
+    const options = await hub.peer().call('mentions', { ...asker, provider: 'pages', query: 'example.com/new', request: mintId('mentionRequest') });
+    expect(options[0]).toMatchObject({ label: 'example.com · new', target: { url: 'https://example.com/new' } });
+    const text = await hub.peer().call('mentionText', { ...asker, provider: 'pages', target: { url: 'https://example.com/new' } });
+    expect(text.text).toContain('web/read {"url":"https://example.com/new"}');
   });
 
   it('reads with the system\'s default length, and fails as the hub\'s call failed', async () => {

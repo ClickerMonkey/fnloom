@@ -21,6 +21,8 @@ A **fn** is something people, agents and code can run: a name, a description, ty
 | `operations` | `{ cancel?, background? }`, both default `true`; pause and undo follow `resume` and `undo` | |
 | `limits` | `{ timeout?, retries?, cost? }`: hard limit per run, retries for `retry` failures, a rough cost | |
 | `visibility` | who sees it: `both` (default), `user` (people only, not the LLM), `llm`, `none` | |
+| `group` | its API group, one of the system's `groups` (**The contract**); the general group when absent | a group the system doesn't declare is refused |
+| `flags` | `true`: before every run the hub asks `flags(args, ctx)` which sensitive files it would touch (below) | `flags` must be implemented |
 
 <!-- include: scripts/docs/example/shared/index.ts#fn-add -->
 
@@ -81,3 +83,15 @@ input. A preview gets a `PreviewCtx` (the system context, the waiting run and it
 anything. `remember: false` (the default) means the person can't say "don't ask again". A kind does the same from
 `describe` (`approval`) and `preview(payload, args, ctx)`. Serving a fn that asks for a preview without implementing
 one throws.
+
+**Sensitive files.** A native fn that reads or writes files the person names (fs's `read`, `write`, `bash`) declares
+`flags: true` and implements `flags(args, ctx)`: the sensitive files a run with these args would touch, each a
+`SensitivityFlag` (`path`, `kind`, `rule`, `access`, `action`, `why`, and `certain: false` for a path only found in a
+command line). The hub asks before the mode gate and policies: a `refuse` flag fails the run as invalid input with the
+rule's words, a write or an `ask` flag makes it wait for the person (never remembered, never passed by a policy or by
+`auto` mode, whose classifier sees the flags), and none lets it go on. Like a preview, `flags` must not change
+anything. `kit.flags('<fn>', args)` tests it (**Testing**).
+
+**API groups.** `system(name, { groups: [{ name, title, description }] })` names the groups a system's fns are listed
+in, and `fn({ group })` puts a fn in one. The hub keeps an index item per system (`<system>/api`, its groups as
+choices) and one per group listing its fns a line each, so a model walks a large API like a context folder.

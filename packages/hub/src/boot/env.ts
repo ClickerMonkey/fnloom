@@ -12,6 +12,7 @@ import { executionEnv } from '../execution/env.ts';
 import { fnsEnv } from '../fns/env.ts';
 import { indexEnv } from '../index/env.ts';
 import { contextorEnv } from '../contextor/env.ts';
+import { dataEnv } from '../data/env.ts';
 import { packagingEnv, reviewEnv } from '../link/env.ts';
 import { mcpEnv } from '../mcp/env.ts';
 import { queryEnv } from '../query/env.ts';
@@ -22,6 +23,7 @@ import { storeEnv } from '../store/env.ts';
 export const hubEnv = env({
   ...HUB_PORT,
   HARNESS_HOST: z.string().default('0.0.0.0').describe('The address the hub binds to.'),
+  HARNESS_NAME: z.string().optional().describe('The name people see for this hub (the brand, sign-in page, tab title, install name, notifications). An admin\'s setting in the app wins; unset: "Harness".'),
   HARNESS_DATA: z.string().default('.harness').describe('The data folder: database, files, installed systems, logs.'),
 }).add({
   HARNESS_URL: (e) => z.string().default(`http://localhost:${e.HARNESS_PORT}`).describe('The public URL, for pairing links and push. Defaults to this machine on `HARNESS_PORT`.'),
@@ -113,14 +115,14 @@ export const pushEnv = env({
 });
 
 /** Every slice by name, so each module takes its own and an admin page can list them. Module slices live beside their module. */
-export const HUB_ENV = { hubEnv, httpEnv, authEnv, queueEnv, linkEnv, modelEnv, logEnv, pushEnv, storeEnv, executionEnv, chatEnv, indexEnv, contextorEnv, resourcesEnv, mcpEnv, packagingEnv, queryEnv, connectionsEnv, fnsEnv, reviewEnv } as const;
+export const HUB_ENV = { hubEnv, httpEnv, authEnv, queueEnv, linkEnv, modelEnv, logEnv, pushEnv, storeEnv, executionEnv, chatEnv, indexEnv, contextorEnv, resourcesEnv, mcpEnv, packagingEnv, queryEnv, connectionsEnv, fnsEnv, reviewEnv, dataEnv } as const;
 
 /**
  * Every slice as one view (`mergeEnvs`): `parse` reports every bad value of every slice in one `EnvError`, `set`
  * reaches every slice, `describe` lists every tunable (the source of `.env.example`), and two slices declaring the
  * same key fail to compile.
  */
-export const HUB_SETTINGS = mergeEnvs(hubEnv, httpEnv, authEnv, queueEnv, linkEnv, modelEnv, logEnv, pushEnv, storeEnv, executionEnv, chatEnv, indexEnv, contextorEnv, resourcesEnv, mcpEnv, packagingEnv, queryEnv, connectionsEnv, fnsEnv, reviewEnv);
+export const HUB_SETTINGS = mergeEnvs(hubEnv, httpEnv, authEnv, queueEnv, linkEnv, modelEnv, logEnv, pushEnv, storeEnv, executionEnv, chatEnv, indexEnv, contextorEnv, resourcesEnv, mcpEnv, packagingEnv, queryEnv, connectionsEnv, fnsEnv, reviewEnv, dataEnv);
 
 /** The parsed hub settings, by slice, derived from the slices (never written by hand). */
 export type HubSettings = { [K in keyof typeof HUB_ENV]: ReturnType<(typeof HUB_ENV)[K]['parse']> };

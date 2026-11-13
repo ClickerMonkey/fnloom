@@ -15,7 +15,7 @@ choices:
     when: "Pick this to go on in order: Session state, forms and display."
 ---
 
-## 7. Handlers and progress
+## 8. Handlers and progress
 
 ### Handlers
 
@@ -36,6 +36,7 @@ _From `scripts/docs/example/shared/index.ts`:_
 ```ts
 remove: fn({
   description: 'Delete a note.',
+  group: 'notes',
   args: g.obj({ id: g.text({ minLength: 1 }) }),
   returns: g.obj({ removed: g.bool() }),
   undo: Before,
@@ -51,20 +52,19 @@ _From `scripts/docs/example/server/impl.ts`:_
 ```ts
 remove: {
   async run(args, ctx) {
-    const store = deps.open(ctx.dataDir);
-    const note = await store.get(args.id);
+    const note = await noteById(ctx.data, args.id);
     if (note === undefined) { return ctx.invalid([{ path: 'id', message: `There is no note ${args.id}.` }]); }
     // the effective setting for the run's person, merged with their groups'
     const editing = await ctx.setting(notes.settings.editing);
     if (editing?.confirmRemove === true) {
       // `confirm` is optional, so the compiler makes the fn check it is there
       if (ctx.handlers.confirm === undefined) { return ctx.fail('caller', 'Removing a note asks first, and this caller cannot answer.', { code: 'denied' }); }
-      if (!(await ctx.handlers.confirm({ title: note.title }))) { return ctx.cancelled(); }
+      if (!(await ctx.handlers.confirm({ title: note.value.title }))) { return ctx.cancelled(); }
     }
-    await store.delete(note.id);
-    return ctx.done({ removed: true }, { undo: { id: note.id, note } });
+    await ctx.data.remove(Note, note.id);
+    return ctx.done({ removed: true }, { undo: { id: note.id, note: note.value } });
   },
-  undo: (payload, ctx) => restore(deps.open(ctx.dataDir), payload),
+  undo: (payload, ctx) => restore(ctx.data, payload),
 },
 ```
 
@@ -86,12 +86,13 @@ _From `scripts/docs/example/shared/index.ts`:_
 
 ```ts
 tidy: fn({
-  description: 'Merge tags that differ only in case or spaces, across every note.',
+  description: 'Merge tags that differ only in case or spaces, across every note, a page at a time.',
+  group: 'notes',
   args: g.obj({}),
   returns: g.obj({ merged: g.num({ min: 0, whole: true }) }),
   progress: steps({ scan: 'Read every note', merge: 'Merge the tags', save: 'Save the notes' }),
   // declaring a resume type makes it pausable: it returns this when paused and gets it back on resume
-  resume: g.obj({ saved: g.num({ min: 0, whole: true }) }),
+  resume: g.obj({ saved: g.num({ min: 0, whole: true }), cursor: g.optional(g.text()) }),
 }),
 ```
 

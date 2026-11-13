@@ -14,11 +14,12 @@ import { existsSync } from 'node:fs';
 import { FS_CLIENT, INSTALL_PREVIEW, INSTALL_RESULT, MOCK_CLIENTS } from './mockBuild6.ts';
 import {
   splitName, Approval, ChatCapabilities, ChatMessage, LlmInteraction, ModelCallId, ResolvedLimits, Run, RunId, Session, mintId, type ActorId, type ApprovalId, Json, type MessagePart, type OutgoingPart,
-  type QualifiedName, type RunUpdate, type SessionEvent, type SessionId, type SessionSummary, type TreeNode, type TurnId,
+  QualifiedName, type RunUpdate, type SessionEvent, type SessionId, type SessionSummary, type TreeNode, type TurnId,
 } from '@harness/core';
 import type { z } from 'zod';
 import { summaryOf as summary } from '../src/chat/state/sessions.ts';
 import { selectionReport } from '../src/chat/test/fakes.ts';
+import { NOTE_TYPE, NOTES_WIDGET, SAMPLE_TABLE, SAMPLE_WIDGET } from '../src/data/test/samples.ts';
 
 /** Send one event on a session's channel. */
 export type EmitSession = (session: SessionId, event: SessionEvent) => void;
@@ -472,6 +473,22 @@ export class MockChat {
     });
   }
 
+  /** Build 8: a saved widget run in a chat (bar chart and table, row actions) and a plain result table that can be saved as one. */
+  #seedWidgets(now: number): void {
+    const chat = this.create('Notes widget');
+    this.sessions.set(chat.id, { ...chat, updatedAt: now - 30_000 });
+    const turn = mintId('turn');
+    this.#add(chat.id, { turn, author: this.#owner(), role: 'user', status: 'done', createdAt: now - 200_000, parts: [{ type: 'text', text: 'Show my open notes, and the records table too.' }] });
+    const widget = this.#run(chat.id, turn, NOTES_WIDGET, {}, AGENT);
+    const table = this.#run(chat.id, turn, QualifiedName.parse('hub/records_table'), { type: NOTE_TYPE }, AGENT);
+    this.runs.set(widget.id, { ...widget, status: 'done', startedAt: now - 190_000, endedAt: now - 189_000, outcome: { status: 'done', result: Json.parse(SAMPLE_WIDGET) } });
+    this.runs.set(table.id, { ...table, status: 'done', startedAt: now - 188_000, endedAt: now - 187_500, outcome: { status: 'done', result: Json.parse(SAMPLE_TABLE) } });
+    this.#add(chat.id, {
+      turn, author: AGENT, role: 'assistant', status: 'done', createdAt: now - 180_000, runs: [widget.id, table.id],
+      parts: [{ type: 'text', text: 'Here are your open notes as a widget, and the raw records below.' }],
+    });
+  }
+
   #seed(): void {
     const now = this.#now();
     const router = this.create('Refactor the router');
@@ -482,6 +499,7 @@ export class MockChat {
     this.sessions.set(budget.id, { ...budget, updatedAt: now - 3 * DAY });
     this.#seedQueries(now);
     this.#seedInstall(now);
+    this.#seedWidgets(now);
     const turn = mintId('turn');
     const refused = this.#refused(router.id, turn, 'fs/read_file', RunId.parse('run_agent'));
     this.runs.set(refused.id, { ...refused, startedAt: now - DAY - 62_000, endedAt: now - DAY - 62_000 });

@@ -9,7 +9,7 @@
  */
 import { encodeValue, parseValue, type FnRef } from '@harness/sdk';
 import {
-  splitName, type InputProblem, type InvalidInput, type Json, type OutcomeWire, type QualifiedName, type Run, type RunRequest, type UndoOutcome, type RunControlAction,
+  splitName, type FnRecord, type InputProblem, type InvalidInput, type Json, type OutcomeWire, type QualifiedName, type Run, type RunRequest, type UndoOutcome, type RunControlAction,
 } from '@harness/core';
 import type { SystemConnection } from '../link/index.ts';
 import { causeOf, fnError, messageOf, RunRefused, RunStopped } from './errors.ts';
@@ -139,16 +139,28 @@ export interface HubFnCtx {
 /** One hub fn implementation, erased to JSON in and out (its typed form is checked when it is registered). */
 type HubFnImpl = (args: Json, ctx: HubFnCtx) => Promise<Json>;
 
+/** The implementation of every fn of one of the hub's kinds: the fn (its payload says what to do), its args, the run. */
+export type HubKindImpl = (fn: FnRecord, args: Json, ctx: HubFnCtx) => Promise<Json>;
+
 /**
  * The hub's own native fns (`hub/run_status`, `hub/search_fns`, …). Each module registers the fns it implements
  * against the hub contract's refs, so args and results are typed and checked with the contract's gin types.
  */
 export class HubFns implements RunExecutor {
   readonly #impls = new Map<QualifiedName, HubFnImpl>();
+  readonly #kinds = new Map<string, HubKindImpl>();
 
   /** Implement a hub fn. Its args arrive checked and in their plain form; its result is checked on the way out. */
   register<A, R>(ref: FnRef<QualifiedName, A, R>, impl: (args: A, ctx: HubFnCtx) => Promise<R>): void {
     this.#impls.set(ref.name, async (args, ctx) => encodeValue(ref.returns, await impl(parseValue(ref.args, args), ctx)));
+  }
+
+  /**
+   * Implement every fn of one of the hub's kinds (`hub/widget`): a run of such a fn, which has no implementation of
+   * its own, is handed its fn record (with the payload) and its args.
+   */
+  registerKind(kind: QualifiedName, impl: HubKindImpl): void {
+    this.#kinds.set(kind, impl);
   }
 
   /** Whether a hub fn has an implementation. */
@@ -157,7 +169,8 @@ export class HubFns implements RunExecutor {
   }
 
   async execute(job: ExecutionJob, signal: AbortSignal): Promise<OutcomeWire> {
-    const impl = this.#impls.get(job.run.fn);
+    const kind = this.#kinds.get(job.fn.decl.kind);
+    const impl = this.#impls.get(job.run.fn) ?? (kind === undefined ? undefined : (args: Json, ctx: HubFnCtx) => kind(job.fn, args, ctx));
     if (impl === undefined) return { status: 'failed', error: fnError('fatal', `the hub has no implementation of ${job.run.fn}`, 'not-implemented') };
     try {
       const result = await impl(job.request.args, { request: job.request, signal });

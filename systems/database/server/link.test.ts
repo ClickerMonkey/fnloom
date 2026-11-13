@@ -8,7 +8,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ActorId, SystemPackageManifest, mintId, type Json, type OutcomeWire } from '@harness/core';
+import { ActorId, BUILT_IN_SHAPES, SystemPackageManifest, mintId, type Json, type OutcomeWire } from '@harness/core';
 import { hub as hubContract } from '@harness/sdk';
 import { TEST_USER, type FakeHub } from '@harness/sdk/server/testing';
 import BetterSqlite3 from 'better-sqlite3';
@@ -71,6 +71,9 @@ describe('the database system over the link', () => {
     await start();
     expect(database.name).toBe(packageManifest.name);
     const manifest = hub.manifests[0];
+    // every fn is in one of its API groups, which the hub indexes (`<system>/api.<group>`)
+    expect(manifest?.groups?.map((group) => group.name)).toEqual(['queries', 'tables', 'schema', 'instances']);
+    for (const decl of manifest?.fns ?? []) { expect(['queries', 'tables', 'schema', 'instances'], decl.name).toContain(decl.group); }
     expect(manifest?.kinds.map((item) => item.name)).toEqual(['query']);
     expect(manifest?.fns.map((item) => item.name).sort()).toEqual([
       'alter_table', 'apply_type_changes', 'at_instance', 'author_query', 'change_schema', 'check_query', 'create_table', 'databases', 'edit_query', 'get_query', 'pick_database', 'read_at_instance', 'run_query', 'save_query',
@@ -87,8 +90,10 @@ describe('the database system over the link', () => {
       expect(decl.examples?.length ?? 0, decl.name).toBeGreaterThan(0);
     }
     expect(manifest?.fns.find((item) => item.name === 'change_schema')).toMatchObject({ approval: { preview: true, remember: false }, visibility: 'none' });
-    expect(manifest?.registries?.map((item) => item.name)).toEqual(['query-visuals']);
-    expect(manifest?.contributes?.map((item) => `${item.registry} ${item.name}`)).toEqual(['database/query-visuals table', 'database/query-visuals bar', 'database/query-visuals value']);
+    // its visuals go to the hub's registry, each with the data it draws, so a fit is judged without client code
+    expect(manifest?.registries).toBeUndefined();
+    expect(manifest?.contributes?.map((item) => `${item.registry} ${item.name}`)).toEqual(['hub/visuals table', 'hub/visuals bar', 'hub/visuals value']);
+    expect(manifest?.contributes?.map((item) => item.shape)).toEqual([BUILT_IN_SHAPES.table, BUILT_IN_SHAPES.bar, BUILT_IN_SHAPES.value]);
     expect(manifest?.configSecrets).toEqual(['connection.url', 'connection.password']);
     expect(types.upserts[0]?.sort()).toEqual(['main.customers', 'main.orders']);
   });

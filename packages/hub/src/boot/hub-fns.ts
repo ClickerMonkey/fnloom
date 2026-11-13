@@ -25,6 +25,7 @@ import { parseSectionIndexKey } from '../index/indexer.ts';
 import { broughtFns, withImports } from '../contextor/brought.ts';
 import type { FnScope } from '../contextor/fns.ts';
 import { fnRefusal } from '../contextor/views.ts';
+import { itemVersionCount } from '../catalog/versions.ts';
 
 /** How many results a search returns when the agent doesn't say. */
 const DEFAULT_LIMIT = 10;
@@ -204,13 +205,13 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
     const access = await deps.access(ctx.request.run.user.id);
     const fn = name.success ? await deps.catalog().fn(name.data) : undefined;
     if (fn === undefined || !access.seesFn(fn)) throw new InvalidArgs(`no such fn: ${args.fn}`);
-    const versions = await deps.store().table('fnVersions').count({ fn: fn.name });
+    const versions = await itemVersionCount(deps.store(), fn.system, 'fns', fn.name);
     const owner = fn.origin === 'runtime' ? (await deps.sharing().sharing({ kind: 'fn', fn: fn.name })).owner : undefined;
     return {
       fn: fn.name, kind: fn.decl.kind, description: fn.decl.description,
       ...(fn.decl.instructions === undefined ? {} : { instructions: fn.decl.instructions }),
       ...(fn.decl.payload === undefined ? {} : { payload: fn.decl.payload }),
-      version: versions + 1, ...(owner === undefined ? {} : { owner }),
+      version: Math.max(1, versions), ...(owner === undefined ? {} : { owner }),
       ...(fn.decl.routing === undefined ? {} : { routing: fn.decl.routing }),
       available: access.mayUse(fn) && (await deps.catalog().availability(fn.name)) === true,
     };
@@ -239,16 +240,13 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
       // a saved fn asks as its kind says every fn of it asks (a saved write query shows its preview)
       ...(kindRecord?.decl.approval === undefined ? {} : { approval: kindRecord.decl.approval }),
     };
-    const versions = deps.store().table('fnVersions');
-    const number = (await versions.count({ fn: name })) + 1;
     const report = await deps.catalog().declare(system, decl, person);
     const refused = report.refused[0];
     if (refused !== undefined) throw new InvalidArgs(refused.problems.join('; ') || `${name} was refused`);
-    // the version saved over is kept, numbered from 1
-    if (existing !== undefined) await versions.put({ id: `${name}#${number}`, fn: name, number, decl: existing.decl, ...(existing.addedBy === undefined ? {} : { savedBy: existing.addedBy }), savedAt: existing.updatedAt });
     const share = args.share ?? (existing === undefined ? { visibility: 'private' as const, with: [] } : undefined);
     if (share !== undefined) await deps.sharing().own({ kind: 'fn', fn: name }, existing === undefined ? person : (await deps.sharing().sharing({ kind: 'fn', fn: name })).owner, share);
-    return { fn: name, version: existing === undefined ? 1 : number + 1, created: existing === undefined };
+    // every save is a version of the fn (`itemVersions`, written with it), numbered from 1
+    return { fn: name, version: Math.max(1, await itemVersionCount(deps.store(), system, 'fns', name)), created: existing === undefined };
   });
 
   // its runs are made by the hub for a system's own model calls (`RunService.systemWork`); it is never run itself

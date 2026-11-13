@@ -641,18 +641,10 @@ export class Hosting {
     }
   }
 
-  /** Rename, trying again with a doubling wait while Windows refuses because a handle is still open in it. */
+  /** Rename, trying again while Windows refuses because a handle is still open in it. */
   async #rename(from: string, to: string): Promise<void> {
     const { renameTries, renameWait } = this.#deps.limits;
-    for (let tried = 1; ; tried += 1) {
-      try {
-        await rename(from, to);
-        return;
-      } catch (error) {
-        if (tried >= renameTries || !isHeld(error)) { throw error; }
-        await new Promise((done) => { setTimeout(done, renameWait * 2 ** (tried - 1)); });
-      }
-    }
+    await renameRetrying(from, to, { tries: renameTries, wait: renameWait });
   }
 
   /** Remove bundles no instance of the system runs any more. */
@@ -696,6 +688,27 @@ async function isFolder(path: string): Promise<boolean> {
   } catch (error) {
     if (isMissing(error)) { return false; }
     throw error;
+  }
+}
+
+/**
+ * Rename, trying again with a doubling wait (`wait`, then twice that, ...) while the rename fails because a handle is
+ * still open in it, up to `tries` in all; any other failure, or the last one, is thrown. `move` and `sleep` are seams
+ * for tests (a held Windows handle can't be made on demand).
+ */
+export async function renameRetrying(
+  from: string, to: string, limits: { readonly tries: number; readonly wait: number },
+  move: (from: string, to: string) => Promise<void> = rename,
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((done) => { setTimeout(done, ms); }),
+): Promise<void> {
+  for (let tried = 1; ; tried += 1) {
+    try {
+      await move(from, to);
+      return;
+    } catch (error) {
+      if (tried >= limits.tries || !isHeld(error)) { throw error; }
+      await sleep(limits.wait * 2 ** (tried - 1));
+    }
   }
 }
 

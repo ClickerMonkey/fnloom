@@ -1,13 +1,17 @@
 /**
  * `ctx.resources`: reading any resource the actor may see. The hub routes each URI to the system that serves it, so
- * this goes through `HubLink.resource`; long text comes back by ref and is downloaded in chunks.
+ * this goes through `HubLink.resource`; long text comes back by ref and is downloaded in chunks. Searching needs a
+ * person to search as: a mention provider's `search` has one (the hub's `@` search request, `mentionResources`).
  */
 import { ApiError } from '@ayepi/core';
-import type { ReadWant, ResourceHit, ResourceLink, ResourceRead, ResourceStat, ResourceUri, RunId, Section, SectionKey } from '@harness/core';
+import type { MentionRequestId, ReadWant, ResourceHit, ResourceLink, ResourceRead, ResourceStat, ResourceUri, RunId, Section, SectionKey } from '@harness/core';
 import type { Resources } from '../ctx.ts';
 import type { ContentTransfer } from './content.ts';
 import type { HubAccess } from './link.ts';
 import { LinkGap } from './wire.ts';
+
+/** How many hits a mention's resource search asks for when it names no limit. */
+const MENTION_SEARCH_LIMIT = 10;
 
 /** `Resources` over the link, on behalf of a run (or of the system itself, outside runs). */
 export class HubResources implements Resources {
@@ -15,12 +19,15 @@ export class HubResources implements Resources {
   readonly #content: ContentTransfer;
   readonly #run: RunId | undefined;
   readonly #signal: AbortSignal | undefined;
+  readonly #mention: MentionRequestId | undefined;
 
-  constructor(hub: HubAccess, content: ContentTransfer, scope: { run?: RunId; signal?: AbortSignal }) {
+  /** `mention`: the hub's `@` search request this context answers, which a search runs as. */
+  constructor(hub: HubAccess, content: ContentTransfer, scope: { run?: RunId; signal?: AbortSignal; mention?: MentionRequestId }) {
     this.#hub = hub;
     this.#content = content;
     this.#run = scope.run;
     this.#signal = scope.signal;
+    this.#mention = scope.mention;
   }
 
   async stat(uri: ResourceUri): Promise<ResourceStat | undefined> {
@@ -48,8 +55,18 @@ export class HubResources implements Resources {
     return hub.call('resourceSections', { uri, ...(this.#run === undefined ? {} : { run: this.#run }) }, this.#signal === undefined ? {} : { signal: this.#signal });
   }
 
-  search(_query: string): Promise<ResourceHit[]> {
-    return Promise.reject(new LinkGap('Searching resources from a system needs a hub endpoint; declare hub.fns.search_resources as a dep and call it.'));
+  async search(query: string, options: { roots?: ResourceUri[]; limit?: number } = {}): Promise<ResourceHit[]> {
+    if (this.#mention === undefined) {
+      throw new LinkGap('Searching resources needs a person to search as: it works in the search of a mention provider; a fn declares hub.fns.search_resources as a dep and calls it.');
+    }
+    const hub = await this.#hub.ready(this.#signal);
+    const { hits } = await hub.call('mentionResources', {
+      request: this.#mention,
+      query,
+      limit: options.limit ?? MENTION_SEARCH_LIMIT,
+      ...(options.roots === undefined ? {} : { roots: options.roots }),
+    }, this.#signal === undefined ? {} : { signal: this.#signal });
+    return hits;
   }
 
   async #read(uri: ResourceUri, want: ReadWant[]): Promise<ResourceRead | undefined> {

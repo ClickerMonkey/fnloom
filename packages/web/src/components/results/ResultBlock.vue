@@ -8,6 +8,7 @@ import { computed, inject, onMounted, ref } from 'vue';
 import { OWN_HOST, RESULTS_HOST } from './builtin.ts';
 import ResultView from './ResultView.vue';
 import type { ResultPager } from './table.ts';
+import type { RowOpener } from './visuals.ts';
 
 const props = withDefaults(defineProps<{
   table: ResultTable;
@@ -16,7 +17,9 @@ const props = withDefaults(defineProps<{
   /** Where the person's choice of visual is kept (a message part's key); empty keeps it only while mounted. */
   viewKey?: string;
   pager?: ResultPager | undefined;
-}>(), { viewKey: '', pager: undefined });
+  /** A button per row that opens what it offers. */
+  opener?: RowOpener | undefined;
+}>(), { viewKey: '', pager: undefined, opener: undefined });
 
 const host = inject(RESULTS_HOST, OWN_HOST);
 const local = ref<string | undefined>(undefined);
@@ -33,5 +36,7 @@ onMounted(() => { void host.prepare(props.registry); });
 </script>
 
 <template>
-  <ResultView v-model:choice="choice" :table="table" :title="title" :visuals="visuals" :pager="pager" />
+  <ResultView v-model:choice="choice" :table="table" :title="title" :visuals="visuals" :pager="pager" :opener="opener">
+    <template #tools><slot name="tools" /></template>
+  </ResultView>
 </template>

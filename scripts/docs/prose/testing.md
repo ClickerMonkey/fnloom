@@ -11,6 +11,15 @@ Every system tests itself with the SDK's **test kit** (`@harness/sdk/testing`), 
   marked `real` and skipped without `OPENROUTER_API_KEY`.
 - **Kinds.** `kit.kindProps('<kind>', payload)` gives the problems the kind finds in a payload and the fn props it
   derives.
+- **Data.** The fake hub answers `ctx.data` from records in memory, like the hub (filters, sorts, text search, pages,
+  versions, `expect`, person-owned types refused outside runs): `kit.records('<Type>')` reads what runs saved, and
+  `kit.hub.data.save(...)` puts records in first. Another system's stored type goes in `kit.hub.storedTypes`.
+- **Sensitive files and mentions.** `kit.flags('<fn>', args)` gives the flags its `flags` hook answers, as the hub
+  asks before a run. `kit.mentions('<provider>', query)` gives a mention provider's options and the resource searches
+  it made (answer them with `kit.hub.onMentionResources`).
+- **Files and commands.** `scratchFolder({ git: true, files })` makes a temp folder (a git repository with the files
+  committed) to run file and command fns in: change a file, add an untracked or ignored one, and check the change set
+  or the flags a fn reports. `repo.dispose()` removes it.
 - **Context.** `contextFolder(dir, contract)` checks the context folder: every file parses, every link resolves (fenced
   code is skipped), and `fns` maps each context to the fns it brings. Expect `problems` to be empty.
 - **Components.** `preview({ name, module: new URL('./ResultView.vue', import.meta.url), states })` draws a component in
@@ -40,7 +49,8 @@ definitions (`onTypes`), resource reads (`onResource`), and setting values (`set
 
 <!-- include: scripts/docs/example/server/notes.test.ts#test -->
 
-Also unit-test the parts behind each interface (a store, a parser) directly, with temp folders and fixed clocks. Keep
+Also unit-test the parts behind each interface (a parser, a client of an outside service) directly, with temp
+folders and fixed clocks. Keep
 tests that call real services (a model, an API) in `*.live.test.ts` files, marked and minimal; `npm run test:live` runs
 them, `npm test` skips them.
 

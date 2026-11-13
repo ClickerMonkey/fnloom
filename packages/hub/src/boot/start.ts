@@ -23,7 +23,7 @@ import { ClientBuildRoute, WebAppRoute } from '../api/serve.ts';
 import { ConnectCallbackRoute } from '../api/connect.ts';
 import { NamedContentFiles } from '../api/files.ts';
 import { openContentFiles } from '../resources/storage.ts';
-import { first, PAGE } from '../api/paging.ts';
+import { firstRow } from '../store/rows.ts';
 import { webPlugins } from '../api/web/index.ts';
 import { MemoryEventBus } from '../bus/memory.ts';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
@@ -31,6 +31,7 @@ import { JwtSystemTokens } from '../link/tokens.ts';
 import type { HubStore } from '../store/index.ts';
 import { parseHubSettings, type HubSettings } from './env.ts';
 import { HUB_INFO, HUB_PACKAGE_DIR } from './info.ts';
+import { readHubIdentity } from './identity.ts';
 import { loadKeys, randomSecret, type KeyMaker } from './keys.ts';
 import { makeLogger } from './log.ts';
 import { apiServices, assemble, type BaseServices } from './services.ts';
@@ -46,11 +47,11 @@ export interface StartSeams {
 }
 
 /** The hub's own actor, made on first start. */
-export async function ensureHubActor(store: HubStore, clock: () => number): Promise<ActorId> {
+export async function ensureHubActor(store: HubStore, clock: () => number, name: string): Promise<ActorId> {
   const hub = HUB_SYSTEM;
-  const found = await first((cursor) => store.table('actors').find({ where: { kind: 'system' }, limit: PAGE, cursor }), (actor) => actor.kind === 'system' && actor.system === hub);
+  const found = await firstRow(store.table('actors'), { where: { kind: 'system' } }, (actor) => actor.kind === 'system' && actor.system === hub);
   if (found !== undefined) { return found.id; }
-  const actor: SystemActor = { id: mintId('actor'), kind: 'system', system: hub, name: HUB_INFO.name, about: 'The hub itself.', createdAt: clock(), disabled: false };
+  const actor: SystemActor = { id: mintId('actor'), kind: 'system', system: hub, name, about: 'The hub itself.', createdAt: clock(), disabled: false };
   await store.table('actors').insert(actor);
   return actor.id;
 }
@@ -103,9 +104,11 @@ export async function startHub(options: StartOptions & StartSeams): Promise<Runn
   try {
     await store.migrate();
     const keys = await loadKeys(settings, options.keyMaker ?? { secret: randomSecret, vapid: generateVapidKeys });
-    const hubActor = await ensureHubActor(store, clock);
+    const identity = await readHubIdentity(store, settings.hubEnv.HARNESS_NAME, HUB_INFO.version);
+    const hubActor = await ensureHubActor(store, clock, identity.name);
 
-    const web = emptyServer({ docs: settings.httpEnv.HARNESS_DOCS ? { info: { title: HUB_INFO.name, version: HUB_INFO.version } } : false, shed: {
+    // the API docs take the name the hub started with
+    const web = emptyServer({ docs: settings.httpEnv.HARNESS_DOCS ? { info: { title: identity.name, version: identity.version } } : false, shed: {
       thresholdMs: settings.httpEnv.HARNESS_SHED_THRESHOLD, sustainedMs: settings.httpEnv.HARNESS_SHED_SUSTAINED, recoverMs: settings.httpEnv.HARNESS_SHED_RECOVER,
       response: () => Response.json({ error: { code: 'OVERLOADED', message: 'the hub is busy; try again shortly' } }, { status: 503, headers: { 'retry-after': '1' } }),
     } });
@@ -138,7 +141,7 @@ export async function startHub(options: StartOptions & StartSeams): Promise<Runn
     const front = new HttpFront({
       web, link, mcp: { fetch: (request) => hub.mcp.endpoints.handle(request) }, health: { live: () => lc.isLive(), ready: () => lc.isReady() }, heartbeat: settings.httpEnv.HARNESS_WS_HEARTBEAT,
       tokenMargin: settings.httpEnv.HARNESS_WS_TOKEN_MARGIN, clock, log,
-      files: [new ConnectCallbackRoute(() => hub.connections), new ClientBuildRoute({ catalog: hub.catalog, content: api.content, lifecycle: () => hub.link.lifecycle }), new WebAppRoute(webDist(settings))],
+      files: [new ConnectCallbackRoute(() => hub.connections), new ClientBuildRoute({ catalog: hub.catalog, content: api.content, lifecycle: () => hub.link.lifecycle }), new WebAppRoute(webDist(settings), api.identity)],
       tokenExpiry: (token) => accessTokenExpiry(token, keys.jwtSecret),
     });
     const onError = (error: unknown, phase: string, plugin: string): void => { log.warn('plugin.teardown.failed', { phase, plugin }, error); };

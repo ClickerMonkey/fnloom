@@ -15,7 +15,7 @@ choices:
     when: "Pick this to go on in order: Config, events, lifecycle and data."
 ---
 
-## 21. Calling other fns
+## 22. Calling other fns
 
 A fn calls another fn (of its own system, another system or the hub) by declaring it as a **dep** with its ref, then
 calling it through `ctx.fns`. Nothing else can be called, and the args, result and handlers are typed by the ref:
@@ -26,6 +26,7 @@ _From `scripts/docs/example/shared/index.ts`:_
 // calls other fns through its deps, by ref: its own system's `review` and the hub's `ask_user`
 publish: fn({
   description: 'Share a note once the person approves it.',
+  group: 'sharing',
   args: g.obj({ id: g.text({ minLength: 1 }) }),
   returns: g.obj({ published: g.bool(), note: g.optional(g.text()) }),
   deps: { review: fns.review, ask: hub.fns.ask_user },

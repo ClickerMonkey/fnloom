@@ -6,10 +6,10 @@
  * `ctx.ai()` (`server/authoring.ts`) finds or writes the saved query through a forced workflow with progressive
  * disclosure, then it runs. The chat gets the saved fn and its run, never the working context. Rows go to the person as a
  * `result` attachment, which the app draws with its result view (its table, bar chart and value, and any visual a
- * system adds to the `query-visuals` registry, best fit first); the model gets a
+ * system adds to the hub's `hub/visuals` registry, best fit first); the model gets a
  * `ResultBlock` that says so. Writes and schema changes only run once a person approves them.
  */
-import { ResultTable, type FnEffects } from '@harness/core';
+import { BUILT_IN_SHAPES, HUB_VISUALS, ResultTable, type FnEffects } from '@harness/core';
 import { attachment, context, fn, g, ginAs, hub, kind, system, type Infer } from '@harness/sdk';
 import {
   ApplyArgs, AuthorArgs, CONFIG_SECRETS, DatabaseConfig, DatabasePick, DatabaseSummary, PickArgs, InstanceAnswer, InstanceOp, ReadInstanceOp, ParamValues, QueryAgentAnswer, QueryAnswer, QueryCheck, QueryDraft, QueryPayload, QueryRun,
@@ -22,9 +22,8 @@ export * from './shapes.ts';
 /** The query result attachment's data: core's `ResultTable`. */
 export const ResultData = ginAs(ResultTable);
 
-/** The query visuals registry, by local name and qualified. */
-export const VISUALS = 'query-visuals';
-export const VISUALS_REGISTRY = `database/${VISUALS}` as const;
+/** The registry its visuals go to: the hub's, which every system contributes to. */
+export const VISUALS_REGISTRY = HUB_VISUALS;
 
 /** The kind of every saved query, qualified. */
 export const QUERY_KIND = 'database/query';
@@ -100,14 +99,19 @@ function exampleAnswer(how: QueryHow, why: string, status: string, rows: { id: n
 /** The database system's contract. */
 export const database = system('database', {
   description: 'Query and change SQL databases (SQLite, Postgres, SQL Server): every table is a type, and every query asked for is kept in the hub as a fn for next time.',
-  registries: {
-    [VISUALS]: { description: 'Ways to draw rows a query read. Each entry says whether a result fits it and how well. The app draws the table, a bar chart and a single value itself; systems add more here.', data: ResultData },
-  },
-  // its own visuals in its own registry (client/own-visuals.ts), listed so the hub and the web app load its bundle for them
+  // its API groups: the hub indexes its fns by them (`database/api`, `database/api.<group>`)
+  groups: [
+    { name: 'queries', title: 'Queries', description: 'Find, write, change and run saved queries: get_query for anything new, then call the saved query fn directly.' },
+    { name: 'tables', title: 'Tables', description: 'The databases and their tables, and each table\'s ready-made fns (CRUD, counts, sums, relations).' },
+    { name: 'schema', title: 'Schema', description: 'Create and change tables, and apply type changes a rescan found; every change waits for approval.' },
+    { name: 'instances', title: 'Instances', description: 'Work forwarded to the instance that holds a database; called by this system\'s own tools only.' },
+  ],
+  // its visuals (client/own-visuals.ts) in the hub's registry, with the data each draws, listed so the hub and the
+  // web app load its bundle for them and the hub and widget agents can judge a fit without the client code
   contributes: [
-    { registry: VISUALS_REGISTRY, name: 'table', label: 'Table', icon: 'table' },
-    { registry: VISUALS_REGISTRY, name: 'bar', label: 'Bar chart', icon: 'chart' },
-    { registry: VISUALS_REGISTRY, name: 'value', label: 'Value', icon: 'hash' },
+    { registry: VISUALS_REGISTRY, name: 'table', label: 'Table', icon: 'table', description: 'Every column and row, sortable and paged.', shape: BUILT_IN_SHAPES.table },
+    { registry: VISUALS_REGISTRY, name: 'bar', label: 'Bar chart', icon: 'chart', description: 'One bar per row: a label column and a number column at or above zero.', shape: BUILT_IN_SHAPES.bar },
+    { registry: VISUALS_REGISTRY, name: 'value', label: 'Value', icon: 'hash', description: 'A single value: one row of one column.', shape: BUILT_IN_SHAPES.value },
   ],
   configSecrets: [...CONFIG_SECRETS],
   // the query authoring agent and enrichment use models; writes and schema changes wait for approval; get_query asks
@@ -133,6 +137,7 @@ export const database = system('database', {
     },
     fns: {
       at_instance: fn({
+        group: 'instances',
         description: 'Do one query tool\'s work on this database instance (the tools forward here with `on` when another instance has the database).',
         instructions: 'Called by this system\'s own tools only.',
         args: ginAs(InstanceOp),
@@ -146,6 +151,7 @@ export const database = system('database', {
         tags: ['database', 'read'],
       }),
       read_at_instance: fn({
+        group: 'instances',
         description: 'Do one reading query tool\'s work on this database instance: its tables, a draft\'s check, a table\'s generated fns (the read tools forward here with `on`).',
         instructions: 'Called by this system\'s own read tools only.',
         args: ginAs(ReadInstanceOp),
@@ -158,6 +164,7 @@ export const database = system('database', {
         tags: ['database', 'read'],
       }),
       change_schema: fn({
+        group: 'schema',
         description: 'Create or change a table from a row type on one database instance, once approved (create_table and alter_table forward here).',
         instructions: 'Called by create_table and alter_table, which say which instance; the person approves the DDL first.',
         args: ginAs(SchemaArgs),
@@ -170,6 +177,7 @@ export const database = system('database', {
         tags: ['database', 'schema', 'write'],
       }),
       apply_type_changes: fn({
+        group: 'schema',
         description: 'Apply the table type changes a rescan found that would break saved queries or drop a type. Proposed by the system for an admin to approve.',
         instructions: 'The system proposes it after a rescan; an admin approves it from the approval\'s type diff. Run it again with the same scan to no effect.',
         args: ginAs(ApplyArgs),
@@ -182,6 +190,7 @@ export const database = system('database', {
         tags: ['database', 'schema'],
       }),
       pick_database: fn({
+        group: 'queries',
         description: 'Which database a request is for: the one it names, the only one the person may use, the decision model\'s pick between them, or the question to ask the person.',
         instructions: 'get_query\'s first step. When the answer is `ask`, run nothing: the person picks the database (input/ask_choice with the labels as options) and the request comes again with it.',
         args: ginAs(PickArgs),
@@ -198,6 +207,7 @@ export const database = system('database', {
         tags: ['database', 'read'],
       }),
       databases: fn({
+        group: 'tables',
         description: 'The databases this system serves: each instance, its label and its tables.',
         instructions: 'Call it when the database is not given, to pick the one whose tables answer the request. Only databases the person may use are listed.',
         args: g.obj({}),
@@ -214,6 +224,7 @@ export const database = system('database', {
   .with(({ fns }) => ({
     fns: {
       tables: fn({
+        group: 'tables',
         description: 'One database\'s tables as types: columns, their choices, formats and ranges, relations, and how to write queries against them.',
         instructions: 'Call it before writing or changing a query, and write only against what it lists.',
         args: g.obj({ database: databaseArg() }),
@@ -227,6 +238,7 @@ export const database = system('database', {
         tags: ['database', 'read'],
       }),
       check_query: fn({
+        group: 'queries',
         description: 'Check a draft query against a database\'s tables: whether it runs, its SQL and signature, or each problem and how to fix it.',
         instructions: 'Check every draft before saving it, and fix each listed problem. A write on a read-only database is a problem.',
         args: g.obj({ database: databaseArg(), draft: ginAs(QueryDraft) }),
@@ -243,6 +255,7 @@ export const database = system('database', {
         tags: ['database', 'read'],
       }),
       save_query: fn({
+        group: 'queries',
         description: 'Keep a checked query in the hub as a `database/query` fn of its database (`database/<database>.<name>`), shared as the database says; with `replace`, a new version of a saved one.',
         instructions: 'Save only drafts check_query passed. Give the args for this request (kept as its first example) and the request as `askedFor`. A taken name without `replace` is saved under the next free one.',
         args: g.obj({
@@ -266,6 +279,7 @@ export const database = system('database', {
         tags: ['database', 'query'],
       }),
       table_fns_available: fn({
+        group: 'tables',
         description: 'Every fn that could be generated for a table, grouped (CRUD, column helpers, the whole table, and each relation), the most useful first: its name, what it does, its signature, whether it writes, and whether it exists already (with its version).',
         instructions: 'Use it to offer a table\'s ready-made fns (create, update, selectPage, counts, sums, a parent\'s child counts, a row\'s rank among its siblings) before writing a query by hand. Pass the names you want to database/table_fns_generate. `stale` means the table changed since it was made: generate it again.',
         args: ginAs(TableFnsArgs),
@@ -282,6 +296,7 @@ export const database = system('database', {
         tags: ['database', 'read'],
       }),
       table_fns_generate: fn({
+        group: 'tables',
         description: 'Make (or bring up to date) a table\'s generated fns by name, as saved query fns of its database with instructions and examples. Unchanged ones are left as they are; changed ones get a new version.',
         instructions: 'Give the names table_fns_available lists. Fns that write wait for the person\'s approval every time they run. `derived` adds derived fields (projectCount) to selectPage, to show, sort and filter on. The answer names each fn: call it directly.',
         args: ginAs(TableFnsGenerateArgs),
@@ -300,6 +315,7 @@ export const database = system('database', {
         tags: ['database', 'query'],
       }),
       run_query: fn({
+        group: 'queries',
         description: 'Run a saved query fn with args: a read gives you the columns, counts and first rows (and shows the rows to the person when one is watching); a write waits for the person\'s approval.',
         instructions: `Give the args by the fn's signature (its params, and \`limit\`, \`offset\`, \`sort\` for a list). ${RESULT_GUIDE}`,
         args: g.obj({
@@ -319,6 +335,7 @@ export const database = system('database', {
         tags: ['database'],
       }),
       author_query: fn({
+        group: 'queries',
         description: 'Find or write the saved query for a request on this database instance with the query authoring agent, keep it, and run it (get_query and edit_query forward here with on).',
         instructions: 'Called by get_query and edit_query only: they pick the database and forward the request (and, for an edit, the saved query).',
         args: ginAs(AuthorArgs),
@@ -336,6 +353,7 @@ export const database = system('database', {
   .with(({ fns }) => ({
     fns: {
       get_query: fn({
+        group: 'queries',
         description: 'Read or change data in a database: describe in detail what you want, and a saved query that does it is reused, or a new one is written, kept and run.',
         instructions: `Say which rows, columns, filters, grouping and order you want, and any values (as params, e.g. "for a customer given by name"). The answer names the query's fn and how to call it: call it directly next time. ${RESULT_GUIDE} A write (insert, update, delete) waits for the person to approve it. When the answer asks which database, do what its "next" says.`,
         args: QueryArgs,
@@ -364,6 +382,7 @@ export const database = system('database', {
         tags: ['database', 'query'],
       }),
       edit_query: fn({
+        group: 'queries',
         description: 'Change a saved query fn by instructions (add a column, another filter, a different order). The old version is kept; the new one runs.',
         instructions: `Name the saved query fn and say exactly what to change and the values to run it with. ${RESULT_GUIDE}`,
         args: EditArgs,
@@ -379,6 +398,7 @@ export const database = system('database', {
         tags: ['database', 'query'],
       }),
       create_table: fn({
+        group: 'schema',
         description: 'Make a table from a row type (on a database whose schema may change). Runs only after the person approves the DDL.',
         instructions: 'Give the table name and a row type whose fields are the columns; `id` is the primary key. Say what it is for; the person sees the DDL before it runs.',
         args: ginAs(TableArgs),
@@ -392,6 +412,7 @@ export const database = system('database', {
         routing: { to: 'any' },
       }),
       alter_table: fn({
+        group: 'schema',
         description: 'Change a table to match a row type: add, drop and change columns (on a database whose schema may change). Runs only after the person approves the steps.',
         instructions: 'Give the whole row type as it should be; dropping a column or narrowing one can lose data and is marked so in the approval.',
         args: ginAs(TableArgs),

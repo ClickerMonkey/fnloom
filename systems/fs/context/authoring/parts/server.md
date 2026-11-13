@@ -15,7 +15,7 @@ choices:
     when: "Pick this to go on in order: The run context and services."
 ---
 
-## 19. The server: serve and the implementation
+## 20. The server: serve and the implementation
 
 `serve(contract, impl, options, host?)` (from `@harness/sdk/server`) connects to the hub, pairs the first time, sends the
 manifest (or nothing when the hub already has this version of it), and serves the implementation over the link. It
@@ -49,11 +49,6 @@ _From `scripts/docs/example/server/impl.ts`:_
 /** Everything the implementation is built from. */
 export interface NotesDeps {
   readonly settings: NotesSettings;
-  /** Opens an instance's store from its data folder. */
-  readonly open: OpenStore;
-  readonly now: () => Date;
-  /** A new note id. */
-  readonly newId: () => string;
 }
 ```
 
@@ -66,12 +61,7 @@ _From `scripts/docs/example/server/main.ts`:_
 const settings = notesEnv.parse();
 const { host, log } = loggedHost(notes.name);
 
-const impl = createNotesImpl({
-  settings,
-  open: storesBy((dataDir) => new JsonNoteStore(dataDir)),
-  now: () => new Date(),
-  newId: () => randomUUID(),
-});
+const impl = createNotesImpl({ settings });
 
 // the renderers, built into the state folder and uploaded to the hub on connect
 const clientFolder = join(settings.HARNESS_SYSTEM_STATE, 'client');
@@ -110,7 +100,9 @@ export const notesEnv = env({
   /** The most notes `find` returns when no limit is given. */
   NOTES_FIND_LIMIT: z.number().int().min(1).default(10),
   /** The most pinned titles the `pinned` hook adds to a message. */
-  NOTES_HOOK_TITLES: z.number().int().min(0).default(5),
+  NOTES_HOOK_TITLES: z.number().int().min(1).default(5),
+  /** How many notes `tidy` reads per page. */
+  NOTES_TIDY_PAGE: z.number().int().min(1).max(200).default(50),
 }).add(systemState('notes'));
 ```
 

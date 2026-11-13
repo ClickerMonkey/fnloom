@@ -50,6 +50,9 @@ describe('input over the link', () => {
     await start();
     expect(input.name).toBe(packageManifest.name);
     const manifest = hub.manifests[0];
+    // every fn is in one of its API groups, which the hub indexes (`<system>/api.<group>`)
+    expect(manifest?.groups?.map((group) => group.name)).toEqual(['ask', 'forms']);
+    for (const decl of manifest?.fns ?? []) { expect(['ask', 'forms'], decl.name).toContain(decl.group); }
     expect(manifest?.kinds.map((k) => k.name)).toEqual(['form']);
     expect(manifest?.fns.map((f) => f.name).sort()).toEqual(['ask_choice', 'ask_confirm', 'ask_date', 'ask_number', 'ask_text', 'check_form', 'get_input', 'save_form']);
     const getInput = manifest?.fns.find((f) => f.name === 'get_input');

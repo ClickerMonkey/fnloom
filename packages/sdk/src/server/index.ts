@@ -199,5 +199,5 @@ export {
 export { rendererFolder, type RendererPlace } from './renderers.ts';
 export {
   AUTHORING_STAGES, AuthoringError, AuthoringSession, Disclosure, authoredFn, authoringAgent, authoringEnv, authoringTool,
-  type AuthoredFn, type AuthoringAgent, type AuthoringAgentInput, type AuthoringStage, type AuthoringTool, type AuthoringToolInput, type DraftCheck, type ToolStage,
+  type AuthoredFn, type AuthoringAgent, type AuthoringAgentInput, type AuthoringStage, type AuthoringTool, type AuthoringToolInput, type DraftCheck, type ToolStage, type SkippableStage,
 } from '../authoring.ts';

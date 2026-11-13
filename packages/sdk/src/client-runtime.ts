@@ -19,13 +19,15 @@
  * This module is browser code: it imports Vue and the SDK's contract builders, nothing from Node.
  */
 import { ObjType } from '@aeye/gin';
-import { DeliveryStatus, QualifiedName, qualify, type DeliveryId, type Json, type ResultTable, type RunId, type VisualFit } from '@harness/core';
+import { DeliveryStatus, QualifiedName, qualify, type DeliveryId, type Json, type ResultTable, type RunId, type VisualFit, type VisualShape } from '@harness/core';
 import { reactive, type Component } from 'vue';
-import type { AnyViews, ClientModule, Delivery, InputMount, Mount, ResourceViewerEntry, ResourceViewerMode, SystemClient, VisualOption, WireViews } from './client.ts';
+import { visualMatch, type AnyViews, type ClientModule, type Delivery, type InputMount, type Mount, type ResourceViewerEntry, type ResourceViewerMode, type SystemClient, type VisualOption, type WireViews } from './client.ts';
 import { encodeValue, parseValue, type GinType } from './gin.ts';
 import type { ContractShape } from './system.ts';
 
 export type { VisualOption } from './client.ts';
+/** The hub's visual registry, which every system's visuals join (`ClientRuntime.visuals(HUB_VISUALS, table)`). */
+export { HUB_VISUALS } from '@harness/core';
 
 /** How the runtime reaches the hub. The chat implements it with its callers and live state. */
 export interface ClientBridge {
@@ -179,6 +181,7 @@ interface LoadedVisual {
   readonly name: string;
   readonly label: string;
   readonly icon: string | undefined;
+  readonly shape: VisualShape | undefined;
   match(table: ResultTable): VisualFit;
   readonly component: Component;
 }
@@ -206,7 +209,8 @@ export class ClientRuntime {
       const added = Object.entries(entries).map(([name, entry]): LoadedVisual => {
         // client() checked that every visual is in the contract's contributes
         const declared = module.contract.contributes.find((c) => c.registry === key && c.name === name);
-        return { system: module.system, name, label: declared?.label ?? name, icon: declared?.icon, match: (table) => entry.match(table), component: entry.component };
+        const match = visualMatch(entry, declared?.shape) ?? (() => ({ fits: false, score: 0 }));
+        return { system: module.system, name, label: declared?.label ?? name, icon: declared?.icon, shape: declared?.shape, match, component: entry.component };
       });
       this.#visuals.set(key, [...(this.#visuals.get(key) ?? []), ...added]);
     }
@@ -244,7 +248,8 @@ export class ClientRuntime {
       }
       if (fit.fits) {
         fitting.push({
-          system: visual.system, name: visual.name, label: visual.label, ...(visual.icon === undefined ? {} : { icon: visual.icon }), fit, component: visual.component,
+          system: visual.system, name: visual.name, label: visual.label, ...(visual.icon === undefined ? {} : { icon: visual.icon }),
+          ...(visual.shape === undefined ? {} : { shape: visual.shape }), fit, component: visual.component,
           props: { table, system: this.systemClient(visual.system) },
         });
       }

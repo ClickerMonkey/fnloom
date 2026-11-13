@@ -89,10 +89,18 @@ interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDe
   effects?: FnEffects;
   /** How many of its examples go into the model's prompt with it (the hub's default when absent); the rest page with `hub/fn_examples`. */
   promptExamples?: number;
+  /** The API group it is listed in: one of the system's `groups` (`system(name, { groups })`); the general group when absent. */
+  group?: string;
+  /**
+   * The fn touches files that may be sensitive (env files, keys, gitignored files): before every run the hub asks its
+   * implementation's `flags(args, ctx)` which ones, then refuses, asks the person or goes ahead by the rules' actions.
+   * Requires `flags` in the implementation.
+   */
+  flags?: true;
 }
 ```
 
-Refers to: [`Audience`](context:fs/authoring.core-types#core-audience), [`Display`](context:fs/authoring.core-types#core-display), [`FnEffects`](context:fs/authoring.core-types#core-fneffects), [`FnLimits`](context:fs/authoring.core-types#core-fnlimits), [`FnRouting`](context:fs/authoring.core-types#core-fnrouting), [`Operations`](context:fs/authoring.core-types#core-operations), [`ProposalApprover`](context:fs/authoring.core-types#core-proposalapprover).
+Refers to: [`Audience`](context:fs/authoring.core-types.primitives-ts#core-audience), [`Display`](context:fs/authoring.core-types.run-ts#core-display), [`FnEffects`](context:fs/authoring.core-types.contextdecl#core-fneffects), [`FnLimits`](context:fs/authoring.core-types.run-ts#core-fnlimits), [`FnRouting`](context:fs/authoring.core-types.contextdecl#core-fnrouting), [`Operations`](context:fs/authoring.core-types.run-ts#core-operations), [`ProposalApprover`](context:fs/authoring.core-types.approvals-ts#core-proposalapprover).
 
 #### `FnExampleOf`
 
@@ -152,12 +160,16 @@ interface FnDef<T extends FnTypes> {
   readonly effects: FnEffects | undefined;
   /** How many examples go into the prompt with it. */
   readonly promptExamples: number | undefined;
+  /** The API group it is listed in (`SystemInfo.groups`); the general group when undefined. */
+  readonly group: string | undefined;
+  /** Whether the hub asks its implementation's `flags(args, ctx)` which sensitive files a run would touch first. */
+  readonly flags: boolean;
   /** Phantom: lets the SDK read T back out of a def. Never set at runtime. */
   readonly types?: T;
 }
 ```
 
-Refers to: [`Audience`](context:fs/authoring.core-types#core-audience), [`Display`](context:fs/authoring.core-types#core-display), [`FnApproval`](context:fs/authoring.core-types#core-fnapproval), [`FnEffects`](context:fs/authoring.core-types#core-fneffects), [`FnLimits`](context:fs/authoring.core-types#core-fnlimits), [`FnRouting`](context:fs/authoring.core-types#core-fnrouting), [`Operations`](context:fs/authoring.core-types#core-operations).
+Refers to: [`Audience`](context:fs/authoring.core-types.primitives-ts#core-audience), [`Display`](context:fs/authoring.core-types.run-ts#core-display), [`FnApproval`](context:fs/authoring.core-types.approvals-ts#core-fnapproval), [`FnEffects`](context:fs/authoring.core-types.contextdecl#core-fneffects), [`FnLimits`](context:fs/authoring.core-types.run-ts#core-fnlimits), [`FnRouting`](context:fs/authoring.core-types.contextdecl#core-fnrouting), [`Operations`](context:fs/authoring.core-types.run-ts#core-operations).
 
 #### `AnyFnDef`
 
@@ -244,7 +256,7 @@ interface FnRef<N extends QualifiedName, A, R, H extends Handlers = {}> {
 }
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `AnyFnRef`
 
@@ -254,7 +266,7 @@ type · `import { AnyFnRef } from '@harness/sdk'`
 type AnyFnRef = FnRef<QualifiedName, unknown, unknown, Handlers>;
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `FnValidators`
 
@@ -272,7 +284,7 @@ interface FnValidators<A, R, St extends object> {
 }
 ```
 
-Refers to: [`InputVerdict`](context:fs/authoring.core-types#core-inputverdict), [`OutputVerdict`](context:fs/authoring.core-types#core-outputverdict).
+Refers to: [`InputVerdict`](context:fs/authoring.core-types.validation-ts#core-inputverdict), [`OutputVerdict`](context:fs/authoring.core-types.validation-ts#core-outputverdict).
 
 #### `ValidateCtx`
 
@@ -289,7 +301,7 @@ interface ValidateCtx<Cfg = unknown> extends SystemCtx<Cfg> {
 }
 ```
 
-Refers to: [`RunInfo`](context:fs/authoring.core-types#core-runinfo).
+Refers to: [`RunInfo`](context:fs/authoring.core-types.run-ts#core-runinfo).
 
 #### `PreviewCtx`
 
@@ -305,7 +317,7 @@ interface PreviewCtx<Cfg = unknown> extends SystemCtx<Cfg> {
 }
 ```
 
-Refers to: [`RunId`](context:fs/authoring.core-types#core-runid), [`UserInfo`](context:fs/authoring.core-types#core-userinfo).
+Refers to: [`RunId`](context:fs/authoring.core-types.primitives-ts#core-runid), [`UserInfo`](context:fs/authoring.core-types.run-ts#core-userinfo).
 
 #### `DEFAULT_STATUS`
 

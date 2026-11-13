@@ -1,8 +1,12 @@
 <script setup lang="ts">
-/** Parts of an approval preview, in order: words (markdown), code (highlighted, full height), rows, a type's change. */
+/**
+ * Parts of an approval preview, in order: words (markdown), code (highlighted, full height), rows, a type's change, the
+ * sensitive files the call would touch.
+ */
 import type { PreviewPart } from '@harness/core';
 import { UiCodeBlock, UiMarkdown } from '../../ui/index.ts';
 import ResultGrid from '../results/ResultGrid.vue';
+import SensitiveFiles from './SensitiveFiles.vue';
 import TypeDiff from './TypeDiff.vue';
 
 defineProps<{ parts: readonly PreviewPart[] }>();
@@ -17,7 +21,7 @@ defineProps<{ parts: readonly PreviewPart[] }>();
       <ResultGrid :table="part.table" :title="part.title" />
     </section>
     <TypeDiff v-else-if="part.type === 'type-diff'" :part="part" />
-    <!-- build 8: web lane draws the `flags` part (sensitive files the call would touch) -->
+    <SensitiveFiles v-else-if="part.type === 'flags'" :flags="part.flags" />
   </template>
 </template>
 

@@ -15,7 +15,7 @@ choices:
     when: "Pick this to go on in order: Testing."
 ---
 
-## 24. Packaging: system.json, build, pack, install
+## 26. Packaging: system.json, build, pack, install
 
 ### `system.json`
 

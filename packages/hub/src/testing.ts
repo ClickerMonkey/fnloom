@@ -8,7 +8,7 @@ import { createLogger, type Logger, type LogRecord } from '@ayepi/log';
 import type { LinkSession, Page, TableName } from '@harness/core';
 import type { HubEventName, HubEvents } from './bus.ts';
 import { MemoryEventBus } from './bus/memory.ts';
-import type { AyepiPorts, HubStore, HubTable, StoreOptions, Table, TableQuery, TextIndex, VectorIndex, Where } from './store/index.ts';
+import type { AyepiPorts, HubStore, RecordQueries, HubTable, StoreOptions, Table, TableQuery, TextIndex, VectorIndex, Where } from './store/index.ts';
 import { SqliteStore } from './store/sqlite.ts';
 
 /** A logger at debug level that keeps every record it writes. */
@@ -46,6 +46,7 @@ class FaultyTable<Row, Key> implements Table<Row, Key> {
   count(where?: Where<Row>): Promise<number> { return this.#table.count(where); }
   insert(row: Row): Promise<Row> { return this.#table.insert(row); }
   put(row: Row): Promise<Row> { return this.#table.put(row); }
+  putAll(rows: readonly Row[]): Promise<void> { return this.#table.putAll(rows); }
   remove(key: Key): Promise<boolean> { return this.#table.remove(key); }
 
   update(key: Key, patch: Partial<Row>): Promise<Row> {
@@ -73,6 +74,7 @@ export class FaultyStore implements HubStore {
 
   get vectors(): VectorIndex { return this.#store.vectors; }
   get text(): TextIndex { return this.#store.text; }
+  get recordQueries(): RecordQueries { return this.#store.recordQueries; }
   get ports(): AyepiPorts { return this.#store.ports; }
 
   table<K extends TableName>(name: K): HubTable<K> {

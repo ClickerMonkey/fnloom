@@ -27,12 +27,14 @@ async function serveRoutes(routes: readonly FileRoute[]): Promise<{ url: string;
 describe('WebAppRoute', () => {
   const dir = mkdtempSync(join(tmpdir(), 'harness-web-'));
   let site: Awaited<ReturnType<typeof serveRoutes>>;
+  /** The display name the route reads on every request. */
+  let hubName = 'Acme <Ops>';
   beforeAll(async () => {
     mkdirSync(join(dir, 'assets'));
-    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>app</title>');
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>Harness</title><meta name="apple-mobile-web-app-title" content="Harness">');
     writeFileSync(join(dir, 'assets', 'app-1a2b.js'), 'console.log(1)');
     writeFileSync(join(tmpdir(), 'harness-outside.txt'), 'secret');
-    site = await serveRoutes([new WebAppRoute(dir)]);
+    site = await serveRoutes([new WebAppRoute(dir, { identity: () => Promise.resolve({ name: hubName, source: 'setting' as const, version: '1.0.0' }) })]);
   });
   afterAll(async () => {
     await site.close();
@@ -52,8 +54,20 @@ describe('WebAppRoute', () => {
       const res = await fetch(`${site.url}${path}`);
       expect(res.status).toBe(200);
       expect(res.headers.get('cache-control')).toBe('no-cache');
-      expect(await res.text()).toContain('<title>app</title>');
+      expect(await res.text()).toContain('<title>Acme &lt;Ops&gt;</title>');
     }
+  });
+
+  it('names the page and the install manifest after the hub, read on every request', async () => {
+    hubName = 'Family Desk';
+    const page = await (await fetch(`${site.url}/`)).text();
+    expect(page).toContain('<title>Family Desk</title>');
+    expect(page).toContain('name="apple-mobile-web-app-title" content="Family Desk"');
+    expect(page).not.toContain('Harness');
+    const manifest = await fetch(`${site.url}/manifest.webmanifest`);
+    expect(manifest.headers.get('content-type')).toContain('application/manifest+json');
+    expect(await manifest.json()).toMatchObject({ name: 'Family Desk', short_name: 'Family Desk', start_url: '/' });
+    hubName = 'Acme <Ops>';
   });
 
   it('leaves missing files and paths outside the folder alone', async () => {

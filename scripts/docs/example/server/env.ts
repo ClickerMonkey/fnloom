@@ -9,7 +9,9 @@ export const notesEnv = env({
   /** The most notes `find` returns when no limit is given. */
   NOTES_FIND_LIMIT: z.number().int().min(1).default(10),
   /** The most pinned titles the `pinned` hook adds to a message. */
-  NOTES_HOOK_TITLES: z.number().int().min(0).default(5),
+  NOTES_HOOK_TITLES: z.number().int().min(1).default(5),
+  /** How many notes `tidy` reads per page. */
+  NOTES_TIDY_PAGE: z.number().int().min(1).max(200).default(50),
 }).add(systemState('notes'));
 // #endregion env
 

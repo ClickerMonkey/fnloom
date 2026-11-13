@@ -1,7 +1,7 @@
 /**
  * The database system's client: the `result` attachment's view (the best fitting visual and a switch between the
- * ones that fit), and its contributions to its own `database/query-visuals` registry: the table, a bar chart and a
- * single value. Other systems add visuals to the same registry from their own bundles.
+ * ones that fit), and its contributions to the hub's `hub/visuals` registry: the table, a bar chart and a single value.
+ * Other systems add visuals to the same registry from their own bundles.
  */
 // typescript-eslint can't see the types of .vue modules from .ts files (as for systems/fs/client/index.ts); vue-tsc
 // checks this file, so the renderers' props are still checked against the contract

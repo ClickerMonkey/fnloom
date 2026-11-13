@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { RUN_STATUSES, RUN_STATUS_WORDS } from '@harness/core';
 import { statusChip, failedOutput, percent } from './bash.ts';
-import { diffBlocks, diffLines, diffStats, splitLines, type DiffLine } from './diff.ts';
+import { blockStats, diffBlocks, diffLines, diffStats, patchBlocks, splitLines, type DiffLine } from './diff.ts';
 
 /** Apply a diff's lines back: the kept and added lines make the new text, the kept and removed the old. */
 function sides(lines: readonly DiffLine[]): { before: string[]; after: string[] } {
@@ -82,5 +82,24 @@ describe('the bash card\'s logic', () => {
     expect(percent(0.456)).toBe(46);
     expect(percent(2)).toBe(100);
     expect(percent(undefined)).toBe(0);
+  });
+});
+
+describe('patchBlocks', () => {
+  it('numbers each hunk from its header and marks the lines a unified diff leaves out', () => {
+    const patch = 'diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -3,2 +3,2 @@\n keep\n-old\n+new\n\\ No newline at end of file\n@@ -10,1 +10,2 @@\n ten\n+eleven\n';
+    const blocks = patchBlocks(patch);
+    expect(blocks.map((b) => b.kind)).toEqual(['gap', 'lines', 'gap', 'lines']);
+    expect(blocks[0]).toEqual({ kind: 'gap', count: 2 });
+    expect(blocks[1]).toEqual({ kind: 'lines', lines: [
+      { kind: 'same', text: 'keep', old: 3, new: 3 }, { kind: 'removed', text: 'old', old: 4 }, { kind: 'added', text: 'new', new: 4 },
+    ] });
+    expect(blocks[2]).toEqual({ kind: 'gap', count: 5 });
+    expect(blockStats(blocks)).toEqual({ added: 2, removed: 1 });
+  });
+
+  it('reads a new file and nothing from a header-only diff', () => {
+    expect(patchBlocks('--- /dev/null\n+++ b/n.ts\n@@ -0,0 +1,2 @@\n+a\n+b')).toEqual([{ kind: 'lines', lines: [{ kind: 'added', text: 'a', new: 1 }, { kind: 'added', text: 'b', new: 2 }] }]);
+    expect(patchBlocks('diff --git a/x b/y\nrename from x\nrename to y\n--- a/x\n+++ b/y')).toEqual([]);
   });
 });

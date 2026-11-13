@@ -4,7 +4,7 @@
  * updates as progress and the result come in. A system's client build keeps `vue` external, so renderers share the
  * chat's Vue. The chat UI provides the runtime behind `SystemClient` and `ResourceViewer`.
  */
-import type { AccessInfo, DeliveryId, DeliveryStatus, FnError, FormKind, Json, MentionHover, MessagePart, QualifiedName, ResourceStat, ResourceUri, ResultTable, RunId, RunStatus, SectionKey, ShareRule, TypeDisplay, VisualFit } from '@harness/core';
+import { declaredFit, type AccessInfo, type DeliveryId, type DeliveryStatus, type FnError, type FormKind, type Json, type MentionHover, type MessagePart, type QualifiedName, type ResourceStat, type ResourceUri, type ResultTable, type RunId, type RunStatus, type SectionKey, type ShareRule, type TypeDisplay, type VisualFit, type VisualShape } from '@harness/core';
 import type { Component, InjectionKey } from 'vue';
 import type { ActionDef, AttachmentDef, MentionDef, ValueOf } from './declare.ts';
 import type { FnDef, FnTypes, ProgressState, TypesOf, UntypedFn } from './fn.ts';
@@ -189,7 +189,7 @@ export interface InputMount extends Mount<'input'> {
   encode(value: unknown): Json | undefined;
 }
 
-/** The props of a visual (an entry of a registry such as `database/query-visuals`): the rows to draw. */
+/** The props of a visual (an entry of a registry such as the hub's `hub/visuals`): the rows to draw. */
 export interface VisualView {
   table: ResultTable;
 }
@@ -197,11 +197,22 @@ export interface VisualView {
 /**
  * One visual a system adds to a registry: whether a result fits it and how much of it it shows well (`VisualFit`,
  * score 0 to 1; the table scores 0), and the component that draws it. Keep `match` cheap and pure: it runs for
- * every result the person sees.
+ * every result the person sees. Without `match`, the contribution's declared shape (`visual({ shape })`) judges the fit
+ * (`declaredFit`) with `DECLARED_FIT_SCORE`; a visual needs one or the other.
  */
 export interface VisualEntry<C extends ContractShape> {
-  match(table: ResultTable): VisualFit;
+  match?(table: ResultTable): VisualFit;
   component: Renderer<VisualView & WithSystem<C>>;
+}
+
+/** The score of a visual judged only by its declared shape: above the table, below a visual that scores itself. */
+export const DECLARED_FIT_SCORE = 0.3;
+
+/** How a visual is judged: its own `match`, else its declared shape; `undefined` when it has neither. */
+export function visualMatch(entry: { match?(table: ResultTable): VisualFit }, shape: VisualShape | undefined): ((table: ResultTable) => VisualFit) | undefined {
+  if (entry.match !== undefined) { const match = entry.match.bind(entry); return (table) => match(table); }
+  if (shape === undefined) { return undefined; }
+  return (table) => ({ fits: declaredFit(shape, table).fits, score: DECLARED_FIT_SCORE });
 }
 
 /** A system's renderers, typed by its contract. Every renderer also gets `system` to send its system actions. */
@@ -246,8 +257,13 @@ export interface ClientModule<C extends ContractShape = ContractShape> {
 export function client<N extends string, C extends ContractShape>(contract: SystemContract<N, C>, renderers: ClientRenderers<C>): ClientModule<C> {
   for (const [registry, entries] of Object.entries(renderers.visuals ?? {})) {
     for (const name of Object.keys(entries)) {
-      if (!contract.contributes.some((c) => c.registry === registry && c.name === name)) {
+      const declared = contract.contributes.find((c) => c.registry === registry && c.name === name);
+      if (declared === undefined) {
         throw new Error(`system ${contract.name}: visual ${registry} ${name} is not in the contract's contributes.`);
+      }
+      const entry = entries[name];
+      if (entry !== undefined && visualMatch(entry, declared.shape) === undefined) {
+        throw new Error(`system ${contract.name}: visual ${registry} ${name} needs a match or a declared shape (visual({ shape })).`);
       }
     }
   }
@@ -317,6 +333,8 @@ export interface VisualOption {
   readonly label: string;
   /** An icon name from the web app's icon set, when the contribution names one. */
   readonly icon?: string;
+  /** The data it draws, when the contribution declares it (its channels, for a widget's bindings). */
+  readonly shape?: VisualShape;
   readonly fit: VisualFit;
   readonly component: Component;
   readonly props: VisualView & WithSystem<ContractShape>;

@@ -5,7 +5,7 @@
  * runtime builds. `implTable` is the one place that bridge is made.
  */
 import type {
-  AllowedOperations, ApprovedRun, ConnectFinish, CostEstimate, Manifest, ManifestPatch, ManifestSection, SectionDecl, ConnectionUpdate, ConnectResult, ConnectStart, Detail, ErrorClass, HookInput, InputProblem, Json, KindDescription, MentionHover, PreviewAnswer, RunConnection, RunInfo, ShareRule, StepStatus, TypeDecl, StopReason, SystemEvent, UndoOutcome, Usd,
+  AllowedOperations, ApprovedRun, ConnectFinish, CostEstimate, Manifest, ManifestPatch, ManifestSection, SectionDecl, ConnectionUpdate, ConnectResult, ConnectStart, Detail, ErrorClass, HookInput, InputProblem, Json, KindDescription, MentionHover, PreviewAnswer, RunConnection, RunInfo, SensitivityFlag, ShareRule, StepStatus, TypeDecl, StopReason, SystemEvent, UndoOutcome, Usd,
 } from '@harness/core';
 import { MANIFEST_SECTIONS, MANIFEST_SECTION_NAMES } from '@harness/core';
 import type { ActionCtx, AskerCtx, BudgetInfo, CallOptions, Decisions, FnCall, Fleets, FnCtx, FnSearch, PreviewCtx, Proposals, Resume, Services, SessionState, SystemCtx, UndoCtx } from '../ctx.ts';
@@ -81,6 +81,7 @@ export interface RuntimeKindCtx extends RuntimeRunBase {
 export interface RuntimeFnImpl {
   run(args: unknown, ctx: RuntimeFnCtx): Promise<AnyOutcome>;
   preview?(args: unknown, ctx: PreviewCtx): Promise<PreviewAnswer>;
+  flags?(args: unknown, ctx: PreviewCtx): Promise<SensitivityFlag[]>;
   undo?(payload: unknown, ctx: UndoCtx): Promise<UndoOutcome>;
 }
 
@@ -236,7 +237,7 @@ export class SystemTable {
   constructor(contract: AnyContract, impl: ImplTable) {
     this.contract = contract;
     this.impl = impl;
-    for (const [local, def] of Object.entries(contract.defs.fns)) { checkPreview(contract.name, local, def, impl.fns?.[local]); }
+    for (const [local, def] of Object.entries(contract.defs.fns)) { checkHooks(contract.name, local, def, impl.fns?.[local]); }
     for (const [local, def] of Object.entries(contract.defs.kinds)) {
       if (def.estimates && impl.kinds?.[local] !== undefined && impl.kinds[local].estimate === undefined) {
         throw new Error(`kind ${contract.name}/${local} says it estimates, so its implementation needs an estimate(payload, input, ctx).`);
@@ -247,7 +248,7 @@ export class SystemTable {
   /** Add a fn at runtime; native fns bring their implementation. */
   add(local: string, def: AnyFnDef, impl: RuntimeFnImpl | undefined): void {
     if (local in this.contract.defs.fns || this.#added.has(local)) { throw new Error(`fn ${local} already exists in ${this.contract.name}`); }
-    checkPreview(this.contract.name, local, def, impl);
+    checkHooks(this.contract.name, local, def, impl);
     this.#added.set(local, { def, impl });
     this.#changed();
   }
@@ -419,10 +420,19 @@ export class SystemTable {
   }
 }
 
-/** A native fn that asks for approval with a preview must implement `preview`. */
-function checkPreview(system: string, local: string, def: AnyFnDef, impl: RuntimeFnImpl | undefined): void {
+/**
+ * A native fn that asks for approval with a preview must implement `preview`; one that declares `flags` must implement
+ * `flags`. Only a native fn can declare `flags` (its system knows which files its args name).
+ */
+function checkHooks(system: string, local: string, def: AnyFnDef, impl: RuntimeFnImpl | undefined): void {
   if (def.kind === 'native' && def.approval?.preview === true && impl !== undefined && impl.preview === undefined) {
     throw new Error(`${system}/${local} asks for approval with a preview, so its implementation needs a preview(args, ctx).`);
+  }
+  if (def.flags && def.kind !== 'native') {
+    throw new Error(`${system}/${local} declares flags, but only a native fn can say which files it touches.`);
+  }
+  if (def.flags && impl !== undefined && impl.flags === undefined) {
+    throw new Error(`${system}/${local} declares flags, so its implementation needs a flags(args, ctx).`);
   }
 }
 

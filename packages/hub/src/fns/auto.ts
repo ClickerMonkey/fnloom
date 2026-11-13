@@ -5,7 +5,7 @@
  * Without a model, on an error, or past the wait, the person decides: auto mode never lets a call through on a guess.
  * The call is recorded as a model call of the run, like every other.
  */
-import { AutoClassifier, type ActorId, type AutoClassifierView, type LlmMessage } from '@harness/core';
+import { AutoClassifier, flagLine, type ActorId, type AutoClassifierView, type LlmMessage } from '@harness/core';
 import type { Logger } from '@ayepi/log';
 import { z } from 'zod';
 import { structuredAnswer } from '../models/structured.ts';
@@ -41,11 +41,14 @@ export const CLASSIFIER_INSTRUCTIONS = [
   'You get the person\'s last messages, then the action: the fn, what it does, whether it reads, writes or deletes, what it creates, updates or removes in the hub (fns, context, ...) when it does, and its args.',
   'Allow it when the action plainly follows from what the person asked and does nothing they would be surprised by.',
   'Ask when it is not clearly asked for, reaches beyond what was asked (other files, other people, other systems), deletes, spends money, sends something to other people, or cannot be undone, or when you are unsure.',
+  'An action may list sensitive files it touches (env files, keys, credentials, gitignored files). Allow reading one only when the person plainly asked for that file or what is in it; otherwise ask.',
   '',
   'Examples:',
   'Person: "add a test for parseDate in src/date.test.ts". Action: fs/write to src/date.test.ts → {"allow": true, "reason": "It writes the test file you asked for."}',
   'Person: "what is in my calendar tomorrow?". Action: google-calendar/delete_event → {"allow": false, "reason": "You asked to look at your calendar, not to delete an event."}',
   'Person: "clean up the build folder". Action: fs/bash with "rm -rf ~" → {"allow": false, "reason": "The command deletes far more than the build folder."}',
+  'Person: "why does the build fail?". Action: fs/read of dist/out.log, Sensitive files: Reads dist/out.log (gitignored: Git ignores it, so it may hold local output or secrets.) → {"allow": true, "reason": "It reads the build log to find the failure you asked about."}',
+  'Person: "fix the typo in the README". Action: fs/grep for "API_KEY", Sensitive files: May read .env (env: Env files hold keys and passwords.) → {"allow": false, "reason": "Searching your env file for keys is not part of fixing a typo."}',
 ].join('\n');
 
 /** The classifier on the hub's options table and LLM gateway. */
@@ -98,6 +101,7 @@ export class LlmAutoClassifier implements AutoModeClassifier {
       'Last messages:', ...(lines.length === 0 ? ['(none)'] : lines), '',
       `Action: ${input.fn.name} (${input.mode}) — ${input.fn.decl.description}`,
       ...(input.changes === undefined ? [] : [`Changes in the hub: ${input.changes}`]),
+      ...(input.flags === undefined ? [] : ['Sensitive files:', ...input.flags.map((flag) => `- ${flagLine(flag)}`)]),
       `Args: ${JSON.stringify(input.args)}`,
     ].join('\n');
   }

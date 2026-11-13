@@ -15,7 +15,7 @@ choices:
     when: "Pick this to go on in order: Outcomes: done, invalid input, failed, paused, cancelled, undo."
 ---
 
-## 8. Session state, forms and display
+## 9. Session state, forms and display
 
 ### Session state
 
@@ -42,16 +42,15 @@ find: {
       // the caller's mistake: an agent gets the problem back and tries again
       return ctx.invalid([{ path: 'query', message: 'Give a query or a tag; there is no earlier search to repeat.' }]);
     }
-    const all = await deps.open(ctx.dataDir).all();
-    const found: NoteValue[] = [];
-    // about twenty updates whatever the size: each one travels to the hub and on to the chat
-    const every = Math.max(1, Math.floor(all.length / 20));
-    all.forEach((note, index) => {
-      if (matches(note, query, args.tag)) { found.push(note); }
-      if ((index + 1) % every === 0) { ctx.progress.set((index + 1) / all.length, `${found.length} found`); }
+    ctx.progress.set(0.1, 'Searching');
+    // the hub searches by words and meaning and filters by tag in its database; one page comes back
+    const limit = args.limit ?? s.NOTES_FIND_LIMIT;
+    const page = await ctx.data.find(Note, {
+      ...(query === undefined ? {} : { search: query }),
+      query: { filters: tagFilter(args.tag), limit },
     });
     if (query !== undefined) { await ctx.state.set({ lastQuery: query }); }
-    return ctx.done({ notes: found.slice(0, args.limit ?? s.NOTES_FIND_LIMIT), total: found.length });
+    return ctx.done({ notes: page.items.map(entryOf), more: page.cursor !== undefined });
   },
 },
 ```
@@ -68,6 +67,7 @@ _From `scripts/docs/example/shared/index.ts`:_
 ```ts
 review: fn({
   description: 'Ask the person to approve a note before it is shared. Returns their decision.',
+  group: 'sharing',
   args: g.obj({ id: g.text({ minLength: 1 }) }),
   returns: Review,
   // the run waits in `await ctx.form()` until the renderer submits this
@@ -82,9 +82,9 @@ _From `scripts/docs/example/server/impl.ts`:_
 ```ts
 review: {
   async run(args, ctx) {
-    const note = await deps.open(ctx.dataDir).get(args.id);
+    const note = await noteById(ctx.data, args.id);
     if (note === undefined) { return ctx.invalid([{ path: 'id', message: `There is no note ${args.id}.` }]); }
-    ctx.attach(notes.attachments.note, note, note.title);
+    ctx.attach(notes.attachments.note, entryOf(note), note.value.title);
     // waits for the renderer's submit; the hub keeps it if the system is offline meanwhile
     return ctx.done(await ctx.form());
   },

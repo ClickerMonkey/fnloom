@@ -8,9 +8,13 @@
 
 Everything
 
+Applied: Recorded in build-8-feedback.md (35ab704) and harness.md Decided. These differ from my recommendation and are applied as answered: a focused widget pass runs right after build 8 integrates.
+
 ### scope-hub-kind: Should the widget kind belong to the hub (`hub/widget`)? harness.md says the hub ships only `native` and `llm` kinds.
 
 A bundled widgets system
+
+Applied: Recorded in build-8-feedback.md (35ab704) and harness.md Decided. These differ from my recommendation and are applied as answered: a focused widget pass runs right after build 8 integrates.
 
 ### scope-dashboards: Dashboards (pages placing several widgets)?
 
@@ -60,6 +64,8 @@ Delete them
 
 Yes, each system bundles ECharts
 
+Applied: Recorded in build-8-feedback.md (35ab704) and harness.md Decided. These differ from my recommendation and are applied as answered: a focused widget pass runs right after build 8 integrates.
+
 ## Controls
 
 ### controls-choice-labels: Should dropdown choices carry their own words?
@@ -95,6 +101,8 @@ Product's buffer
 ### actions-confirm: A write action with a form: is filling the form the confirmation, or does a confirm follow it?
 
 Form, then confirm (today)
+
+Applied: Recorded in build-8-feedback.md (35ab704) and harness.md Decided. These differ from my recommendation and are applied as answered: a focused widget pass runs right after build 8 integrates.
 
 ### actions-then: What happens after an action runs?
 
@@ -143,6 +151,8 @@ A line derived from each fn's declared return, plus a short instruction
 ### routing-tool-result: What does the model see after a widget run?
 
 A summary plus the first few rows
+
+Applied: Recorded in build-8-feedback.md (35ab704) and harness.md Decided. These differ from my recommendation and are applied as answered: a focused widget pass runs right after build 8 integrates.
 
 ### routing-run-after-make: After a widget is made, should the chat run it at once?
 

@@ -13,7 +13,7 @@ choices:
     when: "Pick this to go on in order: Worked examples."
 ---
 
-## 26. Common mistakes
+## 28. Common mistakes
 
 ### Mistakes the compiler refuses
 
@@ -114,6 +114,11 @@ reason given. If you see one of these errors, the fix is in the reason.
 
   ```ts
   type({ description: 'x', shape: g.obj({ name: g.text() }), display: { label: 'X', title: 'nmae' } });
+  ```
+- **A stored type's search fields must be its own text fields.**
+
+  ```ts
+  type({ description: 'x', shape: g.obj({ name: g.text(), size: g.num() }), display: { label: 'X' }, records: { shape: 'table', owner: 'shared', search: { text: ['size'] } } });
   ```
 - **Attachment data is checked.**
 
@@ -329,7 +334,14 @@ reason given. If you see one of these errors, the fix is in the reason.
   `ContentRef`, the row as it was), and record it with `ctx.undoWith` as soon as the first irreversible step is done.
 - **Unstable call keys in pausable fns.** Give `{ key }` to calls in fns that pause, so a resumed run gets results back.
 - **Reading `process.env` in feature code.** Put tunables in the env slice and pass them in.
-- **Keeping state in module variables.** Use session state (`state:`) for values fns share in a chat, `ctx.dataDir` for
+- **Keeping data in the system.** Notes, tasks, contacts, anything kept for people or looked up later, are records of a
+  stored type (`type({ records })`, `ctx.data`), so the hub checks, versions, shares and searches them. A JSON file or
+  a SQLite database in `ctx.dataDir` is invisible to the hub: no search, no Data page, no widgets, no access rules.
+  `ctx.dataDir` is for the system's own keys, caches and working copies.
+- **Loading everything to filter it.** `ctx.data.find` with `filters`, `sort`, `limit` and `search` runs in the hub's
+  database; a loop over every record (or `limit: 200` and a filter in code) doesn't scale and misses pages. Walk many
+  records a page at a time with `cursor`.
+- **Keeping state in module variables.** Use session state (`state:`) for values fns share in a chat, stored types for
   data, and the hub's config for config. A process restarts; a module variable doesn't survive it.
 - **Writing into the system's own folder at runtime.** Use `ctx.dataDir` and `ctx.cacheDir`.
 - **Calling a model provider directly.** Every model call goes through `ctx.llm` (or `harnessAiOf(ctx.llm)`), so the hub

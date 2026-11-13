@@ -1,6 +1,8 @@
 /**
- * Visibility on the hub store: the `access` rows (kept in memory, they are few and read on every request), the people
- * and groups they name, and the per-person connections' own sharing (a connection's `share`, not an `access` row).
+ * Visibility on the hub store: the `access` rows, the people and groups they name, and the per-person connections' own
+ * sharing (a connection's `share`, not an `access` row). Nothing is kept between requests: a one-target question
+ * (`sharing`, `give`, `own`) reads that target's row by its key, and a person's scope reads the rows as they are now
+ * (only things someone shared or restricted have one), so a second hub process or a direct write is seen at once.
  */
 import { reject } from '@ayepi/core';
 import {
@@ -30,7 +32,6 @@ export interface AccessDeps {
 /** Visibility over the store. */
 export class StoreAccessService implements AccessService {
   readonly #deps: AccessDeps;
-  #rows: Promise<Map<string, AccessRecord>> | undefined;
 
   constructor(deps: AccessDeps) {
     this.#deps = deps;
@@ -41,7 +42,7 @@ export class StoreAccessService implements AccessService {
   }
 
   async scope(actor: ActorId): Promise<AccessScope> {
-    const [person, groups, rows] = await Promise.all([this.#deps.store.table('actors').get(actor), this.#groups(actor), this.#load()]);
+    const [person, groups, rows] = await Promise.all([this.#deps.store.table('actors').get(actor), this.#groups(actor), this.#rows()]);
     const admin = person?.kind === 'user' && person.role === 'admin';
     return new ActorScope({ actor, admin, groups, rows, gate: await this.#deps.gate(actor, groups), systemOf: this.#deps.systemOf });
   }
@@ -51,7 +52,7 @@ export class StoreAccessService implements AccessService {
       const connection = await this.#connection(target);
       return { owner: connection.owner, ...connection.share };
     }
-    const row = (await this.#load()).get(accessKey(target));
+    const row = await this.#store().access.get(accessKey(target));
     return row?.sharing ?? { owner: await this.#ownerOf(target), visibility: 'public', with: [] };
   }
 
@@ -84,13 +85,13 @@ export class StoreAccessService implements AccessService {
     const run = await this.#runOf(system, share.run);
     const target: AccessTarget = { kind: 'fn', fn: qualify(system, share.fn) };
     await this.#exists(target);
-    const current = (await this.#load()).get(accessKey(target));
+    const current = await this.#store().access.get(accessKey(target));
     if (current !== undefined && current.sharing.owner !== run.actor) { throw reject(403, 'NOT_OWNER', `${target.fn} belongs to someone else`); }
     return this.#write(target, run.actor, share.share, run.actor);
   }
 
   async own(target: AccessTarget, owner: ActorId, rule: ShareRule): Promise<AccessView> {
-    const current = (await this.#load()).get(accessKey(target));
+    const current = await this.#store().access.get(accessKey(target));
     const same = current?.sharing.owner === owner && current.sharing.visibility === rule.visibility && current.sharing.with.join() === rule.with.join();
     if (current !== undefined && same) return { target, sharing: current.sharing, editable: true };
     return this.#write(target, owner, rule, this.#deps.hubActor);
@@ -122,7 +123,6 @@ export class StoreAccessService implements AccessService {
     } else {
       const record: AccessRecord = { key: accessKey(target), target, sharing: { owner, ...shared }, setBy: by, updatedAt: this.#deps.clock() };
       await this.#store().access.put(record);
-      (await this.#load()).set(record.key, record);
     }
     // what each person may see changed: browsers fetch their composer's options again
     this.#deps.bus.publish('capabilities.changed', {});
@@ -133,9 +133,9 @@ export class StoreAccessService implements AccessService {
     return { access: this.#deps.store.table('access'), connections: this.#deps.store.table('connections') };
   }
 
-  #load(): Promise<Map<string, AccessRecord>> {
-    this.#rows ??= allRows(this.#deps.store.table('access')).then((rows) => new Map(rows.map((row) => [row.key, row])));
-    return this.#rows;
+  /** The access rows as they are now, by key, for one scope. */
+  async #rows(): Promise<Map<string, AccessRecord>> {
+    return new Map((await allRows(this.#deps.store.table('access'))).map((row) => [row.key, row]));
   }
 
   async #groups(actor: ActorId): Promise<ReadonlySet<ActorId>> {

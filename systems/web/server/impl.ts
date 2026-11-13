@@ -11,7 +11,7 @@ import { searchPage } from './searches.ts';
 import { Crawler, FetchedPages, crawlFolder, crawlRoot } from './crawl.ts';
 import type { WebSettings } from './env.ts';
 import type { ContentUploads, FetchSettings, PageSource, SearchArgs, SearchProvider, WebConfig } from './index.ts';
-import { PageMentions, RecentPages } from './mentions.ts';
+import { PageMentions } from './mentions.ts';
 import { WebProblem } from './problem.ts';
 import type { Renderers } from './renderer.ts';
 
@@ -28,7 +28,6 @@ export interface WebDeps {
 /** The implementation and the parts tests and `main` reach into. */
 export interface WebServer {
   readonly impl: SystemImpl<WebContract['defs']>;
-  readonly recent: RecentPages;
   /** Pages crawls fetched, waiting for the hub to fetch them back. */
   readonly held: FetchedPages;
 }
@@ -74,8 +73,7 @@ async function attempt<T extends FnTypes>(ctx: Pick<FnCtx<T, WebConfig>, 'fail' 
 /** Build the web implementation. */
 export function createWebImpl(deps: WebDeps): WebServer {
   const s = deps.settings;
-  const recent = new RecentPages(s.WEB_RECENT_PAGES);
-  const mentions = new PageMentions(recent, s.WEB_MENTION_LIMIT);
+  const mentions = new PageMentions(s.WEB_MENTION_LIMIT);
   const held = new FetchedPages(s.WEB_CRAWL_CACHE_TTL, deps.now);
 
   const impl: SystemImpl<WebContract['defs']> = {
@@ -100,7 +98,6 @@ export function createWebImpl(deps: WebDeps): WebServer {
           const started = deps.now();
           const page = held.take(parseWebUrl(args.url)?.href ?? args.url) ?? await deps.pages.fetch(args.url, fetchSettings(ctx.config, s, args.render), ctx.signal);
           const content = await deps.uploads.upload(ctx.signal, page.bytes, page.mime);
-          recent.add({ url: page.requestedUrl, finalUrl: page.finalUrl, title: page.title, uri: undefined, rendered: page.rendered, at: deps.now() });
           ctx.log.info('web.fetch.done', {
             url: redactUrl(page.finalUrl), status: page.status, mime: page.mime, bytes: page.bytes.byteLength, rendered: page.rendered,
             took: deps.now() - started, ...(page.renderError === undefined ? {} : { renderError: page.renderError }),
@@ -137,7 +134,6 @@ export function createWebImpl(deps: WebDeps): WebServer {
             exclude: args.exclude ?? [],
             fetch: fetchSettings(ctx.config, s, args.render),
           });
-          for (const page of report.pages) { recent.add({ url: page.url, finalUrl: page.url, title: page.title, uri: page.uri, rendered: false, at: deps.now() }); }
           const root = crawlRoot(report.pages.map((page) => page.uri), folder);
           const shown = report.skipped.slice(0, s.WEB_CRAWL_SKIPPED_SHOWN);
           ctx.log.info('web.crawl.done', { url: redactUrl(start), root, pages: report.pages.length, skipped: report.skipped.length });
@@ -157,7 +153,6 @@ export function createWebImpl(deps: WebDeps): WebServer {
           const source = record.source?.from === 'web' ? record.source : undefined;
           const finalUrl = source?.finalUrl ?? source?.url ?? url.href;
           const rendered = source?.rendered ?? false;
-          recent.add({ url: url.href, finalUrl, title: record.stat.name, uri: record.uri, rendered, at: deps.now() });
           ctx.log.info('web.read.done', { url: redactUrl(finalUrl), uri: record.uri, chars: read.text.length, truncated: read.truncated, rendered });
           return ctx.done({ uri: record.uri, title: record.stat.name, finalUrl, text: read.text, truncated: read.truncated, rendered });
         }),
@@ -165,8 +160,8 @@ export function createWebImpl(deps: WebDeps): WebServer {
     },
     mentions: {
       pages: {
-        search: (query) => mentions.search(query),
-        hover: (target) => mentions.hover(target),
+        search: (query, ctx) => mentions.search(query, ctx),
+        hover: (target, ctx) => mentions.hover(target, ctx),
         llm: (target) => mentions.llm(target),
       },
     },
@@ -185,5 +180,5 @@ export function createWebImpl(deps: WebDeps): WebServer {
       },
     },
   };
-  return { impl, recent, held };
+  return { impl, held };
 }

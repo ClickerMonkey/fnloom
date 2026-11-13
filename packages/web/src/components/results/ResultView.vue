@@ -8,7 +8,7 @@ import type { ResultTable } from '@harness/core';
 import { computed } from 'vue';
 import { UiIconButton, UiSegmented, copyText, type SegmentOption } from '../../ui/index.ts';
 import { csvFileName, toCsv, type ResultPager } from './table.ts';
-import type { FittingVisual } from './visuals.ts';
+import type { FittingVisual, RowOpener } from './visuals.ts';
 
 const props = withDefaults(defineProps<{
   table: ResultTable;
@@ -16,7 +16,9 @@ const props = withDefaults(defineProps<{
   /** The visuals that fit, best first. */
   visuals: readonly FittingVisual[];
   pager?: ResultPager | undefined;
-}>(), { pager: undefined });
+  /** A button per row that opens what it offers. */
+  opener?: RowOpener | undefined;
+}>(), { pager: undefined, opener: undefined });
 const chosen = defineModel<string | undefined>('choice', { default: undefined });
 const emit = defineEmits<{ copied: [ok: boolean] }>();
 
@@ -43,11 +45,12 @@ function download(): void {
     <div class="tools">
       <UiSegmented v-if="visuals.length > 1" v-model="current" :options="options" label="Show as" icon-only data-testid="result-visuals" />
       <span class="actions">
+        <slot name="tools" />
         <UiIconButton icon="copy" label="Copy as CSV" size="sm" data-testid="result-copy" @click="copy" />
         <UiIconButton icon="download" label="Download CSV" size="sm" data-testid="result-download" @click="download" />
       </span>
     </div>
-    <component :is="shown.visual.component" v-if="shown" v-bind="shown.visual.props ?? {}" :table="table" :title="title" :pager="pager" />
+    <component :is="shown.visual.component" v-if="shown" v-bind="shown.visual.props ?? {}" :table="table" :title="title" :pager="pager" :opener="opener" />
   </div>
 </template>
 

@@ -21,6 +21,7 @@ import { STATUS_LOOK, argSummary, runElapsed } from '../../chat/logic/runs.ts';
 import { useStores } from '../../state/stores.ts';
 import ListSearch from '../../components/query/ListSearch.vue';
 import ApprovalCard from '../../components/approvals/ApprovalCard.vue';
+import { useFnNotice } from '../../fns/state/fn-notices.ts';
 import { NEEDS_APPROVAL, hubListQuery, useListQuery } from '../../state/query.ts';
 import { UiBadge, UiButton } from '../../ui/index.ts';
 import { hasFilter, toggledFilter } from '../../ui/search.ts';
@@ -34,6 +35,7 @@ const { admin, toasts } = useStores();
 const runs = admin.runs;
 const desk = admin.runApprovals;
 const router = useRouter();
+const noticeOf = useFnNotice();
 const now = useNow(1_000);
 const query = useRouteQuery(ROUTES.runs);
 const search = useListQuery('runs');
@@ -127,7 +129,7 @@ function openTree(): void {
       <template #panel>
         <ApprovalCard
           v-if="approval" class="panel-approval" :ident="approval.id" :fn="approval.fn" description="" :args="record?.args" :preview="approval.preview"
-          :rememberable="false" @decide="(approve, _remember, reason) => decide(approve, reason)"
+          :rememberable="false" :notice="noticeOf(approval.fn)" @decide="(approve, _remember, reason) => decide(approve, reason)"
         />
         <RunDetails
           v-model:tab="runTab" :run="record" :record="record" :loading="runs.opened.loading.value" :problem="runs.opened.problem.value" :now="now"

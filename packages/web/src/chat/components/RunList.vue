@@ -6,6 +6,7 @@
 import type { Display, RunId } from '@harness/core';
 import { UiIcon } from '../../ui/index.ts';
 import { runMessage, type RunView } from '../logic/runs.ts';
+import { useFnNotice } from '../../fns/state/fn-notices.ts';
 import RunCard from './RunCard.vue';
 import type { RenderView } from './types.ts';
 
@@ -18,6 +19,7 @@ defineProps<{
   showOf: (run: RunView) => Display;
 }>();
 const emit = defineEmits<{ open: [run: RunId]; toggle: [run: RunId, collapsed: boolean]; background: [run: RunId] }>();
+const noticeOf = useFnNotice();
 </script>
 
 <template>
@@ -28,7 +30,7 @@ const emit = defineEmits<{ open: [run: RunId]; toggle: [run: RunId, collapsed: b
         <span class="run-message-text">{{ runMessage(run) }}</span>
       </button>
       <RunCard
-        v-else :run="run" :now="now" :collapsed="collapsed(run)" :view="viewOf(run)"
+        v-else :run="run" :now="now" :collapsed="collapsed(run)" :view="viewOf(run)" :notice="noticeOf(run.fn)"
         @open="emit('open', run.id)" @toggle="emit('toggle', run.id, $event)" @background="emit('background', run.id)"
       />
     </template>

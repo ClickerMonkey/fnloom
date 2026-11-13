@@ -47,3 +47,19 @@ describe('the authoring guide as a context folder', () => {
     expect(keys.size).toBe(files.length);
   });
 });
+
+describe('a part over the item budget', () => {
+  it('is cut into pieces under it, each a choice of the part and linked to the next', () => {
+    const big = Array.from({ length: 12 }, (_, n) => `### Section ${String(n + 1)}\n\n${'Words. '.repeat(600)}`).join('\n\n');
+    const guide = OUTLINE.map((topic, index) => `## ${index + 1}. ${topic.title}\n\nAbout ${topic.id}.${topic.id === 'hub' ? `\n\n${big}` : ''}`).join('\n\n');
+    const files = contextFiles(guideParts(guide, OUTLINE));
+    const part = files.find((file) => file.path === 'parts/hub.md')?.text ?? '';
+    const pieces = files.filter((file) => file.path.startsWith('parts/hub/'));
+    expect(pieces.length).toBeGreaterThan(1);
+    expect(part).toContain(`This part is in ${String(pieces.length)} pieces`);
+    expect([...part.matchAll(/^ {2}- to: "fs\/authoring\.hub\./gm)]).toHaveLength(pieces.length);
+    expect(pieces[0]?.text).toContain('parent: "fs/authoring.hub"');
+    expect(pieces[0]?.text).toContain('next: "fs/authoring.hub.');
+    expect(pieces.every((file) => file.text.length <= 25_000)).toBe(true);
+  });
+});

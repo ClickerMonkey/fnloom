@@ -8,6 +8,7 @@
  * A fn routed to one fleet instance leads back to that instance.
  */
 import AccessControl from '../../components/access/AccessControl.vue';
+import ItemHistory from '../../components/versions/ItemHistory.vue';
 import { QualifiedName } from '@harness/core';
 import { computed, onBeforeUnmount, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -112,6 +113,7 @@ onBeforeUnmount(() => { store.close(); fns.close(); });
           <UiCodeBlock :code="shownPayload.code" :language="shownPayload.language" wrap :max-height="360" />
         </UiCard>
         <AccessControl :target="{ kind: 'fn', fn: name }" />
+        <ItemHistory :item="{ system: record.system, section: 'fns', name }" />
         <FnRuns
           :runs="recent" :now="now" title="Latest runs" :loading="store.recent.loading.value" :problem="store.recent.problem.value" @open="router.push(links.runs({ run: $event }))"
         >

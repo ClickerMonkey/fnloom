@@ -5,17 +5,17 @@ title: "The client: renderers, inputs and resource views"
 description: "Writing a harness system: The client: renderers, inputs and resource views."
 summary: "Vue renderers, inputs and resource views, typed by the contract."
 parent: "fs/authoring.topics.client"
-next: "fs/authoring.packaging"
+next: "fs/authoring.widgets"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash"]
 tags: ["authoring"]
 choices:
   - to: "fs/authoring.client.reference"
     when: "Pick this when you need the exact signatures and options."
-  - to: "fs/authoring.packaging"
-    when: "Pick this to go on in order: Packaging: system.json, build, pack, install."
+  - to: "fs/authoring.widgets"
+    when: "Pick this to go on in order: Visuals and widgets."
 ---
 
-## 23. The client: renderers, inputs and resource views
+## 24. The client: renderers, inputs and resource views
 
 A system can draw its things in the chat with **Vue 3 components**. `client(contract, renderers)` in `client/index.ts`
 (default export) registers them, and each component's props are typed by the contract, so a component with the wrong
@@ -92,7 +92,7 @@ function pin(id: string, pinned: boolean): void {
         </button>
       </li>
     </ul>
-    <p v-if="view.result" class="total">{{ view.result.notes.length }} of {{ view.result.total }}</p>
+    <p v-if="view.result" class="total">{{ view.result.notes.length }} found{{ view.result.more ? ', more past these' : '' }}</p>
     <p v-if="view.error" class="problem">{{ view.error.message }}</p>
   </article>
 </template>

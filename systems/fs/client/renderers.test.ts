@@ -1,4 +1,4 @@
-import { mintId } from '@harness/core';
+import { mintId, type ChangeSet, type FileChange } from '@harness/core';
 import type { FnViewOf, SystemClient } from '@harness/sdk';
 import { flushPromises, mount } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
@@ -81,6 +81,44 @@ describe('BashView', () => {
     await card.find('.more').trigger('click');
     expect(card.find('.output').classes()).not.toContain('folded');
     expect(card.find('.more').text()).toBe('Show less');
+  });
+});
+
+describe('the changes strip', () => {
+  const file = (path: string, more: Partial<FileChange>): FileChange => ({ path, root: 'work', status: 'modified', certain: true, ...more });
+  const changes: ChangeSet = {
+    source: 'git', cwd: 'C:/work', ignored: 3, truncated: false,
+    files: [
+      file('src/a.ts', { diff: '--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,2 +1,2 @@\n-one\n+ONE\n two', added: 1, removed: 1 }),
+      file('lib/a.ts', { status: 'added', diff: '--- /dev/null\n+++ b/lib/a.ts\n@@ -0,0 +1 @@\n+fresh', added: 1, removed: 0, certain: false }),
+      file('logo.png', { status: 'added', noDiff: 'binary' }),
+      file('.env', { noDiff: 'sensitive', sensitive: 'env' }),
+    ],
+  };
+
+  it('shows a tab per diffed file, switches between them, and lists the rest with why', async () => {
+    const { system } = fakeSystem();
+    const card = mount(BashView, { props: bash({ result: { exitCode: 0, stdout: '', stderr: '', changes } }, system) });
+    expect(card.find('.changes .summary').text()).toBe('4 files changed · 3 more ignored by git');
+    expect(card.find('.unsure').exists()).toBe(true);
+    const tabs = card.findAll('[role="tab"]');
+    // two files named a.ts: their tabs carry the folder
+    expect(tabs.map((tab) => tab.find('.name').text())).toEqual(['src/a.ts', 'lib/a.ts']);
+    expect(tabs[0]?.attributes('aria-selected')).toBe('true');
+    expect(card.find('[role="tabpanel"] .removed .text').text()).toBe('one');
+    await tabs[1]?.trigger('click');
+    expect(card.findAll('[role="tab"]')[1]?.attributes('aria-selected')).toBe('true');
+    expect(card.find('[role="tabpanel"] .added .text').text()).toBe('fresh');
+    await card.find('[role="tablist"]').trigger('keydown', { key: 'ArrowRight' });
+    expect(card.findAll('[role="tab"]')[0]?.attributes('aria-selected')).toBe('true');
+    expect(card.findAll('.other').map((row) => [row.find('.where').text(), row.find('.why').text()])).toEqual([
+      ['logo.png', 'Binary file'], ['.env', 'Sensitive (an env file), so not shown'],
+    ]);
+  });
+
+  it('is absent when the command changed nothing', () => {
+    const card = mount(BashView, { props: bash({ result: { exitCode: 0, stdout: 'ok', stderr: '' } }, fakeSystem().system) });
+    expect(card.find('.changes').exists()).toBe(false);
   });
 });
 

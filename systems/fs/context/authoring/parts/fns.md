@@ -15,7 +15,7 @@ choices:
     when: "Pick this to go on in order: Handlers and progress."
 ---
 
-## 6. Fns
+## 7. Fns
 
 A **fn** is something people, agents and code can run: a name, a description, typed args and a typed result. A
 **native** fn is implemented in code by its own system and declared with `fn({ … })`. Only `description`, `args` and
@@ -40,6 +40,8 @@ A **fn** is something people, agents and code can run: a name, a description, ty
 | `operations` | `{ cancel?, background? }`, both default `true`; pause and undo follow `resume` and `undo` | |
 | `limits` | `{ timeout?, retries?, cost? }`: hard limit per run, retries for `retry` failures, a rough cost | |
 | `visibility` | who sees it: `both` (default), `user` (people only, not the LLM), `llm`, `none` | |
+| `group` | its API group, one of the system's `groups` ([The contract](context:fs/authoring.contract)); the general group when absent | a group the system doesn't declare is refused |
+| `flags` | `true`: before every run the hub asks `flags(args, ctx)` which sensitive files it would touch (below) | `flags` must be implemented |
 
 _From `scripts/docs/example/shared/index.ts`:_
 
@@ -47,12 +49,13 @@ _From `scripts/docs/example/shared/index.ts`:_
 add: fn({
   description: 'Add a note.',
   instructions: 'Give it a short title. Tags are lowercase words; the config adds its default tags.',
+  group: 'notes',
   args: g.obj({
     title: g.text({ minLength: 1 }),
     text: hub.types.LongText,
     tags: g.optional(g.list(g.text())),
   }),
-  returns: Note.shape,
+  returns: NoteEntry.shape,
   // example calls agents see on its card and when they get its args wrong; a wrong example doesn't compile
   examples: [{ args: { title: 'Groceries', text: 'Milk, eggs, bread.', tags: ['home'] }, note: 'A short title and lowercase tags.' }],
   // declaring an undo type makes it undoable, and the server must implement `undo`
@@ -70,13 +73,14 @@ _From `scripts/docs/example/shared/index.ts`:_
 
 ```ts
 find: fn({
-  description: 'Find notes by words in their title or text, or by tag.',
+  description: 'Find notes by words or meaning in their title or text, or by tag; the best matches first.',
+  group: 'notes',
   args: g.obj({
     query: g.optional(g.text()),
     tag: g.optional(g.text()),
     limit: g.optional(g.num({ min: 1, max: 50, whole: true })),
   }),
-  returns: g.obj({ notes: g.list(Note.shape), total: g.num({ min: 0, whole: true }) }),
+  returns: g.obj({ notes: g.list(NoteEntry.shape), more: g.bool() }),
   // reads and writes `lastQuery` in the session's state; only fns that declare it see it
   state: LastSearch,
   progress: linear,
@@ -106,15 +110,14 @@ _From `scripts/docs/example/server/impl.ts`:_
 ```ts
 add: {
   async run(args, ctx) {
-    const store = deps.open(ctx.dataDir);
-    const note = await create(store, ctx.config, { title: args.title, text: args.text, tags: args.tags ?? [] });
+    const note = await create(ctx.data, ctx.config, { title: args.title, text: args.text, tags: args.tags ?? [] });
     // a real refusal, not a mistake in the args: `fail` with the `caller` class and a stable code
-    if (note === undefined) { return ctx.fail('caller', full(ctx.config), { code: 'full' }); }
+    if (note === undefined) { return ctx.fail('caller', taken(args.title), { code: 'taken' }); }
     ctx.attach(notes.attachments.note, note, `Added ${note.title}`);
     // the undo payload is typed by the contract's `undo` type
     return ctx.done(note, { undo: { id: note.id, note: null } });
   },
-  undo: (payload, ctx) => restore(deps.open(ctx.dataDir), payload),
+  undo: (payload, ctx) => restore(ctx.data, payload),
 },
 ```
 
@@ -156,5 +159,17 @@ input. A preview gets a `PreviewCtx` (the system context, the waiting run and it
 anything. `remember: false` (the default) means the person can't say "don't ask again". A kind does the same from
 `describe` (`approval`) and `preview(payload, args, ctx)`. Serving a fn that asks for a preview without implementing
 one throws.
+
+**Sensitive files.** A native fn that reads or writes files the person names (fs's `read`, `write`, `bash`) declares
+`flags: true` and implements `flags(args, ctx)`: the sensitive files a run with these args would touch, each a
+`SensitivityFlag` (`path`, `kind`, `rule`, `access`, `action`, `why`, and `certain: false` for a path only found in a
+command line). The hub asks before the mode gate and policies: a `refuse` flag fails the run as invalid input with the
+rule's words, a write or an `ask` flag makes it wait for the person (never remembered, never passed by a policy or by
+`auto` mode, whose classifier sees the flags), and none lets it go on. Like a preview, `flags` must not change
+anything. `kit.flags('<fn>', args)` tests it ([Testing](context:fs/authoring.testing)).
+
+**API groups.** `system(name, { groups: [{ name, title, description }] })` names the groups a system's fns are listed
+in, and `fn({ group })` puts a fn in one. The hub keeps an index item per system (`<system>/api`, its groups as
+choices) and one per group listing its fns a line each, so a model walks a large API like a context folder.
 
 Fns for this: fn:fs/read, fn:fs/write, fn:fs/edit, fn:fs/bash.

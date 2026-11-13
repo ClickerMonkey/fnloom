@@ -56,6 +56,7 @@ export interface Fakes {
   resources?: { [K in keyof HubServices['resources']]?: Partial<HubServices['resources'][K]> };
   mcp?: { [K in keyof HubServices['mcp']]?: Partial<HubServices['mcp'][K]> };
   access?: Partial<HubServices['access']>;
+  data?: Partial<HubServices['data']>;
   connections?: Partial<HubServices['connections']>;
   metrics?: { [K in keyof HubServices['metrics']]?: Partial<HubServices['metrics'][K]> };
   models?: { [K in keyof HubServices['models']]?: Partial<HubServices['models'][K]> };
@@ -221,6 +222,7 @@ export function fakeServices(fakes: Fakes = {}): Pick<HubServices, ModuleKey> {
     access: fake<HubServices['access']>('access', { scope: (actor) => Promise.resolve(openScope(actor)), ...fakes.access }),
     connections: fake<HubServices['connections']>('connections', fakes.connections),
     fns: group('fns', keysOf<HubServices['fns']>({ search: true, examples: true, facts: true, gate: true, classifier: true, clientLogs: true }), fakes.fns),
+    data: fake<HubServices['data']>('data', fakes.data),
   };
 }
 
@@ -242,6 +244,7 @@ export function fakeModules(fakes: Fakes = {}): HubModules {
     access: () => ({ services: services.access }),
     connections: () => ({ services: services.connections }),
     fns: () => ({ services: services.fns }),
+    data: () => ({ services: services.data }),
   };
 }
 

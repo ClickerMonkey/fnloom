@@ -15,7 +15,7 @@ choices:
     when: "Pick this to go on in order: Mentions."
 ---
 
-## 13. Hooks
+## 14. Hooks
 
 A **hook** adds information to each user message before the LLM sees it (the git branch, the pinned notes, the open
 ticket). Declare it with `hook({ description, order?, timeout? })`: lower `order` runs first (default 100), and after
@@ -42,9 +42,10 @@ _From `scripts/docs/example/server/impl.ts`:_
 ```ts
 hooks: {
   pinned: async (input, ctx) => {
-    const pinned = (await deps.open(ctx.dataDir).all()).filter((note) => note.pinned).slice(0, s.NOTES_HOOK_TITLES);
+    // the pinned ones only, filtered by the hub, a few at most
+    const pinned = await ctx.data.find(Note, { query: { filters: [{ field: 'pinned', op: 'is', value: true }], limit: s.NOTES_HOOK_TITLES } });
     const blocks: HookContribution[] = [];
-    if (pinned.length > 0) { blocks.push({ type: 'text', tag: 'pinned-notes', text: `Pinned notes: ${pinned.map((note) => `"${note.title}"`).join(', ')}.` }); }
+    if (pinned.items.length > 0) { blocks.push({ type: 'text', tag: 'pinned-notes', text: `Pinned notes: ${pinned.items.map((note) => `"${note.value.title}"`).join(', ')}.` }); }
     if (/\bnotes?\b/i.test(input.text)) { blocks.push({ type: 'suggest-context', items: [{ context: notes.context.guide, why: 'The message is about notes.' }] }); }
     return blocks;
   },

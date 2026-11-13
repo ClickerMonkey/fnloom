@@ -5,6 +5,7 @@
 import { WebPush, generateVapidKeys as makeVapidKeys, type PushSender, type VapidDetails, type VapidKeys } from '@ayepi/push';
 import type { ActorId, Notification, PushSubscription } from '@harness/core';
 import type { HubStore } from '../store/index.ts';
+import type { HubIdentityService } from '../boot/identity.ts';
 import type { PushService } from './index.ts';
 
 export type { PushSender } from '@ayepi/push';
@@ -24,9 +25,12 @@ export function generateVapidKeys(): Promise<VapidKeys> {
   return makeVapidKeys();
 }
 
-/** What a push carries to the service worker: enough to show it and open the right place. */
-export function pushPayload(notification: Notification): string {
-  return JSON.stringify({ id: notification.id, title: notification.title, body: notification.body, link: notification.link, reason: notification.reason });
+/**
+ * What a push carries to the service worker: enough to show it and open the right place. Its title starts with the
+ * hub's display name, so a push says which hub it is from ("Family Desk: Approve fs/write?").
+ */
+export function pushPayload(notification: Notification, hubName: string): string {
+  return JSON.stringify({ id: notification.id, title: `${hubName}: ${notification.title}`, body: notification.body, link: notification.link, reason: notification.reason });
 }
 
 /** Pushes to every browser a user subscribed. */
@@ -35,9 +39,13 @@ export class WebPushService implements PushService {
   readonly #sender: PushSender;
   readonly #publicKey: string;
   readonly #onError: (error: unknown, subscription: PushSubscription) => void;
+  readonly #identity: Pick<HubIdentityService, 'identity'>;
 
-  constructor(options: { store: HubStore; sender: PushSender; publicKey: string; onError: (error: unknown, subscription: PushSubscription) => void }) {
+  constructor(options: {
+    store: HubStore; sender: PushSender; publicKey: string; identity: Pick<HubIdentityService, 'identity'>; onError: (error: unknown, subscription: PushSubscription) => void;
+  }) {
     this.#store = options.store;
+    this.#identity = options.identity;
     this.#sender = options.sender;
     this.#publicKey = options.publicKey;
     this.#onError = options.onError;
@@ -49,7 +57,7 @@ export class WebPushService implements PushService {
 
   async send(user: ActorId, notification: Notification): Promise<{ sent: number; gone: number }> {
     const table = this.#store.table('pushSubscriptions');
-    const payload = pushPayload(notification);
+    const payload = pushPayload(notification, (await this.#identity.identity()).name);
     let sent = 0;
     const gone: string[] = [];
     let cursor: string | undefined;

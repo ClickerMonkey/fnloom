@@ -10,11 +10,10 @@ import { runsSlice, compact, RunSummary, type LlmInteraction, type Run, type Run
 import type { HubServices } from '../../boot/index.ts';
 import { personOperations } from '../person-ops.ts';
 import { visibleRun, visibleSession, type FullHandlers } from './access.ts';
-import { collect } from '../paging.ts';
+import { allRows } from '../../store/rows.ts';
 import type { authPlugin } from './auth.ts';
 import type { HubReads } from '../reads.ts';
 
-const PAGE = 200;
 
 /** A turn's fn tree from its runs and LLM calls: children under their parent, each in the order it started. */
 export function buildTree(turn: Pick<Turn, 'root'>, runs: readonly Run[], calls: readonly LlmInteraction[]): TreeNode | undefined {
@@ -47,8 +46,8 @@ export function runsPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>
       waiting: async ({ data, user }) => {
         await visibleSession(hub, data.session, user);
         const [approvals, calls] = await Promise.all([
-          collect((cursor) => store.table('approvals').find({ where: { status: 'pending' }, order: [['createdAt', 'asc']], limit: PAGE, cursor })),
-          collect((cursor) => store.table('handlerCalls').find({ where: { status: 'pending' }, limit: PAGE, cursor })),
+          allRows(store.table('approvals'), { where: { status: 'pending' }, order: [['createdAt', 'asc']] }),
+          allRows(store.table('handlerCalls'), { where: { status: 'pending' } }),
         ]);
         const runs = await Promise.all([...new Set([...approvals.map((a) => a.run), ...calls.map((c) => c.run)])].map((id) => store.table('runs').get(id)));
         const here = new Set(runs.flatMap((run) => (run?.session === data.session ? [run.id] : [])));

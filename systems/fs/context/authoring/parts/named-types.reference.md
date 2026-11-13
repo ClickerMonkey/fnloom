@@ -19,11 +19,15 @@ Declare a named type. Methods are native fns called on a value of the type: a pe
 card, and code can call them through the type's ref. They are offered to the LLM only when their `visibility`
 says so.
 
+With `records`, the type is stored: the hub keeps its records, checks each against the type, versions every change
+and searches them in its database (`ctx.data.find`, the Data page, `hub/records_*`). Shared data lives there, never
+in a system's own folder.
+
 ```ts
-function type<T, const M extends Methods = {}>(def: { description: string; shape: GinType<T>; display: Omit<TypeDisplay, "title" | "subtitle"> & { title?: NamingKeys<T>; subtitle?: NamingKeys<T>; }; methods?: M; }): TypeDef<T, M>;
+function type<T, const M extends Methods = {}>(def: { description: string; shape: GinType<T>; display: Omit<TypeDisplay, "title" | "subtitle"> & { title?: NamingKeys<T>; subtitle?: NamingKeys<T>; }; methods?: M; records?: RecordsInput<T>; }): TypeDef<T, M>;
 ```
 
-Refers to: [`TypeDisplay`](context:fs/authoring.core-types#core-typedisplay).
+Refers to: [`TypeDisplay`](context:fs/authoring.core-types.manifestpatch#core-typedisplay).
 
 #### `TypeDef`
 
@@ -37,10 +41,12 @@ interface TypeDef<T, M extends Methods> {
   readonly shape: GinType<T>;
   readonly display: TypeDisplay;
   readonly methods: M;
+  /** Set when the hub keeps records of the type (the data system): read and write them with `ctx.data`. */
+  readonly records: RecordStorage | undefined;
 }
 ```
 
-Refers to: [`TypeDisplay`](context:fs/authoring.core-types#core-typedisplay).
+Refers to: [`RecordStorage`](context:fs/authoring.core-types.data-ts#core-recordstorage), [`TypeDisplay`](context:fs/authoring.core-types.manifestpatch#core-typedisplay).
 
 #### `AnyTypeDef`
 
@@ -88,7 +94,7 @@ type TypeRef<N extends QualifiedName, T, M extends Methods = {}> = Extension<T> 
 };
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname), [`TypeDisplay`](context:fs/authoring.core-types#core-typedisplay).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname), [`TypeDisplay`](context:fs/authoring.core-types.manifestpatch#core-typedisplay).
 
 #### `AnyTypeRef`
 
@@ -98,7 +104,7 @@ type · `import { AnyTypeRef } from '@harness/sdk'`
 type AnyTypeRef = TypeRef<QualifiedName, unknown, Methods>;
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `Methods`
 
@@ -120,7 +126,7 @@ A method's qualified name: `fs/Entry.reveal`.
 type MethodName<N extends QualifiedName, K> = N extends `${infer S}/${infer L}` ? QualifiedName<S, `${L}.${K & string}`> : never;
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `MethodArgs`
 
@@ -144,7 +150,7 @@ type MethodRefs<N extends QualifiedName, T, M extends Methods> = {
 };
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `MethodImpl`
 
@@ -158,4 +164,4 @@ type MethodImpl<V, T extends FnTypes, Cfg = unknown> =
 ([T['undo']] extends [never] ? { undo?: never } : { undo(payload: T['undo'], ctx: UndoCtx<Cfg>): Promise<UndoOutcome> });
 ```
 
-Refers to: [`UndoOutcome`](context:fs/authoring.core-types#core-undooutcome).
+Refers to: [`UndoOutcome`](context:fs/authoring.core-types.run-ts#core-undooutcome).

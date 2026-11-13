@@ -11,6 +11,8 @@ import type { Logger } from '@ayepi/log';
 import type { AnyPlugin } from '@ayepi/plugin';
 import type { ActorId, HandlerCallId, Json, SystemLinkSpec } from '@harness/core';
 import type { Authenticator, ContentStore, EventRelay, PushService, SecretVault } from '../api/index.ts';
+import type { HubIdentityService } from './identity.ts';
+import type { DataService } from '../data/index.ts';
 import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
 import type {
@@ -72,7 +74,10 @@ export interface HubServices {
     readonly suggestions: SuggestionDecider;
   };
   readonly index: { readonly embedders: Embedders; readonly indexer: Indexer; readonly search: Search; readonly suggest: Suggester };
-  readonly api: { readonly auth: Authenticator; readonly content: ContentStore; readonly push: PushService; readonly relay: EventRelay; readonly secrets: SecretVault };
+  readonly api: { readonly auth: Authenticator; readonly content: ContentStore; readonly push: PushService; readonly relay: EventRelay; readonly secrets: SecretVault;
+    /** Build 8: the hub's display name. */
+    readonly identity: HubIdentityService;
+  };
   // build 2
   readonly contextor: ContextorServices;
   readonly resources: ResourceServices;
@@ -87,6 +92,9 @@ export interface HubServices {
   // build 5
   /** Fns and context search, fn examples and facts, the chat fn mode gate, and browser logs. */
   readonly fns: FnsServices;
+  // build 8
+  /** The data system: records of stored types. */
+  readonly data: DataService;
 }
 
 /** The updown component names, in start order. The lifecycle is typed by them, so a misspelt name or dependency cannot compile. */
@@ -111,7 +119,7 @@ export interface StageHooks {
 }
 
 /** The modules other lanes build; boot builds the base services and the api module itself. */
-export type ModuleKey = 'catalog' | 'link' | 'execution' | 'chat' | 'index' | 'contextor' | 'resources' | 'mcp' | 'metrics' | 'models' | 'access' | 'connections' | 'fns';
+export type ModuleKey = 'catalog' | 'link' | 'execution' | 'chat' | 'index' | 'contextor' | 'resources' | 'mcp' | 'metrics' | 'models' | 'access' | 'connections' | 'fns' | 'data';
 
 /** What building a module gives the hub. */
 export interface ModuleBuild<T> {

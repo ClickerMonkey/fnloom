@@ -89,6 +89,16 @@ describe('rows', () => {
     expect(await actors.get(actorId(1))).toBeUndefined();
   });
 
+  it('puts many rows at once, replacing whole rows by key, across statements', async () => {
+    const actors = store.table('actors');
+    await actors.insert(user(1, { timeZone: 'Europe/Oslo' }));
+    await actors.putAll([user(1, { name: 'Renamed' }), ...Array.from({ length: 150 }, (_, i) => user(i + 2))]);
+    expect(await actors.get(actorId(1))).toEqual(user(1, { name: 'Renamed' }));
+    expect(await actors.count()).toBe(151);
+    await actors.putAll([]);
+    expect(await actors.count()).toBe(151);
+  });
+
   it('stores every member of a union row', async () => {
     const actors = store.table('actors');
     await actors.insert({ id: actorId('g'), kind: 'group', name: 'Team', about: '', createdAt: 1, disabled: false });

@@ -12,6 +12,7 @@
  * no prose uses each fail with every problem listed.
  */
 import type { ApiItem, ApiModel } from './extract.ts';
+import type { EachSection } from './split.ts';
 
 /** One section of the guide. */
 export interface Topic {
@@ -26,6 +27,12 @@ export interface Topic {
   readonly reach?: boolean;
   /** A reference part (internals, the core types): loaded when asked for, never suggested. Default false. */
   readonly reference?: boolean;
+  /**
+   * How the part is cut when it is over the context item budget (`split.ts`): `top` keeps each top section whole
+   * (the core types: one per source module), `all` keeps every section whole (the examples: one per file); absent
+   * packs small neighbouring sections together.
+   */
+  readonly each?: EachSection;
 }
 
 /** Everything composition reads, as seams, so tests run it over fixtures. */
@@ -143,10 +150,13 @@ function renderItem(item: ApiItem, reached: ReadonlySet<string>): string {
 /** The core types reached from the exports, each under its own anchor. */
 export function renderReached(api: ApiModel): string {
   const reached = new Set(api.reached.map((item) => item.name));
-  return api.reached.map((item) => {
-    const body = renderItem(item, reached).replace(/^#### `[^`]+`/, `#### <a id="${anchor(`core-${item.name}`)}"></a>\`${item.name}\``);
-    return body;
-  }).join('\n\n');
+  // grouped by the module that declares them, so the appendix reads (and cuts) one module at a time
+  const byFile = new Map<string, ApiItem[]>();
+  for (const item of api.reached) { byFile.set(item.file, [...(byFile.get(item.file) ?? []), item]); }
+  return [...byFile.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([file, items]) => [
+    `### From \`${file}\``,
+    ...items.map((item) => renderItem(item, reached).replace(/^#### `[^`]+`/, `#### <a id="${anchor(`core-${item.name}`)}"></a>\`${item.name}\``)),
+  ].join('\n\n')).join('\n\n');
 }
 
 /** Compose the guide. Throws `GuideProblems` listing everything wrong. */

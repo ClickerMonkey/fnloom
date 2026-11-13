@@ -4,12 +4,14 @@
  * groups as choices; each group offers its parts; each part offers its API reference (when it has one) and the part
  * after it. Every item but a reference brings the fns an author writes with, and the body names them as `fn:` links,
  * so the build checks them. Links that worked in the single file are made to work across items (`context-links.ts`).
+ * A part (or reference) over the item budget is cut into pieces under it (`split.ts`), each offered as a choice.
  * The words are in `context-graph.ts`; the text is the guide's own, so the folder is never edited by hand.
  */
-import { ContextFileHeader, type QualifiedName } from '@harness/core';
+import { ContextFileHeader, type ContextChoice, type QualifiedName } from '@harness/core';
 import { AUTHORING_GROUPS, AUTHORING_INDEX, PART_WORDS, type AuthoringGroup } from './context-graph.ts';
 import { anchorHomes, linkItem, sectionTitles } from './context-links.ts';
 import type { GuidePart } from './parts.ts';
+import { cutPart, pieceSlug, type EachSection, type Piece } from './split.ts';
 
 /** The system that serves the folder. */
 const SYSTEM = 'fs';
@@ -22,6 +24,9 @@ const AUTHOR_FNS = ['fs/read', 'fs/write', 'fs/edit', 'fs/bash'] as const;
 
 /** What packaging and the index bring besides: installing from the chat. */
 const INSTALL_FNS = ['fs/install_system', 'fs/system_status'] as const;
+
+/** The longest summary an item has: one short line a small model reads in a list of choices. */
+const SUMMARY_MAX = 160;
 
 /** Where the API reference of a part starts (`compose.ts` writes it under this heading). */
 const REFERENCE_HEADING = '\n### Reference: ';
@@ -152,7 +157,9 @@ export function contextFiles(parts: readonly GuidePart[]): ContextFile[] {
     const isReference = part.topic.reference === true;
     const install = topic === 'packaging';
     const fns = isReference ? [] : fnsOf(install);
+    const proseCut = pieces({ key: partKey(topic), path: `parts/${topic}`, title: part.topic.title, text: prose, fns, reference: isReference, each: part.topic.each });
     const choices = [
+      ...proseCut.choices,
       ...(reference === undefined ? [] : [{ to: qualified(`${partKey(topic)}.reference`), when: 'Pick this when you need the exact signatures and options.' }]),
       ...(next === undefined ? [] : [{ to: qualified(partKey(next.topic.id)), when: `Pick this to go on in order: ${next.topic.title}.` }]),
     ];
@@ -166,18 +173,77 @@ export function contextFiles(parts: readonly GuidePart[]): ContextFile[] {
       fns,
       ...(isReference ? { suggest: 'none' as const, tags: ['authoring', 'reference'] } : { tags: ['authoring'] }),
       choices,
-    }, fns.length === 0 ? prose : `${prose.trim()}\n\n${fnsLine(fns)}`));
+    }, fns.length === 0 ? proseCut.body : `${proseCut.body.trim()}\n\n${fnsLine(fns)}`));
+    files.push(...proseCut.drafts);
     if (reference !== undefined) {
+      const title = `${part.topic.title}: reference`;
+      const referenceCut = pieces({ key: `${partKey(topic)}.reference`, path: `parts/${topic}.reference`, title, text: reference, fns: [], reference: true, each: undefined });
       files.push(file(`parts/${topic}.reference.md`, {
         key: `${partKey(topic)}.reference`,
-        title: `${part.topic.title}: reference`,
+        title,
         description: `The API reference of ${part.topic.title}: every export with its TSDoc and signature.`,
         summary: `Signatures and options for ${part.topic.title.toLowerCase()}.`,
         parent: qualified(partKey(topic)),
         suggest: 'none',
         tags: ['authoring', 'reference'],
-      }, reference));
+        ...(referenceCut.choices.length === 0 ? {} : { choices: referenceCut.choices }),
+      }, referenceCut.body));
+      files.push(...referenceCut.drafts);
     }
   });
   return linked(files, parts);
+}
+
+/** What `pieces` cuts: an item's key, path (without `.md`), title and text, the fns it brings, and how to cut it. */
+interface PieceSource {
+  readonly key: string;
+  readonly path: string;
+  readonly title: string;
+  readonly text: string;
+  readonly fns: readonly QualifiedName[];
+  readonly reference: boolean;
+  readonly each: EachSection | undefined;
+}
+
+/** Text cut to fit a choice line or a summary: whole when short enough, else cut at a word with an ellipsis. */
+function fit(text: string, max: number): string {
+  if (text.length <= max) { return text; }
+  const cut = text.slice(0, max - 1);
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), max / 2))}…`;
+}
+
+/**
+ * An item over the budget, cut (`split.ts`): its own body keeps the text before its first section and lists the
+ * pieces as links, its choices offer each piece, and each piece is an item under it (`<key>.<slug>`, in a folder named
+ * after it), linked to the next. An item that fits comes back as it was, with no pieces.
+ */
+function pieces(source: PieceSource): { body: string; choices: ContextChoice[]; drafts: Draft[] } {
+  const cut = cutPart(source.text, source.each === undefined ? {} : { each: source.each });
+  if (cut === undefined) { return { body: source.text, choices: [], drafts: [] }; }
+  const used = new Set<string>();
+  const keyed = cut.pieces.map((piece) => {
+    // named by its first section, so a piece of a cut section isn't named after its parent
+    const base = pieceSlug(piece.names[0] ?? piece.title);
+    let slug = base;
+    for (let n = 2; used.has(slug); n += 1) { slug = `${base}-${String(n)}`; }
+    used.add(slug);
+    return { piece, slug, key: `${source.key}.${slug}` };
+  });
+  const whenOf = (piece: Piece) => fit(`Pick this for ${piece.names.join(', ')}.`, 200);
+  const drafts = keyed.map(({ piece, slug, key }, index) => {
+    const after = keyed[index + 1];
+    return file(`${source.path}/${slug}.md`, {
+      key,
+      title: fit(`${source.title}: ${piece.title}`, 200),
+      description: fit(`${source.title}, the part on ${piece.names.join(', ')}.`, 400),
+      summary: fit(`${source.title}: ${piece.names.join(', ')}.`, SUMMARY_MAX),
+      parent: qualified(source.key),
+      ...(after === undefined ? {} : { next: qualified(after.key) }),
+      fns: [...source.fns],
+      ...(source.reference ? { suggest: 'none' as const, tags: ['authoring', 'reference'] } : { tags: ['authoring'] }),
+    }, source.fns.length === 0 ? piece.text : `${piece.text.trim()}\n\n${fnsLine(source.fns)}`);
+  });
+  const list = keyed.map(({ piece, key }) => `- [${piece.title}](context:${qualified(key)})`);
+  const body = [cut.head.trimEnd(), '', `This part is in ${String(keyed.length)} pieces; load the one you need:`, '', ...list].join('\n');
+  return { body, choices: keyed.map(({ piece, key }) => ({ to: qualified(key), when: whenOf(piece) })), drafts };
 }

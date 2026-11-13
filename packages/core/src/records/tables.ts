@@ -23,7 +23,7 @@ import { HubOption } from '../suggestions.ts';
 import { AccessRecord } from '../access.ts';
 import { UserConnection } from '../connections.ts';
 import { ItemSwitch, RefusalRecord, SystemReviewRecord } from '../lifecycle.ts';
-import { FnExampleRecord, FnFactsRecord, FnSignatureType, FnTypeUse, FnUse, FnVersionRecord, TypeVersionRecord } from '../fn-facts.ts';
+import { FnExampleRecord, FnFactsRecord, FnLink, FnSignatureType, FnTypeUse, FnUse, FnVersionRecord, TypeVersionRecord } from '../fn-facts.ts';
 import { DataRecord, RecordVersion } from '../data.ts';
 import { ItemVersionRecord } from '../versions.ts';
 import { ResourceUri } from '../resources.ts';
@@ -137,6 +137,7 @@ export const HUB_TABLES = {
   refusals: byField(RefusalRecord, 'id'),
   // build 8
   fnSignatureTypes: byFields(FnSignatureType, 'fn', 'type'),
+  fnLinks: byFields(FnLink, 'fn', 'to', 'link'),
   itemVersions: byField(ItemVersionRecord, 'id'),
   records: byField(DataRecord, 'id'),
   recordVersions: byField(RecordVersion, 'id'),

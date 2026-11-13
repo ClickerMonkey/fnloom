@@ -22,6 +22,7 @@ import type { FilesFactory } from './files.ts';
 import type { HubAccess, HubLink } from './link.ts';
 import { HubLlm } from './llm.ts';
 import type { ScopedLog } from './log.ts';
+import { HubData } from './data.ts';
 import { HubResources } from './resources.ts';
 import { HubTypes } from './types.ts';
 import { LinkState, stateRecordType } from './state.ts';
@@ -110,6 +111,7 @@ export function servicesFor(env: RunEnvironment, run: RunId, signal: AbortSignal
     fetch: env.fetch,
     resources: new HubResources(env.hub, env.content, { run, signal }),
     types: new HubTypes(env.hub, signal, run),
+    data: new HubData(env.hub, { run, signal }),
     ...runReporting(env, run, signal, track),
     ...adminNotices(env.hub, signal),
     log,

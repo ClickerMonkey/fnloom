@@ -14,30 +14,32 @@ _Every code sample is a compiled file of the repository, so it is correct for th
 3. [The contract](#3-the-contract)
 4. [Types with gin](#4-types-with-gin)
 5. [Named types and methods](#5-named-types-and-methods)
-6. [Fns](#6-fns)
-7. [Handlers and progress](#7-handlers-and-progress)
-8. [Session state, forms and display](#8-session-state-forms-and-display)
-9. [Outcomes: done, invalid input, failed, paused, cancelled, undo](#9-outcomes-done-invalid-input-failed-paused-cancelled-undo)
-10. [Kinds and agents](#10-kinds-and-agents)
-11. [Settings and attachments](#11-settings-and-attachments)
-12. [Context and commands](#12-context-and-commands)
-13. [Hooks](#13-hooks)
-14. [Mentions](#14-mentions)
-15. [Actions](#15-actions)
-16. [Model providers](#16-model-providers)
-17. [Resources, embedders and sectioners](#17-resources-embedders-and-sectioners)
-18. [The hub contract](#18-the-hub-contract)
-19. [The server: serve and the implementation](#19-the-server-serve-and-the-implementation)
-20. [The run context and services](#20-the-run-context-and-services)
-21. [Calling other fns](#21-calling-other-fns)
-22. [Config, events, lifecycle and data](#22-config-events-lifecycle-and-data)
-23. [The client: renderers, inputs and resource views](#23-the-client-renderers-inputs-and-resource-views)
-24. [Packaging: system.json, build, pack, install](#24-packaging-systemjson-build-pack-install)
-25. [Testing](#25-testing)
-26. [Common mistakes](#26-common-mistakes)
-27. [Worked examples](#27-worked-examples)
-28. [Runtime internals](#28-runtime-internals)
-29. [Core types](#29-core-types)
+6. [Stored types and the data system](#6-stored-types-and-the-data-system)
+7. [Fns](#7-fns)
+8. [Handlers and progress](#8-handlers-and-progress)
+9. [Session state, forms and display](#9-session-state-forms-and-display)
+10. [Outcomes: done, invalid input, failed, paused, cancelled, undo](#10-outcomes-done-invalid-input-failed-paused-cancelled-undo)
+11. [Kinds and agents](#11-kinds-and-agents)
+12. [Settings and attachments](#12-settings-and-attachments)
+13. [Context and commands](#13-context-and-commands)
+14. [Hooks](#14-hooks)
+15. [Mentions](#15-mentions)
+16. [Actions](#16-actions)
+17. [Model providers](#17-model-providers)
+18. [Resources, embedders and sectioners](#18-resources-embedders-and-sectioners)
+19. [The hub contract](#19-the-hub-contract)
+20. [The server: serve and the implementation](#20-the-server-serve-and-the-implementation)
+21. [The run context and services](#21-the-run-context-and-services)
+22. [Calling other fns](#22-calling-other-fns)
+23. [Config, events, lifecycle and data](#23-config-events-lifecycle-and-data)
+24. [The client: renderers, inputs and resource views](#24-the-client-renderers-inputs-and-resource-views)
+25. [Visuals and widgets](#25-visuals-and-widgets)
+26. [Packaging: system.json, build, pack, install](#26-packaging-systemjson-build-pack-install)
+27. [Testing](#27-testing)
+28. [Common mistakes](#28-common-mistakes)
+29. [Worked examples](#29-worked-examples)
+30. [Runtime internals](#30-runtime-internals)
+31. [Core types](#31-core-types)
 
 ## 1. Start here
 
@@ -64,7 +66,7 @@ Everything a system contributes is namespaced by its name: the `notes` system's 
    admin reviews it in the hub and presses Go live before anything it offers can be called, so tell the person to do
    that. Read **Common mistakes** before you finish.
 
-Three rules hold everywhere, and the compiler enforces them:
+Four rules hold everywhere; the compiler enforces the first three:
 
 - **One source of types.** Every shape (args, results, config, payloads, settings, attachments, state, forms) is written
   once as a gin type; every TypeScript type is inferred from it. Never write a TypeScript type a gin type already
@@ -73,9 +75,14 @@ Three rules hold everywhere, and the compiler enforces them:
   `notes.settings.editing`). Refer to things through refs, so a reference to something that doesn't exist doesn't compile.
 - **The contract declares, the server implements.** Everything declared must be implemented, and nothing undeclared
   can be.
+- **Data lives in the hub.** What a system keeps for people (notes, tasks, anything shared or looked up later) is
+  records of a stored type (`type({ records })`), read and written with `ctx.data` and searched by the hub's database
+  (**Stored types and the data system**). Never keep it in a file or database of the system's own, and never load a
+  whole set to filter or search it in code: every read is a query with a page. A system's folder (`ctx.dataDir`) holds
+  only its own config, keys and caches.
 
 The worked example throughout is the **notes** system (`scripts/docs/example`, shown whole in **Worked examples**): notes with
-titles and tags, kept per instance in the hub-given data folder. Every code sample in this guide is a region of a file
+titles and tags, kept and searched by the hub as records of a stored type. Every code sample in this guide is a region of a file
 that `npm run typecheck` compiles, so each is correct for this version of the SDK.
 
 **Imports.** Contracts and renderers import from `@harness/sdk` (pure, safe in the browser). Server code imports
@@ -423,6 +430,9 @@ export const template = system('template', {
   description: 'TODO: what this system offers, in one sentence.',
   // TODO: what it may do through the hub (HUB_CAPABILITIES); the example agent uses a model and reads a setting
   grants: { hub: ['ai', 'settings'] },
+  // groups: its API groups, each `{ name, title, description }`; the hub indexes its fns by them (`<system>/api`,
+  // `<system>/api.<group>`) so a model finds a fn by walking the groups. Each fn names its own with `group`.
+  // TODO: declare groups once there are fns, or delete this comment.
 })
   .with({
     // config: what the system needs before it can be used, as one gin object type (`g.obj({ ... })`). An admin sets
@@ -447,7 +457,8 @@ export const template = system('template', {
 
     // fns: native fns, each made with `fn({ description, args, returns, ... })`. Optional parts change what the server
     // must implement: `undo` (an undo implementation), `resume` (it can pause), `progress` (`linear` or `steps`),
-    // `handlers` (`handler({ ... })`), `deps` (fn refs it may call), `state`, `form`, `status`, `display`, `tags`.
+    // `handlers` (`handler({ ... })`), `deps` (fn refs it may call), `state`, `form`, `status`, `display`, `tags`,
+    // `group` (one of the system's `groups`).
     // Every fn needs `instructions` written for the model (when to use it, how, what it returns, pitfalls), `examples`
     // (`{ args, result?, note? }`, checked against its types) and `effects` (`{ mode, reads, writes, free }`).
     // TODO: declare fns, or delete this comment.
@@ -536,7 +547,7 @@ _From `scripts/docs/example/shared/index.ts`:_
   },
   mentions: {
     // `@` in the chat finds notes; chips and cards show them as Note (its label, icon, color and its pin method)
-    notes: mention({ title: 'Notes', description: 'Any note, by its title.', target: g.obj({ id: g.text() }), of: types.Note }),
+    notes: mention({ title: 'Notes', description: 'Any note, by its title.', target: g.obj({ id: g.text() }), of: types.NoteEntry }),
   },
   fns: {
     // a fn of the stamp kind: only its payload; the kind's `describe` works out the rest
@@ -544,7 +555,8 @@ _From `scripts/docs/example/shared/index.ts`:_
       description: 'Capture a thought in the inbox.',
       payload: { title: 'Inbox', tags: ['inbox'] },
       args: StampArgs,
-      returns: Note.shape,
+      returns: NoteEntry.shape,
+      group: 'notes',
     }),
   },
 }))
@@ -562,6 +574,7 @@ _From `scripts/docs/example/shared/index.ts`:_
     // calls other fns through its deps, by ref: its own system's `review` and the hub's `ask_user`
     publish: fn({
       description: 'Share a note once the person approves it.',
+      group: 'sharing',
       args: g.obj({ id: g.text({ minLength: 1 }) }),
       returns: g.obj({ published: g.bool(), note: g.optional(g.text()) }),
       deps: { review: fns.review, ask: hub.fns.ask_user },
@@ -620,6 +633,7 @@ Anything else needs a capability in `grants.hub`:
 | handing back refreshed credentials of a `connect` system | `hub: ['connections']` |
 | `ctx.setting(ref)` | `hub: ['settings']` |
 | `ctx.state` (`get`, `set`, `update`, `clear`) | `hub: ['state']` |
+| `ctx.data` (`find`, `get`, `table`, `save`, `remove`) | `hub: ['data']` |
 | a hub secret by name | its name in `secrets` (its own config secrets are always its own) |
 | a host on the network, a path outside its folders (hosted by fs only) | the host in `network`, the path in `files` |
 
@@ -631,9 +645,9 @@ notes system declares:
 _From `scripts/docs/example/shared/index.ts`:_
 
 ```ts
-// find keeps its last query (state), remove reads the editing setting (settings), and share asks the person
-// through hub/ask_user (fns, and that fn in calls); its agent runs on the hub, so it needs no ai of its own
-grants: { hub: ['fns', 'settings', 'state'], calls: ['hub/ask_user'] },
+// notes are hub records (data), find keeps its last query (state), remove reads the editing setting (settings), and
+// share asks the person through hub/ask_user (fns, and that fn in calls); its agent runs on the hub, so it needs no ai
+grants: { hub: ['data', 'fns', 'settings', 'state'], calls: ['hub/ask_user'] },
 ```
 
 A refused call throws in the system: the hub answers 403 with the code `NOT_GRANTED` and a line saying what was
@@ -681,6 +695,8 @@ interface SystemContract<N extends string, C extends ContractShape> extends Syst
   readonly grants: SystemGrants | undefined;
   /** Its own config component (a client export), drawn instead of or beside the gin form. */
   readonly configComponent: ConfigComponentDecl | undefined;
+  /** Its API groups, each described once; a fn names its group with `fn({ group })`. */
+  readonly groups: readonly ApiGroupDecl[];
   /** The declarations themselves. */
   readonly defs: C;
   /** Add declarations: any sections, given directly or built from the refs so far. */
@@ -688,7 +704,7 @@ interface SystemContract<N extends string, C extends ContractShape> extends Syst
 }
 ```
 
-Refers to: [`ConfigComponentDecl`](#core-configcomponentdecl), [`ConfigPath`](#core-configpath), [`ContributionDecl`](#core-contributiondecl), [`SystemGrants`](#core-systemgrants).
+Refers to: [`ApiGroupDecl`](#core-apigroupdecl), [`ConfigComponentDecl`](#core-configcomponentdecl), [`ConfigPath`](#core-configpath), [`ContributionDecl`](#core-contributiondecl), [`SystemGrants`](#core-systemgrants).
 
 #### `SystemRefs`
 
@@ -860,10 +876,17 @@ interface SystemInfo {
    * the value with the config's gin type before saving.
    */
   configComponent?: ConfigComponentDecl;
+  /**
+   * Its API groups: a name, a title and what the group's fns are for (`{ name: 'files', title: 'Files', description:
+   * 'Read, write and search files.' }`). The hub keeps an index item for the system (`<system>/api`, the groups as
+   * choices) and one per group listing its fns, so a model walks the API like a context folder. A fn names its group
+   * with `fn({ group })`; a fn with none is in the general group. Every group a fn names must be declared here.
+   */
+  groups?: ApiGroupDecl[];
 }
 ```
 
-Refers to: [`ConfigComponentDecl`](#core-configcomponentdecl), [`ConfigPath`](#core-configpath), [`ContributionDecl`](#core-contributiondecl), [`SystemGrants`](#core-systemgrants).
+Refers to: [`ApiGroupDecl`](#core-apigroupdecl), [`ConfigComponentDecl`](#core-configcomponentdecl), [`ConfigPath`](#core-configpath), [`ContributionDecl`](#core-contributiondecl), [`SystemGrants`](#core-systemgrants).
 
 #### `RegistryDef`
 
@@ -916,7 +939,7 @@ inferred beside them:
 _From `scripts/docs/example/shared/index.ts`:_
 
 ```ts
-/** What undo needs to put a note back: the note as it was, or null when there was none. */
+/** What undo needs to put a note back: its record id and the note as it was, or null when there was none. */
 export const Before = g.obj({ id: g.text(), note: g.nullable(Note.shape) });
 
 /** The search `find` ran last in this session, kept in session state so a later `find` can repeat it. */
@@ -937,8 +960,10 @@ _From `scripts/docs/example/shared/index.ts`:_
 ```ts
 /** The notes contract's type. */
 export type NotesContract = typeof notes;
-/** A note, as fns return it. */
+/** A note, as it is stored. */
 export type NoteValue = ValueOf<typeof Note>;
+/** A saved note, as fns return it. */
+export type NoteEntryValue = ValueOf<typeof NoteEntry>;
 /** What undo needs to put a note back. */
 export type BeforeValue = Infer<typeof Before>;
 /** A person's answer to `review`. */
@@ -954,16 +979,15 @@ _From `scripts/docs/example/shared/index.ts`:_
 ```ts
 // what the system needs before it can be used; an admin sets it in the hub, and `ctx.config` has it, typed
 config: g.obj({
-  maxNotes: g.field(g.num({ min: 1, whole: true }), { docs: 'The most notes kept; adding one more is refused.' }),
-  defaultTags: g.list(g.text()),
+  defaultTags: g.field(g.list(g.text()), { docs: 'Tags every new note gets.' }),
 }),
 ```
 
 **Values at runtime.** Fns receive values already parsed by their gin types, in plain JS form (timestamps as `Date`).
 To check a value yourself use `parseValue(type, value)` (throws a gin error naming the problem); to turn a value into
-JSON for storage use `encodeValue(type, value)` (dates as ISO strings). The notes store reads and writes its file with
-the contract's own type, so a file that doesn't fit is refused instead of read wrongly (`server/store.ts` in **Worked
-examples**): `parseValue(g.list(Note.shape), JSON.parse(text))` to read, `JSON.stringify(encodeValue(g.list(Note.shape), list))`
+JSON for storage use `encodeValue(type, value)` (dates as ISO strings). Read a file the system keeps with its own type,
+so a file that doesn't fit is refused instead of read wrongly: `parseValue(g.list(Entry), JSON.parse(text))` to read,
+`JSON.stringify(encodeValue(g.list(Entry), list))`
 to write.
 
 To read values of another system's named type at runtime, ask the hub for its definition
@@ -1360,9 +1384,28 @@ people in a consistent way, that other systems can use as a field and that `@` m
 _From `scripts/docs/example/shared/index.ts`:_
 
 ```ts
-/** A note: a titled text with tags. A named type, so other systems can use it as a field and mentions show it. */
+/**
+ * A note: a titled text with tags. A stored type (`records`): the hub keeps the notes, one record each, checks them
+ * against this shape, versions every change and searches them, by words in the title and text and by meaning. Notes
+ * are shared by everyone who can see the type (`owner: 'shared'`), so hooks and mentions read them too; a type whose
+ * records are each one person's (`owner: 'person'`) is read in runs, as that person. Its record carries its id,
+ * version and times; the value doesn't.
+ */
 export const Note = type({
   description: 'A note: a titled text with tags.',
+  shape: g.obj({
+    title: g.text({ minLength: 1 }),
+    text: hub.types.LongText,
+    tags: g.list(g.text()),
+    pinned: g.bool(),
+  }),
+  display: { label: 'Note', plural: 'Notes', icon: 'note', color: '#d9a400', title: 'title' },
+  records: { shape: 'table', owner: 'shared', search: { text: ['title', 'text'], embed: true } },
+});
+
+/** A note as fns return it and cards show it: the stored note with its record id and when it last changed. */
+export const NoteEntry = type({
+  description: 'A saved note: its record id, when it last changed, and the note.',
   shape: g.obj({
     id: g.text({ minLength: 1 }),
     title: g.text({ minLength: 1 }),
@@ -1395,13 +1438,12 @@ _From `scripts/docs/example/server/impl.ts`:_
 
 ```ts
 types: {
-  Note: {
+  NoteEntry: {
     pin: {
       async run(self, args, ctx) {
-        const store = deps.open(ctx.dataDir);
-        const note = await store.get(self.id);
+        const note = await noteById(ctx.data, self.id);
         if (note === undefined) { return ctx.invalid([{ path: 'self', message: `Note ${self.id} no longer exists.` }]); }
-        await store.put({ ...note, pinned: args.pinned, updatedAt: deps.now() });
+        await ctx.data.save(Note, { ...note.value, pinned: args.pinned }, { id: note.id });
         return ctx.done(args.pinned);
       },
     },
@@ -1422,8 +1464,12 @@ Declare a named type. Methods are native fns called on a value of the type: a pe
 card, and code can call them through the type's ref. They are offered to the LLM only when their `visibility`
 says so.
 
+With `records`, the type is stored: the hub keeps its records, checks each against the type, versions every change
+and searches them in its database (`ctx.data.find`, the Data page, `hub/records_*`). Shared data lives there, never
+in a system's own folder.
+
 ```ts
-function type<T, const M extends Methods = {}>(def: { description: string; shape: GinType<T>; display: Omit<TypeDisplay, "title" | "subtitle"> & { title?: NamingKeys<T>; subtitle?: NamingKeys<T>; }; methods?: M; }): TypeDef<T, M>;
+function type<T, const M extends Methods = {}>(def: { description: string; shape: GinType<T>; display: Omit<TypeDisplay, "title" | "subtitle"> & { title?: NamingKeys<T>; subtitle?: NamingKeys<T>; }; methods?: M; records?: RecordsInput<T>; }): TypeDef<T, M>;
 ```
 
 Refers to: [`TypeDisplay`](#core-typedisplay).
@@ -1440,10 +1486,12 @@ interface TypeDef<T, M extends Methods> {
   readonly shape: GinType<T>;
   readonly display: TypeDisplay;
   readonly methods: M;
+  /** Set when the hub keeps records of the type (the data system): read and write them with `ctx.data`. */
+  readonly records: RecordStorage | undefined;
 }
 ```
 
-Refers to: [`TypeDisplay`](#core-typedisplay).
+Refers to: [`RecordStorage`](#core-recordstorage), [`TypeDisplay`](#core-typedisplay).
 
 #### `AnyTypeDef`
 
@@ -1563,7 +1611,254 @@ type MethodImpl<V, T extends FnTypes, Cfg = unknown> =
 
 Refers to: [`UndoOutcome`](#core-undooutcome).
 
-## 6. Fns
+## 6. Stored types and the data system
+
+**Where data lives.** Data a system keeps for people (notes, tasks, contacts, anything shared or looked up later)
+lives in the hub as **records of a stored type**, never in a file or database of the system's own. The hub keeps them,
+checks each against the type, versions every change, controls who sees them, searches them in its database (by words
+and by meaning) and shows them on the Data page, where people browse, filter, edit and turn them into widgets. A
+system's own folder (`ctx.dataDir`) holds only what is the system's alone: its keys, a cache, a working copy of
+something it syncs. An external database stays where it is (the database system reads it).
+
+A type is **stored** when it declares `records`:
+
+_From `scripts/docs/example/shared/index.ts`:_
+
+```ts
+/**
+ * A note: a titled text with tags. A stored type (`records`): the hub keeps the notes, one record each, checks them
+ * against this shape, versions every change and searches them, by words in the title and text and by meaning. Notes
+ * are shared by everyone who can see the type (`owner: 'shared'`), so hooks and mentions read them too; a type whose
+ * records are each one person's (`owner: 'person'`) is read in runs, as that person. Its record carries its id,
+ * version and times; the value doesn't.
+ */
+export const Note = type({
+  description: 'A note: a titled text with tags.',
+  shape: g.obj({
+    title: g.text({ minLength: 1 }),
+    text: hub.types.LongText,
+    tags: g.list(g.text()),
+    pinned: g.bool(),
+  }),
+  display: { label: 'Note', plural: 'Notes', icon: 'note', color: '#d9a400', title: 'title' },
+  records: { shape: 'table', owner: 'shared', search: { text: ['title', 'text'], embed: true } },
+});
+
+/** A note as fns return it and cards show it: the stored note with its record id and when it last changed. */
+export const NoteEntry = type({
+  description: 'A saved note: its record id, when it last changed, and the note.',
+  shape: g.obj({
+    id: g.text({ minLength: 1 }),
+    title: g.text({ minLength: 1 }),
+    text: hub.types.LongText,
+    tags: g.list(g.text()),
+    pinned: g.bool(),
+    updatedAt: g.timestamp(),
+  }),
+  // chips and cards name a note by its title, with its id under it
+  display: { label: 'Note', plural: 'Notes', icon: 'note', color: '#d9a400', title: 'title', subtitle: 'id' },
+  methods: {
+    // offered on a note's mention card; people and code can call it, the LLM can't (`visibility: 'user'`)
+    pin: fn({ description: 'Pin or unpin this note.', args: g.obj({ pinned: g.bool() }), returns: g.bool(), visibility: 'user' }),
+  },
+});
+```
+
+- `shape`: `table` for many records (the usual), `value` for exactly one (a system's shared list or settings). A save
+  to a `value` type leaves out `id`.
+- `owner`: `shared` (everyone who can see the type sees every record) or `person` (each record its writer's; only they
+  and admins see it). A `person` type is read and written in runs, as the run's person; hooks, mentions, context and
+  lifecycle code have no person, so they can't read it.
+- `search.text`: the top-level text fields text search matches, in order of weight; `search.embed`: whether records
+  are embedded too, so search finds them by meaning (a model call the hub makes and pays for).
+
+The record carries the id (`rec_…`), version, times and who changed it; the value is only the type's fields. A type
+that cards and methods need with its id (the notes' `NoteEntry`) is a separate named type the fns return.
+
+**Reading and writing: `ctx.data`.** Every context has it (it needs `grants: { hub: ['data'] }`). In a run it acts as
+the run's person, elsewhere as the system. Every read is a query with a page: filters and sorts on the type's
+top-level fields (`ListQuery`: `filters`, `sort`, `limit`, `cursor`) and `search`; the hub runs them in its database.
+**Never load every record to filter, count or search in code.**
+
+_From `scripts/docs/example/server/impl.ts`:_
+
+```ts
+find: {
+  async run(args, ctx) {
+    // `find` declared `state: LastSearch`, so it sees `lastQuery` and nothing else
+    const query = args.query ?? (await ctx.state.get()).lastQuery;
+    if (query === undefined && args.tag === undefined) {
+      // the caller's mistake: an agent gets the problem back and tries again
+      return ctx.invalid([{ path: 'query', message: 'Give a query or a tag; there is no earlier search to repeat.' }]);
+    }
+    ctx.progress.set(0.1, 'Searching');
+    // the hub searches by words and meaning and filters by tag in its database; one page comes back
+    const limit = args.limit ?? s.NOTES_FIND_LIMIT;
+    const page = await ctx.data.find(Note, {
+      ...(query === undefined ? {} : { search: query }),
+      query: { filters: tagFilter(args.tag), limit },
+    });
+    if (query !== undefined) { await ctx.state.set({ lastQuery: query }); }
+    return ctx.done({ notes: page.items.map(entryOf), more: page.cursor !== undefined });
+  },
+},
+```
+
+- `ctx.data.find(Type, { search?, query? })`: one page, best match first when searching; `cursor` when there are more.
+- `ctx.data.get(Type, id)`: one record, `undefined` when it is gone or not the asker's.
+- `ctx.data.save(Type, value, { id?, expect? })`: add (no `id`) or replace. With `expect` (the version read), the save
+  fails when someone changed the record meanwhile, instead of losing their change.
+- `ctx.data.remove(Type, id)`: remove it; its versions stay.
+- `ctx.data.table(Type, { search?, query?, offset?, limit? })`: the same records as a `ResultTable` (a column per field,
+  then `id` referring to the type), which widgets draw.
+
+Work over many records a page at a time, following `cursor` with a stable sort, as `tidy` does:
+
+_From `scripts/docs/example/server/impl.ts`:_
+
+```ts
+tidy: {
+  async run(_args, ctx) {
+    // a resumed run starts at the page it paused on
+    let saved = ctx.resume?.state.saved ?? 0;
+    let cursor = ctx.resume?.state.cursor;
+    // asked to pause: say where to resume from; the run settles as paused and `ctx.signal` aborts
+    ctx.onPause(() => ({ saved, ...(cursor === undefined ? {} : { cursor }) }));
+    ctx.progress.step('scan', 'active');
+    let merged = 0;
+    // a page at a time, in a stable order: every note is seen once and never all held at once
+    do {
+      const page = await ctx.data.find(Note, { query: { sort: [{ field: 'title', dir: 'asc' }], limit: s.NOTES_TIDY_PAGE, ...(cursor === undefined ? {} : { cursor }) } });
+      ctx.progress.step('merge', 'active');
+      for (const note of page.items) {
+        if (ctx.signal.aborted) { return ctx.cancelled({ partial: { merged } }); }
+        const tags = cleanTags(note.value.tags);
+        if (tags.join('\n') === note.value.tags.join('\n')) { continue; }
+        ctx.progress.step('save', 'active');
+        // `expect`: if someone changed the note meanwhile, the save fails instead of losing their change
+        await ctx.data.save(Note, { ...note.value, tags }, { id: note.id, expect: note.version });
+        merged += 1;
+        saved += 1;
+      }
+      cursor = page.cursor;
+    } while (cursor !== undefined);
+    ctx.progress.step('scan', 'done');
+    ctx.progress.step('merge', 'done', `${merged} changed`);
+    ctx.progress.step('save', 'done', `${saved} saved`);
+    return ctx.done({ merged });
+  },
+},
+```
+
+The hub's own fns read and write records too (`hub/records_find`, `hub/record_get`, `hub/records_table`,
+`hub/record_save`, `hub/record_remove`, `hub/data_sets`), so the chat can work with a system's data without the system
+writing a fn for every question. In tests the fake hub keeps records in memory (`kit.records(type)`, **Testing**).
+
+### Reference: stored types and the data system
+
+#### `TextKeys`
+
+type · `import { TextKeys } from '@harness/sdk'`
+
+Top-level text fields of T: what a stored type's text search may match.
+
+```ts
+type TextKeys<T> = { [K in keyof T]-?: T[K] extends string | undefined ? K : never }[keyof T] & string;
+```
+
+#### `RecordsInput`
+
+interface · `import { RecordsInput } from '@harness/sdk'`
+
+How the hub keeps records of a type (`type({ records })`), typed by the type: `table` for many records or `value`
+for one; `shared` (everyone who sees the type sees them) or `person` (each record its owner's); the text fields
+text search matches, in order of weight, and whether records are embedded for search by meaning.
+
+```ts
+interface RecordsInput<T> {
+  shape: RecordStorage['shape'];
+  owner: RecordStorage['owner'];
+  search?: { text?: TextKeys<T>[]; embed?: boolean };
+}
+```
+
+Refers to: [`RecordStorage`](#core-recordstorage).
+
+#### `Data`
+
+interface · `import { Data } from '@harness/sdk'`
+
+The data system: records of stored types (`type({ records })`), kept, checked, versioned and searched by the hub.
+In a run it acts as the run's person (a `person` type gives only their records); outside a run, as the system.
+Every read is a query with a page: never load a whole set to filter it in code. Needs the `data` hub grant.
+
+```ts
+const saved = await ctx.data.save(contract.types.Note, { title: 'Milk', body: 'Buy oat milk.' });
+const { items } = await ctx.data.find(contract.types.Note, { search: 'groceries', query: { limit: 5 } });
+```
+
+```ts
+interface Data {
+  /** One page of records, best match first when searching, else by the query's sort (newest change first). */
+  find<T>(type: StoredType<T>, find?: RecordFind): Promise<{ readonly items: StoredRecord<T>[]; readonly cursor?: string }>;
+  /** One record by id; `undefined` when it is gone or not the asker's to see. */
+  get<T>(type: StoredType<T>, id: RecordId): Promise<StoredRecord<T> | undefined>;
+  /** The same records as a `ResultTable` (one column per field, then `id`), offset-paged: what widgets draw. */
+  table<T>(type: StoredType<T>, find?: Omit<RecordFind, 'query'> & { readonly query?: Omit<ListQuery, 'cursor' | 'limit'>; readonly offset?: number; readonly limit?: number }): Promise<ResultTable>;
+  /**
+   * Add a record (no `id`) or replace one. `expect` fails the save when the record moved past that version (someone
+   * else changed it meanwhile). A `value` type has one record: leave `id` out.
+   */
+  save<T>(type: StoredType<T>, value: T, options?: { readonly id?: RecordId; readonly expect?: number }): Promise<StoredRecord<T>>;
+  /** Remove a record (its versions stay); false when there was none. */
+  remove(type: StoredType<unknown>, id: RecordId): Promise<boolean>;
+}
+```
+
+Refers to: [`ListQuery`](#core-listquery), [`RecordId`](#core-recordid), [`ResultTable`](#core-resulttable).
+
+#### `StoredRecord`
+
+type · `import { StoredRecord } from '@harness/sdk'`
+
+A record of a stored type, its value decoded to the type.
+
+```ts
+type StoredRecord<T> = Omit<DataRecord, 'value'> & { readonly value: T };
+```
+
+Refers to: [`DataRecord`](#core-datarecord).
+
+#### `StoredType`
+
+type · `import { StoredType } from '@harness/sdk'`
+
+A stored type as `ctx.data` takes it: the type's ref (`contract.types.Note`, or another system's).
+
+```ts
+type StoredType<T> = GinType<T> & { readonly name: QualifiedName };
+```
+
+Refers to: [`QualifiedName`](#core-qualifiedname).
+
+#### `RecordFind`
+
+interface · `import { RecordFind } from '@harness/sdk'`
+
+Which records `ctx.data.find` and `ctx.data.table` give: filters and sorts on the type's top-level fields, and search.
+
+```ts
+interface RecordFind {
+  /** Filters (all must hold), sort keys and a page, on the type's top-level fields; the hub refuses an unknown field. */
+  readonly query?: ListQuery;
+  /** Ranks by text over the type's `records.search.text` fields, and by meaning when the type is embedded. */
+  readonly search?: string;
+}
+```
+
+Refers to: [`ListQuery`](#core-listquery).
+
+## 7. Fns
 
 A **fn** is something people, agents and code can run: a name, a description, typed args and a typed result. A
 **native** fn is implemented in code by its own system and declared with `fn({ … })`. Only `description`, `args` and
@@ -1588,6 +1883,8 @@ A **fn** is something people, agents and code can run: a name, a description, ty
 | `operations` | `{ cancel?, background? }`, both default `true`; pause and undo follow `resume` and `undo` | |
 | `limits` | `{ timeout?, retries?, cost? }`: hard limit per run, retries for `retry` failures, a rough cost | |
 | `visibility` | who sees it: `both` (default), `user` (people only, not the LLM), `llm`, `none` | |
+| `group` | its API group, one of the system's `groups` (**The contract**); the general group when absent | a group the system doesn't declare is refused |
+| `flags` | `true`: before every run the hub asks `flags(args, ctx)` which sensitive files it would touch (below) | `flags` must be implemented |
 
 _From `scripts/docs/example/shared/index.ts`:_
 
@@ -1595,12 +1892,13 @@ _From `scripts/docs/example/shared/index.ts`:_
 add: fn({
   description: 'Add a note.',
   instructions: 'Give it a short title. Tags are lowercase words; the config adds its default tags.',
+  group: 'notes',
   args: g.obj({
     title: g.text({ minLength: 1 }),
     text: hub.types.LongText,
     tags: g.optional(g.list(g.text())),
   }),
-  returns: Note.shape,
+  returns: NoteEntry.shape,
   // example calls agents see on its card and when they get its args wrong; a wrong example doesn't compile
   examples: [{ args: { title: 'Groceries', text: 'Milk, eggs, bread.', tags: ['home'] }, note: 'A short title and lowercase tags.' }],
   // declaring an undo type makes it undoable, and the server must implement `undo`
@@ -1618,13 +1916,14 @@ _From `scripts/docs/example/shared/index.ts`:_
 
 ```ts
 find: fn({
-  description: 'Find notes by words in their title or text, or by tag.',
+  description: 'Find notes by words or meaning in their title or text, or by tag; the best matches first.',
+  group: 'notes',
   args: g.obj({
     query: g.optional(g.text()),
     tag: g.optional(g.text()),
     limit: g.optional(g.num({ min: 1, max: 50, whole: true })),
   }),
-  returns: g.obj({ notes: g.list(Note.shape), total: g.num({ min: 0, whole: true }) }),
+  returns: g.obj({ notes: g.list(NoteEntry.shape), more: g.bool() }),
   // reads and writes `lastQuery` in the session's state; only fns that declare it see it
   state: LastSearch,
   progress: linear,
@@ -1654,15 +1953,14 @@ _From `scripts/docs/example/server/impl.ts`:_
 ```ts
 add: {
   async run(args, ctx) {
-    const store = deps.open(ctx.dataDir);
-    const note = await create(store, ctx.config, { title: args.title, text: args.text, tags: args.tags ?? [] });
+    const note = await create(ctx.data, ctx.config, { title: args.title, text: args.text, tags: args.tags ?? [] });
     // a real refusal, not a mistake in the args: `fail` with the `caller` class and a stable code
-    if (note === undefined) { return ctx.fail('caller', full(ctx.config), { code: 'full' }); }
+    if (note === undefined) { return ctx.fail('caller', taken(args.title), { code: 'taken' }); }
     ctx.attach(notes.attachments.note, note, `Added ${note.title}`);
     // the undo payload is typed by the contract's `undo` type
     return ctx.done(note, { undo: { id: note.id, note: null } });
   },
-  undo: (payload, ctx) => restore(deps.open(ctx.dataDir), payload),
+  undo: (payload, ctx) => restore(ctx.data, payload),
 },
 ```
 
@@ -1704,6 +2002,18 @@ input. A preview gets a `PreviewCtx` (the system context, the waiting run and it
 anything. `remember: false` (the default) means the person can't say "don't ask again". A kind does the same from
 `describe` (`approval`) and `preview(payload, args, ctx)`. Serving a fn that asks for a preview without implementing
 one throws.
+
+**Sensitive files.** A native fn that reads or writes files the person names (fs's `read`, `write`, `bash`) declares
+`flags: true` and implements `flags(args, ctx)`: the sensitive files a run with these args would touch, each a
+`SensitivityFlag` (`path`, `kind`, `rule`, `access`, `action`, `why`, and `certain: false` for a path only found in a
+command line). The hub asks before the mode gate and policies: a `refuse` flag fails the run as invalid input with the
+rule's words, a write or an `ask` flag makes it wait for the person (never remembered, never passed by a policy or by
+`auto` mode, whose classifier sees the flags), and none lets it go on. Like a preview, `flags` must not change
+anything. `kit.flags('<fn>', args)` tests it (**Testing**).
+
+**API groups.** `system(name, { groups: [{ name, title, description }] })` names the groups a system's fns are listed
+in, and `fn({ group })` puts a fn in one. The hub keeps an index item per system (`<system>/api`, its groups as
+choices) and one per group listing its fns a line each, so a model walks a large API like a context folder.
 
 ### Reference: fns
 
@@ -1785,6 +2095,14 @@ interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDe
   effects?: FnEffects;
   /** How many of its examples go into the model's prompt with it (the hub's default when absent); the rest page with `hub/fn_examples`. */
   promptExamples?: number;
+  /** The API group it is listed in: one of the system's `groups` (`system(name, { groups })`); the general group when absent. */
+  group?: string;
+  /**
+   * The fn touches files that may be sensitive (env files, keys, gitignored files): before every run the hub asks its
+   * implementation's `flags(args, ctx)` which ones, then refuses, asks the person or goes ahead by the rules' actions.
+   * Requires `flags` in the implementation.
+   */
+  flags?: true;
 }
 ```
 
@@ -1848,6 +2166,10 @@ interface FnDef<T extends FnTypes> {
   readonly effects: FnEffects | undefined;
   /** How many examples go into the prompt with it. */
   readonly promptExamples: number | undefined;
+  /** The API group it is listed in (`SystemInfo.groups`); the general group when undefined. */
+  readonly group: string | undefined;
+  /** Whether the hub asks its implementation's `flags(args, ctx)` which sensitive files a run would touch first. */
+  readonly flags: boolean;
   /** Phantom: lets the SDK read T back out of a def. Never set at runtime. */
   readonly types?: T;
 }
@@ -2156,7 +2478,7 @@ type TokensOf<S extends string> = S extends `${string}{${infer Token}}${infer Re
 : never;
 ```
 
-## 7. Handlers and progress
+## 8. Handlers and progress
 
 ### Handlers
 
@@ -2177,6 +2499,7 @@ _From `scripts/docs/example/shared/index.ts`:_
 ```ts
 remove: fn({
   description: 'Delete a note.',
+  group: 'notes',
   args: g.obj({ id: g.text({ minLength: 1 }) }),
   returns: g.obj({ removed: g.bool() }),
   undo: Before,
@@ -2192,20 +2515,19 @@ _From `scripts/docs/example/server/impl.ts`:_
 ```ts
 remove: {
   async run(args, ctx) {
-    const store = deps.open(ctx.dataDir);
-    const note = await store.get(args.id);
+    const note = await noteById(ctx.data, args.id);
     if (note === undefined) { return ctx.invalid([{ path: 'id', message: `There is no note ${args.id}.` }]); }
     // the effective setting for the run's person, merged with their groups'
     const editing = await ctx.setting(notes.settings.editing);
     if (editing?.confirmRemove === true) {
       // `confirm` is optional, so the compiler makes the fn check it is there
       if (ctx.handlers.confirm === undefined) { return ctx.fail('caller', 'Removing a note asks first, and this caller cannot answer.', { code: 'denied' }); }
-      if (!(await ctx.handlers.confirm({ title: note.title }))) { return ctx.cancelled(); }
+      if (!(await ctx.handlers.confirm({ title: note.value.title }))) { return ctx.cancelled(); }
     }
-    await store.delete(note.id);
-    return ctx.done({ removed: true }, { undo: { id: note.id, note } });
+    await ctx.data.remove(Note, note.id);
+    return ctx.done({ removed: true }, { undo: { id: note.id, note: note.value } });
   },
-  undo: (payload, ctx) => restore(deps.open(ctx.dataDir), payload),
+  undo: (payload, ctx) => restore(ctx.data, payload),
 },
 ```
 
@@ -2227,12 +2549,13 @@ _From `scripts/docs/example/shared/index.ts`:_
 
 ```ts
 tidy: fn({
-  description: 'Merge tags that differ only in case or spaces, across every note.',
+  description: 'Merge tags that differ only in case or spaces, across every note, a page at a time.',
+  group: 'notes',
   args: g.obj({}),
   returns: g.obj({ merged: g.num({ min: 0, whole: true }) }),
   progress: steps({ scan: 'Read every note', merge: 'Merge the tags', save: 'Save the notes' }),
   // declaring a resume type makes it pausable: it returns this when paused and gets it back on resume
-  resume: g.obj({ saved: g.num({ min: 0, whole: true }) }),
+  resume: g.obj({ saved: g.num({ min: 0, whole: true }), cursor: g.optional(g.text()) }),
 }),
 ```
 
@@ -2422,7 +2745,7 @@ P extends StepsProgress<infer S> ? { steps: { [K in keyof S]: StepWire } } :
 undefined;
 ```
 
-## 8. Session state, forms and display
+## 9. Session state, forms and display
 
 ### Session state
 
@@ -2449,16 +2772,15 @@ find: {
       // the caller's mistake: an agent gets the problem back and tries again
       return ctx.invalid([{ path: 'query', message: 'Give a query or a tag; there is no earlier search to repeat.' }]);
     }
-    const all = await deps.open(ctx.dataDir).all();
-    const found: NoteValue[] = [];
-    // about twenty updates whatever the size: each one travels to the hub and on to the chat
-    const every = Math.max(1, Math.floor(all.length / 20));
-    all.forEach((note, index) => {
-      if (matches(note, query, args.tag)) { found.push(note); }
-      if ((index + 1) % every === 0) { ctx.progress.set((index + 1) / all.length, `${found.length} found`); }
+    ctx.progress.set(0.1, 'Searching');
+    // the hub searches by words and meaning and filters by tag in its database; one page comes back
+    const limit = args.limit ?? s.NOTES_FIND_LIMIT;
+    const page = await ctx.data.find(Note, {
+      ...(query === undefined ? {} : { search: query }),
+      query: { filters: tagFilter(args.tag), limit },
     });
     if (query !== undefined) { await ctx.state.set({ lastQuery: query }); }
-    return ctx.done({ notes: found.slice(0, args.limit ?? s.NOTES_FIND_LIMIT), total: found.length });
+    return ctx.done({ notes: page.items.map(entryOf), more: page.cursor !== undefined });
   },
 },
 ```
@@ -2475,6 +2797,7 @@ _From `scripts/docs/example/shared/index.ts`:_
 ```ts
 review: fn({
   description: 'Ask the person to approve a note before it is shared. Returns their decision.',
+  group: 'sharing',
   args: g.obj({ id: g.text({ minLength: 1 }) }),
   returns: Review,
   // the run waits in `await ctx.form()` until the renderer submits this
@@ -2489,9 +2812,9 @@ _From `scripts/docs/example/server/impl.ts`:_
 ```ts
 review: {
   async run(args, ctx) {
-    const note = await deps.open(ctx.dataDir).get(args.id);
+    const note = await noteById(ctx.data, args.id);
     if (note === undefined) { return ctx.invalid([{ path: 'id', message: `There is no note ${args.id}.` }]); }
-    ctx.attach(notes.attachments.note, note, note.title);
+    ctx.attach(notes.attachments.note, entryOf(note), note.value.title);
     // waits for the renderer's submit; the hub keeps it if the system is offline meanwhile
     return ctx.done(await ctx.form());
   },
@@ -2527,7 +2850,7 @@ interface SessionState<S extends object> {
 }
 ```
 
-## 9. Outcomes: done, invalid input, failed, paused, cancelled, undo
+## 10. Outcomes: done, invalid input, failed, paused, cancelled, undo
 
 Every run ends in an **outcome**, built with the ctx helpers, which are typed to the fn (its result, undo and resume
 types). Return exactly one; never throw to report something the caller should hear.
@@ -2563,12 +2886,15 @@ after a restart, with only the payload and an `UndoCtx`.
 _From `scripts/docs/example/server/impl.ts`:_
 
 ```ts
-/** Put a note back as it was before a change: delete it if it didn't exist, else restore it. */
-async function restore(store: NoteStore, before: BeforeValue): Promise<UndoOutcome> {
+/** Put a note back as it was before a change: remove it if it didn't exist, else save it as it was. */
+async function restore(data: Data, before: BeforeValue): Promise<UndoOutcome> {
+  const id = recordId(before.id);
   if (before.note === null) {
-    return (await store.delete(before.id)) ? { status: 'undone', summary: `Removed note ${before.id} again.` } : { status: 'gone' };
+    return id !== undefined && (await data.remove(Note, id)) ? { status: 'undone', summary: `Removed note ${before.id} again.` } : { status: 'gone' };
   }
-  await store.put(before.note);
+  // a note still there is saved over; a removed one comes back as a new record
+  const exists = id === undefined ? undefined : await data.get(Note, id);
+  await data.save(Note, before.note, exists === undefined ? {} : { id: exists.id });
   return { status: 'undone', summary: `Restored "${before.note.title}".` };
 }
 ```
@@ -2586,28 +2912,33 @@ _From `scripts/docs/example/server/impl.ts`:_
 ```ts
 tidy: {
   async run(_args, ctx) {
-    const store = deps.open(ctx.dataDir);
-    // a resumed run starts where it paused
+    // a resumed run starts at the page it paused on
     let saved = ctx.resume?.state.saved ?? 0;
+    let cursor = ctx.resume?.state.cursor;
     // asked to pause: say where to resume from; the run settles as paused and `ctx.signal` aborts
-    ctx.onPause(() => ({ saved }));
+    ctx.onPause(() => ({ saved, ...(cursor === undefined ? {} : { cursor }) }));
     ctx.progress.step('scan', 'active');
-    const all = await store.all();
-    ctx.progress.step('scan', 'done', `${all.length} notes`);
-    ctx.progress.step('merge', 'active');
-    const changed = all.flatMap((note) => {
-      const tags = cleanTags(note.tags);
-      return tags.join('\n') === note.tags.join('\n') ? [] : [{ ...note, tags, updatedAt: deps.now() }];
-    });
-    ctx.progress.step('merge', 'done', `${changed.length} to change`);
-    ctx.progress.step('save', 'active');
-    for (const note of changed.slice(saved)) {
-      if (ctx.signal.aborted) { return ctx.cancelled({ partial: { merged: saved } }); }
-      await store.put(note);
-      saved += 1;
-    }
-    ctx.progress.step('save', 'done');
-    return ctx.done({ merged: changed.length });
+    let merged = 0;
+    // a page at a time, in a stable order: every note is seen once and never all held at once
+    do {
+      const page = await ctx.data.find(Note, { query: { sort: [{ field: 'title', dir: 'asc' }], limit: s.NOTES_TIDY_PAGE, ...(cursor === undefined ? {} : { cursor }) } });
+      ctx.progress.step('merge', 'active');
+      for (const note of page.items) {
+        if (ctx.signal.aborted) { return ctx.cancelled({ partial: { merged } }); }
+        const tags = cleanTags(note.value.tags);
+        if (tags.join('\n') === note.value.tags.join('\n')) { continue; }
+        ctx.progress.step('save', 'active');
+        // `expect`: if someone changed the note meanwhile, the save fails instead of losing their change
+        await ctx.data.save(Note, { ...note.value, tags }, { id: note.id, expect: note.version });
+        merged += 1;
+        saved += 1;
+      }
+      cursor = page.cursor;
+    } while (cursor !== undefined);
+    ctx.progress.step('scan', 'done');
+    ctx.progress.step('merge', 'done', `${merged} changed`);
+    ctx.progress.step('save', 'done', `${saved} saved`);
+    return ctx.done({ merged });
   },
 },
 ```
@@ -2896,7 +3227,7 @@ type SettledRunStatus = { [S in RunStatus]: (typeof SETTLED_BY_STATUS)[S] extend
 
 Refers to: [`RunStatus`](#core-runstatus).
 
-## 10. Kinds and agents
+## 11. Kinds and agents
 
 ### Kinds
 
@@ -2944,16 +3275,18 @@ kinds: {
     // everything else about a stamp fn, worked out from its payload
     describe: () => Promise.resolve({
       args: wireType(StampArgs),
-      returns: wireType(Note.shape),
+      returns: wireType(NoteEntry.shape),
       deps: [],
       operations: { cancel: true, pause: false, undo: false, background: true },
     }),
     async run(payload, args, ctx) {
       // a kind's args arrive as JSON the hub checked against `describe`; read them with the same gin type
       const input = parseValue(StampArgs, args);
-      const note = await create(deps.open(ctx.dataDir), ctx.config, { title: payload.title, text: input.text, tags: payload.tags });
-      if (note === undefined) { return ctx.fail('caller', full(ctx.config), { code: 'full' }); }
-      return ctx.done(encodeValue(Note.shape, note));
+      // titles are unique, so a stamp's note is titled by the stamp and the start of its text
+      const title = `${payload.title}: ${input.text.slice(0, 40)}`;
+      const note = await create(ctx.data, ctx.config, { title, text: input.text, tags: payload.tags });
+      if (note === undefined) { return ctx.fail('caller', taken(title), { code: 'taken' }); }
+      return ctx.done(encodeValue(NoteEntry.shape, note));
     },
   },
 },
@@ -2997,6 +3330,7 @@ _From `scripts/docs/example/shared/index.ts`:_
     // calls other fns through its deps, by ref: its own system's `review` and the hub's `ask_user`
     publish: fn({
       description: 'Share a note once the person approves it.',
+      group: 'sharing',
       args: g.obj({ id: g.text({ minLength: 1 }) }),
       returns: g.obj({ published: g.bool(), note: g.optional(g.text()) }),
       deps: { review: fns.review, ask: hub.fns.ask_user },
@@ -3027,6 +3361,10 @@ the model has seen (`markAware`), loaded (`markLoaded`) and searched (`markSearc
 `table`): a load tool is offered while something is aware but not loaded, and nothing is shown twice. The run's own
 state (deps, the instance, what it chose) is `session.state`, the `AuthoringSession`'s second type parameter. Write
 `instructions` as the job step by step, with a worked example of a good draft.
+
+An agent handed what it builds on has nothing to find: `stages: { find: false }` starts it in **inspect** (a find
+tool or `reuse` is then refused). `toolNames: { draft, save }` names the built-in tools for the job; the hub's
+`make_widget` drafts with `widget_check` and saves with `widget_save` (**Visuals and widgets**).
 
 The input system's `get_input` writes a form this way. Its find tool:
 
@@ -3301,6 +3639,8 @@ interface KindFnInput<P, A, R, T extends StatusTemplates = StatusTemplates> {
   effects?: FnEffects;
   /** How many of its examples go into the model's prompt with it (the hub's default when absent); the rest page with `hub/fn_examples`. */
   promptExamples?: number;
+  /** The API group it is listed in (`SystemInfo.groups`); the general group when absent. */
+  group?: string;
 }
 ```
 
@@ -3481,6 +3821,10 @@ interface AuthoringAgentInput<S, D> {
   readonly fixes?: number;
   /** Model rounds; `HARNESS_AUTHORING_ROUNDS` when absent. */
   readonly rounds?: number;
+  /** `find: false`: the agent is handed what it builds on, so it starts in `inspect` (no find tools, no `reuse`). */
+  readonly stages?: { readonly find?: boolean };
+  /** Names for the built-in tools when the job wants its own words (default `draft` and `save`). */
+  readonly toolNames?: { readonly draft?: string; readonly save?: string };
 }
 ```
 
@@ -3544,7 +3888,8 @@ class AuthoringSession<S, D> {
   readonly request: string;
   /** The authoring fn's own state (the database, the instance, the type registry, …). */
   readonly state: S;
-  constructor(request: string, state: S);
+  /** `skip`: stages the agent has no use for, done from the start (`find` for an agent handed what it builds on). */
+  constructor(request: string, state: S, skip: readonly SkippableStage[] = []);
   /** The current stage: the first one not done, `fix` while the last check failed, `save` once it passed. */
   get stage(): "check" | "find" | "inspect" | "draft" | "fix" | "save";
   /** Whether a tool of a stage may be offered now: every stage before it is done, and the run is still going. */
@@ -3595,6 +3940,16 @@ The stages a tool belongs to (`check` and `fix` are the built-in `draft` tool's;
 
 ```ts
 type ToolStage = 'find' | 'inspect' | 'draft';
+```
+
+#### `SkippableStage`
+
+type · `import { SkippableStage } from '@harness/sdk/server'`
+
+The stage an agent may leave out: `find`, when it is handed what it builds on.
+
+```ts
+type SkippableStage = 'find';
 ```
 
 #### `DraftCheck`
@@ -3677,7 +4032,7 @@ The authoring agents' tunables.
 const authoringEnv: Env<EnvOutput<{}, { readonly HARNESS_AUTHORING_FIXES: z.ZodDefault<z.ZodCoercedNumber<unknown>>; readonly HARNESS_AUTHORING_ROUNDS: z.ZodDefault<z.ZodCoercedNumber<unknown>>; }>>;
 ```
 
-## 11. Settings and attachments
+## 12. Settings and attachments
 
 ### Settings
 
@@ -3802,7 +4157,7 @@ interface AttachmentRef<N extends QualifiedName, T> {
 
 Refers to: [`QualifiedName`](#core-qualifiedname).
 
-## 12. Context and commands
+## 13. Context and commands
 
 **Context** is text for the LLM: a guide, a skill, a reference, the state of something. The hub suggests it when a
 message is about it, an agent can always have it (`alwaysFor`, `agent({ context })`), and a person loads it with a
@@ -3849,11 +4204,11 @@ _From `scripts/docs/example/server/impl.ts`:_
 
 ```ts
 context: {
+  // the newest few, by query (newest change first), never all of them
   recent: async (args, ctx) => {
-    const all = await deps.open(ctx.dataDir).all();
-    const shown = all.filter((note) => args.tag === undefined || note.tags.includes(args.tag.toLowerCase())).slice(0, s.NOTES_FIND_LIMIT);
-    if (shown.length === 0) { return args.tag === undefined ? 'There are no notes yet.' : `No note has the tag "${args.tag}".`; }
-    return shown.map(markdownOf).join('\n\n---\n\n');
+    const page = await ctx.data.find(Note, { query: { filters: tagFilter(args.tag), limit: s.NOTES_FIND_LIMIT } });
+    if (page.items.length === 0) { return args.tag === undefined ? 'There are no notes yet.' : `No note has the tag "${args.tag}".`; }
+    return page.items.map((note) => markdownOf(note.value)).join('\n\n---\n\n');
   },
 },
 ```
@@ -4267,7 +4622,7 @@ type AnyContextRef = ContextRef<QualifiedName, unknown>;
 
 Refers to: [`QualifiedName`](#core-qualifiedname).
 
-## 13. Hooks
+## 14. Hooks
 
 A **hook** adds information to each user message before the LLM sees it (the git branch, the pinned notes, the open
 ticket). Declare it with `hook({ description, order?, timeout? })`: lower `order` runs first (default 100), and after
@@ -4294,9 +4649,10 @@ _From `scripts/docs/example/server/impl.ts`:_
 ```ts
 hooks: {
   pinned: async (input, ctx) => {
-    const pinned = (await deps.open(ctx.dataDir).all()).filter((note) => note.pinned).slice(0, s.NOTES_HOOK_TITLES);
+    // the pinned ones only, filtered by the hub, a few at most
+    const pinned = await ctx.data.find(Note, { query: { filters: [{ field: 'pinned', op: 'is', value: true }], limit: s.NOTES_HOOK_TITLES } });
     const blocks: HookContribution[] = [];
-    if (pinned.length > 0) { blocks.push({ type: 'text', tag: 'pinned-notes', text: `Pinned notes: ${pinned.map((note) => `"${note.title}"`).join(', ')}.` }); }
+    if (pinned.items.length > 0) { blocks.push({ type: 'text', tag: 'pinned-notes', text: `Pinned notes: ${pinned.items.map((note) => `"${note.value.title}"`).join(', ')}.` }); }
     if (/\bnotes?\b/i.test(input.text)) { blocks.push({ type: 'suggest-context', items: [{ context: notes.context.guide, why: 'The message is about notes.' }] }); }
     return blocks;
   },
@@ -4399,7 +4755,7 @@ type AnyHookRef = HookRef<QualifiedName>;
 
 Refers to: [`QualifiedName`](#core-qualifiedname).
 
-## 14. Mentions
+## 15. Mentions
 
 A **mention provider** lets people point at things the system knows with `@` in the chat (a file, a database row, a
 note). Declare it with `mention({ title, description, target, of? })`: `target` is the gin type of the key that gets
@@ -4411,7 +4767,7 @@ _From `scripts/docs/example/shared/index.ts`:_
 ```ts
 mentions: {
   // `@` in the chat finds notes; chips and cards show them as Note (its label, icon, color and its pin method)
-  notes: mention({ title: 'Notes', description: 'Any note, by its title.', target: g.obj({ id: g.text() }), of: types.Note }),
+  notes: mention({ title: 'Notes', description: 'Any note, by its title.', target: g.obj({ id: g.text() }), of: types.NoteEntry }),
 },
 ```
 
@@ -4431,25 +4787,28 @@ _From `scripts/docs/example/server/impl.ts`:_
 mentions: {
   notes: {
     async search(query, ctx) {
-      return (await deps.open(ctx.dataDir).all())
-        .filter((note) => matches(note, query, undefined))
-        .slice(0, 20)
-        .map((note) => ({ label: note.title, hint: note.tags.join(', '), icon: 'note', target: { id: note.id } }));
+      // the hub's search: by words and meaning, best first, one small page
+      const page = await ctx.data.find(Note, { search: query, query: { limit: 20 } });
+      return page.items.map((note) => ({ label: note.value.title, hint: note.value.tags.join(', '), icon: 'note', target: { id: note.id } }));
     },
     async hover(target, ctx) {
-      const note = await deps.open(ctx.dataDir).get(target.id);
+      const note = await noteById(ctx.data, target.id);
       if (note === undefined) { return undefined; }
-      // returning the value as a Note lets the card offer Note's `pin` method
-      return { title: note.title, subtitle: note.tags.join(', '), body: note.text.slice(0, 280), open: { resource: uriOf(note.id) }, value: note };
+      // returning the value as a NoteEntry lets the card offer its `pin` method
+      return { title: note.value.title, subtitle: note.value.tags.join(', '), body: note.value.text.slice(0, 280), value: entryOf(note) };
     },
     async llm(target, ctx) {
-      const note = await deps.open(ctx.dataDir).get(target.id);
+      const note = await noteById(ctx.data, target.id);
       if (note === undefined) { return `Note ${target.id} no longer exists.`; }
-      return `Note "${note.title}" (id ${note.id}) in the notes system:\n\n${markdownOf(note)}`;
+      return `Note "${note.value.title}" (id ${note.id}) in the notes system:\n\n${markdownOf(note.value)}`;
     },
   },
 },
 ```
+
+In `search`, `ctx.resources.search(query, { roots?, limit? })` searches the hub's resources as the person typing:
+the hub ties it to their `@` search, so a provider can offer pages or files they may see (the web system does). It
+refuses anywhere else.
 
 A custom hover card is a renderer under `mentions` in **The client**; without one the hub draws the `hover` answer.
 
@@ -4547,7 +4906,7 @@ interface MentionRef<N extends QualifiedName, T> {
 
 Refers to: [`QualifiedName`](#core-qualifiedname).
 
-## 15. Actions
+## 16. Actions
 
 An **action** is a typed message the system's renderers send it ("pin", "approve", "load more"). Declare it with
 `action({ description, input, returns?, state?, expires? })`: without `returns` it returns nothing, `state` declares
@@ -4573,10 +4932,9 @@ _From `scripts/docs/example/server/impl.ts`:_
 ```ts
 actions: {
   pin: async (input, ctx) => {
-    const store = deps.open(ctx.dataDir);
-    const note = await store.get(input.id);
+    const note = await noteById(ctx.data, input.id);
     if (note === undefined) { return false; }
-    await store.put({ ...note, pinned: input.pinned, updatedAt: deps.now() });
+    await ctx.data.save(Note, { ...note.value, pinned: input.pinned }, { id: note.id });
     return true;
   },
 },
@@ -4664,7 +5022,7 @@ interface ActionRef<N extends QualifiedName, I, R> {
 
 Refers to: [`QualifiedName`](#core-qualifiedname).
 
-## 16. Model providers
+## 17. Model providers
 
 A system can bring **model providers**: models whose calls run in the system (a GPU box, a private API, a gateway the
 hub can't reach). Declare each in the contract with `provider({ description, models })`: every model's id, abilities
@@ -4757,7 +5115,7 @@ interface ProviderRef<N extends QualifiedName> {
 
 Refers to: [`QualifiedName`](#core-qualifiedname).
 
-## 17. Resources, embedders and sectioners
+## 18. Resources, embedders and sectioners
 
 ### Resources
 
@@ -4776,30 +5134,9 @@ URIs are absolute (`notes://all/n1`, `file:///…`) and belong to the system who
 goes through the hub (`ctx.resources.text(uri)` from any system), which routes each URI to the system that serves it.
 Build readers on `@aeye/resources` where they fit; the fs system serves folders this way.
 
-The notes system serves each note as markdown under `notes://all/`, so the hub indexes and searches them:
-
-_From `scripts/docs/example/server/impl.ts`:_
-
-```ts
-const resources: ResourceProvider = {
-  roots: () => Promise.resolve([{ uri: ROOT, name: 'Notes', description: 'Every note, as markdown.', index: 'all', ignore: [], watch: false }]),
-  async list(uri) {
-    if (uri !== ROOT || current === undefined) { return { items: [] }; }
-    return { items: (await current.all()).map(statOf) };
-  },
-  async stat(uri) {
-    const id = idOf(uri);
-    const note = id === undefined ? undefined : await current?.get(id);
-    return note === undefined ? undefined : statOf(note);
-  },
-  async read(uri) {
-    const id = idOf(uri);
-    const note = id === undefined ? undefined : await current?.get(id);
-    if (note === undefined) { throw new Error(`There is no note at ${uri}.`); }
-    return { stat: statOf(note), text: { inline: markdownOf(note) } };
-  },
-};
-```
+Serve resources for things that live outside the hub (files, pages, an external store); records of a stored type
+need none, since the hub already keeps and searches them (**Stored types and the data system**). The fs system is the
+reference provider (`systems/fs/server/resources.ts`).
 
 ### Embedders
 
@@ -4959,7 +5296,7 @@ function sectionKeys(paths: readonly (readonly string[])[]): SectionKey[];
 
 Refers to: [`SectionKey`](#core-sectionkey).
 
-## 18. The hub contract
+## 19. The hub contract
 
 The hub is a system too, named `hub`, declared with the same SDK as the contract `hub` (`import { hub } from
 '@harness/sdk'`). Systems use it like any other contract: depend on its fns (`deps: { ask: hub.fns.ask_user }`), give
@@ -5332,6 +5669,11 @@ This is the hub contract as the SDK declares it now:
 
   ```text
   (obj{ systems?, external?, focus?, text?, nodeKinds?, edgeKinds?, fnKinds?, modes?, effects?, visibility?, stages?, on?, collapse?, limit? … }) => obj{ nodes, edges, more, total … }
+  ```
+- `hub/item_versions`: The version history of one item a system declared or added while running (a fn, type, context item, kind, command, component, provider, ...): each version's declaration, how it changed, and who saved it, newest first. Tags: `read`.
+
+  ```text
+  (obj{ cursor?, limit?, system, section, name … }) => obj{ items, cursor? … }
   ```
 - `hub/resource_convert`: Make a form of a resource now (convert it, describe an image, read the text in it, transcribe audio); it may cost a model call.
 
@@ -6085,6 +6427,8 @@ const HUB_READ_ENDPOINTS = {
   query: querySlice.endpoints.query,
   /** The graph of systems' fns, context, types and parts, and how they connect. */
   graph: graphSlice.endpoints.graph,
+  /** Build 8: any item's version history (fns, types, context, kinds, commands, components, ...). */
+  item_versions: versionsSlice.endpoints.itemVersions,
 } as const satisfies Record<string, EndpointLike>;
 ```
 
@@ -6356,7 +6700,7 @@ The error code `hub/save_fn` fails with (class `caller`) when the name is taken 
 const SAVE_FN_TAKEN: "fn-taken";
 ```
 
-## 19. The server: serve and the implementation
+## 20. The server: serve and the implementation
 
 `serve(contract, impl, options, host?)` (from `@harness/sdk/server`) connects to the hub, pairs the first time, sends the
 manifest (or nothing when the hub already has this version of it), and serves the implementation over the link. It
@@ -6390,11 +6734,6 @@ _From `scripts/docs/example/server/impl.ts`:_
 /** Everything the implementation is built from. */
 export interface NotesDeps {
   readonly settings: NotesSettings;
-  /** Opens an instance's store from its data folder. */
-  readonly open: OpenStore;
-  readonly now: () => Date;
-  /** A new note id. */
-  readonly newId: () => string;
 }
 ```
 
@@ -6407,12 +6746,7 @@ _From `scripts/docs/example/server/main.ts`:_
 const settings = notesEnv.parse();
 const { host, log } = loggedHost(notes.name);
 
-const impl = createNotesImpl({
-  settings,
-  open: storesBy((dataDir) => new JsonNoteStore(dataDir)),
-  now: () => new Date(),
-  newId: () => randomUUID(),
-});
+const impl = createNotesImpl({ settings });
 
 // the renderers, built into the state folder and uploaded to the hub on connect
 const clientFolder = join(settings.HARNESS_SYSTEM_STATE, 'client');
@@ -6451,7 +6785,9 @@ export const notesEnv = env({
   /** The most notes `find` returns when no limit is given. */
   NOTES_FIND_LIMIT: z.number().int().min(1).default(10),
   /** The most pinned titles the `pinned` hook adds to a message. */
-  NOTES_HOOK_TITLES: z.number().int().min(0).default(5),
+  NOTES_HOOK_TITLES: z.number().int().min(1).default(5),
+  /** How many notes `tidy` reads per page. */
+  NOTES_TIDY_PAGE: z.number().int().min(1).max(200).default(50),
 }).add(systemState('notes'));
 ```
 
@@ -6653,14 +6989,20 @@ type · `import { FnImpl } from '@harness/sdk'`
 
 The implementation of a native fn. `undo` is required exactly when the fn declares an undo type; `preview` when it
 declares `approval` with a preview (checked when the system serves): what a run would do, or why it can't go ahead.
+`flags` when it declares `flags: true`: the sensitive files a run with these args would read or write (empty when
+none), asked by the hub before every run.
 
 ```ts
 type FnImpl<T extends FnTypes, Cfg = unknown> =
-{ run(args: T['args'], ctx: FnCtx<T, Cfg>): Promise<Outcome<T>>; preview?(args: T['args'], ctx: PreviewCtx<Cfg>): Promise<PreviewAnswer> } &
+{
+  run(args: T['args'], ctx: FnCtx<T, Cfg>): Promise<Outcome<T>>;
+  preview?(args: T['args'], ctx: PreviewCtx<Cfg>): Promise<PreviewAnswer>;
+  flags?(args: T['args'], ctx: PreviewCtx<Cfg>): Promise<SensitivityFlag[]>;
+} &
 ([T['undo']] extends [never] ? { undo?: never } : { undo(payload: T['undo'], ctx: UndoCtx<Cfg>): Promise<UndoOutcome> });
 ```
 
-Refers to: [`PreviewAnswer`](#core-previewanswer), [`UndoOutcome`](#core-undooutcome).
+Refers to: [`PreviewAnswer`](#core-previewanswer), [`SensitivityFlag`](#core-sensitivityflag), [`UndoOutcome`](#core-undooutcome).
 
 #### `ConnectImpl`
 
@@ -7015,7 +7357,7 @@ Turns text into a QR code drawn with UTF-8 block characters.
 type QrRenderer = (text: string) => Promise<string>;
 ```
 
-## 20. The run context and services
+## 21. The run context and services
 
 Every implementation gets a context (`ctx`) typed by what it implements.
 
@@ -7177,6 +7519,8 @@ interface Services extends SystemPlace, AiSource, AdminNotices {
   readonly resources: Resources;
   /** Named types from any system, with what they reference. */
   readonly types: Types;
+  /** Records of stored types, as the run's person. */
+  readonly data: Data;
   /** Attach something to the assistant message this run belongs to. The data is checked. */
   attach<A>(attachment: AttachmentRef<QualifiedName, A>, data: A, title: string): void;
   /** Attach a link to a resource, URL, file or run. */
@@ -7201,6 +7545,8 @@ interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets, FnSea
   readonly llm: Llm;
   readonly resources: Resources;
   readonly types: Types;
+  /** Records of stored types, as the system itself (no run, so no person: `person` types are refused). */
+  readonly data: Data;
   readonly log: Log;
   readonly signal: AbortSignal;
 }
@@ -7386,6 +7732,10 @@ interface Resources {
   text(uri: ResourceUri, sections?: SectionKey[]): Promise<string>;
   links(uri: ResourceUri): Promise<ResourceLink[]>;
   sections(uri: ResourceUri): Promise<Section[]>;
+  /**
+   * Search resources by words and meaning. Only in a mention provider's `search`: the hub ties it to the person's `@`
+   * search and searches as them. Elsewhere it refuses (`LinkGap`); a fn declares `hub.fns.search_resources` as a dep.
+   */
   search(query: string, options?: { roots?: ResourceUri[]; limit?: number }): Promise<ResourceHit[]>;
 }
 ```
@@ -7841,7 +8191,7 @@ function wireRequest(request: Request): LlmRequest;
 
 Refers to: [`LlmRequest`](#core-llmrequest).
 
-## 21. Calling other fns
+## 22. Calling other fns
 
 A fn calls another fn (of its own system, another system or the hub) by declaring it as a **dep** with its ref, then
 calling it through `ctx.fns`. Nothing else can be called, and the args, result and handlers are typed by the ref:
@@ -7852,6 +8202,7 @@ _From `scripts/docs/example/shared/index.ts`:_
 // calls other fns through its deps, by ref: its own system's `review` and the hub's `ask_user`
 publish: fn({
   description: 'Share a note once the person approves it.',
+  group: 'sharing',
   args: g.obj({ id: g.text({ minLength: 1 }) }),
   returns: g.obj({ published: g.bool(), note: g.optional(g.text()) }),
   deps: { review: fns.review, ask: hub.fns.ask_user },
@@ -8015,7 +8366,7 @@ class HandlerFailed extends Error {
 
 Refers to: [`FnError`](#core-fnerror).
 
-## 22. Config, events, lifecycle and data
+## 23. Config, events, lifecycle and data
 
 ### Config
 
@@ -8056,12 +8407,12 @@ _From `scripts/docs/example/server/impl.ts`:_
 
 ```ts
 lifecycle: {
-  started: async (ctx) => {
-    current = deps.open(ctx.dataDir);
-    ctx.log.info('notes.started', { notes: (await current.all()).length, instance: ctx.instance });
+  started: (ctx) => {
+    ctx.log.info('notes.started', { instance: ctx.instance });
+    return Promise.resolve();
   },
   configured: (ctx) => {
-    ctx.log.info('notes.configured', { maxNotes: ctx.config.maxNotes, before: ctx.previous?.maxNotes ?? null });
+    ctx.log.info('notes.configured', { defaultTags: ctx.config.defaultTags.length, before: ctx.previous?.defaultTags.length ?? null });
     return Promise.resolve();
   },
 },
@@ -8072,34 +8423,15 @@ lifecycle: {
 The hub gives each installed instance its own folders, outside the package, so upgrades and rollbacks keep them:
 `<hub data>/systems/<name>/instances/<instance>/{state,data,cache}`. Code reaches them through every context:
 
-- `ctx.dataDir`: the system's own data (files, a SQLite database). What it stores there and how is its own business;
-  the hub exports this folder with the instance's config (`harness system export-data`) and installs it back.
+- `ctx.dataDir`: what is the system's alone (its keys, a working copy of something it syncs). Data kept for people is
+  never here: it is hub records (**Stored types and the data system**). The hub exports this folder with the
+  instance's config (`harness system export-data`) and installs it back.
 - `ctx.cacheDir`: what can be made again (client builds, indexes). Never exported; may be cleared.
 - `ctx.instance`: this instance's name, `main` for a system that runs one copy. Several copies of one system can be
   attached at once (a fleet: `fs@laptop`, `fs@desk`); fn names and refs stay the same, and the hub picks the instance
   for each call. Set `"instances": "many"` in `system.json` for a system meant to run as a fleet.
 
-Open stores lazily from `ctx.dataDir` (one per folder) rather than at import time; the notes system opens its store
-from each context:
-
-_From `scripts/docs/example/server/index.ts`:_
-
-```ts
-/** Where one instance keeps its notes. */
-export interface NoteStore {
-  /** Every note, newest first. */
-  all(): Promise<NoteValue[]>;
-  get(id: string): Promise<NoteValue | undefined>;
-  /** Add the note, or replace the one with its id. */
-  put(note: NoteValue): Promise<void>;
-  /** Whether there was a note to delete. */
-  delete(id: string): Promise<boolean>;
-}
-
-/** Opens the store kept in an instance's data folder (`ctx.dataDir`). */
-export type OpenStore = (dataDir: string) => NoteStore;
-```
-
+Open anything kept in `ctx.dataDir` lazily (one per folder) rather than at import time.
 Outside the hub (a system started by hand) the folders default to `.harness/systems/<name>/<instance>/…`. Never write
 into the system's own source folder at runtime.
 
@@ -8152,7 +8484,7 @@ type EventHandlers<Cfg> = {
 
 Refers to: [`SystemEvent`](#core-systemevent).
 
-## 23. The client: renderers, inputs and resource views
+## 24. The client: renderers, inputs and resource views
 
 A system can draw its things in the chat with **Vue 3 components**. `client(contract, renderers)` in `client/index.ts`
 (default export) registers them, and each component's props are typed by the contract, so a component with the wrong
@@ -8229,7 +8561,7 @@ function pin(id: string, pinned: boolean): void {
         </button>
       </li>
     </ul>
-    <p v-if="view.result" class="total">{{ view.result.notes.length }} of {{ view.result.total }}</p>
+    <p v-if="view.result" class="total">{{ view.result.notes.length }} found{{ view.result.more ? ', more past these' : '' }}</p>
     <p v-if="view.error" class="problem">{{ view.error.message }}</p>
   </article>
 </template>
@@ -8847,7 +9179,7 @@ Refers to: [`Json`](#core-json).
 
 interface · `import { VisualView } from '@harness/sdk'`
 
-The props of a visual (an entry of a registry such as `database/query-visuals`): the rows to draw.
+The props of a visual (an entry of a registry such as the hub's `hub/visuals`): the rows to draw.
 
 ```ts
 interface VisualView {
@@ -8863,11 +9195,12 @@ interface · `import { VisualEntry } from '@harness/sdk'`
 
 One visual a system adds to a registry: whether a result fits it and how much of it it shows well (`VisualFit`,
 score 0 to 1; the table scores 0), and the component that draws it. Keep `match` cheap and pure: it runs for
-every result the person sees.
+every result the person sees. Without `match`, the contribution's declared shape (`visual({ shape })`) judges the fit
+(`declaredFit`) with `DECLARED_FIT_SCORE`; a visual needs one or the other.
 
 ```ts
 interface VisualEntry<C extends ContractShape> {
-  match(table: ResultTable): VisualFit;
+  match?(table: ResultTable): VisualFit;
   component: Renderer<VisualView & WithSystem<C>>;
 }
 ```
@@ -8888,13 +9221,15 @@ interface VisualOption {
   readonly label: string;
   /** An icon name from the web app's icon set, when the contribution names one. */
   readonly icon?: string;
+  /** The data it draws, when the contribution declares it (its channels, for a widget's bindings). */
+  readonly shape?: VisualShape;
   readonly fit: VisualFit;
   readonly component: Component;
   readonly props: VisualView & WithSystem<ContractShape>;
 }
 ```
 
-Refers to: [`VisualFit`](#core-visualfit).
+Refers to: [`VisualFit`](#core-visualfit), [`VisualShape`](#core-visualshape).
 
 #### `VisualSource`
 
@@ -8921,7 +9256,342 @@ visuals other systems contribute. Without it, a view falls back on its own syste
 const VISUALS: InjectionKey<VisualSource>;
 ```
 
-## 24. Packaging: system.json, build, pack, install
+## 25. Visuals and widgets
+
+A fn that returns a `ResultTable` (a query, `hub/records_table`, any fn of that shape) is drawn by the result view,
+which offers every **visual** that fits the result: the table, a bar chart, a single value, and any visual a system
+adds. A **widget** is a saved view of such a fn: the visuals to switch between with their bindings, a control per
+argument, the paging it drives and the actions on each row.
+
+**Visuals.** All visuals live in the hub's registry `hub/visuals` (`HUB_VISUALS`). A system adds one by declaring it
+in `contributes` with `visual(...)`, whose **shape** says what data it draws: its channels (`channel(name, label,
+kinds, { required, many })`, the column kinds each takes), how many rows it shows well, and whether it only tells the
+truth about a whole result (`whole`: a pie of one page lies). The hub and the widget agent judge fits from the shape
+(`declaredFit`, `fittingVisuals`) without running client code. Then draw it in `client({ visuals })`:
+
+_From `scripts/docs/samples/charts.ts`:_
+
+```ts
+/** The contract: the pie, declared in `hub/visuals` with the data it draws. */
+export const charts = system('charts', {
+  description: 'Charts for results.',
+  contributes: [visual({
+    name: 'pie',
+    label: 'Pie',
+    icon: 'chart',
+    shape: {
+      channels: [channel('label', 'Slice', ['text']), channel('value', 'Size', ['integer', 'number'])],
+      // a few slices read well; a pie of one page of a longer result lies, so it wants the whole result
+      rows: { min: 1, max: 12 },
+      whole: true,
+    },
+  })],
+});
+
+/** The client: the pie's component, with no `match` of its own, so its declared shape judges the fit. */
+export default client(charts, { visuals: { [HUB_VISUALS]: { pie: { component: PieVisual } } } });
+```
+
+A visual entry may give its own `match(table)` (a `VisualFit` score from 0 to 1; the table scores 0); without one,
+its declared shape judges the fit with `DECLARED_FIT_SCORE`. The component gets `table` and `system`.
+
+**Widgets.** A widget is a fn of the hub's kind `hub/widget` (`WIDGET_KIND`) whose payload is a `WidgetSpec`: its
+`source` fn, `visuals` (each `{ visual, bind: { channel: [columns] } }`), `controls` (per source argument: `label`,
+`choices`, `pinned` to fix it, `hidden`), `paging` (the source's offset and limit arguments and the page size) and
+`actions`. Its args are the source's minus the pinned and paged ones (`widgetArgs`); its controls are the rest
+(`widgetControls`). A run calls the source as a child run and returns a `WidgetResult`; bindings that no longer fit
+the real columns are listed as problems, never a failure (`checkWidget`). Versions, visibility, review and search come
+free, as for any fn.
+
+**Row actions** are derived, never listed by hand: each method of a row's type (a column's `ref`, such as the `id`
+column of `hub/records_table`) is offered, labelled from its name (`actionLabel`), with a form for the args left after
+binding (`widgetActionOptions`). Anything that is not a read asks first (`confirmOf`); a widget can add a confirm, never
+remove one. Nothing runs until a person clicks, and the click is an ordinary run, so policies and approvals apply. Give
+a stored type methods to make its records actionable.
+
+**Making widgets.** People ask in the chat ("show my open tasks by owner as bars"), or press "Save as widget" on a
+table result; `hub/make_widget` writes the spec. It is an authoring agent (**Kinds and agents**) that skips `find`
+(it is handed the source) and names its tools for the job: `widget_source` (the source's args and a small sample),
+`widget_visuals` (the visuals whose shapes fit), `widget_check` (the draft against `widgetSpecSchema`, a strict schema
+built from the source's args, the sample's columns and the fitting visuals, then `checkWidget`) and `widget_save`.
+
+### Reference: visuals and widgets
+
+#### `HUB_VISUALS`
+
+const · `import { HUB_VISUALS } from '@harness/sdk'`
+
+The hub's visual registry: every visual any system draws a `ResultTable` with.
+
+```ts
+const HUB_VISUALS: "hub/visuals";
+```
+
+#### `WIDGET_KIND`
+
+const · `import { WIDGET_KIND } from '@harness/sdk'`
+
+The hub's widget kind.
+
+```ts
+const WIDGET_KIND: "hub/widget";
+```
+
+#### `visual`
+
+function · `import { visual } from '@harness/sdk'`
+
+A visual this system adds to the hub's visual registry, for `system(name, { contributes: [visual(...)] })`; its
+component and match logic go in `client({ visuals: { [HUB_VISUALS]: { <name>: { match, component } } } })`.
+
+```ts
+visual({ name: 'pie', label: 'Pie', shape: { channels: [channel('label', 'Slice', ['text']), channel('value', 'Size', ['integer', 'number'])], rows: { min: 1, max: 12 }, whole: true } })
+```
+
+```ts
+function visual(input: VisualInput): ContributionDecl;
+```
+
+Refers to: [`ContributionDecl`](#core-contributiondecl).
+
+#### `VisualInput`
+
+interface · `import { VisualInput } from '@harness/sdk'`
+
+What `visual()` takes: the visual's name, its switcher label and icon, and the data it draws.
+
+```ts
+interface VisualInput {
+  readonly name: string;
+  readonly label: string;
+  readonly description?: string;
+  readonly icon?: string;
+  readonly shape: VisualShape;
+}
+```
+
+Refers to: [`VisualShape`](#core-visualshape).
+
+#### `channel`
+
+function · `import { channel } from '@harness/sdk'`
+
+One input of a visual: `channel('value', 'Value', ['integer', 'number'])`; required and single unless said.
+
+```ts
+function channel(name: string, label: string, accepts: readonly ColumnKind[], options?: { required?: boolean; many?: boolean; }): VisualChannel;
+```
+
+Refers to: [`ColumnKind`](#core-columnkind), [`VisualChannel`](#core-visualchannel).
+
+#### `fittingVisuals`
+
+function · `import { fittingVisuals } from '@harness/sdk'`
+
+The visuals of `HUB_VISUALS` (among `entries`, every system's contributions) whose declared shape fits the table. A
+widget that pages its source (`paged`) shows every page, so a `whole` visual is judged as if the table were whole.
+
+```ts
+function fittingVisuals(table: ResultTable, entries: readonly ContributionDecl[], paged?: boolean): FittingVisual[];
+```
+
+Refers to: [`ContributionDecl`](#core-contributiondecl), [`ResultTable`](#core-resulttable).
+
+#### `FittingVisual`
+
+interface · `import { FittingVisual } from '@harness/sdk'`
+
+A declared visual whose shape fits a table, with its shape.
+
+```ts
+interface FittingVisual {
+  readonly name: string;
+  readonly label: string;
+  readonly shape: VisualShape;
+}
+```
+
+Refers to: [`VisualShape`](#core-visualshape).
+
+#### `DECLARED_FIT_SCORE`
+
+const · `import { DECLARED_FIT_SCORE } from '@harness/sdk'`
+
+The score of a visual judged only by its declared shape: above the table, below a visual that scores itself.
+
+```ts
+const DECLARED_FIT_SCORE: 0.3;
+```
+
+#### `visualMatch`
+
+function · `import { visualMatch } from '@harness/sdk'`
+
+How a visual is judged: its own `match`, else its declared shape; `undefined` when it has neither.
+
+```ts
+function visualMatch(entry: { match?(table: ResultTable): VisualFit; }, shape: VisualShape | undefined): ((table: ResultTable) => VisualFit) | undefined;
+```
+
+Refers to: [`ResultTable`](#core-resulttable), [`VisualFit`](#core-visualfit), [`VisualShape`](#core-visualshape).
+
+#### `widgetArgs`
+
+function · `import { widgetArgs } from '@harness/sdk'`
+
+The widget's args type: its source's args minus the pinned ones and the ones the pager drives (the kind's `describe`).
+
+```ts
+function widgetArgs(source: GinTypeDef, spec: Pick<WidgetSpec, "controls" | "paging">): GinTypeDef;
+```
+
+Refers to: [`GinTypeDef`](#core-gintypedef), [`WidgetSpec`](#core-widgetspec).
+
+#### `widgetControls`
+
+function · `import { widgetControls } from '@harness/sdk'`
+
+The controls a widget shows, in its source's arg order: every arg not pinned, hidden or driven by the pager.
+
+```ts
+function widgetControls(source: GinTypeDef, spec: Pick<WidgetSpec, "controls" | "paging">): WidgetControlView[];
+```
+
+Refers to: [`GinTypeDef`](#core-gintypedef), [`WidgetSpec`](#core-widgetspec).
+
+#### `WidgetControlView`
+
+interface · `import { WidgetControlView } from '@harness/sdk'`
+
+A control as the widget's bar shows it: the arg, its label and type, and the values offered.
+
+```ts
+interface WidgetControlView {
+  readonly arg: string;
+  readonly label: string;
+  readonly type: GinTypeDef;
+  readonly required: boolean;
+  /** The only values offered, in order; absent offers the type's own editor. */
+  readonly choices?: readonly Json[];
+  /** Whether a value outside `choices` may be typed. */
+  readonly custom: boolean;
+}
+```
+
+Refers to: [`GinTypeDef`](#core-gintypedef), [`Json`](#core-json).
+
+#### `checkWidget`
+
+function · `import { checkWidget } from '@harness/sdk'`
+
+Every problem with a widget spec against its source's args and a real result: controls and paging naming args the
+source lacks, a required arg hidden with no value, visuals that aren't declared, bindings to missing columns or to
+columns of a kind the channel doesn't take, visuals whose shape doesn't fit, and actions binding missing columns.
+A visual with a problem leaves `visuals`; the rest keep the spec's order.
+
+```ts
+function checkWidget(spec: WidgetSpec, input: WidgetCheckInput): WidgetCheckResult;
+```
+
+Refers to: [`WidgetSpec`](#core-widgetspec).
+
+#### `WidgetCheckInput`
+
+interface · `import { WidgetCheckInput } from '@harness/sdk'`
+
+What `checkWidget` is given besides the spec: the source's args type, a real result, every declared visual.
+
+```ts
+interface WidgetCheckInput {
+  readonly args: GinTypeDef;
+  readonly table: ResultTable;
+  readonly visuals: readonly ContributionDecl[];
+}
+```
+
+Refers to: [`ContributionDecl`](#core-contributiondecl), [`GinTypeDef`](#core-gintypedef), [`ResultTable`](#core-resulttable).
+
+#### `WidgetCheckResult`
+
+interface · `import { WidgetCheckResult } from '@harness/sdk'`
+
+What `checkWidget` finds: the spec's visuals that still fit, in order, and every problem in words.
+
+```ts
+interface WidgetCheckResult {
+  readonly visuals: WidgetVisual[];
+  readonly problems: string[];
+}
+```
+
+Refers to: [`WidgetVisual`](#core-widgetvisual).
+
+#### `widgetSpecSchema`
+
+function · `import { widgetSpecSchema } from '@harness/sdk'`
+
+The strict schema an authoring agent drafts a widget against, built at tool time: the source is fixed, a visual is one
+of those that fit with a binding per channel naming only columns that channel takes, a control names one of the
+source's args, paging names its number args, and an action names one of the row methods. What the schema can't say
+(a required arg hidden with no value) `checkWidget` catches.
+
+```ts
+function widgetSpecSchema(input: WidgetSchemaInput): z.ZodType<WidgetSpec>;
+```
+
+Refers to: [`WidgetSpec`](#core-widgetspec).
+
+#### `WidgetSchemaInput`
+
+interface · `import { WidgetSchemaInput } from '@harness/sdk'`
+
+What `widgetSpecSchema` builds from: the source, its args, a sample result, the fitting visuals and the row methods.
+
+```ts
+interface WidgetSchemaInput {
+  readonly source: QualifiedName;
+  readonly args: GinTypeDef;
+  readonly columns: readonly ResultColumn[];
+  readonly visuals: readonly FittingVisual[];
+  /** The fns an action may name (the row types' methods); absent: any fn. */
+  readonly actions?: readonly QualifiedName[];
+}
+```
+
+Refers to: [`GinTypeDef`](#core-gintypedef), [`QualifiedName`](#core-qualifiedname), [`ResultColumn`](#core-resultcolumn).
+
+#### `widgetActionOptions`
+
+function · `import { widgetActionOptions } from '@harness/sdk'`
+
+The actions a row offers: every row fn when the spec lists none, else the listed ones in their order, each labelled
+(`actionLabel` unless relabelled), confirming when `confirmOf` says so, with its bound args and a form for the args
+left. A method's value (`self`) is bound by the row's ref, so it never shows in the form. A listed action whose fn
+isn't a row fn is left out.
+
+```ts
+function widgetActionOptions(rowFns: readonly RowFn[], actions: readonly WidgetAction[] | undefined): WidgetActionOption[];
+```
+
+Refers to: [`WidgetAction`](#core-widgetaction), [`WidgetActionOption`](#core-widgetactionoption).
+
+#### `RowFn`
+
+interface · `import { RowFn } from '@harness/sdk'`
+
+A fn a row could run: a method of the row's type (or any fn), its mode and args.
+
+```ts
+interface RowFn {
+  readonly fn: QualifiedName;
+  readonly mode: FnMode;
+  readonly args: GinTypeDef;
+}
+```
+
+Refers to: [`FnMode`](#core-fnmode), [`GinTypeDef`](#core-gintypedef), [`QualifiedName`](#core-qualifiedname).
+
+## 26. Packaging: system.json, build, pack, install
 
 ### `system.json`
 
@@ -9244,7 +9914,7 @@ interface BuiltEntries {
 }
 ```
 
-## 25. Testing
+## 27. Testing
 
 Every system tests itself with the SDK's **test kit** (`@harness/sdk/testing`), in vitest, with no setup:
 
@@ -9259,6 +9929,15 @@ Every system tests itself with the SDK's **test kit** (`@harness/sdk/testing`), 
   marked `real` and skipped without `OPENROUTER_API_KEY`.
 - **Kinds.** `kit.kindProps('<kind>', payload)` gives the problems the kind finds in a payload and the fn props it
   derives.
+- **Data.** The fake hub answers `ctx.data` from records in memory, like the hub (filters, sorts, text search, pages,
+  versions, `expect`, person-owned types refused outside runs): `kit.records('<Type>')` reads what runs saved, and
+  `kit.hub.data.save(...)` puts records in first. Another system's stored type goes in `kit.hub.storedTypes`.
+- **Sensitive files and mentions.** `kit.flags('<fn>', args)` gives the flags its `flags` hook answers, as the hub
+  asks before a run. `kit.mentions('<provider>', query)` gives a mention provider's options and the resource searches
+  it made (answer them with `kit.hub.onMentionResources`).
+- **Files and commands.** `scratchFolder({ git: true, files })` makes a temp folder (a git repository with the files
+  committed) to run file and command fns in: change a file, add an untracked or ignored one, and check the change set
+  or the flags a fn reports. `repo.dispose()` removes it.
 - **Context.** `contextFolder(dir, contract)` checks the context folder: every file parses, every link resolves (fenced
   code is skipped), and `fns` maps each context to the fns it brings. Expect `problems` to be empty.
 - **Components.** `preview({ name, module: new URL('./ResultView.vue', import.meta.url), states })` draws a component in
@@ -9289,61 +9968,64 @@ definitions (`onTypes`), resource reads (`onResource`), and setting values (`set
 _From `scripts/docs/example/server/notes.test.ts`:_
 
 ```ts
-const CONFIG = { maxNotes: 2, defaultTags: ['Mine'] };
+const CONFIG = { defaultTags: ['Mine'] };
 
-/** Serve the notes system to a fake hub with an in-memory store, and wait until it is ready. */
-async function start(): Promise<{ hub: FakeHub; running: RunningSystem<'notes'> }> {
-  let next = 0;
-  const impl = createNotesImpl({
-    settings: notesEnv.parse(),
-    open: storesBy(() => new MemoryNoteStore()),
-    now: () => new Date(Date.UTC(2026, 0, 1)),
-    newId: () => `n${++next}`,
-  });
-  const hub = new FakeHub({ config: CONFIG });
-  const running = await serve(notes, impl, { hub: 'ws://hub.test/link', state: 'unused', version: '0.1.0' }, hub.host());
-  await running.ready();
-  return { hub, running };
+let kit: TestSystem<'notes', (typeof notes)['defs']> | undefined;
+afterEach(async () => {
+  await kit?.stop();
+  kit = undefined;
+});
+
+/** Serve the notes system to a fake hub and wait until it is ready. */
+async function start(): Promise<TestSystem<'notes', (typeof notes)['defs']>> {
+  kit = await testHub(notes, createNotesImpl({ settings: notesEnv.parse() }), { config: CONFIG });
+  return kit;
 }
 
 describe('notes over the link', () => {
-  let running: RunningSystem<'notes'> | undefined;
-  afterEach(async () => {
-    await running?.stop();
-    running = undefined;
+  it('declares its stored type and its API groups', async () => {
+    const manifest = await manifestOf(notes, { version: '0.1.0' });
+    expect(manifest.types.find((type) => type.name === 'Note')?.records).toMatchObject({ shape: 'table', owner: 'shared' });
+    expect(manifest.groups?.map((group) => group.name)).toEqual(['notes', 'sharing']);
+    expect(manifest.fns.find((fn) => fn.name === 'review')?.group).toBe('sharing');
   });
 
-  it('sends a manifest with everything the contract declares', async () => {
-    const started = await start();
-    running = started.running;
-    const manifest = started.hub.manifests[0];
-    expect(manifest?.name).toBe('notes');
-    // local names: the hub qualifies them with the system's name
-    expect(manifest?.fns.map((f) => f.name)).toEqual(['add', 'find', 'remove', 'tidy', 'review', 'inbox', 'librarian', 'publish', 'Note.pin']);
-    expect(manifest?.context.map((c) => c.name)).toEqual(['guide', 'recent']);
+  it('adds a note as a hub record with the default tags, and refuses a second with the same title', async () => {
+    const notesKit = await start();
+    const { result, hubCalls } = await notesKit.call('add', { title: 'Plan', text: 'Write the guide.', tags: ['Work'] });
+    expect(result).toMatchObject({ title: 'Plan', tags: ['mine', 'work'] });
+    expect(result.id).toMatch(/^rec_/);
+    expect(hubCalls.attachments).toHaveLength(1);
+    expect(notesKit.records('Note').map((record) => record.title)).toEqual(['Plan']);
+    const again = await notesKit.run('add', { title: 'Plan', text: 'Again.' });
+    expect(again.outcome).toMatchObject({ status: 'failed', error: { class: 'caller', code: 'taken' } });
   });
 
-  it('adds a note with the default tags, and refuses one past the limit', async () => {
-    const started = await start();
-    running = started.running;
-    const added = await started.hub.run('notes/add', { title: 'Plan', text: 'Write the guide.', tags: ['Work'] });
-    expect(added).toMatchObject({ status: 'done', result: { id: 'n1', title: 'Plan', tags: ['mine', 'work'] } });
-    expect(started.hub.attachments).toHaveLength(1);
-    await started.hub.run('notes/add', { title: 'Two', text: '…' });
-    const third = await started.hub.run('notes/add', { title: 'Three', text: '…' });
-    expect(third).toMatchObject({ status: 'failed', error: { class: 'caller', code: 'full' } });
+  it('finds by words and by tag in the hub, and answers nothing to search for as invalid input', async () => {
+    const notesKit = await start();
+    await notesKit.call('add', { title: 'Plan', text: 'Write the guide.', tags: ['work'] });
+    await notesKit.call('add', { title: 'Milk', text: 'Buy oat milk.', tags: ['home'] });
+    expect((await notesKit.call('find', { query: 'oat' })).result.notes.map((note) => note.title)).toEqual(['Milk']);
+    expect((await notesKit.call('find', { tag: 'work' })).result.notes.map((note) => note.title)).toEqual(['Plan']);
+    const outcome = await notesKit.run('find', {});
+    expect(outcome.outcome).toMatchObject({ status: 'invalid-input', invalid: { problems: [{ path: 'query' }] } });
   });
 
-  it('answers a search with nothing to search for as invalid input, not an error', async () => {
-    const started = await start();
-    running = started.running;
-    const outcome = await started.hub.run('notes/find', {});
-    expect(outcome).toMatchObject({ status: 'invalid-input', invalid: { problems: [{ path: 'query' }] } });
+  it('tidies tags a page at a time, saving only the notes that change', async () => {
+    const notesKit = await start();
+    await notesKit.call('add', { title: 'Plan', text: 'x', tags: [] });
+    const id = notesKit.records('Note')[0]?.id;
+    if (id === undefined) { throw new Error('add saved no record'); }
+    // a tag written another way, as another system might have saved it
+    notesKit.hub.data.save({ type: 'notes/Note', id, value: { title: 'Plan', text: 'x', tags: ['Work ', 'work'], pinned: false } });
+    expect((await notesKit.call('tidy', {})).result).toEqual({ merged: 1 });
+    expect(notesKit.records('Note')[0]?.value).toMatchObject({ tags: ['work'] });
   });
 });
 ```
 
-Also unit-test the parts behind each interface (a store, a parser) directly, with temp folders and fixed clocks. Keep
+Also unit-test the parts behind each interface (a parser, a client of an outside service) directly, with temp
+folders and fixed clocks. Keep
 tests that call real services (a model, an API) in `*.live.test.ts` files, marked and minimal; `npm run test:live` runs
 them, `npm test` skips them.
 
@@ -9418,9 +10100,20 @@ class FakeHub {
   /** Content by hash. */
   readonly content: Map<string, Uint8Array<ArrayBufferLike>>;
   /** A resource's outline by URI (`resourceSections`); a URI not here has no sections. */
-  readonly sections: Map<string, { key: SectionKey; path: string[]; title: string; start: number; end: number; embedText?: string | undefined; form?: "description" | "text" | "table" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined; }[]>;
+  readonly sections: Map<string, { key: SectionKey; path: string[]; title: string; start: number; end: number; embedText?: string | undefined; form?: "description" | "table" | "text" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined; }[]>;
   /** The hub's kept fns (`hub/save_fn`, `hub/fn_get`, `searchFns`, `fnExamples`), in memory. */
   readonly fns: FakeHubFns;
+  /**
+  * The data system in memory (`ctx.data`): records of the stored types the system declared, or of another system's
+  * types put in `storedTypes`, answered like the hub does, as `TEST_USER`. Read them back with `data.of(type)`.
+  */
+  readonly data: FakeRecords;
+  /** Other systems' stored types the data system knows, by qualified name. */
+  readonly storedTypes: Map<`${string}/${string}`, StoredTypeDecl>;
+  /** Resource searches a mention provider made (`ctx.resources.search` in `search`), in order. */
+  readonly mentionSearches: MentionResourceSearch[];
+  /** Answers a mention provider's resource search (default: no hits). */
+  onMentionResources: (search: MentionResourceSearch) => Promise<ResourceHit[]>;
   /** Settles a child call. Default: `hub/save_fn` and `hub/fn_get` by `fns`, anything else done with `null`. */
   onCall: (call: FakeHub['calls'][number]) => Promise<RunSettled>;
   /** Answers a run's handler. Default: refused. */
@@ -9477,6 +10170,13 @@ class FakeHub {
   disconnect(body: SystemBody<"disconnect">): Promise<void>;
   /** Ask the connected system what a run would do (`preview`), as the hub does before an approval. */
   preview(body: SystemBody<"preview">): Promise<PreviewAnswer>;
+  /** Ask the connected system which sensitive files a run would touch (`flags`), as the hub does before a run. */
+  flags(body: SystemBody<"flags">): Promise<FlagsAnswer>;
+  /**
+  * Ask the connected system for `@` options (`mentions`) as `TEST_USER`, with a fresh mention request, so its provider
+  * may search resources (`ctx.resources.search`, answered by `onMentionResources` and kept in `mentionSearches`).
+  */
+  mentions(provider: string, query: string): Promise<WireMentionOption[]>;
   /** Ask the connected system what a fn of one of its kinds costs (`estimate`), as the hub does for `FnFacts.cost`. */
   estimate(body: SystemBody<"estimate">): Promise<KindEstimateAnswer>;
   /** Run a fn on the connected system and wait for its outcome. */
@@ -9486,7 +10186,7 @@ class FakeHub {
 }
 ```
 
-Refers to: [`AdminNotice`](#core-adminnotice), [`AutoPairProof`](#core-autopairproof), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`HubModelInfo`](#core-hubmodelinfo), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`KindEstimateAnswer`](#core-kindestimateanswer), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`Section`](#core-section), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
+Refers to: [`AdminNotice`](#core-adminnotice), [`AutoPairProof`](#core-autopairproof), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FlagsAnswer`](#core-flagsanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`HubModelInfo`](#core-hubmodelinfo), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`KindEstimateAnswer`](#core-kindestimateanswer), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`MentionResourceSearch`](#core-mentionresourcesearch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceHit`](#core-resourcehit), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`Section`](#core-section), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
 
 #### `FakeHubOptions`
 
@@ -9883,12 +10583,21 @@ class TestSystem<N extends string, C extends ContractShape> {
   call<K extends FnNameOf<C>>(name: K, args: FnArgsOf<C, K>, extra?: Partial<Omit<RunRequest, "fn" | "args">>): Promise<TestCall<FnResultOf<C, K>>>;
   /** What a kind makes of a payload, as the hub asks it when a fn of the kind is saved. */
   kindProps<K extends KindNameOf<C>>(kind: K, payload: KindPayloadOf<C, K>): Promise<KindProps>;
+  /**
+  * The sensitive files a run of a fn with these args would touch, as the hub asks before running it (`flags`): the fn's
+  * own `flags(args, ctx)`; none for a fn that declares no `flags`.
+  */
+  flags<K extends FnNameOf<C>>(name: K, args: FnArgsOf<C, K>): Promise<SensitivityFlag[]>;
+  /** A mention provider's options for what the person typed after `@`, with any resource searches it made. */
+  mentions(provider: keyof C["mentions"] & string, query: string): Promise<{ readonly options: WireMentionOption[]; readonly searches: FakeHub["mentionSearches"]; }>;
+  /** The records of one of the system's stored types the run left in the fake hub, newest change first. */
+  records(type: keyof C["types"] & string): DataRecord[];
   /** Stop the system. */
   stop(): Promise<void>;
 }
 ```
 
-Refers to: [`RunRequest`](#core-runrequest).
+Refers to: [`DataRecord`](#core-datarecord), [`RunRequest`](#core-runrequest), [`SensitivityFlag`](#core-sensitivityflag).
 
 #### `TestHubOptions`
 
@@ -10465,7 +11174,90 @@ const · `import { kitEnv } from '@harness/sdk/testing'`
 const kitEnv: Env<EnvOutput<{}, { readonly HARNESS_PREVIEWS: z.ZodDefault<z.ZodBoolean>; readonly HARNESS_PREVIEW_DIR: z.ZodDefault<z.ZodString>; readonly HARNESS_PREVIEW_PHONE: z.ZodDefault<z.ZodString>; readonly HARNESS_PREVIEW_DESKTOP: z.ZodDefault<z.ZodString>; readonly HARNESS_PREVIEW_THEME: z.ZodOptional<z.ZodString>; }>>;
 ```
 
-## 26. Common mistakes
+#### `scratchFolder`
+
+function · `import { scratchFolder } from '@harness/sdk/testing'`
+
+A fresh folder under the system's temp folder, with the files given, committed when `git` is set.
+
+```ts
+function scratchFolder(options?: ScratchOptions): Promise<ScratchFolder>;
+```
+
+#### `ScratchFolder`
+
+interface · `import { ScratchFolder } from '@harness/sdk/testing'`
+
+A scratch folder: its path, file helpers, git, and removal.
+
+```ts
+interface ScratchFolder {
+  readonly dir: string;
+  /** Write a file (folders made as needed). */
+  write(path: string, text: string | Uint8Array): void;
+  read(path: string): string;
+  remove(path: string): void;
+  /** Run git in the folder; its output. Throws when git fails. */
+  git(...args: string[]): string;
+  /** Remove the folder. */
+  dispose(): Promise<void>;
+}
+```
+
+#### `ScratchOptions`
+
+interface · `import { ScratchOptions } from '@harness/sdk/testing'`
+
+What `scratchFolder` sets up.
+
+```ts
+interface ScratchOptions {
+  /** Files by path from the folder (`src/a.ts`), with their text. */
+  readonly files?: Readonly<Record<string, string>>;
+  /** Make it a git repository and commit the files. */
+  readonly git?: boolean;
+}
+```
+
+#### `FakeRecords`
+
+class · `import { FakeRecords } from '@harness/sdk/testing'`
+
+Records of stored types in memory, answered like the hub's data endpoints.
+
+```ts
+class FakeRecords {
+  /** Every record, by id, in the order saved. */
+  readonly records: Map<string, { id: string; type: `${string}/${string}`; value: JSONType; title: string; version: number; createdAt: number; updatedAt: number; owner?: string | undefined; updatedBy?: string | undefined; updatedBySystem?: (string & $brand<"SystemName">) | undefined; run?: string | undefined; }>;
+  /** Every version written, oldest first. */
+  readonly versions: RecordVersion[];
+  /** `types` finds a stored type's declaration (the system's manifest); `owner` is the person a run acts for. */
+  constructor(types: (name: QualifiedName) => StoredTypeDecl | undefined, owner: () => ActorId);
+  /** The records of one type, newest change first (what a test reads back). */
+  of(type: QualifiedName): DataRecord[];
+  find(query: RecordQuery): RecordPage;
+  get(body: RecordGet): { record?: DataRecord; };
+  table(body: RecordTableQuery): ResultTable;
+  save(body: RecordSave, time?: number): DataRecord;
+  remove(body: RecordRemove, time?: number): { removed: boolean; };
+}
+```
+
+Refers to: [`ActorId`](#core-actorid), [`DataRecord`](#core-datarecord), [`ListQuery`](#core-listquery), [`QualifiedName`](#core-qualifiedname), [`RecordGet`](#core-recordget), [`RecordPage`](#core-recordpage), [`RecordQuery`](#core-recordquery), [`RecordRemove`](#core-recordremove), [`RecordSave`](#core-recordsave), [`RecordTableQuery`](#core-recordtablequery), [`RecordVersion`](#core-recordversion), [`ResultTable`](#core-resulttable), [`RunId`](#core-runid).
+
+#### `StoredTypeDecl`
+
+type · `import { StoredTypeDecl } from '@harness/sdk/testing'`
+
+A stored type as the fake knows it: its declaration (with `records`).
+
+```ts
+type StoredTypeDecl = TypeDecl & { readonly records: RecordStorage };
+```
+
+Refers to: [`RecordStorage`](#core-recordstorage), [`TypeDecl`](#core-typedecl).
+
+## 28. Common mistakes
 
 ### Mistakes the compiler refuses
 
@@ -10566,6 +11358,11 @@ reason given. If you see one of these errors, the fix is in the reason.
 
   ```ts
   type({ description: 'x', shape: g.obj({ name: g.text() }), display: { label: 'X', title: 'nmae' } });
+  ```
+- **A stored type's search fields must be its own text fields.**
+
+  ```ts
+  type({ description: 'x', shape: g.obj({ name: g.text(), size: g.num() }), display: { label: 'X' }, records: { shape: 'table', owner: 'shared', search: { text: ['size'] } } });
   ```
 - **Attachment data is checked.**
 
@@ -10781,7 +11578,14 @@ reason given. If you see one of these errors, the fix is in the reason.
   `ContentRef`, the row as it was), and record it with `ctx.undoWith` as soon as the first irreversible step is done.
 - **Unstable call keys in pausable fns.** Give `{ key }` to calls in fns that pause, so a resumed run gets results back.
 - **Reading `process.env` in feature code.** Put tunables in the env slice and pass them in.
-- **Keeping state in module variables.** Use session state (`state:`) for values fns share in a chat, `ctx.dataDir` for
+- **Keeping data in the system.** Notes, tasks, contacts, anything kept for people or looked up later, are records of a
+  stored type (`type({ records })`, `ctx.data`), so the hub checks, versions, shares and searches them. A JSON file or
+  a SQLite database in `ctx.dataDir` is invisible to the hub: no search, no Data page, no widgets, no access rules.
+  `ctx.dataDir` is for the system's own keys, caches and working copies.
+- **Loading everything to filter it.** `ctx.data.find` with `filters`, `sort`, `limit` and `search` runs in the hub's
+  database; a loop over every record (or `limit: 200` and a filter in code) doesn't scale and misses pages. Walk many
+  records a page at a time with `cursor`.
+- **Keeping state in module variables.** Use session state (`state:`) for values fns share in a chat, stored types for
   data, and the hub's config for config. A process restarts; a module variable doesn't survive it.
 - **Writing into the system's own folder at runtime.** Use `ctx.dataDir` and `ctx.cacheDir`.
 - **Calling a model provider directly.** Every model call goes through `ctx.llm` (or `harnessAiOf(ctx.llm)`), so the hub
@@ -10794,7 +11598,7 @@ reason given. If you see one of these errors, the fix is in the reason.
 - **Vague descriptions.** The LLM picks fns by their description and fills args from their types and docs: say exactly
   what the fn does and give examples for args that are easy to get wrong.
 
-## 27. Worked examples
+## 29. Worked examples
 
 ### The notes system, whole
 
@@ -10839,7 +11643,7 @@ function pin(id: string, pinned: boolean): void {
         </button>
       </li>
     </ul>
-    <p v-if="view.result" class="total">{{ view.result.notes.length }} of {{ view.result.total }}</p>
+    <p v-if="view.result" class="total">{{ view.result.notes.length }} found{{ view.result.more ? ', more past these' : '' }}</p>
     <p v-if="view.error" class="problem">{{ view.error.message }}</p>
   </article>
 </template>
@@ -10902,7 +11706,7 @@ import type { NoteValue, notes } from '../shared/index.ts';
 const props = defineProps<InputViewOf<typeof notes, 'Note'>>();
 const emit = defineEmits<{ 'update:modelValue': [value: NoteValue] }>();
 
-const current = computed<NoteValue>(() => props.modelValue ?? { id: '', title: '', text: '', tags: [], pinned: false, updatedAt: new Date() });
+const current = computed<NoteValue>(() => props.modelValue ?? { title: '', text: '', tags: [], pinned: false });
 
 function change(patch: Partial<NoteValue>): void {
   emit('update:modelValue', { ...current.value, ...patch });
@@ -11093,7 +11897,9 @@ export const notesEnv = env({
   /** The most notes `find` returns when no limit is given. */
   NOTES_FIND_LIMIT: z.number().int().min(1).default(10),
   /** The most pinned titles the `pinned` hook adds to a message. */
-  NOTES_HOOK_TITLES: z.number().int().min(0).default(5),
+  NOTES_HOOK_TITLES: z.number().int().min(1).default(5),
+  /** How many notes `tidy` reads per page. */
+  NOTES_TIDY_PAGE: z.number().int().min(1).max(200).default(50),
 }).add(systemState('notes'));
 // #endregion env
 
@@ -11105,114 +11911,100 @@ export type NotesSettings = ReturnType<typeof notesEnv.parse>;
 
 ```ts
 /**
- * The notes system's implementation: every fn, method, kind, dynamic context, hook, mention, action and resource the
- * contract declares, built from injected dependencies (`NotesDeps`) so tests run it with an in-memory store and a fixed
- * clock. Its type is computed from the contract: leaving anything out, or adding anything undeclared, doesn't compile.
+ * The notes system's implementation: every fn, method, kind, dynamic context, hook, mention and action the contract
+ * declares. Notes are records of the stored type `Note`, kept and searched by the hub through `ctx.data`: the system
+ * keeps no file of notes and never loads them all; every read is a query with a page, and search runs in the hub's
+ * database. Its type is computed from the contract: leaving anything out, or adding anything undeclared, doesn't
+ * compile.
  */
-import type { ResourceStat, ResourceUri, UndoOutcome } from '@harness/core';
-import { encodeValue, parseValue, wireType, type HookContribution, type ResourceProvider, type SystemImpl } from '@harness/sdk';
-import { Note, StampArgs, notes, type BeforeValue, type NoteValue } from '../shared/index.ts';
+import { RecordId, type UndoOutcome } from '@harness/core';
+import { encodeValue, parseValue, wireType, type Data, type HookContribution, type StoredRecord, type SystemImpl } from '@harness/sdk';
+import { NoteEntry, StampArgs, notes, type BeforeValue, type NoteEntryValue, type NoteValue } from '../shared/index.ts';
 import type { NotesSettings } from './env.ts';
-import type { NoteStore, NotesConfig, OpenStore } from './index.ts';
+import type { NotesConfig } from './index.ts';
 
 // #region deps
 /** Everything the implementation is built from. */
 export interface NotesDeps {
   readonly settings: NotesSettings;
-  /** Opens an instance's store from its data folder. */
-  readonly open: OpenStore;
-  readonly now: () => Date;
-  /** A new note id. */
-  readonly newId: () => string;
 }
 // #endregion deps
+
+/** The stored type's ref, which every `ctx.data` call takes. */
+const Note = notes.types.Note;
 
 /** Tags as stored: trimmed, lowercase, each once. */
 export function cleanTags(tags: readonly string[]): string[] {
   return [...new Set(tags.map((tag) => tag.trim().toLowerCase()).filter((tag) => tag !== ''))];
 }
 
-/** Whether a note matches words (all of them, in its title or text) and a tag. */
-function matches(note: NoteValue, query: string | undefined, tag: string | undefined): boolean {
-  const haystack = `${note.title}\n${note.text}`.toLowerCase();
-  const words = (query ?? '').toLowerCase().split(/\s+/).filter((word) => word !== '');
-  return words.every((word) => haystack.includes(word)) && (tag === undefined || note.tags.includes(tag.toLowerCase()));
+/** A stored note as fns return it: the record's id and time with the note. */
+export function entryOf(record: StoredRecord<NoteValue>): NoteEntryValue {
+  return { id: record.id, ...record.value, updatedAt: new Date(record.updatedAt) };
 }
 
-/** A note as markdown, for resources and context. */
+/** A note as markdown, for context and mentions. */
 function markdownOf(note: NoteValue): string {
   return `# ${note.title}\n\n${note.text}\n\n${note.tags.map((tag) => `#${tag}`).join(' ')}`.trimEnd();
 }
 
-const ROOT: ResourceUri = 'notes://all/';
-const uriOf = (id: string): ResourceUri => `notes://all/${encodeURIComponent(id)}`;
-const idOf = (uri: ResourceUri): string | undefined => (uri.startsWith(ROOT) && uri.length > ROOT.length ? decodeURIComponent(uri.slice(ROOT.length)) : undefined);
-const statOf = (note: NoteValue): ResourceStat => ({
-  uri: uriOf(note.id), name: note.title, type: 'record', format: 'markdown', mime: 'text/markdown', modifiedAt: note.updatedAt.getTime(), version: String(note.updatedAt.getTime()),
-});
+/** A record id from a fn's text arg; `undefined` when it can't be one (the caller's mistake). */
+function recordId(text: string): RecordId | undefined {
+  const parsed = RecordId.safeParse(text);
+  return parsed.success ? parsed.data : undefined;
+}
+
+/** One note by its id, or `undefined` when there is none (or it isn't the asker's). */
+async function noteById(data: Data, id: string): Promise<StoredRecord<NoteValue> | undefined> {
+  const record = recordId(id);
+  return record === undefined ? undefined : await data.get(Note, record);
+}
+
+/** The filter for notes with a tag: the hub runs it in its database. */
+const tagFilter = (tag: string | undefined) => (tag === undefined ? [] : [{ field: 'tags', op: 'contains' as const, value: tag.toLowerCase() }]);
 
 /** Build the notes implementation. */
 export function createNotesImpl(deps: NotesDeps): SystemImpl<(typeof notes)['defs']> {
   const s = deps.settings;
-  // the store of the instance that started last, for the resource provider (which gets no context)
-  let current: NoteStore | undefined;
 
   // #region undo-helper
-  /** Put a note back as it was before a change: delete it if it didn't exist, else restore it. */
-  async function restore(store: NoteStore, before: BeforeValue): Promise<UndoOutcome> {
+  /** Put a note back as it was before a change: remove it if it didn't exist, else save it as it was. */
+  async function restore(data: Data, before: BeforeValue): Promise<UndoOutcome> {
+    const id = recordId(before.id);
     if (before.note === null) {
-      return (await store.delete(before.id)) ? { status: 'undone', summary: `Removed note ${before.id} again.` } : { status: 'gone' };
+      return id !== undefined && (await data.remove(Note, id)) ? { status: 'undone', summary: `Removed note ${before.id} again.` } : { status: 'gone' };
     }
-    await store.put(before.note);
+    // a note still there is saved over; a removed one comes back as a new record
+    const exists = id === undefined ? undefined : await data.get(Note, id);
+    await data.save(Note, before.note, exists === undefined ? {} : { id: exists.id });
     return { status: 'undone', summary: `Restored "${before.note.title}".` };
   }
   // #endregion undo-helper
 
-  /** A new note, or undefined when the store is full. */
-  async function create(store: NoteStore, config: NotesConfig, input: { title: string; text: string; tags: readonly string[] }): Promise<NoteValue | undefined> {
-    if ((await store.all()).length >= config.maxNotes) { return undefined; }
-    const note: NoteValue = { id: deps.newId(), title: input.title.trim(), text: input.text, tags: cleanTags([...config.defaultTags, ...input.tags]), pinned: false, updatedAt: deps.now() };
-    await store.put(note);
-    return note;
+  /** Save a new note with the config's default tags; `undefined` when one with that title exists already. */
+  async function create(data: Data, config: NotesConfig, input: { title: string; text: string; tags: readonly string[] }): Promise<NoteEntryValue | undefined> {
+    const title = input.title.trim();
+    // one query with a filter and a limit of one: never a load of every note to look
+    const same = await data.find(Note, { query: { filters: [{ field: 'title', op: 'is', value: title }], limit: 1 } });
+    if (same.items.length > 0) { return undefined; }
+    return entryOf(await data.save(Note, { title, text: input.text, tags: cleanTags([...config.defaultTags, ...input.tags]), pinned: false }));
   }
 
-  const full = (config: NotesConfig) => `There are already ${config.maxNotes} notes, the most this system keeps. Remove one first.`;
-
-  // #region impl-resources
-  const resources: ResourceProvider = {
-    roots: () => Promise.resolve([{ uri: ROOT, name: 'Notes', description: 'Every note, as markdown.', index: 'all', ignore: [], watch: false }]),
-    async list(uri) {
-      if (uri !== ROOT || current === undefined) { return { items: [] }; }
-      return { items: (await current.all()).map(statOf) };
-    },
-    async stat(uri) {
-      const id = idOf(uri);
-      const note = id === undefined ? undefined : await current?.get(id);
-      return note === undefined ? undefined : statOf(note);
-    },
-    async read(uri) {
-      const id = idOf(uri);
-      const note = id === undefined ? undefined : await current?.get(id);
-      if (note === undefined) { throw new Error(`There is no note at ${uri}.`); }
-      return { stat: statOf(note), text: { inline: markdownOf(note) } };
-    },
-  };
-  // #endregion impl-resources
+  const taken = (title: string) => `There is already a note titled "${title}". Pick another title, or change that note.`;
 
   return {
     fns: {
       // #region impl-add
       add: {
         async run(args, ctx) {
-          const store = deps.open(ctx.dataDir);
-          const note = await create(store, ctx.config, { title: args.title, text: args.text, tags: args.tags ?? [] });
+          const note = await create(ctx.data, ctx.config, { title: args.title, text: args.text, tags: args.tags ?? [] });
           // a real refusal, not a mistake in the args: `fail` with the `caller` class and a stable code
-          if (note === undefined) { return ctx.fail('caller', full(ctx.config), { code: 'full' }); }
+          if (note === undefined) { return ctx.fail('caller', taken(args.title), { code: 'taken' }); }
           ctx.attach(notes.attachments.note, note, `Added ${note.title}`);
           // the undo payload is typed by the contract's `undo` type
           return ctx.done(note, { undo: { id: note.id, note: null } });
         },
-        undo: (payload, ctx) => restore(deps.open(ctx.dataDir), payload),
+        undo: (payload, ctx) => restore(ctx.data, payload),
       },
       // #endregion impl-add
       // #region impl-find
@@ -11224,72 +12016,75 @@ export function createNotesImpl(deps: NotesDeps): SystemImpl<(typeof notes)['def
             // the caller's mistake: an agent gets the problem back and tries again
             return ctx.invalid([{ path: 'query', message: 'Give a query or a tag; there is no earlier search to repeat.' }]);
           }
-          const all = await deps.open(ctx.dataDir).all();
-          const found: NoteValue[] = [];
-          // about twenty updates whatever the size: each one travels to the hub and on to the chat
-          const every = Math.max(1, Math.floor(all.length / 20));
-          all.forEach((note, index) => {
-            if (matches(note, query, args.tag)) { found.push(note); }
-            if ((index + 1) % every === 0) { ctx.progress.set((index + 1) / all.length, `${found.length} found`); }
+          ctx.progress.set(0.1, 'Searching');
+          // the hub searches by words and meaning and filters by tag in its database; one page comes back
+          const limit = args.limit ?? s.NOTES_FIND_LIMIT;
+          const page = await ctx.data.find(Note, {
+            ...(query === undefined ? {} : { search: query }),
+            query: { filters: tagFilter(args.tag), limit },
           });
           if (query !== undefined) { await ctx.state.set({ lastQuery: query }); }
-          return ctx.done({ notes: found.slice(0, args.limit ?? s.NOTES_FIND_LIMIT), total: found.length });
+          return ctx.done({ notes: page.items.map(entryOf), more: page.cursor !== undefined });
         },
       },
       // #endregion impl-find
       // #region impl-remove
       remove: {
         async run(args, ctx) {
-          const store = deps.open(ctx.dataDir);
-          const note = await store.get(args.id);
+          const note = await noteById(ctx.data, args.id);
           if (note === undefined) { return ctx.invalid([{ path: 'id', message: `There is no note ${args.id}.` }]); }
           // the effective setting for the run's person, merged with their groups'
           const editing = await ctx.setting(notes.settings.editing);
           if (editing?.confirmRemove === true) {
             // `confirm` is optional, so the compiler makes the fn check it is there
             if (ctx.handlers.confirm === undefined) { return ctx.fail('caller', 'Removing a note asks first, and this caller cannot answer.', { code: 'denied' }); }
-            if (!(await ctx.handlers.confirm({ title: note.title }))) { return ctx.cancelled(); }
+            if (!(await ctx.handlers.confirm({ title: note.value.title }))) { return ctx.cancelled(); }
           }
-          await store.delete(note.id);
-          return ctx.done({ removed: true }, { undo: { id: note.id, note } });
+          await ctx.data.remove(Note, note.id);
+          return ctx.done({ removed: true }, { undo: { id: note.id, note: note.value } });
         },
-        undo: (payload, ctx) => restore(deps.open(ctx.dataDir), payload),
+        undo: (payload, ctx) => restore(ctx.data, payload),
       },
       // #endregion impl-remove
       // #region impl-tidy
       tidy: {
         async run(_args, ctx) {
-          const store = deps.open(ctx.dataDir);
-          // a resumed run starts where it paused
+          // a resumed run starts at the page it paused on
           let saved = ctx.resume?.state.saved ?? 0;
+          let cursor = ctx.resume?.state.cursor;
           // asked to pause: say where to resume from; the run settles as paused and `ctx.signal` aborts
-          ctx.onPause(() => ({ saved }));
+          ctx.onPause(() => ({ saved, ...(cursor === undefined ? {} : { cursor }) }));
           ctx.progress.step('scan', 'active');
-          const all = await store.all();
-          ctx.progress.step('scan', 'done', `${all.length} notes`);
-          ctx.progress.step('merge', 'active');
-          const changed = all.flatMap((note) => {
-            const tags = cleanTags(note.tags);
-            return tags.join('\n') === note.tags.join('\n') ? [] : [{ ...note, tags, updatedAt: deps.now() }];
-          });
-          ctx.progress.step('merge', 'done', `${changed.length} to change`);
-          ctx.progress.step('save', 'active');
-          for (const note of changed.slice(saved)) {
-            if (ctx.signal.aborted) { return ctx.cancelled({ partial: { merged: saved } }); }
-            await store.put(note);
-            saved += 1;
-          }
-          ctx.progress.step('save', 'done');
-          return ctx.done({ merged: changed.length });
+          let merged = 0;
+          // a page at a time, in a stable order: every note is seen once and never all held at once
+          do {
+            const page = await ctx.data.find(Note, { query: { sort: [{ field: 'title', dir: 'asc' }], limit: s.NOTES_TIDY_PAGE, ...(cursor === undefined ? {} : { cursor }) } });
+            ctx.progress.step('merge', 'active');
+            for (const note of page.items) {
+              if (ctx.signal.aborted) { return ctx.cancelled({ partial: { merged } }); }
+              const tags = cleanTags(note.value.tags);
+              if (tags.join('\n') === note.value.tags.join('\n')) { continue; }
+              ctx.progress.step('save', 'active');
+              // `expect`: if someone changed the note meanwhile, the save fails instead of losing their change
+              await ctx.data.save(Note, { ...note.value, tags }, { id: note.id, expect: note.version });
+              merged += 1;
+              saved += 1;
+            }
+            cursor = page.cursor;
+          } while (cursor !== undefined);
+          ctx.progress.step('scan', 'done');
+          ctx.progress.step('merge', 'done', `${merged} changed`);
+          ctx.progress.step('save', 'done', `${saved} saved`);
+          return ctx.done({ merged });
         },
       },
       // #endregion impl-tidy
       // #region impl-review
       review: {
         async run(args, ctx) {
-          const note = await deps.open(ctx.dataDir).get(args.id);
+          const note = await noteById(ctx.data, args.id);
           if (note === undefined) { return ctx.invalid([{ path: 'id', message: `There is no note ${args.id}.` }]); }
-          ctx.attach(notes.attachments.note, note, note.title);
+          ctx.attach(notes.attachments.note, entryOf(note), note.value.title);
           // waits for the renderer's submit; the hub keeps it if the system is offline meanwhile
           return ctx.done(await ctx.form());
         },
@@ -11311,13 +12106,12 @@ export function createNotesImpl(deps: NotesDeps): SystemImpl<(typeof notes)['def
     },
     // #region impl-method
     types: {
-      Note: {
+      NoteEntry: {
         pin: {
           async run(self, args, ctx) {
-            const store = deps.open(ctx.dataDir);
-            const note = await store.get(self.id);
+            const note = await noteById(ctx.data, self.id);
             if (note === undefined) { return ctx.invalid([{ path: 'self', message: `Note ${self.id} no longer exists.` }]); }
-            await store.put({ ...note, pinned: args.pinned, updatedAt: deps.now() });
+            await ctx.data.save(Note, { ...note.value, pinned: args.pinned }, { id: note.id });
             return ctx.done(args.pinned);
           },
         },
@@ -11332,36 +12126,39 @@ export function createNotesImpl(deps: NotesDeps): SystemImpl<(typeof notes)['def
         // everything else about a stamp fn, worked out from its payload
         describe: () => Promise.resolve({
           args: wireType(StampArgs),
-          returns: wireType(Note.shape),
+          returns: wireType(NoteEntry.shape),
           deps: [],
           operations: { cancel: true, pause: false, undo: false, background: true },
         }),
         async run(payload, args, ctx) {
           // a kind's args arrive as JSON the hub checked against `describe`; read them with the same gin type
           const input = parseValue(StampArgs, args);
-          const note = await create(deps.open(ctx.dataDir), ctx.config, { title: payload.title, text: input.text, tags: payload.tags });
-          if (note === undefined) { return ctx.fail('caller', full(ctx.config), { code: 'full' }); }
-          return ctx.done(encodeValue(Note.shape, note));
+          // titles are unique, so a stamp's note is titled by the stamp and the start of its text
+          const title = `${payload.title}: ${input.text.slice(0, 40)}`;
+          const note = await create(ctx.data, ctx.config, { title, text: input.text, tags: payload.tags });
+          if (note === undefined) { return ctx.fail('caller', taken(title), { code: 'taken' }); }
+          return ctx.done(encodeValue(NoteEntry.shape, note));
         },
       },
     },
     // #endregion impl-kind
     // #region impl-context
     context: {
+      // the newest few, by query (newest change first), never all of them
       recent: async (args, ctx) => {
-        const all = await deps.open(ctx.dataDir).all();
-        const shown = all.filter((note) => args.tag === undefined || note.tags.includes(args.tag.toLowerCase())).slice(0, s.NOTES_FIND_LIMIT);
-        if (shown.length === 0) { return args.tag === undefined ? 'There are no notes yet.' : `No note has the tag "${args.tag}".`; }
-        return shown.map(markdownOf).join('\n\n---\n\n');
+        const page = await ctx.data.find(Note, { query: { filters: tagFilter(args.tag), limit: s.NOTES_FIND_LIMIT } });
+        if (page.items.length === 0) { return args.tag === undefined ? 'There are no notes yet.' : `No note has the tag "${args.tag}".`; }
+        return page.items.map((note) => markdownOf(note.value)).join('\n\n---\n\n');
       },
     },
     // #endregion impl-context
     // #region impl-hook
     hooks: {
       pinned: async (input, ctx) => {
-        const pinned = (await deps.open(ctx.dataDir).all()).filter((note) => note.pinned).slice(0, s.NOTES_HOOK_TITLES);
+        // the pinned ones only, filtered by the hub, a few at most
+        const pinned = await ctx.data.find(Note, { query: { filters: [{ field: 'pinned', op: 'is', value: true }], limit: s.NOTES_HOOK_TITLES } });
         const blocks: HookContribution[] = [];
-        if (pinned.length > 0) { blocks.push({ type: 'text', tag: 'pinned-notes', text: `Pinned notes: ${pinned.map((note) => `"${note.title}"`).join(', ')}.` }); }
+        if (pinned.items.length > 0) { blocks.push({ type: 'text', tag: 'pinned-notes', text: `Pinned notes: ${pinned.items.map((note) => `"${note.value.title}"`).join(', ')}.` }); }
         if (/\bnotes?\b/i.test(input.text)) { blocks.push({ type: 'suggest-context', items: [{ context: notes.context.guide, why: 'The message is about notes.' }] }); }
         return blocks;
       },
@@ -11371,21 +12168,20 @@ export function createNotesImpl(deps: NotesDeps): SystemImpl<(typeof notes)['def
     mentions: {
       notes: {
         async search(query, ctx) {
-          return (await deps.open(ctx.dataDir).all())
-            .filter((note) => matches(note, query, undefined))
-            .slice(0, 20)
-            .map((note) => ({ label: note.title, hint: note.tags.join(', '), icon: 'note', target: { id: note.id } }));
+          // the hub's search: by words and meaning, best first, one small page
+          const page = await ctx.data.find(Note, { search: query, query: { limit: 20 } });
+          return page.items.map((note) => ({ label: note.value.title, hint: note.value.tags.join(', '), icon: 'note', target: { id: note.id } }));
         },
         async hover(target, ctx) {
-          const note = await deps.open(ctx.dataDir).get(target.id);
+          const note = await noteById(ctx.data, target.id);
           if (note === undefined) { return undefined; }
-          // returning the value as a Note lets the card offer Note's `pin` method
-          return { title: note.title, subtitle: note.tags.join(', '), body: note.text.slice(0, 280), open: { resource: uriOf(note.id) }, value: note };
+          // returning the value as a NoteEntry lets the card offer its `pin` method
+          return { title: note.value.title, subtitle: note.value.tags.join(', '), body: note.value.text.slice(0, 280), value: entryOf(note) };
         },
         async llm(target, ctx) {
-          const note = await deps.open(ctx.dataDir).get(target.id);
+          const note = await noteById(ctx.data, target.id);
           if (note === undefined) { return `Note ${target.id} no longer exists.`; }
-          return `Note "${note.title}" (id ${note.id}) in the notes system:\n\n${markdownOf(note)}`;
+          return `Note "${note.value.title}" (id ${note.id}) in the notes system:\n\n${markdownOf(note.value)}`;
         },
       },
     },
@@ -11393,23 +12189,21 @@ export function createNotesImpl(deps: NotesDeps): SystemImpl<(typeof notes)['def
     // #region impl-action
     actions: {
       pin: async (input, ctx) => {
-        const store = deps.open(ctx.dataDir);
-        const note = await store.get(input.id);
+        const note = await noteById(ctx.data, input.id);
         if (note === undefined) { return false; }
-        await store.put({ ...note, pinned: input.pinned, updatedAt: deps.now() });
+        await ctx.data.save(Note, { ...note.value, pinned: input.pinned }, { id: note.id });
         return true;
       },
     },
     // #endregion impl-action
-    resources,
     // #region impl-lifecycle
     lifecycle: {
-      started: async (ctx) => {
-        current = deps.open(ctx.dataDir);
-        ctx.log.info('notes.started', { notes: (await current.all()).length, instance: ctx.instance });
+      started: (ctx) => {
+        ctx.log.info('notes.started', { instance: ctx.instance });
+        return Promise.resolve();
       },
       configured: (ctx) => {
-        ctx.log.info('notes.configured', { maxNotes: ctx.config.maxNotes, before: ctx.previous?.maxNotes ?? null });
+        ctx.log.info('notes.configured', { defaultTags: ctx.config.defaultTags.length, before: ctx.previous?.defaultTags.length ?? null });
         return Promise.resolve();
       },
     },
@@ -11422,44 +12216,27 @@ export function createNotesImpl(deps: NotesDeps): SystemImpl<(typeof notes)['def
 
 ```ts
 /**
- * The notes system's server: the implementation (`impl.ts`), its stores (`store.ts`) and the process (`main.ts`). The
- * one outside thing it talks to, where notes are kept, is an interface here, so tests use an in-memory store.
+ * The notes system's server: the implementation (`impl.ts`) and the process (`main.ts`). Its notes are records the hub
+ * keeps (`ctx.data`), so it has no store of its own: its data folder holds nothing shared, and tests run it against
+ * the fake hub's data system.
  */
 import type { ConfigOf } from '@harness/sdk';
-import type { NoteValue, notes } from '../shared/index.ts';
+import type { notes } from '../shared/index.ts';
 
 /** The notes system's config, as every context receives it (`ctx.config`). */
 export type NotesConfig = ConfigOf<(typeof notes)['defs']>;
 
-// #region store
-/** Where one instance keeps its notes. */
-export interface NoteStore {
-  /** Every note, newest first. */
-  all(): Promise<NoteValue[]>;
-  get(id: string): Promise<NoteValue | undefined>;
-  /** Add the note, or replace the one with its id. */
-  put(note: NoteValue): Promise<void>;
-  /** Whether there was a note to delete. */
-  delete(id: string): Promise<boolean>;
-}
-
-/** Opens the store kept in an instance's data folder (`ctx.dataDir`). */
-export type OpenStore = (dataDir: string) => NoteStore;
-// #endregion store
-
 export { notes } from '../shared/index.ts';
-export { createNotesImpl, type NotesDeps } from './impl.ts';
-export { JsonNoteStore, MemoryNoteStore, storesBy } from './store.ts';
+export { cleanTags, createNotesImpl, entryOf, type NotesDeps } from './impl.ts';
 ```
 
 #### `scripts/docs/example/server/main.ts`
 
 ```ts
 /**
- * The notes system's process: reads its settings, builds the implementation with notes kept as JSON in each instance's
- * data folder, builds its renderers, and serves both to the hub (pairing the first time).
+ * The notes system's process: reads its settings, builds the implementation (its notes are hub records), builds its
+ * renderers, and serves both to the hub (pairing the first time).
  */
-import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildClient } from '@harness/sdk/build';
@@ -11467,18 +12244,12 @@ import { loggedHost, serve } from '@harness/sdk/server';
 import { notes } from '../shared/index.ts';
 import { notesEnv } from './env.ts';
 import { createNotesImpl } from './impl.ts';
-import { JsonNoteStore, storesBy } from './store.ts';
 
 // #region main
 const settings = notesEnv.parse();
 const { host, log } = loggedHost(notes.name);
 
-const impl = createNotesImpl({
-  settings,
-  open: storesBy((dataDir) => new JsonNoteStore(dataDir)),
-  now: () => new Date(),
-  newId: () => randomUUID(),
-});
+const impl = createNotesImpl({ settings });
 
 // the renderers, built into the state folder and uploaded to the hub on connect
 const clientFolder = join(settings.HARNESS_SYSTEM_STATE, 'client');
@@ -11504,211 +12275,118 @@ process.on('SIGTERM', stop);
 
 ```ts
 /**
- * The notes system end to end over the SDK's real link runtime: `serve` connects to an in-memory hub (`FakeHub`), which
- * runs fns the way the real hub does and records what the system sent. The store is in memory and the clock fixed.
+ * The notes system end to end over the SDK's real link runtime: `testHub` serves it to an in-memory hub (`FakeHub`),
+ * which runs fns the way the real hub does, answers `ctx.data` from its in-memory data system and records what the
+ * system sent.
  */
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { serve, type RunningSystem } from '@harness/sdk/server';
-import { FakeHub } from '@harness/sdk/server/testing';
+import { manifestOf } from '@harness/sdk';
+import { testHub, type TestSystem } from '@harness/sdk/testing';
 import { afterEach, describe, expect, it } from 'vitest';
-import { notes, type NoteValue } from '../shared/index.ts';
+import { notes } from '../shared/index.ts';
 import { notesEnv } from './env.ts';
 import { cleanTags, createNotesImpl } from './impl.ts';
-import { JsonNoteStore, MemoryNoteStore, storesBy } from './store.ts';
 
 // #region test
-const CONFIG = { maxNotes: 2, defaultTags: ['Mine'] };
+const CONFIG = { defaultTags: ['Mine'] };
 
-/** Serve the notes system to a fake hub with an in-memory store, and wait until it is ready. */
-async function start(): Promise<{ hub: FakeHub; running: RunningSystem<'notes'> }> {
-  let next = 0;
-  const impl = createNotesImpl({
-    settings: notesEnv.parse(),
-    open: storesBy(() => new MemoryNoteStore()),
-    now: () => new Date(Date.UTC(2026, 0, 1)),
-    newId: () => `n${++next}`,
-  });
-  const hub = new FakeHub({ config: CONFIG });
-  const running = await serve(notes, impl, { hub: 'ws://hub.test/link', state: 'unused', version: '0.1.0' }, hub.host());
-  await running.ready();
-  return { hub, running };
+let kit: TestSystem<'notes', (typeof notes)['defs']> | undefined;
+afterEach(async () => {
+  await kit?.stop();
+  kit = undefined;
+});
+
+/** Serve the notes system to a fake hub and wait until it is ready. */
+async function start(): Promise<TestSystem<'notes', (typeof notes)['defs']>> {
+  kit = await testHub(notes, createNotesImpl({ settings: notesEnv.parse() }), { config: CONFIG });
+  return kit;
 }
 
 describe('notes over the link', () => {
-  let running: RunningSystem<'notes'> | undefined;
-  afterEach(async () => {
-    await running?.stop();
-    running = undefined;
+  it('declares its stored type and its API groups', async () => {
+    const manifest = await manifestOf(notes, { version: '0.1.0' });
+    expect(manifest.types.find((type) => type.name === 'Note')?.records).toMatchObject({ shape: 'table', owner: 'shared' });
+    expect(manifest.groups?.map((group) => group.name)).toEqual(['notes', 'sharing']);
+    expect(manifest.fns.find((fn) => fn.name === 'review')?.group).toBe('sharing');
   });
 
-  it('sends a manifest with everything the contract declares', async () => {
-    const started = await start();
-    running = started.running;
-    const manifest = started.hub.manifests[0];
-    expect(manifest?.name).toBe('notes');
-    // local names: the hub qualifies them with the system's name
-    expect(manifest?.fns.map((f) => f.name)).toEqual(['add', 'find', 'remove', 'tidy', 'review', 'inbox', 'librarian', 'publish', 'Note.pin']);
-    expect(manifest?.context.map((c) => c.name)).toEqual(['guide', 'recent']);
+  it('adds a note as a hub record with the default tags, and refuses a second with the same title', async () => {
+    const notesKit = await start();
+    const { result, hubCalls } = await notesKit.call('add', { title: 'Plan', text: 'Write the guide.', tags: ['Work'] });
+    expect(result).toMatchObject({ title: 'Plan', tags: ['mine', 'work'] });
+    expect(result.id).toMatch(/^rec_/);
+    expect(hubCalls.attachments).toHaveLength(1);
+    expect(notesKit.records('Note').map((record) => record.title)).toEqual(['Plan']);
+    const again = await notesKit.run('add', { title: 'Plan', text: 'Again.' });
+    expect(again.outcome).toMatchObject({ status: 'failed', error: { class: 'caller', code: 'taken' } });
   });
 
-  it('adds a note with the default tags, and refuses one past the limit', async () => {
-    const started = await start();
-    running = started.running;
-    const added = await started.hub.run('notes/add', { title: 'Plan', text: 'Write the guide.', tags: ['Work'] });
-    expect(added).toMatchObject({ status: 'done', result: { id: 'n1', title: 'Plan', tags: ['mine', 'work'] } });
-    expect(started.hub.attachments).toHaveLength(1);
-    await started.hub.run('notes/add', { title: 'Two', text: '…' });
-    const third = await started.hub.run('notes/add', { title: 'Three', text: '…' });
-    expect(third).toMatchObject({ status: 'failed', error: { class: 'caller', code: 'full' } });
+  it('finds by words and by tag in the hub, and answers nothing to search for as invalid input', async () => {
+    const notesKit = await start();
+    await notesKit.call('add', { title: 'Plan', text: 'Write the guide.', tags: ['work'] });
+    await notesKit.call('add', { title: 'Milk', text: 'Buy oat milk.', tags: ['home'] });
+    expect((await notesKit.call('find', { query: 'oat' })).result.notes.map((note) => note.title)).toEqual(['Milk']);
+    expect((await notesKit.call('find', { tag: 'work' })).result.notes.map((note) => note.title)).toEqual(['Plan']);
+    const outcome = await notesKit.run('find', {});
+    expect(outcome.outcome).toMatchObject({ status: 'invalid-input', invalid: { problems: [{ path: 'query' }] } });
   });
 
-  it('answers a search with nothing to search for as invalid input, not an error', async () => {
-    const started = await start();
-    running = started.running;
-    const outcome = await started.hub.run('notes/find', {});
-    expect(outcome).toMatchObject({ status: 'invalid-input', invalid: { problems: [{ path: 'query' }] } });
+  it('tidies tags a page at a time, saving only the notes that change', async () => {
+    const notesKit = await start();
+    await notesKit.call('add', { title: 'Plan', text: 'x', tags: [] });
+    const id = notesKit.records('Note')[0]?.id;
+    if (id === undefined) { throw new Error('add saved no record'); }
+    // a tag written another way, as another system might have saved it
+    notesKit.hub.data.save({ type: 'notes/Note', id, value: { title: 'Plan', text: 'x', tags: ['Work ', 'work'], pinned: false } });
+    expect((await notesKit.call('tidy', {})).result).toEqual({ merged: 1 });
+    expect(notesKit.records('Note')[0]?.value).toMatchObject({ tags: ['work'] });
   });
 });
 // #endregion test
 
-describe('note stores', () => {
-  it('cleans tags: trimmed, lowercase, each once', () => {
+describe('tags', () => {
+  it('are cleaned: trimmed, lowercase, each once', () => {
     expect(cleanTags([' Work', 'work', '', 'Ideas '])).toEqual(['work', 'ideas']);
   });
-
-  it('keeps notes as JSON in the data folder, read back with the contract\'s type', async () => {
-    const folder = await mkdtemp(join(tmpdir(), 'notes-'));
-    try {
-      const note: NoteValue = { id: 'a', title: 'A', text: 'x', tags: [], pinned: false, updatedAt: new Date(Date.UTC(2026, 0, 2)) };
-      const store = new JsonNoteStore(folder);
-      expect(await store.all()).toEqual([]);
-      await store.put(note);
-      const again = new JsonNoteStore(folder);
-      expect(await again.get('a')).toEqual(note);
-      expect(await again.delete('a')).toBe(true);
-      expect(await again.delete('a')).toBe(false);
-    } finally {
-      await rm(folder, { recursive: true, force: true });
-    }
-  });
-
-  it('opens one store per data folder', () => {
-    const open = storesBy(() => new MemoryNoteStore());
-    expect(open('x')).toBe(open('x'));
-    expect(open('x')).not.toBe(open('y'));
-  });
 });
-```
-
-#### `scripts/docs/example/server/store.ts`
-
-```ts
-/**
- * Note stores: a JSON file in the instance's data folder for the real process, and memory for tests. Notes are written
- * with the contract's own gin type (`encodeValue`) and read back with it (`parseValue`), so a file that doesn't fit
- * the type is refused instead of read wrongly.
- */
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { encodeValue, g, parseValue } from '@harness/sdk';
-import { Note, type NoteValue } from '../shared/index.ts';
-import type { NoteStore, OpenStore } from './index.ts';
-
-const NoteList = g.list(Note.shape);
-
-/** Newest first. */
-function newestFirst(list: readonly NoteValue[]): NoteValue[] {
-  return [...list].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
-}
-
-/** Notes in memory. */
-export class MemoryNoteStore implements NoteStore {
-  readonly #notes = new Map<string, NoteValue>();
-
-  all(): Promise<NoteValue[]> { return Promise.resolve(newestFirst([...this.#notes.values()])); }
-  get(id: string): Promise<NoteValue | undefined> { return Promise.resolve(this.#notes.get(id)); }
-  put(note: NoteValue): Promise<void> { this.#notes.set(note.id, note); return Promise.resolve(); }
-  delete(id: string): Promise<boolean> { return Promise.resolve(this.#notes.delete(id)); }
-}
-
-/** Notes in `notes.json` in a folder, written whole through a temp file so a crash never leaves half a file. */
-export class JsonNoteStore implements NoteStore {
-  readonly #file: string;
-  readonly #folder: string;
-
-  constructor(folder: string) {
-    this.#folder = folder;
-    this.#file = join(folder, 'notes.json');
-  }
-
-  async all(): Promise<NoteValue[]> {
-    let text: string;
-    try {
-      text = await readFile(this.#file, 'utf8');
-    } catch (error) {
-      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') { return []; }
-      throw error;
-    }
-    const parsed: unknown = JSON.parse(text);
-    return newestFirst(parseValue(NoteList, parsed));
-  }
-
-  async get(id: string): Promise<NoteValue | undefined> {
-    return (await this.all()).find((note) => note.id === id);
-  }
-
-  async put(note: NoteValue): Promise<void> {
-    await this.#write([note, ...(await this.all()).filter((n) => n.id !== note.id)]);
-  }
-
-  async delete(id: string): Promise<boolean> {
-    const list = await this.all();
-    const kept = list.filter((n) => n.id !== id);
-    if (kept.length === list.length) { return false; }
-    await this.#write(kept);
-    return true;
-  }
-
-  async #write(list: NoteValue[]): Promise<void> {
-    await mkdir(this.#folder, { recursive: true });
-    const temp = `${this.#file}.tmp`;
-    await writeFile(temp, JSON.stringify(encodeValue(NoteList, list)));
-    await rename(temp, this.#file);
-  }
-}
-
-/** One store per data folder, made on first use by `make`. */
-export function storesBy(make: (dataDir: string) => NoteStore): OpenStore {
-  const open = new Map<string, NoteStore>();
-  return (dataDir) => {
-    const found = open.get(dataDir);
-    if (found !== undefined) { return found; }
-    const store = make(dataDir);
-    open.set(dataDir, store);
-    return store;
-  };
-}
 ```
 
 #### `scripts/docs/example/shared/index.ts`
 
 ```ts
 /**
- * The notes system's contract: titled notes with tags, kept per instance in its data folder. It is the authoring guide's
- * worked example, so it uses one of nearly everything a contract can declare: config, a named type with a method, a
- * setting, an attachment, a kind, native fns (undo, handlers, progress, pause and resume, session state, a form),
- * context, a hook, a mention provider, an action and an agent.
+ * The notes system's contract: titled notes with tags, kept and searched by the hub as records of a
+ * stored type (the data system), never in a file of the system's own. It is the authoring guide's worked example, so
+ * it uses one of nearly everything a contract can declare: config, a stored type, a named type with a method, a
+ * setting, an attachment, a kind, native fns in API groups (undo, handlers, progress, pause and resume, session
+ * state, a form), context, a hook, a mention provider, an action and an agent.
  */
 import {
   type Infer, type ValueOf, action, agent, arg, attachment, context, fn, g, handler, hook, hub, kind, linear, mention, setting, steps, system, type,
 } from '@harness/sdk';
 
 // #region note-type
-/** A note: a titled text with tags. A named type, so other systems can use it as a field and mentions show it. */
+/**
+ * A note: a titled text with tags. A stored type (`records`): the hub keeps the notes, one record each, checks them
+ * against this shape, versions every change and searches them, by words in the title and text and by meaning. Notes
+ * are shared by everyone who can see the type (`owner: 'shared'`), so hooks and mentions read them too; a type whose
+ * records are each one person's (`owner: 'person'`) is read in runs, as that person. Its record carries its id,
+ * version and times; the value doesn't.
+ */
 export const Note = type({
   description: 'A note: a titled text with tags.',
+  shape: g.obj({
+    title: g.text({ minLength: 1 }),
+    text: hub.types.LongText,
+    tags: g.list(g.text()),
+    pinned: g.bool(),
+  }),
+  display: { label: 'Note', plural: 'Notes', icon: 'note', color: '#d9a400', title: 'title' },
+  records: { shape: 'table', owner: 'shared', search: { text: ['title', 'text'], embed: true } },
+});
+
+/** A note as fns return it and cards show it: the stored note with its record id and when it last changed. */
+export const NoteEntry = type({
+  description: 'A saved note: its record id, when it last changed, and the note.',
   shape: g.obj({
     id: g.text({ minLength: 1 }),
     title: g.text({ minLength: 1 }),
@@ -11727,7 +12405,7 @@ export const Note = type({
 // #endregion note-type
 
 // #region shapes
-/** What undo needs to put a note back: the note as it was, or null when there was none. */
+/** What undo needs to put a note back: its record id and the note as it was, or null when there was none. */
 export const Before = g.obj({ id: g.text(), note: g.nullable(Note.shape) });
 
 /** The search `find` ran last in this session, kept in session state so a later `find` can repeat it. */
@@ -11748,20 +12426,26 @@ export const StampArgs = g.obj({ text: g.text({ minLength: 1 }) });
 export const notes = system('notes', {
   description: 'Notes: write, find and tidy titled notes with tags.',
   // #region grants
-  // find keeps its last query (state), remove reads the editing setting (settings), and share asks the person
-  // through hub/ask_user (fns, and that fn in calls); its agent runs on the hub, so it needs no ai of its own
-  grants: { hub: ['fns', 'settings', 'state'], calls: ['hub/ask_user'] },
+  // notes are hub records (data), find keeps its last query (state), remove reads the editing setting (settings), and
+  // share asks the person through hub/ask_user (fns, and that fn in calls); its agent runs on the hub, so it needs no ai
+  grants: { hub: ['data', 'fns', 'settings', 'state'], calls: ['hub/ask_user'] },
   // #endregion grants
+  // #region groups
+  // its API in groups: the hub lists each group's fns under `notes/api.<group>` for a model to walk
+  groups: [
+    { name: 'notes', title: 'Notes', description: 'Add, find, tidy and remove notes.' },
+    { name: 'sharing', title: 'Sharing', description: 'Review and publish a note.' },
+  ],
+  // #endregion groups
 })
   .with({
     // #region config
     // what the system needs before it can be used; an admin sets it in the hub, and `ctx.config` has it, typed
     config: g.obj({
-      maxNotes: g.field(g.num({ min: 1, whole: true }), { docs: 'The most notes kept; adding one more is refused.' }),
-      defaultTags: g.list(g.text()),
+      defaultTags: g.field(g.list(g.text()), { docs: 'Tags every new note gets.' }),
     }),
     // #endregion config
-    types: { Note },
+    types: { Note, NoteEntry },
     // #region setting
     settings: {
       editing: setting({
@@ -11773,7 +12457,7 @@ export const notes = system('notes', {
     },
     // #endregion setting
     attachments: {
-      note: attachment({ description: 'A note, drawn as a card.', data: Note.shape }),
+      note: attachment({ description: 'A note, drawn as a card.', data: NoteEntry.shape }),
     },
     // #region kind
     kinds: {
@@ -11791,12 +12475,13 @@ export const notes = system('notes', {
       add: fn({
         description: 'Add a note.',
         instructions: 'Give it a short title. Tags are lowercase words; the config adds its default tags.',
+        group: 'notes',
         args: g.obj({
           title: g.text({ minLength: 1 }),
           text: hub.types.LongText,
           tags: g.optional(g.list(g.text())),
         }),
-        returns: Note.shape,
+        returns: NoteEntry.shape,
         // example calls agents see on its card and when they get its args wrong; a wrong example doesn't compile
         examples: [{ args: { title: 'Groceries', text: 'Milk, eggs, bread.', tags: ['home'] }, note: 'A short title and lowercase tags.' }],
         // declaring an undo type makes it undoable, and the server must implement `undo`
@@ -11811,13 +12496,14 @@ export const notes = system('notes', {
       // #endregion fn-add
       // #region fn-find
       find: fn({
-        description: 'Find notes by words in their title or text, or by tag.',
+        description: 'Find notes by words or meaning in their title or text, or by tag; the best matches first.',
+        group: 'notes',
         args: g.obj({
           query: g.optional(g.text()),
           tag: g.optional(g.text()),
           limit: g.optional(g.num({ min: 1, max: 50, whole: true })),
         }),
-        returns: g.obj({ notes: g.list(Note.shape), total: g.num({ min: 0, whole: true }) }),
+        returns: g.obj({ notes: g.list(NoteEntry.shape), more: g.bool() }),
         // reads and writes `lastQuery` in the session's state; only fns that declare it see it
         state: LastSearch,
         progress: linear,
@@ -11829,6 +12515,7 @@ export const notes = system('notes', {
       // #region fn-remove
       remove: fn({
         description: 'Delete a note.',
+        group: 'notes',
         args: g.obj({ id: g.text({ minLength: 1 }) }),
         returns: g.obj({ removed: g.bool() }),
         undo: Before,
@@ -11840,17 +12527,19 @@ export const notes = system('notes', {
       // #endregion fn-remove
       // #region fn-tidy
       tidy: fn({
-        description: 'Merge tags that differ only in case or spaces, across every note.',
+        description: 'Merge tags that differ only in case or spaces, across every note, a page at a time.',
+        group: 'notes',
         args: g.obj({}),
         returns: g.obj({ merged: g.num({ min: 0, whole: true }) }),
         progress: steps({ scan: 'Read every note', merge: 'Merge the tags', save: 'Save the notes' }),
         // declaring a resume type makes it pausable: it returns this when paused and gets it back on resume
-        resume: g.obj({ saved: g.num({ min: 0, whole: true }) }),
+        resume: g.obj({ saved: g.num({ min: 0, whole: true }), cursor: g.optional(g.text()) }),
       }),
       // #endregion fn-tidy
       // #region fn-review
       review: fn({
         description: 'Ask the person to approve a note before it is shared. Returns their decision.',
+        group: 'sharing',
         args: g.obj({ id: g.text({ minLength: 1 }) }),
         returns: Review,
         // the run waits in `await ctx.form()` until the renderer submits this
@@ -11893,7 +12582,7 @@ export const notes = system('notes', {
     // #region mention-decl
     mentions: {
       // `@` in the chat finds notes; chips and cards show them as Note (its label, icon, color and its pin method)
-      notes: mention({ title: 'Notes', description: 'Any note, by its title.', target: g.obj({ id: g.text() }), of: types.Note }),
+      notes: mention({ title: 'Notes', description: 'Any note, by its title.', target: g.obj({ id: g.text() }), of: types.NoteEntry }),
     },
     // #endregion mention-decl
     fns: {
@@ -11902,7 +12591,8 @@ export const notes = system('notes', {
         description: 'Capture a thought in the inbox.',
         payload: { title: 'Inbox', tags: ['inbox'] },
         args: StampArgs,
-        returns: Note.shape,
+        returns: NoteEntry.shape,
+        group: 'notes',
       }),
     },
   }))
@@ -11922,6 +12612,7 @@ export const notes = system('notes', {
       // calls other fns through its deps, by ref: its own system's `review` and the hub's `ask_user`
       publish: fn({
         description: 'Share a note once the person approves it.',
+        group: 'sharing',
         args: g.obj({ id: g.text({ minLength: 1 }) }),
         returns: g.obj({ published: g.bool(), note: g.optional(g.text()) }),
         deps: { review: fns.review, ask: hub.fns.ask_user },
@@ -11936,8 +12627,10 @@ export const notes = system('notes', {
 // #region value-types
 /** The notes contract's type. */
 export type NotesContract = typeof notes;
-/** A note, as fns return it. */
+/** A note, as it is stored. */
 export type NoteValue = ValueOf<typeof Note>;
+/** A saved note, as fns return it. */
+export type NoteEntryValue = ValueOf<typeof NoteEntry>;
 /** What undo needs to put a note back. */
 export type BeforeValue = Infer<typeof Before>;
 /** A person's answer to `review`. */
@@ -11991,7 +12684,8 @@ progress and handlers, a hook, a mention provider, static and dynamic context, a
  * from a bundle an admin approved, and supervised. Other systems import this to call its fns with typed refs; its server
  * implements it and its client draws it.
  */
-import { type Infer, type ValueOf, agent, arg, attachment, context, fn, g, handler, hook, hub, linear, mention, setting, system, type } from '@harness/sdk';
+import { ChangeSet, SensitivityRule } from '@harness/core';
+import { type Infer, type ValueOf, agent, arg, attachment, context, fn, ginAs, g, handler, hook, hub, linear, mention, setting, system, type } from '@harness/sdk';
 import { HostedState, HostedStatus, InstallArgs, InstallResult, RestartArgs, StatusArgs, StopArgs, StopResult } from './hosting.ts';
 
 export * from './hosting.ts';
@@ -12037,6 +12731,15 @@ export const Root = g.obj({
 /** What a command printed and how it ended. */
 export const CommandResult = g.obj({ exitCode: g.num({ whole: true }), stdout: g.text(), stderr: g.text() });
 
+/** What a command changed: the files, with a diff for each small text file in git (core `changes.ts`). */
+export const Changes = ginAs(ChangeSet);
+
+/** What `bash` returns: what the command printed, how it ended, and the files it changed when they could be found. */
+export const BashResult = g.obj({ exitCode: g.num({ whole: true }), stdout: g.text(), stderr: g.text(), changes: g.optional(Changes) });
+
+/** How many sensitive files a listing or search left out (`server/sensitive.ts`). */
+const hidden = () => g.field(g.optional(g.num({ min: 0, whole: true })), { docs: 'Sensitive files left out (gitignored, env files, keys, credentials). Read one by its path if the task needs it; the person is asked first.' });
+
 /** The shell setting: whether commands may run at all, and which command prefixes run without asking. */
 export const ShellPolicy = g.obj({ allowed: g.bool(), safe: g.list(g.text()) });
 
@@ -12059,6 +12762,12 @@ export const fs = system('fs', {
   // its authoring agents use models; installs wait for an admin and pair what they start; it keeps each person's cwd,
   // reads the shell setting, serves and announces resources, and shares the fns it writes
   grants: { hub: ['ai', 'approvals', 'fns', 'state', 'settings', 'resources', 'search'], calls: ['hub/search_resources'] },
+  // its API groups: the hub indexes its fns by them (`fs/api`, `fs/api.<group>`)
+  groups: [
+    { name: 'files', title: 'Files', description: 'Read, write, edit, delete and search files under the roots, and ask questions about the code.' },
+    { name: 'shell', title: 'Shell', description: 'Run commands (builds, tests, git) in a working folder; each command lists the files it changed.' },
+    { name: 'systems', title: 'Systems', description: 'Install, check, restart and stop the systems this machine hosts, and restart fs itself.' },
+  ],
 })
   .with({
     // set by an admin in the hub; the server gets it typed when it starts
@@ -12067,8 +12776,11 @@ export const fs = system('fs', {
       roots: g.list(Root),
       // its own source folder, so it can change itself and restart
       self: g.optional(g.text()),
-      // globs of files never served as resources (a name, or a path from the root with `/`; `!` serves one again);
-      // left out: env files but .env.example, keys, credentials (see server/secrets.ts); [] serves everything
+      // which files are sensitive and what reads and writes of them do (server/sensitive.ts); left out: the defaults
+      // (gitignored files, env files but the example, keys, credentials, tokens and passwords in content); [] trusts all
+      sensitive: g.optional(g.list(ginAs(SensitivityRule))),
+      // before build 8: globs of files never served as resources (`!` serves one again); turned into rules when
+      // `sensitive` is absent
       secrets: g.optional(g.list(g.text())),
     }),
     types: { Entry },
@@ -12085,6 +12797,7 @@ export const fs = system('fs', {
     },
     fns: {
       read: fn({
+        group: 'files',
         description: 'Read a text file, or part of it by line.',
         instructions: 'Read a file before you change or explain it. Paths are relative to a root (`src/app.ts`) or start with a root\'s name when there are several. For a long file read a window with `offset` (the first line, from 0) and `limit` (how many lines); `truncated` says more follows. Binary files are refused: use the resource tools for those.',
         examples: [
@@ -12092,6 +12805,8 @@ export const fs = system('fs', {
           { args: { path: 'src/server/main.ts', offset: 120, limit: 60 }, note: 'Lines 121 to 180 of a long file.' },
         ],
         effects: { mode: 'read', free: true },
+        // the hub asks which sensitive files a call touches first (server/sensitive.ts)
+        flags: true,
         args: g.obj({ path: path(), offset: g.optional(g.num({ min: 0, whole: true })), limit: g.optional(g.num({ min: 1, whole: true })) }),
         returns: g.obj({ text: g.text(), lines: g.num(), truncated: g.bool() }),
         status: {
@@ -12103,10 +12818,13 @@ export const fs = system('fs', {
         tags: ['read'],
       }),
       write: fn({
+        group: 'files',
         description: 'Write a file, creating it if needed.',
         instructions: 'Use it for a new file, or to replace a whole small file. For a change to an existing file use edit, so the rest stays as it is. Folders are made as needed. The old content is kept, so the write can be undone.',
         examples: [{ args: { path: 'notes/todo.md', text: '# To do\n\n- Write the tests\n' }, result: { created: true }, note: 'A new file.' }],
         effects: { mode: 'write', free: true },
+        // the hub asks which sensitive files a call touches first (server/sensitive.ts)
+        flags: true,
         args: g.obj({ path: path(), text: hub.types.LongText }),
         returns: g.obj({ created: g.bool() }),
         status: {
@@ -12118,6 +12836,7 @@ export const fs = system('fs', {
         undo: Previous,
       }),
       edit: fn({
+        group: 'files',
         description: 'Replace exact text in a file.',
         instructions: 'Read the file first and copy `find` exactly as it is there, spaces and line breaks included, with enough around it to be unique; the edit fails when it matches nothing or (without `all`) more than once. Set `all` to replace every match (renaming a word). It can be undone.',
         examples: [
@@ -12125,6 +12844,8 @@ export const fs = system('fs', {
           { args: { path: 'docs/guide.md', find: 'colour', replace: 'color', all: true }, result: { replacements: 4 }, note: 'Every match.' },
         ],
         effects: { mode: 'write', free: true },
+        // the hub asks which sensitive files a call touches first (server/sensitive.ts)
+        flags: true,
         args: g.obj({ path: path(), find: g.text({ minLength: 1 }), replace: g.text(), all: g.optional(g.bool()) }),
         returns: g.obj({ replacements: g.num() }),
         status: {
@@ -12136,12 +12857,15 @@ export const fs = system('fs', {
         undo: Previous,
       }),
       list: fn({
+        group: 'files',
         description: 'List a folder.',
         instructions: 'Use it to see what a folder holds before guessing names. `depth` 2 or more lists inside subfolders too (up to 5); prefer glob to find files by name anywhere. `.` is the root.',
         examples: [{ args: { path: '.' }, note: 'The root\'s top level.' }, { args: { path: 'src', depth: 2 } }],
         effects: { mode: 'read', free: true },
+        // the hub asks which sensitive files a call touches first (server/sensitive.ts)
+        flags: true,
         args: g.obj({ path: path(), depth: g.optional(g.num({ min: 1, max: 5, whole: true })) }),
-        returns: g.obj({ entries: g.list(Entry.shape) }),
+        returns: g.obj({ entries: g.list(Entry.shape), hidden: hidden() }),
         status: {
           active: { one: 'Listing {args.path}…', many: 'Listing {n} folders…' },
           retry: { one: 'Retrying listing {args.path}…', many: 'Retrying {n} folder lists…' },
@@ -12151,6 +12875,7 @@ export const fs = system('fs', {
         tags: ['read'],
       }),
       glob: fn({
+        group: 'files',
         description: 'Find paths matching a glob.',
         instructions: 'Use it to find files by name or path. The pattern is relative to the root (every root when none is given); a pattern without `/`, like `*.md`, matches file names at any depth; `**` matches any folders. Folders the system ignores (node_modules, .git) are left out.',
         examples: [
@@ -12158,8 +12883,10 @@ export const fs = system('fs', {
           { args: { pattern: 'src/**/*.test.ts', root: 'app' }, note: 'Tests under src in one root.' },
         ],
         effects: { mode: 'read', free: true },
+        // the hub asks which sensitive files a call touches first (server/sensitive.ts)
+        flags: true,
         args: g.obj({ pattern: g.text(), root: g.optional(g.text()) }),
-        returns: g.obj({ paths: g.list(g.text()) }),
+        returns: g.obj({ paths: g.list(g.text()), hidden: hidden() }),
         status: {
           active: { one: 'Finding {args.pattern}…', many: 'Running {n} path searches…' },
           retry: { one: 'Retrying the search for {args.pattern}…', many: 'Retrying {n} path searches…' },
@@ -12169,6 +12896,7 @@ export const fs = system('fs', {
         tags: ['read'],
       }),
       grep: fn({
+        group: 'files',
         description: 'Search file contents with a regular expression.',
         instructions: 'Use it to find where something is used or defined before reading files. The pattern is a JavaScript regular expression tested on each line (escape `.`, `(` and the like). Narrow big searches with `glob` (`*.ts`, `src/**/*.vue`) and `limit`. Each match gives the path and line, so read around it next.',
         examples: [
@@ -12176,8 +12904,10 @@ export const fs = system('fs', {
           { args: { pattern: 'TODO|FIXME', glob: 'src/**', limit: 50 } },
         ],
         effects: { mode: 'read', free: true },
+        // the hub asks which sensitive files a call touches first (server/sensitive.ts)
+        flags: true,
         args: g.obj({ pattern: g.text(), root: g.optional(g.text()), glob: g.optional(g.text()), limit: g.optional(g.num({ min: 1, whole: true })) }),
-        returns: g.obj({ matches: g.list(g.obj({ path: g.text(), line: g.num(), text: g.text() })) }),
+        returns: g.obj({ matches: g.list(g.obj({ path: g.text(), line: g.num(), text: g.text() })), hidden: hidden() }),
         progress: linear,
         status: {
           active: { one: 'Searching for {args.pattern}…', many: 'Running {n} searches…' },
@@ -12188,6 +12918,7 @@ export const fs = system('fs', {
         tags: ['read'],
       }),
       cd: fn({
+        group: 'shell',
         description: 'Change the working folder for later commands in this chat.',
         instructions: 'Set it once instead of passing `cwd` to every bash call; it lasts for this chat. The folder must be inside a root.',
         examples: [{ args: { path: 'packages/web' }, result: { cwd: 'packages/web' } }],
@@ -12199,8 +12930,9 @@ export const fs = system('fs', {
         display: 'hidden',
       }),
       bash: fn({
+        group: 'shell',
         description: 'Run a shell command. It runs in the working folder set with cd unless cwd is given.',
-        instructions: 'Use it to build, test, run git or any tool the files need; prefer read, grep and glob to look at files. Commands your shell setting does not mark safe ask the person first. Give a `timeout` for long builds. Check `exitCode` and `stderr`: a non-zero exit is a failed command, not a failed call.',
+        instructions: 'Use it to build, test, run git or any tool the files need; prefer read, grep and glob to look at files. Commands your shell setting does not mark safe ask the person first. Give a `timeout` for long builds. Check `exitCode` and `stderr`: a non-zero exit is a failed command, not a failed call. `changes` lists the files the command changed (with diffs in git), so you need not run git diff to see them.',
         examples: [
           { args: { command: 'git status --short' }, note: 'What changed.' },
           { args: { command: 'npm test -- --run src/app.test.ts', timeout: 120_000 }, note: 'One test file, with two minutes.' },
@@ -12208,8 +12940,10 @@ export const fs = system('fs', {
         ],
         // a command can do anything a shell can, deleting included; it spends no model money itself
         effects: { mode: 'delete', free: true },
+        // the hub asks which sensitive files a call touches first (server/sensitive.ts)
+        flags: true,
         args: g.obj({ command: g.text(), cwd: g.optional(g.text()), timeout: g.field(g.optional(g.duration()), { docs: `How long the command may run, in milliseconds (30000 is 30 seconds); at least ${String(COMMAND_TIMEOUT_MIN)}. Leave empty for the default.` }) }),
-        returns: CommandResult,
+        returns: BashResult,
         state: Shell,
         progress: linear,
         status: {
@@ -12228,10 +12962,13 @@ export const fs = system('fs', {
         },
       }),
       remove: fn({
+        group: 'files',
         description: 'Delete a file.',
         instructions: 'Only for a file the person asked to delete or one you made and no longer need. Folders are refused. The content is kept, so it can be undone.',
         examples: [{ args: { path: 'notes/scratch.md' }, result: { removed: true } }],
         effects: { mode: 'delete', free: true },
+        // the hub asks which sensitive files a call touches first (server/sensitive.ts)
+        flags: true,
         args: g.obj({ path: path() }),
         returns: g.obj({ removed: g.bool() }),
         status: {
@@ -12243,6 +12980,7 @@ export const fs = system('fs', {
         undo: Previous,
       }),
       restart: fn({
+        group: 'systems',
         description: 'Restart this system so changes to its code go live. It reconnects on its own.',
         instructions: 'Only after changing this system\'s own code (its `self` folder) and checking it builds. Say why in `reason`; runs in progress stop.',
         examples: [{ args: { reason: 'Added the tree command; reload it.' } }],
@@ -12252,6 +12990,7 @@ export const fs = system('fs', {
         operations: { cancel: false, background: false },
       }),
       install_system: fn({
+        group: 'systems',
         description: 'Build, check and start a system folder on this machine, and connect it to the hub, once an admin approves.',
         instructions: [
           'After writing or changing a system folder: builds, checks and starts it on this machine and connects it to the hub. Call it again after each change; it restarts the system with the new code.',
@@ -12284,6 +13023,7 @@ export const fs = system('fs', {
         tags: ['admin', 'systems'],
       }),
       system_status: fn({
+        group: 'systems',
         description: 'The systems this machine hosts: each one\'s state, version, process, restarts in the last hour and the end of its output.',
         instructions: 'Call it after install_system, restart_system or a crash to see whether a hosted system is up, and read `output` to find why it stopped. Give `system` for one; empty lists all.',
         examples: [
@@ -12300,6 +13040,7 @@ export const fs = system('fs', {
         tags: ['read', 'systems'],
       }),
       restart_system: fn({
+        group: 'systems',
         description: 'Restart a system this machine hosts, with the code an admin approved.',
         instructions: 'Use it when a hosted system is stuck, crashed or was disabled after too many crashes. It runs the approved bundle again; it never picks up changed code (call install_system for that). Say why in `reason`.',
         examples: [{ args: { system: 'random', reason: 'It stopped answering after the hub restarted.' }, result: { state: 'connected' } }],
@@ -12310,6 +13051,7 @@ export const fs = system('fs', {
         tags: ['systems'],
       }),
       stop_system: fn({
+        group: 'systems',
         description: 'Stop a system this machine hosts; with `remove`, also delete its hosted folders.',
         instructions: 'It stays stopped (also after fs restarts) until install_system or restart_system starts it again. `remove` deletes its bundle, state and data for good, so the person is asked first; use it only when they want the system gone.',
         examples: [
@@ -12410,9 +13152,11 @@ export type ShellPolicyValue = Infer<typeof ShellPolicy>;
 export type FileTargetValue = Infer<typeof FileTarget>;
 /** What undo needs to put a file back. */
 export type PreviousValue = Infer<typeof Previous>;
+/** What `bash` returns. */
+export type BashOutput = Infer<typeof BashResult>;
 ```
 
-## 28. Runtime internals
+## 30. Runtime internals
 
 The rest of what the SDK exports: the pieces `serve` is built from (the manifest builder, keys, the outcome journal, the
 link transport, the LLM wire, the MCP face, files and process control, client bundles). A system rarely uses these
@@ -13678,10 +14422,12 @@ interface RedirectProblems {
 }
 ```
 
-## 29. Core types
+## 31. Core types
 
 The wire shapes from `@harness/core` that the SDK's declarations refer to, each resolved to plain TypeScript. Each is a
 zod schema in core with its type inferred from it; import the type (and the schema, to parse) from `@harness/core`.
+
+### From `packages/core/src/access.ts`
 
 #### <a id="core-accessinfo"></a>`AccessInfo`
 
@@ -13695,50 +14441,63 @@ type AccessInfo = {
 };
 ```
 
-#### <a id="core-actorid"></a>`ActorId`
+#### <a id="core-sharerule"></a>`ShareRule`
 
-const, type · declared in `packages/core/src/primitives.ts`
+const, type · declared in `packages/core/src/access.ts`
+
+A visibility without its owner, for things whose owner is kept elsewhere (a connection's `owner`).
 
 ```ts
-type ActorId = IdOf<'actor'>;
+type ShareRule = {
+  visibility: "private" | "shared" | "public";
+  with: string[];
+};
 ```
 
-#### <a id="core-actorkind"></a>`ActorKind`
+### From `packages/core/src/admin.ts`
 
-const, type · declared in `packages/core/src/primitives.ts`
+#### <a id="core-hubmodelinfo"></a>`HubModelInfo`
 
-What kind of thing an actor is.
+const, type · declared in `packages/core/src/admin.ts`
+
+A model as a system's aeye sees it through the hub (`models` on the hub link, `ctx.ai()` / `hubAi()`):
+what `ModelInfo` says plus what aeye's selection needs, and the hub roles it fills. `capabilities` are aeye's
+capability names. Only the models the system may use are listed; the hub still checks access and budgets per call.
 
 ```ts
-type ActorKind = "mcp" | "system" | "user" | "group" | "agent";
+type HubModelInfo = {
+  id: string;
+  provider: `${string}/${string}` | "openai" | "openrouter" | "ollama" | "aws";
+  name: string;
+  capabilities: string[];
+  tier: "flagship" | "efficient" | "legacy" | "experimental";
+  roles: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[];
+  contextWindow?: number | undefined;
+  pricing?: {
+    input: number;
+    output: number;
+  } | undefined;
+  maxOutputTokens?: number | undefined;
+};
 ```
 
-#### <a id="core-adminnotice"></a>`AdminNotice`
+### From `packages/core/src/api-index.ts`
 
-const, type · declared in `packages/core/src/link.ts`
+#### <a id="core-apigroupdecl"></a>`ApiGroupDecl`
 
-What a system tells its hub's admins (`notifyAdmins`): a short title and a plain-words body.
+const, type · declared in `packages/core/src/api-index.ts`
+
+A group of a system's fns (`Manifest.groups`): its name, a title and what its fns are for.
 
 ```ts
-type AdminNotice = {
+type ApiGroupDecl = {
+  name: string;
   title: string;
-  body: string;
+  description: string;
 };
 ```
 
-#### <a id="core-allowedoperations"></a>`AllowedOperations`
-
-const, type · declared in `packages/core/src/run.ts`
-
-The operations a run can narrow while it runs.
-
-```ts
-type AllowedOperations = {
-  cancel: boolean;
-  pause: boolean;
-  background: boolean;
-};
-```
+### From `packages/core/src/approvals.ts`
 
 #### <a id="core-approvalpreview"></a>`ApprovalPreview`
 
@@ -13789,6 +14548,17 @@ type ApprovalPreview = {
     }[];
     before?: TypeDef<any> | undefined;
     after?: TypeDef<any> | undefined;
+  } | {
+    type: "flags";
+    flags: {
+      path: string;
+      kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
+      rule: string;
+      access: "read" | "write";
+      action: "ask" | "refuse" | "allow";
+      why: string;
+      certain: boolean;
+    }[];
   })[];
   irreversible: boolean;
   subject?: {
@@ -13805,7 +14575,7 @@ type ApprovalPreview = {
     };
     source?: string | undefined;
     grants?: {
-      hub: ("fns" | "settings" | "search" | "state" | "resources" | "approvals" | "connections" | "embed" | "ai" | "decide")[];
+      hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
       models?: {
         roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
         models?: string[] | undefined;
@@ -13922,6 +14692,17 @@ type ApprovedRun = {
       }[];
       before?: TypeDef<any> | undefined;
       after?: TypeDef<any> | undefined;
+    } | {
+      type: "flags";
+      flags: {
+        path: string;
+        kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
+        rule: string;
+        access: "read" | "write";
+        action: "ask" | "refuse" | "allow";
+        why: string;
+        certain: boolean;
+      }[];
     })[];
     irreversible: boolean;
     subject?: {
@@ -13938,7 +14719,7 @@ type ApprovedRun = {
       };
       source?: string | undefined;
       grants?: {
-        hub: ("fns" | "settings" | "search" | "state" | "resources" | "approvals" | "connections" | "embed" | "ai" | "decide")[];
+        hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
         models?: {
           roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
           models?: string[] | undefined;
@@ -14005,15 +14786,250 @@ type ApprovedRun = {
 };
 ```
 
-#### <a id="core-audience"></a>`Audience`
+#### <a id="core-fnapproval"></a>`FnApproval`
 
-const, type · declared in `packages/core/src/primitives.ts`
+const, type · declared in `packages/core/src/approvals.ts`
 
-Who can see a thing: people in the UI, the LLM, both, or neither.
+A fn whose every run waits for approval (`FnDecl.approval`). `preview`: the hub asks the system for a preview first.
+`remember`: whether the person may say "don't ask again" for it (never for writes and schema changes).
 
 ```ts
-type Audience = "llm" | "none" | "user" | "both";
+type FnApproval = {
+  preview: boolean;
+  remember: boolean;
+  approver?: "person" | "admins" | undefined;
+};
 ```
+
+#### <a id="core-pairinggrant"></a>`PairingGrant`
+
+const, type · declared in `packages/core/src/approvals.ts`
+
+The token (shown once, valid for one hello with the subject's name, instance and manifest hash) and when it lapses.
+
+```ts
+type PairingGrant = {
+  token: string;
+  expiresAt: number;
+};
+```
+
+#### <a id="core-pairinggrantrequest"></a>`PairingGrantRequest`
+
+const, type · declared in `packages/core/src/approvals.ts`
+
+An approved install run asks the hub for a one-time pairing token bound to its subject (`grantPairing`).
+
+```ts
+type PairingGrantRequest = {
+  run: string;
+  subject: {
+    kind: "system-install";
+    system: SystemName;
+    instance: InstanceName;
+    version: string;
+    manifestHash: string;
+    bundleHash: string;
+    sourceHash: string;
+    host: {
+      system: SystemName;
+      instance: InstanceName;
+    };
+    source?: string | undefined;
+    grants?: {
+      hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
+      models?: {
+        roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+        models?: string[] | undefined;
+        perRun?: number | undefined;
+        perDay?: number | undefined;
+      } | undefined;
+      secrets?: string[] | undefined;
+      calls?: (`${string}/${string}` | SystemName)[] | undefined;
+      network?: string[] | undefined;
+      files?: {
+        read: string[];
+        write: string[];
+      } | undefined;
+    } | undefined;
+    replaces?: {
+      version: string;
+      manifestHash: string;
+    } | undefined;
+  };
+};
+```
+
+#### <a id="core-previewanswer"></a>`PreviewAnswer`
+
+const, type · declared in `packages/core/src/approvals.ts`
+
+The system's answer: the preview, or why the run can't go ahead at all (it then fails as invalid input).
+
+```ts
+type PreviewAnswer = {
+  preview: {
+    title: string;
+    parts: ({
+      type: "text";
+      text: string;
+    } | {
+      type: "code";
+      language: string;
+      code: string;
+      title?: string | undefined;
+    } | {
+      type: "table";
+      title: string;
+      table: {
+        columns: {
+          name: string;
+          kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
+          nullable: boolean;
+          label?: string | undefined;
+          type?: TypeDef<any> | undefined;
+          ref?: `${string}/${string}` | undefined;
+        }[];
+        rows: z.core.util.JSONType[][];
+        offset: number;
+        truncated: boolean;
+        sort: {
+          column: string;
+          dir: "asc" | "desc";
+        }[];
+        limit?: number | undefined;
+        total?: number | undefined;
+      };
+    } | {
+      type: "type-diff";
+      name: string;
+      changes: string[];
+      breaks: {
+        fn: string;
+        why: string;
+      }[];
+      before?: TypeDef<any> | undefined;
+      after?: TypeDef<any> | undefined;
+    } | {
+      type: "flags";
+      flags: {
+        path: string;
+        kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
+        rule: string;
+        access: "read" | "write";
+        action: "ask" | "refuse" | "allow";
+        why: string;
+        certain: boolean;
+      }[];
+    })[];
+    irreversible: boolean;
+    subject?: {
+      kind: "system-install";
+      system: SystemName;
+      instance: InstanceName;
+      version: string;
+      manifestHash: string;
+      bundleHash: string;
+      sourceHash: string;
+      host: {
+        system: SystemName;
+        instance: InstanceName;
+      };
+      source?: string | undefined;
+      grants?: {
+        hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
+        models?: {
+          roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+          models?: string[] | undefined;
+          perRun?: number | undefined;
+          perDay?: number | undefined;
+        } | undefined;
+        secrets?: string[] | undefined;
+        calls?: (`${string}/${string}` | SystemName)[] | undefined;
+        network?: string[] | undefined;
+        files?: {
+          read: string[];
+          write: string[];
+        } | undefined;
+      } | undefined;
+      replaces?: {
+        version: string;
+        manifestHash: string;
+      } | undefined;
+    } | undefined;
+    checks?: {
+      scan: {
+        size: number;
+        builtins: string[];
+        concerns: {
+          kind: "builtin" | "dynamic-import" | "dynamic-require" | "eval" | "new-function";
+          line: number;
+          detail: string;
+          code: string;
+        }[];
+        urls: string[];
+        hosts: string[];
+      };
+      tests?: {
+        system: SystemName;
+        version: string;
+        ranAt: number;
+        duration: number;
+        passed: number;
+        failed: number;
+        skipped: number;
+        cases: {
+          file: string;
+          name: string;
+          status: "failed" | "skipped" | "passed";
+          duration: number;
+          real?: boolean | undefined;
+          error?: string | undefined;
+        }[];
+        more?: number | undefined;
+        previews?: {
+          component: string;
+          state: string;
+          viewport: "phone" | "desktop";
+          theme: "light" | "dark";
+          image: {
+            hash: string;
+            size: number;
+            mime: string;
+          };
+        }[] | undefined;
+      } | undefined;
+    } | undefined;
+  };
+} | {
+  refused: string;
+};
+```
+
+#### <a id="core-proposalapprover"></a>`ProposalApprover`
+
+const, type · declared in `packages/core/src/approvals.ts`
+
+Who answers a proposed run or a fn that always asks: the run's person, or an admin (only an admin's decision counts).
+
+```ts
+type ProposalApprover = "person" | "admins";
+```
+
+#### <a id="core-proposedrun"></a>`ProposedRun`
+
+const, type · declared in `packages/core/src/approvals.ts`
+
+The run the hub made, waiting, and its approval.
+
+```ts
+type ProposedRun = {
+  run: string;
+  approval: string;
+};
+```
+
+### From `packages/core/src/auto-pair.ts`
 
 #### <a id="core-autopairgrant"></a>`AutoPairGrant`
 
@@ -14042,37 +15058,37 @@ type AutoPairProof = {
 };
 ```
 
-#### <a id="core-chatmodeconfig"></a>`ChatModeConfig`
+### From `packages/core/src/checks.ts`
 
-const, type · declared in `packages/core/src/modes.ts`
+#### <a id="core-previewshot"></a>`PreviewShot`
 
-A chat mode's settings. Adding a variant fails to compile in the hub until it has an implementation.
+const, type · declared in `packages/core/src/checks.ts`
 
-```ts
-type ChatModeConfig = {
-  type: "tools";
-} | {
-  type: "static";
-  protocol: "text" | "auto" | "native";
-  placement: "system-end" | "tail";
-  loadDetail: "signature" | "listed" | "full";
-};
-```
-
-#### <a id="core-configcomponentdecl"></a>`ConfigComponentDecl`
-
-const, type · declared in `packages/core/src/grants.ts`
-
-A system's own config component (a Vue component exported by its client bundle under `component`). `replace` draws
-it instead of the gin form; `beside` draws it under the form. It gets the config, its gin type, a validate callback
-and the system's client; the hub still checks the value with the gin type before saving.
+One screenshot of a system's component in one state, viewport and theme, stored as hub content.
 
 ```ts
-type ConfigComponentDecl = {
+type PreviewShot = {
   component: string;
-  mode: "replace" | "beside";
+  state: string;
+  viewport: "phone" | "desktop";
+  theme: "light" | "dark";
+  image: {
+    hash: string;
+    size: number;
+    mime: string;
+  };
 };
 ```
+
+#### <a id="core-previewviewport"></a>`PreviewViewport`
+
+const, type · declared in `packages/core/src/checks.ts`
+
+```ts
+type PreviewViewport = "phone" | "desktop";
+```
+
+### From `packages/core/src/config-secrets.ts`
 
 #### <a id="core-configpath"></a>`ConfigPath`
 
@@ -14084,18 +15100,7 @@ A config field path: object keys joined with dots (`connection.password`). Array
 type ConfigPath = string;
 ```
 
-#### <a id="core-configvalue"></a>`ConfigValue`
-
-const, type · declared in `packages/core/src/link.ts`
-
-A system's config value as the hub holds it.
-
-```ts
-type ConfigValue = {
-  value: z.core.util.JSONType;
-  version: number;
-};
-```
+### From `packages/core/src/connections.ts`
 
 #### <a id="core-connectdecl"></a>`ConnectDecl`
 
@@ -14200,76 +15205,22 @@ type ConnectStart = {
 };
 ```
 
-#### <a id="core-contentref"></a>`ContentRef`
+#### <a id="core-runconnection"></a>`RunConnection`
 
-const, type · declared in `packages/core/src/resources.ts`
+const, type · declared in `packages/core/src/connections.ts`
 
-Content moved by reference, fetched in chunks when needed. Keeps every message small.
+What a run that acts as a person carries (`RunRequest.connection`): the connection and its revealed credentials.
 
 ```ts
-type ContentRef = {
-  hash: string;
-  size: number;
-  mime: string;
+type RunConnection = {
+  id: string;
+  owner: string;
+  credentials: z.core.util.JSONType;
+  settings: z.core.util.JSONType;
 };
 ```
 
-#### <a id="core-contextdecl"></a>`ContextDecl`
-
-const, type · declared in `packages/core/src/manifest.ts`
-
-A context item. `name` is its stable key (`authoring.kinds`): readable, never shown to people, never derived from a
-file path, so the hub updates the same record (links, stats, embeddings) when its title, text or place change.
-
-```ts
-type ContextDecl = {
-  name: string;
-  description: string;
-  imports: `${string}/${string}`[];
-  fns: `${string}/${string}`[];
-  suggestFns: `${string}/${string}`[];
-  suggest: "llm" | "none" | "user" | "both";
-  visible: "llm" | "none" | "user" | "both";
-  alwaysFor: `${string}/${string}`[];
-  tags: string[];
-  title?: string | undefined;
-  content?: string | undefined;
-  command?: {
-    name: string;
-    args: {
-      name: string;
-      hint: string;
-      required: boolean;
-    }[];
-  } | undefined;
-  weight?: number | undefined;
-  summary?: string | undefined;
-  parent?: `${string}/${string}` | undefined;
-  next?: `${string}/${string}` | undefined;
-  choices?: {
-    to: `${string}/${string}`;
-    when: string;
-  }[] | undefined;
-  links?: {
-    to: {
-      kind: "context";
-      name: `${string}/${string}`;
-    } | {
-      kind: "fn";
-      name: `${string}/${string}`;
-    } | {
-      kind: "type";
-      name: `${string}/${string}`;
-    } | {
-      kind: "resource";
-      uri: `${string}://${string}`;
-      section?: SectionKey | undefined;
-    };
-    relation: "next" | "about" | "parent" | "imports" | "brings" | "suggests" | "related";
-    weight: number;
-  }[] | undefined;
-};
-```
+### From `packages/core/src/context-files.ts`
 
 #### <a id="core-contextfileheader"></a>`ContextFileHeader`
 
@@ -14352,74 +15303,258 @@ const, type · declared in `packages/core/src/context-files.ts`
 type ContextFileProblemCode = "header" | "duplicate-key" | "broken-link" | "cycle" | "missing-summary";
 ```
 
-#### <a id="core-contextorconfig"></a>`ContextorConfig`
+#### <a id="core-loadcontextresult"></a>`LoadContextResult`
 
-const, type · declared in `packages/core/src/modes.ts`
+const, type · declared in `packages/core/src/context-files.ts`
 
-A contextor's settings. Adding a variant fails to compile in the hub until it has an implementation.
+What `hub/load_context` did: the context it loaded (with what each loads with it, every time), the fns that context
+brings that went into the session's tools, and what it refused, each with the closest names it knows.
 
 ```ts
-type ContextorConfig = {
-  type: "plain";
-} | {
-  type: "suggest";
-  topN: number;
-  autoInject?: {
-    tokens: number;
-    items: number;
+type LoadContextResult = {
+  loaded: `${string}/${string}`[];
+  fns: `${string}/${string}`[];
+  refused: {
+    context: string;
+    reason: string;
+    closest: `${string}/${string}`[];
+  }[];
+};
+```
+
+### From `packages/core/src/context-graph.ts`
+
+#### <a id="core-declarablerelation"></a>`DeclarableRelation`
+
+const, type · declared in `packages/core/src/context-graph.ts`
+
+```ts
+type DeclarableRelation = "next" | "about" | "parent" | "imports" | "brings" | "suggests" | "related";
+```
+
+### From `packages/core/src/data.ts`
+
+#### <a id="core-datarecord"></a>`DataRecord`
+
+const, type · declared in `packages/core/src/data.ts`
+
+One record (the `records` table).
+
+```ts
+type DataRecord = {
+  id: string;
+  type: `${string}/${string}`;
+  value: z.core.util.JSONType;
+  title: string;
+  version: number;
+  createdAt: number;
+  updatedAt: number;
+  owner?: string | undefined;
+  updatedBy?: string | undefined;
+  updatedBySystem?: SystemName | undefined;
+  run?: string | undefined;
+};
+```
+
+#### <a id="core-recordget"></a>`RecordGet`
+
+const, type · declared in `packages/core/src/data.ts`
+
+Get one record.
+
+```ts
+type RecordGet = {
+  type: `${string}/${string}`;
+  id: string;
+  run?: string | undefined;
+};
+```
+
+#### <a id="core-recordid"></a>`RecordId`
+
+const, type · declared in `packages/core/src/data.ts`
+
+A record's id.
+
+```ts
+type RecordId = string;
+```
+
+#### <a id="core-recordpage"></a>`RecordPage`
+
+const, type · declared in `packages/core/src/data.ts`
+
+```ts
+type RecordPage = {
+  items: {
+    id: string;
+    type: `${string}/${string}`;
+    value: z.core.util.JSONType;
+    title: string;
+    version: number;
+    createdAt: number;
+    updatedAt: number;
+    owner?: string | undefined;
+    updatedBy?: string | undefined;
+    updatedBySystem?: SystemName | undefined;
+    run?: string | undefined;
+  }[];
+  cursor?: string | undefined;
+};
+```
+
+#### <a id="core-recordquery"></a>`RecordQuery`
+
+const, type · declared in `packages/core/src/data.ts`
+
+Records of one stored type: `query` filters and sorts on the type's top-level fields (the hub refuses an unknown
+field), `search` ranks by text and meaning; `mine` keeps a person-owned type to the asker's own (admins see all).
+
+```ts
+type RecordQuery = {
+  type: `${string}/${string}`;
+  query?: {
+    cursor?: string | undefined;
+    limit?: number | undefined;
+    text?: string | undefined;
+    filters?: ({
+      field: string;
+      op: "is" | "isNot" | "gt" | "gte" | "lt" | "lte" | "contains";
+      value: string | number | boolean;
+    } | {
+      field: string;
+      op: "in" | "notIn";
+      values: (string | number | boolean)[];
+    } | {
+      field: string;
+      op: "between";
+      from: string | number | boolean;
+      to: string | number | boolean;
+    } | {
+      field: string;
+      op: "empty" | "notEmpty";
+    })[] | undefined;
+    sort?: {
+      field: string;
+      dir: "asc" | "desc";
+    }[] | undefined;
   } | undefined;
-} | {
-  type: "graph";
-  metrics: Partial<Record<"embedding" | "words" | "turnsAgo" | "age" | "selectedBefore" | "used", {
-    weight: number;
-    target?: number | undefined;
-    k?: number | undefined;
-  }>>;
-  spread: {
-    damping: number;
-    hops: number;
+  search?: string | undefined;
+  run?: string | undefined;
+};
+```
+
+#### <a id="core-recordremove"></a>`RecordRemove`
+
+const, type · declared in `packages/core/src/data.ts`
+
+Remove a record; its versions stay.
+
+```ts
+type RecordRemove = {
+  type: `${string}/${string}`;
+  id: string;
+  run?: string | undefined;
+};
+```
+
+#### <a id="core-recordsave"></a>`RecordSave`
+
+const, type · declared in `packages/core/src/data.ts`
+
+Add a record (no `id`) or replace one; for a `value` type there is one record and `id` is left out. `expect` makes the
+save fail when the record moved on past that version (two people editing at once).
+
+```ts
+type RecordSave = {
+  type: `${string}/${string}`;
+  value: z.core.util.JSONType;
+  id?: string | undefined;
+  expect?: number | undefined;
+  run?: string | undefined;
+};
+```
+
+#### <a id="core-recordstorage"></a>`RecordStorage`
+
+const, type · declared in `packages/core/src/data.ts`
+
+How a stored type keeps its records (`TypeDecl.records`).
+
+```ts
+type RecordStorage = {
+  shape: "table" | "value";
+  owner: "shared" | "person";
+  search: {
+    text: string[];
+    embed: boolean;
   };
-  floorExchanges: number;
-  shares: Record<"fns" | "context" | "history", number>;
-  threshold: number;
-  evaluate: "perMessage" | "perIteration";
 };
 ```
 
-#### <a id="core-contributiondecl"></a>`ContributionDecl`
+#### <a id="core-recordtablequery"></a>`RecordTableQuery`
 
-const, type · declared in `packages/core/src/registries.ts`
+const, type · declared in `packages/core/src/data.ts`
 
-One entry a system adds to a registry (`Manifest.contributes`). Its component and match logic are in the system's
-client bundle, under the same registry and name; this declaration tells the hub and the web app which bundles to load.
+The same records as a `ResultTable` (`hub/records_table`), which widgets and the result view draw: one column per
+top-level field of the type, then `id` with `ref` set to the type, so actions find each row's record.
 
 ```ts
-type ContributionDecl = {
-  registry: `${string}/${string}`;
-  name: string;
-  label: string;
-  description?: string | undefined;
-  icon?: string | undefined;
+type RecordTableQuery = {
+  type: `${string}/${string}`;
+  search?: string | undefined;
+  run?: string | undefined;
+  query?: {
+    text?: string | undefined;
+    sort?: {
+      field: string;
+      dir: "asc" | "desc";
+    }[] | undefined;
+    filters?: ({
+      field: string;
+      op: "is" | "isNot" | "gt" | "gte" | "lt" | "lte" | "contains";
+      value: string | number | boolean;
+    } | {
+      field: string;
+      op: "in" | "notIn";
+      values: (string | number | boolean)[];
+    } | {
+      field: string;
+      op: "between";
+      from: string | number | boolean;
+      to: string | number | boolean;
+    } | {
+      field: string;
+      op: "empty" | "notEmpty";
+    })[] | undefined;
+  } | undefined;
+  offset?: number | undefined;
+  limit?: number | undefined;
 };
 ```
 
-#### <a id="core-costestimate"></a>`CostEstimate`
+#### <a id="core-recordversion"></a>`RecordVersion`
 
-const, type · declared in `packages/core/src/fn-facts.ts`
+const, type · declared in `packages/core/src/data.ts`
 
-What a call is expected to cost, in dollars. `basis` says where the numbers come from: `free` (nothing it does
-spends), `history` (its settled runs), `payload` (worked out from the call's args and the model's price), or
-`unknown` (it spends and has never run).
+One earlier or current version of a record (the `recordVersions` table).
 
 ```ts
-type CostEstimate = {
-  min: number;
-  typical: number;
-  max: number;
-  basis: "unknown" | "history" | "payload" | "free";
-  runs: number;
+type RecordVersion = {
+  id: string;
+  record: string;
+  type: `${string}/${string}`;
+  number: number;
+  change: "created" | "updated" | "removed";
+  value: z.core.util.JSONType;
+  at: number;
+  by?: string | undefined;
+  bySystem?: SystemName | undefined;
+  run?: string | undefined;
 };
 ```
+
+### From `packages/core/src/decisions.ts`
 
 #### <a id="core-decideanswer"></a>`DecideAnswer`
 
@@ -14459,153 +15594,23 @@ type DecideCandidate = {
 };
 ```
 
-#### <a id="core-declarablerelation"></a>`DeclarableRelation`
+### From `packages/core/src/fn-facts.ts`
 
-const, type · declared in `packages/core/src/context-graph.ts`
+#### <a id="core-costestimate"></a>`CostEstimate`
 
-```ts
-type DeclarableRelation = "next" | "about" | "parent" | "imports" | "brings" | "suggests" | "related";
-```
+const, type · declared in `packages/core/src/fn-facts.ts`
 
-#### <a id="core-deliveryid"></a>`DeliveryId`
-
-const, type · declared in `packages/core/src/primitives.ts`
+What a call is expected to cost, in dollars. `basis` says where the numbers come from: `free` (nothing it does
+spends), `history` (its settled runs), `payload` (worked out from the call's args and the model's price), or
+`unknown` (it spends and has never run).
 
 ```ts
-type DeliveryId = IdOf<'delivery'>;
-```
-
-#### <a id="core-deliverystatus"></a>`DeliveryStatus`
-
-const, type · declared in `packages/core/src/records/runs.ts`
-
-Where a delivery is.
-
-```ts
-type DeliveryStatus = "queued" | "done" | "failed" | "expired" | "delivered";
-```
-
-#### <a id="core-detail"></a>`Detail`
-
-const, type · declared in `packages/core/src/modes.ts`
-
-```ts
-type Detail = "signature" | "listed" | "full";
-```
-
-#### <a id="core-display"></a>`Display`
-
-const, type · declared in `packages/core/src/run.ts`
-
-How a run looks in the chat once it is done. `card`: its renderer stays, live. `message`: its result is shown as
-a message. `hidden`: it disappears; the run is still in the tree.
-
-```ts
-type Display = "message" | "card" | "hidden";
-```
-
-#### <a id="core-duration"></a>`Duration`
-
-const, type · declared in `packages/core/src/primitives.ts`
-
-Milliseconds.
-
-```ts
-type Duration = number;
-```
-
-#### <a id="core-errorclass"></a>`ErrorClass`
-
-const, type · declared in `packages/core/src/run.ts`
-
-```ts
-type ErrorClass = "retry" | "caller" | "fatal";
-```
-
-#### <a id="core-fleetinstance"></a>`FleetInstance`
-
-const, type · declared in `packages/core/src/package.ts`
-
-One instance of a system as its own fleet sees it (`fleet` on the hub link): whether it is online, its config with
-each secret field as `SECRET_KEPT`, and the types it owns (`TypeDecl.instance`), so one instance can choose which
-of them a request is for (a database system picking the database).
-
-```ts
-type FleetInstance = {
-  instance: InstanceName;
-  description: string;
-  online: boolean;
-  config: z.core.util.JSONType;
-  types: {
-    name: `${string}/${string}`;
-    description: string;
-  }[];
-};
-```
-
-#### <a id="core-fnapproval"></a>`FnApproval`
-
-const, type · declared in `packages/core/src/approvals.ts`
-
-A fn whose every run waits for approval (`FnDecl.approval`). `preview`: the hub asks the system for a preview first.
-`remember`: whether the person may say "don't ask again" for it (never for writes and schema changes).
-
-```ts
-type FnApproval = {
-  preview: boolean;
-  remember: boolean;
-  approver?: "person" | "admins" | undefined;
-};
-```
-
-#### <a id="core-fneffects"></a>`FnEffects`
-
-const, type · declared in `packages/core/src/manifest.ts`
-
-What a fn says it does to data (`FnDecl.effects`): its mode, the named types it reads and writes, what it creates,
-updates or removes in the hub, and whether its own work costs nothing. Absent parts are worked out by the hub (`FnFacts`): the mode from the `read` tag, the types
-from its signature, and everything a fn uses (its deps, an agent's tools) is folded in.
-
-```ts
-type FnEffects = {
-  mode?: "read" | "write" | "delete" | undefined;
-  reads?: `${string}/${string}`[] | undefined;
-  writes?: `${string}/${string}`[] | undefined;
-  free?: boolean | undefined;
-  registry?: {
-    thing: "types" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
-    action: "create" | "update" | "remove";
-    kind?: `${string}/${string}` | "native" | undefined;
-  }[] | undefined;
-};
-```
-
-#### <a id="core-fnerror"></a>`FnError`
-
-const, type · declared in `packages/core/src/run.ts`
-
-A failure.
-
-```ts
-type FnError = {
-  class: "retry" | "caller" | "fatal";
-  message: string;
-  code?: string | undefined;
-  data?: z.core.util.JSONType | undefined;
-};
-```
-
-#### <a id="core-fnexample"></a>`FnExample`
-
-const, type · declared in `packages/core/src/manifest.ts`
-
-One example call of a fn: its args, optionally what it returned, and what the example shows.
-
-```ts
-type FnExample = {
-  args: z.core.util.JSONType;
-  result?: z.core.util.JSONType | undefined;
-  note?: string | undefined;
+type CostEstimate = {
+  min: number;
+  typical: number;
+  max: number;
+  basis: "unknown" | "history" | "payload" | "free";
+  runs: number;
 };
 ```
 
@@ -14665,38 +15670,6 @@ type FnExamplesQuery = {
 };
 ```
 
-#### <a id="core-fnlimits"></a>`FnLimits`
-
-const, type · declared in `packages/core/src/run.ts`
-
-Limits and estimates for a fn's runs.
-
-```ts
-type FnLimits = {
-  timeout?: number | undefined;
-  retries?: number | undefined;
-  cost?: number | undefined;
-};
-```
-
-#### <a id="core-fnrouting"></a>`FnRouting`
-
-const, type · declared in `packages/core/src/manifest.ts`
-
-Which instance of a fleet runs a fn's calls. `instance`: always that one (a database's query fns), and the
-fn belongs to it the way `TypeDecl.instance` says. `any`: whichever connected instance the hub picks first (the
-session's pin, then the default), with no ambiguity refusal; the fn forwards with `on` itself when it must.
-Absent: the fleet rules (`FleetRouter`).
-
-```ts
-type FnRouting = {
-  to: "instance";
-  instance: InstanceName;
-} | {
-  to: "any";
-};
-```
-
 #### <a id="core-fnsearchpage"></a>`FnSearchPage`
 
 const, type · declared in `packages/core/src/fn-facts.ts`
@@ -14748,7 +15721,7 @@ type FnSearchQuery = {
   } | undefined;
   modes?: ("read" | "write" | "delete")[] | undefined;
   effects?: {
-    thing: "types" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+    thing: "types" | "records" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
     action?: "create" | "update" | "remove" | undefined;
     kind?: string | undefined;
   }[] | undefined;
@@ -14757,343 +15730,6 @@ type FnSearchQuery = {
   order?: "name" | "score" | undefined;
   offset?: number | undefined;
   limit?: number | undefined;
-};
-```
-
-#### <a id="core-formkind"></a>`FormKind`
-
-const, type · declared in `packages/core/src/resources.ts`
-
-Every kind of form made from a resource's raw content: the converted versions, then the made ones. See `resource-forms.ts`.
-
-```ts
-type FormKind = "description" | "text" | "table" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail";
-```
-
-#### <a id="core-gintypedef"></a>`GinTypeDef`
-
-const, type · declared in `packages/core/src/gin.ts`
-
-A gin type in its JSON wire form. `registry.parse` turns it back into a gin type and checks it fully.
-
-```ts
-type GinTypeDef = TypeDef<any>;
-```
-
-#### <a id="core-handleranswer"></a>`HandlerAnswer`
-
-const, type · declared in `packages/core/src/run.ts`
-
-A handler's answer: its value, or why there is none.
-
-```ts
-type HandlerAnswer = {
-  ok: true;
-  value: z.core.util.JSONType;
-} | {
-  ok: false;
-  error: {
-    class: "retry" | "caller" | "fatal";
-    message: string;
-    code?: string | undefined;
-    data?: z.core.util.JSONType | undefined;
-  };
-};
-```
-
-#### <a id="core-hookblock"></a>`HookBlock`
-
-const, type · declared in `packages/core/src/manifest.ts`
-
-What a hook adds. Each becomes a tagged block the LLM can tell apart from the user's words. A suggestion's system is
-its qualified name's; its kind is its block's. The hub lists its own suggestions best match first, with scores.
-
-```ts
-type HookBlock = {
-  type: "text";
-  tag: string;
-  text: string;
-} | {
-  type: "suggest-context";
-  items: {
-    context: `${string}/${string}`;
-    why?: string | undefined;
-    score?: number | undefined;
-  }[];
-} | {
-  type: "suggest-fns";
-  items: {
-    fn: `${string}/${string}`;
-    why?: string | undefined;
-    score?: number | undefined;
-  }[];
-} | {
-  type: "load";
-  context?: `${string}/${string}`[] | undefined;
-  fns?: `${string}/${string}`[] | undefined;
-};
-```
-
-#### <a id="core-hookinput"></a>`HookInput`
-
-const, type · declared in `packages/core/src/manifest.ts`
-
-What a user-message hook sees.
-
-```ts
-type HookInput = {
-  session: string;
-  turn: string;
-  text: string;
-  user: {
-    id: string;
-    name: string;
-    email: string;
-    role: "admin" | "member";
-    groups: {
-      id: string;
-      name: string;
-    }[];
-    timeZone: string;
-    locale: string;
-  };
-  time: {
-    now: number;
-    timeZone: string;
-    local: string;
-  };
-};
-```
-
-#### <a id="core-hostrefusal"></a>`HostRefusal`
-
-const, type · declared in `packages/core/src/lifecycle.ts`
-
-A refusal a host saw on the machine (`reportRefusal` on the link): a host its allowlist proxy refused, or a path
-Node's permission model refused, for an instance it hosts. The hub keeps it as that instance's `RefusalRecord`.
-
-```ts
-type HostRefusal = {
-  instance: {
-    system: SystemName;
-    instance: InstanceName;
-  };
-  rule: "files" | "network";
-  attempt: string;
-  detail: string;
-};
-```
-
-#### <a id="core-hublinkspec"></a>`HubLinkSpec`
-
-type · declared in `packages/core/src/link.ts`
-
-```ts
-type HubLinkSpec = typeof hubLinkSpec;
-```
-
-#### <a id="core-hubmodelinfo"></a>`HubModelInfo`
-
-const, type · declared in `packages/core/src/admin.ts`
-
-A model as a system's aeye sees it through the hub (`models` on the hub link, `ctx.ai()` / `hubAi()`):
-what `ModelInfo` says plus what aeye's selection needs, and the hub roles it fills. `capabilities` are aeye's
-capability names. Only the models the system may use are listed; the hub still checks access and budgets per call.
-
-```ts
-type HubModelInfo = {
-  id: string;
-  provider: `${string}/${string}` | "openai" | "openrouter" | "ollama" | "aws";
-  name: string;
-  capabilities: string[];
-  tier: "flagship" | "efficient" | "legacy" | "experimental";
-  roles: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[];
-  contextWindow?: number | undefined;
-  pricing?: {
-    input: number;
-    output: number;
-  } | undefined;
-  maxOutputTokens?: number | undefined;
-};
-```
-
-#### <a id="core-importreport"></a>`ImportReport`
-
-const, type · declared in `packages/core/src/manifest.ts`
-
-What the hub did with a manifest or patch.
-
-```ts
-type ImportReport = {
-  added: `${string}/${string}`[];
-  updated: `${string}/${string}`[];
-  removed: `${string}/${string}`[];
-  refused: {
-    name: string;
-    problems: string[];
-  }[];
-};
-```
-
-#### <a id="core-inputproblem"></a>`InputProblem`
-
-const, type · declared in `packages/core/src/run.ts`
-
-One thing wrong with a run's input: where (a dotted path into the args, empty for the whole) and what.
-
-```ts
-type InputProblem = {
-  path: string;
-  message: string;
-};
-```
-
-#### <a id="core-inputverdict"></a>`InputVerdict`
-
-const, type · declared in `packages/core/src/validation.ts`
-
-The answer of an input check.
-
-```ts
-type InputVerdict = {
-  ok: true;
-} | {
-  ok: false;
-  reason: string;
-};
-```
-
-#### <a id="core-instancename"></a>`InstanceName`
-
-const, type · declared in `packages/core/src/primitives.ts`
-
-One attached copy of a system: a fleet of fs machines is one system `fs` with instances `laptop` and `desk`. A system
-that runs one copy has the single instance `main`. Same shape as a system name.
-
-```ts
-type InstanceName = InstanceName;
-```
-
-#### <a id="core-invalidinput"></a>`InvalidInput`
-
-const, type · declared in `packages/core/src/run.ts`
-
-A run's input was refused before (or by) its fn. This is retryable and often expected from a model: the hub feeds the
-problems back to the agent and the chat shows the run softly as "Retried". A real failure is `failed`.
-
-```ts
-type InvalidInput = {
-  source: "json" | "result" | "unavailable" | "schema" | "validation";
-  problems: {
-    path: string;
-    message: string;
-  }[];
-  raw?: string | undefined;
-};
-```
-
-#### <a id="core-json"></a>`Json`
-
-const, type · declared in `packages/core/src/primitives.ts`
-
-Any JSON value.
-
-```ts
-type Json = string | number | boolean | z.core.util.JSONType[] | {
-  [key: string]: z.core.util.JSONType;
-} | null;
-```
-
-#### <a id="core-jsonobject"></a>`JsonObject`
-
-const, type · declared in `packages/core/src/primitives.ts`
-
-A JSON object.
-
-```ts
-type JsonObject = {
-  [x: string]: z.core.util.JSONType;
-};
-```
-
-#### <a id="core-kinddescription"></a>`KindDescription`
-
-const, type · declared in `packages/core/src/manifest.ts`
-
-Everything a kind works out from one payload, so the author of a fn of that kind writes only the payload. The hub
-stores this with the fn and recomputes it whenever the payload, or anything it references, changes.
-
-```ts
-type KindDescription = {
-  args: TypeDef<any>;
-  returns: TypeDef<any>;
-  deps: `${string}/${string}`[];
-  operations: {
-    cancel: boolean;
-    pause: boolean;
-    undo: boolean;
-    background: boolean;
-  };
-  types?: `${string}/${string}`[] | undefined;
-  refs?: string[] | undefined;
-  handlers?: Record<string, {
-    description: string;
-    args: TypeDef<any>;
-    returns: TypeDef<any>;
-    required: boolean;
-  }> | undefined;
-  progress?: {
-    type: "none";
-  } | {
-    type: "linear";
-  } | {
-    type: "steps";
-    steps: Record<string, string>;
-  } | undefined;
-  status?: {
-    active: {
-      one: string;
-      many: string;
-    };
-    retry: {
-      one: string;
-      many: string;
-    };
-    done: {
-      one: string;
-      many: string;
-    };
-    failed: {
-      one: string;
-      many: string;
-    };
-  } | undefined;
-  limits?: {
-    timeout?: number | undefined;
-    retries?: number | undefined;
-    cost?: number | undefined;
-  } | undefined;
-  display?: "message" | "card" | "hidden" | undefined;
-  approval?: {
-    preview: boolean;
-    remember: boolean;
-    approver?: "person" | "admins" | undefined;
-  } | undefined;
-  effects?: {
-    mode?: "read" | "write" | "delete" | undefined;
-    reads?: `${string}/${string}`[] | undefined;
-    writes?: `${string}/${string}`[] | undefined;
-    free?: boolean | undefined;
-    registry?: {
-      thing: "types" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
-      action: "create" | "update" | "remove";
-      kind?: `${string}/${string}` | "native" | undefined;
-    }[] | undefined;
-  } | undefined;
-  readable?: {
-    language: string;
-    code: string;
-  } | undefined;
 };
 ```
 
@@ -15115,31 +15751,116 @@ type KindEstimateAnswer = {
 };
 ```
 
-#### <a id="core-link"></a>`Link`
+### From `packages/core/src/gin.ts`
 
-const, type · declared in `packages/core/src/resources.ts`
+#### <a id="core-gintypedef"></a>`GinTypeDef`
 
-A link attachment: to a resource (or one of its sections), a URL, stored content, or a run.
+const, type · declared in `packages/core/src/gin.ts`
+
+A gin type in its JSON wire form. `registry.parse` turns it back into a gin type and checks it fully.
 
 ```ts
-type Link = {
-  resource: `${string}://${string}`;
-  section?: SectionKey | undefined;
-  title?: string | undefined;
-} | {
-  url: string;
-  title: string;
-} | {
-  file: {
-    hash: string;
-    size: number;
-    mime: string;
-  };
-  title: string;
-} | {
-  run: string;
-  title: string;
+type GinTypeDef = TypeDef<any>;
+```
+
+### From `packages/core/src/grants.ts`
+
+#### <a id="core-configcomponentdecl"></a>`ConfigComponentDecl`
+
+const, type · declared in `packages/core/src/grants.ts`
+
+A system's own config component (a Vue component exported by its client bundle under `component`). `replace` draws
+it instead of the gin form; `beside` draws it under the form. It gets the config, its gin type, a validate callback
+and the system's client; the hub still checks the value with the gin type before saving.
+
+```ts
+type ConfigComponentDecl = {
+  component: string;
+  mode: "replace" | "beside";
 };
+```
+
+#### <a id="core-systemgrants"></a>`SystemGrants`
+
+const, type · declared in `packages/core/src/grants.ts`
+
+Everything a system may do through the hub and, when fs supervises it, on its machine. A system that declares no
+grants gets the base only. The hub refuses (and logs as a `RefusalRecord`) anything outside them.
+
+```ts
+type SystemGrants = {
+  hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
+  models?: {
+    roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+    models?: string[] | undefined;
+    perRun?: number | undefined;
+    perDay?: number | undefined;
+  } | undefined;
+  secrets?: string[] | undefined;
+  calls?: (`${string}/${string}` | SystemName)[] | undefined;
+  network?: string[] | undefined;
+  files?: {
+    read: string[];
+    write: string[];
+  } | undefined;
+};
+```
+
+### From `packages/core/src/lifecycle.ts`
+
+#### <a id="core-hostrefusal"></a>`HostRefusal`
+
+const, type · declared in `packages/core/src/lifecycle.ts`
+
+A refusal a host saw on the machine (`reportRefusal` on the link): a host its allowlist proxy refused, or a path
+Node's permission model refused, for an instance it hosts. The hub keeps it as that instance's `RefusalRecord`.
+
+```ts
+type HostRefusal = {
+  instance: {
+    system: SystemName;
+    instance: InstanceName;
+  };
+  rule: "files" | "network";
+  attempt: string;
+  detail: string;
+};
+```
+
+### From `packages/core/src/link.ts`
+
+#### <a id="core-adminnotice"></a>`AdminNotice`
+
+const, type · declared in `packages/core/src/link.ts`
+
+What a system tells its hub's admins (`notifyAdmins`): a short title and a plain-words body.
+
+```ts
+type AdminNotice = {
+  title: string;
+  body: string;
+};
+```
+
+#### <a id="core-configvalue"></a>`ConfigValue`
+
+const, type · declared in `packages/core/src/link.ts`
+
+A system's config value as the hub holds it.
+
+```ts
+type ConfigValue = {
+  value: z.core.util.JSONType;
+  version: number;
+};
+```
+
+#### <a id="core-hublinkspec"></a>`HubLinkSpec`
+
+type · declared in `packages/core/src/link.ts`
+
+```ts
+type HubLinkSpec = typeof hubLinkSpec;
 ```
 
 #### <a id="core-linksession"></a>`LinkSession`
@@ -15155,6 +15876,297 @@ type LinkSession = {
   boot: string;
 };
 ```
+
+#### <a id="core-logline"></a>`LogLine`
+
+const, type · declared in `packages/core/src/link.ts`
+
+A log line forwarded from a system.
+
+```ts
+type LogLine = {
+  level: "error" | "debug" | "info" | "warn";
+  key: string;
+  fields: Record<string, z.core.util.JSONType>;
+};
+```
+
+#### <a id="core-runcontrol"></a>`RunControl`
+
+const, type · declared in `packages/core/src/link.ts`
+
+Cancel or pause a run. The hub sends it to the system running the run; a system sends it for its own child calls.
+
+```ts
+type RunControl = {
+  run: string;
+  action: "cancel" | "pause";
+};
+```
+
+#### <a id="core-runrequest"></a>`RunRequest`
+
+const, type · declared in `packages/core/src/link.ts`
+
+The hub's request to run a fn.
+
+```ts
+type RunRequest = {
+  run: {
+    id: string;
+    fn: `${string}/${string}`;
+    turn: string;
+    user: {
+      id: string;
+      name: string;
+      email: string;
+      role: "admin" | "member";
+      groups: {
+        id: string;
+        name: string;
+      }[];
+      timeZone: string;
+      locale: string;
+    };
+    time: {
+      now: number;
+      timeZone: string;
+      local: string;
+    };
+    system: {
+      name: string;
+      instance: InstanceName;
+      boot: string;
+      from?: {
+        system: string;
+        fn: `${string}/${string}`;
+        run: string;
+      } | undefined;
+    };
+    caller: string;
+    attempt: number;
+    priority: "background" | "urgent" | "interactive" | "normal";
+    parent?: string | undefined;
+    session?: string | undefined;
+    watched?: boolean | undefined;
+  };
+  fn: string;
+  kind: `${string}/${string}` | "native";
+  args: z.core.util.JSONType;
+  budget: {
+    cost: number;
+    time: number;
+    limitedBy: string;
+  };
+  handlers: string[];
+  deadline: number;
+  configVersion: number;
+  payload?: z.core.util.JSONType | undefined;
+  resume?: {
+    state: z.core.util.JSONType;
+    calls: Record<string, {
+      status: "done";
+      result: z.core.util.JSONType;
+    } | {
+      status: "failed";
+      error: {
+        class: "retry" | "caller" | "fatal";
+        message: string;
+        code?: string | undefined;
+        data?: z.core.util.JSONType | undefined;
+      };
+    } | {
+      status: "cancelled";
+      error?: {
+        class: "retry" | "caller" | "fatal";
+        message: string;
+        code?: string | undefined;
+        data?: z.core.util.JSONType | undefined;
+      } | undefined;
+    } | {
+      status: "background";
+      run: string;
+    }>;
+    reason: "restart" | "resumed";
+  } | undefined;
+  connection?: {
+    id: string;
+    owner: string;
+    credentials: z.core.util.JSONType;
+    settings: z.core.util.JSONType;
+  } | undefined;
+  approved?: {
+    by: string;
+    preview: {
+      title: string;
+      parts: ({
+        type: "text";
+        text: string;
+      } | {
+        type: "code";
+        language: string;
+        code: string;
+        title?: string | undefined;
+      } | {
+        type: "table";
+        title: string;
+        table: {
+          columns: {
+            name: string;
+            kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
+            nullable: boolean;
+            label?: string | undefined;
+            type?: TypeDef<any> | undefined;
+            ref?: `${string}/${string}` | undefined;
+          }[];
+          rows: z.core.util.JSONType[][];
+          offset: number;
+          truncated: boolean;
+          sort: {
+            column: string;
+            dir: "asc" | "desc";
+          }[];
+          limit?: number | undefined;
+          total?: number | undefined;
+        };
+      } | {
+        type: "type-diff";
+        name: string;
+        changes: string[];
+        breaks: {
+          fn: string;
+          why: string;
+        }[];
+        before?: TypeDef<any> | undefined;
+        after?: TypeDef<any> | undefined;
+      } | {
+        type: "flags";
+        flags: {
+          path: string;
+          kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
+          rule: string;
+          access: "read" | "write";
+          action: "ask" | "refuse" | "allow";
+          why: string;
+          certain: boolean;
+        }[];
+      })[];
+      irreversible: boolean;
+      subject?: {
+        kind: "system-install";
+        system: SystemName;
+        instance: InstanceName;
+        version: string;
+        manifestHash: string;
+        bundleHash: string;
+        sourceHash: string;
+        host: {
+          system: SystemName;
+          instance: InstanceName;
+        };
+        source?: string | undefined;
+        grants?: {
+          hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
+          models?: {
+            roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+            models?: string[] | undefined;
+            perRun?: number | undefined;
+            perDay?: number | undefined;
+          } | undefined;
+          secrets?: string[] | undefined;
+          calls?: (`${string}/${string}` | SystemName)[] | undefined;
+          network?: string[] | undefined;
+          files?: {
+            read: string[];
+            write: string[];
+          } | undefined;
+        } | undefined;
+        replaces?: {
+          version: string;
+          manifestHash: string;
+        } | undefined;
+      } | undefined;
+      checks?: {
+        scan: {
+          size: number;
+          builtins: string[];
+          concerns: {
+            kind: "builtin" | "dynamic-import" | "dynamic-require" | "eval" | "new-function";
+            line: number;
+            detail: string;
+            code: string;
+          }[];
+          urls: string[];
+          hosts: string[];
+        };
+        tests?: {
+          system: SystemName;
+          version: string;
+          ranAt: number;
+          duration: number;
+          passed: number;
+          failed: number;
+          skipped: number;
+          cases: {
+            file: string;
+            name: string;
+            status: "failed" | "skipped" | "passed";
+            duration: number;
+            real?: boolean | undefined;
+            error?: string | undefined;
+          }[];
+          more?: number | undefined;
+          previews?: {
+            component: string;
+            state: string;
+            viewport: "phone" | "desktop";
+            theme: "light" | "dark";
+            image: {
+              hash: string;
+              size: number;
+              mime: string;
+            };
+          }[] | undefined;
+        } | undefined;
+      } | undefined;
+    };
+  } | undefined;
+};
+```
+
+#### <a id="core-stateowner"></a>`StateOwner`
+
+const, type · declared in `packages/core/src/link.ts`
+
+A run's session state, or an action's: who is asking decides which declared fields are visible.
+
+```ts
+type StateOwner = {
+  run: string;
+} | {
+  delivery: string;
+};
+```
+
+#### <a id="core-stopreason"></a>`StopReason`
+
+const, type · declared in `packages/core/src/link.ts`
+
+Why a system is told to stop.
+
+```ts
+type StopReason = "removed" | "restart" | "upgrade" | "shutdown";
+```
+
+#### <a id="core-systemlinkspec"></a>`SystemLinkSpec`
+
+type · declared in `packages/core/src/link.ts`
+
+```ts
+type SystemLinkSpec = typeof systemLinkSpec;
+```
+
+### From `packages/core/src/llm.ts`
 
 #### <a id="core-llmforward"></a>`LlmForward`
 
@@ -15319,36 +16331,307 @@ type LlmRequest = {
 };
 ```
 
-#### <a id="core-loadcontextresult"></a>`LoadContextResult`
+#### <a id="core-modelchoice"></a>`ModelChoice`
 
-const, type · declared in `packages/core/src/context-files.ts`
+const, type · declared in `packages/core/src/llm.ts`
 
-What `hub/load_context` did: the context it loaded (with what each loads with it, every time), the fns that context
-brings that went into the session's tools, and what it refused, each with the closest names it knows.
+Which model to use: a model id, a named category, or automatic selection by weights.
 
 ```ts
-type LoadContextResult = {
-  loaded: `${string}/${string}`[];
+type ModelChoice = {
+  model: string;
+} | {
+  category: string;
+} | {
+  auto: {
+    cost?: number | undefined;
+    speed?: number | undefined;
+    accuracy?: number | undefined;
+  };
+};
+```
+
+### From `packages/core/src/manifest.ts`
+
+#### <a id="core-contextdecl"></a>`ContextDecl`
+
+const, type · declared in `packages/core/src/manifest.ts`
+
+A context item. `name` is its stable key (`authoring.kinds`): readable, never shown to people, never derived from a
+file path, so the hub updates the same record (links, stats, embeddings) when its title, text or place change.
+
+```ts
+type ContextDecl = {
+  name: string;
+  description: string;
+  imports: `${string}/${string}`[];
   fns: `${string}/${string}`[];
+  suggestFns: `${string}/${string}`[];
+  suggest: "llm" | "none" | "user" | "both";
+  visible: "llm" | "none" | "user" | "both";
+  alwaysFor: `${string}/${string}`[];
+  tags: string[];
+  title?: string | undefined;
+  content?: string | undefined;
+  command?: {
+    name: string;
+    args: {
+      name: string;
+      hint: string;
+      required: boolean;
+    }[];
+  } | undefined;
+  weight?: number | undefined;
+  summary?: string | undefined;
+  parent?: `${string}/${string}` | undefined;
+  next?: `${string}/${string}` | undefined;
+  choices?: {
+    to: `${string}/${string}`;
+    when: string;
+  }[] | undefined;
+  links?: {
+    to: {
+      kind: "context";
+      name: `${string}/${string}`;
+    } | {
+      kind: "fn";
+      name: `${string}/${string}`;
+    } | {
+      kind: "type";
+      name: `${string}/${string}`;
+    } | {
+      kind: "resource";
+      uri: `${string}://${string}`;
+      section?: SectionKey | undefined;
+    };
+    relation: "next" | "about" | "parent" | "imports" | "brings" | "suggests" | "related";
+    weight: number;
+  }[] | undefined;
+};
+```
+
+#### <a id="core-fneffects"></a>`FnEffects`
+
+const, type · declared in `packages/core/src/manifest.ts`
+
+What a fn says it does to data (`FnDecl.effects`): its mode, the named types it reads and writes, what it creates,
+updates or removes in the hub, and whether its own work costs nothing. Absent parts are worked out by the hub (`FnFacts`): the mode from the `read` tag, the types
+from its signature, and everything a fn uses (its deps, an agent's tools) is folded in.
+
+```ts
+type FnEffects = {
+  mode?: "read" | "write" | "delete" | undefined;
+  reads?: `${string}/${string}`[] | undefined;
+  writes?: `${string}/${string}`[] | undefined;
+  free?: boolean | undefined;
+  registry?: {
+    thing: "types" | "records" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+    action: "create" | "update" | "remove";
+    kind?: `${string}/${string}` | "native" | undefined;
+  }[] | undefined;
+};
+```
+
+#### <a id="core-fnexample"></a>`FnExample`
+
+const, type · declared in `packages/core/src/manifest.ts`
+
+One example call of a fn: its args, optionally what it returned, and what the example shows.
+
+```ts
+type FnExample = {
+  args: z.core.util.JSONType;
+  result?: z.core.util.JSONType | undefined;
+  note?: string | undefined;
+};
+```
+
+#### <a id="core-fnmode"></a>`FnMode`
+
+const, type · declared in `packages/core/src/manifest.ts`
+
+```ts
+type FnMode = "read" | "write" | "delete";
+```
+
+#### <a id="core-fnrouting"></a>`FnRouting`
+
+const, type · declared in `packages/core/src/manifest.ts`
+
+Which instance of a fleet runs a fn's calls. `instance`: always that one (a database's query fns), and the
+fn belongs to it the way `TypeDecl.instance` says. `any`: whichever connected instance the hub picks first (the
+session's pin, then the default), with no ambiguity refusal; the fn forwards with `on` itself when it must.
+Absent: the fleet rules (`FleetRouter`).
+
+```ts
+type FnRouting = {
+  to: "instance";
+  instance: InstanceName;
+} | {
+  to: "any";
+};
+```
+
+#### <a id="core-hookblock"></a>`HookBlock`
+
+const, type · declared in `packages/core/src/manifest.ts`
+
+What a hook adds. Each becomes a tagged block the LLM can tell apart from the user's words. A suggestion's system is
+its qualified name's; its kind is its block's. The hub lists its own suggestions best match first, with scores.
+
+```ts
+type HookBlock = {
+  type: "text";
+  tag: string;
+  text: string;
+} | {
+  type: "suggest-context";
+  items: {
+    context: `${string}/${string}`;
+    why?: string | undefined;
+    score?: number | undefined;
+  }[];
+} | {
+  type: "suggest-fns";
+  items: {
+    fn: `${string}/${string}`;
+    why?: string | undefined;
+    score?: number | undefined;
+  }[];
+} | {
+  type: "load";
+  context?: `${string}/${string}`[] | undefined;
+  fns?: `${string}/${string}`[] | undefined;
+};
+```
+
+#### <a id="core-hookinput"></a>`HookInput`
+
+const, type · declared in `packages/core/src/manifest.ts`
+
+What a user-message hook sees.
+
+```ts
+type HookInput = {
+  session: string;
+  turn: string;
+  text: string;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    role: "admin" | "member";
+    groups: {
+      id: string;
+      name: string;
+    }[];
+    timeZone: string;
+    locale: string;
+  };
+  time: {
+    now: number;
+    timeZone: string;
+    local: string;
+  };
+};
+```
+
+#### <a id="core-importreport"></a>`ImportReport`
+
+const, type · declared in `packages/core/src/manifest.ts`
+
+What the hub did with a manifest or patch.
+
+```ts
+type ImportReport = {
+  added: `${string}/${string}`[];
+  updated: `${string}/${string}`[];
+  removed: `${string}/${string}`[];
   refused: {
-    context: string;
-    reason: string;
-    closest: `${string}/${string}`[];
+    name: string;
+    problems: string[];
   }[];
 };
 ```
 
-#### <a id="core-logline"></a>`LogLine`
+#### <a id="core-kinddescription"></a>`KindDescription`
 
-const, type · declared in `packages/core/src/link.ts`
+const, type · declared in `packages/core/src/manifest.ts`
 
-A log line forwarded from a system.
+Everything a kind works out from one payload, so the author of a fn of that kind writes only the payload. The hub
+stores this with the fn and recomputes it whenever the payload, or anything it references, changes.
 
 ```ts
-type LogLine = {
-  level: "error" | "debug" | "info" | "warn";
-  key: string;
-  fields: Record<string, z.core.util.JSONType>;
+type KindDescription = {
+  args: TypeDef<any>;
+  returns: TypeDef<any>;
+  deps: `${string}/${string}`[];
+  operations: {
+    cancel: boolean;
+    pause: boolean;
+    undo: boolean;
+    background: boolean;
+  };
+  types?: `${string}/${string}`[] | undefined;
+  refs?: string[] | undefined;
+  handlers?: Record<string, {
+    description: string;
+    args: TypeDef<any>;
+    returns: TypeDef<any>;
+    required: boolean;
+  }> | undefined;
+  progress?: {
+    type: "none";
+  } | {
+    type: "linear";
+  } | {
+    type: "steps";
+    steps: Record<string, string>;
+  } | undefined;
+  status?: {
+    active: {
+      one: string;
+      many: string;
+    };
+    retry: {
+      one: string;
+      many: string;
+    };
+    done: {
+      one: string;
+      many: string;
+    };
+    failed: {
+      one: string;
+      many: string;
+    };
+  } | undefined;
+  limits?: {
+    timeout?: number | undefined;
+    retries?: number | undefined;
+    cost?: number | undefined;
+  } | undefined;
+  display?: "message" | "card" | "hidden" | undefined;
+  approval?: {
+    preview: boolean;
+    remember: boolean;
+    approver?: "person" | "admins" | undefined;
+  } | undefined;
+  effects?: {
+    mode?: "read" | "write" | "delete" | undefined;
+    reads?: `${string}/${string}`[] | undefined;
+    writes?: `${string}/${string}`[] | undefined;
+    free?: boolean | undefined;
+    registry?: {
+      thing: "types" | "records" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+      action: "create" | "update" | "remove";
+      kind?: `${string}/${string}` | "native" | undefined;
+    }[] | undefined;
+  } | undefined;
+  readable?: {
+    language: string;
+    code: string;
+  } | undefined;
 };
 ```
 
@@ -15383,6 +16666,14 @@ type Manifest = {
       with: string[];
     } | undefined;
     meta?: Record<string, z.core.util.JSONType> | undefined;
+    records?: {
+      shape: "table" | "value";
+      owner: "shared" | "person";
+      search: {
+        text: string[];
+        embed: boolean;
+      };
+    } | undefined;
   }[];
   settings: {
     name: string;
@@ -15517,12 +16808,14 @@ type Manifest = {
       writes?: `${string}/${string}`[] | undefined;
       free?: boolean | undefined;
       registry?: {
-        thing: "types" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+        thing: "types" | "records" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
         action: "create" | "update" | "remove";
         kind?: `${string}/${string}` | "native" | undefined;
       }[] | undefined;
     } | undefined;
     promptExamples?: number | undefined;
+    group?: string | undefined;
+    flags?: boolean | undefined;
   }[];
   context: {
     name: string;
@@ -15597,7 +16890,7 @@ type Manifest = {
       format?: string | undefined;
       mime?: string | undefined;
       glob?: string | undefined;
-      form?: "description" | "text" | "table" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
+      form?: "description" | "table" | "text" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
     };
   }[];
   actions: {
@@ -15666,11 +16959,25 @@ type Manifest = {
     label: string;
     description?: string | undefined;
     icon?: string | undefined;
+    shape?: {
+      channels: {
+        name: string;
+        label: string;
+        accepts: ("number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary")[];
+        required: boolean;
+        many: boolean;
+      }[];
+      rows: {
+        min: number;
+        max?: number | undefined;
+      };
+      whole: boolean;
+    } | undefined;
   }[] | undefined;
   configSecrets?: string[] | undefined;
   runtime?: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "embedders" | "sectioners" | "actions", string[]>> | undefined;
   grants?: {
-    hub: ("fns" | "settings" | "search" | "state" | "resources" | "approvals" | "connections" | "embed" | "ai" | "decide")[];
+    hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
     models?: {
       roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
       models?: string[] | undefined;
@@ -15689,6 +16996,11 @@ type Manifest = {
     component: string;
     mode: "replace" | "beside";
   } | undefined;
+  groups?: {
+    name: string;
+    title: string;
+    description: string;
+  }[] | undefined;
 };
 ```
 
@@ -15721,6 +17033,14 @@ type ManifestPatch = {
         with: string[];
       } | undefined;
       meta?: Record<string, z.core.util.JSONType> | undefined;
+      records?: {
+        shape: "table" | "value";
+        owner: "shared" | "person";
+        search: {
+          text: string[];
+          embed: boolean;
+        };
+      } | undefined;
     }[] | undefined;
     settings?: {
       name: string;
@@ -15855,12 +17175,14 @@ type ManifestPatch = {
         writes?: `${string}/${string}`[] | undefined;
         free?: boolean | undefined;
         registry?: {
-          thing: "types" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+          thing: "types" | "records" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
           action: "create" | "update" | "remove";
           kind?: `${string}/${string}` | "native" | undefined;
         }[] | undefined;
       } | undefined;
       promptExamples?: number | undefined;
+      group?: string | undefined;
+      flags?: boolean | undefined;
     }[] | undefined;
     context?: {
       name: string;
@@ -15935,7 +17257,7 @@ type ManifestPatch = {
         format?: string | undefined;
         mime?: string | undefined;
         glob?: string | undefined;
-        form?: "description" | "text" | "table" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
+        form?: "description" | "table" | "text" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
       };
     }[] | undefined;
     actions?: {
@@ -15978,6 +17300,20 @@ type ManifestPatch = {
       label: string;
       description?: string | undefined;
       icon?: string | undefined;
+      shape?: {
+        channels: {
+          name: string;
+          label: string;
+          accepts: ("number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary")[];
+          required: boolean;
+          many: boolean;
+        }[];
+        rows: {
+          min: number;
+          max?: number | undefined;
+        };
+        whole: boolean;
+      } | undefined;
     }[] | undefined;
   } | undefined;
   roots?: true | undefined;
@@ -16028,6 +17364,561 @@ type MentionHover = {
   value?: z.core.util.JSONType | undefined;
 };
 ```
+
+#### <a id="core-sectiondecl"></a>`SectionDecl`
+
+type · declared in `packages/core/src/manifest.ts`
+
+The declaration type of one manifest section.
+
+```ts
+type SectionDecl<S extends ManifestSection> = z.infer<(typeof MANIFEST_SECTIONS)[S]>;
+```
+
+#### <a id="core-settingeditor"></a>`SettingEditor`
+
+const, type · declared in `packages/core/src/manifest.ts`
+
+Besides admins, who may set a setting.
+
+```ts
+type SettingEditor = "self" | "fns";
+```
+
+#### <a id="core-settingmerge"></a>`SettingMerge`
+
+const, type · declared in `packages/core/src/manifest.ts`
+
+How a user's setting value combines with their groups'.
+
+```ts
+type SettingMerge = "union" | "user-wins" | "intersect" | "most-restrictive";
+```
+
+#### <a id="core-typedecl"></a>`TypeDecl`
+
+const, type · declared in `packages/core/src/manifest.ts`
+
+A named type. Its methods are sent as fns named `Type.method` whose args hold the value as `self`.
+
+```ts
+type TypeDecl = {
+  name: string;
+  description: string;
+  def: TypeDef<any>;
+  display: {
+    label: string;
+    plural?: string | undefined;
+    icon?: string | undefined;
+    color?: string | undefined;
+    title?: string | undefined;
+    subtitle?: string | undefined;
+  };
+  methods: string[];
+  instance?: InstanceName | undefined;
+  audience?: {
+    visibility: "private" | "shared" | "public";
+    with: string[];
+  } | undefined;
+  meta?: Record<string, z.core.util.JSONType> | undefined;
+  records?: {
+    shape: "table" | "value";
+    owner: "shared" | "person";
+    search: {
+      text: string[];
+      embed: boolean;
+    };
+  } | undefined;
+};
+```
+
+#### <a id="core-typedisplay"></a>`TypeDisplay`
+
+const, type · declared in `packages/core/src/manifest.ts`
+
+How values of a named type are shown: in mention chips, hover cards and inputs.
+
+```ts
+type TypeDisplay = {
+  label: string;
+  plural?: string | undefined;
+  icon?: string | undefined;
+  color?: string | undefined;
+  title?: string | undefined;
+  subtitle?: string | undefined;
+};
+```
+
+### From `packages/core/src/mention-search.ts`
+
+#### <a id="core-mentionresourcesearch"></a>`MentionResourceSearch`
+
+const, type · declared in `packages/core/src/mention-search.ts`
+
+A system's resource search for a mention request: the text, optional roots to stay inside, and how many hits.
+
+```ts
+type MentionResourceSearch = {
+  request: string;
+  query: string;
+  limit: number;
+  roots?: `${string}://${string}`[] | undefined;
+};
+```
+
+### From `packages/core/src/model-calls.ts`
+
+#### <a id="core-modelforward"></a>`ModelForward`
+
+const, type · declared in `packages/core/src/model-calls.ts`
+
+A non-chat model call a system forwards to the hub (the `model` link endpoint), by modality.
+
+```ts
+type ModelForward = ({
+  modality: "embed";
+  texts: string[];
+  model?: {
+    model: string;
+  } | {
+    category: string;
+  } | {
+    auto: {
+      cost?: number | undefined;
+      speed?: number | undefined;
+      accuracy?: number | undefined;
+    };
+  } | undefined;
+} | {
+  modality: "image";
+  prompt: string;
+  model?: {
+    model: string;
+  } | {
+    category: string;
+  } | {
+    auto: {
+      cost?: number | undefined;
+      speed?: number | undefined;
+      accuracy?: number | undefined;
+    };
+  } | undefined;
+  size?: string | undefined;
+  count?: number | undefined;
+} | {
+  modality: "transcribe";
+  audio: {
+    hash: string;
+    size: number;
+    mime: string;
+  };
+  model?: {
+    model: string;
+  } | {
+    category: string;
+  } | {
+    auto: {
+      cost?: number | undefined;
+      speed?: number | undefined;
+      accuracy?: number | undefined;
+    };
+  } | undefined;
+  language?: string | undefined;
+} | {
+  modality: "speech";
+  text: string;
+  model?: {
+    model: string;
+  } | {
+    category: string;
+  } | {
+    auto: {
+      cost?: number | undefined;
+      speed?: number | undefined;
+      accuracy?: number | undefined;
+    };
+  } | undefined;
+  voice?: string | undefined;
+  format?: "mp3" | "wav" | "ogg" | undefined;
+}) & {
+  run?: string | undefined;
+};
+```
+
+#### <a id="core-modelforwardresult"></a>`ModelForwardResult`
+
+const, type · declared in `packages/core/src/model-calls.ts`
+
+What a forwarded non-chat call gives back, by modality, with its record and cost. Large outputs come by ref.
+
+```ts
+type ModelForwardResult = ({
+  modality: "embed";
+  vectors: number[][];
+} | {
+  modality: "image";
+  images: {
+    hash: string;
+    size: number;
+    mime: string;
+  }[];
+} | {
+  modality: "transcribe";
+  text: string;
+  segments?: {
+    start: number;
+    end: number;
+    text: string;
+  }[] | undefined;
+} | {
+  modality: "speech";
+  audio: {
+    hash: string;
+    size: number;
+    mime: string;
+  };
+}) & {
+  call: string;
+  cost: number;
+  model: string;
+};
+```
+
+### From `packages/core/src/modes.ts`
+
+#### <a id="core-chatmodeconfig"></a>`ChatModeConfig`
+
+const, type · declared in `packages/core/src/modes.ts`
+
+A chat mode's settings. Adding a variant fails to compile in the hub until it has an implementation.
+
+```ts
+type ChatModeConfig = {
+  type: "tools";
+} | {
+  type: "static";
+  protocol: "text" | "auto" | "native";
+  placement: "system-end" | "tail";
+  loadDetail: "signature" | "listed" | "full";
+};
+```
+
+#### <a id="core-contextorconfig"></a>`ContextorConfig`
+
+const, type · declared in `packages/core/src/modes.ts`
+
+A contextor's settings. Adding a variant fails to compile in the hub until it has an implementation.
+
+```ts
+type ContextorConfig = {
+  type: "plain";
+} | {
+  type: "suggest";
+  topN: number;
+  autoInject?: {
+    tokens: number;
+    items: number;
+  } | undefined;
+} | {
+  type: "graph";
+  metrics: Partial<Record<"embedding" | "words" | "turnsAgo" | "age" | "selectedBefore" | "used", {
+    weight: number;
+    target?: number | undefined;
+    k?: number | undefined;
+  }>>;
+  spread: {
+    damping: number;
+    hops: number;
+  };
+  floorExchanges: number;
+  shares: Record<"fns" | "context" | "history", number>;
+  threshold: number;
+  evaluate: "perMessage" | "perIteration";
+};
+```
+
+#### <a id="core-detail"></a>`Detail`
+
+const, type · declared in `packages/core/src/modes.ts`
+
+```ts
+type Detail = "signature" | "listed" | "full";
+```
+
+#### <a id="core-modellimits"></a>`ModelLimits`
+
+const, type · declared in `packages/core/src/modes.ts`
+
+What the hub budgets a model's prompts against. Every field may be absent: the next source fills it (an admin's
+record, then the provider's probe, then aeye's model info, then the hub's defaults).
+
+```ts
+type ModelLimits = {
+  contextWindow?: number | undefined;
+  maxOutputTokens?: number | undefined;
+  reasoningTokens?: number | undefined;
+  charsPerToken?: number | undefined;
+};
+```
+
+### From `packages/core/src/package.ts`
+
+#### <a id="core-fleetinstance"></a>`FleetInstance`
+
+const, type · declared in `packages/core/src/package.ts`
+
+One instance of a system as its own fleet sees it (`fleet` on the hub link): whether it is online, its config with
+each secret field as `SECRET_KEPT`, and the types it owns (`TypeDecl.instance`), so one instance can choose which
+of them a request is for (a database system picking the database).
+
+```ts
+type FleetInstance = {
+  instance: InstanceName;
+  description: string;
+  online: boolean;
+  config: z.core.util.JSONType;
+  types: {
+    name: `${string}/${string}`;
+    description: string;
+  }[];
+};
+```
+
+#### <a id="core-pairinginfo"></a>`PairingInfo`
+
+const, type · declared in `packages/core/src/package.ts`
+
+What a system tells the hub while it waits for pairing, so the pairing page can show it and its config form before
+the manifest is sent (`pairingInfo` on the link).
+
+```ts
+type PairingInfo = {
+  pairing: string;
+  description: string;
+  instance: InstanceName;
+  configType?: TypeDef<any> | undefined;
+  configSecrets?: string[] | undefined;
+};
+```
+
+#### <a id="core-systempackagemanifest"></a>`SystemPackageManifest`
+
+const, type · declared in `packages/core/src/package.ts`
+
+`system.json`: what a system package is. The one source of truth for a system's name, version and entries; its
+contract's name must equal `name` (`harness system build` and `serve()` check it).
+
+```ts
+type SystemPackageManifest = {
+  format: 1;
+  name: SystemName;
+  version: string;
+  description: string;
+  protocol: number;
+  server: {
+    entry: string;
+    external: Record<string, string>;
+    node?: string | undefined;
+  };
+  instances: "one" | "many";
+  client?: {
+    entry: string;
+  } | undefined;
+  files?: Record<string, string> | undefined;
+  permissions?: {
+    childProcess?: boolean | undefined;
+    workers?: boolean | undefined;
+  } | undefined;
+};
+```
+
+### From `packages/core/src/primitives.ts`
+
+#### <a id="core-actorid"></a>`ActorId`
+
+const, type · declared in `packages/core/src/primitives.ts`
+
+```ts
+type ActorId = IdOf<'actor'>;
+```
+
+#### <a id="core-actorkind"></a>`ActorKind`
+
+const, type · declared in `packages/core/src/primitives.ts`
+
+What kind of thing an actor is.
+
+```ts
+type ActorKind = "mcp" | "system" | "user" | "group" | "agent";
+```
+
+#### <a id="core-audience"></a>`Audience`
+
+const, type · declared in `packages/core/src/primitives.ts`
+
+Who can see a thing: people in the UI, the LLM, both, or neither.
+
+```ts
+type Audience = "llm" | "none" | "user" | "both";
+```
+
+#### <a id="core-deliveryid"></a>`DeliveryId`
+
+const, type · declared in `packages/core/src/primitives.ts`
+
+```ts
+type DeliveryId = IdOf<'delivery'>;
+```
+
+#### <a id="core-duration"></a>`Duration`
+
+const, type · declared in `packages/core/src/primitives.ts`
+
+Milliseconds.
+
+```ts
+type Duration = number;
+```
+
+#### <a id="core-instancename"></a>`InstanceName`
+
+const, type · declared in `packages/core/src/primitives.ts`
+
+One attached copy of a system: a fleet of fs machines is one system `fs` with instances `laptop` and `desk`. A system
+that runs one copy has the single instance `main`. Same shape as a system name.
+
+```ts
+type InstanceName = InstanceName;
+```
+
+#### <a id="core-json"></a>`Json`
+
+const, type · declared in `packages/core/src/primitives.ts`
+
+Any JSON value.
+
+```ts
+type Json = string | number | boolean | z.core.util.JSONType[] | {
+  [key: string]: z.core.util.JSONType;
+} | null;
+```
+
+#### <a id="core-jsonobject"></a>`JsonObject`
+
+const, type · declared in `packages/core/src/primitives.ts`
+
+A JSON object.
+
+```ts
+type JsonObject = {
+  [x: string]: z.core.util.JSONType;
+};
+```
+
+#### <a id="core-page"></a>`Page`
+
+type · declared in `packages/core/src/primitives.ts`
+
+A page of items; `cursor` is absent on the last page.
+
+```ts
+type Page<T> = z.infer<ReturnType<typeof page<z.ZodType<T>>>>;
+```
+
+#### <a id="core-pairingid"></a>`PairingId`
+
+const, type · declared in `packages/core/src/primitives.ts`
+
+```ts
+type PairingId = IdOf<'pairing'>;
+```
+
+#### <a id="core-qualifiedname"></a>`QualifiedName`
+
+const, type · declared in `packages/core/src/primitives.ts`
+
+A name qualified by its system: `fs/read`, `hub/search_fns`, `fs/Entry`, `fs/Entry.reveal`.
+A name qualified by its system. The parameters narrow it to one system or one local name.
+
+```ts
+type QualifiedName<S extends string = string, N extends string = string> = `${S}/${N}`;
+```
+
+#### <a id="core-runid"></a>`RunId`
+
+const, type · declared in `packages/core/src/primitives.ts`
+
+```ts
+type RunId = IdOf<'run'>;
+```
+
+#### <a id="core-sessionid"></a>`SessionId`
+
+const, type · declared in `packages/core/src/primitives.ts`
+
+```ts
+type SessionId = IdOf<'session'>;
+```
+
+#### <a id="core-timestamp"></a>`Timestamp`
+
+const, type · declared in `packages/core/src/primitives.ts`
+
+Milliseconds since the epoch.
+
+```ts
+type Timestamp = number;
+```
+
+#### <a id="core-usd"></a>`Usd`
+
+const, type · declared in `packages/core/src/primitives.ts`
+
+US dollars.
+
+```ts
+type Usd = number;
+```
+
+### From `packages/core/src/query.ts`
+
+#### <a id="core-listquery"></a>`ListQuery`
+
+const, type · declared in `packages/core/src/query.ts`
+
+A query over one list: free text (plain matching over the list's text fields), filters (all must hold), sort keys
+and a page. The same shape is every list endpoint's `query` and `hub/query`'s.
+
+```ts
+type ListQuery = {
+  cursor?: string | undefined;
+  limit?: number | undefined;
+  text?: string | undefined;
+  filters?: ({
+    field: string;
+    op: "is" | "isNot" | "gt" | "gte" | "lt" | "lte" | "contains";
+    value: string | number | boolean;
+  } | {
+    field: string;
+    op: "in" | "notIn";
+    values: (string | number | boolean)[];
+  } | {
+    field: string;
+    op: "between";
+    from: string | number | boolean;
+    to: string | number | boolean;
+  } | {
+    field: string;
+    op: "empty" | "notEmpty";
+  })[] | undefined;
+  sort?: {
+    field: string;
+    dir: "asc" | "desc";
+  }[] | undefined;
+};
+```
+
+### From `packages/core/src/records/chat.ts`
 
 #### <a id="core-messagepart"></a>`MessagePart`
 
@@ -16154,6 +18045,8 @@ type MessagePart = {
 };
 ```
 
+### From `packages/core/src/records/mcps.ts`
+
 #### <a id="core-mintmcptokenargs"></a>`MintMcpTokenArgs`
 
 const, type · declared in `packages/core/src/records/mcps.ts`
@@ -16168,155 +18061,598 @@ type MintMcpTokenArgs = {
 };
 ```
 
-#### <a id="core-modelchoice"></a>`ModelChoice`
+### From `packages/core/src/records/runs.ts`
 
-const, type · declared in `packages/core/src/llm.ts`
+#### <a id="core-deliverystatus"></a>`DeliveryStatus`
 
-Which model to use: a model id, a named category, or automatic selection by weights.
+const, type · declared in `packages/core/src/records/runs.ts`
+
+Where a delivery is.
 
 ```ts
-type ModelChoice = {
-  model: string;
-} | {
-  category: string;
-} | {
-  auto: {
-    cost?: number | undefined;
-    speed?: number | undefined;
-    accuracy?: number | undefined;
-  };
-};
+type DeliveryStatus = "queued" | "done" | "failed" | "expired" | "delivered";
 ```
 
-#### <a id="core-modelforward"></a>`ModelForward`
+### From `packages/core/src/records/systems.ts`
 
-const, type · declared in `packages/core/src/model-calls.ts`
+#### <a id="core-typedefinitions"></a>`TypeDefinitions`
 
-A non-chat model call a system forwards to the hub (the `model` link endpoint), by modality.
+const, type · declared in `packages/core/src/records/systems.ts`
 
-```ts
-type ModelForward = ({
-  modality: "embed";
-  texts: string[];
-  model?: {
-    model: string;
-  } | {
-    category: string;
-  } | {
-    auto: {
-      cost?: number | undefined;
-      speed?: number | undefined;
-      accuracy?: number | undefined;
-    };
-  } | undefined;
-} | {
-  modality: "image";
-  prompt: string;
-  model?: {
-    model: string;
-  } | {
-    category: string;
-  } | {
-    auto: {
-      cost?: number | undefined;
-      speed?: number | undefined;
-      accuracy?: number | undefined;
-    };
-  } | undefined;
-  size?: string | undefined;
-  count?: number | undefined;
-} | {
-  modality: "transcribe";
-  audio: {
-    hash: string;
-    size: number;
-    mime: string;
-  };
-  model?: {
-    model: string;
-  } | {
-    category: string;
-  } | {
-    auto: {
-      cost?: number | undefined;
-      speed?: number | undefined;
-      accuracy?: number | undefined;
-    };
-  } | undefined;
-  language?: string | undefined;
-} | {
-  modality: "speech";
-  text: string;
-  model?: {
-    model: string;
-  } | {
-    category: string;
-  } | {
-    auto: {
-      cost?: number | undefined;
-      speed?: number | undefined;
-      accuracy?: number | undefined;
-    };
-  } | undefined;
-  voice?: string | undefined;
-  format?: "mp3" | "wav" | "ogg" | undefined;
-}) & {
-  run?: string | undefined;
-};
-```
-
-#### <a id="core-modelforwardresult"></a>`ModelForwardResult`
-
-const, type · declared in `packages/core/src/model-calls.ts`
-
-What a forwarded non-chat call gives back, by modality, with its record and cost. Large outputs come by ref.
+Named type definitions, dependencies first, with the names asked for (or referred to) that the hub doesn't know.
 
 ```ts
-type ModelForwardResult = ({
-  modality: "embed";
-  vectors: number[][];
-} | {
-  modality: "image";
-  images: {
-    hash: string;
-    size: number;
-    mime: string;
+type TypeDefinitions = {
+  types: {
+    def: TypeDef<any>;
+    display: {
+      label: string;
+      plural?: string | undefined;
+      icon?: string | undefined;
+      color?: string | undefined;
+      title?: string | undefined;
+      subtitle?: string | undefined;
+    };
+    description: string;
+    name: `${string}/${string}`;
+    system: SystemName;
+    references: `${string}/${string}`[];
+    updatedAt: number;
+    instance?: InstanceName | undefined;
+    audience?: {
+      visibility: "private" | "shared" | "public";
+      with: string[];
+    } | undefined;
+    meta?: Record<string, z.core.util.JSONType> | undefined;
+    records?: {
+      shape: "table" | "value";
+      owner: "shared" | "person";
+      search: {
+        text: string[];
+        embed: boolean;
+      };
+    } | undefined;
+    declaredBy?: "contract" | "runtime" | undefined;
+    version?: string | undefined;
   }[];
+  missing: `${string}/${string}`[];
+};
+```
+
+### From `packages/core/src/registries.ts`
+
+#### <a id="core-columnkind"></a>`ColumnKind`
+
+const, type · declared in `packages/core/src/registries.ts`
+
+```ts
+type ColumnKind = "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
+```
+
+#### <a id="core-contributiondecl"></a>`ContributionDecl`
+
+const, type · declared in `packages/core/src/registries.ts`
+
+One entry a system adds to a registry (`Manifest.contributes`). Its component and match logic are in the system's
+client bundle, under the same registry and name; this declaration tells the hub and the web app which bundles to load.
+
+```ts
+type ContributionDecl = {
+  registry: `${string}/${string}`;
+  name: string;
+  label: string;
+  description?: string | undefined;
+  icon?: string | undefined;
+  shape?: {
+    channels: {
+      name: string;
+      label: string;
+      accepts: ("number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary")[];
+      required: boolean;
+      many: boolean;
+    }[];
+    rows: {
+      min: number;
+      max?: number | undefined;
+    };
+    whole: boolean;
+  } | undefined;
+};
+```
+
+#### <a id="core-resultcolumn"></a>`ResultColumn`
+
+const, type · declared in `packages/core/src/registries.ts`
+
+One column of a result: its name, label, kind, and its gin type when the source knows a more exact one.
+
+```ts
+type ResultColumn = {
+  name: string;
+  kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
+  nullable: boolean;
+  label?: string | undefined;
+  type?: TypeDef<any> | undefined;
+  ref?: `${string}/${string}` | undefined;
+};
+```
+
+#### <a id="core-resultsort"></a>`ResultSort`
+
+const, type · declared in `packages/core/src/registries.ts`
+
+A sort a result was read with.
+
+```ts
+type ResultSort = {
+  column: string;
+  dir: "asc" | "desc";
+};
+```
+
+#### <a id="core-resulttable"></a>`ResultTable`
+
+const, type · declared in `packages/core/src/registries.ts`
+
+Rows as the person sees them: columns once, then each row as an array in column order. `total` is there when the
+source counted it; `truncated` says more rows exist past `offset + rows.length`.
+
+```ts
+type ResultTable = {
+  columns: {
+    name: string;
+    kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
+    nullable: boolean;
+    label?: string | undefined;
+    type?: TypeDef<any> | undefined;
+    ref?: `${string}/${string}` | undefined;
+  }[];
+  rows: z.core.util.JSONType[][];
+  offset: number;
+  truncated: boolean;
+  sort: {
+    column: string;
+    dir: "asc" | "desc";
+  }[];
+  limit?: number | undefined;
+  total?: number | undefined;
+};
+```
+
+#### <a id="core-visualchannel"></a>`VisualChannel`
+
+const, type · declared in `packages/core/src/registries.ts`
+
+One input of a visual (build 8): a named slot that columns bind to ("label", "value", "start"), the column kinds it
+takes, whether it must be bound, and whether it takes several columns (the series of a line chart).
+
+```ts
+type VisualChannel = {
+  name: string;
+  label: string;
+  accepts: ("number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary")[];
+  required: boolean;
+  many: boolean;
+};
+```
+
+#### <a id="core-visualfit"></a>`VisualFit`
+
+const, type · declared in `packages/core/src/registries.ts`
+
+What a visual's match logic answers for some data: whether it can draw it at all, and how much of it it shows well,
+from 0 (shows it, poorly) to 1 (shows all of it as well as it can be shown). The table always fits with score 0.
+
+```ts
+type VisualFit = {
+  fits: boolean;
+  score: number;
+};
+```
+
+#### <a id="core-visualshape"></a>`VisualShape`
+
+const, type · declared in `packages/core/src/registries.ts`
+
+The data a visual draws (build 8): its channels, how many rows it shows well, and whether it only tells the truth
+about a whole result (a pie of one page lies, so `whole` visuals are refused for a partial table unless the widget
+pages it).
+
+```ts
+type VisualShape = {
+  channels: {
+    name: string;
+    label: string;
+    accepts: ("number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary")[];
+    required: boolean;
+    many: boolean;
+  }[];
+  rows: {
+    min: number;
+    max?: number | undefined;
+  };
+  whole: boolean;
+};
+```
+
+### From `packages/core/src/resource-forms.ts`
+
+#### <a id="core-resourceoutlineargs"></a>`ResourceOutlineArgs`
+
+const, type · declared in `packages/core/src/resource-forms.ts`
+
+`hub/resource_outline`: the resource whose sections to list.
+
+```ts
+type ResourceOutlineArgs = {
+  uri: `${string}://${string}`;
+};
+```
+
+#### <a id="core-resourcesendargs"></a>`ResourceSendArgs`
+
+const, type · declared in `packages/core/src/resource-forms.ts`
+
+`hub/resource_send`: a resource (or one section of it) to show the model at its next step.
+
+```ts
+type ResourceSendArgs = {
+  uri: `${string}://${string}`;
+  section?: SectionKey | undefined;
+};
+```
+
+### From `packages/core/src/resources.ts`
+
+#### <a id="core-contentref"></a>`ContentRef`
+
+const, type · declared in `packages/core/src/resources.ts`
+
+Content moved by reference, fetched in chunks when needed. Keeps every message small.
+
+```ts
+type ContentRef = {
+  hash: string;
+  size: number;
+  mime: string;
+};
+```
+
+#### <a id="core-formkind"></a>`FormKind`
+
+const, type · declared in `packages/core/src/resources.ts`
+
+Every kind of form made from a resource's raw content: the converted versions, then the made ones. See `resource-forms.ts`.
+
+```ts
+type FormKind = "description" | "table" | "text" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail";
+```
+
+#### <a id="core-link"></a>`Link`
+
+const, type · declared in `packages/core/src/resources.ts`
+
+A link attachment: to a resource (or one of its sections), a URL, stored content, or a run.
+
+```ts
+type Link = {
+  resource: `${string}://${string}`;
+  section?: SectionKey | undefined;
+  title?: string | undefined;
 } | {
-  modality: "transcribe";
-  text: string;
-  segments?: {
-    start: number;
-    end: number;
-    text: string;
-  }[] | undefined;
+  url: string;
+  title: string;
 } | {
-  modality: "speech";
-  audio: {
+  file: {
     hash: string;
     size: number;
     mime: string;
   };
-}) & {
-  call: string;
-  cost: number;
-  model: string;
+  title: string;
+} | {
+  run: string;
+  title: string;
 };
 ```
 
-#### <a id="core-modellimits"></a>`ModelLimits`
+#### <a id="core-readwant"></a>`ReadWant`
 
-const, type · declared in `packages/core/src/modes.ts`
+const, type · declared in `packages/core/src/resources.ts`
 
-What the hub budgets a model's prompts against. Every field may be absent: the next source fills it (an admin's
-record, then the provider's probe, then aeye's model info, then the hub's defaults).
+What the hub asks for when reading.
 
 ```ts
-type ModelLimits = {
-  contextWindow?: number | undefined;
-  maxOutputTokens?: number | undefined;
-  reasoningTokens?: number | undefined;
-  charsPerToken?: number | undefined;
+type ReadWant = "text" | "links" | "bytes";
+```
+
+#### <a id="core-resourcechange"></a>`ResourceChange`
+
+const, type · declared in `packages/core/src/resources.ts`
+
+A change seen by a watch.
+
+```ts
+type ResourceChange = {
+  uri: `${string}://${string}`;
+  change: "removed" | "added" | "changed";
+  version?: string | undefined;
+};
+```
+
+#### <a id="core-resourcehit"></a>`ResourceHit`
+
+const, type · declared in `packages/core/src/resources.ts`
+
+One hit of a resource search.
+
+```ts
+type ResourceHit = {
+  uri: `${string}://${string}`;
+  title: string;
+  preview: string;
+  score: number;
+  section?: SectionKey | undefined;
+};
+```
+
+#### <a id="core-resourcelink"></a>`ResourceLink`
+
+const, type · declared in `packages/core/src/resources.ts`
+
+A link between resources: a folder's child, a code import, a page link.
+
+```ts
+type ResourceLink = {
+  raw: string;
+  kind: "embed" | "external" | "link" | "child" | "import";
+  uri?: `${string}://${string}` | undefined;
+  title?: string | undefined;
+};
+```
+
+#### <a id="core-resourceread"></a>`ResourceRead`
+
+const, type · declared in `packages/core/src/resources.ts`
+
+A read. A system may include more than was asked for if it had it anyway.
+
+```ts
+type ResourceRead = {
+  stat: {
+    uri: `${string}://${string}`;
+    name: string;
+    type: "record" | "file" | "folder" | "other" | "page";
+    version: string;
+    mime?: string | undefined;
+    format?: string | undefined;
+    size?: number | undefined;
+    modifiedAt?: number | undefined;
+  };
+  links?: {
+    raw: string;
+    kind: "embed" | "external" | "link" | "child" | "import";
+    uri?: `${string}://${string}` | undefined;
+    title?: string | undefined;
+  }[] | undefined;
+  text?: {
+    inline: string;
+  } | {
+    ref: {
+      hash: string;
+      size: number;
+      mime: string;
+    };
+  } | undefined;
+  bytes?: {
+    hash: string;
+    size: number;
+    mime: string;
+  } | undefined;
+};
+```
+
+#### <a id="core-resourceroot"></a>`ResourceRoot`
+
+const, type · declared in `packages/core/src/resources.ts`
+
+A place a system offers resources from, initially a folder.
+
+```ts
+type ResourceRoot = {
+  uri: `${string}://${string}`;
+  name: string;
+  description: string;
+  index: "none" | "all" | "on-read";
+  ignore: string[];
+  watch: boolean;
+};
+```
+
+#### <a id="core-resourcestat"></a>`ResourceStat`
+
+const, type · declared in `packages/core/src/resources.ts`
+
+What is known about a resource without reading it. Folders, files and pages are all resources.
+
+```ts
+type ResourceStat = {
+  uri: `${string}://${string}`;
+  name: string;
+  type: "record" | "file" | "folder" | "other" | "page";
+  version: string;
+  mime?: string | undefined;
+  format?: string | undefined;
+  size?: number | undefined;
+  modifiedAt?: number | undefined;
+};
+```
+
+#### <a id="core-resourceuri"></a>`ResourceUri`
+
+const, type · declared in `packages/core/src/resources.ts`
+
+An absolute URI. A system serves the URIs under its roots.
+
+```ts
+type ResourceUri = `${string}://${string}`;
+```
+
+#### <a id="core-section"></a>`Section`
+
+const, type · declared in `packages/core/src/resources.ts`
+
+A stable piece of a resource.
+
+```ts
+type Section = {
+  key: SectionKey;
+  path: string[];
+  title: string;
+  start: number;
+  end: number;
+  embedText?: string | undefined;
+  form?: "description" | "table" | "text" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
+};
+```
+
+#### <a id="core-sectionkey"></a>`SectionKey`
+
+const, type · declared in `packages/core/src/resources.ts`
+
+A stable section key, made from structure (the heading path, the symbol name) so it survives content moving.
+
+```ts
+type SectionKey = SectionKey;
+```
+
+#### <a id="core-sectionmatch"></a>`SectionMatch`
+
+const, type · declared in `packages/core/src/resources.ts`
+
+Which resources a sectioner is for.
+
+```ts
+type SectionMatch = {
+  format?: string | undefined;
+  mime?: string | undefined;
+  glob?: string | undefined;
+  form?: "description" | "table" | "text" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
+};
+```
+
+### From `packages/core/src/run.ts`
+
+#### <a id="core-allowedoperations"></a>`AllowedOperations`
+
+const, type · declared in `packages/core/src/run.ts`
+
+The operations a run can narrow while it runs.
+
+```ts
+type AllowedOperations = {
+  cancel: boolean;
+  pause: boolean;
+  background: boolean;
+};
+```
+
+#### <a id="core-display"></a>`Display`
+
+const, type · declared in `packages/core/src/run.ts`
+
+How a run looks in the chat once it is done. `card`: its renderer stays, live. `message`: its result is shown as
+a message. `hidden`: it disappears; the run is still in the tree.
+
+```ts
+type Display = "message" | "card" | "hidden";
+```
+
+#### <a id="core-errorclass"></a>`ErrorClass`
+
+const, type · declared in `packages/core/src/run.ts`
+
+```ts
+type ErrorClass = "retry" | "caller" | "fatal";
+```
+
+#### <a id="core-fnerror"></a>`FnError`
+
+const, type · declared in `packages/core/src/run.ts`
+
+A failure.
+
+```ts
+type FnError = {
+  class: "retry" | "caller" | "fatal";
+  message: string;
+  code?: string | undefined;
+  data?: z.core.util.JSONType | undefined;
+};
+```
+
+#### <a id="core-fnlimits"></a>`FnLimits`
+
+const, type · declared in `packages/core/src/run.ts`
+
+Limits and estimates for a fn's runs.
+
+```ts
+type FnLimits = {
+  timeout?: number | undefined;
+  retries?: number | undefined;
+  cost?: number | undefined;
+};
+```
+
+#### <a id="core-handleranswer"></a>`HandlerAnswer`
+
+const, type · declared in `packages/core/src/run.ts`
+
+A handler's answer: its value, or why there is none.
+
+```ts
+type HandlerAnswer = {
+  ok: true;
+  value: z.core.util.JSONType;
+} | {
+  ok: false;
+  error: {
+    class: "retry" | "caller" | "fatal";
+    message: string;
+    code?: string | undefined;
+    data?: z.core.util.JSONType | undefined;
+  };
+};
+```
+
+#### <a id="core-inputproblem"></a>`InputProblem`
+
+const, type · declared in `packages/core/src/run.ts`
+
+One thing wrong with a run's input: where (a dotted path into the args, empty for the whole) and what.
+
+```ts
+type InputProblem = {
+  path: string;
+  message: string;
+};
+```
+
+#### <a id="core-invalidinput"></a>`InvalidInput`
+
+const, type · declared in `packages/core/src/run.ts`
+
+A run's input was refused before (or by) its fn. This is retryable and often expected from a model: the hub feeds the
+problems back to the agent and the chat shows the run softly as "Retried". A real failure is `failed`.
+
+```ts
+type InvalidInput = {
+  source: "json" | "result" | "unavailable" | "schema" | "validation";
+  problems: {
+    path: string;
+    message: string;
+  }[];
+  raw?: string | undefined;
 };
 ```
 
@@ -16391,279 +18727,6 @@ type OutcomeWire = {
 };
 ```
 
-#### <a id="core-outputverdict"></a>`OutputVerdict`
-
-const, type · declared in `packages/core/src/validation.ts`
-
-The answer of an output check: fine, try again (the model gets `reason`), or stop the run (the person sees `reason`).
-
-```ts
-type OutputVerdict = {
-  ok: true;
-} | {
-  ok: false;
-  action: "retry" | "stop";
-  reason: string;
-};
-```
-
-#### <a id="core-page"></a>`Page`
-
-type · declared in `packages/core/src/primitives.ts`
-
-A page of items; `cursor` is absent on the last page.
-
-```ts
-type Page<T> = z.infer<ReturnType<typeof page<z.ZodType<T>>>>;
-```
-
-#### <a id="core-pairinggrant"></a>`PairingGrant`
-
-const, type · declared in `packages/core/src/approvals.ts`
-
-The token (shown once, valid for one hello with the subject's name, instance and manifest hash) and when it lapses.
-
-```ts
-type PairingGrant = {
-  token: string;
-  expiresAt: number;
-};
-```
-
-#### <a id="core-pairinggrantrequest"></a>`PairingGrantRequest`
-
-const, type · declared in `packages/core/src/approvals.ts`
-
-An approved install run asks the hub for a one-time pairing token bound to its subject (`grantPairing`).
-
-```ts
-type PairingGrantRequest = {
-  run: string;
-  subject: {
-    kind: "system-install";
-    system: SystemName;
-    instance: InstanceName;
-    version: string;
-    manifestHash: string;
-    bundleHash: string;
-    sourceHash: string;
-    host: {
-      system: SystemName;
-      instance: InstanceName;
-    };
-    source?: string | undefined;
-    grants?: {
-      hub: ("fns" | "settings" | "search" | "state" | "resources" | "approvals" | "connections" | "embed" | "ai" | "decide")[];
-      models?: {
-        roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
-        models?: string[] | undefined;
-        perRun?: number | undefined;
-        perDay?: number | undefined;
-      } | undefined;
-      secrets?: string[] | undefined;
-      calls?: (`${string}/${string}` | SystemName)[] | undefined;
-      network?: string[] | undefined;
-      files?: {
-        read: string[];
-        write: string[];
-      } | undefined;
-    } | undefined;
-    replaces?: {
-      version: string;
-      manifestHash: string;
-    } | undefined;
-  };
-};
-```
-
-#### <a id="core-pairingid"></a>`PairingId`
-
-const, type · declared in `packages/core/src/primitives.ts`
-
-```ts
-type PairingId = IdOf<'pairing'>;
-```
-
-#### <a id="core-pairinginfo"></a>`PairingInfo`
-
-const, type · declared in `packages/core/src/package.ts`
-
-What a system tells the hub while it waits for pairing, so the pairing page can show it and its config form before
-the manifest is sent (`pairingInfo` on the link).
-
-```ts
-type PairingInfo = {
-  pairing: string;
-  description: string;
-  instance: InstanceName;
-  configType?: TypeDef<any> | undefined;
-  configSecrets?: string[] | undefined;
-};
-```
-
-#### <a id="core-previewanswer"></a>`PreviewAnswer`
-
-const, type · declared in `packages/core/src/approvals.ts`
-
-The system's answer: the preview, or why the run can't go ahead at all (it then fails as invalid input).
-
-```ts
-type PreviewAnswer = {
-  preview: {
-    title: string;
-    parts: ({
-      type: "text";
-      text: string;
-    } | {
-      type: "code";
-      language: string;
-      code: string;
-      title?: string | undefined;
-    } | {
-      type: "table";
-      title: string;
-      table: {
-        columns: {
-          name: string;
-          kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
-          nullable: boolean;
-          label?: string | undefined;
-          type?: TypeDef<any> | undefined;
-          ref?: `${string}/${string}` | undefined;
-        }[];
-        rows: z.core.util.JSONType[][];
-        offset: number;
-        truncated: boolean;
-        sort: {
-          column: string;
-          dir: "asc" | "desc";
-        }[];
-        limit?: number | undefined;
-        total?: number | undefined;
-      };
-    } | {
-      type: "type-diff";
-      name: string;
-      changes: string[];
-      breaks: {
-        fn: string;
-        why: string;
-      }[];
-      before?: TypeDef<any> | undefined;
-      after?: TypeDef<any> | undefined;
-    })[];
-    irreversible: boolean;
-    subject?: {
-      kind: "system-install";
-      system: SystemName;
-      instance: InstanceName;
-      version: string;
-      manifestHash: string;
-      bundleHash: string;
-      sourceHash: string;
-      host: {
-        system: SystemName;
-        instance: InstanceName;
-      };
-      source?: string | undefined;
-      grants?: {
-        hub: ("fns" | "settings" | "search" | "state" | "resources" | "approvals" | "connections" | "embed" | "ai" | "decide")[];
-        models?: {
-          roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
-          models?: string[] | undefined;
-          perRun?: number | undefined;
-          perDay?: number | undefined;
-        } | undefined;
-        secrets?: string[] | undefined;
-        calls?: (`${string}/${string}` | SystemName)[] | undefined;
-        network?: string[] | undefined;
-        files?: {
-          read: string[];
-          write: string[];
-        } | undefined;
-      } | undefined;
-      replaces?: {
-        version: string;
-        manifestHash: string;
-      } | undefined;
-    } | undefined;
-    checks?: {
-      scan: {
-        size: number;
-        builtins: string[];
-        concerns: {
-          kind: "builtin" | "dynamic-import" | "dynamic-require" | "eval" | "new-function";
-          line: number;
-          detail: string;
-          code: string;
-        }[];
-        urls: string[];
-        hosts: string[];
-      };
-      tests?: {
-        system: SystemName;
-        version: string;
-        ranAt: number;
-        duration: number;
-        passed: number;
-        failed: number;
-        skipped: number;
-        cases: {
-          file: string;
-          name: string;
-          status: "failed" | "skipped" | "passed";
-          duration: number;
-          real?: boolean | undefined;
-          error?: string | undefined;
-        }[];
-        more?: number | undefined;
-        previews?: {
-          component: string;
-          state: string;
-          viewport: "phone" | "desktop";
-          theme: "light" | "dark";
-          image: {
-            hash: string;
-            size: number;
-            mime: string;
-          };
-        }[] | undefined;
-      } | undefined;
-    } | undefined;
-  };
-} | {
-  refused: string;
-};
-```
-
-#### <a id="core-previewshot"></a>`PreviewShot`
-
-const, type · declared in `packages/core/src/checks.ts`
-
-One screenshot of a system's component in one state, viewport and theme, stored as hub content.
-
-```ts
-type PreviewShot = {
-  component: string;
-  state: string;
-  viewport: "phone" | "desktop";
-  theme: "light" | "dark";
-  image: {
-    hash: string;
-    size: number;
-    mime: string;
-  };
-};
-```
-
-#### <a id="core-previewviewport"></a>`PreviewViewport`
-
-const, type · declared in `packages/core/src/checks.ts`
-
-```ts
-type PreviewViewport = "phone" | "desktop";
-```
-
 #### <a id="core-progressdecl"></a>`ProgressDecl`
 
 const, type · declared in `packages/core/src/run.ts`
@@ -16679,326 +18742,6 @@ type ProgressDecl = {
   type: "steps";
   steps: Record<string, string>;
 };
-```
-
-#### <a id="core-proposalapprover"></a>`ProposalApprover`
-
-const, type · declared in `packages/core/src/approvals.ts`
-
-Who answers a proposed run or a fn that always asks: the run's person, or an admin (only an admin's decision counts).
-
-```ts
-type ProposalApprover = "person" | "admins";
-```
-
-#### <a id="core-proposedrun"></a>`ProposedRun`
-
-const, type · declared in `packages/core/src/approvals.ts`
-
-The run the hub made, waiting, and its approval.
-
-```ts
-type ProposedRun = {
-  run: string;
-  approval: string;
-};
-```
-
-#### <a id="core-providermodeldecl"></a>`ProviderModelDecl`
-
-const, type · declared in `packages/core/src/system-providers.ts`
-
-One model a system's provider serves. `capabilities` are aeye `ModelCapability` names (`chat`, `tools`, `vision`,
-`json`, `embedding`, ...); the hub keeps only those aeye knows. `caching`: whether the model reads a prompt cache.
-
-```ts
-type ProviderModelDecl = {
-  id: string;
-  capabilities: string[];
-  contextWindow: number;
-  pricing: {
-    input: number;
-    output: number;
-    cached?: number | undefined;
-    cacheWrite?: number | undefined;
-  };
-  caching: boolean;
-  name?: string | undefined;
-  maxOutput?: number | undefined;
-};
-```
-
-#### <a id="core-qualifiedname"></a>`QualifiedName`
-
-const, type · declared in `packages/core/src/primitives.ts`
-
-A name qualified by its system: `fs/read`, `hub/search_fns`, `fs/Entry`, `fs/Entry.reveal`.
-A name qualified by its system. The parameters narrow it to one system or one local name.
-
-```ts
-type QualifiedName<S extends string = string, N extends string = string> = `${S}/${N}`;
-```
-
-#### <a id="core-readwant"></a>`ReadWant`
-
-const, type · declared in `packages/core/src/resources.ts`
-
-What the hub asks for when reading.
-
-```ts
-type ReadWant = "text" | "links" | "bytes";
-```
-
-#### <a id="core-resourcechange"></a>`ResourceChange`
-
-const, type · declared in `packages/core/src/resources.ts`
-
-A change seen by a watch.
-
-```ts
-type ResourceChange = {
-  uri: `${string}://${string}`;
-  change: "removed" | "added" | "changed";
-  version?: string | undefined;
-};
-```
-
-#### <a id="core-resourcehit"></a>`ResourceHit`
-
-const, type · declared in `packages/core/src/resources.ts`
-
-One hit of a resource search.
-
-```ts
-type ResourceHit = {
-  uri: `${string}://${string}`;
-  title: string;
-  preview: string;
-  score: number;
-  section?: SectionKey | undefined;
-};
-```
-
-#### <a id="core-resourcelink"></a>`ResourceLink`
-
-const, type · declared in `packages/core/src/resources.ts`
-
-A link between resources: a folder's child, a code import, a page link.
-
-```ts
-type ResourceLink = {
-  raw: string;
-  kind: "external" | "link" | "child" | "import" | "embed";
-  uri?: `${string}://${string}` | undefined;
-  title?: string | undefined;
-};
-```
-
-#### <a id="core-resourceoutlineargs"></a>`ResourceOutlineArgs`
-
-const, type · declared in `packages/core/src/resource-forms.ts`
-
-`hub/resource_outline`: the resource whose sections to list.
-
-```ts
-type ResourceOutlineArgs = {
-  uri: `${string}://${string}`;
-};
-```
-
-#### <a id="core-resourceread"></a>`ResourceRead`
-
-const, type · declared in `packages/core/src/resources.ts`
-
-A read. A system may include more than was asked for if it had it anyway.
-
-```ts
-type ResourceRead = {
-  stat: {
-    uri: `${string}://${string}`;
-    name: string;
-    type: "record" | "file" | "folder" | "other" | "page";
-    version: string;
-    mime?: string | undefined;
-    format?: string | undefined;
-    size?: number | undefined;
-    modifiedAt?: number | undefined;
-  };
-  links?: {
-    raw: string;
-    kind: "external" | "link" | "child" | "import" | "embed";
-    uri?: `${string}://${string}` | undefined;
-    title?: string | undefined;
-  }[] | undefined;
-  text?: {
-    inline: string;
-  } | {
-    ref: {
-      hash: string;
-      size: number;
-      mime: string;
-    };
-  } | undefined;
-  bytes?: {
-    hash: string;
-    size: number;
-    mime: string;
-  } | undefined;
-};
-```
-
-#### <a id="core-resourceroot"></a>`ResourceRoot`
-
-const, type · declared in `packages/core/src/resources.ts`
-
-A place a system offers resources from, initially a folder.
-
-```ts
-type ResourceRoot = {
-  uri: `${string}://${string}`;
-  name: string;
-  description: string;
-  index: "none" | "all" | "on-read";
-  ignore: string[];
-  watch: boolean;
-};
-```
-
-#### <a id="core-resourcesendargs"></a>`ResourceSendArgs`
-
-const, type · declared in `packages/core/src/resource-forms.ts`
-
-`hub/resource_send`: a resource (or one section of it) to show the model at its next step.
-
-```ts
-type ResourceSendArgs = {
-  uri: `${string}://${string}`;
-  section?: SectionKey | undefined;
-};
-```
-
-#### <a id="core-resourcestat"></a>`ResourceStat`
-
-const, type · declared in `packages/core/src/resources.ts`
-
-What is known about a resource without reading it. Folders, files and pages are all resources.
-
-```ts
-type ResourceStat = {
-  uri: `${string}://${string}`;
-  name: string;
-  type: "record" | "file" | "folder" | "other" | "page";
-  version: string;
-  mime?: string | undefined;
-  format?: string | undefined;
-  size?: number | undefined;
-  modifiedAt?: number | undefined;
-};
-```
-
-#### <a id="core-resourceuri"></a>`ResourceUri`
-
-const, type · declared in `packages/core/src/resources.ts`
-
-An absolute URI. A system serves the URIs under its roots.
-
-```ts
-type ResourceUri = `${string}://${string}`;
-```
-
-#### <a id="core-resultcolumn"></a>`ResultColumn`
-
-const, type · declared in `packages/core/src/registries.ts`
-
-One column of a result: its name, label, kind, and its gin type when the source knows a more exact one.
-
-```ts
-type ResultColumn = {
-  name: string;
-  kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
-  nullable: boolean;
-  label?: string | undefined;
-  type?: TypeDef<any> | undefined;
-  ref?: `${string}/${string}` | undefined;
-};
-```
-
-#### <a id="core-resultsort"></a>`ResultSort`
-
-const, type · declared in `packages/core/src/registries.ts`
-
-A sort a result was read with.
-
-```ts
-type ResultSort = {
-  column: string;
-  dir: "asc" | "desc";
-};
-```
-
-#### <a id="core-resulttable"></a>`ResultTable`
-
-const, type · declared in `packages/core/src/registries.ts`
-
-Rows as the person sees them: columns once, then each row as an array in column order. `total` is there when the
-source counted it; `truncated` says more rows exist past `offset + rows.length`.
-
-```ts
-type ResultTable = {
-  columns: {
-    name: string;
-    kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
-    nullable: boolean;
-    label?: string | undefined;
-    type?: TypeDef<any> | undefined;
-    ref?: `${string}/${string}` | undefined;
-  }[];
-  rows: z.core.util.JSONType[][];
-  offset: number;
-  truncated: boolean;
-  sort: {
-    column: string;
-    dir: "asc" | "desc";
-  }[];
-  limit?: number | undefined;
-  total?: number | undefined;
-};
-```
-
-#### <a id="core-runconnection"></a>`RunConnection`
-
-const, type · declared in `packages/core/src/connections.ts`
-
-What a run that acts as a person carries (`RunRequest.connection`): the connection and its revealed credentials.
-
-```ts
-type RunConnection = {
-  id: string;
-  owner: string;
-  credentials: z.core.util.JSONType;
-  settings: z.core.util.JSONType;
-};
-```
-
-#### <a id="core-runcontrol"></a>`RunControl`
-
-const, type · declared in `packages/core/src/link.ts`
-
-Cancel or pause a run. The hub sends it to the system running the run; a system sends it for its own child calls.
-
-```ts
-type RunControl = {
-  run: string;
-  action: "cancel" | "pause";
-};
-```
-
-#### <a id="core-runid"></a>`RunId`
-
-const, type · declared in `packages/core/src/primitives.ts`
-
-```ts
-type RunId = IdOf<'run'>;
 ```
 
 #### <a id="core-runinfo"></a>`RunInfo`
@@ -17045,225 +18788,6 @@ type RunInfo = {
   parent?: string | undefined;
   session?: string | undefined;
   watched?: boolean | undefined;
-};
-```
-
-#### <a id="core-runrequest"></a>`RunRequest`
-
-const, type · declared in `packages/core/src/link.ts`
-
-The hub's request to run a fn.
-
-```ts
-type RunRequest = {
-  run: {
-    id: string;
-    fn: `${string}/${string}`;
-    turn: string;
-    user: {
-      id: string;
-      name: string;
-      email: string;
-      role: "admin" | "member";
-      groups: {
-        id: string;
-        name: string;
-      }[];
-      timeZone: string;
-      locale: string;
-    };
-    time: {
-      now: number;
-      timeZone: string;
-      local: string;
-    };
-    system: {
-      name: string;
-      instance: InstanceName;
-      boot: string;
-      from?: {
-        system: string;
-        fn: `${string}/${string}`;
-        run: string;
-      } | undefined;
-    };
-    caller: string;
-    attempt: number;
-    priority: "background" | "urgent" | "interactive" | "normal";
-    parent?: string | undefined;
-    session?: string | undefined;
-    watched?: boolean | undefined;
-  };
-  fn: string;
-  kind: `${string}/${string}` | "native";
-  args: z.core.util.JSONType;
-  budget: {
-    cost: number;
-    time: number;
-    limitedBy: string;
-  };
-  handlers: string[];
-  deadline: number;
-  configVersion: number;
-  payload?: z.core.util.JSONType | undefined;
-  resume?: {
-    state: z.core.util.JSONType;
-    calls: Record<string, {
-      status: "done";
-      result: z.core.util.JSONType;
-    } | {
-      status: "failed";
-      error: {
-        class: "retry" | "caller" | "fatal";
-        message: string;
-        code?: string | undefined;
-        data?: z.core.util.JSONType | undefined;
-      };
-    } | {
-      status: "cancelled";
-      error?: {
-        class: "retry" | "caller" | "fatal";
-        message: string;
-        code?: string | undefined;
-        data?: z.core.util.JSONType | undefined;
-      } | undefined;
-    } | {
-      status: "background";
-      run: string;
-    }>;
-    reason: "restart" | "resumed";
-  } | undefined;
-  connection?: {
-    id: string;
-    owner: string;
-    credentials: z.core.util.JSONType;
-    settings: z.core.util.JSONType;
-  } | undefined;
-  approved?: {
-    by: string;
-    preview: {
-      title: string;
-      parts: ({
-        type: "text";
-        text: string;
-      } | {
-        type: "code";
-        language: string;
-        code: string;
-        title?: string | undefined;
-      } | {
-        type: "table";
-        title: string;
-        table: {
-          columns: {
-            name: string;
-            kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
-            nullable: boolean;
-            label?: string | undefined;
-            type?: TypeDef<any> | undefined;
-            ref?: `${string}/${string}` | undefined;
-          }[];
-          rows: z.core.util.JSONType[][];
-          offset: number;
-          truncated: boolean;
-          sort: {
-            column: string;
-            dir: "asc" | "desc";
-          }[];
-          limit?: number | undefined;
-          total?: number | undefined;
-        };
-      } | {
-        type: "type-diff";
-        name: string;
-        changes: string[];
-        breaks: {
-          fn: string;
-          why: string;
-        }[];
-        before?: TypeDef<any> | undefined;
-        after?: TypeDef<any> | undefined;
-      })[];
-      irreversible: boolean;
-      subject?: {
-        kind: "system-install";
-        system: SystemName;
-        instance: InstanceName;
-        version: string;
-        manifestHash: string;
-        bundleHash: string;
-        sourceHash: string;
-        host: {
-          system: SystemName;
-          instance: InstanceName;
-        };
-        source?: string | undefined;
-        grants?: {
-          hub: ("fns" | "settings" | "search" | "state" | "resources" | "approvals" | "connections" | "embed" | "ai" | "decide")[];
-          models?: {
-            roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
-            models?: string[] | undefined;
-            perRun?: number | undefined;
-            perDay?: number | undefined;
-          } | undefined;
-          secrets?: string[] | undefined;
-          calls?: (`${string}/${string}` | SystemName)[] | undefined;
-          network?: string[] | undefined;
-          files?: {
-            read: string[];
-            write: string[];
-          } | undefined;
-        } | undefined;
-        replaces?: {
-          version: string;
-          manifestHash: string;
-        } | undefined;
-      } | undefined;
-      checks?: {
-        scan: {
-          size: number;
-          builtins: string[];
-          concerns: {
-            kind: "builtin" | "dynamic-import" | "dynamic-require" | "eval" | "new-function";
-            line: number;
-            detail: string;
-            code: string;
-          }[];
-          urls: string[];
-          hosts: string[];
-        };
-        tests?: {
-          system: SystemName;
-          version: string;
-          ranAt: number;
-          duration: number;
-          passed: number;
-          failed: number;
-          skipped: number;
-          cases: {
-            file: string;
-            name: string;
-            status: "failed" | "skipped" | "passed";
-            duration: number;
-            real?: boolean | undefined;
-            error?: string | undefined;
-          }[];
-          more?: number | undefined;
-          previews?: {
-            component: string;
-            state: string;
-            viewport: "phone" | "desktop";
-            theme: "light" | "dark";
-            image: {
-              hash: string;
-              size: number;
-              mime: string;
-            };
-          }[] | undefined;
-        } | undefined;
-      } | undefined;
-    };
-  } | undefined;
 };
 ```
 
@@ -17349,114 +18873,6 @@ type RunUpdate = {
 };
 ```
 
-#### <a id="core-section"></a>`Section`
-
-const, type · declared in `packages/core/src/resources.ts`
-
-A stable piece of a resource.
-
-```ts
-type Section = {
-  key: SectionKey;
-  path: string[];
-  title: string;
-  start: number;
-  end: number;
-  embedText?: string | undefined;
-  form?: "description" | "text" | "table" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
-};
-```
-
-#### <a id="core-sectiondecl"></a>`SectionDecl`
-
-type · declared in `packages/core/src/manifest.ts`
-
-The declaration type of one manifest section.
-
-```ts
-type SectionDecl<S extends ManifestSection> = z.infer<(typeof MANIFEST_SECTIONS)[S]>;
-```
-
-#### <a id="core-sectionkey"></a>`SectionKey`
-
-const, type · declared in `packages/core/src/resources.ts`
-
-A stable section key, made from structure (the heading path, the symbol name) so it survives content moving.
-
-```ts
-type SectionKey = SectionKey;
-```
-
-#### <a id="core-sectionmatch"></a>`SectionMatch`
-
-const, type · declared in `packages/core/src/resources.ts`
-
-Which resources a sectioner is for.
-
-```ts
-type SectionMatch = {
-  format?: string | undefined;
-  mime?: string | undefined;
-  glob?: string | undefined;
-  form?: "description" | "text" | "table" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
-};
-```
-
-#### <a id="core-sessionid"></a>`SessionId`
-
-const, type · declared in `packages/core/src/primitives.ts`
-
-```ts
-type SessionId = IdOf<'session'>;
-```
-
-#### <a id="core-settingeditor"></a>`SettingEditor`
-
-const, type · declared in `packages/core/src/manifest.ts`
-
-Besides admins, who may set a setting.
-
-```ts
-type SettingEditor = "self" | "fns";
-```
-
-#### <a id="core-settingmerge"></a>`SettingMerge`
-
-const, type · declared in `packages/core/src/manifest.ts`
-
-How a user's setting value combines with their groups'.
-
-```ts
-type SettingMerge = "union" | "user-wins" | "intersect" | "most-restrictive";
-```
-
-#### <a id="core-sharerule"></a>`ShareRule`
-
-const, type · declared in `packages/core/src/access.ts`
-
-A visibility without its owner, for things whose owner is kept elsewhere (a connection's `owner`).
-
-```ts
-type ShareRule = {
-  visibility: "private" | "shared" | "public";
-  with: string[];
-};
-```
-
-#### <a id="core-stateowner"></a>`StateOwner`
-
-const, type · declared in `packages/core/src/link.ts`
-
-A run's session state, or an action's: who is asking decides which declared fields are visible.
-
-```ts
-type StateOwner = {
-  run: string;
-} | {
-  delivery: string;
-};
-```
-
 #### <a id="core-stepstatus"></a>`StepStatus`
 
 const, type · declared in `packages/core/src/run.ts`
@@ -17467,15 +18883,105 @@ The status of one progress step.
 type StepStatus = "done" | "failed" | "active" | "pending" | "skipped";
 ```
 
-#### <a id="core-stopreason"></a>`StopReason`
+#### <a id="core-timeinfo"></a>`TimeInfo`
 
-const, type · declared in `packages/core/src/link.ts`
+const, type · declared in `packages/core/src/run.ts`
 
-Why a system is told to stop.
+The current time for the person, so a system never guesses at "today".
 
 ```ts
-type StopReason = "removed" | "restart" | "upgrade" | "shutdown";
+type TimeInfo = {
+  now: number;
+  timeZone: string;
+  local: string;
+};
 ```
+
+#### <a id="core-undooutcome"></a>`UndoOutcome`
+
+const, type · declared in `packages/core/src/run.ts`
+
+The result of undoing a run. `gone`: nothing was left to undo.
+
+```ts
+type UndoOutcome = {
+  status: "undone";
+  summary: string;
+} | {
+  status: "failed";
+  error: {
+    class: "retry" | "caller" | "fatal";
+    message: string;
+    code?: string | undefined;
+    data?: z.core.util.JSONType | undefined;
+  };
+} | {
+  status: "gone";
+};
+```
+
+#### <a id="core-userinfo"></a>`UserInfo`
+
+const, type · declared in `packages/core/src/run.ts`
+
+The person a turn is for, as every system sees them. Time zone and locale come from their browser.
+
+```ts
+type UserInfo = {
+  id: string;
+  name: string;
+  email: string;
+  role: "admin" | "member";
+  groups: {
+    id: string;
+    name: string;
+  }[];
+  timeZone: string;
+  locale: string;
+};
+```
+
+### From `packages/core/src/sensitivity.ts`
+
+#### <a id="core-flagsanswer"></a>`FlagsAnswer`
+
+const, type · declared in `packages/core/src/sensitivity.ts`
+
+The system's answer to `flags`: the files the call would touch that its rules flag (empty when none).
+
+```ts
+type FlagsAnswer = {
+  flags: {
+    path: string;
+    kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
+    rule: string;
+    access: "read" | "write";
+    action: "ask" | "refuse" | "allow";
+    why: string;
+    certain: boolean;
+  }[];
+};
+```
+
+#### <a id="core-sensitivityflag"></a>`SensitivityFlag`
+
+const, type · declared in `packages/core/src/sensitivity.ts`
+
+One sensitive file a call would touch, and what the rule says about it.
+
+```ts
+type SensitivityFlag = {
+  path: string;
+  kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
+  rule: string;
+  access: "read" | "write";
+  action: "ask" | "refuse" | "allow";
+  why: string;
+  certain: boolean;
+};
+```
+
+### From `packages/core/src/system-events.ts`
 
 #### <a id="core-systemevent"></a>`SystemEvent`
 
@@ -17551,241 +19057,149 @@ type SystemEvent = {
 };
 ```
 
-#### <a id="core-systemgrants"></a>`SystemGrants`
+### From `packages/core/src/system-providers.ts`
 
-const, type · declared in `packages/core/src/grants.ts`
+#### <a id="core-providermodeldecl"></a>`ProviderModelDecl`
 
-Everything a system may do through the hub and, when fs supervises it, on its machine. A system that declares no
-grants gets the base only. The hub refuses (and logs as a `RefusalRecord`) anything outside them.
+const, type · declared in `packages/core/src/system-providers.ts`
 
-```ts
-type SystemGrants = {
-  hub: ("fns" | "settings" | "search" | "state" | "resources" | "approvals" | "connections" | "embed" | "ai" | "decide")[];
-  models?: {
-    roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
-    models?: string[] | undefined;
-    perRun?: number | undefined;
-    perDay?: number | undefined;
-  } | undefined;
-  secrets?: string[] | undefined;
-  calls?: (`${string}/${string}` | SystemName)[] | undefined;
-  network?: string[] | undefined;
-  files?: {
-    read: string[];
-    write: string[];
-  } | undefined;
-};
-```
-
-#### <a id="core-systemlinkspec"></a>`SystemLinkSpec`
-
-type · declared in `packages/core/src/link.ts`
+One model a system's provider serves. `capabilities` are aeye `ModelCapability` names (`chat`, `tools`, `vision`,
+`json`, `embedding`, ...); the hub keeps only those aeye knows. `caching`: whether the model reads a prompt cache.
 
 ```ts
-type SystemLinkSpec = typeof systemLinkSpec;
-```
-
-#### <a id="core-systempackagemanifest"></a>`SystemPackageManifest`
-
-const, type · declared in `packages/core/src/package.ts`
-
-`system.json`: what a system package is. The one source of truth for a system's name, version and entries; its
-contract's name must equal `name` (`harness system build` and `serve()` check it).
-
-```ts
-type SystemPackageManifest = {
-  format: 1;
-  name: SystemName;
-  version: string;
-  description: string;
-  protocol: number;
-  server: {
-    entry: string;
-    external: Record<string, string>;
-    node?: string | undefined;
-  };
-  instances: "one" | "many";
-  client?: {
-    entry: string;
-  } | undefined;
-  files?: Record<string, string> | undefined;
-  permissions?: {
-    childProcess?: boolean | undefined;
-    workers?: boolean | undefined;
-  } | undefined;
-};
-```
-
-#### <a id="core-timeinfo"></a>`TimeInfo`
-
-const, type · declared in `packages/core/src/run.ts`
-
-The current time for the person, so a system never guesses at "today".
-
-```ts
-type TimeInfo = {
-  now: number;
-  timeZone: string;
-  local: string;
-};
-```
-
-#### <a id="core-timestamp"></a>`Timestamp`
-
-const, type · declared in `packages/core/src/primitives.ts`
-
-Milliseconds since the epoch.
-
-```ts
-type Timestamp = number;
-```
-
-#### <a id="core-typedecl"></a>`TypeDecl`
-
-const, type · declared in `packages/core/src/manifest.ts`
-
-A named type. Its methods are sent as fns named `Type.method` whose args hold the value as `self`.
-
-```ts
-type TypeDecl = {
-  name: string;
-  description: string;
-  def: TypeDef<any>;
-  display: {
-    label: string;
-    plural?: string | undefined;
-    icon?: string | undefined;
-    color?: string | undefined;
-    title?: string | undefined;
-    subtitle?: string | undefined;
-  };
-  methods: string[];
-  instance?: InstanceName | undefined;
-  audience?: {
-    visibility: "private" | "shared" | "public";
-    with: string[];
-  } | undefined;
-  meta?: Record<string, z.core.util.JSONType> | undefined;
-};
-```
-
-#### <a id="core-typedefinitions"></a>`TypeDefinitions`
-
-const, type · declared in `packages/core/src/records/systems.ts`
-
-Named type definitions, dependencies first, with the names asked for (or referred to) that the hub doesn't know.
-
-```ts
-type TypeDefinitions = {
-  types: {
-    def: TypeDef<any>;
-    display: {
-      label: string;
-      plural?: string | undefined;
-      icon?: string | undefined;
-      color?: string | undefined;
-      title?: string | undefined;
-      subtitle?: string | undefined;
-    };
-    description: string;
-    name: `${string}/${string}`;
-    system: SystemName;
-    references: `${string}/${string}`[];
-    updatedAt: number;
-    instance?: InstanceName | undefined;
-    audience?: {
-      visibility: "private" | "shared" | "public";
-      with: string[];
-    } | undefined;
-    meta?: Record<string, z.core.util.JSONType> | undefined;
-    declaredBy?: "contract" | "runtime" | undefined;
-    version?: string | undefined;
-  }[];
-  missing: `${string}/${string}`[];
-};
-```
-
-#### <a id="core-typedisplay"></a>`TypeDisplay`
-
-const, type · declared in `packages/core/src/manifest.ts`
-
-How values of a named type are shown: in mention chips, hover cards and inputs.
-
-```ts
-type TypeDisplay = {
-  label: string;
-  plural?: string | undefined;
-  icon?: string | undefined;
-  color?: string | undefined;
-  title?: string | undefined;
-  subtitle?: string | undefined;
-};
-```
-
-#### <a id="core-undooutcome"></a>`UndoOutcome`
-
-const, type · declared in `packages/core/src/run.ts`
-
-The result of undoing a run. `gone`: nothing was left to undo.
-
-```ts
-type UndoOutcome = {
-  status: "undone";
-  summary: string;
-} | {
-  status: "failed";
-  error: {
-    class: "retry" | "caller" | "fatal";
-    message: string;
-    code?: string | undefined;
-    data?: z.core.util.JSONType | undefined;
-  };
-} | {
-  status: "gone";
-};
-```
-
-#### <a id="core-usd"></a>`Usd`
-
-const, type · declared in `packages/core/src/primitives.ts`
-
-US dollars.
-
-```ts
-type Usd = number;
-```
-
-#### <a id="core-userinfo"></a>`UserInfo`
-
-const, type · declared in `packages/core/src/run.ts`
-
-The person a turn is for, as every system sees them. Time zone and locale come from their browser.
-
-```ts
-type UserInfo = {
+type ProviderModelDecl = {
   id: string;
-  name: string;
-  email: string;
-  role: "admin" | "member";
-  groups: {
-    id: string;
-    name: string;
-  }[];
-  timeZone: string;
-  locale: string;
+  capabilities: string[];
+  contextWindow: number;
+  pricing: {
+    input: number;
+    output: number;
+    cached?: number | undefined;
+    cacheWrite?: number | undefined;
+  };
+  caching: boolean;
+  name?: string | undefined;
+  maxOutput?: number | undefined;
 };
 ```
 
-#### <a id="core-visualfit"></a>`VisualFit`
+### From `packages/core/src/validation.ts`
 
-const, type · declared in `packages/core/src/registries.ts`
+#### <a id="core-inputverdict"></a>`InputVerdict`
 
-What a visual's match logic answers for some data: whether it can draw it at all, and how much of it it shows well,
-from 0 (shows it, poorly) to 1 (shows all of it as well as it can be shown). The table always fits with score 0.
+const, type · declared in `packages/core/src/validation.ts`
+
+The answer of an input check.
 
 ```ts
-type VisualFit = {
-  fits: boolean;
-  score: number;
+type InputVerdict = {
+  ok: true;
+} | {
+  ok: false;
+  reason: string;
+};
+```
+
+#### <a id="core-outputverdict"></a>`OutputVerdict`
+
+const, type · declared in `packages/core/src/validation.ts`
+
+The answer of an output check: fine, try again (the model gets `reason`), or stop the run (the person sees `reason`).
+
+```ts
+type OutputVerdict = {
+  ok: true;
+} | {
+  ok: false;
+  action: "retry" | "stop";
+  reason: string;
+};
+```
+
+### From `packages/core/src/widgets.ts`
+
+#### <a id="core-widgetaction"></a>`WidgetAction`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+One action a widget keeps, relabels or confirms: a method of the row's type, or any fn with args bound to columns.
+
+```ts
+type WidgetAction = {
+  fn: `${string}/${string}`;
+  bind: Record<string, string>;
+  then: "none" | "refresh" | "show";
+  label?: string | undefined;
+  confirm?: true | undefined;
+};
+```
+
+#### <a id="core-widgetactionoption"></a>`WidgetActionOption`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+An action as a row's menu offers it: derived from the fn, narrowed and labelled by the widget.
+
+```ts
+type WidgetActionOption = {
+  fn: `${string}/${string}`;
+  label: string;
+  mode: "read" | "write" | "delete";
+  confirm: boolean;
+  bind: Record<string, string>;
+  then: "none" | "refresh" | "show";
+  form?: TypeDef<any> | undefined;
+};
+```
+
+#### <a id="core-widgetspec"></a>`WidgetSpec`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+A saved widget: the payload of a `hub/widget` fn.
+
+```ts
+type WidgetSpec = {
+  title: string;
+  source: `${string}/${string}`;
+  visuals: {
+    visual: string;
+    bind: Record<string, string[]>;
+    label?: string | undefined;
+  }[];
+  controls: {
+    arg: string;
+    label?: string | undefined;
+    choices?: z.core.util.JSONType[] | undefined;
+    custom?: boolean | undefined;
+    pinned?: z.core.util.JSONType | undefined;
+    hidden?: boolean | undefined;
+  }[];
+  paging?: {
+    size: number;
+    offset?: string | undefined;
+    limit?: string | undefined;
+  } | undefined;
+  actions?: {
+    fn: `${string}/${string}`;
+    bind: Record<string, string>;
+    then: "none" | "refresh" | "show";
+    label?: string | undefined;
+    confirm?: true | undefined;
+  }[] | undefined;
+};
+```
+
+#### <a id="core-widgetvisual"></a>`WidgetVisual`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+One visual the widget offers, with which columns bind to each of its channels.
+
+```ts
+type WidgetVisual = {
+  visual: string;
+  bind: Record<string, string[]>;
+  label?: string | undefined;
 };
 ```

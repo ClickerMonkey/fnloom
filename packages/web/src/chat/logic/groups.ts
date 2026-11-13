@@ -91,11 +91,15 @@ const isStep = (piece: AnswerPiece): piece is StepPiece => piece.kind === 'reaso
 
 /**
  * Fold each stretch of work (fn calls and the reasoning between them, with no words in between) into one group when
- * grouping is on and it holds at least `GROUP_MIN_RUNS` calls that show. The reasoning before the first call and after
+ * grouping is on and it holds at least `GROUP_MIN_RUNS` calls that show. Calls that stand `alone` (whose results are
+ * rows the person asked to see) are never folded. The reasoning before the first call and after
  * the last stays outside, where it happened (so reasoning still streaming shows). `shown` counts a piece's calls
  * that show at all.
  */
-export function groupPieces(pieces: readonly AnswerPiece[], grouped: boolean, shown: (piece: Extract<AnswerPiece, { kind: 'runs' }>) => number): GroupedPiece[] {
+export function groupPieces(
+  pieces: readonly AnswerPiece[], grouped: boolean, shown: (piece: Extract<AnswerPiece, { kind: 'runs' }>) => number,
+  alone: (piece: Extract<AnswerPiece, { kind: 'runs' }>) => boolean = () => false,
+): GroupedPiece[] {
   if (!grouped) { return [...pieces]; }
   const out: GroupedPiece[] = [];
   let stretch: StepPiece[] = [];
@@ -110,7 +114,7 @@ export function groupPieces(pieces: readonly AnswerPiece[], grouped: boolean, sh
     stretch = [];
   };
   for (const piece of pieces) {
-    if (isStep(piece)) { stretch.push(piece); } else { flush(); out.push(piece); }
+    if (isStep(piece) && !(piece.kind === 'runs' && alone(piece))) { stretch.push(piece); } else { flush(); out.push(piece); }
   }
   flush();
   return out;

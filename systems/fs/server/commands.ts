@@ -3,9 +3,10 @@
  * commands outside the safe list, and the timeout. The bash card's "Run again" starts a new `bash` run, so a command
  * runs the same way from the agent and from its card.
  */
+import type { ChangeSet } from '@harness/core';
 import type { ShellPolicyValue } from '../shared/index.ts';
 import type { FileService } from './files.ts';
-import type { CommandOutput, CommandProgress, CommandRun, PathGuard, Shell } from './index.ts';
+import type { CaptureSession, CommandOutput, CommandProgress, CommandRun, PathGuard, Shell } from './index.ts';
 import { FsProblem } from './problem.ts';
 import { isSafe } from './shell.ts';
 
@@ -41,12 +42,18 @@ export interface CommandScope {
   /** Asked when the command isn't safe; undefined when nobody can be asked. */
   readonly confirm: Confirm;
   readonly onOutput?: CommandProgress;
+  /** Starts watching what the command changes in the folder it runs in (`server/changes.ts`), when wanted. */
+  readonly capture?: (cwd: string) => Promise<CaptureSession>;
 }
 
 /** A finished command and where it ran. */
 export interface CommandOutcome extends CommandRun {
   readonly cwd: string;
   readonly timeout: number;
+  /** The files it changed, when they could be found. */
+  readonly changes?: ChangeSet;
+  /** Why the changes could not be found, when capture failed (the command itself ran). */
+  readonly captureProblem?: string;
 }
 
 /** The output part of a run, as the contract's `CommandResult`. */
@@ -94,7 +101,17 @@ export class CommandRunner {
       if (!yes) { throw new FsProblem('denied', `"${request.command}" was not confirmed, so it didn't run.`); }
     }
     const timeout = Math.min(request.timeout ?? this.limits.timeout, this.limits.maxTimeout);
-    const run = await this.shell.run({ command: request.command, cwd, timeout, signal: scope.signal, ...(scope.onOutput === undefined ? {} : { onOutput: scope.onOutput }) });
-    return { ...run, cwd, timeout };
+    let problem: string | undefined;
+    const failed = (error: unknown) => { problem = error instanceof Error ? error.message : String(error); return undefined; };
+    const session = await scope.capture?.(cwd).catch(failed);
+    let run: CommandRun;
+    let changes: ChangeSet | undefined;
+    try {
+      run = await this.shell.run({ command: request.command, cwd, timeout, signal: scope.signal, ...(scope.onOutput === undefined ? {} : { onOutput: scope.onOutput }) });
+    } finally {
+      // the session is finished even when the shell throws, so its watcher and kept copies go
+      changes = await session?.finish().catch(failed);
+    }
+    return { ...run, cwd, timeout, ...(changes === undefined ? {} : { changes }), ...(problem === undefined ? {} : { captureProblem: problem }) };
   }
 }

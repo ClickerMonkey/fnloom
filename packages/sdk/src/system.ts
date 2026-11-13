@@ -3,7 +3,7 @@
  * call can use the refs declared before it. The implementation's type (`SystemImpl`) is computed from the contract,
  * so everything declared must be implemented and nothing undeclared can be.
  */
-import { ConfigComponentDecl, ConfigPath, ConnectDecl, ContributionDecl, SystemGrants, SystemName, qualify, type ConnectFinish, type ConnectResult, type ConnectStart, type Duration, type RunConnection, type QualifiedName, type SystemEvent, type StopReason } from '@harness/core';
+import { ApiGroupDecl, ConfigComponentDecl, ConfigPath, ConnectDecl, ContributionDecl, SystemGrants, SystemName, qualify, type ConnectFinish, type ConnectResult, type ConnectStart, type Duration, type RunConnection, type QualifiedName, type SystemEvent, type StopReason } from '@harness/core';
 import type { SystemCtx } from './ctx.ts';
 import type {
   ActionDef, ActionImpl, AnyContextDef, AnyTypeDef, AttachmentDef, ContextDef, ContextImpl, EmbedderDef, EmbedderImpl, HookDef, HookImpl,
@@ -106,6 +106,8 @@ export interface SystemContract<N extends string, C extends ContractShape> exten
   readonly grants: SystemGrants | undefined;
   /** Its own config component (a client export), drawn instead of or beside the gin form. */
   readonly configComponent: ConfigComponentDecl | undefined;
+  /** Its API groups, each described once; a fn names its group with `fn({ group })`. */
+  readonly groups: readonly ApiGroupDecl[];
   /** The declarations themselves. */
   readonly defs: C;
   /** Add declarations: any sections, given directly or built from the refs so far. */
@@ -158,10 +160,17 @@ export interface SystemInfo {
    * the value with the config's gin type before saving.
    */
   configComponent?: ConfigComponentDecl;
+  /**
+   * Its API groups: a name, a title and what the group's fns are for (`{ name: 'files', title: 'Files', description:
+   * 'Read, write and search files.' }`). The hub keeps an index item for the system (`<system>/api`, the groups as
+   * choices) and one per group listing its fns, so a model walks the API like a context folder. A fn names its group
+   * with `fn({ group })`; a fn with none is in the general group. Every group a fn names must be declared here.
+   */
+  groups?: ApiGroupDecl[];
 }
 
 /** The parts of a contract that are not declaration sections. */
-type ContractExtras = Pick<SystemContract<string, ContractShape>, 'description' | 'registries' | 'contributes' | 'configSecrets' | 'grants' | 'configComponent'>;
+type ContractExtras = Pick<SystemContract<string, ContractShape>, 'description' | 'registries' | 'contributes' | 'configSecrets' | 'grants' | 'configComponent' | 'groups'>;
 
 /** The ref of a named type: a gin extension registered in `g` under its qualified name, carrying display and methods. */
 function typeRef(system: string, local: string, def: AnyTypeDef): TypeRef<QualifiedName, unknown, Methods> {
@@ -278,6 +287,7 @@ export function system<const N extends string>(name: N, info: SystemInfo): Syste
     configSecrets: (info.configSecrets ?? []).map((p) => ConfigPath.parse(p)),
     grants: info.grants === undefined ? undefined : SystemGrants.parse(info.grants),
     configComponent: info.configComponent === undefined ? undefined : ConfigComponentDecl.parse(info.configComponent),
+    groups: (info.groups ?? []).map((group) => ApiGroupDecl.parse(group)),
   };
   return assemble(name, extras, defs, EMPTY_SECTIONS());
 }

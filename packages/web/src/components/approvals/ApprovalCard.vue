@@ -28,7 +28,9 @@ const props = withDefaults(defineProps<{
   ident?: string;
   /** The card's height is capped by where it sits: a body taller than the room left is cut, and shown whole on Review. */
   bounded?: boolean;
-}>(), { preview: undefined, rememberable: true, ident: '', bounded: false });
+  /** Its fn's notice ("This usually takes about 3 minutes."), so the person knows before approving. */
+  notice?: string;
+}>(), { preview: undefined, rememberable: true, ident: '', bounded: false, notice: '' });
 const emit = defineEmits<{ decide: [approve: boolean, remember: Remember, reason: string] }>();
 defineSlots<{ badge?: () => unknown; after?: () => unknown; buttons?: (scope: { remember: Remember }) => unknown }>();
 
@@ -41,6 +43,8 @@ const title = computed(() => props.preview?.title ?? `Allow ${fnLabel(props.fn)}
 // the preview's title already says what the fn does, so its label isn't repeated under it
 const subtitle = computed(() => props.description);
 const irreversible = computed(() => props.preview?.irreversible === true);
+/** A call that touches sensitive files is asked about every time: its answer is never remembered. */
+const canRemember = computed(() => props.rememberable && props.preview?.parts.some((part) => part.type === 'flags') !== true);
 
 watch(() => props.ident, () => { remember.value = 'once'; reviewing.value = false; });
 
@@ -57,6 +61,7 @@ function decide(approve: boolean, answer: Remember, reason: string): void {
       <div class="titles">
         <h3 class="title">{{ title }}</h3>
         <p v-if="subtitle !== ''" class="description">{{ subtitle }}</p>
+        <p v-if="notice !== ''" class="notice" data-testid="approval-notice"><UiIcon name="clock" :size="13" /><span>{{ notice }}</span></p>
       </div>
       <slot name="badge" />
     </header>
@@ -65,7 +70,7 @@ function decide(approve: boolean, answer: Remember, reason: string): void {
       <ArgList v-else :args="args" />
     </div>
     <slot name="after" />
-    <ApprovalAnswer v-model:remember="remember" :rememberable="rememberable" :irreversible="irreversible" :ident="ident" :review="clipped" @decide="decide" @review="reviewing = true">
+    <ApprovalAnswer v-model:remember="remember" :rememberable="canRemember" :irreversible="irreversible" :ident="ident" :review="clipped" @decide="decide" @review="reviewing = true">
       <template #buttons="scope"><slot name="buttons" :remember="scope.remember" /></template>
     </ApprovalAnswer>
 
@@ -75,7 +80,7 @@ function decide(approve: boolean, answer: Remember, reason: string): void {
         <ArgList v-else :args="args" />
       </div>
       <template #footer>
-        <ApprovalAnswer v-model:remember="remember" :rememberable="rememberable" :irreversible="irreversible" :ident="ident" @decide="decide" />
+        <ApprovalAnswer v-model:remember="remember" :rememberable="canRemember" :irreversible="irreversible" :ident="ident" @decide="decide" />
       </template>
     </UiDialog>
   </section>
@@ -97,4 +102,5 @@ function decide(approve: boolean, answer: Remember, reason: string): void {
 .titles { display: grid; gap: 2px; flex: 1; min-width: 0; }
 .title { margin: 0; font-size: var(--text-md); font-weight: var(--weight-strong); overflow-wrap: anywhere; }
 .description { margin: 0; color: var(--text-dim); font-size: var(--text-sm); }
+.notice { display: flex; align-items: center; gap: var(--space-1); margin: 0; color: var(--text-dim); font-size: var(--text-xs); }
 </style>

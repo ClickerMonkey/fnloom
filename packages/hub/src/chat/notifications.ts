@@ -82,11 +82,13 @@ export class StoreApprovers implements ApproverDirectory {
 
 /** The inbox on the store, pushed through the push service. */
 export class StoreNotifications implements NotificationService {
-  readonly #deps: Pick<ChatDeps, 'store' | 'clock' | 'random' | 'bus' | 'push' | 'log'>;
+  readonly #deps: Pick<ChatDeps, 'store' | 'clock' | 'random' | 'bus' | 'push' | 'log' | 'settings'>;
   readonly #presence: PresenceTracker;
   readonly #seen = new RecentSet(REMEMBERED);
+  /** Systems in "needs config" whose notice waits out the grace (`HARNESS_CONFIG_NOTICE_GRACE`). */
+  readonly #waiting = new Map<SystemName, ReturnType<typeof setTimeout>>();
 
-  constructor(deps: Pick<ChatDeps, 'store' | 'clock' | 'random' | 'bus' | 'push' | 'log'>, presence: PresenceTracker) {
+  constructor(deps: Pick<ChatDeps, 'store' | 'clock' | 'random' | 'bus' | 'push' | 'log' | 'settings'>, presence: PresenceTracker) {
     this.#deps = deps;
     this.#presence = presence;
   }
@@ -142,7 +144,11 @@ export class StoreNotifications implements NotificationService {
         }
       }),
     ];
-    return () => { for (const stop of stops) { stop(); } };
+    return () => {
+      for (const stop of stops) { stop(); }
+      for (const timer of this.#waiting.values()) { clearTimeout(timer); }
+      this.#waiting.clear();
+    };
   }
 
   #guard(event: string, work: Promise<void>): void {
@@ -210,6 +216,9 @@ export class StoreNotifications implements NotificationService {
 
   async #system(system: SystemName, status: SystemStatus): Promise<void> {
     const about = (link: NotificationLink): boolean => 'system' in link && link.system === system;
+    // any news of the system ends a wait for its config notice: it connected, went away, or needs config again
+    const waiting = this.#waiting.get(system);
+    if (waiting !== undefined) { clearTimeout(waiting); this.#waiting.delete(system); }
     if (status === 'connected' || status === 'removed') {
       await this.#resolve(['config-needed', 'system-disconnected'], about, status === 'connected' ? 'Connected' : 'Removed');
       return;
@@ -217,10 +226,23 @@ export class StoreNotifications implements NotificationService {
     // a system that went away no longer needs config until it is back; one that needs config is no longer just gone
     if (status === 'disconnected') { await this.#resolve(['config-needed'], about, 'Disconnected'); }
     if (status === 'needs-config') { await this.#resolve(['system-disconnected'], about, 'Reconnected'); }
-    if (status !== 'disconnected' && status !== 'needs-config') { return; }
-    const reason = status === 'disconnected' ? 'system-disconnected' : 'config-needed';
-    const body = status === 'disconnected' ? 'Its fns are unavailable until it connects again.' : 'It connected without a valid config, so it can\'t be used yet.';
-    await this.#admins((user) => this.notify({ user, reason, title: status === 'disconnected' ? `${system} disconnected` : `${system} needs config`, body, link: { system } }));
+    if (status === 'disconnected') {
+      await this.#admins((user) => this.notify({ user, reason: 'system-disconnected', title: `${system} disconnected`, body: 'Its fns are unavailable until it connects again.', link: { system } }));
+    }
+    if (status !== 'needs-config') { return; }
+    const grace = this.#deps.settings.chat.HARNESS_CONFIG_NOTICE_GRACE;
+    if (grace === 0) { await this.#configNeeded(system); return; }
+    // a fresh hub's systems often connect before their config arrives: tell the admins only if it stays that way
+    this.#waiting.set(system, setTimeout(() => {
+      this.#waiting.delete(system);
+      this.#guard('system', this.#configNeeded(system));
+    }, grace));
+  }
+
+  async #configNeeded(system: SystemName): Promise<void> {
+    await this.#admins((user) => this.notify({
+      user, reason: 'config-needed', title: `${system} needs config`, body: 'It connected without a valid config, so it can\'t be used yet.', link: { system },
+    }));
   }
 
   /** Tell the admins a system was paused for going past what it declared. */

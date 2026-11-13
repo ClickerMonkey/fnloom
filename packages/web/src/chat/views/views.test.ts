@@ -93,12 +93,14 @@ describe('ChatView', () => {
     expect(document.body.querySelector('[data-testid=session-list]')).not.toBeNull();
   });
 
-  it('lists chats as the page at /chat on a phone, and offers a new one on a desktop', async () => {
+  it('lists chats as the page at /chat on a phone, and offers one New chat on a desktop', async () => {
     const phone = await start('/chat', 390);
     expect(phone.app.find('[data-testid=session-list]').exists()).toBe(true);
     const desktop = await start('/chat');
     expect(desktop.app.find('[data-testid=chat-home]').exists()).toBe(true);
-    await desktop.app.get('[data-testid=chat-home] button').trigger('click');
+    // the list beside the empty chat has New chat, so the empty state has none of its own (build 8)
+    expect(desktop.app.findAll('button').filter((b) => b.text() === 'New chat')).toHaveLength(1);
+    await desktop.app.get('[data-testid=new-chat]').trigger('click');
     await flushPromises();
     expect(desktop.router.currentRoute.value.params['session']).toBe('ses_new');
   });

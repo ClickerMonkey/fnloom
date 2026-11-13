@@ -130,8 +130,10 @@ export function tableFit(): VisualFit {
   return { fits: true, score: TABLE_VISUAL_SCORE };
 }
 
-const BAR_LABEL_KINDS: ReadonlySet<ColumnKind> = new Set(['text', 'date', 'datetime']);
-const BAR_NUMBER_KINDS: ReadonlySet<ColumnKind> = new Set(['integer', 'number']);
+const BAR_LABEL_KIND_LIST = ['text', 'date', 'datetime'] as const satisfies readonly ColumnKind[];
+const BAR_NUMBER_KIND_LIST = ['integer', 'number'] as const satisfies readonly ColumnKind[];
+const BAR_LABEL_KINDS: ReadonlySet<ColumnKind> = new Set(BAR_LABEL_KIND_LIST);
+const BAR_NUMBER_KINDS: ReadonlySet<ColumnKind> = new Set(BAR_NUMBER_KIND_LIST);
 /** The most bars a chart draws before a table reads better. */
 export const BAR_MAX_ROWS = 50;
 
@@ -148,6 +150,32 @@ export function barFit(table: ResultTable): VisualFit {
   if (!table.rows.every((row) => typeof row[1] === 'number' && Number.isFinite(row[1]) && row[1] >= 0)) { return no; }
   return { fits: true, score: table.truncated || table.offset > 0 ? 0.5 : 0.8 };
 }
+
+/**
+ * The built-in visuals' declared shapes (build 8), beside their match logic so both say the same thing: the table
+ * draws any columns, the bar chart a label and a number column in 2 to `BAR_MAX_ROWS` rows, the value one cell of a
+ * whole result. The database system contributes its visuals with these, and the app's own visuals use them too.
+ */
+export const BUILT_IN_SHAPES: Readonly<Record<'table' | 'bar' | 'value', VisualShape>> = {
+  table: {
+    channels: [{ name: 'columns', label: 'Columns', accepts: [...COLUMN_KINDS], required: false, many: true }],
+    rows: { min: 0 },
+    whole: false,
+  },
+  bar: {
+    channels: [
+      { name: 'label', label: 'Label', accepts: [...BAR_LABEL_KIND_LIST], required: true, many: false },
+      { name: 'value', label: 'Value', accepts: [...BAR_NUMBER_KIND_LIST], required: true, many: false },
+    ],
+    rows: { min: 2, max: BAR_MAX_ROWS },
+    whole: false,
+  },
+  value: {
+    channels: [{ name: 'value', label: 'Value', accepts: [...COLUMN_KINDS], required: true, many: false }],
+    rows: { min: 1, max: 1 },
+    whole: true,
+  },
+};
 
 /** A single value fits one row of one column, the whole result, and shows it best of all (0.9). */
 export function valueFit(table: ResultTable): VisualFit {

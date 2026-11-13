@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "seq": 47,
+  "seq": 48,
   "readSeq": 47,
   "answers": {
     "scope-depth": {
@@ -13,7 +13,11 @@
       ],
       "rev": "1tqwssd",
       "at": "2026-11-13T00:30:00.180Z",
-      "seq": 1
+      "seq": 1,
+      "ack": {
+        "at": "2026-11-13T00:55:18.051Z",
+        "note": "Recorded in build-8-feedback.md (35ab704) and harness.md Decided. These differ from my recommendation and are applied as answered: a focused widget pass runs right after build 8 integrates."
+      }
     },
     "scope-hub-kind": {
       "status": "answered",
@@ -25,7 +29,11 @@
       ],
       "rev": "1bgmqkp",
       "at": "2026-11-13T00:30:54.308Z",
-      "seq": 4
+      "seq": 4,
+      "ack": {
+        "at": "2026-11-13T00:55:18.052Z",
+        "note": "Recorded in build-8-feedback.md (35ab704) and harness.md Decided. These differ from my recommendation and are applied as answered: a focused widget pass runs right after build 8 integrates."
+      }
     },
     "scope-dashboards": {
       "status": "answered",
@@ -157,7 +165,11 @@
       ],
       "rev": "1u6ta2",
       "at": "2026-11-13T00:37:08.827Z",
-      "seq": 17
+      "seq": 17,
+      "ack": {
+        "at": "2026-11-13T00:55:18.053Z",
+        "note": "Recorded in build-8-feedback.md (35ab704) and harness.md Decided. These differ from my recommendation and are applied as answered: a focused widget pass runs right after build 8 integrates."
+      }
     },
     "controls-choice-labels": {
       "status": "answered",
@@ -253,7 +265,11 @@
       ],
       "rev": "r6rh6g",
       "at": "2026-11-13T00:40:25.883Z",
-      "seq": 25
+      "seq": 25,
+      "ack": {
+        "at": "2026-11-13T00:55:18.053Z",
+        "note": "Recorded in build-8-feedback.md (35ab704) and harness.md Decided. These differ from my recommendation and are applied as answered: a focused widget pass runs right after build 8 integrates."
+      }
     },
     "actions-then": {
       "status": "answered",
@@ -385,7 +401,11 @@
       ],
       "rev": "s42k9h",
       "at": "2026-11-13T00:43:20.578Z",
-      "seq": 38
+      "seq": 38,
+      "ack": {
+        "at": "2026-11-13T00:55:18.053Z",
+        "note": "Recorded in build-8-feedback.md (35ab704) and harness.md Decided. These differ from my recommendation and are applied as answered: a focused widget pass runs right after build 8 integrates."
+      }
     },
     "routing-run-after-make": {
       "status": "answered",

@@ -7,10 +7,10 @@ import { AeyeDocuments } from './documents.ts';
 import { FileService } from './files.ts';
 import { RootGuard, fileUri } from './paths.ts';
 import { FsProblem } from './problem.ts';
-import { GlobSecrets } from './secrets.ts';
+import { DEFAULT_SENSITIVITY_RULES, Sensitivity } from './sensitive.ts';
 import { FsResources } from './resources.ts';
 import { DiskSnapshots } from './snapshots.ts';
-import { FakeShell, tempFolder } from './testing.ts';
+import { FakeShell, NO_IGNORES, tempFolder } from './testing.ts';
 
 /** Link a folder: a junction on Windows (no admin rights needed), a symlink elsewhere. */
 function linkFolder(target: string, path: string): Promise<void> {
@@ -42,7 +42,7 @@ describe('links', () => {
     files = new FileService(new DiskSnapshots(`${tmp.path}/.snapshots`), { readLines: 100, fileMax: 10_000, listLimit: 100, ignore: [] });
     resources = new FsResources({
       guard: () => guard,
-      secrets: () => new GlobSecrets(),
+      secrets: () => new Sensitivity(DEFAULT_SENSITIVITY_RULES, NO_IGNORES),
       files,
       documents: new AeyeDocuments(createDefaultResourceRegistry()),
       limits: { page: 50, textMax: 10_000, ignore: [], debounce: 10 },

@@ -67,7 +67,7 @@ interface ServeOptions {
 }
 ```
 
-Refers to: [`Duration`](context:fs/authoring.core-types#core-duration).
+Refers to: [`Duration`](context:fs/authoring.core-types.primitives-ts#core-duration).
 
 #### `McpServe`
 
@@ -90,7 +90,7 @@ A fn's MCP tool name: `<system>_<local>` in the characters MCP allows (`mcpToolN
 function mcpToolNameOf(fn: QualifiedName): string;
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `RunningSystem`
 
@@ -147,7 +147,7 @@ interface RunningSystem<N extends string> extends FnSearch, Fleets {
 }
 ```
 
-Refers to: [`FnExamplesPatch`](context:fs/authoring.core-types#core-fnexamplespatch), [`HostRefusal`](context:fs/authoring.core-types#core-hostrefusal), [`ImportReport`](context:fs/authoring.core-types#core-importreport), [`PairingGrant`](context:fs/authoring.core-types#core-pairinggrant), [`PairingGrantRequest`](context:fs/authoring.core-types#core-pairinggrantrequest), [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname), [`TypeDecl`](context:fs/authoring.core-types#core-typedecl).
+Refers to: [`FnExamplesPatch`](context:fs/authoring.core-types.fn-facts-ts#core-fnexamplespatch), [`HostRefusal`](context:fs/authoring.core-types.lifecycle-ts#core-hostrefusal), [`ImportReport`](context:fs/authoring.core-types.contextdecl#core-importreport), [`PairingGrant`](context:fs/authoring.core-types.approvals-ts#core-pairinggrant), [`PairingGrantRequest`](context:fs/authoring.core-types.approvals-ts#core-pairinggrantrequest), [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname), [`TypeDecl`](context:fs/authoring.core-types.manifestpatch#core-typedecl).
 
 #### `RunningStatus`
 
@@ -189,7 +189,7 @@ Needs<'providers', { readonly [K in keyof C['providers']]: ProviderImpl<ConfigOf
 };
 ```
 
-Refers to: [`ConnectDecl`](context:fs/authoring.core-types#core-connectdecl).
+Refers to: [`ConnectDecl`](context:fs/authoring.core-types.connections-ts#core-connectdecl).
 
 #### `FnImpl`
 
@@ -197,14 +197,20 @@ type · `import { FnImpl } from '@harness/sdk'`
 
 The implementation of a native fn. `undo` is required exactly when the fn declares an undo type; `preview` when it
 declares `approval` with a preview (checked when the system serves): what a run would do, or why it can't go ahead.
+`flags` when it declares `flags: true`: the sensitive files a run with these args would read or write (empty when
+none), asked by the hub before every run.
 
 ```ts
 type FnImpl<T extends FnTypes, Cfg = unknown> =
-{ run(args: T['args'], ctx: FnCtx<T, Cfg>): Promise<Outcome<T>>; preview?(args: T['args'], ctx: PreviewCtx<Cfg>): Promise<PreviewAnswer> } &
+{
+  run(args: T['args'], ctx: FnCtx<T, Cfg>): Promise<Outcome<T>>;
+  preview?(args: T['args'], ctx: PreviewCtx<Cfg>): Promise<PreviewAnswer>;
+  flags?(args: T['args'], ctx: PreviewCtx<Cfg>): Promise<SensitivityFlag[]>;
+} &
 ([T['undo']] extends [never] ? { undo?: never } : { undo(payload: T['undo'], ctx: UndoCtx<Cfg>): Promise<UndoOutcome> });
 ```
 
-Refers to: [`PreviewAnswer`](context:fs/authoring.core-types#core-previewanswer), [`UndoOutcome`](context:fs/authoring.core-types#core-undooutcome).
+Refers to: [`PreviewAnswer`](context:fs/authoring.core-types.approvals-ts#core-previewanswer), [`SensitivityFlag`](context:fs/authoring.core-types.sensitivity-ts#core-sensitivityflag), [`UndoOutcome`](context:fs/authoring.core-types.run-ts#core-undooutcome).
 
 #### `ConnectImpl`
 
@@ -223,7 +229,7 @@ interface ConnectImpl<Cfg> {
 }
 ```
 
-Refers to: [`ConnectFinish`](context:fs/authoring.core-types#core-connectfinish), [`ConnectResult`](context:fs/authoring.core-types#core-connectresult), [`ConnectStart`](context:fs/authoring.core-types#core-connectstart), [`RunConnection`](context:fs/authoring.core-types#core-runconnection).
+Refers to: [`ConnectFinish`](context:fs/authoring.core-types.connections-ts#core-connectfinish), [`ConnectResult`](context:fs/authoring.core-types.connections-ts#core-connectresult), [`ConnectStart`](context:fs/authoring.core-types.connections-ts#core-connectstart), [`RunConnection`](context:fs/authoring.core-types.connections-ts#core-runconnection).
 
 #### `loggedHost`
 
@@ -285,7 +291,7 @@ The state folder an instance gets when none is named: `.harness/systems/<name>` 
 function defaultStateFolder(name: string, instance: InstanceName): string;
 ```
 
-Refers to: [`InstanceName`](context:fs/authoring.core-types#core-instancename).
+Refers to: [`InstanceName`](context:fs/authoring.core-types.primitives-ts#core-instancename).
 
 #### `SYSTEM_ENV`
 
@@ -332,7 +338,7 @@ const · `import { sdkEnv } from '@harness/sdk/server'`
 const sdkEnv: typeof sdkEnv; // too large to print: see its section
 ```
 
-Refers to: [`InstanceName`](context:fs/authoring.core-types#core-instancename).
+Refers to: [`InstanceName`](context:fs/authoring.core-types.primitives-ts#core-instancename).
 
 #### `SdkEnv`
 
@@ -408,7 +414,7 @@ interface LinkHostDeps {
 }
 ```
 
-Refers to: [`LogLine`](context:fs/authoring.core-types#core-logline).
+Refers to: [`LogLine`](context:fs/authoring.core-types.link-ts#core-logline).
 
 #### `SystemStopped`
 
@@ -439,7 +445,7 @@ interface SystemPatch {
 }
 ```
 
-Refers to: [`ManifestPatch`](context:fs/authoring.core-types#core-manifestpatch), [`ManifestSection`](context:fs/authoring.core-types#core-manifestsection), [`SectionDecl`](context:fs/authoring.core-types#core-sectiondecl).
+Refers to: [`ManifestPatch`](context:fs/authoring.core-types.manifestpatch#core-manifestpatch), [`ManifestSection`](context:fs/authoring.core-types.manifestpatch#core-manifestsection), [`SectionDecl`](context:fs/authoring.core-types.manifestpatch#core-sectiondecl).
 
 #### `PairingDisplay`
 
@@ -471,7 +477,7 @@ interface PairingShown {
 }
 ```
 
-Refers to: [`InstanceName`](context:fs/authoring.core-types#core-instancename), [`Timestamp`](context:fs/authoring.core-types#core-timestamp).
+Refers to: [`InstanceName`](context:fs/authoring.core-types.primitives-ts#core-instancename), [`Timestamp`](context:fs/authoring.core-types.primitives-ts#core-timestamp).
 
 #### `pairingDisplayFor`
 

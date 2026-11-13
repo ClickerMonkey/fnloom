@@ -21,7 +21,7 @@ Declare an action. Without `returns` it returns nothing.
 function action<I, R = undefined, St extends object = {}>(def: { description: string; input: GinType<I>; returns?: GinType<R>; state?: GinType<St>; expires?: Duration; }): ActionDef<I, R, St>;
 ```
 
-Refers to: [`Duration`](context:fs/authoring.core-types#core-duration).
+Refers to: [`Duration`](context:fs/authoring.core-types.primitives-ts#core-duration).
 
 #### `ActionDef`
 
@@ -41,7 +41,7 @@ interface ActionDef<I, R, St extends object> {
 }
 ```
 
-Refers to: [`Duration`](context:fs/authoring.core-types#core-duration).
+Refers to: [`Duration`](context:fs/authoring.core-types.primitives-ts#core-duration).
 
 #### `ActionImpl`
 
@@ -69,7 +69,7 @@ interface ActionCtx<St extends object, Cfg = unknown> extends SystemCtx<Cfg>, As
 }
 ```
 
-Refers to: [`ActorId`](context:fs/authoring.core-types#core-actorid), [`DeliveryId`](context:fs/authoring.core-types#core-deliveryid), [`RunId`](context:fs/authoring.core-types#core-runid).
+Refers to: [`ActorId`](context:fs/authoring.core-types.primitives-ts#core-actorid), [`DeliveryId`](context:fs/authoring.core-types.primitives-ts#core-deliveryid), [`RunId`](context:fs/authoring.core-types.primitives-ts#core-runid).
 
 #### `ActionRef`
 
@@ -86,4 +86,4 @@ interface ActionRef<N extends QualifiedName, I, R> {
 }
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).

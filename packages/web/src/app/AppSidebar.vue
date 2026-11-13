@@ -10,6 +10,8 @@ import AppBrand from './AppBrand.vue';
 import type { NavEntry } from './nav.ts';
 
 withDefaults(defineProps<{
+  /** The hub's display name, for the mark. */
+  brand: string;
   entries: readonly NavEntry[];
   user: UserView | undefined;
   unread: number;
@@ -40,7 +42,7 @@ function onUserAction(action: UserAction): void {
 <template>
   <nav class="sidebar" :class="{ collapsed }" aria-label="Main">
     <div class="head">
-      <AppBrand :mark-only="collapsed" />
+      <AppBrand :name="brand" :mark-only="collapsed" />
       <div class="head-tools">
         <UiIconButton icon="bell" :label="unread > 0 ? `Notifications, ${countLabel(unread)} unread` : 'Notifications'" :badge="unread" data-testid="open-inbox" @click="openInbox" />
         <UiIconButton v-if="collapsible" icon="sidebar" :label="collapsed ? 'Expand sidebar' : 'Collapse sidebar'" data-testid="toggle-sidebar" @click="$emit('toggle')" />

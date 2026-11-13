@@ -33,7 +33,7 @@ describe('auto mode and fns that always ask', () => {
       () => ({ classify: (input) => { asked.push(input.fn.name); return Promise.resolve({ allow: true, reason: 'fine' }); } }),
     );
     const session = { fnMode: 'auto' } as const satisfies Pick<Session, 'fnMode'>;
-    const check = (fn: FnRecord) => gate.check({ session: { ...sessionRow(), ...session }, fn, args: {}, run: RunId.parse('run_1') });
+    const check = (fn: FnRecord) => gate.check({ session: { ...sessionRow(), ...session }, fn, args: {}, run: RunId.parse('run_1'), flags: [] });
     expect(await check(fnRecord('install_system', { preview: true, remember: false, approver: 'admins' }))).toEqual({ effect: 'pass' });
     expect(await check(fnRecord('write'))).toEqual({ effect: 'allow', reason: 'fine' });
     expect(asked).toEqual(['fs/write']);

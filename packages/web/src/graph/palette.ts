@@ -66,13 +66,16 @@ export const shapeClip = (kind: GraphNodeKind): string => SHAPE_CLIPS[SHAPES[kin
  */
 export const MIN_LABEL_PX = 9;
 
+/** An item label's size in graph units (at zoom 1). */
+export const NODE_LABEL_PX = 16;
+
 /** The stylesheet the graph draws with, in light or dark. */
 export function graphStyle(colors: GraphColors, dark: boolean): StylesheetJson {
   return [
     {
       selector: 'node',
       style: {
-        label: 'data(label)', 'font-size': 16, 'font-family': 'ui-sans-serif, system-ui, sans-serif', color: colors.text, 'text-valign': 'bottom', 'text-margin-y': 4,
+        label: 'data(label)', 'font-size': NODE_LABEL_PX, 'font-family': 'ui-sans-serif, system-ui, sans-serif', color: colors.text, 'text-valign': 'bottom', 'text-margin-y': 4,
         'text-wrap': 'ellipsis', 'text-max-width': '140px', width: 24, height: 24, 'border-width': 2, 'border-color': colors.surface, 'min-zoomed-font-size': MIN_LABEL_PX,
         'text-background-color': colors.surface, 'text-background-opacity': 0.7, 'text-background-padding': '1px', 'text-background-shape': 'roundrectangle',
       },

@@ -6,7 +6,7 @@
 /** Every problem code, so callers and tests can rely on them. */
 export const PROBLEM_CODES = [
   'no-roots', 'outside', 'read-only', 'not-found', 'not-a-file', 'not-a-folder', 'binary', 'too-large',
-  'no-match', 'ambiguous', 'bad-pattern', 'denied', 'needs-confirmation', 'timeout',
+  'no-match', 'ambiguous', 'bad-pattern', 'denied', 'needs-confirmation', 'timeout', 'bad-config',
 ] as const;
 export type ProblemCode = (typeof PROBLEM_CODES)[number];
 

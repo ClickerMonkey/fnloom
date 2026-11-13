@@ -18,7 +18,7 @@ export {
 } from './fn.ts';
 export {
   type, setting, attachment, kind, arg, context, hook, hookBlock, mention, embedder, sectioner, sectionKeys, action,
-  type TypeDef, type AnyTypeDef, type ValueOf, type NamingKeys, type ContextLinkDef, type ContextLinkTarget, type MethodImpl, type SettingDef, type AttachmentDef, type KindDef, type KindImpl, type KindEstimateInput,
+  type TypeDef, type AnyTypeDef, type ValueOf, type NamingKeys, type TextKeys, type RecordsInput, type ContextLinkDef, type ContextLinkTarget, type MethodImpl, type SettingDef, type AttachmentDef, type KindDef, type KindImpl, type KindEstimateInput,
   type KindCheckCtx, type KindRunCtx, type ArgDef, type ArgsOf, type ContextDef, type AnyContextDef, type ContextInput, type ContextImpl,
   type HookDef, type HookContribution, type HookImpl, type MentionDef, type MentionOption, type MentionCtx, type MentionImpl,
   type EmbedderDef, type EmbedderImpl, type SectionerDef, type SectionerImpl, type ActionDef, type ActionImpl,
@@ -31,6 +31,7 @@ export {
   Suspended, CallFailed, HandlerFailed,
   type Llm, type Files, type Resources, type Types, type Log, type Services, type SystemCtx, type SessionState, type Settled, type CallOptions, type Caller,
   type Callers, type FnCall, type BudgetInfo, type Resume, type FnCtx, type UndoCtx, type ValidateCtx, type AskerCtx, type ActionCtx, type RunStatusView, type SystemPlace,
+  type Data, type StoredRecord, type StoredType, type RecordFind,
   type ForwardModality, type ModelInput, type ModelOutput, type PreviewCtx, type Proposals, type ProposeOptions, type Decisions, type DecideOptions, type Fleets, type FnSearch, type AiSource, type AdminNotices,
 } from './ctx.ts';
 export { ResultBlock, ResultBlockType, ResultColumnInfo, ResultFn, NextPage } from './results.ts';
@@ -43,7 +44,7 @@ export {
   type ConnectImpl, type EventHandlers, type Lifecycle, type SystemImpl, type SystemInfo, type RegistryDef,
 } from './system.ts';
 export {
-  hub, ADMIN_ENDPOINTS, ADMIN_READ_ENDPOINTS, HUB_READ_ENDPOINTS, HUB_WRITE_ENDPOINTS, HUB_PERSON_ENDPOINTS, HUB_EXPLORE_ENDPOINTS, FIND_KINDS, LlmPayloadType, ModelChoiceType, ChatModeType, ContextorType, FnErrorType,
+  hub, ADMIN_ENDPOINTS, ADMIN_READ_ENDPOINTS, HUB_READ_ENDPOINTS, HUB_WRITE_ENDPOINTS, HUB_PERSON_ENDPOINTS, HUB_EXPLORE_ENDPOINTS, HUB_DATA_ENDPOINTS, WidgetSourceArgs, WidgetSaveArgs, FIND_KINDS, LlmPayloadType, ModelChoiceType, ChatModeType, ContextorType, FnErrorType,
   StoredFn, SaveFnArgs, SAVE_FN_TAKEN,
   type AdminFnName, type AdminReadFnName, type HubReadFnName, type HubWriteFnName, type HubPersonFnName, type HubExploreFnName, type HubContract,
 } from './hub.ts';
@@ -54,6 +55,10 @@ export {
   type InputAnswer, type InputAnswers, type ValueEditorProps, type ShareEditorProps,
   type Renderer, type Delivery, type FnView, type SystemClient, type WithSystem, type AttachmentView, type InputView, type MentionView, type ResourceView,
   type FnViewOf, type AttachmentViewOf, type InputViewOf, type AnyViews, type WireViews, type Mount, type InputMount, type ClientRenderers, type ClientModule, type ResourceViewerProps,
-  type ResourceViewerEntry, type ResourceViewerMode, type BareViewer, type VisualView, type VisualEntry, type VisualOption, type VisualSource,
+  type ResourceViewerEntry, type ResourceViewerMode, type BareViewer, type VisualView, type VisualEntry, type VisualOption, type VisualSource, DECLARED_FIT_SCORE, visualMatch,
 } from './client.ts';
+export {
+  HUB_VISUALS, WIDGET_KIND, channel, visual, fittingVisuals, widgetArgs, widgetControls, checkWidget, widgetSpecSchema, widgetActionOptions,
+  type VisualInput, type FittingVisual, type WidgetControlView, type WidgetCheckInput, type WidgetCheckResult, type WidgetSchemaInput, type RowFn,
+} from './widgets.ts';
 export { expectType, type Equal, type Simplify } from './util.ts';

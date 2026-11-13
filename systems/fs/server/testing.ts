@@ -5,14 +5,14 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { MAIN_INSTANCE, RunInfo, UserInfo, mintId, type ApprovedRun, type FnError, type Json, type QualifiedName, type TimeInfo } from '@harness/core';
+import { MAIN_INSTANCE, RunInfo, UserInfo, mintId, type ApprovedRun, type ChangeSet, type FnError, type Json, type QualifiedName, type TimeInfo } from '@harness/core';
 import {
   parseValue, type AttachmentRef, type Callers, type FnCtx, type FnTypes, type HandlersInRun, type Log, type Outcome,
   type ProgressReporter, type SessionState, type SettingRef, type SystemCtx, type UndoCtx,
 } from '@harness/sdk';
 import { HubLlm, type HubAccess } from '@harness/sdk/server';
 import { NO_ASKS, TEST_PLACE } from '@harness/sdk/server/testing';
-import type { CommandRun, FsConfig, Git, GitStatus, Opener, Restarter, Shell } from './index.ts';
+import type { CaptureSession, ChangeCapture, CommandRun, FsConfig, Git, GitStatus, IgnoreCheck, Opener, Restarter, Shell } from './index.ts';
 import { normalize } from './paths.ts';
 
 /** A temp folder for one test, removed by `cleanup`. */
@@ -95,6 +95,7 @@ function services(options: FakeOptions, recorded: Recorded) {
     fetch: unused('fetch'),
     resources: { stat: unused('resources'), text: unused('resources'), links: unused('resources'), sections: unused('resources'), search: unused('resources') },
     types: { definitions: unused('types') },
+    data: { find: unused('data'), get: unused('data'), table: unused('data'), save: unused('data'), remove: unused('data') },
     attach: <A>(ref: AttachmentRef<QualifiedName, A>, data: A, title: string) => { recorded.attachments.push({ name: ref.name, data: parseValue(ref.data, data), title }); },
     link: () => undefined,
     setting: <V>(ref: SettingRef<QualifiedName, V>) => {
@@ -169,7 +170,7 @@ export function undoCtx(options: FakeOptions): { ctx: UndoCtx<FsConfig> } & Reco
 export function systemCtx(options: FakeOptions): SystemCtx<FsConfig> & { session: ReturnType<typeof mintId<'session'>>; user: typeof user; time: TimeInfo } & Recorded {
   const recorded = record();
   const all = services(options, recorded);
-  return { ...recorded, ...TEST_PLACE, ...NO_ASKS, system: 'fs', config: options.config, llm: all.llm, ai: all.ai, resources: all.resources, types: all.types, log: recorded.log, signal: options.signal ?? new AbortController().signal, session: mintId('session'), user, time };
+  return { ...recorded, ...TEST_PLACE, ...NO_ASKS, system: 'fs', config: options.config, llm: all.llm, ai: all.ai, resources: all.resources, types: all.types, data: all.data, log: recorded.log, signal: options.signal ?? new AbortController().signal, session: mintId('session'), user, time };
 }
 
 /** The outcome of a run, narrowed to `done`, failing the test otherwise. */
@@ -225,5 +226,31 @@ export class FakeRestarter implements Restarter {
   readonly reasons: string[] = [];
   schedule(reason: string): void {
     this.reasons.push(reason);
+  }
+}
+
+/** Git that ignores nothing, for the `gitignored` rule where git doesn't matter. */
+export const NO_IGNORES: IgnoreCheck = { ignored: () => Promise.resolve(new Set()) };
+
+/** Git that ignores the paths given (absolute, normalized). */
+export function ignoring(paths: readonly string[]): IgnoreCheck {
+  return { ignored: (asked) => Promise.resolve(new Set(asked.filter((path) => paths.includes(path)))) };
+}
+
+/** Change capture that answers a set change set for every call and records the folders it was started in. */
+export class FakeChanges implements ChangeCapture {
+  readonly started: string[] = [];
+  private readonly answer: (cwd: string) => ChangeSet;
+  constructor(answer: (cwd: string) => ChangeSet = (cwd) => ({ source: 'git', cwd, files: [], ignored: 0, truncated: false })) {
+    this.answer = answer;
+  }
+
+  start(input: { cwd: string }): Promise<CaptureSession> {
+    this.started.push(input.cwd);
+    return Promise.resolve({ finish: () => Promise.resolve(this.answer(input.cwd)) });
+  }
+
+  busy(): () => void {
+    return () => undefined;
   }
 }

@@ -5,10 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AeyeDocuments, linkPath, plainText, toResourceLink } from './documents.ts';
 import { FileService } from './files.ts';
 import { RootGuard, fileUri } from './paths.ts';
-import { GlobSecrets } from './secrets.ts';
+import { DEFAULT_SENSITIVITY_RULES, Sensitivity } from './sensitive.ts';
 import { FsResources, versionOf } from './resources.ts';
 import { DiskSnapshots } from './snapshots.ts';
-import { tempFolder } from './testing.ts';
+import { NO_IGNORES, tempFolder } from './testing.ts';
 
 type Listener = (event: 'rename' | 'change', file: string) => void;
 
@@ -29,7 +29,7 @@ describe('FsResources', () => {
     const files = new FileService(new DiskSnapshots(`${tmp.path}/../.s`), { readLines: 100, fileMax: 10_000, listLimit: 100, ignore: ['node_modules'] });
     resources = new FsResources({
       guard: () => guard,
-      secrets: () => new GlobSecrets(),
+      secrets: () => new Sensitivity(DEFAULT_SENSITIVITY_RULES, NO_IGNORES),
       files,
       documents: new AeyeDocuments(createDefaultResourceRegistry()),
       limits: { page: 2, textMax: 1_000, ignore: ['node_modules'], debounce: 50 },

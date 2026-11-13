@@ -21,7 +21,7 @@ The `system.json` in a folder. Throws `PackageManifestError` when it is missing 
 function readPackageManifest(dir: string): Promise<SystemPackageManifest>;
 ```
 
-Refers to: [`SystemPackageManifest`](context:fs/authoring.core-types#core-systempackagemanifest).
+Refers to: [`SystemPackageManifest`](context:fs/authoring.core-types.package-ts#core-systempackagemanifest).
 
 #### `findPackageManifest`
 
@@ -33,7 +33,7 @@ The `system.json` in a folder, or `undefined` when the folder has none (one that
 function findPackageManifest(dir: string): Promise<SystemPackageManifest | undefined>;
 ```
 
-Refers to: [`SystemPackageManifest`](context:fs/authoring.core-types#core-systempackagemanifest).
+Refers to: [`SystemPackageManifest`](context:fs/authoring.core-types.package-ts#core-systempackagemanifest).
 
 #### `parsePackageManifest`
 
@@ -45,7 +45,7 @@ Parse a `system.json`'s text. `file` names it in the error.
 function parsePackageManifest(text: string, file?: string): SystemPackageManifest;
 ```
 
-Refers to: [`SystemPackageManifest`](context:fs/authoring.core-types#core-systempackagemanifest).
+Refers to: [`SystemPackageManifest`](context:fs/authoring.core-types.package-ts#core-systempackagemanifest).
 
 #### `checkPackage`
 
@@ -57,7 +57,7 @@ function · `import { checkPackage } from '@harness/sdk/server'`
 function checkPackage(contract: AnyContract, manifest: SystemPackageManifest, instance?: InstanceName): void;
 ```
 
-Refers to: [`InstanceName`](context:fs/authoring.core-types#core-instancename), [`SystemPackageManifest`](context:fs/authoring.core-types#core-systempackagemanifest).
+Refers to: [`InstanceName`](context:fs/authoring.core-types.primitives-ts#core-instancename), [`SystemPackageManifest`](context:fs/authoring.core-types.package-ts#core-systempackagemanifest).
 
 #### `packageProblems`
 
@@ -71,7 +71,7 @@ must speak this SDK's link protocol (its format is checked by the schema), and a
 function packageProblems(contract: AnyContract, manifest: SystemPackageManifest, instance?: InstanceName): string[];
 ```
 
-Refers to: [`InstanceName`](context:fs/authoring.core-types#core-instancename), [`SystemPackageManifest`](context:fs/authoring.core-types#core-systempackagemanifest).
+Refers to: [`InstanceName`](context:fs/authoring.core-types.primitives-ts#core-instancename), [`SystemPackageManifest`](context:fs/authoring.core-types.package-ts#core-systempackagemanifest).
 
 #### `PackageManifestError`
 
@@ -99,7 +99,7 @@ dropped; `pack` writes them for the files it packs.
 function builtPackageManifest(manifest: SystemPackageManifest, entries: BuiltEntries): SystemPackageManifest;
 ```
 
-Refers to: [`SystemPackageManifest`](context:fs/authoring.core-types#core-systempackagemanifest).
+Refers to: [`SystemPackageManifest`](context:fs/authoring.core-types.package-ts#core-systempackagemanifest).
 
 #### `packedPackageManifest`
 
@@ -111,7 +111,7 @@ A manifest that lists the sha-256 of every file packed beside it (paths relative
 function packedPackageManifest(manifest: SystemPackageManifest, files: ReadonlyMap<string, Uint8Array>): SystemPackageManifest;
 ```
 
-Refers to: [`SystemPackageManifest`](context:fs/authoring.core-types#core-systempackagemanifest).
+Refers to: [`SystemPackageManifest`](context:fs/authoring.core-types.package-ts#core-systempackagemanifest).
 
 #### `packageFileProblems`
 
@@ -125,7 +125,7 @@ nothing (it was never packed).
 function packageFileProblems(manifest: SystemPackageManifest, files: ReadonlyMap<string, Uint8Array>): string[];
 ```
 
-Refers to: [`SystemPackageManifest`](context:fs/authoring.core-types#core-systempackagemanifest).
+Refers to: [`SystemPackageManifest`](context:fs/authoring.core-types.package-ts#core-systempackagemanifest).
 
 #### `packageManifestText`
 
@@ -137,7 +137,7 @@ The manifest as `system.json` text: two-space JSON with a final newline, so a wr
 function packageManifestText(manifest: SystemPackageManifest): string;
 ```
 
-Refers to: [`SystemPackageManifest`](context:fs/authoring.core-types#core-systempackagemanifest).
+Refers to: [`SystemPackageManifest`](context:fs/authoring.core-types.package-ts#core-systempackagemanifest).
 
 #### `BuiltEntries`
 

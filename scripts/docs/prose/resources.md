@@ -15,9 +15,9 @@ URIs are absolute (`notes://all/n1`, `file:///…`) and belong to the system who
 goes through the hub (`ctx.resources.text(uri)` from any system), which routes each URI to the system that serves it.
 Build readers on `@aeye/resources` where they fit; the fs system serves folders this way.
 
-The notes system serves each note as markdown under `notes://all/`, so the hub indexes and searches them:
-
-<!-- include: scripts/docs/example/server/impl.ts#impl-resources -->
+Serve resources for things that live outside the hub (files, pages, an external store); records of a stored type
+need none, since the hub already keeps and searches them (**Stored types and the data system**). The fs system is the
+reference provider (`systems/fs/server/resources.ts`).
 
 ### Embedders
 

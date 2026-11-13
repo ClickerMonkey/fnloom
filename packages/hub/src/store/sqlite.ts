@@ -22,6 +22,7 @@ import { TABLE_DEFS, TABLE_NAMES, tableIndexes, tableLayout } from './schema.ts'
 import { SqliteTable } from './table.ts';
 import { SqliteTextIndex, createTextTables } from './text.ts';
 import { SqliteVectorIndex, createVectorTables } from './vectors.ts';
+import { SqliteRecordQueries, type RecordQueries } from './records.ts';
 
 /** What every scope of one store shares. */
 interface Shared {
@@ -43,6 +44,7 @@ function codecOf<K extends TableName>(name: K): RowCodec<RowOf<K>, KeyOf<K>> {
 export class SqliteStore implements HubStore {
   readonly vectors: VectorIndex;
   readonly text: TextIndex;
+  readonly recordQueries: RecordQueries;
   readonly ports: ScopedPorts;
   /** Hybrid (vector + text) search over this store's indexes. */
   readonly search: HybridSearch;
@@ -54,6 +56,7 @@ export class SqliteStore implements HubStore {
     this.#scope = scope;
     this.vectors = new SqliteVectorIndex(scope, shared.dimensions, shared.log);
     this.text = new SqliteTextIndex(scope);
+    this.recordQueries = new SqliteRecordQueries(scope);
     this.ports = new ScopedPorts(shared.raw, scope, shared.named);
     this.search = new HybridSearch(this, shared.tuning);
   }

@@ -15,7 +15,7 @@ choices:
     when: "Pick this to go on in order: Settings and attachments."
 ---
 
-## 10. Kinds and agents
+## 11. Kinds and agents
 
 ### Kinds
 
@@ -63,16 +63,18 @@ kinds: {
     // everything else about a stamp fn, worked out from its payload
     describe: () => Promise.resolve({
       args: wireType(StampArgs),
-      returns: wireType(Note.shape),
+      returns: wireType(NoteEntry.shape),
       deps: [],
       operations: { cancel: true, pause: false, undo: false, background: true },
     }),
     async run(payload, args, ctx) {
       // a kind's args arrive as JSON the hub checked against `describe`; read them with the same gin type
       const input = parseValue(StampArgs, args);
-      const note = await create(deps.open(ctx.dataDir), ctx.config, { title: payload.title, text: input.text, tags: payload.tags });
-      if (note === undefined) { return ctx.fail('caller', full(ctx.config), { code: 'full' }); }
-      return ctx.done(encodeValue(Note.shape, note));
+      // titles are unique, so a stamp's note is titled by the stamp and the start of its text
+      const title = `${payload.title}: ${input.text.slice(0, 40)}`;
+      const note = await create(ctx.data, ctx.config, { title, text: input.text, tags: payload.tags });
+      if (note === undefined) { return ctx.fail('caller', taken(title), { code: 'taken' }); }
+      return ctx.done(encodeValue(NoteEntry.shape, note));
     },
   },
 },
@@ -116,6 +118,7 @@ _From `scripts/docs/example/shared/index.ts`:_
     // calls other fns through its deps, by ref: its own system's `review` and the hub's `ask_user`
     publish: fn({
       description: 'Share a note once the person approves it.',
+      group: 'sharing',
       args: g.obj({ id: g.text({ minLength: 1 }) }),
       returns: g.obj({ published: g.bool(), note: g.optional(g.text()) }),
       deps: { review: fns.review, ask: hub.fns.ask_user },
@@ -146,6 +149,10 @@ the model has seen (`markAware`), loaded (`markLoaded`) and searched (`markSearc
 `table`): a load tool is offered while something is aware but not loaded, and nothing is shown twice. The run's own
 state (deps, the instance, what it chose) is `session.state`, the `AuthoringSession`'s second type parameter. Write
 `instructions` as the job step by step, with a worked example of a good draft.
+
+An agent handed what it builds on has nothing to find: `stages: { find: false }` starts it in **inspect** (a find
+tool or `reuse` is then refused). `toolNames: { draft, save }` names the built-in tools for the job; the hub's
+`make_widget` drafts with `widget_check` and saves with `widget_save` ([Visuals and widgets](context:fs/authoring.widgets)).
 
 The input system's `get_input` writes a form this way. Its find tool:
 

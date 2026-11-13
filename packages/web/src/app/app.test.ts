@@ -140,14 +140,14 @@ describe('nav', () => {
   it('lists the entries for the user, marks the current one and counts the inbox', () => {
     const admin = fakeStores({ signedIn: true }).stores.session.user.value;
     const entries = navEntries({ name: ROUTES.session }, admin, { inbox: 4, admin: 2 });
-    expect(entries.map((e) => e.id)).toEqual(['chat', 'inbox', 'resources', 'context', 'graph', 'admin', 'settings']);
+    expect(entries.map((e) => e.id)).toEqual(['chat', 'inbox', 'resources', 'context', 'data', 'graph', 'admin', 'settings']);
     expect(entries.find((e) => e.id === 'admin')?.count).toBe(2);
     expect(navEntries({ name: ROUTES.llmCalls }, admin, { inbox: 0, admin: 0 }).find((e) => e.active)?.id).toBe('admin');
     expect(navEntries({ name: ROUTES.resources }, admin, { inbox: 0, admin: 0 }).find((e) => e.active)?.id).toBe('resources');
     expect(entries.find((e) => e.active)?.id).toBe('chat');
     expect(entries.find((e) => e.id === 'inbox')?.count).toBe(4);
     const member = admin === undefined ? undefined : { ...admin, role: 'member' as const };
-    expect(navEntries({ name: 'nowhere' }, member, { inbox: 0, admin: 3 }).map((e) => e.id)).toEqual(['chat', 'inbox', 'resources', 'context', 'graph', 'settings']);
+    expect(navEntries({ name: 'nowhere' }, member, { inbox: 0, admin: 3 }).map((e) => e.id)).toEqual(['chat', 'inbox', 'resources', 'context', 'data', 'graph', 'settings']);
   });
 });
 
@@ -269,7 +269,7 @@ describe('the shell', () => {
     expect(app.find('nav[aria-label="Main"]').exists()).toBe(true);
     expect(app.find('[data-testid="open-nav"]').exists()).toBe(false);
     expect(app.get('[data-testid="nav-inbox"]').attributes('aria-current')).toBe('page');
-    expect(document.title).toBe('Inbox · Harness');
+    expect(document.title).toBe('Inbox · Test hub');
     await app.get('[data-testid="toggle-sidebar"]').trigger('click');
     expect(stores.layout.collapsed).toBe(true);
     expect(app.get('.shell').classes()).toContain('collapsed');
@@ -296,12 +296,12 @@ describe('the shell', () => {
     const app = mount(App, { attachTo: document.body, global: { plugins: [router], provide: { [STORES]: fakes.stores } } });
     await flushPromises();
     expect(fakes.stores.inbox.unread.value).toBe(1);
-    expect(document.title).toBe('(1) Settings · Harness');
+    expect(document.title).toBe('(1) Settings · Test hub');
     expect(app.get('[data-testid="open-inbox"]').attributes('aria-label')).toBe('Notifications, 1 unread');
 
     fakes.events.push({ type: 'notification', notification: notification({ title: 'Live one' }) });
     await flushPromises();
-    expect(document.title).toBe('(2) Settings · Harness');
+    expect(document.title).toBe('(2) Settings · Test hub');
 
     await app.get('[data-testid="open-inbox"]').trigger('click');
     await flushPromises();

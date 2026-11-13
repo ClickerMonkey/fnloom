@@ -17,4 +17,8 @@ are limited to what they may see:
 
 <!-- include: scripts/docs/example/server/impl.ts#impl-mention -->
 
+In `search`, `ctx.resources.search(query, { roots?, limit? })` searches the hub's resources as the person typing:
+the hub ties it to their `@` search, so a provider can offer pages or files they may see (the web system does). It
+refuses anywhere else.
+
 A custom hover card is a renderer under `mentions` in **The client**; without one the hub draws the `hover` answer.

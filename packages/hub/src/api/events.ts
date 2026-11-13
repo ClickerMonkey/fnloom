@@ -42,6 +42,7 @@ export const ROUTES: { readonly [E in HubEventName]?: Route<E> } = {
     emit('user', { type: 'capabilities' });
   },
   'pairing': ({ pairing }, emit) => { emit('user', { type: 'pairing', pairing }); },
+  'identity': ({ identity }, emit) => { emit('user', { type: 'identity', identity }); },
   'catalog.changed': (_data, emit) => { emit('user', { type: 'capabilities' }); },
   'fn.stats': ({ fn, system, stats }, emit) => { emit('user', { type: 'fn', fn, system, stats }); },
   'capabilities.changed': (_data, emit) => { emit('user', { type: 'capabilities' }); },

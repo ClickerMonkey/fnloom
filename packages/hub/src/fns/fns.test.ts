@@ -302,7 +302,7 @@ describe('chat fn mode', () => {
     const asked: string[] = [];
     const gate = new SessionModeGate(() => facts, () => ({ classify: (input) => { asked.push(input.fn.name); return Promise.resolve({ allow: input.fn.name === 'books/book_trip', reason: 'because' }); } }));
     const fnOf = async (name: string) => { const f = await catalog.fn(q(name)); if (f === undefined) throw new Error(name); return f; };
-    const check = async (mode: Session['fnMode'], name: string) => (await gate.check({ session: session(mode), fn: await fnOf(name), args: {}, run: RUN })).effect;
+    const check = async (mode: Session['fnMode'], name: string) => (await gate.check({ session: session(mode), fn: await fnOf(name), args: {}, run: RUN, flags: [] })).effect;
     expect(await check(undefined, 'books/void_invoice')).toBe('pass');
     expect(await check('none', 'books/overdue')).toBe('refuse');
     expect(await check('read', 'books/overdue')).toBe('pass');

@@ -21,7 +21,10 @@ import { cookieMark, SessionStore } from '../state/session.ts';
 import { ResourcesStore } from '../resources/state/resources.ts';
 import { ContextStore } from '../context/state/context.ts';
 import { FnInfoStore } from '../fns/state/fn-info.ts';
+import { FnNotices } from '../fns/state/fn-notices.ts';
+import { IdentityStore } from '../state/identity.ts';
 import { GraphStore } from '../graph/state/graph.ts';
+import { DataStore } from '../data/state/data.ts';
 import type { Stores } from '../state/stores.ts';
 
 /** The stores that fetch again after a reconnect. */
@@ -75,6 +78,7 @@ export function createStores(win: Window): Stores {
   resyncOnReconnect({ session, connection, inbox, chat, admin });
   return {
     session,
+    identity: new IdentityStore(api.identity, api.userEvents, win.localStorage),
     keeper,
     theme: new ThemeStore({ store: win.localStorage, media: (query) => win.matchMedia(query), root: win.document.documentElement }),
     layout: new LayoutStore(win.localStorage),
@@ -87,7 +91,10 @@ export function createStores(win: Window): Stores {
     resources,
     context: new ContextStore({ api: api.context, events: api.contextEvents }),
     fns: new FnInfoStore(api.fns, api.userEvents),
+    fnNotices: new FnNotices(api.fns),
     graph: () => new GraphStore(api.graph),
+    data: new DataStore(api.data, api.fns),
+    itemVersions: (query) => api.data.itemVersions.call(query),
     logs,
     push: new PushStore(api.notifications, new BrowserPush(win, import.meta.env.DEV ? SERVICE_WORKERS.source : SERVICE_WORKERS.built), () => win.navigator.userAgent),
   };

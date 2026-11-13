@@ -6,7 +6,7 @@
 import { reject, type AnySpec, type AnyEndpoint, type HandlerFor } from '@ayepi/core';
 import type { ClientInfo, RunId, Session, SessionId, TurnId, UserInfo, UserView, Run, Turn } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
-import { collect, PAGE } from '../paging.ts';
+import { allRows } from '../../store/rows.ts';
 
 /** A handler for every endpoint of a slice: `.handlers(() => …)` annotated with this can't leave one out. */
 export type FullHandlers<S extends AnySpec> = { readonly [K in keyof S['endpoints'] & string]: HandlerFor<S, S['endpoints'][K] & AnyEndpoint> };
@@ -24,7 +24,7 @@ export function deviceOf(req: Request): string {
 
 /** The person as runs and systems see them: their groups, and their time zone and locale (the browser's when given). */
 export async function userInfo(hub: Pick<HubServices, 'store'>, user: UserView, client?: ClientInfo): Promise<UserInfo> {
-  const memberships = await collect((cursor) => hub.store.table('memberships').find({ where: { user: user.id }, limit: PAGE, cursor }));
+  const memberships = await allRows(hub.store.table('memberships'), { where: { user: user.id } });
   const groups: UserInfo['groups'] = [];
   for (const membership of memberships) {
     const group = await hub.store.table('actors').get(membership.group);

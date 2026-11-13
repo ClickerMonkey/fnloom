@@ -25,6 +25,7 @@ import type {
 import { contextBlock, earlierBlock, listedLine } from './render.ts';
 import { broughtFns, sizedChoices, withImports } from './brought.ts';
 import { baseScore, metricSettings, spread, wordShare, words, type Edge, type Signals } from './score.ts';
+import { metricDefaults } from './env.ts';
 import { forModel, usable } from './views.ts';
 
 /** The text of a context item at a detail. Dynamic context not yet written by its system (`DynamicContext`) shows its summary at `full`. */
@@ -287,7 +288,7 @@ export class GraphContextorImpl implements Contextor {
     const byName = new Map<string, Candidate>(candidates.map((c) => [c.name, c]));
 
     // 2. base scores
-    const settingsByMetric = metricSettings(config.metrics);
+    const settingsByMetric = metricSettings(metricDefaults(settings), config.metrics);
     const query = words(input.query);
     const lastUse = lastUses(input.history, candidates);
     const base = new Map<string, number>();

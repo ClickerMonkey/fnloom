@@ -11,7 +11,7 @@ export const LlmCallTab = z.enum(['saw', 'context', 'tools', 'answer', 'json']);
 export type LlmCallTab = z.infer<typeof LlmCallTab>;
 
 /** The tabs of a run's details. */
-export const RunTab = z.enum(['overview', 'args', 'result', 'errors', 'json']);
+export const RunTab = z.enum(['overview', 'args', 'result', 'changes', 'errors', 'json']);
 export type RunTab = z.infer<typeof RunTab>;
 
 /** The query keys the inspectors' tabs live under, wherever they open. */

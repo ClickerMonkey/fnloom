@@ -76,9 +76,21 @@ describe('a running hub', () => {
   it('serves the web app, with the page itself for app routes', async () => {
     const page = await fetch(`${hub.url}/sessions/ses_1`);
     expect(page.status).toBe(200);
-    expect(await page.text()).toContain('<title>harness</title>');
+    expect(await page.text()).toContain('<title>Harness</title>');
     expect((await fetch(`${hub.url}/assets/app.js`)).headers.get('cache-control')).toContain('immutable');
     expect((await fetch(`${hub.url}/assets/none.js`)).status).toBe(404);
+  });
+
+  it('names itself as the admin sets it: the sign-in page, the tab title and the install manifest, live', async () => {
+    const tokens = await api().call('signIn', { email: 'admin@example.com', password: 'correct horse battery' });
+    const as = { headers: { authorization: `Bearer ${tokens.access}` } };
+    await expect(api().call('setHubName', { name: 'Family Desk' }, as)).resolves.toMatchObject({ name: 'Family Desk', source: 'setting' });
+    await expect(api().call('identity')).resolves.toMatchObject({ name: 'Family Desk' });
+    await expect(api().call('setup')).resolves.toMatchObject({ name: 'Family Desk' });
+    expect(await (await fetch(`${hub.url}/`)).text()).toContain('<title>Family Desk</title>');
+    expect(await (await fetch(`${hub.url}/manifest.webmanifest`)).json()).toMatchObject({ name: 'Family Desk' });
+    await expect(api().call('setHubName', { name: 'Nope' })).rejects.toBeDefined();
+    await expect(api().call('setHubName', { name: null }, as)).resolves.toMatchObject({ name: 'Harness', source: 'default' });
   });
 
   it('carries the web API and its events over the browser socket', async () => {
@@ -126,8 +138,8 @@ describe('a running hub', () => {
   });
 
   it('has made its own actor, once', async () => {
-    const id = await ensureHubActor(hub.services.store, () => 0);
-    await expect(ensureHubActor(hub.services.store, () => 0)).resolves.toBe(id);
+    const id = await ensureHubActor(hub.services.store, () => 0, 'Harness');
+    await expect(ensureHubActor(hub.services.store, () => 0, 'Harness')).resolves.toBe(id);
     await expect(hub.services.store.table('actors').get(id)).resolves.toMatchObject({ kind: 'system', system: 'hub' });
   });
 });

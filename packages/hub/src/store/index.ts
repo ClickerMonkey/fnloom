@@ -14,6 +14,9 @@ import type { SqliteDeadLetter } from '@ayepi/sqlite';
 import type { PubSub, PulledWork, PushOptions, Queue, Store } from '@ayepi/work';
 import type { StoreTuning } from './env.ts';
 import type { ScalarKey } from './schema.ts';
+import type { RecordQueries } from './records.ts';
+
+export type { RecordCount, RecordFind, RecordFound, RecordQueries } from './records.ts';
 
 export type { ScalarKey } from './schema.ts';
 
@@ -61,6 +64,8 @@ export interface Table<Row, Key> {
   insert(row: Row): Promise<Row>;
   /** Insert or replace by key. */
   put(row: Row): Promise<Row>;
+  /** Insert or replace many rows by key, in as few statements as the database allows. */
+  putAll(rows: readonly Row[]): Promise<void>;
   /** Change some fields; refused when the key doesn't exist. The result is parsed with the row schema. */
   update(key: Key, patch: Partial<Row>): Promise<Row>;
   remove(key: Key): Promise<boolean>;
@@ -166,6 +171,8 @@ export interface HubStore {
   tx<T>(fn: (store: HubStore) => Promise<T>): Promise<T>;
   readonly vectors: VectorIndex;
   readonly text: TextIndex;
+  /** Build 8: queries on the data system's records by the fields inside their values. */
+  readonly recordQueries: RecordQueries;
   readonly ports: AyepiPorts;
   /** Create or upgrade tables. Safe to run on every start. */
   migrate(): Promise<void>;

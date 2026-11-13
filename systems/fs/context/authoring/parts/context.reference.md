@@ -42,7 +42,7 @@ Parse one context file. `file` names it in problems.
 function parseContextFile(file: string, source: string): { file?: ContextFile; problems: ContextFileProblem[]; };
 ```
 
-Refers to: [`ContextFileProblem`](context:fs/authoring.core-types#core-contextfileproblem).
+Refers to: [`ContextFileProblem`](context:fs/authoring.core-types.context-files-ts#core-contextfileproblem).
 
 #### `ContextFile`
 
@@ -64,7 +64,7 @@ interface ContextFile {
 }
 ```
 
-Refers to: [`ContextDecl`](context:fs/authoring.core-types#core-contextdecl), [`ContextFileHeader`](context:fs/authoring.core-types#core-contextfileheader).
+Refers to: [`ContextDecl`](context:fs/authoring.core-types.contextdecl#core-contextdecl), [`ContextFileHeader`](context:fs/authoring.core-types.context-files-ts#core-contextfileheader).
 
 #### `ContextFolder`
 
@@ -79,7 +79,7 @@ interface ContextFolder {
 }
 ```
 
-Refers to: [`ContextFileProblem`](context:fs/authoring.core-types#core-contextfileproblem).
+Refers to: [`ContextFileProblem`](context:fs/authoring.core-types.context-files-ts#core-contextfileproblem).
 
 #### `ContextFolderError`
 
@@ -95,7 +95,7 @@ class ContextFolderError extends Error {
 }
 ```
 
-Refers to: [`ContextFileProblem`](context:fs/authoring.core-types#core-contextfileproblem).
+Refers to: [`ContextFileProblem`](context:fs/authoring.core-types.context-files-ts#core-contextfileproblem).
 
 #### `formatContextProblem`
 
@@ -107,7 +107,7 @@ A problem as the build prints it: `context/kinds.md:3:1 broken-link …`.
 function formatContextProblem(problem: ContextFileProblem): string;
 ```
 
-Refers to: [`ContextFileProblem`](context:fs/authoring.core-types#core-contextfileproblem).
+Refers to: [`ContextFileProblem`](context:fs/authoring.core-types.context-files-ts#core-contextfileproblem).
 
 #### `contextProblem`
 
@@ -119,7 +119,7 @@ A problem at a 1-based line and column of a file.
 function contextProblem(file: string, line: number, column: number, code: ContextFileProblemCode, message: string): ContextFileProblem;
 ```
 
-Refers to: [`ContextFileProblem`](context:fs/authoring.core-types#core-contextfileproblem), [`ContextFileProblemCode`](context:fs/authoring.core-types#core-contextfileproblemcode).
+Refers to: [`ContextFileProblem`](context:fs/authoring.core-types.context-files-ts#core-contextfileproblem), [`ContextFileProblemCode`](context:fs/authoring.core-types.context-files-ts#core-contextfileproblemcode).
 
 #### `positionOf`
 
@@ -141,7 +141,7 @@ The patch that takes the context from `before` to `after`, by key: changed and n
 function contextChange(before: ReadonlyMap<string, ContextDecl>, after: ReadonlyMap<string, ContextDecl>): SystemPatch | undefined;
 ```
 
-Refers to: [`ContextDecl`](context:fs/authoring.core-types#core-contextdecl).
+Refers to: [`ContextDecl`](context:fs/authoring.core-types.contextdecl#core-contextdecl).
 
 #### `watchContextFolder`
 
@@ -156,7 +156,7 @@ change is lost. Returns a stop function.
 function watchContextFolder(dir: string, initial: readonly ContextDecl[], send: (change: SystemPatch) => Promise<unknown>, options: ContextWatchOptions): () => void;
 ```
 
-Refers to: [`ContextDecl`](context:fs/authoring.core-types#core-contextdecl).
+Refers to: [`ContextDecl`](context:fs/authoring.core-types.contextdecl#core-contextdecl).
 
 #### `ContextWatchEvents`
 
@@ -175,7 +175,7 @@ interface ContextWatchEvents {
 }
 ```
 
-Refers to: [`ContextFileProblem`](context:fs/authoring.core-types#core-contextfileproblem).
+Refers to: [`ContextFileProblem`](context:fs/authoring.core-types.context-files-ts#core-contextfileproblem).
 
 #### `ContextWatchOptions`
 
@@ -238,7 +238,7 @@ interface ContextInput<Args extends Record<string, ArgDef<boolean>>> {
 }
 ```
 
-Refers to: [`Audience`](context:fs/authoring.core-types#core-audience).
+Refers to: [`Audience`](context:fs/authoring.core-types.primitives-ts#core-audience).
 
 #### `ContextDef`
 
@@ -276,7 +276,7 @@ interface ContextDef<A, Dynamic extends boolean> {
 }
 ```
 
-Refers to: [`Audience`](context:fs/authoring.core-types#core-audience).
+Refers to: [`Audience`](context:fs/authoring.core-types.primitives-ts#core-audience).
 
 #### `AnyContextDef`
 
@@ -312,7 +312,7 @@ interface ContextLinkDef {
 }
 ```
 
-Refers to: [`DeclarableRelation`](context:fs/authoring.core-types#core-declarablerelation).
+Refers to: [`DeclarableRelation`](context:fs/authoring.core-types.context-graph-ts#core-declarablerelation).
 
 #### `ContextLinkTarget`
 
@@ -324,7 +324,7 @@ What a context link points at: another context item, a fn, a named type, or a re
 type ContextLinkTarget = AnyContextRef | AnyFnRef | AnyTypeRef | { readonly uri: ResourceUri; readonly section?: string };
 ```
 
-Refers to: [`ResourceUri`](context:fs/authoring.core-types#core-resourceuri).
+Refers to: [`ResourceUri`](context:fs/authoring.core-types.resources-ts#core-resourceuri).
 
 #### `arg`
 
@@ -375,7 +375,7 @@ interface ContextRef<N extends QualifiedName, A> {
 }
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `AnyContextRef`
 
@@ -385,4 +385,4 @@ type · `import { AnyContextRef } from '@harness/sdk'`
 type AnyContextRef = ContextRef<QualifiedName, unknown>;
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).

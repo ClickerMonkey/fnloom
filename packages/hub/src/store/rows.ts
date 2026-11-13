@@ -31,6 +31,16 @@ export async function allRows<Row, Key>(table: Table<Row, Key>, query: RowsQuery
   return out;
 }
 
+/** The first row a query matches that also passes `match`, reading no further pages once one does. */
+export async function firstRow<Row, Key, Match extends Row>(table: Table<Row, Key>, query: RowsQuery<Row>, match: (row: Row) => row is Match): Promise<Match | undefined>;
+export async function firstRow<Row, Key>(table: Table<Row, Key>, query: RowsQuery<Row>, match: (row: Row) => boolean): Promise<Row | undefined>;
+export async function firstRow<Row, Key>(table: Table<Row, Key>, query: RowsQuery<Row>, match: (row: Row) => boolean): Promise<Row | undefined> {
+  for await (const row of rows(table, query)) {
+    if (match(row)) { return row; }
+  }
+  return undefined;
+}
+
 /** The first `max` rows a query matches, in the query's order. */
 export async function someRows<Row, Key>(table: Table<Row, Key>, query: RowsQuery<Row>, max: number): Promise<Row[]> {
   const out: Row[] = [];

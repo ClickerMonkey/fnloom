@@ -3,7 +3,15 @@
  * token, calibrated per model); durations are milliseconds. Boot parses it with the hub's other slices.
  */
 import { env } from '@ayepi/env';
+import type { GraphMetric } from '@harness/core';
 import { z } from 'zod';
+
+/** A metric's weight: how much it counts in the graph contextor's score. */
+const weight = (metric: string, value: number) => z.number().min(0).max(10).default(value).describe(`How much the ${metric} signal counts in the graph contextor's score (0 leaves it out). A session's override wins.`);
+/** A metric's target: the signal value it scores best at. */
+const target = (metric: string, value: number) => z.number().default(value).describe(`The ${metric} value the graph contextor scores best. A session's override wins.`);
+/** A metric's steepness: how fast its score falls away from the target. */
+const steepness = (metric: string, value: number) => z.number().positive().default(value).describe(`How fast the ${metric} score falls away from its target (higher is steeper). A session's override wins.`);
 
 /** Contextor tunables. */
 export const contextorEnv = env({
@@ -24,8 +32,46 @@ export const contextorEnv = env({
   HARNESS_OLD_RESULT_CHARS: z.number().int().min(50).default(400).describe('The characters older tool results of the current exchange are shortened to when it doesn\'t fit.'),
   HARNESS_MIN_RESULT_CHARS: z.number().int().min(20).default(200).describe('The fewest characters the planner shortens a tool result to before it says the prompt can\'t fit.'),
   HARNESS_MAX_RESELECTS: z.number().int().min(0).max(50).default(8).describe('How many times the planner chooses context and fns again with less room when the whole prompt comes out over budget.'),
+  // each graph metric's weight, target and steepness (`score.ts`), the defaults a session's overrides sit on
+  HARNESS_METRIC_EMBEDDING_WEIGHT: weight('embedding similarity', 1),
+  HARNESS_METRIC_EMBEDDING_TARGET: target('embedding similarity', 1),
+  HARNESS_METRIC_EMBEDDING_K: steepness('embedding similarity', 4),
+  HARNESS_METRIC_WORDS_WEIGHT: weight('shared words', 0.3),
+  HARNESS_METRIC_WORDS_TARGET: target('shared words', 1),
+  HARNESS_METRIC_WORDS_K: steepness('shared words', 2),
+  HARNESS_METRIC_TURNS_AGO_WEIGHT: weight('turns since last use', 0.4),
+  HARNESS_METRIC_TURNS_AGO_TARGET: target('turns since last use', 0),
+  HARNESS_METRIC_TURNS_AGO_K: steepness('turns since last use', 0.15),
+  HARNESS_METRIC_AGE_WEIGHT: weight('age in days', 0.1),
+  HARNESS_METRIC_AGE_TARGET: target('age in days', 0),
+  HARNESS_METRIC_AGE_K: steepness('age in days', 0.02),
+  HARNESS_METRIC_SELECTED_BEFORE_WEIGHT: weight('chosen before', 0.3),
+  HARNESS_METRIC_SELECTED_BEFORE_TARGET: target('chosen before', 1),
+  HARNESS_METRIC_SELECTED_BEFORE_K: steepness('chosen before', 1),
+  HARNESS_METRIC_USED_WEIGHT: weight('recent use', 0.5),
+  HARNESS_METRIC_USED_TARGET: target('recent use', 1),
+  HARNESS_METRIC_USED_K: steepness('recent use', 1.5),
   HARNESS_PROMPT_MARGIN: z.number().min(0).max(0.5).default(0.06).describe('The share of a model\'s window kept free for estimate error (at least 64 tokens).'),
 });
 
 /** The parsed contextor tunables. */
 export type ContextorEnv = ReturnType<typeof contextorEnv.parse>;
+
+/** A metric's weight, target and steepness, all known. */
+export interface MetricSetting {
+  readonly weight: number;
+  readonly target: number;
+  readonly k: number;
+}
+
+/** Each graph metric's default weight, target and steepness, from the settings. */
+export function metricDefaults(settings: ContextorEnv): Readonly<Record<GraphMetric, MetricSetting>> {
+  return {
+    embedding: { weight: settings.HARNESS_METRIC_EMBEDDING_WEIGHT, target: settings.HARNESS_METRIC_EMBEDDING_TARGET, k: settings.HARNESS_METRIC_EMBEDDING_K },
+    words: { weight: settings.HARNESS_METRIC_WORDS_WEIGHT, target: settings.HARNESS_METRIC_WORDS_TARGET, k: settings.HARNESS_METRIC_WORDS_K },
+    turnsAgo: { weight: settings.HARNESS_METRIC_TURNS_AGO_WEIGHT, target: settings.HARNESS_METRIC_TURNS_AGO_TARGET, k: settings.HARNESS_METRIC_TURNS_AGO_K },
+    age: { weight: settings.HARNESS_METRIC_AGE_WEIGHT, target: settings.HARNESS_METRIC_AGE_TARGET, k: settings.HARNESS_METRIC_AGE_K },
+    selectedBefore: { weight: settings.HARNESS_METRIC_SELECTED_BEFORE_WEIGHT, target: settings.HARNESS_METRIC_SELECTED_BEFORE_TARGET, k: settings.HARNESS_METRIC_SELECTED_BEFORE_K },
+    used: { weight: settings.HARNESS_METRIC_USED_WEIGHT, target: settings.HARNESS_METRIC_USED_TARGET, k: settings.HARNESS_METRIC_USED_K },
+  };
+}

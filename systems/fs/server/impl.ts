@@ -3,8 +3,8 @@
  * declares, wired to the server's parts. `createFsImpl` takes every seam (shell, git, snapshots, documents, the
  * file manager, the restarter, the watcher, hosting and the clock), so tests run it against a temp folder with fakes.
  */
-import type { PairingGrant, PairingGrantRequest, PreviewAnswer } from '@harness/core';
-import type { FnCtx, FnTypes, HookContribution, Outcome, SystemImpl } from '@harness/sdk';
+import { flagsVerdict, type PairingGrant, type PairingGrantRequest, type PreviewAnswer, type SensitivityFlag } from '@harness/core';
+import type { FnCtx, FnTypes, HookContribution, Outcome, PreviewCtx, SystemImpl } from '@harness/sdk';
 import { COMMAND_TIMEOUT_MIN, fs, type FsContract } from '../shared/index.ts';
 import { CommandRunner, outputOf, type CommandOutcome } from './commands.ts';
 import { authoringStart, PackagedAuthoring, type AuthoringSource } from './authoring.ts';
@@ -12,13 +12,13 @@ import type { FsSettings } from './env.ts';
 import { FileService } from './files.ts';
 import { InstallRefused, type Hosting } from './hosting.ts';
 import { describeStatus } from './git.ts';
-import type { Documents, FsConfig, Git, Opener, PathGuard, Restarter, Shell, Snapshots, WatchFolder } from './index.ts';
+import type { ChangeCapture, Documents, FsConfig, Git, IgnoreCheck, Located, Opener, PathGuard, Restarter, Shell, Snapshots, WatchFolder } from './index.ts';
 import { FileMentions, PathIndex } from './mentions.ts';
 import { RootGuard } from './paths.ts';
 import { FsProblem } from './problem.ts';
 import { FsResources } from './resources.ts';
-import { DEFAULT_SECRETS, GlobSecrets, type SecretFilter } from './secrets.ts';
 import { compilePattern, globPaths, grepFiles, searchBases, type SearchLimits } from './search.ts';
+import { commandFiles, commandPaths, rulesOf, Sensitivity, type Judged } from './sensitive.ts';
 import { renderTree } from './tree.ts';
 
 /** Everything the implementation is built from. */
@@ -31,6 +31,10 @@ export interface FsDeps {
   readonly documents: Documents;
   readonly restarter: Restarter;
   readonly watch: WatchFolder;
+  /** Finds the files each `bash` call changed. */
+  readonly changes: ChangeCapture;
+  /** Which files git ignores, for the `gitignored` sensitivity rule. */
+  readonly ignores: IgnoreCheck;
   readonly now: () => number;
   /**
    * Building, starting and supervising systems written here (`install_system` and the rest); absent when this fs
@@ -76,6 +80,16 @@ async function hosted<T extends FnTypes>(ctx: Pick<FnCtx<T, FsConfig>, 'fail' | 
   }
 }
 
+/** Flags for a call, or none when its path can't be placed (the run then fails with the reason). */
+async function flagsOf(work: () => Promise<SensitivityFlag[]>): Promise<SensitivityFlag[]> {
+  try {
+    return await work();
+  } catch (error) {
+    if (error instanceof FsProblem) { return []; }
+    throw error;
+  }
+}
+
 /** `make` memoized per config value. */
 function perConfig<T>(make: (config: FsConfig) => T): (config: FsConfig) => T {
   const made = new WeakMap<FsConfig, T>();
@@ -98,13 +112,13 @@ export function createFsImpl(deps: FsDeps): FsServer {
   const mentions = new FileMentions({ index, files, documents: deps.documents, limits: { results: s.FS_MENTION_LIMIT, previewLines: s.FS_PREVIEW_LINES } });
   const search: SearchLimits = { scanMax: s.FS_SCAN_MAX, lineMax: s.FS_LINE_MAX, ignore: s.FS_IGNORE };
 
-  // one guard (and secret filter) per config value: runs keep the config they started with, so each gets its own
+  // one guard (and rule list) per config value: runs keep the config they started with, so each gets its own
   const guard = perConfig<PathGuard>((config) => new RootGuard(config.roots));
-  const secrets = perConfig<SecretFilter>((config) => new GlobSecrets(config.secrets ?? DEFAULT_SECRETS));
+  const sensitivity = perConfig((config) => new Sensitivity(rulesOf(config), deps.ignores));
   let current: FsConfig = { roots: [] };
   const resources = new FsResources({
     guard: () => guard(current),
-    secrets: () => secrets(current),
+    secrets: () => sensitivity(current),
     files,
     documents: deps.documents,
     limits: { page: s.FS_RESOURCE_PAGE, textMax: s.FS_RESOURCE_TEXT_MAX, ignore: s.FS_IGNORE, debounce: s.FS_WATCH_DEBOUNCE },
@@ -119,18 +133,59 @@ export function createFsImpl(deps: FsDeps): FsServer {
     ctx.log.info(key, { cwd: run.cwd, exitCode: run.exitCode, ended: run.ended, timeout: run.timeout });
   };
 
+
+  /** The flags of one file a call names. */
+  const fileFlags = (ctx: PreviewCtx<FsConfig>, path: string, access: 'read' | 'write', text?: string) => flagsOf(async () => {
+    const at = guard(ctx.config).resolve(path, { write: false });
+    return sensitivity(ctx.config).flags([{ at, access, certain: true, ...(text === undefined ? {} : { text }) }], ctx.signal);
+  });
+  /** The flags of a search: its base folder, and the glob when it names sensitive files itself (`.env*`, `*.pem`). */
+  const searchFlags = (ctx: PreviewCtx<FsConfig>, root: string | undefined, glob: string | undefined) => flagsOf(async () => {
+    const rules = sensitivity(ctx.config);
+    const bases = searchBases(guard(ctx.config), root).filter((at) => at.relative !== '');
+    const named = glob === undefined ? [] : rules.named(glob, 'read');
+    return [...await rules.flags(bases.map((at) => ({ at, access: 'read', certain: true })), ctx.signal), ...named];
+  });
+  /** Refuse a run a refusing rule covers, for a hub that didn't ask first (asks are the hub's: it holds the person). */
+  const refused = async (config: FsConfig, items: readonly Judged[], signal: AbortSignal): Promise<string | undefined> => {
+    const rules = sensitivity(config);
+    if (!rules.rules.some((rule) => rule.read === 'refuse' || rule.write === 'refuse')) { return undefined; }
+    const verdict = flagsVerdict(await rules.flags(items, signal));
+    return verdict.effect === 'refuse' ? verdict.reason : undefined;
+  };
+  /** Leave sensitive files out of a listing or search, unless the person approved this run having seen its flags. */
+  const visible = async <T>(ctx: Pick<FnCtx<FnTypes, FsConfig>, 'config' | 'approved' | 'signal'>, items: readonly T[], pathOf: (item: T) => string, content: boolean): Promise<{ kept: T[]; hidden: number }> => {
+    if (ctx.approved !== undefined) { return { kept: [...items], hidden: 0 }; }
+    const g = guard(ctx.config);
+    const located = [...new Set(items.map(pathOf))].flatMap((path) => { const at = g.locate(path); return at === undefined ? [] : [at]; });
+    const hide = await sensitivity(ctx.config).hidden(located, { content }, ctx.signal);
+    const kept = items.filter((item) => !hide.has(pathOf(item)));
+    return { kept, hidden: items.length - kept.length };
+  };
+  /** Do file work while telling change capture a command in the same tree may see it. */
+  const busy = async <T>(at: Located, work: () => Promise<T>): Promise<T> => {
+    const done = deps.changes.busy(at.path);
+    try { return await work(); } finally { done(); }
+  };
+
   const impl: SystemImpl<FsContract['defs']> = {
     fns: {
       read: {
+        flags: (args, ctx) => fileFlags(ctx, args.path, 'read'),
         run: (args, ctx) => attempt(ctx, async () => {
           const at = guard(ctx.config).resolve(args.path, { write: false });
+          const refusal = await refused(ctx.config, [{ at, access: 'read', certain: true }], ctx.signal);
+          if (refusal !== undefined) { return ctx.invalid(refusal); }
           return ctx.done(await files.read(at, args.offset, args.limit));
         }),
       },
       write: {
+        flags: (args, ctx) => fileFlags(ctx, args.path, 'write', args.text),
         run: (args, ctx) => attempt(ctx, async () => {
           const at = guard(ctx.config).resolve(args.path, { write: true });
-          const change = await files.write(at, args.text);
+          const refusal = await refused(ctx.config, [{ at, access: 'write', certain: true, text: args.text }], ctx.signal);
+          if (refusal !== undefined) { return ctx.invalid(refusal); }
+          const change = await busy(at, () => files.write(at, args.text));
           index.clear();
           attachDiff(ctx, at.path, change.before, change.after, change.created ? `Created ${at.relative}` : `Wrote ${at.relative}`);
           return ctx.done({ created: change.created }, { undo: { path: at.path, previous: change.previous } });
@@ -138,18 +193,24 @@ export function createFsImpl(deps: FsDeps): FsServer {
         undo: (payload, ctx) => files.restore(payload, guard(ctx.config)),
       },
       edit: {
+        flags: (args, ctx) => fileFlags(ctx, args.path, 'write', args.replace),
         run: (args, ctx) => attempt(ctx, async () => {
           const at = guard(ctx.config).resolve(args.path, { write: true });
-          const change = await files.edit(at, args.find, args.replace, args.all ?? false);
+          const refusal = await refused(ctx.config, [{ at, access: 'write', certain: true, text: args.replace }], ctx.signal);
+          if (refusal !== undefined) { return ctx.invalid(refusal); }
+          const change = await busy(at, () => files.edit(at, args.find, args.replace, args.all ?? false));
           attachDiff(ctx, at.path, change.before, change.after, `Edited ${at.relative}`);
           return ctx.done({ replacements: change.replacements }, { undo: { path: at.path, previous: change.previous } });
         }),
         undo: (payload, ctx) => files.restore(payload, guard(ctx.config)),
       },
       remove: {
+        flags: (args, ctx) => fileFlags(ctx, args.path, 'write'),
         run: (args, ctx) => attempt(ctx, async () => {
           const at = guard(ctx.config).resolve(args.path, { write: true });
-          const change = await files.remove(at);
+          const refusal = await refused(ctx.config, [{ at, access: 'write', certain: true }], ctx.signal);
+          if (refusal !== undefined) { return ctx.invalid(refusal); }
+          const change = await busy(at, () => files.remove(at));
           index.clear();
           attachDiff(ctx, at.path, change.before, change.after, `Deleted ${at.relative}`);
           return ctx.done({ removed: true }, { undo: { path: at.path, previous: change.previous } });
@@ -157,24 +218,31 @@ export function createFsImpl(deps: FsDeps): FsServer {
         undo: (payload, ctx) => files.restore(payload, guard(ctx.config)),
       },
       list: {
+        flags: (args, ctx) => fileFlags(ctx, args.path, 'read'),
         run: (args, ctx) => attempt(ctx, async () => {
           const at = guard(ctx.config).resolve(args.path, { write: false });
-          return ctx.done({ entries: await files.list(at, args.depth ?? 1) });
+          const { kept, hidden } = await visible(ctx, await files.list(at, args.depth ?? 1), (entry) => entry.path, false);
+          return ctx.done({ entries: kept, ...(hidden === 0 ? {} : { hidden }) });
         }),
       },
       glob: {
+        flags: (args, ctx) => searchFlags(ctx, args.root, args.pattern),
         run: (args, ctx) => attempt(ctx, async () => {
           const bases = searchBases(guard(ctx.config), args.root);
-          return ctx.done({ paths: await globPaths(bases, args.pattern, s.FS_GLOB_LIMIT, search, ctx.signal) });
+          const { kept, hidden } = await visible(ctx, await globPaths(bases, args.pattern, s.FS_GLOB_LIMIT, search, ctx.signal), (path) => path, false);
+          return ctx.done({ paths: kept, ...(hidden === 0 ? {} : { hidden }) });
         }),
       },
       grep: {
+        flags: (args, ctx) => searchFlags(ctx, args.root, args.glob),
         run: (args, ctx) => attempt(ctx, async () => {
           const pattern = compilePattern(args.pattern);
           const bases = searchBases(guard(ctx.config), args.root);
           const query = { pattern, glob: args.glob, limit: args.limit ?? s.FS_GREP_LIMIT };
           const matches = await grepFiles(files, bases, query, search, ctx.signal, (fraction, message) => { ctx.progress.set(fraction, message); });
-          return ctx.done({ matches });
+          // `hidden` counts matching lines left out, as `matches` counts lines
+          const { kept, hidden } = await visible(ctx, matches, (match) => match.path, true);
+          return ctx.done({ matches: kept, ...(hidden === 0 ? {} : { hidden }) });
         }),
       },
       cd: {
@@ -186,6 +254,19 @@ export function createFsImpl(deps: FsDeps): FsServer {
         }),
       },
       bash: {
+        flags: (args, ctx) => flagsOf(async () => {
+          const g = guard(ctx.config);
+          const rules = sensitivity(ctx.config);
+          const cwd = args.cwd === undefined ? undefined : g.resolve(args.cwd, { write: false }).path;
+          const located = commandFiles(g, args.command, cwd);
+          const found = new Set(located.map((file) => file.word));
+          // words that lead nowhere in the roots are still judged by name (`cat ~/.ssh/id_rsa`)
+          const named = commandPaths(args.command).filter((word) => !found.has(word.word)).flatMap((word) => rules.named(word.word, word.access));
+          const existing = await Promise.all(located.map(async (file) => ({ file, there: (await files.target(file.at.path))?.type === 'file' })));
+          // a read of a word that is no file is no read (`npm run build`); a write may create it
+          const judged: Judged[] = existing.filter(({ file, there }) => there || file.access === 'write').map(({ file }) => ({ at: file.at, access: file.access, certain: false, shown: file.word }));
+          return [...await rules.flags(judged, ctx.signal), ...named];
+        }),
         run: (args, ctx) => attempt(ctx, async () => {
           if (args.timeout !== undefined && args.timeout < COMMAND_TIMEOUT_MIN) {
             return ctx.invalid([{ path: 'timeout', message: `The timeout is in milliseconds and must be at least ${String(COMMAND_TIMEOUT_MIN)} (30000 is 30 seconds); ${String(args.timeout)} was given.` }]);
@@ -198,12 +279,16 @@ export function createFsImpl(deps: FsDeps): FsServer {
             signal: ctx.signal,
             confirm: ctx.handlers.confirm,
             onOutput: (fraction, line) => { ctx.progress.set(fraction, line); },
+            capture: (cwd) => deps.changes.start({ cwd, guard: guard(ctx.config), sensitivity: sensitivity(ctx.config) }, ctx.signal),
           });
           logRun(ctx, 'fs.bash.ran', run);
+          if (run.captureProblem !== undefined) { ctx.log.warn('fs.bash.changes.failed', { cwd: run.cwd, problem: run.captureProblem }); }
+          const changed = run.changes !== undefined && (run.changes.files.length > 0 || run.changes.ignored > 0);
+          const result = { ...outputOf(run), ...(changed ? { changes: run.changes } : {}) };
           switch (run.ended) {
-            case 'cancelled': return ctx.cancelled({ partial: outputOf(run) });
+            case 'cancelled': return ctx.cancelled({ partial: result });
             case 'timeout': return ctx.fail('caller', `The command didn't finish within ${run.timeout} ms, so it was stopped.`, { code: 'timeout', data: outputOf(run) });
-            case 'exit': return ctx.done(outputOf(run));
+            case 'exit': return ctx.done(result);
           }
         }),
       },

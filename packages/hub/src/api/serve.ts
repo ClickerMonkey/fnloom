@@ -5,15 +5,16 @@
  * `index.html` is always checked again.
  */
 import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { resolve, sep } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { Readable } from 'node:stream';
 import { SystemName } from '@harness/core';
 import type { Catalog } from '../catalog/index.ts';
 import type { ContentStore } from './index.ts';
 import { mimeOf } from './mime.ts';
 import { clientItemName, type SystemLifecycle } from '../link/lifecycle.ts';
+import type { HubIdentityService } from '../boot/identity.ts';
 
 /** Serves one kind of file; resolves true when it answered the request. */
 export interface FileRoute {
@@ -42,18 +43,60 @@ function notFound(res: ServerResponse): true {
 /** Whether a request only wants the headers. */
 const headOnly = (req: IncomingMessage): boolean => req.method === 'HEAD';
 
-/** The built web app, from a folder. Paths that aren't files get `index.html`, so client routes survive a refresh. */
+/** The web app's install manifest's path, made by the hub so the install name is the hub's display name. */
+export const MANIFEST_PATH = '/manifest.webmanifest';
+
+/** Text as HTML text and attribute values. */
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/**
+ * The web app's `index.html` with the hub's display name in its `<title>` and its `apple-mobile-web-app-title`, so the
+ * tab and a phone's home screen show the name before the app has started.
+ */
+export function namedIndexHtml(html: string, name: string): string {
+  const safe = escapeHtml(name);
+  return html
+    .replace(/<title>[^<]*<\/title>/, `<title>${safe}</title>`)
+    .replace(/(<meta\s+name="apple-mobile-web-app-title"\s+content=")[^"]*(")/, `$1${safe}$2`);
+}
+
+/** The install manifest for a hub with this display name. */
+export function webManifest(name: string): string {
+  return JSON.stringify({
+    name, short_name: name, start_url: '/', scope: '/', display: 'standalone',
+    icons: [{ src: '/favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }],
+  });
+}
+
+/**
+ * The built web app, from a folder. Paths that aren't files get `index.html`, so client routes survive a refresh; the
+ * page and the install manifest carry the hub's display name, read on every request so a rename shows at once.
+ */
 export class WebAppRoute implements FileRoute {
   readonly #root: string;
+  readonly #identity: Pick<HubIdentityService, 'identity'>;
 
-  constructor(root: string) {
+  constructor(root: string, identity: Pick<HubIdentityService, 'identity'>) {
     this.#root = resolve(root);
+    this.#identity = identity;
   }
 
   async serve(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
     if (req.method !== 'GET' && req.method !== 'HEAD') { return false; }
+    if (path === MANIFEST_PATH) {
+      const body = webManifest((await this.#identity.identity()).name);
+      send(res, 200, { 'content-type': 'application/manifest+json; charset=utf-8', 'content-length': Buffer.byteLength(body), 'cache-control': ALWAYS_CHECK }, headOnly(req) ? '' : body);
+      return true;
+    }
     const file = await this.#file(path) ?? (this.#looksLikeFile(path) ? undefined : await this.#file('/index.html'));
     if (file === undefined) { return false; }
+    if (file.path === join(this.#root, 'index.html')) {
+      const body = namedIndexHtml(await readFile(file.path, 'utf8'), (await this.#identity.identity()).name);
+      send(res, 200, { 'content-type': 'text/html; charset=utf-8', 'content-length': Buffer.byteLength(body), 'cache-control': ALWAYS_CHECK }, headOnly(req) ? '' : body);
+      return true;
+    }
     const headers = { 'content-type': mimeOf(file.path), 'content-length': file.size, 'cache-control': path.startsWith('/assets/') ? FOREVER : ALWAYS_CHECK };
     send(res, 200, headers, headOnly(req) ? '' : createReadStream(file.path));
     return true;

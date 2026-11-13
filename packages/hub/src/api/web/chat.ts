@@ -9,7 +9,7 @@ import type { HubServices } from '../../boot/index.ts';
 import { personOperations } from '../person-ops.ts';
 import { HUB_SYSTEM, systemAvailability } from '../../catalog/availability.ts';
 import { AGENT_KIND } from '../../execution/index.ts';
-import { collect, PAGE } from '../paging.ts';
+import { allRows } from '../../store/rows.ts';
 import { CLIENTS_PATH } from '../serve.ts';
 import { userInfo, visibleSession, type FullHandlers } from './access.ts';
 import type { authPlugin } from './auth.ts';
@@ -24,7 +24,7 @@ const allows = (systems: readonly SystemName[] | 'all', system: SystemName): boo
 /** What the composer may offer now: every input is offered only when something can serve it. */
 export async function capabilities(hub: HubServices, user: UserView, session?: SessionId): Promise<ChatCapabilities> {
   const scope = session === undefined ? 'all' : (await visibleSession(hub, session, user)).systems;
-  const systems = (await collect((cursor) => hub.store.table('systems').find({ order: [['name', 'asc']], limit: PAGE, cursor })))
+  const systems = (await allRows(hub.store.table('systems'), { order: [['name', 'asc']] }))
     .filter((s) => s.status !== 'removed');
   const access = await hub.access.scope(user.id);
   // a system shared with someone else is as good as absent here

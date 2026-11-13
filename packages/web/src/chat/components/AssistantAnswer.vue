@@ -12,7 +12,8 @@ import type { ChatMessage, Display, Link, MessagePart, RunId } from '@harness/co
 import { computed, ref } from 'vue';
 import { UiAvatar, UiMarkdown, fullTime, relativeTime } from '../../ui/index.ts';
 import { groupPieces, type GroupedPiece } from '../logic/groups.ts';
-import { lineHasNews, runShows, type RunView, type StatusLine as Line } from '../logic/runs.ts';
+import { lineHasNews, runResult, runShows, type RunView, type StatusLine as Line } from '../logic/runs.ts';
+import { showsRows } from '../../components/widgets/widgets.ts';
 import { answerPieces, type AnswerPiece, type AnswerSegment } from '../logic/thread.ts';
 import AttachmentCard from './AttachmentCard.vue';
 import LinkCard from './LinkCard.vue';
@@ -73,7 +74,7 @@ const showOf = (run: RunView): Display => runShows(run, props.displayOf(run));
 /** The runs of a piece that show at all. */
 const shownIn = (ids: readonly RunId[]): RunView[] => runsIn(ids).filter((run) => showOf(run) !== 'hidden');
 /** Each message's pieces with its stretches of fn calls folded into groups (when grouping is on). */
-const groupedPieces = computed(() => new Map(props.messages.map((m) => [m.id, groupPieces(piecesOf(m), props.grouped, (piece) => shownIn(piece.runs).length)])));
+const groupedPieces = computed(() => new Map(props.messages.map((m) => [m.id, groupPieces(piecesOf(m), props.grouped, (piece) => shownIn(piece.runs).length, (piece) => shownIn(piece.runs).some((run) => showsRows(runResult(run))))])));
 const groupedOf = (message: ChatMessage): GroupedPiece[] => groupedPieces.value.get(message.id) ?? [];
 /** A piece's key within the answer (its message and place), which open states and the caret go by. */
 const keyOf = (message: ChatMessage, piece: { readonly key: string }): string => `${message.id}-${piece.key}`;

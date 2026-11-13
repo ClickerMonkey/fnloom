@@ -44,7 +44,7 @@ _From `scripts/docs/example/shared/index.ts`:_
   },
   mentions: {
     // `@` in the chat finds notes; chips and cards show them as Note (its label, icon, color and its pin method)
-    notes: mention({ title: 'Notes', description: 'Any note, by its title.', target: g.obj({ id: g.text() }), of: types.Note }),
+    notes: mention({ title: 'Notes', description: 'Any note, by its title.', target: g.obj({ id: g.text() }), of: types.NoteEntry }),
   },
   fns: {
     // a fn of the stamp kind: only its payload; the kind's `describe` works out the rest
@@ -52,7 +52,8 @@ _From `scripts/docs/example/shared/index.ts`:_
       description: 'Capture a thought in the inbox.',
       payload: { title: 'Inbox', tags: ['inbox'] },
       args: StampArgs,
-      returns: Note.shape,
+      returns: NoteEntry.shape,
+      group: 'notes',
     }),
   },
 }))
@@ -70,6 +71,7 @@ _From `scripts/docs/example/shared/index.ts`:_
     // calls other fns through its deps, by ref: its own system's `review` and the hub's `ask_user`
     publish: fn({
       description: 'Share a note once the person approves it.',
+      group: 'sharing',
       args: g.obj({ id: g.text({ minLength: 1 }) }),
       returns: g.obj({ published: g.bool(), note: g.optional(g.text()) }),
       deps: { review: fns.review, ask: hub.fns.ask_user },
@@ -128,6 +130,7 @@ Anything else needs a capability in `grants.hub`:
 | handing back refreshed credentials of a `connect` system | `hub: ['connections']` |
 | `ctx.setting(ref)` | `hub: ['settings']` |
 | `ctx.state` (`get`, `set`, `update`, `clear`) | `hub: ['state']` |
+| `ctx.data` (`find`, `get`, `table`, `save`, `remove`) | `hub: ['data']` |
 | a hub secret by name | its name in `secrets` (its own config secrets are always its own) |
 | a host on the network, a path outside its folders (hosted by fs only) | the host in `network`, the path in `files` |
 
@@ -139,9 +142,9 @@ notes system declares:
 _From `scripts/docs/example/shared/index.ts`:_
 
 ```ts
-// find keeps its last query (state), remove reads the editing setting (settings), and share asks the person
-// through hub/ask_user (fns, and that fn in calls); its agent runs on the hub, so it needs no ai of its own
-grants: { hub: ['fns', 'settings', 'state'], calls: ['hub/ask_user'] },
+// notes are hub records (data), find keeps its last query (state), remove reads the editing setting (settings), and
+// share asks the person through hub/ask_user (fns, and that fn in calls); its agent runs on the hub, so it needs no ai
+grants: { hub: ['data', 'fns', 'settings', 'state'], calls: ['hub/ask_user'] },
 ```
 
 A refused call throws in the system: the hub answers 403 with the code `NOT_GRANTED` and a line saying what was

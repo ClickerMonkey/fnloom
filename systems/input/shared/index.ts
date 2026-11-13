@@ -132,6 +132,11 @@ const GET_INPUT_USAGE = [
 /** The input system's contract. */
 export const input = system('input', {
   description: 'Ask the person for input with forms in the chat, made to fit what is needed, and keep good forms in the hub for next time.',
+  // its API groups: the hub indexes its fns by them (`input/api`, `input/api.<group>`)
+  groups: [
+    { name: 'ask', title: 'Ask', description: 'Ask the person one quick question: text, a choice, a yes or no, a number or a date.' },
+    { name: 'forms', title: 'Forms', description: 'Find or write a form for what is needed, check it and keep it in the hub for next time.' },
+  ],
   // get_input's authoring agent is on a model; saved forms are hub fns it searches (the link's search), reads and saves
   grants: { hub: ['ai', 'fns', 'search'], calls: ['hub/fn_get', 'hub/save_fn'] },
 })
@@ -150,6 +155,7 @@ export const input = system('input', {
     },
     fns: {
       check_form: fn({
+        group: 'forms',
         description: 'Check a draft form: whether gin accepts its type and the chat can draw every field, and what to fix.',
         instructions: 'Check a form before saving it with save_form (get_input checks its own). `ok` is true only with no problems; each problem says which field and how to fix it.',
         args: g.obj({ form: InputForm }),
@@ -168,6 +174,7 @@ export const input = system('input', {
         tags: ['input', 'read'],
       }),
       ask_text: fn({
+        group: 'ask',
         description: 'Ask the person one question they answer in words.',
         instructions: askUsage('for a name, a description, an address or any free answer', 'Set `long` for a paragraph (a description, feedback), and a `placeholder` that shows the kind of answer wanted.'),
         args: g.obj({
@@ -185,6 +192,7 @@ export const input = system('input', {
         tags: ['input'],
       }),
       ask_choice: fn({
+        group: 'ask',
         description: 'Ask the person to pick from options.',
         instructions: askUsage('when the answer is one (or, with `multiple`, some) of options you can list', 'Give at least two different, short options in a sensible order; add "Something else" only when an answer outside them is fine.'),
         args: g.obj({
@@ -202,6 +210,7 @@ export const input = system('input', {
         tags: ['input'],
       }),
       ask_confirm: fn({
+        group: 'ask',
         description: 'Ask the person a yes or no question.',
         instructions: askUsage('before something they should agree to that no approval covers, or for any yes or no fact', 'Word it so "yes" means go ahead.'),
         args: g.obj({ question: question() }),
@@ -212,6 +221,7 @@ export const input = system('input', {
         tags: ['input'],
       }),
       ask_number: fn({
+        group: 'ask',
         description: 'Ask the person for a number.',
         instructions: askUsage('for a count, an amount or a rating', 'Give `min` and `max` when the answer has a range, and `whole` for counts.'),
         args: g.obj({ question: question(), min: g.optional(g.num()), max: g.optional(g.num()), whole: g.optional(g.bool()) }),
@@ -225,6 +235,7 @@ export const input = system('input', {
         tags: ['input'],
       }),
       ask_date: fn({
+        group: 'ask',
         description: 'Ask the person for a date.',
         instructions: askUsage('for a day (a deadline, a start date, a birthday)', 'Say what the date is for in the question.'),
         args: g.obj({ question: question() }),
@@ -235,6 +246,7 @@ export const input = system('input', {
         tags: ['input'],
       }),
       save_form: fn({
+        group: 'forms',
         description: 'Keep a form in the hub as an `input/form` fn of its person, so get_input finds and reuses it next time.',
         instructions: 'The person saves a form from under it. Give a short name, a description of what it asks and when to use it, and who may use it (only them by default).',
         args: g.obj({
@@ -267,6 +279,7 @@ export const input = system('input', {
   .with(() => ({
     fns: {
       get_input: fn({
+        group: 'forms',
         description: 'Ask the person for several pieces of information at once with a form made for it (or a saved one that fits): describe in detail what you need.',
         instructions: GET_INPUT_USAGE,
         args: g.obj({ detailedDescription: g.field(g.text({ minLength: 1 }), { docs: 'What to ask for: each field, its kind, and whether it is required.' }) }),

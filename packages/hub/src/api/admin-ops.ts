@@ -16,7 +16,7 @@ import type { z } from 'zod';
 import type { HubServices } from '../boot/index.ts';
 import type { LimitResolver, RunService } from '../execution/index.ts';
 import { findUserByEmail, normalEmail } from './auth.ts';
-import { collect, first, PAGE } from './paging.ts';
+import { allRows, firstRow } from '../store/rows.ts';
 import { userInfo } from './web/access.ts';
 import { timeInfo } from '../execution/time.ts';
 
@@ -45,7 +45,7 @@ export function modelsOf(models: readonly ModelInfo[], provider: ProviderKind): 
 
 /** Every provider record. */
 export function providerRecords(hub: Pick<HubServices, 'store'>): Promise<ProviderRecord[]> {
-  return collect((cursor) => hub.store.table('providers').find({ limit: PAGE, cursor }));
+  return allRows(hub.store.table('providers'));
 }
 
 /** Store a provider's keys as secrets; the config keeps only their ids. */
@@ -148,7 +148,7 @@ export function adminOperations(hub: HubServices): AdminOperations {
       return { models: modelsOf(await execution.llm.models(), data.provider) };
     },
     set_model_category: async (data) => {
-      const existing = await first((cursor) => store.table('modelCategories').find({ limit: PAGE, cursor }), (c) => c.name === data.name);
+      const existing = await firstRow(store.table('modelCategories'), { where: { name: data.name } }, () => true);
       const id = data.id ?? existing?.id ?? mintId('modelCategory');
       await store.table('modelCategories').put({ ...data, id });
       return { id };

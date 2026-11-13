@@ -54,6 +54,8 @@ export interface Catalog {
   reimport(system: SystemName): Promise<ImportReport>;
   /** A system connected, disconnected, was configured or removed: recompute availability of everything it touches. */
   refreshAvailability(system: SystemName): Promise<void>;
+  /** Build 8: write the index rows of fns stored before the hub kept them (a migration at start); how many it indexed. */
+  indexStoredFns(): Promise<number>;
 
   /** The last manifest accepted from a system (refused entries left out). */
   manifest(system: SystemName): Promise<Manifest | undefined>;

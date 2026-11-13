@@ -11,7 +11,6 @@ import type { z } from 'zod';
 import type { HubServices } from '../boot/index.ts';
 import { allRows } from '../store/rows.ts';
 import { knownSystem, modelsOf, providerRecords } from './admin-ops.ts';
-import { collect, PAGE } from './paging.ts';
 import { DEFAULT_AGENT } from '../chat/sessions.ts';
 import { visibleRun, visibleSession, visibleTurn } from './web/access.ts';
 import { maskedInstance, MAX_PAIRINGS } from './web/systems.ts';
@@ -31,7 +30,7 @@ export type AdminReadOperations = { readonly [N in AdminReadFnName]: PersonOp<(t
 
 /** Every row of a table. */
 function all<T extends TableName>(hub: Pick<HubServices, 'store'>, table: T) {
-  return collect((cursor) => hub.store.table(table).find({ limit: PAGE, cursor }));
+  return allRows(hub.store.table(table));
 }
 
 

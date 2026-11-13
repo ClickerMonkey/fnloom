@@ -14,7 +14,7 @@ import type { HubFnCtx, HubFns } from '../execution/executors.ts';
 /** Every read fn answered here, in declaration order (the compiler checks the list is whole and each has an implementation below). */
 export const HUB_READ_NAMES = [
   'types_get', 'runs_list', 'run_get', 'run_tree', 'llm_call', 'model_calls', 'fn_metrics', 'sessions_list', 'session_messages',
-  'systems_list', 'system_get', 'system_fns', 'system_logs', 'model_roles', 'query', 'graph',
+  'systems_list', 'system_get', 'system_fns', 'system_logs', 'model_roles', 'query', 'graph', 'item_versions',
 ] as const satisfies readonly HubReadName[];
 
 /** The read fns missing from `HUB_READ_NAMES`: none, or this fails to compile. */
@@ -67,6 +67,7 @@ export function registerReadFns(fns: HubFns, reads: () => HubReads): void {
     model_roles: run(HUB_READ_ENDPOINTS.model_roles, (r) => r.model_roles),
     query: run(HUB_READ_ENDPOINTS.query, (r) => (data, who) => r.query(data, who)),
     graph: run(HUB_READ_ENDPOINTS.graph, (r) => r.graph),
+    item_versions: run(HUB_READ_ENDPOINTS.item_versions, (r) => r.item_versions),
   };
   for (const name of HUB_READ_NAMES) fns.register(hub.fns[name], impls[name]);
 }

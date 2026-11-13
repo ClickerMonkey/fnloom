@@ -11,7 +11,7 @@ import { createFsImpl, type FsServer } from './impl.ts';
 import type { CommandRun, FsConfig } from './index.ts';
 import { DiskSnapshots } from './snapshots.ts';
 import {
-  FakeGit, FakeOpener, FakeRestarter, FakeShell, configFor, doneResult, failure, fnCtx, memoryState, systemCtx, tempFolder, undoCtx,
+  FakeChanges, FakeGit, FakeOpener, NO_IGNORES, FakeRestarter, FakeShell, configFor, doneResult, failure, fnCtx, memoryState, systemCtx, tempFolder, undoCtx,
 } from './testing.ts';
 
 type Fns = typeof fs.defs.fns;
@@ -41,6 +41,8 @@ describe('the fs implementation', () => {
       snapshots: new DiskSnapshots(`${tmp.path}/state/snapshots`),
       documents: new AeyeDocuments(createDefaultResourceRegistry()),
       watch: () => () => undefined,
+      changes: new FakeChanges(),
+      ignores: NO_IGNORES,
       now: () => 0,
     });
   };
@@ -66,6 +68,39 @@ describe('the fs implementation', () => {
     const grep = fnCtx<TypesOf<Fns['grep']>>({ handlers: {}, progress: { set: (f, m) => { progress.push([f, m]); } }, fns: {}, form: undefined, state: memoryState() }, { config });
     expect(doneResult(await fns.grep.run({ pattern: 'TODO' }, grep.ctx))).toEqual({ matches: [{ path: `${root}/src/b.ts`, line: 1, text: 'export const b = 1; // TODO' }] });
     expect(progress.at(-1)?.[0]).toBe(1);
+  });
+
+  it('flags sensitive files before a run, leaves them out of listings and searches, and refuses what a rule refuses', async () => {
+    await writeFile(`${root}/.env`, 'TOKEN=abc // TODO\n');
+    const { fns } = server.impl;
+    const preview = { ...systemCtx({ config }), run: mintId('run') };
+    expect(await fns.read.flags?.({ path: '.env' }, preview)).toEqual([expect.objectContaining({ path: '.env', kind: 'env', access: 'read', action: 'ask', certain: true })]);
+    expect(await fns.write.flags?.({ path: 'a.txt', text: 'x' }, preview)).toEqual([]);
+    expect(await fns.bash.flags?.({ command: 'cat .env > copy.txt && rm ~/.ssh/id_rsa' }, preview)).toEqual([
+      expect.objectContaining({ path: '.env', access: 'read', certain: false }),
+      expect.objectContaining({ path: '~/.ssh/id_rsa', kind: 'key', access: 'write', certain: false }),
+    ]);
+    expect(await fns.grep.flags?.({ pattern: 'x', glob: '*.pem' }, preview)).toEqual([expect.objectContaining({ path: '*.pem', kind: 'key' })]);
+    expect(await fns.read.flags?.({ path: '../outside' }, preview)).toEqual([]);
+
+    const listed = doneResult(await fns.list.run({ path: '' }, fnCtx<TypesOf<Fns['list']>>(none(), { config }).ctx));
+    expect(listed).toMatchObject({ hidden: 1 });
+    expect(listed.entries.map((e) => e.path)).not.toContain(`${root}/.env`);
+    const grep = fnCtx<TypesOf<Fns['grep']>>({ ...none(), progress: { set: () => undefined } }, { config });
+    expect(doneResult(await fns.grep.run({ pattern: 'TODO' }, grep.ctx))).toMatchObject({ matches: [{ path: `${root}/src/b.ts` }], hidden: 1 });
+
+    const strict: FsConfig = { ...config, sensitive: [{ name: 'no-env', kind: 'env', match: { type: 'glob', glob: '.env' }, read: 'refuse', write: 'refuse', why: 'Never.' }] };
+    const refused = await fns.read.run({ path: '.env' }, fnCtx<TypesOf<Fns['read']>>(none(), { config: strict }).ctx);
+    expect(refused).toMatchObject({ status: 'invalid-input', invalid: { problems: [{ message: 'Reads .env (env: Never.)' }] } });
+  });
+
+  it('returns the files a command changed with its output', async () => {
+    const changed = { source: 'git' as const, cwd: root, files: [{ path: 'a.txt', root: 'root', status: 'modified' as const, diff: '@@ -1 +1 @@\n-a\n+b', added: 1, removed: 1, certain: true }], ignored: 0, truncated: false };
+    const capture = new FakeChanges(() => changed);
+    const withChanges = createFsImpl({ settings, shell: new FakeShell(), opener, restarter, git: new FakeGit(new Map()), snapshots: new DiskSnapshots(`${tmp.path}/s`), documents: new AeyeDocuments(createDefaultResourceRegistry()), watch: () => () => undefined, changes: capture, ignores: NO_IGNORES, now: () => 0 });
+    const made = fnCtx<TypesOf<Fns['bash']>>({ handlers: { confirm: () => Promise.resolve(true) }, progress: { set: () => undefined }, fns: {}, form: undefined, state: memoryState() }, { config });
+    expect(doneResult(await withChanges.impl.fns.bash.run({ command: 'npm run fmt' }, made.ctx))).toMatchObject({ exitCode: 0, changes: changed });
+    expect(capture.started).toEqual([root]);
   });
 
   it('says the hosting fns need @harness/build on an fs without it', async () => {
@@ -114,7 +149,7 @@ describe('the fs implementation', () => {
 
   it('removes and undoes, and skips diffs too big to draw', async () => {
     const small = { ...settings, FS_DIFF_MAX: 3 };
-    server = createFsImpl({ settings: small, shell, opener, restarter, git: new FakeGit(new Map()), snapshots: new DiskSnapshots(`${tmp.path}/s`), documents: new AeyeDocuments(createDefaultResourceRegistry()), watch: () => () => undefined, now: () => 0 });
+    server = createFsImpl({ settings: small, shell, opener, restarter, git: new FakeGit(new Map()), snapshots: new DiskSnapshots(`${tmp.path}/s`), documents: new AeyeDocuments(createDefaultResourceRegistry()), watch: () => () => undefined, changes: new FakeChanges(), ignores: NO_IGNORES, now: () => 0 });
     const run = fnCtx<TypesOf<Fns['remove']>>(none(), { config: config });
     const outcome = await server.impl.fns.remove.run({ path: 'a.txt' }, run.ctx);
     expect(doneResult(outcome)).toEqual({ removed: true });

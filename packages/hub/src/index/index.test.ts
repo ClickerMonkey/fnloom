@@ -217,7 +217,8 @@ describe('indexing', () => {
     await settle(5);
     await indexer.idle();
     const keys = (await store.table('index').find({ limit: 50 })).items.map((r) => `${r.kind}:${r.key}`).sort();
-    expect(keys).toEqual(['context:shop/guide', 'fn:shop/Product.discount', 'fn:shop/get', 'fn:shop/list', 'type:shop/Product']);
+    // the API index items the catalog writes for its fns are indexed too
+    expect(keys).toEqual(['context:shop/api', 'context:shop/api.general', 'context:shop/guide', 'fn:shop/Product.discount', 'fn:shop/get', 'fn:shop/list', 'type:shop/Product']);
     expect((await store.table('index').get({ embedder: DOCUMENT, kind: 'fn', key: 'shop/get' }))?.text).toBe('shop/get: Get a product by its sku.\nTags: read');
 
     await catalog.importManifest({ ...manifest, fns: manifest.fns.filter((f) => f.name !== 'list') });

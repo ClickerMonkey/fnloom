@@ -8,6 +8,7 @@ import type {
   UndoService,
 } from './index.ts';
 import { ChatMentions, HubMentions, LinkedMentions } from './mentions.ts';
+import { StoreMentionRequests, type MentionRequests } from './mention-requests.ts';
 import { StoreApprovers, StoreNotifications } from './notifications.ts';
 import { People } from './people.ts';
 import { MemoryPresence } from './presence.ts';
@@ -30,6 +31,8 @@ export interface ChatModule {
   readonly deliveries: DeliveryService;
   readonly undo: UndoService;
   readonly mentions: MentionService;
+  /** Build 8: the `@` searches sent to systems, which their resource searches are tied to. */
+  readonly mentionRequests: MentionRequests;
   readonly notifications: NotificationService;
   readonly approvers: ApproverDirectory;
   readonly presence: PresenceTracker;
@@ -48,14 +51,15 @@ export function createChat(given: ChatDeps): ChatModule {
   const reply = new SessionReplyRule();
   const suggestions = new HubSuggestions(deps);
   const enrich = new HubMessageEnricher(deps, suggestions);
-  const mentions = new ChatMentions(deps, people, [new HubMentions(deps), new LinkedMentions(deps)]);
+  const mentionRequests = new StoreMentionRequests({ keys: () => deps.store.ports.work.store, ttl: deps.settings.chat.HARNESS_MENTION_REQUEST_TTL, ...(deps.random === undefined ? {} : { random: deps.random }) });
+  const mentions = new ChatMentions(deps, people, [new HubMentions(deps), new LinkedMentions(deps, mentionRequests)]);
   const notifications = new StoreNotifications(deps, presence);
   const state = new TableStateService(deps);
   const deliveries = new LinkDeliveryService(deps, people);
   const turns = new StoreTurnService(deps, { sessions, people, mentions, enricher: enrich, reply, notifications, presence, streams });
   const undo = new RunUndoService(deps, sessions, state);
   return {
-    sessions, turns, reply, enrich, suggestions, state, deliveries, undo, mentions, notifications, presence, approvers: new StoreApprovers(deps),
+    sessions, turns, reply, enrich, suggestions, state, deliveries, undo, mentions, mentionRequests, notifications, presence, approvers: new StoreApprovers(deps),
     start: () => {
       const stops = [deliveries.start(), notifications.start(), sessions.follow()];
       return () => { for (const stop of stops) { stop(); } };

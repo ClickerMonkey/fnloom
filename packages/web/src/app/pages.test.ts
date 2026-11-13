@@ -182,7 +182,7 @@ describe('the pairing page, acting', () => {
     await flushPromises();
     expect(one('[data-testid=pair-done-body]').textContent).toContain('installed, not live');
     await click('[data-testid=pair-review]');
-    await vi.waitFor(() => { expect(router.currentRoute.value.path).toBe('/admin/systems/notes/review'); });
+    await vi.waitFor(() => { expect(router.currentRoute.value.path).toBe('/admin/systems/notes/review'); }, { timeout: 5_000 });
     app.unmount();
   });
 

@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { InstanceName, SystemName, type InstallSubject, type PreviewPart, type SystemGrants, type SystemTestReport } from '@harness/core';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import type { ProcessProbe } from './stale.ts';
-import { Hosting, InstallRefused, capped, grantsReview, fnsDiff, type BuiltSystem, type HostedLaunch, type HostedRunner, type RunnerStatus, type StartOutcome, type SystemBuilds, type SystemTests } from './hosting.ts';
+import { Hosting, InstallRefused, capped, renameRetrying, grantsReview, fnsDiff, type BuiltSystem, type HostedLaunch, type HostedRunner, type RunnerStatus, type StartOutcome, type SystemBuilds, type SystemTests } from './hosting.ts';
 
 const host = { system: SystemName.parse('fs'), instance: InstanceName.parse('main') };
 const signal = new AbortController().signal;
@@ -353,5 +353,36 @@ describe('grantsReview', () => {
     expect(full).toContain('- Calls: web/search');
     expect(grantsReview({ hub: [], models: {} }, places).lines).toContain('- Models: any role');
     expect(grantsReview(undefined, places).lines).toEqual(['Grants, enforced from the moment it starts:', '- Network: no hosts', '- Hub: the base only']);
+  });
+});
+
+describe('renameRetrying', () => {
+  /** A rename that fails with these codes first, then succeeds, recording each try and wait. */
+  const held = (codes: readonly string[]) => {
+    const tries: string[] = [];
+    const waits: number[] = [];
+    const move = (from: string, to: string): Promise<void> => {
+      tries.push(`${from}->${to}`);
+      const code = codes[tries.length - 1];
+      return code === undefined ? Promise.resolve() : Promise.reject(Object.assign(new Error(code), { code }));
+    };
+    const sleep = (ms: number): Promise<void> => { waits.push(ms); return Promise.resolve(); };
+    return { tries, waits, move, sleep };
+  };
+
+  it('tries again with a doubling wait while Windows holds a handle (EPERM, EBUSY, EACCES)', async () => {
+    const fake = held(['EPERM', 'EBUSY', 'EACCES']);
+    await renameRetrying('a', 'b', { tries: 6, wait: 50 }, fake.move, fake.sleep);
+    expect(fake.tries).toHaveLength(4);
+    expect(fake.waits).toEqual([50, 100, 200]);
+  });
+
+  it('gives up after the last try, and never retries another failure', async () => {
+    const stuck = held(['EBUSY', 'EBUSY', 'EBUSY']);
+    await expect(renameRetrying('a', 'b', { tries: 3, wait: 10 }, stuck.move, stuck.sleep)).rejects.toThrow('EBUSY');
+    expect(stuck.waits).toEqual([10, 20]);
+    const missing = held(['ENOENT']);
+    await expect(renameRetrying('a', 'b', { tries: 6, wait: 10 }, missing.move, missing.sleep)).rejects.toThrow('ENOENT');
+    expect(missing.tries).toHaveLength(1);
   });
 });

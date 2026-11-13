@@ -9,7 +9,7 @@
  * await kit.stop();
  * ```
  */
-import { qualify, type KindDescription, type OutcomeWire, type RunRequest } from '@harness/core';
+import { qualify, type DataRecord, type KindDescription, type MentionOption as WireMentionOption, type OutcomeWire, type QualifiedName, type RunRequest, type SensitivityFlag } from '@harness/core';
 import type { KindDef } from '../declare.ts';
 import type { AnyFnDef, FnDef, TypesOf } from '../fn.ts';
 import { encodeValue, parseValue } from '../gin.ts';
@@ -136,6 +136,31 @@ export class TestSystem<N extends string, C extends ContractShape> {
     const def = this.#kind(kind);
     const answer = await this.hub.peer().call('check', { kind, payload: encodeValue(def.payload, payload) });
     return { problems: answer.problems, description: answer.description };
+  }
+
+  /**
+   * The sensitive files a run of a fn with these args would touch, as the hub asks before running it (`flags`): the fn's
+   * own `flags(args, ctx)`; none for a fn that declares no `flags`.
+   */
+  async flags<K extends FnNameOf<C>>(name: K, args: FnArgsOf<C, K>): Promise<SensitivityFlag[]> {
+    const def = this.#fn(name);
+    const fn = qualify(this.contract.name, name);
+    const request = this.hub.request(fn, encodeValue(def.args, args));
+    const answer = await this.hub.flags({ fn: name, kind: 'native', args: request.args, run: request.run.id, user: request.run.user });
+    return answer.flags;
+  }
+
+  /** A mention provider's options for what the person typed after `@`, with any resource searches it made. */
+  async mentions(provider: keyof C['mentions'] & string, query: string): Promise<{ readonly options: WireMentionOption[]; readonly searches: FakeHub['mentionSearches'] }> {
+    const from = this.hub.mentionSearches.length;
+    const options = await this.hub.mentions(provider, query);
+    return { options, searches: this.hub.mentionSearches.slice(from) };
+  }
+
+  /** The records of one of the system's stored types the run left in the fake hub, newest change first. */
+  records(type: keyof C['types'] & string): DataRecord[] {
+    const name: QualifiedName = qualify(this.contract.name, type);
+    return this.hub.data.of(name);
   }
 
   /** Stop the system. */

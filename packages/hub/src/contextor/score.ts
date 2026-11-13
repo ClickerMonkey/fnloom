@@ -7,23 +7,9 @@
  * normalised so an item with many links passes on no more than one with a few.
  */
 import { GRAPH_METRICS, type GraphMetric, type MetricWeight } from '@harness/core';
+import type { MetricSetting } from './env.ts';
 
-/** A metric's weight, target and steepness, all known. */
-export interface MetricSetting {
-  readonly weight: number;
-  readonly target: number;
-  readonly k: number;
-}
-
-/** Each metric's default: weight, the value it scores best at, and how fast the score falls away from it. */
-export const METRIC_DEFAULTS: Readonly<Record<GraphMetric, MetricSetting>> = {
-  embedding: { weight: 1, target: 1, k: 4 },
-  words: { weight: 0.3, target: 1, k: 2 },
-  turnsAgo: { weight: 0.4, target: 0, k: 0.15 },
-  age: { weight: 0.1, target: 0, k: 0.02 },
-  selectedBefore: { weight: 0.3, target: 1, k: 1 },
-  used: { weight: 0.5, target: 1, k: 1.5 },
-};
+export type { MetricSetting } from './env.ts';
 
 /** One candidate's signals; a metric left out (or undefined) has no signal for it. */
 export type Signals = Partial<Record<GraphMetric, number | undefined>>;
@@ -33,12 +19,12 @@ export function rbf(x: number, target: number, k: number): number {
   return Math.exp(-k * (x - target) ** 2);
 }
 
-/** The defaults with a session's overrides on top. */
-export function metricSettings(overrides: Partial<Record<GraphMetric, MetricWeight>>): Record<GraphMetric, MetricSetting> {
-  const settings = { ...METRIC_DEFAULTS };
+/** The defaults (`metricDefaults`, from the settings) with a session's overrides on top. */
+export function metricSettings(defaults: Readonly<Record<GraphMetric, MetricSetting>>, overrides: Partial<Record<GraphMetric, MetricWeight>>): Record<GraphMetric, MetricSetting> {
+  const settings = { ...defaults };
   for (const metric of GRAPH_METRICS) {
     const override = overrides[metric];
-    if (override !== undefined) settings[metric] = { weight: override.weight, target: override.target ?? METRIC_DEFAULTS[metric].target, k: override.k ?? METRIC_DEFAULTS[metric].k };
+    if (override !== undefined) settings[metric] = { weight: override.weight, target: override.target ?? defaults[metric].target, k: override.k ?? defaults[metric].k };
   }
   return settings;
 }

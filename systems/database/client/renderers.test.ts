@@ -3,7 +3,7 @@
  * number over 2 to 50 rows; a value for one cell), and the result view showing the best one with a switch between
  * those that fit (none when only the table does), then the person's pick.
  */
-import { TABLE_VISUAL_SCORE, mintId, type ResultTable, type RunId } from '@harness/core';
+import { BUILT_IN_SHAPES, TABLE_VISUAL_SCORE, declaredFit, mintId, type ResultTable, type RunId } from '@harness/core';
 import { VISUALS, type SystemClient, type VisualSource } from '@harness/sdk';
 import { mount } from '@vue/test-utils';
 import { h } from 'vue';
@@ -39,6 +39,18 @@ describe('query visuals', () => {
     expect(valueFit(ONE)).toEqual({ fits: true, score: 0.9 });
     expect(fitting(BY_STATUS, OWN_VISUALS).map((visual) => visual.name)).toEqual(['bar', 'table']);
     expect(fitting(WIDE, OWN_VISUALS).map((visual) => visual.name)).toEqual(['table']);
+  });
+
+  it('declare shapes that never refuse what their match logic draws, so the hub judges a fit the client agrees with', () => {
+    // a declared shape is the coarse check (the hub and agents); the match logic still decides and scores
+    for (const sample of [BY_STATUS, ONE, WIDE, table(BY_STATUS.columns, [['open', 1]])]) {
+      if (barFit(sample).fits) { expect(declaredFit(BUILT_IN_SHAPES.bar, sample).fits).toBe(true); }
+      if (valueFit(sample).fits) { expect(declaredFit(BUILT_IN_SHAPES.value, sample).fits).toBe(true); }
+      expect(declaredFit(BUILT_IN_SHAPES.table, sample).fits).toBe(true);
+    }
+    expect(declaredFit(BUILT_IN_SHAPES.bar, table(BY_STATUS.columns, [['open', 1]]))).toEqual({ fits: false, why: 'Needs at least 2 rows.' });
+    expect(declaredFit(BUILT_IN_SHAPES.value, { ...ONE, truncated: true }).fits).toBe(false);
+    expect(databaseClient.contract.contributes.map((c) => c.shape)).toEqual([BUILT_IN_SHAPES.table, BUILT_IN_SHAPES.bar, BUILT_IN_SHAPES.value]);
   });
 });
 
@@ -80,6 +92,6 @@ describe('ResultView', () => {
 describe('the client module', () => {
   it('loads: every visual it registers is in the contributes list', () => {
     const listed = databaseClient.contract.contributes.map((c) => `${c.registry} ${c.name}`);
-    expect(listed).toEqual(Object.keys(OWN_VISUALS).map((name) => `database/query-visuals ${name}`));
+    expect(listed).toEqual(Object.keys(OWN_VISUALS).map((name) => `hub/visuals ${name}`));
   });
 });

@@ -47,6 +47,8 @@ interface SystemContract<N extends string, C extends ContractShape> extends Syst
   readonly grants: SystemGrants | undefined;
   /** Its own config component (a client export), drawn instead of or beside the gin form. */
   readonly configComponent: ConfigComponentDecl | undefined;
+  /** Its API groups, each described once; a fn names its group with `fn({ group })`. */
+  readonly groups: readonly ApiGroupDecl[];
   /** The declarations themselves. */
   readonly defs: C;
   /** Add declarations: any sections, given directly or built from the refs so far. */
@@ -54,7 +56,7 @@ interface SystemContract<N extends string, C extends ContractShape> extends Syst
 }
 ```
 
-Refers to: [`ConfigComponentDecl`](context:fs/authoring.core-types#core-configcomponentdecl), [`ConfigPath`](context:fs/authoring.core-types#core-configpath), [`ContributionDecl`](context:fs/authoring.core-types#core-contributiondecl), [`SystemGrants`](context:fs/authoring.core-types#core-systemgrants).
+Refers to: [`ApiGroupDecl`](context:fs/authoring.core-types.api-index-ts#core-apigroupdecl), [`ConfigComponentDecl`](context:fs/authoring.core-types.grants-ts#core-configcomponentdecl), [`ConfigPath`](context:fs/authoring.core-types.config-secrets-ts#core-configpath), [`ContributionDecl`](context:fs/authoring.core-types.registries-ts#core-contributiondecl), [`SystemGrants`](context:fs/authoring.core-types.grants-ts#core-systemgrants).
 
 #### `SystemRefs`
 
@@ -111,7 +113,7 @@ interface ContractShape {
 }
 ```
 
-Refers to: [`ConnectDecl`](context:fs/authoring.core-types#core-connectdecl).
+Refers to: [`ConnectDecl`](context:fs/authoring.core-types.connections-ts#core-connectdecl).
 
 #### `ContractSection`
 
@@ -173,7 +175,7 @@ type Merge<C extends ContractShape, P extends Partial<ContractShape>> = {
 };
 ```
 
-Refers to: [`ConnectDecl`](context:fs/authoring.core-types#core-connectdecl).
+Refers to: [`ConnectDecl`](context:fs/authoring.core-types.connections-ts#core-connectdecl).
 
 #### `AnyContract`
 
@@ -226,10 +228,17 @@ interface SystemInfo {
    * the value with the config's gin type before saving.
    */
   configComponent?: ConfigComponentDecl;
+  /**
+   * Its API groups: a name, a title and what the group's fns are for (`{ name: 'files', title: 'Files', description:
+   * 'Read, write and search files.' }`). The hub keeps an index item for the system (`<system>/api`, the groups as
+   * choices) and one per group listing its fns, so a model walks the API like a context folder. A fn names its group
+   * with `fn({ group })`; a fn with none is in the general group. Every group a fn names must be declared here.
+   */
+  groups?: ApiGroupDecl[];
 }
 ```
 
-Refers to: [`ConfigComponentDecl`](context:fs/authoring.core-types#core-configcomponentdecl), [`ConfigPath`](context:fs/authoring.core-types#core-configpath), [`ContributionDecl`](context:fs/authoring.core-types#core-contributiondecl), [`SystemGrants`](context:fs/authoring.core-types#core-systemgrants).
+Refers to: [`ApiGroupDecl`](context:fs/authoring.core-types.api-index-ts#core-apigroupdecl), [`ConfigComponentDecl`](context:fs/authoring.core-types.grants-ts#core-configcomponentdecl), [`ConfigPath`](context:fs/authoring.core-types.config-secrets-ts#core-configpath), [`ContributionDecl`](context:fs/authoring.core-types.registries-ts#core-contributiondecl), [`SystemGrants`](context:fs/authoring.core-types.grants-ts#core-systemgrants).
 
 #### `RegistryDef`
 

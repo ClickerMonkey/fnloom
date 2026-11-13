@@ -10,6 +10,10 @@
  *   dark into a gallery; `renderHtml` for a quick in-process render.
  * - `kit.kindProps(kind, payload)`: what a kind derives from a payload. `contextFolder(dir, contract)`: the context
  *   folder parses, its links resolve, and the fns each context brings.
+ * - `kit.flags(fn, args)`: the sensitive files a run would touch, as the hub asks first. `kit.mentions(provider, q)`:
+ *   a mention provider's options and the resource searches it made. `kit.records(type)`: the records runs saved
+ *   (`ctx.data`, answered in memory by the fake hub). `scratchFolder({ git, files })`: a folder (a git repository) to
+ *   run file and command fns in, for change sets and sensitive files.
  *
  * `harness test` runs a system's tests from anywhere and reports them (`SystemTestReport`).
  */
@@ -20,4 +24,6 @@ export { galleryHtml, preview, renderHtml, type PreviewOptions, type SavedShot }
 export { PREVIEW_INDEX, PREVIEW_THEMES, PreviewIndex, type PreviewTheme } from './shots.ts';
 export { contextFolder, type OtherNames, type TestedContext } from './context.ts';
 export { kitEnv } from './env.ts';
+export { scratchFolder, type ScratchFolder, type ScratchOptions } from './scratch.ts';
 export { FakeHub, FakeModelLink, TEST_USER, replyChunks } from '../server/testing.ts';
+export { FakeRecords, type StoredTypeDecl } from '../server/fake-records.ts';

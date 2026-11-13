@@ -1,13 +1,14 @@
 <script setup lang="ts">
 /**
  * The bash card: the command and where it ran, a live status chip and progress while it runs (with the last line
- * it printed), its output folded until expanded, copy, and "Run again", which starts a new `bash` run with the same args
- * (its own card follows in the chat).
+ * it printed), its output folded until expanded, the files it changed (a tab per text file with its diff), copy, and
+ * "Run again", which starts a new `bash` run with the same args (its own card follows in the chat).
  */
 import { isSettled, type FnViewOf } from '@harness/sdk';
 import { computed, onBeforeUnmount, ref } from 'vue';
 import type { fs } from '../shared/index.ts';
 import { failedOutput, percent, statusChip } from './bash.ts';
+import ChangesView from './ChangesView.vue';
 import OutputBlock from './OutputBlock.vue';
 import { useRerun } from './rerun.ts';
 
@@ -21,6 +22,7 @@ const running = computed(() => view.status === 'running');
 /** Copy and Run again only make sense once the command has run. */
 const settled = computed(() => isSettled(view.status));
 const output = computed(() => view.result ?? failedOutput(view.error));
+const changes = computed(() => view.result?.changes);
 const where = computed(() => view.args.cwd ?? view.state.cwd);
 const fraction = computed(() => percent(view.progress?.fraction));
 const live = computed(() => view.progress?.message ?? '');
@@ -55,6 +57,7 @@ onBeforeUnmount(() => { clearTimeout(copiedTimer); });
     <p v-if="running && live" class="live" aria-live="polite">{{ live }}</p>
 
     <OutputBlock v-if="output" :stdout="output.stdout" :stderr="output.stderr" />
+    <ChangesView v-if="changes" :changes="changes" />
     <p v-if="view.error && view.error.code !== 'timeout'" class="problem">{{ view.error.message }}</p>
 
     <footer v-if="settled" class="actions">

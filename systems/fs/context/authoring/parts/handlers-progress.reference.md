@@ -129,7 +129,7 @@ A progress def on the wire.
 function progressDecl(progress: ProgressDef): ProgressDecl;
 ```
 
-Refers to: [`ProgressDecl`](context:fs/authoring.core-types#core-progressdecl).
+Refers to: [`ProgressDecl`](context:fs/authoring.core-types.run-ts#core-progressdecl).
 
 #### `ProgressDef`
 
@@ -180,7 +180,7 @@ P extends StepsProgress<infer S> ? { step(name: keyof S & string, status: StepSt
 { readonly type: 'none' };
 ```
 
-Refers to: [`StepStatus`](context:fs/authoring.core-types#core-stepstatus).
+Refers to: [`StepStatus`](context:fs/authoring.core-types.run-ts#core-stepstatus).
 
 #### `ProgressState`
 

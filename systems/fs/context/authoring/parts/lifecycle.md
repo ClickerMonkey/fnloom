@@ -15,7 +15,7 @@ choices:
     when: "Pick this to go on in order: The client: renderers, inputs and resource views."
 ---
 
-## 22. Config, events, lifecycle and data
+## 23. Config, events, lifecycle and data
 
 ### Config
 
@@ -56,12 +56,12 @@ _From `scripts/docs/example/server/impl.ts`:_
 
 ```ts
 lifecycle: {
-  started: async (ctx) => {
-    current = deps.open(ctx.dataDir);
-    ctx.log.info('notes.started', { notes: (await current.all()).length, instance: ctx.instance });
+  started: (ctx) => {
+    ctx.log.info('notes.started', { instance: ctx.instance });
+    return Promise.resolve();
   },
   configured: (ctx) => {
-    ctx.log.info('notes.configured', { maxNotes: ctx.config.maxNotes, before: ctx.previous?.maxNotes ?? null });
+    ctx.log.info('notes.configured', { defaultTags: ctx.config.defaultTags.length, before: ctx.previous?.defaultTags.length ?? null });
     return Promise.resolve();
   },
 },
@@ -72,34 +72,15 @@ lifecycle: {
 The hub gives each installed instance its own folders, outside the package, so upgrades and rollbacks keep them:
 `<hub data>/systems/<name>/instances/<instance>/{state,data,cache}`. Code reaches them through every context:
 
-- `ctx.dataDir`: the system's own data (files, a SQLite database). What it stores there and how is its own business;
-  the hub exports this folder with the instance's config (`harness system export-data`) and installs it back.
+- `ctx.dataDir`: what is the system's alone (its keys, a working copy of something it syncs). Data kept for people is
+  never here: it is hub records ([Stored types and the data system](context:fs/authoring.data)). The hub exports this folder with the
+  instance's config (`harness system export-data`) and installs it back.
 - `ctx.cacheDir`: what can be made again (client builds, indexes). Never exported; may be cleared.
 - `ctx.instance`: this instance's name, `main` for a system that runs one copy. Several copies of one system can be
   attached at once (a fleet: `fs@laptop`, `fs@desk`); fn names and refs stay the same, and the hub picks the instance
   for each call. Set `"instances": "many"` in `system.json` for a system meant to run as a fleet.
 
-Open stores lazily from `ctx.dataDir` (one per folder) rather than at import time; the notes system opens its store
-from each context:
-
-_From `scripts/docs/example/server/index.ts`:_
-
-```ts
-/** Where one instance keeps its notes. */
-export interface NoteStore {
-  /** Every note, newest first. */
-  all(): Promise<NoteValue[]>;
-  get(id: string): Promise<NoteValue | undefined>;
-  /** Add the note, or replace the one with its id. */
-  put(note: NoteValue): Promise<void>;
-  /** Whether there was a note to delete. */
-  delete(id: string): Promise<boolean>;
-}
-
-/** Opens the store kept in an instance's data folder (`ctx.dataDir`). */
-export type OpenStore = (dataDir: string) => NoteStore;
-```
-
+Open anything kept in `ctx.dataDir` lazily (one per folder) rather than at import time.
 Outside the hub (a system started by hand) the folders default to `.harness/systems/<name>/<instance>/…`. Never write
 into the system's own source folder at runtime.
 

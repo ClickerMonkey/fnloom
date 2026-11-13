@@ -6,6 +6,7 @@
 import { limiter } from '@ayepi/rate';
 import type { ModuleFactory } from '../boot/index.ts';
 import { HUB_INFO } from '../boot/info.ts';
+import { hubNameOf } from '@harness/core';
 import { McpRunner } from './calls.ts';
 import { HubMcpEndpoints } from './endpoints.ts';
 import { StoreMcpRegistry } from './registry.ts';
@@ -33,7 +34,8 @@ export const mcpModule: ModuleFactory<'mcp'> = ({ hub }) => {
   const sources = { scopes: () => scopes, catalog: () => hub.catalog, resources: () => hub.link.resources, content: () => hub.api.content };
   const endpoints: HubMcpEndpoints = new HubMcpEndpoints({
     registry: () => registry, tokens: () => tokens, bus: hub.bus, clock, log: hub.log, maxBody: settings.HARNESS_HUB_MCP_MAX_BODY, idleTimeout: settings.HARNESS_HUB_MCP_IDLE_TIMEOUT,
-    serverInfo: { name: HUB_INFO.name, version: HUB_INFO.version },
+    // MCP clients show the env's name (an admin's later rename shows on the next start)
+    serverInfo: { name: hubNameOf(undefined, hub.settings.hubEnv.HARNESS_NAME).name, version: HUB_INFO.version },
     list: async () => allRows(hub.store.table('mcps'), { where: { enabled: true } }),
     parts: (mcp) => ({
       tools: new HubMcpTools(mcp, { registry: () => registry, scopes: () => scopes, catalog: () => hub.catalog, runner, log: hub.log, access: () => hub.access }),

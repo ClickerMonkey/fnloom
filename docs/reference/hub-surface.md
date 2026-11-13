@@ -110,6 +110,8 @@ Adding and removing types goes through `patch` ([1.2](#12-contract-manifest-runt
 | `resourcesChanged` (`rc`) | Reports changes under the system's watched roots. Changes outside its own roots are dropped. | `changes: [{uri, change: 'added'\|'changed'\|'removed', version?}]` | nothing | Linked system | Sent by the runtime when the hub's `watch` is on |
 | `content` (`ct`) | Reads a slice of stored content, base64. | `ref: ContentRef`, `offset`, `length` | `{chunk}` | Any linked system, any ref | Content downloads (long resource text) |
 | `upload` (`up`) | Uploads content in base64 chunks. The last chunk returns the ref. | `upload: string` (id), `chunk`, `last: boolean`, `mime` | `{ref?}` | Linked system; size-capped, expires | `ctx.files.share(path)` |
+| `mentionResources` (`mr`) | Build 8: searches the hub's resources for an `@` search the hub sent this system, as the person mentioning. | `MentionResourceSearch`: `request`, `query`, `roots?`, `limit` | `{hits}` | Capability `resources`; refused for an unknown, expired (`HARNESS_MENTION_REQUEST_TTL`) or other system's request (`chat/mention-search.ts`) | `ctx.resources.search` on a mention ctx |
+| `records`, `record`, `recordTable`, `saveRecord`, `removeRecord` | Build 8: the data system, as the run's person (`run`) or the system's own actor. | `data.ts` shapes | `data.ts` shapes | Capability `data` (`data/create.ts`) | `ctx.data` |
 
 ### 1.8 Access and per-person connections
 
@@ -188,8 +190,9 @@ The hub is itself a system named `hub`. Its contract is `packages/sdk/src/hub.ts
   (`mcp/scopes.ts:50`).
 - **Display.** `message` means it shows as a plain message once done. `hidden` means it is not shown.
 - **Endpoint fns.** For the fns that stand for a web endpoint, the args are the endpoint's body and the result is its
-  response (`endpointFn`, hub.ts:132). A body that isn't an object (a union) becomes `{ input: <body> }`
-  (`toolArgsOf`, `sdk/src/zod-gin.ts:88`).
+  response (`endpointFn`, hub.ts:132). A body that is a union of objects is flattened into one set of
+  plain args (every member's fields, each optional; the body's schema picks the member), and only a body that isn't an
+  object at all becomes `{ input: <body> }` (`toolArgsOf`, `sdk/src/zod-gin.ts:90`).
 
 ### 2.1 When the chat model sees them
 
@@ -261,7 +264,7 @@ Each runs the same read as its web endpoint, as the run's person (`boot/read-fns
 | Fn | Description | Args | Returns |
 | --- | --- | --- | --- |
 | `hub/resource_convert` | Make a form of a resource now (convert, describe an image, read text in it, transcribe); may cost a model call. | `uri`, `kind: FormKind` | `FormRecord` |
-| `hub/resource_import` | Import a URL or uploaded content as a hub resource. | `input`: `{url, render?, name?, folder?}` or `{content: ContentRef, name, path?}` (a union, so wrapped in `input`) | `ResourceRecord` |
+| `hub/resource_import` | Import a URL or uploaded content as a hub resource. | `{url, render?, name?, folder?}` or `{content: ContentRef, name, path?}` (a union, taken as plain args) | `ResourceRecord` |
 | `hub/resource_rename` | Rename a hub resource. | `uri`, `name` | `ResourceRecord` |
 | `hub/resource_delete` | Delete a hub resource; says how many messages, context items and runs still point at it. | `uri` | `{deleted, referencedBy}` |
 | `hub/context_from_resource` | Make context items from a resource (one per section, under an outline parent), or update the earlier ones. | `uri`, `sections?`, `copy?` (default `live`), `weight?`, `tags?`, `fns?`, `suggestFns?`, `alwaysFor?`, `command?`, `visible?`, `suggest?` | `{created, updated, links}` |
@@ -272,7 +275,7 @@ Each runs the same read as its web endpoint, as the run's person (`boot/read-fns
 
 | Fn | Description (abridged) | Args (endpoint body) |
 | --- | --- | --- |
-| `hub/configure_provider` | Add a model provider (OpenAI, OpenRouter, Ollama) with its key, or replace its key. | `input`: `{provider:'openai', apiKey, baseURL?}` / `{provider:'openrouter', apiKey}` / `{provider:'ollama', baseURL?, contextWindow?}` / AWS variant |
+| `hub/configure_provider` | Add a model provider (OpenAI, OpenRouter, Ollama) with its key, or replace its key. | `{provider:'openai', apiKey, baseURL?}` / `{provider:'openrouter', apiKey}` / `{provider:'ollama', baseURL?, contextWindow?}` / AWS variant (plain args) |
 | `hub/set_model_category` | Add or change a model category. | `id?`, `name`, `description`, `models: string[]` |
 | `hub/set_budget` | Add or change a budget (hub, group, user, session, system, fn or model). | `id?`, `target`, `period`, `maxCost`, `maxTokens?`, `maxCalls?`, `maxTime?`, `share?`, `onLimit` |
 | `hub/set_priority` | Add or change a priority rule. | `id?`, `target`, `default?`, `max?` |
@@ -280,7 +283,7 @@ Each runs the same read as its web endpoint, as the run's person (`boot/read-fns
 | `hub/set_actor_setting` | Set a declared setting for a user, group or agent. | `setting`, `actor`, `value` |
 | `hub/add_user` | Add a person who can sign in. | `email`, `name`, `role`, `groups?` |
 | `hub/add_group` | Add a group. | `name`, `about`, `members?` |
-| `hub/remove_rule` | Remove a budget, priority rule, policy, category or provider. | `input`: `{kind, id}` |
+| `hub/remove_rule` | Remove a budget, priority rule, policy, category or provider. | `kind`, `id` |
 | `hub/approve_pairing` | Approve or refuse a pairing, optionally naming the instance and setting config. | `pairing`, `approve`, `instance?`, `config?`, `autoPair?` |
 | `hub/create_pairing_token` | Make a one-time pairing token. | `name?`, `expiresIn`, `autoPair?` |
 | `hub/configure_system` | Set a system's config. | `system`, `config`, `instance?` |
@@ -289,7 +292,7 @@ Each runs the same read as its web endpoint, as the run's person (`boot/read-fns
 | `hub/install_system` | Install a system from a folder, package or git repository, and start it. | `source` (`{path}` / `{package, version}` / `{git, ref}` / `{zip, file}`), `config?`, `autoStart?` |
 | `hub/start_system`, `hub/stop_system` | Start or stop an installed system. | `system`, `instance?` |
 | `hub/upgrade_system` | Upgrade to a version (the latest when none is given). | `system`, `version?` |
-| `hub/set_model_role`, `hub/clear_model_role` | Choose or clear the model for a job. | `input: RoleChoice` / `role` |
+| `hub/set_model_role`, `hub/clear_model_role` | Choose or clear the model for a job. | `RoleChoice`'s fields / `role` |
 | `hub/set_model_limits` | Set or clear a model's limits. | `model`, `limits: {contextWindow?, maxOutputTokens?, reasoningTokens?, charsPerToken?}` |
 | `hub/create_mcp`, `hub/update_mcp` | Make or change a hub MCP. | `slug`, `name`, `instructions`, `rules`, `toolMode`, `user`, `grantees`, `origins`, `enabled` (all optional plus `mcp` on update) |
 | `hub/rotate_mcp_secret`, `hub/delete_mcp` | New secret; delete. | `mcp` |
@@ -304,6 +307,15 @@ Each runs the same read as its web endpoint, as the run's person (`boot/read-fns
 | --- | --- | --- | --- | --- |
 | `hub/mint_mcp_token` | Mint a short-lived token for a hub MCP, for a session this system starts. Only a grantee system's runs may call it. | `mcp`, `label`, `ttl?: ms >= 1000` | `{token, expiresAt}` | Tagged `admin`; refused unless called from a system's fn (`mcp/fns.ts:19`) |
 | `hub/chat`, `hub/chat_small` | The chat agents (kind `hub/llm`). | `{}` | text | Agents, callable like any fn |
+| `hub/item_versions` | Any item's version history (fns, types, context, kinds, commands, components, ...), newest first. | `system`, `section`, `name`, page | `ItemVersionsPage` | Tagged `read`; build 8 (`catalog/versions.ts`) |
+| `hub/data_sets`, `hub/records_find`, `hub/record_get`, `hub/records_table`, `hub/record_versions` | The data system's stored types and records, as the run's person. | the `dataSlice` bodies | the `dataSlice` responses | Tagged `read`; build 8 (`data/`) |
+| `hub/record_save`, `hub/record_remove` | Save (checked against the type, `expect` refuses a stale change) or remove a record. | `RecordSave` / `RecordRemove` | `DataRecord` / `{removed}` | They ask; declared effects `records` |
+| `hub/widget_source`, `hub/widget_visuals`, `hub/widget_check` | A table fn's args and a sample; the `hub/visuals` that fit it; a spec's problems. | `{source, args?}` / `WidgetCheck` | info / fits / `{problems, visuals}` | Tagged `read`, hidden; the tools of `hub/make_widget` (`widgets/`) |
+| `hub/widget_save` | Save a widget: a fn `hub/<name>` of the kind `hub/widget`. | `{name, description, spec, replace?}` | `{fn, created}` | Declared effects: fns create/update kind `hub/widget` |
+| `hub/make_widget` | Make or change a widget (kind `hub/llm`, a prompt with the four widget tools). | `MakeWidgetArgs` | text | A widget's own runs call its source as a child run and return a `WidgetResult` |
+
+Build 8 also groups the hub's fns (`boot/hub-groups.ts`) and every system's (`FnDecl.group`, `Manifest.groups`): the
+catalog writes `<system>/api` and `<system>/api.<group>` context items with the fns they list (`catalog/api-index.ts`).
 
 ### 2.8 Hub fns that exist but the chat model doesn't see (or can't use)
 
@@ -602,6 +614,6 @@ Build 4's visibility model says the hub enforces visibility everywhere (web.ts:5
   - Hub `embed` embeds with the hub's embedder; system `embed` runs the system's embedder (both ws `em`).
   - `content` and `control` exist both ways.
   - Hub `resource` corresponds to system `read`.
-- **Some endpoint-backed fns take `{ input: … }`.** A union body is wrapped as `input` (`sdk/src/zod-gin.ts:88-91`), so
-  `configure_provider`, `remove_rule`, `set_model_role` and `resource_import` take `{ input: … }` while every other fn
-  takes its fields directly.
+- **Union bodies are plain args.** `configure_provider`, `remove_rule`, `set_model_role` and `resource_import` have union
+  bodies; they take plain args like every other fn (the union's members flattened, `sdk/src/zod-gin.ts:90-93`). Only a
+  body that isn't an object at all would be wrapped as `{ input: … }`, and no hub fn has one.

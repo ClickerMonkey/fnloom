@@ -14,7 +14,7 @@ async function make() {
   const clock = { now: 1_800_000_000_000 };
   const auth = new AdminAuthenticator({
     store, hasher: new ScryptHasher(10), secret: TEST_KEYS.jwtSecret, accessTtl: 900_000, refreshTtl: 24 * HOUR,
-    hub: { name: 'Harness', version: '1.2.3' }, clock: () => clock.now,
+    identity: { identity: () => Promise.resolve({ name: 'Harness', source: 'default' as const, version: '1.2.3' }) }, clock: () => clock.now,
   });
   return { store, clock, auth };
 }

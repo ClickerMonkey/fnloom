@@ -8,19 +8,21 @@
  * `contextor/fns.ts`); `HubReadName` is every other read fn, so a new one fails to compile until it is answered here.
  */
 import { reject } from '@ayepi/core';
-import { compact, type ModelCall, type ModelCallId, type QueryFnArgs, type QueryFnResult, type Run } from '@harness/core';
+import { compact, QualifiedName, type ItemSection, type ModelCall, type ModelCallId, type QueryFnArgs, type QueryFnResult, type Run } from '@harness/core';
 import type { HUB_READ_ENDPOINTS, HubReadFnName } from '@harness/sdk';
 import type { z } from 'zod';
 import type { HubServices } from '../boot/index.ts';
+import type { AccessScope } from '../access/index.ts';
 import { typeDefinitions } from '../catalog/definitions.ts';
 import type { Where } from '../store/index.ts';
 import { HubGraph } from '../graph/graph.ts';
 import { HubQuery } from '../query/service.ts';
 import { listSources } from '../query/sources.ts';
 import { knownSystem } from './admin-ops.ts';
-import { collect, PAGE } from './paging.ts';
+import { allRows, someRows } from '../store/rows.ts';
 import { visibleRun, visibleSession, visibleTurn, type Viewer } from './web/access.ts';
 import { buildTree } from './web/runs.ts';
+import { itemVersionsPage } from '../catalog/versions.ts';
 import { systemView } from './web/systems.ts';
 
 /** The read fns other modules answer. */
@@ -53,6 +55,16 @@ function adminOnly(who: Viewer, what: string): void {
   if (who.role !== 'admin') { throw reject(403, 'ADMIN_ONLY', `only an admin can see ${what}`); }
 }
 
+/** Whether a person may see one item's history: a fn, type or context item by its own sharing, the rest with their system. */
+async function seesItem(hub: HubServices, access: AccessScope, section: ItemSection, name: string): Promise<boolean> {
+  const qualified = QualifiedName.safeParse(name);
+  if (!qualified.success) { return true; }
+  if (section === 'fns') { const fn = await hub.catalog.fn(qualified.data); return fn === undefined || access.seesFn(fn); }
+  if (section === 'types') { const type = await hub.catalog.type(qualified.data); return type === undefined || access.seesType(type); }
+  if (section === 'context') { const item = await hub.catalog.context(qualified.data); return item === undefined || access.seesContext(item); }
+  return true;
+}
+
 /** The reads on the hub's services. */
 export function hubReads(hub: HubServices): HubReads {
   const { store, catalog, chat } = hub;
@@ -61,6 +73,11 @@ export function hubReads(hub: HubServices): HubReads {
   return {
     lists,
     graph: async (data, who) => graph.query(data, await hub.access.scope(who.id)),
+    item_versions: async (data, who) => {
+      const access = await hub.access.scope(who.id);
+      if (!access.seesSystem(data.system) || !await seesItem(hub, access, data.section, data.name)) { throw reject(404, 'NO_SUCH_ITEM', `no item ${data.name} of ${data.system} you can see`); }
+      return itemVersionsPage(store, data);
+    },
     query: (data, who) => lists.query(data, who),
     types_get: async (data, who) => {
       const access = await hub.access.scope(who.id);
@@ -76,8 +93,8 @@ export function hubReads(hub: HubServices): HubReads {
     run_tree: async (data, who) => {
       const turn = await visibleTurn(hub, data.turn, who);
       const [runs, calls] = await Promise.all([
-        collect((cursor) => store.table('runs').find({ where: { turn: turn.id }, order: [['createdAt', 'asc']], limit: PAGE, cursor })),
-        collect((cursor) => store.table('llmInteractions').find({ where: { turn: turn.id }, order: [['queuedAt', 'asc']], limit: PAGE, cursor })),
+        allRows(store.table('runs'), { where: { turn: turn.id }, order: [['createdAt', 'asc']] }),
+        allRows(store.table('llmInteractions'), { where: { turn: turn.id }, order: [['queuedAt', 'asc']] }),
       ]);
       const tree = buildTree(turn, runs, calls);
       if (tree === undefined) { throw reject(404, 'TURN_HAS_NO_RUNS', 'nothing has run in this turn yet'); }
@@ -111,7 +128,7 @@ export function hubReads(hub: HubServices): HubReads {
     },
     systems_list: async (data, who) => {
       if (data.query !== undefined) { return (await lists.page('systems', data.query, who)).items; }
-      const records = await collect((cursor) => store.table('systems').find({ order: [['name', 'asc']], limit: PAGE, cursor }), MAX_SYSTEMS);
+      const records = await someRows(store.table('systems'), { order: [['name', 'asc']] }, MAX_SYSTEMS);
       return Promise.all(records.filter((r) => r.status !== 'removed').map((r) => systemView(hub, r)));
     },
     system_get: async (data) => systemView(hub, await knownSystem(hub, data.system)),

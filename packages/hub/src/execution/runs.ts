@@ -14,7 +14,7 @@ import {
   compact, FN_MODES, INVALID_INPUT_CODE, isSettled, isUnsettled, MAIN_INSTANCE, mintId, problemLine, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
   type ProgressWire, type ResumeWire, type Run, type RunId, type RunInfo, type RunRequest, type RunSettled, type RunStatus, type RunText, type RunUpdate,
   type Turn, type UndoOutcome, type Usd, type RunControlAction, type FnError, type InputProblem, type InvalidInput,
-  type ApprovalPreview, type Approver, type InstanceName, type ProposedRun, type ProposeRun, type UserInfo, type QualifiedName, qualify,
+  flagsVerdict, type ApprovalPreview, type Approver, type PreviewPart, type SensitivityFlag, type InstanceName, type ProposedRun, type ProposeRun, type UserInfo, type QualifiedName, qualify,
 } from '@harness/core';
 import { z } from 'zod';
 import { HUB_SYSTEM, systemAvailability } from '../catalog/availability.ts';
@@ -257,19 +257,36 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       await this.settle(id, { status: 'invalid-input', invalid });
       return { run: id, settled };
     }
+    // a fn that touches files says first which sensitive ones the call would touch: a refusal stops it here
+    const flagged = fn.decl.flags === true ? await this.#flags(run, fn, turn.user) : { flags: [] };
+    if ('refused' in flagged) {
+      await this.settle(id, flagged.refused);
+      return { run: id, settled };
+    }
+    const sensitive = flagsVerdict(flagged.flags);
+    if (sensitive.effect === 'refuse') {
+      this.#deps.log.info('run.flags-refused', { run: id, fn: fn.name, flags: flagged.flags.length });
+      await this.settle(id, { status: 'invalid-input', invalid: { source: 'validation', problems: [{ path: '', message: sensitive.reason }] } });
+      return { run: id, settled };
+    }
     // a chat's fn mode stands in front of the policies for the calls its agent makes
-    const mode = await this.#mode(run, fn, parent);
+    const mode = await this.#mode(run, fn, parent, flagged.flags);
     if (mode.effect === 'refuse') {
       await this.settle(id, { status: 'failed', error: fnError('caller', mode.reason, 'chat-mode') });
       return { run: id, settled };
     }
     // the preview is asked for only when an approval is made; a refusal settles the run with the system's reason
     const previewed: { refused?: OutcomeWire } = {};
-    const asked: ApprovalPreview | undefined = mode.effect === 'ask' ? { title: `Auto mode asks you about ${fn.name}`, parts: [{ type: 'text', text: mode.reason }], irreversible: false } : undefined;
+    // the flags lead the card of a call that touches sensitive files, before what the system or auto mode says
+    const flagParts: PreviewPart[] = sensitive.effect === 'ask' ? [{ type: 'flags', flags: flagged.flags }] : [];
+    const modeParts: PreviewPart[] = mode.effect === 'ask' ? [{ type: 'text', text: mode.reason }] : [];
+    const asked: ApprovalPreview | undefined = flagParts.length > 0
+      ? { title: `${fn.name} touches sensitive files`, parts: [...flagParts, ...modeParts], irreversible: false }
+      : mode.effect === 'ask' ? { title: `Auto mode asks you about ${fn.name}`, parts: modeParts, irreversible: false } : undefined;
     const preview = fn.decl.approval?.preview === true
       ? async (): Promise<ApprovalPreview | undefined> => {
         const answer = await this.#preview(run, fn, turn.user);
-        if ('preview' in answer) return answer.preview;
+        if ('preview' in answer) return { ...answer.preview, parts: [...flagParts, ...modeParts, ...answer.preview.parts] };
         previewed.refused = answer.refused;
         return undefined;
       }
@@ -277,6 +294,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const decision = await this.#deps.policies.decide({
       fn: fn.name, actor: input.actor, turnUser: turn.user.id, args: input.args, run: id, caller: input.caller, ...(input.session === undefined ? {} : { session: input.session }),
       ...(preview === undefined ? {} : { preview }),
+      ...(sensitive.effect === 'ask' ? { sensitive: true } : {}),
       ...(mode.effect === 'ask' ? { ask: { by: 'turn-user' } } : {}),
       ...(mode.effect === 'allow' ? { autoAllowed: true } : {}),
       ...(await this.#withinParent(fn, parent) ? { withinParent: true } : {}),
@@ -305,11 +323,11 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
   }
 
   /** What the run's chat's fn mode says about it: only calls an agent makes in a session are checked. */
-  async #mode(run: Run, fn: FnRecord, parent: Run | undefined): Promise<ModeVerdict> {
+  async #mode(run: Run, fn: FnRecord, parent: Run | undefined, flags: readonly SensitivityFlag[]): Promise<ModeVerdict> {
     if (this.#gate === undefined || parent?.kind !== AGENT_KIND || run.session === undefined) return { effect: 'pass' };
     const session = await this.#deps.store.table('sessions').get(run.session);
     if (session === undefined) return { effect: 'pass' };
-    const verdict = await this.#gate.check({ session, fn, args: run.args, run: run.id });
+    const verdict = await this.#gate.check({ session, fn, args: run.args, run: run.id, flags });
     if (verdict.effect !== 'pass') this.#deps.log.info('run.chat-mode', { run: run.id, fn: fn.name, mode: session.fnMode ?? null, effect: verdict.effect });
     return verdict;
   }
@@ -335,6 +353,27 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       const checked = 'preview' in answer ? await checkedInstall(answer.preview, run.args, (ref) => this.#deps.store.table('instances').get(ref)) : answer;
       if ('preview' in checked) return checked;
       return { refused: { status: 'invalid-input', invalid: { source: 'validation', problems: [{ path: '', message: checked.refused }] } } };
+    } catch (error) {
+      return away(messageOf(error));
+    }
+  }
+
+  /**
+   * The sensitive files a run of a fn that declares `flags` would touch, from its system (`flags` on the system link);
+   * or, when the system can't be reached or answers wrongly, a retryable failure: an unchecked call never goes ahead.
+   */
+  async #flags(run: Run, fn: FnRecord, user: UserInfo): Promise<{ flags: SensitivityFlag[] } | { refused: OutcomeWire }> {
+    const system = executingSystem(fn);
+    const connection = system === run.system ? this.#deps.link.connection(run.system, run.instance) : this.#deps.link.connection(SystemName.parse(system));
+    const away = (why: string): { refused: OutcomeWire } => ({ refused: { status: 'failed', error: fnError('retry', `${run.fn} can't check which sensitive files it would touch: ${why}`, 'unavailable') } });
+    if (connection === undefined) return away(`${system} is not connected`);
+    try {
+      const answer = await connection.peer.call('flags', {
+        run: run.id, fn: splitName(run.fn).local, args: run.args, user,
+        ...(fn.decl.kind === 'native' ? {} : { kind: fn.decl.kind }),
+        ...(fn.decl.payload === undefined ? {} : { payload: fn.decl.payload }),
+      }, { signal: connection.signal });
+      return { flags: answer.flags };
     } catch (error) {
       return away(messageOf(error));
     }

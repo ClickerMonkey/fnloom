@@ -26,7 +26,7 @@ import {
   type ActorId, type NotificationReason, type Tokens, type UserEvent,
 } from '@harness/core';
 import { z } from 'zod';
-import { hubWebSpec, Json, PageRequest, SystemName } from '@harness/core';
+import { hubNameOf, hubWebSpec, Json, PageRequest, SystemName, type HubIdentity } from '@harness/core';
 import { logger, type Logger } from '@ayepi/log';
 import { MockAdmin } from './mockAdmin.ts';
 import { isFilters, legacyOf, LlmPage, ModelCallPage, ResourcePage, RunPage, SessionPage } from './mockQuery.ts';
@@ -38,7 +38,9 @@ import { selectionReport } from '../src/chat/test/fakes.ts';
 import { MockChat } from './mockChat.ts';
 import { MockFns } from './mockBuild5.ts';
 import { MockReviews } from './mockBuild7.ts';
-import { graphOf } from '../src/graph/test/graph.ts';
+import { MockData } from './mockBuild8.ts';
+import { graphOf, SAMPLE_EDGES, SAMPLE_NODES } from '../src/graph/test/graph.ts';
+import { fsAuthoringGraph } from './fsGraph.ts';
 import { contextFolderSamples, FS_CLIENT, HOSTED_RANDOM, MOCK_CLIENTS, MockExplorer, systemPartsOf } from './mockBuild6.ts';
 import { DATABASE_CONFIG_TYPE, SHOP_CONFIG, shopFns, shopTypes } from './mockDatabase.ts';
 import { systemView } from '../src/admin/test/fakes.ts';
@@ -126,6 +128,11 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
   const build2 = new MockBuild2(admin, chat, Date.now);
   const build4 = new MockBuild4(admin, owner);
   const fns = new MockFns();
+  const build8 = new MockData(Date.now);
+  const fsCluster = fsAuthoringGraph();
+  const sampleIds = new Set<string>(SAMPLE_NODES.map((n) => n.id));
+  const graphNodes = [...SAMPLE_NODES, ...fsCluster.nodes.filter((n) => !sampleIds.has(n.id))];
+  const graphEdges = [...SAMPLE_EDGES, ...fsCluster.edges];
   const graph = new ContextGraphDouble(owner(), Date.now);
   graph.records.push(...contextFolderSamples(Date.now()));
   // build 5: the database system, one instance (`shop`) with its tables and saved queries
@@ -145,6 +152,9 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
   const withInstances = (view: ReturnType<MockAdmin['system']>): ReturnType<MockAdmin['system']> => ({ ...view, instances: build2.instancesOf(view.name), stage: reviews.stage(view.name) });
   /** Tell every signed-in browser about a change (set once the app exists). */
   let announce: (event: UserEvent) => void = () => undefined;
+  /** The hub name an admin set; undefined goes back to the default. */
+  let hubName: string | undefined;
+  const identity = (): HubIdentity => ({ ...hubNameOf(hubName, undefined), version: '0.0.0-mock' });
 
   const real = implement(hubWebSpec)
     .middleware(telemetry.server(tel, { level: 'debug', response: { status: true, duration: true, error: true }, logger: declaredStatusLogger(options.logger ?? logger) }))
@@ -154,7 +164,13 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
     }))
     .middleware(adminOnly, async (io) => io.next())
     .handlers({
-      setup: () => ({ needsAdmin: state.account === undefined, name: 'Mock hub', version: '0.0.0-mock' }),
+      setup: () => ({ needsAdmin: state.account === undefined, name: identity().name, version: identity().version }),
+      identity: () => identity(),
+      setHubName: ({ data }) => {
+        hubName = data.name ?? undefined;
+        announce({ type: 'identity', identity: identity() });
+        return identity();
+      },
       createAdmin: ({ data }) => state.tokensFor(state.makeAdmin(data.name, data.email, data.password).user),
       signIn: ({ data, fail }) => {
         const account = state.account;
@@ -213,7 +229,17 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       waiting: ({ data }) => chat.waiting(data.session),
       approvals: ({ data }) => chat.approvalsOf(data.runs),
       contributions: () => [],
-      searchFns: ({ data }) => fns.search(data),
+      searchFns: ({ data }) => build8.widgets(data) ?? fns.search(data),
+      // build 8: stored data, widgets' row actions and version history
+      dataSets: ({ data }) => build8.sets(data),
+      records: () => ({ items: [] }),
+      recordTable: ({ data }) => build8.table(data),
+      record: ({ data }) => build8.record(data),
+      saveRecord: ({ data }) => build8.save(data, owner()),
+      removeRecord: ({ data }) => build8.remove(data),
+      recordVersions: ({ data }) => build8.versions(data),
+      widgetActions: () => build8.actions(),
+      itemVersions: ({ data }) => build8.itemVersions(data),
       fnFacts: ({ data }) => fns.facts(data.fn),
       fnExamples: ({ data }) => fns.examples(data),
       autoClassifier: () => fns.classifier(),
@@ -252,7 +278,8 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       testCall: () => reviews.testCall(),
       refusals: ({ data }) => reviews.refusals(data),
       // build 7: the graph of every system's items, from the sample graph
-      graph: ({ data }) => graphOf(data),
+      // the sample graph with the fs system's real authoring context, so the fs cluster is real-sized (build 8)
+      graph: ({ data }) => graphOf(data, graphNodes, graphEdges),
       systemParts: ({ data }) => systemPartsOf(data.system),
       removeSystem: ({ data }) => admin.remove(data.system),
       installSystem: ({ data }) => admin.install(data.source, data.autoStart ?? true),
@@ -371,7 +398,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
 
   // the endpoints `real` answers; server() fails to compile unless these and the generated rest cover every endpoint once
   const realNames = [
-    'setup', 'createAdmin', 'signIn', 'refresh', 'signOut', 'me', 'notifications', 'readNotifications',
+    'setup', 'identity', 'setHubName', 'createAdmin', 'signIn', 'refresh', 'signOut', 'me', 'notifications', 'readNotifications',
     'capabilities', 'types', 'sessions', 'session', 'createSession', 'updateSession', 'limits', 'messages', 'send', 'invoke', 'control', 'background', 'undoTurn',
     'tree', 'run', 'llmCall', 'suggest', 'mentions', 'mentionHover', 'waiting', 'approve', 'approvals', 'contributions', 'presence',
     'searchFns', 'fnFacts', 'fnExamples', 'autoClassifier', 'setAutoClassifier', 'clientLogs', 'query', 'exploreRoots', 'exploreList', 'exploreRead',
@@ -385,6 +412,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
     'autoPairs', 'revokeAutoPair', 'suggestDecision', 'setSuggestDecision', 'previewSuggestions',
     'pick', 'accessInfo', 'access', 'setAccess', 'connectPages', 'connect', 'updateConnection', 'disconnect',
     'contexts', 'contextItem', 'remember', 'updateMemory', 'forget', 'linkContext', 'unlinkContext',
+    'dataSets', 'records', 'recordTable', 'record', 'saveRecord', 'removeRecord', 'recordVersions', 'widgetActions', 'itemVersions',
   ] as const;
   // system names must match their pattern, which the generator can't read from a regex
   const systemName = (g: { rng: () => number }): string => SYSTEM_NAMES[Math.floor(g.rng() * SYSTEM_NAMES.length)] ?? 'fs';

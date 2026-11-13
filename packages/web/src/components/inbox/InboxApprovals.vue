@@ -4,10 +4,12 @@
  * there (for this run only; a chat offers remembering the answer). Hidden when nothing waits.
  */
 import type { Approval } from '@harness/core';
+import { useFnNotice } from '../../fns/state/fn-notices.ts';
 import ApprovalCard from '../approvals/ApprovalCard.vue';
 
 defineProps<{ items: readonly Approval[] }>();
 const emit = defineEmits<{ decide: [approval: Approval, approve: boolean, reason: string] }>();
+const noticeOf = useFnNotice();
 </script>
 
 <template>
@@ -15,7 +17,7 @@ const emit = defineEmits<{ decide: [approval: Approval, approve: boolean, reason
     <h2 class="title">Waiting for you <span class="count">{{ items.length }}</span></h2>
     <ApprovalCard
       v-for="item in items" :key="item.id" :data-approval="item.id" :ident="item.id" :fn="item.fn" description="" :args="undefined" :preview="item.preview"
-      :rememberable="false" @decide="(approve, _remember, reason) => emit('decide', item, approve, reason)"
+      :rememberable="false" :notice="noticeOf(item.fn)" @decide="(approve, _remember, reason) => emit('decide', item, approve, reason)"
     />
   </section>
 </template>

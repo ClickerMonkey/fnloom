@@ -159,7 +159,7 @@ async function save(config: Json): Promise<void> {
           v-else-if="tab === 'parts'" :loading="parts.others.loading.value" :problem="parts.others.problem.value || parts.roots.problem.value" :ready="others !== undefined"
           :empty="groups.length === 0 && roots.length === 0" empty-icon="layers" empty-title="Nothing else" empty-body="It adds only fns, context and types." @retry="name && parts.loadOthers(name)"
         >
-          <PartsByKind v-model:part="part" :groups="groups" :roots="roots" :root-page="rootPage" :owner-page="ownerPage" :is-on="isOn" :busy="store.switching.busy.value" @switch="switchItem" />
+          <PartsByKind v-model:part="part" :groups="groups" :roots="roots" :root-page="rootPage" :owner-page="ownerPage" :is-on="isOn" :busy="store.switching.busy.value" :system="name" @switch="switchItem" />
         </LoadState>
         <SystemGraph v-else-if="tab === 'graph'" :system="review.system" />
         <GrantsView v-else-if="tab === 'grants'" :grants="review.manifest.grants" />

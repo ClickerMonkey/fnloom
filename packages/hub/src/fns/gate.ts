@@ -3,7 +3,7 @@
  * (a fn's mode is worked out deeply, `FnFacts`); `auto` runs reads and asks the classifier about the rest. A session
  * with no fn mode set leaves it all to the policies, as before.
  */
-import { effectsLine, type FnRecord, type Json, type RunId, type Session } from '@harness/core';
+import { effectsLine, flagsVerdict, type FnRecord, type Json, type RunId, type SensitivityFlag, type Session } from '@harness/core';
 import { MODE_RANK, type AutoModeClassifier, type FnFactsService, type FnModeGate, type ModeVerdict } from './index.ts';
 
 /** The words for what each mode allows. */
@@ -19,7 +19,7 @@ export class SessionModeGate implements FnModeGate {
     this.#classifier = classifier;
   }
 
-  async check(input: { readonly session: Session; readonly fn: FnRecord; readonly args: Json; readonly run: RunId }): Promise<ModeVerdict> {
+  async check(input: { readonly session: Session; readonly fn: FnRecord; readonly args: Json; readonly run: RunId; readonly flags: readonly SensitivityFlag[] }): Promise<ModeVerdict> {
     const chat = input.session.fnMode;
     if (chat === undefined) return { effect: 'pass' };
     if (chat === 'none') return { effect: 'refuse', reason: 'This chat is set to use no fns. Answer without them, or ask the person to change the chat\'s mode.' };
@@ -27,9 +27,11 @@ export class SessionModeGate implements FnModeGate {
     if (chat === 'auto') {
       // a fn that always asks (an install, a schema change) is never decided by the classifier: its approver answers
       if (mode === 'read' || input.fn.decl.approval !== undefined) return { effect: 'pass' };
+      // a call its flags make wait for the person is never the classifier's to decide (the run service asks)
+      if (flagsVerdict(input.flags).effect !== 'pass') return { effect: 'pass' };
       // what it changes in the hub (build 6) is part of what the classifier weighs
       const changes = effectsLine((await this.#facts().registry([input.fn.name])).get(input.fn.name) ?? []);
-      const verdict = await this.#classifier().classify({ session: input.session, fn: input.fn, mode, args: input.args, run: input.run, ...(changes === undefined ? {} : { changes }) });
+      const verdict = await this.#classifier().classify({ session: input.session, fn: input.fn, mode, args: input.args, run: input.run, ...(changes === undefined ? {} : { changes }), ...(input.flags.length === 0 ? {} : { flags: input.flags }) });
       return verdict.allow ? { effect: 'allow', reason: verdict.reason } : { effect: 'ask', reason: verdict.reason };
     }
     if (MODE_RANK[mode] <= MODE_RANK[chat]) return { effect: 'pass' };

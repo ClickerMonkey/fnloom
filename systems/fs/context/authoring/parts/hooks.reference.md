@@ -21,7 +21,7 @@ Declare a hook. Defaults: order 100, timeout 1000 ms.
 function hook(def: { description: string; order?: number; timeout?: Duration; }): HookDef;
 ```
 
-Refers to: [`Duration`](context:fs/authoring.core-types#core-duration).
+Refers to: [`Duration`](context:fs/authoring.core-types.primitives-ts#core-duration).
 
 #### `HookDef`
 
@@ -39,7 +39,7 @@ interface HookDef {
 }
 ```
 
-Refers to: [`Duration`](context:fs/authoring.core-types#core-duration).
+Refers to: [`Duration`](context:fs/authoring.core-types.primitives-ts#core-duration).
 
 #### `HookImpl`
 
@@ -51,7 +51,7 @@ A hook's implementation.
 type HookImpl<Cfg = unknown> = (input: HookInput, ctx: SystemCtx<Cfg>) => Promise<HookContribution[]>;
 ```
 
-Refers to: [`HookInput`](context:fs/authoring.core-types#core-hookinput).
+Refers to: [`HookInput`](context:fs/authoring.core-types.contextdecl#core-hookinput).
 
 #### `HookContribution`
 
@@ -78,7 +78,7 @@ A hook contribution on the wire.
 function hookBlock(contribution: HookContribution): HookBlock;
 ```
 
-Refers to: [`HookBlock`](context:fs/authoring.core-types#core-hookblock).
+Refers to: [`HookBlock`](context:fs/authoring.core-types.contextdecl#core-hookblock).
 
 #### `HookRef`
 
@@ -93,7 +93,7 @@ interface HookRef<N extends QualifiedName> {
 }
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `AnyHookRef`
 
@@ -103,4 +103,4 @@ type · `import { AnyHookRef } from '@harness/sdk'`
 type AnyHookRef = HookRef<QualifiedName>;
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).

@@ -5,6 +5,7 @@
  */
 import { z } from 'zod';
 import { AutoClassifier } from './fn-facts.ts';
+import { HUB_NAME_OPTION, HubDisplayName } from './identity.ts';
 import { RoleModel } from './model-calls.ts';
 import { ActorId, ModelCallId, QualifiedName, Timestamp } from './primitives.ts';
 
@@ -76,5 +77,7 @@ export type SuggestDecisionView = z.infer<typeof SuggestDecisionView>;
 export const HubOption = z.discriminatedUnion('key', [
   z.object({ key: z.literal('suggestDecision'), value: SuggestDecision, setBy: ActorId, updatedAt: Timestamp }),
   z.object({ key: z.literal('autoClassifier'), value: AutoClassifier, setBy: ActorId, updatedAt: Timestamp }),
+  /** Build 8: the hub's display name, set by an admin (`identity.ts`). */
+  z.object({ key: z.literal(HUB_NAME_OPTION), value: HubDisplayName, setBy: ActorId, updatedAt: Timestamp }),
 ]);
 export type HubOption = z.infer<typeof HubOption>;

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { choose, DETAIL_QUALITY, type Unit } from './choose.ts';
-import { baseScore, METRIC_DEFAULTS, metricSettings, rbf, spread, wordShare, words } from './score.ts';
+import { baseScore, metricSettings, rbf, spread, wordShare, words } from './score.ts';
+import { contextorEnv, metricDefaults } from './env.ts';
+
+const DEFAULTS = metricDefaults(contextorEnv.parse());
 import { seeded } from './testing.ts';
 
 const SHARES = { history: 0.45, context: 0.35, fns: 0.2 };
@@ -18,7 +21,7 @@ describe('scores', () => {
   });
 
   it('a metric without a signal drops out of both sums; the score stays within the weight; weight 0 excludes', () => {
-    const settings = metricSettings({});
+    const settings = metricSettings(DEFAULTS, {});
     expect(baseScore({ embedding: 1 }, 1, settings)).toBe(1);
     expect(baseScore({ embedding: 1, words: undefined }, 1, settings)).toBe(1);
     expect(baseScore({}, 1, settings)).toBe(0);
@@ -29,9 +32,16 @@ describe('scores', () => {
   });
 
   it('session overrides replace a metric and keep the defaults of what they leave out', () => {
-    const settings = metricSettings({ words: { weight: 2 } });
-    expect(settings.words).toEqual({ weight: 2, target: METRIC_DEFAULTS.words.target, k: METRIC_DEFAULTS.words.k });
-    expect(settings.embedding).toEqual(METRIC_DEFAULTS.embedding);
+    const settings = metricSettings(DEFAULTS, { words: { weight: 2 } });
+    expect(settings.words).toEqual({ weight: 2, target: DEFAULTS.words.target, k: DEFAULTS.words.k });
+    expect(settings.embedding).toEqual(DEFAULTS.embedding);
+  });
+
+  it('the defaults come from the settings, one weight, target and steepness per metric', () => {
+    const defaults = metricDefaults({ ...contextorEnv.parse(), HARNESS_METRIC_TURNS_AGO_WEIGHT: 0.9, HARNESS_METRIC_USED_K: 3 });
+    expect(defaults.turnsAgo).toEqual({ weight: 0.9, target: 0, k: 0.15 });
+    expect(defaults.used.k).toBe(3);
+    expect(DEFAULTS.embedding).toEqual({ weight: 1, target: 1, k: 4 });
   });
 
   it('spreading with no damping is the base score, and reaches items only linked', () => {

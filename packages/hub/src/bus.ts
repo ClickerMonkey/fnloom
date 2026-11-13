@@ -8,6 +8,7 @@
 import type {
   ActorId, Approval, BudgetRule, ChatMessage, DeliveryView, FnRecord, FnStats, HandlerCall, HubMcpId, MessageId, PairingRequest, Presence, QualifiedName, ResourceChange,
   FormKind, OutputLine, ResourceRoot, ResourceUri, RunId, RunUpdate, SessionControls, SessionId, SessionSummary, StateFieldValue, SystemName, SystemStatus, Notification,
+  HubIdentity,
 } from '@harness/core';
 
 /** Every internal event, by name. */
@@ -35,6 +36,8 @@ export interface HubEvents {
   'system.notice': { system: SystemName; title: string; body: string };
   'system.output': { system: SystemName; line: OutputLine };
   'pairing': { pairing: PairingRequest };
+  /** Build 8: the hub's display name changed. */
+  'identity': { identity: HubIdentity };
   'catalog.changed': { added: QualifiedName[]; removed: QualifiedName[]; fns: readonly FnRecord[] };
   /** A fn's running numbers after one of its runs settled. */
   'fn.stats': { fn: QualifiedName; system: SystemName; stats: FnStats };

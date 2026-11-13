@@ -61,10 +61,10 @@ export const AUTHORING_GROUPS: readonly AuthoringGroup[] = [
   },
   {
     id: 'types',
-    title: 'Types: gin and named types',
-    summary: 'How every shape is written with gin, and named types with methods.',
-    when: 'Pick this when you write args, results, config or a named type.',
-    topics: ['gin', 'named-types'],
+    title: 'Types and data: gin, named types and stored types',
+    summary: 'How every shape is written with gin, named types with methods, and stored types whose records the hub keeps.',
+    when: 'Pick this when you write args, results, config or a named type, or the system keeps data.',
+    topics: ['gin', 'named-types', 'data'],
   },
   {
     id: 'fns',
@@ -89,10 +89,10 @@ export const AUTHORING_GROUPS: readonly AuthoringGroup[] = [
   },
   {
     id: 'client',
-    title: 'The client: renderers and views',
-    summary: 'Vue renderers, inputs and resource views typed by the contract.',
-    when: 'Pick this when the system draws its results, inputs or resources in the app.',
-    topics: ['client'],
+    title: 'The client: renderers, views, visuals and widgets',
+    summary: 'Vue renderers, inputs and resource views typed by the contract, and the visuals and widgets results draw with.',
+    when: 'Pick this when the system draws its results, inputs or resources in the app, or adds a visual.',
+    topics: ['client', 'widgets'],
   },
   {
     id: 'examples',
@@ -110,6 +110,8 @@ export const PART_WORDS: Readonly<Record<string, PartWords>> = {
   contract: { summary: 'The contract in shared/index.ts: system(), with() and its sections.', when: 'Pick this when you write or change shared/index.ts.' },
   gin: { summary: 'Every shape is a gin type made with g; Infer gives its TypeScript type.', when: 'Pick this when you write args, results or config with g.' },
   'named-types': { summary: 'Named types (type()) and the methods on them.', when: 'Pick this when a value needs a name others can refer to, or methods.' },
+  data: { summary: 'Stored types: records the hub keeps, checks, versions and searches; ctx.data to find, save and remove them.', when: 'Pick this when the system keeps data of any kind: it lives in hub records, never in a file of its own.' },
+  widgets: { summary: 'Visuals in the hub registry with their shapes, and widgets: saved views of a table fn with controls, paging and row actions.', when: 'Pick this when the system adds a visual, or works with widgets.' },
   fns: { summary: 'Declaring a native fn: description, instructions, args, returns, examples and every option.', when: 'Pick this when you declare a fn.' },
   'handlers-progress': { summary: 'Handlers a caller supplies, and progress a fn reports.', when: 'Pick this when a fn reports progress or calls back into its caller.' },
   'state-forms': { summary: 'Session state, forms that ask the person, and how runs display.', when: 'Pick this when a fn keeps session state or asks the person with a form.' },

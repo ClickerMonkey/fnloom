@@ -43,7 +43,7 @@ async function start(hub: FakeHub): Promise<void> {
       },
       deep: {
         async run(_a, ctx) {
-          await expect(ctx.resources.search('x')).rejects.toThrow(/hub endpoint/);
+          await expect(ctx.resources.search('x')).rejects.toThrow(/person to search as/);
           await expect(ctx.resources.text('doc://a', [SectionKey.parse('a')])).rejects.toThrow(/whole text/);
           return ctx.done('ok');
         },

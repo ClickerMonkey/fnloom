@@ -15,7 +15,7 @@ choices:
     when: "Pick this to go on in order: Resources, embedders and sectioners."
 ---
 
-## 16. Model providers
+## 17. Model providers
 
 A system can bring **model providers**: models whose calls run in the system (a GPU box, a private API, a gateway the
 hub can't reach). Declare each in the contract with `provider({ description, models })`: every model's id, abilities

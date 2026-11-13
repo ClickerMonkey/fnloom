@@ -116,6 +116,11 @@ export interface PolicyEngine {
      * at least this fn's mode: what it may do was decided with that run, so no matching policy means allow.
      */
     withinParent?: boolean;
+    /**
+     * Build 8: the call touches sensitive files its system's rules ask about (`flagsVerdict`): it waits for the turn's
+     * person every time. No policy, auto mode, remembered answer or the person's own call lets it through; a deny still wins.
+     */
+    sensitive?: boolean;
   }): Promise<RunDecision>;
   /** Make the approval of a run a system proposed (`propose` on the hub link), with its preview, and tell its approvers. */
   propose(input: { run: RunId; fn: QualifiedName; approver: Approver; preview: ApprovalPreview; turnUser: ActorId; session?: SessionId }): Promise<Approval>;

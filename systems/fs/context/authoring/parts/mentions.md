@@ -15,7 +15,7 @@ choices:
     when: "Pick this to go on in order: Actions."
 ---
 
-## 14. Mentions
+## 15. Mentions
 
 A **mention provider** lets people point at things the system knows with `@` in the chat (a file, a database row, a
 note). Declare it with `mention({ title, description, target, of? })`: `target` is the gin type of the key that gets
@@ -27,7 +27,7 @@ _From `scripts/docs/example/shared/index.ts`:_
 ```ts
 mentions: {
   // `@` in the chat finds notes; chips and cards show them as Note (its label, icon, color and its pin method)
-  notes: mention({ title: 'Notes', description: 'Any note, by its title.', target: g.obj({ id: g.text() }), of: types.Note }),
+  notes: mention({ title: 'Notes', description: 'Any note, by its title.', target: g.obj({ id: g.text() }), of: types.NoteEntry }),
 },
 ```
 
@@ -47,25 +47,28 @@ _From `scripts/docs/example/server/impl.ts`:_
 mentions: {
   notes: {
     async search(query, ctx) {
-      return (await deps.open(ctx.dataDir).all())
-        .filter((note) => matches(note, query, undefined))
-        .slice(0, 20)
-        .map((note) => ({ label: note.title, hint: note.tags.join(', '), icon: 'note', target: { id: note.id } }));
+      // the hub's search: by words and meaning, best first, one small page
+      const page = await ctx.data.find(Note, { search: query, query: { limit: 20 } });
+      return page.items.map((note) => ({ label: note.value.title, hint: note.value.tags.join(', '), icon: 'note', target: { id: note.id } }));
     },
     async hover(target, ctx) {
-      const note = await deps.open(ctx.dataDir).get(target.id);
+      const note = await noteById(ctx.data, target.id);
       if (note === undefined) { return undefined; }
-      // returning the value as a Note lets the card offer Note's `pin` method
-      return { title: note.title, subtitle: note.tags.join(', '), body: note.text.slice(0, 280), open: { resource: uriOf(note.id) }, value: note };
+      // returning the value as a NoteEntry lets the card offer its `pin` method
+      return { title: note.value.title, subtitle: note.value.tags.join(', '), body: note.value.text.slice(0, 280), value: entryOf(note) };
     },
     async llm(target, ctx) {
-      const note = await deps.open(ctx.dataDir).get(target.id);
+      const note = await noteById(ctx.data, target.id);
       if (note === undefined) { return `Note ${target.id} no longer exists.`; }
-      return `Note "${note.title}" (id ${note.id}) in the notes system:\n\n${markdownOf(note)}`;
+      return `Note "${note.value.title}" (id ${note.id}) in the notes system:\n\n${markdownOf(note.value)}`;
     },
   },
 },
 ```
+
+In `search`, `ctx.resources.search(query, { roots?, limit? })` searches the hub's resources as the person typing:
+the hub ties it to their `@` search, so a provider can offer pages or files they may see (the web system does). It
+refuses anywhere else.
 
 A custom hover card is a renderer under `mentions` in [The client](context:fs/authoring.client); without one the hub draws the `hover` answer.
 

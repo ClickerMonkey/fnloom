@@ -14,7 +14,7 @@
  */
 import type {
   ActorId, AutoClassifier, AutoClassifierView, ClientLogBatch, ClientLogReceipt, CostEstimate, FnExample, FnExamplesPage, FnExamplesQuery, FnFacts, FnMode,
-  FnRecord, FnSearchPage, FnSearchQuery, FnMetricsDay, FnExamplesPatch, Json, QualifiedName, RegistryEffect, RunId, SearchItemKind, Session, SystemName,
+  FnRecord, FnSearchPage, FnSearchQuery, FnMetricsDay, FnExamplesPatch, Json, QualifiedName, RegistryEffect, RunId, SearchItemKind, SensitivityFlag, Session, SystemName,
 } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
 
@@ -83,7 +83,8 @@ export type ModeVerdict =
 
 /** Decides what a chat's fn mode lets its agent run. */
 export interface FnModeGate {
-  check(input: { readonly session: Session; readonly fn: FnRecord; readonly args: Json; readonly run: RunId }): Promise<ModeVerdict>;
+  /** `flags`: the sensitive files the call would touch, as its system answered (build 8); empty when none or not asked. */
+  check(input: { readonly session: Session; readonly fn: FnRecord; readonly args: Json; readonly run: RunId; readonly flags: readonly SensitivityFlag[] }): Promise<ModeVerdict>;
 }
 
 /** One call the auto mode classifier is asked about. */
@@ -95,6 +96,8 @@ export interface ClassifyInput {
   readonly run: RunId;
   /** Build 6: what the fn changes in the hub, in one line (`effectsLine`). */
   readonly changes?: string;
+  /** Build 8: the sensitive files the call would touch that its rules let through (`SensitivityFlag`); absent when none. */
+  readonly flags?: readonly SensitivityFlag[];
 }
 
 /** The auto mode classifier: its setting (admins), and its answer about one call. */

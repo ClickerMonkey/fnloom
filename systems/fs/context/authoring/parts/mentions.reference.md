@@ -21,7 +21,7 @@ Declare a mention provider.
 function mention<T, V = never>(def: { title: string; description: string; target: GinType<T>; of?: TypeRef<QualifiedName, V, Methods>; }): MentionDef<T, V>;
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `MentionDef`
 
@@ -39,7 +39,7 @@ interface MentionDef<T, V> {
 }
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `MentionImpl`
 
@@ -58,7 +58,7 @@ interface MentionImpl<T, V, Cfg = unknown> {
 }
 ```
 
-Refers to: [`MentionHover`](context:fs/authoring.core-types#core-mentionhover).
+Refers to: [`MentionHover`](context:fs/authoring.core-types.manifestpatch#core-mentionhover).
 
 #### `MentionOption`
 
@@ -101,4 +101,4 @@ interface MentionRef<N extends QualifiedName, T> {
 }
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types#core-qualifiedname).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).

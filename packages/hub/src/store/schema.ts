@@ -87,6 +87,12 @@ export const TABLE_INDEXES: { readonly [K in TableName]?: IndexSpec<K> } = {
   ledger: [['at'], ['actor', 'at'], ['session', 'at'], ['run'], ['system', 'at']],
   itemSwitches: [['system'], ['section']],
   refusals: [['system', 'at'], ['at'], ['rule', 'at']],
+  // build 8
+  fnSignatureTypes: [['type'], ['fn'], ['system']],
+  fnLinks: [['to', 'link'], ['fn']],
+  itemVersions: [['system', 'section', 'name', 'number']],
+  records: [['type', 'updatedAt'], ['owner']],
+  recordVersions: [['record', 'number']],
 };
 
 /** The columns of one table: field name → how it is stored. */
