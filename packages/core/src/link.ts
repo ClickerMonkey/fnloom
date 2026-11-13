@@ -12,7 +12,7 @@ import { ModelForward, ModelForwardResult } from './model-calls.ts';
 import { FleetInstance, PairingInfo } from './package.ts';
 import { AutoPairGrant, AutoPairProof } from './auto-pair.ts';
 import { FnShare, FnUsable } from './access.ts';
-import { ConnectFinish, ConnectResult, ConnectStart, ConnectionUpdate, RunConnection } from './connections.ts';
+import { ConnectFinish, ConnectResult, ConnectStart, ConnectionUpdate, InstanceConnect, RunConnection } from './connections.ts';
 import { ProviderChat, ProviderChunk, ProviderEmbed, ProviderEmbedResult } from './system-providers.ts';
 import { ValidateAnswer, ValidateRequest } from './validation.ts';
 import { ApprovedRun, PairingGrant, PairingGrantRequest, PreviewAnswer, PreviewRequest, ProposeRun, ProposedRun } from './approvals.ts';
@@ -290,6 +290,8 @@ const linked = use(linkTel, linkSession).group({
   log: { body: LogLine, ws: 'lg' },
   /** Refreshed credentials for a person's connection, or that it expired. */
   connectionUpdate: { body: ConnectionUpdate, ws: 'cu' },
+  /** Build 9: how people connect to this instance now (an instance-scoped `connect` system), sent on start and on every config change. */
+  instanceConnect: { body: InstanceConnect, ws: 'ic' },
   /** A running fn gives a fn of its system (one it added) to its run's person, with who else may use it. */
   shareFn: { body: FnShare, ws: 'sh' },
   /** Which of the named fns of its system a running fn's person may use now (the rest are left out). */

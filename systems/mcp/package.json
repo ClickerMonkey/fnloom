@@ -1,0 +1,19 @@
+{
+  "name": "@harness/system-mcp",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Development only: system.json holds this system's name, version and entries. Build 9 skeleton (mcp lane).",
+  "exports": {
+    ".": "./shared/index.ts",
+    "./server": "./server/index.ts"
+  },
+  "dependencies": {
+    "@aeye/gin": "file:../../../aits/packages/gin",
+    "@ayepi/env": "file:../../../ayepi/packages/env",
+    "@ayepi/mcp": "file:../../../ayepi/packages/mcp",
+    "@harness/core": "*",
+    "@harness/sdk": "*",
+    "zod": "^4.6.7"
+  }
+}

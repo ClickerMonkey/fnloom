@@ -21,7 +21,11 @@
     "systems/input",
     "systems/google-calendar",
     "systems/database",
-    "systems/widgets"
+    "systems/widgets",
+    "systems/mcp",
+    "systems/code",
+    "systems/api",
+    "systems/claude"
   ],
   "scripts": {
     "typecheck": "vue-tsc -b",

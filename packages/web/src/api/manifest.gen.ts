@@ -542,7 +542,8 @@ export const manifest = {
         "approval",
         "approve",
         "remember",
-        "reason"
+        "reason",
+        "answer"
       ],
       "f": [],
       "hasBody": true,
@@ -2556,6 +2557,29 @@ export const manifest = {
       "multi": false,
       "bodyEnc": "json"
     },
+    "addInstance": {
+      "method": "POST",
+      "path": "/addInstance",
+      "ws": "addInstance",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "system",
+        "instance",
+        "description",
+        "config"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
     "exportSystemData": {
       "method": "POST",
       "path": "/exportSystemData",
@@ -2840,6 +2864,7 @@ export const manifest = {
       "q": [],
       "b": [
         "system",
+        "instance",
         "form"
       ],
       "f": [],

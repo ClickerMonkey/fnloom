@@ -224,6 +224,8 @@ export class FakeHub {
   readonly logs: LogLine[] = [];
   /** Refreshed (or expired) credentials systems handed back (`connectionUpdate`). */
   readonly connectionUpdates: Array<HubBody<'connectionUpdate'>> = [];
+  /** Build 9: how instances said people connect to them (`instanceConnect`). STUB(platform lane, build 9): recorded only. */
+  readonly instanceConnects: Array<HubBody<'instanceConnect'>> = [];
   /** Fns a run handed to its person (`shareFn`). */
   readonly shares: Array<HubBody<'shareFn'>> = [];
   /** Whether a run's person may use a fn of its system (`usableFns`); every fn by default. */
@@ -643,6 +645,7 @@ export class FakeHub {
         },
         log: ({ data }) => { this.logs.push(data); },
         connectionUpdate: ({ data }) => { this.connectionUpdates.push(data); },
+        instanceConnect: ({ data }) => { this.instanceConnects.push(data); },
         shareFn: ({ data }) => { this.shares.push(data); },
         usableFns: ({ data }) => ({ fns: data.fns.filter((fn) => this.usable(data.run, fn)) }),
         propose: ({ data }) => {

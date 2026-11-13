@@ -3,7 +3,7 @@ import { z } from 'zod';
 import {
   ActorId, ActorKind, ApprovalId, AuthSessionId, FnKindName, HubMcpId, Json, PolicyId, QualifiedName, RunId, SystemName, Timestamp,
 } from '../primitives.ts';
-import { ApprovalPreview } from '../approvals.ts';
+import { ApprovalPreview, ProposalAsk } from '../approvals.ts';
 
 const actorBase = {
   id: ActorId,
@@ -157,5 +157,7 @@ export const Approval = z.object({
   preview: ApprovalPreview.optional(),
   /** The run was added by its system (`propose`), not called. */
   proposed: z.boolean().optional(),
+  /** Build 9: the form the approver fills (`ProposeRun.ask`); its value goes in the run's args at `into`. */
+  ask: ProposalAsk.optional(),
 });
 export type Approval = z.infer<typeof Approval>;

@@ -12,7 +12,7 @@
  */
 import { z } from 'zod';
 import { GinTypeDef } from './gin.ts';
-import { ActorId, ApprovalId, FnKindName, InstanceName, InstanceRef, Json, LocalName, RunId, SystemName, Timestamp } from './primitives.ts';
+import { ActorId, ApprovalId, FnKindName, InstanceName, InstanceRef, Json, LocalName, RunId, SessionId, SystemName, Timestamp } from './primitives.ts';
 import { InstallChecks } from './checks.ts';
 import { SystemGrants } from './grants.ts';
 import { ResultTable } from './registries.ts';
@@ -129,6 +129,10 @@ export const PreviewAnswer = z.union([
 ]);
 export type PreviewAnswer = z.infer<typeof PreviewAnswer>;
 
+/** Build 9: a form an approver fills before approving; its value, checked against `type`, becomes `args[into]`. */
+export const ProposalAsk = z.object({ type: GinTypeDef, into: LocalName });
+export type ProposalAsk = z.infer<typeof ProposalAsk>;
+
 /**
  * A system adds a run of one of its own fns that waits for approval (`propose` on the hub link). With `parent` the run
  * is that run's child, in its turn and session; without one it belongs to the system and `approver` must be `admins`.
@@ -144,8 +148,20 @@ export const ProposeRun = z.object({
   key: z.string().min(1),
   parent: RunId.optional(),
   approver: ProposalApprover,
+  /**
+   * Build 9: outside a run, the person it waits for (the owner of a Claude session). The hub accepts it only when the
+   * person owns a record of one of the proposing system's stored types that names this proposal's key, or a run of it.
+   */
+  for: ActorId.optional(),
+  /** Build 9: the harness chat whose thread shows the card too (it is always in the inbox). */
+  chat: SessionId.optional(),
+  /**
+   * Build 9: a form the approver fills before approving (a question Claude asks, an MCP elicitation). The value,
+   * checked against `type`, is set as `args[into]` of the run that then goes ahead.
+   */
+  ask: ProposalAsk.optional(),
   preview: ApprovalPreview,
-}).refine((value) => value.parent !== undefined || value.approver === 'admins', { message: 'A run proposed outside a run waits for an admin.', path: ['approver'] });
+}).refine((value) => value.parent !== undefined || value.approver === 'admins' || value.for !== undefined, { message: 'A run proposed outside a run waits for an admin, or for the person named in `for`.', path: ['approver'] });
 export type ProposeRun = z.infer<typeof ProposeRun>;
 
 /** The approval a run went ahead on (`RunRequest.approved`, `ctx.approved` in the SDK). */

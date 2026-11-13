@@ -175,3 +175,18 @@ export function packageFileName(system: SystemName, version: string): string {
 export function dataExportFileName(ref: InstanceRef): string {
   return `${ref.system}-${ref.instance}-data.zip`;
 }
+
+/**
+ * Build 9: add an instance to a fleet from the browser (`addInstance`, admins): an MCP server, an API service, a
+ * Claude machine on the hub's host. The hub installs the system's bundled folder (`HARNESS_BUNDLED_SYSTEMS`, or the
+ * source of an instance it already installed) as a new instance with this config, pairs it and starts it. Only a
+ * system whose `system.json` says `instances: "many"` takes one.
+ */
+export const AddInstance = z.object({
+  system: SystemName,
+  instance: InstanceName,
+  description: z.string().optional(),
+  /** Its config, checked against the system's config type (secret fields sealed). */
+  config: Json,
+});
+export type AddInstance = z.infer<typeof AddInstance>;

@@ -10,7 +10,7 @@ import { z } from 'zod';
 import { ShareRule } from './access.ts';
 import { GinTypeDef } from './gin.ts';
 import { PickOption } from './pickers.ts';
-import { ActorId, ConnectionId, Json, LocalName, SecretId, SystemName, Timestamp } from './primitives.ts';
+import { ActorId, ConnectionId, InstanceName, Json, LocalName, SecretId, SystemName, Timestamp } from './primitives.ts';
 
 /** A per-person fn's switches: whether it is on, and whether it must ask before acting. */
 export const ConnectionFnOption = z.object({ on: z.boolean(), ask: z.boolean() });
@@ -23,6 +23,19 @@ export const ConnectFlow = z.discriminatedUnion('flow', [
 ]);
 export type ConnectFlow = z.infer<typeof ConnectFlow>;
 
+/**
+ * Build 9: how people connect to one instance of an instance-scoped system (`instanceConnect` on the hub link, sent
+ * whenever its config changes). `flow` absent: its calls need no connection (shared credentials, or none).
+ * `share`: an admin's single connection is used by everyone (a shared OAuth sign-in), rather than each person's own.
+ */
+export const InstanceConnect = z.object({
+  flow: ConnectFlow.optional(),
+  share: z.boolean().default(false),
+  /** The words on the connect button's card ("Sign in to Linear"). */
+  title: z.string().min(1),
+});
+export type InstanceConnect = z.infer<typeof InstanceConnect>;
+
 /** A system's `connect` declaration: its page, how to connect, the per-person settings and the fns that act as the person. */
 export const ConnectDecl = z.object({
   /** The page's title in the nav ("Calendar"). */
@@ -34,6 +47,14 @@ export const ConnectDecl = z.object({
   settings: GinTypeDef,
   /** The fns that act as the person, with their default switches. Each is unavailable to people without a connection. */
   fns: z.record(LocalName, ConnectionFnOption),
+  /**
+   * Build 9: `instance` makes connections per fleet instance (an MCP server, an API service): each instance says
+   * whether and how people connect to it (`instanceConnect` on the hub link, `InstanceConnect`), and every fn that runs
+   * on such an instance acts as the person. Absent, `system`: one connection per person to the whole system.
+   */
+  scope: z.enum(['system', 'instance']).optional(),
+  /** Build 9: the switches of a fn `fns` does not name (the runtime fns of an instance-scoped system). */
+  defaults: ConnectionFnOption.optional(),
 });
 export type ConnectDecl = z.infer<typeof ConnectDecl>;
 
@@ -57,6 +78,8 @@ export type ConnectionAccount = z.infer<typeof ConnectionAccount>;
 export const UserConnection = z.object({
   id: ConnectionId,
   system: SystemName,
+  /** Build 9: the instance it is to, for an instance-scoped system (`ConnectDecl.scope`). */
+  instance: InstanceName.optional(),
   owner: ActorId,
   status: ConnectionStatus,
   account: ConnectionAccount.optional(),
@@ -87,6 +110,8 @@ export const ConnectPage = z.object({
   /** Whether an admin has configured the system (until then the page says so). */
   ready: z.boolean(),
   connections: z.array(ConnectionView),
+  /** Build 9, an instance-scoped system: its instances people connect to, each with how (`InstanceConnect`). */
+  instances: z.array(z.object({ instance: InstanceName, label: z.string(), connect: InstanceConnect })).optional(),
 });
 export type ConnectPage = z.infer<typeof ConnectPage>;
 
@@ -95,13 +120,14 @@ export const RunConnection = z.object({ id: ConnectionId, owner: ActorId, creden
 export type RunConnection = z.infer<typeof RunConnection>;
 
 /** Hub → system: begin connecting (`connectStart`). `state` goes through the provider and back to the hub unchanged. */
-export const ConnectStart = z.object({ connection: ConnectionId, owner: ActorId, redirect: z.url(), state: z.string() });
+export const ConnectStart = z.object({ connection: ConnectionId, owner: ActorId, redirect: z.url(), state: z.string(), instance: InstanceName.optional() });
 export type ConnectStart = z.infer<typeof ConnectStart>;
 
 /** Hub → system: the redirect came back (its query `params`) or the form was sent (`form`); answer the account and credentials. */
 export const ConnectFinish = z.object({
   connection: ConnectionId,
   owner: ActorId,
+  instance: InstanceName.optional(),
   redirect: z.url(),
   answer: z.union([z.object({ params: z.record(z.string(), z.string()) }), z.object({ form: Json })]),
 });

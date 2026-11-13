@@ -100,3 +100,7 @@ export * from './csv.ts';
 export * from './widgets-v1.ts';
 export * from './api-index.ts';
 export * from './mention-search.ts';
+export * from './remote-auth.ts';
+export * from './mcp-servers.ts';
+export * from './programs.ts';
+export * from './claude.ts';

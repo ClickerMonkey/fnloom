@@ -28,7 +28,7 @@ import { FnMetrics, FnMetricsDay, FnMetricsQuery } from './metrics.ts';
 import { ModelCall, ModelRole, ModelRoleView, RoleChoice } from './model-calls.ts';
 import { ConfigSecrets } from './config-secrets.ts';
 import { ModelLimits, ModelLimitsView, SelectionReport } from './modes.ts';
-import { InstanceRecord } from './package.ts';
+import { AddInstance, InstanceRecord } from './package.ts';
 import { FormOffer, FormRecord, ResourceFacet, ResourceImportArgs, ResourceQuery, ResourceReadArgs, ResourceReadResult } from './resource-forms.ts';
 import { HubMcpInput, HubMcpView, McpRules, McpScopePreview, McpSessionView } from './records/mcps.ts';
 import { FormKind } from './resources.ts';
@@ -244,7 +244,7 @@ export const runsSlice = spec({
     llmCall: { body: z.object({ id: LlmInteractionId }), response: LlmInteraction, ws: 'llmCall' },
     /** What waits on the signed-in person in a session: pending approvals of its runs, and questions its runs asked them. */
     waiting: { body: z.object({ session: SessionId }), response: Waiting, ws: 'waiting' },
-    approve: { body: z.object({ approval: ApprovalId, approve: z.boolean(), remember: Remember, reason: z.string().optional() }), response: Approval, ws: 'approve' },
+    approve: { body: z.object({ approval: ApprovalId, approve: z.boolean(), remember: Remember, reason: z.string().optional(), /** Build 9: the filled form of a proposal with `ask`. */ answer: Json.optional() }), response: Approval, ws: 'approve' },
     /** Answer a handler a run asked a person for. */
     answer: { body: z.object({ call: HandlerCallId, value: Json }), ws: 'answer' },
     /** Send an action from a renderer. Stored, then delivered when the system is online. */
@@ -530,6 +530,8 @@ export const packagingSlice = spec({
       ws: 'installPackage',
     },
     removeInstance: { body: InstanceRef, response: z.object({ ok: z.boolean() }), ws: 'removeInstance' },
+    /** Build 9: a new instance of a bundled fleet system (an MCP server, an API service), installed, paired and started. */
+    addInstance: { body: AddInstance, response: InstanceRef, ws: 'addInstance' },
     /**
      * Zip an instance's data folder (its config only when `withSecrets`, since the hub can't tell secret fields apart).
      * Returns the zip's ref and a presigned download of it, which the CLI and the admin page fetch.
@@ -601,7 +603,7 @@ export const connectionsSlice = spec({
   endpoints: use(tel, hubAuth).group({
     connectPages: { body: z.object({}), response: z.array(ConnectPage), ws: 'connectPages' },
     // HTTP only: the answer sets the cookie that ties the provider's sign-in to this browser (`/connect/callback` checks it)
-    connect: { body: z.object({ system: SystemName, form: Json.optional() }), response: z.union([z.object({ url: z.url() }), z.object({ connection: ConnectionView })]), ws: 'connect', httpOnly: true },
+    connect: { body: z.object({ system: SystemName, instance: InstanceName.optional(), form: Json.optional() }), response: z.union([z.object({ url: z.url() }), z.object({ connection: ConnectionView })]), ws: 'connect', httpOnly: true },
     updateConnection: { body: ConnectionChange, response: ConnectionView, ws: 'updateConnection' },
     disconnect: { body: z.object({ connection: ConnectionId }), response: z.object({ ok: z.boolean() }), ws: 'disconnect' },
   }),
