@@ -1,12 +1,14 @@
 <script setup lang="ts">
 /**
- * One stored type's records (build 8, `/data/notes/Note`): the result grid of a page of them, searched by words (`q`),
- * filtered (`where`), sorted (`sort`) and paged (`at`) by the hub, all in the URL. Opening a row shows the record
- * (`/data/notes/Note/rec_…`) beside the grid with its value, Edit, Remove and history; New record adds one. "Show as
- * widget" asks the agent, in a new chat, to make a widget of these records.
+ * One stored type's records (`/data/notes/Note`), drawn by the widget view (data-grid "one view"): the same visuals,
+ * pager and export as any widget, over `hub/records_table`. Searched by words (`q`), filtered (`where`) and sorted
+ * (`sort`) by the hub, with the visual picked (`view`), all in the URL; the view reads the next window only when a page
+ * needs it. Editable fields are edited in place: changes are staged, then "Save N changes" asks once and saves each
+ * record. Opening a row shows the record (`/data/notes/Note/rec_…`) beside it with its value, Edit, Remove and history;
+ * New record adds one. "Show as widget" asks the agent, in a new chat, to make a widget of these records.
  */
-import { HUB_VISUALS, QualifiedName, RecordId, type Filter, type Json } from '@harness/core';
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { RecordId, type Filter, type Json, type ResultSort } from '@harness/core';
+import { computed, onBeforeUnmount, provide, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AppPage from '../app/AppPage.vue';
 import { links, ROUTES } from '../app/routes.ts';
@@ -14,12 +16,14 @@ import { useRouteQuery } from '../app/url.ts';
 import LoadState from '../admin/components/LoadState.vue';
 import PanelFrame from '../chat/components/PanelFrame.vue';
 import PanelHost from '../chat/components/PanelHost.vue';
-import ResultBlock from '../components/results/ResultBlock.vue';
-import type { PageRequest } from '../components/results/table.ts';
+import { RESULTS_HOST, type ResultsHost } from '../components/results/builtin.ts';
 import type { RowOpener } from '../components/results/visuals.ts';
+import WidgetView from '../components/widgets/WidgetView.vue';
+import { WIDGET_HOST } from '../components/widgets/widgets.ts';
 import RecordFilters from '../data/components/RecordFilters.vue';
 import RecordPanel from '../data/components/RecordPanel.vue';
-import { filtersOf, filtersParam, recordIdOf, recordTableQuery, sortParam, typeOf, type RecordsUrl } from '../data/logic/data.ts';
+import { choiceOf, choiceParam, filtersOf, filtersParam, recordIdOf, recordsFrame, recordTableQuery, sortParam, typeOf, type RecordsUrl } from '../data/logic/data.ts';
+import { RecordsWidgetSource, recordsWidgetHost } from '../data/state/records-widget.ts';
 import { COMPACT_QUERY } from '../state/layout.ts';
 import { useActorNames } from '../state/actor-names.ts';
 import { useStores } from '../state/stores.ts';
@@ -37,19 +41,21 @@ const query = useRouteQuery(ROUTES.dataType);
 const words = query.draft('q');
 const where = query.text('where');
 const sort = query.text('sort');
-const at = query.text('at');
+const view = query.text('view');
 
 const param = (name: string): string => { const value = route.params[name]; return typeof value === 'string' ? value : ''; };
 const type = computed(() => typeOf(param('system'), param('local')));
 const opened = computed(() => param('id'));
 const url = computed((): RecordsUrl => ({
   ...(words.value.value === '' ? {} : { q: words.value.value }), ...(where.value === '' ? {} : { where: where.value }),
-  ...(sort.value === '' ? {} : { sort: sort.value }), ...(at.value === '' ? {} : { at: at.value }),
+  ...(sort.value === '' ? {} : { sort: sort.value }), ...(view.value === '' ? {} : { view: view.value }),
 }));
+/** The hub query of the records shown (the visual picked doesn't change it). */
+const tableQuery = computed(() => (type.value === undefined ? undefined : recordTableQuery(type.value, url.value)));
 const filters = computed(() => filtersOf(where.value));
 const ref_ = computed(() => (type.value === undefined ? undefined : { name: type.value }));
 
-watch([type, () => JSON.stringify(url.value)], () => { if (type.value !== undefined) { void records.show(recordTableQuery(type.value, url.value)); } }, { immediate: true });
+watch(() => JSON.stringify(tableQuery.value), () => { if (tableQuery.value !== undefined) { void records.show(tableQuery.value); } }, { immediate: true });
 watch([type, opened], () => {
   const id = RecordId.safeParse(opened.value);
   if (type.value !== undefined && id.success) { void records.open(type.value, id.data); } else { records.close(); }
@@ -64,20 +70,29 @@ const description = computed(() => {
 });
 /** People's names for the record's history. */
 const { nameOf } = useActorNames(chat.pickers.source('person'), () => records.versions.value.flatMap((version) => (version.by === undefined ? [] : [version.by])));
-const registry = QualifiedName.parse(HUB_VISUALS);
 
-/** Go to another page or order of records: the URL follows, and the grid with it. */
-function page(request: PageRequest): void {
-  if (type.value === undefined) { return; }
-  const first = request.sort[0];
-  void router.push(links.dataType(type.value, {
-    ...url.value, at: request.offset === 0 ? undefined : String(request.offset), sort: first === undefined ? undefined : sortParam({ field: first.column, dir: first.dir }),
-  }));
+// the widget view: the records as a widget's frame, read again through hub/records_table, with the visual picked in the URL
+provide(WIDGET_HOST, recordsWidgetHost({ data, records }));
+const results: ResultsHost = {
+  visuals: (registry, shown, facts) => chat.visuals.visuals(registry, shown, facts),
+  prepare: (registry) => chat.visuals.prepare(registry),
+  choice: () => choiceOf(view.value),
+  choose: (_key, picked) => { view.value = choiceParam(picked); },
+};
+provide(RESULTS_HOST, results);
+const frame = computed(() => (table.value === undefined || tableQuery.value === undefined ? undefined : recordsFrame(table.value, tableQuery.value, param('local'))));
+const source = computed(() => (tableQuery.value === undefined ? undefined : new RecordsWidgetSource(records, tableQuery.value, param('local'))));
+/** Each load of the page's records draws afresh (a new query, a record saved beside it). */
+const loads = ref(0);
+watch(table, () => { loads.value++; });
+
+/** Another order of records: the hub sorts them, the URL follows. */
+function sortBy(next: ResultSort | undefined): void {
+  sort.value = sortParam(next === undefined ? undefined : { field: next.column, dir: next.dir });
 }
 
 function setFilters(next: Filter[]): void {
   where.value = filtersParam(next);
-  at.value = '';
 }
 
 function open(id: string | undefined): void {
@@ -116,7 +131,7 @@ async function showAsWidget(): Promise<void> {
   try {
     const session = await chat.sessions.create({ title: `${param('local')} widget` });
     if (session === undefined) { toasts.error("Couldn't start a chat", chat.sessions.problem.value); return; }
-    const text = `Make a widget of the ${type.value} records (use hub/make_widget with hub/records_table as its source and type pinned to ${type.value}).`;
+    const text = `Make a widget of the ${type.value} records (use widgets/make_widget with hub/records_table as its source and type pinned to ${type.value}).`;
     await chat.thread(session).send({ parts: [{ type: 'text', text }] });
     await router.push(links.session(session));
   } finally {
@@ -138,12 +153,15 @@ async function showAsWidget(): Promise<void> {
       :loading="records.table.loading.value" :problem="records.table.problem.value" :ready="table !== undefined" :empty="table?.rows.length === 0 && words.value.value === '' && filters.length === 0"
       empty-title="No records yet" empty-body="Add one with New record, or let a system add them." empty-icon="database" :lines="8" @retry="type && records.show(recordTableQuery(type, url))"
     >
-      <ResultBlock v-if="table" :table="table" :title="param('local')" :registry="registry" :view-key="`data:${type ?? ''}`" :pager="page" :opener="opener">
+      <WidgetView
+        v-if="frame && source" :key="loads" :frame="frame" :source="source" :opener="opener" :sort="sortBy" :view-key="`data:${type ?? ''}`" :show-title="false"
+        data-testid="records-widget"
+      >
         <template #lead>
           <UiInput v-model="words.draft.value" type="search" icon="search" placeholder="Search records" label="Search records" hide-label clearable class="search" data-testid="records-search" />
-          <RecordFilters :columns="table.columns" :filters="filters" @change="setFilters" />
+          <RecordFilters :columns="frame.table.columns" :filters="filters" @change="setFilters" />
         </template>
-      </ResultBlock>
+      </WidgetView>
     </LoadState>
     <PanelHost v-model:open="panelOpen" :inline="false" :phone="phone" :label="panelTitle">
       <PanelFrame :title="panelTitle" @close="open(undefined)">

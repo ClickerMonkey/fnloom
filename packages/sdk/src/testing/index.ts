@@ -25,5 +25,5 @@ export { PREVIEW_INDEX, PREVIEW_THEMES, PreviewIndex, type PreviewTheme } from '
 export { contextFolder, type OtherNames, type TestedContext } from './context.ts';
 export { kitEnv } from './env.ts';
 export { scratchFolder, type ScratchFolder, type ScratchOptions } from './scratch.ts';
-export { FakeHub, FakeModelLink, TEST_USER, replyChunks } from '../server/testing.ts';
+export { FakeHub, FakeHubWidgets, FakeModelLink, HUB_WIDGET_FNS, TEST_USER, replyChunks, type FakeTableSource } from '../server/testing.ts';
 export { FakeRecords, type StoredTypeDecl } from '../server/fake-records.ts';

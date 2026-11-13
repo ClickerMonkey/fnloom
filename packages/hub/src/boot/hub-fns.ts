@@ -213,6 +213,7 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
       ...(fn.decl.payload === undefined ? {} : { payload: fn.decl.payload }),
       version: Math.max(1, versions), ...(owner === undefined ? {} : { owner }),
       ...(fn.decl.routing === undefined ? {} : { routing: fn.decl.routing }),
+      args: fn.decl.args, returns: fn.decl.returns, ...(fn.decl.live === undefined ? {} : { live: fn.decl.live }),
       available: access.mayUse(fn) && (await deps.catalog().availability(fn.name)) === true,
     };
   });

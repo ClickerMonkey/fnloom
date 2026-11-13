@@ -123,6 +123,19 @@ export const RecordSave = z.object({
 });
 export type RecordSave = z.infer<typeof RecordSave>;
 
+/**
+ * Widget pass: change some top-level fields of one record in place (the Data grid's inline edit), the rest kept. The
+ * merged value is checked against the type; `expect` refuses the change when the record moved on past that version.
+ */
+export const RecordUpdate = z.object({
+  type: QualifiedName,
+  id: RecordId,
+  set: z.record(z.string().min(1), Json).refine((set) => Object.keys(set).length > 0, 'set at least one field'),
+  expect: z.number().int().min(1).optional(),
+  run: RunId.optional(),
+});
+export type RecordUpdate = z.infer<typeof RecordUpdate>;
+
 /** Remove a record; its versions stay. */
 export const RecordRemove = z.object({ type: QualifiedName, id: RecordId, run: RunId.optional() });
 export type RecordRemove = z.infer<typeof RecordRemove>;

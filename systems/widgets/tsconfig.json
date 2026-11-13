@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": ".", "outDir": "../../.types/system-widgets", "tsBuildInfoFile": "../../.types/system-widgets.tsbuildinfo", "types": ["node"] },
+  "include": ["shared", "server"],
+  "references": [{ "path": "../../packages/core" }, { "path": "../../packages/sdk" }]
+}

@@ -17,7 +17,7 @@ import { searchSystems } from '../chat/support.ts';
 import type {
   CallPlan, CallProtocol, CallScope, ChatMode, ChatModeFactories, ChosenFn, ContextorDeps, FnView, ModeContext, ModelCallOut, ModeTool, RenderedIteration, Selection,
 } from './index.ts';
-import { cardsSection, describedWithEffects, exampleLines, fnCard, listedLine, moreFns, problemLines, summaryHint, textProtocolInstructions } from './render.ts';
+import { cardsSection, describedWithEffects, exampleLines, fnCard, fnLine, moreFns, problemLines, summaryHint, tableInstruction, textProtocolInstructions } from './render.ts';
 import { modelMayUse } from './views.ts';
 
 /** The static toolset's hub fns, by tool name, with their declarations. `run` is not among them: it runs the fn it names. */
@@ -138,7 +138,7 @@ export class ToolsChatMode implements ChatMode {
   }
 
   cost(fn: FnView, detail: ChosenFn['detail'], ctx: ModeContext): number {
-    if (detail === 'listed') return ctx.estimator.text(`- ${listedLine(fn.record.name, fn.record.decl.description)}\n`);
+    if (detail === 'listed') return ctx.estimator.text(`- ${fnLine(fn)}\n`);
     const tool = fnModeTool(fn, machinesOf(fn, this.#deps.instances));
     return tool === undefined ? 0 : ctx.estimator.tool(tool.spec);
   }
@@ -149,7 +149,7 @@ export class ToolsChatMode implements ChatMode {
     const fleet = new Set<string>();
     const listed: string[] = [];
     for (const chosen of selection.fns) {
-      if (chosen.detail === 'listed') { listed.push(listedLine(chosen.view.record.name, chosen.view.record.decl.description)); continue; }
+      if (chosen.detail === 'listed') { listed.push(fnLine(chosen.view)); continue; }
       const machines = machinesOf(chosen.view, this.#deps.instances);
       const tool = fnModeTool(chosen.view, machines, chosen.examples);
       if (tool === undefined || fns.has(tool.name)) continue;
@@ -157,7 +157,8 @@ export class ToolsChatMode implements ChatMode {
       fns.set(tool.name, chosen.view.record.name);
       if (machines.length > 0) fleet.add(tool.name);
     }
-    return Promise.resolve({ tools, systemEnd: moreFns(listed), tail: undefined, protocol: 'native', fns, fleet });
+    const systemEnd = [moreFns(listed), tableInstruction(selection.fns.map((chosen) => chosen.view))].filter((part) => part !== '').join('\n\n');
+    return Promise.resolve({ tools, systemEnd, tail: undefined, protocol: 'native', fns, fleet });
   }
 
   interpret(call: ModelCallOut, rendered: RenderedIteration): Promise<CallPlan> {
@@ -171,7 +172,7 @@ export class ToolsChatMode implements ChatMode {
   }
 
   exposed(views: readonly ChosenFn[]): string {
-    return moreFns(views.map((chosen) => listedLine(chosen.view.record.name, chosen.view.record.decl.description)));
+    return moreFns(views.map((chosen) => fnLine(chosen.view)));
   }
 }
 
@@ -223,7 +224,7 @@ export class StaticChatMode implements ChatMode {
   async render(selection: Selection, ctx: ModeContext): Promise<RenderedIteration> {
     const shown = new Set<QualifiedName>();
     const cards = selection.fns.map((chosen) => fnCard(chosen.view, chosen.detail, ctx.protocol, shown, chosen.examples));
-    const section = cardsSection(cards, ctx.protocol);
+    const section = [cardsSection(cards, ctx.protocol), tableInstruction(selection.fns.map((chosen) => chosen.view))].filter((part) => part !== '').join('\n\n');
     const tools = await this.fixedTools(ctx);
     const fns = new Map<string, QualifiedName>(Object.entries(STATIC_HUB_FNS).map(([tool, { ref }]) => [tool, ref.name]));
     const tail = this.#config.placement === 'tail' && section !== '' ? section : undefined;

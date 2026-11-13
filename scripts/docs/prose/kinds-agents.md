@@ -71,8 +71,8 @@ state (deps, the instance, what it chose) is `session.state`, the `AuthoringSess
 `instructions` as the job step by step, with a worked example of a good draft.
 
 An agent handed what it builds on has nothing to find: `stages: { find: false }` starts it in **inspect** (a find
-tool or `reuse` is then refused). `toolNames: { draft, save }` names the built-in tools for the job; the hub's
-`make_widget` drafts with `widget_check` and saves with `widget_save` (**Visuals and widgets**).
+tool or `reuse` is then refused). `toolNames: { draft, save }` names the built-in tools for the job (`{ draft:
+'report_check', save: 'report_save' }`).
 
 The input system's `get_input` writes a form this way. Its find tool:
 

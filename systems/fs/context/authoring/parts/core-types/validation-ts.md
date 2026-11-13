@@ -5,7 +5,7 @@ title: "Core types: From packages/core/src/validation.ts"
 description: "Core types, the part on From packages/core/src/validation.ts."
 summary: "Core types: From packages/core/src/validation.ts."
 parent: "fs/authoring.core-types"
-next: "fs/authoring.core-types.widgets-ts"
+next: "fs/authoring.core-types.visuals-ts"
 suggest: "none"
 tags: ["authoring", "reference"]
 ---

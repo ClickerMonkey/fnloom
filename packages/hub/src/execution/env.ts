@@ -17,6 +17,7 @@ export const executionEnv = env({
   HARNESS_RUN_RETRY_BASE: z.number().int().min(10).default(1_000).describe('The first delay before a failed run classed `retry` runs again (doubled on each retry).'),
   HARNESS_QUEUE_POLL: z.number().int().min(1).default(250).describe('How often the queues look for due work when idle.'),
   HARNESS_VALIDATE_RETRIES: z.number().int().min(0).default(2).describe('How many times in a turn a fn whose output hook refused its result may be tried again before the run stops.'),
+  HARNESS_TOOL_RESULT_ROWS: z.number().int().min(0).max(100).default(5).describe('How many rows of a table result (a widget run, a fn returning a table) the model reads after its summary; the person sees the whole table.'),
   HARNESS_AGENT_TOOL_FAILURES: z.number().int().min(1).default(4).describe('Consecutive iterations whose tool calls all fail before an agent run stops.'),
 });
 

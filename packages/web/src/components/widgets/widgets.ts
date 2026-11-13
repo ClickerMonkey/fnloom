@@ -1,19 +1,32 @@
 /**
- * Widgets on the web side (build 8), apart from any component: telling a widget's result or a plain result table from
- * any other run result, which of a widget's visuals to offer and with which columns, the types a table's rows are of
- * (so their actions can be asked for), which actions a row can take and the args a click sends, and the words around
- * them. The host a widget is drawn in (`WidgetHost`) runs what it asks for, so the view knows nothing of where it is.
+ * Widgets on the web side (widget pass), apart from any component: telling a widget's result, a widget proposal or a
+ * plain result table from any other run result, the visuals a widget offers (its own list, in its order, with its
+ * bindings), the chip row's words and the args a chip set runs with, the actions a row can take and the args a click
+ * sends, the drill levels kept in the URL, and the words around them. The page a widget is drawn on provides a
+ * `WidgetHost`, which runs what the view asks for, so the view knows nothing of where it is.
  */
 import {
-  ResultTable, WidgetResultV1, type FnMode, type GinTypeDef, type Json, type QualifiedName, type WidgetActionOptionV1, type WidgetShownControlV1, type WidgetVisualV1,
+  ExportQuery, QualifiedName, RELATIVE_DATES, ResultTable, WidgetProposal, WidgetResult, type ArgValue, type FnMode, type Json,
+  type RecordUpdate, type RowActionsQuery, type SaveWidgetArgs, type WidgetActionOption, type WidgetShownControl, type WidgetVisual,
 } from '@harness/core';
+import { relativeDatesFor, resolveArgValue } from '@harness/sdk';
 import type { InjectionKey } from 'vue';
-import { TABLE_VISUAL, type FittingVisual } from '../results/visuals.ts';
+import { z } from 'zod';
+import type { RankedVisual } from '../results/visuals.ts';
+
+// ─── Telling results apart ────────────────────────────────────────────────────
 
 /** A run result as a widget's, when it is one. */
-export function widgetResultOf(value: Json | undefined): WidgetResultV1 | undefined {
+export function widgetResultOf(value: Json | undefined): WidgetResult | undefined {
   if (value === undefined) { return undefined; }
-  const parsed = WidgetResultV1.safeParse(value);
+  const parsed = WidgetResult.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+/** A run result as a widget proposal (`widgets/make_widget`), when it is one. */
+export function proposalOf(value: Json | undefined): WidgetProposal | undefined {
+  if (value === undefined) { return undefined; }
+  const parsed = WidgetProposal.safeParse(value);
   return parsed.success ? parsed.data : undefined;
 }
 
@@ -24,30 +37,52 @@ export function resultTableOf(value: Json | undefined): ResultTable | undefined 
   return parsed.success ? parsed.data : undefined;
 }
 
-/** Whether a result is rows (a widget's result or a result table), which the chat draws in full rather than in brief. */
+/** Whether a result is rows (a widget's result, a proposal or a result table), which the chat draws in full. */
 export function showsRows(value: Json | undefined): boolean {
-  return widgetResultOf(value) !== undefined || resultTableOf(value) !== undefined;
+  return widgetResultOf(value) !== undefined || proposalOf(value) !== undefined || resultTableOf(value) !== undefined;
 }
 
-/** The most row types one ask for actions names (the `widgetActions` query's bound). */
+// ─── Visuals ──────────────────────────────────────────────────────────────────
+
+/**
+ * The visuals a widget offers: its own, in its order, each with its label, its style first and its bindings (the
+ * ranking's default only where it binds none: a channel it left empty stays empty); one the result can no longer draw
+ * is left out. When none of its own fit, every visual that does.
+ */
+export function widgetVisuals(ranked: readonly RankedVisual[], own: readonly WidgetVisual[]): RankedVisual[] {
+  const offered = own.flatMap((entry): RankedVisual[] => {
+    const match = ranked.find((r) => r.visual.name === entry.visual);
+    if (match === undefined) { return []; }
+    const styles = match.rank.styles.includes(entry.style) ? [entry.style, ...match.rank.styles.filter((s) => s !== entry.style)] : match.rank.styles;
+    const [first, ...rest] = styles;
+    return [{
+      visual: entry.label === undefined ? match.visual : { ...match.visual, label: entry.label },
+      rank: { ...match.rank, bind: Object.keys(entry.bind).length === 0 ? match.rank.bind : entry.bind, styles: first === undefined ? match.rank.styles : [first, ...rest] },
+    }];
+  });
+  return offered.length > 0 ? offered : [...ranked];
+}
+
+// ─── Rows ─────────────────────────────────────────────────────────────────────
+
+/** The most row types one ask for actions names (`RowActionsQuery`'s bound). */
 export const MAX_ROW_TYPES = 20;
 
-/** The named types a table's rows refer to (columns with `ref`), each once, in column order. */
-export function rowTypes(table: Pick<ResultTable, 'columns'>): QualifiedName[] {
-  const types: QualifiedName[] = [];
+/** The named types a table's rows refer to (columns with `ref`, and the table's record type), each once. */
+export function rowTypes(table: Pick<ResultTable, 'columns' | 'records'>): QualifiedName[] {
+  const types: QualifiedName[] = table.records === undefined ? [] : [table.records.type];
   for (const column of table.columns) {
     if (column.ref !== undefined && !types.includes(column.ref)) { types.push(column.ref); }
   }
   return types.slice(0, MAX_ROW_TYPES);
 }
 
-/**
- * The args an action takes from a row: each bound argument gets its column's value. Undefined when a bound column is
- * missing from the table or empty in this row, so the row doesn't offer it.
- */
-export function boundArgs(option: Pick<WidgetActionOptionV1, 'bind'>, table: Pick<ResultTable, 'columns'>, row: readonly Json[]): Record<string, Json> | undefined {
+/** The args a click takes from a row (`bind`: arg → column); undefined when a bound column is missing or empty there. */
+export function rowArgs(bind: Readonly<Record<string, string>>, table: Pick<ResultTable, 'columns' | 'rows'>, rowIndex: number): Record<string, Json> | undefined {
+  const row = table.rows[rowIndex];
+  if (row === undefined) { return undefined; }
   const args: Record<string, Json> = {};
-  for (const [arg, column] of Object.entries(option.bind)) {
+  for (const [arg, column] of Object.entries(bind)) {
     const at = table.columns.findIndex((c) => c.name === column);
     const value = at < 0 ? undefined : row[at];
     if (value === undefined || value === null) { return undefined; }
@@ -57,151 +92,176 @@ export function boundArgs(option: Pick<WidgetActionOptionV1, 'bind'>, table: Pic
 }
 
 /** The actions one row can take: those whose bound columns all have a value in it. */
-export function rowActions(options: readonly WidgetActionOptionV1[], table: Pick<ResultTable, 'columns'>, row: readonly Json[]): WidgetActionOptionV1[] {
-  return options.filter((option) => boundArgs(option, table, row) !== undefined);
+export function actionsForRow(options: readonly WidgetActionOption[], table: Pick<ResultTable, 'columns' | 'rows'>, rowIndex: number): WidgetActionOption[] {
+  return options.filter((option) => rowArgs(option.bind, table, rowIndex) !== undefined);
 }
 
-/** The args an action runs with: what the row binds, then what its form filled in (an object; anything else is ignored). */
-export function actionArgs(bound: Readonly<Record<string, Json>>, form: Json | undefined): Json {
+/** The args an action runs with: what its form filled in (an object; anything else is ignored), then what the row binds. */
+export function actionArgs(bound: Readonly<Record<string, Json>>, form: Json | undefined): Record<string, Json> {
   return form !== null && typeof form === 'object' && !Array.isArray(form) ? { ...form, ...bound } : { ...bound };
 }
 
-/** What a person is asked before an action runs, in words: "Archive this row?" with what it changes. */
 /** What an action does, in words, beside it in the menu (a read says nothing). */
 export const ACTION_MODE_WORDS = { read: '', write: 'changes it', delete: 'removes it' } as const satisfies Record<FnMode, string>;
 
 /** Columns whose value names a row, best first. */
 const NAMING_COLUMNS = ['title', 'name', 'label'] as const;
 
-/** A row's name for the menu that acts on it: its title (or name, or label) column, else its first text cell. */
-export function rowName(table: Pick<ResultTable, 'columns'>, row: readonly Json[]): string | undefined {
+/** A row's name for the menu that acts on it and a drill's crumb: its title (or name, or label), else its first text cell. */
+export function rowName(table: Pick<ResultTable, 'columns' | 'rows'>, rowIndex: number): string | undefined {
+  const row = table.rows[rowIndex];
+  if (row === undefined) { return undefined; }
   const named = NAMING_COLUMNS.map((name) => table.columns.findIndex((column) => column.name === name)).find((at) => at >= 0 && typeof row[at] === 'string' && row[at] !== '');
   const at = named ?? row.findIndex((cell) => typeof cell === 'string' && cell !== '');
   const cell = row[at];
   return typeof cell === 'string' && cell !== '' ? cell : undefined;
 }
 
-export function confirmText(option: Pick<WidgetActionOptionV1, 'label' | 'mode'>): string {
-  const what = option.mode === 'delete' ? 'It removes something and may not be undone.'
-    : option.mode === 'read' ? 'It only reads.'
-      : 'It changes something.';
-  return `${option.label} this row? ${what}`;
+/** What a person is asked before an action runs: "Archive “Trip notes”?" with what it does. */
+export function confirmText(option: Pick<WidgetActionOption, 'label' | 'mode'>, name: string | undefined): string {
+  const what = option.mode === 'delete' ? 'It removes something and may not be undone.' : option.mode === 'read' ? 'It only reads.' : 'It changes something.';
+  return `${option.label} ${name === undefined ? 'this row' : `“${name}”`}? ${what}`;
 }
 
-/**
- * The visuals a widget offers, in its own order and with its own labels: each visual it kept that fits the columns it
- * binds (`fitting` answers the registry's visuals that fit a table), then the table, which is always there and last.
- */
-export function offeredVisuals(fitting: (table: ResultTable) => readonly FittingVisual[], table: ResultTable, visuals: readonly WidgetVisualV1[]): FittingVisual[] {
-  const offered: FittingVisual[] = [];
-  const labelled = (fit: FittingVisual, label: string | undefined): FittingVisual => (label === undefined ? fit : { fit: fit.fit, visual: { ...fit.visual, label } });
-  for (const kept of visuals) {
-    if (kept.visual === TABLE_VISUAL) { continue; }
-    const fit = fitting(boundTable(table, kept).table).find((f) => f.visual.name === kept.visual);
-    if (fit !== undefined) { offered.push(labelled(fit, kept.label)); }
-  }
-  const whole = fitting(table).find((f) => f.visual.name === TABLE_VISUAL);
-  if (whole !== undefined) { offered.push(labelled(whole, visuals.find((v) => v.visual === TABLE_VISUAL)?.label)); }
-  return offered;
-}
+// ─── The chip row ─────────────────────────────────────────────────────────────
 
-/** A table as a visual draws it, and the row of the whole table each drawn row came from (for its actions). */
-export interface BoundTable {
-  readonly table: ResultTable;
-  original(row: readonly Json[]): readonly Json[];
-}
+/** A chip's staged value: an `ArgValue`, or `null` for "Any" (the arg is left out). */
+export type ChipValue = ArgValue | null;
 
-/**
- * The table a visual draws: with bindings, only the bound columns, in the order of the visual's channels as the widget
- * lists them (a bar chart's label, then its value); without any, or when a bound column is gone, the whole table.
- */
-export function boundTable(table: ResultTable, visual: WidgetVisualV1 | undefined): BoundTable {
-  const whole: BoundTable = { table, original: (row) => row };
-  const names = visual === undefined ? [] : Object.values(visual.bind).flat();
-  if (names.length === 0) { return whole; }
-  const at = names.map((name) => table.columns.findIndex((c) => c.name === name));
-  if (at.some((i) => i < 0)) { return whole; }
-  const from = new WeakMap<readonly Json[], readonly Json[]>();
-  const rows = table.rows.map((row) => {
-    const drawn = at.map((i) => row[i] ?? null);
-    from.set(drawn, row);
-    return drawn;
-  });
-  return {
-    table: { ...table, columns: at.flatMap((i) => (table.columns[i] === undefined ? [] : [table.columns[i]])), rows, sort: table.sort.filter((s) => names.includes(s.column)) },
-    original: (row) => from.get(row) ?? row,
-  };
-}
-
-/** A control's value as its row shows it: "Any" when unset, text as it is, yes or no, a list joined, else compact JSON. */
-export function controlValueText(value: Json | undefined): string {
+/** A value as a chip shows it: "Any" when unset, text as it is, yes or no, a list joined, else compact JSON. */
+export function jsonText(value: Json | undefined): string {
   if (value === undefined || value === null || value === '') { return 'Any'; }
   if (typeof value === 'string') { return value; }
   if (typeof value === 'number') { return String(value); }
   if (typeof value === 'boolean') { return value ? 'Yes' : 'No'; }
-  if (Array.isArray(value)) { return value.length === 0 ? 'Any' : value.map((item) => controlValueText(item)).join(', '); }
+  if (Array.isArray(value)) { return value.length === 0 ? 'Any' : value.map((item) => jsonText(item)).join(', '); }
   return JSON.stringify(value);
 }
 
-/** One choice of a control limited to choices, keyed for a select (its place in the list; `''` is "Any"). */
-export interface ControlChoice {
-  readonly key: string;
-  readonly label: string;
+const sameJson = (a: Json | undefined, b: Json | undefined): boolean => JSON.stringify(a) === JSON.stringify(b);
+
+/** Whether two staged values are the same. */
+export function sameValue(a: ChipValue | undefined, b: ChipValue | undefined): boolean {
+  if (a === undefined || a === null || b === undefined || b === null) { return (a ?? null) === (b ?? null); }
+  if ('relative' in a || 'relative' in b) { return 'relative' in a && 'relative' in b && a.relative === b.relative; }
+  return sameJson(a.literal, b.literal);
 }
 
-/** A control as the widget's row shows it: its label, what it is set to now, and its choices when only those may be picked. */
-export interface ControlShown {
-  readonly arg: string;
-  readonly label: string;
-  readonly value: string;
-  /** The choices to pick from at once; absent when another value may be typed (the controls form sets it). */
-  readonly choices?: readonly ControlChoice[];
-  /** The key of the choice it is set to. */
-  readonly picked: string;
+/** A chip's value in words: a choice's label, a relative date's words, the value, or "Any". */
+export function chipText(control: Pick<WidgetShownControl, 'choices'>, value: ChipValue | undefined): string {
+  if (value === undefined || value === null) { return 'Any'; }
+  const choice = control.choices?.find((c) => c.value !== undefined && sameValue(c.value, value));
+  if (choice !== undefined) { return choice.label; }
+  return 'relative' in value ? RELATIVE_DATES[value.relative].label : jsonText(value.literal);
 }
 
-/** The args a widget last ran with, as an object (anything else is none). */
-export function argsObject(args: Json | undefined): Record<string, Json> {
-  return typeof args === 'object' && args !== null && !Array.isArray(args) ? args : {};
+/** The relative dates a chip's popover offers: days for a date argument, instants for a timestamp, else none. */
+export function relativeChoices(control: Pick<WidgetShownControl, 'relative' | 'type'>): { readonly value: ArgValue; readonly label: string }[] {
+  if (!control.relative) { return []; }
+  return relativeDatesFor(control.type.name).map((relative) => ({ value: { relative }, label: RELATIVE_DATES[relative].label }));
 }
 
-const sameJson = (a: Json, b: Json): boolean => JSON.stringify(a) === JSON.stringify(b);
-
-/** The widget's controls with the values it ran with, in its order: a select for one limited to choices, else its value. */
-export function shownControls(controls: readonly WidgetShownControlV1[], args: Json | undefined): ControlShown[] {
-  const given = argsObject(args);
-  return controls.map((control): ControlShown => {
-    const value = given[control.arg];
-    const base = { arg: control.arg, label: control.label, value: controlValueText(value) };
-    if (control.choices === undefined || control.custom) { return { ...base, picked: '' }; }
-    const at = value === undefined ? -1 : control.choices.findIndex((choice) => sameJson(choice, value));
-    const choices = [{ key: '', label: 'Any' }, ...control.choices.map((choice, i) => ({ key: String(i), label: controlValueText(choice) }))];
-    return { ...base, choices, picked: at < 0 ? '' : String(at) };
-  });
+/** The person's time zone, for relative dates. */
+export function localZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
-/** The value a control's choice key stands for: the choice, or undefined for "Any" (the arg is left out). */
-export function choiceValue(control: Pick<WidgetShownControlV1, 'choices'>, key: string): Json | undefined {
-  return key === '' ? undefined : control.choices?.[Number(key)];
+/**
+ * The widget args a chip row runs with: each chip's staged value (else the one it ran with), relative dates resolved
+ * now. A value the widget filled in from its own default (a relative one) is left out, so the widget keeps it current;
+ * "Any" leaves the arg out.
+ */
+export function chipArgs(controls: readonly WidgetShownControl[], staged: Readonly<Record<string, ChipValue>>, now: Date, zone: string): Record<string, Json> {
+  const args: Record<string, Json> = {};
+  for (const control of controls) {
+    const set = Object.hasOwn(staged, control.arg) ? staged[control.arg] : undefined;
+    const value = set === undefined ? control.value : set;
+    if (value === undefined || value === null) { continue; }
+    if (set === undefined && 'relative' in value) { continue; }
+    args[control.arg] = resolveArgValue(value, now, zone);
+  }
+  return args;
 }
 
-/** The request that asks the agent to save a run's result as a widget (it uses `hub/make_widget`). */
+// ─── Drill levels in the URL ──────────────────────────────────────────────────
+
+/** One drill step: the fn it ran, its crumb and the args it took from the clicked row. */
+export const DrillStep = z.object({ fn: QualifiedName, label: z.string().min(1), args: z.record(z.string(), z.json()) });
+export type DrillStep = z.infer<typeof DrillStep>;
+
+/** The drill levels of one widget (`of`, its view key), as the URL's `level` keeps them. */
+export const WidgetLevels = z.object({ of: z.string().min(1), steps: z.array(DrillStep).min(1).max(8) });
+export type WidgetLevels = z.infer<typeof WidgetLevels>;
+
+/** A `level` query value read back; undefined when it doesn't parse. */
+export function readLevels(text: string): WidgetLevels | undefined {
+  if (text === '') { return undefined; }
+  try {
+    const parsed = WidgetLevels.safeParse(JSON.parse(text));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// ─── Saving, export and the host ──────────────────────────────────────────────
+
+/** The request that asks the agent to make a widget from a run's fn and args (it proposes; the person saves). */
 export function saveWidgetRequest(fn: QualifiedName, args: Json | undefined): string {
   const asked = args === undefined || (typeof args === 'object' && args !== null && Object.keys(args).length === 0) ? '' : ` with ${JSON.stringify(args)}`;
-  return `Save the result of ${fn}${asked} as a widget I can open again (use hub/make_widget). Keep the controls for its arguments and the visuals that fit.`;
+  return `Make a widget from ${fn}${asked} that I can open again (use widgets/make_widget). Keep controls for its arguments and the visuals that fit.`;
 }
 
-/** What a widget needs from the page it is drawn on: its row actions, running fns, and its controls' type. */
+/** The request that asks the agent to change a proposal before it is saved. */
+export function changeWidgetRequest(proposal: Pick<WidgetProposal, 'spec'>): string {
+  return `Change the proposed widget “${proposal.spec.title}” (from ${proposal.spec.source}): `;
+}
+
+/** The streamed export of a widget's whole result (`GET /api/export`); undefined when its source doesn't page. */
+export function exportQuery(result: Pick<WidgetResult, 'source' | 'paging'>): ExportQuery | undefined {
+  const paging = result.paging;
+  if (paging === undefined) { return undefined; }
+  const args = Object.fromEntries(Object.entries(result.source.args).filter(([name]) => name !== paging.offset && name !== paging.limit));
+  return ExportQuery.parse({ fn: result.source.fn, args: JSON.stringify(args), offset: paging.offset, limit: paging.limit, format: 'csv' });
+}
+
+/** How an ordinary run the person sees ended: its output, or why it didn't finish. */
+export type RunOutcome = { readonly ok: true; readonly output: Json } | { readonly ok: false; readonly problem: string };
+
+/** What a widget needs from the page it is drawn on. */
 export interface WidgetHost {
-  /** The actions rows of these types offer, narrowed by the widget when it is one. */
-  actions(types: readonly QualifiedName[], widget: QualifiedName | undefined): Promise<readonly WidgetActionOptionV1[]>;
-  /** Run a fn as an ordinary run (a control change, a refresh, an action); whether it started. */
-  run(fn: QualifiedName, args: Json): Promise<boolean>;
-  /** The gin type of a fn's args, when the page knows it (the widget's controls). */
-  argsType(fn: QualifiedName): GinTypeDef | undefined;
-  /** Ask the agent to save a run's result table as a widget; absent where there is no agent to ask. */
-  readonly saveAsWidget?: ((fn: QualifiedName, args: Json | undefined) => Promise<boolean>) | undefined;
+  /** The actions rows of these types offer (for a plain table; a widget's result carries its own). */
+  actions(query: RowActionsQuery): Promise<readonly WidgetActionOption[]>;
+  /**
+   * Read a fn as the person and give its output (fetching more rows, a range, a drill level, a refresh). `quiet`
+   * says whether such reads stay out of the page's history; only then does a live widget re-run on its own.
+   */
+  read(fn: QualifiedName, args: Readonly<Record<string, Json>>): Promise<Json>;
+  readonly quiet: boolean;
+  /** Run a fn as an ordinary run the person sees (an action, Save), resolving when it settles. */
+  run(fn: QualifiedName, args: Json): Promise<RunOutcome>;
+  /** Download a read fn's whole result as CSV (the hub's streamed export). */
+  exportCsv(query: ExportQuery, fileName: string): Promise<void>;
+  /** The drill levels kept in the URL (`level`), read and written as text; absent where the page keeps none. */
+  readonly levels?: { get(): string; set(text: string): void } | undefined;
+  /** Ask the agent to make a widget from a run, or to change a proposal; absent where there is no agent to ask. */
+  readonly ask?: ((text: string, send: boolean) => Promise<boolean>) | undefined;
+  /** Change some fields of a stored record in place (the Data page's inline edit); absent where cells aren't edited. */
+  readonly update?: ((change: RecordUpdate) => Promise<void>) | undefined;
 }
 
 /** Where a page provides its widget host. */
 export const WIDGET_HOST: InjectionKey<WidgetHost> = Symbol('widget-host');
+
+/** The fn that keeps a proposal (`widgets/save_widget`), run as the person. */
+export const SAVE_WIDGET_FN = QualifiedName.parse('widgets/save_widget');
+
+/** A proposal as `widgets/save_widget` takes it. */
+export function saveArgs(proposal: WidgetProposal): SaveWidgetArgs {
+  return { name: proposal.name, description: proposal.description, spec: proposal.spec, ...(proposal.replaces === undefined ? {} : { replace: proposal.replaces }) };
+}
+
+/** A level's crumb: the drill's or action's label and the row it was asked for ("Orders: Oslo"). */
+export function crumbLabel(label: string, row: string | undefined): string {
+  return row === undefined ? label : `${label}: ${row}`;
+}

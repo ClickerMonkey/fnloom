@@ -121,7 +121,7 @@ type ManifestPatch = {
         undo: boolean;
         background: boolean;
       };
-      display: "message" | "hidden" | "card";
+      display: "message" | "card" | "hidden";
       limits: {
         timeout?: number | undefined;
         retries?: number | undefined;
@@ -178,7 +178,7 @@ type ManifestPatch = {
         to: "any";
       } | undefined;
       effects?: {
-        mode?: "read" | "write" | "delete" | undefined;
+        mode?: "write" | "read" | "delete" | undefined;
         reads?: `${string}/${string}`[] | undefined;
         writes?: `${string}/${string}`[] | undefined;
         free?: boolean | undefined;
@@ -191,6 +191,9 @@ type ManifestPatch = {
       promptExamples?: number | undefined;
       group?: string | undefined;
       flags?: boolean | undefined;
+      live?: {
+        every: number;
+      } | undefined;
     }[] | undefined;
     context?: {
       name: string;
@@ -315,12 +318,48 @@ type ManifestPatch = {
           accepts: ("number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary")[];
           required: boolean;
           many: boolean;
+          min?: number | undefined;
+          role?: "group" | "measure" | undefined;
         }[];
         rows: {
           min: number;
           max?: number | undefined;
         };
         whole: boolean;
+        rules: ({
+          rule: "distinct";
+          channel: string;
+          max: number;
+        } | {
+          rule: "non-negative";
+          channel: string;
+        } | {
+          rule: "bounded";
+          channel: string;
+        } | {
+          rule: "distinct-columns";
+          channels: string[];
+        } | {
+          rule: "links";
+          from: string;
+          to: string;
+        })[];
+        styles: {
+          name: string;
+          label: string;
+          whole?: true | undefined;
+          needs?: string[] | undefined;
+        }[];
+        claims: {
+          claim: "range";
+          channel: string;
+        }[];
+        priority: {
+          band: "floor" | "structural" | "encoded" | "time-encoded";
+          terms: ("temporal-key" | "low-cardinality" | "enum-key" | "high-null" | "many-categories")[];
+        };
+        size?: "window" | "top-n" | "partition" | "aggregate" | undefined;
+        pageSize?: number | undefined;
       } | undefined;
     }[] | undefined;
   } | undefined;

@@ -5,11 +5,11 @@
  * `get_query` and `edit_query` are authoring fns: the chat describes what it wants, and a query authoring agent on
  * `ctx.ai()` (`server/authoring.ts`) finds or writes the saved query through a forced workflow with progressive
  * disclosure, then it runs. The chat gets the saved fn and its run, never the working context. Rows go to the person as a
- * `result` attachment, which the app draws with its result view (its table, bar chart and value, and any visual a
- * system adds to the hub's `hub/visuals` registry, best fit first); the model gets a
- * `ResultBlock` that says so. Writes and schema changes only run once a person approves them.
+ * `result` attachment, which the app draws with its own result view (the table, value cards, the chart families and
+ * any visual a system adds to the hub's `hub/visuals` registry, ranked by the columns' facts: a grouped key and its
+ * aggregates, the table's key); the model gets a `ResultBlock` that says so. Writes and schema changes only run once a person approves them.
  */
-import { BUILT_IN_SHAPES, HUB_VISUALS, ResultTable, type FnEffects } from '@harness/core';
+import { ResultTable, type FnEffects } from '@harness/core';
 import { attachment, context, fn, g, ginAs, hub, kind, system, type Infer } from '@harness/sdk';
 import {
   ApplyArgs, AuthorArgs, CONFIG_SECRETS, DatabaseConfig, DatabasePick, DatabaseSummary, PickArgs, InstanceAnswer, InstanceOp, ReadInstanceOp, ParamValues, QueryAgentAnswer, QueryAnswer, QueryCheck, QueryDraft, QueryPayload, QueryRun,
@@ -21,9 +21,6 @@ export * from './shapes.ts';
 
 /** The query result attachment's data: core's `ResultTable`. */
 export const ResultData = ginAs(ResultTable);
-
-/** The registry its visuals go to: the hub's, which every system contributes to. */
-export const VISUALS_REGISTRY = HUB_VISUALS;
 
 /** The kind of every saved query, qualified. */
 export const QUERY_KIND = 'database/query';
@@ -106,13 +103,6 @@ export const database = system('database', {
     { name: 'schema', title: 'Schema', description: 'Create and change tables, and apply type changes a rescan found; every change waits for approval.' },
     { name: 'instances', title: 'Instances', description: 'Work forwarded to the instance that holds a database; called by this system\'s own tools only.' },
   ],
-  // its visuals (client/own-visuals.ts) in the hub's registry, with the data each draws, listed so the hub and the
-  // web app load its bundle for them and the hub and widget agents can judge a fit without the client code
-  contributes: [
-    { registry: VISUALS_REGISTRY, name: 'table', label: 'Table', icon: 'table', description: 'Every column and row, sortable and paged.', shape: BUILT_IN_SHAPES.table },
-    { registry: VISUALS_REGISTRY, name: 'bar', label: 'Bar chart', icon: 'chart', description: 'One bar per row: a label column and a number column at or above zero.', shape: BUILT_IN_SHAPES.bar },
-    { registry: VISUALS_REGISTRY, name: 'value', label: 'Value', icon: 'hash', description: 'A single value: one row of one column.', shape: BUILT_IN_SHAPES.value },
-  ],
   configSecrets: [...CONFIG_SECRETS],
   // the query authoring agent and enrichment use models; writes and schema changes wait for approval; get_query asks
   // the decision model to pick a database; saved queries are hub fns it searches (the link's search), reads and saves
@@ -121,7 +111,7 @@ export const database = system('database', {
   .with({
     config: ginAs(DatabaseConfig),
     attachments: {
-      result: attachment({ description: 'Rows a query read, drawn by the best fitting query visual (a table by default).', data: ResultData }),
+      result: attachment({ description: 'Rows a query read, drawn by the app\'s result view with the visuals that fit them (a table always).', data: ResultData }),
     },
     kinds: {
       query: kind({

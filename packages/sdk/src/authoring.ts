@@ -12,9 +12,9 @@
  * - **Check and fix:** the `draft` tool checks every draft at once and answers with the problems; a draft that fails
  *   moves the agent to `fix`. Past the fix cap (`HARNESS_AUTHORING_FIXES`) the run fails with the last problems.
  * - **Save:** `save` is offered only after a draft checked clean. `reuse` (in `find`) answers with an existing fn.
- * - **Shape:** an agent handed what it builds on (a widget is given its source fn) skips `find` (`stages: { find:
- *   false }`), and may name its draft and save tools for its job (`toolNames: { draft: 'widget_check', save:
- *   'widget_save' }`).
+ * - **Shape:** an agent handed what it builds on (a report given its source fn) skips `find` (`stages: { find:
+ *   false }`), and may name its draft and save tools for its job (`toolNames: { draft: 'report_check', save:
+ *   'report_save' }`).
  *
  * The loop is aeye's own (`ai.prompt` with tools); this helper adds no second loop.
  */

@@ -26,6 +26,7 @@ export function dataPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>
       },
       recordTable: async ({ data, user }) => hub.data.table(data, await personAsker(hub, user.id)),
       saveRecord: async ({ data, user }) => hub.data.save(data, await personAsker(hub, user.id)),
+      updateRecord: async ({ data, user }) => hub.data.update(data, await personAsker(hub, user.id)),
       removeRecord: async ({ data, user }) => ({ removed: await hub.data.remove(data, await personAsker(hub, user.id)) }),
       recordVersions: async ({ data, user }) => hub.data.versions(data, await personAsker(hub, user.id)),
     }));

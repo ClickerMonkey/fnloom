@@ -46,8 +46,8 @@ import { SystemStage } from './grants.ts';
 import { GraphPage, GraphQuery } from './graph.ts';
 import { HubIdentity, SetHubName } from './identity.ts';
 import { ItemVersionsPage, ItemVersionsQuery } from './versions.ts';
-import { DataRecord, DataSetPage, DataSetQuery, RecordGet, RecordPage, RecordQuery, RecordRemove, RecordSave, RecordTableQuery, RecordVersionsPage, RecordVersionsQuery } from './data.ts';
-import { WidgetActionOptionV1, WidgetActionsQueryV1 } from './widgets-v1.ts';
+import { DataRecord, DataSetPage, DataSetQuery, RecordGet, RecordPage, RecordQuery, RecordRemove, RecordSave, RecordTableQuery, RecordUpdate, RecordVersionsPage, RecordVersionsQuery } from './data.ts';
+import { ExportQuery, RowActionsQuery, WidgetActionOption } from './widgets.ts';
 import { ResultTable } from './registries.ts';
 
 // ─── Middleware defs (bound once, in the hub's api module) ────────────────────
@@ -724,15 +724,26 @@ export const dataSlice = spec({
     record: { body: RecordGet, response: z.object({ record: DataRecord.optional() }), ws: 'record' },
     recordTable: { body: RecordTableQuery, response: ResultTable, ws: 'recordTable' },
     saveRecord: { body: RecordSave, response: DataRecord, ws: 'saveRecord' },
+    updateRecord: { body: RecordUpdate, response: DataRecord, ws: 'updateRecord' },
     removeRecord: { body: RecordRemove, response: z.object({ removed: z.boolean() }), ws: 'removeRecord' },
     recordVersions: { body: RecordVersionsQuery, response: RecordVersionsPage, ws: 'recordVersions' },
   }),
 });
 
-/** Widgets: the actions offered on rows of some types, narrowed by a widget (`widgets.ts`). */
-export const widgetsSlice = spec({
+/** Widget pass: the actions offered on rows of some types, narrowed by a widget's list (`widgets.ts`). */
+export const rowActionsSlice = spec({
   endpoints: use(tel, hubAuth).group({
-    widgetActions: { body: WidgetActionsQueryV1, response: z.array(WidgetActionOptionV1), ws: 'widgetActions' },
+    rowActions: { body: RowActionsQuery, response: z.array(WidgetActionOption), ws: 'rowActions' },
+  }),
+});
+
+/**
+ * Widget pass: a read fn's whole result as a CSV download (`GET /api/export`), run page by page as the signed-in person
+ * and cut at the hub's row ceiling with a final line saying so. HTTP only (a raw stream).
+ */
+export const exportSlice = spec({
+  endpoints: use(tel, hubAuth).group({
+    export: { method: 'GET', query: ExportQuery, streamOut: 'text/csv', download: 'export.csv' },
   }),
 });
 
@@ -745,6 +756,6 @@ export const hubWebSpec = mergeSpecs(
   approvalsSlice, registriesSlice, fnsSlice,
   explorerSlice,
   reviewSlice, graphSlice,
-  identitySlice, versionsSlice, dataSlice, widgetsSlice,
+  identitySlice, versionsSlice, dataSlice, rowActionsSlice, exportSlice,
 );
 export type HubWebSpec = typeof hubWebSpec;

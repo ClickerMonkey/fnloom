@@ -101,6 +101,11 @@ export interface FnView {
   readonly effects?: string;
   /** Its long-running warning ("x usually takes about 3 minutes."), from its run times; absent when it runs quickly. */
   readonly notice?: string;
+  /**
+   * Widget pass: `RESULT_TABLE_ROUTING` when its declared return is a table (sdk `returnsTable`), so the model knows the
+   * person sees the result drawn; absent otherwise.
+   */
+  readonly routing?: string;
 }
 
 /** A context item chosen for a prompt, with the text at its detail (its line, its summary, or its content). */

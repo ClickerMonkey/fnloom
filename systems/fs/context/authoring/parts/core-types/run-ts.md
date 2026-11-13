@@ -34,7 +34,7 @@ How a run looks in the chat once it is done. `card`: its renderer stays, live. `
 a message. `hidden`: it disappears; the run is still in the tree.
 
 ```ts
-type Display = "message" | "hidden" | "card";
+type Display = "message" | "card" | "hidden";
 ```
 
 #### <a id="core-errorclass"></a>`ErrorClass`

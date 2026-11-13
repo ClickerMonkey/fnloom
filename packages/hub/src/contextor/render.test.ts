@@ -1,9 +1,9 @@
-import { fn, g } from '@harness/sdk';
-import type { LlmMessage } from '@harness/core';
+import { fn, g, ginAs } from '@harness/sdk';
+import { RESULT_TABLE_INSTRUCTION, RESULT_TABLE_ROUTING, ResultTable, type LlmMessage } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { contiguousTail, exchanges, textOf, firstAndLast, isPersonMessage, namedIn, personWords, shorten, shortenResults, summarise } from './history.ts';
 import type { FnView } from './index.ts';
-import { cardsSection, contextBlock, describedWithEffects, earlierBlock, fnCard, listedLine, moreContext, parseRunBlocks, resultText, RunBlockFilter, splitThinking, ThinkingFilter } from './render.ts';
+import { cardsSection, contextBlock, describedWithEffects, earlierBlock, fnCard, fnLine, listedLine, tableInstruction, moreContext, parseRunBlocks, resultText, RunBlockFilter, splitThinking, ThinkingFilter } from './render.ts';
 import { ContextCatalog } from './testing.ts';
 import { CatalogFnViews } from './views.ts';
 
@@ -21,6 +21,23 @@ async function readView(): Promise<FnView> {
 }
 
 describe('fn cards', () => {
+  it('say a fn whose declared return is a table is drawn for the person, with the instruction once', async () => {
+    const catalog = new ContextCatalog();
+    catalog.addFn('shop/orders', fn({ description: 'Orders as a table.', args: g.obj({}), returns: ginAs(ResultTable) }));
+    catalog.addFn('fs/read', fn({ description: 'Read a text file.', args: g.obj({ path: g.text() }), returns: g.text() }));
+    const views = new CatalogFnViews(catalog);
+    const [orders, read] = [await views.view('shop/orders'), await views.view('fs/read')];
+    if (orders === undefined || read === undefined) throw new Error('no view');
+    expect(orders.routing).toBe(RESULT_TABLE_ROUTING);
+    expect(read.routing).toBeUndefined();
+    expect(fnLine(orders)).toBe(`shop/orders — Orders as a table. (${RESULT_TABLE_ROUTING})`);
+    expect(describedWithEffects(orders)).toBe(`Orders as a table.
+It ${RESULT_TABLE_ROUTING}.`);
+    expect(fnLine(read)).toBe('fs/read — Read a text file.');
+    expect(tableInstruction([read, orders])).toBe(RESULT_TABLE_INSTRUCTION);
+    expect(tableInstruction([read])).toBe('');
+  });
+
   it('grow with the detail: a line, then how to call it, then instructions, examples and types', async () => {
     const view = await readView();
     expect(fnCard(view, 'listed', 'native')).toBe('### fs/read — Read a text file.');

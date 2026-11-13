@@ -17,61 +17,144 @@ choices:
 
 ## 25. Visuals and widgets
 
-A fn that returns a `ResultTable` (a query, `hub/records_table`, any fn of that shape) is drawn by the result view,
-which offers every **visual** that fits the result: the table, a bar chart, a single value, and any visual a system
-adds. A **widget** is a saved view of such a fn: the visuals to switch between with their bindings, a control per
-argument, the paging it drives and the actions on each row.
+A fn that returns a `ResultTable` (a database query, `hub/records_table`, any fn of that shape) is drawn by the result
+view, which offers every **visual** that can draw it: a table, value cards and twelve chart families (part of a whole,
+categories, over time, distribution, cross-tab, calendar, timeline, network, hierarchy, gauge, finance), each with a
+style picker, plus any visual a system adds. A **widget** is a saved view of such a fn, kept by the bundled widgets
+system: the visuals to switch between, a plan per argument, presets, the actions on each row and what a click opens.
 
-**Visuals.** All visuals live in the hub's registry `hub/visuals` (`HUB_VISUALS`). A system adds one by declaring it
-in `contributes` with `visual(...)`, whose **shape** says what data it draws: its channels (`channel(name, label,
-kinds, { required, many })`, the column kinds each takes), how many rows it shows well, and whether it only tells the
-truth about a whole result (`whole`: a pie of one page lies). The hub and the widget agent judge fits from the shape
-(`declaredFit`, `fittingVisuals`) without running client code. Then draw it in `client({ visuals })`:
+**How a fit is judged.** Every visual declares the data it draws as a **shape**: its channels (`channel(name, label,
+kinds, { required, many, min, role })`: the column kinds each takes, and whether it wants a `group` key or a
+`measure`), how many rows it draws, whether it only tells the truth about a whole result (`whole`: a pie of one page
+lies), rules over the values (`distinct`, `non-negative`, `bounded`, `distinct-columns`, `links`), how it stays honest
+when the result is bigger (`size`), its styles, the args it drives (`claims`: a time axis sets a range) and its
+priority. Column facts come from the source and the rows: a source may declare a column's `role` (the database knows a
+GROUP BY key from an aggregate) and `key`; `resultFacts(table)` works out the rest (numeric, temporal, opaque ids that
+are never drawn, distinct counts, ranges) and adds the column's gin facts (an enum's members, a number's range,
+`ginTypeFacts`). Visuals are ranked in one order everywhere (`rankedVisuals`): the most columns drawn first, then
+priority, then registry order. A visual that can't draw the data is not offered.
+
+**Your own chart.** A system adds a visual by declaring it in `contributes` with `visual(...)` and drawing it in
+`client({ visuals: { [HUB_VISUALS]: { name: { component } } } })`. Draw it with ECharts: add `echarts` (an exact
+version) to the system's `package.json` and import only the charts and components it uses from `echarts/core`; the
+client build bundles it with the system (only `vue` and `@harness/sdk` are shared with the chat). The component gets
+`VisualView`: the `table`, its `facts`, the columns bound to each channel (`bind`, complete), the `style` picked and
+the theme's `palette` (`visualTheme(palette)` is an ECharts theme matching the built-in charts; draw again when the
+palette changes). It emits `drill(rowIndex)` when a bar, slice or point is clicked and `range({ from, to })` when the
+person zooms a time axis (`VISUAL_EMITS`). There is no SDK chart wrapper: use ECharts as it is documented. A `veto`
+beside the component may refuse a fit the shape allows. Test that it is offered for its data with `kit.visuals(table)`.
 
 _From `scripts/docs/samples/charts.ts`:_
 
 ```ts
-/** The contract: the pie, declared in `hub/visuals` with the data it draws. */
+/** The contract: the bullet chart, declared in `hub/visuals` with the data it draws. */
 export const charts = system('charts', {
   description: 'Charts for results.',
   contributes: [visual({
-    name: 'pie',
-    label: 'Pie',
+    name: 'bullet',
+    label: 'Against target',
     icon: 'chart',
     shape: {
-      channels: [channel('label', 'Slice', ['text']), channel('value', 'Size', ['integer', 'number'])],
-      // a few slices read well; a pie of one page of a longer result lies, so it wants the whole result
-      rows: { min: 1, max: 12 },
-      whole: true,
+      channels: [
+        channel('x', 'Category', ['text'], { role: 'group' }),
+        channel('value', 'Value', ['integer', 'number'], { role: 'measure' }),
+        channel('target', 'Target', ['integer', 'number'], { role: 'measure' }),
+      ],
+      // a phone-width axis holds a few dozen categories; past that the widget pages
+      rows: { min: 1, max: 30 },
+      whole: false,
+      styles: [{ name: 'vertical', label: 'Vertical' }, { name: 'horizontal', label: 'Horizontal' }],
+      // it binds three columns where bars bind two, so it ranks above them for data with a target
+      priority: { band: 'encoded', terms: ['low-cardinality'] },
     },
   })],
 });
-
-/** The client: the pie's component, with no `match` of its own, so its declared shape judges the fit. */
-export default client(charts, { visuals: { [HUB_VISUALS]: { pie: { component: PieVisual } } } });
 ```
 
-A visual entry may give its own `match(table)` (a `VisualFit` score from 0 to 1; the table scores 0); without one,
-its declared shape judges the fit with `DECLARED_FIT_SCORE`. The component gets `table` and `system`.
+_From `scripts/docs/samples/charts.ts`:_
 
-**Widgets.** A widget is a fn of the hub's kind `hub/widget` (`WIDGET_KIND`) whose payload is a `WidgetSpec`: its
-`source` fn, `visuals` (each `{ visual, bind: { channel: [columns] } }`), `controls` (per source argument: `label`,
-`choices`, `pinned` to fix it, `hidden`), `paging` (the source's offset and limit arguments and the page size) and
-`actions`. Its args are the source's minus the pinned and paged ones (`widgetArgs`); its controls are the rest
-(`widgetControls`). A run calls the source as a child run and returns a `WidgetResult`; bindings that no longer fit
-the real columns are listed as problems, never a failure (`checkWidget`). Versions, visibility, review and search come
-free, as for any fn.
+```ts
+// register only what this chart uses, so the bundle stays small
+use([BarChart, ScatterChart, DatasetComponent, GridComponent, TooltipComponent, CanvasRenderer]);
 
-**Row actions** are derived, never listed by hand: each method of a row's type (a column's `ref`, such as the `id`
-column of `hub/records_table`) is offered, labelled from its name (`actionLabel`), with a form for the args left after
-binding (`widgetActionOptions`). Anything that is not a read asks first (`confirmOf`); a widget can add a confirm, never
-remove one. Nothing runs until a person clicks, and the click is an ordinary run, so policies and approvals apply. Give
-a stored type methods to make its records actionable.
+type Option = ComposeOption<BarSeriesOption | ScatterSeriesOption | DatasetComponentOption | GridComponentOption | TooltipComponentOption>;
 
-**Making widgets.** People ask in the chat ("show my open tasks by owner as bars"), or press "Save as widget" on a
-table result; `hub/make_widget` writes the spec. It is an authoring agent ([Kinds and agents](context:fs/authoring.kinds-agents)) that skips `find`
-(it is handed the source) and names its tools for the job: `widget_source` (the source's args and a small sample),
-`widget_visuals` (the visuals whose shapes fit), `widget_check` (the draft against `widgetSpecSchema`, a strict schema
-built from the source's args, the sample's columns and the fitting visuals, then `checkWidget`) and `widget_save`.
+/** A cell as ECharts reads one: numbers and text as they are, anything else as text. */
+function cellOf(value: Json): string | number | null {
+  return value === null || typeof value === 'number' || typeof value === 'string' ? value : JSON.stringify(value);
+}
+
+/** The bars and target marks of a view: the rows as a dataset, encoded by the bound columns. */
+function optionOf(view: VisualView): Option {
+  const [x = '', value = '', target = ''] = [view.bind['x']?.[0], view.bind['value']?.[0], view.bind['target']?.[0]];
+  const across = view.style === 'horizontal';
+  const category = { type: 'category' as const };
+  const measure = { type: 'value' as const };
+  return {
+    dataset: { dimensions: view.table.columns.map((column) => column.name), source: view.table.rows.map((row) => row.map(cellOf)) },
+    grid: { containLabel: true, left: 8, right: 8, top: 8, bottom: 8 },
+    tooltip: { trigger: 'axis' },
+    xAxis: across ? measure : category,
+    yAxis: across ? category : measure,
+    series: [
+      { type: 'bar', name: value, encode: across ? { y: x, x: value } : { x, y: value } },
+      { type: 'scatter', name: target, symbol: 'rect', symbolSize: across ? [3, 18] : [18, 3], encode: across ? { y: x, x: target } : { x, y: target } },
+    ],
+  };
+}
+
+/** The chart: ECharts in a div, themed from the palette, emitting `drill` with the clicked row. */
+const BulletVisual = defineComponent((props: VisualView & WithSystem<(typeof charts)['defs']>, { emit }) => {
+  const el = ref<HTMLDivElement>();
+  let chart: EChartsType | undefined;
+  const draw = (): void => {
+    chart?.dispose();
+    if (el.value === undefined) { return; }
+    chart = init(el.value, visualTheme(props.palette));
+    chart.on('click', (event) => { emit('drill', event.dataIndex); });
+    chart.setOption(optionOf(props));
+  };
+  onMounted(draw);
+  // a theme change brings a new palette: draw again with its colours
+  watch(() => props.palette, draw);
+  watch(() => [props.table, props.bind, props.style], () => chart?.setOption(optionOf(props), { notMerge: true }));
+  onBeforeUnmount(() => chart?.dispose());
+  return () => h('div', { ref: el, style: { width: '100%', height: '18rem' } });
+  // eslint-disable-next-line vue/require-prop-types -- the setup function's signature types the props (Vue 3.3+)
+}, { props: ['table', 'facts', 'bind', 'style', 'palette', 'system'], emits: VISUAL_EMITS });
+```
+
+_From `scripts/docs/samples/charts.ts`:_
+
+```ts
+/** The client: the chart's component. Its declared shape judges the fit; it has nothing to veto. */
+export default client(charts, { visuals: { [HUB_VISUALS]: { bullet: { component: BulletVisual } } } });
+```
+
+**Widgets.** A widget is a fn of the widgets system's kind `widgets/widget` (`WIDGET_KIND`) whose payload is a
+`WidgetSpec`: its `source` (a read fn returning a table), its `visuals` (each `{ visual, style, bind }`; a channel left
+out takes the default binding), a plan per source arg (`args`: a chip with a label, choices with their own words and a
+default, `pinned` to a value, or `hidden` when the arg has a default), `presets` (named chips that set several args),
+the `range` args a time or calendar visual drives, the `paging` args (`limit` and `offset`, `WINDOW_ARGS`, which the
+buffered pager drives), `actions`, a `drill` and `live`. Values may be relative dates (`today-7d`,
+`startOf(month)`, `RELATIVE_DATES`), resolved each time it runs (`resolveRelative`), so a saved widget stays current.
+Its args are the source's minus the pinned ones, the paging and range args optional (`widgetArgs`); its chip row is
+`widgetControls`; a run's source args are `widgetRunArgs`. A run calls the source as a child run and returns a
+`WidgetResult`; bindings that no longer fit are listed as problems, never a failure (`checkWidget`). A widget may move
+to another source when every arg it plans exists there with a compatible type (`sourceCompatible`). Versions,
+visibility, review and search come free, as for any fn. Rows that came from a write are read-only.
+
+**Row actions** are derived, never listed by hand: each method of a row's type (a column's `ref`) is offered, labelled
+from its name (`actionLabel`), with a form for the args left after binding (`widgetActionOptions`); a widget may also
+bind any fn's args to columns. Anything that is not a read asks after its form (`confirmOf`); a widget can add a
+confirm, never remove one. What follows is derived (`deriveThen`): rows returned open as a new level, a write
+refreshes, else a status line. A click on a bar, slice or row runs the widget's `drill` (its args from the row,
+`boundArgs`), else opens the row's action menu. Give a stored type methods to make its records actionable.
+
+**Making widgets.** People ask in the chat ("show my open tasks by owner as bars"). `widgets/make_widget` is an agent
+fn handed the source: it reads a sample (`hub/read_table`) and proposes against a strict schema built for that call
+(`widgetProposalSchema`): only the visuals that draw the sample, each style an enum, each channel's columns an enum of
+the columns it may bind, a typed plan for exactly the source's unclaimed args. A broken widget can't be spelled. The
+chat shows the proposal drawn as it will be; the person presses Save (`widgets/save_widget`). The agent never saves.
 
 Fns for this: fn:fs/read, fn:fs/write, fn:fs/edit, fn:fs/bash.

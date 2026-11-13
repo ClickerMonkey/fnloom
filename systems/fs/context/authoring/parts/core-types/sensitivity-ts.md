@@ -24,7 +24,7 @@ type FlagsAnswer = {
     path: string;
     kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
     rule: string;
-    access: "read" | "write";
+    access: "write" | "read";
     action: "ask" | "refuse" | "allow";
     why: string;
     certain: boolean;
@@ -43,7 +43,7 @@ type SensitivityFlag = {
   path: string;
   kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
   rule: string;
-  access: "read" | "write";
+  access: "write" | "read";
   action: "ask" | "refuse" | "allow";
   why: string;
   certain: boolean;

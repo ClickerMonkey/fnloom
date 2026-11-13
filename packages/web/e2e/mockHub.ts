@@ -236,9 +236,10 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       recordTable: ({ data }) => build8.table(data),
       record: ({ data }) => build8.record(data),
       saveRecord: ({ data }) => build8.save(data, owner()),
+      updateRecord: ({ data }) => build8.update(data, owner()),
       removeRecord: ({ data }) => build8.remove(data),
       recordVersions: ({ data }) => build8.versions(data),
-      widgetActions: () => build8.actions(),
+      rowActions: () => build8.actions(),
       itemVersions: ({ data }) => build8.itemVersions(data),
       fnFacts: ({ data }) => fns.facts(data.fn),
       fnExamples: ({ data }) => fns.examples(data),
@@ -287,7 +288,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       stopSystem: ({ data }) => admin.process(data.system, 'stopped'),
       upgradeSystem: ({ data }) => admin.upgrade(data.system, data.version),
       reimport: () => admin.reimport(),
-      systemFns: ({ data }) => (data.system === 'database' ? shopFns(Date.now()) : admin.fns(data.system)),
+      systemFns: ({ data }) => (data.system === 'database' ? shopFns(Date.now()) : data.system === 'widgets' ? build8.widgetFns(Date.now()) : admin.fns(data.system)),
       types: ({ data }) => {
         const known = [...shopTypes(Date.now()), ...build8.types(Date.now())].filter((type) => data.names.includes(type.name));
         return { types: known, missing: data.names.filter((name) => !known.some((type) => type.name === name)) };
@@ -412,7 +413,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
     'autoPairs', 'revokeAutoPair', 'suggestDecision', 'setSuggestDecision', 'previewSuggestions',
     'pick', 'accessInfo', 'access', 'setAccess', 'connectPages', 'connect', 'updateConnection', 'disconnect',
     'contexts', 'contextItem', 'remember', 'updateMemory', 'forget', 'linkContext', 'unlinkContext',
-    'dataSets', 'records', 'recordTable', 'record', 'saveRecord', 'removeRecord', 'recordVersions', 'widgetActions', 'itemVersions',
+    'dataSets', 'records', 'recordTable', 'record', 'saveRecord', 'updateRecord', 'removeRecord', 'recordVersions', 'rowActions', 'itemVersions',
   ] as const;
   // system names must match their pattern, which the generator can't read from a regex
   const systemName = (g: { rng: () => number }): string => SYSTEM_NAMES[Math.floor(g.rng() * SYSTEM_NAMES.length)] ?? 'fs';

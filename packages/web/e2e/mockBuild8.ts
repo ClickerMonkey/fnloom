@@ -1,15 +1,18 @@
 /**
  * The mock hub's build 8 samples: stored types with their records (kept in memory, so editing and removing work end to
  * end), the records as a result table (searched, filtered and sorted here the way the hub does it in its database),
- * saved widgets, the actions a note's row offers, and version histories for records and any item.
+ * saved widgets and what their runs return (a window of notes by offset, a note's words), the actions a note's row
+ * offers, and version histories for records and any item.
  */
 import {
-  ApprovalPreview, ChangeSet, DataRecord, SystemName, TypeRecord, WIDGET_KIND_V1, type DataSetPage, type DataSetQuery, type FnSearchPage, type FnSearchQuery, type ItemVersionsPage, type ItemVersionsQuery,
-  type RecordGet, type RecordRemove, type RecordSave, type RecordTableQuery, type RecordVersionsPage, type RecordVersionsQuery, type ResultTable, type WidgetActionOptionV1,
+  ApprovalPreview, ChangeSet, DataRecord, Json, SystemName, TypeRecord, WIDGET_KIND, type DataSetPage, type DataSetQuery, type FnSearchPage, type FnSearchQuery, type ItemVersionsPage, type ItemVersionsQuery,
+  type FnRecord, type RecordGet, type RecordRemove, type RecordSave, type RecordUpdate, type RecordTableQuery, type RecordVersionsPage, type RecordVersionsQuery, type ResultTable, type WidgetActionOption,
 } from '@harness/core';
-import { NOTE_TYPE, NOTES_WIDGET, SAMPLE_ACTIONS, SAMPLE_RECORDS, SAMPLE_SETS, SAMPLE_TABLE, sampleItemVersions, sampleRecordVersions } from '../src/data/test/samples.ts';
+import { fnRecord } from '../src/admin/test/fakes.ts';
+import { NOTE_TYPE, NOTE_WORDS, NOTES_WIDGET, SAMPLE_ACTIONS, SAMPLE_PAGED_WIDGET, SAMPLE_WORDS, SAMPLE_RECORD_TABLE, SAMPLE_RECORDS, SAMPLE_SETS, SAMPLE_TABLE, sampleItemVersions, sampleRecordVersions } from '../src/data/test/samples.ts';
 
 const HUB = SystemName.parse('hub');
+const WIDGETS = SystemName.parse('widgets');
 
 /**
  * What a `bash` run changed: two text files with diffs (one renamed, one maybe another call's), a binary file, a
@@ -74,10 +77,10 @@ export class MockData {
     return { items };
   }
 
-  /** The notes as a result table: searched by words, filtered and sorted on their fields, a page at a time. */
+  /** The notes as a result table: searched by words, filtered and sorted on their fields, a window at a time, each field editable. */
   table(query: RecordTableQuery): ResultTable {
     if (query.type !== NOTE_TYPE) { return { ...SAMPLE_TABLE, rows: [], total: 0 }; }
-    const columns = SAMPLE_TABLE.columns;
+    const columns = SAMPLE_RECORD_TABLE.columns;
     const at = (name: string): number => columns.findIndex((c) => c.name === name);
     const words = query.search?.toLowerCase() ?? '';
     let rows = [...this.#records.values()].map((record) => columns.map((c) => (c.name === 'id' ? record.id : valueOf(record, c.name))));
@@ -101,7 +104,7 @@ export class MockData {
     const offset = query.offset ?? 0;
     const limit = query.limit ?? 50;
     return {
-      columns, rows: rows.slice(offset, offset + limit), offset, limit, total: rows.length, truncated: offset + limit < rows.length,
+      columns, records: SAMPLE_RECORD_TABLE.records, rows: rows.slice(offset, offset + limit), offset, limit, total: rows.length, truncated: offset + limit < rows.length,
       sort: sort === undefined ? [] : [{ column: sort.field, dir: sort.dir }],
     };
   }
@@ -125,6 +128,14 @@ export class MockData {
     return saved;
   }
 
+  /** Change some fields of a note in place, the rest kept. */
+  update(query: RecordUpdate, by: string): DataRecord {
+    const known = this.#records.get(query.id);
+    if (known === undefined) { throw new Error(`No record ${query.id}.`); }
+    const value = typeof known.value === 'object' && known.value !== null && !Array.isArray(known.value) ? known.value : {};
+    return this.save({ type: query.type, id: query.id, value: { ...value, ...query.set } }, by);
+  }
+
   remove(query: RecordRemove): { removed: boolean } {
     return { removed: this.#records.delete(query.id) };
   }
@@ -136,13 +147,21 @@ export class MockData {
 
   /** The saved widgets, for a fn search by the widget kind; undefined for any other search. */
   widgets(query: FnSearchQuery): FnSearchPage | undefined {
-    if (query.kinds?.includes(WIDGET_KIND_V1) !== true) { return undefined; }
+    if (query.kinds?.includes(WIDGET_KIND) !== true) { return undefined; }
     return {
       items: [
-        { item: 'fn', name: NOTES_WIDGET, system: HUB, description: 'Open notes, with words per note as a bar chart. Archive or rename a note from its row.', kind: WIDGET_KIND_V1, mode: 'read', available: true },
-        { item: 'fn', name: 'hub/orders_by_city', system: HUB, description: "This month's orders per city, from the shop database.", kind: WIDGET_KIND_V1, mode: 'read', available: false, unavailable: 'The database system is offline.' },
+        { item: 'fn', name: NOTES_WIDGET, system: WIDGETS, description: 'Open notes, with words per note as a bar chart. Archive or rename a note from its row.', kind: WIDGET_KIND, mode: 'read', available: true },
+        { item: 'fn', name: 'hub/orders_by_city', system: HUB, description: "This month's orders per city, from the shop database.", kind: WIDGET_KIND, mode: 'read', available: false, unavailable: 'The database system is offline.' },
       ],
     };
+  }
+
+  /** The widgets system's fns: the saved notes widget, so its fn page draws its latest run. */
+  widgetFns(now: number): FnRecord[] {
+    return [fnRecord({
+      name: NOTES_WIDGET, system: 'widgets', version: 'v3', origin: 'runtime', available: true, paused: false, disabled: false, updatedAt: now - 3_600_000,
+      decl: { ...fnRecord().decl, name: 'open_notes', description: 'Open notes, with words per note as a bar chart. Archive or rename a note from its row.', kind: WIDGET_KIND, tags: ['widget'] },
+    })];
   }
 
   /** The stored note type, so a record is drawn as its type. */
@@ -153,13 +172,27 @@ export class MockData {
     })];
   }
 
-  actions(): WidgetActionOptionV1[] {
+  actions(): WidgetActionOption[] {
     return [...SAMPLE_ACTIONS];
   }
 
   itemVersions(query: ItemVersionsQuery): ItemVersionsPage {
     return { items: sampleItemVersions(query.system, query.section, query.name) };
   }
+}
+
+/**
+ * What a widget fn's run returns in the mock: the notes widget a window of two notes from its `offset` (an empty one
+ * past the end), a note's words for its drill; undefined for any other fn.
+ */
+export function widgetRunOutput(fn: string, args: Json | undefined): Json | undefined {
+  if (fn === NOTE_WORDS) { return Json.parse(SAMPLE_WORDS); }
+  if (fn !== NOTES_WIDGET) { return undefined; }
+  const given = typeof args === 'object' && args !== null && !Array.isArray(args) ? args : {};
+  const offset = typeof given['offset'] === 'number' ? given['offset'] : 0;
+  const rows = SAMPLE_TABLE.rows.slice(offset, offset + 2);
+  const table = { ...SAMPLE_TABLE, rows, offset, truncated: offset + rows.length < SAMPLE_TABLE.rows.length, limit: 2 };
+  return Json.parse({ ...SAMPLE_PAGED_WIDGET, table, paging: { offset: 'offset', limit: 'limit', window: 2, more: rows.length === 2 } });
 }
 
 function valueOf(record: DataRecord, field: string): DataRecord['value'] {

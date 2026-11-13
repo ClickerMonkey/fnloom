@@ -101,7 +101,7 @@ type FnSearchPage = {
     description: string;
     available: boolean;
     kind?: string | undefined;
-    mode?: "read" | "write" | "delete" | undefined;
+    mode?: "write" | "read" | "delete" | undefined;
     signature?: string | undefined;
     effects?: string | undefined;
     instance?: InstanceName | undefined;
@@ -135,7 +135,7 @@ type FnSearchQuery = {
     reads?: `${string}/${string}`[] | undefined;
     writes?: `${string}/${string}`[] | undefined;
   } | undefined;
-  modes?: ("read" | "write" | "delete")[] | undefined;
+  modes?: ("write" | "read" | "delete")[] | undefined;
   effects?: {
     thing: "types" | "records" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
     action?: "create" | "update" | "remove" | undefined;

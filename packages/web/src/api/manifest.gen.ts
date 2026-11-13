@@ -3497,6 +3497,30 @@ export const manifest = {
       "multi": false,
       "bodyEnc": "json"
     },
+    "updateRecord": {
+      "method": "POST",
+      "path": "/updateRecord",
+      "ws": "updateRecord",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "type",
+        "id",
+        "set",
+        "expect",
+        "run"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
     "removeRecord": {
       "method": "POST",
       "path": "/removeRecord",
@@ -3542,10 +3566,10 @@ export const manifest = {
       "multi": false,
       "bodyEnc": "json"
     },
-    "widgetActions": {
+    "rowActions": {
       "method": "POST",
-      "path": "/widgetActions",
-      "ws": "widgetActions",
+      "path": "/rowActions",
+      "ws": "rowActions",
       "httpOnly": false,
       "streamIn": null,
       "itemsIn": false,
@@ -3555,13 +3579,37 @@ export const manifest = {
       "q": [],
       "b": [
         "types",
-        "widget"
+        "narrow"
       ],
       "f": [],
       "hasBody": true,
       "hasHeaders": false,
       "multi": false,
       "bodyEnc": "json"
+    },
+    "export": {
+      "method": "GET",
+      "path": "/export",
+      "ws": null,
+      "httpOnly": true,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": "text/csv",
+      "items": false,
+      "p": [],
+      "q": [
+        "fn",
+        "args",
+        "offset",
+        "limit",
+        "format"
+      ],
+      "b": null,
+      "f": [],
+      "hasBody": false,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": null
     }
   },
   "events": {

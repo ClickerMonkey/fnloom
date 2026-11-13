@@ -2,11 +2,11 @@
 /**
  * The Data page (build 8): the stored types the person sees (`/data`), grouped by system, each with how it keeps its
  * records and how many there are, searched by words in the URL (`q`) and opening its records; and the saved widgets
- * (`/data/widgets`), each opened in a new chat, where it runs and its controls and row actions work. Both read the
- * hub's queries a page at a time.
+ * (`/data/widgets`), each opened in a new chat, where it runs and its controls and row actions work, and (for an admin)
+ * on its fn page. Both read the hub's queries a page at a time.
  */
-import { SystemName, type FnSearchHit } from '@harness/core';
-import { computed, ref, watch } from 'vue';
+import { SystemName } from '@harness/core';
+import { computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AppPage from '../app/AppPage.vue';
 import { links, ROUTES } from '../app/routes.ts';
@@ -14,13 +14,14 @@ import { useRouteQuery } from '../app/url.ts';
 import LoadState from '../admin/components/LoadState.vue';
 import { fnLabel } from '../chat/logic/labels.ts';
 import { bySystem, recordCount, storageWords } from '../data/logic/data.ts';
+import { useWidgetOpener } from '../data/state/open-widget.ts';
 import { useStores } from '../state/stores.ts';
 import { UiButton, UiIcon, UiInput, UiSegmented, relativeTime, type SegmentOption } from '../ui/index.ts';
 import { useNow } from '../ui/now.ts';
 
 type View = 'stored' | 'widgets';
 
-const { data, chat, toasts } = useStores();
+const { data, session } = useStores();
 const route = useRoute();
 const router = useRouter();
 const now = useNow();
@@ -45,19 +46,9 @@ watch([() => view.value, () => widgetWords.value.value], ([shown, text]) => { if
 
 const groups = computed(() => bySystem(data.sets.items.value));
 
-/** A widget opens in a new chat, which runs it. */
-const opening = ref('');
-async function openWidget(widget: FnSearchHit): Promise<void> {
-  opening.value = widget.name;
-  try {
-    const session = await chat.sessions.create({ title: fnLabel(widget.name) });
-    if (session === undefined) { toasts.error("Couldn't open the widget", chat.sessions.problem.value); return; }
-    await chat.thread(session).invoke(widget.name, {});
-    await router.push(links.session(session));
-  } finally {
-    opening.value = '';
-  }
-}
+/** A widget opens in a new chat, which runs it; an admin can open its fn page too. */
+const { opening, open: openWidget } = useWidgetOpener();
+const isAdmin = computed(() => session.user.value?.role === 'admin');
 </script>
 
 <template>
@@ -99,11 +90,12 @@ async function openWidget(widget: FnSearchHit): Promise<void> {
         <li v-for="widget in data.widgets.items.value" :key="widget.name" class="widget" data-testid="data-widget" :data-widget="widget.name">
           <UiIcon name="grid" :size="16" class="lead" />
           <span class="main">
-            <span class="name">{{ fnLabel(widget.name) }}</span>
+            <RouterLink v-if="isAdmin" class="name link" :to="links.fn(widget.name)" data-testid="data-widget-page">{{ fnLabel(widget.name) }}</RouterLink>
+            <span v-else class="name">{{ fnLabel(widget.name) }}</span>
             <span v-if="widget.description !== ''" class="about">{{ widget.description }}</span>
             <span v-if="widget.unavailable !== undefined" class="how">{{ widget.unavailable }}</span>
           </span>
-          <UiButton size="sm" icon="play" :loading="opening === widget.name" :disabled="!widget.available" data-testid="data-widget-open" @click="openWidget(widget)">Open in chat</UiButton>
+          <UiButton size="sm" icon="play" :loading="opening === widget.name" :disabled="!widget.available" data-testid="data-widget-open" @click="openWidget(widget.name)">Open in chat</UiButton>
         </li>
       </ul>
       <UiButton v-if="data.widgets.hasMore.value" variant="ghost" :loading="data.widgets.loadingMore.value" @click="data.widgets.more()">More</UiButton>
@@ -128,6 +120,8 @@ async function openWidget(widget: FnSearchHit): Promise<void> {
 .lead { color: var(--text-faint); }
 .main { display: grid; gap: 2px; min-width: 0; }
 .name { font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+.link { justify-self: start; color: var(--text); text-decoration: none; }
+.link:hover { color: var(--accent); }
 .about { color: var(--text-dim); font-size: var(--text-sm); }
 .how { color: var(--text-faint); font-size: var(--text-xs); }
 .side { display: grid; justify-items: end; gap: 2px; color: var(--text-faint); font-size: var(--text-xs); white-space: nowrap; }

@@ -11,7 +11,7 @@ import { reject } from '@ayepi/core';
 import {
   DataRecord, mintId, OPS_BY_TYPE, recordVersionId,
   type DataSetPage, type DataSetQuery, type DataSetView, type Filter, type IdRandom, type QualifiedName, type RecordGet, type RecordId, type RecordPage,
-  type RecordQuery, type RecordRemove, type RecordSave, type RecordStorage, type RecordTableQuery, type RecordVersion, type RecordVersionsPage,
+  type RecordQuery, type RecordRemove, type RecordSave, type RecordStorage, type RecordTableQuery, type RecordUpdate, type RecordVersion, type RecordVersionsPage,
   type RecordVersionsQuery, type ResultTable, type Sort, type TypeRecord,
 } from '@harness/core';
 import type { Catalog } from '../catalog/index.ts';
@@ -44,6 +44,9 @@ interface Stored {
  * one person's, and its id (always last).
  */
 const indexKey = (record: Pick<DataRecord, 'type' | 'id' | 'owner'>): string => `${indexPrefix(record.type, record.owner)}${record.id}`;
+
+/** The record table's id column (`ResultTable.records.id`). */
+const RECORD_ID_COLUMN = 'id';
 
 /** The start of the index keys of a type's records (of one owner's, when given). */
 const indexPrefix = (type: QualifiedName, owner: DataRecord['owner']): string => (owner === undefined ? `${type}#` : `${type}#${owner}#`);
@@ -133,8 +136,13 @@ export class StoreDataService implements DataService {
     const page = await this.find({ type: query.type, query: { ...query.query, cursor: offset === 0 ? undefined : String(offset), limit }, ...(query.search === undefined ? {} : { search: query.search }) }, asker);
     const fields = stored.fields;
     return {
-      // one column per field, then the record's id, which refers to its type so a row's actions find their record
-      columns: [...fields.map(columnOf), { name: 'id', label: 'Record', kind: 'text', nullable: false, ref: stored.type.name }],
+      // one column per field (a scalar one editable in place), then the record's id: the key, and a ref to its type so a
+      // row's actions find their record
+      columns: [
+        ...fields.map((field) => ({ ...columnOf(field), ...(queryable(field) ? { editable: true } : {}) })),
+        { name: RECORD_ID_COLUMN, label: 'Record', kind: 'text', nullable: false, ref: stored.type.name, key: true },
+      ],
+      records: { type: stored.type.name, id: RECORD_ID_COLUMN },
       rows: page.items.map((record) => {
         const value = typeof record.value === 'object' && record.value !== null && !Array.isArray(record.value) ? record.value : {};
         return [...fields.map((field) => value[field.name] ?? null), record.id];
@@ -170,6 +178,18 @@ export class StoreDataService implements DataService {
     });
     await this.#index(stored, record);
     return record;
+  }
+
+  async update(input: RecordUpdate, asker: DataAsker): Promise<DataRecord> {
+    const stored = await this.#stored(input.type, asker);
+    const current = await this.#deps.store.table('records').get(input.id);
+    if (current === undefined || !this.#sees(current, stored, asker)) { throw reject(404, 'RECORD_NOT_FOUND', `no record ${input.id} of ${stored.type.name}`); }
+    const fields = new Set(stored.fields.map((field) => field.name));
+    const unknown = Object.keys(input.set).filter((name) => !fields.has(name));
+    if (unknown.length > 0) { throw reject(400, 'RECORD_INVALID', `${stored.type.name} has no field ${unknown.join(', ')}`); }
+    const value = typeof current.value === 'object' && current.value !== null && !Array.isArray(current.value) ? current.value : {};
+    // the save checks the merged value and the version, in its own transaction
+    return this.save({ type: input.type, id: input.id, value: { ...value, ...input.set }, expect: input.expect ?? current.version, ...(input.run === undefined ? {} : { run: input.run }) }, asker);
   }
 
   async remove(input: RecordRemove, asker: DataAsker): Promise<boolean> {

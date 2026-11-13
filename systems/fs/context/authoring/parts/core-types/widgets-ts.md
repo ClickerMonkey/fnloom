@@ -11,17 +11,95 @@ tags: ["authoring", "reference"]
 
 ### From `packages/core/src/widgets.ts`
 
-#### <a id="core-makewidgetargs"></a>`MakeWidgetArgs`
+#### <a id="core-argplan"></a>`ArgPlan`
 
 const, type · declared in `packages/core/src/widgets.ts`
 
-`hub/make_widget`: the source fn, what the person wants, and the widget to change (absent: a new one).
+How a widget shows one argument of its source: a chip in the control row (labelled, limited to choices, with a
+default), `pinned` to a value (it leaves the widget's args; no chip), or `hidden` (no chip; it takes its default, so
+only an argument with a default may be hidden). An argument with no plan is a chip with the source's own words.
 
 ```ts
-type MakeWidgetArgs = {
-  source: `${string}/${string}`;
-  request: string;
-  widget?: `${string}/${string}` | undefined;
+type ArgPlan = {
+  show: "control";
+  label?: string | undefined;
+  choices?: {
+    label: string;
+    value?: {
+      literal: z.core.util.JSONType;
+    } | {
+      relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+    } | undefined;
+  }[] | undefined;
+  custom?: boolean | undefined;
+  default?: {
+    literal: z.core.util.JSONType;
+  } | {
+    relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+  } | undefined;
+} | {
+  show: "pinned";
+  value: {
+    literal: z.core.util.JSONType;
+  } | {
+    relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+  };
+} | {
+  show: "hidden";
+};
+```
+
+#### <a id="core-argvalue"></a>`ArgValue`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+A value for a source argument: a plain value, or a relative date resolved when the widget runs.
+
+```ts
+type ArgValue = {
+  literal: z.core.util.JSONType;
+} | {
+  relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+};
+```
+
+#### <a id="core-readtableargs"></a>`ReadTableArgs`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+`hub/read_table`: run a read fn that returns a table, as a child run of the caller, as its person.
+
+```ts
+type ReadTableArgs = {
+  fn: `${string}/${string}`;
+  args: Record<string, z.core.util.JSONType>;
+};
+```
+
+#### <a id="core-relativedate"></a>`RelativeDate`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+```ts
+type RelativeDate = "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+```
+
+#### <a id="core-rowactionsquery"></a>`RowActionsQuery`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+The actions offered on rows of these types (hub `rowActions` and `hub/row_actions`), narrowed by a widget's list.
+
+```ts
+type RowActionsQuery = {
+  types: `${string}/${string}`[];
+  narrow?: {
+    fn: `${string}/${string}`;
+    bind: Record<string, string>;
+    label?: string | undefined;
+    confirm?: true | undefined;
+    then?: "status" | "open" | "refresh" | undefined;
+  }[] | undefined;
 };
 ```
 
@@ -35,9 +113,9 @@ One action a widget keeps, relabels or confirms: a method of the row's type, or 
 type WidgetAction = {
   fn: `${string}/${string}`;
   bind: Record<string, string>;
-  then: "none" | "refresh" | "show";
   label?: string | undefined;
   confirm?: true | undefined;
+  then?: "status" | "open" | "refresh" | undefined;
 };
 ```
 
@@ -51,70 +129,99 @@ An action as a row's menu offers it: derived from the fn, narrowed and labelled 
 type WidgetActionOption = {
   fn: `${string}/${string}`;
   label: string;
-  mode: "read" | "write" | "delete";
+  mode: "write" | "read" | "delete";
   confirm: boolean;
   bind: Record<string, string>;
-  then: "none" | "refresh" | "show";
+  then: "status" | "open" | "refresh";
   form?: TypeDef<any> | undefined;
 };
 ```
 
-#### <a id="core-widgetcheck"></a>`WidgetCheck`
+#### <a id="core-widgetdrill"></a>`WidgetDrill`
 
 const, type · declared in `packages/core/src/widgets.ts`
 
-`hub/widget_check`: a spec and a sample of its source's result; the answer lists every problem, empty when fine.
+What clicking a bar, slice, point or row runs: a read fn returning a table, its args from the clicked row's columns,
+opened as a new level with a breadcrumb. Without one, a click opens the row's action menu.
 
 ```ts
-type WidgetCheck = {
-  spec: {
-    title: string;
-    source: `${string}/${string}`;
-    visuals: {
-      visual: string;
-      bind: Record<string, string[]>;
-      label?: string | undefined;
-    }[];
-    controls: {
-      arg: string;
-      label?: string | undefined;
-      choices?: z.core.util.JSONType[] | undefined;
-      custom?: boolean | undefined;
-      pinned?: z.core.util.JSONType | undefined;
-      hidden?: boolean | undefined;
-    }[];
-    paging?: {
-      size: number;
-      offset?: string | undefined;
-      limit?: string | undefined;
+type WidgetDrill = {
+  fn: `${string}/${string}`;
+  label: string;
+  bind: Record<string, string>;
+};
+```
+
+#### <a id="core-widgetpager"></a>`WidgetPager`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+How the buffered pager asks for more: the paging args, the window the run applied (`limit`), and whether more may
+follow (a full window means there may be; a short one is the last). The pager pages locally through what it holds and
+runs the widget again (offset = rows held) only when a page needs rows it lacks.
+
+```ts
+type WidgetPager = {
+  offset: string;
+  limit: string;
+  window: number;
+  more: boolean;
+};
+```
+
+#### <a id="core-widgetpaging"></a>`WidgetPaging`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+The source's paging args, which the buffered pager drives instead of showing them as controls.
+
+```ts
+type WidgetPaging = {
+  offset: string;
+  limit: string;
+};
+```
+
+#### <a id="core-widgetrange"></a>`WidgetRange`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+The source's range args a visual's range claim drives (a calendar's month, a zoomed time axis).
+
+```ts
+type WidgetRange = {
+  from: string;
+  to: string;
+};
+```
+
+#### <a id="core-widgetshowncontrol"></a>`WidgetShownControl`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+A chip in the control row: the argument, its words and type, what it offers and what it is set to.
+
+```ts
+type WidgetShownControl = {
+  arg: string;
+  label: string;
+  type: TypeDef<any>;
+  optional: boolean;
+  custom: boolean;
+  relative: boolean;
+  choices?: {
+    label: string;
+    value?: {
+      literal: z.core.util.JSONType;
+    } | {
+      relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
     } | undefined;
-    actions?: {
-      fn: `${string}/${string}`;
-      bind: Record<string, string>;
-      then: "none" | "refresh" | "show";
-      label?: string | undefined;
-      confirm?: true | undefined;
-    }[] | undefined;
-  };
-  sample: {
-    columns: {
-      name: string;
-      kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
-      nullable: boolean;
-      label?: string | undefined;
-      type?: TypeDef<any> | undefined;
-      ref?: `${string}/${string}` | undefined;
-    }[];
-    rows: z.core.util.JSONType[][];
-    offset: number;
-    truncated: boolean;
-    sort: {
-      column: string;
-      dir: "asc" | "desc";
-    }[];
-    limit?: number | undefined;
-    total?: number | undefined;
-  };
+  }[] | undefined;
+  value?: {
+    literal: z.core.util.JSONType;
+  } | {
+    relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+  } | undefined;
 };
 ```
 
@@ -122,7 +229,7 @@ type WidgetCheck = {
 
 const, type · declared in `packages/core/src/widgets.ts`
 
-A saved widget: the payload of a `hub/widget` fn.
+A saved widget: the payload of a `widgets/widget` fn.
 
 ```ts
 type WidgetSpec = {
@@ -130,29 +237,66 @@ type WidgetSpec = {
   source: `${string}/${string}`;
   visuals: {
     visual: string;
+    style: string;
     bind: Record<string, string[]>;
     label?: string | undefined;
   }[];
-  controls: {
-    arg: string;
+  args: Record<string, {
+    show: "control";
     label?: string | undefined;
-    choices?: z.core.util.JSONType[] | undefined;
+    choices?: {
+      label: string;
+      value?: {
+        literal: z.core.util.JSONType;
+      } | {
+        relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+      } | undefined;
+    }[] | undefined;
     custom?: boolean | undefined;
-    pinned?: z.core.util.JSONType | undefined;
-    hidden?: boolean | undefined;
+    default?: {
+      literal: z.core.util.JSONType;
+    } | {
+      relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+    } | undefined;
+  } | {
+    show: "pinned";
+    value: {
+      literal: z.core.util.JSONType;
+    } | {
+      relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+    };
+  } | {
+    show: "hidden";
+  }>;
+  presets: {
+    label: string;
+    sets: Record<string, {
+      literal: z.core.util.JSONType;
+    } | {
+      relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+    }>;
   }[];
+  range?: {
+    from: string;
+    to: string;
+  } | undefined;
   paging?: {
-    size: number;
-    offset?: string | undefined;
-    limit?: string | undefined;
+    offset: string;
+    limit: string;
   } | undefined;
   actions?: {
     fn: `${string}/${string}`;
     bind: Record<string, string>;
-    then: "none" | "refresh" | "show";
     label?: string | undefined;
     confirm?: true | undefined;
+    then?: "status" | "open" | "refresh" | undefined;
   }[] | undefined;
+  drill?: {
+    fn: `${string}/${string}`;
+    label: string;
+    bind: Record<string, string>;
+  } | undefined;
+  live?: true | undefined;
 };
 ```
 
@@ -160,11 +304,12 @@ type WidgetSpec = {
 
 const, type · declared in `packages/core/src/widgets.ts`
 
-One visual the widget offers, with which columns bind to each of its channels.
+One visual a widget offers: its name in `HUB_VISUALS`, the style shown, and the columns bound to each channel.
 
 ```ts
 type WidgetVisual = {
   visual: string;
+  style: string;
   bind: Record<string, string[]>;
   label?: string | undefined;
 };

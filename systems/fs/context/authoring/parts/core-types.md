@@ -45,7 +45,7 @@ choices:
   - to: "fs/authoring.core-types.llm-ts"
     when: "Pick this for From packages/core/src/llm.ts."
   - to: "fs/authoring.core-types.contextdecl"
-    when: "Pick this for ContextDecl, FnEffects, FnExample, FnMode, FnRouting, HookBlock, HookInput, ImportReport, KindDescription, Manifest."
+    when: "Pick this for ContextDecl, FnEffects, FnExample, FnLive, FnMode, FnRouting, HookBlock, HookInput, ImportReport, KindDescription, Manifest."
   - to: "fs/authoring.core-types.manifestpatch"
     when: "Pick this for ManifestPatch, ManifestSection, MentionHover, SectionDecl, SettingEditor, SettingMerge, TypeDecl, TypeDisplay."
   - to: "fs/authoring.core-types.mention-search-ts"
@@ -84,6 +84,8 @@ choices:
     when: "Pick this for From packages/core/src/system-providers.ts."
   - to: "fs/authoring.core-types.validation-ts"
     when: "Pick this for From packages/core/src/validation.ts."
+  - to: "fs/authoring.core-types.visuals-ts"
+    when: "Pick this for From packages/core/src/visuals.ts."
   - to: "fs/authoring.core-types.widgets-ts"
     when: "Pick this for From packages/core/src/widgets.ts."
 ---
@@ -93,7 +95,7 @@ choices:
 The wire shapes from `@harness/core` that the SDK's declarations refer to, each resolved to plain TypeScript. Each is a
 zod schema in core with its type inferred from it; import the type (and the schema, to parse) from `@harness/core`.
 
-This part is in 39 pieces; load the one you need:
+This part is in 40 pieces; load the one you need:
 
 - [From packages/core/src/access.ts](context:fs/authoring.core-types.access-ts)
 - [From packages/core/src/admin.ts](context:fs/authoring.core-types.admin-ts)
@@ -133,4 +135,5 @@ This part is in 39 pieces; load the one you need:
 - [From packages/core/src/system-events.ts](context:fs/authoring.core-types.system-events-ts)
 - [From packages/core/src/system-providers.ts](context:fs/authoring.core-types.system-providers-ts)
 - [From packages/core/src/validation.ts](context:fs/authoring.core-types.validation-ts)
+- [From packages/core/src/visuals.ts](context:fs/authoring.core-types.visuals-ts)
 - [From packages/core/src/widgets.ts](context:fs/authoring.core-types.widgets-ts)

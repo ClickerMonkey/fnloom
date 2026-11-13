@@ -6,7 +6,7 @@ import {
   ProviderConfig, ProviderInput, ProviderKind, RunControl, RunControlAction, SessionControlAction, SessionId, isIdKind,
   isHeardSystemStatus, mintId, qualify, runsSlice, settingsSlice, splitName, systemLinkSpec, systemsSlice,
   contextSlice, contextorSlice, mcpsSlice, metricsSlice, modelsSlice, packagingSlice, resourcesSlice, querySlice, suggestionsSlice, autoPairSlice,
-  accessSlice, connectionsSlice, pickerSlice, approvalsSlice, registriesSlice, fnsSlice, explorerSlice, reviewSlice, graphSlice, identitySlice, versionsSlice, dataSlice, widgetsSlice,
+  accessSlice, connectionsSlice, pickerSlice, approvalsSlice, registriesSlice, fnsSlice, explorerSlice, reviewSlice, graphSlice, identitySlice, versionsSlice, dataSlice, rowActionsSlice, exportSlice,
 } from './index.ts';
 
 describe('ids', () => {
@@ -137,7 +137,8 @@ describe('specs', () => {
   for (const [name, spec] of [['hubLinkSpec', hubLinkSpec], ['systemLinkSpec', systemLinkSpec], ['hubWebSpec', hubWebSpec]] as const) {
     it(`${name} builds a manifest with a unique short ws id per endpoint`, () => {
       const manifest = manifestFromSpec(spec);
-      const ids = Object.values(manifest.endpoints).map((e) => e.ws);
+      // a raw stream (the CSV export) is HTTP only, so it has no ws id
+      const ids = Object.values(manifest.endpoints).filter((e) => !e.httpOnly).map((e) => e.ws);
       expect(ids.every((id) => typeof id === 'string' && id.length > 0)).toBe(true);
       expect(new Set(ids).size).toBe(ids.length);
     });
@@ -148,7 +149,7 @@ describe('specs', () => {
       authSlice, chatSlice, runsSlice, findSlice, inboxSlice, contentSlice, systemsSlice, settingsSlice, adminSlice, eventsSlice,
       resourcesSlice, contextSlice, contextorSlice, modelsSlice, metricsSlice, mcpsSlice, packagingSlice, querySlice, suggestionsSlice, autoPairSlice,
       accessSlice, connectionsSlice, pickerSlice, approvalsSlice, registriesSlice, fnsSlice, explorerSlice, reviewSlice, graphSlice,
-      identitySlice, versionsSlice, dataSlice, widgetsSlice,
+      identitySlice, versionsSlice, dataSlice, rowActionsSlice, exportSlice,
     ];
     const fromSlices = slices.flatMap((slice) => Object.entries(slice.endpoints));
     expect(Object.keys(hubWebSpec.endpoints)).toHaveLength(fromSlices.length);

@@ -23,8 +23,8 @@ type SystemEvent = {
   type: "message";
   message: {
     session: string;
-    id: string;
     role: "user" | "note" | "assistant";
+    id: string;
     createdAt: number;
     author: string;
     replyAll: boolean;

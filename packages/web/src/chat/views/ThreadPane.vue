@@ -18,7 +18,10 @@ import { copyText, UiButton, UiEmpty, UiPopover, UiSkeleton } from '../../ui/ind
 import { useTicker } from '../clock.ts';
 import { isRememberable } from '../../components/approvals/rules.ts';
 import { RESULTS_HOST } from '../../components/results/builtin.ts';
-import { saveWidgetRequest, WIDGET_HOST } from '../../components/widgets/widgets.ts';
+import { WIDGET_HOST } from '../../components/widgets/widgets.ts';
+import { useRouteQuery } from '../../app/url.ts';
+import { ROUTES } from '../../app/routes.ts';
+import { threadWidgetHost } from '../state/widget-host.ts';
 import ApprovalTray from '../components/ApprovalTray.vue';
 import AssistantAnswer from '../components/AssistantAnswer.vue';
 import BackgroundStrip from '../components/BackgroundStrip.vue';
@@ -134,23 +137,20 @@ provide(ACCESS_INFO, { get multiUser() { return chat.access.multiUser.value; } }
 provide(SHARE_EDITOR, ShareEditor);
 provide(RESULTS_HOST, chat.visuals);
 provide(VISUALS, chat.visuals.source);
-// widgets in the thread: their row actions, controls and refresh run here as ordinary runs; a result table can be saved as one
-provide(WIDGET_HOST, {
-  actions: (types, widget) => data.widgetActions(types, widget),
-  run: async (fn, args) => {
-    const run = await thread.invoke(fn, args);
-    if (run === undefined) { toasts.error("Couldn't run that", thread.problem.value); return false; }
+// widgets in the thread: their reads and actions run here as the person's runs, drill levels live in the URL (`level`),
+// a result table can be made into a widget and a proposal changed by asking the agent
+const levelQuery = useRouteQuery(ROUTES.session).text('level');
+provide(WIDGET_HOST, threadWidgetHost({
+  thread, data,
+  levels: { get: () => levelQuery.value, set: (text) => { levelQuery.value = text; } },
+  ask: async (text, send) => {
+    if (!send) { composer.replace(text); composerBox.value?.focus(); return true; }
+    const sent = await thread.send({ parts: [{ type: 'text', text }] });
+    if (!sent) { toasts.error("Couldn't ask the agent", thread.problem.value); return false; }
     scroller.value?.toBottom();
     return true;
   },
-  argsType: (fn) => chat.capabilities.invocation(fn)?.args,
-  saveAsWidget: async (fn, args) => {
-    const sent = await thread.send({ parts: [{ type: 'text', text: saveWidgetRequest(fn, args) }] });
-    if (!sent) { toasts.error("Couldn't ask for a widget", thread.problem.value); return false; }
-    scroller.value?.toBottom();
-    return true;
-  },
-});
+}));
 void chat.access.load();
 
 /** A budget raise is being saved. */

@@ -31,6 +31,7 @@ export function registerDataFns(fns: HubFns, deps: DataFnDeps): void {
     table: toolArgsOf(HUB_DATA_ENDPOINTS.records_table.cfg.body).read,
     versions: toolArgsOf(HUB_DATA_ENDPOINTS.record_versions.cfg.body).read,
     save: toolArgsOf(HUB_DATA_ENDPOINTS.record_save.cfg.body).read,
+    update: toolArgsOf(HUB_DATA_ENDPOINTS.record_update.cfg.body).read,
     remove: toolArgsOf(HUB_DATA_ENDPOINTS.record_remove.cfg.body).read,
   };
   fns.register(refs.data_sets, async (given, ctx) => deps.data().sets(args.sets(given), await askerOf(deps, ctx)));
@@ -42,5 +43,6 @@ export function registerDataFns(fns: HubFns, deps: DataFnDeps): void {
   fns.register(refs.records_table, async (given, ctx) => deps.data().table(args.table(given), await askerOf(deps, ctx)));
   fns.register(refs.record_versions, async (given, ctx) => deps.data().versions(args.versions(given), await askerOf(deps, ctx)));
   fns.register(refs.record_save, async (given, ctx) => deps.data().save(args.save(given), await askerOf(deps, ctx)));
+  fns.register(refs.record_update, async (given, ctx) => deps.data().update(args.update(given), await askerOf(deps, ctx)));
   fns.register(refs.record_remove, async (given, ctx) => ({ removed: await deps.data().remove(args.remove(given), await askerOf(deps, ctx)) }));
 }

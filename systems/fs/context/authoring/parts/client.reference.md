@@ -568,75 +568,44 @@ interface InputMount extends Mount<'input'> {
 
 Refers to: [`Json`](context:fs/authoring.core-types.primitives-ts#core-json).
 
-#### `VisualView`
-
-interface · `import { VisualView } from '@harness/sdk'`
-
-The props of a visual (an entry of a registry such as the hub's `hub/visuals`): the rows to draw.
-
-```ts
-interface VisualView {
-  table: ResultTable;
-}
-```
-
-Refers to: [`ResultTable`](context:fs/authoring.core-types.registries-ts#core-resulttable).
-
-#### `VisualEntry`
-
-interface · `import { VisualEntry } from '@harness/sdk'`
-
-One visual a system adds to a registry: whether a result fits it and how much of it it shows well (`VisualFit`,
-score 0 to 1; the table scores 0), and the component that draws it. Keep `match` cheap and pure: it runs for
-every result the person sees. Without `match`, the contribution's declared shape (`visual({ shape })`) judges the fit
-(`declaredFit`) with `DECLARED_FIT_SCORE`; a visual needs one or the other.
-
-```ts
-interface VisualEntry<C extends ContractShape> {
-  match?(table: ResultTable): VisualFit;
-  component: Renderer<VisualView & WithSystem<C>>;
-}
-```
-
-Refers to: [`ResultTable`](context:fs/authoring.core-types.registries-ts#core-resulttable), [`VisualFit`](context:fs/authoring.core-types.registries-ts#core-visualfit).
-
 #### `VisualOption`
 
 interface · `import { VisualOption } from '@harness/sdk'`
 
-A visual that fits a result, as the chat's client runtime finds it among every loaded contribution.
+A system's visual for a result, as the chat's client runtime finds it among every loaded contribution: not vetoed,
+with what the result view needs to mount it. The view ranks these with the built-in visuals (`rankedVisuals`).
 
 ```ts
 interface VisualOption {
   readonly system: string;
   readonly name: string;
-  /** What the switcher shows ("Bar chart"): the contribution's `label` in the contract. */
+  /** What the switcher shows ("Waffle"): the contribution's `label` in the contract. */
   readonly label: string;
   /** An icon name from the web app's icon set, when the contribution names one. */
   readonly icon?: string;
-  /** The data it draws, when the contribution declares it (its channels, for a widget's bindings). */
-  readonly shape?: VisualShape;
-  readonly fit: VisualFit;
+  /** The data it draws, as declared. */
+  readonly shape: VisualShape;
   readonly component: Component;
-  readonly props: VisualView & WithSystem<ContractShape>;
+  /** The `system` prop its component gets beside `VisualView`. */
+  readonly client: SystemClient<ContractShape>;
 }
 ```
 
-Refers to: [`VisualFit`](context:fs/authoring.core-types.registries-ts#core-visualfit), [`VisualShape`](context:fs/authoring.core-types.registries-ts#core-visualshape).
+Refers to: [`VisualShape`](context:fs/authoring.core-types.registries-ts#core-visualshape).
 
 #### `VisualSource`
 
 interface · `import { VisualSource } from '@harness/sdk'`
 
-The visuals of a registry that fit a result, best fit first and the table last (`ClientRuntime.visuals`).
+The systems' visuals of a registry that a result may use: not vetoed, in load order (`ClientRuntime.visuals`).
 
 ```ts
 interface VisualSource {
-  visuals(registry: QualifiedName, table: ResultTable): readonly VisualOption[];
+  visuals(registry: QualifiedName, table: ResultTable, facts: ResultFacts): readonly VisualOption[];
 }
 ```
 
-Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname), [`ResultTable`](context:fs/authoring.core-types.registries-ts#core-resulttable).
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname), [`ResultFacts`](context:fs/authoring.core-types.visuals-ts#core-resultfacts), [`ResultTable`](context:fs/authoring.core-types.registries-ts#core-resulttable).
 
 #### `VISUALS`
 

@@ -44,8 +44,9 @@ import { registerResourceFns } from '../resources/fns.ts';
 import { accessModule } from '../access/create.ts';
 import { dataModule } from '../data/create.ts';
 import { registerDataFns } from '../data/fns.ts';
-import { registerWidgetFns, widgetServiceOf } from '../widgets/fns.ts';
-import type { WidgetService } from '../widgets/service.ts';
+import { registerTableFns, tableServiceOf } from '../tables/fns.ts';
+import type { TableService } from '../tables/index.ts';
+import { migrateWidgets } from '../tables/migrate.ts';
 import { connectionsModule } from '../connections/create.ts';
 import { fnsModule } from '../fns/create.ts';
 
@@ -95,9 +96,11 @@ function systemsModules(seams: ModuleSeams): Pick<HubModules, 'catalog' | 'link'
     catalog: (context) => {
       const { catalog } = systemsOf(context);
       // the hub's own contract (its chat agent, its fns, mentions and types) is in the catalog like any system's
-      // build 5's fn versions and build 7's type versions move into the one history table before anything imports
+      // build 5's fn versions and build 7's type versions move into the one history table before anything imports, and
+      // build 8's hub widgets become the widgets system's
       const up = async (): Promise<void> => {
         await migrateOldVersions(context.hub.store, context.hub.log);
+        await migrateWidgets(context.hub.store, context.hub.log);
         await catalog.indexStoredFns();
         await importHubContract(catalog, context.hub.log);
       };
@@ -184,8 +187,8 @@ export function registerHubContract(module: { readonly hubFns: ExecutionModule['
     person: () => (person ??= personOperations(hub)), explore: () => (explore ??= exploreOperations(hub)), adminReads: () => (adminReads ??= adminReadOperations(hub)),
   });
   registerDataFns(module.hubFns, { data: () => hub.data, access: (actor) => hub.access.scope(actor) });
-  let widgets: WidgetService | undefined;
-  registerWidgetFns(module.hubFns, () => (widgets ??= widgetServiceOf(hub)));
+  let tables: TableService | undefined;
+  registerTableFns(module.hubFns, () => (tables ??= tableServiceOf(hub)));
   registerMcpFns(module.hubFns, { tokens: () => hub.mcp.tokens, settings: hub.settings.mcpEnv });
   registerResourceFns(module.hubFns, { resources: () => hub.resources, store: () => hub.store, llm: () => hub.execution.llm, mcpScope, access: (actor) => hub.access.scope(actor) });
   registerContextorFns(module.hubFns, {

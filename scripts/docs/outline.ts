@@ -84,7 +84,7 @@ export const OUTLINE: readonly Topic[] = [
     id: 'hub',
     title: 'The hub contract',
     exports: [
-      'hub', 'HubContract', 'ADMIN_ENDPOINTS', 'AdminFnName', 'HUB_READ_ENDPOINTS', 'HubReadFnName', 'HUB_WRITE_ENDPOINTS', 'HubWriteFnName', 'HUB_PERSON_ENDPOINTS', 'HubPersonFnName', 'HUB_EXPLORE_ENDPOINTS', 'HubExploreFnName', 'HUB_DATA_ENDPOINTS', 'WidgetSourceArgs', 'WidgetSaveArgs', 'ADMIN_READ_ENDPOINTS', 'AdminReadFnName', 'FIND_KINDS',
+      'hub', 'HubContract', 'ADMIN_ENDPOINTS', 'AdminFnName', 'HUB_READ_ENDPOINTS', 'HubReadFnName', 'HUB_WRITE_ENDPOINTS', 'HubWriteFnName', 'HUB_PERSON_ENDPOINTS', 'HubPersonFnName', 'HUB_EXPLORE_ENDPOINTS', 'HubExploreFnName', 'HUB_DATA_ENDPOINTS', 'ADMIN_READ_ENDPOINTS', 'AdminReadFnName', 'FIND_KINDS',
       'LlmPayloadType', 'ModelChoiceType', 'ChatModeType', 'ContextorType', 'FnErrorType', 'StoredFn', 'SaveFnArgs', 'SAVE_FN_TAKEN',
     ],
   },
@@ -115,15 +115,19 @@ export const OUTLINE: readonly Topic[] = [
     exports: [
       'client', 'ClientRenderers', 'ClientModule', 'Renderer', 'FnView', 'FnViewOf', 'AttachmentView', 'AttachmentViewOf', 'InputView', 'InputViewOf', 'MentionView', 'ResourceView',
       'SystemClient', 'WithSystem', 'Delivery', 'ResourceViewerEntry', 'BareViewer', 'ResourceViewerMode', 'RESOURCE_VIEWER_MODES', 'RESOURCE_VIEWER', 'ResourceViewerProps', 'INPUT_ANSWERS', 'VALUE_EDITOR', 'ACCESS_INFO', 'SHARE_EDITOR', 'ShareEditorProps', 'InputAnswer', 'InputAnswers', 'ValueEditorProps', 'buildClient', 'BuildClientOptions', 'sharedModules', 'inlineCss', 'SHARED_IMPORTS',
-      'AnyViews', 'WireViews', 'Mount', 'InputMount', 'VisualView', 'VisualEntry', 'VisualOption', 'VisualSource', 'VISUALS',
+      'AnyViews', 'WireViews', 'Mount', 'InputMount', 'VisualOption', 'VisualSource', 'VISUALS',
     ],
   },
   {
     id: 'widgets',
     title: 'Visuals and widgets',
     exports: [
-      'HUB_VISUALS', 'WIDGET_KIND_V1', 'visual', 'VisualInput', 'channel', 'fittingVisuals', 'FittingVisual', 'DECLARED_FIT_SCORE', 'visualMatch',
-      'widgetArgs', 'widgetControls', 'WidgetControlView', 'checkWidget', 'WidgetCheckInput', 'WidgetCheckResult', 'widgetSpecSchema', 'WidgetSchemaInput', 'widgetActionOptions', 'RowFn',
+      'HUB_VISUALS', 'BUILT_IN_CONTRIBUTIONS', 'visual', 'VisualInput', 'channel', 'ChannelOptions', 'resultFacts', 'ginTypeFacts', 'rankedVisuals', 'VisualContribution', 'RankedVisual',
+      'VisualView', 'VisualEntry', 'VisualPalette', 'VisualRange', 'VISUAL_EMITS', 'VisualEmits', 'visualTheme', 'VisualTheme',
+      'WIDGETS_SYSTEM', 'WIDGET_KIND', 'argsOf', 'ArgInfo', 'WINDOW_ARGS', 'pagingOf', 'rangeOf', 'widgetArgs', 'widgetControls', 'widgetRunArgs', 'WidgetRunOptions', 'widgetPager',
+      'resolveRelative', 'resolveArgValue', 'relativeDatesFor', 'widgetActionOptions', 'RowFn', 'boundArgs', 'returnsTable', 'ginTypeOf',
+      'checkWidget', 'WidgetCheckInput', 'WidgetCheckResult', 'sourceCompatible', 'SourceCompatibleOptions',
+      'widgetProposalSchema', 'WidgetProposalSchemaInput', 'WidgetProposalSchema', 'WidgetDraftInput', 'WidgetDraft',
     ],
   },
   {
@@ -137,7 +141,7 @@ export const OUTLINE: readonly Topic[] = [
   {
     id: 'testing',
     title: 'Testing',
-    exports: ['FakeHub', 'FakeHubOptions', 'FakeProcess', 'TEST_USER', 'TEST_PLACE', 'NO_ASKS', 'HubBody', 'SystemBody', 'streamOf', 'liveEnv', 'liveModels', 'expectType', 'Equal', 'Simplify', 'MemoryKeyStore', 'MemoryJournal', 'FakeHubFns', 'KeptFn',
+    exports: ['FakeHub', 'FakeHubOptions', 'FakeProcess', 'TEST_USER', 'TEST_PLACE', 'NO_ASKS', 'HubBody', 'SystemBody', 'streamOf', 'liveEnv', 'liveModels', 'expectType', 'Equal', 'Simplify', 'MemoryKeyStore', 'MemoryJournal', 'FakeHubFns', 'KeptFn', 'FakeHubWidgets', 'HUB_WIDGET_FNS', 'FakeTableSource',
       'FakeModelLink', 'fakeHubAi', 'replyChunks', 'FakeModelOptions', 'FakeReply', 'checkContextFolder', 'contextFolderLinks', 'CheckedContext', 'KnownNames',
       'testHub', 'TestSystem', 'TestHubOptions', 'callFn', 'CallNotDone', 'TestCall', 'TestRun', 'TestOutcome', 'HubCalls', 'FnNameOf', 'FnArgsOf', 'FnResultOf', 'KindNameOf', 'KindPayloadOf', 'KindProps',
       'mockModel', 'toolCall', 'ScriptStep', 'ModelRecording', 'RecordedModelLink', 'RecordingOptions', 'realModel', 'RealModelTest', 'OpenRouterModelLink', 'OpenRouterOptions',

@@ -4,7 +4,8 @@
  * once per fn version. Whether a session may use a fn (switched on, available, a system the session uses) is
  * answered here too, so every mode and contextor asks the same question the same way.
  */
-import { effectsLine, type Audience, type FnRecord, type QualifiedName, type RegistryEffect, type Session, type TypeRecord } from '@harness/core';
+import { effectsLine, RESULT_TABLE_ROUTING, type Audience, type FnRecord, type QualifiedName, type RegistryEffect, type Session, type TypeRecord } from '@harness/core';
+import { returnsTable } from '@harness/sdk';
 import type { AccessScope } from '../access/index.ts';
 import type { Catalog } from '../catalog/index.ts';
 import { GinScopes } from '../catalog/scope.ts';
@@ -84,7 +85,11 @@ export class CatalogFnViews implements FnViewSource {
     const cached = this.#cache.get(name);
     if (cached?.version === record.version) return { ...cached.view, record, ...effects };
     const signature = await this.#catalog.signature(name);
-    const view: FnView = { record, signature, args: signature.args.toCode(), returns: signature.returns.toCode(), types: await this.#types(record) };
+    const view: FnView = {
+      record, signature, args: signature.args.toCode(), returns: signature.returns.toCode(), types: await this.#types(record),
+      // a fn that returns a table is drawn for the person: its line says so
+      ...(returnsTable(record.decl.returns) ? { routing: RESULT_TABLE_ROUTING } : {}),
+    };
     this.#cache.set(name, { version: record.version, view });
     return { ...view, ...effects };
   }

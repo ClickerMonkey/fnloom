@@ -1,35 +1,54 @@
 /**
- * Widgets for system authors and for the hub's widget kind (`hub/widget`), after product's widget design. A widget is a
- * saved view of a fn that returns a `ResultTable`: the visuals it switches between with their bindings, a control per
- * source argument, the paging it drives, and the actions offered on each row (`WidgetSpecV1` in `@harness/core`).
+ * Visuals and widgets for system authors and the bundled widgets system (`widgets/widget`), after product's widget
+ * design. A widget is a saved view of a read fn that returns a `ResultTable`: the visuals it switches between, a plan
+ * per source argument (a chip, pinned or hidden), presets, the range and paging args the view drives, the actions on
+ * each row and what a click drills into (`WidgetSpec` in `@harness/core`).
  *
- * These are the pure pieces every side shares, so a fit, a check or a control means the same thing in a system, the
- * hub's kind and `hub/make_widget`, and the web app:
+ * These are the pure pieces every side shares, so a fit, a control or an action means the same thing in a system, the
+ * widgets system, the hub and the web app:
  *
- * - **Visuals:** `visual(...)` declares a contribution to the hub's visual registry (`HUB_VISUALS`) with its shape,
- *   `channel(...)` one of its inputs; `fittingVisuals` lists the declared visuals whose shape fits a table.
- * - **Args and controls:** `widgetArgs` is the widget's args (the source's minus the pinned ones and the page size);
- *   `widgetControls` the controls a widget shows, in the source's order.
- * - **Checks:** `checkWidget` lists every problem with a spec against a real result and says which visuals still fit;
- *   the kind's handler and `widget_check` both use it. `widgetSpecSchema` is the strict schema an authoring agent
- *   drafts against, built from the source's args, the result's columns and the visuals that fit.
- * - **Actions:** `widgetActionOptions` turns a row type's methods into the menu a row offers, narrowed and relabelled
- *   by the spec, with a confirm for anything above a read (`confirmOf`) and a form for the args left after binding.
+ * - **Visuals:** `visual(...)` declares a contribution to `HUB_VISUALS` with its shape, `channel(...)` one of its
+ *   inputs. `resultFacts` is core's `columnFacts` with the gin facts of each column's type (`ginTypeFacts`);
+ *   `rankedVisuals` is core's coverage-first `rankVisuals` over registry contributions.
+ * - **Args and controls:** `widgetArgs` is the widget's args type, `widgetControls` its chip row, `widgetRunArgs` the
+ *   source args a run uses (relative dates resolved), `widgetPager` the buffered pager's state after a run.
+ * - **Actions and drill:** `widgetActionOptions` the menu a row offers (with the derived `then`), `boundArgs` the args a
+ *   click takes from a row, `returnsTable` whether a fn's declared return is a table.
+ *
+ * Checks and the authoring schema are in `widget-check.ts` and `widget-schema.ts`; relative dates in `relative-dates.ts`.
  */
 import {
-  ContributionDecl, HUB_VISUALS, Json, LocalName, QualifiedName, WidgetSpecV1, actionLabel, confirmOf, declaredFit,
-  type ActionThenV1, type ColumnKind, type FnMode, type GinTypeDef, type ResultColumn, type ResultTable, type VisualChannel, type VisualShape, type VisualShapeInput,
-  type WidgetActionV1, type WidgetActionOptionV1, type WidgetVisualV1,
+  BUILT_IN_VISUALS, ContributionDecl, HUB_VISUALS, Json, VISUAL_FAMILIES, LocalName, ResultTable, actionLabel, columnFacts, confirmOf, deriveThen, rankVisuals,
+  type ArgPlan, type ChoiceOption, type GinTypeDef, type ColumnFacts, type ColumnKind, type FnMode, type QualifiedName, type ResultColumn, type ResultFacts,
+  type VisualChannel, type VisualRank, type VisualShape, type VisualShapeInput, type WidgetAction, type WidgetActionOption, type WidgetPager, type WidgetPaging, type WidgetRange,
+  type WidgetShownControl, type WidgetSpec,
 } from '@harness/core';
+import type { TypeScope } from '@aeye/gin';
 import { z } from 'zod';
+import { g, type GinType } from './gin.ts';
+import { ginAs } from './zod-gin.ts';
+import { relativeDatesFor, resolveArgValue } from './relative-dates.ts';
 
-export { HUB_VISUALS, WIDGET_KIND_V1 } from '@harness/core';
+export { HUB_VISUALS, WIDGET_KIND, WIDGETS_SYSTEM } from '@harness/core';
 
 // ─── Visuals ──────────────────────────────────────────────────────────────────
 
-/** One input of a visual: `channel('value', 'Value', ['integer', 'number'])`; required and single unless said. */
-export function channel(name: string, label: string, accepts: readonly ColumnKind[], options: { required?: boolean; many?: boolean } = {}): VisualChannel {
-  return { name: LocalName.parse(name), label, accepts: [...accepts], required: options.required ?? true, many: options.many ?? false };
+/** What `channel()` takes besides the name, label and kinds: all optional (required and single by default). */
+export interface ChannelOptions {
+  readonly required?: boolean;
+  readonly many?: boolean;
+  /** The fewest columns a `many` channel needs. */
+  readonly min?: number;
+  /** The role its columns must have: a category wants a `group` key, a value a `measure`. */
+  readonly role?: 'group' | 'measure';
+}
+
+/** One input of a visual: `channel('y', 'Value', ['integer', 'number'], { role: 'measure' })`; required and single unless said. */
+export function channel(name: string, label: string, accepts: readonly ColumnKind[], options: ChannelOptions = {}): VisualChannel {
+  return {
+    name: LocalName.parse(name), label, accepts: [...accepts], required: options.required ?? true, many: options.many ?? false,
+    ...(options.min === undefined ? {} : { min: options.min }), ...(options.role === undefined ? {} : { role: options.role }),
+  };
 }
 
 /** What `visual()` takes: the visual's name, its switcher label and icon, and the data it draws. */
@@ -42,11 +61,11 @@ export interface VisualInput {
 }
 
 /**
- * A visual this system adds to the hub's visual registry, for `system(name, { contributes: [visual(...)] })`; its
- * component and match logic go in `client({ visuals: { [HUB_VISUALS]: { <name>: { match, component } } } })`.
+ * A visual this system adds to the hub's visual registry, for `system(name, { contributes: [visual(...)] })`. Its
+ * component (and an optional veto) go in `client({ visuals: { [HUB_VISUALS]: { <name>: { component } } } })`.
  *
  * ```ts
- * visual({ name: 'pie', label: 'Pie', shape: { channels: [channel('label', 'Slice', ['text']), channel('value', 'Size', ['integer', 'number'])], rows: { min: 1, max: 12 }, whole: true } })
+ * visual({ name: 'waffle', label: 'Waffle', shape: { channels: [channel('itemName', 'Square', ['text'], { role: 'group' }), channel('value', 'Size', ['integer'], { role: 'measure' })], rows: { min: 1, max: 10 }, whole: true } })
  * ```
  */
 export function visual(input: VisualInput): ContributionDecl {
@@ -60,279 +79,245 @@ export function visual(input: VisualInput): ContributionDecl {
   });
 }
 
-/** A declared visual whose shape fits a table, with its shape. */
-export interface FittingVisual {
-  readonly name: string;
-  readonly label: string;
-  readonly shape: VisualShape;
+/**
+ * The app's own visuals (`BUILT_IN_VISUALS`: the table, the value cards and the twelve ECharts families) as the hub
+ * contributes them to `HUB_VISUALS`, in registry order. The web app draws them; systems add theirs after.
+ */
+export const BUILT_IN_CONTRIBUTIONS: readonly ContributionDecl[] = VISUAL_FAMILIES.map((name) => {
+  const builtIn = BUILT_IN_VISUALS[name];
+  return ContributionDecl.parse({ registry: HUB_VISUALS, name, label: builtIn.label, description: builtIn.description, icon: builtIn.icon, shape: builtIn.shape });
+});
+
+const EnumOptions = z.object({ values: z.record(z.string(), Json) });
+const BoundOptions = z.object({ min: z.number(), max: z.number() });
+
+/** A type without its `optional` or `nullable` wrapper. */
+function bare(type: GinTypeDef): GinTypeDef {
+  const inner = type.name === 'optional' || type.name === 'nullable' ? type.generic?.['T'] : undefined;
+  return inner === undefined ? type : bare(inner);
+}
+
+/** An enum type's values by label, or `undefined` when the type is not an enum. */
+function enumValues(type: GinTypeDef): Record<string, Json> | undefined {
+  const bareType = bare(type);
+  if (bareType.name !== 'enum') { return undefined; }
+  const parsed = EnumOptions.safeParse(bareType.options);
+  return parsed.success ? parsed.data.values : undefined;
 }
 
 /**
- * The visuals of `HUB_VISUALS` (among `entries`, every system's contributions) whose declared shape fits the table. A
- * widget that pages its source (`paged`) shows every page, so a `whole` visual is judged as if the table were whole.
+ * What a column's gin type says that core can't read (core runs no gin): an enum's members and a number's declared
+ * range. Pass it to `columnFacts` as `typeFacts`, or use `resultFacts`.
  */
-export function fittingVisuals(table: ResultTable, entries: readonly ContributionDecl[], paged = false): FittingVisual[] {
-  const judged = paged ? { ...table, offset: 0, truncated: false } : table;
-  return entries.flatMap((entry) => {
-    if (entry.registry !== HUB_VISUALS || entry.shape === undefined || !declaredFit(entry.shape, judged).fits) { return []; }
-    return [{ name: entry.name, label: entry.label, shape: entry.shape }];
+export function ginTypeFacts(column: ResultColumn): Pick<ColumnFacts, 'members' | 'bound'> {
+  if (column.type === undefined) { return {}; }
+  const values = enumValues(column.type);
+  if (values !== undefined) { return { members: Object.values(values).map((value) => (typeof value === 'string' ? value : JSON.stringify(value))) }; }
+  const type = bare(column.type);
+  const bound = type.name === 'num' ? BoundOptions.safeParse(type.options) : undefined;
+  return bound?.success === true ? { bound: bound.data } : {};
+}
+
+/** A table's column facts with its columns' gin facts: what the widgets system attaches and the web recomputes. */
+export function resultFacts(table: Pick<ResultTable, 'columns' | 'rows' | 'offset' | 'truncated'>): ResultFacts {
+  return columnFacts(table, ginTypeFacts);
+}
+
+/** A visual a registry offers, as `rankedVisuals` reads it (`ContributionDecl`, `ContributionView`). */
+export interface VisualContribution {
+  readonly registry: string;
+  readonly name: string;
+  readonly label: string;
+  readonly shape?: VisualShape | undefined;
+}
+
+/** A contribution that can draw a result, with its rank. */
+export interface RankedVisual<E extends VisualContribution> {
+  readonly entry: E;
+  readonly rank: VisualRank;
+}
+
+/**
+ * Every `HUB_VISUALS` contribution among `entries` that can draw a result, best first (core's `rankVisuals`: coverage,
+ * then priority, then the entries' order). Contributions to other registries and ones without a shape are left out.
+ */
+export function rankedVisuals<E extends VisualContribution>(entries: readonly E[], facts: ResultFacts, table?: Pick<ResultTable, 'rows' | 'columns'>): RankedVisual<E>[] {
+  const shaped = entries.flatMap((entry) => (entry.registry === HUB_VISUALS && entry.shape !== undefined ? [{ entry, shape: entry.shape }] : []));
+  const byName = new Map(shaped.map((item) => [item.entry.name, item.entry]));
+  return rankVisuals(shaped.map((item) => ({ name: item.entry.name, shape: item.shape })), facts, table).flatMap((rank) => {
+    const entry = byName.get(rank.visual);
+    return entry === undefined ? [] : [{ entry, rank }];
   });
 }
 
 // ─── Args and controls ────────────────────────────────────────────────────────
 
-/** One argument of an object type: its type (without an optional wrapper) and whether it must be given. */
-interface ArgInfo {
+/** One argument of a fn's args type: its type (without an optional wrapper) and whether it must be given. */
+export interface ArgInfo {
   readonly name: string;
   readonly type: GinTypeDef;
+  /** Neither optional nor defaulted. */
   readonly required: boolean;
+  /** It declares a default, so leaving it out still gives it a value. */
+  readonly defaulted: boolean;
 }
 
 /** The args of a fn's args type, in order. A type that is not an object has none. */
-function argsOf(args: GinTypeDef): ArgInfo[] {
+export function argsOf(args: GinTypeDef): ArgInfo[] {
   return Object.entries(args.props ?? {}).map(([name, prop]) => {
-    const optional = prop.type.name === 'optional' || prop.default !== undefined;
-    const inner = prop.type.name === 'optional' ? prop.type.generic?.['T'] ?? prop.type : prop.type;
-    return { name, type: inner, required: !optional };
+    const optional = prop.type.name === 'optional';
+    const inner = optional ? prop.type.generic?.['T'] ?? prop.type : prop.type;
+    const defaulted = prop.default !== undefined;
+    return { name, type: inner, required: !optional && !defaulted, defaulted };
   });
 }
 
-/** The source args the widget's pager drives. */
-function pagingArgs(spec: Pick<WidgetSpecV1, 'paging'>): Set<string> {
-  return new Set([spec.paging?.offset, spec.paging?.limit].filter((arg): arg is string => arg !== undefined));
+/** The args a buffered pager drives, when a source has both (`limit` and `offset`, as the database's query fns name them). */
+export const WINDOW_ARGS: WidgetPaging = { offset: 'offset', limit: 'limit' };
+
+/** The source's paging args (`WINDOW_ARGS`, both whole-number args), or `undefined` when it doesn't page. */
+export function pagingOf(args: GinTypeDef): WidgetPaging | undefined {
+  const found = new Map(argsOf(args).map((arg) => [arg.name, arg]));
+  const numeric = (name: string): boolean => found.get(name)?.type.name === 'num';
+  return numeric(WINDOW_ARGS.offset) && numeric(WINDOW_ARGS.limit) ? WINDOW_ARGS : undefined;
+}
+
+/** The pairs of arg names read as a range, first match wins: `from`/`to`, `start`/`end`, `after`/`before`, with any prefix. */
+const RANGE_PAIRS: readonly (readonly [string, string])[] = [['from', 'to'], ['start', 'end'], ['after', 'before'], ['since', 'until']];
+
+/**
+ * The source's range args, which a range-claiming visual (time, calendar, timeline, finance) drives: the first pair of
+ * date or timestamp args named `from`/`to`, `start`/`end`, `after`/`before` or `since`/`until`, alone or after a
+ * shared prefix (`due_from`/`due_to`). `undefined` when there is none.
+ */
+export function rangeOf(args: GinTypeDef): WidgetRange | undefined {
+  const dates = argsOf(args).filter((arg) => arg.type.name === 'date' || arg.type.name === 'timestamp').map((arg) => arg.name);
+  const names = new Set(dates);
+  for (const [from, to] of RANGE_PAIRS) {
+    for (const name of dates) {
+      const prefix = name === from ? '' : name.endsWith(`_${from}`) ? name.slice(0, -from.length) : undefined;
+      if (prefix !== undefined && names.has(`${prefix}${to}`)) { return { from: name, to: `${prefix}${to}` }; }
+    }
+  }
+  return undefined;
+}
+
+/** The args the widget's pager and range claim drive. */
+function claimedArgs(spec: Pick<WidgetSpec, 'paging' | 'range'>): Set<string> {
+  return new Set([spec.paging?.offset, spec.paging?.limit, spec.range?.from, spec.range?.to].filter((arg): arg is string => arg !== undefined));
 }
 
 /**
- * The widget's args type (the kind's `describe`): its source's args minus the pinned ones and the page size the widget
- * fixes. The offset arg stays, so the pager asks for another page by running the widget with it.
+ * The widget's args type (the kind's `describe`): its source's args minus the pinned ones, with the paging and range
+ * args made optional (the view drives them; a run without them reads the first window of the default range).
  */
-export function widgetArgs(source: GinTypeDef, spec: Pick<WidgetSpecV1, 'controls' | 'paging'>): GinTypeDef {
-  const size = spec.paging?.limit;
-  const dropped = new Set([...(size === undefined ? [] : [size]), ...spec.controls.filter((control) => control.pinned !== undefined).map((control) => control.arg)]);
-  const props = Object.fromEntries(Object.entries(source.props ?? {}).filter(([name]) => !dropped.has(name)));
+export function widgetArgs(source: GinTypeDef, spec: Pick<WidgetSpec, 'args' | 'paging' | 'range'>): GinTypeDef {
+  const claimed = claimedArgs(spec);
+  const props = Object.fromEntries(Object.entries(source.props ?? {}).flatMap(([name, prop]) => {
+    if (spec.args[name]?.show === 'pinned') { return []; }
+    const asIs = !claimed.has(name) || prop.type.name === 'optional' || prop.default !== undefined;
+    return [[name, asIs ? prop : { ...prop, type: { name: 'optional', generic: { T: prop.type } } }]];
+  }));
   return { ...source, props };
 }
 
-/** A control as the widget's bar shows it: the arg, its label and type, and the values offered. */
-export interface WidgetControlView {
-  readonly arg: string;
-  readonly label: string;
-  readonly type: GinTypeDef;
-  readonly required: boolean;
-  /** The only values offered, in order; absent offers the type's own editor. */
-  readonly choices?: readonly Json[];
-  /** Whether a value outside `choices` may be typed. */
-  readonly custom: boolean;
+/** An enum's members as choices (label and value), or `undefined` when the type is not an enum. */
+function enumChoices(type: GinTypeDef): ChoiceOption[] | undefined {
+  const values = enumValues(type);
+  return values === undefined ? undefined : Object.entries(values).map(([label, value]) => ({ label, value: { literal: value } }));
 }
 
-/** `due_before` → "Due before". */
-function argLabel(arg: string): string {
-  return actionLabel(arg);
-}
-
-/** The controls a widget shows, in its source's arg order: every arg not pinned, hidden or driven by the pager. */
-export function widgetControls(source: GinTypeDef, spec: Pick<WidgetSpecV1, 'controls' | 'paging'>): WidgetControlView[] {
-  const paging = pagingArgs(spec);
-  const byArg = new Map(spec.controls.map((control) => [control.arg, control]));
-  return argsOf(source).flatMap((arg): WidgetControlView[] => {
-    const control = byArg.get(arg.name);
-    if (paging.has(arg.name) || control?.pinned !== undefined || control?.hidden === true) { return []; }
+/**
+ * The chip row (`WidgetResult.controls`), in the source's arg order: every arg not pinned, hidden or driven by the
+ * pager, with its plan's words and choices (an enum's members when the plan names none; an "Any" row first on an
+ * optional arg), and its value: the one the run used (`given`), else the plan's default. Range args are chips too, so
+ * a visual that doesn't draw the range still lets the person set it.
+ */
+export function widgetControls(source: GinTypeDef, spec: Pick<WidgetSpec, 'args' | 'paging'>, given: Readonly<Record<string, Json>> = {}): WidgetShownControl[] {
+  const paging = new Set([spec.paging?.offset, spec.paging?.limit]);
+  return argsOf(source).flatMap((arg): WidgetShownControl[] => {
+    const plan: ArgPlan | undefined = spec.args[arg.name];
+    if (paging.has(arg.name) || plan?.show === 'pinned' || plan?.show === 'hidden') { return []; }
+    const planned = plan?.choices;
+    const offered = planned ?? enumChoices(arg.type);
+    const choices = offered === undefined || arg.required || offered.some((choice) => choice.value === undefined) ? offered : [{ label: 'Any' }, ...offered];
+    const value = given[arg.name] !== undefined ? { literal: given[arg.name] ?? null } : plan?.default;
     return [{
       arg: arg.name,
-      label: control?.label ?? argLabel(arg.name),
+      label: plan?.label ?? actionLabel(arg.name),
       type: arg.type,
-      required: arg.required,
-      ...(control?.choices === undefined ? {} : { choices: control.choices }),
-      custom: control?.choices === undefined || control.custom === true,
+      optional: !arg.required,
+      ...(choices === undefined ? {} : { choices }),
+      custom: plan?.custom ?? offered === undefined,
+      relative: relativeDatesFor(arg.type.name).length > 0,
+      ...(value === undefined ? {} : { value }),
     }];
   });
 }
 
-// ─── Checks ───────────────────────────────────────────────────────────────────
-
-/** What `checkWidget` is given besides the spec: the source's args type, a real result, every declared visual. */
-export interface WidgetCheckInput {
-  readonly args: GinTypeDef;
-  readonly table: ResultTable;
-  readonly visuals: readonly ContributionDecl[];
-}
-
-/** What `checkWidget` finds: the spec's visuals that still fit, in order, and every problem in words. */
-export interface WidgetCheckResult {
-  readonly visuals: WidgetVisualV1[];
-  readonly problems: string[];
-}
-
-const NUMBER_TYPES: ReadonlySet<string> = new Set(['num']);
-
-/**
- * Every problem with a widget spec against its source's args and a real result: controls and paging naming args the
- * source lacks, a required arg hidden with no value, visuals that aren't declared, bindings to missing columns or to
- * columns of a kind the channel doesn't take, visuals whose shape doesn't fit, and actions binding missing columns.
- * A visual with a problem leaves `visuals`; the rest keep the spec's order.
- */
-export function checkWidget(spec: WidgetSpecV1, input: WidgetCheckInput): WidgetCheckResult {
-  const problems: string[] = [];
-  const args = new Map(argsOf(input.args).map((arg) => [arg.name, arg]));
-  const columns = new Map(input.table.columns.map((column) => [column.name, column]));
-  const seen = new Set<string>();
-  for (const control of spec.controls) {
-    const arg = args.get(control.arg);
-    if (arg === undefined) { problems.push(`Control ${control.arg}: ${spec.source} has no arg ${control.arg}.`); continue; }
-    if (seen.has(control.arg)) { problems.push(`Control ${control.arg} is listed twice.`); }
-    seen.add(control.arg);
-    if (control.hidden === true && control.pinned === undefined && arg.required) {
-      problems.push(`Control ${control.arg} is hidden, but the arg is required: pin a value or show it.`);
-    }
-    if (control.pinned !== undefined && control.choices !== undefined && !control.choices.some((choice) => sameJson(choice, control.pinned))) {
-      problems.push(`Control ${control.arg} pins a value that is not one of its choices.`);
-    }
-  }
-  for (const [role, arg] of [['offset', spec.paging?.offset], ['limit', spec.paging?.limit]] as const) {
-    if (arg === undefined) { continue; }
-    const found = args.get(arg);
-    if (found === undefined) { problems.push(`Paging ${role}: ${spec.source} has no arg ${arg}.`); continue; }
-    if (!NUMBER_TYPES.has(found.type.name)) { problems.push(`Paging ${role}: arg ${arg} is not a number.`); }
-    if (spec.controls.some((control) => control.arg === arg)) { problems.push(`Arg ${arg} is driven by the pager, so it can't have a control too.`); }
-  }
-  const declared = new Map(input.visuals.filter((entry) => entry.registry === HUB_VISUALS).map((entry) => [entry.name, entry]));
-  const fitting = new Set(fittingVisuals(input.table, input.visuals, spec.paging !== undefined).map((fit) => fit.name));
-  const visuals: WidgetVisualV1[] = [];
-  const named = new Set<string>();
-  for (const offered of spec.visuals) {
-    const before = problems.length;
-    if (named.has(offered.visual)) { problems.push(`Visual ${offered.visual} is offered twice.`); }
-    named.add(offered.visual);
-    const entry = declared.get(offered.visual);
-    if (entry === undefined) { problems.push(`Visual ${offered.visual} is not in ${HUB_VISUALS}.`); continue; }
-    if (entry.shape !== undefined) {
-      problems.push(...bindingProblems(offered, entry.shape, columns));
-      if (!fitting.has(offered.visual)) {
-        const why = declaredFit(entry.shape, spec.paging === undefined ? input.table : { ...input.table, offset: 0, truncated: false }).why;
-        problems.push(`Visual ${offered.visual} doesn't fit this result${why === undefined ? '.' : `: ${why}`}`);
-      }
-    }
-    if (problems.length === before) { visuals.push(offered); }
-  }
-  for (const action of spec.actions ?? []) {
-    for (const [arg, column] of Object.entries(action.bind)) {
-      if (!columns.has(column)) { problems.push(`Action ${action.fn}: arg ${arg} binds column ${column}, which the result lacks.`); }
-    }
-  }
-  return { visuals, problems };
-}
-
-/** The problems with one visual's bindings: unknown channels, missing columns, kinds the channel doesn't take. */
-function bindingProblems(offered: WidgetVisualV1, shape: VisualShape, columns: ReadonlyMap<string, ResultColumn>): string[] {
-  const problems: string[] = [];
-  const channels = new Map(shape.channels.map((c) => [c.name, c]));
-  for (const [name, bound] of Object.entries(offered.bind)) {
-    const channelDecl = channels.get(name);
-    if (channelDecl === undefined) { problems.push(`Visual ${offered.visual} has no channel ${name} (it has ${[...channels.keys()].join(', ')}).`); continue; }
-    if (!channelDecl.many && bound.length > 1) { problems.push(`Visual ${offered.visual}: channel ${name} takes one column, not ${String(bound.length)}.`); }
-    for (const columnName of bound) {
-      const column = columns.get(columnName);
-      if (column === undefined) { problems.push(`Visual ${offered.visual}: channel ${name} binds column ${columnName}, which the result lacks.`); continue; }
-      if (!channelDecl.accepts.includes(column.kind)) {
-        problems.push(`Visual ${offered.visual}: channel ${name} takes ${channelDecl.accepts.join(', ')}, but column ${columnName} is ${column.kind}.`);
-      }
-    }
-  }
-  return problems;
-}
-
-/** Whether two JSON values are the same value. */
-function sameJson(a: Json, b: Json | undefined): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
-
-// ─── The authoring schema ─────────────────────────────────────────────────────
-
-/** What `widgetSpecSchema` builds from: the source, its args, a sample result, the fitting visuals and the row methods. */
-export interface WidgetSchemaInput {
-  readonly source: QualifiedName;
-  readonly args: GinTypeDef;
-  readonly columns: readonly ResultColumn[];
-  readonly visuals: readonly FittingVisual[];
-  /** The fns an action may name (the row types' methods); absent: any fn. */
-  readonly actions?: readonly QualifiedName[];
-}
-
-/** A zod enum of names, or `undefined` when there are none (zod enums need one value). */
-function namesOf(names: readonly string[]): z.ZodType<string> | undefined {
-  const [first, ...rest] = names;
-  return first === undefined ? undefined : z.enum([first, ...rest]);
+/** When and where a widget runs: the moment and time zone relative dates resolve in, and the pager's window. */
+export interface WidgetRunOptions {
+  readonly now: Date;
+  /** The person's time zone (an IANA name). */
+  readonly zone: string;
+  /** The rows a run asks for when the widget pages (its first visual's page size, or the pager's). */
+  readonly window: number;
 }
 
 /**
- * The strict schema an authoring agent drafts a widget against, built at tool time: the source is fixed, a visual is one
- * of those that fit with a binding per channel naming only columns that channel takes, a control names one of the
- * source's args, paging names its number args, and an action names one of the row methods. What the schema can't say
- * (a required arg hidden with no value) `checkWidget` catches.
+ * The source args a widget run uses: pinned values, then the args given (the chips the person set), then each plan's
+ * default, relative dates resolved; an arg with none of these is left out (it takes the source's default). A paged
+ * widget asks for `window` rows from the given offset (0 when none).
  */
-export function widgetSpecSchema(input: WidgetSchemaInput): z.ZodType<WidgetSpecV1> {
-  const argNames = namesOf(argsOf(input.args).map((arg) => arg.name)) ?? z.never();
-  const numberArgs = namesOf(argsOf(input.args).filter((arg) => NUMBER_TYPES.has(arg.type.name)).map((arg) => arg.name)) ?? z.never();
-  const columnNames = namesOf(input.columns.map((column) => column.name)) ?? z.never();
-  const visualSchemas = input.visuals.map((fit) => z.object({
-    visual: z.literal(fit.name).describe(`${fit.label}: ${fit.shape.channels.map((c) => `${c.name} (${c.label}; ${c.accepts.join('/')}${c.required ? '' : ', optional'}${c.many ? ', several' : ''})`).join(', ')}`),
-    label: z.string().min(1).optional(),
-    bind: z.strictObject(Object.fromEntries(fit.shape.channels.flatMap((c) => {
-      const accepted = namesOf(input.columns.filter((column) => c.accepts.includes(column.kind)).map((column) => column.name));
-      return accepted === undefined ? [] : [[c.name, z.array(accepted).min(1).max(c.many ? 20 : 1).optional()]];
-    }))).transform((bind) => Object.fromEntries(Object.entries(bind).filter((entry): entry is [string, string[]] => entry[1] !== undefined))),
-  }));
-  const [firstVisual, ...moreVisuals] = visualSchemas;
-  const visualSchema = firstVisual === undefined ? z.never() : moreVisuals.length === 0 ? firstVisual : z.union([firstVisual, ...moreVisuals]);
-  const actionFn = namesOf(input.actions ?? []) ?? QualifiedName;
-  const strict = z.strictObject({
-    title: z.string().min(1).describe('What the widget shows, in a few words ("Open tasks by owner").'),
-    source: z.literal(input.source),
-    visuals: z.array(visualSchema).min(1).describe('The visuals to switch between, the best first.'),
-    controls: z.array(z.strictObject({
-      arg: argNames,
-      label: z.string().min(1).optional(),
-      choices: z.array(Json).min(1).optional(),
-      custom: z.boolean().optional(),
-      pinned: Json.optional(),
-      hidden: z.boolean().optional(),
-    })).describe('One per source arg the person should see differently (labelled, limited to choices, pinned or hidden); args left out show as they are.'),
-    paging: z.strictObject({ offset: numberArgs.optional(), limit: numberArgs.optional(), size: z.number().int().min(1).max(500) }).optional(),
-    actions: z.array(z.strictObject({
-      fn: actionFn,
-      label: z.string().min(1).optional(),
-      confirm: z.literal(true).optional(),
-      bind: z.record(argNames, columnNames),
-      then: z.enum(['refresh', 'show', 'none']),
-    })).optional().describe('Leave out to offer every action of the row type; [] for none.'),
-  });
-  return strict.pipe(WidgetSpecV1);
+export function widgetRunArgs(source: GinTypeDef, spec: Pick<WidgetSpec, 'args' | 'paging'>, given: Readonly<Record<string, Json>>, options: WidgetRunOptions): Record<string, Json> {
+  const out: Record<string, Json> = {};
+  for (const arg of argsOf(source)) {
+    const plan = spec.args[arg.name];
+    const value = given[arg.name];
+    if (plan?.show === 'pinned') { out[arg.name] = resolveArgValue(plan.value, options.now, options.zone); continue; }
+    if (value !== undefined) { out[arg.name] = value; continue; }
+    if (plan?.show === 'control' && plan.default !== undefined) { out[arg.name] = resolveArgValue(plan.default, options.now, options.zone); }
+  }
+  if (spec.paging !== undefined) {
+    const offset = given[spec.paging.offset];
+    out[spec.paging.offset] = typeof offset === 'number' ? offset : 0;
+    out[spec.paging.limit] = options.window;
+  }
+  return out;
 }
 
-// ─── Actions ──────────────────────────────────────────────────────────────────
+/** The pager's state after a run that asked for `window` rows: a full window means more may follow. */
+export function widgetPager(paging: WidgetPaging, table: Pick<ResultTable, 'rows'>, window: number): WidgetPager {
+  return { ...paging, window, more: table.rows.length >= window };
+}
 
-/** A fn a row could run: a method of the row's type (or any fn), its mode and args. */
+// ─── Actions and drill ────────────────────────────────────────────────────────
+
+/** A fn a row could run: a method of the row's type or any fn a widget binds, with its mode, args and declared return. */
 export interface RowFn {
   readonly fn: QualifiedName;
   readonly mode: FnMode;
   readonly args: GinTypeDef;
+  /** Its declared return is a table (`returnsTable`), so its rows open as a new level. */
+  readonly returnsTable: boolean;
 }
 
 /**
- * The actions a row offers: every row fn when the spec lists none, else the listed ones in their order, each labelled
- * (`actionLabel` unless relabelled), confirming when `confirmOf` says so, with its bound args and a form for the args
- * left. A method's value (`self`) is bound by the row's ref, so it never shows in the form. A listed action whose fn
- * isn't a row fn is left out.
+ * The actions a row offers: every row fn when the widget lists none, else the listed ones in their order, each
+ * labelled (`actionLabel` unless relabelled), confirming when `confirmOf` says so, with its bound args, a form for the
+ * args left (the form comes first; the confirm follows for anything above a read), and what follows: the widget's
+ * `then`, else derived (`deriveThen`: rows returned open, a write refreshes, else a status line). A method's value
+ * (`self`) is bound by the row's ref, so it never shows in the form. A listed action whose fn isn't among `rowFns`
+ * is left out.
  */
-export function widgetActionOptions(rowFns: readonly RowFn[], actions: readonly WidgetActionV1[] | undefined): WidgetActionOptionV1[] {
+export function widgetActionOptions(rowFns: readonly RowFn[], actions: readonly WidgetAction[] | undefined): WidgetActionOption[] {
   const byFn = new Map(rowFns.map((rowFn) => [rowFn.fn, rowFn]));
-  const chosen: Array<{ rowFn: RowFn; action: WidgetActionV1 | undefined }> = actions === undefined
+  const chosen: Array<{ rowFn: RowFn; action: WidgetAction | undefined }> = actions === undefined
     ? rowFns.map((rowFn) => ({ rowFn, action: undefined }))
     : actions.flatMap((action) => { const rowFn = byFn.get(action.fn); return rowFn === undefined ? [] : [{ rowFn, action }]; });
   return chosen.map(({ rowFn, action }) => {
     const bind = action?.bind ?? {};
     const left = Object.fromEntries(Object.entries(rowFn.args.props ?? {}).filter(([name]) => name !== 'self' && !(name in bind)));
-    const then: ActionThenV1 = action?.then ?? (rowFn.mode === 'read' ? 'show' : 'refresh');
     return {
       fn: rowFn.fn,
       label: action?.label ?? actionLabel(rowFn.fn),
@@ -340,7 +325,42 @@ export function widgetActionOptions(rowFns: readonly RowFn[], actions: readonly 
       confirm: confirmOf(rowFn.mode, action?.confirm),
       bind: { ...bind },
       ...(Object.keys(left).length === 0 ? {} : { form: { ...rowFn.args, props: left } }),
-      then,
+      then: action?.then ?? deriveThen(rowFn.mode, rowFn.returnsTable),
     };
   });
+}
+
+/**
+ * The args a click takes from a row (an action's or the drill's `bind`: arg → column), by column name. A column the
+ * table lacks, or a row past its end, throws: the widget's check already refused such a binding.
+ */
+export function boundArgs(bind: Readonly<Record<string, string>>, table: Pick<ResultTable, 'columns' | 'rows'>, rowIndex: number): Record<string, Json> {
+  const row = table.rows[rowIndex];
+  if (row === undefined) { throw new Error(`Row ${String(rowIndex)} is not in the table (it has ${String(table.rows.length)}).`); }
+  return Object.fromEntries(Object.entries(bind).map(([arg, column]) => {
+    const index = table.columns.findIndex((c) => c.name === column);
+    if (index < 0) { throw new Error(`Arg ${arg} binds column ${column}, which the table lacks.`); }
+    return [arg, row[index] ?? null];
+  }));
+}
+
+/** A gin type from its definition, in `scope` (the hub's or loaded types) or `g`. Throws a gin error when it doesn't parse. */
+export function ginTypeOf(def: GinTypeDef, scope?: TypeScope): GinType {
+  return (scope ?? g).parse(def);
+}
+
+let tableType: GinType | undefined;
+
+/**
+ * Whether a fn's declared return is a table: every value of it is a `ResultTable` (gin `compatible`), so the chat routes
+ * it to the result view (`RESULT_TABLE_ROUTING`) and a widget may draw from it. A return that names a type `scope`
+ * doesn't know is not a table.
+ */
+export function returnsTable(returns: GinTypeDef, scope?: TypeScope): boolean {
+  tableType ??= ginAs(ResultTable);
+  try {
+    return tableType.compatible(ginTypeOf(returns, scope), undefined, scope);
+  } catch {
+    return false;
+  }
 }

@@ -10,14 +10,14 @@ tags: ["authoring", "reference"]
 choices:
   - to: "fs/authoring.testing.reference.fakehub"
     when: "Pick this for FakeHub, FakeHubOptions, FakeProcess, TEST_USER, TEST_PLACE, NO_ASKS, HubBody, SystemBody, streamOf, liveEnv, liveModels, expectType, Equal, Simplify, MemoryKeyStore, MemoryJournal,…"
-  - to: "fs/authoring.testing.reference.fakereply"
-    when: "Pick this for FakeReply, checkContextFolder, contextFolderLinks, CheckedContext, KnownNames, testHub, TestSystem, TestHubOptions, callFn, CallNotDone, TestCall, TestRun, TestOutcome, HubCalls,…"
-  - to: "fs/authoring.testing.reference.testedcontext"
-    when: "Pick this for TestedContext, OtherNames, kitEnv, scratchFolder, ScratchFolder, ScratchOptions, FakeRecords, StoredTypeDecl."
+  - to: "fs/authoring.testing.reference.fakemodellink"
+    when: "Pick this for FakeModelLink, fakeHubAi, replyChunks, FakeModelOptions, FakeReply, checkContextFolder, contextFolderLinks, CheckedContext, KnownNames, testHub, TestSystem, TestHubOptions, callFn,…"
+  - to: "fs/authoring.testing.reference.previewoptions"
+    when: "Pick this for PreviewOptions, SavedShot, renderHtml, galleryHtml, PreviewIndex, PREVIEW_INDEX, PREVIEW_THEMES, PreviewTheme, contextFolder, TestedContext, OtherNames, kitEnv, scratchFolder,…"
 ---
 
 This part is in 3 pieces; load the one you need:
 
-- [FakeHub … FakeModelOptions](context:fs/authoring.testing.reference.fakehub)
-- [FakeReply … contextFolder](context:fs/authoring.testing.reference.fakereply)
-- [TestedContext … StoredTypeDecl](context:fs/authoring.testing.reference.testedcontext)
+- [FakeHub … FakeTableSource](context:fs/authoring.testing.reference.fakehub)
+- [FakeModelLink … preview](context:fs/authoring.testing.reference.fakemodellink)
+- [PreviewOptions … StoredTypeDecl](context:fs/authoring.testing.reference.previewoptions)

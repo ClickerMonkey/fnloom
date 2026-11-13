@@ -15,8 +15,18 @@ export interface PageRequest {
   readonly sort: readonly ResultSort[];
 }
 
-/** Calls the table's fn again with a page request (a new run, whose result shows as its own table). */
-export type ResultPager = (request: PageRequest) => void;
+/** The page sizes the grid offers (beside the visual's own). */
+export const PAGE_SIZES = [10, 25, 50, 100] as const;
+
+/**
+ * Calls the table's fn again with a page request (a new run, whose result shows as its own table). A `buffered` one
+ * (a widget's pager) only reads the rows after those held and adds them, so the grid sorts and pages the rows held,
+ * unless it has `sort`: then its source sorts (the Data page's records, sorted by the hub with the sort in the URL).
+ */
+export type ResultPager = ((request: PageRequest) => void) & {
+  readonly buffered?: boolean;
+  readonly sort?: ((next: ResultSort | undefined) => void) | undefined;
+};
 
 /** Kinds whose cells line up on the right, digits under digits. */
 const NUMERIC: ReadonlySet<ColumnKind> = new Set(['integer', 'number']);

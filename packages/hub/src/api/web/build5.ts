@@ -6,7 +6,7 @@
  */
 import { plugin } from '@ayepi/plugin';
 import { reject } from '@ayepi/core';
-import { approvalsSlice, fnsSlice, registriesSlice, type Approval, type FnFacts, type Json, type ContributionView, type QualifiedName, type RunId, type SystemName } from '@harness/core';
+import { approvalsSlice, fnsSlice, registriesSlice, type ActorId, type Approval, type FnFacts, type Json, type ContributionView, type QualifiedName, type RunId, type SystemName } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { mayView, type FullHandlers, type Viewer } from './access.ts';
 import type { systemsPlugin } from './systems.ts';
@@ -40,8 +40,8 @@ export async function approvalsOf(hub: ApprovalsHub, runs: readonly RunId[], use
 export type ContributionsHub = Pick<HubServices, 'catalog' | 'link' | 'access'>;
 
 /** The entries every connected system the person may see adds to a registry, by system then name. */
-export async function contributionsTo(hub: ContributionsHub, registry: QualifiedName, user: Viewer): Promise<ContributionView[]> {
-  const scope = await hub.access.scope(user.id);
+export async function contributionsTo(hub: ContributionsHub, registry: QualifiedName, actor: ActorId): Promise<ContributionView[]> {
+  const scope = await hub.access.scope(actor);
   const systems = [...new Set<SystemName>(hub.link.connections.connected().map((connection) => connection.system))].sort();
   const out: ContributionView[] = [];
   // build 7: an installed system offers nothing yet, and a component switched off (or waiting for review) is left out
@@ -94,6 +94,6 @@ export function build5Plugins(hub: HubServices, systems: ReturnType<typeof syste
     plugin({ name: 'web.approvals', spec: approvalsSlice, requires: [systems] })
       .handlers((): FullHandlers<typeof approvalsSlice> => ({ approvals: ({ data, user }) => approvalsOf(hub, data.runs, user) })),
     plugin({ name: 'web.registries', spec: registriesSlice, requires: [systems] })
-      .handlers((): FullHandlers<typeof registriesSlice> => ({ contributions: ({ data, user }) => contributionsTo(hub, data.registry, user) })),
+      .handlers((): FullHandlers<typeof registriesSlice> => ({ contributions: ({ data, user }) => contributionsTo(hub, data.registry, user.id) })),
   ] as const;
 }

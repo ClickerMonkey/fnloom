@@ -1,10 +1,10 @@
 /**
  * The database system's process, one per database instance: the enricher over the hub's models (its enrichments are
- * kept with the table types in the hub), the visuals and result view built into its state folder, served to the hub. Once serving, the
- * lifecycle opens and scans the configured database. Saved queries are the hub's fns; nothing is restored here.
+ * kept with the table types in the hub), served to the hub. Once serving, the lifecycle opens and scans the configured
+ * database. Its rows are drawn by the app's own result view, so it has no client bundle. Saved queries are the hub's fns;
+ * nothing is restored here.
  */
-import { join } from 'node:path';
-import { loggedHost, placeFolders, rendererFolder, serve, type RunningSystem } from '@harness/sdk/server';
+import { loggedHost, placeFolders, serve, type RunningSystem } from '@harness/sdk/server';
 import { database } from '../shared/index.ts';
 import { LlmEnricher } from './author.ts';
 import { databaseEnv } from './env.ts';
@@ -30,13 +30,10 @@ const server = createDatabaseImpl({
   now: () => Date.now(),
 });
 
-const clientFolder = await rendererFolder({ main: import.meta.url, outDir: join(settings.HARNESS_SYSTEM_STATE, 'client') });
-
 log.info('database.serving', { hub: settings.HARNESS_HUB, instance });
 const running = await serve(database, server.impl, {
   hub: settings.HARNESS_HUB,
   state: settings.HARNESS_SYSTEM_STATE,
-  client: clientFolder,
   ...(settings.HARNESS_PAIRING_TOKEN === undefined ? {} : { pairingToken: settings.HARNESS_PAIRING_TOKEN }),
 }, host);
 resolveRunning(running);

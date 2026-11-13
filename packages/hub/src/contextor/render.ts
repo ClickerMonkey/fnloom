@@ -4,7 +4,7 @@
  * thing, used by every place that shows it (the prompt, `inspect`, an invalid-input reply), so they always read the
  * same.
  */
-import { problemLine, type Detail, type FnExample, type FnRecord, type InputProblem, type QualifiedName } from '@harness/core';
+import { problemLine, RESULT_TABLE_INSTRUCTION, type Detail, type FnExample, type FnRecord, type InputProblem, type QualifiedName } from '@harness/core';
 import type { CallProtocol, ChosenContext, ExchangeSummary, FnView } from './index.ts';
 
 /** How calls come back in a prompt (`CallProtocol`, named for the renderers' signatures). */
@@ -23,6 +23,17 @@ export function listedLine(name: string, description: string): string {
   const first = description.split('\n', 1)[0]?.trim() ?? '';
   const line = first.length > LINE_MAX ? `${first.slice(0, LINE_MAX - 1).trimEnd()}…` : first;
   return line === '' ? name : `${name} — ${line}`;
+}
+
+/** A fn's one line in a list: `listedLine`, then its routing clause when it returns a table. */
+export function fnLine(view: Pick<FnView, 'record' | 'routing'>): string {
+  const line = listedLine(view.record.name, view.record.decl.description);
+  return view.routing === undefined ? line : `${line} (${view.routing})`;
+}
+
+/** The short instruction about table results, once, when any of the fns shown returns a table; else empty. */
+export function tableInstruction(views: readonly Pick<FnView, 'routing'>[]): string {
+  return views.some((view) => view.routing !== undefined) ? RESULT_TABLE_INSTRUCTION : '';
 }
 
 /** How a call of `fn` with `args` is written in a protocol. */
@@ -51,8 +62,9 @@ export function exampleLines(record: FnRecord, protocol: Protocol, chosen?: read
 }
 
 /** A fn's description with the lines saying what it changes in the hub (build 6) and how long it usually runs, as its native tool describes it. */
-export function describedWithEffects(view: Pick<FnView, 'record' | 'effects' | 'notice'>): string {
-  return [view.record.decl.description, ...besideLines(view)].join('\n');
+export function describedWithEffects(view: Pick<FnView, 'record' | 'effects' | 'notice' | 'routing'>): string {
+  const routing = view.routing === undefined ? [] : [`It ${view.routing}.`];
+  return [view.record.decl.description, ...routing, ...besideLines(view)].join('\n');
 }
 
 /** The lines beside a fn's description: what it changes in the hub, then its long-running warning. */
@@ -62,7 +74,7 @@ function besideLines(view: Pick<FnView, 'effects' | 'notice'>): string[] {
 
 export function fnCard(view: FnView, detail: Detail, protocol: Protocol, shown: Set<QualifiedName> = new Set(), examples?: readonly FnExample[]): string {
   const { decl, name } = view.record;
-  const lines = [`### ${listedLine(name, decl.description)}`];
+  const lines = [`### ${fnLine(view)}`];
   if (detail === 'listed') return lines[0] ?? '';
   lines.push(...besideLines(view));
   lines.push(`${callText(name, view.args, protocol)} → ${view.returns}`);

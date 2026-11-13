@@ -1,14 +1,14 @@
 /**
- * The chat's results host: the query visuals that fit a result, the app's own and those systems contribute from their
+ * The chat's results host: the query visuals that can draw a result, the app's own and those systems contribute from their
  * client bundles (the hub's `contributions` say which bundles to load; each visual's label and icon come from its
  * contract), and the visual the person picked for each
  * result, kept per message while the app is open (not in the URL).
  */
-import type { QualifiedName, ResultTable } from '@harness/core';
+import type { QualifiedName, ResultFacts, ResultTable } from '@harness/core';
 import type { VisualSource } from '@harness/sdk';
 import { markRaw, shallowRef } from 'vue';
 import { OWN_VISUALS, type ResultsHost } from '../../components/results/builtin.ts';
-import { fittingVisuals, isIconName, type FittingVisual, type Visual } from '../../components/results/visuals.ts';
+import { isIconName, rankedVisuals, type RankedVisual, type Visual, type VisualChoice } from '../../components/results/visuals.ts';
 import type { ChatApi } from '../api.ts';
 import type { RendererHub } from './renderers.ts';
 
@@ -23,7 +23,7 @@ export interface VisualHostDeps {
 /** The chat's query visuals and the choices made between them. */
 export class VisualHost implements ResultsHost {
   readonly #deps: VisualHostDeps;
-  readonly #choices = shallowRef<ReadonlyMap<string, string>>(new Map());
+  readonly #choices = shallowRef<ReadonlyMap<string, VisualChoice>>(new Map());
   readonly #asked = new Map<QualifiedName, Promise<void>>();
 
   /**
@@ -31,9 +31,9 @@ export class VisualHost implements ResultsHost {
    * that fits, the registry's bundles loading on the first ask.
    */
   readonly source: VisualSource = {
-    visuals: (registry, table) => {
+    visuals: (registry, table, facts) => {
       void this.prepare(registry);
-      return this.#deps.renderers.contributedVisuals(registry, table);
+      return this.#deps.renderers.contributedVisuals(registry, table, facts);
     },
   };
 
@@ -41,12 +41,13 @@ export class VisualHost implements ResultsHost {
     this.#deps = deps;
   }
 
-  visuals(registry: QualifiedName, table: ResultTable): readonly FittingVisual[] {
-    const contributed = this.#deps.renderers.contributedVisuals(registry, table).map((entry): Visual => ({
+  /** The app's own visuals and every loaded contribution its veto keeps, ranked together (product's order). */
+  visuals(registry: QualifiedName, table: ResultTable, facts: ResultFacts): readonly RankedVisual[] {
+    const contributed = this.#deps.renderers.contributedVisuals(registry, table, facts).map((entry): Visual => ({
       name: entry.name, label: entry.label, icon: isIconName(entry.icon) ? entry.icon : 'layers', system: entry.system,
-      match: () => entry.fit, component: markRaw(entry.component), props: entry.props,
+      shape: entry.shape, component: markRaw(entry.component), props: { system: entry.client },
     }));
-    return fittingVisuals(OWN_VISUALS, contributed, table);
+    return rankedVisuals(OWN_VISUALS, contributed, table, facts);
   }
 
   /** Ask once per registry which systems contribute to it, then make sure their bundles are loading. */
@@ -67,11 +68,11 @@ export class VisualHost implements ResultsHost {
     return made;
   }
 
-  choice(key: string): string | undefined {
+  choice(key: string): VisualChoice | undefined {
     return this.#choices.value.get(key);
   }
 
-  choose(key: string, visual: string): void {
-    this.#choices.value = new Map([...this.#choices.value, [key, visual]]);
+  choose(key: string, choice: VisualChoice): void {
+    this.#choices.value = new Map([...this.#choices.value, [key, choice]]);
   }
 }

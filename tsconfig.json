@@ -41,6 +41,9 @@
       "path": "systems/database"
     },
     {
+      "path": "systems/widgets"
+    },
+    {
       "path": "scripts"
     },
     {

@@ -40,6 +40,9 @@ type ApprovalPreview = {
         label?: string | undefined;
         type?: TypeDef<any> | undefined;
         ref?: `${string}/${string}` | undefined;
+        role?: "group" | "measure" | "attribute" | undefined;
+        key?: boolean | undefined;
+        editable?: boolean | undefined;
       }[];
       rows: z.core.util.JSONType[][];
       offset: number;
@@ -50,6 +53,13 @@ type ApprovalPreview = {
       }[];
       limit?: number | undefined;
       total?: number | undefined;
+      write?: {
+        affected: number;
+      } | undefined;
+      records?: {
+        type: `${string}/${string}`;
+        id: string;
+      } | undefined;
     };
   } | {
     type: "type-diff";
@@ -67,7 +77,7 @@ type ApprovalPreview = {
       path: string;
       kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
       rule: string;
-      access: "read" | "write";
+      access: "write" | "read";
       action: "ask" | "refuse" | "allow";
       why: string;
       certain: boolean;
@@ -184,6 +194,9 @@ type ApprovedRun = {
           label?: string | undefined;
           type?: TypeDef<any> | undefined;
           ref?: `${string}/${string}` | undefined;
+          role?: "group" | "measure" | "attribute" | undefined;
+          key?: boolean | undefined;
+          editable?: boolean | undefined;
         }[];
         rows: z.core.util.JSONType[][];
         offset: number;
@@ -194,6 +207,13 @@ type ApprovedRun = {
         }[];
         limit?: number | undefined;
         total?: number | undefined;
+        write?: {
+          affected: number;
+        } | undefined;
+        records?: {
+          type: `${string}/${string}`;
+          id: string;
+        } | undefined;
       };
     } | {
       type: "type-diff";
@@ -211,7 +231,7 @@ type ApprovedRun = {
         path: string;
         kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
         rule: string;
-        access: "read" | "write";
+        access: "write" | "read";
         action: "ask" | "refuse" | "allow";
         why: string;
         certain: boolean;
@@ -402,6 +422,9 @@ type PreviewAnswer = {
           label?: string | undefined;
           type?: TypeDef<any> | undefined;
           ref?: `${string}/${string}` | undefined;
+          role?: "group" | "measure" | "attribute" | undefined;
+          key?: boolean | undefined;
+          editable?: boolean | undefined;
         }[];
         rows: z.core.util.JSONType[][];
         offset: number;
@@ -412,6 +435,13 @@ type PreviewAnswer = {
         }[];
         limit?: number | undefined;
         total?: number | undefined;
+        write?: {
+          affected: number;
+        } | undefined;
+        records?: {
+          type: `${string}/${string}`;
+          id: string;
+        } | undefined;
       };
     } | {
       type: "type-diff";
@@ -429,7 +459,7 @@ type PreviewAnswer = {
         path: string;
         kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
         rule: string;
-        access: "read" | "write";
+        access: "write" | "read";
         action: "ask" | "refuse" | "allow";
         why: string;
         certain: boolean;

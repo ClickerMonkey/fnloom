@@ -1,16 +1,19 @@
 /**
- * Sample data for the Data pages and widgets (build 8), shared by the component tests and the mock hub: a stored type of
- * notes with its records as a result table, a widget's result over it, the actions its rows offer, and version
- * histories. Plain values only, so the mock hub can serve them too.
+ * Sample data for the Data pages and widgets (build 8 and the widget pass), shared by the component tests and the mock
+ * hub: a stored type of notes with its records as a result table, widget results over it (one with chips, presets, a
+ * pager and a drill), a widget proposal, the actions its rows offer, and version histories. Plain values only, so the
+ * mock hub can serve them too.
  */
 import {
-  DataRecord, DataSetView, ItemVersionRecord, QualifiedName, RecordVersion, ResultTable, WidgetActionOptionV1, WidgetResultV1,
+  columnFacts, DataRecord, DataSetView, ItemVersionRecord, QualifiedName, RecordVersion, ResultTable, WidgetActionOption, WidgetProposal, WidgetResult,
 } from '@harness/core';
 
 /** The stored type the samples are of. */
 export const NOTE_TYPE = QualifiedName.parse('notes/Note');
 /** The saved widget the samples draw. */
-export const NOTES_WIDGET = QualifiedName.parse('hub/open_notes');
+export const NOTES_WIDGET = QualifiedName.parse('widgets/open_notes');
+/** The fn a note's drill opens: the note's words, one row per word. */
+export const NOTE_WORDS = QualifiedName.parse('notes/note_words');
 
 const AT = Date.UTC(2026, 10, 12, 9, 0, 0);
 
@@ -46,34 +49,75 @@ export const SAMPLE_TABLE: ResultTable = ResultTable.parse({
   offset: 0, total: NOTES.length, truncated: false, sort: [],
 });
 
-/** A widget's result over the notes, offering a bar chart of words per title and the table. */
-export const SAMPLE_WIDGET: WidgetResultV1 = WidgetResultV1.parse({
-  title: 'Open notes',
-  table: SAMPLE_TABLE,
-  source: { fn: 'hub/records_table', run: 'run_widget_source' },
-  visuals: [{ visual: 'bar', label: 'Words per note', bind: { label: ['title'], value: ['words'] } }, { visual: 'table', bind: {} }],
-  problems: [],
+/** The notes as `hub/records_table` gives them: each field editable in place, the id the record's key. */
+export const SAMPLE_RECORD_TABLE: ResultTable = ResultTable.parse({
+  ...SAMPLE_TABLE,
+  columns: SAMPLE_TABLE.columns.map((column) => (column.name === 'id' ? { ...column, label: 'Record', key: true } : { ...column, editable: true })),
+  records: { type: NOTE_TYPE, id: 'id' },
 });
 
-/**
- * A widget over the notes with controls and paging: Status limited to its choices (a select), Owner typed freely, and
- * the second page of three (more follow).
- */
-export const SAMPLE_PAGED_WIDGET: WidgetResultV1 = WidgetResultV1.parse({
-  title: 'Notes by status',
-  table: { ...SAMPLE_TABLE, offset: 3, total: 9, truncated: true },
-  source: { fn: 'hub/records_table', run: 'run_widget_paged' },
-  visuals: [{ visual: 'table', bind: {} }],
-  problems: [],
-  paging: { arg: 'offset', size: 3 },
-  controls: [{ arg: 'status', label: 'Status', choices: ['open', 'done'], custom: false }, { arg: 'owner', label: 'Owner', custom: true }],
-});
-
-/** What a note's row offers: archive it (a write, so it confirms) and rename it (a form for the new title). */
-export const SAMPLE_ACTIONS: readonly WidgetActionOptionV1[] = WidgetActionOptionV1.array().parse([
+/** What a note's row offers: archive it (a write, so it confirms) and rename it (a form for the new title, then the confirm). */
+export const SAMPLE_ACTIONS: readonly WidgetActionOption[] = WidgetActionOption.array().parse([
   { fn: 'notes/Note.archive', label: 'Archive', mode: 'write', confirm: true, bind: { self: 'id' }, then: 'refresh' },
   { fn: 'notes/Note.rename', label: 'Rename', mode: 'write', confirm: true, bind: { self: 'id' }, form: { name: 'obj', props: { title: { type: { name: 'text' } } } }, then: 'refresh' },
 ]);
+
+/** A widget's result over the notes, offering a bar chart of words per title and the table, and the notes' actions. */
+export const SAMPLE_WIDGET: WidgetResult = WidgetResult.parse({
+  title: 'Open notes',
+  table: SAMPLE_TABLE,
+  facts: columnFacts(SAMPLE_TABLE),
+  source: { fn: 'hub/records_table', run: 'run_widget_source', args: { type: NOTE_TYPE } },
+  visuals: [{ visual: 'category', style: 'bar', label: 'Words per note', bind: { x: ['title'], y: ['words'] } }, { visual: 'table', style: 'table', bind: {} }],
+  problems: [], controls: [], presets: [], actions: SAMPLE_ACTIONS, readOnly: false,
+  summary: 'Bar chart of words by title, 3 rows, shown to the person',
+});
+
+/** The first window of the paged widget: two notes of three, more may follow. */
+const FIRST_WINDOW: ResultTable = { ...SAMPLE_TABLE, rows: SAMPLE_TABLE.rows.slice(0, 2), total: 3, truncated: true, limit: 2 };
+
+/**
+ * A widget over the notes with chips, presets, a pager and a drill: Status limited to its choices (with "Any"), Owner
+ * typed freely, Since a date with relative dates (its default "7 days ago"); presets "Open" and "Done"; a window of two
+ * rows (more follow); a click on a note opens its words.
+ */
+export const SAMPLE_PAGED_WIDGET: WidgetResult = WidgetResult.parse({
+  title: 'Notes by status',
+  table: FIRST_WINDOW,
+  facts: columnFacts(FIRST_WINDOW),
+  source: { fn: 'hub/records_table', run: 'run_widget_paged', args: { type: NOTE_TYPE, status: 'open', offset: 0, limit: 2 } },
+  visuals: [{ visual: 'table', style: 'table', bind: {} }],
+  problems: [],
+  controls: [
+    { arg: 'status', label: 'Status', type: { name: 'text' }, optional: true, choices: [{ label: 'Any' }, { label: 'Open', value: { literal: 'open' } }, { label: 'Done', value: { literal: 'done' } }], custom: false, relative: false, value: { literal: 'open' } },
+    { arg: 'owner', label: 'Owner', type: { name: 'text' }, optional: true, custom: true, relative: false },
+    { arg: 'since', label: 'Since', type: { name: 'date' }, optional: true, custom: true, relative: true, value: { relative: 'today-7d' } },
+  ],
+  presets: [{ label: 'Open', sets: { status: { literal: 'open' } } }, { label: 'Done', sets: { status: { literal: 'done' } } }],
+  paging: { offset: 'offset', limit: 'limit', window: 2, more: true },
+  actions: SAMPLE_ACTIONS,
+  drill: { fn: NOTE_WORDS, label: 'Words', bind: { note: 'id' } },
+  readOnly: false,
+  summary: 'Table of notes, 2 rows (more held back), shown to the person',
+});
+
+/** A note's words, as its drill shows them. */
+export const SAMPLE_WORDS: ResultTable = ResultTable.parse({
+  columns: [{ name: 'word', kind: 'text', nullable: false }, { name: 'length', kind: 'integer', nullable: false }],
+  rows: [['Plan', 4], ['the', 3], ['trip', 4]], offset: 0, total: 3, truncated: false, sort: [],
+});
+
+/** What `widgets/make_widget` proposes for "a chart of my notes' words": the open notes widget, its preview drawn. */
+export const SAMPLE_PROPOSAL: WidgetProposal = WidgetProposal.parse({
+  name: 'open_notes',
+  description: 'Open notes as a bar chart of words per note, with the table one tap away.',
+  spec: {
+    title: 'Open notes', source: 'hub/records_table', args: { type: { show: 'pinned', value: { literal: NOTE_TYPE } } }, presets: [],
+    visuals: [{ visual: 'category', style: 'bar', label: 'Words per note', bind: { x: ['title'], y: ['words'] } }, { visual: 'table', style: 'table', bind: {} }],
+  },
+  preview: SAMPLE_WIDGET,
+  show: true,
+});
 
 /** A record's history, newest first. */
 export function sampleRecordVersions(record: DataRecord): RecordVersion[] {

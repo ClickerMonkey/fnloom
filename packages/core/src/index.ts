@@ -96,6 +96,7 @@ export * from './versions.ts';
 export * from './data.ts';
 export * from './visuals.ts';
 export * from './widgets.ts';
+export * from './csv.ts';
 export * from './widgets-v1.ts';
 export * from './api-index.ts';
 export * from './mention-search.ts';

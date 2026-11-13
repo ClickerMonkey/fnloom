@@ -21,7 +21,7 @@ The hub's contract.
 const hub: typeof hub; // too large to print: see its section
 ```
 
-Refers to: [`FnExamplesPage`](context:fs/authoring.core-types.fn-facts-ts#core-fnexamplespage), [`FnExamplesQuery`](context:fs/authoring.core-types.fn-facts-ts#core-fnexamplesquery), [`FnSearchPage`](context:fs/authoring.core-types.fn-facts-ts#core-fnsearchpage), [`FnSearchQuery`](context:fs/authoring.core-types.fn-facts-ts#core-fnsearchquery), [`LoadContextResult`](context:fs/authoring.core-types.context-files-ts#core-loadcontextresult), [`MakeWidgetArgs`](context:fs/authoring.core-types.widgets-ts#core-makewidgetargs), [`MintMcpTokenArgs`](context:fs/authoring.core-types.records-mcps-ts#core-mintmcptokenargs), [`ResourceOutlineArgs`](context:fs/authoring.core-types.resource-forms-ts#core-resourceoutlineargs), [`ResourceSendArgs`](context:fs/authoring.core-types.resource-forms-ts#core-resourcesendargs), [`ResultTable`](context:fs/authoring.core-types.registries-ts#core-resulttable), [`Section`](context:fs/authoring.core-types.resources-ts#core-section), [`WidgetCheck`](context:fs/authoring.core-types.widgets-ts#core-widgetcheck), [`WidgetSpec`](context:fs/authoring.core-types.widgets-ts#core-widgetspec).
+Refers to: [`ContributionView`](context:fs/authoring.core-types.registries-ts#core-contributionview), [`FnExamplesPage`](context:fs/authoring.core-types.fn-facts-ts#core-fnexamplespage), [`FnExamplesQuery`](context:fs/authoring.core-types.fn-facts-ts#core-fnexamplesquery), [`FnSearchPage`](context:fs/authoring.core-types.fn-facts-ts#core-fnsearchpage), [`FnSearchQuery`](context:fs/authoring.core-types.fn-facts-ts#core-fnsearchquery), [`LoadContextResult`](context:fs/authoring.core-types.context-files-ts#core-loadcontextresult), [`MintMcpTokenArgs`](context:fs/authoring.core-types.records-mcps-ts#core-mintmcptokenargs), [`ReadTableArgs`](context:fs/authoring.core-types.widgets-ts#core-readtableargs), [`ResourceOutlineArgs`](context:fs/authoring.core-types.resource-forms-ts#core-resourceoutlineargs), [`ResourceSendArgs`](context:fs/authoring.core-types.resource-forms-ts#core-resourcesendargs), [`ResultTable`](context:fs/authoring.core-types.registries-ts#core-resulttable), [`RowActionsQuery`](context:fs/authoring.core-types.widgets-ts#core-rowactionsquery), [`Section`](context:fs/authoring.core-types.resources-ts#core-section), [`WidgetActionOption`](context:fs/authoring.core-types.widgets-ts#core-widgetactionoption).
 
 #### `HubContract`
 
@@ -240,33 +240,10 @@ const HUB_DATA_ENDPOINTS = {
   records_table: dataSlice.endpoints.recordTable,
   record_versions: dataSlice.endpoints.recordVersions,
   record_save: dataSlice.endpoints.saveRecord,
+  record_update: dataSlice.endpoints.updateRecord,
   record_remove: dataSlice.endpoints.removeRecord,
 } as const satisfies Record<string, EndpointLike>;
 ```
-
-#### `WidgetSourceArgs`
-
-const · `import { WidgetSourceArgs } from '@harness/sdk'`
-
-`hub/widget_source`: a fn whose result is a table, and the args to run a small sample with.
-
-```ts
-const WidgetSourceArgs: z.ZodObject<{ source: z.ZodTemplateLiteral<`${string}/${string}`>; args: z.ZodOptional<z.ZodJSONSchema>; }, z.core.$strip>;
-```
-
-Refers to: [`Json`](context:fs/authoring.core-types.primitives-ts#core-json), [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
-
-#### `WidgetSaveArgs`
-
-const · `import { WidgetSaveArgs } from '@harness/sdk'`
-
-`hub/widget_save`: the widget's name, one line about it, its spec, and whether to save over a widget of that name.
-
-```ts
-const WidgetSaveArgs = z.object({ name: LocalName, description: z.string().min(1), spec: WidgetSpec, replace: z.boolean().optional() });
-```
-
-Refers to: [`WidgetSpec`](context:fs/authoring.core-types.widgets-ts#core-widgetspec).
 
 #### `ADMIN_READ_ENDPOINTS`
 
@@ -400,10 +377,28 @@ const · `import { StoredFn } from '@harness/sdk'`
 A fn as `hub/fn_get` gives it.
 
 ```ts
-const StoredFn: ObjType<{ fn: string; kind: string; description: string; version: number; available: boolean; instructions?: string | undefined; payload?: z.core.util.JSONType | undefined; owner?: string | undefined; routing?: { to: "instance"; instance: string; } | { to: "any"; } | undefined; }>;
+const StoredFn = g.obj({
+  fn: g.text(),
+  kind: g.text(),
+  description: g.text(),
+  instructions: g.optional(g.text()),
+  payload: g.optional(json()),
+  /** 1 for a fn never saved again; the hub keeps every older version. */
+  version: g.num({ min: 1, whole: true }),
+  /** Who owns it (a saved fn's person); absent for a system's own fns. */
+  owner: g.optional(g.text()),
+  routing: g.optional(ginAs(FnRouting)),
+  available: g.bool(),
+  /** Its args type, as the hub describes it (a fn of a kind: as its kind works it out), so a widget plans each arg. */
+  args: g.optional(ginAs(GinTypeDef)),
+  /** Its declared return type, so a widget checks that it is a table. */
+  returns: g.optional(ginAs(GinTypeDef)),
+  /** Its rows change on their own (`FnDecl.live`), so a widget over it may re-run while shown. */
+  live: g.optional(ginAs(FnLive)),
+});
 ```
 
-Refers to: [`FnRouting`](context:fs/authoring.core-types.contextdecl#core-fnrouting).
+Refers to: [`FnLive`](context:fs/authoring.core-types.contextdecl#core-fnlive), [`FnRouting`](context:fs/authoring.core-types.contextdecl#core-fnrouting), [`GinTypeDef`](context:fs/authoring.core-types.gin-ts#core-gintypedef).
 
 #### `SaveFnArgs`
 

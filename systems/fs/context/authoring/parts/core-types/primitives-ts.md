@@ -138,6 +138,16 @@ const, type · declared in `packages/core/src/primitives.ts`
 type SessionId = IdOf<'session'>;
 ```
 
+#### <a id="core-systemname"></a>`SystemName`
+
+const, type · declared in `packages/core/src/primitives.ts`
+
+A system's name. Unique among the hub's systems; it namespaces everything the system contributes.
+
+```ts
+type SystemName = SystemName;
+```
+
 #### <a id="core-timestamp"></a>`Timestamp`
 
 const, type · declared in `packages/core/src/primitives.ts`

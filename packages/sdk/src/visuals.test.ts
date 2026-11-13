@@ -1,26 +1,25 @@
 /**
- * Visuals a system contributes to another system's registry: `client()` takes only declared contributions, and the
- * client runtime lists the visuals that fit a result, best first, the table last, leaving out a match that throws.
+ * Visuals a system contributes to a registry: `client()` takes only declared contributions with a shape, and the client
+ * runtime lists the ones a result may use in load order, leaving out a vetoed one and one whose veto throws.
  */
-import { mintId, TABLE_VISUAL_SCORE, type ResultTable } from '@harness/core';
+import { mintId, type ResultTable } from '@harness/core';
 import { describe, expect, it, vi } from 'vitest';
 import { h } from 'vue';
 import { client, type VisualView } from './client.ts';
 import { ClientRuntime } from './client-runtime.ts';
-import { g } from './gin.ts';
 import { system } from './system.ts';
+import { channel, resultFacts, visual } from './widgets.ts';
 
-const REGISTRY = 'database/query-visuals';
-const TableView = (view: VisualView) => h('table', String(view.table.rows.length));
-const ValueView = (view: VisualView) => h('strong', JSON.stringify(view.table.rows[0]?.[0] ?? null));
+const REGISTRY = 'hub/visuals';
+const WaffleView = (view: VisualView) => h('div', `${view.style}: ${String(view.table.rows.length)}`);
 const BrokenView = () => h('div');
+const shape = { channels: [channel('value', 'Value', ['integer'])], rows: { min: 1 }, whole: false };
 
-const database = system('database', {
-  description: 'Databases.',
-  registries: { 'query-visuals': { description: 'Ways to draw rows.', data: g.obj({}) } },
-  contributes: [{ registry: REGISTRY, name: 'table', label: 'Table' }, { registry: REGISTRY, name: 'value', label: 'Value' }],
+const charts = system('charts', {
+  description: 'Charts.',
+  contributes: [visual({ name: 'waffle', label: 'Waffle', icon: 'grid', shape }), visual({ name: 'dial', label: 'Dial', shape })],
 });
-const charts = system('charts', { description: 'Charts.', contributes: [{ registry: REGISTRY, name: 'broken', label: 'Broken' }] });
+const broken = system('broken', { description: 'Broken.', contributes: [visual({ name: 'boom', label: 'Boom', shape }), { registry: REGISTRY, name: 'bare', label: 'Bare' }] });
 
 const one: ResultTable = { columns: [{ name: 'n', kind: 'integer', nullable: false }], rows: [[42]], offset: 0, truncated: false, sort: [] };
 const many: ResultTable = { ...one, rows: [[1], [2]] };
@@ -33,32 +32,29 @@ function runtime(): ClientRuntime {
     invoke: () => Promise.resolve(mintId('run')),
     follow: () => new Promise(() => undefined),
   });
-  r.register(client(database, {
-    visuals: {
-      [REGISTRY]: {
-        table: { match: () => ({ fits: true, score: TABLE_VISUAL_SCORE }), component: TableView },
-        value: { match: (t) => (t.rows.length === 1 && t.columns.length === 1 ? { fits: true, score: 0.9 } : { fits: false, score: 0 }), component: ValueView },
-      },
-    },
+  r.register(client(charts, {
+    visuals: { [REGISTRY]: { waffle: { component: WaffleView }, dial: { veto: (table) => (table.rows.length > 1 ? 'A dial shows one value.' : undefined), component: WaffleView } } },
   }));
-  r.register(client(charts, { visuals: { [REGISTRY]: { broken: { match: () => { throw new Error('boom'); }, component: BrokenView } } } }));
+  r.register(client(broken, { visuals: { [REGISTRY]: { boom: { veto: () => { throw new Error('boom'); }, component: BrokenView } } } }));
   return r;
 }
 
 describe('visual registries', () => {
-  it('lists the visuals that fit, best first and the table last', () => {
+  it('lists the visuals a result may use, without the vetoed ones or a veto that throws', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const r = runtime();
-    expect(r.visuals(REGISTRY, one).map((v) => `${v.system}/${v.name}`)).toEqual(['database/value', 'database/table']);
-    expect(r.visuals(REGISTRY, many).map((v) => v.name)).toEqual(['table']);
-    expect(r.visuals(REGISTRY, one)[0]?.props.table).toBe(one);
-    expect(r.visuals(REGISTRY, one).map((v) => v.label)).toEqual(['Value', 'Table']);
-    expect(r.visuals('other/registry', one)).toEqual([]);
-    expect(warn).toHaveBeenCalledWith('client.visual.match-failed', expect.objectContaining({ system: 'charts', name: 'broken' }));
+    expect(r.visuals(REGISTRY, one, resultFacts(one)).map((v) => `${v.system}/${v.name}`)).toEqual(['charts/waffle', 'charts/dial']);
+    expect(r.visuals(REGISTRY, many, resultFacts(many)).map((v) => v.name)).toEqual(['waffle']);
+    const [first] = r.visuals(REGISTRY, one, resultFacts(one));
+    expect(first).toMatchObject({ label: 'Waffle', icon: 'grid', shape: { whole: false } });
+    expect(first?.client.online).toBe(true);
+    expect(r.visuals('other/registry', one, resultFacts(one))).toEqual([]);
+    expect(warn).toHaveBeenCalledWith('client.visual.veto-failed', expect.objectContaining({ system: 'broken', name: 'boom' }));
     warn.mockRestore();
   });
 
-  it('refuses a visual the contract does not contribute', () => {
-    expect(() => client(charts, { visuals: { [REGISTRY]: { pie: { match: () => ({ fits: true, score: 1 }), component: BrokenView } } } })).toThrow(/not in the contract's contributes/);
+  it('refuses a visual the contract does not contribute, or one without a shape', () => {
+    expect(() => client(charts, { visuals: { [REGISTRY]: { pie: { component: BrokenView } } } })).toThrow(/not in the contract's contributes/);
+    expect(() => client(broken, { visuals: { [REGISTRY]: { bare: { component: BrokenView } } } })).toThrow(/needs a declared shape/);
   });
 });

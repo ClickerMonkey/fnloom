@@ -11,6 +11,7 @@ import {
   QualifiedName, SystemName, type ChatCapabilities, type DeliveryId, type Json, type MentionHover, type MessagePart, type ResultTable,
 } from '@harness/core';
 import type { InputMount } from '@harness/sdk';
+import type { ResultFacts } from '@harness/core';
 import { ClientRuntime, type ClientBridge, type VisualOption } from '@harness/sdk/client';
 import { shallowRef } from 'vue';
 import type { RenderView } from '../components/types.ts';
@@ -128,9 +129,9 @@ export class RendererHub {
    * The visuals loaded builds contribute to a registry that fit a table, best fit first, each with the label and icon
    * its contract gives it (`ClientRuntime.visuals`).
    */
-  contributedVisuals(registry: QualifiedName, table: ResultTable): readonly VisualOption[] {
+  contributedVisuals(registry: QualifiedName, table: ResultTable, facts: ResultFacts): readonly VisualOption[] {
     this.#track();
-    return this.runtime.visuals(registry, table);
+    return this.runtime.visuals(registry, table, facts);
   }
 
   /** Read the version, so a lookup inside a computed or render runs again when a build loads. */

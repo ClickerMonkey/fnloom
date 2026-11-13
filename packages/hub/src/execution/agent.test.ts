@@ -174,7 +174,7 @@ describe('a session agent', () => {
     expect(r.chat.followUps).toEqual([{ turn: turn.id, agent: AGENT }]);
     const transcript = (await r.store.table('sessions').get(SESSION))?.transcript ?? [];
     const note = transcript.at(-1);
-    expect(note).toEqual({ role: 'user', content: backgroundResult(child, { status: 'done', result: 'the big file' }) });
+    expect(note).toEqual({ role: 'user', content: backgroundResult(child, { status: 'done', result: 'the big file' }, 5) });
     expect(note?.content).toContain('<background-result fn="fs/read" status="done">\nthe big file\n</background-result>');
     expect(note?.content).not.toContain(child.id);
     expect([r.chat.finished.length, r.chat.tracked.length]).toEqual([finished, tracked]);
@@ -402,10 +402,13 @@ describe('a system agent with an output hook', () => {
 
 describe('agent loop pieces', () => {
   it('reads settled tool runs the way the model should', () => {
-    expect(settledReply({ status: 'done', result: { a: 1 } })).toBe('{"a":1}');
-    expect(settledReply({ status: 'done', result: 'text' })).toBe('text');
-    expect(settledReply({ status: 'failed', error: { class: 'caller', message: 'nope' } })).toBe('Error: nope');
-    expect(settledReply({ status: 'cancelled' })).toMatch(/cancelled/);
+    expect(settledReply({ status: 'done', result: { a: 1 } }, 5)).toBe('{"a":1}');
+    expect(settledReply({ status: 'done', result: 'text' }, 5)).toBe('text');
+    expect(settledReply({ status: 'failed', error: { class: 'caller', message: 'nope' } }, 5)).toBe('Error: nope');
+    expect(settledReply({ status: 'cancelled' }, 5)).toMatch(/cancelled/);
+    // a table result is drawn for the person: the model reads its summary and the first rows
+    const table = { columns: [{ name: 'n', kind: 'integer', nullable: false }], rows: [[1], [2], [3]], offset: 0, truncated: false, sort: [] };
+    expect(JSON.parse(settledReply({ status: 'done', result: table }, 2))).toEqual({ summary: 'A table of 3 rows, shown to the person', columns: ['n'], rows: [[1], [2]], more: 1 });
   });
 
   it('answers tool calls right after their assistant message, before later user messages', async () => {

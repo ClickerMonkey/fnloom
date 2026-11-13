@@ -23,6 +23,7 @@ import type { z } from 'zod';
 import type { AdminNotices, AiSource, Decisions, Fleets, FnSearch, Proposals, SystemPlace } from '../ctx.ts';
 import { fakeHubAi, streamOf } from './fake-models.ts';
 import { FakeHubFns } from './fake-hub-fns.ts';
+import { FakeHubWidgets } from './fake-hub-widgets.ts';
 import { FakeRecords, type StoredTypeDecl } from './fake-records.ts';
 import { contentHash } from './content.ts';
 import { LinkHost, type LinkHostDeps } from './host.ts';
@@ -272,8 +273,13 @@ export class FakeHub {
   readonly mentionSearches: MentionResourceSearch[] = [];
   /** Answers a mention provider's resource search (default: no hits). */
   onMentionResources: (search: MentionResourceSearch) => Promise<ResourceHit[]> = () => Promise.resolve([]);
-  /** Settles a child call. Default: `hub/save_fn` and `hub/fn_get` by `fns`, anything else done with `null`. */
-  onCall: (call: FakeHub['calls'][number]) => Promise<RunSettled> = (call) => Promise.resolve(this.fns.settle(call) ?? { status: 'done', result: null });
+  /** The hub's widget fns (`hub/read_table`, `hub/visuals`, `hub/row_actions`), in memory. */
+  readonly widgets = new FakeHubWidgets();
+  /**
+   * Settles a child call. Default: `hub/save_fn` and `hub/fn_get` by `fns`, the widget fns by `widgets`, anything else
+   * done with `null`.
+   */
+  onCall: (call: FakeHub['calls'][number]) => Promise<RunSettled> = (call) => Promise.resolve(this.fns.settle(call) ?? this.widgets.settle(call) ?? { status: 'done', result: null });
   /** Answers a run's handler. Default: refused. */
   onHandle: (call: FakeHub['handled'][number]) => Promise<HandlerAnswer> = () => Promise.resolve({ ok: false, error: { class: 'caller', message: 'no one answers handlers here' } });
   /** Answers `ctx.types.definitions` (the real hub sends the closure, dependencies first). Default: every name missing. */
@@ -694,4 +700,5 @@ function emptyReport(): ImportReport {
 }
 export { liveEnv, liveModels } from './live.ts';
 export { FakeHubFns, type KeptFn } from './fake-hub-fns.ts';
+export { FakeHubWidgets, HUB_WIDGET_FNS, type FakeTableSource } from './fake-hub-widgets.ts';
 export { FakeModelLink, fakeHubAi, replyChunks, streamOf, type FakeModelOptions, type FakeReply } from './fake-models.ts';

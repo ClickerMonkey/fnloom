@@ -19,7 +19,7 @@ export const build5: Scenario = {
       for (const row of rows) {
         if ((await row.evaluate((el) => el.textContent)).includes('Orders this month')) { await row.click(); break; }
       }
-      await page.waitForSelector('[data-testid="result-view"][data-visual="bar"]');
+      await page.waitForSelector('[data-testid="result-view"]:not([data-visual="table"])');
       check(await page.$('[data-testid="result-view"][data-visual="table"]') !== null, 'the wide result should show as a table');
       check(await page.$('[data-testid="approval-preview"]') !== null, 'the approval card should show what the write will do');
       await page.$eval('[data-testid="result-view"]', (el) => { el.scrollIntoView({ block: 'start' }); });

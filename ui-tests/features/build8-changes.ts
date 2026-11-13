@@ -24,7 +24,7 @@ export default feature({
     const session = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('[data-testid="session-row"]')].find((row) => row.textContent.includes('Tidy the routes'))?.dataset['session']);
     check(typeof session === 'string', 'the mock lists the chat with a bash run');
     await inEachScheme(ctx, async (shot) => {
-      await open(ctx, `/chat/${String(session)}`, DONE);
+      await open(ctx, `/chat/${session}`, DONE);
       if (await page.$(`${DONE} ${CHANGES}`) === null) { await page.click(`${DONE} button[aria-label="Expand"]`); }
       await page.waitForSelector(CHANGES);
       await (await page.$(CHANGES))?.scrollIntoView();

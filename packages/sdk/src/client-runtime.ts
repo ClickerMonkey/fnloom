@@ -19,9 +19,9 @@
  * This module is browser code: it imports Vue and the SDK's contract builders, nothing from Node.
  */
 import { ObjType } from '@aeye/gin';
-import { DeliveryStatus, QualifiedName, qualify, type DeliveryId, type Json, type ResultTable, type RunId, type VisualFit, type VisualShape } from '@harness/core';
+import { DeliveryStatus, QualifiedName, qualify, type DeliveryId, type Json, type ResultFacts, type ResultTable, type RunId, type VisualShape } from '@harness/core';
 import { reactive, type Component } from 'vue';
-import { visualMatch, type AnyViews, type ClientModule, type Delivery, type InputMount, type Mount, type ResourceViewerEntry, type ResourceViewerMode, type SystemClient, type VisualOption, type WireViews } from './client.ts';
+import { type AnyViews, type ClientModule, type Delivery, type InputMount, type Mount, type ResourceViewerEntry, type ResourceViewerMode, type SystemClient, type VisualOption, type WireViews } from './client.ts';
 import { encodeValue, parseValue, type GinType } from './gin.ts';
 import type { ContractShape } from './system.ts';
 
@@ -173,16 +173,14 @@ function configOf<C extends ContractShape>(module: ClientModule<C>): RegisteredC
   return decl === undefined || component === undefined ? undefined : { component, mode: decl.mode, type: module.contract.defs.config };
 }
 
-/** A visual that fits some data, as a registry's result view lists it: who adds it, its name, its fit, and how to mount it. */
-
 /** One loaded visual, with its contract types erased. */
 interface LoadedVisual {
   readonly system: string;
   readonly name: string;
   readonly label: string;
   readonly icon: string | undefined;
-  readonly shape: VisualShape | undefined;
-  match(table: ResultTable): VisualFit;
+  readonly shape: VisualShape;
+  veto(table: ResultTable, facts: ResultFacts): string | undefined;
   readonly component: Component;
 }
 
@@ -206,11 +204,12 @@ export class ClientRuntime {
     for (const [registry, list] of this.#visuals) { this.#visuals.set(registry, list.filter((visual) => visual.system !== module.system)); }
     for (const [registry, entries] of Object.entries(module.renderers.visuals ?? {})) {
       const key = QualifiedName.parse(registry);
-      const added = Object.entries(entries).map(([name, entry]): LoadedVisual => {
-        // client() checked that every visual is in the contract's contributes
+      const added = Object.entries(entries).flatMap(([name, entry]): LoadedVisual[] => {
+        // client() checked that every visual is in the contract's contributes, with a shape
         const declared = module.contract.contributes.find((c) => c.registry === key && c.name === name);
-        const match = visualMatch(entry, declared?.shape) ?? (() => ({ fits: false, score: 0 }));
-        return { system: module.system, name, label: declared?.label ?? name, icon: declared?.icon, shape: declared?.shape, match, component: entry.component };
+        if (declared?.shape === undefined) { return []; }
+        const veto = (table: ResultTable, facts: ResultFacts): string | undefined => entry.veto?.(table, facts);
+        return [{ system: module.system, name, label: declared.label, icon: declared.icon, shape: declared.shape, veto, component: entry.component }];
       });
       this.#visuals.set(key, [...(this.#visuals.get(key) ?? []), ...added]);
     }
@@ -233,28 +232,25 @@ export class ClientRuntime {
   }
 
   /**
-   * The visuals of a registry that fit a result, best fit first (the table, scoring lowest, comes last). A visual
-   * whose match throws is left out, so one broken contribution can't take the result view down.
+   * The systems' visuals of a registry that a result may use, in load order: every loaded one its `veto` doesn't
+   * refuse. Ranking is the result view's (`rankedVisuals` over these and the built-in ones). A visual whose veto throws
+   * is left out, so one broken contribution can't take the result view down.
    */
-  visuals(registry: QualifiedName, table: ResultTable): VisualOption[] {
-    const fitting: VisualOption[] = [];
-    for (const visual of this.#visuals.get(registry) ?? []) {
-      let fit: VisualFit;
+  visuals(registry: QualifiedName, table: ResultTable, facts: ResultFacts): VisualOption[] {
+    return (this.#visuals.get(registry) ?? []).flatMap((visual): VisualOption[] => {
+      let vetoed: string | undefined;
       try {
-        fit = visual.match(table);
+        vetoed = visual.veto(table, facts);
       } catch (error) {
-        console.warn('client.visual.match-failed', { registry, system: visual.system, name: visual.name, error });
-        continue;
+        console.warn('client.visual.veto-failed', { registry, system: visual.system, name: visual.name, error });
+        return [];
       }
-      if (fit.fits) {
-        fitting.push({
-          system: visual.system, name: visual.name, label: visual.label, ...(visual.icon === undefined ? {} : { icon: visual.icon }),
-          ...(visual.shape === undefined ? {} : { shape: visual.shape }), fit, component: visual.component,
-          props: { table, system: this.systemClient(visual.system) },
-        });
-      }
-    }
-    return fitting.sort((a, b) => b.fit.score - a.fit.score);
+      if (vetoed !== undefined) { return []; }
+      return [{
+        system: visual.system, name: visual.name, label: visual.label, ...(visual.icon === undefined ? {} : { icon: visual.icon }),
+        shape: visual.shape, component: visual.component, client: this.systemClient(visual.system),
+      }];
+    });
   }
 
   /** The systems with a registered module. */

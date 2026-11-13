@@ -5,7 +5,7 @@
  * to the hub's index. The implementation is `StoreDataService` (`data/service.ts`).
  */
 import type {
-  ActorId, DataRecord, DataSetPage, DataSetQuery, RecordGet, RecordPage, RecordQuery, RecordRemove, RecordSave, RecordTableQuery,
+  ActorId, DataRecord, DataSetPage, DataSetQuery, RecordGet, RecordPage, RecordQuery, RecordRemove, RecordSave, RecordTableQuery, RecordUpdate,
   RecordVersionsPage, RecordVersionsQuery, ResultTable, RunId, SystemName,
 } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
@@ -28,10 +28,15 @@ export interface DataService {
   find(query: RecordQuery, asker: DataAsker): Promise<RecordPage>;
   /** One record, or undefined when there is none the asker may see. */
   get(query: RecordGet, asker: DataAsker): Promise<DataRecord | undefined>;
-  /** The same records as a `ResultTable`, offset-paged (what widgets draw). */
+  /**
+   * The same records as a `ResultTable`, offset-paged (what widgets draw): the id column is the key, the scalar fields
+   * are editable in place, and `records` names the type and the id column.
+   */
   table(query: RecordTableQuery, asker: DataAsker): Promise<ResultTable>;
   /** Add or replace a record; refused when the value doesn't fit the type, or the record moved past `expect`. */
   save(input: RecordSave, asker: DataAsker): Promise<DataRecord>;
+  /** Widget pass: change some fields of one record in place (the Data grid's inline edit); checked like a save. */
+  update(input: RecordUpdate, asker: DataAsker): Promise<DataRecord>;
   /** Remove a record; its versions stay. */
   remove(input: RecordRemove, asker: DataAsker): Promise<boolean>;
   /** A record's history, newest first. */

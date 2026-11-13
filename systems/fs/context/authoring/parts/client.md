@@ -140,11 +140,11 @@ as `serve`'s `client` option and the system uploads the bundle when it connects;
 for a packaged system.
 
 **Visuals for a registry.** A system adds components to a registry (its own or another system's, such as
-`hub/visuals`) with `client(contract, { visuals: { 'hub/visuals': { pie: { match, component } } } })`
-(`VisualEntry`). `match(table)` gets the `ResultTable` and answers a `VisualFit`: whether it can draw it and a score
-from 0 to 1 for how much of the data it shows well (the table scores 0, so any other fit beats it). Keep it cheap and
-pure. The component gets `VisualView` (`table`) and `system`. Each visual must be listed in the contract's
-`contributes`, or `client()` throws; the chat's runtime lists the visuals that fit (`visuals(registry, table)`), best
-first, and leaves out one whose `match` throws.
+`hub/visuals`) with `client(contract, { visuals: { 'hub/visuals': { bullet: { component, veto } } } })` (`VisualEntry`).
+Each must be listed in the contract's `contributes` with a declared shape (`visual({ shape })`), or `client()` throws:
+the shape alone judges and ranks a fit, the same in the hub, the widget agent and the browser. `veto(table, facts)` may
+only take a fit away, with a reason; keep it cheap and pure. The chat's runtime lists the visuals a result may use
+(`visuals(registry, table, facts)`, in load order), leaving out a vetoed one and one whose veto throws; the result view
+ranks them with the built-in ones. How to draw one with ECharts is in [Visuals and widgets](context:fs/authoring.widgets).
 
 Fns for this: fn:fs/read, fn:fs/write, fn:fs/edit, fn:fs/bash.

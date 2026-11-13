@@ -9,7 +9,7 @@
  * await kit.stop();
  * ```
  */
-import { qualify, type DataRecord, type KindDescription, type MentionOption as WireMentionOption, type OutcomeWire, type QualifiedName, type RunRequest, type SensitivityFlag } from '@harness/core';
+import { qualify, type DataRecord, type KindDescription, type MentionOption as WireMentionOption, type OutcomeWire, type QualifiedName, type ResultTable, type RunRequest, type SensitivityFlag, type VisualRank } from '@harness/core';
 import type { KindDef } from '../declare.ts';
 import type { AnyFnDef, FnDef, TypesOf } from '../fn.ts';
 import { encodeValue, parseValue } from '../gin.ts';
@@ -17,6 +17,7 @@ import type { ModelLink } from '../server/llm.ts';
 import type { RunningSystem, ServeOptions } from '../server/index.ts';
 import { FakeHub, type FakeHubOptions } from '../server/testing.ts';
 import type { ContractShape, SystemContract, SystemImpl } from '../system.ts';
+import { BUILT_IN_CONTRIBUTIONS, rankedVisuals, resultFacts } from '../widgets.ts';
 
 /** A fn of the contract, by local name. */
 export type FnNameOf<C extends ContractShape> = keyof C['fns'] & string;
@@ -161,6 +162,15 @@ export class TestSystem<N extends string, C extends ContractShape> {
   records(type: keyof C['types'] & string): DataRecord[] {
     const name: QualifiedName = qualify(this.contract.name, type);
     return this.hub.data.of(name);
+  }
+
+  /**
+   * The visuals that would draw a table, best first, as the hub, the widget agent and the web app rank them: the
+   * built-in families and this system's own `HUB_VISUALS` contributions (`rankedVisuals` over `resultFacts`). Check that
+   * a visual you declare is offered for the data it is for, and with the binding you expect.
+   */
+  visuals(table: ResultTable): VisualRank[] {
+    return rankedVisuals([...BUILT_IN_CONTRIBUTIONS, ...this.contract.contributes], resultFacts(table), table).map((ranked) => ranked.rank);
   }
 
   /** Stop the system. */

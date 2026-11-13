@@ -33,12 +33,6 @@ type ContextFileHeader = {
   alwaysFor: `${string}/${string}`[];
   tags: string[];
   title?: string | undefined;
-  choices?: {
-    to: `${string}/${string}`;
-    when: string;
-  }[] | undefined;
-  weight?: number | undefined;
-  next?: `${string}/${string}` | undefined;
   links?: {
     to: {
       kind: "context";
@@ -57,6 +51,8 @@ type ContextFileHeader = {
     relation: "next" | "about" | "parent" | "imports" | "brings" | "suggests" | "related";
     weight: number;
   }[] | undefined;
+  weight?: number | undefined;
+  next?: `${string}/${string}` | undefined;
   command?: {
     name: string;
     args: {
@@ -66,6 +62,10 @@ type ContextFileHeader = {
     }[];
   } | undefined;
   parent?: `${string}/${string}` | undefined;
+  choices?: {
+    to: `${string}/${string}`;
+    when: string;
+  }[] | undefined;
 };
 ```
 

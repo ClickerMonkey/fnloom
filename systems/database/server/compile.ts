@@ -5,7 +5,7 @@
  */
 import { createRegistry, type TypeDef as GinDef } from '@aeye/gin';
 import {
-  asFieldType, autoPaginate, canAutoPaginate, parseQueryRequest,
+  FieldRefExpr, SelectQuery, asFieldType, autoPaginate, canAutoPaginate, parseQueryRequest,
   type FieldTypeDef, type ParamInfo, type Query, type QueryDef, type QueryEngine, type SqlParamValue,
 } from '@aeye/query';
 import { GinTypeDef, type ColumnKind, type Json, type ResultColumn, type ResultSort } from '@harness/core';
@@ -68,9 +68,10 @@ export function compileQuery(engine: QueryEngine, json: unknown): CompiledQuery 
   if (unknown.length > 0) { return { problems: unknown.map((table) => `There is no table ${table} in this database.`), report: parsed.report }; }
   const writes = def.kind === 'insert' || def.kind === 'update' || def.kind === 'delete' || affected.length > 0;
   const scope = engine.globalScope();
-  const columns: ResultColumn[] = query.outputFields(engine, scope).map((field) => {
+  const roles = outputRoles(engine, query);
+  const columns: ResultColumn[] = query.outputFields(engine, scope).map((field, index) => {
     const type = asFieldType(field.type)?.toJSON();
-    return { name: field.name, kind: columnKindOf(type), nullable: field.nullable };
+    return { name: field.name, kind: columnKindOf(type), nullable: field.nullable, ...roles[index] };
   });
   return {
     engine,
@@ -82,6 +83,24 @@ export function compileQuery(engine: QueryEngine, json: unknown): CompiledQuery 
     tables,
     columns,
   };
+}
+
+/**
+ * What a select's output columns are for, as only the query knows it: in a grouped select (a GROUP BY, or an aggregate
+ * in its fields) a field holding an aggregate is a `measure` and any other a `group` key; in a plain select a field
+ * that reads a table's primary key is the row's `key`. Other queries (a set operation, a CTE, a write) say nothing,
+ * and the hub derives each column's role from its kind and values.
+ */
+function outputRoles(engine: QueryEngine, query: Query): ReadonlyArray<Pick<ResultColumn, 'role' | 'key'>> {
+  if (!(query instanceof SelectQuery)) { return []; }
+  const grouped = query.groupBy.length > 0 || query.fields.some((field) => field.expr.containsAggregate());
+  return query.fields.map(({ expr }) => {
+    if (grouped) { return { role: expr.containsAggregate() ? 'measure' : 'group' }; }
+    if (!(expr instanceof FieldRefExpr)) { return {}; }
+    // a source is named by its table's type (a join alias that names no table has no key here)
+    const table = engine.type(expr.source);
+    return table?.primaryKey().some((field) => field.name === expr.field) === true ? { key: true } : {};
+  });
 }
 
 /** Every type a query reads from by name (`{ kind: 'type', type }` sources), at any depth. */

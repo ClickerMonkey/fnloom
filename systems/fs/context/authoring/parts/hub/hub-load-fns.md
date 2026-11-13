@@ -66,20 +66,7 @@ tags: ["authoring"]
   ```text
   (obj{
     /* The qualified fn name. */ fn: text{minLength=1}
-  }) => obj{
-    fn: text,
-    kind: text,
-    description: text,
-    instructions?: text,
-    payload?: any,
-    version: num{min=1, whole=true},
-    owner?: text,
-    routing?: or<obj{
-      to: literal<text>{value="instance"},
-      instance: text
-    }, obj{to: literal<text>{value="any"}}>,
-    available: bool
-  }
+  }) => obj{ fn, kind, description, instructions?, payload?, version, owner?, routing?, available, args?, returns?, live? … }
   ```
 - `hub/save_fn`: Keep a fn of one of the calling system's kinds in the hub (a saved form, a saved query), owned by the run's person and shared as asked. Saving a name again keeps the old version in its history. Tags: `own`.
 

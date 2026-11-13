@@ -8,7 +8,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ActorId, BUILT_IN_SHAPES, SystemPackageManifest, mintId, type Json, type OutcomeWire } from '@harness/core';
+import { ActorId, SystemPackageManifest, mintId, type Json, type OutcomeWire } from '@harness/core';
 import { hub as hubContract } from '@harness/sdk';
 import { TEST_USER, type FakeHub } from '@harness/sdk/server/testing';
 import BetterSqlite3 from 'better-sqlite3';
@@ -90,10 +90,9 @@ describe('the database system over the link', () => {
       expect(decl.examples?.length ?? 0, decl.name).toBeGreaterThan(0);
     }
     expect(manifest?.fns.find((item) => item.name === 'change_schema')).toMatchObject({ approval: { preview: true, remember: false }, visibility: 'none' });
-    // its visuals go to the hub's registry, each with the data it draws, so a fit is judged without client code
+    // its rows are drawn by the app's own result view: it hosts no registry and contributes no visual
     expect(manifest?.registries).toBeUndefined();
-    expect(manifest?.contributes?.map((item) => `${item.registry} ${item.name}`)).toEqual(['hub/visuals table', 'hub/visuals bar', 'hub/visuals value']);
-    expect(manifest?.contributes?.map((item) => item.shape)).toEqual([BUILT_IN_SHAPES.table, BUILT_IN_SHAPES.bar, BUILT_IN_SHAPES.value]);
+    expect(manifest?.contributes ?? []).toEqual([]);
     expect(manifest?.configSecrets).toEqual(['connection.url', 'connection.password']);
     expect(types.upserts[0]?.sort()).toEqual(['main.customers', 'main.orders']);
   });

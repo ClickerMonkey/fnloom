@@ -116,4 +116,17 @@ describe('the data system', () => {
     // the run of a change is the asker's, never one named in the input
     expect(benPrefs.run).toBeUndefined();
   });
+
+  it('gives a record table its key, editable fields and record type, and changes fields in place', async () => {
+    const { data, ann, ben } = await world();
+    const saved = await data.save({ type: NOTE, value: { title: 'Oslo', body: 'Train.', stars: 3, done: false } }, ann);
+    const table = await data.table({ type: NOTE, limit: 10 }, ann);
+    expect(table.records).toEqual({ type: NOTE, id: 'id' });
+    expect(table.columns.map((c) => [c.name, c.editable ?? false, c.key ?? false])).toEqual([['title', true, false], ['body', true, false], ['stars', true, false], ['done', true, false], ['id', false, true]]);
+    const changed = await data.update({ type: NOTE, id: saved.id, set: { done: true } }, ben);
+    expect(changed).toMatchObject({ version: 2, value: { title: 'Oslo', body: 'Train.', stars: 3, done: true }, updatedBy: BEN });
+    await expect(data.update({ type: NOTE, id: saved.id, set: { done: false }, expect: 1 }, ann)).rejects.toMatchObject({ code: 'RECORD_MOVED_ON' });
+    await expect(data.update({ type: NOTE, id: saved.id, set: { colour: 'red' } }, ann)).rejects.toMatchObject({ code: 'RECORD_INVALID' });
+    await expect(data.update({ type: NOTE, id: saved.id, set: { stars: 'many' } }, ann)).rejects.toMatchObject({ code: 'RECORD_INVALID' });
+  });
 });

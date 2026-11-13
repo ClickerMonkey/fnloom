@@ -4,7 +4,7 @@
  * updates as progress and the result come in. A system's client build keeps `vue` external, so renderers share the
  * chat's Vue. The chat UI provides the runtime behind `SystemClient` and `ResourceViewer`.
  */
-import { declaredFit, type AccessInfo, type DeliveryId, type DeliveryStatus, type FnError, type FormKind, type Json, type MentionHover, type MessagePart, type QualifiedName, type ResourceStat, type ResourceUri, type ResultTable, type RunId, type RunStatus, type SectionKey, type ShareRule, type TypeDisplay, type VisualFit, type VisualShape } from '@harness/core';
+import { type AccessInfo, type DeliveryId, type DeliveryStatus, type FnError, type FormKind, type Json, type MentionHover, type MessagePart, type QualifiedName, type ResourceStat, type ResourceUri, type ResultFacts, type ResultTable, type RunId, type RunStatus, type SectionKey, type ShareRule, type TypeDisplay, type VisualBinding, type VisualShape } from '@harness/core';
 import type { Component, InjectionKey } from 'vue';
 import type { ActionDef, AttachmentDef, MentionDef, ValueOf } from './declare.ts';
 import type { FnDef, FnTypes, ProgressState, TypesOf, UntypedFn } from './fn.ts';
@@ -189,30 +189,95 @@ export interface InputMount extends Mount<'input'> {
   encode(value: unknown): Json | undefined;
 }
 
-/** The props of a visual (an entry of a registry such as the hub's `hub/visuals`): the rows to draw. */
-export interface VisualView {
-  table: ResultTable;
+/**
+ * The colours a visual draws with, resolved for the current theme from the web app's tokens: the categorical series
+ * colours (`--chart-1` … `--chart-8`, the first the accent), the text and muted text, the grid lines and the surface
+ * behind the chart. Build an ECharts theme from it; it changes when the theme does.
+ */
+export interface VisualPalette {
+  readonly series: readonly string[];
+  readonly text: string;
+  readonly muted: string;
+  readonly grid: string;
+  readonly surface: string;
+  readonly dark: boolean;
+}
+
+/** A range a visual shows, as its range args take it: a calendar's month, a zoomed time axis (ISO dates or instants). */
+export interface VisualRange {
+  readonly from: string;
+  readonly to: string;
 }
 
 /**
- * One visual a system adds to a registry: whether a result fits it and how much of it it shows well (`VisualFit`,
- * score 0 to 1; the table scores 0), and the component that draws it. Keep `match` cheap and pure: it runs for
- * every result the person sees. Without `match`, the contribution's declared shape (`visual({ shape })`) judges the fit
- * (`declaredFit`) with `DECLARED_FIT_SCORE`; a visual needs one or the other.
+ * The props of a visual (an entry of a registry such as the hub's `hub/visuals`): the rows to draw, their column facts
+ * (`resultFacts`), the columns bound to each channel (`bind`, complete: the widget's or the default binding), the style
+ * picked in the style picker, and the theme's colours.
  */
-export interface VisualEntry<C extends ContractShape> {
-  match?(table: ResultTable): VisualFit;
-  component: Renderer<VisualView & WithSystem<C>>;
+export interface VisualView {
+  table: ResultTable;
+  facts: ResultFacts;
+  bind: VisualBinding;
+  style: string;
+  palette: VisualPalette;
 }
 
-/** The score of a visual judged only by its declared shape: above the table, below a visual that scores itself. */
-export const DECLARED_FIT_SCORE = 0.3;
+/**
+ * What a visual emits, with the checks Vue runs on each (`defineEmits(VISUAL_EMITS)`, or `emits: VISUAL_EMITS`):
+ * `drill` with the index of the clicked row (a bar, slice or point: the widget runs its drill, else opens the row's
+ * action menu), and `range` when the person zooms a time axis or turns a calendar's month (the widget sets its range
+ * args and runs again).
+ */
+export const VISUAL_EMITS = {
+  drill: (rowIndex: number): boolean => Number.isInteger(rowIndex) && rowIndex >= 0,
+  range: (range: VisualRange): boolean => range.from <= range.to,
+};
+export type VisualEmits = typeof VISUAL_EMITS;
 
-/** How a visual is judged: its own `match`, else its declared shape; `undefined` when it has neither. */
-export function visualMatch(entry: { match?(table: ResultTable): VisualFit }, shape: VisualShape | undefined): ((table: ResultTable) => VisualFit) | undefined {
-  if (entry.match !== undefined) { const match = entry.match.bind(entry); return (table) => match(table); }
-  if (shape === undefined) { return undefined; }
-  return (table) => ({ fits: declaredFit(shape, table).fits, score: DECLARED_FIT_SCORE });
+/** The axis colours of a visual theme: lines and ticks in the grid colour, labels muted. */
+interface VisualAxisTheme {
+  readonly axisLine: { readonly lineStyle: { readonly color: string } };
+  readonly axisTick: { readonly lineStyle: { readonly color: string } };
+  readonly axisLabel: { readonly color: string };
+  readonly splitLine: { readonly lineStyle: { readonly color: string } };
+}
+
+/** An ECharts theme object (`init(el, visualTheme(palette))`), so a system's chart looks like the built-in ones. */
+export interface VisualTheme {
+  readonly color: readonly string[];
+  readonly backgroundColor: string;
+  readonly textStyle: { readonly color: string };
+  readonly legend: { readonly textStyle: { readonly color: string } };
+  readonly tooltip: { readonly backgroundColor: string; readonly borderColor: string; readonly textStyle: { readonly color: string } };
+  readonly categoryAxis: VisualAxisTheme;
+  readonly valueAxis: VisualAxisTheme;
+  readonly timeAxis: VisualAxisTheme;
+  readonly logAxis: VisualAxisTheme;
+}
+
+/** The ECharts theme for a palette: series in the palette's order, text and axes in its colours, no background of its own. */
+export function visualTheme(palette: VisualPalette): VisualTheme {
+  const axis: VisualAxisTheme = {
+    axisLine: { lineStyle: { color: palette.grid } }, axisTick: { lineStyle: { color: palette.grid } },
+    axisLabel: { color: palette.muted }, splitLine: { lineStyle: { color: palette.grid } },
+  };
+  return {
+    color: [...palette.series], backgroundColor: 'transparent', textStyle: { color: palette.text },
+    legend: { textStyle: { color: palette.muted } },
+    tooltip: { backgroundColor: palette.surface, borderColor: palette.grid, textStyle: { color: palette.text } },
+    categoryAxis: axis, valueAxis: axis, timeAxis: axis, logAxis: axis,
+  };
+}
+
+/**
+ * One visual a system adds to a registry: the component that draws it, and an optional `veto`. Whether a result fits
+ * and how it ranks come from the contribution's declared shape (`visual({ shape })`, core's `rankVisuals`), the same in
+ * the hub, the widget agent and the browser; `veto` can only take a fit away (a reason in words), never score one. Keep
+ * it cheap and pure: it runs for every result the person sees.
+ */
+export interface VisualEntry<C extends ContractShape> {
+  veto?(table: ResultTable, facts: ResultFacts): string | undefined;
+  component: Renderer<VisualView & WithSystem<C>>;
 }
 
 /** A system's renderers, typed by its contract. Every renderer also gets `system` to send its system actions. */
@@ -261,9 +326,8 @@ export function client<N extends string, C extends ContractShape>(contract: Syst
       if (declared === undefined) {
         throw new Error(`system ${contract.name}: visual ${registry} ${name} is not in the contract's contributes.`);
       }
-      const entry = entries[name];
-      if (entry !== undefined && visualMatch(entry, declared.shape) === undefined) {
-        throw new Error(`system ${contract.name}: visual ${registry} ${name} needs a match or a declared shape (visual({ shape })).`);
+      if (declared.shape === undefined) {
+        throw new Error(`system ${contract.name}: visual ${registry} ${name} needs a declared shape (visual({ shape })).`);
       }
     }
   }
@@ -325,24 +389,27 @@ export const VALUE_EDITOR: InjectionKey<Component<ValueEditorProps>> = Symbol.fo
 /** Whether the hub has more than one person (a reactive getter), so a renderer offers who may use what it saves. */
 export const ACCESS_INFO: InjectionKey<Readonly<AccessInfo>> = Symbol.for('harness.accessInfo');
 
-/** A visual that fits a result, as the chat's client runtime finds it among every loaded contribution. */
+/**
+ * A system's visual for a result, as the chat's client runtime finds it among every loaded contribution: not vetoed,
+ * with what the result view needs to mount it. The view ranks these with the built-in visuals (`rankedVisuals`).
+ */
 export interface VisualOption {
   readonly system: string;
   readonly name: string;
-  /** What the switcher shows ("Bar chart"): the contribution's `label` in the contract. */
+  /** What the switcher shows ("Waffle"): the contribution's `label` in the contract. */
   readonly label: string;
   /** An icon name from the web app's icon set, when the contribution names one. */
   readonly icon?: string;
-  /** The data it draws, when the contribution declares it (its channels, for a widget's bindings). */
-  readonly shape?: VisualShape;
-  readonly fit: VisualFit;
+  /** The data it draws, as declared. */
+  readonly shape: VisualShape;
   readonly component: Component;
-  readonly props: VisualView & WithSystem<ContractShape>;
+  /** The `system` prop its component gets beside `VisualView`. */
+  readonly client: SystemClient<ContractShape>;
 }
 
-/** The visuals of a registry that fit a result, best fit first and the table last (`ClientRuntime.visuals`). */
+/** The systems' visuals of a registry that a result may use: not vetoed, in load order (`ClientRuntime.visuals`). */
 export interface VisualSource {
-  visuals(registry: QualifiedName, table: ResultTable): readonly VisualOption[];
+  visuals(registry: QualifiedName, table: ResultTable, facts: ResultFacts): readonly VisualOption[];
 }
 
 /**

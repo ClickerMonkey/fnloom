@@ -27,22 +27,3 @@ export class LinkKindDescriber implements KindDescriber {
     return connection.peer.call('check', { kind: local, payload });
   }
 }
-
-/** Describes one of the hub's own kinds in the hub's process (the hub has no link to itself). */
-export type HubKindDescribe = (payload: Json) => Promise<{ problems: string[]; description?: KindDescription | undefined }>;
-
-/** The hub's own kinds (`hub/widget`) described in process; every other kind by its system over the link. */
-export class RoutedKindDescriber implements KindDescriber {
-  readonly #hub: ReadonlyMap<string, HubKindDescribe>;
-  readonly #others: KindDescriber;
-
-  constructor(hub: ReadonlyMap<string, HubKindDescribe>, others: KindDescriber) {
-    this.#hub = hub;
-    this.#others = others;
-  }
-
-  describe(kind: QualifiedName, payload: Json, instance?: InstanceName): Promise<{ problems: string[]; description?: KindDescription | undefined }> {
-    const local = this.#hub.get(kind);
-    return local === undefined ? this.#others.describe(kind, payload, instance) : local(payload);
-  }
-}

@@ -253,7 +253,8 @@ export class QueryService {
     const written = await instance.write(plan);
     const shown = `${written.affected} ${written.affected === 1 ? 'row' : 'rows'} changed.`;
     if (written.columns.length === 0) { return { shown, affected: written.affected }; }
-    const table = resultTable(written, compiled.columns, { offset: 0, limit: undefined, sort: [], cap: this.#settings.DATABASE_MAX_ROWS });
+    // rows a write returns show what it changed: the view of them is read-only
+    const table = { ...resultTable(written, compiled.columns, { offset: 0, limit: undefined, sort: [], cap: this.#settings.DATABASE_MAX_ROWS }), write: { affected: written.affected } };
     ctx.attach(table, fn.name);
     return { shown, affected: written.affected, returned: resultBlock(table, { fn, watched: ctx.watched === true }) };
   }

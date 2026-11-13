@@ -85,3 +85,33 @@ describe('Disclosure', () => {
     expect(disclosure.awareUnloaded('table')).toEqual([]);
   });
 });
+
+describe('an authoring agent handed what it builds on', () => {
+  const Draft = z.object({ title: z.string().min(1) });
+  type Draft = z.infer<typeof Draft>;
+
+  it('skips find, drafts and saves with the tool names it gives', async () => {
+    const source = authoringTool<object, Draft, object>({ name: 'source', stage: 'inspect', description: 'The source.', schema: z.object({}), call: () => 'owner: text, open: integer' });
+    const agent = authoringAgent<object, Draft>({
+      name: 'make_report', description: 'Make a report.', instructions: 'Inspect the source, draft, check, save.', tools: [source],
+      stages: { find: false }, toolNames: { draft: 'report_check', save: 'report_save' },
+      draft: { description: 'The report.', schema: Draft },
+      check: () => Promise.resolve({ problems: [] }),
+      save: () => Promise.resolve(SAVED),
+    });
+    const script = [callTool('source', {}), callTool('report_check', { draft: { title: 'Open by owner' } }), callTool('report_save', {}), replyChunks('Saved.')];
+    const link = new FakeModelLink({ reply: () => script.shift() ?? replyChunks('done') });
+    const { result, session } = await agent.run(await fakeHubAi(link), 'Open tasks by owner', {});
+    expect(result).toEqual(SAVED);
+    expect(offered(link.forwards[0])).toEqual(['source']);
+    expect(session.log.map((step) => step.tool)).toEqual(['source', 'report_check', 'report_save']);
+  });
+
+  it('refuses find tools when it skips find', () => {
+    const search = authoringTool<object, Draft, object>({ name: 'search', stage: 'find', description: 'x', schema: z.object({}), call: () => '' });
+    expect(() => authoringAgent<object, Draft>({
+      name: 'w', description: 'w', instructions: 'w', tools: [search], stages: { find: false },
+      draft: { description: 'x', schema: Draft }, check: () => Promise.resolve({ problems: [] }), save: () => Promise.reject(new Error('no')),
+    })).toThrow(/skips find/);
+  });
+});

@@ -1,4 +1,4 @@
-import { Manifest } from '@harness/core';
+import { Manifest, VISUAL_FAMILIES } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { context, hook, mention, type } from './declare.ts';
 import { fn, handler, linear } from './fn.ts';
@@ -76,7 +76,9 @@ describe('manifestOf', () => {
 
   it('builds the hub\'s own manifest', async () => {
     const body = manifestBody(hub, { version: '0' });
-    expect(body.kinds.map((k) => k.name)).toEqual(['widget', 'llm']);
+    // the hub keeps only its llm kind; widgets are the widgets system's, and the hub contributes the built-in visuals
+    expect(body.kinds.map((k) => k.name)).toEqual(['llm']);
+    expect((body.contributes ?? []).map((c) => c.name)).toEqual([...VISUAL_FAMILIES]);
     expect(body.fns.map((f) => f.name)).toContain('chat');
     expect(Manifest.safeParse(await manifestOf(hub, { version: '0' })).success).toBe(true);
   });

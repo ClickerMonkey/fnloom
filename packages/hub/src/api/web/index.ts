@@ -33,7 +33,7 @@ import { reviewPlugin } from './review.ts';
 import { identityPlugin } from './identity.ts';
 import { versionsPlugin } from './versions.ts';
 import { dataPlugin } from './data.ts';
-import { widgetsPlugin } from './widgets.ts';
+import { tablesPlugin } from './tables.ts';
 
 /** The realtime plugin: while installed, bus events reach browsers as `session` and `user` events. */
 export function eventsPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>) {
@@ -79,7 +79,7 @@ export function webPlugins(hub: HubServices, options: AuthPluginOptions): readon
     identityPlugin(hub, systems),
     versionsPlugin(auth, reads),
     dataPlugin(hub, auth),
-    widgetsPlugin(hub, auth),
+    ...tablesPlugin(hub, auth),
     eventsPlugin(hub, auth),
   ];
 }

@@ -4,9 +4,11 @@
  * doesn't exist, so ids can't be probed.
  */
 import { reject, type AnySpec, type AnyEndpoint, type HandlerFor } from '@ayepi/core';
-import type { ClientInfo, RunId, Session, SessionId, TurnId, UserInfo, UserView, Run, Turn } from '@harness/core';
+import { mintId, type ClientInfo, type RunId, type Session, type SessionId, type TurnId, type UserInfo, type UserView, type Run, type Turn } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
+import { timeInfo } from '../../execution/time.ts';
 import { allRows } from '../../store/rows.ts';
+import type { PersonTurn } from '../../tables/service.ts';
 
 /** A handler for every endpoint of a slice: `.handlers(() => …)` annotated with this can't leave one out. */
 export type FullHandlers<S extends AnySpec> = { readonly [K in keyof S['endpoints'] & string]: HandlerFor<S, S['endpoints'][K] & AnyEndpoint> };
@@ -33,6 +35,22 @@ export async function userInfo(hub: Pick<HubServices, 'store'>, user: UserView, 
   return {
     id: user.id, name: user.name, email: user.email, role: user.role, groups,
     timeZone: client?.timeZone ?? user.timeZone ?? FALLBACK.timeZone, locale: client?.locale ?? FALLBACK.locale,
+  };
+}
+
+/**
+ * A turn for a person's own call from the web (an export): opened running with the person's limits, finished done or
+ * failed when the call ends.
+ */
+export async function openPersonTurn(hub: Pick<HubServices, 'store' | 'execution' | 'clock'>, user: UserView): Promise<PersonTurn> {
+  const info = await userInfo(hub, user);
+  const now = hub.clock();
+  const id = mintId('turn');
+  const limits = await hub.execution.limits.resolve({ user: info, turn: id });
+  await hub.store.table('turns').insert({ id, actor: user.id, user: info, time: timeInfo(now, info.timeZone), status: 'running', limits, cost: 0, errors: { max: 1 }, createdAt: now });
+  return {
+    id, priority: limits.priority,
+    finish: async (ok) => { await hub.store.table('turns').update(id, { status: ok ? 'done' : 'failed', endedAt: hub.clock() }); },
   };
 }
 

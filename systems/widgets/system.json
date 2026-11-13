@@ -1,0 +1,9 @@
+{
+  "format": 1,
+  "name": "widgets",
+  "version": "0.1.0",
+  "description": "Saved views of a fn's table: the charts, controls, presets, drill and row actions a person keeps to look at again.",
+  "protocol": 1,
+  "server": { "entry": "server/main.ts", "external": {} },
+  "instances": "one"
+}

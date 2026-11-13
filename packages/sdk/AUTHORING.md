@@ -3364,8 +3364,8 @@ state (deps, the instance, what it chose) is `session.state`, the `AuthoringSess
 `instructions` as the job step by step, with a worked example of a good draft.
 
 An agent handed what it builds on has nothing to find: `stages: { find: false }` starts it in **inspect** (a find
-tool or `reuse` is then refused). `toolNames: { draft, save }` names the built-in tools for the job; the hub's
-`make_widget` drafts with `widget_check` and saves with `widget_save` (**Visuals and widgets**).
+tool or `reuse` is then refused). `toolNames: { draft, save }` names the built-in tools for the job (`{ draft:
+'report_check', save: 'report_save' }`).
 
 The input system's `get_input` writes a form this way. Its find tool:
 
@@ -5366,20 +5366,7 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{
     /* The qualified fn name. */ fn: text{minLength=1}
-  }) => obj{
-    fn: text,
-    kind: text,
-    description: text,
-    instructions?: text,
-    payload?: any,
-    version: num{min=1, whole=true},
-    owner?: text,
-    routing?: or<obj{
-      to: literal<text>{value="instance"},
-      instance: text
-    }, obj{to: literal<text>{value="any"}}>,
-    available: bool
-  }
+  }) => obj{ fn, kind, description, instructions?, payload?, version, owner?, routing?, available, args?, returns?, live? … }
   ```
 - `hub/save_fn`: Keep a fn of one of the calling system's kinds in the hub (a saved form, a saved query), owned by the run's person and shared as asked. Saving a name again keeps the old version in its history. Tags: `own`.
 
@@ -5937,7 +5924,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/records_table`: Records of one stored type as a table (one column per field, then the record id), offset-paged: what widgets and the result view draw. Tags: `read`.
 
   ```text
-  (obj{ type, query?, search?, run?, offset?, limit? … }) => obj{ columns, rows, offset, limit?, total?, truncated, sort … }
+  (obj{ type, query?, search?, run?, offset?, limit? … }) => obj{ columns, rows, offset, limit?, total?, truncated, sort, write?, records? … }
   ```
 - `hub/record_versions`: A record's history, newest first: each version's value, how it changed, and who changed it. Tags: `read`.
 
@@ -5980,47 +5967,65 @@ This is the hub contract as the SDK declares it now:
     run?: text
   }
   ```
+- `hub/record_update`: Change some fields of one record in place, keeping the rest; the merged value is checked against the type.
+
+  ```text
+  (obj{
+    type: text,
+    /* record id */ id: text,
+    set: any,
+    expect?: num{whole=true, min=1},
+    run?: text
+  }) => obj{
+    /* record id */ id: text,
+    type: text,
+    value: any,
+    owner?: text,
+    title: text,
+    version: num{whole=true, min=1},
+    createdAt: num{whole=true},
+    updatedAt: num{whole=true},
+    updatedBy?: text,
+    updatedBySystem?: text,
+    run?: text
+  }
+  ```
 - `hub/record_remove`: Remove a record of a stored type; its history stays.
 
   ```text
   (obj{type: text, /* record id */ id: text, run?: text}) => obj{removed: bool}
   ```
-- `hub/widget_source`: A fn that returns a table, for a widget: its description, its args type, and a small sample of its result. Tags: `read`.
+- `hub/read_table`: Run a read fn that returns a table, as a child run of the caller, as its person, and give the table. Tags: `read`.
 
   ```text
-  (obj{source: text, args?: any}) => obj{ fn, description, args, sample … }
+  (obj{fn: text, args: any}) => obj{ columns, rows, offset, limit?, total?, truncated, sort, write?, records? … }
   ```
-- `hub/widget_visuals`: The visuals whose declared shape fits a fn's result, each with the channels its bindings fill and the column kinds they take. Tags: `read`.
+- `hub/visuals`: Every visual of the hub's visual registry (hub/visuals), with its declared shape and the system that draws it, in registry order. Tags: `read`.
 
   ```text
-  (obj{source: text, args?: any}) => list<obj{
-    visual: text,
-    label: text,
-    channels: list<obj{
-      name: text,
-      label: text{minLength=1},
-      accepts: list<enum<text>{text, integer, number, boolean, date, datetime, time, uuid, json, binary}>,
-      required: bool,
-      many: bool
-    }>,
-    rows: obj{min: num, max?: num},
-    whole: bool
+  (obj) => list<obj{ registry, name, label, description?, icon?, shape?, system … }>
+  ```
+- `hub/row_actions`: The actions rows of some types offer, as the run's person may use them: each type's methods, narrowed and relabelled by a widget's list, with any fn it binds to the row's columns. Tags: `read`.
+
+  ```text
+  (obj{
+    types: list<text>,
+    narrow?: list<obj{
+      fn: text,
+      label?: text{minLength=1},
+      confirm?: literal<bool>{value=true},
+      bind: any,
+      then?: enum<text>{open, refresh, status}
+    }>
+  }) => list<obj{
+    fn: text,
+    label: text{minLength=1},
+    mode: enum<text>{read, write, delete},
+    confirm: bool,
+    bind: any,
+    form?: any,
+    then: enum<text>{open, refresh, status}
   }>
-  ```
-- `hub/widget_check`: Check a widget spec against a sample of its source's result: every problem in words, and the visuals that still fit. Tags: `read`.
-
-  ```text
-  (obj{ spec, sample … }) => obj{problems: list<text>, visuals: list<text>}
-  ```
-- `hub/widget_save`: Save a widget (a fn of the hub's widget kind) from a checked spec, or replace one of that name.
-
-  ```text
-  (obj{ name, description, spec, replace? … }) => obj{fn: text, created: bool}
-  ```
-- `hub/make_widget`: Make or change a widget: a saved view of a fn's table result, with the visuals, controls, paging and row actions the person asks for. A fn of the `hub/llm` kind.
-
-  ```text
-  (obj{source: text, request: text{minLength=1}, widget?: text}) => text
   ```
 - `hub/chat`: The chat agent: answers people in a session with every tool the session allows. A fn of the `hub/llm` kind.
 
@@ -6392,35 +6397,6 @@ This is the hub contract as the SDK declares it now:
 
 #### Kinds of `hub`
 
-- `hub/widget`: A widget: a saved view of a fn that returns a table, drawn with the visuals that fit it, with a control per arg, a pager and row actions. Use when a person wants to keep a table or chart of a fn's result to look at again (made by hub/make_widget).
-
-  ```text
-  obj{
-    title: text{minLength=1},
-    source: text,
-    visuals: list<obj{visual: text, label?: text{minLength=1}, bind: any}>,
-    controls: list<obj{
-      arg: text,
-      label?: text{minLength=1},
-      choices?: list<any>,
-      custom?: bool,
-      pinned?: any,
-      hidden?: bool
-    }>,
-    paging?: obj{
-      offset?: text,
-      limit?: text,
-      size: num{whole=true, min=1, max=500}
-    },
-    actions?: list<obj{
-      fn: text,
-      label?: text{minLength=1},
-      confirm?: literal<bool>{value=true},
-      bind: any,
-      then: enum<text>{refresh, show, none}
-    }>
-  }
-  ```
 - `hub/llm`: An agent: an LLM with instructions, tools and context, callable like any fn. Use for work that needs judgement, reading or writing in natural language, or several tool calls.
 
   ```text
@@ -6509,7 +6485,7 @@ The hub's contract.
 const hub: typeof hub; // too large to print: see its section
 ```
 
-Refers to: [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnSearchPage`](#core-fnsearchpage), [`FnSearchQuery`](#core-fnsearchquery), [`LoadContextResult`](#core-loadcontextresult), [`MakeWidgetArgs`](#core-makewidgetargs), [`MintMcpTokenArgs`](#core-mintmcptokenargs), [`ResourceOutlineArgs`](#core-resourceoutlineargs), [`ResourceSendArgs`](#core-resourcesendargs), [`ResultTable`](#core-resulttable), [`Section`](#core-section), [`WidgetCheck`](#core-widgetcheck), [`WidgetSpec`](#core-widgetspec).
+Refers to: [`ContributionView`](#core-contributionview), [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnSearchPage`](#core-fnsearchpage), [`FnSearchQuery`](#core-fnsearchquery), [`LoadContextResult`](#core-loadcontextresult), [`MintMcpTokenArgs`](#core-mintmcptokenargs), [`ReadTableArgs`](#core-readtableargs), [`ResourceOutlineArgs`](#core-resourceoutlineargs), [`ResourceSendArgs`](#core-resourcesendargs), [`ResultTable`](#core-resulttable), [`RowActionsQuery`](#core-rowactionsquery), [`Section`](#core-section), [`WidgetActionOption`](#core-widgetactionoption).
 
 #### `HubContract`
 
@@ -6728,33 +6704,10 @@ const HUB_DATA_ENDPOINTS = {
   records_table: dataSlice.endpoints.recordTable,
   record_versions: dataSlice.endpoints.recordVersions,
   record_save: dataSlice.endpoints.saveRecord,
+  record_update: dataSlice.endpoints.updateRecord,
   record_remove: dataSlice.endpoints.removeRecord,
 } as const satisfies Record<string, EndpointLike>;
 ```
-
-#### `WidgetSourceArgs`
-
-const · `import { WidgetSourceArgs } from '@harness/sdk'`
-
-`hub/widget_source`: a fn whose result is a table, and the args to run a small sample with.
-
-```ts
-const WidgetSourceArgs: z.ZodObject<{ source: z.ZodTemplateLiteral<`${string}/${string}`>; args: z.ZodOptional<z.ZodJSONSchema>; }, z.core.$strip>;
-```
-
-Refers to: [`Json`](#core-json), [`QualifiedName`](#core-qualifiedname).
-
-#### `WidgetSaveArgs`
-
-const · `import { WidgetSaveArgs } from '@harness/sdk'`
-
-`hub/widget_save`: the widget's name, one line about it, its spec, and whether to save over a widget of that name.
-
-```ts
-const WidgetSaveArgs = z.object({ name: LocalName, description: z.string().min(1), spec: WidgetSpec, replace: z.boolean().optional() });
-```
-
-Refers to: [`WidgetSpec`](#core-widgetspec).
 
 #### `ADMIN_READ_ENDPOINTS`
 
@@ -6888,10 +6841,28 @@ const · `import { StoredFn } from '@harness/sdk'`
 A fn as `hub/fn_get` gives it.
 
 ```ts
-const StoredFn: ObjType<{ fn: string; kind: string; description: string; version: number; available: boolean; instructions?: string | undefined; payload?: z.core.util.JSONType | undefined; owner?: string | undefined; routing?: { to: "instance"; instance: string; } | { to: "any"; } | undefined; }>;
+const StoredFn = g.obj({
+  fn: g.text(),
+  kind: g.text(),
+  description: g.text(),
+  instructions: g.optional(g.text()),
+  payload: g.optional(json()),
+  /** 1 for a fn never saved again; the hub keeps every older version. */
+  version: g.num({ min: 1, whole: true }),
+  /** Who owns it (a saved fn's person); absent for a system's own fns. */
+  owner: g.optional(g.text()),
+  routing: g.optional(ginAs(FnRouting)),
+  available: g.bool(),
+  /** Its args type, as the hub describes it (a fn of a kind: as its kind works it out), so a widget plans each arg. */
+  args: g.optional(ginAs(GinTypeDef)),
+  /** Its declared return type, so a widget checks that it is a table. */
+  returns: g.optional(ginAs(GinTypeDef)),
+  /** Its rows change on their own (`FnDecl.live`), so a widget over it may re-run while shown. */
+  live: g.optional(ginAs(FnLive)),
+});
 ```
 
-Refers to: [`FnRouting`](#core-fnrouting).
+Refers to: [`FnLive`](#core-fnlive), [`FnRouting`](#core-fnrouting), [`GinTypeDef`](#core-gintypedef).
 
 #### `SaveFnArgs`
 
@@ -8835,12 +8806,12 @@ as `serve`'s `client` option and the system uploads the bundle when it connects;
 for a packaged system.
 
 **Visuals for a registry.** A system adds components to a registry (its own or another system's, such as
-`hub/visuals`) with `client(contract, { visuals: { 'hub/visuals': { pie: { match, component } } } })`
-(`VisualEntry`). `match(table)` gets the `ResultTable` and answers a `VisualFit`: whether it can draw it and a score
-from 0 to 1 for how much of the data it shows well (the table scores 0, so any other fit beats it). Keep it cheap and
-pure. The component gets `VisualView` (`table`) and `system`. Each visual must be listed in the contract's
-`contributes`, or `client()` throws; the chat's runtime lists the visuals that fit (`visuals(registry, table)`), best
-first, and leaves out one whose `match` throws.
+`hub/visuals`) with `client(contract, { visuals: { 'hub/visuals': { bullet: { component, veto } } } })` (`VisualEntry`).
+Each must be listed in the contract's `contributes` with a declared shape (`visual({ shape })`), or `client()` throws:
+the shape alone judges and ranks a fit, the same in the hub, the widget agent and the browser. `veto(table, facts)` may
+only take a fit away, with a reason; keep it cheap and pure. The chat's runtime lists the visuals a result may use
+(`visuals(registry, table, facts)`, in load order), leaving out a vetoed one and one whose veto throws; the result view
+ranks them with the built-in ones. How to draw one with ECharts is in **Visuals and widgets**.
 
 ### Reference: the client: renderers, inputs and resource views
 
@@ -9401,75 +9372,44 @@ interface InputMount extends Mount<'input'> {
 
 Refers to: [`Json`](#core-json).
 
-#### `VisualView`
-
-interface · `import { VisualView } from '@harness/sdk'`
-
-The props of a visual (an entry of a registry such as the hub's `hub/visuals`): the rows to draw.
-
-```ts
-interface VisualView {
-  table: ResultTable;
-}
-```
-
-Refers to: [`ResultTable`](#core-resulttable).
-
-#### `VisualEntry`
-
-interface · `import { VisualEntry } from '@harness/sdk'`
-
-One visual a system adds to a registry: whether a result fits it and how much of it it shows well (`VisualFit`,
-score 0 to 1; the table scores 0), and the component that draws it. Keep `match` cheap and pure: it runs for
-every result the person sees. Without `match`, the contribution's declared shape (`visual({ shape })`) judges the fit
-(`declaredFit`) with `DECLARED_FIT_SCORE`; a visual needs one or the other.
-
-```ts
-interface VisualEntry<C extends ContractShape> {
-  match?(table: ResultTable): VisualFit;
-  component: Renderer<VisualView & WithSystem<C>>;
-}
-```
-
-Refers to: [`ResultTable`](#core-resulttable), [`VisualFit`](#core-visualfit).
-
 #### `VisualOption`
 
 interface · `import { VisualOption } from '@harness/sdk'`
 
-A visual that fits a result, as the chat's client runtime finds it among every loaded contribution.
+A system's visual for a result, as the chat's client runtime finds it among every loaded contribution: not vetoed,
+with what the result view needs to mount it. The view ranks these with the built-in visuals (`rankedVisuals`).
 
 ```ts
 interface VisualOption {
   readonly system: string;
   readonly name: string;
-  /** What the switcher shows ("Bar chart"): the contribution's `label` in the contract. */
+  /** What the switcher shows ("Waffle"): the contribution's `label` in the contract. */
   readonly label: string;
   /** An icon name from the web app's icon set, when the contribution names one. */
   readonly icon?: string;
-  /** The data it draws, when the contribution declares it (its channels, for a widget's bindings). */
-  readonly shape?: VisualShape;
-  readonly fit: VisualFit;
+  /** The data it draws, as declared. */
+  readonly shape: VisualShape;
   readonly component: Component;
-  readonly props: VisualView & WithSystem<ContractShape>;
+  /** The `system` prop its component gets beside `VisualView`. */
+  readonly client: SystemClient<ContractShape>;
 }
 ```
 
-Refers to: [`VisualFit`](#core-visualfit), [`VisualShape`](#core-visualshape).
+Refers to: [`VisualShape`](#core-visualshape).
 
 #### `VisualSource`
 
 interface · `import { VisualSource } from '@harness/sdk'`
 
-The visuals of a registry that fit a result, best fit first and the table last (`ClientRuntime.visuals`).
+The systems' visuals of a registry that a result may use: not vetoed, in load order (`ClientRuntime.visuals`).
 
 ```ts
 interface VisualSource {
-  visuals(registry: QualifiedName, table: ResultTable): readonly VisualOption[];
+  visuals(registry: QualifiedName, table: ResultTable, facts: ResultFacts): readonly VisualOption[];
 }
 ```
 
-Refers to: [`QualifiedName`](#core-qualifiedname), [`ResultTable`](#core-resulttable).
+Refers to: [`QualifiedName`](#core-qualifiedname), [`ResultFacts`](#core-resultfacts), [`ResultTable`](#core-resulttable).
 
 #### `VISUALS`
 
@@ -9484,62 +9424,145 @@ const VISUALS: InjectionKey<VisualSource>;
 
 ## 25. Visuals and widgets
 
-A fn that returns a `ResultTable` (a query, `hub/records_table`, any fn of that shape) is drawn by the result view,
-which offers every **visual** that fits the result: the table, a bar chart, a single value, and any visual a system
-adds. A **widget** is a saved view of such a fn: the visuals to switch between with their bindings, a control per
-argument, the paging it drives and the actions on each row.
+A fn that returns a `ResultTable` (a database query, `hub/records_table`, any fn of that shape) is drawn by the result
+view, which offers every **visual** that can draw it: a table, value cards and twelve chart families (part of a whole,
+categories, over time, distribution, cross-tab, calendar, timeline, network, hierarchy, gauge, finance), each with a
+style picker, plus any visual a system adds. A **widget** is a saved view of such a fn, kept by the bundled widgets
+system: the visuals to switch between, a plan per argument, presets, the actions on each row and what a click opens.
 
-**Visuals.** All visuals live in the hub's registry `hub/visuals` (`HUB_VISUALS`). A system adds one by declaring it
-in `contributes` with `visual(...)`, whose **shape** says what data it draws: its channels (`channel(name, label,
-kinds, { required, many })`, the column kinds each takes), how many rows it shows well, and whether it only tells the
-truth about a whole result (`whole`: a pie of one page lies). The hub and the widget agent judge fits from the shape
-(`declaredFit`, `fittingVisuals`) without running client code. Then draw it in `client({ visuals })`:
+**How a fit is judged.** Every visual declares the data it draws as a **shape**: its channels (`channel(name, label,
+kinds, { required, many, min, role })`: the column kinds each takes, and whether it wants a `group` key or a
+`measure`), how many rows it draws, whether it only tells the truth about a whole result (`whole`: a pie of one page
+lies), rules over the values (`distinct`, `non-negative`, `bounded`, `distinct-columns`, `links`), how it stays honest
+when the result is bigger (`size`), its styles, the args it drives (`claims`: a time axis sets a range) and its
+priority. Column facts come from the source and the rows: a source may declare a column's `role` (the database knows a
+GROUP BY key from an aggregate) and `key`; `resultFacts(table)` works out the rest (numeric, temporal, opaque ids that
+are never drawn, distinct counts, ranges) and adds the column's gin facts (an enum's members, a number's range,
+`ginTypeFacts`). Visuals are ranked in one order everywhere (`rankedVisuals`): the most columns drawn first, then
+priority, then registry order. A visual that can't draw the data is not offered.
+
+**Your own chart.** A system adds a visual by declaring it in `contributes` with `visual(...)` and drawing it in
+`client({ visuals: { [HUB_VISUALS]: { name: { component } } } })`. Draw it with ECharts: add `echarts` (an exact
+version) to the system's `package.json` and import only the charts and components it uses from `echarts/core`; the
+client build bundles it with the system (only `vue` and `@harness/sdk` are shared with the chat). The component gets
+`VisualView`: the `table`, its `facts`, the columns bound to each channel (`bind`, complete), the `style` picked and
+the theme's `palette` (`visualTheme(palette)` is an ECharts theme matching the built-in charts; draw again when the
+palette changes). It emits `drill(rowIndex)` when a bar, slice or point is clicked and `range({ from, to })` when the
+person zooms a time axis (`VISUAL_EMITS`). There is no SDK chart wrapper: use ECharts as it is documented. A `veto`
+beside the component may refuse a fit the shape allows. Test that it is offered for its data with `kit.visuals(table)`.
 
 _From `scripts/docs/samples/charts.ts`:_
 
 ```ts
-/** The contract: the pie, declared in `hub/visuals` with the data it draws. */
+/** The contract: the bullet chart, declared in `hub/visuals` with the data it draws. */
 export const charts = system('charts', {
   description: 'Charts for results.',
   contributes: [visual({
-    name: 'pie',
-    label: 'Pie',
+    name: 'bullet',
+    label: 'Against target',
     icon: 'chart',
     shape: {
-      channels: [channel('label', 'Slice', ['text']), channel('value', 'Size', ['integer', 'number'])],
-      // a few slices read well; a pie of one page of a longer result lies, so it wants the whole result
-      rows: { min: 1, max: 12 },
-      whole: true,
+      channels: [
+        channel('x', 'Category', ['text'], { role: 'group' }),
+        channel('value', 'Value', ['integer', 'number'], { role: 'measure' }),
+        channel('target', 'Target', ['integer', 'number'], { role: 'measure' }),
+      ],
+      // a phone-width axis holds a few dozen categories; past that the widget pages
+      rows: { min: 1, max: 30 },
+      whole: false,
+      styles: [{ name: 'vertical', label: 'Vertical' }, { name: 'horizontal', label: 'Horizontal' }],
+      // it binds three columns where bars bind two, so it ranks above them for data with a target
+      priority: { band: 'encoded', terms: ['low-cardinality'] },
     },
   })],
 });
-
-/** The client: the pie's component, with no `match` of its own, so its declared shape judges the fit. */
-export default client(charts, { visuals: { [HUB_VISUALS]: { pie: { component: PieVisual } } } });
 ```
 
-A visual entry may give its own `match(table)` (a `VisualFit` score from 0 to 1; the table scores 0); without one,
-its declared shape judges the fit with `DECLARED_FIT_SCORE`. The component gets `table` and `system`.
+_From `scripts/docs/samples/charts.ts`:_
 
-**Widgets.** A widget is a fn of the hub's kind `hub/widget` (`WIDGET_KIND`) whose payload is a `WidgetSpec`: its
-`source` fn, `visuals` (each `{ visual, bind: { channel: [columns] } }`), `controls` (per source argument: `label`,
-`choices`, `pinned` to fix it, `hidden`), `paging` (the source's offset and limit arguments and the page size) and
-`actions`. Its args are the source's minus the pinned and paged ones (`widgetArgs`); its controls are the rest
-(`widgetControls`). A run calls the source as a child run and returns a `WidgetResult`; bindings that no longer fit
-the real columns are listed as problems, never a failure (`checkWidget`). Versions, visibility, review and search come
-free, as for any fn.
+```ts
+// register only what this chart uses, so the bundle stays small
+use([BarChart, ScatterChart, DatasetComponent, GridComponent, TooltipComponent, CanvasRenderer]);
 
-**Row actions** are derived, never listed by hand: each method of a row's type (a column's `ref`, such as the `id`
-column of `hub/records_table`) is offered, labelled from its name (`actionLabel`), with a form for the args left after
-binding (`widgetActionOptions`). Anything that is not a read asks first (`confirmOf`); a widget can add a confirm, never
-remove one. Nothing runs until a person clicks, and the click is an ordinary run, so policies and approvals apply. Give
-a stored type methods to make its records actionable.
+type Option = ComposeOption<BarSeriesOption | ScatterSeriesOption | DatasetComponentOption | GridComponentOption | TooltipComponentOption>;
 
-**Making widgets.** People ask in the chat ("show my open tasks by owner as bars"), or press "Save as widget" on a
-table result; `hub/make_widget` writes the spec. It is an authoring agent (**Kinds and agents**) that skips `find`
-(it is handed the source) and names its tools for the job: `widget_source` (the source's args and a small sample),
-`widget_visuals` (the visuals whose shapes fit), `widget_check` (the draft against `widgetSpecSchema`, a strict schema
-built from the source's args, the sample's columns and the fitting visuals, then `checkWidget`) and `widget_save`.
+/** A cell as ECharts reads one: numbers and text as they are, anything else as text. */
+function cellOf(value: Json): string | number | null {
+  return value === null || typeof value === 'number' || typeof value === 'string' ? value : JSON.stringify(value);
+}
+
+/** The bars and target marks of a view: the rows as a dataset, encoded by the bound columns. */
+function optionOf(view: VisualView): Option {
+  const [x = '', value = '', target = ''] = [view.bind['x']?.[0], view.bind['value']?.[0], view.bind['target']?.[0]];
+  const across = view.style === 'horizontal';
+  const category = { type: 'category' as const };
+  const measure = { type: 'value' as const };
+  return {
+    dataset: { dimensions: view.table.columns.map((column) => column.name), source: view.table.rows.map((row) => row.map(cellOf)) },
+    grid: { containLabel: true, left: 8, right: 8, top: 8, bottom: 8 },
+    tooltip: { trigger: 'axis' },
+    xAxis: across ? measure : category,
+    yAxis: across ? category : measure,
+    series: [
+      { type: 'bar', name: value, encode: across ? { y: x, x: value } : { x, y: value } },
+      { type: 'scatter', name: target, symbol: 'rect', symbolSize: across ? [3, 18] : [18, 3], encode: across ? { y: x, x: target } : { x, y: target } },
+    ],
+  };
+}
+
+/** The chart: ECharts in a div, themed from the palette, emitting `drill` with the clicked row. */
+const BulletVisual = defineComponent((props: VisualView & WithSystem<(typeof charts)['defs']>, { emit }) => {
+  const el = ref<HTMLDivElement>();
+  let chart: EChartsType | undefined;
+  const draw = (): void => {
+    chart?.dispose();
+    if (el.value === undefined) { return; }
+    chart = init(el.value, visualTheme(props.palette));
+    chart.on('click', (event) => { emit('drill', event.dataIndex); });
+    chart.setOption(optionOf(props));
+  };
+  onMounted(draw);
+  // a theme change brings a new palette: draw again with its colours
+  watch(() => props.palette, draw);
+  watch(() => [props.table, props.bind, props.style], () => chart?.setOption(optionOf(props), { notMerge: true }));
+  onBeforeUnmount(() => chart?.dispose());
+  return () => h('div', { ref: el, style: { width: '100%', height: '18rem' } });
+  // eslint-disable-next-line vue/require-prop-types -- the setup function's signature types the props (Vue 3.3+)
+}, { props: ['table', 'facts', 'bind', 'style', 'palette', 'system'], emits: VISUAL_EMITS });
+```
+
+_From `scripts/docs/samples/charts.ts`:_
+
+```ts
+/** The client: the chart's component. Its declared shape judges the fit; it has nothing to veto. */
+export default client(charts, { visuals: { [HUB_VISUALS]: { bullet: { component: BulletVisual } } } });
+```
+
+**Widgets.** A widget is a fn of the widgets system's kind `widgets/widget` (`WIDGET_KIND`) whose payload is a
+`WidgetSpec`: its `source` (a read fn returning a table), its `visuals` (each `{ visual, style, bind }`; a channel left
+out takes the default binding), a plan per source arg (`args`: a chip with a label, choices with their own words and a
+default, `pinned` to a value, or `hidden` when the arg has a default), `presets` (named chips that set several args),
+the `range` args a time or calendar visual drives, the `paging` args (`limit` and `offset`, `WINDOW_ARGS`, which the
+buffered pager drives), `actions`, a `drill` and `live`. Values may be relative dates (`today-7d`,
+`startOf(month)`, `RELATIVE_DATES`), resolved each time it runs (`resolveRelative`), so a saved widget stays current.
+Its args are the source's minus the pinned ones, the paging and range args optional (`widgetArgs`); its chip row is
+`widgetControls`; a run's source args are `widgetRunArgs`. A run calls the source as a child run and returns a
+`WidgetResult`; bindings that no longer fit are listed as problems, never a failure (`checkWidget`). A widget may move
+to another source when every arg it plans exists there with a compatible type (`sourceCompatible`). Versions,
+visibility, review and search come free, as for any fn. Rows that came from a write are read-only.
+
+**Row actions** are derived, never listed by hand: each method of a row's type (a column's `ref`) is offered, labelled
+from its name (`actionLabel`), with a form for the args left after binding (`widgetActionOptions`); a widget may also
+bind any fn's args to columns. Anything that is not a read asks after its form (`confirmOf`); a widget can add a
+confirm, never remove one. What follows is derived (`deriveThen`): rows returned open as a new level, a write
+refreshes, else a status line. A click on a bar, slice or row runs the widget's `drill` (its args from the row,
+`boundArgs`), else opens the row's action menu. Give a stored type methods to make its records actionable.
+
+**Making widgets.** People ask in the chat ("show my open tasks by owner as bars"). `widgets/make_widget` is an agent
+fn handed the source: it reads a sample (`hub/read_table`) and proposes against a strict schema built for that call
+(`widgetProposalSchema`): only the visuals that draw the sample, each style an enum, each channel's columns an enum of
+the columns it may bind, a typed plan for exactly the source's unclaimed args. A broken widget can't be spelled. The
+chat shows the proposal drawn as it will be; the person presses Save (`widgets/save_widget`). The agent never saves.
 
 ### Reference: visuals and widgets
 
@@ -9553,25 +9576,28 @@ The hub's visual registry: every visual any system draws a `ResultTable` with.
 const HUB_VISUALS: "hub/visuals";
 ```
 
-#### `WIDGET_KIND`
+#### `BUILT_IN_CONTRIBUTIONS`
 
-const · `import { WIDGET_KIND } from '@harness/sdk'`
+const · `import { BUILT_IN_CONTRIBUTIONS } from '@harness/sdk'`
 
-The hub's widget kind.
+The app's own visuals (`BUILT_IN_VISUALS`: the table, the value cards and the twelve ECharts families) as the hub
+contributes them to `HUB_VISUALS`, in registry order. The web app draws them; systems add theirs after.
 
 ```ts
-const WIDGET_KIND: "hub/widget";
+const BUILT_IN_CONTRIBUTIONS: readonly ContributionDecl[];
 ```
+
+Refers to: [`ContributionDecl`](#core-contributiondecl).
 
 #### `visual`
 
 function · `import { visual } from '@harness/sdk'`
 
-A visual this system adds to the hub's visual registry, for `system(name, { contributes: [visual(...)] })`; its
-component and match logic go in `client({ visuals: { [HUB_VISUALS]: { <name>: { match, component } } } })`.
+A visual this system adds to the hub's visual registry, for `system(name, { contributes: [visual(...)] })`. Its
+component (and an optional veto) go in `client({ visuals: { [HUB_VISUALS]: { <name>: { component } } } })`.
 
 ```ts
-visual({ name: 'pie', label: 'Pie', shape: { channels: [channel('label', 'Slice', ['text']), channel('value', 'Size', ['integer', 'number'])], rows: { min: 1, max: 12 }, whole: true } })
+visual({ name: 'waffle', label: 'Waffle', shape: { channels: [channel('itemName', 'Square', ['text'], { role: 'group' }), channel('value', 'Size', ['integer'], { role: 'measure' })], rows: { min: 1, max: 10 }, whole: true } })
 ```
 
 ```ts
@@ -9592,84 +9618,330 @@ interface VisualInput {
   readonly label: string;
   readonly description?: string;
   readonly icon?: string;
-  readonly shape: VisualShape;
+  readonly shape: VisualShapeInput;
 }
 ```
 
-Refers to: [`VisualShape`](#core-visualshape).
+Refers to: [`VisualShapeInput`](#core-visualshapeinput).
 
 #### `channel`
 
 function · `import { channel } from '@harness/sdk'`
 
-One input of a visual: `channel('value', 'Value', ['integer', 'number'])`; required and single unless said.
+One input of a visual: `channel('y', 'Value', ['integer', 'number'], { role: 'measure' })`; required and single unless said.
 
 ```ts
-function channel(name: string, label: string, accepts: readonly ColumnKind[], options?: { required?: boolean; many?: boolean; }): VisualChannel;
+function channel(name: string, label: string, accepts: readonly ColumnKind[], options?: ChannelOptions): VisualChannel;
 ```
 
 Refers to: [`ColumnKind`](#core-columnkind), [`VisualChannel`](#core-visualchannel).
 
-#### `fittingVisuals`
+#### `ChannelOptions`
 
-function · `import { fittingVisuals } from '@harness/sdk'`
+interface · `import { ChannelOptions } from '@harness/sdk'`
 
-The visuals of `HUB_VISUALS` (among `entries`, every system's contributions) whose declared shape fits the table. A
-widget that pages its source (`paged`) shows every page, so a `whole` visual is judged as if the table were whole.
+What `channel()` takes besides the name, label and kinds: all optional (required and single by default).
 
 ```ts
-function fittingVisuals(table: ResultTable, entries: readonly ContributionDecl[], paged?: boolean): FittingVisual[];
+interface ChannelOptions {
+  readonly required?: boolean;
+  readonly many?: boolean;
+  /** The fewest columns a `many` channel needs. */
+  readonly min?: number;
+  /** The role its columns must have: a category wants a `group` key, a value a `measure`. */
+  readonly role?: 'group' | 'measure';
+}
 ```
 
-Refers to: [`ContributionDecl`](#core-contributiondecl), [`ResultTable`](#core-resulttable).
+#### `resultFacts`
 
-#### `FittingVisual`
+function · `import { resultFacts } from '@harness/sdk'`
 
-interface · `import { FittingVisual } from '@harness/sdk'`
-
-A declared visual whose shape fits a table, with its shape.
+A table's column facts with its columns' gin facts: what the widgets system attaches and the web recomputes.
 
 ```ts
-interface FittingVisual {
+function resultFacts(table: Pick<ResultTable, "columns" | "rows" | "offset" | "truncated">): ResultFacts;
+```
+
+Refers to: [`ResultFacts`](#core-resultfacts), [`ResultTable`](#core-resulttable).
+
+#### `ginTypeFacts`
+
+function · `import { ginTypeFacts } from '@harness/sdk'`
+
+What a column's gin type says that core can't read (core runs no gin): an enum's members and a number's declared
+range. Pass it to `columnFacts` as `typeFacts`, or use `resultFacts`.
+
+```ts
+function ginTypeFacts(column: ResultColumn): Pick<ColumnFacts, "members" | "bound">;
+```
+
+Refers to: [`ColumnFacts`](#core-columnfacts), [`ResultColumn`](#core-resultcolumn).
+
+#### `rankedVisuals`
+
+function · `import { rankedVisuals } from '@harness/sdk'`
+
+Every `HUB_VISUALS` contribution among `entries` that can draw a result, best first (core's `rankVisuals`: coverage,
+then priority, then the entries' order). Contributions to other registries and ones without a shape are left out.
+
+```ts
+function rankedVisuals<E extends VisualContribution>(entries: readonly E[], facts: ResultFacts, table?: Pick<ResultTable, "rows" | "columns">): RankedVisual<E>[];
+```
+
+Refers to: [`ResultFacts`](#core-resultfacts), [`ResultTable`](#core-resulttable).
+
+#### `VisualContribution`
+
+interface · `import { VisualContribution } from '@harness/sdk'`
+
+A visual a registry offers, as `rankedVisuals` reads it (`ContributionDecl`, `ContributionView`).
+
+```ts
+interface VisualContribution {
+  readonly registry: string;
   readonly name: string;
   readonly label: string;
-  readonly shape: VisualShape;
+  readonly shape?: VisualShape | undefined;
 }
 ```
 
 Refers to: [`VisualShape`](#core-visualshape).
 
-#### `DECLARED_FIT_SCORE`
+#### `RankedVisual`
 
-const · `import { DECLARED_FIT_SCORE } from '@harness/sdk'`
+interface · `import { RankedVisual } from '@harness/sdk'`
 
-The score of a visual judged only by its declared shape: above the table, below a visual that scores itself.
-
-```ts
-const DECLARED_FIT_SCORE: 0.3;
-```
-
-#### `visualMatch`
-
-function · `import { visualMatch } from '@harness/sdk'`
-
-How a visual is judged: its own `match`, else its declared shape; `undefined` when it has neither.
+A contribution that can draw a result, with its rank.
 
 ```ts
-function visualMatch(entry: { match?(table: ResultTable): VisualFit; }, shape: VisualShape | undefined): ((table: ResultTable) => VisualFit) | undefined;
+interface RankedVisual<E extends VisualContribution> {
+  readonly entry: E;
+  readonly rank: VisualRank;
+}
 ```
 
-Refers to: [`ResultTable`](#core-resulttable), [`VisualFit`](#core-visualfit), [`VisualShape`](#core-visualshape).
+Refers to: [`VisualRank`](#core-visualrank).
+
+#### `VisualView`
+
+interface · `import { VisualView } from '@harness/sdk'`
+
+The props of a visual (an entry of a registry such as the hub's `hub/visuals`): the rows to draw, their column facts
+(`resultFacts`), the columns bound to each channel (`bind`, complete: the widget's or the default binding), the style
+picked in the style picker, and the theme's colours.
+
+```ts
+interface VisualView {
+  table: ResultTable;
+  facts: ResultFacts;
+  bind: VisualBinding;
+  style: string;
+  palette: VisualPalette;
+}
+```
+
+Refers to: [`ResultFacts`](#core-resultfacts), [`ResultTable`](#core-resulttable), [`VisualBinding`](#core-visualbinding).
+
+#### `VisualEntry`
+
+interface · `import { VisualEntry } from '@harness/sdk'`
+
+One visual a system adds to a registry: the component that draws it, and an optional `veto`. Whether a result fits
+and how it ranks come from the contribution's declared shape (`visual({ shape })`, core's `rankVisuals`), the same in
+the hub, the widget agent and the browser; `veto` can only take a fit away (a reason in words), never score one. Keep
+it cheap and pure: it runs for every result the person sees.
+
+```ts
+interface VisualEntry<C extends ContractShape> {
+  veto?(table: ResultTable, facts: ResultFacts): string | undefined;
+  component: Renderer<VisualView & WithSystem<C>>;
+}
+```
+
+Refers to: [`ResultFacts`](#core-resultfacts), [`ResultTable`](#core-resulttable).
+
+#### `VisualPalette`
+
+interface · `import { VisualPalette } from '@harness/sdk'`
+
+The colours a visual draws with, resolved for the current theme from the web app's tokens: the categorical series
+colours (`--chart-1` … `--chart-8`, the first the accent), the text and muted text, the grid lines and the surface
+behind the chart. Build an ECharts theme from it; it changes when the theme does.
+
+```ts
+interface VisualPalette {
+  readonly series: readonly string[];
+  readonly text: string;
+  readonly muted: string;
+  readonly grid: string;
+  readonly surface: string;
+  readonly dark: boolean;
+}
+```
+
+#### `VisualRange`
+
+interface · `import { VisualRange } from '@harness/sdk'`
+
+A range a visual shows, as its range args take it: a calendar's month, a zoomed time axis (ISO dates or instants).
+
+```ts
+interface VisualRange {
+  readonly from: string;
+  readonly to: string;
+}
+```
+
+#### `VISUAL_EMITS`
+
+const · `import { VISUAL_EMITS } from '@harness/sdk'`
+
+What a visual emits, with the checks Vue runs on each (`defineEmits(VISUAL_EMITS)`, or `emits: VISUAL_EMITS`):
+`drill` with the index of the clicked row (a bar, slice or point: the widget runs its drill, else opens the row's
+action menu), and `range` when the person zooms a time axis or turns a calendar's month (the widget sets its range
+args and runs again).
+
+```ts
+const VISUAL_EMITS: { drill: (rowIndex: number) => boolean; range: (range: VisualRange) => boolean; };
+```
+
+#### `VisualEmits`
+
+type · `import { VisualEmits } from '@harness/sdk'`
+
+```ts
+type VisualEmits = typeof VISUAL_EMITS;
+```
+
+#### `visualTheme`
+
+function · `import { visualTheme } from '@harness/sdk'`
+
+The ECharts theme for a palette: series in the palette's order, text and axes in its colours, no background of its own.
+
+```ts
+function visualTheme(palette: VisualPalette): VisualTheme;
+```
+
+#### `VisualTheme`
+
+interface · `import { VisualTheme } from '@harness/sdk'`
+
+An ECharts theme object (`init(el, visualTheme(palette))`), so a system's chart looks like the built-in ones.
+
+```ts
+interface VisualTheme {
+  readonly color: readonly string[];
+  readonly backgroundColor: string;
+  readonly textStyle: { readonly color: string };
+  readonly legend: { readonly textStyle: { readonly color: string } };
+  readonly tooltip: { readonly backgroundColor: string; readonly borderColor: string; readonly textStyle: { readonly color: string } };
+  readonly categoryAxis: VisualAxisTheme;
+  readonly valueAxis: VisualAxisTheme;
+  readonly timeAxis: VisualAxisTheme;
+  readonly logAxis: VisualAxisTheme;
+}
+```
+
+#### `WIDGETS_SYSTEM`
+
+const · `import { WIDGETS_SYSTEM } from '@harness/sdk'`
+
+The bundled system that owns widgets.
+
+```ts
+const WIDGETS_SYSTEM: "widgets";
+```
+
+#### `WIDGET_KIND`
+
+const · `import { WIDGET_KIND } from '@harness/sdk'`
+
+The widget kind.
+
+```ts
+const WIDGET_KIND: "widgets/widget";
+```
+
+#### `argsOf`
+
+function · `import { argsOf } from '@harness/sdk'`
+
+The args of a fn's args type, in order. A type that is not an object has none.
+
+```ts
+function argsOf(args: GinTypeDef): ArgInfo[];
+```
+
+Refers to: [`GinTypeDef`](#core-gintypedef).
+
+#### `ArgInfo`
+
+interface · `import { ArgInfo } from '@harness/sdk'`
+
+One argument of a fn's args type: its type (without an optional wrapper) and whether it must be given.
+
+```ts
+interface ArgInfo {
+  readonly name: string;
+  readonly type: GinTypeDef;
+  /** Neither optional nor defaulted. */
+  readonly required: boolean;
+  /** It declares a default, so leaving it out still gives it a value. */
+  readonly defaulted: boolean;
+}
+```
+
+Refers to: [`GinTypeDef`](#core-gintypedef).
+
+#### `WINDOW_ARGS`
+
+const · `import { WINDOW_ARGS } from '@harness/sdk'`
+
+The args a buffered pager drives, when a source has both (`limit` and `offset`, as the database's query fns name them).
+
+```ts
+const WINDOW_ARGS: WidgetPaging;
+```
+
+Refers to: [`WidgetPaging`](#core-widgetpaging).
+
+#### `pagingOf`
+
+function · `import { pagingOf } from '@harness/sdk'`
+
+The source's paging args (`WINDOW_ARGS`, both whole-number args), or `undefined` when it doesn't page.
+
+```ts
+function pagingOf(args: GinTypeDef): WidgetPaging | undefined;
+```
+
+Refers to: [`GinTypeDef`](#core-gintypedef), [`WidgetPaging`](#core-widgetpaging).
+
+#### `rangeOf`
+
+function · `import { rangeOf } from '@harness/sdk'`
+
+The source's range args, which a range-claiming visual (time, calendar, timeline, finance) drives: the first pair of
+date or timestamp args named `from`/`to`, `start`/`end`, `after`/`before` or `since`/`until`, alone or after a
+shared prefix (`due_from`/`due_to`). `undefined` when there is none.
+
+```ts
+function rangeOf(args: GinTypeDef): WidgetRange | undefined;
+```
+
+Refers to: [`GinTypeDef`](#core-gintypedef), [`WidgetRange`](#core-widgetrange).
 
 #### `widgetArgs`
 
 function · `import { widgetArgs } from '@harness/sdk'`
 
-The widget's args type (the kind's `describe`): its source's args minus the pinned ones and the page size the widget
-fixes. The offset arg stays, so the pager asks for another page by running the widget with it.
+The widget's args type (the kind's `describe`): its source's args minus the pinned ones, with the paging and range
+args made optional (the view drives them; a run without them reads the first window of the default range).
 
 ```ts
-function widgetArgs(source: GinTypeDef, spec: Pick<WidgetSpec, "controls" | "paging">): GinTypeDef;
+function widgetArgs(source: GinTypeDef, spec: Pick<WidgetSpec, "args" | "paging" | "range">): GinTypeDef;
 ```
 
 Refers to: [`GinTypeDef`](#core-gintypedef), [`WidgetSpec`](#core-widgetspec).
@@ -9678,123 +9950,110 @@ Refers to: [`GinTypeDef`](#core-gintypedef), [`WidgetSpec`](#core-widgetspec).
 
 function · `import { widgetControls } from '@harness/sdk'`
 
-The controls a widget shows, in its source's arg order: every arg not pinned, hidden or driven by the pager.
+The chip row (`WidgetResult.controls`), in the source's arg order: every arg not pinned, hidden or driven by the
+pager, with its plan's words and choices (an enum's members when the plan names none; an "Any" row first on an
+optional arg), and its value: the one the run used (`given`), else the plan's default. Range args are chips too, so
+a visual that doesn't draw the range still lets the person set it.
 
 ```ts
-function widgetControls(source: GinTypeDef, spec: Pick<WidgetSpec, "controls" | "paging">): WidgetControlView[];
+function widgetControls(source: GinTypeDef, spec: Pick<WidgetSpec, "args" | "paging">, given?: Readonly<Record<string, Json>>): WidgetShownControl[];
 ```
 
-Refers to: [`GinTypeDef`](#core-gintypedef), [`WidgetSpec`](#core-widgetspec).
+Refers to: [`GinTypeDef`](#core-gintypedef), [`Json`](#core-json), [`WidgetShownControl`](#core-widgetshowncontrol), [`WidgetSpec`](#core-widgetspec).
 
-#### `WidgetControlView`
+#### `widgetRunArgs`
 
-interface · `import { WidgetControlView } from '@harness/sdk'`
+function · `import { widgetRunArgs } from '@harness/sdk'`
 
-A control as the widget's bar shows it: the arg, its label and type, and the values offered.
+The source args a widget run uses: pinned values, then the args given (the chips the person set), then each plan's
+default, relative dates resolved; an arg with none of these is left out (it takes the source's default). A paged
+widget asks for `window` rows from the given offset (0 when none).
 
 ```ts
-interface WidgetControlView {
-  readonly arg: string;
-  readonly label: string;
-  readonly type: GinTypeDef;
-  readonly required: boolean;
-  /** The only values offered, in order; absent offers the type's own editor. */
-  readonly choices?: readonly Json[];
-  /** Whether a value outside `choices` may be typed. */
-  readonly custom: boolean;
+function widgetRunArgs(source: GinTypeDef, spec: Pick<WidgetSpec, "args" | "paging">, given: Readonly<Record<string, Json>>, options: WidgetRunOptions): Record<string, Json>;
+```
+
+Refers to: [`GinTypeDef`](#core-gintypedef), [`Json`](#core-json), [`WidgetSpec`](#core-widgetspec).
+
+#### `WidgetRunOptions`
+
+interface · `import { WidgetRunOptions } from '@harness/sdk'`
+
+When and where a widget runs: the moment and time zone relative dates resolve in, and the pager's window.
+
+```ts
+interface WidgetRunOptions {
+  readonly now: Date;
+  /** The person's time zone (an IANA name). */
+  readonly zone: string;
+  /** The rows a run asks for when the widget pages (its first visual's page size, or the pager's). */
+  readonly window: number;
 }
 ```
 
-Refers to: [`GinTypeDef`](#core-gintypedef), [`Json`](#core-json).
+#### `widgetPager`
 
-#### `checkWidget`
+function · `import { widgetPager } from '@harness/sdk'`
 
-function · `import { checkWidget } from '@harness/sdk'`
-
-Every problem with a widget spec against its source's args and a real result: controls and paging naming args the
-source lacks, a required arg hidden with no value, visuals that aren't declared, bindings to missing columns or to
-columns of a kind the channel doesn't take, visuals whose shape doesn't fit, and actions binding missing columns.
-A visual with a problem leaves `visuals`; the rest keep the spec's order.
+The pager's state after a run that asked for `window` rows: a full window means more may follow.
 
 ```ts
-function checkWidget(spec: WidgetSpec, input: WidgetCheckInput): WidgetCheckResult;
+function widgetPager(paging: WidgetPaging, table: Pick<ResultTable, "rows">, window: number): WidgetPager;
 ```
 
-Refers to: [`WidgetSpec`](#core-widgetspec).
+Refers to: [`ResultTable`](#core-resulttable), [`WidgetPager`](#core-widgetpager), [`WidgetPaging`](#core-widgetpaging).
 
-#### `WidgetCheckInput`
+#### `resolveRelative`
 
-interface · `import { WidgetCheckInput } from '@harness/sdk'`
+function · `import { resolveRelative } from '@harness/sdk'`
 
-What `checkWidget` is given besides the spec: the source's args type, a real result, every declared visual.
+A relative date as a plain value at `now` in the time zone `zone` (an IANA name): `YYYY-MM-DD` for a day
+(`RELATIVE_DATES[expr].yields === 'day'`), ISO text in UTC for an instant. Throws on an unknown time zone.
 
 ```ts
-interface WidgetCheckInput {
-  readonly args: GinTypeDef;
-  readonly table: ResultTable;
-  readonly visuals: readonly ContributionDecl[];
-}
+resolveRelative('startOf(month,today-1mo)', new Date('2026-03-15T10:00:00Z'), 'Europe/London'); // '2026-02-01'
 ```
-
-Refers to: [`ContributionDecl`](#core-contributiondecl), [`GinTypeDef`](#core-gintypedef), [`ResultTable`](#core-resulttable).
-
-#### `WidgetCheckResult`
-
-interface · `import { WidgetCheckResult } from '@harness/sdk'`
-
-What `checkWidget` finds: the spec's visuals that still fit, in order, and every problem in words.
 
 ```ts
-interface WidgetCheckResult {
-  readonly visuals: WidgetVisual[];
-  readonly problems: string[];
-}
+function resolveRelative(expr: RelativeDate, now: Date, zone: string): string;
 ```
 
-Refers to: [`WidgetVisual`](#core-widgetvisual).
+Refers to: [`RelativeDate`](#core-relativedate).
 
-#### `widgetSpecSchema`
+#### `resolveArgValue`
 
-function · `import { widgetSpecSchema } from '@harness/sdk'`
+function · `import { resolveArgValue } from '@harness/sdk'`
 
-The strict schema an authoring agent drafts a widget against, built at tool time: the source is fixed, a visual is one
-of those that fit with a binding per channel naming only columns that channel takes, a control names one of the
-source's args, paging names its number args, and an action names one of the row methods. What the schema can't say
-(a required arg hidden with no value) `checkWidget` catches.
+An argument value as the source takes it: a literal as is, a relative date resolved at `now` in `zone`.
 
 ```ts
-function widgetSpecSchema(input: WidgetSchemaInput): z.ZodType<WidgetSpec>;
+function resolveArgValue(value: ArgValue, now: Date, zone: string): Json;
 ```
 
-Refers to: [`WidgetSpec`](#core-widgetspec).
+Refers to: [`ArgValue`](#core-argvalue), [`Json`](#core-json).
 
-#### `WidgetSchemaInput`
+#### `relativeDatesFor`
 
-interface · `import { WidgetSchemaInput } from '@harness/sdk'`
+function · `import { relativeDatesFor } from '@harness/sdk'`
 
-What `widgetSpecSchema` builds from: the source, its args, a sample result, the fitting visuals and the row methods.
+The relative dates that fill an argument of a gin type: days for `date`, instants for `timestamp`, else none.
 
 ```ts
-interface WidgetSchemaInput {
-  readonly source: QualifiedName;
-  readonly args: GinTypeDef;
-  readonly columns: readonly ResultColumn[];
-  readonly visuals: readonly FittingVisual[];
-  /** The fns an action may name (the row types' methods); absent: any fn. */
-  readonly actions?: readonly QualifiedName[];
-}
+function relativeDatesFor(typeName: string): RelativeDate[];
 ```
 
-Refers to: [`GinTypeDef`](#core-gintypedef), [`QualifiedName`](#core-qualifiedname), [`ResultColumn`](#core-resultcolumn).
+Refers to: [`RelativeDate`](#core-relativedate).
 
 #### `widgetActionOptions`
 
 function · `import { widgetActionOptions } from '@harness/sdk'`
 
-The actions a row offers: every row fn when the spec lists none, else the listed ones in their order, each labelled
-(`actionLabel` unless relabelled), confirming when `confirmOf` says so, with its bound args and a form for the args
-left. A method's value (`self`) is bound by the row's ref, so it never shows in the form. A listed action whose fn
-isn't a row fn is left out.
+The actions a row offers: every row fn when the widget lists none, else the listed ones in their order, each
+labelled (`actionLabel` unless relabelled), confirming when `confirmOf` says so, with its bound args, a form for the
+args left (the form comes first; the confirm follows for anything above a read), and what follows: the widget's
+`then`, else derived (`deriveThen`: rows returned open, a write refreshes, else a status line). A method's value
+(`self`) is bound by the row's ref, so it never shows in the form. A listed action whose fn isn't among `rowFns`
+is left out.
 
 ```ts
 function widgetActionOptions(rowFns: readonly RowFn[], actions: readonly WidgetAction[] | undefined): WidgetActionOption[];
@@ -9806,17 +10065,300 @@ Refers to: [`WidgetAction`](#core-widgetaction), [`WidgetActionOption`](#core-wi
 
 interface · `import { RowFn } from '@harness/sdk'`
 
-A fn a row could run: a method of the row's type (or any fn), its mode and args.
+A fn a row could run: a method of the row's type or any fn a widget binds, with its mode, args and declared return.
 
 ```ts
 interface RowFn {
   readonly fn: QualifiedName;
   readonly mode: FnMode;
   readonly args: GinTypeDef;
+  /** Its declared return is a table (`returnsTable`), so its rows open as a new level. */
+  readonly returnsTable: boolean;
 }
 ```
 
 Refers to: [`FnMode`](#core-fnmode), [`GinTypeDef`](#core-gintypedef), [`QualifiedName`](#core-qualifiedname).
+
+#### `boundArgs`
+
+function · `import { boundArgs } from '@harness/sdk'`
+
+The args a click takes from a row (an action's or the drill's `bind`: arg → column), by column name. A column the
+table lacks, or a row past its end, throws: the widget's check already refused such a binding.
+
+```ts
+function boundArgs(bind: Readonly<Record<string, string>>, table: Pick<ResultTable, "columns" | "rows">, rowIndex: number): Record<string, Json>;
+```
+
+Refers to: [`Json`](#core-json), [`ResultTable`](#core-resulttable).
+
+#### `returnsTable`
+
+function · `import { returnsTable } from '@harness/sdk'`
+
+Whether a fn's declared return is a table: every value of it is a `ResultTable` (gin `compatible`), so the chat routes
+it to the result view (`RESULT_TABLE_ROUTING`) and a widget may draw from it. A return that names a type `scope`
+doesn't know is not a table.
+
+```ts
+function returnsTable(returns: GinTypeDef, scope?: TypeScope): boolean;
+```
+
+Refers to: [`GinTypeDef`](#core-gintypedef).
+
+#### `ginTypeOf`
+
+function · `import { ginTypeOf } from '@harness/sdk'`
+
+A gin type from its definition, in `scope` (the hub's or loaded types) or `g`. Throws a gin error when it doesn't parse.
+
+```ts
+function ginTypeOf(def: GinTypeDef, scope?: TypeScope): GinType;
+```
+
+Refers to: [`GinTypeDef`](#core-gintypedef).
+
+#### `checkWidget`
+
+function · `import { checkWidget } from '@harness/sdk'`
+
+Every problem with a widget spec against its source's args and a real result (or the source's declared columns):
+arg plans naming args the source lacks, a required arg hidden, values that aren't the arg's type, presets setting
+pinned or unknown args, paging and range args of the wrong kind; visuals not in `HUB_VISUALS`, styles they don't
+have, bindings that don't draw (core's `bindingProblems`, a channel left out taking the default binding); action and
+drill bindings to columns the result lacks. A visual with a problem leaves `visuals`; the rest keep the spec's order.
+
+```ts
+function checkWidget(spec: WidgetSpec, input: WidgetCheckInput): WidgetCheckResult;
+```
+
+Refers to: [`WidgetSpec`](#core-widgetspec).
+
+#### `WidgetCheckInput`
+
+interface · `import { WidgetCheckInput } from '@harness/sdk'`
+
+What `checkWidget` is given besides the spec.
+
+```ts
+interface WidgetCheckInput {
+  /** The source's args type. */
+  readonly args: GinTypeDef;
+  /** The facts of a real result of the source (`resultFacts`), or of its declared columns. */
+  readonly facts: ResultFacts;
+  /** Every `HUB_VISUALS` contribution (the hub's `hub/visuals`). */
+  readonly entries: readonly VisualContribution[];
+  /** The rows, so rules over values (a tree's parent links) are judged too. */
+  readonly table?: Pick<ResultTable, 'rows' | 'columns'>;
+  /** Where the args' named types resolve (the hub's scope); `g` without it. */
+  readonly scope?: TypeScope;
+}
+```
+
+Refers to: [`GinTypeDef`](#core-gintypedef), [`ResultFacts`](#core-resultfacts), [`ResultTable`](#core-resulttable).
+
+#### `WidgetCheckResult`
+
+interface · `import { WidgetCheckResult } from '@harness/sdk'`
+
+What `checkWidget` finds: the spec's visuals that draw this result, in its order, and every problem in words.
+
+```ts
+interface WidgetCheckResult {
+  readonly visuals: WidgetVisual[];
+  readonly problems: string[];
+}
+```
+
+Refers to: [`WidgetVisual`](#core-widgetvisual).
+
+#### `sourceCompatible`
+
+function · `import { sourceCompatible } from '@harness/sdk'`
+
+Why a widget can't move to a new source (authoring-edit-source), or `[]` when it can: every arg it plans, presets,
+pages or ranges must exist in the new source, take the values the widget stores, and (given the old args) take every
+value its old type did, constraints included (gin `compatible` in value mode: an enum's members, a number's range).
+
+```ts
+function sourceCompatible(spec: WidgetSpec, args: GinTypeDef, options?: SourceCompatibleOptions): string[];
+```
+
+Refers to: [`GinTypeDef`](#core-gintypedef), [`WidgetSpec`](#core-widgetspec).
+
+#### `SourceCompatibleOptions`
+
+interface · `import { SourceCompatibleOptions } from '@harness/sdk'`
+
+What `sourceCompatible` is given besides the spec and the new source's args.
+
+```ts
+interface SourceCompatibleOptions {
+  /** The old source's args: each planned arg's new type must take every value of its old one (gin `compatible`). */
+  readonly previous?: GinTypeDef;
+  readonly scope?: TypeScope;
+}
+```
+
+Refers to: [`GinTypeDef`](#core-gintypedef).
+
+#### `widgetProposalSchema`
+
+function · `import { widgetProposalSchema } from '@harness/sdk'`
+
+The strict schema of one `make_widget` call, from the source's args, a real result's facts and the visuals that
+draw it, and how to read what it accepts as a spec. Throws when no visual draws the result.
+
+```ts
+const ranked = rankedVisuals(entries, facts).map((r) => r.rank);
+const { schema, read } = widgetProposalSchema({ source, args, facts, ranked, entries });
+// schema is the propose tool's input; read(toolInput) is the proposal's name, description and spec
+```
+
+```ts
+function widgetProposalSchema(input: WidgetProposalSchemaInput): WidgetProposalSchema;
+```
+
+#### `WidgetProposalSchemaInput`
+
+interface · `import { WidgetProposalSchemaInput } from '@harness/sdk'`
+
+What `widgetProposalSchema` builds from.
+
+```ts
+interface WidgetProposalSchemaInput {
+  /** The source fn, a read fn returning a table. */
+  readonly source: QualifiedName;
+  /** Its args type. */
+  readonly args: GinTypeDef;
+  /** The facts of a real result of it (`resultFacts`). */
+  readonly facts: ResultFacts;
+  /** The visuals that draw it, best first (`rankedVisuals(entries, facts)`'s ranks). */
+  readonly ranked: readonly VisualRank[];
+  /** Every `HUB_VISUALS` contribution, for the visuals' shapes and labels. */
+  readonly entries: readonly VisualContribution[];
+  /** The sample's rows, so rules over values are judged too. */
+  readonly table?: Pick<ResultTable, 'rows' | 'columns'>;
+  /** The fns an action may name (the row types' methods and any fn it may bind); none: actions are derived. */
+  readonly actions?: readonly QualifiedName[];
+  /** The read fns returning a table a click may drill into; none: a click opens the row's action menu. */
+  readonly drills?: readonly QualifiedName[];
+  /** The source declares a live source (`FnDecl.live`), so the widget may re-run on its own. */
+  readonly live?: boolean;
+  /** Where the args' named types resolve; `g` without it. */
+  readonly scope?: TypeScope;
+}
+```
+
+Refers to: [`GinTypeDef`](#core-gintypedef), [`QualifiedName`](#core-qualifiedname), [`ResultFacts`](#core-resultfacts), [`ResultTable`](#core-resulttable), [`VisualRank`](#core-visualrank).
+
+#### `WidgetProposalSchema`
+
+interface · `import { WidgetProposalSchema } from '@harness/sdk'`
+
+The strict schema of one call and how to read a parsed draft as a spec.
+
+```ts
+interface WidgetProposalSchema {
+  /**
+   * The agent's tool input, its output typed by `WidgetDraftInput`: its input side is this call's strict schema, so
+   * take its JSON Schema with `io: 'input'` (as the SDK's LLM wire does) to keep every enum.
+   */
+  readonly schema: z.ZodType<WidgetDraftInput>;
+  /** A draft the schema accepts, as the fn name, description and spec. Throws when `value` doesn't parse. */
+  read(value: unknown): WidgetDraft;
+}
+```
+
+#### `WidgetDraftInput`
+
+const, type · `import { WidgetDraftInput } from '@harness/sdk'`
+
+What the agent writes, as every call's schema shares it (the per-call schema narrows each part): the fn's name and
+description, the title, the visual shown first (its style, label, and bindings replacing the default ones), the
+other visuals the switcher offers (each with its default binding and first style), a plan per arg, presets, and the
+optional actions, drill and live flag.
+
+```ts
+type WidgetDraftInput = {
+  name: string;
+  description: string;
+  title: string;
+  choice: {
+    visual: string;
+    style: string;
+    label?: string | undefined;
+    bind?: Record<string, string[] | undefined> | undefined;
+  };
+  more: string[];
+  args: Record<string, {
+    show: "control";
+    label?: string | undefined;
+    choices?: {
+      label: string;
+      value?: {
+        literal: z.core.util.JSONType;
+      } | {
+        relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+      } | undefined;
+    }[] | undefined;
+    custom?: boolean | undefined;
+    default?: {
+      literal: z.core.util.JSONType;
+    } | {
+      relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+    } | undefined;
+  } | {
+    show: "pinned";
+    value: {
+      literal: z.core.util.JSONType;
+    } | {
+      relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+    };
+  } | {
+    show: "hidden";
+  }>;
+  presets: {
+    label: string;
+    sets: Record<string, {
+      literal: z.core.util.JSONType;
+    } | {
+      relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+    } | undefined>;
+  }[];
+  actions?: {
+    fn: `${string}/${string}`;
+    bind: Record<string, string>;
+    label?: string | undefined;
+    confirm?: true | undefined;
+    then?: "status" | "open" | "refresh" | undefined;
+  }[] | undefined;
+  drill?: {
+    fn: `${string}/${string}`;
+    label: string;
+    bind: Record<string, string>;
+  } | undefined;
+  live?: boolean | undefined;
+};
+```
+
+Refers to: [`ArgPlan`](#core-argplan), [`ArgValue`](#core-argvalue), [`WidgetAction`](#core-widgetaction), [`WidgetDrill`](#core-widgetdrill).
+
+#### `WidgetDraft`
+
+interface · `import { WidgetDraft } from '@harness/sdk'`
+
+A proposal's saved parts: the fn's name and description and the widget spec.
+
+```ts
+interface WidgetDraft {
+  readonly name: z.infer<typeof LocalName>;
+  readonly description: string;
+  readonly spec: WidgetSpec;
+}
+```
+
+Refers to: [`WidgetSpec`](#core-widgetspec).
 
 ## 26. Packaging: system.json, build, pack, install
 
@@ -10341,7 +10883,12 @@ class FakeHub {
   readonly mentionSearches: MentionResourceSearch[];
   /** Answers a mention provider's resource search (default: no hits). */
   onMentionResources: (search: MentionResourceSearch) => Promise<ResourceHit[]>;
-  /** Settles a child call. Default: `hub/save_fn` and `hub/fn_get` by `fns`, anything else done with `null`. */
+  /** The hub's widget fns (`hub/read_table`, `hub/visuals`, `hub/row_actions`), in memory. */
+  readonly widgets: FakeHubWidgets;
+  /**
+  * Settles a child call. Default: `hub/save_fn` and `hub/fn_get` by `fns`, the widget fns by `widgets`, anything else
+  * done with `null`.
+  */
   onCall: (call: FakeHub['calls'][number]) => Promise<RunSettled>;
   /** Answers a run's handler. Default: refused. */
   onHandle: (call: FakeHub['handled'][number]) => Promise<HandlerAnswer>;
@@ -10651,6 +11198,51 @@ interface KeptFn {
 }
 ```
 
+#### `FakeHubWidgets`
+
+class · `import { FakeHubWidgets } from '@harness/sdk/server/testing'`
+
+The hub's widget fns in memory.
+
+```ts
+class FakeHubWidgets {
+  /** What `hub/visuals` answers: the built-in families as the hub contributes them; push a system's own. */
+  readonly visuals: ContributionView[];
+  /** Every `hub/read_table` call, in order: the fn and the args it ran with. */
+  readonly reads: ReadTableArgs[];
+  /** Register a read fn returning a table: its rows, or a function of its args (to page or filter). */
+  table(fn: QualifiedName, source: FakeTableSource): void;
+  /** Register the fns a row type offers (its methods and any fn a widget may bind). */
+  rowFns(type: QualifiedName, fns: readonly RowFn[]): void;
+  /** Settle a call to one of `HUB_WIDGET_FNS`; `undefined` for any other fn. */
+  settle(call: HubCall): RunSettled | undefined;
+}
+```
+
+Refers to: [`ContributionView`](#core-contributionview), [`Json`](#core-json), [`QualifiedName`](#core-qualifiedname), [`ReadTableArgs`](#core-readtableargs), [`RunSettled`](#core-runsettled), [`SystemName`](#core-systemname).
+
+#### `HUB_WIDGET_FNS`
+
+const · `import { HUB_WIDGET_FNS } from '@harness/sdk/server/testing'`
+
+The hub fns this fake answers, by the hub contract's names.
+
+```ts
+const HUB_WIDGET_FNS: { readonly readTable: "hub/read_table"; readonly visuals: "hub/visuals"; readonly rowActions: "hub/row_actions"; };
+```
+
+#### `FakeTableSource`
+
+type · `import { FakeTableSource } from '@harness/sdk/server/testing'`
+
+What a registered source answers for its args.
+
+```ts
+type FakeTableSource = ResultTable | ((args: Readonly<Record<string, Json>>) => ResultTable);
+```
+
+Refers to: [`Json`](#core-json), [`ResultTable`](#core-resulttable).
+
 #### `FakeModelLink`
 
 class · `import { FakeModelLink } from '@harness/sdk/server/testing'`
@@ -10819,12 +11411,18 @@ class TestSystem<N extends string, C extends ContractShape> {
   mentions(provider: keyof C["mentions"] & string, query: string): Promise<{ readonly options: WireMentionOption[]; readonly searches: FakeHub["mentionSearches"]; }>;
   /** The records of one of the system's stored types the run left in the fake hub, newest change first. */
   records(type: keyof C["types"] & string): DataRecord[];
+  /**
+  * The visuals that would draw a table, best first, as the hub, the widget agent and the web app rank them: the
+  * built-in families and this system's own `HUB_VISUALS` contributions (`rankedVisuals` over `resultFacts`). Check that
+  * a visual you declare is offered for the data it is for, and with the binding you expect.
+  */
+  visuals(table: ResultTable): VisualRank[];
   /** Stop the system. */
   stop(): Promise<void>;
 }
 ```
 
-Refers to: [`DataRecord`](#core-datarecord), [`RunRequest`](#core-runrequest), [`SensitivityFlag`](#core-sensitivityflag).
+Refers to: [`DataRecord`](#core-datarecord), [`ResultTable`](#core-resulttable), [`RunRequest`](#core-runrequest), [`SensitivityFlag`](#core-sensitivityflag), [`VisualRank`](#core-visualrank).
 
 #### `TestHubOptions`
 
@@ -14767,6 +15365,9 @@ type ApprovalPreview = {
         label?: string | undefined;
         type?: TypeDef<any> | undefined;
         ref?: `${string}/${string}` | undefined;
+        role?: "group" | "measure" | "attribute" | undefined;
+        key?: boolean | undefined;
+        editable?: boolean | undefined;
       }[];
       rows: z.core.util.JSONType[][];
       offset: number;
@@ -14777,6 +15378,13 @@ type ApprovalPreview = {
       }[];
       limit?: number | undefined;
       total?: number | undefined;
+      write?: {
+        affected: number;
+      } | undefined;
+      records?: {
+        type: `${string}/${string}`;
+        id: string;
+      } | undefined;
     };
   } | {
     type: "type-diff";
@@ -14794,7 +15402,7 @@ type ApprovalPreview = {
       path: string;
       kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
       rule: string;
-      access: "read" | "write";
+      access: "write" | "read";
       action: "ask" | "refuse" | "allow";
       why: string;
       certain: boolean;
@@ -14911,6 +15519,9 @@ type ApprovedRun = {
           label?: string | undefined;
           type?: TypeDef<any> | undefined;
           ref?: `${string}/${string}` | undefined;
+          role?: "group" | "measure" | "attribute" | undefined;
+          key?: boolean | undefined;
+          editable?: boolean | undefined;
         }[];
         rows: z.core.util.JSONType[][];
         offset: number;
@@ -14921,6 +15532,13 @@ type ApprovedRun = {
         }[];
         limit?: number | undefined;
         total?: number | undefined;
+        write?: {
+          affected: number;
+        } | undefined;
+        records?: {
+          type: `${string}/${string}`;
+          id: string;
+        } | undefined;
       };
     } | {
       type: "type-diff";
@@ -14938,7 +15556,7 @@ type ApprovedRun = {
         path: string;
         kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
         rule: string;
-        access: "read" | "write";
+        access: "write" | "read";
         action: "ask" | "refuse" | "allow";
         why: string;
         certain: boolean;
@@ -15129,6 +15747,9 @@ type PreviewAnswer = {
           label?: string | undefined;
           type?: TypeDef<any> | undefined;
           ref?: `${string}/${string}` | undefined;
+          role?: "group" | "measure" | "attribute" | undefined;
+          key?: boolean | undefined;
+          editable?: boolean | undefined;
         }[];
         rows: z.core.util.JSONType[][];
         offset: number;
@@ -15139,6 +15760,13 @@ type PreviewAnswer = {
         }[];
         limit?: number | undefined;
         total?: number | undefined;
+        write?: {
+          affected: number;
+        } | undefined;
+        records?: {
+          type: `${string}/${string}`;
+          id: string;
+        } | undefined;
       };
     } | {
       type: "type-diff";
@@ -15156,7 +15784,7 @@ type PreviewAnswer = {
         path: string;
         kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
         rule: string;
-        access: "read" | "write";
+        access: "write" | "read";
         action: "ask" | "refuse" | "allow";
         why: string;
         certain: boolean;
@@ -15483,12 +16111,6 @@ type ContextFileHeader = {
   alwaysFor: `${string}/${string}`[];
   tags: string[];
   title?: string | undefined;
-  choices?: {
-    to: `${string}/${string}`;
-    when: string;
-  }[] | undefined;
-  weight?: number | undefined;
-  next?: `${string}/${string}` | undefined;
   links?: {
     to: {
       kind: "context";
@@ -15507,6 +16129,8 @@ type ContextFileHeader = {
     relation: "next" | "about" | "parent" | "imports" | "brings" | "suggests" | "related";
     weight: number;
   }[] | undefined;
+  weight?: number | undefined;
+  next?: `${string}/${string}` | undefined;
   command?: {
     name: string;
     args: {
@@ -15516,6 +16140,10 @@ type ContextFileHeader = {
     }[];
   } | undefined;
   parent?: `${string}/${string}` | undefined;
+  choices?: {
+    to: `${string}/${string}`;
+    when: string;
+  }[] | undefined;
 };
 ```
 
@@ -15925,7 +16553,7 @@ type FnSearchPage = {
     description: string;
     available: boolean;
     kind?: string | undefined;
-    mode?: "read" | "write" | "delete" | undefined;
+    mode?: "write" | "read" | "delete" | undefined;
     signature?: string | undefined;
     effects?: string | undefined;
     instance?: InstanceName | undefined;
@@ -15959,7 +16587,7 @@ type FnSearchQuery = {
     reads?: `${string}/${string}`[] | undefined;
     writes?: `${string}/${string}`[] | undefined;
   } | undefined;
-  modes?: ("read" | "write" | "delete")[] | undefined;
+  modes?: ("write" | "read" | "delete")[] | undefined;
   effects?: {
     thing: "types" | "records" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
     action?: "create" | "update" | "remove" | undefined;
@@ -16061,7 +16689,7 @@ type HostRefusal = {
     system: SystemName;
     instance: InstanceName;
   };
-  rule: "files" | "network";
+  rule: "network" | "files";
   attempt: string;
   detail: string;
 };
@@ -16258,6 +16886,9 @@ type RunRequest = {
             label?: string | undefined;
             type?: TypeDef<any> | undefined;
             ref?: `${string}/${string}` | undefined;
+            role?: "group" | "measure" | "attribute" | undefined;
+            key?: boolean | undefined;
+            editable?: boolean | undefined;
           }[];
           rows: z.core.util.JSONType[][];
           offset: number;
@@ -16268,6 +16899,13 @@ type RunRequest = {
           }[];
           limit?: number | undefined;
           total?: number | undefined;
+          write?: {
+            affected: number;
+          } | undefined;
+          records?: {
+            type: `${string}/${string}`;
+            id: string;
+          } | undefined;
         };
       } | {
         type: "type-diff";
@@ -16285,7 +16923,7 @@ type RunRequest = {
           path: string;
           kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
           rule: string;
-          access: "read" | "write";
+          access: "write" | "read";
           action: "ask" | "refuse" | "allow";
           why: string;
           certain: boolean;
@@ -16660,7 +17298,7 @@ from its signature, and everything a fn uses (its deps, an agent's tools) is fol
 
 ```ts
 type FnEffects = {
-  mode?: "read" | "write" | "delete" | undefined;
+  mode?: "write" | "read" | "delete" | undefined;
   reads?: `${string}/${string}`[] | undefined;
   writes?: `${string}/${string}`[] | undefined;
   free?: boolean | undefined;
@@ -16686,12 +17324,25 @@ type FnExample = {
 };
 ```
 
+#### <a id="core-fnlive"></a>`FnLive`
+
+const, type · declared in `packages/core/src/manifest.ts`
+
+Widget pass: a fn whose rows change on their own (a sensor, a feed), so a widget over it may refresh itself while
+shown: at most every `every` ms, never below the hub's floor, one run in flight. Hub record changes are not this.
+
+```ts
+type FnLive = {
+  every: number;
+};
+```
+
 #### <a id="core-fnmode"></a>`FnMode`
 
 const, type · declared in `packages/core/src/manifest.ts`
 
 ```ts
-type FnMode = "read" | "write" | "delete";
+type FnMode = "write" | "read" | "delete";
 ```
 
 #### <a id="core-fnrouting"></a>`FnRouting`
@@ -16851,14 +17502,14 @@ type KindDescription = {
     retries?: number | undefined;
     cost?: number | undefined;
   } | undefined;
-  display?: "message" | "hidden" | "card" | undefined;
+  display?: "message" | "card" | "hidden" | undefined;
   approval?: {
     preview: boolean;
     remember: boolean;
     approver?: "person" | "admins" | undefined;
   } | undefined;
   effects?: {
-    mode?: "read" | "write" | "delete" | undefined;
+    mode?: "write" | "read" | "delete" | undefined;
     reads?: `${string}/${string}`[] | undefined;
     writes?: `${string}/${string}`[] | undefined;
     free?: boolean | undefined;
@@ -16986,7 +17637,7 @@ type Manifest = {
       undo: boolean;
       background: boolean;
     };
-    display: "message" | "hidden" | "card";
+    display: "message" | "card" | "hidden";
     limits: {
       timeout?: number | undefined;
       retries?: number | undefined;
@@ -17043,7 +17694,7 @@ type Manifest = {
       to: "any";
     } | undefined;
     effects?: {
-      mode?: "read" | "write" | "delete" | undefined;
+      mode?: "write" | "read" | "delete" | undefined;
       reads?: `${string}/${string}`[] | undefined;
       writes?: `${string}/${string}`[] | undefined;
       free?: boolean | undefined;
@@ -17056,6 +17707,9 @@ type Manifest = {
     promptExamples?: number | undefined;
     group?: string | undefined;
     flags?: boolean | undefined;
+    live?: {
+      every: number;
+    } | undefined;
   }[];
   context: {
     name: string;
@@ -17206,12 +17860,48 @@ type Manifest = {
         accepts: ("number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary")[];
         required: boolean;
         many: boolean;
+        min?: number | undefined;
+        role?: "group" | "measure" | undefined;
       }[];
       rows: {
         min: number;
         max?: number | undefined;
       };
       whole: boolean;
+      rules: ({
+        rule: "distinct";
+        channel: string;
+        max: number;
+      } | {
+        rule: "non-negative";
+        channel: string;
+      } | {
+        rule: "bounded";
+        channel: string;
+      } | {
+        rule: "distinct-columns";
+        channels: string[];
+      } | {
+        rule: "links";
+        from: string;
+        to: string;
+      })[];
+      styles: {
+        name: string;
+        label: string;
+        whole?: true | undefined;
+        needs?: string[] | undefined;
+      }[];
+      claims: {
+        claim: "range";
+        channel: string;
+      }[];
+      priority: {
+        band: "floor" | "structural" | "encoded" | "time-encoded";
+        terms: ("temporal-key" | "low-cardinality" | "enum-key" | "high-null" | "many-categories")[];
+      };
+      size?: "window" | "top-n" | "partition" | "aggregate" | undefined;
+      pageSize?: number | undefined;
     } | undefined;
   }[] | undefined;
   configSecrets?: string[] | undefined;
@@ -17353,7 +18043,7 @@ type ManifestPatch = {
         undo: boolean;
         background: boolean;
       };
-      display: "message" | "hidden" | "card";
+      display: "message" | "card" | "hidden";
       limits: {
         timeout?: number | undefined;
         retries?: number | undefined;
@@ -17410,7 +18100,7 @@ type ManifestPatch = {
         to: "any";
       } | undefined;
       effects?: {
-        mode?: "read" | "write" | "delete" | undefined;
+        mode?: "write" | "read" | "delete" | undefined;
         reads?: `${string}/${string}`[] | undefined;
         writes?: `${string}/${string}`[] | undefined;
         free?: boolean | undefined;
@@ -17423,6 +18113,9 @@ type ManifestPatch = {
       promptExamples?: number | undefined;
       group?: string | undefined;
       flags?: boolean | undefined;
+      live?: {
+        every: number;
+      } | undefined;
     }[] | undefined;
     context?: {
       name: string;
@@ -17547,12 +18240,48 @@ type ManifestPatch = {
           accepts: ("number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary")[];
           required: boolean;
           many: boolean;
+          min?: number | undefined;
+          role?: "group" | "measure" | undefined;
         }[];
         rows: {
           min: number;
           max?: number | undefined;
         };
         whole: boolean;
+        rules: ({
+          rule: "distinct";
+          channel: string;
+          max: number;
+        } | {
+          rule: "non-negative";
+          channel: string;
+        } | {
+          rule: "bounded";
+          channel: string;
+        } | {
+          rule: "distinct-columns";
+          channels: string[];
+        } | {
+          rule: "links";
+          from: string;
+          to: string;
+        })[];
+        styles: {
+          name: string;
+          label: string;
+          whole?: true | undefined;
+          needs?: string[] | undefined;
+        }[];
+        claims: {
+          claim: "range";
+          channel: string;
+        }[];
+        priority: {
+          band: "floor" | "structural" | "encoded" | "time-encoded";
+          terms: ("temporal-key" | "low-cardinality" | "enum-key" | "high-null" | "many-categories")[];
+        };
+        size?: "window" | "top-n" | "partition" | "aggregate" | undefined;
+        pageSize?: number | undefined;
       } | undefined;
     }[] | undefined;
   } | undefined;
@@ -18100,6 +18829,16 @@ const, type · declared in `packages/core/src/primitives.ts`
 type SessionId = IdOf<'session'>;
 ```
 
+#### <a id="core-systemname"></a>`SystemName`
+
+const, type · declared in `packages/core/src/primitives.ts`
+
+A system's name. Unique among the hub's systems; it namespaces everything the system contributes.
+
+```ts
+type SystemName = SystemName;
+```
+
 #### <a id="core-timestamp"></a>`Timestamp`
 
 const, type · declared in `packages/core/src/primitives.ts`
@@ -18390,12 +19129,115 @@ type ContributionDecl = {
       accepts: ("number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary")[];
       required: boolean;
       many: boolean;
+      min?: number | undefined;
+      role?: "group" | "measure" | undefined;
     }[];
     rows: {
       min: number;
       max?: number | undefined;
     };
     whole: boolean;
+    rules: ({
+      rule: "distinct";
+      channel: string;
+      max: number;
+    } | {
+      rule: "non-negative";
+      channel: string;
+    } | {
+      rule: "bounded";
+      channel: string;
+    } | {
+      rule: "distinct-columns";
+      channels: string[];
+    } | {
+      rule: "links";
+      from: string;
+      to: string;
+    })[];
+    styles: {
+      name: string;
+      label: string;
+      whole?: true | undefined;
+      needs?: string[] | undefined;
+    }[];
+    claims: {
+      claim: "range";
+      channel: string;
+    }[];
+    priority: {
+      band: "floor" | "structural" | "encoded" | "time-encoded";
+      terms: ("temporal-key" | "low-cardinality" | "enum-key" | "high-null" | "many-categories")[];
+    };
+    size?: "window" | "top-n" | "partition" | "aggregate" | undefined;
+    pageSize?: number | undefined;
+  } | undefined;
+};
+```
+
+#### <a id="core-contributionview"></a>`ContributionView`
+
+const, type · declared in `packages/core/src/registries.ts`
+
+A contribution as the web app lists it: with the system that adds it.
+
+```ts
+type ContributionView = {
+  registry: `${string}/${string}`;
+  name: string;
+  label: string;
+  system: SystemName;
+  description?: string | undefined;
+  icon?: string | undefined;
+  shape?: {
+    channels: {
+      name: string;
+      label: string;
+      accepts: ("number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary")[];
+      required: boolean;
+      many: boolean;
+      min?: number | undefined;
+      role?: "group" | "measure" | undefined;
+    }[];
+    rows: {
+      min: number;
+      max?: number | undefined;
+    };
+    whole: boolean;
+    rules: ({
+      rule: "distinct";
+      channel: string;
+      max: number;
+    } | {
+      rule: "non-negative";
+      channel: string;
+    } | {
+      rule: "bounded";
+      channel: string;
+    } | {
+      rule: "distinct-columns";
+      channels: string[];
+    } | {
+      rule: "links";
+      from: string;
+      to: string;
+    })[];
+    styles: {
+      name: string;
+      label: string;
+      whole?: true | undefined;
+      needs?: string[] | undefined;
+    }[];
+    claims: {
+      claim: "range";
+      channel: string;
+    }[];
+    priority: {
+      band: "floor" | "structural" | "encoded" | "time-encoded";
+      terms: ("temporal-key" | "low-cardinality" | "enum-key" | "high-null" | "many-categories")[];
+    };
+    size?: "window" | "top-n" | "partition" | "aggregate" | undefined;
+    pageSize?: number | undefined;
   } | undefined;
 };
 ```
@@ -18414,6 +19256,9 @@ type ResultColumn = {
   label?: string | undefined;
   type?: TypeDef<any> | undefined;
   ref?: `${string}/${string}` | undefined;
+  role?: "group" | "measure" | "attribute" | undefined;
+  key?: boolean | undefined;
+  editable?: boolean | undefined;
 };
 ```
 
@@ -18446,6 +19291,9 @@ type ResultTable = {
     label?: string | undefined;
     type?: TypeDef<any> | undefined;
     ref?: `${string}/${string}` | undefined;
+    role?: "group" | "measure" | "attribute" | undefined;
+    key?: boolean | undefined;
+    editable?: boolean | undefined;
   }[];
   rows: z.core.util.JSONType[][];
   offset: number;
@@ -18456,6 +19304,13 @@ type ResultTable = {
   }[];
   limit?: number | undefined;
   total?: number | undefined;
+  write?: {
+    affected: number;
+  } | undefined;
+  records?: {
+    type: `${string}/${string}`;
+    id: string;
+  } | undefined;
 };
 ```
 
@@ -18463,8 +19318,10 @@ type ResultTable = {
 
 const, type · declared in `packages/core/src/registries.ts`
 
-One input of a visual (build 8): a named slot that columns bind to ("label", "value", "start"), the column kinds it
-takes, whether it must be bound, and whether it takes several columns (the series of a line chart).
+One input of a visual: a named slot columns bind to (`category`, `value`, `x`, `start`), named after the ECharts
+encode dimension where there is one; the column kinds it takes; whether it must be bound; whether it takes several
+columns (a line chart's series; at least `min` of them); and the role it wants (a category a `group` key, a value a
+`measure`). A column shown only in a tooltip is not bound and does not count towards coverage.
 
 ```ts
 type VisualChannel = {
@@ -18473,20 +19330,8 @@ type VisualChannel = {
   accepts: ("number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary")[];
   required: boolean;
   many: boolean;
-};
-```
-
-#### <a id="core-visualfit"></a>`VisualFit`
-
-const, type · declared in `packages/core/src/registries.ts`
-
-What a visual's match logic answers for some data: whether it can draw it at all, and how much of it it shows well,
-from 0 (shows it, poorly) to 1 (shows all of it as well as it can be shown). The table always fits with score 0.
-
-```ts
-type VisualFit = {
-  fits: boolean;
-  score: number;
+  min?: number | undefined;
+  role?: "group" | "measure" | undefined;
 };
 ```
 
@@ -18494,9 +19339,11 @@ type VisualFit = {
 
 const, type · declared in `packages/core/src/registries.ts`
 
-The data a visual draws (build 8): its channels, how many rows it shows well, and whether it only tells the truth
-about a whole result (a pie of one page lies, so `whole` visuals are refused for a partial table unless the widget
-pages it).
+The data a visual draws, declared (widget pass: product's extended, declarative shape), so the hub and agents judge a
+fit and rank visuals without client code (`rankVisuals` in `visuals.ts`): its channels, how many rows it draws,
+whether it only tells the truth about a whole result, the rules its data must meet, how it stays honest when the
+result is big, its styles, the args it can drive, its priority band and terms, and its page size if it pages. A
+client may still veto a fit; it never scores one.
 
 ```ts
 type VisualShape = {
@@ -18506,12 +19353,107 @@ type VisualShape = {
     accepts: ("number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary")[];
     required: boolean;
     many: boolean;
+    min?: number | undefined;
+    role?: "group" | "measure" | undefined;
   }[];
   rows: {
     min: number;
     max?: number | undefined;
   };
   whole: boolean;
+  rules: ({
+    rule: "distinct";
+    channel: string;
+    max: number;
+  } | {
+    rule: "non-negative";
+    channel: string;
+  } | {
+    rule: "bounded";
+    channel: string;
+  } | {
+    rule: "distinct-columns";
+    channels: string[];
+  } | {
+    rule: "links";
+    from: string;
+    to: string;
+  })[];
+  styles: {
+    name: string;
+    label: string;
+    whole?: true | undefined;
+    needs?: string[] | undefined;
+  }[];
+  claims: {
+    claim: "range";
+    channel: string;
+  }[];
+  priority: {
+    band: "floor" | "structural" | "encoded" | "time-encoded";
+    terms: ("temporal-key" | "low-cardinality" | "enum-key" | "high-null" | "many-categories")[];
+  };
+  size?: "window" | "top-n" | "partition" | "aggregate" | undefined;
+  pageSize?: number | undefined;
+};
+```
+
+#### <a id="core-visualshapeinput"></a>`VisualShapeInput`
+
+type · declared in `packages/core/src/registries.ts`
+
+A shape as an author writes it: the defaulted parts may be left out.
+
+```ts
+type VisualShapeInput = {
+  channels: {
+    name: string;
+    label: string;
+    accepts: ("number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary")[];
+    required: boolean;
+    many: boolean;
+    min?: number | undefined;
+    role?: "group" | "measure" | undefined;
+  }[];
+  rows: {
+    min: number;
+    max?: number | undefined;
+  };
+  whole: boolean;
+  rules?: ({
+    rule: "distinct";
+    channel: string;
+    max: number;
+  } | {
+    rule: "non-negative";
+    channel: string;
+  } | {
+    rule: "bounded";
+    channel: string;
+  } | {
+    rule: "distinct-columns";
+    channels: string[];
+  } | {
+    rule: "links";
+    from: string;
+    to: string;
+  })[] | undefined;
+  size?: "window" | "top-n" | "partition" | "aggregate" | undefined;
+  styles?: {
+    name: string;
+    label: string;
+    whole?: true | undefined;
+    needs?: string[] | undefined;
+  }[] | undefined;
+  claims?: {
+    claim: "range";
+    channel: string;
+  }[] | undefined;
+  priority?: {
+    band: "floor" | "structural" | "encoded" | "time-encoded";
+    terms: ("temporal-key" | "low-cardinality" | "enum-key" | "high-null" | "many-categories")[];
+  } | undefined;
+  pageSize?: number | undefined;
 };
 ```
 
@@ -18804,7 +19746,7 @@ How a run looks in the chat once it is done. `card`: its renderer stays, live. `
 a message. `hidden`: it disappears; the run is still in the tree.
 
 ```ts
-type Display = "message" | "hidden" | "card";
+type Display = "message" | "card" | "hidden";
 ```
 
 #### <a id="core-errorclass"></a>`ErrorClass`
@@ -19195,7 +20137,7 @@ type FlagsAnswer = {
     path: string;
     kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
     rule: string;
-    access: "read" | "write";
+    access: "write" | "read";
     action: "ask" | "refuse" | "allow";
     why: string;
     certain: boolean;
@@ -19214,7 +20156,7 @@ type SensitivityFlag = {
   path: string;
   kind: "key" | "token" | "gitignored" | "env" | "credential" | "secret-content";
   rule: string;
-  access: "read" | "write";
+  access: "write" | "read";
   action: "ask" | "refuse" | "allow";
   why: string;
   certain: boolean;
@@ -19234,8 +20176,8 @@ type SystemEvent = {
   type: "message";
   message: {
     session: string;
-    id: string;
     role: "user" | "note" | "assistant";
+    id: string;
     createdAt: number;
     author: string;
     replyAll: boolean;
@@ -19356,19 +20298,192 @@ type OutputVerdict = {
 };
 ```
 
+### From `packages/core/src/visuals.ts`
+
+#### <a id="core-columnfacts"></a>`ColumnFacts`
+
+const, type · declared in `packages/core/src/visuals.ts`
+
+What one column is, worked out over the rows held (`columnFacts`).
+
+```ts
+type ColumnFacts = {
+  name: string;
+  kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
+  role: "group" | "measure" | "attribute";
+  numeric: boolean;
+  temporal: boolean;
+  day: boolean;
+  categorical: boolean;
+  key: boolean;
+  opaque: boolean;
+  distinct: number;
+  nulls: number;
+  nonNegative: boolean;
+  min?: string | number | undefined;
+  max?: string | number | undefined;
+  bound?: {
+    min: number;
+    max: number;
+  } | undefined;
+  members?: string[] | undefined;
+};
+```
+
+#### <a id="core-resultfacts"></a>`ResultFacts`
+
+const, type · declared in `packages/core/src/visuals.ts`
+
+Every column's facts, how many rows are held, and whether they are the whole result (no page before or after).
+
+```ts
+type ResultFacts = {
+  columns: {
+    name: string;
+    kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
+    role: "group" | "measure" | "attribute";
+    numeric: boolean;
+    temporal: boolean;
+    day: boolean;
+    categorical: boolean;
+    key: boolean;
+    opaque: boolean;
+    distinct: number;
+    nulls: number;
+    nonNegative: boolean;
+    min?: string | number | undefined;
+    max?: string | number | undefined;
+    bound?: {
+      min: number;
+      max: number;
+    } | undefined;
+    members?: string[] | undefined;
+  }[];
+  rows: number;
+  whole: boolean;
+};
+```
+
+#### <a id="core-visualbinding"></a>`VisualBinding`
+
+const, type · declared in `packages/core/src/visuals.ts`
+
+Channel name → the columns bound to it, in order.
+
+```ts
+type VisualBinding = {
+  [x: string]: string[];
+};
+```
+
+#### <a id="core-visualrank"></a>`VisualRank`
+
+const, type · declared in `packages/core/src/visuals.ts`
+
+A visual that can draw a result: its default binding, its coverage and priority, the styles that fit, and why.
+
+```ts
+type VisualRank = {
+  visual: string;
+  coverage: number;
+  priority: number;
+  bind: Record<string, string[]>;
+  styles: string[];
+  because: string[];
+};
+```
+
 ### From `packages/core/src/widgets.ts`
 
-#### <a id="core-makewidgetargs"></a>`MakeWidgetArgs`
+#### <a id="core-argplan"></a>`ArgPlan`
 
 const, type · declared in `packages/core/src/widgets.ts`
 
-`hub/make_widget`: the source fn, what the person wants, and the widget to change (absent: a new one).
+How a widget shows one argument of its source: a chip in the control row (labelled, limited to choices, with a
+default), `pinned` to a value (it leaves the widget's args; no chip), or `hidden` (no chip; it takes its default, so
+only an argument with a default may be hidden). An argument with no plan is a chip with the source's own words.
 
 ```ts
-type MakeWidgetArgs = {
-  source: `${string}/${string}`;
-  request: string;
-  widget?: `${string}/${string}` | undefined;
+type ArgPlan = {
+  show: "control";
+  label?: string | undefined;
+  choices?: {
+    label: string;
+    value?: {
+      literal: z.core.util.JSONType;
+    } | {
+      relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+    } | undefined;
+  }[] | undefined;
+  custom?: boolean | undefined;
+  default?: {
+    literal: z.core.util.JSONType;
+  } | {
+    relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+  } | undefined;
+} | {
+  show: "pinned";
+  value: {
+    literal: z.core.util.JSONType;
+  } | {
+    relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+  };
+} | {
+  show: "hidden";
+};
+```
+
+#### <a id="core-argvalue"></a>`ArgValue`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+A value for a source argument: a plain value, or a relative date resolved when the widget runs.
+
+```ts
+type ArgValue = {
+  literal: z.core.util.JSONType;
+} | {
+  relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+};
+```
+
+#### <a id="core-readtableargs"></a>`ReadTableArgs`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+`hub/read_table`: run a read fn that returns a table, as a child run of the caller, as its person.
+
+```ts
+type ReadTableArgs = {
+  fn: `${string}/${string}`;
+  args: Record<string, z.core.util.JSONType>;
+};
+```
+
+#### <a id="core-relativedate"></a>`RelativeDate`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+```ts
+type RelativeDate = "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+```
+
+#### <a id="core-rowactionsquery"></a>`RowActionsQuery`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+The actions offered on rows of these types (hub `rowActions` and `hub/row_actions`), narrowed by a widget's list.
+
+```ts
+type RowActionsQuery = {
+  types: `${string}/${string}`[];
+  narrow?: {
+    fn: `${string}/${string}`;
+    bind: Record<string, string>;
+    label?: string | undefined;
+    confirm?: true | undefined;
+    then?: "status" | "open" | "refresh" | undefined;
+  }[] | undefined;
 };
 ```
 
@@ -19382,9 +20497,9 @@ One action a widget keeps, relabels or confirms: a method of the row's type, or 
 type WidgetAction = {
   fn: `${string}/${string}`;
   bind: Record<string, string>;
-  then: "none" | "refresh" | "show";
   label?: string | undefined;
   confirm?: true | undefined;
+  then?: "status" | "open" | "refresh" | undefined;
 };
 ```
 
@@ -19398,70 +20513,99 @@ An action as a row's menu offers it: derived from the fn, narrowed and labelled 
 type WidgetActionOption = {
   fn: `${string}/${string}`;
   label: string;
-  mode: "read" | "write" | "delete";
+  mode: "write" | "read" | "delete";
   confirm: boolean;
   bind: Record<string, string>;
-  then: "none" | "refresh" | "show";
+  then: "status" | "open" | "refresh";
   form?: TypeDef<any> | undefined;
 };
 ```
 
-#### <a id="core-widgetcheck"></a>`WidgetCheck`
+#### <a id="core-widgetdrill"></a>`WidgetDrill`
 
 const, type · declared in `packages/core/src/widgets.ts`
 
-`hub/widget_check`: a spec and a sample of its source's result; the answer lists every problem, empty when fine.
+What clicking a bar, slice, point or row runs: a read fn returning a table, its args from the clicked row's columns,
+opened as a new level with a breadcrumb. Without one, a click opens the row's action menu.
 
 ```ts
-type WidgetCheck = {
-  spec: {
-    title: string;
-    source: `${string}/${string}`;
-    visuals: {
-      visual: string;
-      bind: Record<string, string[]>;
-      label?: string | undefined;
-    }[];
-    controls: {
-      arg: string;
-      label?: string | undefined;
-      choices?: z.core.util.JSONType[] | undefined;
-      custom?: boolean | undefined;
-      pinned?: z.core.util.JSONType | undefined;
-      hidden?: boolean | undefined;
-    }[];
-    paging?: {
-      size: number;
-      offset?: string | undefined;
-      limit?: string | undefined;
+type WidgetDrill = {
+  fn: `${string}/${string}`;
+  label: string;
+  bind: Record<string, string>;
+};
+```
+
+#### <a id="core-widgetpager"></a>`WidgetPager`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+How the buffered pager asks for more: the paging args, the window the run applied (`limit`), and whether more may
+follow (a full window means there may be; a short one is the last). The pager pages locally through what it holds and
+runs the widget again (offset = rows held) only when a page needs rows it lacks.
+
+```ts
+type WidgetPager = {
+  offset: string;
+  limit: string;
+  window: number;
+  more: boolean;
+};
+```
+
+#### <a id="core-widgetpaging"></a>`WidgetPaging`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+The source's paging args, which the buffered pager drives instead of showing them as controls.
+
+```ts
+type WidgetPaging = {
+  offset: string;
+  limit: string;
+};
+```
+
+#### <a id="core-widgetrange"></a>`WidgetRange`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+The source's range args a visual's range claim drives (a calendar's month, a zoomed time axis).
+
+```ts
+type WidgetRange = {
+  from: string;
+  to: string;
+};
+```
+
+#### <a id="core-widgetshowncontrol"></a>`WidgetShownControl`
+
+const, type · declared in `packages/core/src/widgets.ts`
+
+A chip in the control row: the argument, its words and type, what it offers and what it is set to.
+
+```ts
+type WidgetShownControl = {
+  arg: string;
+  label: string;
+  type: TypeDef<any>;
+  optional: boolean;
+  custom: boolean;
+  relative: boolean;
+  choices?: {
+    label: string;
+    value?: {
+      literal: z.core.util.JSONType;
+    } | {
+      relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
     } | undefined;
-    actions?: {
-      fn: `${string}/${string}`;
-      bind: Record<string, string>;
-      then: "none" | "refresh" | "show";
-      label?: string | undefined;
-      confirm?: true | undefined;
-    }[] | undefined;
-  };
-  sample: {
-    columns: {
-      name: string;
-      kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
-      nullable: boolean;
-      label?: string | undefined;
-      type?: TypeDef<any> | undefined;
-      ref?: `${string}/${string}` | undefined;
-    }[];
-    rows: z.core.util.JSONType[][];
-    offset: number;
-    truncated: boolean;
-    sort: {
-      column: string;
-      dir: "asc" | "desc";
-    }[];
-    limit?: number | undefined;
-    total?: number | undefined;
-  };
+  }[] | undefined;
+  value?: {
+    literal: z.core.util.JSONType;
+  } | {
+    relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+  } | undefined;
 };
 ```
 
@@ -19469,7 +20613,7 @@ type WidgetCheck = {
 
 const, type · declared in `packages/core/src/widgets.ts`
 
-A saved widget: the payload of a `hub/widget` fn.
+A saved widget: the payload of a `widgets/widget` fn.
 
 ```ts
 type WidgetSpec = {
@@ -19477,29 +20621,66 @@ type WidgetSpec = {
   source: `${string}/${string}`;
   visuals: {
     visual: string;
+    style: string;
     bind: Record<string, string[]>;
     label?: string | undefined;
   }[];
-  controls: {
-    arg: string;
+  args: Record<string, {
+    show: "control";
     label?: string | undefined;
-    choices?: z.core.util.JSONType[] | undefined;
+    choices?: {
+      label: string;
+      value?: {
+        literal: z.core.util.JSONType;
+      } | {
+        relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+      } | undefined;
+    }[] | undefined;
     custom?: boolean | undefined;
-    pinned?: z.core.util.JSONType | undefined;
-    hidden?: boolean | undefined;
+    default?: {
+      literal: z.core.util.JSONType;
+    } | {
+      relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+    } | undefined;
+  } | {
+    show: "pinned";
+    value: {
+      literal: z.core.util.JSONType;
+    } | {
+      relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+    };
+  } | {
+    show: "hidden";
+  }>;
+  presets: {
+    label: string;
+    sets: Record<string, {
+      literal: z.core.util.JSONType;
+    } | {
+      relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
+    }>;
   }[];
+  range?: {
+    from: string;
+    to: string;
+  } | undefined;
   paging?: {
-    size: number;
-    offset?: string | undefined;
-    limit?: string | undefined;
+    offset: string;
+    limit: string;
   } | undefined;
   actions?: {
     fn: `${string}/${string}`;
     bind: Record<string, string>;
-    then: "none" | "refresh" | "show";
     label?: string | undefined;
     confirm?: true | undefined;
+    then?: "status" | "open" | "refresh" | undefined;
   }[] | undefined;
+  drill?: {
+    fn: `${string}/${string}`;
+    label: string;
+    bind: Record<string, string>;
+  } | undefined;
+  live?: true | undefined;
 };
 ```
 
@@ -19507,11 +20688,12 @@ type WidgetSpec = {
 
 const, type · declared in `packages/core/src/widgets.ts`
 
-One visual the widget offers, with which columns bind to each of its channels.
+One visual a widget offers: its name in `HUB_VISUALS`, the style shown, and the columns bound to each channel.
 
 ```ts
 type WidgetVisual = {
   visual: string;
+  style: string;
   bind: Record<string, string[]>;
   label?: string | undefined;
 };

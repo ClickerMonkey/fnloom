@@ -1,23 +1,27 @@
 /**
  * The Data pages' logic (build 8), apart from any component: a stored type's records page read from and written to the
- * URL (words to search, filters, a sort and where the page starts), the hub query it asks with, how a record's row is
- * found in the result table, and the words for a stored type's storage and a record's history.
+ * URL (words to search, filters, a sort and the visual picked), the hub query it asks with, the records as a widget's
+ * frame (the widget view pages through them, `hub/records_table` exports them), how a record's row is found in the
+ * result table, and the words for a stored type's storage and a record's history.
  */
 import {
-  Filter, OP_LABELS, QualifiedName, splitName, type DataSetView, type Json, type RecordStorage, type RecordTableQuery, type RecordVersion,
+  ExportQuery, Filter, OP_LABELS, QualifiedName, splitName, type DataSetView, type Json, type RecordStorage, type RecordTableQuery, type RecordVersion,
   type ResultTable, type Sort,
 } from '@harness/core';
 import { z } from 'zod';
+import type { VisualChoice } from '../../components/results/visuals.ts';
+import { tableFrame, type WidgetFrame } from '../../components/widgets/widget-source.ts';
 
 /** How many records a page of the grid asks for. */
 export const RECORDS_PAGE = 50;
 
-/** The Data page of one stored type's query: words, filters (JSON), sort (`field` or `-field`) and the first row. */
+/** The Data page of one stored type's query: words, filters (JSON), sort (`field` or `-field`) and the visual shown. */
 export const RecordsUrl = z.object({
   q: z.string(),
   where: z.string(),
   sort: z.string(),
-  at: z.string().regex(/^\d+$/),
+  /** The visual picked, `visual` or `visual.style` (`category.bar`). */
+  view: z.string(),
 }).partial();
 export type RecordsUrl = z.infer<typeof RecordsUrl>;
 
@@ -90,8 +94,8 @@ export function typedFilter(field: string, op: 'is' | 'contains' | 'gt' | 'lt', 
   return { field, op, value };
 }
 
-/** The hub query for a page of a stored type's records, from its URL. */
-export function recordTableQuery(type: QualifiedName, url: RecordsUrl, limit = RECORDS_PAGE): RecordTableQuery {
+/** The hub query for a window of a stored type's records, from its URL, starting at `offset`. */
+export function recordTableQuery(type: QualifiedName, url: RecordsUrl, offset = 0, limit = RECORDS_PAGE): RecordTableQuery {
   const sort = sortOf(url.sort);
   const filters = filtersOf(url.where);
   const search = url.q?.trim() ?? '';
@@ -99,7 +103,7 @@ export function recordTableQuery(type: QualifiedName, url: RecordsUrl, limit = R
     type,
     ...(search === '' ? {} : { search }),
     ...(filters.length === 0 && sort === undefined ? {} : { query: { ...(filters.length === 0 ? {} : { filters }), ...(sort === undefined ? {} : { sort: [sort] }) } }),
-    offset: Number(url.at ?? '0'),
+    offset,
     limit,
   };
 }
@@ -137,4 +141,36 @@ export function bySystem(sets: readonly DataSetView[]): { readonly system: strin
   const groups = new Map<string, DataSetView[]>();
   for (const set of sets) { groups.set(set.system, [...(groups.get(set.system) ?? []), set]); }
   return [...groups].map(([system, list]) => ({ system, sets: list }));
+}
+
+/** The visual a URL's `view` names (`category.bar`, or `table` for its first style); undefined when it names none. */
+export function choiceOf(param: string | undefined): VisualChoice | undefined {
+  if (param === undefined || param === '') { return undefined; }
+  const [visual = '', style] = param.split('.', 2);
+  return visual === '' ? undefined : { visual, ...(style === undefined || style === '' ? {} : { style }) };
+}
+
+/** A visual picked, as the URL's `view` writes it. */
+export function choiceParam(choice: VisualChoice): string {
+  return choice.style === undefined ? choice.visual : `${choice.visual}.${choice.style}`;
+}
+
+/** The fn a stored type's records are read and exported by. */
+export const RECORDS_TABLE_FN = QualifiedName.parse('hub/records_table');
+
+/** The args `hub/records_table` pages by. */
+export const RECORDS_PAGING = { offset: 'offset', limit: 'limit' } as const;
+
+/**
+ * A window of a stored type's records as the widget view draws it: every visual that fits, paged by offset (the view
+ * reads the next window only when a page needs it), and exported whole through `hub/records_table`.
+ */
+export function recordsFrame(table: ResultTable, query: RecordTableQuery, title: string): WidgetFrame {
+  const { type, search, query: list } = query;
+  const args = { type, ...(search === undefined ? {} : { search }), ...(list === undefined ? {} : { query: list }) };
+  return {
+    ...tableFrame(table, title),
+    paging: { ...RECORDS_PAGING, window: query.limit ?? RECORDS_PAGE, more: table.truncated },
+    export: ExportQuery.parse({ fn: RECORDS_TABLE_FN, args: JSON.stringify(args), ...RECORDS_PAGING, format: 'csv' }),
+  };
 }

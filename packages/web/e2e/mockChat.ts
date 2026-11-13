@@ -19,8 +19,9 @@ import {
 import type { z } from 'zod';
 import { summaryOf as summary } from '../src/chat/state/sessions.ts';
 import { selectionReport } from '../src/chat/test/fakes.ts';
-import { NOTE_TYPE, NOTES_WIDGET, SAMPLE_PAGED_WIDGET, SAMPLE_TABLE, SAMPLE_WIDGET } from '../src/data/test/samples.ts';
-import { BASH_CHANGES, FLAGGED_COMMAND, FLAGGED_PREVIEW } from './mockBuild8.ts';
+import { NOTE_TYPE, NOTES_WIDGET, SAMPLE_PAGED_WIDGET, SAMPLE_PROPOSAL, SAMPLE_TABLE, SAMPLE_WIDGET } from '../src/data/test/samples.ts';
+import { BASH_CHANGES, FLAGGED_COMMAND, FLAGGED_PREVIEW, widgetRunOutput } from './mockBuild8.ts';
+import { CHART_SAMPLES } from '../src/components/visuals/test/samples.ts';
 
 /** Send one event on a session's channel. */
 export type EmitSession = (session: SessionId, event: SessionEvent) => void;
@@ -328,7 +329,8 @@ export class MockChat {
   #settle(id: SessionId, run: RunId, status: 'done' | 'cancelled'): void {
     const current = this.runs.get(run);
     if (current !== undefined) {
-      this.runs.set(run, { ...current, status, endedAt: this.#now(), ...(status === 'done' ? { outcome: { status: 'done', result: '# Harness\n\nA web-based agent harness…' } } : {}) });
+      const result = widgetRunOutput(current.fn, current.args) ?? '# Harness\n\nA web-based agent harness…';
+      this.runs.set(run, { ...current, status, endedAt: this.#now(), ...(status === 'done' ? { outcome: { status: 'done', result } } : {}) });
     }
     this.#update(id, run, { type: 'status', status });
   }
@@ -474,7 +476,10 @@ export class MockChat {
     });
   }
 
-  /** Build 8: a saved widget run in a chat (bar chart and table, row actions) and a plain result table that can be saved as one. */
+  /**
+   * The widget pass: a saved widget run in a chat (bar chart and table, row actions), a plain result table that can be
+   * made into one, the widget with chips, presets, a pager and a drill, and a proposal with its preview and Save.
+   */
   #seedWidgets(now: number): void {
     const chat = this.create('Notes widget');
     this.sessions.set(chat.id, { ...chat, updatedAt: now - 30_000 });
@@ -484,13 +489,29 @@ export class MockChat {
     const table = this.#run(chat.id, turn, QualifiedName.parse('hub/records_table'), { type: NOTE_TYPE }, AGENT);
     this.runs.set(widget.id, { ...widget, status: 'done', startedAt: now - 190_000, endedAt: now - 189_000, outcome: { status: 'done', result: Json.parse(SAMPLE_WIDGET) } });
     this.runs.set(table.id, { ...table, status: 'done', startedAt: now - 188_000, endedAt: now - 187_500, outcome: { status: 'done', result: Json.parse(SAMPLE_TABLE) } });
-    // the same widget with controls and paging: its second page, Status set to open
-    const paged = this.#run(chat.id, turn, NOTES_WIDGET, { status: 'open', owner: 'Sam', offset: 3 }, AGENT);
+    // the same widget with chips, presets, its first window of two and a drill, Status set to open
+    const paged = this.#run(chat.id, turn, NOTES_WIDGET, { status: 'open' }, AGENT);
     this.runs.set(paged.id, { ...paged, status: 'done', startedAt: now - 187_000, endedAt: now - 186_500, outcome: { status: 'done', result: Json.parse(SAMPLE_PAGED_WIDGET) } });
+    const proposal = this.#run(chat.id, turn, QualifiedName.parse('widgets/make_widget'), { source: 'hub/records_table', request: 'a chart of my notes', show: true }, AGENT);
+    this.runs.set(proposal.id, { ...proposal, status: 'done', startedAt: now - 186_000, endedAt: now - 185_000, outcome: { status: 'done', result: Json.parse(SAMPLE_PROPOSAL) } });
     this.#add(chat.id, {
-      turn, author: AGENT, role: 'assistant', status: 'done', createdAt: now - 180_000, runs: [widget.id, table.id, paged.id],
+      turn, author: AGENT, role: 'assistant', status: 'done', createdAt: now - 180_000, runs: [widget.id, table.id, paged.id, proposal.id],
       parts: [{ type: 'text', text: 'Here are your open notes as a widget, and the raw records below.' }],
     });
+  }
+
+  /** The widget pass: one result per chart family (the browser check draws each family, every style, at each width and theme). */
+  #seedCharts(now: number): void {
+    const chat = this.create('Chart gallery');
+    this.sessions.set(chat.id, { ...chat, updatedAt: now - 10_000 });
+    const turn = mintId('turn');
+    this.#add(chat.id, { turn, author: this.#owner(), role: 'user', status: 'done', createdAt: now - 100_000, parts: [{ type: 'text', text: 'Show me every kind of chart.' }] });
+    const runs = Object.entries(CHART_SAMPLES).map(([family, table], i) => {
+      const run = this.#run(chat.id, turn, QualifiedName.parse('database/shop.sample'), { family }, AGENT);
+      this.runs.set(run.id, { ...run, status: 'done', startedAt: now - 90_000 + i, endedAt: now - 89_000 + i, outcome: { status: 'done', result: Json.parse(table) } });
+      return run.id;
+    });
+    this.#add(chat.id, { turn, author: AGENT, role: 'assistant', status: 'done', createdAt: now - 80_000, runs, parts: [{ type: 'text', text: `One result for each of the ${String(runs.length)} chart families.` }] });
   }
 
   /**
@@ -528,6 +549,7 @@ export class MockChat {
     this.#seedQueries(now);
     this.#seedInstall(now);
     this.#seedWidgets(now);
+    this.#seedCharts(now);
     this.#seedChanges(now);
     const turn = mintId('turn');
     const refused = this.#refused(router.id, turn, 'fs/read_file', RunId.parse('run_agent'));

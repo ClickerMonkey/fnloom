@@ -1,13 +1,13 @@
 /**
  * The Data pages' state (build 8): the stored types the person sees (by words and system, a page at a time), the saved
- * widgets (fns of the hub's widget kind, found by the hub's fn search), the actions widgets offer on rows, and one
+ * widgets (fns of the widgets system's kind, found by the hub's fn search), the actions rows offer, an export, and one
  * stored type's records page with the record opened from it: its value, saving it (with the version it changes, so two
  * people editing at once don't overwrite each other), removing it and its history. Every read is the hub's query with
  * a page; nothing here holds a whole set.
  */
 import {
-  WIDGET_KIND_V1, type DataRecord, type DataSetView, type FnSearchHit, type Json, type QualifiedName, type RecordId, type RecordTableQuery,
-  type RecordVersion, type ResultTable, type SystemName, type WidgetActionOptionV1,
+  WIDGET_KIND, type DataRecord, type DataSetView, type ExportQuery, type FnSearchHit, type Json, type QualifiedName, type RecordId, type RecordTableQuery,
+  type RecordUpdate, type RecordVersion, type ResultTable, type RowActionsQuery, type SystemName, type WidgetActionOption,
 } from '@harness/core';
 import { ref, shallowRef } from 'vue';
 import { Loaded, Paged, Task } from '../../state/loaded.ts';
@@ -25,7 +25,7 @@ export interface DataSetFilter {
   readonly system: SystemName | undefined;
 }
 
-type StoreApi = Pick<DataApi, 'dataSets' | 'widgetActions' | 'recordTable' | 'record' | 'saveRecord' | 'removeRecord' | 'recordVersions'>;
+type StoreApi = Pick<DataApi, 'dataSets' | 'rowActions' | 'exportCsv' | 'recordTable' | 'record' | 'saveRecord' | 'updateRecord' | 'removeRecord' | 'recordVersions'>;
 
 /** The Data pages. */
 export class DataStore {
@@ -50,7 +50,7 @@ export class DataStore {
     this.widgets = new Paged<FnSearchHit, string>({
       fetch: async (text, cursor, limit) => {
         const offset = cursor === undefined ? 0 : Number(cursor);
-        const page = await this.#fns.searchFns.call({ kinds: [WIDGET_KIND_V1], items: ['fn'], limit, offset, ...(text === '' ? {} : { text }) });
+        const page = await this.#fns.searchFns.call({ kinds: [WIDGET_KIND], items: ['fn'], limit, offset, ...(text === '' ? {} : { text }) });
         return { items: page.items, ...(page.next === undefined ? {} : { cursor: String(page.next) }) };
       },
       key: (hit) => hit.name,
@@ -59,9 +59,15 @@ export class DataStore {
     }, '');
   }
 
-  /** The actions rows of these types offer, narrowed by a widget when given. */
-  async widgetActions(types: readonly QualifiedName[], widget: QualifiedName | undefined): Promise<readonly WidgetActionOptionV1[]> {
-    return this.#api.widgetActions.call({ types: [...types], ...(widget === undefined ? {} : { widget }) });
+  /** The actions rows of these types offer, narrowed by a widget's list when given. */
+  async rowActions(query: RowActionsQuery): Promise<readonly WidgetActionOption[]> {
+    return this.#api.rowActions.call(query);
+  }
+
+  /** The bytes of a read fn's whole result as CSV, streamed by the hub as it runs it page by page. */
+  async exportCsv(query: ExportQuery): Promise<Blob> {
+    const stream = await this.#api.exportCsv.call(query);
+    return new Response(stream).blob();
   }
 
   /** A new records page (one stored type, with the record opened from it). */
@@ -126,6 +132,17 @@ export class RecordsStore {
     if (this.record.value.value?.id === outcome.value.id) { this.record.set(outcome.value); void this.#history(type, outcome.value.id, true); }
     await this.#refresh();
     return outcome.value;
+  }
+
+  /** A window of records, as the widget view pages through them (the page's own query is left as it was). */
+  async window(query: RecordTableQuery): Promise<ResultTable> {
+    return this.#api.recordTable.call(query);
+  }
+
+  /** Change some fields of a record in place (an inline edit); the record opened follows. Throws why it wasn't saved. */
+  async update(change: RecordUpdate): Promise<void> {
+    const saved = await this.#api.updateRecord.call(change);
+    if (this.record.value.value?.id === saved.id) { this.record.set(saved); void this.#history(saved.type, saved.id, true); }
   }
 
   /** Remove a record; its history stays. Whether it was removed. */

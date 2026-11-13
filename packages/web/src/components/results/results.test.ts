@@ -1,4 +1,4 @@
-import { QualifiedName, RunId, type ApprovalPreview, type ResultTable } from '@harness/core';
+import { BUILT_IN_VISUALS, columnFacts, QualifiedName, RunId, type ApprovalPreview, type ResultTable } from '@harness/core';
 import { flushPromises, mount } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
 import { defineComponent, h } from 'vue';
@@ -12,7 +12,7 @@ import { OWN_VISUALS } from './builtin.ts';
 import ResultGrid from './ResultGrid.vue';
 import ResultView from './ResultView.vue';
 import { cellText, gridWindow, nextSort, sortRows, toCsv, windowLabel } from './table.ts';
-import { barFit, fittingVisuals, valueFit, type Visual } from './visuals.ts';
+import { rankedVisuals, type Visual } from './visuals.ts';
 
 function table(overrides: Partial<ResultTable> = {}): ResultTable {
   return {
@@ -46,39 +46,51 @@ describe('result table logic', () => {
   });
 });
 
-describe('visual matching', () => {
-  it('fits a bar chart to a label and a number, a value to one cell, the table always and last', () => {
-    expect(barFit(table({ rows: [['Oslo', 12], ['Lima', 3]] }))).toEqual({ fits: true, score: 0.8 });
-    expect(barFit(table()).fits).toBe(false);
-    expect(valueFit(table({ columns: [{ name: 'n', kind: 'integer', nullable: false }], rows: [[4]] })).score).toBe(0.9);
-    const names = fittingVisuals(OWN_VISUALS, [], table({ rows: [['Oslo', 12], ['Lima', 3]] })).map((f) => f.visual.name);
-    expect(names).toEqual(['bar', 'table']);
+describe('visual ranking', () => {
+  it('ranks product’s way: a chart that covers as much as the table wins on priority, and non-fits are hidden', () => {
+    const bars = table({ rows: [['Oslo', 12], ['Lima', 3]] });
+    const names = rankedVisuals(OWN_VISUALS, [], bars, columnFacts(bars)).map((v) => v.visual.name);
+    expect(names.slice(0, 2)).toEqual(['part', 'category']);
+    expect(names).toContain('table');
+    expect(names).not.toContain('calendar');
   });
 
-  it('lets a contribution replace the app’s own and drops one whose match throws', () => {
+  it('lets a contribution replace the app’s own and drops one whose veto refuses or throws', () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const component = defineComponent({ setup: () => () => h('p', 'map') });
-    const map: Visual = { name: 'map', label: 'Map', icon: 'globe', system: 'geo', match: () => ({ fits: true, score: 0.95 }), component };
-    const broken: Visual = { ...map, name: 'broken', match: () => { throw new Error('no'); } };
-    expect(fittingVisuals(OWN_VISUALS, [map, broken], table()).map((f) => f.visual.name)).toEqual(['map', 'table']);
+    const base = OWN_VISUALS.find((v) => v.name === 'category');
+    if (base === undefined) { throw new Error('no category'); }
+    const mine: Visual = { ...base, label: 'My bars', system: 'geo', component };
+    const vetoed: Visual = { ...base, name: 'waffle', veto: () => 'no' };
+    const broken: Visual = { ...base, name: 'broken', veto: () => { throw new Error('no'); } };
+    const ranked = rankedVisuals(OWN_VISUALS, [mine, vetoed, broken], table(), columnFacts(table()));
+    expect(ranked.find((v) => v.visual.name === 'category')?.visual.label).toBe('My bars');
+    expect(ranked.map((v) => v.visual.name)).not.toContain('waffle');
+    expect(ranked.map((v) => v.visual.name)).not.toContain('broken');
   });
 });
 
 describe('ResultView', () => {
-  it('shows the best fit, switches visuals, and hides the switch when only the table fits', async () => {
+  it('draws the best, switches family and style, and hides the switch when only the table fits', async () => {
     const bars = table({ rows: [['Oslo', 12], ['Lima', 3]] });
-    const view = mount(ResultView, { props: { table: bars, title: 'Orders', visuals: fittingVisuals(OWN_VISUALS, [], bars) } });
+    const facts = columnFacts(bars);
+    const view = mount(ResultView, { props: { table: bars, title: 'Orders', visuals: rankedVisuals(OWN_VISUALS, [], bars, facts), facts } });
     await vi.dynamicImportSettled();
     await flushPromises();
-    expect(view.get('[data-testid=result-view]').attributes('data-visual')).toBe('bar');
-    expect(view.text()).toContain('orders by city');
+    expect(view.get('[data-testid=result-view]').attributes('data-visual')).toBe('part');
+    expect(view.get('[data-testid=result-view]').attributes('data-style')).toBe('pie');
     await view.findAll('[data-testid=result-visuals] [role=radio]')[1]?.trigger('click');
-    expect(view.emitted('update:choice')?.[0]).toEqual(['table']);
-    await view.setProps({ choice: 'table' });
+    expect(view.emitted('update:choice')?.[0]).toEqual([{ visual: 'category' }]);
+    await view.setProps({ choice: { visual: 'category', style: 'line' } });
+    expect(view.get('[data-testid=result-view]').attributes('data-style')).toBe('line');
+    await view.setProps({ choice: { visual: 'table' } });
     await vi.dynamicImportSettled();
     await flushPromises();
     expect(view.find('[data-testid=result-grid]').exists()).toBe(true);
-    await view.setProps({ table: table(), visuals: fittingVisuals(OWN_VISUALS, [], table()) });
+    await view.get('[data-testid=result-full]').trigger('click');
+    expect(view.get('[data-testid=result-view]').classes()).toContain('full');
+    const words = table({ columns: [{ name: 'note', kind: 'text', nullable: false }], rows: [['a'], ['b'], ['c'], ['d'], ['e']] });
+    await view.setProps({ table: words, facts: columnFacts(words), visuals: rankedVisuals(OWN_VISUALS, [], words, columnFacts(words)) });
     expect(view.find('[data-testid=result-visuals]').exists()).toBe(false);
   });
 
@@ -156,19 +168,21 @@ describe('approval cards', () => {
     await Promise.all([host.prepare(registry), host.prepare(registry)]);
     expect(api.contributions.calls).toHaveLength(1);
     const drawn = defineComponent({ props: { table: { type: Object, required: true }, system: { type: Object, required: true } }, setup: () => () => h('i') });
-    const client: VisualOption['props']['system'] = { online: true, send: {}, run: {} };
+    const client: VisualOption['client'] = { online: true, send: {}, run: {} };
+    const shape = BUILT_IN_VISUALS.category.shape;
     const withContributions = new VisualHost({
       api, prepare,
       renderers: { contributedVisuals: () => [
-        { system: 'database', name: 'bar', label: 'Bars', icon: 'chart', fit: { fits: true, score: 0.7 }, component: drawn, props: { table: table(), system: client } },
-        { system: 'charts', name: 'pie', label: 'Pie chart', icon: 'not-an-icon', fit: { fits: true, score: 0.6 }, component: drawn, props: { table: table(), system: client } },
+        { system: 'charts', name: 'waffle', label: 'Waffle', icon: 'grid', shape, component: drawn, client },
+        { system: 'charts', name: 'dots', label: 'Dots', icon: 'not-an-icon', shape, component: drawn, client },
       ] },
     });
-    const shown = withContributions.visuals(registry, table());
-    expect(shown.map((v) => [v.visual.name, v.visual.system, v.visual.label, v.visual.icon])).toEqual([['bar', 'database', 'Bars', 'chart'], ['pie', 'charts', 'Pie chart', 'layers'], ['table', undefined, 'Table', 'table']]);
-    expect(shown[0]?.visual.props).toEqual({ table: table(), system: client });
-    host.choose('m1-0', 'table');
-    expect(host.choice('m1-0')).toBe('table');
+    const shown = withContributions.visuals(registry, table(), columnFacts(table()));
+    const waffle = shown.find((v) => v.visual.name === 'waffle');
+    expect([waffle?.visual.system, waffle?.visual.label, waffle?.visual.icon, waffle?.visual.props]).toEqual(['charts', 'Waffle', 'grid', { system: client }]);
+    expect(shown.find((v) => v.visual.name === 'dots')?.visual.icon).toBe('layers');
+    host.choose('m1-0', { visual: 'table' });
+    expect(host.choice('m1-0')).toEqual({ visual: 'table' });
     await vi.dynamicImportSettled();
     await flushPromises();
   });

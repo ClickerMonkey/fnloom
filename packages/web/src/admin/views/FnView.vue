@@ -4,12 +4,13 @@
  * its signature, facts and examples), its metrics over a period
  * in the URL (`?days=7|30|90`) as a strip (runs, retried input apart from failures, typical and p95 time, waiting,
  * cost, tokens), its runs and its typical time per day, and its latest runs (each opens in the runs browser, with a
- * link to all of them), and for a fn of a kind (a database's saved query) what it runs. Live: a settled run updates it.
+ * link to all of them), and for a fn of a kind (a database's saved query) what it runs. A saved widget shows its latest
+ * run drawn as the widget, with Open in chat to run it there with its chips, pager and actions. Live: a settled run updates it.
  * A fn routed to one fleet instance leads back to that instance.
  */
 import AccessControl from '../../components/access/AccessControl.vue';
 import ItemHistory from '../../components/versions/ItemHistory.vue';
-import { QualifiedName } from '@harness/core';
+import { QualifiedName, WIDGET_KIND } from '@harness/core';
 import { computed, onBeforeUnmount, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { z } from 'zod';
@@ -21,6 +22,9 @@ import { fnLabel } from '../../chat/logic/labels.ts';
 import { useStores } from '../../state/stores.ts';
 import FnOverview from '../../fns/components/FnOverview.vue';
 import FnRuns from '../../fns/components/FnRuns.vue';
+import { frameOf } from '../../components/widgets/widget-source.ts';
+import WidgetView from '../../components/widgets/WidgetView.vue';
+import { useWidgetOpener } from '../../data/state/open-widget.ts';
 import { UiBadge, UiButton, UiCard, UiCodeBlock, UiEmpty, UiIcon, UiSegmented, type SegmentOption } from '../../ui/index.ts';
 import { useNow } from '../../ui/now.ts';
 import DayBars from '../components/DayBars.vue';
@@ -61,6 +65,14 @@ const PayloadForm = z.enum(['readable', 'stored']);
 const form = query.choice('form', PayloadForm, 'readable');
 const FORMS = computed<readonly SegmentOption<z.infer<typeof PayloadForm>>[]>(() => [{ value: 'readable', label: readable.value?.language.toUpperCase() ?? 'Readable' }, { value: 'stored', label: 'Stored form' }]);
 const shownPayload = computed(() => (readable.value !== undefined && form.value === 'readable' ? { code: readable.value.code, language: readable.value.language } : { code: payload.value, language: 'json' }));
+/** A saved widget: its latest finished run drawn as the widget (the runs are newest first). */
+const isWidget = computed(() => record.value?.decl.kind === WIDGET_KIND);
+const shownRun = computed(() => (isWidget.value ? recent.value.find((run) => run.outcome?.status === 'done') : undefined));
+const widgetFrame = computed(() => {
+  const run = shownRun.value;
+  return run?.outcome?.status === 'done' && name.value !== undefined ? frameOf(run.outcome.result, fnLabel(name.value)) : undefined;
+});
+const { opening, open: openWidget } = useWidgetOpener();
 const timeBars = computed(() => dayBars(store.daily.value.value ?? [], 'time', dayWindow.value));
 
 watch([name, period], ([fn, d]) => { if (fn !== undefined) { void store.open(fn, d); } }, { immediate: true });
@@ -77,6 +89,13 @@ onBeforeUnmount(() => { store.close(); fns.close(); });
     </template>
     <LoadState :loading="store.record.loading.value" :problem="store.record.problem.value" :ready="record !== undefined" :empty="false" :lines="6" @retry="name && store.open(name, period)">
       <template v-if="record && name">
+        <UiCard v-if="isWidget" title="The widget" data-testid="fn-widget">
+          <template #actions>
+            <UiButton size="sm" icon="play" :loading="opening === name" data-testid="fn-widget-open" @click="openWidget(name)">Open in chat</UiButton>
+          </template>
+          <WidgetView v-if="widgetFrame && shownRun" :key="shownRun.id" :frame="widgetFrame" :args="shownRun.args" :view-key="`fn:${shownRun.id}`" :show-title="false" />
+          <UiEmpty v-else icon="grid" title="Not run yet" body="Open it in a chat to run it; its latest run shows here." />
+        </UiCard>
         <FnOverview
           :name="name" :about="fns.about.value.value" :facts="fns.facts.value.value" :loading="fns.facts.loading.value" :problem="fns.facts.problem.value" :describe="false"
           :examples="fns.examples.value" :examples-total="fns.examplesTotal.value" :more-examples="fns.examplesNext.value !== undefined" :examples-loading="fns.examplesLoading.value"

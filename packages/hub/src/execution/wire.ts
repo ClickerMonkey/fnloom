@@ -4,7 +4,7 @@
  * text of a tool reply, token totals, and the lenient mapping it saves transcripts and interactions with.
  */
 import type { Message, Request } from '@aeye/core';
-import { ChangeSet, type Json, type LlmMessage, type LlmRequest, type LlmUsage, type QualifiedName } from '@harness/core';
+import { ChangeSet, ResultTable, tableModelView, WidgetResult, type Json, type LlmMessage, type TableModelView, type LlmRequest, type LlmUsage, type QualifiedName } from '@harness/core';
 import { LlmWire } from '@harness/sdk/server';
 
 export {
@@ -38,14 +38,28 @@ export function requestToWire(request: Request): LlmRequest {
 /**
  * The text of a tool reply the model reads: strings as they are, anything else as JSON (as aeye writes them). A
  * command's change set (`changes`, `core/changes.ts`, from fs `bash`) is listed file by file without its diffs: the
- * run keeps it whole for the run view's diff tabs, and the model reads a file when it needs the content.
+ * run keeps it whole for the run view's diff tabs, and the model reads a file when it needs the content. A table
+ * result (a widget run, a fn returning a `ResultTable`) is drawn for the person, so the model reads its summary and the
+ * first `tableRows` rows (`tableModelView`).
  */
-export function replyText(value: Json): string {
+export function replyText(value: Json, tableRows: number): string {
   if (typeof value === 'string') return value;
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return JSON.stringify(value);
+  const table = tableReply(value, tableRows);
+  if (table !== undefined) return JSON.stringify(table);
   const { changes, ...rest } = value;
   const set = ChangeSet.safeParse(changes);
   return set.success ? `${JSON.stringify(rest)}\n${changeSummary(set.data)}` : JSON.stringify(value);
+}
+
+/** A widget's or a table's result as the model reads it, or undefined for anything else. */
+function tableReply(value: Json, rows: number): TableModelView | undefined {
+  const widget = WidgetResult.safeParse(value);
+  if (widget.success) return tableModelView(widget.data.summary, widget.data.table, rows);
+  const table = ResultTable.safeParse(value);
+  if (!table.success) return undefined;
+  const count = table.data.rows.length === 1 ? '1 row' : `${String(table.data.rows.length)} rows`;
+  return tableModelView(`A table of ${count}${table.data.truncated ? ' (more held back)' : ''}, shown to the person`, table.data, rows);
 }
 
 /** A change set in a few lines: each file, how it changed and by how many lines, and what was left out. */

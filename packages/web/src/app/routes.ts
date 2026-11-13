@@ -98,6 +98,8 @@ const CHAT_QUERY = z.object({
   debug: z.literal('1'),
   run: RunId, llm: LlmInteractionId, details: TurnId, resource: ResourceUri, panel: ChatPanel,
   [TAB_KEYS.run]: RunTab, [TAB_KEYS.llm]: LlmCallTab,
+  /** A widget's drill levels (`WidgetLevels` as JSON: whose, and each step's fn, crumb and args). */
+  level: z.string(),
 }).partial();
 
 /** Each page's query keys and the values they take; a page without an entry takes no query. */

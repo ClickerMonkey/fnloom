@@ -51,6 +51,21 @@ describe('a SQLite database instance', () => {
     expect(instance.catalog.describe()).toContain('orders');
   });
 
+  it('says what each output column is for: the primary key in a plain select, group keys and measures in a grouped one', async () => {
+    const { instance } = shopInstance();
+    open.push(instance);
+    await instance.rescan(undefined);
+    const plain = compiled(instance, ORDERS_BY_STATUS);
+    expect(plain.columns.map((column) => [column.name, column.key ?? false, column.role])).toEqual([['id', true, undefined], ['total', false, undefined], ['customer', false, undefined]]);
+    const grouped = compiled(instance, {
+      kind: 'select',
+      fields: [{ expr: { kind: 'field-ref', source: 'orders', field: 'status' }, as: 'status' }, { expr: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'field-ref', source: 'orders', field: 'total' } } }, as: 'sales' }],
+      from: { kind: 'type', type: 'orders' },
+      groupBy: [{ kind: 'field-ref', source: 'orders', field: 'status' }],
+    });
+    expect(grouped.columns.map((column) => [column.name, column.role, column.key])).toEqual([['status', 'group', undefined], ['sales', 'measure', undefined]]);
+  });
+
   it('compiles a query into args, a signature and SQL, and reads a page with its total', async () => {
     const { instance } = shopInstance();
     open.push(instance);

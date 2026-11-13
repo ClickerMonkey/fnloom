@@ -41,12 +41,115 @@ type ContributionDecl = {
       accepts: ("number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary")[];
       required: boolean;
       many: boolean;
+      min?: number | undefined;
+      role?: "group" | "measure" | undefined;
     }[];
     rows: {
       min: number;
       max?: number | undefined;
     };
     whole: boolean;
+    rules: ({
+      rule: "distinct";
+      channel: string;
+      max: number;
+    } | {
+      rule: "non-negative";
+      channel: string;
+    } | {
+      rule: "bounded";
+      channel: string;
+    } | {
+      rule: "distinct-columns";
+      channels: string[];
+    } | {
+      rule: "links";
+      from: string;
+      to: string;
+    })[];
+    styles: {
+      name: string;
+      label: string;
+      whole?: true | undefined;
+      needs?: string[] | undefined;
+    }[];
+    claims: {
+      claim: "range";
+      channel: string;
+    }[];
+    priority: {
+      band: "floor" | "structural" | "encoded" | "time-encoded";
+      terms: ("temporal-key" | "low-cardinality" | "enum-key" | "high-null" | "many-categories")[];
+    };
+    size?: "window" | "top-n" | "partition" | "aggregate" | undefined;
+    pageSize?: number | undefined;
+  } | undefined;
+};
+```
+
+#### <a id="core-contributionview"></a>`ContributionView`
+
+const, type · declared in `packages/core/src/registries.ts`
+
+A contribution as the web app lists it: with the system that adds it.
+
+```ts
+type ContributionView = {
+  registry: `${string}/${string}`;
+  name: string;
+  label: string;
+  system: SystemName;
+  description?: string | undefined;
+  icon?: string | undefined;
+  shape?: {
+    channels: {
+      name: string;
+      label: string;
+      accepts: ("number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary")[];
+      required: boolean;
+      many: boolean;
+      min?: number | undefined;
+      role?: "group" | "measure" | undefined;
+    }[];
+    rows: {
+      min: number;
+      max?: number | undefined;
+    };
+    whole: boolean;
+    rules: ({
+      rule: "distinct";
+      channel: string;
+      max: number;
+    } | {
+      rule: "non-negative";
+      channel: string;
+    } | {
+      rule: "bounded";
+      channel: string;
+    } | {
+      rule: "distinct-columns";
+      channels: string[];
+    } | {
+      rule: "links";
+      from: string;
+      to: string;
+    })[];
+    styles: {
+      name: string;
+      label: string;
+      whole?: true | undefined;
+      needs?: string[] | undefined;
+    }[];
+    claims: {
+      claim: "range";
+      channel: string;
+    }[];
+    priority: {
+      band: "floor" | "structural" | "encoded" | "time-encoded";
+      terms: ("temporal-key" | "low-cardinality" | "enum-key" | "high-null" | "many-categories")[];
+    };
+    size?: "window" | "top-n" | "partition" | "aggregate" | undefined;
+    pageSize?: number | undefined;
   } | undefined;
 };
 ```
@@ -65,6 +168,9 @@ type ResultColumn = {
   label?: string | undefined;
   type?: TypeDef<any> | undefined;
   ref?: `${string}/${string}` | undefined;
+  role?: "group" | "measure" | "attribute" | undefined;
+  key?: boolean | undefined;
+  editable?: boolean | undefined;
 };
 ```
 
@@ -97,6 +203,9 @@ type ResultTable = {
     label?: string | undefined;
     type?: TypeDef<any> | undefined;
     ref?: `${string}/${string}` | undefined;
+    role?: "group" | "measure" | "attribute" | undefined;
+    key?: boolean | undefined;
+    editable?: boolean | undefined;
   }[];
   rows: z.core.util.JSONType[][];
   offset: number;
@@ -107,6 +216,13 @@ type ResultTable = {
   }[];
   limit?: number | undefined;
   total?: number | undefined;
+  write?: {
+    affected: number;
+  } | undefined;
+  records?: {
+    type: `${string}/${string}`;
+    id: string;
+  } | undefined;
 };
 ```
 
@@ -114,8 +230,10 @@ type ResultTable = {
 
 const, type · declared in `packages/core/src/registries.ts`
 
-One input of a visual (build 8): a named slot that columns bind to ("label", "value", "start"), the column kinds it
-takes, whether it must be bound, and whether it takes several columns (the series of a line chart).
+One input of a visual: a named slot columns bind to (`category`, `value`, `x`, `start`), named after the ECharts
+encode dimension where there is one; the column kinds it takes; whether it must be bound; whether it takes several
+columns (a line chart's series; at least `min` of them); and the role it wants (a category a `group` key, a value a
+`measure`). A column shown only in a tooltip is not bound and does not count towards coverage.
 
 ```ts
 type VisualChannel = {
@@ -124,20 +242,8 @@ type VisualChannel = {
   accepts: ("number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary")[];
   required: boolean;
   many: boolean;
-};
-```
-
-#### <a id="core-visualfit"></a>`VisualFit`
-
-const, type · declared in `packages/core/src/registries.ts`
-
-What a visual's match logic answers for some data: whether it can draw it at all, and how much of it it shows well,
-from 0 (shows it, poorly) to 1 (shows all of it as well as it can be shown). The table always fits with score 0.
-
-```ts
-type VisualFit = {
-  fits: boolean;
-  score: number;
+  min?: number | undefined;
+  role?: "group" | "measure" | undefined;
 };
 ```
 
@@ -145,9 +251,11 @@ type VisualFit = {
 
 const, type · declared in `packages/core/src/registries.ts`
 
-The data a visual draws (build 8): its channels, how many rows it shows well, and whether it only tells the truth
-about a whole result (a pie of one page lies, so `whole` visuals are refused for a partial table unless the widget
-pages it).
+The data a visual draws, declared (widget pass: product's extended, declarative shape), so the hub and agents judge a
+fit and rank visuals without client code (`rankVisuals` in `visuals.ts`): its channels, how many rows it draws,
+whether it only tells the truth about a whole result, the rules its data must meet, how it stays honest when the
+result is big, its styles, the args it can drive, its priority band and terms, and its page size if it pages. A
+client may still veto a fit; it never scores one.
 
 ```ts
 type VisualShape = {
@@ -157,11 +265,106 @@ type VisualShape = {
     accepts: ("number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary")[];
     required: boolean;
     many: boolean;
+    min?: number | undefined;
+    role?: "group" | "measure" | undefined;
   }[];
   rows: {
     min: number;
     max?: number | undefined;
   };
   whole: boolean;
+  rules: ({
+    rule: "distinct";
+    channel: string;
+    max: number;
+  } | {
+    rule: "non-negative";
+    channel: string;
+  } | {
+    rule: "bounded";
+    channel: string;
+  } | {
+    rule: "distinct-columns";
+    channels: string[];
+  } | {
+    rule: "links";
+    from: string;
+    to: string;
+  })[];
+  styles: {
+    name: string;
+    label: string;
+    whole?: true | undefined;
+    needs?: string[] | undefined;
+  }[];
+  claims: {
+    claim: "range";
+    channel: string;
+  }[];
+  priority: {
+    band: "floor" | "structural" | "encoded" | "time-encoded";
+    terms: ("temporal-key" | "low-cardinality" | "enum-key" | "high-null" | "many-categories")[];
+  };
+  size?: "window" | "top-n" | "partition" | "aggregate" | undefined;
+  pageSize?: number | undefined;
+};
+```
+
+#### <a id="core-visualshapeinput"></a>`VisualShapeInput`
+
+type · declared in `packages/core/src/registries.ts`
+
+A shape as an author writes it: the defaulted parts may be left out.
+
+```ts
+type VisualShapeInput = {
+  channels: {
+    name: string;
+    label: string;
+    accepts: ("number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary")[];
+    required: boolean;
+    many: boolean;
+    min?: number | undefined;
+    role?: "group" | "measure" | undefined;
+  }[];
+  rows: {
+    min: number;
+    max?: number | undefined;
+  };
+  whole: boolean;
+  rules?: ({
+    rule: "distinct";
+    channel: string;
+    max: number;
+  } | {
+    rule: "non-negative";
+    channel: string;
+  } | {
+    rule: "bounded";
+    channel: string;
+  } | {
+    rule: "distinct-columns";
+    channels: string[];
+  } | {
+    rule: "links";
+    from: string;
+    to: string;
+  })[] | undefined;
+  size?: "window" | "top-n" | "partition" | "aggregate" | undefined;
+  styles?: {
+    name: string;
+    label: string;
+    whole?: true | undefined;
+    needs?: string[] | undefined;
+  }[] | undefined;
+  claims?: {
+    claim: "range";
+    channel: string;
+  }[] | undefined;
+  priority?: {
+    band: "floor" | "structural" | "encoded" | "time-encoded";
+    terms: ("temporal-key" | "low-cardinality" | "enum-key" | "high-null" | "many-categories")[];
+  } | undefined;
+  pageSize?: number | undefined;
 };
 ```

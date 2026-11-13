@@ -38,8 +38,8 @@ describe('messages', () => {
   });
 
   it('writes tool replies as aeye does', () => {
-    expect(replyText('plain')).toBe('plain');
-    expect(replyText({ a: [1] })).toBe('{"a":[1]}');
+    expect(replyText('plain', 5)).toBe('plain');
+    expect(replyText({ a: [1] }, 5)).toBe('{"a":[1]}');
   });
 
   it('lists the changed files of a command for the model without their diffs, which the run keeps', () => {
@@ -53,7 +53,7 @@ describe('messages', () => {
         ],
       },
     };
-    const text = replyText(result);
+    const text = replyText(result, 5);
     expect(text).toBe([
       '{"exitCode":0,"stdout":"ok","stderr":""}',
       'Changed files (git):',
@@ -62,7 +62,7 @@ describe('messages', () => {
       '(2 ignored by git)',
     ].join('\n'));
     expect(text).not.toContain('@@');
-    expect(replyText({ changes: 'not a change set' })).toBe('{"changes":"not a change set"}');
+    expect(replyText({ changes: 'not a change set' }, 5)).toBe('{"changes":"not a change set"}');
   });
 });
 

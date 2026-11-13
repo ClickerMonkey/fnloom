@@ -1,0 +1,224 @@
+/**
+ * The widget pass's widget view: the logic (chip args with relative dates, the widget's own visuals, drill levels in
+ * the URL, the export query), the state (buffered pager, drill levels, form then confirm, derived then, live re-runs),
+ * and the components (chip row with presets and Apply, read-only rows, the proposal card with Save).
+ */
+import { flushPromises, mount } from '@vue/test-utils';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { columnFacts, Json, QualifiedName, ResultTable, WidgetResult, type RowActionsQuery, type WidgetActionOption } from '@harness/core';
+import { NOTE_TYPE, NOTE_WORDS, NOTES_WIDGET, SAMPLE_ACTIONS, SAMPLE_PAGED_WIDGET, SAMPLE_PROPOSAL, SAMPLE_TABLE, SAMPLE_WIDGET, SAMPLE_WORDS } from '../../data/test/samples.ts';
+import { OWN_VISUALS } from '../results/builtin.ts';
+import { rankedVisuals } from '../results/visuals.ts';
+import TableResult from './TableResult.vue';
+import { FnWidgetSource, resultFrame, tableFrame } from './widget-source.ts';
+import { WidgetState, type WidgetClock } from './widget-state.ts';
+import WidgetView from './WidgetView.vue';
+import { editInput, enteredValue } from './record-edits.ts';
+import { chipArgs, exportQuery, readLevels, rowTypes, SAVE_WIDGET_FN, WIDGET_HOST, widgetVisuals, type RunOutcome, type WidgetHost } from './widgets.ts';
+
+const CLOCK: WidgetClock = { now: () => new Date('2026-11-13T10:00:00Z'), zone: () => 'UTC' };
+
+/** A window of two notes from `offset`, as the paged widget returns it. */
+function windowAt(offset: number): Json {
+  const rows = SAMPLE_TABLE.rows.slice(offset, offset + 2);
+  return Json.parse({ ...SAMPLE_PAGED_WIDGET, table: { ...SAMPLE_TABLE, rows, offset, truncated: rows.length === 2 }, paging: { ...SAMPLE_PAGED_WIDGET.paging, more: rows.length === 2 } });
+}
+
+/** A widget host that answers reads like the paged widget and the drill, and records what it was asked. */
+function fakeHost(overrides: Partial<WidgetHost> = {}) {
+  const reads: { fn: string; args: Readonly<Record<string, Json>> }[] = [];
+  const runs: { fn: string; args: Json }[] = [];
+  let level = '';
+  const host: WidgetHost = {
+    actions: (_query: RowActionsQuery) => Promise.resolve(SAMPLE_ACTIONS),
+    read: (fn, args) => {
+      reads.push({ fn, args });
+      if (fn === NOTE_WORDS) { return Promise.resolve(Json.parse(SAMPLE_WORDS)); }
+      const offset = args['offset'];
+      return Promise.resolve(windowAt(typeof offset === 'number' ? offset : 0));
+    },
+    quiet: true,
+    run: (fn, args): Promise<RunOutcome> => { runs.push({ fn, args }); return Promise.resolve({ ok: true, output: 'done' }); },
+    exportCsv: () => Promise.resolve(),
+    levels: { get: () => level, set: (text) => { level = text; } },
+    ...overrides,
+  };
+  return { host, reads, runs, level: () => level };
+}
+
+function pagedState(host: WidgetHost): WidgetState {
+  return new WidgetState(host, { frame: resultFrame(SAMPLE_PAGED_WIDGET), args: { status: 'open' }, source: new FnWidgetSource(host, NOTES_WIDGET, 'Notes'), key: 'run_1' }, CLOCK);
+}
+
+beforeEach(() => { document.body.innerHTML = ''; });
+afterEach(() => { document.body.innerHTML = ''; vi.useRealTimers(); });
+
+describe('widget logic', () => {
+  it('runs chips with staged values, resolving relative dates, leaving out "Any" and a default kept relative', () => {
+    const controls = SAMPLE_PAGED_WIDGET.controls;
+    expect(chipArgs(controls, {}, CLOCK.now(), 'UTC')).toEqual({ status: 'open' });
+    expect(chipArgs(controls, { status: null, since: { relative: 'startOf(month)' }, owner: { literal: 'Sam' } }, CLOCK.now(), 'UTC')).toEqual({ since: '2026-11-01', owner: 'Sam' });
+  });
+
+  it("offers a widget's own visuals in its order with its labels and bindings, else every fitting one", () => {
+    const ranked = rankedVisuals(OWN_VISUALS, [], SAMPLE_TABLE, columnFacts(SAMPLE_TABLE));
+    const own = widgetVisuals(ranked, SAMPLE_WIDGET.visuals);
+    expect(own.map((v) => [v.visual.name, v.visual.label, v.rank.styles[0]])).toEqual([['category', 'Words per note', 'bar'], ['table', 'Table', 'table']]);
+    expect(own[0]?.rank.bind['x']).toEqual(['title']);
+    expect(widgetVisuals(ranked, [{ visual: 'gone', style: 'x', bind: {} }])).toHaveLength(ranked.length);
+  });
+
+  it('reads drill levels back, builds the export query and finds row types', () => {
+    expect(readLevels('{"of":"run_1","steps":[{"fn":"notes/note_words","label":"Words","args":{"note":"rec_note_1"}}]}')?.steps[0]?.fn).toBe(NOTE_WORDS);
+    expect(readLevels('not json')).toBeUndefined();
+    expect(exportQuery(SAMPLE_PAGED_WIDGET)).toEqual({ fn: 'hub/records_table', args: JSON.stringify({ type: NOTE_TYPE, status: 'open' }), offset: 'offset', limit: 'limit', format: 'csv' });
+    expect(exportQuery(SAMPLE_WIDGET)).toBeUndefined();
+    expect(rowTypes({ ...SAMPLE_TABLE, records: { type: QualifiedName.parse('tasks/Task'), id: 'id' } })).toEqual(['tasks/Task', NOTE_TYPE]);
+  });
+});
+
+describe("a widget's state", () => {
+  it('holds a buffer: reads the next window after the rows held, and says when there are no more', async () => {
+    const { host, reads } = fakeHost({ read: (_fn, args) => Promise.resolve(windowAt(args['offset'] === 2 ? 2 : 3)) });
+    const state = pagedState(host);
+    expect(state.table.value.rows).toHaveLength(2);
+    await state.more();
+    expect(state.table.value.rows).toHaveLength(3);
+    expect(state.level.value.more).toBe(false);
+    expect(await state.more()).toBe(false);
+    expect(reads).toEqual([]);
+    const ended = pagedState(fakeHost({ read: () => Promise.resolve(windowAt(3)) }).host);
+    await ended.more();
+    expect(ended.status.value).toBe('No more rows');
+  });
+
+  it('drills into a row as a new level kept in the URL, goes back, and restores the levels', async () => {
+    const fake = fakeHost();
+    const state = pagedState(fake.host);
+    await state.drill(0);
+    expect(fake.reads.at(-1)).toEqual({ fn: NOTE_WORDS, args: { note: 'rec_note_1' } });
+    expect(state.levels.value.map((l) => l.label)).toEqual(['Notes by status', 'Words: Plan the trip']);
+    expect(readLevels(fake.level())?.of).toBe('run_1');
+    state.back(0);
+    expect(state.levels.value).toHaveLength(1);
+    expect(fake.level()).toBe('');
+    fake.host.levels?.set(JSON.stringify({ of: 'run_1', steps: [{ fn: NOTE_WORDS, label: 'Words: Groceries', args: { note: 'rec_note_2' } }] }));
+    await state.restore();
+    expect(state.level.value.label).toBe('Words: Groceries');
+    expect(state.table.value.rows).toEqual(SAMPLE_WORDS.rows);
+  });
+
+  it('shows the form, then the confirm, runs the action and refreshes after a write', async () => {
+    const fake = fakeHost();
+    const state = pagedState(fake.host);
+    const rename = SAMPLE_ACTIONS.find((a) => a.label === 'Rename');
+    if (rename === undefined) { throw new Error('no sample'); }
+    state.openRow(1);
+    expect(state.offered.value.map((o) => o.label)).toEqual(['Archive', 'Rename']);
+    await state.choose(rename);
+    expect(state.step.value).toBe('form');
+    await state.submitForm({ title: 'Shopping' });
+    expect(state.step.value).toBe('confirm');
+    await state.runAction();
+    expect(fake.runs).toEqual([{ fn: 'notes/Note.rename', args: { title: 'Shopping', self: 'rec_note_2' } }]);
+    expect(fake.reads).toEqual([{ fn: NOTES_WIDGET, args: { status: 'open' } }]);
+    expect(state.row.value).toBeUndefined();
+  });
+
+  it('opens the rows an action returns as a level, and says when one returned nothing to show', async () => {
+    const opens: WidgetActionOption = { fn: QualifiedName.parse('notes/Note.words'), label: 'Words', mode: 'read', confirm: false, bind: { note: 'id' }, then: 'open' };
+    const fake = fakeHost({ run: () => Promise.resolve({ ok: true, output: Json.parse(SAMPLE_WORDS) }) });
+    const state = pagedState(fake.host);
+    state.openRow(0);
+    await state.choose(opens);
+    expect(state.level.value.label).toBe('Words: Plan the trip');
+    state.back(0);
+    const status = pagedState(fakeHost().host);
+    status.openRow(0);
+    await status.choose({ ...opens, then: 'status' });
+    expect(status.status.value).toBe('Words: done.');
+  });
+
+  it('re-runs a live widget in place while shown, only when the host reads quietly', async () => {
+    vi.useFakeTimers();
+    const live = Json.parse({ ...SAMPLE_PAGED_WIDGET, live: { every: 5000 } });
+    let reads = 0;
+    const fake = fakeHost({ read: () => { reads++; return Promise.resolve(live); } });
+    const parsed = WidgetResult.parse(live);
+    const state = new WidgetState(fake.host, { frame: resultFrame(parsed), args: {}, source: new FnWidgetSource(fake.host, NOTES_WIDGET, 'Notes'), key: 'k' }, CLOCK);
+    let shown = false;
+    state.startLive(() => shown);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(reads).toBe(0);
+    shown = true;
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(reads).toBe(1);
+    state.stopLive();
+    const loud = new WidgetState({ ...fake.host, quiet: false }, { frame: resultFrame(parsed), args: {}, source: undefined, key: 'k' }, CLOCK);
+    expect(loud.every.value).toBeUndefined();
+  });
+});
+
+describe('the widget view', () => {
+  it('stages chip values and applies them together; a preset runs at once', async () => {
+    const fake = fakeHost();
+    const wrapper = mount(WidgetView, { attachTo: document.body, props: { frame: resultFrame(SAMPLE_PAGED_WIDGET), fn: NOTES_WIDGET, args: { status: 'open' }, viewKey: 'run_1' }, global: { provide: { [WIDGET_HOST]: fake.host } } });
+    await flushPromises();
+    const chips = wrapper.findAll('[data-testid=widget-chip]');
+    expect(chips.map((c) => c.text())).toEqual(['StatusOpen', 'OwnerAny', 'Since7 days ago']);
+    await chips[0]?.trigger('click');
+    const done = [...document.querySelectorAll<HTMLButtonElement>('[data-testid=widget-chip-choice]')].find((b) => b.textContent.includes('Done'));
+    done?.click();
+    await flushPromises();
+    expect(wrapper.get('[data-testid=widget-chip][data-arg=status]').text()).toContain('Done');
+    expect(fake.reads).toHaveLength(0);
+    await wrapper.get('[data-testid=widget-apply]').trigger('click');
+    await flushPromises();
+    expect(fake.reads).toEqual([{ fn: NOTES_WIDGET, args: { status: 'done' } }]);
+    await wrapper.findAll('[data-testid=widget-preset]')[1]?.trigger('click');
+    await flushPromises();
+    expect(fake.reads).toHaveLength(2);
+    wrapper.unmount();
+  });
+
+  it('draws rows from a write read-only: no chips, and Run again asks first', async () => {
+    const fake = fakeHost();
+    const written = ResultTable.parse({ ...SAMPLE_TABLE, write: { affected: 3 } });
+    const wrapper = mount(WidgetView, { attachTo: document.body, props: { frame: tableFrame(written, 'Updated'), fn: QualifiedName.parse('db/update_notes'), args: {} }, global: { provide: { [WIDGET_HOST]: fake.host } } });
+    await flushPromises();
+    expect(wrapper.find('[data-testid=widget-chips]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid=widget-refresh]').exists()).toBe(false);
+    await wrapper.get('[data-testid=widget-run-again]').trigger('click');
+    expect(fake.runs).toEqual([]);
+    document.querySelector<HTMLButtonElement>('[data-testid=confirm]')?.click();
+    await flushPromises();
+    expect(fake.runs).toEqual([{ fn: 'db/update_notes', args: {} }]);
+    wrapper.unmount();
+  });
+
+  it('draws a proposal with its preview and saves it as the person, then links to it', async () => {
+    const fake = fakeHost();
+    const wrapper = mount(TableResult, { attachTo: document.body, props: { value: Json.parse(SAMPLE_PROPOSAL), fn: QualifiedName.parse('widgets/make_widget'), title: 'Make widget' }, global: { provide: { [WIDGET_HOST]: fake.host }, stubs: { RouterLink: { template: '<a><slot /></a>' } } } });
+    await flushPromises();
+    expect(wrapper.find('[data-testid=widget-view]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid=widget-refresh]').exists()).toBe(false);
+    await wrapper.get('[data-testid=widget-proposal-save]').trigger('click');
+    await flushPromises();
+    expect(fake.runs).toEqual([{ fn: SAVE_WIDGET_FN, args: Json.parse({ name: 'open_notes', description: SAMPLE_PROPOSAL.description, spec: SAMPLE_PROPOSAL.spec }) }]);
+    expect(wrapper.get('[data-testid=widget-proposal-saved]').text()).toBe('Saved as widgets/open_notes');
+    wrapper.unmount();
+  });
+});
+
+describe('inline edits', () => {
+  it('reads what is typed as the column stores it, and leaves out what does not fit', () => {
+    expect(enteredValue({ kind: 'integer', nullable: false }, '7')).toBe(7);
+    expect(enteredValue({ kind: 'integer', nullable: false }, '7.5')).toBeUndefined();
+    expect(enteredValue({ kind: 'number', nullable: true }, '')).toBeNull();
+    expect(enteredValue({ kind: 'text', nullable: false }, '')).toBe('');
+    expect(enteredValue({ kind: 'boolean', nullable: false }, true)).toBe(true);
+    expect(editInput({ kind: 'json', editable: true })).toBeUndefined();
+    expect(editInput({ kind: 'date', editable: true })).toBe('date');
+    expect(editInput({ kind: 'text' })).toBeUndefined();
+  });
+});

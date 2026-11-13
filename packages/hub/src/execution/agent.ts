@@ -84,10 +84,10 @@ export function backgroundReply(run: RunId): string {
   return `Running in the background as run ${run}; its result will be posted when it finishes.`;
 }
 
-/** What the model reads for a settled tool run. */
-export function settledReply(settled: RunSettled): string {
+/** What the model reads for a settled tool run; a table result shows its first `tableRows` rows. */
+export function settledReply(settled: RunSettled, tableRows: number): string {
   switch (settled.status) {
-    case 'done': return replyText(settled.result);
+    case 'done': return replyText(settled.result, tableRows);
     case 'failed': return `Error: ${settled.error.message}`;
     case 'cancelled': return settled.error === undefined ? 'The run was cancelled before it finished.' : settled.error.message;
     case 'background': return backgroundReply(settled.run);
@@ -428,7 +428,7 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       return { failed };
     }
     await store.table('runs').update(run.id, { resume: Json.parse({ ...state, ...this.#saved(conversation) }) });
-    if (message !== undefined) await this.#deps.turns.finish(message, [{ type: 'text', text: replyText(result) }], 'done');
+    if (message !== undefined) await this.#deps.turns.finish(message, [{ type: 'text', text: replyText(result, this.#deps.settings.execution.HARNESS_TOOL_RESULT_ROWS) }], 'done');
     await this.#deps.runs.settle(run.id, { status: 'done', result });
     return 'done';
   }
@@ -551,7 +551,8 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     if (parent?.kind !== AGENT_KIND || parent.parent !== undefined) return;
     const session = await this.#deps.store.table('sessions').get(run.session);
     if (session?.agent !== parent.fn) return;
-    const content = proposed ? proposedResult(run, settled) : backgroundResult(run, settled);
+    const rows = this.#deps.settings.execution.HARNESS_TOOL_RESULT_ROWS;
+    const content = proposed ? proposedResult(run, settled, rows) : backgroundResult(run, settled, rows);
     await new SessionConversation(this.#deps, session.id).append([{ role: 'user', content }]);
     const turn = await this.#deps.turns.followUp({ turn: run.turn, agent: await this.#agentActor(parent) });
     this.#deps.log.info('agent.reported-back', { run: run.id, fn: run.fn, parent: parent.id, status: settled.status, followUp: turn ?? null });
@@ -674,7 +675,8 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       if (settled.status === 'failed') failed += 1;
       if (settled.status === 'failed' && settled.error.code === OUTPUT_REFUSED) stopped ??= settled.error;
       const exposed = outcome?.status === 'done' && outcome.expose !== undefined && prompt !== undefined ? await this.#deps.planner.exposed(outcome.expose, prompt) : '';
-      return reply(settled.status, exposed === '' ? settledReply(settled) : `${settledReply(settled)}\n\n${exposed}`);
+      const text = settledReply(settled, this.#deps.settings.execution.HARNESS_TOOL_RESULT_ROWS);
+      return reply(settled.status, exposed === '' ? text : `${text}\n\n${exposed}`);
     }));
     return { messages, allFailed: pending.length > 0 && failed === pending.length, ...(stopped === undefined ? {} : { stopped }) };
   }
@@ -715,8 +717,8 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
  * What a session's agent reads when a run it stopped waiting for settles: the fn, how it ended and what it gave,
  * tagged so the agent can tell it from what a person wrote, and asked to tell the person what came of it.
  */
-export function backgroundResult(run: Pick<Run, 'fn'>, settled: Exclude<RunSettled, { status: 'background' }>): string {
-  return `<background-result fn="${run.fn}" status="${settled.status}">\n${settledReply(settled)}\n</background-result>\n`
+export function backgroundResult(run: Pick<Run, 'fn'>, settled: Exclude<RunSettled, { status: 'background' }>, tableRows: number): string {
+  return `<background-result fn="${run.fn}" status="${settled.status}">\n${settledReply(settled, tableRows)}\n</background-result>\n`
     + 'A call you made earlier finished after you stopped waiting for it. Tell the person what came of it, briefly, in your own words.';
 }
 
@@ -725,13 +727,13 @@ export function backgroundResult(run: Pick<Run, 'fn'>, settled: Exclude<RunSettl
  * declined with who declined and why, or how else it ended, tagged so the agent can tell it from what a person wrote,
  * and asked to tell the person what came of it.
  */
-export function proposedResult(run: Pick<Run, 'fn'>, settled: Exclude<RunSettled, { status: 'background' }>): string {
+export function proposedResult(run: Pick<Run, 'fn'>, settled: Exclude<RunSettled, { status: 'background' }>, tableRows: number): string {
   const declined = settled.status === 'cancelled' && settled.error?.code === DECLINED_CODE;
   const outcome = declined ? 'declined' : settled.status === 'done' ? 'approved' : settled.status;
   const ask = declined
     ? 'The person declined a change you proposed earlier. Acknowledge it briefly and, if the reason suggests another way, offer it.'
     : 'A change you proposed earlier was answered. Tell the person what came of it, briefly, in your own words.';
-  return `<approval-result fn="${run.fn}" outcome="${outcome}">\n${settledReply(settled)}\n</approval-result>\n${ask}`;
+  return `<approval-result fn="${run.fn}" outcome="${outcome}">\n${settledReply(settled, tableRows)}\n</approval-result>\n${ask}`;
 }
 
 /** What an agent's message says when its run fails. */
