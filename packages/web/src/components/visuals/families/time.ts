@@ -21,6 +21,14 @@ export const TIME_LABELS = {
   year: '{yyyy}', month: '{MMM} {yyyy}', day: '{MMM} {d}', hour: '{HH}:{mm}', minute: '{HH}:{mm}', second: '{HH}:{mm}:{ss}', millisecond: '{HH}:{mm}:{ss}',
 } as const;
 
+/** One day in milliseconds: a day axis never ticks finer than this. */
+const DAY_MS = 86_400_000;
+
+/** A time axis (an x axis, or a stream's single axis): labels per level, and on a day axis no tick finer than a day. */
+export function timeAxis(day: boolean): { type: 'time'; minInterval?: number; axisLabel: { hideOverlap: true; formatter: typeof TIME_LABELS } } {
+  return { type: 'time', ...(day ? { minInterval: DAY_MS } : {}), axisLabel: { hideOverlap: true, formatter: TIME_LABELS } };
+}
+
 export const time: ChartBuilder = (input) => {
   const data = wide(input, 'x');
   const day = needed(input, 'x').facts?.day === true;
@@ -38,7 +46,7 @@ export const time: ChartBuilder = (input) => {
     return {
       option: {
         useUTC: day, tooltip: { ...tooltip('axis'), axisPointer: { type: 'line' } }, legend: legend(true),
-        singleAxis: { type: 'time', top: 16, bottom: 48, left: 16, right: 16, axisLabel: { hideOverlap: true, formatter: TIME_LABELS } },
+        singleAxis: { ...timeAxis(day), top: 16, bottom: 48, left: 16, right: 16 },
         series: [{ type: 'themeRiver', data: river, label: { show: false } }],
       },
       range, points,
@@ -59,7 +67,7 @@ export const time: ChartBuilder = (input) => {
   return {
     option: {
       useUTC: day, dataset: { dimensions: dims, source }, tooltip: { ...tooltip('axis'), axisPointer: { type: 'line' } }, legend: legend(many),
-      grid: plotGrid((many ? 28 : 0) + (input.phone ? 8 : 40)), xAxis: { type: 'time', axisLabel: { hideOverlap: true, formatter: TIME_LABELS } }, yAxis: { type: 'value' },
+      grid: plotGrid((many ? 28 : 0) + (input.phone ? 8 : 40)), xAxis: timeAxis(day), yAxis: { type: 'value' },
       dataZoom: zoom(input.phone, { xAxisIndex: [0] }), series,
     },
     rowOf: (click) => (click.dataIndex === undefined ? undefined : data.rowAt(order[click.dataIndex] ?? -1, click.seriesIndex ?? 0)),

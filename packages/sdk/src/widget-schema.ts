@@ -2,7 +2,8 @@
  * The strict schema `widgets/make_widget`'s agent proposes a widget against, built per call from the source and a real
  * result (product's strict schema): a broken widget can't be spelled. The visual is one of the ranked ones, each with
  * an enum of its fitting styles and, per channel, an enum of the columns that channel may bind; the arg plans have
- * exactly the source's args that the pager doesn't drive (range args only when no chosen visual draws the range), each value typed by the arg's gin type (an enum's
+ * exactly the source's args that the pager doesn't drive (a range arg a chosen visual draws takes a chip whose default
+ * is where the range opens), each value typed by the arg's gin type (an enum's
  * members, a number's range, relative dates only for date args); presets, actions and the drill name only what exists.
  * What a static schema can't say (a binding that breaks a visual's rule, a preset setting a pinned arg) the schema's
  * refinement catches with `checkWidget`, so the agent's tool call fails with the reason and the agent fixes it.
@@ -137,7 +138,7 @@ function choiceSchema(input: WidgetProposalSchemaInput): z.ZodType {
   return rest.length === 0 ? first : z.discriminatedUnion('visual', [first, ...rest]);
 }
 
-/** The args the pager drives (they get no plan) and the range args (a plan only when no chosen visual draws the range). */
+/** The args the pager drives (they get no plan) and the range args (a chip only, when a chosen visual draws the range). */
 function claimed(input: WidgetProposalSchemaInput): { readonly paging: Set<string>; readonly range: Set<string> } {
   const paging = pagingOf(input.args);
   const range = rangeOf(input.args);
@@ -191,8 +192,11 @@ export function widgetProposalSchema(input: WidgetProposalSchemaInput): WidgetPr
   const plans = z.strictObject(Object.fromEntries(open.map((arg) => {
     const plan = argPlanSchema(arg, input.scope);
     const about = `${arg.name}: ${arg.type.name}${arg.required ? ', required' : ''}`;
-    // a visual that draws a range (time, calendar, timeline, finance) drives these, so they take a plan only without one
-    return [arg.name, taken.range.has(arg.name) ? plan.optional().describe(`${about}; a range arg: leave it out when a chosen visual draws a range`) : plan.describe(about)];
+    // a visual that draws a range (time, calendar, timeline, finance) drives these from the range they open on, which
+    // is their chip's default; a saved widget runs with no args, so a required one needs it
+    if (!taken.range.has(arg.name)) { return [arg.name, plan.describe(about)]; }
+    const ranged = `${about}; a range arg: when a chosen visual draws a range, give it a chip (never pinned or hidden) whose default is where the range opens (a relative date such as startOf(year) and today)${arg.required ? '' : ', or leave it out'}`;
+    return [arg.name, (arg.required ? plan : plan.optional()).describe(ranged)];
   })));
   const presetSets = z.strictObject(Object.fromEntries(open.map((arg) => [arg.name, argValueSchema(arg, input.scope).optional()])));
   const columns = enumOf(input.facts.columns.map((column) => column.name)) ?? z.never();

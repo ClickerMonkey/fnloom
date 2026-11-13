@@ -125,7 +125,7 @@ export function confirmText(option: Pick<WidgetActionOption, 'label' | 'mode'>, 
 
 // ─── The chip row ─────────────────────────────────────────────────────────────
 
-/** A chip's staged value: an `ArgValue`, or `null` for "Any" (the arg is left out). */
+/** A chip's staged value: an `ArgValue`, or `null` for "Any" (the arg is cleared). */
 export type ChipValue = ArgValue | null;
 
 /** A value as a chip shows it: "Any" when unset, text as it is, yes or no, a list joined, else compact JSON. */
@@ -169,14 +169,18 @@ export function localZone(): string {
 /**
  * The widget args a chip row runs with: each chip's staged value (else the one it ran with), relative dates resolved
  * now. A value the widget filled in from its own default (a relative one) is left out, so the widget keeps it current;
- * "Any" leaves the arg out.
+ * "Any" leaves the arg out, or sends `null` where the widget would otherwise fill in its default (`defaulted`).
  */
 export function chipArgs(controls: readonly WidgetShownControl[], staged: Readonly<Record<string, ChipValue>>, now: Date, zone: string): Record<string, Json> {
   const args: Record<string, Json> = {};
   for (const control of controls) {
     const set = Object.hasOwn(staged, control.arg) ? staged[control.arg] : undefined;
     const value = set === undefined ? control.value : set;
-    if (value === undefined || value === null) { continue; }
+    if (value === undefined || value === null) {
+      // "Any" over a chip the widget would fill from its default is sent as null, which clears it
+      if (control.defaulted === true) { args[control.arg] = null; }
+      continue;
+    }
     if (set === undefined && 'relative' in value) { continue; }
     args[control.arg] = resolveArgValue(value, now, zone);
   }

@@ -176,6 +176,11 @@ export const WidgetShownControl = z.object({
   argType: GinTypeDef,
   /** Whether it may be cleared (the "Any" row). */
   optional: z.boolean(),
+  /**
+   * Whether the widget fills it with its own default when it is left out: clearing it ("Any") then sends `null`, which
+   * the widget reads as "explicitly unset" (absent when not given).
+   */
+  defaulted: z.boolean().optional(),
   choices: z.array(ChoiceOption).min(1).optional(),
   custom: z.boolean(),
   /** Whether the popover offers `RELATIVE_DATES` (a date or datetime argument). */
@@ -229,7 +234,7 @@ export const WidgetResult = z.object({
   readOnly: z.boolean(),
   /** How often the view re-runs it while shown, when it is live (never below the hub's floor). */
   live: z.object({ every: z.number().int().min(1) }).optional(),
-  /** One line for the chat model ("Bar chart of count by stage, 12 rows, shown to the person"). */
+  /** One line for the chat model ("Bar chart of count by stage, 12 rows"); `tableModelView` adds who sees the rows. */
   summary: z.string().min(1),
 });
 export type WidgetResult = z.infer<typeof WidgetResult>;
@@ -300,12 +305,29 @@ export const RESULT_TABLE_INSTRUCTION = 'To show data as a chart or table, call 
 export const TableModelView = z.object({ summary: z.string(), columns: z.array(z.string()), rows: z.array(z.array(Json)), more: z.number().int().min(0) });
 export type TableModelView = z.infer<typeof TableModelView>;
 
-/** A table result as the chat model sees it: the summary, the column names and the first `rows` rows. */
-export function tableModelView(summary: string, table: ResultTable, rows: number): TableModelView {
-  return { summary, columns: table.columns.map((column) => column.name), rows: table.rows.slice(0, rows), more: Math.max(0, table.rows.length - rows) };
+/**
+ * How the chat model reads table results in one run: how many rows it gets, and whether a person is watching
+ * (`RunInfo.watched`), so the table is drawn for them. Unwatched (a nested agent, a background or scheduled run) no one
+ * sees the rows, so the model gets more of them and answers from those.
+ */
+export interface TableReading {
+  readonly rows: number;
+  readonly watched: boolean;
 }
 
-/** A widget's summary line: "Bar chart of count by stage, 12 rows, shown to the person". */
+/**
+ * A table result as the chat model sees it: the summary with who sees the rows, the column names and the first
+ * `reading.rows` rows. Watched, the person has the whole table; unwatched, the summary says no one sees them.
+ */
+export function tableModelView(summary: string, table: ResultTable, reading: TableReading): TableModelView {
+  const rows = table.rows.slice(0, reading.rows);
+  const more = table.rows.length - rows.length;
+  const held = more > 0 ? `: answer from the first ${String(rows.length)}, and say the answer covers only those` : `: answer from them`;
+  const seen = reading.watched ? `${summary}, shown to the person` : `${summary}. Nobody is watching this run, so no one sees them${held}`;
+  return { summary: seen, columns: table.columns.map((column) => column.name), rows, more };
+}
+
+/** A widget's summary line: "Bar chart of count by stage, 12 rows". */
 export function widgetSummary(visualLabel: string, bind: VisualBinding, table: ResultTable): string {
   const names = (channel: string): string => (bind[channel] ?? []).join(', ');
   const measure = names('y') || names('value');
@@ -314,10 +336,10 @@ export function widgetSummary(visualLabel: string, bind: VisualBinding, table: R
   return `${visualLabel}${of}, ${rowsLine(table)}`;
 }
 
-/** How many rows a table holds, as the model reads it: "12 rows (more held back), shown to the person". */
+/** How many rows a table holds, as the model reads it: "12 rows (more held back)". */
 export function rowsLine(table: Pick<ResultTable, 'rows' | 'truncated'>): string {
   const count = table.rows.length === 1 ? '1 row' : `${String(table.rows.length)} rows`;
-  return `${count}${table.truncated ? ' (more held back)' : ''}, shown to the person`;
+  return `${count}${table.truncated ? ' (more held back)' : ''}`;
 }
 
 // ─── Rules ────────────────────────────────────────────────────────────────────

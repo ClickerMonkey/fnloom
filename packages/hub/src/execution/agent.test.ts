@@ -1,9 +1,12 @@
 import { agent, fn, g, system } from '@harness/sdk';
-import { MAIN_INSTANCE, RunId, SystemName, type ProposedRun, type Run, type RunSettled, type Turn } from '@harness/core';
+import { MAIN_INSTANCE, RunId, SystemName, type ProposedRun, type Run, type RunSettled, type TableReading, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { backgroundReply, backgroundResult, INTERRUPTED, RunConversation, settledReply, stateOf } from './agent.ts';
 import { AGENT_KIND, type AgentKind, type RunInput } from './index.ts';
 import { AGENT, ALICE, calls, executionRig, OPEN_LIMITS, says, SESSION, testSettings, until, type ExecutionRig } from './testing.ts';
+
+/** A run a person watches, reading five rows of a table. */
+const SHOWN: TableReading = { rows: 5, watched: true };
 
 const files = system('fs', { description: 'Files.' }).with({
   fns: {
@@ -174,7 +177,7 @@ describe('a session agent', () => {
     expect(r.chat.followUps).toEqual([{ turn: turn.id, agent: AGENT }]);
     const transcript = (await r.store.table('sessions').get(SESSION))?.transcript ?? [];
     const note = transcript.at(-1);
-    expect(note).toEqual({ role: 'user', content: backgroundResult(child, { status: 'done', result: 'the big file' }, 5) });
+    expect(note).toEqual({ role: 'user', content: backgroundResult(child, { status: 'done', result: 'the big file' }, SHOWN) });
     expect(note?.content).toContain('<background-result fn="fs/read" status="done">\nthe big file\n</background-result>');
     expect(note?.content).not.toContain(child.id);
     expect([r.chat.finished.length, r.chat.tracked.length]).toEqual([finished, tracked]);
@@ -402,13 +405,20 @@ describe('a system agent with an output hook', () => {
 
 describe('agent loop pieces', () => {
   it('reads settled tool runs the way the model should', () => {
-    expect(settledReply({ status: 'done', result: { a: 1 } }, 5)).toBe('{"a":1}');
-    expect(settledReply({ status: 'done', result: 'text' }, 5)).toBe('text');
-    expect(settledReply({ status: 'failed', error: { class: 'caller', message: 'nope' } }, 5)).toBe('Error: nope');
-    expect(settledReply({ status: 'cancelled' }, 5)).toMatch(/cancelled/);
+    expect(settledReply({ status: 'done', result: { a: 1 } }, SHOWN)).toBe('{"a":1}');
+    expect(settledReply({ status: 'done', result: 'text' }, SHOWN)).toBe('text');
+    expect(settledReply({ status: 'failed', error: { class: 'caller', message: 'nope' } }, SHOWN)).toBe('Error: nope');
+    expect(settledReply({ status: 'cancelled' }, SHOWN)).toMatch(/cancelled/);
     // a table result is drawn for the person: the model reads its summary and the first rows
     const table = { columns: [{ name: 'n', kind: 'integer', nullable: false }], rows: [[1], [2], [3]], offset: 0, truncated: false, sort: [] };
-    expect(JSON.parse(settledReply({ status: 'done', result: table }, 2))).toEqual({ summary: 'A table of 3 rows, shown to the person', columns: ['n'], rows: [[1], [2]], more: 1 });
+    expect(JSON.parse(settledReply({ status: 'done', result: table }, { rows: 2, watched: true }))).toEqual({ summary: 'A table of 3 rows, shown to the person', columns: ['n'], rows: [[1], [2]], more: 1 });
+    // nobody watching (a nested agent, a background or scheduled run): never "shown to the person", and more rows to answer from
+    const headless: unknown = JSON.parse(settledReply({ status: 'done', result: table }, { rows: 2, watched: false }));
+    expect(headless).toEqual({
+      summary: 'A table of 3 rows. Nobody is watching this run, so no one sees them: answer from the first 2, and say the answer covers only those',
+      columns: ['n'], rows: [[1], [2]], more: 1,
+    });
+    expect(JSON.parse(settledReply({ status: 'done', result: table }, { rows: 50, watched: false }))).toMatchObject({ summary: 'A table of 3 rows. Nobody is watching this run, so no one sees them: answer from them', more: 0 });
   });
 
   it('answers tool calls right after their assistant message, before later user messages', async () => {

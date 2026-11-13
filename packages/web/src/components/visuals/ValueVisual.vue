@@ -1,8 +1,9 @@
 <script setup lang="ts">
 /**
- * The value family (DOM, not ECharts): one to four rows of values. `cards` shows each bound column of each row as a
- * labelled card; `single` shows the first value large with the rest of its row under it. A card is a button when the
- * row can be drilled into.
+ * The value family (DOM, not ECharts): one to four rows of numbers. `cards` shows each bound number of each row as a
+ * card titled by the row's title column (with the number's name when a row has several), else by the number's name;
+ * `single` shows the first number large with the rest of its row under it. A card is a button when the row can be
+ * drilled into.
  */
 import { computed } from 'vue';
 import type { VisualProps } from '../results/visuals.ts';
@@ -16,9 +17,17 @@ const columns = computed(() => (props.bind['value'] ?? []).flatMap((name) => {
   const column = props.table.columns[index];
   return column === undefined ? [] : [{ index, column, label: column.label ?? column.name }];
 }));
-const cards = computed(() => props.table.rows.map((row, at) => ({
-  at, values: columns.value.map((c) => ({ label: c.label, text: cellText(row[c.index], c.column) ?? '—', name: c.column.name })),
-})));
+const title = computed(() => {
+  const name = props.bind['title']?.[0];
+  const index = name === undefined ? -1 : props.table.columns.findIndex((c) => c.name === name);
+  const column = props.table.columns[index];
+  return column === undefined ? undefined : { index, column };
+});
+const cards = computed(() => props.table.rows.map((row, at) => {
+  const named = title.value === undefined ? undefined : cellText(row[title.value.index], title.value.column);
+  const labelOf = (label: string): string => (named === undefined || named === '' ? label : columns.value.length > 1 ? `${named} · ${label}` : named);
+  return { at, values: columns.value.map((c) => ({ label: labelOf(c.label), text: cellText(row[c.index], c.column) ?? '—', name: c.column.name })) };
+}));
 const lead = computed(() => cards.value[0]);
 </script>
 

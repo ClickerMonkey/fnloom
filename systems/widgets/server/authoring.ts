@@ -107,7 +107,7 @@ export class WidgetAuthoring {
 
 /** One example, as the agent reads it: a request, what the source showed, and the proposal that answers it. */
 const EXAMPLE = {
-  request: 'Sales by month as a line chart, with the region as a chip and presets for this year and last year.',
+  request: 'Sales by month as a line chart, with the region as a chip and presets for this year and this quarter.',
   source: 'database/main.sales_by_month(region?: text, from: date, to: date, limit?: num, offset?: num) — the pager drives limit/offset, the range drives from/to',
   columns: 'month (date, group), region (text, group, 4 distinct), total (number, measure)',
   proposal: {
@@ -116,8 +116,15 @@ const EXAMPLE = {
     title: 'Sales by month',
     choice: { visual: 'time', style: 'line' },
     more: ['category', 'table'],
-    args: { region: { show: 'control', label: 'Region', choices: [{ label: 'Any' }, { label: 'North', value: { literal: 'north' } }, { label: 'South', value: { literal: 'south' } }] } },
-    presets: [],
+    args: {
+      region: { show: 'control', label: 'Region', choices: [{ label: 'Any' }, { label: 'North', value: { literal: 'north' } }, { label: 'South', value: { literal: 'south' } }] },
+      from: { show: 'control', label: 'From', default: { relative: 'startOf(year)' } },
+      to: { show: 'control', label: 'To', default: { relative: 'today' } },
+    },
+    presets: [
+      { label: 'This year', sets: { from: { relative: 'startOf(year)' }, to: { relative: 'today' } } },
+      { label: 'This quarter', sets: { from: { relative: 'startOf(quarter)' }, to: { relative: 'today' } } },
+    ],
   },
 };
 
@@ -131,6 +138,7 @@ const INSTRUCTIONS = [
   '   - more: the other visuals worth switching to (always keep table).',
   '   - args: a plan for every arg. A chip (show: control) for what the person will change, with plain words and choices when the values are few (an optional arg gets an "Any" choice with no value);',
   '     pinned for what the request fixes (a record type, "only open tasks"); hidden for what nobody needs to see (only an arg with a default). Dates may be relative ({"relative": "today-7d"}), so a saved widget stays current.',
+  '     Range args (source says the range drives them) are always chips, never pinned or hidden: the chart moves them, and their defaults are where the range opens, so a required one needs a default.',
   '   - presets: named chips that set several args at once when the request names them ("Overdue", "This week"); [] otherwise.',
   '   - actions: leave out to offer every row action; list them only to narrow, relabel or bind another fn to the row\'s columns. drill: only when the request says what a click should open.',
   '   - name: snake_case after what it shows; title: a few words; description: one sentence.',

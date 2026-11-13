@@ -92,7 +92,7 @@ describe('the widget kind', () => {
     expect(result.actions.map((a) => a.fn)).toEqual(['tasks/Task.close']);
     expect(seen.find((call) => call.fn === hub.fns.row_actions.name)?.args).toEqual({ types: ['tasks/Task'] });
     expect(result.readOnly).toBe(false);
-    expect(result.summary).toBe('Bars of count by stage, 3 rows, shown to the person');
+    expect(result.summary).toBe('Bars of count by stage, 3 rows');
     expect(result.facts.whole).toBe(true);
   });
 

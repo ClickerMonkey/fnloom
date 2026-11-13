@@ -64,7 +64,7 @@ describe('the static toolset on a free OpenRouter model (live)', () => {
       }
       expect(settled, settled.status === 'failed' ? settled.error.message : '').toMatchObject({ status: 'done' });
       expect(opened.length).toBeGreaterThanOrEqual(1);
-      expect(settled.status === 'done' ? replyText(settled.result, 5) : '').toContain(SECRET);
+      expect(settled.status === 'done' ? replyText(settled.result, { rows: 5, watched: true }) : '').toContain(SECRET);
       const children = (await r.store.table('runs').find({ where: { parent: run }, limit: 10 })).items;
       expect(children.map((c) => c.fn)).toContain('vault/open');
       const [first] = (await r.store.table('llmInteractions').find({ where: { run }, limit: 10 })).items;

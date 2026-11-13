@@ -1,6 +1,6 @@
 /**
  * A measure for each pair of two keys: a heatmap (`heatmap` on a grid), value cells (`heatmap` on the `matrix`
- * coordinate, each cell labelled) and small charts (a bar chart per row key, each a grid in a `matrix` cell).
+ * coordinate, each cell labelled) and small charts (a bar chart per row key, each a grid in a `matrix` cell with its own category labels).
  */
 import type { BarSeriesOption } from 'echarts/charts';
 import type { XAXisComponentOption, YAXisComponentOption } from 'echarts';
@@ -35,8 +35,8 @@ export const crosstab: ChartBuilder = (input) => {
     const lines = Math.ceil(shown.length / columns);
     const grids: GridComponentOption[] = []; const xAxes: XAXisComponentOption[] = []; const yAxes: YAXisComponentOption[] = []; const series: BarSeriesOption[] = [];
     shown.forEach((name, i) => {
-      grids.push({ coordinateSystem: 'matrix', coord: [i % columns, Math.floor(i / columns)], top: 22, bottom: 18, left: 30, right: 8 });
-      xAxes.push({ type: 'category', gridIndex: i, data: xs, axisLabel: { show: false }, axisTick: { show: false } });
+      grids.push({ coordinateSystem: 'matrix', coord: [i % columns, Math.floor(i / columns)], top: 22, bottom: 26, left: 30, right: 8 });
+      xAxes.push({ type: 'category', gridIndex: i, data: xs, axisLabel: { hideOverlap: true, fontSize: input.phone ? 10 : 11, color: input.palette.muted }, axisTick: { show: false } });
       yAxes.push({ type: 'value', gridIndex: i, name, nameLocation: 'end', nameTextStyle: { align: 'left', color: input.palette.text }, splitNumber: 2 });
       series.push({ type: 'bar', xAxisIndex: i, yAxisIndex: i, data: xs.map((key) => cells.find((cell) => cell[0] === key && cell[1] === name)?.[2] ?? null) });
     });

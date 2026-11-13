@@ -58,6 +58,9 @@ describe('widget logic', () => {
     const controls = SAMPLE_PAGED_WIDGET.controls;
     expect(chipArgs(controls, {}, CLOCK.now(), 'UTC')).toEqual({ status: 'open' });
     expect(chipArgs(controls, { status: null, since: { relative: 'startOf(month)' }, owner: { literal: 'Sam' } }, CLOCK.now(), 'UTC')).toEqual({ since: '2026-11-01', owner: 'Sam' });
+    // a chip the widget fills from its default sends "Any" as null, so the default doesn't come back
+    const defaulted = controls.map((control) => (control.arg === 'status' ? { ...control, defaulted: true } : control));
+    expect(chipArgs(defaulted, { status: null }, CLOCK.now(), 'UTC')).toEqual({ status: null });
   });
 
   it("offers a widget's own visuals in its order with its labels and bindings, else every fitting one", () => {

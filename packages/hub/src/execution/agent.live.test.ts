@@ -56,7 +56,7 @@ describe('the agent loop (live)', () => {
       }
       expect(settled, settled.status === 'failed' ? settled.error.message : '').toMatchObject({ status: 'done' });
       expect(opened.length).toBeGreaterThanOrEqual(1);
-      expect(settled.status === 'done' ? replyText(settled.result, 5) : '').toContain(SECRET);
+      expect(settled.status === 'done' ? replyText(settled.result, { rows: 5, watched: true }) : '').toContain(SECRET);
       expect(interactions.length).toBeGreaterThanOrEqual(2);
       expect(interactions.every((i) => i.status === 'done')).toBe(true);
       const transcript = (await rig.store.table('sessions').get(SESSION))?.transcript ?? [];

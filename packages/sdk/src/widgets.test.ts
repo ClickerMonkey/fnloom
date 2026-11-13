@@ -107,6 +107,12 @@ describe('args, controls and runs', () => {
     expect(widgetRunArgs(SOURCE_ARGS, spec, { owner: 'ann' }, options)).toEqual({ status: 'open', owner: 'ann', due_from: '2026-11-06', offset: 0, limit: 25 });
     expect(widgetRunArgs(SOURCE_ARGS, spec, { offset: 50, status: 'done' }, options)).toMatchObject({ status: 'open', offset: 50, limit: 25 });
     expect(widgetPager({ offset: 'offset', limit: 'limit' }, TABLE, 2)).toEqual({ offset: 'offset', limit: 'limit', window: 2, more: true });
+    // "Any" (null) clears a chip that has a default: left out of the run, shown unset, and the widget's args take null
+    expect(widgetRunArgs(SOURCE_ARGS, spec, { due_from: null }, options)).not.toHaveProperty('due_from');
+    const cleared = widgetControls(SOURCE_ARGS, spec, { due_from: null }).find((c) => c.arg === 'due_from');
+    expect([cleared?.value, cleared?.defaulted]).toEqual([undefined, true]);
+    expect(widgetControls(SOURCE_ARGS, spec).find((c) => c.arg === 'due_from')?.value).toEqual({ relative: 'today-7d' });
+    expect(widgetArgs(SOURCE_ARGS, spec).props?.['due_from']?.type).toMatchObject({ name: 'optional', generic: { T: { name: 'nullable' } } });
     expect(widgetPager({ offset: 'offset', limit: 'limit' }, TABLE, 25).more).toBe(false);
   });
 });
@@ -165,6 +171,22 @@ describe('checks', () => {
     // a saved widget runs with no args, so a required arg shown as a chip needs a default
     const chip: WidgetSpec = { ...SPEC, args: { ...SPEC.args, status: { show: 'control' } } };
     expect(checkWidget(chip, { args: SOURCE_ARGS, facts: FACTS, entries: ENTRIES, table: TABLE }).problems).toEqual(['Arg status is required: give its chip a default, or pin a value.']);
+  });
+
+  it('needs a default on a required range arg, so a saved widget opens on a range and runs', () => {
+    const source = wireType(g.obj({ from: g.date(), to: g.date(), offset: g.optional(g.num()), limit: g.optional(g.num()) }));
+    const ranged: WidgetSpec = { ...SPEC, args: {}, presets: [], range: { from: 'from', to: 'to' } };
+    const input = { args: source, facts: FACTS, entries: ENTRIES, table: TABLE };
+    expect(checkWidget(ranged, input).problems).toEqual([
+      'Arg from is required: give its chip a default, or pin a value.', 'Arg to is required: give its chip a default, or pin a value.',
+    ]);
+    const opens: WidgetSpec = { ...ranged, args: { from: { show: 'control', default: { relative: 'startOf(year)' } }, to: { show: 'control', default: { relative: 'today' } } } };
+    expect(checkWidget(opens, input).problems).toEqual([]);
+    const options = { now: new Date('2026-11-13T12:00:00Z'), zone: 'UTC', window: 200 };
+    expect(widgetRunArgs(source, opens, {}, options)).toEqual({ from: '2026-01-01', to: '2026-11-13', offset: 0, limit: 200 });
+    // the chart drives them, so they are chips only
+    const pinned: WidgetSpec = { ...opens, args: { ...opens.args, to: { show: 'pinned', value: { relative: 'endOf(month)' } } } };
+    expect(checkWidget(pinned, input).problems).toEqual(['Arg to is driven by the widget\'s range, so it can\'t be pinned: give it a chip with the range the widget opens on.']);
   });
 
   it('moves to a source whose args take the widget\'s values', () => {

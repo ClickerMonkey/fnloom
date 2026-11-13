@@ -4,7 +4,7 @@
  * text of a tool reply, token totals, and the lenient mapping it saves transcripts and interactions with.
  */
 import type { Message, Request } from '@aeye/core';
-import { ChangeSet, ResultTable, rowsLine, tableModelView, WidgetProposal, WidgetResult, type Json, type LlmMessage, type TableModelView, type LlmRequest, type LlmUsage, type QualifiedName } from '@harness/core';
+import { ChangeSet, ResultTable, rowsLine, tableModelView, WidgetProposal, WidgetResult, type Json, type LlmMessage, type TableModelView, type TableReading, type LlmRequest, type LlmUsage, type QualifiedName } from '@harness/core';
 import { LlmWire } from '@harness/sdk/server';
 
 export {
@@ -39,14 +39,14 @@ export function requestToWire(request: Request): LlmRequest {
  * The text of a tool reply the model reads: strings as they are, anything else as JSON (as aeye writes them). A
  * command's change set (`changes`, `core/changes.ts`, from fs `bash`) is listed file by file without its diffs: the
  * run keeps it whole for the run view's diff tabs, and the model reads a file when it needs the content. A table
- * result (a widget run, a fn returning a `ResultTable`) is drawn for the person, so the model reads its summary and the
- * first `tableRows` rows (`tableModelView`); a widget proposal (`widgets/make_widget`) the same of its preview, with a line
- * saying it waits for the person's Save.
+ * result (a widget run, a fn returning a `ResultTable`) is drawn for the person when someone watches the run, so the
+ * model reads its summary and the first `reading.rows` rows (`tableModelView`), told who sees the rest; a widget
+ * proposal (`widgets/make_widget`) the same of its preview, with a line saying it waits for the person's Save.
  */
-export function replyText(value: Json, tableRows: number): string {
+export function replyText(value: Json, reading: TableReading): string {
   if (typeof value === 'string') return value;
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return JSON.stringify(value);
-  const table = tableReply(value, tableRows);
+  const table = tableReply(value, reading);
   if (table !== undefined) return JSON.stringify(table);
   const { changes, ...rest } = value;
   const set = ChangeSet.safeParse(changes);
@@ -60,21 +60,21 @@ interface ProposalModelView extends TableModelView {
 }
 
 /** A widget proposal's, a widget's or a table's result as the model reads it, or undefined for anything else. */
-function tableReply(value: Json, rows: number): TableModelView | ProposalModelView | undefined {
+function tableReply(value: Json, reading: TableReading): TableModelView | ProposalModelView | undefined {
   const proposal = WidgetProposal.safeParse(value);
   if (proposal.success) {
     const { name, description, preview, replaces } = proposal.data;
     return {
       proposed: `${name}: ${description}${replaces === undefined ? '' : ` (changes ${replaces})`}`,
       saved: 'Proposed, not saved: the person sees the preview and presses Save to keep it.',
-      ...tableModelView(preview.summary, preview.table, rows),
+      ...tableModelView(preview.summary, preview.table, reading),
     };
   }
   const widget = WidgetResult.safeParse(value);
-  if (widget.success) return tableModelView(widget.data.summary, widget.data.table, rows);
+  if (widget.success) return tableModelView(widget.data.summary, widget.data.table, reading);
   const table = ResultTable.safeParse(value);
   if (!table.success) return undefined;
-  return tableModelView(`A table of ${rowsLine(table.data)}`, table.data, rows);
+  return tableModelView(`A table of ${rowsLine(table.data)}`, table.data, reading);
 }
 
 /** A change set in a few lines: each file, how it changed and by how many lines, and what was left out. */

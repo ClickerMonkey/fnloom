@@ -137,7 +137,9 @@ Order: platform's sdk pieces (§2) first, the rest in parallel against the core 
   **platform**) gets `RESULT_TABLE_ROUTING` appended to its line in the fn lists; `RESULT_TABLE_INSTRUCTION` is added
   once to the chat system prompt when any such fn is listed.
 - **tool result**: a run output that parses as `WidgetResult` or `ResultTable` reaches the model as `tableModelView`
-  (summary + first `HARNESS_TOOL_RESULT_ROWS` rows, env, default 5); the person sees the chart.
+  (summary + first `HARNESS_TOOL_RESULT_ROWS` rows, env, default 5); the person sees the chart. In a run nobody
+  watches (`RunInfo.watched` not true: a nested agent, a background or scheduled run) the summary says no one sees the
+  rows and the model gets the first `HARNESS_HEADLESS_RESULT_ROWS` (default 50) to answer from.
 - **run after make**: `make_widget.show` is set by the calling model when the person asked to see something (its
   description says so); the proposal card then opens with the chart drawn, else collapsed.
 

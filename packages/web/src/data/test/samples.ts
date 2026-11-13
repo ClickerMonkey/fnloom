@@ -62,15 +62,21 @@ export const SAMPLE_ACTIONS: readonly WidgetActionOption[] = WidgetActionOption.
   { fn: 'notes/Note.rename', label: 'Rename', mode: 'write', confirm: true, bind: { self: 'id' }, form: { name: 'obj', props: { title: { type: { name: 'text' } } } }, then: 'refresh' },
 ]);
 
-/** A widget's result over the notes, offering a bar chart of words per title and the table, and the notes' actions. */
+/** The records query an open-notes widget pins: status is "open". */
+const OPEN_QUERY = { filters: [{ field: 'status', op: 'is', value: 'open' }] };
+
+/** The open notes only, as a widget pinned to `OPEN_QUERY` reads them. */
+const OPEN_TABLE: ResultTable = ResultTable.parse({ ...SAMPLE_TABLE, rows: NOTES.filter((note) => note.status === 'open').map((note) => [note.title, note.body, note.status, note.words, note.id]), total: 2 });
+
+/** A widget's result over the open notes, offering a bar chart of words per title and the table, and the notes' actions. */
 export const SAMPLE_WIDGET: WidgetResult = WidgetResult.parse({
   title: 'Open notes',
-  table: SAMPLE_TABLE,
-  facts: columnFacts(SAMPLE_TABLE),
-  source: { fn: 'hub/records_table', run: 'run_widget_source', args: { type: NOTE_TYPE } },
+  table: OPEN_TABLE,
+  facts: columnFacts(OPEN_TABLE),
+  source: { fn: 'hub/records_table', run: 'run_widget_source', args: { type: NOTE_TYPE, query: OPEN_QUERY } },
   visuals: [{ visual: 'category', style: 'bar', label: 'Words per note', bind: { x: ['title'], y: ['words'] } }, { visual: 'table', style: 'table', bind: {} }],
   problems: [], controls: [], presets: [], actions: SAMPLE_ACTIONS, readOnly: false,
-  summary: 'Bar chart of words by title, 3 rows, shown to the person',
+  summary: 'Bar chart of words by title, 2 rows, shown to the person',
 });
 
 /** The first window of the paged widget: two notes of three, more may follow. */
@@ -112,7 +118,7 @@ export const SAMPLE_PROPOSAL: WidgetProposal = WidgetProposal.parse({
   name: 'open_notes',
   description: 'Open notes as a bar chart of words per note, with the table one tap away.',
   spec: {
-    title: 'Open notes', source: 'hub/records_table', args: { type: { show: 'pinned', value: { literal: NOTE_TYPE } } }, presets: [],
+    title: 'Open notes', source: 'hub/records_table', args: { type: { show: 'pinned', value: { literal: NOTE_TYPE } }, query: { show: 'pinned', value: { literal: OPEN_QUERY } } }, presets: [],
     visuals: [{ visual: 'category', style: 'bar', label: 'Words per note', bind: { x: ['title'], y: ['words'] } }, { visual: 'table', style: 'table', bind: {} }],
   },
   preview: SAMPLE_WIDGET,

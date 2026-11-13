@@ -48,9 +48,11 @@ function plannedArgs(spec: WidgetSpec): Set<string> {
 function argProblems(spec: WidgetSpec, sourceArgs: GinTypeDef, scope: TypeScope | undefined): string[] {
   const problems: string[] = [];
   const args = new Map(argsOf(sourceArgs).map((arg) => [arg.name, arg]));
-  const claimed = new Set<string>();
-  const claim = (role: string, name: string, accepts: readonly string[]): void => {
-    claimed.add(name);
+  // the pager's args take no plan; the range's take a chip only (its default is the range the widget opens on)
+  const paged = new Set<string>();
+  const ranged = new Set<string>();
+  const claim = (role: 'Paging' | 'Range', name: string, accepts: readonly string[]): void => {
+    (role === 'Paging' ? paged : ranged).add(name);
     const arg = args.get(name);
     if (arg === undefined) { problems.push(`${role}: ${spec.source} has no arg ${name}.`); return; }
     if (!accepts.includes(arg.type.name)) { problems.push(`${role}: arg ${name} is ${arg.type.name}, not ${accepts.join(' or ')}.`); }
@@ -64,7 +66,8 @@ function argProblems(spec: WidgetSpec, sourceArgs: GinTypeDef, scope: TypeScope 
   for (const [name, plan] of Object.entries(spec.args)) {
     const arg = args.get(name);
     if (arg === undefined) { problems.push(`Arg ${name}: ${spec.source} has no arg ${name}.`); continue; }
-    if (claimed.has(name)) { problems.push(`Arg ${name} is driven by the widget's ${spec.paging?.offset === name || spec.paging?.limit === name ? 'pager' : 'range'}, so it can't have a plan too.`); }
+    if (paged.has(name)) { problems.push(`Arg ${name} is driven by the widget's pager, so it can't have a plan too.`); }
+    if (ranged.has(name) && plan.show !== 'control') { problems.push(`Arg ${name} is driven by the widget's range, so it can't be ${plan.show}: give it a chip with the range the widget opens on.`); }
     if (plan.show === 'hidden' && arg.required) { problems.push(`Arg ${name} is hidden, but it has no default: pin a value or show it.`); }
     if (plan.show === 'pinned') { check(`Arg ${name}`, arg, plan.value); }
     if (plan.show !== 'control') { continue; }
@@ -74,9 +77,10 @@ function argProblems(spec: WidgetSpec, sourceArgs: GinTypeDef, scope: TypeScope 
       check(`Arg ${name} choice ${choice.label}`, arg, choice.value);
     }
   }
-  // a saved widget runs with no args given, so each required arg needs a value of its own
+  // a saved widget runs with no args given, so each required arg needs a value of its own (a range arg's chip default
+  // is the range the widget opens on; only the pager fills its own)
   for (const arg of args.values()) {
-    if (!arg.required || claimed.has(arg.name)) { continue; }
+    if (!arg.required || paged.has(arg.name)) { continue; }
     const plan = spec.args[arg.name];
     if (plan === undefined || (plan.show === 'control' && plan.default === undefined)) { problems.push(`Arg ${arg.name} is required: give its chip a default, or pin a value.`); }
   }

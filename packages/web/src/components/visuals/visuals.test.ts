@@ -6,7 +6,8 @@ import ChartVisual from './ChartVisual.vue';
 import { isChartFamily, type ChartFamily } from './families/index.ts';
 import { CHART_SAMPLES as SAMPLES } from './test/samples.ts';
 import { hasCycle } from './families/network.ts';
-import { treeOf } from './families/hierarchy.ts';
+import { rings, sized, treeOf } from './families/hierarchy.ts';
+import { packLanes } from './families/timeline.ts';
 import { periodOf } from './families/calendar.ts';
 import { foldSlices, histogram, OTHER_SLICE } from './maths.ts';
 import { chartColor, LIGHT_PALETTE } from './palette.ts';
@@ -42,7 +43,7 @@ const SERIES: Readonly<Record<ChartFamily, Readonly<Record<string, readonly stri
   distribution: { scatter: ['scatter', 'scatter'], bubble: ['scatter', 'scatter'], pulse: ['effectScatter', 'effectScatter'], histogram: ['bar'], boxplot: ['boxplot', 'scatter'], parallel: ['parallel', 'parallel'] },
   crosstab: { heatmap: ['heatmap'], cells: ['heatmap'], multiples: ['bar', 'bar'] },
   calendar: { month: ['heatmap'], year: ['heatmap'] },
-  timeline: { gantt: ['custom'], timeline: ['scatter'] },
+  timeline: { gantt: ['custom'], timeline: ['custom'] },
   network: { force: ['graph'], circular: ['graph'], sankey: ['sankey'], chord: ['chord'] },
   hierarchy: { tree: ['tree'], radial: ['tree'], treemap: ['treemap'], sunburst: ['sunburst'] },
   gauge: { gauge: ['gauge'], progress: ['gauge'] },
@@ -145,6 +146,17 @@ describe('browser maths and colour', () => {
     expect(folded.at(-1)).toEqual({ name: OTHER_SLICE, value: 21, row: undefined });
     const roots = treeOf([{ name: 'a', parent: null, value: null }, { name: 'b', parent: 'a', value: 2 }, { name: 'c', parent: 'c', value: 1 }]);
     expect(roots.map((r) => [r.name, r.children.length])).toEqual([['a', 1], ['c', 0]]);
+  });
+
+  it('sizes a sunburst so branches hold their children and rings start below one root', () => {
+    const tree = sized(treeOf([{ name: 'All', parent: null, value: 0 }, { name: 'Docs', parent: 'All', value: 3 }, { name: 'Code', parent: 'All', value: 5 }, { name: 'Tests', parent: 'Code', value: 2 }, { name: 'Lib', parent: 'Code', value: 4 }]));
+    expect(tree[0]?.value).toBe(9);
+    expect(rings(tree).map((node) => [node.name, node.value])).toEqual([['Docs', 3], ['Code', 6]]);
+    expect(rings([{ name: 'a', row: 0, children: [] }, { name: 'b', row: 1, children: [] }]).map((node) => node.name)).toEqual(['a', 'b']);
+  });
+
+  it('packs timeline items into as few lanes as fit without overlap', () => {
+    expect(packLanes([{ start: 0, end: 5 }, { start: 4, end: 9 }, { start: 6, end: 8 }, { start: null, end: 3 }])).toEqual([0, 1, 0, 0]);
   });
 
   it('turns the tokens’ OKLCH colours into hex ECharts reads, keeping anything else', () => {

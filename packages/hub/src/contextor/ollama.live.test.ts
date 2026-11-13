@@ -150,7 +150,7 @@ describe.skipIf(!ready)('the graph contextor and the static toolset on a small l
     for (const question of questions) {
       const { settled, run } = await ask(question);
       expect(settled.status, settled.status === 'failed' ? settled.error.message : '').toBe('done');
-      answers.push(settled.status === 'done' ? replyText(settled.result, 5) : '');
+      answers.push(settled.status === 'done' ? replyText(settled.result, { rows: 5, watched: true }) : '');
       const interactions = (await r.store.table('llmInteractions').find({ where: { run }, limit: 10 })).items;
       expect(interactions.length).toBeGreaterThan(0);
       for (const interaction of interactions) {
@@ -174,7 +174,7 @@ describe.skipIf(!ready)('the graph contextor and the static toolset on a small l
     let answer = '';
     for (let attempt = 0; attempt < 3 && fs.requests.length === 0; attempt++) {
       const { settled } = await ask('How many lines does README.md have? Use fs/read with the path README.md, then tell me the number.');
-      answer = settled.status === 'done' ? replyText(settled.result, 5) : settled.status === 'failed' ? settled.error.message : settled.status;
+      answer = settled.status === 'done' ? replyText(settled.result, { rows: 5, watched: true }) : settled.status === 'failed' ? settled.error.message : settled.status;
     }
     expect(fs.requests.map((q) => [q.fn, q.args])).toContainEqual(['read', { path: 'README.md' }]);
     console.info('live.ollama.static-run', { answer });
@@ -188,7 +188,7 @@ describe.skipIf(!textReady)('the text protocol on a local model (live)', () => {
     let answer = '';
     for (let attempt = 0; attempt < 2 && fs.requests.length === 0; attempt++) {
       const { settled } = await ask('How many lines does README.md have? Run fs/read with the path README.md to find out.');
-      answer = settled.status === 'done' ? replyText(settled.result, 5) : settled.status === 'failed' ? settled.error.message : settled.status;
+      answer = settled.status === 'done' ? replyText(settled.result, { rows: 5, watched: true }) : settled.status === 'failed' ? settled.error.message : settled.status;
     }
     const interactions = (await r.store.table('llmInteractions').find({ limit: 50 })).items;
     console.info('live.ollama.text-protocol', { answer: answer.slice(-300), calls: interactions.length, estimate: interactions.map((i) => i.selection?.budget.estimate), available: plan.available });

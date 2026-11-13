@@ -1,6 +1,6 @@
 import { PromptSuspend, type Request } from '@aeye/core';
 import { fn, g } from '@harness/sdk';
-import type { LlmMessage } from '@harness/core';
+import type { LlmMessage, TableReading } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { Channel } from './channel.ts';
@@ -13,6 +13,9 @@ import {
   chunkFromWire, chunkToWire, descriptorsOf, isObjectSchema, messageFromWire, messageToWire, replyText, requestFromWire, requestToWire, responseToWire, tokensOf,
   toolName, usageToWire,
 } from './wire.ts';
+
+/** A run a person watches, reading five rows of a table. */
+const SHOWN: TableReading = { rows: 5, watched: true };
 
 describe('tool names', () => {
   it('fit what providers allow', () => {
@@ -38,8 +41,8 @@ describe('messages', () => {
   });
 
   it('writes tool replies as aeye does', () => {
-    expect(replyText('plain', 5)).toBe('plain');
-    expect(replyText({ a: [1] }, 5)).toBe('{"a":[1]}');
+    expect(replyText('plain', SHOWN)).toBe('plain');
+    expect(replyText({ a: [1] }, SHOWN)).toBe('{"a":[1]}');
   });
 
   it('gives a widget proposal as its preview\'s summary and first rows, waiting for the person\'s Save', () => {
@@ -50,10 +53,10 @@ describe('messages', () => {
       problems: [], controls: [], presets: [], actions: [], readOnly: false, summary: 'Table of n, 50 rows',
     };
     const spec = { title: 'Numbers', source: 'shop/numbers', visuals: [visual], args: {}, presets: [] };
-    const reply: unknown = JSON.parse(replyText({ name: 'numbers', description: 'The numbers.', spec, preview, show: true }, 3));
+    const reply: unknown = JSON.parse(replyText({ name: 'numbers', description: 'The numbers.', spec, preview, show: true }, { rows: 3, watched: true }));
     expect(reply).toEqual({
       proposed: 'numbers: The numbers.', saved: 'Proposed, not saved: the person sees the preview and presses Save to keep it.',
-      summary: 'Table of n, 50 rows', columns: ['n'], rows: [[0], [1], [2]], more: 47,
+      summary: 'Table of n, 50 rows, shown to the person', columns: ['n'], rows: [[0], [1], [2]], more: 47,
     });
   });
 
@@ -68,7 +71,7 @@ describe('messages', () => {
         ],
       },
     };
-    const text = replyText(result, 5);
+    const text = replyText(result, SHOWN);
     expect(text).toBe([
       '{"exitCode":0,"stdout":"ok","stderr":""}',
       'Changed files (git):',
@@ -77,7 +80,7 @@ describe('messages', () => {
       '(2 ignored by git)',
     ].join('\n'));
     expect(text).not.toContain('@@');
-    expect(replyText({ changes: 'not a change set' }, 5)).toBe('{"changes":"not a change set"}');
+    expect(replyText({ changes: 'not a change set' }, SHOWN)).toBe('{"changes":"not a change set"}');
   });
 });
 

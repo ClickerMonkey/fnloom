@@ -208,14 +208,29 @@ function claimedArgs(spec: Pick<WidgetSpec, 'paging' | 'range'>): Set<string> {
 }
 
 /**
+ * Whether an arg's "Any" is sent as `null`: its chip may be cleared and the widget's plan fills it with a default when
+ * it is left out, so only `null` says "explicitly unset". `widgetRunArgs` then leaves it out of the source's args.
+ */
+function clearsToNull(plan: ArgPlan | undefined, required: boolean): boolean {
+  return !required && plan?.show === 'control' && plan.default !== undefined;
+}
+
+/**
  * The widget's args type (the kind's `describe`): its source's args minus the pinned ones, with the paging and range
- * args made optional (the view drives them; a run without them reads the first window of the default range).
+ * args made optional (the view drives them; a run without them reads the first window of the range the widget opens
+ * on, its range chips' defaults, which `checkWidget` requires of a required range arg). An arg whose "Any" is sent as
+ * `null` (`clearsToNull`) takes `null` too.
  */
 export function widgetArgs(source: GinTypeDef, spec: Pick<WidgetSpec, 'args' | 'paging' | 'range'>): GinTypeDef {
   const claimed = claimedArgs(spec);
   const props = Object.fromEntries(Object.entries(source.props ?? {}).flatMap(([name, prop]) => {
     if (spec.args[name]?.show === 'pinned') { return []; }
-    const asIs = !claimed.has(name) || prop.type.name === 'optional' || prop.default !== undefined;
+    const optional = prop.type.name === 'optional';
+    if (clearsToNull(spec.args[name], !optional && prop.default === undefined)) {
+      const inner = optional ? prop.type.generic?.['T'] ?? prop.type : prop.type;
+      return [[name, { ...prop, type: { name: 'optional', generic: { T: { name: 'nullable', generic: { T: inner } } } } }]];
+    }
+    const asIs = !claimed.has(name) || optional || prop.default !== undefined;
     return [[name, asIs ? prop : { ...prop, type: { name: 'optional', generic: { T: prop.type } } }]];
   }));
   return { ...source, props };
@@ -241,12 +256,15 @@ export function widgetControls(source: GinTypeDef, spec: Pick<WidgetSpec, 'args'
     const planned = plan?.choices;
     const offered = planned ?? enumChoices(arg.type);
     const choices = offered === undefined || arg.required || offered.some((choice) => choice.value === undefined) ? offered : [{ label: 'Any' }, ...offered];
-    const value = given[arg.name] !== undefined ? { literal: given[arg.name] ?? null } : plan?.default;
+    // a null given is "Any" (cleared): no value, never the plan's default
+    const set = given[arg.name];
+    const value = set === null ? undefined : set !== undefined ? { literal: set } : plan?.default;
     return [{
       arg: arg.name,
       label: plan?.label ?? actionLabel(arg.name),
       argType: arg.type,
       optional: !arg.required,
+      ...(clearsToNull(plan, arg.required) ? { defaulted: true } : {}),
       ...(choices === undefined ? {} : { choices }),
       custom: plan?.custom ?? offered === undefined,
       relative: relativeDatesFor(arg.type.name).length > 0,
@@ -266,7 +284,8 @@ export interface WidgetRunOptions {
 
 /**
  * The source args a widget run uses: pinned values, then the args given (the chips the person set), then each plan's
- * default, relative dates resolved; an arg with none of these is left out (it takes the source's default). A paged
+ * default, relative dates resolved; an arg with none of these, or given as `null` ("Any"), is left out (it takes the
+ * source's default). A paged
  * widget asks for `window` rows from the given offset (0 when none).
  */
 export function widgetRunArgs(source: GinTypeDef, spec: Pick<WidgetSpec, 'args' | 'paging'>, given: Readonly<Record<string, Json>>, options: WidgetRunOptions): Record<string, Json> {
@@ -275,6 +294,7 @@ export function widgetRunArgs(source: GinTypeDef, spec: Pick<WidgetSpec, 'args' 
     const plan = spec.args[arg.name];
     const value = given[arg.name];
     if (plan?.show === 'pinned') { out[arg.name] = resolveArgValue(plan.value, options.now, options.zone); continue; }
+    if (value === null) { continue; }
     if (value !== undefined) { out[arg.name] = value; continue; }
     if (plan?.show === 'control' && plan.default !== undefined) { out[arg.name] = resolveArgValue(plan.default, options.now, options.zone); }
   }

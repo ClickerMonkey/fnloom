@@ -351,9 +351,10 @@ export const BUILT_IN_VISUALS: Readonly<Record<VisualFamily, BuiltInVisual>> = {
     }),
   },
   value: {
-    label: 'Value', icon: 'hash', description: 'One to four rows of values as cards, each labelled by its column.',
+    label: 'Value', icon: 'hash', description: 'One to four rows of numbers as cards, each titled by a text column or named by its column.',
     shape: VisualShape.parse({
-      channels: [ch('value', 'Values', COLUMN_KINDS, { many: true })], rows: { min: 1, max: 4 }, whole: true,
+      // numbers are the headline (product's kpi): text is never a card's value, only its title
+      channels: [ch('value', 'Values', NUM, { many: true, role: 'measure' }), ch('title', 'Title', ['text'], { required: false })], rows: { min: 1, max: 4 }, whole: true,
       styles: [{ name: 'cards', label: 'Cards' }, { name: 'single', label: 'Single' }], priority: { band: 'encoded', terms: [] },
     }),
   },
