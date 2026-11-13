@@ -4,6 +4,8 @@ import { allRows } from '../store/rows.ts';
 import { ALICE, bytes, resourcesRig, statOf } from './testing.ts';
 
 const who = { actor: ALICE };
+/** Every resource visible. */
+const all = (): boolean => true;
 const PAGE = '<html><head><title>Docs page</title></head><body><main><h1>Docs</h1><p>Words.</p></main></body></html>';
 
 describe('hub resources', () => {
@@ -98,34 +100,39 @@ describe('browsing', () => {
 
   it('groups by type with counts, and narrows to one group', async () => {
     const r = await filled();
-    const page = await r.library.browse({ group: 'type' }, who);
+    const page = await r.library.browse({ group: 'type' }, who, all);
     expect(page.items).toHaveLength(4);
     expect(page.facets).toEqual([
       { value: 'document', label: 'Documents', count: 1 }, { value: 'code', label: 'Code', count: 1 }, { value: 'table', label: 'Tables', count: 1 },
       { value: 'web', label: 'Web pages', count: 1 },
     ]);
-    const tables = await r.library.browse({ group: 'type', in: 'table' }, who);
+    const tables = await r.library.browse({ group: 'type', in: 'table' }, who, all);
     expect(tables.items.map((i) => i.stat.name)).toEqual(['c.csv']);
     expect(tables.facets).toHaveLength(4);
   });
 
   it('groups by source and by folder, and filters by forms', async () => {
     const r = await filled();
-    const bySource = await r.library.browse({ group: 'source' }, who);
+    const bySource = await r.library.browse({ group: 'source' }, who, all);
     expect(bySource.facets).toEqual([{ value: 'upload', label: 'Uploads', count: 3 }, { value: 'system:fs', label: 'fs', count: 1 }]);
-    const folders = await r.library.browse({ group: 'path', under: 'hub://resources/' }, who);
+    // what the asker can't see is out of the counts and the page, not only the items
+    const hidden = await r.library.browse({ group: 'source', limit: 2 }, who, (uri) => !uri.startsWith('file://'));
+    expect(hidden.facets).toEqual([{ value: 'upload', label: 'Uploads', count: 3 }]);
+    expect(hidden.items).toHaveLength(2);
+    expect(hidden.cursor).toBe('2');
+    const folders = await r.library.browse({ group: 'path', under: 'hub://resources/' }, who, all);
     expect(folders.facets).toEqual([{ value: 'hub://resources/docs/', label: 'docs', count: 3 }]);
-    expect((await r.library.browse({ form: 'table' }, who)).items.map((i) => i.stat.name)).toEqual(['c.csv']);
-    expect((await r.library.browse({ missing: 'markdown', source: 'upload' }, who)).items.map((i) => i.stat.name).sort()).toEqual(['a.md', 'c.csv']);
-    expect((await r.library.browse({ search: 'B.HT' }, who)).items.map((i) => i.stat.name)).toEqual(['b.html']);
-    expect((await r.library.browse({ family: 'code' }, who)).items.map((i) => i.uri)).toEqual(['file://main/src/x.ts']);
+    expect((await r.library.browse({ form: 'table' }, who, all)).items.map((i) => i.stat.name)).toEqual(['c.csv']);
+    expect((await r.library.browse({ missing: 'markdown', source: 'upload' }, who, all)).items.map((i) => i.stat.name).sort()).toEqual(['a.md', 'c.csv']);
+    expect((await r.library.browse({ search: 'B.HT' }, who, all)).items.map((i) => i.stat.name)).toEqual(['b.html']);
+    expect((await r.library.browse({ family: 'code' }, who, all)).items.map((i) => i.uri)).toEqual(['file://main/src/x.ts']);
   });
 
   it('pages with a cursor', async () => {
     const r = await filled();
-    const first = await r.library.browse({ limit: 3 }, who);
+    const first = await r.library.browse({ limit: 3 }, who, all);
     expect(first.items).toHaveLength(3);
-    const rest = await r.library.browse({ limit: 3, ...(first.cursor === undefined ? {} : { cursor: first.cursor }) }, who);
+    const rest = await r.library.browse({ limit: 3, ...(first.cursor === undefined ? {} : { cursor: first.cursor }) }, who, all);
     expect(rest.items).toHaveLength(1);
     expect(rest.cursor).toBeUndefined();
   });

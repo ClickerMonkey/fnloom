@@ -57,9 +57,10 @@ function escapeHtml(text: string): string {
  */
 export function namedIndexHtml(html: string, name: string): string {
   const safe = escapeHtml(name);
+  // replacer functions, so a `$` in the name is never read as a replacement pattern
   return html
-    .replace(/<title>[^<]*<\/title>/, `<title>${safe}</title>`)
-    .replace(/(<meta\s+name="apple-mobile-web-app-title"\s+content=")[^"]*(")/, `$1${safe}$2`);
+    .replace(/<title>[^<]*<\/title>/, () => `<title>${safe}</title>`)
+    .replace(/(<meta\s+name="apple-mobile-web-app-title"\s+content=")[^"]*(")/, (_match: string, before: string, after: string) => `${before}${safe}${after}`);
 }
 
 /** The install manifest for a hub with this display name. */

@@ -289,7 +289,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       reimport: () => admin.reimport(),
       systemFns: ({ data }) => (data.system === 'database' ? shopFns(Date.now()) : admin.fns(data.system)),
       types: ({ data }) => {
-        const known = shopTypes(Date.now()).filter((type) => data.names.includes(type.name));
+        const known = [...shopTypes(Date.now()), ...build8.types(Date.now())].filter((type) => data.names.includes(type.name));
         return { types: known, missing: data.names.filter((name) => !known.some((type) => type.name === name)) };
       },
       // the `types` list (a system's or a fleet instance's types) and the `contexts` list (a system's context) are asked for through `query`

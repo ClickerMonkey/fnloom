@@ -25,7 +25,7 @@ export interface ScopeParts {
   readonly actor: ActorId;
   readonly admin: boolean;
   readonly groups: ReadonlySet<ActorId>;
-  /** Every stored row, by key. */
+  /** The stored rows a scope has to read (`scopeReads`), by key; a row left out lets everyone in, as no row does. */
   readonly rows: ReadonlyMap<string, AccessRecord>;
   readonly gate: ConnectionGate;
   /** The system serving a URI, when one does (its visibility counts too). */

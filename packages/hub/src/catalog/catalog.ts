@@ -307,17 +307,23 @@ export class StoreCatalog implements Catalog {
       if (problems.length > 0) { return { ...emptyReport(), refused: [{ name, problems }] }; }
       const stored = work.described.get(decl.name) ?? decl;
       const record = await this.#fnRecord(system, stored, existing, 'runtime', by);
-      await this.options.store.tx(async (tx) => {
+      const manifest = this.#manifests.get(system);
+      const systemRow = await this.options.store.table('systems').get(system);
+      const apiChanged = await this.options.store.tx(async (tx) => {
         await tx.table('fns').put(record);
         await this.#writeIndexes(tx, record, work.describedTypes.get(decl.name));
         // the version is the declaration as the person saved it; an unchanged save writes none
         if (existing === undefined || existing.version !== record.version) {
           await writeItemVersions(tx, system, [{ section: 'fns', name, change: existing === undefined ? 'added' : 'changed', decl: Json.parse(decl), declaredBy: 'runtime' }], this.options.clock(), by);
         }
+        // a saved fn is listed in its system's API index with the rest of its group
+        const off = systemRow?.enabled.context === false || systemRow?.stage === 'installed';
+        return this.#writeApiIndex(tx, system, manifest?.context ?? [], manifest?.groups ?? [], this.options.clock(), off);
       });
       await this.#refresh();
       const saved = await this.fn(name);
       this.#announce([name], [], saved === undefined ? [] : [saved]);
+      for (const changed of apiChanged) { this.options.bus.publish('context.changed', { name: changed }); }
       return { ...emptyReport(), ...(existing === undefined ? { added: [name] } : { updated: [name] }) };
     });
   }
@@ -579,8 +585,6 @@ export class StoreCatalog implements Catalog {
           await writeDerivedLinks(tx, record, now);
         }
       }
-      // the API index items list the fns as this import leaves them
-      apiChanged.push(...await this.#writeApiIndex(tx, system, accepted, next.groups ?? [], now, contextSwitchedOff));
       for (const name of removedFrom.get('fns') ?? []) {
         // a fn a person saved (`addedBy`) is never in a manifest, so only the system's own go
         const gone = await tx.table('fns').get(name);
@@ -589,6 +593,8 @@ export class StoreCatalog implements Catalog {
           await this.#removeIndexes(tx, name);
         }
       }
+      // the API index items list the system's fns as this import leaves them, saved ones too
+      apiChanged.push(...await this.#writeApiIndex(tx, system, accepted.context, next.groups ?? [], now, contextSwitchedOff));
       for (const name of removedFrom.get('types') ?? []) { await tx.table('types').remove(name); }
       for (const name of removedFrom.get('kinds') ?? []) { await tx.table('kinds').remove(name); }
       for (const name of removedFrom.get('context') ?? []) { await tx.table('context').remove(name); await removeLinksFrom(tx, name); }
@@ -618,13 +624,15 @@ export class StoreCatalog implements Catalog {
   }
 
   /**
-   * Write a system's API index items (`api-index.ts`) for the fns this import accepted: changed ones rewritten, a group
-   * that no longer has fns removed (found from the index item's own choices, so nothing is scanned). An item the system
-   * declares itself under the same name is left to it. Returns the names written or removed.
+   * Write a system's API index items (`api-index.ts`) from a query of the system's stored fns (its contract's and those
+   * saved at runtime, as a widget or a form): changed ones rewritten, a group that no longer has fns removed (found from
+   * the index item's own choices). An item the system declares itself (`context`) under the same name is left to it.
+   * Returns the names written or removed.
    */
-  async #writeApiIndex(tx: HubStore, system: SystemName, accepted: SectionLists, groups: readonly ApiGroupDecl[], now: number, off: boolean): Promise<QualifiedName[]> {
-    const own = new Set<string>(accepted.context.map((decl) => qualify(system, decl.name)));
-    const decls = apiIndexDecls(system, accepted.fns, groups).filter((decl) => !own.has(qualify(system, decl.name)));
+  async #writeApiIndex(tx: HubStore, system: SystemName, context: readonly ContextDecl[], groups: readonly ApiGroupDecl[], now: number, off: boolean): Promise<QualifiedName[]> {
+    const own = new Set<string>(context.map((decl) => qualify(system, decl.name)));
+    const fns = (await allRows(tx.table('fns'), { where: { system } })).map((fn) => fn.decl);
+    const decls = apiIndexDecls(system, fns, groups).filter((decl) => !own.has(qualify(system, decl.name)));
     const table = tx.table('context');
     const previous = await table.get(apiContextName(system));
     const wanted = new Set<string>(decls.map((decl) => qualify(system, decl.name)));

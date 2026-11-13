@@ -106,8 +106,17 @@ export interface VectorIndex {
 export interface TextIndex {
   upsert(entries: ReadonlyArray<{ kind: IndexedKind; key: string; text: string }>): Promise<void>;
   remove(kind: IndexedKind, keys: readonly string[]): Promise<void>;
-  /** `within` keeps the search to those items. */
-  search(query: { text: string; kinds: readonly IndexedKind[]; limit: number; within?: ReadonlyArray<IndexedItem> }): Promise<Array<{ kind: IndexedKind; key: string; score: number }>>;
+  /** `within` keeps the search to those items, `prefix` to the keys that start with it; both inside the query. */
+  search(query: TextQuery): Promise<Array<{ kind: IndexedKind; key: string; score: number }>>;
+}
+
+/** One text search: the words, the kinds of item, how many hits, and what to keep to. */
+export interface TextQuery {
+  readonly text: string;
+  readonly kinds: readonly IndexedKind[];
+  readonly limit: number;
+  readonly within?: ReadonlyArray<IndexedItem> | undefined;
+  readonly prefix?: string | undefined;
 }
 
 /**

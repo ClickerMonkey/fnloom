@@ -41,8 +41,11 @@ export default feature({
     await ctx.shot('types');
 
     await open(ctx, '/admin/systems/fs/parts', tid('system-parts'));
-    const sections = await page.$$eval('[data-testid="system-parts"] section', (all) => all.map((one) => one.getAttribute('data-section')));
-    check(['roots', 'kinds', 'commands', 'components', 'examples'].every((section) => sections.includes(section)), `roots, kinds, commands, components and examples each have a heading (${sections.join(', ')})`);
+    // one kind at a time, chosen by a chip: roots, kinds, commands, components and examples each have one
+    const chips = await page.$$eval('[data-part-tab]', (all) => all.map((one) => one.getAttribute('data-part-tab')));
+    check(['roots', 'kinds', 'commands', 'components', 'examples'].every((section) => chips.includes(section)), `roots, kinds, commands, components and examples each have a chip (${chips.join(', ')})`);
+    await page.click('[data-part-tab="commands"]');
+    await page.waitForSelector(`[data-section="commands"] ${tid('system-part')}`);
     await page.click(`[data-section="commands"] ${tid('system-part')}`);
     await find(page, 'system-part-owner');
     await settle(page);

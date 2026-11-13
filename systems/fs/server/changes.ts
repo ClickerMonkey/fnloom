@@ -315,7 +315,8 @@ export class CommandChanges implements ChangeCapture {
       status = file.moved ?? 'modified';
     }
     const base = { path: file.at.relative, root: file.at.root.name, status, ...(from === undefined ? {} : { from }), ...(exists ? { size: (await stat(abs)).size } : {}), certain: file.certain };
-    const rule = await file.sensitivity.changed(file.at);
+    // the before side is scanned too: a call that strips a token or deletes a key file would show it on a `-` line
+    const rule = await file.sensitivity.changed(file.at, await this.#beforeText(file, signal));
     if (rule !== undefined) { return { ...base, noDiff: 'sensitive', sensitive: rule.kind }; }
     const binary = now.binary || (!exists && file.kept?.binary === true);
     if (binary) { return { ...base, noDiff: 'binary' }; }
@@ -327,6 +328,19 @@ export class CommandChanges implements ChangeCapture {
     if (raw.length >= this.#deps.limits.diffMaxBytes) { return { ...base, noDiff: 'large' }; }
     const diff = withHeader(raw, file.rel, status, from);
     return { ...base, diff, ...patchStats(diff) };
+  }
+
+  /**
+   * The text a file held before the call, for the sensitivity scan: the copy kept of a file dirty before it, else its
+   * blob at the `HEAD` the call started on (under its old name for a rename). `undefined` when there is none.
+   */
+  async #beforeText(file: { top: string; rel: string; kept: Kept | undefined; headBefore: string | undefined; after: StatusEntry | undefined }, signal: AbortSignal | undefined): Promise<string | undefined> {
+    if (file.kept !== undefined) {
+      return file.kept.copy === undefined ? undefined : readFile(file.kept.copy, 'utf8').catch(() => undefined);
+    }
+    if (file.headBefore === undefined) { return undefined; }
+    const blob = await this.#git(file.top, ['cat-file', 'blob', `${file.headBefore}:${file.after?.from ?? file.rel}`], signal);
+    return blob.ended === 'exit' && blob.exitCode === 0 ? blob.stdout : undefined;
   }
 
   /** The raw diff of a file from before the call to now; `undefined` when there is nothing to diff against. */

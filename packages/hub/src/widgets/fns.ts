@@ -13,7 +13,7 @@ import { WidgetService } from './service.ts';
 export function widgetServiceOf(services: HubServices): WidgetService {
   return new WidgetService({
     catalog: () => services.catalog, runs: () => services.execution.runs, facts: () => services.fns.facts, store: () => services.store,
-    access: (actor) => services.access.scope(actor),
+    access: (actor) => services.access.scope(actor), sharing: () => services.access,
   });
 }
 

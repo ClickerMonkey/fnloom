@@ -55,7 +55,7 @@ const id = (key: string) => `changes-${key.replace(/[^A-Za-z0-9_-]/g, '_')}`;
       <div :id="id(current.key)" class="panel" role="tabpanel" :aria-labelledby="`${id(current.key)}-tab`">
         <p class="path">
           <span class="status">{{ STATUS_WORDS[current.file.status] }}</span>
-          <span class="where" :title="current.file.path"><template v-if="current.file.from">{{ current.file.from }} → </template>{{ current.file.path }}</span>
+          <span class="where" :title="current.file.path"><bdi dir="ltr"><template v-if="current.file.from">{{ current.file.from }} → </template>{{ current.file.path }}</bdi></span>
         </p>
         <DiffBody v-if="current.blocks.length > 0" :blocks="current.blocks" :label="`Changes to ${current.file.path}`" />
         <p v-else class="empty">{{ current.file.status === 'renamed' ? 'Moved without changes.' : 'No line changes (mode or staging only).' }}</p>
@@ -65,7 +65,7 @@ const id = (key: string) => `changes-${key.replace(/[^A-Za-z0-9_-]/g, '_')}`;
     <ul v-if="others.length > 0" class="others" aria-label="Changed files without a diff">
       <li v-for="other in others" :key="other.key" class="other">
         <span class="dot" :class="other.file.status" aria-hidden="true" />
-        <span class="where" :title="other.file.path">{{ other.file.path }}</span>
+        <span class="where" :title="other.file.path"><bdi dir="ltr">{{ other.file.path }}</bdi></span>
         <span class="status">{{ STATUS_WORDS[other.file.status] }}</span>
         <span class="why">{{ other.why }}</span>
       </li>
@@ -123,7 +123,7 @@ const id = (key: string) => `changes-${key.replace(/[^A-Za-z0-9_-]/g, '_')}`;
 .panel { display: grid; min-width: 0; }
 .path { display: flex; gap: var(--space-2); align-items: baseline; min-width: 0; margin: 0; padding: var(--space-1) var(--space-3); font-size: var(--text-xs); }
 .status { flex: none; color: var(--text-dim); }
-.where { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); direction: rtl; text-align: left; }
+.where { min-width: 0; /* rtl puts the ellipsis on the left; the inner ltr isolate keeps dotfile paths in order */ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); direction: rtl; text-align: left; }
 .empty { margin: 0; padding: var(--space-2) var(--space-3); color: var(--text-dim); font-size: var(--text-sm); }
 .others { display: grid; gap: 2px; margin: 0; padding: var(--space-2) var(--space-3); list-style: none; border-top: 1px solid var(--border); font-size: var(--text-xs); }
 .other { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--space-2); min-width: 0; }

@@ -64,6 +64,7 @@ export const TABLE_INDEXES: { readonly [K in TableName]?: IndexSpec<K> } = {
   types: [['system']],
   kinds: [['system']],
   fns: [['system']],
+  access: [['scoped']],
   context: [['system'], ['updatedAt']],
   sessions: [['owner', 'updatedAt'], ['updatedAt']],
   messages: [['session', 'createdAt'], ['turn']],

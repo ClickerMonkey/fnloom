@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createDefaultResourceRegistry } from '@aeye/resources/default';
-import { mintId, type HookInput } from '@harness/core';
+import { mintId, type ApprovalPreview, type HookInput } from '@harness/core';
 import type { TypesOf } from '@harness/sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
@@ -88,6 +88,13 @@ describe('the fs implementation', () => {
     expect(listed.entries.map((e) => e.path)).not.toContain(`${root}/.env`);
     const grep = fnCtx<TypesOf<Fns['grep']>>({ ...none(), progress: { set: () => undefined } }, { config });
     expect(doneResult(await fns.grep.run({ pattern: 'TODO' }, grep.ctx))).toMatchObject({ matches: [{ path: `${root}/src/b.ts` }], hidden: 1 });
+    // an approval for another reason (auto mode asking) unhides nothing; one whose card showed the flag does
+    const grepOn = (parts: ApprovalPreview['parts']) => fnCtx<TypesOf<Fns['grep']>>({ ...none(), progress: { set: () => undefined } }, { config, approved: { by: mintId('actor'), preview: { title: 'Search', parts, irreversible: false } } }).ctx;
+    expect(doneResult(await fns.grep.run({ pattern: 'TODO' }, grepOn([{ type: 'text', text: 'Auto mode asks you about fs/grep.' }])))).toMatchObject({ hidden: 1 });
+    const flags = await fns.grep.flags?.({ pattern: 'TODO', glob: '.env*' }, preview) ?? [];
+    expect(flags).toEqual([expect.objectContaining({ path: '.env*', certain: false })]);
+    const seen = doneResult(await fns.grep.run({ pattern: 'TODO', glob: '.env*' }, grepOn([{ type: 'flags', flags: [...flags] }])));
+    expect(seen.matches.map((match) => match.path)).toEqual([`${root}/.env`]);
 
     const strict: FsConfig = { ...config, sensitive: [{ name: 'no-env', kind: 'env', match: { type: 'glob', glob: '.env' }, read: 'refuse', write: 'refuse', why: 'Never.' }] };
     const refused = await fns.read.run({ path: '.env' }, fnCtx<TypesOf<Fns['read']>>(none(), { config: strict }).ctx);

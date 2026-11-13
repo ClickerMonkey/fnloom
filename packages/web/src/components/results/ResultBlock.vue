@@ -37,6 +37,7 @@ onMounted(() => { void host.prepare(props.registry); });
 
 <template>
   <ResultView v-model:choice="choice" :table="table" :title="title" :visuals="visuals" :pager="pager" :opener="opener">
+    <template #lead><slot name="lead" /></template>
     <template #tools><slot name="tools" /></template>
   </ResultView>
 </template>

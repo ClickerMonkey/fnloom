@@ -124,7 +124,8 @@ describe('through a hub MCP', () => {
       expect(JSON.stringify(settled), name).not.toContain('Secret');
     }
     const listed = await call(r, turn, 'resource_list', {});
-    expect(listed).toMatchObject({ status: 'done', result: { items: [{ uri: open }], facets: [] } });
+    // the counts are over what it can reach: one document, never the hidden one
+    expect(listed).toMatchObject({ status: 'done', result: { items: [{ uri: open }], facets: [{ value: 'document', count: 1 }] } });
     expect(JSON.stringify(listed)).not.toContain(hidden);
     const remembered = await call(r, turn, 'remember', { text: 'Use tabs here.' });
     const { name } = z.object({ name: QualifiedName }).parse(remembered.status === 'done' ? remembered.result : {});

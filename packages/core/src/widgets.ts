@@ -105,6 +105,11 @@ export const WidgetResult = z.object({
   visuals: z.array(WidgetVisual),
   /** Bindings that no longer fit (a column gone or of another kind), in words; the widget still draws. */
   problems: z.array(z.string()),
+  /**
+   * How the pager asks for another page, when the widget pages: run the widget again with `arg` set to the page's
+   * offset (`table.offset` is this page's, `table.truncated` says whether more follow), `size` rows a page.
+   */
+  paging: z.object({ arg: LocalName, size: z.number().int().min(1) }).optional(),
 });
 export type WidgetResult = z.infer<typeof WidgetResult>;
 

@@ -1,8 +1,9 @@
 /**
  * The roots served as resources: `file://` URIs for folders and files, folder listings by page, reads with text and
  * links (through `Documents`), and change reports from watching the roots. Each file's `format` lets the hub pick a
- * sectioner (headings for markdown, symbols for code) and a viewer for it. Files the sensitivity rules hide by name (see
- * `sensitive.ts`) are never listed, read or reported.
+ * sectioner (headings for markdown, symbols for code) and a viewer for it. Files a sensitivity rule covers without
+ * allowing reads (by name, by being gitignored, or by what their first bytes hold; see `sensitive.ts`) are never
+ * listed, read or reported, so the hub never indexes them and a model never sees them without the person approving.
  */
 import { join } from 'node:path';
 import type { Page, ReadWant, ResourceChange, ResourceLink, ResourceRead, ResourceRoot, ResourceStat, ResourceUri } from '@harness/core';
@@ -35,13 +36,13 @@ export function versionOf(modifiedAt: Date, size: number): string {
 /** The fs system's resource provider. The guard and secrets come from the current config, so they follow its changes. */
 export class FsResources implements ResourceProvider {
   private readonly guard: () => PathGuard;
-  private readonly secrets: () => Pick<Sensitivity, 'hides'>;
+  private readonly secrets: () => Pick<Sensitivity, 'hidden'>;
   private readonly files: FileService;
   private readonly documents: Documents;
   private readonly limits: ResourceLimits;
   private readonly watchFolder: WatchFolder;
 
-  constructor(deps: { guard: () => PathGuard; secrets: () => Pick<Sensitivity, 'hides'>; files: FileService; documents: Documents; limits: ResourceLimits; watch: WatchFolder }) {
+  constructor(deps: { guard: () => PathGuard; secrets: () => Pick<Sensitivity, 'hidden'>; files: FileService; documents: Documents; limits: ResourceLimits; watch: WatchFolder }) {
     this.guard = deps.guard;
     this.secrets = deps.secrets;
     this.files = deps.files;
@@ -62,7 +63,7 @@ export class FsResources implements ResourceProvider {
   }
 
   async list(uri: ResourceUri, cursor?: string): Promise<Page<ResourceStat>> {
-    const at = this.located(uri);
+    const at = await this.located(uri);
     const from = cursor === undefined ? 0 : Number.parseInt(cursor, 10) || 0;
     const children = await this.children(at);
     const slice = children.slice(from, from + this.limits.page);
@@ -73,12 +74,12 @@ export class FsResources implements ResourceProvider {
   }
 
   async stat(uri: ResourceUri): Promise<ResourceStat | undefined> {
-    const at = this.within(uri);
+    const at = await this.within(uri);
     return at === undefined ? undefined : this.statPath(at.path, at);
   }
 
   async read(uri: ResourceUri, want: ReadWant[]): Promise<ResourceRead> {
-    const at = this.located(uri);
+    const at = await this.located(uri);
     const stat = await this.statPath(at.path, at);
     if (stat === undefined) { throw new Error(`${uri} doesn't exist.`); }
     if (stat.type === 'folder') { return this.readFolder(at, stat, want); }
@@ -97,8 +98,11 @@ export class FsResources implements ResourceProvider {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const flush = async () => {
       timer = undefined;
-      const batch = [...pending];
+      const all = [...pending];
       pending.clear();
+      const located = all.flatMap(([path]) => { const at = guard.locate(path); return at === undefined ? [] : [at]; });
+      const hidden = await secrets.hidden(located, { content: true });
+      const batch = all.filter(([path]) => !hidden.has(path));
       const changes = await Promise.all(batch.map(async ([path, event]): Promise<ResourceChange> => {
         const entry = await this.files.entry(path);
         if (entry === undefined) { return { uri: fileUri(path), change: 'removed' }; }
@@ -109,7 +113,7 @@ export class FsResources implements ResourceProvider {
     const stops = [...folders].map((folder) => this.watchFolder(folder, (event, file) => {
       const path = normalize(join(folder, file));
       const rel = inside(folder, path);
-      if (rel === undefined || rel.split('/').some((part) => this.limits.ignore.includes(part)) || secrets.hides(rel)) { return; }
+      if (rel === undefined || rel.split('/').some((part) => this.limits.ignore.includes(part))) { return; }
       if (!wanted.some((root) => inside(root, path) !== undefined)) { return; }
       pending.set(path, pending.get(path) === 'rename' ? 'rename' : event);
       timer ??= setTimeout(() => { void flush(); }, this.limits.debounce);
@@ -124,34 +128,36 @@ export class FsResources implements ResourceProvider {
    * Where a URI is inside the roots, or `undefined` when it is outside them (also through a link), a secret, or not a
    * file URI.
    */
-  private within(uri: ResourceUri): Located | undefined {
+  private async within(uri: ResourceUri): Promise<Located | undefined> {
     const path = uriPath(uri);
     if (path === undefined) { return undefined; }
+    let at: Located;
     try {
-      const at = this.guard().resolve(path, { write: false });
-      return this.secret(at.path, at) ? undefined : at;
+      at = this.guard().resolve(path, { write: false });
     } catch (error) {
       if (error instanceof FsProblem) { return undefined; }
       throw error;
     }
+    return (await this.hiddenOf([at])).has(at.path) ? undefined : at;
   }
 
-  private located(uri: ResourceUri): Located {
-    const at = this.within(uri);
+  private async located(uri: ResourceUri): Promise<Located> {
+    const at = await this.within(uri);
     if (at === undefined) { throw new Error(`${uri} isn't served: it is outside this system's roots, or a secret.`); }
     return at;
   }
 
-  /** Whether a path under `at`'s root is a secret. */
-  private secret(path: string, at: Located): boolean {
-    const rel = inside(at.root.folder, path);
-    return rel !== undefined && this.secrets().hides(rel);
+  /** Which of these places are secrets: by name, gitignored, or holding a key or token in their first bytes. */
+  private hiddenOf(places: readonly Located[]): Promise<Set<string>> {
+    return this.secrets().hidden(places, { content: true });
   }
 
   /** A folder's children, secrets left out. */
   private async children(at: Located): Promise<WalkEntry[]> {
     const all = await collect(at.path, { ignore: this.limits.ignore, depth: 1 });
-    return all.filter((child) => !this.secret(child.path, at));
+    const guard = this.guard();
+    const hidden = await this.hiddenOf(all.flatMap((child) => { const place = guard.locate(child.path); return place === undefined ? [] : [place]; }));
+    return all.filter((child) => !hidden.has(normalize(child.path)));
   }
 
   private async readFolder(at: Located, stat: ResourceStat, want: ReadWant[]): Promise<ResourceRead> {

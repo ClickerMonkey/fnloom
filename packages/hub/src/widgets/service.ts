@@ -26,7 +26,7 @@ import { InvalidArgs } from '../execution/executors.ts';
 import { fnError, RunRefused } from '../execution/errors.ts';
 import type { FnFactsService } from '../fns/index.ts';
 import type { HubStore } from '../store/index.ts';
-import type { AccessScope } from '../access/index.ts';
+import type { AccessScope, AccessService } from '../access/index.ts';
 
 /** The table visual every result fits; a widget always offers it last. */
 const TABLE_VISUAL: WidgetVisual = { visual: 'table', bind: {} };
@@ -60,10 +60,15 @@ export interface WidgetDeps {
   readonly facts: () => Pick<FnFactsService, 'modes'>;
   readonly store: () => HubStore;
   readonly access: (actor: ActorId) => Promise<AccessScope>;
+  /** Who owns a saved widget, and handing a new one to its person. */
+  readonly sharing: () => Pick<AccessService, 'sharing' | 'own'>;
 }
 
-/** The run a widget tool or a widget run acts in: its id, turn and person. */
-type Asking = Pick<RunInfo, 'id' | 'turn' | 'user' | 'session'>;
+/**
+ * The run a widget tool or a widget run acts in: its id, turn, person and caller. A source runs as a child called by the
+ * same caller (an agent stays an agent, so its policies and approvals apply), never as the person running it by hand.
+ */
+type Asking = Pick<RunInfo, 'id' | 'turn' | 'user' | 'session' | 'caller'>;
 
 /**
  * The `hub/widget` kind's description of a payload, worked out in the hub (its kind's system): refused when it isn't a
@@ -97,30 +102,35 @@ export class WidgetService {
   /** Run a widget: its source as a child run, the bindings checked against what came back. */
   async run(fn: FnRecord, args: Json, run: Asking): Promise<WidgetResult> {
     const spec = WidgetSpec.parse(fn.decl.payload);
-    const source = await this.#source(spec.source);
+    const source = await this.#readSource(spec.source);
     const pinned = Object.fromEntries(spec.controls.flatMap((control) => (control.pinned === undefined ? [] : [[control.arg, control.pinned]])));
-    const paging = spec.paging === undefined ? {} : {
-      ...(spec.paging.offset === undefined ? {} : { [spec.paging.offset]: 0 }), ...(spec.paging.limit === undefined ? {} : { [spec.paging.limit]: spec.paging.size }),
-    };
     const given = typeof args === 'object' && args !== null && !Array.isArray(args) ? args : {};
-    const { table, run: child } = await this.#call(source.name, { ...given, ...pinned, ...paging }, run, 'source');
+    // the pager asks for a page by its offset arg; the page size is the widget's own
+    const offsetArg = spec.paging?.offset;
+    const asked = offsetArg === undefined ? undefined : given[offsetArg];
+    const offset = typeof asked === 'number' && Number.isSafeInteger(asked) && asked >= 0 ? asked : 0;
+    const paging = spec.paging === undefined ? {} : {
+      ...(offsetArg === undefined ? {} : { [offsetArg]: offset }), ...(spec.paging.limit === undefined ? {} : { [spec.paging.limit]: spec.paging.size }),
+    };
+    const { table, run: child } = await this.#call(source.name, { ...given, ...pinned, ...paging }, run, `source:${String(offset)}`);
     const check = checkWidget(spec, { args: source.decl.args, table, visuals: await this.#visuals() });
     const visuals = [...check.visuals.filter((v) => v.visual !== TABLE_VISUAL.visual), ...check.visuals.filter((v) => v.visual === TABLE_VISUAL.visual)];
     return WidgetResult.parse({
       title: spec.title, table, source: { fn: source.name, run: child },
       visuals: visuals.some((v) => v.visual === TABLE_VISUAL.visual) ? visuals : [...visuals, TABLE_VISUAL], problems: check.problems,
+      ...(offsetArg === undefined || spec.paging === undefined ? {} : { paging: { arg: offsetArg, size: spec.paging.size } }),
     });
   }
 
   /** `hub/widget_source`: the source's description and args, and a small sample of its result. */
   async source(name: QualifiedName, args: Json | undefined, run: Asking): Promise<{ fn: QualifiedName; description: string; args: FnDecl['args']; sample: ResultTable }> {
-    const source = await this.#source(name);
+    const source = await this.#readSource(name);
     return { fn: source.name, description: source.decl.description, args: source.decl.args, sample: await this.#sample(source, args, run) };
   }
 
   /** `hub/widget_visuals`: the declared visuals that fit the source's sample, with their channels. */
   async fits(name: QualifiedName, args: Json | undefined, run: Asking) {
-    const sample = await this.#sample(await this.#source(name), args, run);
+    const sample = await this.#sample(await this.#readSource(name), args, run);
     return fittingVisuals(sample, await this.#visuals(), true).map((fit) => ({ visual: fit.name, label: fit.label, channels: fit.shape.channels, rows: fit.shape.rows, whole: fit.shape.whole }));
   }
 
@@ -132,7 +142,10 @@ export class WidgetService {
     return { problems: check.problems, visuals: check.visuals.map((v) => v.visual) };
   }
 
-  /** `hub/widget_save`: declare the widget as a fn of the hub's widget kind, as the run's person. */
+  /**
+   * `hub/widget_save`: declare the widget as a fn of the hub's widget kind, as the run's person. A new widget is
+   * private to them; only its owner (or an admin) saves over one.
+   */
   async save(input: { name: string; description: string; spec: WidgetSpec; replace?: boolean | undefined }, run: Asking): Promise<{ fn: QualifiedName; created: boolean }> {
     const checked = await this.check({ spec: input.spec, sample: { columns: [], rows: [], offset: 0, truncated: false, sort: [] } });
     // only problems the spec has whatever the data (a missing source) stop a save; bindings were checked on a sample
@@ -141,15 +154,22 @@ export class WidgetService {
     const existing = await this.#deps.catalog().fn(name);
     if (existing !== undefined && input.replace !== true) { throw new RunRefused(fnError('caller', `${name} is taken: pick another name, or save over it with replace`, SAVE_FN_TAKEN)); }
     if (existing !== undefined && existing.decl.kind !== WIDGET_KIND) { throw new RunRefused(fnError('caller', `${name} is not a widget and can't be saved over`, SAVE_FN_TAKEN)); }
+    const person = run.user.id;
+    if (existing !== undefined) {
+      const [sharing, access] = await Promise.all([this.#deps.sharing().sharing({ kind: 'fn', fn: name }), this.#deps.access(person)]);
+      if (sharing.owner !== person && !access.admin) { throw new RunRefused(fnError('caller', `${name} is someone else's widget: save yours under another name`, SAVE_FN_TAKEN)); }
+    }
+    await this.#readSource(input.spec.source);
     const decl: FnDecl = {
       name: input.name, description: input.description, kind: WIDGET_KIND, payload: jsonOf(input.spec),
       // its kind works out the signature from the payload
       args: { name: 'any' }, returns: { name: 'any' }, deps: [], handlers: {}, progress: { type: 'none' },
       operations: { cancel: true, pause: false, undo: false, background: false }, display: 'card', limits: {}, visibility: 'both', tags: [], group: 'widgets',
     };
-    const report = await this.#deps.catalog().declare(HUB_SYSTEM, decl, run.user.id);
+    const report = await this.#deps.catalog().declare(HUB_SYSTEM, decl, person);
     const refused = report.refused[0];
     if (refused !== undefined) { throw new InvalidArgs(refused.problems.join('; ') || `${name} was refused`); }
+    if (existing === undefined) { await this.#deps.sharing().own({ kind: 'fn', fn: name }, person, { visibility: 'private', with: [] }); }
     return { fn: name, created: existing === undefined };
   }
 
@@ -188,6 +208,19 @@ export class WidgetService {
     return source;
   }
 
+  /**
+   * A source fn that reads (its mode worked out deeply, `FnFacts`); refused before anything runs otherwise. A widget
+   * draws what a fn reads; its rows' actions are where it changes things.
+   */
+  async #readSource(name: QualifiedName): Promise<FnRecord> {
+    const source = await this.#source(name);
+    const mode = (await this.#deps.facts().modes([source.name])).get(source.name) ?? 'write';
+    if (mode !== 'read') {
+      throw new RunRefused(fnError('caller', `${source.name} ${mode === 'delete' ? 'deletes' : 'writes'}, so it can't be a widget's source: pick a fn that reads and returns a table`, 'not-a-read'));
+    }
+    return source;
+  }
+
   /** A small sample of a source's result, for the authoring tools. */
   async #sample(source: FnRecord, args: Json | undefined, run: Asking): Promise<ResultTable> {
     const given = sampleArgs(args);
@@ -201,7 +234,7 @@ export class WidgetService {
   async #call(fn: QualifiedName, args: Json, run: Asking, key: string): Promise<{ table: ResultTable; run: RunId }> {
     const started = await this.#deps.runs().start({
       fn, args, turn: run.turn, ...(run.session === undefined ? {} : { session: run.session }), parent: run.id, key,
-      actor: run.user.id, caller: run.user.id, priority: 'interactive', background: false, handlers: [],
+      actor: run.user.id, caller: run.caller, priority: 'interactive', background: false, handlers: [],
     });
     const settled = await started.settled;
     if (settled.status !== 'done') {

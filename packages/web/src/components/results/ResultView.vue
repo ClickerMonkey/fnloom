@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * A result table drawn by one of the visuals that fit it: the best fit unless the person picked another, a switch
- * between the ones that fit (hidden when only the table does), and Copy and Download as CSV. The visuals come matched
+ * between the ones that fit (hidden when only the table does), and Copy and Download as CSV. The `lead` slot puts the
+ * page's own controls (search, filters) at the start of the same row. The visuals come matched
  * already, so the view knows nothing of where they are from.
  */
 import type { ResultTable } from '@harness/core';
@@ -43,6 +44,7 @@ function download(): void {
 <template>
   <div class="result" data-testid="result-view" :data-visual="shown?.visual.name">
     <div class="tools">
+      <slot name="lead" />
       <UiSegmented v-if="visuals.length > 1" v-model="current" :options="options" label="Show as" icon-only data-testid="result-visuals" />
       <span class="actions">
         <slot name="tools" />
@@ -56,6 +58,6 @@ function download(): void {
 
 <style scoped>
 .result { display: grid; gap: var(--space-2); min-width: 0; }
-.tools { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
 .actions { display: flex; gap: 2px; margin-left: auto; }
 </style>

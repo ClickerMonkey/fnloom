@@ -116,10 +116,8 @@ export function registerResourceFns(fns: HubFns, deps: ResourceFnDeps): void {
 
   fns.register(refs.resource_list, async (args, ctx) => {
     const reach = await reachOf(deps, ctx);
-    const page = await deps.resources().library.browse(read.list(args), askingOf(ctx));
-    const items = page.items.filter((item) => reach.resource(item.uri));
-    // through an MCP, the facets' counts would tell of resources it can't reach
-    return items.length === page.items.length ? page : { ...page, items, facets: [] };
+    // what the caller can't reach is left out before the counts and the page
+    return deps.resources().library.browse(read.list(args), askingOf(ctx), (uri) => reach.resource(uri));
   });
   fns.register(refs.resource_read, async (args, ctx) => {
     const body = read.read(args);

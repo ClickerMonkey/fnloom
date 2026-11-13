@@ -119,6 +119,6 @@ describe('the wired resources module', () => {
     expect((await reader.outline(record.uri, { actor: ADA })).length).toBeGreaterThan(0);
     const made = await context.fromResource({ uri: record.uri, copy: 'snapshot' }, { actor: ADA });
     expect(made.created.length).toBeGreaterThan(0);
-    expect((await library.browse({}, { actor: ADA })).items.map((r) => r.uri)).toContain(record.uri);
+    expect((await library.browse({}, { actor: ADA }, () => true)).items.map((r) => r.uri)).toContain(record.uri);
   });
 });

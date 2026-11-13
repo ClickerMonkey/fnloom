@@ -1,12 +1,13 @@
 /**
  * Visibility on the hub store: the `access` rows, the people and groups they name, and the per-person connections' own
  * sharing (a connection's `share`, not an `access` row). Nothing is kept between requests: a one-target question
- * (`sharing`, `give`, `own`) reads that target's row by its key, and a person's scope reads the rows as they are now
- * (only things someone shared or restricted have one), so a second hub process or a direct write is seen at once.
+ * (`sharing`, `give`, `own`) reads that target's row by its key, and a person's scope reads, as they are now, only the
+ * rows that can change what someone sees (`scopeReads`; none for an admin), so a second hub process or a direct write is seen at
+ * once and a public row is never read for a scope.
  */
 import { reject } from '@ayepi/core';
 import {
-  accessKey, isUnsettled, qualify, type AccessInfo, type AccessRecord, type AccessTarget, type AccessView, type ActorId, type FnShare, type FnUsable, type Sharing, type ShareRule, type SystemName, type UserConnection,
+  accessKey, isUnsettled, scopeReads, qualify, type AccessInfo, type AccessRecord, type AccessTarget, type AccessView, type ActorId, type FnShare, type FnUsable, type Sharing, type ShareRule, type SystemName, type UserConnection,
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
@@ -42,8 +43,10 @@ export class StoreAccessService implements AccessService {
   }
 
   async scope(actor: ActorId): Promise<AccessScope> {
-    const [person, groups, rows] = await Promise.all([this.#deps.store.table('actors').get(actor), this.#groups(actor), this.#rows()]);
+    const [person, groups] = await Promise.all([this.#deps.store.table('actors').get(actor), this.#groups(actor)]);
     const admin = person?.kind === 'user' && person.role === 'admin';
+    // an admin sees everything, so no row is read for them
+    const rows = admin ? new Map<string, AccessRecord>() : await this.#scopedRows();
     return new ActorScope({ actor, admin, groups, rows, gate: await this.#deps.gate(actor, groups), systemOf: this.#deps.systemOf });
   }
 
@@ -121,7 +124,7 @@ export class StoreAccessService implements AccessService {
     if (target.kind === 'connection') {
       await this.#store().connections.update(target.connection, { share: shared, updatedAt: this.#deps.clock() });
     } else {
-      const record: AccessRecord = { key: accessKey(target), target, sharing: { owner, ...shared }, setBy: by, updatedAt: this.#deps.clock() };
+      const record: AccessRecord = { key: accessKey(target), target, sharing: { owner, ...shared }, scoped: scopeReads({ target, sharing: { owner, ...shared } }), setBy: by, updatedAt: this.#deps.clock() };
       await this.#store().access.put(record);
     }
     // what each person may see changed: browsers fetch their composer's options again
@@ -133,9 +136,15 @@ export class StoreAccessService implements AccessService {
     return { access: this.#deps.store.table('access'), connections: this.#deps.store.table('connections') };
   }
 
-  /** The access rows as they are now, by key, for one scope. */
-  async #rows(): Promise<Map<string, AccessRecord>> {
-    return new Map((await allRows(this.#deps.store.table('access'))).map((row) => [row.key, row]));
+  /**
+   * The rows a scope has to read, as they are now, by key: those marked `scoped` (an indexed column), and the unmarked
+   * ones from before the column that `scopeReads` keeps. Any other public row lets everyone in, as no row does, so it
+   * is never read.
+   */
+  async #scopedRows(): Promise<Map<string, AccessRecord>> {
+    const access = this.#deps.store.table('access');
+    const [scoped, unmarked] = await Promise.all([allRows(access, { where: { scoped: true } }), allRows(access, { where: { scoped: { exists: false } } })]);
+    return new Map([...scoped, ...unmarked.filter(scopeReads)].map((row) => [row.key, row]));
   }
 
   async #groups(actor: ActorId): Promise<ReadonlySet<ActorId>> {

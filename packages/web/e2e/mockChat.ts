@@ -20,6 +20,7 @@ import type { z } from 'zod';
 import { summaryOf as summary } from '../src/chat/state/sessions.ts';
 import { selectionReport } from '../src/chat/test/fakes.ts';
 import { NOTE_TYPE, NOTES_WIDGET, SAMPLE_TABLE, SAMPLE_WIDGET } from '../src/data/test/samples.ts';
+import { BASH_CHANGES, FLAGGED_COMMAND, FLAGGED_PREVIEW } from './mockBuild8.ts';
 
 /** Send one event on a session's channel. */
 export type EmitSession = (session: SessionId, event: SessionEvent) => void;
@@ -489,6 +490,30 @@ export class MockChat {
     });
   }
 
+  /**
+   * Build 8: a `bash` run that changed files (the change tabs under its output, the files without a diff listed with
+   * why), then a `bash` call that touches sensitive files waiting for approval with them listed.
+   */
+  #seedChanges(now: number): void {
+    const chat = this.create('Tidy the routes');
+    this.sessions.set(chat.id, { ...chat, updatedAt: now - 20_000 });
+    const first = mintId('turn');
+    this.#add(chat.id, { turn: first, author: this.#owner(), role: 'user', status: 'done', createdAt: now - 400_000, parts: [{ type: 'text', text: 'Run the route script and show me what it changed.' }] });
+    const ran = this.#run(chat.id, first, QualifiedName.parse('fs/bash'), { command: 'npm run routes:tidy' }, AGENT);
+    this.runs.set(ran.id, {
+      ...ran, status: 'done', startedAt: now - 390_000, endedAt: now - 384_000,
+      outcome: { status: 'done', result: Json.parse({ exitCode: 0, stdout: '> routes:tidy\nmoved docs/routes.md to docs/routing.md\nadded 1 route', stderr: '', changes: BASH_CHANGES }) },
+    });
+    this.#add(chat.id, { turn: first, author: AGENT, role: 'assistant', status: 'done', createdAt: now - 380_000, runs: [ran.id], parts: [{ type: 'text', text: 'Done. It changed five files; the diffs are under the command.' }] });
+    const second = mintId('turn');
+    this.#add(chat.id, { turn: second, author: this.#owner(), role: 'user', status: 'done', createdAt: now - 60_000, parts: [{ type: 'text', text: 'Set up the env file with my key.' }] });
+    const asked = this.#run(chat.id, second, QualifiedName.parse('fs/bash'), { command: FLAGGED_COMMAND }, AGENT, undefined, 'awaiting-approval');
+    this.runs.set(asked.id, { ...asked, createdAt: now - 50_000 });
+    const approval = fixture(Approval, { id: 'apr_env_setup', run: asked.id, fn: asked.fn, approver: { by: 'turn-user' }, status: 'pending', decisions: [], createdAt: now - 50_000, preview: FLAGGED_PREVIEW });
+    this.approvals.set(approval.id, { approval, resume: () => { this.#settle(chat.id, asked.id, 'done'); } });
+    this.#add(chat.id, { turn: second, author: AGENT, role: 'assistant', status: 'done', createdAt: now - 45_000, runs: [asked.id], parts: [{ type: 'text', text: 'This touches your env file and a key, so it waits for you.' }] });
+  }
+
   #seed(): void {
     const now = this.#now();
     const router = this.create('Refactor the router');
@@ -500,6 +525,7 @@ export class MockChat {
     this.#seedQueries(now);
     this.#seedInstall(now);
     this.#seedWidgets(now);
+    this.#seedChanges(now);
     const turn = mintId('turn');
     const refused = this.#refused(router.id, turn, 'fs/read_file', RunId.parse('run_agent'));
     this.runs.set(refused.id, { ...refused, startedAt: now - DAY - 62_000, endedAt: now - DAY - 62_000 });

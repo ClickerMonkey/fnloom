@@ -7,7 +7,7 @@
  *   the hub turns into a refusal, a question for the person, or a pass (`flagsVerdict`);
  * - which files `list`, `glob` and `grep` leave out of their results;
  * - which changed files a `bash` call's change set lists without a diff;
- * - which files are never served as resources (by name: the hub lists and watches without reading).
+ * - which files are never served as resources (by name, gitignored or by content), so the hub never indexes them.
  *
  * A glob without `/` matches a file or folder name at any depth (so a matched folder covers what it holds); one with
  * `/` matches the path from the root. `except` globs leave a match alone. Content rules look at the first
@@ -185,9 +185,12 @@ export class Sensitivity {
     return out;
   }
 
-  /** The rule a changed file falls under (names and content; gitignored files are counted, not listed), if any. */
-  async changed(at: Located): Promise<SensitivityRule | undefined> {
-    return strictest(await this.matching(at, { ignored: false, content: true }), 'read');
+  /**
+   * The rule a changed file falls under (names, and content now or `before` the change: a secret the change removed
+   * is still on the diff's `-` lines; gitignored files are counted, not listed), if any.
+   */
+  async changed(at: Located, before?: string): Promise<SensitivityRule | undefined> {
+    return strictest(await this.matching(at, { ignored: false, content: true, ...(before === undefined ? {} : { text: before }) }), 'read');
   }
 
   /** Every rule matching a file. */
@@ -206,6 +209,22 @@ export class Sensitivity {
     if (paths.length === 0 || !this.rules.some((rule) => rule.match.type === 'gitignored')) { return new Set(); }
     return this.ignores.ignored(paths, signal);
   }
+}
+
+/**
+ * Whether the person saw a file on an approved card: a flag names it or a folder above it, or, for a flag made from a
+ * search's glob (never `certain`), the glob matches it (a glob with `/` against the path's trailing parts, one
+ * without against its name). Only flags count: approving a card that showed none unhides nothing.
+ */
+export function shownOn(flags: readonly SensitivityFlag[], relative: string): boolean {
+  const parts = relative.split('/');
+  return flags.some((flag) => {
+    if (flag.path === relative || relative.startsWith(`${flag.path}/`)) { return true; }
+    if (flag.certain) { return false; }
+    const glob = flag.path.replaceAll('\\', '/').replace(/^(?:\.\/)+/, '');
+    if (!glob.includes('/')) { return matchesDotted(parts[parts.length - 1] ?? '', glob); }
+    return parts.some((_, i) => matchesDotted(parts.slice(i).join('/'), glob));
+  });
 }
 
 /** The strictest of the rules for an access. */

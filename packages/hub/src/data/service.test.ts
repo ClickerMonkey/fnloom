@@ -16,7 +16,7 @@ const BEN = ActorId.parse('act_ben');
 /** A member's scope: sees everything, but is no admin. */
 const member = (actor: ActorId): AccessScope => ({ ...openScope(actor), admin: false });
 
-async function world() {
+async function world(depth?: number) {
   const store = await testStore();
   const catalog = new StoreCatalog({ store, bus: new RecordingBus(), log: memoryLog().log, clock: () => 1, describer: { describe: () => Promise.resolve({ problems: [] }) } });
   const base = await manifestFor(shop);
@@ -41,7 +41,7 @@ async function world() {
   let counter = 0;
   const embedded: Array<{ kind: IndexedKind; key: string }> = [];
   const data = new StoreDataService({
-    store, catalog, settings: dataEnv.parse(), clock: () => ++now, random: () => String(++counter).padStart(6, '0'),
+    store, catalog, settings: { ...dataEnv.parse(), ...(depth === undefined ? {} : { HARNESS_RECORD_SEARCH_DEPTH: depth }) }, clock: () => ++now, random: () => String(++counter).padStart(6, '0'),
     indexer: () => ({ upsert: (items) => { embedded.push(...items); return Promise.resolve(); }, remove: () => Promise.resolve() }),
     search: () => ({ search: (): Promise<SearchHit[]> => Promise.resolve([]) }),
   });
@@ -104,5 +104,16 @@ describe('the data system', () => {
     const sets = await data.sets({}, ben);
     expect(sets.items.map((s) => [s.type, s.records])).toEqual([['shop/Note', 0], ['shop/Prefs', 1]]);
     await expect(data.find({ type: QualifiedName.parse('shop/Product') }, ann)).rejects.toMatchObject({ code: 'NO_STORED_TYPE' });
+  });
+
+  it('searches within one type and the asker’s own records, so other matches never use up the depth', async () => {
+    const { data, ann, ben } = await world(10);
+    for (let n = 0; n < 12; n += 1) { await data.save({ type: NOTE, value: { title: `oslo ${String(n)}`, body: 'oslo oslo', stars: n, done: false } }, ann); }
+    const annPrefs = await data.save({ type: PREFS, value: { theme: 'oslo' } }, ann);
+    const benPrefs = await data.save({ type: PREFS, value: { theme: 'oslo' }, run: IDS.run.parse('run_forged') }, ben);
+    expect((await data.find({ type: PREFS, search: 'oslo' }, ben)).items.map((r) => r.id)).toEqual([benPrefs.id]);
+    expect((await data.find({ type: PREFS, search: 'oslo' }, ann)).items.map((r) => r.id)).toEqual([annPrefs.id]);
+    // the run of a change is the asker's, never one named in the input
+    expect(benPrefs.run).toBeUndefined();
   });
 });

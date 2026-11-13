@@ -5,7 +5,7 @@
  * them. The host a widget is drawn in (`WidgetHost`) runs what it asks for, so the view knows nothing of where it is.
  */
 import {
-  ResultTable, WidgetResult, type GinTypeDef, type Json, type QualifiedName, type WidgetActionOption, type WidgetVisual,
+  ResultTable, WidgetResult, type FnMode, type GinTypeDef, type Json, type QualifiedName, type WidgetActionOption, type WidgetVisual,
 } from '@harness/core';
 import type { InjectionKey } from 'vue';
 import { TABLE_VISUAL, type FittingVisual } from '../results/visuals.ts';
@@ -67,6 +67,20 @@ export function actionArgs(bound: Readonly<Record<string, Json>>, form: Json | u
 }
 
 /** What a person is asked before an action runs, in words: "Archive this row?" with what it changes. */
+/** What an action does, in words, beside it in the menu (a read says nothing). */
+export const ACTION_MODE_WORDS = { read: '', write: 'changes it', delete: 'removes it' } as const satisfies Record<FnMode, string>;
+
+/** Columns whose value names a row, best first. */
+const NAMING_COLUMNS = ['title', 'name', 'label'] as const;
+
+/** A row's name for the menu that acts on it: its title (or name, or label) column, else its first text cell. */
+export function rowName(table: Pick<ResultTable, 'columns'>, row: readonly Json[]): string | undefined {
+  const named = NAMING_COLUMNS.map((name) => table.columns.findIndex((column) => column.name === name)).find((at) => at >= 0 && typeof row[at] === 'string' && row[at] !== '');
+  const at = named ?? row.findIndex((cell) => typeof cell === 'string' && cell !== '');
+  const cell = row[at];
+  return typeof cell === 'string' && cell !== '' ? cell : undefined;
+}
+
 export function confirmText(option: Pick<WidgetActionOption, 'label' | 'mode'>): string {
   const what = option.mode === 'delete' ? 'It removes something and may not be undone.'
     : option.mode === 'read' ? 'It only reads.'

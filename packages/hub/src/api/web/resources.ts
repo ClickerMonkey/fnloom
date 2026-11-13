@@ -26,8 +26,8 @@ export function resourcesPlugin(hub: HubServices, auth: ReturnType<typeof authPl
         // a query is the query standard's (no facets: the list's filters are its own); without one, the grouped browser
         browseResources: async ({ data, user }) => {
           if (data.query !== undefined) { return { ...(await reads.lists.page('resources', data.query, user)), facets: [] }; }
-          const [access, page] = await Promise.all([hub.access.scope(user.id), library.browse(data, { actor: user.id })]);
-          return { ...page, items: page.items.filter((item) => access.seesUri(item.uri)) };
+          const access = await hub.access.scope(user.id);
+          return library.browse(data, { actor: user.id }, (uri) => access.seesUri(uri));
         },
         resourceForms: async ({ data, user }) => forms.forms(await seen(user, data.uri), { actor: user.id }),
         readResource: async ({ data, user }) => reader.read({ ...data, uri: await seen(user, data.uri) }, { actor: user.id }),

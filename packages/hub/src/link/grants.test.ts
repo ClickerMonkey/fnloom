@@ -101,6 +101,19 @@ describe('calls and modes', () => {
     expect(await refused(rig.grants.check(LINK, 'propose', { parent: reader.id, fn: 'write', args: {}, key: 'k', approver: 'person' }))).toBe('notes/read is declared read and tried notes/write, which can write');
   });
 
+  it('keeps record endpoints to the run fn’s mode and declared types', async () => {
+    await withGrants({ hub: ['data'] });
+    const reader = await runOf('read');
+    const note = { type: 'notes/note', value: {}, run: reader.id };
+    expect(await refused(rig.grants.check(LINK, 'saveRecord', note))).toBe('notes/read is declared read and tried to save a notes/note record');
+    expect(await refused(rig.grants.check(LINK, 'removeRecord', { type: 'notes/note', id: 'rec_1', run: (await runOf('write')).id }))).toContain('declared write and tried to remove');
+    await rig.grants.check(LINK, 'removeRecord', { type: 'notes/note', id: 'rec_1', run: (await runOf('wipe')).id });
+    // a fn that declares the types it reads reads only those of other systems, and writes none of them
+    const peek = await runOf('peek');
+    await rig.grants.check(LINK, 'records', { type: 'database/projects', run: peek.id });
+    expect(await refused(rig.grants.check(LINK, 'record', { type: 'database/owners', id: 'rec_1', run: peek.id }))).toBe('notes/peek declares the types it reads and writes, and database/owners is not among them');
+  });
+
   it('lets a run ask for the types its fn declares and its own system’s, and no others', async () => {
     await withGrants({ hub: [] });
     const peek = await runOf('peek');

@@ -40,7 +40,7 @@ const groups = computed(() => props.groups.filter((group) => group.section === s
       </button>
     </div>
     <SystemPartList
-      :groups="groups" :roots="shown === 'roots' ? roots : []" :root-page="rootPage" :owner-page="ownerPage" :is-on="isOn" :busy="busy" :system="system"
+      :groups="groups" :roots="shown === 'roots' ? roots : []" :root-page="rootPage" :owner-page="ownerPage" :is-on="isOn" :busy="busy" :system="system" :headings="false"
       @switch="(item, on) => emit('switch', item, on)"
     />
   </div>

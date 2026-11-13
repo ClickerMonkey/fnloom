@@ -50,7 +50,11 @@ export interface ResourceLibrary {
   /** Hub resources only; refused with the count of what still refers to it unless nothing does. */
   remove(uri: ResourceUri, who: Asking): Promise<{ deleted: boolean; referencedBy: number }>;
   /** Every resource the hub knows (hub and system ones), with the facets of one grouping. */
-  browse(query: ResourceQuery, who: Asking): Promise<ResourcePage>;
+  /**
+   * A page of the resources `visible` lets through (the asker's access, and an MCP's reach), with the groups' counts
+   * over those alone.
+   */
+  browse(query: ResourceQuery, who: Asking, visible: (uri: string) => boolean): Promise<ResourcePage>;
 }
 
 /** Converting raw content with `@aeye/resources` (the shared registry). A seam for tests. */

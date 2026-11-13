@@ -53,8 +53,8 @@ describe('visuals', () => {
 });
 
 describe('a widget spec', () => {
-  it('takes its source args minus the pinned and paged ones, and shows a control for the rest', () => {
-    expect(Object.keys(widgetArgs(SOURCE_ARGS, SPEC).props ?? {})).toEqual(['owner']);
+  it('takes its source args minus the pinned ones and the page size, and shows a control for the rest', () => {
+    expect(Object.keys(widgetArgs(SOURCE_ARGS, SPEC).props ?? {})).toEqual(['owner', 'offset']);
     expect(widgetControls(SOURCE_ARGS, SPEC)).toEqual([{ arg: 'owner', label: 'Who', type: { name: 'text' }, required: false, custom: true }]);
   });
 

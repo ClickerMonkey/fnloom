@@ -1,15 +1,16 @@
 <script setup lang="ts">
 /**
  * One record of a stored type (build 8): its value drawn by the type (so a system's components draw its named types),
- * who changed it last and when, Edit (a form for the type, saved with the version it changes so two people editing at
- * once don't overwrite each other), Remove (asked first; its history stays), and its history, newest first, each version
- * opening its value. With no record it is the form for a new one.
+ * Edit (a form for the type, saved with the version it changes so two people editing at
+ * once don't overwrite each other), Remove (asked first; its history stays), and its history, newest first (the first row
+ * says who changed it last and when, by name), each version opening its value. With no record it is the form for a new one.
  */
 import type { DataRecord, Json, RecordVersion } from '@harness/core';
 import { ref, watch } from 'vue';
 import GinForm from '../../gin/GinForm.vue';
 import GinValueView from '../../gin/GinValueView.vue';
-import { UiButton, UiCodeBlock, UiDialog, fullTime, relativeTime } from '../../ui/index.ts';
+import type { NameOf } from '../../state/actor-names.ts';
+import { UiButton, UiDialog, fullTime, relativeTime } from '../../ui/index.ts';
 import { useNow } from '../../ui/now.ts';
 import { CHANGE_WORDS } from '../logic/data.ts';
 
@@ -24,7 +25,9 @@ const props = withDefaults(defineProps<{
   versionsProblem?: string;
   busy?: boolean;
   problem?: string;
-}>(), { record: undefined, versions: () => [], moreVersions: false, versionsLoading: false, versionsProblem: '', busy: false, problem: '' });
+  /** People's names for the actor ids in the history. */
+  nameOf?: NameOf;
+}>(), { nameOf: (actor: string) => actor, record: undefined, versions: () => [], moreVersions: false, versionsLoading: false, versionsProblem: '', busy: false, problem: '' });
 const emit = defineEmits<{ save: [value: Json]; remove: []; more: []; cancel: [] }>();
 
 const now = useNow();
@@ -45,10 +48,6 @@ watch(() => props.record?.version, () => { editing.value = props.record === unde
       />
     </template>
     <template v-else-if="record">
-      <p class="meta">
-        Version {{ record.version }} · changed <time :datetime="new Date(record.updatedAt).toISOString()" :title="fullTime(record.updatedAt)">{{ relativeTime(record.updatedAt, now) }}</time>
-        <template v-if="record.updatedBy"> by {{ record.updatedBy }}</template><template v-if="record.updatedBySystem"> through {{ record.updatedBySystem }}</template>
-      </p>
       <GinValueView :type="type" :model-value="record.value" readonly label="Value" />
       <div class="ops">
         <UiButton size="sm" icon="edit" data-testid="record-edit" @click="editing = true">Edit</UiButton>
@@ -62,12 +61,13 @@ watch(() => props.record?.version, () => { editing.value = props.record === unde
             <button type="button" class="row" :aria-expanded="shown === version.id" data-testid="record-version" @click="shown = shown === version.id ? undefined : version.id">
               <span class="number">#{{ version.number }}</span>
               <span>{{ CHANGE_WORDS[version.change] }}</span>
+              <span v-if="version.number === record.version" class="current">current</span>
               <span class="when">
-                <template v-if="version.by">{{ version.by }} · </template>
+                <template v-if="version.by">{{ nameOf(version.by) }}</template><template v-if="version.bySystem"> through {{ version.bySystem }}</template><template v-if="version.by || version.bySystem"> · </template>
                 <time :datetime="new Date(version.at).toISOString()" :title="fullTime(version.at)">{{ relativeTime(version.at, now) }}</time>
               </span>
             </button>
-            <UiCodeBlock v-if="shown === version.id" class="value" :code="JSON.stringify(version.value, null, 2)" language="json" :max-height="240" wrap />
+            <GinValueView v-if="shown === version.id" class="value" :type="type" :model-value="version.value" readonly :label="`Version ${version.number}`" />
           </li>
         </ol>
         <UiButton v-if="moreVersions" size="sm" variant="ghost" :loading="versionsLoading" @click="emit('more')">Older versions</UiButton>
@@ -84,7 +84,6 @@ watch(() => props.record?.version, () => { editing.value = props.record === unde
 
 <style scoped>
 .record { display: grid; gap: var(--space-3); min-width: 0; }
-.meta { margin: 0; color: var(--text-dim); font-size: var(--text-sm); }
 .ops { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .problem { margin: 0; color: var(--danger); font-size: var(--text-sm); }
 .history { display: grid; gap: var(--space-2); }
@@ -98,6 +97,7 @@ watch(() => props.record?.version, () => { editing.value = props.record === unde
 .row:hover { background: var(--surface-2); }
 .row:focus-visible { outline: none; box-shadow: inset var(--ring); }
 .number { font-family: var(--mono); color: var(--text-dim); }
+.current { padding: 0 6px; border-radius: var(--radius-full); background: var(--surface-2); color: var(--text-dim); font-size: var(--text-xs); }
 .when { margin-left: auto; color: var(--text-faint); font-size: var(--text-xs); }
 .value { margin: 0 var(--space-3) var(--space-3); }
 </style>

@@ -1,10 +1,10 @@
 /**
  * One widget's state while it is drawn (build 8): the actions its rows offer (asked of the host once per widget and its
  * row types), the row and action a person picked, whether the action waits for a confirm or a form, and running it,
- * then what follows (`then`: run the widget again, or leave its result to show as its own run). Changing a control or
- * refreshing runs the widget again as a new run; nothing runs until a person clicks.
+ * then what follows (`then`: run the widget again, or leave its result to show as its own run). Changing a control,
+ * paging or refreshing runs the widget again as a new run; nothing runs until a person clicks.
  */
-import type { Json, QualifiedName, ResultTable, WidgetActionOption } from '@harness/core';
+import type { Json, QualifiedName, ResultTable, WidgetActionOption, WidgetResult } from '@harness/core';
 import { computed, ref, shallowRef } from 'vue';
 import { Loaded, Task } from '../../state/loaded.ts';
 import { actionArgs, boundArgs, rowActions, rowTypes, type WidgetHost } from './widgets.ts';
@@ -96,6 +96,13 @@ export class WidgetState {
   async refresh(): Promise<boolean> {
     const { fn, args } = this.#source();
     return fn === undefined ? false : this.#host.run(fn, args ?? {});
+  }
+
+  /** Run the widget for the page at `offset` (its paging arg set to it, every other arg kept). */
+  async page(paging: NonNullable<WidgetResult['paging']>, offset: number): Promise<boolean> {
+    const { args } = this.#source();
+    const kept = typeof args === 'object' && args !== null && !Array.isArray(args) ? args : {};
+    return this.apply({ ...kept, [paging.arg]: Math.max(0, Math.floor(offset)) });
   }
 
   /** Run the widget with new control values. */

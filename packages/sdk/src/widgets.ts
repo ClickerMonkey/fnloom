@@ -8,7 +8,7 @@
  *
  * - **Visuals:** `visual(...)` declares a contribution to the hub's visual registry (`HUB_VISUALS`) with its shape,
  *   `channel(...)` one of its inputs; `fittingVisuals` lists the declared visuals whose shape fits a table.
- * - **Args and controls:** `widgetArgs` is the widget's args (the source's minus the pinned and paging ones);
+ * - **Args and controls:** `widgetArgs` is the widget's args (the source's minus the pinned ones and the page size);
  *   `widgetControls` the controls a widget shows, in the source's order.
  * - **Checks:** `checkWidget` lists every problem with a spec against a real result and says which visuals still fit;
  *   the kind's handler and `widget_check` both use it. `widgetSpecSchema` is the strict schema an authoring agent
@@ -102,9 +102,13 @@ function pagingArgs(spec: Pick<WidgetSpec, 'paging'>): Set<string> {
   return new Set([spec.paging?.offset, spec.paging?.limit].filter((arg): arg is string => arg !== undefined));
 }
 
-/** The widget's args type: its source's args minus the pinned ones and the ones the pager drives (the kind's `describe`). */
+/**
+ * The widget's args type (the kind's `describe`): its source's args minus the pinned ones and the page size the widget
+ * fixes. The offset arg stays, so the pager asks for another page by running the widget with it.
+ */
 export function widgetArgs(source: GinTypeDef, spec: Pick<WidgetSpec, 'controls' | 'paging'>): GinTypeDef {
-  const dropped = new Set([...pagingArgs(spec), ...spec.controls.filter((control) => control.pinned !== undefined).map((control) => control.arg)]);
+  const size = spec.paging?.limit;
+  const dropped = new Set([...(size === undefined ? [] : [size]), ...spec.controls.filter((control) => control.pinned !== undefined).map((control) => control.arg)]);
   const props = Object.fromEntries(Object.entries(source.props ?? {}).filter(([name]) => !dropped.has(name)));
   return { ...source, props };
 }

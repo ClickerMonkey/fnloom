@@ -94,18 +94,38 @@ export function inGroup(record: ResourceRecord, query: ResourceQuery, now: numbe
   return query.group === undefined || query.in === undefined || groupOf(record, query.group, { under: query.under, now }).value === query.in;
 }
 
+/** Counts one grouping's values as records go by, so a browse keeps only its page and the counts. */
+export class FacetCounter {
+  readonly #counts = new Map<string, ResourceFacet>();
+  readonly #grouping: ResourceGrouping;
+  readonly #context: { under?: string | undefined; now: number };
+
+  constructor(grouping: ResourceGrouping, context: { under?: string | undefined; now: number }) {
+    this.#grouping = grouping;
+    this.#context = context;
+  }
+
+  /** Count one record in its group. */
+  add(record: ResourceRecord): void {
+    const { value, label } = groupOf(record, this.#grouping, this.#context);
+    const facet = this.#counts.get(value);
+    this.#counts.set(value, { value, label, count: (facet?.count ?? 0) + 1 });
+  }
+
+  /** The counts, biggest first (families in their table order). */
+  facets(): ResourceFacet[] {
+    const facets = [...this.#counts.values()];
+    if (this.#grouping === 'type') {
+      const order = (value: string) => FORMAT_FAMILIES.findIndex((family) => family === value);
+      return facets.sort((a, b) => order(a.value) - order(b.value));
+    }
+    return facets.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  }
+}
+
 /** The counts of one grouping's values over some records, biggest first (families in their table order). */
 export function facetsOf(records: readonly ResourceRecord[], grouping: ResourceGrouping, context: { under?: string | undefined; now: number }): ResourceFacet[] {
-  const counts = new Map<string, ResourceFacet>();
-  for (const record of records) {
-    const { value, label } = groupOf(record, grouping, context);
-    const facet = counts.get(value);
-    counts.set(value, { value, label, count: (facet?.count ?? 0) + 1 });
-  }
-  const facets = [...counts.values()];
-  if (grouping === 'type') {
-    const order = (value: string) => FORMAT_FAMILIES.findIndex((family) => family === value);
-    return facets.sort((a, b) => order(a.value) - order(b.value));
-  }
-  return facets.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  const counter = new FacetCounter(grouping, context);
+  for (const record of records) { counter.add(record); }
+  return counter.facets();
 }

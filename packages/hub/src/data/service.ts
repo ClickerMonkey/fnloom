@@ -3,7 +3,9 @@
  * `recordVersions`, written together in one transaction. Reads go to the database (`HubStore.recordQueries`: filters
  * and sorts on the value's top-level fields, counted and offset-paged); text search goes to the store's text index and,
  * for a type that asks for it (`records.search.embed`), meaning too through the hub's search, keyed
- * `<type>#<record id>` so a search keeps to one type. Nothing loads a whole set.
+ * `<type>#<record id>` (`<type>#<owner>#<record id>` for a person-owned type), so the index query itself keeps a search
+ * to one type and, for anyone but an admin, to their own records. Nothing loads a whole set. A change's `run` is the
+ * asker's (the run the hub checked), never one the caller names.
  */
 import { reject } from '@ayepi/core';
 import {
@@ -37,8 +39,14 @@ interface Stored {
   readonly fields: readonly RecordField[];
 }
 
-/** The index key of a record: its type, so a search keeps to one type, and its id. */
-const indexKey = (type: QualifiedName, id: RecordId): string => `${type}#${id}`;
+/**
+ * The index key of a record: its type, so a search keeps to one type, its owner when it has one, so a search keeps to
+ * one person's, and its id (always last).
+ */
+const indexKey = (record: Pick<DataRecord, 'type' | 'id' | 'owner'>): string => `${indexPrefix(record.type, record.owner)}${record.id}`;
+
+/** The start of the index keys of a type's records (of one owner's, when given). */
+const indexPrefix = (type: QualifiedName, owner: DataRecord['owner']): string => (owner === undefined ? `${type}#` : `${type}#${owner}#`);
 
 /** An offset cursor, as the record pages give them out. */
 function offsetOf(cursor: string | undefined): number {
@@ -98,7 +106,7 @@ export class StoreDataService implements DataService {
     const limit = list.limit ?? this.#deps.settings.HARNESS_RECORD_PAGE;
     const { filters, sort } = this.#checked(stored, list.filters ?? [], list.sort ?? []);
     const text = [query.search, list.text].filter((t): t is string => t !== undefined && t.trim() !== '').join(' ');
-    const ranked = text === '' ? undefined : await this.#searched(stored, text);
+    const ranked = text === '' ? undefined : await this.#searched(stored, text, asker);
     const found = await this.#deps.store.recordQueries.find({
       type: stored.type.name, owner: this.#ownOnly(stored.type.records, asker) ? asker.actor : undefined,
       ids: ranked, filters, sort,
@@ -154,7 +162,7 @@ export class StoreDataService implements DataService {
       const next = DataRecord.parse({
         id: existing?.id ?? mintId('record', this.#deps.random), type: stored.type.name, value: input.value, ...(owner === undefined ? {} : { owner: existing?.owner ?? owner }),
         title, version: (existing?.version ?? 0) + 1, createdAt: existing?.createdAt ?? now, updatedAt: now,
-        updatedBy: asker.actor, ...(asker.system === undefined ? {} : { updatedBySystem: asker.system }), ...((input.run ?? asker.run) === undefined ? {} : { run: input.run ?? asker.run }),
+        updatedBy: asker.actor, ...(asker.system === undefined ? {} : { updatedBySystem: asker.system }), ...(asker.run === undefined ? {} : { run: asker.run }),
       });
       await records.put(next);
       await tx.table('recordVersions').put(this.#version(next, existing === undefined ? 'created' : 'updated', next.value));
@@ -170,12 +178,12 @@ export class StoreDataService implements DataService {
       const record = await tx.table('records').get(input.id);
       if (record === undefined || !this.#sees(record, stored, asker)) { return undefined; }
       await tx.table('records').remove(record.id);
-      const gone = { ...record, version: record.version + 1, updatedAt: this.#deps.clock(), updatedBy: asker.actor, ...((input.run ?? asker.run) === undefined ? {} : { run: input.run ?? asker.run }) };
+      const gone = { ...record, version: record.version + 1, updatedAt: this.#deps.clock(), updatedBy: asker.actor, ...(asker.run === undefined ? {} : { run: asker.run }) };
       await tx.table('recordVersions').put(this.#version(gone, 'removed', record.value));
       return record;
     });
     if (removed === undefined) { return false; }
-    const key = indexKey(stored.type.name, removed.id);
+    const key = indexKey(removed);
     if (stored.type.records.search.embed) { await this.#deps.indexer().remove('record', [key]); } else { await this.#deps.store.text.remove('record', [key]); }
     return true;
   }
@@ -231,20 +239,23 @@ export class StoreDataService implements DataService {
     return { filters: [...filters], sort: [...sort] };
   }
 
-  /** The ids of a type's records that match text (and meaning, when the type is embedded), best first. */
-  async #searched(stored: Stored, text: string): Promise<RecordId[]> {
-    const prefix = `${stored.type.name}#`;
+  /**
+   * The ids of a type's records that match text (and meaning, when the type is embedded), best first: the index query
+   * keeps to the type's keys (and the asker's own, when reads keep to them), so other records never use up the depth.
+   */
+  async #searched(stored: Stored, text: string, asker: DataAsker): Promise<RecordId[]> {
+    const prefix = indexPrefix(stored.type.name, this.#ownOnly(stored.type.records, asker) ? asker.actor : undefined);
     const depth = this.#deps.settings.HARNESS_RECORD_SEARCH_DEPTH;
     const keys = stored.type.records.search.embed
       ? (await this.#deps.search().search({ text, kinds: ['record'], limit: depth, systems: [stored.type.system], keep: (hit) => hit.key.startsWith(prefix) })).map((hit) => hit.key)
-      : (await this.#deps.store.text.search({ text, kinds: ['record'], limit: depth })).map((hit) => hit.key).filter((key) => key.startsWith(prefix));
-    return keys.flatMap((key) => { const id = DataRecord.shape.id.safeParse(key.slice(prefix.length)); return id.success ? [id.data] : []; });
+      : (await this.#deps.store.text.search({ text, kinds: ['record'], limit: depth, prefix })).map((hit) => hit.key);
+    return keys.flatMap((key) => { const id = DataRecord.shape.id.safeParse(key.slice(key.lastIndexOf('#') + 1)); return id.success ? [id.data] : []; });
   }
 
   /** Keep a record's search text current. */
   async #index(stored: Stored, record: DataRecord): Promise<void> {
     const text = searchText(record.value, stored.type.records, record.title);
-    const key = indexKey(stored.type.name, record.id);
+    const key = indexKey(record);
     if (stored.type.records.search.embed) {
       // embedded by the hub's embedder, a model call like any other; the words are searchable at once
       await this.#deps.indexer().upsert([{ kind: 'record', key, text, system: stored.type.system }], { vectors: 'background' });

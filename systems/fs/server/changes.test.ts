@@ -112,6 +112,25 @@ describe('CommandChanges', () => {
     expect(files['.env']?.diff).toBeUndefined();
   });
 
+  it('lists a file whose secret the call removed or deleted without a diff', async () => {
+    const token = `sk-proj-${'a'.repeat(40)}`;
+    await writeFile(`${repo}/src/config.ts`, `export const key = '${token}';\nexport const n = 1;\n`);
+    await writeFile(`${repo}/src/keys.ts`, `const k = '${token}';\n`);
+    git(repo, 'add', '.');
+    git(repo, 'commit', '-q', '-m', 'keys');
+    await writeFile(`${repo}/src/draft.ts`, `const k = '${token}';\n`);
+    const set = await during(async () => {
+      await writeFile(`${repo}/src/config.ts`, 'export const n = 1;\n');
+      await rm(`${repo}/src/keys.ts`);
+      await writeFile(`${repo}/src/draft.ts`, 'const k = process.env.KEY;\n');
+    });
+    const files = byPath(set);
+    expect(files['src/config.ts']).toMatchObject({ status: 'modified', noDiff: 'sensitive', sensitive: 'token' });
+    expect(files['src/keys.ts']).toMatchObject({ status: 'deleted', noDiff: 'sensitive' });
+    expect(files['src/draft.ts']).toMatchObject({ status: 'modified', noDiff: 'sensitive' });
+    expect(JSON.stringify(set)).not.toContain(token);
+  });
+
   it('counts ignored files without listing them, and lists large files without a diff', async () => {
     const set = await during(async () => {
       await mkdir(`${repo}/dist/deep`, { recursive: true });

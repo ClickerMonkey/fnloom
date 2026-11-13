@@ -8,7 +8,7 @@ import { RootGuard, fileUri } from './paths.ts';
 import { DEFAULT_SENSITIVITY_RULES, Sensitivity } from './sensitive.ts';
 import { FsResources, versionOf } from './resources.ts';
 import { DiskSnapshots } from './snapshots.ts';
-import { NO_IGNORES, tempFolder } from './testing.ts';
+import { NO_IGNORES, ignoring, tempFolder } from './testing.ts';
 
 type Listener = (event: 'rename' | 'change', file: string) => void;
 
@@ -112,6 +112,37 @@ describe('FsResources', () => {
       const seen: ResourceChange[][] = [];
       const stop = resources.watch([fileUri(tmp.path)], (changes) => { seen.push(changes); });
       listeners.get(tmp.path)?.('change', '.env');
+      await vi.advanceTimersByTimeAsync(60);
+      expect(seen).toEqual([]);
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('never serves gitignored files or files holding a token', async () => {
+    const token = `sk-proj-${'a'.repeat(40)}`;
+    await writeFile(`${tmp.path}/src/config.ts`, `export const key = '${token}';\n`);
+    await writeFile(`${tmp.path}/docs/local.json`, '{}');
+    const guard = new RootGuard([{ path: tmp.path, name: 'work', writable: false, index: 'on-read' }]);
+    const strict = new FsResources({
+      guard: () => guard,
+      secrets: () => new Sensitivity(DEFAULT_SENSITIVITY_RULES, ignoring([`${tmp.path}/docs/local.json`])),
+      files: new FileService(new DiskSnapshots(`${tmp.path}/../.s`), { readLines: 100, fileMax: 10_000, listLimit: 100, ignore: ['node_modules'] }),
+      documents: new AeyeDocuments(createDefaultResourceRegistry()),
+      limits: { page: 10, textMax: 1_000, ignore: ['node_modules'], debounce: 50 },
+      watch: (folder, listener) => { listeners.set(folder, listener); return () => { listeners.delete(folder); }; },
+    });
+    expect((await strict.list(fileUri(`${tmp.path}/src`))).items.map((item) => item.name)).toEqual(['a.ts']);
+    expect((await strict.list(fileUri(`${tmp.path}/docs`))).items.map((item) => item.name)).toEqual(['guide.md']);
+    expect(await strict.stat(fileUri(`${tmp.path}/docs/local.json`))).toBeUndefined();
+    await expect(strict.read(fileUri(`${tmp.path}/src/config.ts`), ['text'])).rejects.toThrow(/secret/);
+    vi.useFakeTimers();
+    try {
+      const seen: ResourceChange[][] = [];
+      const stop = strict.watch([fileUri(tmp.path)], (changes) => { seen.push(changes); });
+      listeners.get(tmp.path)?.('change', 'src/config.ts');
+      listeners.get(tmp.path)?.('change', 'docs/local.json');
       await vi.advanceTimersByTimeAsync(60);
       expect(seen).toEqual([]);
       stop();

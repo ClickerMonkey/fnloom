@@ -52,10 +52,23 @@ export const AccessRecord = z.object({
   key: z.string(),
   target: AccessTarget,
   sharing: Sharing,
+  /**
+   * Whether a person's scope has to read this row (`scopeReads`), as its own column, so a scope reads only those.
+   * Written with every row; a row from before it has none, and is read and judged by `scopeReads`.
+   */
+  scoped: z.boolean().optional(),
   setBy: ActorId,
   updatedAt: Timestamp,
 });
 export type AccessRecord = z.infer<typeof AccessRecord>;
+
+/**
+ * Whether a person's scope has to read a row: one that keeps someone out (not `public`), or a resource root, whose
+ * `public` can open a folder under a closer root that is not. Any other public row lets everyone in, as no row does.
+ */
+export function scopeReads(row: Pick<AccessRecord, 'target' | 'sharing'>): boolean {
+  return row.sharing.visibility !== 'public' || row.target.kind === 'root';
+}
 
 /** A target's visibility as the web shows it, with whether the asker may change it (its owner or an admin). */
 export const AccessView = z.object({ target: AccessTarget, sharing: Sharing, editable: z.boolean() });

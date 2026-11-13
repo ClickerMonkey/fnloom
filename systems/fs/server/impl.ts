@@ -18,7 +18,7 @@ import { RootGuard } from './paths.ts';
 import { FsProblem } from './problem.ts';
 import { FsResources } from './resources.ts';
 import { compilePattern, globPaths, grepFiles, searchBases, type SearchLimits } from './search.ts';
-import { commandFiles, commandPaths, rulesOf, Sensitivity, type Judged } from './sensitive.ts';
+import { commandFiles, commandPaths, rulesOf, Sensitivity, shownOn, type Judged } from './sensitive.ts';
 import { renderTree } from './tree.ts';
 
 /** Everything the implementation is built from. */
@@ -153,13 +153,17 @@ export function createFsImpl(deps: FsDeps): FsServer {
     const verdict = flagsVerdict(await rules.flags(items, signal));
     return verdict.effect === 'refuse' ? verdict.reason : undefined;
   };
-  /** Leave sensitive files out of a listing or search, unless the person approved this run having seen its flags. */
+  /**
+   * Leave sensitive files out of a listing or search, except those the person saw on the card they approved this run
+   * on (its `flags` parts). An approval for another reason (auto mode asking about the fn) unhides nothing.
+   */
   const visible = async <T>(ctx: Pick<FnCtx<FnTypes, FsConfig>, 'config' | 'approved' | 'signal'>, items: readonly T[], pathOf: (item: T) => string, content: boolean): Promise<{ kept: T[]; hidden: number }> => {
-    if (ctx.approved !== undefined) { return { kept: [...items], hidden: 0 }; }
+    const shown = (ctx.approved?.preview.parts ?? []).flatMap((part) => (part.type === 'flags' ? part.flags : []));
     const g = guard(ctx.config);
-    const located = [...new Set(items.map(pathOf))].flatMap((path) => { const at = g.locate(path); return at === undefined ? [] : [at]; });
-    const hide = await sensitivity(ctx.config).hidden(located, { content }, ctx.signal);
-    const kept = items.filter((item) => !hide.has(pathOf(item)));
+    const located = new Map<string, Located>();
+    for (const path of new Set(items.map(pathOf))) { const at = g.locate(path); if (at !== undefined) { located.set(path, at); } }
+    const hide = await sensitivity(ctx.config).hidden([...located.values()], { content }, ctx.signal);
+    const kept = items.filter((item) => { const at = located.get(pathOf(item)); return at === undefined || !hide.has(at.path) || shownOn(shown, at.relative); });
     return { kept, hidden: items.length - kept.length };
   };
   /** Do file work while telling change capture a command in the same tree may see it. */

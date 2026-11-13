@@ -4,7 +4,8 @@
  * Their raw content lives only in the hub's content store; each import is announced as a resource change, so the
  * index sections it (in its primary form) like any system's resource. Names never show a URL's credentials.
  *
- * Browsing covers every resource the hub knows, hub and system ones, filtered and grouped by `browse.ts`.
+ * Browsing covers every resource the hub knows that the asker may see, hub and system ones, filtered and grouped by
+ * `browse.ts`: visibility is applied before the counts and the page, so neither tells of a resource the asker can't see.
  */
 import { reject } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
@@ -15,12 +16,12 @@ import {
 import type { ContentStore } from '../api/index.ts';
 import type { EventBus } from '../bus.ts';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
-import { allRows } from '../store/rows.ts';
+import { allRows, rows } from '../store/rows.ts';
 import type { Indexer } from '../index/index.ts';
 import { sectionIndexKey } from '../index/indexer.ts';
 import { sha256Hex } from '../link/keys.ts';
 import type { HubStore } from '../store/index.ts';
-import { facetsOf, inGroup, matches } from './browse.ts';
+import { FacetCounter, inGroup, matches } from './browse.ts';
 import type { ResourcesEnv } from './env.ts';
 import type { UrlFetcher } from './fetch.ts';
 import type { Asking, Converters, FormService, ResourceLibrary } from './index.ts';
@@ -130,16 +131,23 @@ export class HubResourceLibrary implements ResourceLibrary {
     return { deleted: true, referencedBy: 0 };
   }
 
-  async browse(query: ResourceQuery, _who: Asking): Promise<ResourcePage> {
+  async browse(query: ResourceQuery, _who: Asking, visible: (uri: string) => boolean): Promise<ResourcePage> {
     const now = this.#o.clock();
-    const rows = await allRows(this.#o.store.table('resources'), { where: query.system === undefined ? undefined : { system: query.system } });
-    const filtered = rows.filter((record) => matches(record, query)).sort((a, b) => b.seenAt - a.seenAt || a.uri.localeCompare(b.uri));
-    const facets = facetsOf(filtered, query.group ?? 'type', { under: query.under, now });
-    const shown = filtered.filter((record) => inGroup(record, query, now));
+    const counter = new FacetCounter(query.group ?? 'type', { under: query.under, now });
     const start = query.cursor === undefined ? 0 : Math.max(0, Number.parseInt(query.cursor, 10) || 0);
     const limit = query.limit ?? PAGE_SIZE;
-    const items = shown.slice(start, start + limit);
-    return { items, facets, ...(start + limit < shown.length ? { cursor: String(start + limit) } : {}) };
+    const items: ResourceRecord[] = [];
+    let shown = 0;
+    // newest first, read page by page in the store's order (ties by URI); only the counts and this page are kept
+    const read = rows(this.#o.store.table('resources'), { where: query.system === undefined ? undefined : { system: query.system }, order: [['seenAt', 'desc']] });
+    for await (const record of read) {
+      if (!matches(record, query) || !visible(record.uri)) { continue; }
+      counter.add(record);
+      if (!inGroup(record, query, now)) { continue; }
+      if (shown >= start && shown < start + limit) { items.push(record); }
+      shown += 1;
+    }
+    return { items, facets: counter.facets(), ...(start + limit < shown ? { cursor: String(start + limit) } : {}) };
   }
 
   /** Import a URL: fetched (through the web system when it can), kept under `web/<host>/…` (or `web/<folder>/<host>/…`). */

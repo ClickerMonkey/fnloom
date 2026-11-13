@@ -28,7 +28,9 @@ const props = withDefaults(defineProps<{
   busy?: boolean;
   /** The system the parts are of: an open part then shows its version history. */
   system?: SystemName | undefined;
-}>(), { isOn: undefined, busy: false, system: undefined });
+  /** Whether each kind's heading shows; off where a chosen chip already names the kind and its count (kept for screen readers). */
+  headings?: boolean;
+}>(), { isOn: undefined, busy: false, system: undefined, headings: true });
 const emit = defineEmits<{ switch: [item: ItemRef, on: boolean] }>();
 const rootRef = (root: ResourceRoot): ItemRef => ({ section: 'roots', name: root.uri });
 const partRef = (part: SystemPart): ItemRef => ({ section: part.section, name: part.name });
@@ -46,7 +48,7 @@ const toggle = (part: SystemPart): void => { open.value = open.value === keyOf(p
 <template>
   <div class="groups" data-testid="system-parts">
     <section v-if="roots.length > 0" class="group" data-section="roots">
-      <h3 class="heading">Resource roots <span class="count">{{ roots.length }}</span></h3>
+      <h3 class="heading" :class="{ 'sr-only': !headings }">Resource roots <span class="count">{{ roots.length }}</span></h3>
       <ul class="list">
         <li v-for="root in roots" :key="root.uri" :class="{ switchable: isOn !== undefined }">
           <UiSwitch
@@ -65,10 +67,8 @@ const toggle = (part: SystemPart): void => { open.value = open.value === keyOf(p
       </ul>
     </section>
     <section v-for="group in groups" :key="group.section" class="group" :data-section="group.section">
-      <h3 class="heading">
-        {{ PART_SECTION_WORDS[group.section] }} <span class="count">{{ group.total }}</span>
-        <span v-if="group.total > group.parts.length" class="cut">showing the first {{ group.parts.length }}</span>
-      </h3>
+      <h3 class="heading" :class="{ 'sr-only': !headings }">{{ PART_SECTION_WORDS[group.section] }} <span class="count">{{ group.total }}</span></h3>
+      <p v-if="group.total > group.parts.length" class="cut">Showing the first {{ group.parts.length }}</p>
       <ul class="list">
         <li v-for="part in group.parts" :key="keyOf(part)" :data-part="part.name" :class="{ switchable: isOn !== undefined, off: !partOn(part) }">
           <UiSwitch
@@ -104,7 +104,7 @@ const toggle = (part: SystemPart): void => { open.value = open.value === keyOf(p
 .group { display: grid; gap: var(--space-2); min-width: 0; }
 .heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); margin: 0; font-size: var(--text-sm); font-weight: var(--weight-strong); }
 .count { color: var(--text-faint); font-weight: var(--weight-medium); }
-.cut { color: var(--text-faint); font-size: var(--text-xs); font-weight: normal; }
+.cut { margin: 0; color: var(--text-faint); font-size: var(--text-xs); }
 .list { display: grid; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); list-style: none; overflow: hidden; }
 .list > li + li { border-top: 1px solid var(--border); }
 .switchable { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; padding-left: var(--space-4); }

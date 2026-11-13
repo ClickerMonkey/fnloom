@@ -7,6 +7,8 @@
  *   system owns, tagged `own`, and a call of a fn that waits for its own approval, aside); `write` can't call a
  *   delete fn
  * - **types:** a run whose fn declares the types it reads and writes asks for no others (beyond its system's own)
+ * - **data:** a record endpoint keeps to the types the run's fn declares (it saves and removes only those it writes),
+ *   and to its mode: saving needs `write`, removing `delete`
  * - **models and spend:** the model roles and models it may use, and its per-run and per-day caps
  *
  * Each refusal is a `RefusalRecord`. Past `HARNESS_REFUSALS_PAUSE` refusals in `HARNESS_REFUSALS_WINDOW`, the system's
@@ -70,6 +72,7 @@ export interface Refusal {
 const CallBody = z.object({ parent: RunId, fn: QualifiedName });
 const TypesBody = z.object({ names: z.array(QualifiedName), run: RunId.optional() });
 const ProposeBody = z.object({ fn: LocalName, parent: RunId.optional() });
+const DataBody = z.object({ type: QualifiedName, run: RunId.optional() });
 const ModelBody = z.object({ run: RunId.optional(), model: ModelChoice.optional(), modality: z.string().optional() });
 
 /** The role a model call that names no model uses, by its modality (`ROLE_OF`); none for a modality without one. */
@@ -161,6 +164,9 @@ export class SystemGrantGuard {
         return own ?? await this.#model(link, grants, endpoint, parsed);
       }
       case 'types': return this.#types(link, body);
+      case 'records': case 'record': case 'recordTable': return this.#capability(grants, endpoint) ?? await this.#data(link, body, 'read');
+      case 'saveRecord': return this.#capability(grants, endpoint) ?? await this.#data(link, body, 'write');
+      case 'removeRecord': return this.#capability(grants, endpoint) ?? await this.#data(link, body, 'delete');
       default: return this.#capability(grants, endpoint);
     }
   }
@@ -231,17 +237,48 @@ export class SystemGrantGuard {
     const parsed = TypesBody.safeParse(body);
     if (!parsed.success) { return undefined; }
     const run = parsed.data.run === undefined ? undefined : await this.#ownRun(link, parsed.data.run);
+    const declared = await this.#declaredTypes(link, run, 'read');
+    if (declared === undefined) { return undefined; }
+    const outside = parsed.data.names.filter((name) => splitName(name).system !== link.system && !declared.has(name));
+    if (outside.length === 0) { return undefined; }
+    const asker = run === undefined ? `${link.system}'s fns declare the types they read and write` : `${run.fn} declares the types it reads and writes`;
+    return { rule: 'types', attempt: outside.join(', '), run: run?.id, fn: run?.fn, detail: `${asker}, and ${outside.join(', ')} ${outside.length === 1 ? 'is' : 'are'} not among them` };
+  }
+
+  /**
+   * A record endpoint: under a run of the system's whose fn declares a mode, that mode must reach the change (saving
+   * needs `write`, removing `delete`); and the record's type must be among the types declared (`#declaredTypes`), or
+   * the system's own. Under no run, the types the system's fns declare between them.
+   */
+  async #data(link: LinkSession, body: unknown, needs: FnMode): Promise<Refusal | undefined> {
+    const parsed = DataBody.safeParse(body);
+    if (!parsed.success) { return undefined; }
+    const { type } = parsed.data;
+    const run = parsed.data.run === undefined ? undefined : await this.#ownRun(link, parsed.data.run);
+    const declaredMode = run === undefined ? undefined : (await this.#options.catalog.fn(run.fn))?.decl.effects?.mode;
+    if (run !== undefined && declaredMode !== undefined && MODE_RANK[needs] > MODE_RANK[declaredMode]) {
+      return { rule: 'mode', attempt: type, run: run.id, fn: run.fn, detail: `${run.fn} is declared ${declaredMode} and tried to ${needs === 'delete' ? 'remove' : 'save'} a ${type} record` };
+    }
+    if (splitName(type).system === link.system) { return undefined; }
+    const declared = await this.#declaredTypes(link, run, needs);
+    if (declared === undefined || declared.has(type)) { return undefined; }
+    const asker = run === undefined ? `${link.system}'s fns declare the types they ${needs === 'read' ? 'read and write' : 'write'}` : `${run.fn} declares the types it ${needs === 'read' ? 'reads and writes' : 'writes'}`;
+    return { rule: 'types', attempt: type, run: run?.id, fn: run?.fn, detail: `${asker}, and ${type} is not among them` };
+  }
+
+  /**
+   * The types a run's fn declares (or, under no run, the system's fns between them): those it reads and writes, or for a
+   * change only those it writes. Undefined when a fn declares none, so nothing is narrowed.
+   */
+  async #declaredTypes(link: LinkSession, run: Run | undefined, use: FnMode): Promise<Set<QualifiedName> | undefined> {
     const fns = run === undefined ? await this.#options.catalog.fns({ system: link.system }) : [await this.#options.catalog.fn(run.fn)];
     const declared = new Set<QualifiedName>();
     for (const fn of fns) {
       const effects = fn?.decl.effects;
       if (effects === undefined || (effects.reads === undefined && effects.writes === undefined)) { return undefined; }
-      for (const name of [...(effects.reads ?? []), ...(effects.writes ?? [])]) { declared.add(name); }
+      for (const name of [...(use === 'read' ? effects.reads ?? [] : []), ...(effects.writes ?? [])]) { declared.add(name); }
     }
-    const outside = parsed.data.names.filter((name) => splitName(name).system !== link.system && !declared.has(name));
-    if (outside.length === 0) { return undefined; }
-    const asker = run === undefined ? `${link.system}'s fns declare the types they read and write` : `${run.fn} declares the types it reads and writes`;
-    return { rule: 'types', attempt: outside.join(', '), run: run?.id, fn: run?.fn, detail: `${asker}, and ${outside.join(', ')} ${outside.length === 1 ? 'is' : 'are'} not among them` };
+    return declared;
   }
 
   /**

@@ -4,12 +4,57 @@
  * saved widgets, the actions a note's row offers, and version histories for records and any item.
  */
 import {
-  DataRecord, SystemName, WIDGET_KIND, type DataSetPage, type DataSetQuery, type FnSearchPage, type FnSearchQuery, type ItemVersionsPage, type ItemVersionsQuery,
+  ApprovalPreview, ChangeSet, DataRecord, SystemName, TypeRecord, WIDGET_KIND, type DataSetPage, type DataSetQuery, type FnSearchPage, type FnSearchQuery, type ItemVersionsPage, type ItemVersionsQuery,
   type RecordGet, type RecordRemove, type RecordSave, type RecordTableQuery, type RecordVersionsPage, type RecordVersionsQuery, type ResultTable, type WidgetActionOption,
 } from '@harness/core';
 import { NOTE_TYPE, NOTES_WIDGET, SAMPLE_ACTIONS, SAMPLE_RECORDS, SAMPLE_SETS, SAMPLE_TABLE, sampleItemVersions, sampleRecordVersions } from '../src/data/test/samples.ts';
 
 const HUB = SystemName.parse('hub');
+
+/**
+ * What a `bash` run changed: two text files with diffs (one renamed, one maybe another call's), a binary file, a
+ * sensitive dotfile and a file in a dotted folder (both listed without a diff), and more ignored by git.
+ */
+export const BASH_CHANGES = ChangeSet.parse({
+  source: 'git', cwd: 'C:/work/harness', ignored: 12, truncated: false,
+  files: [
+    {
+      path: 'packages/web/src/app/routes.ts', root: 'work', status: 'modified', certain: true, size: 2_310, added: 3, removed: 1,
+      diff: [
+        '--- a/packages/web/src/app/routes.ts', '+++ b/packages/web/src/app/routes.ts', '@@ -12,6 +12,8 @@ export const routes = [',
+        "   { path: '/chat', component: ChatPage,", "-    props: true },", "+    props: true,", "+    meta: { group: 'chat' } },",
+        "   { path: '/data', component: DataPage },", "+  { path: '/data/:system/:type', component: DataTypePage },", "   { path: '/admin', component: AdminPage },",
+      ].join('\n'),
+    },
+    {
+      path: 'docs/routing.md', from: 'docs/routes.md', root: 'work', status: 'renamed', certain: false, size: 640, added: 1, removed: 1,
+      diff: ['--- a/docs/routes.md', '+++ b/docs/routing.md', '@@ -1,3 +1,3 @@', '-# Routes', '+# Routing', ' ', ' Every page is tied to the URL.'].join('\n'),
+    },
+    { path: 'packages/web/public/logo.png', root: 'work', status: 'added', certain: true, size: 18_204, noDiff: 'binary' },
+    { path: '.env', root: 'work', status: 'modified', certain: true, size: 212, noDiff: 'sensitive', sensitive: 'env' },
+    { path: '.github/workflows/ci.yml', root: 'work', status: 'modified', certain: false, size: 1_480, noDiff: 'sensitive', sensitive: 'secret-content' },
+  ],
+});
+
+/** A `bash` command that reads and writes sensitive files. */
+export const FLAGGED_COMMAND = 'cp .env.example .env && echo "OPENAI_API_KEY=$KEY" >> .env && cat ~/.ssh/id_ed25519.pub';
+
+/** That command waiting for approval, its sensitive files listed. */
+export const FLAGGED_PREVIEW = ApprovalPreview.parse({
+  title: 'Run a shell command in C:/work/harness',
+  irreversible: false,
+  parts: [
+    { type: 'code', language: 'sh', title: 'Command', code: FLAGGED_COMMAND },
+    {
+      type: 'flags',
+      flags: [
+        { path: '.env', kind: 'env', rule: 'env files', access: 'write', action: 'ask', why: 'Env files hold keys and passwords.', certain: false },
+        { path: '.env.example', kind: 'env', rule: 'env files', access: 'read', action: 'ask', why: 'Env files hold keys and passwords.', certain: false },
+        { path: '~/.ssh/id_ed25519.pub', kind: 'key', rule: 'ssh keys', access: 'read', action: 'ask', why: 'Key files let whoever holds them sign in.', certain: false },
+      ],
+    },
+  ],
+});
 
 /** The stored types, their records and the saved widgets. */
 export class MockData {
@@ -98,6 +143,14 @@ export class MockData {
         { item: 'fn', name: 'hub/orders_by_city', system: HUB, description: "This month's orders per city, from the shop database.", kind: WIDGET_KIND, mode: 'read', available: false, unavailable: 'The database system is offline.' },
       ],
     };
+  }
+
+  /** The stored note type, so a record is drawn as its type. */
+  types(now: number): TypeRecord[] {
+    return [TypeRecord.parse({
+      name: NOTE_TYPE, system: 'notes', instance: 'main', description: 'A note: a title, its text, open or done, and how many words.', display: { label: 'Note', title: 'title' }, references: [], updatedAt: now - 3_600_000,
+      def: { name: 'obj', props: { title: { type: { name: 'text' } }, body: { type: { name: 'text' } }, status: { type: { name: 'text' } }, words: { type: { name: 'num' } } } },
+    })];
   }
 
   actions(): WidgetActionOption[] {

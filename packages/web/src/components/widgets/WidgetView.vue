@@ -2,7 +2,7 @@
 /**
  * A widget's result (build 8): its title, the visuals it keeps (in its order, the table last) drawn with their column
  * bindings, a line for any binding that no longer fits, its controls (a form over the widget's args, applied as a new
- * run), Refresh, and a button on each row that offers the actions of the row's type: a form for args left after
+ * run), a pager when it pages (each page a new run), Refresh, and a button on each row that offers the actions of the row's type: a form for args left after
  * binding, a confirm for anything that is not a read, and nothing runs until a person clicks. Without a widget host
  * (a page that can't run fns) it draws read-only.
  */
@@ -14,7 +14,7 @@ import { OWN_HOST, RESULTS_HOST } from '../results/builtin.ts';
 import ResultView from '../results/ResultView.vue';
 import type { RowOpener } from '../results/visuals.ts';
 import { WidgetState } from './widget-state.ts';
-import { boundTable, confirmText, offeredVisuals, WIDGET_HOST } from './widgets.ts';
+import { ACTION_MODE_WORDS, boundTable, confirmText, offeredVisuals, rowName, WIDGET_HOST } from './widgets.ts';
 
 const props = withDefaults(defineProps<{
   result: WidgetResult;
@@ -48,6 +48,14 @@ const drawn = computed(() => boundTable(props.result.table, props.result.visuals
 const controlsType = computed(() => (props.fn === undefined ? undefined : host?.argsType(props.fn)));
 const controlsOpen = ref(false);
 
+/** The pager: this page's first row, and whether pages come before and after it. */
+const paging = computed(() => {
+  const asked = props.result.paging;
+  if (asked === undefined || state === undefined || props.fn === undefined) { return undefined; }
+  const offset = props.result.table.offset;
+  return { asked, offset, before: offset > 0, after: props.result.table.truncated, shown: `${String(offset + 1)}–${String(offset + props.result.table.rows.length)}` };
+});
+
 const rows = computed((): RowOpener | undefined => {
   if (state === undefined || (state.options.value.value ?? []).length === 0) { return undefined; }
   return {
@@ -70,7 +78,9 @@ async function apply(args: Json): Promise<void> {
   if (await state?.apply(args) === true) { controlsOpen.value = false; }
 }
 
-const dialogTitle = computed(() => state?.picked.value?.label ?? 'Actions');
+/** The menu names the row it acts on; once an action is picked, the action. */
+const shownRow = computed(() => { const row = state?.row.value; return row === undefined ? undefined : rowName(props.result.table, row); });
+const dialogTitle = computed(() => state?.picked.value?.label ?? (shownRow.value === undefined ? 'Actions' : `Actions for “${shownRow.value}”`));
 </script>
 
 <template>
@@ -86,6 +96,11 @@ const dialogTitle = computed(() => state?.picked.value?.label ?? 'Actions');
     <ResultView v-model:choice="choice" :table="drawn.table" :title="result.title" :visuals="visuals" :opener="rows">
       <template #tools>
         <UiIconButton v-if="controlsType !== undefined" icon="filter" label="Controls" size="sm" :aria-expanded="controlsOpen" data-testid="widget-controls-toggle" @click="controlsOpen = !controlsOpen" />
+        <template v-if="paging && state && (paging.before || paging.after)">
+          <UiIconButton icon="chevron-left" label="Previous page" size="sm" :disabled="!paging.before || state.running.busy.value" data-testid="widget-page-previous" @click="state.page(paging.asked, paging.offset - paging.asked.size)" />
+          <span class="page" data-testid="widget-page">{{ paging.shown }}</span>
+          <UiIconButton icon="chevron-right" label="Next page" size="sm" :disabled="!paging.after || state.running.busy.value" data-testid="widget-page-next" @click="state.page(paging.asked, paging.offset + paging.asked.size)" />
+        </template>
         <UiIconButton v-if="state && fn" icon="refresh" label="Refresh" size="sm" data-testid="widget-refresh" @click="state.refresh()" />
       </template>
     </ResultView>
@@ -95,7 +110,7 @@ const dialogTitle = computed(() => state?.picked.value?.label ?? 'Actions');
           <li v-for="option in state.offered.value" :key="option.fn">
             <button type="button" class="choice" :data-fn="option.fn" data-testid="widget-action-choice" @click="pick(option)">
               <span>{{ option.label }}</span>
-              <span v-if="option.mode !== 'read'" class="mode">{{ option.mode }}</span>
+              <span v-if="ACTION_MODE_WORDS[option.mode] !== ''" class="mode">{{ ACTION_MODE_WORDS[option.mode] }}</span>
             </button>
           </li>
         </ul>
@@ -124,6 +139,7 @@ const dialogTitle = computed(() => state?.picked.value?.label ?? 'Actions');
 .title { min-width: 0; margin: 0; font-size: var(--text-sm); font-weight: var(--weight-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .controls { padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
 .problems { margin: var(--space-1) 0 0; padding-left: var(--space-4); }
+.page { color: var(--text-dim); font-size: var(--text-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .action { display: grid; gap: var(--space-3); }
 .choices { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .choice {

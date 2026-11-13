@@ -154,7 +154,7 @@ describe('lists and cards', () => {
     expect(list.text()).toContain('Added while running');
     expect(list.text()).toContain('abcdef01');
     expect(list.text()).toContain('Seen by people');
-    expect(list.text()).toContain('showing the first 1');
+    expect(list.text()).toContain('Showing the first 1');
     await list.findAll('[data-testid="system-part"]')[1]?.trigger('click');
     expect(list.find('[data-testid="system-part-owner"]').exists()).toBe(true);
     expect(list.text()).toContain('"name": "guide"');

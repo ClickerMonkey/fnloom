@@ -21,6 +21,7 @@ import RecordFilters from '../data/components/RecordFilters.vue';
 import RecordPanel from '../data/components/RecordPanel.vue';
 import { filtersOf, filtersParam, recordIdOf, recordTableQuery, sortParam, typeOf, type RecordsUrl } from '../data/logic/data.ts';
 import { COMPACT_QUERY } from '../state/layout.ts';
+import { useActorNames } from '../state/actor-names.ts';
 import { useStores } from '../state/stores.ts';
 import { UiButton, UiIcon, UiInput, useMediaQuery } from '../ui/index.ts';
 
@@ -56,6 +57,13 @@ watch([type, opened], () => {
 onBeforeUnmount(() => { records.close(); });
 
 const table = computed(() => records.table.value.value);
+/** How many records there are, under the heading (the heading already names the type). */
+const description = computed(() => {
+  const total = table.value?.total;
+  return total === undefined ? '' : `${String(total)} ${total === 1 ? 'record' : 'records'}${words.value.value !== '' || filters.value.length > 0 ? ' found' : ''}`;
+});
+/** People's names for the record's history. */
+const { nameOf } = useActorNames(chat.pickers.source('person'), () => records.versions.value.flatMap((version) => (version.by === undefined ? [] : [version.by])));
 const registry = QualifiedName.parse(HUB_VISUALS);
 
 /** Go to another page or order of records: the URL follows, and the grid with it. */
@@ -118,7 +126,7 @@ async function showAsWidget(): Promise<void> {
 </script>
 
 <template>
-  <AppPage :title="param('local')" :description="type ? `Records of ${type}, kept by the hub.` : ''" keep-title>
+  <AppPage :title="param('local')" :description="description" keep-title>
     <template #crumb>
       <RouterLink :to="links.data()" class="crumb" data-testid="back-to-data"><UiIcon name="chevron-left" :size="14" />Data</RouterLink>
     </template>
@@ -126,22 +134,23 @@ async function showAsWidget(): Promise<void> {
       <UiButton size="sm" variant="ghost" icon="grid" :loading="asking" data-testid="show-as-widget" @click="showAsWidget">Show as widget</UiButton>
       <UiButton size="sm" variant="primary" icon="plus" data-testid="record-new" @click="open(NEW)">New record</UiButton>
     </template>
-    <div class="bar">
-      <UiInput v-model="words.draft.value" type="search" icon="search" placeholder="Search records" label="Search records" hide-label clearable class="search" data-testid="records-search" />
-      <RecordFilters :columns="table?.columns ?? []" :filters="filters" @change="setFilters" />
-    </div>
     <LoadState
       :loading="records.table.loading.value" :problem="records.table.problem.value" :ready="table !== undefined" :empty="table?.rows.length === 0 && words.value.value === '' && filters.length === 0"
       empty-title="No records yet" empty-body="Add one with New record, or let a system add them." empty-icon="database" :lines="8" @retry="type && records.show(recordTableQuery(type, url))"
     >
-      <ResultBlock v-if="table" :table="table" :title="param('local')" :registry="registry" :view-key="`data:${type ?? ''}`" :pager="page" :opener="opener" />
+      <ResultBlock v-if="table" :table="table" :title="param('local')" :registry="registry" :view-key="`data:${type ?? ''}`" :pager="page" :opener="opener">
+        <template #lead>
+          <UiInput v-model="words.draft.value" type="search" icon="search" placeholder="Search records" label="Search records" hide-label clearable class="search" data-testid="records-search" />
+          <RecordFilters :columns="table.columns" :filters="filters" @change="setFilters" />
+        </template>
+      </ResultBlock>
     </LoadState>
     <PanelHost v-model:open="panelOpen" :inline="false" :phone="phone" :label="panelTitle">
-      <PanelFrame :title="panelTitle" :subtitle="type ?? ''" @close="open(undefined)">
+      <PanelFrame :title="panelTitle" @close="open(undefined)">
         <RecordPanel
           v-if="ref_ && (opened === NEW || record)" :key="opened" :type="ref_" :record="opened === NEW ? undefined : record" :versions="records.versions.value"
           :more-versions="records.versionsNext.value !== undefined" :versions-loading="records.versionsLoading.value" :versions-problem="records.versionsProblem.value"
-          :busy="records.saving.busy.value" :problem="records.saving.problem.value || records.record.problem.value" @save="save" @remove="remove" @more="records.moreVersions()" @cancel="open(undefined)"
+          :name-of="nameOf" :busy="records.saving.busy.value" :problem="records.saving.problem.value || records.record.problem.value" @save="save" @remove="remove" @more="records.moreVersions()" @cancel="open(undefined)"
         />
         <p v-else-if="records.record.loading.value" class="dim">Loading…</p>
         <p v-else class="dim" data-testid="record-missing">{{ records.record.problem.value || 'No record by that id, or you may not see it.' }}</p>
@@ -153,7 +162,6 @@ async function showAsWidget(): Promise<void> {
 <style scoped>
 .crumb { display: inline-flex; align-items: center; gap: 2px; color: var(--text-dim); font-size: var(--text-sm); text-decoration: none; }
 .crumb:hover { color: var(--text); }
-.bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); min-width: 0; }
-.search { flex: 1 1 240px; max-width: 420px; }
+.search { flex: 1 1 8rem; min-width: 0; max-width: 420px; }
 .dim { margin: 0; color: var(--text-dim); }
 </style>

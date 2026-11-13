@@ -104,6 +104,14 @@ describe('a widget\'s state', () => {
     expect(state.open.value).toBe(false);
   });
 
+  it('pages by running the widget with its offset arg, keeping its other args', async () => {
+    const host = fakeHost();
+    const state = new WidgetState(host, () => ({ fn: NOTES_WIDGET, args: { status: 'open', offset: 25 } }));
+    expect(await state.page({ arg: 'offset', size: 25 }, 50)).toBe(true);
+    expect(await state.page({ arg: 'offset', size: 25 }, -25)).toBe(true);
+    expect(host.runs).toEqual([{ fn: NOTES_WIDGET, args: { status: 'open', offset: 50 } }, { fn: NOTES_WIDGET, args: { status: 'open', offset: 0 } }]);
+  });
+
   it('says why an action failed and keeps it open', async () => {
     const state = new WidgetState(fakeHost({ run: () => Promise.resolve(false) }), () => ({ fn: NOTES_WIDGET, args: {} }));
     await state.load(SAMPLE_TABLE);
