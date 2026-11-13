@@ -1227,3 +1227,10 @@ Already checked: type-checking all of the types and examples takes about two sec
 - **Audit gate calls** (2026-11-12): "1. Move into settings 2. Yes 3. Do suggested". Context metric defaults move into
   env settings; esbuild is a root devDependency; a system searches resources for a mention only as the person the
   hub's own mention request named.
+- **Widgets follow product's plan, drawn with ECharts** (2026-11-12): "Have it use apache echarts and try to do every
+  type. Look at the products widget plan I have it - thats what I want with this widget system." The owner's 39
+  answers (questionme set `widgets`) are verbatim in `docs/plans/build-8-feedback.md`. In short: everything in
+  product's plan except dashboards; widgets are a bundled `widgets` system, not a hub kind; every ECharts series
+  that draws from rows and columns, in about 12 families with styles; the database system's own visuals go; systems
+  may bundle their own ECharts charts; a write's form is followed by a confirm; the agent proposes a widget and the
+  person saves it; the Data page's tables use the widget view.
