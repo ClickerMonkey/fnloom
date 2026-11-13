@@ -1234,3 +1234,9 @@ Already checked: type-checking all of the types and examples takes about two sec
   that draws from rows and columns, in about 12 families with styles; the database system's own visuals go; systems
   may bundle their own ECharts charts; a write's form is followed by a confirm; the agent proposes a widget and the
   person saves it; the Data page's tables use the widget view.
+- **Functional testing is ours; the fn modal** (2026-11-13): "I need you to have unit tests around these things so I
+  don't hit these during my testing which should be more about ux and not functional since I've communicated
+  functional to you. Use luna gpt 6 for testing since I exhausted free calls. Don't run a test more than once unless
+  you're doing a final test across them all after you handle each individually. In system page when I click on a fn
+  it expands - I think a modal should open up - ... fn modal and page should share same stuff since I asked that the
+  chat open a modal and not take the user away from where they are." Full note in `docs/plans/build-9-feedback.md`.
