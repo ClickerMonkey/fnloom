@@ -7,7 +7,7 @@
 import type { Json, QualifiedName, ResultTable, WidgetActionOption, WidgetResult } from '@harness/core';
 import { computed, ref, shallowRef } from 'vue';
 import { Loaded, Task } from '../../state/loaded.ts';
-import { actionArgs, boundArgs, rowActions, rowTypes, type WidgetHost } from './widgets.ts';
+import { actionArgs, argsObject, boundArgs, rowActions, rowTypes, type WidgetHost } from './widgets.ts';
 
 /** Where a picked action is: choosing one for the row, filling its form, or confirming it. */
 export type ActionStep = 'choose' | 'form' | 'confirm';
@@ -100,9 +100,16 @@ export class WidgetState {
 
   /** Run the widget for the page at `offset` (its paging arg set to it, every other arg kept). */
   async page(paging: NonNullable<WidgetResult['paging']>, offset: number): Promise<boolean> {
-    const { args } = this.#source();
-    const kept = typeof args === 'object' && args !== null && !Array.isArray(args) ? args : {};
-    return this.apply({ ...kept, [paging.arg]: Math.max(0, Math.floor(offset)) });
+    return this.apply({ ...argsObject(this.#source().args), [paging.arg]: Math.max(0, Math.floor(offset)) });
+  }
+
+  /**
+   * Run the widget with one control set (`undefined` leaves its arg out, so it takes its default), every other arg
+   * kept but the page (`pagingArg`), which starts again from the first.
+   */
+  async setControl(arg: string, value: Json | undefined, pagingArg?: string): Promise<boolean> {
+    const args = Object.fromEntries(Object.entries(argsObject(this.#source().args)).filter(([name]) => name !== arg && name !== pagingArg));
+    return this.apply(value === undefined ? args : { ...args, [arg]: value });
   }
 
   /** Run the widget with new control values. */

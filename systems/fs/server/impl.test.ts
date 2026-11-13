@@ -188,6 +188,31 @@ describe('the fs implementation', () => {
       expect(failure(await server.impl.fns.cd.run({ path: '../a.txt' }, cd.ctx)).code).toBe('not-a-folder');
     });
 
+    it('flags sensitive files after a cd, behind a glob, by name when missing, and in the session folder at run time', async () => {
+      await mkdir(`${root}/sub`, { recursive: true });
+      await writeFile(`${root}/sub/.env`, 'X=1\n');
+      const preview = { ...systemCtx({ config }), run: mintId('run') };
+      const flagged = async (command: string) => (await server.impl.fns.bash.flags?.({ command }, preview) ?? []).map((flag) => [flag.path, flag.rule]);
+      expect(await flagged('cd sub && cat .env')).toEqual([['.env', 'env-files']]);
+      expect(await flagged('cat sub/.e*')).toEqual([['sub/.env', 'env-files']]);
+      expect(await flagged('cat */.env')).toEqual([['sub/.env', 'env-files']]);
+      expect(await flagged('cat nowhere/.env')).toEqual([['nowhere/.env', 'env-files']]);
+      expect(await flagged('cd "$DIR" && cat .env')).toEqual([['.env', 'env-files']]);
+      expect(await flagged('cat src/*.ts')).toEqual([]);
+
+      // the preview judged `cat notes.txt` at the root, where there is none; the run is in sub, where it holds a password
+      await writeFile(`${root}/sub/notes.txt`, 'password = "hunter2hunter2"\n');
+      expect(await flagged('cat notes.txt')).toEqual([]);
+      const reasons: string[] = [];
+      const state = memoryState<Cwd>({ cwd: `${root}/sub` });
+      const asked = bashCtx(state, { confirm: (input) => { reasons.push(input.reason); return Promise.resolve(false); } });
+      expect((await server.impl.fns.bash.run({ command: 'cat notes.txt' }, asked.ctx)).status).toBe('invalid-input');
+      expect(reasons).toEqual(['May read notes.txt (secret-content: It has a password or secret written out in it.)']);
+      expect(shell.calls).toHaveLength(0);
+      expect((await server.impl.fns.bash.run({ command: 'cat notes.txt' }, bashCtx(state).ctx)).status).toBe('invalid-input');
+      expect((await server.impl.fns.bash.run({ command: 'cat notes.txt' }, bashCtx(state, { confirm: () => Promise.resolve(true) }).ctx)).status).toBe('done');
+    });
+
     it('falls back to the first root when the saved folder is gone, and honours an explicit cwd', async () => {
       await server.impl.fns.bash.run({ command: 'ls' }, bashCtx(memoryState<Cwd>({ cwd: `${root}/deleted` })).ctx);
       expect(shell.calls[0]?.cwd).toBe(root);

@@ -95,6 +95,18 @@ export const WidgetSpec = z.object({
 });
 export type WidgetSpec = z.infer<typeof WidgetSpec>;
 
+/**
+ * A control as a widget's result names it, so the page shows each one with what it is set to: the argument, its label
+ * and the only values offered (`custom` lets another be typed). Pinned, hidden and paging arguments are never listed.
+ */
+export const WidgetShownControl = z.object({
+  arg: LocalName,
+  label: z.string().min(1),
+  choices: z.array(Json).min(1).optional(),
+  custom: z.boolean(),
+});
+export type WidgetShownControl = z.infer<typeof WidgetShownControl>;
+
 /** What a widget run returns, and what its renderer draws. */
 export const WidgetResult = z.object({
   title: z.string().min(1),
@@ -110,6 +122,8 @@ export const WidgetResult = z.object({
    * offset (`table.offset` is this page's, `table.truncated` says whether more follow), `size` rows a page.
    */
   paging: z.object({ arg: LocalName, size: z.number().int().min(1) }).optional(),
+  /** The controls it shows, in its source's arg order; absent when it shows none. */
+  controls: z.array(WidgetShownControl).optional(),
 });
 export type WidgetResult = z.infer<typeof WidgetResult>;
 

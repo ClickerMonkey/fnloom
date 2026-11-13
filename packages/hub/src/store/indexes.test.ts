@@ -5,6 +5,8 @@ import { memoryLog } from '../testing.ts';
 import { TEST_EMBEDDER, openTestStore, tempDir } from './fixtures.ts';
 import { HybridSearch, fuseRanks } from './hybrid.ts';
 import type { TextIndex, VectorIndex } from './index.ts';
+import Database from 'better-sqlite3';
+import * as sqliteVec from 'sqlite-vec';
 import { SqliteStore } from './sqlite.ts';
 import { matchExpression } from './text.ts';
 import { similarity, vectorTable } from './vectors.ts';
@@ -104,6 +106,13 @@ describe('vector index', () => {
     expect(await store.vectors.nearest(TEST_EMBEDDER, [1, 0, 0], 10, kinds, [{ kind: 'fn', key: 'nothing' }])).toEqual([]);
   });
 
+  it('keeps to keys with a prefix inside the search, so other keys never use up the limit', async () => {
+    const crowd = Array.from({ length: 30 }, (_, i) => ({ kind: 'fn' as const, key: `x-other-${i}`, vector: [1, 0.01 * (i + 1), 0] }));
+    await store.vectors.upsert(TEST_EMBEDDER, [...crowd, { kind: 'fn', key: 'mine-1', vector: [0, 1, 1] }]);
+    expect((await store.vectors.nearest(TEST_EMBEDDER, [1, 0, 0], 2, kinds, undefined, 'mine-')).map((h) => h.key)).toEqual(['mine-1']);
+    expect((await store.vectors.nearest(TEST_EMBEDDER, [1, 0, 0], 3, kinds, undefined, 'x')).map((h) => h.key)).toEqual(['x', 'x-other-0', 'x-other-1']);
+  });
+
   it('replaces a vector on upsert and removes by kind and key', async () => {
     await store.vectors.upsert(TEST_EMBEDDER, [{ kind: 'fn', key: 'x', vector: [0, 0, 1] }]);
     expect((await store.vectors.nearest(TEST_EMBEDDER, [0, 0, 1], 1))[0]?.key).toBe('x');
@@ -157,6 +166,30 @@ describe('vector index', () => {
       expect(records.find((r) => r.msg === 'store.vectors.rebuilt')).toMatchObject({ embedder: TEST_EMBEDDER, from: 3, to: 4 });
       expect(await wider.vectors.nearest(TEST_EMBEDDER, [1, 2, 3, 4], 5)).toEqual([]);
       await wider.close();
+    } finally {
+      tmp.dispose();
+    }
+  });
+
+  it('relays a table made with the key as an auxiliary column, keeping its vectors', async () => {
+    const tmp = tempDir();
+    try {
+      const file = tmp.file('relay.sqlite');
+      const first = await openTestStore({ file });
+      await first.close();
+      const raw = new Database(file);
+      sqliteVec.load(raw);
+      const table = vectorTable(TEST_EMBEDDER);
+      raw.exec(`drop table ${table}`);
+      raw.exec(`create virtual table ${table} using vec0(id text primary key, embedding float[3] distance_metric=cosine, kind text, +key text)`);
+      raw.prepare(`insert into ${table} (id, embedding, kind, key) values (?, ?, 'fn', ?)`).run('fn\u0000kept', new Uint8Array(Float32Array.from([1, 0, 0]).buffer), 'kept');
+      raw.close();
+      const { log, records } = memoryLog();
+      const again = SqliteStore.open({ file, dimensions: { [TEST_EMBEDDER]: 3 }, log });
+      await again.migrate();
+      expect(records.find((r) => r.msg === 'store.vectors.relaid')).toMatchObject({ table });
+      expect((await again.vectors.nearest(TEST_EMBEDDER, [1, 0, 0], 5, ['fn'], undefined, 'ke')).map((h) => h.key)).toEqual(['kept']);
+      await again.close();
     } finally {
       tmp.dispose();
     }

@@ -18,7 +18,7 @@ import { removeLinksFrom, writeDerivedLinks } from '../contextor/graph.ts';
 import { contextTokens } from '../contextor/tokens.ts';
 import type { HubStore } from '../store/index.ts';
 import { AvailabilityRules, heldFns, sameAvailability, systemAvailability, systemOf, unavailable } from './availability.ts';
-import type { Catalog, CatalogEntry, FnSignature, KindDescriber } from './index.ts';
+import type { Catalog, CatalogEntry, FnFilter, FnSignature, KindDescriber } from './index.ts';
 import { allRows, rows } from '../store/rows.ts';
 import { GinScopes, messageOf, type TypeLookup } from './scope.ts';
 import { Serial } from './serial.ts';
@@ -160,12 +160,18 @@ export class StoreCatalog implements Catalog {
     return this.options.store.table('fns').get(name);
   }
 
-  async fns(filter: { system?: SystemName; names?: readonly QualifiedName[]; available?: boolean }): Promise<FnRecord[]> {
-    const fns = this.options.store.table('fns');
-    const rows = filter.names === undefined
-      ? await allRows(fns, filter.system === undefined ? {} : { where: { system: filter.system } })
-      : (await Promise.all(filter.names.map((name) => fns.get(name)))).filter((row) => row !== undefined);
-    return rows.filter((row) => (filter.system === undefined || row.system === filter.system) && (filter.available === undefined || (row.available === true) === filter.available));
+  async fns(filter: FnFilter): Promise<FnRecord[]> {
+    if (filter.names !== undefined) { return (await this.#records(filter.names)).filter((row) => fnMatches(row, filter)); }
+    const out: FnRecord[] = [];
+    for await (const row of this.eachFn(filter)) { out.push(row); }
+    return out;
+  }
+
+  async *eachFn(filter: Omit<FnFilter, 'names'>): AsyncGenerator<FnRecord> {
+    const where = filter.system !== undefined ? { system: filter.system } : filter.systems !== undefined ? { system: { in: [...filter.systems] } } : undefined;
+    for await (const row of rows(this.options.store.table('fns'), where === undefined ? {} : { where })) {
+      if (fnMatches(row, filter)) { yield row; }
+    }
   }
 
   kind(name: QualifiedName): Promise<KindRecord | undefined> {
@@ -320,7 +326,7 @@ export class StoreCatalog implements Catalog {
         const off = systemRow?.enabled.context === false || systemRow?.stage === 'installed';
         return this.#writeApiIndex(tx, system, manifest?.context ?? [], manifest?.groups ?? [], this.options.clock(), off);
       });
-      await this.#refresh();
+      await this.#refresh([name]);
       const saved = await this.fn(name);
       this.#announce([name], [], saved === undefined ? [] : [saved]);
       for (const changed of apiChanged) { this.options.bus.publish('context.changed', { name: changed }); }
@@ -350,32 +356,71 @@ export class StoreCatalog implements Catalog {
   async refreshAvailability(system: SystemName): Promise<void> {
     await this.#serial.run(async () => {
       const redescribed = await this.#redescribeKindsOf(system);
-      const changed = new Map([...redescribed, ...await this.#refresh()].map((r) => [r.name, r]));
+      const changed = new Map([...redescribed, ...await this.#refresh(await this.#touchedBy(system))].map((r) => [r.name, r]));
       if (changed.size > 0) { this.options.bus.publish('catalog.changed', { added: [], removed: [], fns: [...changed.values()] }); }
       this.options.bus.publish('capabilities.changed', {});
     });
   }
 
-  /** Recompute every fn's availability; write and return the ones that changed. */
-  async #refresh(): Promise<FnRecord[]> {
+  /**
+   * The fns whose availability a change to a system can change on their own: its fns, the fns of its kinds (the kinds
+   * it has, and any it just removed), and fns it just removed (so the fns that depend on them follow). All read through
+   * the database's indexes.
+   */
+  async #touchedBy(system: SystemName, removed: { readonly fns: readonly QualifiedName[]; readonly kinds: readonly QualifiedName[] } = { fns: [], kinds: [] }): Promise<QualifiedName[]> {
     const { store } = this.options;
-    const [systems, kinds, fns, reviews, kindsOff] = await Promise.all([
-      allRows(store.table('systems')), allRows(store.table('kinds')), allRows(store.table('fns')), allRows(store.table('systemReviews')), allRows(store.table('itemSwitches'), { where: { section: 'kinds' } }),
+    const [own, kinds] = await Promise.all([allRows(store.table('fns'), { where: { system } }), allRows(store.table('kinds'), { where: { system } })]);
+    const kindNames = [...new Set([...kinds.map((k) => k.name), ...removed.kinds])];
+    const ofKinds = kindNames.length === 0 ? [] : await allRows(store.table('fnLinks'), { where: { to: { in: kindNames }, link: 'kind' } });
+    return [...own.map((fn) => fn.name), ...ofKinds.map((row) => row.fn), ...removed.fns];
+  }
+
+  /**
+   * Recompute the availability of some fns and of every fn that depends on them, at any depth (found through the
+   * `fnLinks` index); write and return the ones that changed. The fns they depend on that nothing here reaches keep the
+   * availability stored for them, which this change cannot move.
+   */
+  async #refresh(seeds: readonly QualifiedName[]): Promise<FnRecord[]> {
+    const { store } = this.options;
+    const records = await this.#records([...await this.#dependents(seeds)]);
+    const fns = new Map(records.map((r) => [r.name, r]));
+    const outside = qualifiedOnly(new Set(records.flatMap((r) => r.decl.deps).filter((dep) => !fns.has(dep))));
+    const kindNames = qualifiedOnly(new Set(records.flatMap((r) => (r.decl.kind === 'native' ? [] : [r.decl.kind]))));
+    const kinds = (await Promise.all(kindNames.map((name) => store.table('kinds').get(name)))).filter((kind) => kind !== undefined);
+    const ownSystems = new Set<SystemName>(records.map((r) => r.system));
+    const systemNames = new Set<SystemName>([...ownSystems, ...kinds.flatMap((kind) => { const owner = systemOf(kind.name); return owner === undefined ? [] : [owner]; })]);
+    const [settled, systems, reviews, kindsOff] = await Promise.all([
+      this.#records(outside),
+      Promise.all([...systemNames].map((name) => store.table('systems').get(name))),
+      Promise.all([...ownSystems].map((name) => store.table('systemReviews').get(name))),
+      kindNames.length === 0 ? Promise.resolve([]) : allRows(store.table('itemSwitches'), { where: { section: 'kinds', name: { in: kindNames } } }),
     ]);
     const rules = new AvailabilityRules({
-      systems: new Map(systems.map((r) => [r.name, r])),
+      systems: new Map(systems.filter((r) => r !== undefined).map((r) => [r.name, r])),
       kinds: new Map(kinds.map((r) => [r.name, r])),
-      fns: new Map(fns.map((r) => [r.name, r])),
-      held: heldFns(reviews),
+      fns,
+      settled: new Map(settled.map((r) => [r.name, r.available])),
+      held: heldFns(reviews.filter((r) => r !== undefined)),
       kindsOff: new Set(kindsOff.map((r) => r.name)),
     });
     const changed: FnRecord[] = [];
-    for (const fn of fns) {
+    for (const fn of records) {
       const available = rules.fn(fn.name);
       if (sameAvailability(available, fn.available)) { continue; }
       changed.push(await store.table('fns').update(fn.name, { available, updatedAt: this.options.clock() }));
     }
     return changed;
+  }
+
+  /** Some fns and every fn that depends on them, at any depth, through the `fnLinks` index. */
+  async #dependents(seeds: readonly QualifiedName[]): Promise<Set<QualifiedName>> {
+    const found = new Set<QualifiedName>(seeds);
+    for (let frontier = [...found]; frontier.length > 0;) {
+      const links = await allRows(this.options.store.table('fnLinks'), { where: { to: { in: frontier }, link: 'dep' } });
+      frontier = [...new Set(links.map((row) => row.fn))].filter((name) => !found.has(name));
+      for (const name of frontier) { found.add(name); }
+    }
+    return found;
   }
 
   /** Ask a connected kind system to describe its kinds' fns again, so a fn declared while it was away gets its signature. */
@@ -615,7 +660,7 @@ export class StoreCatalog implements Catalog {
     // a signature is parsed in the scope of the named types it uses, so any type change can change it
     if (changedTypes.size > 0) { this.#signatures.clear(); }
     const redescribed = await this.#redescribe(await this.#referencing(changedTypes, changedNames));
-    const availabilityChanged = await this.#refresh();
+    const availabilityChanged = await this.#refresh(await this.#touchedBy(system, { fns: removedFrom.get('fns') ?? [], kinds: removedFrom.get('kinds') ?? [] }));
     const fns = new Map<string, FnRecord>([...fnWrites, ...redescribed, ...availabilityChanged].map((r) => [r.name, r]));
     this.#announce([...report.added, ...report.updated], report.removed, [...fns.values()]);
     for (const name of apiChanged) { this.options.bus.publish('context.changed', { name }); }
@@ -882,6 +927,12 @@ export class StoreCatalog implements Catalog {
 /** The names that are qualified names (a gin mention of a built-in type is not). */
 function qualifiedOnly(names: Iterable<string>): QualifiedName[] {
   return [...names].flatMap((name) => { const parsed = QualifiedName.safeParse(name); return parsed.success ? [parsed.data] : []; });
+}
+
+/** Whether a fn passes a filter's system, systems and availability. */
+function fnMatches(row: FnRecord, filter: Omit<FnFilter, 'names'>): boolean {
+  return (filter.system === undefined || row.system === filter.system) && (filter.systems === undefined || filter.systems.includes(row.system))
+    && (filter.available === undefined || (row.available === true) === filter.available);
 }
 
 /** Whether a type is gin's `any` (an author who gave no args type). */

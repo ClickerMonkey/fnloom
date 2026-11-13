@@ -47,6 +47,11 @@ export interface AvailabilityInputs {
   readonly systems: ReadonlyMap<string, SystemRecord>;
   readonly kinds: ReadonlyMap<string, KindRecord>;
   readonly fns: ReadonlyMap<string, FnRecord>;
+  /**
+   * Fns left out of `fns` whose availability is already known (stored, and out of reach of the change being worked
+   * out): they answer as given and are not walked.
+   */
+  readonly settled?: ReadonlyMap<string, Availability>;
   /** Fns held off while their system's pending review waits (`SystemLifecycle.held`). */
   readonly held?: ReadonlySet<string>;
   /** Kinds an admin switched off (`itemSwitches`): their fns are off with them. */
@@ -82,8 +87,10 @@ export class AvailabilityRules {
     return result;
   }
 
-  /** An answer already known: memoized, or a fn that does not exist. */
+  /** An answer already known: given as settled, memoized, or a fn that does not exist. */
   #settled(name: string): Availability | undefined {
+    const known = this.inputs.settled?.get(name);
+    if (known !== undefined) { return known; }
     if (!this.inputs.fns.has(name)) { return unavailable('dep-unavailable', `${name} does not exist`); }
     return this.#memo.get(name);
   }

@@ -48,6 +48,13 @@ export default feature({
       await (await page.$(tid('sensitive-files')))?.scrollIntoView();
       await settle(page);
       check(!await scrollsSideways(page), 'the approval for sensitive files fits the screen');
+      // every flagged file is in sight on the card, none cut by the body's fade
+      const inSight = await page.$$eval(`${tid('approval-card')} ${tid('sensitive-file')}`, (rows) => rows.filter((row) => {
+        const card = row.closest('[data-testid="approval-card"]')?.getBoundingClientRect();
+        const box = row.getBoundingClientRect();
+        return card !== undefined && box.height > 0 && box.bottom <= card.bottom && row.closest('[data-testid="approval-body"]') === null;
+      }).length);
+      check(inSight === 3, 'every sensitive file shows on the card');
       await shot('sensitive');
       // a long card is read whole in Review before it can be approved
       if (await page.$(tid('review')) !== null) {

@@ -90,6 +90,17 @@ describe('sensitive files on an approval card', () => {
     expect(card.text()).not.toContain('This chat');
     expect(card.text()).not.toContain('Always');
   });
+
+  it('keeps every flagged file out of the cut body in the chat tray, in short form', () => {
+    const preview: ApprovalPreview = { title: 'Run a command', parts: [{ type: 'code', code: 'cat .env', language: 'bash' }, { type: 'flags', flags: FLAGS }], irreversible: false };
+    const card = mount(ApprovalCard, { props: { fn: QualifiedName.parse('fs/bash'), description: '', args: undefined, preview, bounded: true } });
+    const body = card.get('[data-testid="approval-body"]');
+    expect(body.find('[data-testid="sensitive-files"]').exists()).toBe(false);
+    const list = card.get('[data-testid="sensitive-files"]');
+    expect(list.classes()).toContain('compact');
+    expect(list.findAll('[data-testid="sensitive-file"]')).toHaveLength(2);
+    expect(list.text()).not.toContain('Env files hold keys and passwords.');
+  });
 });
 
 describe("a fn's notice", () => {

@@ -44,7 +44,7 @@ describe('the hub\'s own mentions', () => {
     w.catalog.addFn('crm', { name: 'find' });
     const off = w.catalog.addFn('fs', { name: 'off' });
     w.catalog.fnRecords.set(off.name, { ...off, available: { unavailable: 'disabled', detail: 'off' } });
-    expect((await w.chat.mentions.search(w.ask('hub/fns'), ' ')).map((o) => o.label)).toEqual(['hub/chat', 'fs/read']);
+    expect((await w.chat.mentions.search(w.ask('hub/fns'), ' ')).map((o) => o.label)).toEqual(['fs/read', 'hub/chat']);
     w.index.hits = [{ kind: 'fn', key: 'fs/read', score: 1, text: 'Read a file.' }, { kind: 'context', key: 'fs/guide', score: 1, text: 'Guide.' }];
     expect(await w.chat.mentions.search(w.ask('hub/fns'), 'read')).toEqual([{ label: 'fs/read', hint: 'Read a file.', target: { fn: 'fs/read' } }]);
     expect(w.index.searched.at(-1)).toEqual({ text: 'read', kinds: ['fn'], limit: 10, systems: ['hub', 'fs'] });

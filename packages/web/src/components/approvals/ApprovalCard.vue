@@ -7,15 +7,18 @@
  *
  * `bounded` (the chat's tray, which caps the card's height) keeps the title and the buttons in sight and never scrolls
  * inside the scrolling chat: a body taller than the room left is cut with a fade, and Approve gives way to Review,
- * which shows the whole of it in a dialog (its only scroll) with the answer under it. Nothing is approved unseen.
+ * which shows the whole of it in a dialog (its only scroll) with the answer under it. Nothing is approved unseen. The
+ * sensitive files it touches are never cut: they sit under the body in short form, every one in sight, and on a phone
+ * the body (a command, say) is held to a few lines so the chat above keeps its room.
  */
-import type { ApprovalPreview as Preview, Json, QualifiedName, Remember } from '@harness/core';
+import type { ApprovalPreview as Preview, Json, QualifiedName, Remember, SensitivityFlag } from '@harness/core';
 import { computed, ref, watch } from 'vue';
 import ArgList from '../../chat/components/ArgList.vue';
 import { fnLabel } from '../../chat/logic/labels.ts';
 import { UiDialog, UiIcon, useClipped } from '../../ui/index.ts';
 import ApprovalAnswer from './ApprovalAnswer.vue';
 import ApprovalPreview from './ApprovalPreview.vue';
+import SensitiveFiles from './SensitiveFiles.vue';
 
 const props = withDefaults(defineProps<{
   fn: QualifiedName;
@@ -45,6 +48,13 @@ const subtitle = computed(() => props.description);
 const irreversible = computed(() => props.preview?.irreversible === true);
 /** A call that touches sensitive files is asked about every time: its answer is never remembered. */
 const canRemember = computed(() => props.rememberable && props.preview?.parts.some((part) => part.type === 'flags') !== true);
+/** In the tray the flagged files are taken out of the body, so its cut never hides one. */
+const trayFlags = computed((): readonly SensitivityFlag[] => (props.bounded ? (props.preview?.parts ?? []).flatMap((part) => (part.type === 'flags' ? part.flags : [])) : []));
+const shownPreview = computed((): Preview | undefined => {
+  const preview = props.preview;
+  if (preview === undefined || trayFlags.value.length === 0) { return preview; }
+  return { ...preview, parts: preview.parts.filter((part) => part.type !== 'flags') };
+});
 
 watch(() => props.ident, () => { remember.value = 'once'; reviewing.value = false; });
 
@@ -66,9 +76,10 @@ function decide(approve: boolean, answer: Remember, reason: string): void {
       <slot name="badge" />
     </header>
     <div ref="body" class="body" :class="{ clipped }" :inert="clipped || undefined" data-testid="approval-body">
-      <ApprovalPreview v-if="preview" :preview="preview" />
+      <ApprovalPreview v-if="shownPreview" :preview="shownPreview" />
       <ArgList v-else :args="args" />
     </div>
+    <SensitiveFiles v-if="trayFlags.length > 0" :flags="trayFlags" compact />
     <slot name="after" />
     <ApprovalAnswer v-model:remember="remember" :rememberable="canRemember" :irreversible="irreversible" :ident="ident" :review="clipped" @decide="decide" @review="reviewing = true">
       <template #buttons="scope"><slot name="buttons" :remember="scope.remember" /></template>
@@ -95,6 +106,7 @@ function decide(approve: boolean, answer: Remember, reason: string): void {
 .approval.bounded > * { flex: none; }
 .approval.bounded > .body { flex: 0 1 auto; overflow: hidden; }
 .body { display: grid; align-content: start; gap: var(--space-2); min-width: 0; min-height: 0; }
+@media (max-width: 639.98px) { .approval.bounded > .body { max-height: 6.5em; } }
 .body.clipped { mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent); }
 .head { display: flex; align-items: flex-start; gap: var(--space-3); min-width: 0; }
 .icon { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: var(--radius); background: var(--warn-soft); color: var(--warn); }

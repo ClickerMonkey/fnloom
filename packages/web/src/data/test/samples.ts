@@ -55,6 +55,20 @@ export const SAMPLE_WIDGET: WidgetResult = WidgetResult.parse({
   problems: [],
 });
 
+/**
+ * A widget over the notes with controls and paging: Status limited to its choices (a select), Owner typed freely, and
+ * the second page of three (more follow).
+ */
+export const SAMPLE_PAGED_WIDGET: WidgetResult = WidgetResult.parse({
+  title: 'Notes by status',
+  table: { ...SAMPLE_TABLE, offset: 3, total: 9, truncated: true },
+  source: { fn: 'hub/records_table', run: 'run_widget_paged' },
+  visuals: [{ visual: 'table', bind: {} }],
+  problems: [],
+  paging: { arg: 'offset', size: 3 },
+  controls: [{ arg: 'status', label: 'Status', choices: ['open', 'done'], custom: false }, { arg: 'owner', label: 'Owner', custom: true }],
+});
+
 /** What a note's row offers: archive it (a write, so it confirms) and rename it (a form for the new title). */
 export const SAMPLE_ACTIONS: readonly WidgetActionOption[] = WidgetActionOption.array().parse([
   { fn: 'notes/Note.archive', label: 'Archive', mode: 'write', confirm: true, bind: { self: 'id' }, then: 'refresh' },

@@ -13,7 +13,7 @@
  * `/` matches the path from the root. `except` globs leave a match alone. Content rules look at the first
  * `SENSITIVE_SCAN_BYTES` of a text file; `gitignored` asks git.
  */
-import { open, stat } from 'node:fs/promises';
+import { open, readdir, stat } from 'node:fs/promises';
 import { dirname, join, matchesGlob } from 'node:path';
 import { SENSITIVE_SCAN_BYTES, type SensitivityFlag, type SensitivityRule } from '@harness/core';
 import type { Exec, IgnoreCheck, Located, PathGuard } from './index.ts';
@@ -299,14 +299,24 @@ async function workTreeOf(path: string, known: Map<string, string | undefined>):
   return top;
 }
 
-/** A word of a command line that may be a path, and whether the command writes it. */
+/**
+ * A word of a command line that may be a path, whether the command writes it, and where it is looked for: under the
+ * folder an earlier `cd` on the same line moved to (`folder`, as written), or nowhere that can be told (`lost`: a
+ * `cd` to `-`, home or a variable). `glob` marks a word the shell expands (`*`, `?`, `[...]`, `{a,b}`).
+ */
 export interface CommandPath {
   readonly word: string;
   readonly access: 'read' | 'write';
+  readonly glob?: true;
+  readonly folder?: string;
+  readonly lost?: true;
 }
 
 /** Commands whose path arguments are written (or removed), not only read. */
 const WRITING = new Set(['rm', 'mv', 'cp', 'touch', 'tee', 'truncate', 'chmod', 'chown', 'ln', 'dd', 'install', 'shred']);
+
+/** Commands that move the shell to another folder for the rest of the line. */
+const MOVING = new Set(['cd', 'pushd']);
 
 /** One token of a command line: a word, or an operator (`|`, `&&`, `;`, `>` ...). */
 type Token = { readonly type: 'word'; readonly text: string } | { readonly type: 'op'; readonly text: string };
@@ -346,44 +356,135 @@ export function tokenize(command: string): Token[] {
 
 /**
  * The words of a command line that may name files, with whether the command writes them: redirect targets and the
- * arguments of commands like `rm`, `mv` and `tee` are writes, other arguments reads. Options, variables, globs and
- * env assignments are left out. A guess: the shell may do anything, so the flags it leads to are never `certain`.
+ * arguments of commands like `rm`, `mv` and `tee` are writes, other arguments reads. Options, variables and env
+ * assignments are left out; globs are kept and marked. A `cd` moves where later words are looked for. A guess: the
+ * shell may do anything, so the flags it leads to are never `certain`.
  */
 export function commandPaths(command: string): CommandPath[] {
   const out: CommandPath[] = [];
   let program: string | undefined;
   let redirect: 'read' | 'write' | undefined;
+  let moved = false;
+  let folder: string | undefined;
+  let lost = false;
+  const place = (): Pick<CommandPath, 'folder' | 'lost'> => (lost ? { lost: true } : folder === undefined ? {} : { folder });
+  const push = (word: string, access: 'read' | 'write') => {
+    if (plausiblePath(word)) { out.push({ word, access, ...(isGlob(word) ? { glob: true } : {}), ...place() }); }
+  };
+  const endProgram = () => {
+    // `cd` alone goes home, which is no folder of ours
+    if (program !== undefined && MOVING.has(program) && !moved) { lost = true; }
+    program = undefined;
+    moved = false;
+  };
   for (const token of tokenize(command)) {
     if (token.type === 'op') {
-      if (token.text.includes('>') && !token.text.includes('&')) { redirect = 'write'; } else if (token.text === '<') { redirect = 'read'; } else { program = undefined; redirect = undefined; }
+      if (token.text.includes('>') && !token.text.includes('&')) { redirect = 'write'; } else if (token.text === '<') { redirect = 'read'; } else { endProgram(); redirect = undefined; }
       continue;
     }
     const word = token.text;
-    if (redirect !== undefined) { if (plausiblePath(word)) { out.push({ word, access: redirect }); } redirect = undefined; continue; }
+    if (redirect !== undefined) { push(word, redirect); redirect = undefined; continue; }
     if (program === undefined) {
       if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) { continue; }
       program = word.split('/').pop() ?? word;
       continue;
     }
-    if (plausiblePath(word)) { out.push({ word, access: WRITING.has(program) ? 'write' : 'read' }); }
+    if (MOVING.has(program)) {
+      if (moved || (word.startsWith('-') && word !== '-')) { continue; }
+      moved = true;
+      if (word === '-' || !plausiblePath(word) || isGlob(word) || word.startsWith('~')) { lost = true; continue; }
+      folder = isAbsolute(word) || folder === undefined ? word : `${folder}/${word}`;
+      continue;
+    }
+    push(word, WRITING.has(program) ? 'write' : 'read');
+  }
+  endProgram();
+  return out;
+}
+
+/** Whether a word could be a file path worth judging (a glob counts). */
+function plausiblePath(word: string): boolean {
+  return word !== '' && !word.startsWith('-') && !/[$`()<>|;&]/.test(word) && !/^[a-z]+:\/\//i.test(word);
+}
+
+/** Whether the shell expands a word as a glob. */
+function isGlob(word: string): boolean {
+  return /[*?[{]/.test(word);
+}
+
+/** Whether a path starts at a drive or the file system's top, not at the folder a command runs in. */
+function isAbsolute(path: string): boolean {
+  return path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path);
+}
+
+/**
+ * The paths a shell glob expands to, as the shell does it: one folder level per `/`, a wildcard part matched against
+ * the names in its folder (dot files included, to judge more rather than less), at most `limit` of them.
+ */
+async function expandGlob(start: string, word: string, limit: number): Promise<string[]> {
+  const slashed = word.replaceAll('\\', '/');
+  const drive = /^[A-Za-z]:\//.exec(slashed)?.[0];
+  let folders = [drive ?? (slashed.startsWith('/') ? '/' : start)];
+  const parts = slashed.slice(drive?.length ?? 0).split('/').filter((part) => part !== '' && part !== '.');
+  for (const part of parts) {
+    const next: string[] = [];
+    for (const folder of folders) {
+      if (next.length >= limit) { break; }
+      if (!isGlob(part)) { next.push(join(folder, part)); continue; }
+      const names = await readdir(folder).catch((): string[] => []);
+      for (const name of names) {
+        if (next.length >= limit) { break; }
+        if (matchesDotted(name, part === '**' ? '*' : part)) { next.push(join(folder, name)); }
+      }
+    }
+    folders = next;
+  }
+  return folders.map((path) => normalize(path));
+}
+
+/** What `commandFlags` needs: the roots, the rules, and how to tell an existing file. */
+export interface CommandCheck {
+  readonly guard: PathGuard;
+  readonly rules: Sensitivity;
+  /** The folder the command runs in (absolute); `undefined` for the first root. */
+  readonly cwd: string | undefined;
+  /** Whether a path is a file now. */
+  readonly isFile: (path: string) => Promise<boolean>;
+  /** How many files one glob may expand to. */
+  readonly globLimit: number;
+  readonly signal?: AbortSignal;
+}
+
+/**
+ * The sensitivity flags of a command line, none `certain`. Each word is placed against the folder it runs in (after
+ * any `cd` before it on the line), a glob expanded to the files it matches there, and every file there is judged by
+ * name, gitignore and content (a read of a word that is no file is no read, as `npm run build`; a write may create
+ * it). A word that leads to no flagged file is still judged by its name (`cat ~/.ssh/id_rsa`, a missing `.env`, a
+ * `cd` that can't be followed), so a plainly sensitive name always shows.
+ */
+export async function commandFlags(check: CommandCheck, command: string): Promise<SensitivityFlag[]> {
+  const out: SensitivityFlag[] = [];
+  for (const path of commandPaths(command)) {
+    const located = path.lost === true ? [] : await placed(check, path);
+    const existing = await Promise.all(located.map(async (at) => ({ at, there: await check.isFile(at.path) })));
+    const judged: Judged[] = existing.filter(({ there }) => there || (path.access === 'write' && path.glob !== true)).map(({ at }) => ({
+      at, access: path.access, certain: false, shown: path.glob === true ? (at.relative === '' ? at.root.name : at.relative) : path.word,
+    }));
+    const flags = await check.rules.flags(judged, check.signal);
+    out.push(...(flags.length > 0 ? flags : check.rules.named(path.word, path.access)));
   }
   return out;
 }
 
-/** Whether a word could be a file path worth judging. */
-function plausiblePath(word: string): boolean {
-  return word !== '' && !word.startsWith('-') && !/[$`*?{}()<>|;&]/.test(word) && !/^[a-z]+:\/\//i.test(word);
+/** Where a command line's word leads in the roots: one place, or each file a glob expands to; none outside them. */
+async function placed(check: CommandCheck, path: CommandPath): Promise<Located[]> {
+  try {
+    const folder = path.folder === undefined ? check.cwd : check.guard.resolve(path.folder, { write: false, cwd: check.cwd }).path;
+    if (path.glob !== true) { return [check.guard.resolve(path.word, { write: false, cwd: folder })]; }
+    const start = folder ?? check.guard.resolve('', { write: false }).root.folder;
+    return (await expandGlob(start, path.word, check.globLimit)).flatMap((found) => { const at = check.guard.locate(found); return at === undefined ? [] : [at]; });
+  } catch (error) {
+    if (error instanceof FsProblem) { return []; }
+    throw error;
+  }
 }
-
-/** The flags-worthy files a command line names, located against the folder it runs in. Words outside the roots are skipped. */
-export function commandFiles(guard: PathGuard, command: string, cwd: string | undefined): Array<{ at: Located; access: 'read' | 'write'; word: string }> {
-  return commandPaths(command).flatMap(({ word, access }) => {
-    try {
-      return [{ at: guard.resolve(word, { write: false, cwd }), access, word }];
-    } catch (error) {
-      if (error instanceof FsProblem) { return []; }
-      throw error;
-    }
-  });
-}
-

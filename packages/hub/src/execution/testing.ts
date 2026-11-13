@@ -20,7 +20,7 @@ import {
 } from '@harness/core';
 import { z } from 'zod';
 import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
-import type { Catalog, FnSignature } from '../catalog/index.ts';
+import type { Catalog, FnFilter, FnSignature } from '../catalog/index.ts';
 import type { SystemConnection } from '../link/index.ts';
 import { StoreModelCallLog } from '../metrics/calls.ts';
 import { StoreFnMetrics } from '../metrics/fn-metrics.ts';
@@ -165,11 +165,16 @@ export class TestCatalog implements Catalog {
     return Promise.resolve(this.records.get(name));
   }
 
-  fns(filter: { system?: SystemName; names?: readonly QualifiedName[]; available?: boolean }): Promise<FnRecord[]> {
+  fns(filter: FnFilter): Promise<FnRecord[]> {
     return Promise.resolve([...this.records.values()].filter((r) =>
       (filter.system === undefined || r.system === filter.system)
+      && (filter.systems === undefined || filter.systems.includes(r.system))
       && (filter.names === undefined || filter.names.includes(r.name))
       && (filter.available !== true || r.available === true)));
+  }
+
+  async *eachFn(filter: Omit<FnFilter, 'names'>): AsyncGenerator<FnRecord> {
+    yield* (await this.fns(filter)).sort((a, b) => a.name.localeCompare(b.name));
   }
 
   signature(fn: QualifiedName): Promise<FnSignature> {

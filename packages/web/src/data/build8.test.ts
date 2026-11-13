@@ -17,10 +17,10 @@ import TableResult from '../components/widgets/TableResult.vue';
 import ItemHistory from '../components/versions/ItemHistory.vue';
 import { ITEM_VERSIONS } from '../components/versions/versions.ts';
 import { WidgetState } from '../components/widgets/widget-state.ts';
-import { actionArgs, boundArgs, boundTable, offeredVisuals, rowActions, rowTypes, saveWidgetRequest, WIDGET_HOST, widgetResultOf, type WidgetHost } from '../components/widgets/widgets.ts';
+import { actionArgs, boundArgs, boundTable, choiceValue, controlValueText, offeredVisuals, rowActions, rowTypes, saveWidgetRequest, shownControls, WIDGET_HOST, widgetResultOf, type WidgetHost } from '../components/widgets/widgets.ts';
 import { OWN_HOST } from '../components/results/builtin.ts';
 import { filterLabel, filtersOf, filtersParam, recordIdOf, recordTableQuery, sortOf, sortParam, storageWords } from './logic/data.ts';
-import { NOTE_TYPE, NOTES_WIDGET, SAMPLE_ACTIONS, SAMPLE_TABLE, SAMPLE_WIDGET, sampleItemVersions } from './test/samples.ts';
+import { NOTE_TYPE, NOTES_WIDGET, SAMPLE_ACTIONS, SAMPLE_PAGED_WIDGET, SAMPLE_TABLE, SAMPLE_WIDGET, sampleItemVersions } from './test/samples.ts';
 import { collapsedByDefault } from '../chat/state/collapse.ts';
 import { groupPieces } from '../chat/logic/groups.ts';
 
@@ -164,6 +164,34 @@ describe('the widget view', () => {
     await wrapper.get('[data-testid=widget-controls] form').trigger('submit');
     await flushPromises();
     expect(host.runs).toEqual([{ fn: NOTES_WIDGET, args: { status: 'open' } }, { fn: NOTES_WIDGET, args: { status: 'open' } }]);
+    wrapper.unmount();
+  });
+
+  it('shows each control with what it is set to, runs again on a choice from the first page, and pages', async () => {
+    const controls = shownControls(SAMPLE_PAGED_WIDGET.controls ?? [], { status: 'done', offset: 3 });
+    expect(controls.map((c) => `${c.label}=${c.value}`)).toEqual(['Status=done', 'Owner=Any']);
+    expect(controls[0]?.picked).toBe('1');
+    expect(controls[1]?.choices).toBeUndefined();
+    expect(choiceValue({ choices: ['open', 'done'] }, '0')).toBe('open');
+    expect(choiceValue({ choices: ['open', 'done'] }, '')).toBeUndefined();
+    expect(controlValueText([true, 2])).toBe('Yes, 2');
+
+    const host = fakeHost();
+    const args = { status: 'open', owner: 'Sam', offset: 3 };
+    const wrapper = mount(WidgetView, { attachTo: document.body, props: { result: SAMPLE_PAGED_WIDGET, fn: NOTES_WIDGET, args }, global: { provide: { [WIDGET_HOST]: host } } });
+    await flushPromises();
+    const row = wrapper.get('[data-testid=widget-control-row]');
+    expect(row.text()).toContain('Owner:Sam');
+    expect(wrapper.find('[data-testid=widget-controls-toggle]').exists()).toBe(false);
+    expect(wrapper.get('[data-testid=widget-page]').text()).toBe('4–6');
+    await row.get('select').setValue('1');
+    await flushPromises();
+    await wrapper.get('[data-testid=widget-page-next]').trigger('click');
+    await flushPromises();
+    await wrapper.get('button[data-arg=owner]').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[data-testid=widget-controls] form').exists()).toBe(true);
+    expect(host.runs).toEqual([{ fn: NOTES_WIDGET, args: { owner: 'Sam', status: 'done' } }, { fn: NOTES_WIDGET, args: { ...args, offset: 6 } }]);
     wrapper.unmount();
   });
 

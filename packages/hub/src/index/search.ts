@@ -4,7 +4,7 @@
  * the query fails or takes longer than `embedWait` (the embedder is busy, say indexing), or when the vectors can't be
  * searched with it (no vectors stored yet, or the query is another size), it is words alone, so a person or agent
  * waiting never waits on the embedder for long. Results can be limited to some systems and to what a `keep` check lets
- * through (what the person asking may see).
+ * through (what the person asking may see); a key `prefix` is applied by the database itself.
  */
 import type { Logger } from '@ayepi/log';
 import { type QualifiedName, type SearchHit } from '@harness/core';
@@ -44,7 +44,8 @@ export class IndexSearch implements Search {
     const vector = query.match === 'text' ? undefined : await this.#vector(query.text);
     const words: HybridQuery = {
       text: query.text, kinds: query.kinds, limit: filtered ? query.limit * overfetch : query.limit,
-      ...(query.within === undefined ? {} : { within: query.within }), ...(query.match === undefined ? {} : { match: query.match }),
+      ...(query.within === undefined ? {} : { within: query.within }), ...(query.prefix === undefined ? {} : { prefix: query.prefix }),
+      ...(query.match === undefined ? {} : { match: query.match }),
     };
     const hits = vector === undefined ? await hybrid.search(words) : await this.#hybrid({ ...words, vector: { embedder: document, values: vector } }, words);
     const allowed = bySystem ? new Set<string>(query.systems) : undefined;

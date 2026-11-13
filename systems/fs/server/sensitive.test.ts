@@ -124,7 +124,10 @@ describe('commandPaths', () => {
     ['echo "KEY=1" > .env.local', [{ word: 'KEY=1', access: 'read' }, { word: '.env.local', access: 'write' }]],
     ['rm -f secrets/a.pem && git status', [{ word: 'secrets/a.pem', access: 'write' }, { word: 'status', access: 'read' }]],
     ['FOO=1 node "my file.js" 2>&1 | tee out.log', [{ word: 'my file.js', access: 'read' }, { word: 'out.log', access: 'write' }]],
-    ['ls *.pem $HOME https://x.y/z', []],
+    ['ls *.pem $HOME https://x.y/z', [{ word: '*.pem', access: 'read', glob: true }]],
+    ['cd sub && cat .env; cd ../b && rm x', [{ word: '.env', access: 'read', folder: 'sub' }, { word: 'x', access: 'write', folder: 'sub/../b' }]],
+    ['cd && cat .env', [{ word: '.env', access: 'read', lost: true }]],
+    ['cd - && cat .env', [{ word: '.env', access: 'read', lost: true }]],
   ])('finds the paths in %s', (command, expected) => {
     expect(commandPaths(command)).toEqual(expected);
   });

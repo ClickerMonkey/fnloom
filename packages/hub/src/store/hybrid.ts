@@ -32,6 +32,8 @@ export interface HybridQuery {
   readonly vector?: { readonly embedder: QualifiedName; readonly values: readonly number[] };
   /** Only these items (filters the database applied first); absent searches everything of `kinds`. */
   readonly within?: readonly Ranked[];
+  /** Only items whose key starts with this (the database applies it in both indexes). */
+  readonly prefix?: string;
   /** Leave out the words (`semantic`), or the vectors (`text`); both by default. */
   readonly match?: 'text' | 'semantic' | 'hybrid';
 }
@@ -87,8 +89,8 @@ export class HybridSearch {
     const useVector = query.vector !== undefined && query.match !== 'text';
     const useText = query.match !== 'semantic' || query.vector === undefined;
     const [vector, text] = await Promise.all([
-      query.vector === undefined || !useVector ? Promise.resolve([]) : this.#vectors.nearest(query.vector.embedder, query.vector.values, depth, query.kinds, query.within),
-      useText ? this.#text.search({ text: query.text, kinds: query.kinds, limit: depth, ...(query.within === undefined ? {} : { within: query.within }) }) : Promise.resolve([]),
+      query.vector === undefined || !useVector ? Promise.resolve([]) : this.#vectors.nearest(query.vector.embedder, query.vector.values, depth, query.kinds, query.within, query.prefix),
+      useText ? this.#text.search({ text: query.text, kinds: query.kinds, limit: depth, ...(query.within === undefined ? {} : { within: query.within }), ...(query.prefix === undefined ? {} : { prefix: query.prefix }) }) : Promise.resolve([]),
     ]);
     // only the lists actually searched count toward the best possible score: words alone can still reach 1
     const k = this.#tuning.HARNESS_SEARCH_RRF_K;

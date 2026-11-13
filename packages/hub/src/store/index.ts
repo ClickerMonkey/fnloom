@@ -97,9 +97,10 @@ export interface VectorIndex {
   remove(embedder: QualifiedName, kind: IndexedKind, keys: readonly string[]): Promise<void>;
   /**
    * Nearest by cosine distance; `score` is similarity in [0, 1]. An embedder with no table yet has no vectors, so none.
-   * `within` keeps the search to those items (the database filters them inside the nearest-neighbour search).
+   * `within` keeps the search to those items and `prefix` to the keys that start with it; the database applies both
+   * inside the nearest-neighbour search.
    */
-  nearest(embedder: QualifiedName, vector: readonly number[], limit: number, kinds?: readonly IndexedKind[], within?: ReadonlyArray<IndexedItem>): Promise<Array<{ kind: IndexedKind; key: string; score: number }>>;
+  nearest(embedder: QualifiedName, vector: readonly number[], limit: number, kinds?: readonly IndexedKind[], within?: ReadonlyArray<IndexedItem>, prefix?: string): Promise<Array<{ kind: IndexedKind; key: string; score: number }>>;
 }
 
 /** Full-text search over indexed text (SQLite FTS5 now). `score` is higher for better matches. */

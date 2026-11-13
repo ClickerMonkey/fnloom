@@ -46,6 +46,20 @@ export class HubMentions implements MentionProvider {
     return seen.filter((o) => o !== undefined);
   }
 
+  /**
+   * The first fns, in name order, the asker may use from a session's systems: read page by page, kept to the systems
+   * in the database, and no further than enough to fill the list.
+   */
+  async #firstFns(systems: readonly SystemName[] | 'all', access: AccessScope): Promise<MentionOption[]> {
+    const out: MentionOption[] = [];
+    for await (const f of this.#deps.catalog.eachFn(systems === 'all' ? { available: true } : { systems, available: true })) {
+      if (!access.mayUse(f)) { continue; }
+      out.push({ label: f.name, hint: f.decl.description, target: { fn: f.name } });
+      if (out.length >= HUB_RESULTS) { break; }
+    }
+    return out;
+  }
+
   serves(provider: QualifiedName): boolean {
     return isHubName(provider);
   }
@@ -56,11 +70,7 @@ export class HubMentions implements MentionProvider {
     const access = await this.#deps.access.scope(ask.actor);
     switch (ask.provider) {
       case hub.mentions.fns.name: {
-        if (query.trim() === '') {
-          const fns = await this.#deps.catalog.fns({ available: true });
-          return fns.filter((f) => session !== undefined && allowsSystem(session, f.system) && access.mayUse(f)).slice(0, HUB_RESULTS)
-            .map((f) => ({ label: f.name, hint: f.decl.description, target: { fn: f.name } }));
-        }
+        if (query.trim() === '') { return session === undefined ? [] : this.#firstFns(systems, access); }
         const hits = await this.#deps.search.search({ text: query, kinds: ['fn'], limit: HUB_RESULTS, systems });
         return this.#seen(access, ask.session, 'fn', hits.map((h) => ({ key: h.key, option: { label: h.key, hint: h.text, target: { fn: h.key } } })));
       }

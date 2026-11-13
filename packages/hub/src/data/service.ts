@@ -247,7 +247,7 @@ export class StoreDataService implements DataService {
     const prefix = indexPrefix(stored.type.name, this.#ownOnly(stored.type.records, asker) ? asker.actor : undefined);
     const depth = this.#deps.settings.HARNESS_RECORD_SEARCH_DEPTH;
     const keys = stored.type.records.search.embed
-      ? (await this.#deps.search().search({ text, kinds: ['record'], limit: depth, systems: [stored.type.system], keep: (hit) => hit.key.startsWith(prefix) })).map((hit) => hit.key)
+      ? (await this.#deps.search().search({ text, kinds: ['record'], limit: depth, prefix })).map((hit) => hit.key)
       : (await this.#deps.store.text.search({ text, kinds: ['record'], limit: depth, prefix })).map((hit) => hit.key);
     return keys.flatMap((key) => { const id = DataRecord.shape.id.safeParse(key.slice(key.lastIndexOf('#') + 1)); return id.success ? [id.data] : []; });
   }

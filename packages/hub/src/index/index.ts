@@ -97,6 +97,8 @@ export interface SearchQuery {
   readonly keep?: (hit: SearchHit) => boolean | Promise<boolean>;
   /** Only these items: the ones a filter in the database let through (build 5). */
   readonly within?: ReadonlyArray<{ readonly kind: IndexedKind; readonly key: string }>;
+  /** Only items whose key starts with this, applied by the database (no extra candidates needed). */
+  readonly prefix?: string;
   /** Words, meaning, or both (the default). */
   readonly match?: 'text' | 'semantic' | 'hybrid';
 }

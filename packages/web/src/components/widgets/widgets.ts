@@ -5,7 +5,7 @@
  * them. The host a widget is drawn in (`WidgetHost`) runs what it asks for, so the view knows nothing of where it is.
  */
 import {
-  ResultTable, WidgetResult, type FnMode, type GinTypeDef, type Json, type QualifiedName, type WidgetActionOption, type WidgetVisual,
+  ResultTable, WidgetResult, type FnMode, type GinTypeDef, type Json, type QualifiedName, type WidgetActionOption, type WidgetShownControl, type WidgetVisual,
 } from '@harness/core';
 import type { InjectionKey } from 'vue';
 import { TABLE_VISUAL, type FittingVisual } from '../results/visuals.ts';
@@ -131,6 +131,58 @@ export function boundTable(table: ResultTable, visual: WidgetVisual | undefined)
     table: { ...table, columns: at.flatMap((i) => (table.columns[i] === undefined ? [] : [table.columns[i]])), rows, sort: table.sort.filter((s) => names.includes(s.column)) },
     original: (row) => from.get(row) ?? row,
   };
+}
+
+/** A control's value as its row shows it: "Any" when unset, text as it is, yes or no, a list joined, else compact JSON. */
+export function controlValueText(value: Json | undefined): string {
+  if (value === undefined || value === null || value === '') { return 'Any'; }
+  if (typeof value === 'string') { return value; }
+  if (typeof value === 'number') { return String(value); }
+  if (typeof value === 'boolean') { return value ? 'Yes' : 'No'; }
+  if (Array.isArray(value)) { return value.length === 0 ? 'Any' : value.map((item) => controlValueText(item)).join(', '); }
+  return JSON.stringify(value);
+}
+
+/** One choice of a control limited to choices, keyed for a select (its place in the list; `''` is "Any"). */
+export interface ControlChoice {
+  readonly key: string;
+  readonly label: string;
+}
+
+/** A control as the widget's row shows it: its label, what it is set to now, and its choices when only those may be picked. */
+export interface ControlShown {
+  readonly arg: string;
+  readonly label: string;
+  readonly value: string;
+  /** The choices to pick from at once; absent when another value may be typed (the controls form sets it). */
+  readonly choices?: readonly ControlChoice[];
+  /** The key of the choice it is set to. */
+  readonly picked: string;
+}
+
+/** The args a widget last ran with, as an object (anything else is none). */
+export function argsObject(args: Json | undefined): Record<string, Json> {
+  return typeof args === 'object' && args !== null && !Array.isArray(args) ? args : {};
+}
+
+const sameJson = (a: Json, b: Json): boolean => JSON.stringify(a) === JSON.stringify(b);
+
+/** The widget's controls with the values it ran with, in its order: a select for one limited to choices, else its value. */
+export function shownControls(controls: readonly WidgetShownControl[], args: Json | undefined): ControlShown[] {
+  const given = argsObject(args);
+  return controls.map((control): ControlShown => {
+    const value = given[control.arg];
+    const base = { arg: control.arg, label: control.label, value: controlValueText(value) };
+    if (control.choices === undefined || control.custom) { return { ...base, picked: '' }; }
+    const at = value === undefined ? -1 : control.choices.findIndex((choice) => sameJson(choice, value));
+    const choices = [{ key: '', label: 'Any' }, ...control.choices.map((choice, i) => ({ key: String(i), label: controlValueText(choice) }))];
+    return { ...base, choices, picked: at < 0 ? '' : String(at) };
+  });
+}
+
+/** The value a control's choice key stands for: the choice, or undefined for "Any" (the arg is left out). */
+export function choiceValue(control: Pick<WidgetShownControl, 'choices'>, key: string): Json | undefined {
+  return key === '' ? undefined : control.choices?.[Number(key)];
 }
 
 /** The request that asks the agent to save a run's result as a widget (it uses `hub/make_widget`). */

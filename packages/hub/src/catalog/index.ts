@@ -39,6 +39,15 @@ export interface CatalogEntry<S extends ManifestSection> {
 }
 
 /** What the catalog knows and works out. */
+/** Which fns to read: of one system or of some, by name, and only the available (or unavailable) ones. */
+export interface FnFilter {
+  readonly system?: SystemName;
+  /** Only fns of these systems, kept to them by the database. */
+  readonly systems?: readonly SystemName[];
+  readonly names?: readonly QualifiedName[];
+  readonly available?: boolean;
+}
+
 export interface Catalog {
   /**
    * Import a whole manifest: add, update and remove what changed; refuse what is invalid or incompatible. `from` is the
@@ -63,7 +72,9 @@ export interface Catalog {
   entries<S extends ManifestSection>(section: S, filter?: { system?: SystemName }): Promise<Array<CatalogEntry<S>>>;
 
   fn(name: QualifiedName): Promise<FnRecord | undefined>;
-  fns(filter: { system?: SystemName; names?: readonly QualifiedName[]; available?: boolean }): Promise<FnRecord[]>;
+  fns(filter: FnFilter): Promise<FnRecord[]>;
+  /** The fns a filter keeps, in name order, read a page at a time: stop early to read no further (a short list). */
+  eachFn(filter: Omit<FnFilter, 'names'>): AsyncIterable<FnRecord>;
   kind(name: QualifiedName): Promise<KindRecord | undefined>;
   type(name: QualifiedName): Promise<TypeRecord | undefined>;
   /** Every type of a system (a fleet's types carry the instance that owns them). */

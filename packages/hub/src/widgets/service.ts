@@ -17,7 +17,7 @@ import {
   type WidgetActionsQuery, type WidgetCheck, type WidgetVisual,
   WidgetResult,
 } from '@harness/core';
-import { checkWidget, fittingVisuals, ginAs, SAVE_FN_TAKEN, widgetActionOptions, widgetArgs, wireType, type RowFn } from '@harness/sdk';
+import { checkWidget, fittingVisuals, ginAs, SAVE_FN_TAKEN, widgetActionOptions, widgetArgs, widgetControls, wireType, type RowFn } from '@harness/sdk';
 import { allRows } from '../store/rows.ts';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
 import type { Catalog } from '../catalog/index.ts';
@@ -115,10 +115,12 @@ export class WidgetService {
     const { table, run: child } = await this.#call(source.name, { ...given, ...pinned, ...paging }, run, `source:${String(offset)}`);
     const check = checkWidget(spec, { args: source.decl.args, table, visuals: await this.#visuals() });
     const visuals = [...check.visuals.filter((v) => v.visual !== TABLE_VISUAL.visual), ...check.visuals.filter((v) => v.visual === TABLE_VISUAL.visual)];
+    const controls = widgetControls(source.decl.args, spec).map(({ arg, label, choices, custom }) => ({ arg, label, custom, ...(choices === undefined ? {} : { choices }) }));
     return WidgetResult.parse({
       title: spec.title, table, source: { fn: source.name, run: child },
       visuals: visuals.some((v) => v.visual === TABLE_VISUAL.visual) ? visuals : [...visuals, TABLE_VISUAL], problems: check.problems,
       ...(offsetArg === undefined || spec.paging === undefined ? {} : { paging: { arg: offsetArg, size: spec.paging.size } }),
+      ...(controls.length === 0 ? {} : { controls }),
     });
   }
 

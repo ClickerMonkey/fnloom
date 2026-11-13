@@ -10,7 +10,7 @@ import {
   type Notification, type QualifiedName, type ResolvedLimits, type Run, type RunId, type RunSettled, type SearchHit, type SectionDecl,
   type Suggestion, type SystemLinkSpec, type TypeRecord, type UndoOutcome, type UserActor, type SessionControlAction,
 } from '@harness/core';
-import type { Catalog, CatalogEntry, FnSignature } from '../catalog/index.ts';
+import type { Catalog, CatalogEntry, FnFilter, FnSignature } from '../catalog/index.ts';
 import { AGENT_KIND, type AgentKind, type AgentLoop, type LimitResolver, type RunInput, type RunService } from '../execution/index.ts';
 import type { Considered, Search, Suggester } from '../index/index.ts';
 import type { LlmGateway, Recorded } from '../execution/index.ts';
@@ -89,8 +89,12 @@ export class FixtureCatalog implements Catalog {
   }
 
   async fn(name: QualifiedName): Promise<FnRecord | undefined> { return Promise.resolve(this.fnRecords.get(name)); }
-  async fns(filter: { system?: SystemName; available?: boolean }): Promise<FnRecord[]> {
-    return Promise.resolve([...this.fnRecords.values()].filter((f) => (filter.system === undefined || f.system === filter.system) && (filter.available !== true || f.available === true)));
+  async fns(filter: FnFilter): Promise<FnRecord[]> {
+    return Promise.resolve([...this.fnRecords.values()].filter((f) => (filter.system === undefined || f.system === filter.system) && (filter.systems === undefined || filter.systems.includes(f.system))
+      && (filter.names === undefined || filter.names.includes(f.name)) && (filter.available !== true || f.available === true)));
+  }
+  async *eachFn(filter: Omit<FnFilter, 'names'>): AsyncGenerator<FnRecord> {
+    yield* (await this.fns(filter)).sort((a, b) => a.name.localeCompare(b.name));
   }
   async type(name: QualifiedName): Promise<TypeRecord | undefined> { return Promise.resolve(this.typeRecords.get(name)); }
   async typesOf(system: SystemName): Promise<TypeRecord[]> { return Promise.resolve([...this.typeRecords.values()].filter((type) => type.system === system)); }

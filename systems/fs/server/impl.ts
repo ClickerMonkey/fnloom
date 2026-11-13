@@ -18,7 +18,7 @@ import { RootGuard } from './paths.ts';
 import { FsProblem } from './problem.ts';
 import { FsResources } from './resources.ts';
 import { compilePattern, globPaths, grepFiles, searchBases, type SearchLimits } from './search.ts';
-import { commandFiles, commandPaths, rulesOf, Sensitivity, shownOn, type Judged } from './sensitive.ts';
+import { commandFlags, rulesOf, Sensitivity, shownOn, type Judged } from './sensitive.ts';
 import { renderTree } from './tree.ts';
 
 /** Everything the implementation is built from. */
@@ -146,6 +146,25 @@ export function createFsImpl(deps: FsDeps): FsServer {
     const named = glob === undefined ? [] : rules.named(glob, 'read');
     return [...await rules.flags(bases.map((at) => ({ at, access: 'read', certain: true })), ctx.signal), ...named];
   });
+  /** The sensitivity flags of a command line run in a folder (`undefined`: the first root). */
+  const bashFlags = (config: FsConfig, command: string, cwd: string | undefined, signal: AbortSignal | undefined) => commandFlags({
+    guard: guard(config), rules: sensitivity(config), cwd, globLimit: s.FS_GLOB_LIMIT,
+    isFile: async (path) => (await files.target(path))?.type === 'file', ...(signal === undefined ? {} : { signal }),
+  }, command);
+  /** The folder the flags hook judges a command in: its `cwd` alone, since a preview has no session state. */
+  const previewFolder = (config: FsConfig, cwd: string | undefined) => (cwd === undefined ? undefined : guard(config).resolve(cwd, { write: false }).path);
+  /**
+   * The flags a run finds that its preview could not: the preview judged the command in the folder its `cwd` names
+   * (else the first root), the run happens in the session's folder from `cd`. Flags on the preview were the hub's to
+   * ask about; these are the run's, matched by path and access.
+   */
+  const unseenFlags = async (config: FsConfig, args: { command: string; cwd?: string | undefined }, sessionCwd: string | undefined, signal: AbortSignal): Promise<SensitivityFlag[]> => {
+    const preview = await flagsOf(() => bashFlags(config, args.command, previewFolder(config, args.cwd), signal));
+    const folder = await commands.workingFolder(guard(config), args.cwd, sessionCwd);
+    if (folder === (previewFolder(config, args.cwd) ?? guard(config).resolve('', { write: false }).root.folder)) { return []; }
+    const now = await bashFlags(config, args.command, folder, signal);
+    return now.filter((flag) => !preview.some((seen) => seen.path === flag.path && seen.access === flag.access));
+  };
   /** Refuse a run a refusing rule covers, for a hub that didn't ask first (asks are the hub's: it holds the person). */
   const refused = async (config: FsConfig, items: readonly Judged[], signal: AbortSignal): Promise<string | undefined> => {
     const rules = sensitivity(config);
@@ -258,24 +277,20 @@ export function createFsImpl(deps: FsDeps): FsServer {
         }),
       },
       bash: {
-        flags: (args, ctx) => flagsOf(async () => {
-          const g = guard(ctx.config);
-          const rules = sensitivity(ctx.config);
-          const cwd = args.cwd === undefined ? undefined : g.resolve(args.cwd, { write: false }).path;
-          const located = commandFiles(g, args.command, cwd);
-          const found = new Set(located.map((file) => file.word));
-          // words that lead nowhere in the roots are still judged by name (`cat ~/.ssh/id_rsa`)
-          const named = commandPaths(args.command).filter((word) => !found.has(word.word)).flatMap((word) => rules.named(word.word, word.access));
-          const existing = await Promise.all(located.map(async (file) => ({ file, there: (await files.target(file.at.path))?.type === 'file' })));
-          // a read of a word that is no file is no read (`npm run build`); a write may create it
-          const judged: Judged[] = existing.filter(({ file, there }) => there || file.access === 'write').map(({ file }) => ({ at: file.at, access: file.access, certain: false, shown: file.word }));
-          return [...await rules.flags(judged, ctx.signal), ...named];
-        }),
+        flags: (args, ctx) => flagsOf(() => bashFlags(ctx.config, args.command, previewFolder(ctx.config, args.cwd), ctx.signal)),
         run: (args, ctx) => attempt(ctx, async () => {
           if (args.timeout !== undefined && args.timeout < COMMAND_TIMEOUT_MIN) {
             return ctx.invalid([{ path: 'timeout', message: `The timeout is in milliseconds and must be at least ${String(COMMAND_TIMEOUT_MIN)} (30000 is 30 seconds); ${String(args.timeout)} was given.` }]);
           }
           const state = await ctx.state.get();
+          const unseen = await unseenFlags(ctx.config, args, state.cwd, ctx.signal);
+          const verdict = flagsVerdict(unseen);
+          if (verdict.effect === 'refuse') { return ctx.invalid(verdict.reason); }
+          if (verdict.effect === 'ask') {
+            const confirm = ctx.handlers.confirm;
+            if (confirm === undefined) { return ctx.invalid(`It runs where sensitive files are, and this call has no way to ask the person: ${verdict.reason}`); }
+            if (!await confirm({ command: args.command, reason: verdict.reason })) { return ctx.invalid(`"${args.command}" was not confirmed, so it didn't run.`); }
+          }
           const run = await commands.run({ command: args.command, cwd: args.cwd, timeout: args.timeout }, {
             guard: guard(ctx.config),
             policy: await ctx.setting(fs.settings.shell),

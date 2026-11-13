@@ -47,6 +47,16 @@ export default feature({
     check(await page.$(tid('save-as-widget')) !== null, 'a plain result table offers Save as widget');
     check(!await scrollsSideways(page), 'the chat with a widget fits the screen');
     await ctx.shot('chat-widget');
+    // the widget with controls and paging: each control with its value in a row, and the pager
+    const controls = await page.$(tid('widget-control-row'));
+    check(controls !== null, 'a widget with controls shows them in a row');
+    await controls.scrollIntoView();
+    await settle(page);
+    const shown = await page.$$eval(`${tid('widget-control-row')} ${tid('widget-control')}`, (all) => all.map((el) => el.getAttribute('data-arg') ?? ''));
+    check(shown.join(',') === 'status,owner', 'every control is shown');
+    check(await page.$eval(tid('widget-page'), (el) => el.textContent.trim()) === '4–6', 'the pager says which rows are shown');
+    check(!await scrollsSideways(page), 'the widget with controls fits the screen');
+    await ctx.shot('chat-widget-controls');
     await page.click(`${tid('widget-view')} ${tid('result-visuals')} button:last-child`);
     await page.waitForSelector(`${tid('widget-view')} ${tid('result-row-open')}`);
     await settle(page);

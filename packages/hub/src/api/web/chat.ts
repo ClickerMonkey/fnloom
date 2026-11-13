@@ -30,7 +30,8 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
   // a system shared with someone else is as good as absent here
   const seen = systems.filter((s) => access.seesSystem(s.name));
   // an installed system (not yet live) offers nothing, like one that is not connected
-  const usable = new Set(seen.filter((s) => systemAvailability(s.name, s) === true && s.enabled.functions && allows(scope, s.name)).map((s) => s.name));
+  const live = seen.filter((s) => systemAvailability(s.name, s) === true && s.enabled.functions).map((s) => s.name);
+  const usable = new Set(live.filter((name) => allows(scope, name)));
   const [commandsOff, mentionsOff, componentsOff] = await Promise.all([hub.link.lifecycle.off('commands'), hub.link.lifecycle.off('mentions'), hub.link.lifecycle.off('components')]);
   const seenNames = new Set(seen.map((s) => s.name));
   /** Why a seen system's commands can't run in this session now. */
@@ -46,7 +47,8 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
     hub.catalog.entries('context'),
     // memory and context made from resources aren't in any manifest; a person sees the ones in their reach
     visibleMade(hub.store, { actor: user.id, session }),
-    hub.catalog.fns({ available: true }),
+    // only a live system's fns can be available: the database keeps to those, not every fn of every system
+    hub.catalog.fns({ systems: [HUB_SYSTEM, ...live], available: true }),
     hub.execution.llm.models(),
     Promise.all(rendering.map(async (s) => ({ system: s.name, manifest: await hub.catalog.manifest(s.name) }))),
     hub.catalog.entries('types'),

@@ -19,7 +19,7 @@ import {
 import type { z } from 'zod';
 import { summaryOf as summary } from '../src/chat/state/sessions.ts';
 import { selectionReport } from '../src/chat/test/fakes.ts';
-import { NOTE_TYPE, NOTES_WIDGET, SAMPLE_TABLE, SAMPLE_WIDGET } from '../src/data/test/samples.ts';
+import { NOTE_TYPE, NOTES_WIDGET, SAMPLE_PAGED_WIDGET, SAMPLE_TABLE, SAMPLE_WIDGET } from '../src/data/test/samples.ts';
 import { BASH_CHANGES, FLAGGED_COMMAND, FLAGGED_PREVIEW } from './mockBuild8.ts';
 
 /** Send one event on a session's channel. */
@@ -484,8 +484,11 @@ export class MockChat {
     const table = this.#run(chat.id, turn, QualifiedName.parse('hub/records_table'), { type: NOTE_TYPE }, AGENT);
     this.runs.set(widget.id, { ...widget, status: 'done', startedAt: now - 190_000, endedAt: now - 189_000, outcome: { status: 'done', result: Json.parse(SAMPLE_WIDGET) } });
     this.runs.set(table.id, { ...table, status: 'done', startedAt: now - 188_000, endedAt: now - 187_500, outcome: { status: 'done', result: Json.parse(SAMPLE_TABLE) } });
+    // the same widget with controls and paging: its second page, Status set to open
+    const paged = this.#run(chat.id, turn, NOTES_WIDGET, { status: 'open', owner: 'Sam', offset: 3 }, AGENT);
+    this.runs.set(paged.id, { ...paged, status: 'done', startedAt: now - 187_000, endedAt: now - 186_500, outcome: { status: 'done', result: Json.parse(SAMPLE_PAGED_WIDGET) } });
     this.#add(chat.id, {
-      turn, author: AGENT, role: 'assistant', status: 'done', createdAt: now - 180_000, runs: [widget.id, table.id],
+      turn, author: AGENT, role: 'assistant', status: 'done', createdAt: now - 180_000, runs: [widget.id, table.id, paged.id],
       parts: [{ type: 'text', text: 'Here are your open notes as a widget, and the raw records below.' }],
     });
   }
