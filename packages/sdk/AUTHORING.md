@@ -9939,7 +9939,9 @@ Refers to: [`GinTypeDef`](#core-gintypedef), [`WidgetRange`](#core-widgetrange).
 function · `import { widgetArgs } from '@harness/sdk'`
 
 The widget's args type (the kind's `describe`): its source's args minus the pinned ones, with the paging and range
-args made optional (the view drives them; a run without them reads the first window of the default range).
+args made optional (the view drives them; a run without them reads the first window of the range the widget opens
+on, its range chips' defaults, which `checkWidget` requires of a required range arg). An arg whose "Any" is sent as
+`null` (`clearsToNull`) takes `null` too.
 
 ```ts
 function widgetArgs(source: GinTypeDef, spec: Pick<WidgetSpec, "args" | "paging" | "range">): GinTypeDef;
@@ -9967,7 +9969,8 @@ Refers to: [`GinTypeDef`](#core-gintypedef), [`Json`](#core-json), [`WidgetShown
 function · `import { widgetRunArgs } from '@harness/sdk'`
 
 The source args a widget run uses: pinned values, then the args given (the chips the person set), then each plan's
-default, relative dates resolved; an arg with none of these is left out (it takes the source's default). A paged
+default, relative dates resolved; an arg with none of these, or given as `null` ("Any"), is left out (it takes the
+source's default). A paged
 widget asks for `window` rows from the given offset (0 when none).
 
 ```ts
@@ -20611,6 +20614,7 @@ type WidgetShownControl = {
   optional: boolean;
   custom: boolean;
   relative: boolean;
+  defaulted?: boolean | undefined;
   choices?: {
     label: string;
     value?: {

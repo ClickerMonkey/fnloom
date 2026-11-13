@@ -92,7 +92,7 @@ Dependencies point one way: `core` ← `sdk` ← `hub`, `systems/*`, `web`. `cor
 | `system-providers.ts` (build 4) | `SystemProviderDecl` (manifest `providers`), `ProviderChat` / `ProviderChunk` / `ProviderEmbed`, `awsProviderVariant` |
 | `validation.ts` (build 4) | `FnValidation` (`FnDecl.validate`), `InputVerdict`, `OutputVerdict`, `ValidateRequest` |
 | `pickers.ts` (build 4) | `PickSource`, `PickQuery`, `PickOption` (the `pick` endpoint behind `UiPicker`) |
-| `registries.ts` (build 5) | `RegistryDecl`, `ContributionDecl` (manifest `registries` / `contributes`), `VisualFit`, `ResultTable` and its columns |
+| `registries.ts` (build 5) | `RegistryDecl`, `ContributionDecl` (manifest `registries` / `contributes`), `VisualShape` (the declarative shape a visual draws; `VisualFit` and the fit helpers are gone since the widget pass), `ResultTable` and its columns (`role`, `key`, `editable`, `write`, `records`) |
 | `approvals.ts` (build 5) | `FnApproval` (`FnDecl.approval`), `ApprovalPreview` and its parts, `PreviewRequest` (system link `preview`), `ProposeRun` (hub link `propose`) |
 | `decisions.ts` (build 5) | `DecideRequest` / `DecideAnswer` (hub link `decide`: the decision model for systems) |
 | `config-secrets.ts` (build 5) | `ConfigSecrets` (manifest `configSecrets`), `SECRET_KEPT`, `SealedConfigSecret` |

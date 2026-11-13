@@ -3,7 +3,7 @@
 A web-based agent harness: one **hub** that owns every LLM call, user, permission and record, and **systems**
 that connect over WebSocket to add fns, kinds, types, resources, context and UI renderers.
 
-Status: **build 8 integrated** (of 9; its widget pass is still to come). The hub, the SDK and CLI, the fs, embedder and web systems and the Vue chat and admin
+Status: **build 8 integrated, with its widget pass** (of 9). The hub, the SDK and CLI, the fs, embedder and web systems and the Vue chat and admin
 app run together. The chat agent reads and searches files, runs commands (with approval), searches and reads the web,
 and streams its answers, in strict-tools or static-toolset mode with a plain, suggesting or graph contextor that fits
 each prompt in the model's window (local Ollama models included). Resources keep their raw bytes and converted forms
@@ -105,7 +105,8 @@ from `node_modules`. To take new code, stop `npm run live` and start it again. D
 | web | `systems/web` | Tavily search, page reading (pages that need it are rendered with puppeteer) and `web/crawl` (a site, up to 3 links deep, into one resource root); pages become hub resources with a markdown form |
 | input | `systems/input` | forms the agent asks for: `get_input` (an agent: reuses a saved form fn kept in the hub, or writes a gin type), `ask_text` / `ask_choice` / `ask_confirm` / `ask_number` / `ask_date`, and `save_form` ("Save this form for next time"); answers come back as a hidden `input-answer` part |
 | google-calendar | `systems/google-calendar` | each person connects their own calendar at `/connect/google-calendar` and picks which fns are on and which ask first; list, search, get, create, update and delete events |
-| database | `systems/database` | a fleet, one instance per database (SQLite, Postgres, SQL Server): tables become hub types, `get_query` / `edit_query` (an agent that reuses or writes a saved query fn kept in the hub), writes and `create_table` / `alter_table` only after approval with a preview, results drawn as a table, bar chart or value (its visuals are contributions to the hub's `hub/visuals` registry); `table_fns_available` / `table_fns_generate` save CRUD, relation and comparison fns for a table with no model involved |
+| database | `systems/database` | a fleet, one instance per database (SQLite, Postgres, SQL Server): tables become hub types, `get_query` / `edit_query` (an agent that reuses or writes a saved query fn kept in the hub), writes and `create_table` / `alter_table` only after approval with a preview, results drawn through the hub's `hub/visuals` registry (its own visuals were removed in the widget pass; GROUP BY and aggregate columns carry `role`, the primary key `key`, and a write query returning rows marks its result read-only); `table_fns_available` / `table_fns_generate` save CRUD, relation and comparison fns for a table with no model involved |
+| widgets | `systems/widgets` | bundled, one instance: the `widgets/widget` kind (a read fn returning a table, with its controls, visual, drill and actions; runs read the source through `hub/read_table`), `make_widget` (an agent that proposes a widget with a preview, under a strict schema built per call) and `save_widget` (the person's Save, never an agent tool) |
 | template | `systems/template` | what `harness system new` copies: `system.json`, `shared/`, `server/`, `client/`, placeholder comments only |
 
 Every installed system gets its own data and cache folders (`ctx.dataDir`, `ctx.cacheDir`) that survive upgrades; its

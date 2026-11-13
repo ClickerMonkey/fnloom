@@ -32,7 +32,7 @@ Harness borrows ideas from `product` but starts fresh:
   systems that talk over one small protocol. Fn kinds live in systems, not in the hub. The hub ships
   only two kinds (`native` and `llm`).
 - **Dropped for now:** apps, components, plans, widgets, dashboards, fn authoring agents, the database-first
-  design. A database system comes later. (The graph contextor came back in build 2.)
+  design. A database system comes later. (The graph contextor came back in build 2; widgets came back in build 8 as the bundled `widgets` system, drawn with ECharts; dashboards are still later.)
 
 ## Words
 
@@ -675,7 +675,7 @@ Customer: type({
 ```
 
 - **Display** gives the type's name for people, an icon and a color, and which fields name a value (`title`
-  and `subtitle` must be fields of the shape). Mention chips and cards use it now; widgets will later.
+  and `subtitle` must be fields of the shape). Mention chips and cards use it now; widget rows and their action menus do not yet.
 - **Methods** are native fns called on a value: the server implements `run(self, args, ctx)`. A person can
   run them from a mention's card (only those they're allowed to), and code can call them through the type's
   ref: `deps: { upgrade: crm.types.Customer.methods.upgrade }`, then `ctx.fns.upgrade({ self: customer })`.

@@ -171,3 +171,58 @@ Unit: `rankVisuals`/`columnFacts`/`upgradeWidgetSpec` (core), the strict schema 
 kind's run and `make_widget` with a fake hub (systems), `read_table`/`row_actions`/migration/export as API tests (hub).
 Component (happy-dom): chip row, pager buffer, drill levels, proposal card, inline edit. Browser only: one ui-test
 feature `widgets-charts` that renders each family at phone and desktop, light and dark, for overlap.
+
+## 4. Status (end of the widget pass)
+
+Built in `5bf949b`, integrated in `176d173`, two review rounds (`0b645c3`, `33df06d`), then the final step. One line per
+owner answer; "done" means built as §2 says and covered by the tests in §3.
+
+**Scope.** scope-depth: done (realtime over `FnDecl.live` sources, streamed CSV export; dashboards excluded).
+scope-hub-kind: done (`systems/widgets`; `packages/hub/src/widgets/` and `hub/widget` gone; `hub/widget` fns migrate to
+`widgets/<local>` in `tables/migrate.ts`). scope-dashboards: later, nothing built.
+
+**Chart types.** charts-catalog: done (table, value and the 12 families in `components/visuals/families/`; map and
+lines out). charts-switcher: done (family, then style picker). charts-browser-math: done (`visuals/maths.ts`, only
+when `facts.whole`). charts-candlestick: done (`finance`: candlestick, volume).
+
+**Visuals registry.** registry-shape: done (`VisualShape`; `VisualFit` and the fit helpers removed). registry-column-facts:
+done (database sets `role`/`key`, `records_table` sets `key`/`editable`/`records`, `columnFacts` plus sdk
+`ginTypeFacts`). registry-ranking: done (`rankVisuals`; the client only vetoes). registry-withheld: done (hidden).
+registry-database-visuals: done (deleted). registry-system-charts: done (sdk `visual()`, client `visuals` with `veto`,
+`VisualView` palette and `drill`/`range` events; "Your own chart" in AUTHORING.md); no system ships one yet.
+
+**Controls.** controls-choice-labels: done ("Any" row on optional args). controls-hidden-pinned: done (`check` refuses
+`hidden` without a default). controls-presets: done. controls-relative-dates: done (`RELATIVE_DATES`; one
+`resolveArgValue` in sdk, used by the web control and the widgets system's run). controls-bar: done (`WidgetChips`).
+controls-visual-claims: done for range args (time, calendar, timeline, finance); brush later. controls-paging: done
+(buffer in `widget-state.ts`, "No more rows").
+
+**Actions and writes.** actions-confirm: done (form, then confirm). actions-then: done (`deriveThen`, author override).
+actions-drill: done (levels in the URL `level`, breadcrumb; action menu when there is no drill). actions-read-only-writes:
+done (database `write.affected` → `readOnly`; "Run again" asks). actions-any-fn: done (`WidgetAction.bind`).
+actions-bulk: later, nothing built.
+
+**Authoring.** authoring-save: done (`WidgetProposal` card with Save and Change; `save_widget` runs as the person).
+authoring-strict-schema: done (sdk `widgetProposalSchema` per call). authoring-sources: done (`hub/read_table` and
+`check` refuse non-read or non-table fns). authoring-edit-source: done (sdk `sourceCompatible`).
+
+**Routing in chat.** routing-declared: done (`RESULT_TABLE_ROUTING` per fn line, `RESULT_TABLE_INSTRUCTION` once).
+routing-tool-result: done (`tableModelView`, `HARNESS_TOOL_RESULT_ROWS`; unwatched runs get
+`HARNESS_HEADLESS_RESULT_ROWS`). routing-run-after-make: done (`show` opens the card drawn).
+
+**Data system link.** data-grid: done (record tables are `WidgetView` over `WidgetSource`; inline edits staged, one
+confirm, `hub/record_update` each). data-refresh: nothing, as answered (reload chip later). data-home: done
+(`/data/widgets`, the fn page, chat).
+
+**Look.** look-palette: done (`--chart-1..8` in `tokens.css`, ECharts theme from the tokens). look-phone: done (legend
+at the bottom and scrolling, tap tooltips, full-screen sheet, cards below 600px, inside `dataZoom`). look-export: done
+(PNG and SVG in `visuals/export.ts`).
+
+**Not finished.** Type `display` is not used by widget rows or their action menus yet. No system contributes its own
+ECharts chart yet (the path exists and is documented). Bulk actions, brush filters, dashboards and the hub-record reload
+chip are later by answer.
+
+**Checks (final step).** `npm run check` green apart from one load-timing web test (`context.test.ts`, passes alone);
+stale generated authoring docs regenerated and one lint error fixed. e2e: 8 of 15 files passed; the 16 failing tests
+are model-driven and hit OpenRouter's free-model daily limit (`429 free-models-per-day`), with later tests in the same
+groups failing in turn, plus the known `chat` embedding wait on the shared embedder. Re-run them when the quota resets.

@@ -146,7 +146,7 @@ describe('the Data pages', () => {
     await app.findAll('[data-testid=result-row-open]')[0]?.trigger('click');
     await flushPromises();
     const choices = () => [...document.body.querySelectorAll<HTMLButtonElement>('[data-testid=widget-action-lead], [data-testid=widget-action-choice]')];
-    expect(choices().map((c) => c.textContent?.trim())).toEqual(['Open', expect.stringContaining('Archive'), expect.stringContaining('Rename')]);
+    expect(choices().map((c) => c.textContent.trim())).toEqual(['Open', expect.stringContaining('Archive'), expect.stringContaining('Rename')]);
     choices()[1]?.click();
     await flushPromises();
     document.body.querySelector<HTMLButtonElement>('[data-testid=widget-action-run]')?.click();

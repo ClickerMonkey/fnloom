@@ -210,6 +210,7 @@ type WidgetShownControl = {
   optional: boolean;
   custom: boolean;
   relative: boolean;
+  defaulted?: boolean | undefined;
   choices?: {
     label: string;
     value?: {
