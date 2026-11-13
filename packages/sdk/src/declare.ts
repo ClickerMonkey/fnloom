@@ -4,7 +4,7 @@
  * typed refs.
  */
 import type {
-  ActorKind, Audience, CostEstimate, DeclarableRelation, Duration, GinTypeDef, HookBlock, HookInput, Json, KindDescription, MentionHover, QualifiedName, ResourceStat,
+  ActorKind, Audience, CostEstimate, DeclarableRelation, Duration, GinTypeDef, HookBlock, HookInput, Json, KindDescription, KindFnShape, MentionHover, QualifiedName, ResourceStat,
   ResourceUri, Section, SectionKey, PreviewAnswer,
   SectionMatch, SettingEditor, SettingMerge, StatusTemplates, StepStatus, TypeDisplay, UndoOutcome, Usd,
 } from '@harness/core';
@@ -143,7 +143,8 @@ export interface KindEstimateInput {
 /** What a kind can look up while checking a payload. */
 export interface KindCheckCtx {
   type(name: QualifiedName): Promise<GinTypeDef | undefined>;
-  fn(name: QualifiedName): Promise<{ args: GinTypeDef; returns: GinTypeDef; description: string } | undefined>;
+  /** A fn's shape: this system's own from its table, another's from the hub (absent when it may not see it, or before the hub welcomed the system). */
+  fn(name: QualifiedName): Promise<KindFnShape | undefined>;
 }
 
 /** A kind's run context: like `FnCtx`, but calls are by name (limited to the deps `describe` returned). */

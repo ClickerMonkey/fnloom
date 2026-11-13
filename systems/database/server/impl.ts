@@ -9,17 +9,17 @@
  * the `query` kind runs them, and previews the writes among them for their approval.
  */
 import { InstanceName, Json, QualifiedName, ShareRule, qualify, splitName, type ApprovalPreview, type FnEffects, type PreviewAnswer, type RunInfo } from '@harness/core';
-import { CallFailed, ResultBlockType, ginAs, wireType, type FnCtx, type Fleets, type SystemCtx, type SystemImpl, type TypesOf } from '@harness/sdk';
+import { CallFailed, ginAs, wireType, type FnCtx, type Fleets, type SystemCtx, type SystemImpl, type TypesOf } from '@harness/sdk';
 import { AuthoringError } from '@harness/sdk/server';
 import { z } from 'zod';
-import { QUERY_KIND, database, type DatabaseContract } from '../shared/index.ts';
+import { QUERY_KIND, ResultData, database, type DatabaseContract } from '../shared/index.ts';
 import { ParamValues, QueryPayload, WriteResult, type AskWhichDatabase, type AuthorArgs, type Connection, type QueryAnswer as QueryAnswerValue, type DatabaseConfig, type InstanceAnswer, type InstanceOp, type ReadInstanceOp, type SchemaArgs, type SchemaChanged } from '../shared/shapes.ts';
 import type { Enricher } from './author.ts';
 import { argProblems, argsTypeOf, effectsOf, signatureOf, type CompiledQuery } from './compile.ts';
 import type { Database } from './drivers/index.ts';
 import type { DatabaseSettings } from './env.ts';
 import { DatabaseInstance, changeWords, widens, type HubSide, type ScanReport } from './instance.ts';
-import { QueryService, callArgs, callOf, isProblem, mayUse, notYours, queryInstance, type QueryProblem, type QueryRunCtx } from './queries.ts';
+import { QueryService, callArgs, isProblem, mayUse, notYours, queryInstance, type QueryProblem, type QueryRunCtx } from './queries.ts';
 import { QueryAuthoring, localName, queryAuthoring, type EditedQuery } from './authoring.ts';
 import { pickDatabase } from './pick.ts';
 import { TableFnService, type TableFnsCtx, type TableFnsReadCtx } from './table-fns.ts';
@@ -630,7 +630,9 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
           if (!('query' in compiled)) { throw new Error(`The saved query no longer fits the tables: ${compiled.problems.join(' ')}`); }
           return {
             args: argsTypeOf(compiled, parsed.sorters, limits, parsed.optional),
-            returns: wireType(compiled.writes ? ginAs(WriteResult) : ResultBlockType),
+            // a read gives its rows as a table: the person sees them drawn, the model a summary and the first rows, and a
+            // widget can use it as its source (widget pass)
+            returns: wireType(compiled.writes ? ginAs(WriteResult) : ResultData),
             deps: [],
             types: compiled.tables.map((table) => qualifiedTypeOf(parsed.instance, table)),
             // what it reads and writes, for its facts (and so for the hub's search by type, and the tables a schema change breaks)
@@ -660,7 +662,7 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
             if (!instance.writes) { return ctx.fail('caller', `${instance.config.label} is read-only now.`); }
             return ctx.done(Json.parse(await queries.write(instance, compiled, plan, fn, { attach, watched: ctx.run.watched })));
           }
-          return ctx.done(Json.parse(await queries.read(instance, compiled, plan, fn, callOf(values, sort), { attach, watched: ctx.run.watched })));
+          return ctx.done(Json.parse(await queries.table(instance, compiled, plan)));
         },
         async preview(payload, args, ctx): Promise<PreviewAnswer> {
           if (instance === undefined) { return { refused: 'This database is not configured yet.' }; }

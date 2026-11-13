@@ -24,6 +24,8 @@ export function dataApi(hub: Hub) {
     recordVersions: hub.caller('recordVersions', { dedupe: true }),
     /** The actions rows of some types offer, narrowed by a widget's list. */
     rowActions: hub.caller('rowActions', { cache: { ttl: 30_000 }, dedupe: true }),
+    /** Run a read fn as the person outside any session and give its output (a widget's quiet reads). */
+    readFn: hub.caller('readFn'),
     /** A read fn's whole result as CSV, streamed (`GET /api/export`). */
     exportCsv: hub.caller('export'),
     /** One item's version history (a fn, type, context item or any other part a system adds). */

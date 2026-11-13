@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ApprovalPreview, ConfigPath, FnRouting, mintId, ProposeRun, ResultTable, VisualFit } from './index.ts';
+import { ApprovalPreview, ConfigPath, FnRouting, mintId, ProposeRun, ResultTable } from './index.ts';
 
 describe('build 5 contracts', () => {
   const preview = ApprovalPreview.parse({ title: 'Insert 1 row into orders', parts: [{ type: 'code', language: 'sql', code: 'insert into orders (id) values (?)' }], irreversible: false });
@@ -11,10 +11,9 @@ describe('build 5 contracts', () => {
     expect(ProposeRun.safeParse({ ...base, approver: 'person', parent: mintId('run') }).success).toBe(true);
   });
 
-  it('reads result tables, fits, routing and config paths', () => {
+  it('reads result tables, routing and config paths', () => {
     const table = { columns: [{ name: 'total', kind: 'number', nullable: false }], rows: [[3]], offset: 0, truncated: false, sort: [] };
     expect(ResultTable.parse(table).rows).toEqual([[3]]);
-    expect(VisualFit.safeParse({ fits: true, score: 1.5 }).success).toBe(false);
     expect(FnRouting.parse({ to: 'any' })).toEqual({ to: 'any' });
     expect(ConfigPath.safeParse('connection.password').success).toBe(true);
     expect(ConfigPath.safeParse('connection..password').success).toBe(false);

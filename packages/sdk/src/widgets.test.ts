@@ -162,6 +162,9 @@ describe('checks', () => {
       'Visual pie: it is not a visual of hub/visuals.',
       'Drill tasks/by_owner: arg owner binds column who, which the result lacks.',
     ]);
+    // a saved widget runs with no args, so a required arg shown as a chip needs a default
+    const chip: WidgetSpec = { ...SPEC, args: { ...SPEC.args, status: { show: 'control' } } };
+    expect(checkWidget(chip, { args: SOURCE_ARGS, facts: FACTS, entries: ENTRIES, table: TABLE }).problems).toEqual(['Arg status is required: give its chip a default, or pin a value.']);
   });
 
   it('moves to a source whose args take the widget\'s values', () => {

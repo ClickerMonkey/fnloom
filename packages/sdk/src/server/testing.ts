@@ -15,7 +15,7 @@ import { implement, peers, reject, server, type Peer, type Peers, type Server, t
 import {
   ContentRef, Json, MAIN_INSTANCE, hubLinkSpec, linkSession, linkTel, mintId, qualify, systemLinkSpec,
   type ConnectResult, type DecideAnswer, type KindEstimateAnswer, type FleetInstance, type HubModelInfo, type PreviewAnswer, type ProposedRun, type InstanceName, type ModelForward, type ModelForwardResult, type PairingInfo, type AdminNotice,
-  type AutoPairGrant, type AutoPairProof, type ConfigValue, type HandlerAnswer, type HubLinkSpec, type ImportReport, type JsonObject, type LinkSession, type LlmForward,
+  type AutoPairGrant, type AutoPairProof, type ConfigValue, type HandlerAnswer, type HubLinkSpec, type ImportReport, type JsonObject, type KindFnShape, type LinkSession, type LlmForward,
   type LlmForwardChunk, type LogLine, type Manifest, type ManifestPatch, type OutcomeWire, type PairingId, type QualifiedName,
   type PairingGrant, type PairingGrantRequest, type ResourceRead, type ResourceHit, type MentionResourceSearch, type FlagsAnswer, type MentionOption as WireMentionOption, type RunControl, type Section, type RunInfo, type RunRequest, type RunSettled, type StateOwner, type SystemLinkSpec, type TypeDefinitions, type UserInfo, ActorId, SystemName,
 } from '@harness/core';
@@ -284,6 +284,8 @@ export class FakeHub {
   onHandle: (call: FakeHub['handled'][number]) => Promise<HandlerAnswer> = () => Promise.resolve({ ok: false, error: { class: 'caller', message: 'no one answers handlers here' } });
   /** Answers `ctx.types.definitions` (the real hub sends the closure, dependencies first). Default: every name missing. */
   onTypes: (names: HubBody<'types'>['names']) => Promise<TypeDefinitions> = (names) => Promise.resolve({ types: [], missing: names });
+  /** Answers a kind check's look-up of another system's fn (link `fnShape`). Default: not known. */
+  onFnShape: (name: HubBody<'fnShape'>['name']) => Promise<{ fn?: KindFnShape }> = () => Promise.resolve({});
   /** Streams an LLM answer. Default: the text `ok`. */
   onLlm: (forward: LlmForward) => AsyncIterable<LlmForwardChunk> = () => streamOf<LlmForwardChunk>([
     { type: 'chunk', chunk: { content: 'ok' } },
@@ -603,6 +605,7 @@ export class FakeHub {
           this.typeRequests.push(data.names);
           return this.onTypes(data.names);
         },
+        fnShape: ({ data }) => this.onFnShape(data.name),
         resourcesChanged: ({ data }) => { this.changes.push(...data.changes); },
         llm: ({ data }) => {
           this.forwards.push(data);

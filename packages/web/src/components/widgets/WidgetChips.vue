@@ -97,7 +97,7 @@ const isPicked = (value: ChipValue): boolean => control.value !== undefined && s
           </li>
         </ul>
         <GinForm
-          v-if="typed" :key="control.arg" class="typed" :type="control.type" :initial="literal" :label="control.label" submit-label="Set"
+          v-if="typed" :key="control.arg" class="typed" :type="control.argType" :initial="literal" :label="control.label" submit-label="Set"
           @submit="pick({ literal: $event })" @cancel="openArg = undefined"
         />
       </div>

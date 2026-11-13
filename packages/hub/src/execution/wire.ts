@@ -4,7 +4,7 @@
  * text of a tool reply, token totals, and the lenient mapping it saves transcripts and interactions with.
  */
 import type { Message, Request } from '@aeye/core';
-import { ChangeSet, ResultTable, tableModelView, WidgetResult, type Json, type LlmMessage, type TableModelView, type LlmRequest, type LlmUsage, type QualifiedName } from '@harness/core';
+import { ChangeSet, ResultTable, rowsLine, tableModelView, WidgetResult, type Json, type LlmMessage, type TableModelView, type LlmRequest, type LlmUsage, type QualifiedName } from '@harness/core';
 import { LlmWire } from '@harness/sdk/server';
 
 export {
@@ -58,8 +58,7 @@ function tableReply(value: Json, rows: number): TableModelView | undefined {
   if (widget.success) return tableModelView(widget.data.summary, widget.data.table, rows);
   const table = ResultTable.safeParse(value);
   if (!table.success) return undefined;
-  const count = table.data.rows.length === 1 ? '1 row' : `${String(table.data.rows.length)} rows`;
-  return tableModelView(`A table of ${count}${table.data.truncated ? ' (more held back)' : ''}, shown to the person`, table.data, rows);
+  return tableModelView(`A table of ${rowsLine(table.data)}`, table.data, rows);
 }
 
 /** A change set in a few lines: each file, how it changed and by how many lines, and what was left out. */

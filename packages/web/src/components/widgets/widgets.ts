@@ -156,9 +156,9 @@ export function chipText(control: Pick<WidgetShownControl, 'choices'>, value: Ch
 }
 
 /** The relative dates a chip's popover offers: days for a date argument, instants for a timestamp, else none. */
-export function relativeChoices(control: Pick<WidgetShownControl, 'relative' | 'type'>): { readonly value: ArgValue; readonly label: string }[] {
+export function relativeChoices(control: Pick<WidgetShownControl, 'relative' | 'argType'>): { readonly value: ArgValue; readonly label: string }[] {
   if (!control.relative) { return []; }
-  return relativeDatesFor(control.type.name).map((relative) => ({ value: { relative }, label: RELATIVE_DATES[relative].label }));
+  return relativeDatesFor(control.argType.name).map((relative) => ({ value: { relative }, label: RELATIVE_DATES[relative].label }));
 }
 
 /** The person's time zone, for relative dates. */
@@ -238,8 +238,11 @@ export interface WidgetHost {
    */
   read(fn: QualifiedName, args: Readonly<Record<string, Json>>): Promise<Json>;
   readonly quiet: boolean;
-  /** Run a fn as an ordinary run the person sees (an action, Save), resolving when it settles. */
-  run(fn: QualifiedName, args: Json): Promise<RunOutcome>;
+  /**
+   * Run a fn as an ordinary run the person sees (an action, Save), resolving when it settles. `waiting` is called once
+   * if the run stops for the person's approval, which is given where the page shows it (the chat's approval card).
+   */
+  run(fn: QualifiedName, args: Json, waiting?: () => void): Promise<RunOutcome>;
   /** Download a read fn's whole result as CSV (the hub's streamed export). */
   exportCsv(query: ExportQuery, fileName: string): Promise<void>;
   /** The drill levels kept in the URL (`level`), read and written as text; absent where the page keeps none. */

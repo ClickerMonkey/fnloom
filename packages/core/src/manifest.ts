@@ -450,6 +450,10 @@ export const ImportReport = z.object({
 });
 export type ImportReport = z.infer<typeof ImportReport>;
 
+/** A fn as a kind's check sees it (sdk `KindCheckCtx.fn`, hub link `fnShape`): its args, result and description. */
+export const KindFnShape = z.object({ args: GinTypeDef, returns: GinTypeDef, description: z.string() });
+export type KindFnShape = z.infer<typeof KindFnShape>;
+
 /**
  * Everything a kind works out from one payload, so the author of a fn of that kind writes only the payload. The hub
  * stores this with the fn and recomputes it whenever the payload, or anything it references, changes.

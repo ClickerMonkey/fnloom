@@ -169,8 +169,11 @@ export type WidgetSpec = z.infer<typeof WidgetSpec>;
 export const WidgetShownControl = z.object({
   arg: LocalName,
   label: z.string().min(1),
-  /** The argument's gin type, for the chip's popover editor. */
-  type: GinTypeDef,
+  /**
+   * The argument's gin type, for the chip's popover editor. Not named `type`: next to `value` that would make the
+   * control read as a gin value envelope (`{type, value}`) inside a typed list.
+   */
+  argType: GinTypeDef,
   /** Whether it may be cleared (the "Any" row). */
   optional: z.boolean(),
   choices: z.array(ChoiceOption).min(1).optional(),
@@ -233,8 +236,12 @@ export type WidgetResult = z.infer<typeof WidgetResult>;
 
 // ─── Fns and routes ───────────────────────────────────────────────────────────
 
-/** The actions offered on rows of these types (hub `rowActions` and `hub/row_actions`), narrowed by a widget's list. */
-export const RowActionsQuery = z.object({ types: z.array(QualifiedName).min(1).max(20), narrow: z.array(WidgetAction).optional() });
+/**
+ * The actions offered on rows of these types (hub `rowActions` and `hub/row_actions`), narrowed by a widget's list. With
+ * no row types (a source with no records type or ref columns) only the fns the widget binds are offered.
+ */
+export const RowActionsQuery = z.object({ types: z.array(QualifiedName).max(20), narrow: z.array(WidgetAction).optional() })
+  .refine((query) => query.types.length > 0 || (query.narrow?.length ?? 0) > 0, { message: 'name a row type or an action to offer' });
 export type RowActionsQuery = z.infer<typeof RowActionsQuery>;
 
 /** `hub/read_table`: run a read fn that returns a table, as a child run of the caller, as its person. */
@@ -249,6 +256,8 @@ export const MakeWidgetArgs = z.object({
   source: QualifiedName,
   request: z.string().min(1),
   args: z.record(z.string(), Json).optional(),
+  /** Other fns the widget may bind as row actions or its drill (any fn, as the person names them), besides the rows' types' methods. */
+  fns: z.array(QualifiedName).max(10).optional(),
   widget: QualifiedName.optional(),
   show: z.boolean(),
 });
@@ -302,8 +311,13 @@ export function widgetSummary(visualLabel: string, bind: VisualBinding, table: R
   const measure = names('y') || names('value');
   const key = names('x') || names('itemName') || names('time');
   const of = measure === '' ? '' : ` of ${measure}${key === '' ? '' : ` by ${key}`}`;
+  return `${visualLabel}${of}, ${rowsLine(table)}`;
+}
+
+/** How many rows a table holds, as the model reads it: "12 rows (more held back), shown to the person". */
+export function rowsLine(table: Pick<ResultTable, 'rows' | 'truncated'>): string {
   const count = table.rows.length === 1 ? '1 row' : `${String(table.rows.length)} rows`;
-  return `${visualLabel}${of}, ${count}${table.truncated ? ' (more held back)' : ''}, shown to the person`;
+  return `${count}${table.truncated ? ' (more held back)' : ''}, shown to the person`;
 }
 
 // ─── Rules ────────────────────────────────────────────────────────────────────

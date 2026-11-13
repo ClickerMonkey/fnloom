@@ -21,6 +21,8 @@ export default defineConfig({
           environment: 'node',
           include: ['packages/{core,sdk,hub,cli,build}/src/**/*.test.ts', 'systems/*/{shared,server}/**/*.test.ts', 'scripts/**/*.test.ts'],
           exclude: [live, '**/node_modules/**'],
+          // a file's first test pays for its imports' transform; under coverage on a full parallel run that can pass 5 s
+          testTimeout: 20_000,
         },
       },
       {

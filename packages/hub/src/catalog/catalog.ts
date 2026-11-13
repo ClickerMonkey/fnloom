@@ -104,6 +104,15 @@ export async function manifestHashOf(manifest: Omit<Manifest, 'hash'> & { hash?:
   return hashOf(plain);
 }
 
+/**
+ * A stored fn's declaration as it was authored, for describing it again. A fn saved at runtime (`hub/save_fn`) was
+ * declared with `any` args and result for its kind to work out, so a kind whose result changed (a saved query now
+ * giving a table) describes it afresh instead of being held to the signature it worked out before.
+ */
+function authoredDecl(fn: FnRecord): FnDecl {
+  return fn.origin === 'runtime' && fn.decl.kind !== 'native' ? { ...fn.decl, args: { name: 'any' }, returns: { name: 'any' } } : fn.decl;
+}
+
 /** Whether two declarations are the same. */
 function sameDecl(a: unknown, b: unknown): boolean {
   return canonicalJson(Json.parse(a)) === canonicalJson(Json.parse(b));
@@ -488,7 +497,7 @@ export class StoreCatalog implements Catalog {
     for (const fn of fns) {
       if (fn.decl.kind === 'native' || !kinds.has(fn.decl.kind)) { continue; }
       const work = this.#work(fn.system, true, this.#storedLookup, kinds);
-      const declared = this.#manifests.get(fn.system)?.fns.find((d) => d.name === splitName(fn.name).local) ?? fn.decl;
+      const declared = this.#manifests.get(fn.system)?.fns.find((d) => d.name === splitName(fn.name).local) ?? authoredDecl(fn);
       const problems = await this.#describe(work, declared);
       if (problems.length > 0) { log.warn('catalog.describe.refused', { fn: fn.name, problems }); continue; }
       const described = work.described.get(declared.name);

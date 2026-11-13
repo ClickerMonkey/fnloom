@@ -245,7 +245,7 @@ export function widgetControls(source: GinTypeDef, spec: Pick<WidgetSpec, 'args'
     return [{
       arg: arg.name,
       label: plan?.label ?? actionLabel(arg.name),
-      type: arg.type,
+      argType: arg.type,
       optional: !arg.required,
       ...(choices === undefined ? {} : { choices }),
       custom: plan?.custom ?? offered === undefined,

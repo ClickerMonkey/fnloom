@@ -6,7 +6,7 @@ import { z } from 'zod';
 
 /** Table result tunables. */
 export const tablesEnv = env({
-  HARNESS_EXPORT_PAGE: z.number().int().min(1).max(5_000).default(500).describe('Rows per page a streamed export asks its read fn for; each page is written and let go before the next.'),
+  HARNESS_EXPORT_PAGE: z.number().int().min(1).max(500).default(500).describe('Rows per page a streamed export asks its read fn for (at most 500, the most hub/records_table gives at once); each page is written and let go before the next.'),
   HARNESS_EXPORT_MAX_ROWS: z.number().int().min(1).default(100_000).describe('The most rows one export writes; a file cut there ends with a line saying so.'),
 });
 

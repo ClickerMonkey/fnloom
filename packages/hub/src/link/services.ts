@@ -11,7 +11,7 @@
 import { reject as refuse, spec } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
 import {
-  hubLinkSpec, type ActorId, type AdminNotice, type AttachmentDecl, type ContentRef, type Json, type Link, type LinkSession, type QualifiedName, type Run, type RunId, type StateOwner, type TypeDefinitions,
+  hubLinkSpec, type ActorId, type AdminNotice, type AttachmentDecl, type ContentRef, type Json, type KindFnShape, type Link, type LinkSession, type QualifiedName, type Run, type RunId, type StateOwner, type TypeDefinitions,
 } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
 import type { ContentStore } from '../api/index.ts';
@@ -29,7 +29,7 @@ const endpoints = hubLinkSpec.endpoints;
 export const SERVICES_SPEC = spec({
   endpoints: {
     upload: endpoints.upload, content: endpoints.content, stateGet: endpoints.stateGet, stateSet: endpoints.stateSet,
-    setting: endpoints.setting, attach: endpoints.attach, types: endpoints.types, notifyAdmins: endpoints.notifyAdmins,
+    setting: endpoints.setting, attach: endpoints.attach, types: endpoints.types, fnShape: endpoints.fnShape, notifyAdmins: endpoints.notifyAdmins,
   },
 });
 
@@ -37,7 +37,7 @@ export const SERVICES_SPEC = spec({
 export type ServiceEndpoint = keyof (typeof SERVICES_SPEC)['endpoints'];
 
 /** What the services read from the catalog. */
-export interface ServiceCatalog extends Pick<Catalog, 'check' | 'typeClosure' | 'type'> {
+export interface ServiceCatalog extends Pick<Catalog, 'check' | 'typeClosure' | 'type' | 'fn'> {
   /** An attachment's declaration, if a system declares it. */
   attachment(name: QualifiedName): Promise<AttachmentDecl | undefined>;
 }
@@ -49,6 +49,7 @@ export function serviceCatalog(catalog: Catalog): ServiceCatalog {
     check: (system, type, value) => catalog.check(system, type, value),
     typeClosure: (names) => catalog.typeClosure(names),
     type: (name) => catalog.type(name),
+    fn: (name) => catalog.fn(name),
   };
 }
 
@@ -66,7 +67,7 @@ export interface LinkServiceDeps {
   readonly uploadTtl: number;
   readonly clock: () => number;
   /** Build 6: what an actor may see, so `types` answers only the types the run's person (or the system) may see. */
-  readonly access?: (actor: ActorId) => Promise<Pick<AccessScope, 'seesType'>>;
+  readonly access?: (actor: ActorId) => Promise<Pick<AccessScope, 'seesType' | 'seesFn'>>;
   /** Build 7: where a system's word to the admins goes (`notifyAdmins`; the notifications service turns it into inbox items). */
   readonly bus: () => Pick<EventBus, 'publish'>;
 }
@@ -205,6 +206,15 @@ export class LinkServices {
     return { types: found.types.filter((type) => scope.seesType(type)), missing: [...found.missing, ...hidden] };
   }
 
+  /** Another system's fn as a kind's check sees it; absent when unknown or the system itself may not see it. */
+  async fnShape(link: LinkSession, name: QualifiedName): Promise<{ fn?: KindFnShape }> {
+    const record = await this.#deps.catalog().fn(name);
+    if (record === undefined) return {};
+    const access = this.#deps.access;
+    if (access !== undefined && !(await access((await askingOf(this.#deps.store(), link, undefined)).actor)).seesFn(record)) return {};
+    return { fn: { args: record.decl.args, returns: record.decl.returns, description: record.decl.description } };
+  }
+
   /** The run a system names, refused unless that system ran it. */
   async #ownRun(link: LinkSession, id: RunId): Promise<Run> {
     const run = await this.#deps.store().table('runs').get(id);
@@ -235,6 +245,7 @@ export function linkServiceHandlers(services: LinkServices): { [K in ServiceEndp
     setting: ({ data, link }) => services.setting(link, data),
     attach: ({ data, link }) => services.attach(link, data),
     types: ({ data, link }) => services.types(link, data.names, data.run),
+    fnShape: ({ data, link }) => services.fnShape(link, data.name),
     notifyAdmins: ({ data, link }) => { services.notifyAdmins(link, data); return Promise.resolve(); },
   };
 }

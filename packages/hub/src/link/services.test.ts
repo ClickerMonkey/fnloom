@@ -51,6 +51,7 @@ async function services(overrides: Partial<LinkServiceDeps> = {}) {
       check: (_system, _type, value: Json) => Promise.resolve(typeof value === 'object' && value !== null ? [] : ['not an object']),
       typeClosure: (names) => Promise.resolve({ order: names.filter((n) => n in types), missing: names.filter((n) => !(n in types)) }),
       type: (name) => Promise.resolve(types[name]),
+      fn: () => Promise.resolve(undefined),
     }),
     state: () => ({
       get: (owner) => { state.push({ op: 'get', owner }); return Promise.resolve({ values: { cwd: '/x' }, version: 3 }); },
@@ -203,7 +204,7 @@ describe('named types', () => {
 
   it("answers as the run's person when a run is named, else as the system, and refuses another system's run", async () => {
     const SYSTEM_ACTOR = ActorId.parse('act_fs');
-    const { services: s, types, store: opened } = await services({ access: (actor) => Promise.resolve({ seesType: (type) => actor === SYSTEM_ACTOR || type.system !== 'vault' }) });
+    const { services: s, types, store: opened } = await services({ access: (actor) => Promise.resolve({ seesType: (type) => actor === SYSTEM_ACTOR || type.system !== 'vault', seesFn: () => true }) });
     await opened.table('systems').put({ name: FS.system, description: '', status: 'connected', enabled: { functions: true, renderers: true }, version: '1', manifestHash: '', actor: SYSTEM_ACTOR });
     types['vault/Secret'] = { name: QualifiedName.parse('vault/Secret'), system: SystemName.parse('vault'), description: '', def: { name: 'obj', props: {} }, display: { label: 'Secret' }, references: [], updatedAt: 0 };
     await opened.table('runs').update(RUN, { status: 'running' });

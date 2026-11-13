@@ -42,7 +42,8 @@ systems/
   template/    the template system `harness system new` copies: system.json, shared/, server/, client/ (build 2)
   input/       @harness/system-input     the `input/form` kind, `get_input` (reuses a saved form or has an agent write a gin type), the `ask_*` fns, `save_form`, the form renderer (build 4)
   google-calendar/ @harness/system-google-calendar  a per-person `connect` system (OAuth): list, search, get, create, update and delete events (build 4)
-  database/    @harness/system-database  a fleet, one instance per database (SQLite, Postgres, SQL Server): tables as types, the `database/query` kind, `get_query` / `edit_query`, `create_table` / `alter_table` through approval, visuals contributed to `hub/visuals` (build 8)
+  database/    @harness/system-database  a fleet, one instance per database (SQLite, Postgres, SQL Server): tables as types, the `database/query` kind, `get_query` / `edit_query`, `create_table` / `alter_table` through approval (build 8)
+  widgets/     @harness/system-widgets   bundled (widget pass): the `widgets/widget` kind (runs read the source through `hub/read_table`), `make_widget` (an authoring agent that proposes; the chat previews), `save_widget` (the person's Save)
 scripts/       dev.ts (npm run dev) and live.ts (npm run live) over run-stack.ts, stack.ts (boots the stack; supervise.ts restarts a crashed dev process), hub-client.ts (the CLI's `@harness/cli/hub-client`) and
                session.ts (driving a hub from scripts), web-manifest.ts (generated web manifest), env-example.ts
   docs/        the authoring guide generator (`npm run docs:authoring`, `--check` in `npm run check`): the TypeScript
@@ -101,7 +102,7 @@ Dependencies point one way: `core` ← `sdk` ← `hub`, `systems/*`, `web`. `cor
 | `grants.ts` (build 7) | `SystemGrants` (`Manifest.grants`: hub capabilities, models and spend, secrets, calls, network, files), `ConfigComponentDecl`, `SystemStage` |
 | `lifecycle.ts` (build 7) | installed vs live: `ItemRef`/`ItemSwitch`, `LiveContract`, `PendingReview`/`ContractChange`, `RefusalRecord`, `SystemReview`, `GoLiveRequest`, `TestCallRequest` |
 | `graph.ts` (build 7) | the system and global graph: `GraphNode`, `GraphEdge`, `GRAPH_EDGE_VERBS`, `GraphQuery`, `GraphPage` (web `graph`, hub fn `hub/graph`) |
-| `widgets.ts`, `registries.ts` (build 8) | `HUB_VISUALS` (the one visual registry, hosted by the hub), `VisualShape` (`ContributionDecl.shape`), `declaredFit`, `WIDGET_KIND` and `WidgetSpec`, `WidgetResult`, `WidgetActionOption`, `confirmOf`, `actionLabel`, `MakeWidgetArgs`, `WidgetCheck`; web `widgetsSlice` |
+| `widgets.ts`, `visuals.ts`, `registries.ts` (build 8, widget pass) | `HUB_VISUALS` (the one visual registry, hosted by the hub), `VisualShape` (`ContributionDecl.shape`), the built-in families (`BUILT_IN_VISUALS`), column facts, `WIDGET_KIND` (`widgets/widget`) and `WidgetSpec`, `WidgetResult`, `WidgetProposal`, `WidgetActionOption`, `ReadTableArgs`, `RowActionsQuery`, `ExportQuery`, `confirmOf`, `deriveThen`, `widgetSummary` / `rowsLine`; web `rowActionsSlice` (`rowActions`, the quiet read `readFn`) and `exportSlice`; `widgets-v1.ts` keeps build 8's `WidgetSpecV1` for the migration |
 | `data.ts` (build 8) | hub records of stored types: `RecordStorage` (`TypeDecl.records`), `DataRecord`, `RecordVersion`, the query, save, remove and table shapes, `DataSetView`; tables `records`, `recordVersions`; capability `data`; hub link and web `dataSlice` |
 | `sensitivity.ts`, `changes.ts` (build 8) | fs safeguards: `SensitivityRule`, `SensitivityFlag`, `FlagsAnswer`, `flagsVerdict`, `flagLine` (`FnDecl.flags`, system link `flags`, preview part `flags`); bash's `ChangeSet` / `FileChange` / `NoDiffReason` |
 | `identity.ts`, `versions.ts`, `api-index.ts`, `mention-search.ts` (build 8) | the hub's display name (`hubNameOf`, web `identitySlice`); `ItemVersionRecord` (table `itemVersions`, web `versionsSlice`); `FnDecl.group` / `Manifest.groups`; `MentionRequestId` and hub link `mentionResources` |
@@ -166,8 +167,10 @@ their `create.ts` factories (`BUILD_2_MODULES` in `boot/modules.ts`); each serve
 
 Build 8 adds `data/` (`DataService`, `StoreDataService`: records of stored types, filters and sorts pushed into SQL,
 text and semantic search through the store's indexes, `recordVersions` history; the hub fns `hub/records_*`,
-`hub/record_*`, `hub/data_sets`; served by `api/web/data.ts`) and `widgets/` (the `hub/widget` kind's describe and
-handler, `widgetActions`, the `make_widget` authoring agent and its tools; `api/web/widgets.ts`). `boot/identity.ts`
+`hub/record_*`, `hub/data_sets`; served by `api/web/data.ts`) and (widget pass) `tables/` (`hub/read_table`, `hub/visuals`,
+`hub/row_actions`, the quiet read `readFn`, the streamed export `GET /api/export` and the start-up migration of build 8's
+`hub/widget` fns to the `widgets` system; `api/web/tables.ts`). Widgets themselves are the bundled `systems/widgets`
+system (the `widgets/widget` kind, `make_widget`, `save_widget`). `boot/identity.ts`
 (`HubIdentityService`) owns the hub's display name; `catalog/versions.ts` writes `itemVersions` for every manifest
 section (build 5's `fnVersions` and build 7's `typeVersions` rows are moved in on start); `boot/hub-groups.ts` names the
 hub fns' API groups and the catalog writes the `<system>/api` context items; `chat/mention-requests.ts` keeps mention

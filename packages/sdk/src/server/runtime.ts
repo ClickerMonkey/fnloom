@@ -386,18 +386,25 @@ export class SystemRuntime<C extends ContractShape> {
     return problems.length > 0 ? { problems } : { problems, description: await impl.describe(checked.value, ctx) };
   }
 
-  /** What a kind can look up while checking: named types known in this process, and this system's own fns. */
+  /** What a kind can look up while checking: named types known in this process, its own fns, and others' from the hub. */
   #kindCheckCtx(): KindCheckCtx {
     const table = this.#parts.table;
+    const hub = this.#parts.env.hub;
     return {
       type: (name) => {
         const type = g.lookup(name);
         return Promise.resolve(type === undefined ? undefined : wireType(type));
       },
-      fn: (name) => {
+      fn: async (name) => {
         const system = `${table.contract.name}/`;
-        const def = name.startsWith(system) ? table.fnDef(name.slice(system.length)) : undefined;
-        return Promise.resolve(def === undefined ? undefined : { args: wireType(def.args), returns: wireType(def.returns), description: def.description });
+        if (!name.startsWith(system)) {
+          // never wait for the welcome: the hub describes a kind's fns while it answers this system's hello, so waiting
+          // would deadlock. Unwelcomed, the fn is not seen now; the hub describes again once the system is connected.
+          const link = hub.now();
+          return link === undefined ? undefined : (await link.call('fnShape', { name })).fn;
+        }
+        const def = table.fnDef(name.slice(system.length));
+        return def === undefined ? undefined : { args: wireType(def.args), returns: wireType(def.returns), description: def.description };
       },
     };
   }

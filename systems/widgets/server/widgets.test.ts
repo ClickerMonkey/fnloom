@@ -129,13 +129,15 @@ describe('make_widget', () => {
     const model = mockModel([toolCall('source', {}), toolCall('propose', { draft: proposal }), toolCall('offer', {}), replyChunks('Proposed.')]);
     kit = await testHub(widgets, createWidgetsImpl({ settings: widgetsEnv.parse() }), { config: {}, model });
     const seen = scriptHub(kit, () => tasks());
-    const made = await kit.call('make_widget', { source: SOURCE, request: 'tasks by stage as bars, the owner as a chip, this month', show: true });
+    const made = await kit.call('make_widget', { source: SOURCE, request: 'tasks by stage as bars, the owner as a chip, this month', args: { since: '2026-03-01' }, show: true });
     expect(made.result).toMatchObject({ name: 'tasks_by_stage', show: true, spec: { source: SOURCE, paging: { offset: 'offset', limit: 'limit' }, visuals: [{ visual: 'category', style: 'bar' }, { visual: 'table' }] } });
     expect(made.result.preview.problems).toEqual([]);
     expect(made.result.preview.visuals.map((v) => v.visual)).toEqual(['category', 'table']);
     // the sample is a small window; nothing was kept
-    expect(seen.find((call) => call.fn === hub.fns.read_table.name)?.args).toEqual({ fn: SOURCE, args: { offset: 0, limit: 2 } });
+    expect(seen.find((call) => call.fn === hub.fns.read_table.name)?.args).toEqual({ fn: SOURCE, args: { since: '2026-03-01', offset: 0, limit: 2 } });
     expect(seen.some((call) => call.fn === hub.fns.save_fn.name)).toBe(false);
+    // a required arg with no sample value is refused before the agent starts
+    await expect(kit.call('make_widget', { source: SOURCE, request: 'tasks by stage', show: false })).rejects.toThrow(/needs since/);
     const forwards = made.hubCalls.forwards;
     expect(offered(forwards[0])).toEqual(['source']);
     expect(offered(forwards[1])).toEqual(['propose']);

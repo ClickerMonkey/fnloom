@@ -4,7 +4,7 @@
  * the free model, and a second request like it reuses that fn; a saved query pages and sorts; a write and a
  * `create_table` each wait for approval, run once approved and report who declined and why otherwise.
  */
-import { isSettled, QualifiedName, type Json, type Run, type RunId, type SessionId } from '@harness/core';
+import { isSettled, QualifiedName, ResultTable, type Json, type Run, type RunId, type SessionId } from '@harness/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { waitFor, type SignedIn } from '../scripts/hub-client.ts';
 import { admin, clientInfo, invoke, settings, settle } from './kit.ts';
@@ -92,10 +92,10 @@ describe('a saved query', () => {
       },
     });
     const page = await invoke(me, session, QualifiedName.parse('database/shop.orders_by_total'), { limit: 2, offset: 1, sort: [{ column: 'total', dir: 'asc' }] });
-    expect(page.outcome).toMatchObject({
-      status: 'done',
-      result: { rowCount: 2, total: 5, truncated: true, sort: [{ column: 'total', dir: 'asc' }], sample: [{ total: 15 }, { total: 42 }], nextPage: { offset: 3, limit: 2 } },
-    });
+    // run directly, a saved read gives its rows as a result table (the hub words it for the model as a summary and the first rows)
+    expect(page.outcome).toMatchObject({ status: 'done', result: { offset: 1, limit: 2, total: 5, truncated: true, sort: [{ column: 'total', dir: 'asc' }] } });
+    const rows = page.outcome?.status === 'done' ? ResultTable.parse(page.outcome.result).rows : [];
+    expect(rows.map((row) => row[1])).toEqual([15, 42]);
   });
 });
 

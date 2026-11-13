@@ -125,6 +125,25 @@ describe("a widget's state", () => {
     expect(state.row.value).toBeUndefined();
   });
 
+  it('steps the dialog aside while an action waits for approval, and finishes once it is approved', async () => {
+    let approve: (outcome: RunOutcome) => void = () => undefined;
+    let waited = false;
+    const fake = fakeHost({ run: (_fn, _args, waiting) => new Promise((resolve) => { waiting?.(); waited = true; approve = resolve; }) });
+    const state = pagedState(fake.host);
+    const archive = SAMPLE_ACTIONS.find((a) => a.label === 'Archive');
+    if (archive === undefined) { throw new Error('no sample'); }
+    state.openRow(0);
+    await state.choose(archive);
+    expect(state.step.value).toBe('confirm');
+    const ran = state.runAction();
+    await flushPromises();
+    expect(waited).toBe(true);
+    expect(state.row.value).toBeUndefined();
+    expect(state.status.value).toBe('Archive: waiting for your approval.');
+    approve({ ok: true, output: null });
+    expect(await ran).toBe(true);
+  });
+
   it('opens the rows an action returns as a level, and says when one returned nothing to show', async () => {
     const opens: WidgetActionOption = { fn: QualifiedName.parse('notes/Note.words'), label: 'Words', mode: 'read', confirm: false, bind: { note: 'id' }, then: 'open' };
     const fake = fakeHost({ run: () => Promise.resolve({ ok: true, output: Json.parse(SAMPLE_WORDS) }) });

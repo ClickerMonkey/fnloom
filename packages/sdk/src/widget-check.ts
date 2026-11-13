@@ -74,6 +74,12 @@ function argProblems(spec: WidgetSpec, sourceArgs: GinTypeDef, scope: TypeScope 
       check(`Arg ${name} choice ${choice.label}`, arg, choice.value);
     }
   }
+  // a saved widget runs with no args given, so each required arg needs a value of its own
+  for (const arg of args.values()) {
+    if (!arg.required || claimed.has(arg.name)) { continue; }
+    const plan = spec.args[arg.name];
+    if (plan === undefined || (plan.show === 'control' && plan.default === undefined)) { problems.push(`Arg ${arg.name} is required: give its chip a default, or pin a value.`); }
+  }
   for (const preset of spec.presets) {
     for (const [name, value] of Object.entries(preset.sets)) {
       const arg = args.get(name);

@@ -61,6 +61,29 @@ export class HubTables implements TableService {
     });
   }
 
+  async readAs(input: ReadTableArgs, user: UserView): Promise<Json> {
+    const access = await this.#deps.access(user.id);
+    const found = await this.#deps.catalog().fn(input.fn);
+    if (found === undefined || !access.seesFn(found)) { throw reject(404, 'NO_FN', `there is no fn ${input.fn}`); }
+    const source = await this.#readable(found.name).catch((error: unknown) => { throw refusedAs400(error, 'NOT_A_READ'); });
+    const turn = await this.#deps.turn(user);
+    let ok = false;
+    try {
+      const started = await this.#deps.runs().start({
+        fn: source.name, args: input.args, turn: turn.id, key: 'read', actor: user.id, caller: user.id, priority: turn.priority, background: false, handlers: [],
+      });
+      const settled = await started.settled;
+      if (settled.status !== 'done') {
+        const why = settled.status === 'background' ? 'it went to the background' : settled.error?.message ?? settled.status;
+        throw reject(400, 'READ_FAILED', `${source.name} did not finish: ${why}`);
+      }
+      ok = true;
+      return settled.result ?? null;
+    } finally {
+      await turn.finish(ok);
+    }
+  }
+
   async visuals(actor: ActorId): Promise<ContributionView[]> {
     const own = (await this.#deps.catalog().manifest(HUB_SYSTEM))?.contributes ?? [];
     const others = await this.#deps.contributions(HUB_VISUALS, actor);
@@ -141,9 +164,9 @@ function exportArgs(text: string): Record<string, Json> {
   return value;
 }
 
-/** A refusal of the source as the export's 400, with its words; anything else as it is. */
-function refusedAs400(error: unknown): unknown {
-  return error instanceof RunRefused ? reject(400, 'NOT_EXPORTABLE', error.error.message) : error;
+/** A refusal of the source as a 400 with this code (the export's by default), with its words; anything else as it is. */
+function refusedAs400(error: unknown, code = 'NOT_EXPORTABLE'): unknown {
+  return error instanceof RunRefused ? reject(400, code, error.error.message) : error;
 }
 
 /**

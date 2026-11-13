@@ -42,8 +42,8 @@ export interface WidgetAuthoringDeps {
   sample(fn: QualifiedName, args: Readonly<Record<string, Json>>): Promise<ResultTable>;
   /** Every visual of `hub/visuals`. */
   visuals(): Promise<readonly VisualContribution[]>;
-  /** The actions rows of these types offer the person. */
-  rowActions(types: readonly QualifiedName[]): Promise<WidgetActionOption[]>;
+  /** The actions rows of these types offer the person, and these other fns as actions (any fn may be bound). */
+  rowActions(types: readonly QualifiedName[], fns: readonly QualifiedName[]): Promise<WidgetActionOption[]>;
   /** The widget run for real with these args, as the view will draw it. */
   preview(spec: WidgetSpec, source: SourceDecl, given: Readonly<Record<string, Json>>): Promise<WidgetResult>;
   /** The rows a sample holds. */
@@ -54,6 +54,8 @@ export interface WidgetAuthoringDeps {
 export interface WidgetRequest {
   readonly source: QualifiedName;
   readonly args: Readonly<Record<string, Json>>;
+  /** Other fns the request names to bind as actions or the drill. */
+  readonly fns: readonly QualifiedName[];
   readonly edited?: EditedWidget | undefined;
 }
 
@@ -180,7 +182,7 @@ const sourceTool = authoringTool<WidgetAuthoring, unknown, Record<string, never>
     const facts = resultFacts(table);
     const ranked = rankedVisuals(entries, facts, table).map((item) => item.rank);
     const types = rowTypes(table);
-    const actions = types.length === 0 ? [] : await deps.rowActions(types);
+    const actions = types.length === 0 && asked.fns.length === 0 ? [] : await deps.rowActions(types, asked.fns);
     const drills = actions.filter((action) => action.mode === 'read' && action.then === 'open').map((action) => action.fn);
     const schema = widgetProposalSchema({
       source: asked.source, args: source.args, facts, ranked, entries, table, actions: actions.map((action) => action.fn), drills, live: source.live !== undefined,

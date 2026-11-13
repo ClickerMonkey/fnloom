@@ -29,6 +29,7 @@ export function fakeDataApi() {
       return Promise.resolve({ items: record === undefined ? [] : sampleRecordVersions(record) });
     }),
     rowActions: fakeCaller<'rowActions'>(() => Promise.resolve([...SAMPLE_ACTIONS])),
+    readFn: fakeCaller<'readFn'>(() => Promise.resolve(null)),
     exportCsv: fakeCaller<'export'>(() => Promise.resolve(new Blob(['title,words\r\nPlan the trip,6\r\n']).stream())),
     itemVersions: fakeCaller<'itemVersions'>((body) => Promise.resolve({ items: sampleItemVersions(body.system, body.section, body.name) })),
   };

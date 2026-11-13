@@ -310,9 +310,8 @@ Each runs the same read as its web endpoint, as the run's person (`boot/read-fns
 | `hub/item_versions` | Any item's version history (fns, types, context, kinds, commands, components, ...), newest first. | `system`, `section`, `name`, page | `ItemVersionsPage` | Tagged `read`; build 8 (`catalog/versions.ts`) |
 | `hub/data_sets`, `hub/records_find`, `hub/record_get`, `hub/records_table`, `hub/record_versions` | The data system's stored types and records, as the run's person. | the `dataSlice` bodies | the `dataSlice` responses | Tagged `read`; build 8 (`data/`) |
 | `hub/record_save`, `hub/record_remove` | Save (checked against the type, `expect` refuses a stale change) or remove a record. | `RecordSave` / `RecordRemove` | `DataRecord` / `{removed}` | They ask; declared effects `records` |
-| `hub/widget_source`, `hub/widget_visuals`, `hub/widget_check` | A table fn's args and a sample; the `hub/visuals` that fit it; a spec's problems. | `{source, args?}` / `WidgetCheck` | info / fits / `{problems, visuals}` | Tagged `read`, hidden; the tools of `hub/make_widget` (`widgets/`) |
-| `hub/widget_save` | Save a widget: a fn `hub/<name>` of the kind `hub/widget`. | `{name, description, spec, replace?}` | `{fn, created}` | Declared effects: fns create/update kind `hub/widget` |
-| `hub/make_widget` | Make or change a widget (kind `hub/llm`, a prompt with the four widget tools). | `MakeWidgetArgs` | text | A widget's own runs call its source as a child run and return a `WidgetResult` |
+| `hub/read_table` | Run a read fn returning a table as a child run of the caller, as its person. | `ReadTableArgs` | `ResultTable` | Tagged `read`, hidden; the widgets system reads sources with it (`tables/`) |
+| `hub/visuals`, `hub/row_actions` | The visual registry in order; the actions rows of some types offer the person. | `{}` / `RowActionsQuery` | `ContributionView[]` / `WidgetActionOption[]` | Tagged `read`, hidden; widgets live in the bundled `widgets` system (`widgets/make_widget`, `widgets/save_widget`, kind `widgets/widget`) |
 
 Build 8 also groups the hub's fns (`boot/hub-groups.ts`) and every system's (`FnDecl.group`, `Manifest.groups`): the
 catalog writes `<system>/api` and `<system>/api.<group>` context items with the fns they list (`catalog/api-index.ts`).

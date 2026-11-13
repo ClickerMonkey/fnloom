@@ -14,7 +14,7 @@
  * - **The widget migration**: build 8's `hub/widget` fns become `widgets/<name>` fns of `widgets/widget`
  *   (`migrate.ts`), at start, whether or not the widgets system is paired yet.
  */
-import type { ActorId, ContributionView, ExportQuery, ReadTableArgs, ResultTable, RowActionsQuery, RunInfo, UserView, WidgetActionOption } from '@harness/core';
+import type { ActorId, ContributionView, ExportQuery, Json, ReadTableArgs, ResultTable, RowActionsQuery, RunInfo, UserView, WidgetActionOption } from '@harness/core';
 
 /**
  * The run a table is read in: its id, turn, person and caller. A source runs as a child called by the same caller (an
@@ -26,6 +26,11 @@ export type TableAsker = Pick<RunInfo, 'id' | 'turn' | 'user' | 'session' | 'cal
 export interface TableService {
   /** Run a read fn returning a table as a child run of `run`; refused for a fn that is not a read or gives no table. */
   read(input: ReadTableArgs, run: TableAsker): Promise<ResultTable>;
+  /**
+   * Run a read fn as the person outside any session (the web's quiet read: a widget's pager, range, drill, refresh and
+   * live re-runs) in a turn of its own, and give its output; refused for a fn the person can't see or that isn't a read.
+   */
+  readAs(input: ReadTableArgs, user: UserView): Promise<Json>;
   /** Every visual of the registry the person may see: the hub's own in declared order, then each system's by name. */
   visuals(actor: ActorId): Promise<ContributionView[]>;
   /** The actions rows of these types offer the person, narrowed by a widget's list. */

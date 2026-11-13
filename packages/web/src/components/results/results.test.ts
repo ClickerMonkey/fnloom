@@ -1,6 +1,6 @@
 import { BUILT_IN_VISUALS, columnFacts, QualifiedName, RunId, type ApprovalPreview, type ResultTable } from '@harness/core';
 import { flushPromises, mount } from '@vue/test-utils';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h } from 'vue';
 import { ApprovalDesk } from '../../chat/state/approvals.ts';
 import { VisualHost } from '../../chat/state/visuals.ts';
@@ -71,6 +71,9 @@ describe('visual ranking', () => {
 });
 
 describe('ResultView', () => {
+  // the chart and grid load lazily; the first load (ECharts) is slow under a full run, so it happens once, up front
+  beforeAll(async () => { await Promise.all([import('../visuals/ChartVisual.vue'), import('./ResultGrid.vue'), import('../visuals/ValueVisual.vue')]); }, 120_000);
+
   it('draws the best, switches family and style, and hides the switch when only the table fits', async () => {
     const bars = table({ rows: [['Oslo', 12], ['Lima', 3]] });
     const facts = columnFacts(bars);

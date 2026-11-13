@@ -42,7 +42,8 @@ const MAKE_USAGE = [
   'Use it when the person wants to keep a chart, table or calendar of a fn\'s rows to look at again, or to change a widget they have.',
   '`source` is a read fn that returns a table (a saved query, hub/records_table, a table fn); find it first with hub/fns_search.',
   '`request` says what to show in the person\'s words: the measure, what it is grouped by, the filters they want to change, the presets.',
-  '`args` are sample args to read the source with (the source\'s own args by name).',
+  '`args` are sample args to read the source with (the source\'s own args by name): give one for every required arg.',
+  '`fns` names any other fns the person wants bound as a row action or the drill (a fn that is not a method of the rows\' type).',
   'Set `show` to true when the person asked to see something now ("show me", "chart my …"): the proposal opens drawn; else it opens collapsed.',
   'It proposes and never saves: the person presses Save under the proposal. To change a widget, pass it as `widget`.',
 ].join(' ');

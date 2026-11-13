@@ -45,7 +45,7 @@ choices:
   - to: "fs/authoring.core-types.llm-ts"
     when: "Pick this for From packages/core/src/llm.ts."
   - to: "fs/authoring.core-types.contextdecl"
-    when: "Pick this for ContextDecl, FnEffects, FnExample, FnLive, FnMode, FnRouting, HookBlock, HookInput, ImportReport, KindDescription, Manifest."
+    when: "Pick this for ContextDecl, FnEffects, FnExample, FnLive, FnMode, FnRouting, HookBlock, HookInput, ImportReport, KindDescription, KindFnShape, Manifest."
   - to: "fs/authoring.core-types.manifestpatch"
     when: "Pick this for ManifestPatch, ManifestSection, MentionHover, SectionDecl, SettingEditor, SettingMerge, TypeDecl, TypeDisplay."
   - to: "fs/authoring.core-types.mention-search-ts"

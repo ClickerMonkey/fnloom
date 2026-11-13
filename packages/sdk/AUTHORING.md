@@ -3545,11 +3545,12 @@ What a kind can look up while checking a payload.
 ```ts
 interface KindCheckCtx {
   type(name: QualifiedName): Promise<GinTypeDef | undefined>;
-  fn(name: QualifiedName): Promise<{ args: GinTypeDef; returns: GinTypeDef; description: string } | undefined>;
+  /** A fn's shape: this system's own from its table, another's from the hub (absent when it may not see it, or before the hub welcomed the system). */
+  fn(name: QualifiedName): Promise<KindFnShape | undefined>;
 }
 ```
 
-Refers to: [`GinTypeDef`](#core-gintypedef), [`QualifiedName`](#core-qualifiedname).
+Refers to: [`GinTypeDef`](#core-gintypedef), [`KindFnShape`](#core-kindfnshape), [`QualifiedName`](#core-qualifiedname).
 
 #### `KindRunCtx`
 
@@ -10894,6 +10895,8 @@ class FakeHub {
   onHandle: (call: FakeHub['handled'][number]) => Promise<HandlerAnswer>;
   /** Answers `ctx.types.definitions` (the real hub sends the closure, dependencies first). Default: every name missing. */
   onTypes: (names: HubBody<'types'>['names']) => Promise<TypeDefinitions>;
+  /** Answers a kind check's look-up of another system's fn (link `fnShape`). Default: not known. */
+  onFnShape: (name: HubBody<'fnShape'>['name']) => Promise<{ fn?: KindFnShape }>;
   /** Streams an LLM answer. Default: the text `ok`. */
   onLlm: (forward: LlmForward) => AsyncIterable<LlmForwardChunk>;
   /** Reads a resource for `ctx.resources` (the real hub routes to the system that serves it). Default: not found. */
@@ -10960,7 +10963,7 @@ class FakeHub {
 }
 ```
 
-Refers to: [`AdminNotice`](#core-adminnotice), [`AutoPairProof`](#core-autopairproof), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FlagsAnswer`](#core-flagsanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`HubModelInfo`](#core-hubmodelinfo), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`KindEstimateAnswer`](#core-kindestimateanswer), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`MentionResourceSearch`](#core-mentionresourcesearch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceHit`](#core-resourcehit), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`Section`](#core-section), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
+Refers to: [`AdminNotice`](#core-adminnotice), [`AutoPairProof`](#core-autopairproof), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FlagsAnswer`](#core-flagsanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`HubModelInfo`](#core-hubmodelinfo), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`KindEstimateAnswer`](#core-kindestimateanswer), [`KindFnShape`](#core-kindfnshape), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`MentionResourceSearch`](#core-mentionresourcesearch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceHit`](#core-resourcehit), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`Section`](#core-section), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
 
 #### `FakeHubOptions`
 
@@ -16689,7 +16692,7 @@ type HostRefusal = {
     system: SystemName;
     instance: InstanceName;
   };
-  rule: "network" | "files";
+  rule: "files" | "network";
   attempt: string;
   detail: string;
 };
@@ -17523,6 +17526,20 @@ type KindDescription = {
     language: string;
     code: string;
   } | undefined;
+};
+```
+
+#### <a id="core-kindfnshape"></a>`KindFnShape`
+
+const, type · declared in `packages/core/src/manifest.ts`
+
+A fn as a kind's check sees it (sdk `KindCheckCtx.fn`, hub link `fnShape`): its args, result and description.
+
+```ts
+type KindFnShape = {
+  args: TypeDef<any>;
+  returns: TypeDef<any>;
+  description: string;
 };
 ```
 
@@ -20472,7 +20489,8 @@ type RelativeDate = "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "to
 
 const, type · declared in `packages/core/src/widgets.ts`
 
-The actions offered on rows of these types (hub `rowActions` and `hub/row_actions`), narrowed by a widget's list.
+The actions offered on rows of these types (hub `rowActions` and `hub/row_actions`), narrowed by a widget's list. With
+no row types (a source with no records type or ref columns) only the fns the widget binds are offered.
 
 ```ts
 type RowActionsQuery = {
@@ -20589,7 +20607,7 @@ A chip in the control row: the argument, its words and type, what it offers and 
 type WidgetShownControl = {
   arg: string;
   label: string;
-  type: TypeDef<any>;
+  argType: TypeDef<any>;
   optional: boolean;
   custom: boolean;
   relative: boolean;

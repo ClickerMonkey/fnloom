@@ -376,8 +376,9 @@ describe('the context pages', () => {
     document.querySelector<HTMLButtonElement>('[data-testid="memory-save"]')?.click();
     await flushPromises();
     await flushPromises();
-    await vi.waitFor(() => { expect(r.currentRoute.value.name).toBe('context-item'); });
-    await vi.waitFor(() => { expect(app.find('[data-testid="context-text"]').exists()).toBe(true); });
+    // the item page loads lazily: on a loaded full run that can take longer than waitFor's 1 s default
+    await vi.waitFor(() => { expect(r.currentRoute.value.name).toBe('context-item'); }, { timeout: 10_000 });
+    await vi.waitFor(() => { expect(app.find('[data-testid="context-text"]').exists()).toBe(true); }, { timeout: 10_000 });
     expect(String(r.currentRoute.value.params['system'])).toBe('memory');
     expect(app.get('[data-testid="context-text"]').text()).toContain('Prefer short answers.');
   });

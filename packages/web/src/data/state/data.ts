@@ -25,7 +25,7 @@ export interface DataSetFilter {
   readonly system: SystemName | undefined;
 }
 
-type StoreApi = Pick<DataApi, 'dataSets' | 'rowActions' | 'exportCsv' | 'recordTable' | 'record' | 'saveRecord' | 'updateRecord' | 'removeRecord' | 'recordVersions'>;
+type StoreApi = Pick<DataApi, 'dataSets' | 'rowActions' | 'readFn' | 'exportCsv' | 'recordTable' | 'record' | 'saveRecord' | 'updateRecord' | 'removeRecord' | 'recordVersions'>;
 
 /** The Data pages. */
 export class DataStore {
@@ -62,6 +62,11 @@ export class DataStore {
   /** The actions rows of these types offer, narrowed by a widget's list when given. */
   async rowActions(query: RowActionsQuery): Promise<readonly WidgetActionOption[]> {
     return this.#api.rowActions.call(query);
+  }
+
+  /** Run a read fn as the person outside any session and give its output; refused for a fn that is not a read. */
+  async readFn(fn: QualifiedName, args: Readonly<Record<string, Json>>): Promise<Json> {
+    return this.#api.readFn.call({ fn, args: { ...args } });
   }
 
   /** The bytes of a read fn's whole result as CSV, streamed by the hub as it runs it page by page. */

@@ -89,9 +89,9 @@ export const SAMPLE_PAGED_WIDGET: WidgetResult = WidgetResult.parse({
   visuals: [{ visual: 'table', style: 'table', bind: {} }],
   problems: [],
   controls: [
-    { arg: 'status', label: 'Status', type: { name: 'text' }, optional: true, choices: [{ label: 'Any' }, { label: 'Open', value: { literal: 'open' } }, { label: 'Done', value: { literal: 'done' } }], custom: false, relative: false, value: { literal: 'open' } },
-    { arg: 'owner', label: 'Owner', type: { name: 'text' }, optional: true, custom: true, relative: false },
-    { arg: 'since', label: 'Since', type: { name: 'date' }, optional: true, custom: true, relative: true, value: { relative: 'today-7d' } },
+    { arg: 'status', label: 'Status', argType: { name: 'text' }, optional: true, choices: [{ label: 'Any' }, { label: 'Open', value: { literal: 'open' } }, { label: 'Done', value: { literal: 'done' } }], custom: false, relative: false, value: { literal: 'open' } },
+    { arg: 'owner', label: 'Owner', argType: { name: 'text' }, optional: true, custom: true, relative: false },
+    { arg: 'since', label: 'Since', argType: { name: 'date' }, optional: true, custom: true, relative: true, value: { relative: 'today-7d' } },
   ],
   presets: [{ label: 'Open', sets: { status: { literal: 'open' } } }, { label: 'Done', sets: { status: { literal: 'done' } } }],
   paging: { offset: 'offset', limit: 'limit', window: 2, more: true },

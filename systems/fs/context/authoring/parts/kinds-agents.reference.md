@@ -93,11 +93,12 @@ What a kind can look up while checking a payload.
 ```ts
 interface KindCheckCtx {
   type(name: QualifiedName): Promise<GinTypeDef | undefined>;
-  fn(name: QualifiedName): Promise<{ args: GinTypeDef; returns: GinTypeDef; description: string } | undefined>;
+  /** A fn's shape: this system's own from its table, another's from the hub (absent when it may not see it, or before the hub welcomed the system). */
+  fn(name: QualifiedName): Promise<KindFnShape | undefined>;
 }
 ```
 
-Refers to: [`GinTypeDef`](context:fs/authoring.core-types.gin-ts#core-gintypedef), [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
+Refers to: [`GinTypeDef`](context:fs/authoring.core-types.gin-ts#core-gintypedef), [`KindFnShape`](context:fs/authoring.core-types.contextdecl#core-kindfnshape), [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `KindRunCtx`
 

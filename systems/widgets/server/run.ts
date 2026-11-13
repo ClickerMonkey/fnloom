@@ -79,7 +79,9 @@ export async function runWidget(input: WidgetRunInput, hub: WidgetHub): Promise<
   const visuals = tableLast(checked.visuals);
   const readOnly = table.write !== undefined;
   const types = rowTypes(table);
-  const actions = types.length === 0 || spec.actions?.length === 0 ? [] : await hub.rowActions({ types, ...(spec.actions === undefined ? {} : { narrow: spec.actions }) });
+  // with no row types only the fns the spec binds are offered
+  const narrow = spec.actions;
+  const actions = narrow?.length === 0 || (types.length === 0 && narrow === undefined) ? [] : await hub.rowActions({ types, ...(narrow === undefined ? {} : { narrow }) });
   const shown = visuals[0];
   const live = spec.live === true && source.live !== undefined ? { every: Math.max(source.live.every, input.liveFloor) } : undefined;
   return WidgetResult.parse({

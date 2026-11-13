@@ -223,6 +223,11 @@ export class QueryService {
     return { ...base, result: await this.read(instance, compiled, plan, called, callOf(values, sort), { attach: (table, title) => { ctx.attach(table, title); }, watched: ctx.run.watched }) };
   }
 
+  /** Read rows as a result table: a saved query run directly (its output is the table; the hub words it for the model). */
+  async table(instance: DatabaseInstance, compiled: CompiledQuery, plan: CallPlan): Promise<ResultTable> {
+    return resultTable(await instance.read(plan), compiled.columns, plan);
+  }
+
   /** Read rows for a call: attach them for the person, and give the model its result block (`args` as called, sort too, for the next page's call). */
   async read(instance: DatabaseInstance, compiled: CompiledQuery, plan: CallPlan, fn: { name: string; signature: string }, args: Readonly<Record<string, Json>>, ctx: ReadCtx): Promise<ResultBlock> {
     const table = resultTable(await instance.read(plan), compiled.columns, plan);

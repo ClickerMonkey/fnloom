@@ -3587,6 +3587,27 @@ export const manifest = {
       "multi": false,
       "bodyEnc": "json"
     },
+    "readFn": {
+      "method": "POST",
+      "path": "/readFn",
+      "ws": "readFn",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "fn",
+        "args"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
     "export": {
       "method": "GET",
       "path": "/export",

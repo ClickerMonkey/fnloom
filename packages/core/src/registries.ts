@@ -162,19 +162,6 @@ export type ContributionDecl = z.infer<typeof ContributionDecl>;
 export const ContributionView = ContributionDecl.extend({ system: SystemName });
 export type ContributionView = z.infer<typeof ContributionView>;
 
-/**
- * What a visual's match logic answers for some data: whether it can draw it at all, and how much of it it shows well,
- * from 0 (shows it, poorly) to 1 (shows all of it as well as it can be shown). The table always fits with score 0.
- *
- * @deprecated Widget pass: ranking is product's coverage-first order over declared shapes (`rankVisuals`); a client
- * only vetoes (`VisualVeto`). Removed with its last readers (web lane: results/visuals.ts; platform lane: sdk client).
- */
-export const VisualFit = z.object({ fits: z.boolean(), score: z.number().min(0).max(1) });
-export type VisualFit = z.infer<typeof VisualFit>;
-
-/** The table visual's score: every other visual that fits beats it. */
-export const TABLE_VISUAL_SCORE = 0;
-
 // ─── Result tables ────────────────────────────────────────────────────────────
 
 
@@ -222,66 +209,3 @@ export const ResultTable = z.object({
   records: z.object({ type: QualifiedName, id: z.string().min(1) }).optional(),
 });
 export type ResultTable = z.infer<typeof ResultTable>;
-
-// ─── The built-in query visuals' fits ─────────────────────────────────────────
-// One match logic for the app's own visuals and the database system's, so a result fits the same way everywhere.
-
-/** The table fits every result, with the lowest score. */
-export function tableFit(): VisualFit {
-  return { fits: true, score: TABLE_VISUAL_SCORE };
-}
-
-const BAR_LABEL_KIND_LIST = ['text', 'date', 'datetime'] as const satisfies readonly ColumnKind[];
-const BAR_NUMBER_KIND_LIST = ['integer', 'number'] as const satisfies readonly ColumnKind[];
-const BAR_LABEL_KINDS: ReadonlySet<ColumnKind> = new Set(BAR_LABEL_KIND_LIST);
-const BAR_NUMBER_KINDS: ReadonlySet<ColumnKind> = new Set(BAR_NUMBER_KIND_LIST);
-/** The most bars a chart draws before a table reads better. */
-export const BAR_MAX_ROWS = 50;
-
-/**
- * A bar chart fits one label column (text or a date) plus one number column, 2 to `BAR_MAX_ROWS` rows, every value a
- * number at or above 0. It shows such data best (0.8), less so when the rows are only part of the result (0.5).
- */
-export function barFit(table: ResultTable): VisualFit {
-  const [first, second] = table.columns;
-  const no: VisualFit = { fits: false, score: 0 };
-  if (table.columns.length !== 2 || first === undefined || second === undefined) { return no; }
-  if (!BAR_LABEL_KINDS.has(first.kind) || !BAR_NUMBER_KINDS.has(second.kind)) { return no; }
-  if (table.rows.length < 2 || table.rows.length > BAR_MAX_ROWS) { return no; }
-  if (!table.rows.every((row) => typeof row[1] === 'number' && Number.isFinite(row[1]) && row[1] >= 0)) { return no; }
-  return { fits: true, score: table.truncated || table.offset > 0 ? 0.5 : 0.8 };
-}
-
-/**
- * The built-in visuals' declared shapes (build 8), beside their match logic so both say the same thing: the table
- * draws any columns, the bar chart a label and a number column in 2 to `BAR_MAX_ROWS` rows, the value one cell of a
- * whole result. The database system contributes its visuals with these, and the app's own visuals use them too.
- *
- * @deprecated Widget pass: the built-in visuals are `BUILT_IN_VISUALS` (`visuals.ts`); removed with the database
- * system's visuals (systems lane), with `barFit`, `valueFit`, `tableFit` and `BAR_MAX_ROWS` (web lane).
- */
-export const BUILT_IN_SHAPES: Readonly<Record<'table' | 'bar' | 'value', VisualShape>> = {
-  table: VisualShape.parse({
-    channels: [{ name: 'columns', label: 'Columns', accepts: [...COLUMN_KINDS], required: false, many: true }],
-    rows: { min: 0 },
-    whole: false,
-  }),
-  bar: VisualShape.parse({
-    channels: [
-      { name: 'label', label: 'Label', accepts: [...BAR_LABEL_KIND_LIST], required: true, many: false },
-      { name: 'value', label: 'Value', accepts: [...BAR_NUMBER_KIND_LIST], required: true, many: false },
-    ],
-    rows: { min: 2, max: BAR_MAX_ROWS },
-    whole: false,
-  }),
-  value: VisualShape.parse({
-    channels: [{ name: 'value', label: 'Value', accepts: [...COLUMN_KINDS], required: true, many: false }],
-    rows: { min: 1, max: 1 },
-    whole: true,
-  }),
-};
-
-/** A single value fits one row of one column, the whole result, and shows it best of all (0.9). */
-export function valueFit(table: ResultTable): VisualFit {
-  return table.columns.length === 1 && table.rows.length === 1 && table.offset === 0 && !table.truncated ? { fits: true, score: 0.9 } : { fits: false, score: 0 };
-}

@@ -24,7 +24,7 @@ import { MentionRequestId, MentionResourceHits, MentionResourceSearch } from './
 import { FlagsAnswer } from './sensitivity.ts';
 import { ResultTable } from './registries.ts';
 import { FnExamplesPage, FnExamplesPatch, FnExamplesQuery, FnSearchPage, FnSearchQuery, KindEstimateAnswer, KindEstimateRequest } from './fn-facts.ts';
-import { HookBlock, HookInput, ImportReport, KindDescription, Manifest, ManifestPatch, MentionHover, MentionOption } from './manifest.ts';
+import { HookBlock, HookInput, ImportReport, KindDescription, KindFnShape, Manifest, ManifestPatch, MentionHover, MentionOption } from './manifest.ts';
 import {
   ActorId, DeliveryId, Duration, FnKindName, HandlerCallId, InstanceName, Json, LocalName, MAIN_INSTANCE, JsonObject, PairingId, QualifiedName, RunId, SessionId, SystemName, Timestamp, Usd, page,
 } from './primitives.ts';
@@ -243,6 +243,15 @@ const linked = use(linkTel, linkSession).group({
    * not see, come back in `missing`.
    */
   types: { body: z.object({ names: z.array(QualifiedName).min(1), run: RunId.optional() }), response: TypeDefinitions, ws: 'ty' },
+  /**
+   * Widget pass: another system's fn as a kind's check sees it (`KindCheckCtx.fn`): its args, result and description,
+   * absent when the hub doesn't know it or the system may not see it.
+   */
+  fnShape: {
+    body: z.object({ name: QualifiedName }),
+    response: z.object({ fn: KindFnShape.optional() }),
+    ws: 'fsh',
+  },
   resourcesChanged: { body: z.object({ changes: z.array(ResourceChange) }), ws: 'rc' },
   /** The LLM forward behind `ctx.llm` and the aeye provider systems use. */
   llm: { body: LlmForward, streamOut: LlmForwardChunk, ws: 'llm' },

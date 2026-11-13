@@ -135,7 +135,8 @@ describe('the database system over the link', () => {
     expect(JSON.stringify(ran)).toContain('Nobody is watching');
     const watched = hub.runInfo('database/main.orders_by_status', { watched: true });
     const savedPayload = hub.fns.kept.get('database/main.orders_by_status')?.saved.payload ?? null;
-    expect(JSON.stringify(done(await hub.run('database/main.orders_by_status', { status: 'paid' }, { kind: QUERY_KIND, payload: savedPayload, run: watched })))).toContain('shown to the person');
+    // run directly, a saved read gives its rows as a result table (the hub words it for the model; a widget can read it)
+    expect(done(await hub.run('database/main.orders_by_status', { status: 'paid' }, { kind: QUERY_KIND, payload: savedPayload, run: watched }))).toMatchObject({ rows: [[1, 120.5, 'Ada'], [3, 15, 'Bo']], total: 2, truncated: false });
     // a missing required param is refused, never bound as NULL
     expect(await hub.run('database/run_query', { fn: 'database/main.orders_by_status', args: {} })).toMatchObject({ status: 'invalid-input' });
     expect(hub.attachments.at(-1)?.item).toMatchObject({ attachment: 'database/result', data: { rows: [[1, 120.5, 'Ada'], [3, 15, 'Bo']] } });
@@ -159,7 +160,8 @@ describe('the database system over the link', () => {
 
     const payload = hub.fns.kept.get('database/main.orders_by_status')?.saved.payload ?? null;
     const paged = done(await hub.run('database/main.orders_by_status', { status: 'paid', limit: 1, sort: [{ column: 'customer', dir: 'desc' }] }, { kind: 'database/query', payload }));
-    expect(paged).toMatchObject({ rowCount: 1, total: 2, truncated: true, sort: [{ column: 'customer', dir: 'desc' }], sample: [{ customer: 'Bo' }], nextPage: { offset: 1, limit: 1 } });
+    expect(paged).toMatchObject({ total: 2, truncated: true, offset: 0, limit: 1, sort: [{ column: 'customer', dir: 'desc' }] });
+    expect(paged).toMatchObject({ rows: [[expect.anything(), expect.anything(), 'Bo', expect.anything()]] });
     expect(paged).toMatchObject({ columns: [{ name: 'id' }, { name: 'total' }, { name: 'customer' }, { name: 'placed', kind: 'date' }] });
     expect(await hub.run('database/main.orders_by_status', { limit: 1 }, { kind: 'database/query', payload })).toMatchObject({ status: 'invalid-input' });
   });
@@ -183,6 +185,14 @@ describe('the database system over the link', () => {
     const check = new BetterSqlite3(join(dir, 'shop.db'));
     expect(check.prepare('SELECT count(*) AS n FROM orders WHERE status = \'open\'').get()).toEqual({ n: 0 });
     check.close();
+
+    // a write that returns rows: the rows it changed are attached read-only, carrying how many rows it changed
+    const returning = { ...MARK_PAID, name: 'mark_shipped', title: 'Mark paid orders shipped', description: 'Marks every paid order as shipped, giving back the orders changed.', query: { kind: 'update', type: 'orders', set: { status: 'shipped' }, where: byStatus({ kind: 'literal', value: 'paid' }), returning: [{ expr: ref('orders', 'id'), as: 'id' }] } };
+    expect(done(await hub.run('database/save_query', { database: 'main', draft: returning }))).toMatchObject({ fn: 'database/main.mark_shipped' });
+    const shippedPayload = hub.fns.kept.get('database/main.mark_shipped')?.saved.payload ?? null;
+    const shipped = done(await hub.run('database/main.mark_shipped', {}, { kind: 'database/query', payload: shippedPayload }));
+    expect(shipped).toMatchObject({ affected: 4, returned: { rowCount: 4 } });
+    expect(hub.attachments.at(-1)?.item).toMatchObject({ attachment: 'database/result', data: { write: { affected: 4 } } });
   });
 
   it('never saves a write on a read-only database, and refuses schema changes without schema allowed', async () => {
@@ -212,7 +222,7 @@ describe('the database system over the link', () => {
     const cy = { ...TEST_USER, id: ActorId.parse('act_cy'), role: 'member' as const };
     const direct = await hub.run('database/main.orders_by_status', { status: 'paid' }, { kind: 'database/query', payload, run: hub.runInfo('database/main.orders_by_status', { user: cy }) });
     expect(direct).toMatchObject({ status: 'invalid-input' });
-    expect(done(await hub.run('database/main.orders_by_status', { status: 'paid' }, { kind: 'database/query', payload, run: hub.runInfo('database/main.orders_by_status', { user: bo }) }))).toMatchObject({ rowCount: 2 });
+    expect(done(await hub.run('database/main.orders_by_status', { status: 'paid' }, { kind: 'database/query', payload, run: hub.runInfo('database/main.orders_by_status', { user: bo }) }))).toMatchObject({ total: 2 });
   });
 
   it('describes saved queries against the scanned tables while the types of a rescan reach the hub', async () => {

@@ -10,7 +10,7 @@
  */
 import {
   ADMIN_TAG, adminSlice, chatSlice, CONTENT_HASH_PATTERN, ChatModeConfig, contextorSlice, contextSlice, ContextorConfig, DETAIL_LEVELS, ERROR_CLASSES,
-  graphSlice, versionsSlice, dataSlice, BUILT_IN_VISUALS, ContributionView, ReadTableArgs, ResultTable, RowActionsQuery, VISUAL_FAMILIES, WidgetActionOption, mcpsSlice, metricsSlice, accessSlice, autoPairSlice, connectionsSlice, explorerSlice, suggestionsSlice, MintMcpTokenArgs, modelsSlice, OWN_TAG, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, RUN_STATUSES, runsSlice,
+  graphSlice, versionsSlice, dataSlice, ContributionView, ReadTableArgs, ResultTable, RowActionsQuery, WidgetActionOption, mcpsSlice, metricsSlice, accessSlice, autoPairSlice, connectionsSlice, explorerSlice, suggestionsSlice, MintMcpTokenArgs, modelsSlice, OWN_TAG, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, RUN_STATUSES, runsSlice,
   FnLive, GinTypeDef, LIST_NAMES, querySlice, Section, settingsSlice, systemsSlice, LlmContentPart, ModelLimits, LINK_TARGET_KINDS, type Display,
   FnExample, FnExamplesPage, FnExamplesQuery, FnRouting, FnSearchPage, FnSearchQuery, LoadContextResult, ShareRule, type RegistryEffect,
 } from '@harness/core';
@@ -19,7 +19,7 @@ import { fn, type FnExampleOf } from './fn.ts';
 import { kind, mention, sectioner, type } from './declare.ts';
 import { g, json, type GinType } from './gin.ts';
 import { system } from './system.ts';
-import { visual } from './widgets.ts';
+import { BUILT_IN_CONTRIBUTIONS } from './widgets.ts';
 import { ginAs, ginOf, toolArgsOf, type ToolArgs } from './zod-gin.ts';
 
 /** A web endpoint a hub fn stands for: its body is the fn's args and its response the fn's result. */
@@ -582,10 +582,7 @@ export const hub = system('hub', {
     visuals: { description: 'Every visual a table result can be drawn with (a table, value cards, the chart families): each system adds its own, with the shape of data it draws.', data: ginAs(ResultTable) },
   },
   // the app's own visuals (the table, value cards and the chart families), drawn by the web app; systems add the rest
-  contributes: VISUAL_FAMILIES.map((name) => {
-    const { label, description, icon, shape } = BUILT_IN_VISUALS[name];
-    return visual({ name, label, description, icon, shape });
-  }),
+  contributes: [...BUILT_IN_CONTRIBUTIONS],
 })
   .with({
     types: {

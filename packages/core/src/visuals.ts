@@ -300,20 +300,6 @@ export function rankVisuals(entries: readonly RankedEntry[], facts: ResultFacts,
   return ranked.sort((a, b) => b.rank.coverage - a.rank.coverage || b.rank.priority - a.rank.priority || a.index - b.index).map((entry) => entry.rank);
 }
 
-/**
- * Whether a declared shape can draw a table with its default binding.
- *
- * @deprecated Build 8's check, kept for its readers until they move to `rankVisuals` (platform lane: sdk client and
- * widgets; systems lane: database tests).
- */
-export function declaredFit(shape: VisualShape, table: Pick<ResultTable, 'columns' | 'rows' | 'offset' | 'truncated'>): { readonly fits: boolean; readonly why?: string } {
-  const facts = columnFacts(table);
-  const bind = defaultBinding(shape, facts.columns);
-  if (typeof bind === 'string') { return { fits: false, why: bind }; }
-  const [why] = bindingProblems(shape, bind, facts);
-  return why === undefined ? { fits: true } : { fits: false, why };
-}
-
 // ─── The built-in families ────────────────────────────────────────────────────
 
 const NUM: ColumnKind[] = ['integer', 'number'];

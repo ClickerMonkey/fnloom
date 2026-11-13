@@ -25,7 +25,7 @@ type HostRefusal = {
     system: SystemName;
     instance: InstanceName;
   };
-  rule: "network" | "files";
+  rule: "files" | "network";
   attempt: string;
   detail: string;
 };

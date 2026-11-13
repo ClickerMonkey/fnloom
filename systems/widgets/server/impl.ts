@@ -4,11 +4,11 @@
  * here: saved widgets, who may use them and their versions are the hub's; every run reads its source fresh.
  */
 import {
-  ContributionView, Json, KindDescription, QualifiedName, ResultTable, WIDGET_KIND, WidgetActionOption, WidgetResult, WidgetSpec, jsonOf, splitName,
+  ContributionView, Json, KindDescription, MakeWidgetArgs, QualifiedName, ResultTable, WIDGET_KIND, WidgetActionOption, WidgetResult, WidgetSpec, jsonOf, splitName,
   type GinTypeDef, type RunInfo,
 } from '@harness/core';
 import {
-  CallFailed, SAVE_FN_TAKEN, encodeValue, ginAs, hub, parseValue, returnsTable, sourceCompatible, widgetArgs, wireType,
+  CallFailed, SAVE_FN_TAKEN, argsOf, encodeValue, ginAs, hub, pagingOf, parseValue, returnsTable, sourceCompatible, widgetArgs, wireType,
   type FnCtx, type Infer, type KindCheckCtx, type StoredFn, type SystemImpl, type TypesOf,
 } from '@harness/sdk';
 import { AuthoringError } from '@harness/sdk/server';
@@ -64,9 +64,8 @@ async function declaredProblems(spec: WidgetSpec, lookup: (fn: QualifiedName) =>
 
 /**
  * Every problem with a payload against the fns the kind can look up: its source (a fn returning a table, whose args
- * take the plans) and its drill (a fn returning a table). A kind's lookups only see this system's own fns (the SDK's
- * `KindCheckCtx`), so a fn it can't see is not judged here; the run reads the source through the hub and lists what
- * doesn't fit, and make_widget checks a proposal against the real source before the person saves it.
+ * take the plans) and its drill (a fn returning a table), as the hub declares them (`KindCheckCtx.fn`). A fn the
+ * system may not see is not judged here; the run reads the source through the hub and lists what doesn't fit.
  */
 function specProblems(spec: WidgetSpec, ctx: KindCheckCtx): Promise<string[]> {
   return declaredProblems(spec, (fn) => ctx.fn(fn));
@@ -83,8 +82,8 @@ type SaveFns = FnCtx<TypesOf<WidgetsContract['defs']['fns']['save_widget']>>['fn
 type SaveFn = SaveFns['saveFn'];
 
 /**
- * Every problem with a widget about to be saved, against its source and drill as `hub/fn_get` declares them (the
- * kind's own check can't see another system's fns): a source the person can't read, or that the hub gives no types
+ * Every problem with a widget about to be saved, against its source and drill as `hub/fn_get` declares them to the
+ * person (the kind's check sees them as the system): a source the person can't read, or that the hub gives no types
  * for, is a problem too. Whether the source only reads is the hub's to refuse when the widget runs (`hub/read_table`).
  */
 async function saveProblems(spec: WidgetSpec, getFn: SaveFns['getFn']): Promise<string[]> {
@@ -140,8 +139,12 @@ export function createWidgetsImpl(deps: WidgetsDeps): SystemImpl<WidgetsContract
   return {
     fns: {
       make_widget: {
-        async run(args, ctx) {
-          const source = QualifiedName.parse(args.source);
+        async run(input, ctx) {
+          // `args` is a JSON object in gin's eyes only as `any`, so its shape is checked here
+          const checked = MakeWidgetArgs.safeParse(input);
+          if (!checked.success) { return ctx.invalid(`The args don't fit: ${checked.error.issues.map((issue) => `${issue.path.join('.') || 'args'}: ${issue.message}`).join('; ')}. Give \`args\` as an object of the source's args.`); }
+          const args = checked.data;
+          const source = args.source;
           const sourceOf = async (fn: QualifiedName): Promise<SourceDecl> => sourceDecl(await ctx.fns.getFn({ fn }));
           const readTable = async (fn: QualifiedName, given: Readonly<Record<string, Json>>) => {
             const call = ctx.fns.readTable({ fn, args: { ...given } });
@@ -152,17 +155,27 @@ export function createWidgetsImpl(deps: WidgetsDeps): SystemImpl<WidgetsContract
             visuals: async () => VisualList.parse(await ctx.fns.visuals({})),
             rowActions: async (query) => ActionList.parse(await ctx.fns.rowActions(query)),
           };
+          // the source is sampled with the given args (the pager's own aside), so each required one must be there
+          const declared = await sourceOf(source);
+          const paging = pagingOf(declared.args);
+          const missing = argsOf(declared.args).filter((arg) => arg.required && args.args?.[arg.name] === undefined && arg.name !== paging?.offset && arg.name !== paging?.limit);
+          if (missing.length > 0) { return ctx.invalid(`${source} needs ${missing.map((arg) => arg.name).join(', ')}: give a sample value for each in \`args\`.`); }
           const edited = args.widget === undefined ? undefined : await ctx.fns.getFn({ fn: args.widget });
           if (edited !== undefined && edited.kind !== WIDGET_KIND) { return ctx.fail('caller', `${args.widget ?? ''} is not a widget, so it can't be changed here.`); }
           const state = new WidgetAuthoring({
             source: sourceOf,
             sample: async (fn, given) => (await readTable(fn, given)).table,
             visuals: () => hubOf.visuals(),
-            rowActions: async (types) => hubOf.rowActions({ types: [...types] }),
+            rowActions: async (types, fns) => {
+              // the types' methods, then the other fns named, each as the person may use it
+              const methods = types.length === 0 ? [] : await hubOf.rowActions({ types: [...types] });
+              const others = fns.length === 0 ? [] : await hubOf.rowActions({ types: [], narrow: fns.map((fn) => ({ fn, bind: {} })) });
+              return [...methods, ...others.filter((other) => !methods.some((method) => method.fn === other.fn))];
+            },
             preview: (spec, decl, given) => runWidget({ spec, source: decl, given, options: runOptions(ctx.run, s), liveFloor: s.HARNESS_WIDGET_LIVE_FLOOR }, hubOf),
             sampleRows: s.WIDGETS_SAMPLE_ROWS,
           }, {
-            source, args: args.args ?? {},
+            source, args: args.args ?? {}, fns: args.fns ?? [],
             ...(edited === undefined ? {} : { edited: { fn: QualifiedName.parse(edited.fn), spec: WidgetSpec.parse(edited.payload) } }),
           });
           try {
@@ -197,7 +210,7 @@ export function createWidgetsImpl(deps: WidgetsDeps): SystemImpl<WidgetsContract
         async describe(payload, ctx) {
           const spec = WidgetSpec.parse(payload);
           const source = await ctx.fn(spec.source);
-          // a source the kind can't see (another system's) leaves the args to the run, which reads it through the hub
+          // a source the system may not see leaves the args to the run, which reads it through the hub as the person
           const args: GinTypeDef = source === undefined ? { name: 'any' } : widgetArgs(source.args, spec);
           return KindDescription.parse({
             args, returns: wireType(ginAs(WidgetResult)),

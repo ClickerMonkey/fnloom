@@ -1,6 +1,7 @@
 /**
  * Widget pass, the row actions and export slices (`tables/`): the actions rows of some types offer the signed-in
- * person, and a read fn's whole result as a streamed CSV download (`GET /api/export`), run as that person.
+ * person, a quiet read (`readFn`: a read fn run as that person outside any session, giving its output), and a read
+ * fn's whole result as a streamed CSV download (`GET /api/export`), run as that person.
  */
 import { plugin } from '@ayepi/plugin';
 import { exportSlice, rowActionsSlice } from '@harness/core';
@@ -14,7 +15,10 @@ export function tablesPlugin(hub: HubServices, auth: ReturnType<typeof authPlugi
   const tables = tableServiceOf(hub);
   return [
     plugin({ name: 'web.rowActions', spec: rowActionsSlice, requires: [auth] })
-      .handlers((): FullHandlers<typeof rowActionsSlice> => ({ rowActions: ({ data, user }) => tables.rowActions(data, user.id) })),
+      .handlers((): FullHandlers<typeof rowActionsSlice> => ({
+        rowActions: ({ data, user }) => tables.rowActions(data, user.id),
+        readFn: ({ data, user }) => tables.readAs(data, user),
+      })),
     plugin({ name: 'web.export', spec: exportSlice, requires: [auth] })
       .handlers((): FullHandlers<typeof exportSlice> => ({
         export: async ({ data, user, download }) => {

@@ -314,7 +314,11 @@ export class WidgetState {
     const name = this.rowName.value;
     const failure = `Couldn't ${option.label.toLowerCase()}.`;
     const outcome = await this.acting.run(async () => {
-      const ran = await host.run(option.fn, actionArgs(bound, this.#form));
+      // a run that stops for approval is approved in the page (the chat's card), so the dialog steps aside meanwhile
+      const ran = await host.run(option.fn, actionArgs(bound, this.#form), () => {
+        this.#close();
+        this.status.value = `${option.label}: waiting for your approval.`;
+      });
       if (!ran.ok) { throw new Error(ran.problem); }
       return ran.output;
     }, failure);
