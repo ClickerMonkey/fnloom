@@ -48,9 +48,10 @@ describe('the Shiki highlighter', () => {
         const real = await BUNDLED_SHIKI.core();
         return {
           loadLanguage: (...langs) => real.loadLanguage(...langs),
-          codeToTokensBase: (code, options) => {
+          // a fixed pass, not the real one: under a loaded full run the real first pass can pass its time limit too
+          codeToTokensBase: (code) => {
             if (throws) { throw new TypeError("Cannot read properties of undefined (reading 'startIndex')"); }
-            return real.codeToTokensBase(code, options);
+            return [[{ content: code, offset: 0, explanation: [{ content: 'const', scopes: [{ scopeName: 'storage.type', themeMatches: [] }] }] }]];
           },
         };
       },

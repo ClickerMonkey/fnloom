@@ -91,6 +91,12 @@ describe('Sensitivity', () => {
     expect(rules.named('*.md', 'read')).toEqual([]);
   });
 
+  it('leaves the files of a root git ignores as a whole alone (a root chosen inside a data folder)', async () => {
+    const rules = new Sensitivity(DEFAULT_SENSITIVITY_RULES, ignoring([at('src/app.ts').root.folder, at('src/app.ts').path]));
+    expect(await rules.flags([{ at: at('src/app.ts'), access: 'read', certain: true }])).toEqual([]);
+    expect(await rules.hidden([at('src/app.ts')], { content: false })).toEqual(new Set());
+  });
+
   it('asks the real git which files it ignores, per work tree', async () => {
     execFileSync('git', ['init', '-q'], { cwd: tmp.path });
     await writeFile(`${tmp.path}/.gitignore`, 'dist/\n*.log\n');

@@ -160,7 +160,7 @@ export class Sensitivity {
 
   /** The flags for files a call would touch: the strictest matching rule per file and access. */
   async flags(items: readonly Judged[], signal?: AbortSignal): Promise<SensitivityFlag[]> {
-    const ignored = await this.ignoredOf(items.map((item) => item.at.path), signal);
+    const ignored = await this.ignoredOf(items.map((item) => item.at), signal);
     const flags: SensitivityFlag[] = [];
     for (const item of items) {
       const matched = await this.matching(item.at, { ignored: ignored.has(item.at.path), content: true, ...(item.text === undefined ? {} : { text: item.text }) });
@@ -176,7 +176,7 @@ export class Sensitivity {
    * file's first bytes (for `grep`, which shows what files hold; `list` and `glob` show only names).
    */
   async hidden(paths: readonly Located[], options: { content: boolean }, signal?: AbortSignal): Promise<Set<string>> {
-    const ignored = await this.ignoredOf(paths.map((at) => at.path), signal);
+    const ignored = await this.ignoredOf(paths, signal);
     const out = new Set<string>();
     for (const at of paths) {
       const matched = await this.matching(at, { ignored: ignored.has(at.path), content: options.content });
@@ -204,10 +204,16 @@ export class Sensitivity {
     return [...new Set(matched)];
   }
 
-  /** Which paths git ignores, asked only when a rule cares. */
-  private async ignoredOf(paths: readonly string[], signal?: AbortSignal): Promise<ReadonlySet<string>> {
-    if (paths.length === 0 || !this.rules.some((rule) => rule.match.type === 'gitignored')) { return new Set(); }
-    return this.ignores.ignored(paths, signal);
+  /**
+   * Which paths git ignores, asked only when a rule cares. A root that is itself ignored by the work tree around it (a
+   * root an admin chose inside a build or data folder) says nothing about its files, so only the paths of roots git
+   * doesn't ignore are asked about.
+   */
+  private async ignoredOf(places: readonly Located[], signal?: AbortSignal): Promise<ReadonlySet<string>> {
+    if (places.length === 0 || !this.rules.some((rule) => rule.match.type === 'gitignored')) { return new Set(); }
+    const ignoredRoots = await this.ignores.ignored([...new Set(places.map((at) => at.root.folder))], signal);
+    const asked = places.filter((at) => !ignoredRoots.has(normalize(at.root.folder))).map((at) => at.path);
+    return asked.length === 0 ? new Set() : this.ignores.ignored(asked, signal);
   }
 }
 

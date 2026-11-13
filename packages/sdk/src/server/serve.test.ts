@@ -529,10 +529,11 @@ describe('everything else the hub asks', () => {
       async run(args, ctx) { return ctx.done(args.text.toUpperCase()); },
     });
     expect(ref.name).toBe(qualify('notes', 'shout'));
-    expect(hub.patches[0]?.upsert.fns?.[0]?.name).toBe('shout');
+    const changes = (): typeof hub.patches => hub.patches.filter((p) => p.roots !== true);
+    expect(changes()[0]?.upsert.fns?.[0]?.name).toBe('shout');
     expect(done(await hub.run('notes/shout', { text: 'hey' }))).toBe('HEY');
     await system.remove(ref);
-    expect(hub.patches[1]?.remove.fns).toEqual(['shout']);
+    expect(changes()[1]?.remove.fns).toEqual(['shout']);
     expect(await hub.run('notes/shout', { text: 'hey' })).toMatchObject({ status: 'failed' });
   });
 

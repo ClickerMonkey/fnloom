@@ -9665,7 +9665,8 @@ Refers to: [`ResultTable`](#core-resulttable), [`VisualFit`](#core-visualfit), [
 
 function · `import { widgetArgs } from '@harness/sdk'`
 
-The widget's args type: its source's args minus the pinned ones and the ones the pager drives (the kind's `describe`).
+The widget's args type (the kind's `describe`): its source's args minus the pinned ones and the page size the widget
+fixes. The offset arg stays, so the pager asks for another page by running the widget with it.
 
 ```ts
 function widgetArgs(source: GinTypeDef, spec: Pick<WidgetSpec, "controls" | "paging">): GinTypeDef;

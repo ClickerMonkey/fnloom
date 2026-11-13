@@ -101,6 +101,10 @@ Dependencies point one way: `core` ← `sdk` ← `hub`, `systems/*`, `web`. `cor
 | `grants.ts` (build 7) | `SystemGrants` (`Manifest.grants`: hub capabilities, models and spend, secrets, calls, network, files), `ConfigComponentDecl`, `SystemStage` |
 | `lifecycle.ts` (build 7) | installed vs live: `ItemRef`/`ItemSwitch`, `LiveContract`, `PendingReview`/`ContractChange`, `RefusalRecord`, `SystemReview`, `GoLiveRequest`, `TestCallRequest` |
 | `graph.ts` (build 7) | the system and global graph: `GraphNode`, `GraphEdge`, `GRAPH_EDGE_VERBS`, `GraphQuery`, `GraphPage` (web `graph`, hub fn `hub/graph`) |
+| `widgets.ts`, `registries.ts` (build 8) | `HUB_VISUALS` (the one visual registry, hosted by the hub), `VisualShape` (`ContributionDecl.shape`), `declaredFit`, `WIDGET_KIND` and `WidgetSpec`, `WidgetResult`, `WidgetActionOption`, `confirmOf`, `actionLabel`, `MakeWidgetArgs`, `WidgetCheck`; web `widgetsSlice` |
+| `data.ts` (build 8) | hub records of stored types: `RecordStorage` (`TypeDecl.records`), `DataRecord`, `RecordVersion`, the query, save, remove and table shapes, `DataSetView`; tables `records`, `recordVersions`; capability `data`; hub link and web `dataSlice` |
+| `sensitivity.ts`, `changes.ts` (build 8) | fs safeguards: `SensitivityRule`, `SensitivityFlag`, `FlagsAnswer`, `flagsVerdict`, `flagLine` (`FnDecl.flags`, system link `flags`, preview part `flags`); bash's `ChangeSet` / `FileChange` / `NoDiffReason` |
+| `identity.ts`, `versions.ts`, `api-index.ts`, `mention-search.ts` (build 8) | the hub's display name (`hubNameOf`, web `identitySlice`); `ItemVersionRecord` (table `itemVersions`, web `versionsSlice`); `FnDecl.group` / `Manifest.groups`; `MentionRequestId` and hub link `mentionResources` |
 
 The web app gets the zod-free manifest of `hubWebSpec` from `packages/web/src/api/manifest.gen.ts`, written by
 `npm run web:manifest`. `npm run check` fails when it is stale.
@@ -159,6 +163,18 @@ Build 2's modules are wired into `HubServices` (`contextor`, `resources`, `mcp`,
 their `create.ts` factories (`BUILD_2_MODULES` in `boot/modules.ts`); each serves its own web slice from its plugin in
 `api/web/`. Build 4 adds `HubServices.access` and `HubServices.connections` the same way; `api/web/build4.ts` serves
 `accessSlice`, `connectionsSlice` and `pickerSlice` (`api/web/pickers.ts`: `pick` per source, filtered by access).
+
+Build 8 adds `data/` (`DataService`, `StoreDataService`: records of stored types, filters and sorts pushed into SQL,
+text and semantic search through the store's indexes, `recordVersions` history; the hub fns `hub/records_*`,
+`hub/record_*`, `hub/data_sets`; served by `api/web/data.ts`) and `widgets/` (the `hub/widget` kind's describe and
+handler, `widgetActions`, the `make_widget` authoring agent and its tools; `api/web/widgets.ts`). `boot/identity.ts`
+(`HubIdentityService`) owns the hub's display name; `catalog/versions.ts` writes `itemVersions` for every manifest
+section (build 5's `fnVersions` and build 7's `typeVersions` rows are moved in on start); `boot/hub-groups.ts` names the
+hub fns' API groups and the catalog writes the `<system>/api` context items; `chat/mention-requests.ts` keeps mention
+search requests; the run gate asks a fs-like system's `flags` before the mode gate and policies. In the web app,
+`pages/DataPage.vue` and `DataTypePage.vue` (`/data`, `/data/widgets`, `/data/:system/:local/:id?`), `components/widgets/`
+(`WidgetView.vue` over `widget-state.ts`) and `state/identity.ts`. In fs, `server/changes.ts` (bash change capture)
+and `server/sensitive.ts` (the rule list, which replaced `secrets.ts`).
 
 Build 7 adds to `link/`: `lifecycle.ts` (installed vs live: `goLive`, pending reviews, `approveReview` / `rejectReview`, test calls), `grants.ts` (the one enforcement guard on the link dispatcher and run checks, `RefusalRecord`s and the pause past `HARNESS_REFUSALS_PAUSE`); `api/web/review.ts` serves the review page (`/admin/systems/:name/review`).
 

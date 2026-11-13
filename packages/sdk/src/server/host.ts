@@ -528,8 +528,21 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
       await this.#lifecycleEvent('upgraded', () => this.#lifecycle.upgraded?.({ ...ctx, from }));
     }
     await this.#lifecycleEvent('started', () => this.#lifecycle.started?.(ctx));
+    // the hub asked for the roots with the manifest, before the config they follow from was started on
+    if (this.#table.impl.resources !== undefined) { await this.#rootsChanged(); }
     this.#setStatus('connected');
     this.#ready.resolve();
+  }
+
+  /** Tell the hub to ask for the resource roots again (the table is unchanged); a failure is logged, never stops the start. */
+  async #rootsChanged(): Promise<void> {
+    const hub = this.#now();
+    if (hub === undefined) { return; }
+    try {
+      await hub.call('patch', await this.#manifestState().patch({ roots: true }));
+    } catch (error) {
+      this.#log.warn('system.roots-changed-failed', { error: messageOf(error) });
+    }
   }
 
   async #configured(previous: unknown): Promise<void> {

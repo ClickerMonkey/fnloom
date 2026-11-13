@@ -568,7 +568,9 @@ export class FakeHub {
         patch: ({ data, link }) => {
           this.patches.push(data);
           const manifest = this.manifests.at(-1);
-          if (manifest !== undefined) {
+          // a patch that only says the roots changed leaves the manifest as it was
+          const changes = Object.keys(data.upsert).length > 0 || Object.keys(data.remove).length > 0 || data.lists !== undefined;
+          if (manifest !== undefined && changes) {
             const removed = new Set(data.remove.fns ?? []);
             const upserted = data.upsert.fns ?? [];
             this.manifests.push({ ...manifest, hash: data.hash, fns: [...manifest.fns.filter((f) => !removed.has(f.name) && !upserted.some((u) => u.name === f.name)), ...upserted] });

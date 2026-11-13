@@ -199,3 +199,48 @@ it on the sign-in page, in the shell and in the tab title, and a source scan tes
 
 The new web endpoints and link endpoints are declared but not yet served: the hub lane serves them (stubs marked
 `build 8: hub lane` where typecheck needed one).
+
+## Status (end of build 8's lanes, before the widget pass)
+
+Integrated in `06318e0`, `cc98732` and two review rounds (`9d356ac`, `c173718`). `npm run check` is green (one
+timing-dependent Shiki test was made deterministic in the final step).
+
+**e2e (final step):** 11 of 15 files passed on the full run. Two failures were real and are fixed: a root git ignores as
+a whole (a root inside a data folder such as `.harness-test/`) had every file hidden by the `gitignored` rule
+(`systems/fs/server/sensitive.ts` now asks only about the files of roots git doesn't ignore), and an instance
+configured at pairing answered no roots because the hub asked with the manifest, before the start its roots follow
+from (the SDK host now sends a roots-only patch after `started`; `package` and `pairing` pass). Still failing on the
+shared, loaded embedder (embed batches closed, 4 s query waits): `chat` "suggests fns from the embedding of a draft
+message" (60 s wait for `fs/read` to be indexed) and `build5` "reuses it for a request like it" (the free model wrote
+`customers_by_order_count_2` instead of reusing the saved fn, whose search leans on embeddings). Neither was
+re-checked on an idle embedder.
+
+1. **Widget system: built as designed above, not yet as the owner's answers ask.** Done: `hub/visuals` hosted by the
+   hub with declared shapes (the database system's table, bar and value moved there), the `hub/widget` kind
+   (`packages/hub/src/widgets/`), derived row actions with `confirmOf`, `make_widget`, `WidgetView` with controls,
+   pager and actions, "Save as widget" in chat, `/data/widgets`. **Left for the widget pass** (build-8-feedback.md,
+   "What the answers mean"): widgets as a bundled `widgets` system rather than a hub kind; ECharts for every
+   row-and-column series in about 12 families with a style picker; the extended shape and product's coverage-first
+   ranking; presets, relative dates, chip row and product's buffered pager; drill actions, derived `then`, write forms
+   then confirm, read-only rows from a write; propose-preview-Save authoring with the strict schema built per call;
+   the derived routing line and summary-plus-rows tool result; record tables in the one widget view with inline edit;
+   the accent-tuned palette, phone rules and PNG/SVG export; realtime widgets over live sources and streamed export.
+   Dashboards stay "later".
+2. **Data system: done.** `packages/hub/src/data/` (`StoreDataService`), the `data` link capability and `ctx.data`,
+   the hub fns, `/data`, `/data/:system/:local/:id?` with search, filter, sort and a record drawer with history.
+   Record tables use the result grid, not yet the widget view (widget pass).
+3. **Bash change capture and diffs: done.** `systems/fs/server/changes.ts` (git and watcher capture, `certain`,
+   binary/large/sensitive without a diff), the Changes strip in `BashView`.
+4. **fs safeguards and the classifier: done.** `systems/fs/server/sensitive.ts` (the one rule list; `secrets.ts`
+   folded in), `flags` on the fs fns, the hub's gate (refuse, ask, `auto` sees the flags), the `flags` approval part.
+5. **Configurable hub name: done.** `boot/identity.ts`, `index.html` and `/manifest.webmanifest` rewritten, the
+   Settings field, `document.title`, the source scan test.
+6. **Audit leftovers: done**, as listed in the table: API groups as context items, `itemVersions` (old version
+   tables migrated in on start; their table definitions stay only for that migration), `fnSignatureTypes` in place of
+   the catalog scans, metric settings, mention requests (`RecentPages` gone), notices on approval and run cards, the
+   config-notice grace, `store/rows.ts` paging, the hub-surface wording, one "New chat" on desktop, the graph's zoom
+   floor. The graph overlap check on the real stack was not repeated in the final step.
+7. **Worked example on hub data and doc parts: done.** Notes are a stored type used through `ctx.data`; the "where data
+   lives" rule is in the guide (`parts/data.md`); large parts are split and every part is under ~25 KB.
+
+**Library branches:** aits and ayepi `harness` branches are committed and clean, their dist builds current.
