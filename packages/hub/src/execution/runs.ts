@@ -1022,7 +1022,9 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
 
   /** Move a run to a new status (with what changes alongside), worded for its phase, stored and published. */
   async #moveTo(run: Run, patch: Partial<Run> & Pick<Run, 'status'>, fn?: FnRecord): Promise<Run> {
-    const text = await this.#wording.text(run, patch, fn);
+    // a declined run carries who declined it and why, so a system that proposed it hears the reason
+    const declined = patch.outcome?.status === 'cancelled' && patch.outcome.error?.code === DECLINED_CODE ? patch.outcome.error.message : undefined;
+    const text = declined === undefined ? await this.#wording.text(run, patch, fn) : { phase: 'failed' as const, one: declined, many: declined };
     const updated = await this.#deps.store.table('runs').update(run.id, text === undefined ? patch : { ...patch, text });
     this.#publish(updated, statusUpdate(updated.status, text));
     return updated;

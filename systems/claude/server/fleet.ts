@@ -345,10 +345,10 @@ export class SessionFleet {
   }
 }
 
-/** The "always allow" choice on a tool use's card, when Claude suggested a rule for it. */
+/** The "always allow" choice on a tool use's card, when Claude suggested a rule for it: optional, so Approve alone allows it once. */
 function alwaysAsk(request: PermitRequest): Proposal['ask'] {
   if (!request.canAlways) { return undefined; }
-  return { type: wireType(g.bool()), into: 'always' };
+  return { type: wireType(g.optional(g.bool())), into: 'always' };
 }
 
 /** A task with a change applied; a new one starts now. */

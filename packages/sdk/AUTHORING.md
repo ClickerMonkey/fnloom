@@ -11322,7 +11322,7 @@ const liveEnv: Env<EnvOutput<{}, { readonly OPENROUTER_API_KEY: z.ZodOptional<z.
 
 function · `import { liveModels } from '@harness/sdk/server/testing'`
 
-The free models to try, first choice first.
+The models to try, first choice first.
 
 ```ts
 function liveModels(): string[];
@@ -11683,8 +11683,12 @@ interface TestHubOptions {
   readonly hub?: Omit<FakeHubOptions, 'config'>;
   /** More serve options (its context folder, files, fetch, version, …). */
   readonly serve?: Partial<Omit<ServeOptions, 'hub' | 'state'>>;
+  /** Records the hub keeps before the system starts (what a restarted system finds), as stored. */
+  readonly records?: readonly DataRecord[];
 }
 ```
+
+Refers to: [`DataRecord`](#core-datarecord).
 
 #### `callFn`
 
@@ -15098,7 +15102,7 @@ interface ProxyRefusal {
 
 function · `import { hostAllowed } from '@harness/sdk/server'`
 
-Whether a host is one the patterns allow: the same name, or for `*.example.com` any name under `example.com`.
+Whether a host is one the patterns allow: the same name, for `*.example.com` any name under `example.com`, and for `*` any host.
 
 ```ts
 function hostAllowed(patterns: readonly string[], host: string): boolean;
@@ -17814,13 +17818,15 @@ type KindDescription = {
 
 const, type · declared in `packages/core/src/manifest.ts`
 
-A fn as a kind's check sees it (sdk `KindCheckCtx.fn`, hub link `fnShape`): its args, result and description.
+A fn as a kind's check sees it (sdk `KindCheckCtx.fn`, hub link `fnShape`): its args, result, description and mode
+(worked out through what it calls, when the hub has its facts), so a kind can declare the effects of what it calls.
 
 ```ts
 type KindFnShape = {
   args: TypeDef<any>;
   returns: TypeDef<any>;
   description: string;
+  mode: "write" | "read" | "delete";
 };
 ```
 

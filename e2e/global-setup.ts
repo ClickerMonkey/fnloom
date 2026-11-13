@@ -51,7 +51,7 @@ export async function setup(project: TestProject): Promise<void> {
   const log = join(data, 'stack.log');
   stack = await startStack({
     port: settings.HARNESS_E2E_PORT, data, admin: credentials, build: false, watch: false,
-    only: new Set(['hub', 'fs', 'embedder', 'database', 'input', 'widgets', ...(settings.TAVILY_API_KEY === undefined ? [] : ['web-system'] as const)]),
+    only: new Set(['hub', 'fs', 'embedder', 'database', 'input', 'widgets', 'code', 'claude', ...(settings.TAVILY_API_KEY === undefined ? [] : ['web-system'] as const)]),
     systems: {
       fs: fsConfig(ROOT), embedder: { url: settings.HARNESS_E2E_EMBEDDER },
       databases: {

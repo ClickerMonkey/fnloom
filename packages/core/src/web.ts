@@ -225,8 +225,8 @@ export const chatSlice = spec({
       response: z.object({ turn: TurnId, message: ChatMessage }),
       ws: 'send',
     },
-    /** Run a fn by hand (`!fn`). */
-    invoke: { body: z.object({ session: SessionId, fn: QualifiedName, args: Json, client: ClientInfo }), response: z.object({ turn: TurnId, run: RunId }), ws: 'invoke' },
+    /** Run a fn by hand (`!fn`); `on` names the instance of a fleet system it runs on (a claude machine). */
+    invoke: { body: z.object({ session: SessionId, fn: QualifiedName, args: Json, on: InstanceName.optional(), client: ClientInfo }), response: z.object({ turn: TurnId, run: RunId }), ws: 'invoke' },
     /** Pause, resume or cancel the session's work: every run it applies to, or only `runs`. */
     control: { body: z.object({ session: SessionId, action: SessionControlAction, runs: z.array(RunId).min(1).optional() }), response: SessionControls, ws: 'control' },
     presence: { body: Presence.omit({ user: true, lastActiveAt: true }), ws: 'presence' },

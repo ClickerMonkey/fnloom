@@ -173,6 +173,21 @@ describe('SystemStore', () => {
     expect(refusing.admin.system.fns.value.value?.find((fn) => fn.name === read)?.disabled).toBe(false);
   });
 
+  // the fn modal on a system's page (and the fn page) turn the fn on and off from its own record
+  it('switches the fn shown in the fn modal, putting it back when the hub refuses', async () => {
+    const { admin, api } = fakeAdmin();
+    const read = QualifiedName.parse('fs/read_file');
+    await admin.fn.open(read, 7);
+    expect(await admin.fn.switchOn(false)).toBe(true);
+    expect(admin.fn.record.value.value?.disabled).toBe(true);
+    expect(api.switchItem.calls.map(([body]) => body)).toEqual([{ section: 'fns', name: read, on: false }]);
+    const refusing = fakeAdmin({ api: { ...fakeAdminApi(), switchItem: fakeCaller<'switchItem'>(() => Promise.reject(failure)) } });
+    await refusing.admin.fn.open(read, 7);
+    expect(await refusing.admin.fn.switchOn(false)).toBe(false);
+    expect(refusing.admin.fn.record.value.value?.disabled).toBe(false);
+    expect(refusing.admin.fn.switching.problem.value).not.toBe('');
+  });
+
   it('switches its context on the Overview, and reads its other parts and resource roots', async () => {
     const { admin, api } = fakeAdmin();
     await admin.system.open(fs);

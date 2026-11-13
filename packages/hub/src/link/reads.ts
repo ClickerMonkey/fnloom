@@ -9,6 +9,7 @@ import { plugin } from '@ayepi/plugin';
 import { hubLinkSpec, instanceLabel, isSettled, type ActorId, type LinkSession, type ResourceRead, type ResourceUri, type RunId, type SectionKey } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
 import type { Asking, ResourceReader } from '../resources/index.ts';
+import { PROPOSED_KEY } from '../execution/runs.ts';
 import type { HubStore } from '../store/index.ts';
 import type { ResourceRouter } from './index.ts';
 import type { StorePairingService } from './pairing.ts';
@@ -41,7 +42,9 @@ export async function askingOf(store: HubStore, link: LinkSession, run: RunId | 
     const row = await store.table('runs').get(run);
     if (row?.system !== link.system || (row.instance !== undefined && row.instance !== link.instance)) throw refuse(403, 'NOT_YOUR_RUN', `run ${run} is not ${instanceLabel(link)}'s`);
     if (isSettled(row.status) && (row.status === 'undone' || row.undo === undefined)) throw refuse(403, 'RUN_SETTLED', `run ${run} has settled`);
-    const actor = (await store.table('turns').get(row.turn))?.user.id ?? row.actor;
+    // a run a system proposed for a person (a Claude permit) sits in the system's own turn but acts for that person
+    const proposedFor = row.parent === undefined && row.key.startsWith(PROPOSED_KEY);
+    const actor = proposedFor ? row.actor : (await store.table('turns').get(row.turn))?.user.id ?? row.actor;
     return { actor, run, ...(row.session === undefined ? {} : { session: row.session }) };
   }
   const actor = (await store.table('systems').get(link.system))?.actor;

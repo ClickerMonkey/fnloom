@@ -155,7 +155,7 @@ interface ProxyRefusal {
 
 function · `import { hostAllowed } from '@harness/sdk/server'`
 
-Whether a host is one the patterns allow: the same name, or for `*.example.com` any name under `example.com`.
+Whether a host is one the patterns allow: the same name, for `*.example.com` any name under `example.com`, and for `*` any host.
 
 ```ts
 function hostAllowed(patterns: readonly string[], host: string): boolean;

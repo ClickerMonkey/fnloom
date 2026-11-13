@@ -20,7 +20,7 @@ import {
   type ModelInfo, type Provider,
   type SpeechRequest, type SpeechResponse, type TranscriptionRequest, type TranscriptionResponse,
 } from '@aeye/ai';
-import { getResponseFromChunks, toFile, type AudioFormat, type Chunk, type Message, type Request, type Response } from '@aeye/core';
+import { getResponseFromChunks, schemaRejection, toFile, type AudioFormat, type Chunk, type Message, type Request, type Response } from '@aeye/core';
 import { ModelChoice, type HubModelInfo, type LlmForward, type LlmForwardChunk, type LlmRequest, type ModelForward, type ModelForwardResult, type RunId } from '@harness/core';
 import { z } from 'zod';
 import type { ForwardModality, Llm, ModelInput, ModelOutput } from '../ctx.ts';
@@ -288,7 +288,12 @@ export class HarnessProvider implements Provider<HarnessProviderConfig> {
           yield last;
           break;
         }
-        case 'error': throw new HubLlmError(item.message, item.kind);
+        case 'error': {
+          const error = new HubLlmError(item.message, item.kind);
+          // a provider that refused a tool or output schema (OpenAI's strict mode): thrown as aeye's own rejection, so
+          // the prompt steps down its schema fallbacks (strict, then not) as it would calling the provider itself
+          throw schemaRejection(request, error) ?? error;
+        }
       }
     }
     return getResponseFromChunks(chunks, served);

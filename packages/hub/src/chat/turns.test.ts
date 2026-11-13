@@ -1,4 +1,4 @@
-import { IDS, SystemName, type OutgoingPart, type Participant } from '@harness/core';
+import { IDS, InstanceName, SystemName, type OutgoingPart, type Participant } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { agentActorId } from './support.ts';
 import { CLIENT, LIMITS, chatWorld, gin, makeRun, settle } from './testing.ts';
@@ -225,6 +225,14 @@ describe('running a fn by hand', () => {
     await settle();
     expect((await w.store.table('turns').get(turn))?.status).toBe('done');
     expect((await w.store.table('sessions').get(w.session.id))?.status).toBe('idle');
+  });
+
+  // the Claude pages send to a session on its own machine
+  it('runs on the instance the person names', async () => {
+    const w = await chatWorld();
+    w.catalog.addFn('fs', { name: 'ls' });
+    await w.chat.turns.invoke({ session: w.session.id, author: w.admin.id, fn: 'fs/ls', args: {}, on: InstanceName.parse('laptop'), client: CLIENT });
+    expect(w.runs.started[0]).toMatchObject({ fn: 'fs/ls', on: 'laptop' });
   });
 
   it('puts what the run attaches on a message of its own by the system, with the run card, since no agent answers', async () => {

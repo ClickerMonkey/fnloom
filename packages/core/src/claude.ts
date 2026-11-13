@@ -140,17 +140,27 @@ export const ClaudeTranscriptItem = z.discriminatedUnion('type', [
 ]);
 export type ClaudeTranscriptItem = z.infer<typeof ClaudeTranscriptItem>;
 
-/** Read a transcript a page at a time (`claude/transcript`); `offset` counts from the start. */
+/**
+ * Read a transcript a page at a time (`claude/transcript`). `offset` and `limit` count Claude's stored messages (one
+ * message can make several items): from the start, or with `fromEnd` back from the newest, so the latest page reads first.
+ */
 export const ClaudeTranscriptQuery = ClaudeSessionRef.extend({
   offset: z.number().int().min(0).default(0),
   limit: z.number().int().min(1).max(200).default(50),
+  fromEnd: z.boolean().default(false),
   /** A subagent's own transcript (a task id), instead of the main one. */
   agent: z.string().optional(),
 });
 export type ClaudeTranscriptQuery = z.infer<typeof ClaudeTranscriptQuery>;
 
-/** A page of a transcript. `next` is the offset of the following page, absent at the end. */
-export const ClaudeTranscriptPage = z.object({ items: z.array(ClaudeTranscriptItem), offset: z.number().int().min(0), next: z.number().int().min(0).optional() });
+/**
+ * A page of a transcript, its items in order. `offset` (its first message) and `end` (just past its last) count from the
+ * start, whichever way it was asked for: an earlier page ends at `offset`, and a later one starts at `end`. `next` is
+ * that later page's offset, absent at the end.
+ */
+export const ClaudeTranscriptPage = z.object({
+  items: z.array(ClaudeTranscriptItem), offset: z.number().int().min(0), end: z.number().int().min(0), next: z.number().int().min(0).optional(),
+});
 export type ClaudeTranscriptPage = z.infer<typeof ClaudeTranscriptPage>;
 
 /** Start a session (`claude/start_session`): a write on the machine, so it waits for approval unless a policy allows it. */
@@ -181,8 +191,11 @@ export const ClaudeTurn = ClaudeSessionRef.extend({
 });
 export type ClaudeTurn = z.infer<typeof ClaudeTurn>;
 
-/** Interrupt the current turn, or stop the session (it closes and stays resumable). */
-export const ClaudeControl = ClaudeSessionRef.extend({ action: z.enum(['interrupt', 'stop']), mode: ClaudePermissionMode.optional() });
+/**
+ * Interrupt the current turn, stop the session (it closes and stays resumable), or (`mode`) only switch its permission
+ * mode, leaving the turn running. `mode` is the new permission mode: needed with `mode`, switched first with the others.
+ */
+export const ClaudeControl = ClaudeSessionRef.extend({ action: z.enum(['interrupt', 'stop', 'mode']), mode: ClaudePermissionMode.optional() });
 export type ClaudeControl = z.infer<typeof ClaudeControl>;
 
 /**

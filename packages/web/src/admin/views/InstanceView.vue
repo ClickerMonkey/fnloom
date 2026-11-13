@@ -159,7 +159,7 @@ async function remove(): Promise<void> {
           v-else-if="tab === 'fns'" :loading="parts.fns.loading.value" :problem="parts.fns.problem.value" :ready="parts.fns.value.value !== undefined"
           :empty="(parts.fns.value.value ?? []).length === 0" empty-icon="fn" empty-title="No fns of its own" empty-body="Fns it adds while running (a database's saved queries) show here." :lines="4" @retry="parts.open(key)"
         >
-          <FnList :fns="parts.fns.value.value ?? []" :now="now" :runs-of="links.fnRuns" :page-of="(fn) => links.fn(fn)" />
+          <FnList :fns="parts.fns.value.value ?? []" :now="now" :runs-of="links.fnRuns" />
         </LoadState>
         <div v-else class="overview" data-testid="instance-data">
           <UiCard title="Folders" subtitle="The hub keeps these outside the package, so upgrades and rollbacks keep them.">

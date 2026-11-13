@@ -235,8 +235,9 @@ export class StoreConnectionService implements ConnectionService {
 
   async gate(actor: ActorId, groups: ReadonlySet<ActorId>): Promise<ConnectionGate> {
     const decls = new Map<string, { system: SystemName; decl: ConnectDecl }>((await this.#decls()).map((entry) => [entry.system, entry]));
-    const usable = (await allRows(this.#table(), { where: { status: 'connected' } }))
-      .filter((row) => decls.has(row.system) && letsIn({ owner: row.owner, ...row.share }, actor, groups))
+    // the database keeps to connected rows of systems that connect; who may use each (its JSON sharing) is checked here
+    const usable = (await allRows(this.#table(), { where: { status: 'connected', system: { in: [...decls.values()].map((entry) => entry.system) } } }))
+      .filter((row) => letsIn({ owner: row.owner, ...row.share }, actor, groups))
       .sort((a, b) => (a.owner === actor ? 0 : 1) - (b.owner === actor ? 0 : 1) || b.createdAt - a.createdAt);
     const connects = await this.#instanceConnects([...decls.values()].filter((entry) => entry.decl.scope === 'instance').map((entry) => entry.system));
     return {

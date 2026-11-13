@@ -65,7 +65,7 @@ describe('SessionFleet', () => {
     const decided = live.permit({ tool: 'Bash', input: { command: 'npm test' }, canAlways: true });
     await vi.waitFor(() => { expect(hub.proposals).toHaveLength(1); });
     const [proposal] = hub.proposals;
-    expect(proposal).toMatchObject({ fn: 'permit', for: OWNER, chat: CHAT, ask: { into: 'always', type: { name: 'bool' } } });
+    expect(proposal).toMatchObject({ fn: 'permit', for: OWNER, chat: CHAT, ask: { into: 'always', type: { name: 'optional', generic: { T: { name: 'bool' } } } } });
     expect(proposal?.key.startsWith(`${RECORD}:permit:`)).toBe(true);
     expect(proposal?.preview.parts).toContainEqual({ type: 'code', language: 'bash', code: 'npm test' });
     await vi.waitFor(() => { expect(fleet.value(SESSION)?.status).toBe('waiting'); });

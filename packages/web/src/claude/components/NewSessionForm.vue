@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
- * The fields of a new Claude session: the folder it works in (the folders of the person's sessions offered as
- * chips), what Claude should do, a title and the permission mode. Problems show under their field.
+ * The fields of a new Claude session: the machine it starts on (offered when there is more than one), the folder it
+ * works in (the folders of the person's sessions offered as chips), what Claude should do, a title and the permission
+ * mode. Problems show under their field.
  */
 import type { ClaudePermissionMode } from '@harness/core';
 import { computed } from 'vue';
@@ -11,18 +12,25 @@ import { MODE_OPTIONS, folderName, type StartDraft } from '../logic/claude.ts';
 const props = defineProps<{
   /** Folders to offer (where the person's sessions work). */
   folders: readonly string[];
+  /** Machines to offer (where the person's sessions run); the choice shows when there is more than one. */
+  machines: readonly string[];
   problems: Readonly<Record<string, string>>;
   disabled?: boolean;
 }>();
 const draft = defineModel<StartDraft>({ required: true });
 
 const MODES: readonly SelectOption<ClaudePermissionMode | ''>[] = [{ value: '', label: 'The machine\'s default' }, ...MODE_OPTIONS];
+const machineOptions = computed((): SelectOption<string>[] => [{ value: '', label: 'Any machine' }, ...props.machines.map((name) => ({ value: name, label: name }))]);
 const offered = computed(() => props.folders.filter((folder) => folder !== draft.value.folder).slice(0, 6));
 const set = <K extends keyof StartDraft>(key: K, value: StartDraft[K]): void => { draft.value = { ...draft.value, [key]: value }; };
 </script>
 
 <template>
   <div class="form" data-testid="claude-new-form">
+    <UiSelect
+      v-if="machines.length > 1" :model-value="draft.machine" :options="machineOptions" label="Machine" :disabled="disabled"
+      :error="problems['on'] ?? ''" data-testid="claude-machine" @update:model-value="set('machine', $event)"
+    />
     <div class="folder">
       <UiInput
         :model-value="draft.folder" label="Folder" placeholder="C:/code/shop" icon="folder" required :disabled="disabled"

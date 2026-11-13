@@ -4,7 +4,7 @@
  * (`ctx.types` and `hub/fn_get` as one of the deps its `describe` gave).
  */
 import type { TypeDef } from '@aeye/gin';
-import { Json, type FnSearchPage, type FnSearchQuery, type QualifiedName, type TypeDefinitions } from '@harness/core';
+import { Json, strongerMode, type FnMode, type FnSearchPage, type FnSearchQuery, type QualifiedName, type TypeDefinitions } from '@harness/core';
 import { CallFailed, type FnCall } from '../ctx.ts';
 import type { KindCheckCtx } from '../declare.ts';
 import { parseValue } from '../gin.ts';
@@ -44,7 +44,7 @@ export function kindCheckLookups(ctx: KindCheckCtx): ProgramLookups {
     types: (names) => typeClosure(names, (name) => ctx.type(name)),
     async fn(name): Promise<ProgramFn | undefined> {
       const shape = await ctx.fn(name);
-      return shape === undefined ? undefined : { name, description: shape.description, args: shape.args, returns: shape.returns };
+      return shape === undefined ? undefined : { name, description: shape.description, args: shape.args, returns: shape.returns, mode: shape.mode };
     },
   };
 }
@@ -70,4 +70,13 @@ export function kindRunLookups(ctx: KindRunHub): ProgramLookups {
       }
     },
   };
+}
+
+/**
+ * The strongest mode of the fns a program calls, for its kind's `describe` to declare: a callee the lookups don't
+ * know, or whose mode they don't give, counts as a write.
+ */
+export async function calleesMode(calls: readonly QualifiedName[], lookups: ProgramLookups): Promise<FnMode> {
+  const modes = await Promise.all(calls.map(async (name) => (await lookups.fn(name))?.mode ?? 'write'));
+  return modes.reduce<FnMode>(strongerMode, 'read');
 }

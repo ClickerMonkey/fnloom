@@ -10,4 +10,4 @@ export {
   type NamedTypeDef, type ProgramCheck, type ProgramLookups, type ProgramExpectations, type ProgramFacts, type ProgramFn, type ProgramLocals, type ProgramRun,
 } from './runtime.ts';
 export { ProgramAuthoring, modeOf, previewText, programTools, testTool, type ProgramHost, type ProgramSession, type ProgramSignature } from './tools.ts';
-export { hubProgramHost, kindCheckLookups, kindRunLookups, type AuthoringHub, type DeclaredFn, type KindRunHub } from './lookups.ts';
+export { calleesMode, hubProgramHost, kindCheckLookups, kindRunLookups, type AuthoringHub, type DeclaredFn, type KindRunHub } from './lookups.ts';

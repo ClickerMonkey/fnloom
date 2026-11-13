@@ -3,20 +3,26 @@
  * A system's fns: what each does, its version (the start of its decl's hash) and whether it was added while running,
  * whether it can be used now (and why not), whether it is paused or off, its tags,
  * and how its runs have gone (count, failure rate, retried input apart from failures, typical and p95 time, cost).
- * Its name opens its page with its metrics; its numbers open its runs. A tag every listed fn has (all of an
+ * Its name opens the fn modal over the list (what it does, its on/off switch and its numbers, with Open page for the
+ * full page; `switched` says when it was turned on or off there); its numbers open its runs. A tag every listed fn has (all of an
  * instance's saved queries are `database` and `query`, all added while running) is left off: it tells none apart.
  * `switchable` (a system's page) puts each fn's own on/off switch where its mark is.
  */
 import { runCount, type FnRecord, type QualifiedName } from '@harness/core';
-import { computed } from 'vue';
-import type { RouteLocationRaw } from 'vue-router';
+import { computed, ref } from 'vue';
+import { useRouter, type RouteLocationRaw } from 'vue-router';
+import { links } from '../../app/routes.ts';
+import FnModal from '../../fns/components/FnModal.vue';
 import { formatCost, formatDuration } from '../../chat/logic/format.ts';
 import { fnLabel } from '../../chat/logic/labels.ts';
 import { UiBadge, UiIcon, UiSwitch, fullTime, relativeTime } from '../../ui/index.ts';
 import { availabilityText, shortVersion } from '../logic/systems.ts';
 
-const props = defineProps<{ fns: readonly FnRecord[]; now: number; runsOf: (fn: QualifiedName) => RouteLocationRaw; pageOf: (fn: QualifiedName) => RouteLocationRaw; switchable?: boolean }>();
-const emit = defineEmits<{ switch: [fn: QualifiedName, on: boolean] }>();
+const props = defineProps<{ fns: readonly FnRecord[]; now: number; runsOf: (fn: QualifiedName) => RouteLocationRaw; switchable?: boolean }>();
+const emit = defineEmits<{ switch: [fn: QualifiedName, on: boolean]; switched: [fn: QualifiedName, on: boolean] }>();
+const router = useRouter();
+/** The fn open in the modal. */
+const opened = ref<QualifiedName | undefined>(undefined);
 
 /** What every fn of a list of several shares, so it isn't repeated on each row. */
 const shared = computed(() => {
@@ -39,7 +45,7 @@ const failureRate = (fn: FnRecord): string => (runTotal(fn) === 0 ? '' : `${Math
       <span v-else class="mark" aria-hidden="true"><UiIcon name="fn" :size="16" /></span>
       <div class="main">
         <p class="top">
-          <RouterLink class="label" :to="pageOf(fn.name)" data-testid="fn-page">{{ fnLabel(fn.name) }}</RouterLink>
+          <button type="button" class="label" data-testid="fn-page" @click="opened = fn.name">{{ fnLabel(fn.name) }}</button>
           <code class="name">{{ fn.name }}</code>
           <code class="name" :title="`Version ${fn.version}`" data-testid="fn-version">v {{ shortVersion(fn.version) }}</code>
         </p>
@@ -58,6 +64,7 @@ const failureRate = (fn: FnRecord): string => (runTotal(fn) === 0 ? '' : `${Math
       </RouterLink>
     </li>
   </ul>
+  <FnModal v-if="opened" v-model:fn="opened" manage can-open-page @page="router.push(links.fn($event))" @switched="(fn, on) => emit('switched', fn, on)" />
 </template>
 
 <style scoped>
@@ -69,7 +76,7 @@ const failureRate = (fn: FnRecord): string => (runTotal(fn) === 0 ? '' : `${Math
 .mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--radius); background: var(--surface-2); color: var(--text-dim); }
 .main { display: grid; gap: var(--space-1); min-width: 0; }
 .top { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-2); margin: 0; }
-.label { color: var(--text); font-weight: var(--weight-medium); text-decoration: none; }
+.label { padding: 0; border: 0; background: none; color: var(--text); font: inherit; font-weight: var(--weight-medium); text-align: left; text-decoration: none; cursor: pointer; }
 .label:hover { color: var(--accent); text-decoration: underline; }
 .label:focus-visible { border-radius: var(--radius-sm); outline: none; box-shadow: var(--ring); }
 .name { color: var(--text-faint); font-size: var(--text-xs); overflow-wrap: anywhere; }

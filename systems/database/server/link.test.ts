@@ -257,7 +257,7 @@ describe('the database system over the link', () => {
     dir = shopFile().dir;
     await start();
     expect(hub.manifests[0]?.fns.find((item) => item.name === 'create_table')).toMatchObject({ approval: { preview: true, remember: false } });
-    const refusedPreview = async (type: unknown) => JSON.stringify(await hub.preview({ run: mintId('run'), fn: 'create_table', args: { table: 'Todo', database: 'main', type }, user: TEST_USER }));
+    const refusedPreview = async (type: Json) => JSON.stringify(await hub.preview({ run: mintId('run'), fn: 'create_table', args: { table: 'Todo', database: 'main', type }, user: TEST_USER }));
     expect(await refusedPreview(null)).toContain('is missing');
     expect(await refusedPreview({ id: 'integer', title: 'sometimes' })).toContain('title: \\"sometimes\\"');
     // a JSON string of name to type, as the owner's model sent it

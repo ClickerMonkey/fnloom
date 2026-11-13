@@ -355,6 +355,7 @@ export const manifest = {
         "session",
         "fn",
         "args",
+        "on",
         "client"
       ],
       "f": [],

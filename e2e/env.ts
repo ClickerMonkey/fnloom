@@ -1,5 +1,5 @@
 /**
- * The e2e suite's tunables. By default it boots its own stack (hub, fs, embedder, two database instances, and the web
+ * The e2e suite's tunables. By default it boots its own stack (hub, fs, embedder, input, widgets, code, the database fleet, claude, and the web
  * system when `TAVILY_API_KEY` is set) on `HARNESS_E2E_PORT` with a fresh data folder and its own admin account; set
  * `HARNESS_E2E_URL` to test a stack that is already running instead (then `HARNESS_E2E_EMAIL` /
  * `HARNESS_E2E_PASSWORD` must be that hub's admin).
@@ -13,6 +13,10 @@ export const e2eEnv = env({
   HARNESS_E2E_DATA: z.string().default('.harness-test/e2e'),
   /** The port of the hub the restart test starts for itself, which installs and supervises fs. */
   HARNESS_E2E_RESTART_PORT: z.number().int().min(4301).max(65535).default(4331),
+  /** The first of two ports the build 9 suite serves its local MCP server and JSON service on. */
+  HARNESS_E2E_SERVICE_PORT: z.number().int().min(4301).max(65534).default(4332),
+  /** Run the claude suite, which starts one real Claude Code session (on Haiku) with this machine's Claude login. */
+  HARNESS_E2E_CLAUDE: z.boolean().default(false),
   HARNESS_E2E_EMAIL: z.email().default('e2e@harness.local'),
   HARNESS_E2E_PASSWORD: z.string().min(10).default('e2e-admin-password'),
   /** How long one agent turn may take with a free model. */

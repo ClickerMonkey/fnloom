@@ -91,11 +91,12 @@ describe('the fleet query and views', () => {
 
   it('checks a new session and says what is missing', () => {
     expect(startArgs({ ...startDraft(), prompt: '  ' })).toEqual({ ok: false, problems: { folder: 'Pick the folder it works in.', prompt: 'Say what Claude should do.' } });
-    expect(startArgs({ folder: 'C:/code/shop', prompt: 'Fix it', title: '', mode: 'plan' })).toEqual({ ok: true, args: { folder: 'C:/code/shop', prompt: 'Fix it', permissionMode: 'plan', wait: false } });
+    expect(startArgs({ machine: '', folder: 'C:/code/shop', prompt: 'Fix it', title: '', mode: 'plan' })).toEqual({ ok: true, args: { folder: 'C:/code/shop', prompt: 'Fix it', permissionMode: 'plan', wait: false } });
+    expect(startArgs({ ...startDraft('C:/code/shop', 'laptop'), prompt: 'Fix it' })).toMatchObject({ ok: true, on: 'laptop' });
   });
 });
 
-function dataStore(records: () => DataRecord[], transcript: Json | (() => Json) = { items: [], offset: 0 }) {
+function dataStore(records: () => DataRecord[], transcript: Json | (() => Json) = { items: [], offset: 0, end: 0 }) {
   const api = fakeDataApi();
   const calls = { records: fakeCaller<'records'>(() => Promise.resolve({ items: records() })), readFn: fakeCaller<'readFn'>(() => Promise.resolve(typeof transcript === 'function' ? transcript() : transcript)) };
   return { store: new DataStore({ ...api, ...calls }, fakeFnsApi()), calls };
@@ -136,7 +137,7 @@ describe('starting a session', () => {
 });
 
 describe('a session page', () => {
-  const page: Json = { items: [{ type: 'assistant', uuid: 'a1', text: 'Working on it.' }], offset: 0, next: 50 };
+  const page: Json = { items: [{ type: 'assistant', uuid: 'a1', text: 'Working on it.' }], offset: 70, end: 71 };
 
   it('reads its record, the first transcript page, and its waiting runs', async () => {
     const { store: data, calls } = dataStore(() => [record(Json.parse(sessionValue()))], page);
@@ -144,9 +145,12 @@ describe('a session page', () => {
     const store = new ClaudeSessionStore({ data, chat, desk: chat.approvals }, { instance: machine, session: SESSION });
     await store.open();
     expect(store.record.value?.value.title).toBe('Fix checkout');
-    expect(calls.readFn.calls[0]?.[0]).toEqual({ fn: CLAUDE_FNS.transcript, args: { instance: 'main', session: SESSION, offset: 0, limit: 50 } });
+    // the newest page first, then earlier ones above it
+    expect(calls.readFn.calls[0]?.[0]).toEqual({ fn: CLAUDE_FNS.transcript, args: { instance: 'main', session: SESSION, offset: 0, limit: 50, fromEnd: true } });
     expect(store.items.value).toHaveLength(1);
-    expect(store.next.value).toBe(50);
+    expect(store.older.value).toBe(true);
+    await store.more();
+    expect(calls.readFn.calls[1]?.[0].args).toMatchObject({ offset: 20, limit: 50, fromEnd: false });
     expect(api.approvals.calls[0]?.[0]).toEqual({ runs: ['run_w1'] });
     // the waiting run's approval (from the desk) is a card answered with its form's value
     const [card] = store.waiting.value;
@@ -171,15 +175,16 @@ describe('a session page', () => {
   });
 
   it('adds new transcript entries while it works, once read to the end', async () => {
-    let transcript: Json = { items: [{ type: 'assistant', uuid: 'a1', text: 'Working on it.' }], offset: 0 };
+    let transcript: Json = { items: [{ type: 'assistant', uuid: 'a1', text: 'Working on it.' }, { type: 'thinking', uuid: 'a1n', text: 'Edited a file.' }], offset: 0, end: 1 };
     const { store: data, calls } = dataStore(() => [record(Json.parse(sessionValue({ status: 'working', waiting: [] })))], () => transcript);
     const { chat } = fakeChat();
     const store = new ClaudeSessionStore({ data, chat, desk: chat.approvals }, { instance: machine, session: SESSION });
     await store.open();
-    transcript = { items: [{ type: 'assistant', uuid: 'a2', text: 'Done.' }], offset: 1 };
+    transcript = { items: [{ type: 'assistant', uuid: 'a2', text: 'Done.' }], offset: 1, end: 2 };
     await store.refresh();
-    expect(calls.readFn.calls[1]?.[0].args).toMatchObject({ offset: 1 });
-    expect(store.items.value.map((item) => item.uuid)).toEqual(['a1', 'a2']);
+    // read on from the stored message after the newest shown, not from the number of items it made
+    expect(calls.readFn.calls[1]?.[0].args).toMatchObject({ offset: 1, fromEnd: false });
+    expect(store.items.value.map((item) => item.uuid)).toEqual(['a1', 'a1n', 'a2']);
     store.close();
   });
 
@@ -202,6 +207,15 @@ describe('an approval that asks', () => {
     await card.get('[data-testid=approval-ask] input').setValue('Postgres');
     await card.get('[data-testid=approve]').trigger('click');
     expect(card.emitted('decide')?.[0]).toEqual([true, 'once', '', { answer: 'Postgres' }]);
+  });
+
+  it('approves a tool use with its optional "always" tick left alone', async () => {
+    const always = { type: { name: 'optional', generic: { T: { name: 'bool' } } }, into: 'always' };
+    const card = mount(ApprovalCard, { props: { fn: 'claude/permit', description: '', args: undefined, ask: always, ident: 'apr_3' }, attachTo: document.body });
+    await flushPromises();
+    expect(card.get('[data-testid=approve]').text()).toBe('Approve');
+    await card.get('[data-testid=approve]').trigger('click');
+    expect(card.emitted('decide')?.[0]?.[0]).toBe(true);
   });
 
   it('is never approved with others', () => {

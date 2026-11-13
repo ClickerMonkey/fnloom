@@ -6,7 +6,7 @@
  * `finish`; `settle` closes the turn and tells people who are away.
  */
 import {
-  ACTIVE_RUN_STATUSES, isHiddenPart, mintId, splitName, type ActorId, type AgentActor, type Asker, type ChatMessage, type ClientInfo, type Json, type MessageId, type MessagePart, type OutgoingPart, type SuggestionRecord,
+  ACTIVE_RUN_STATUSES, isHiddenPart, mintId, splitName, type ActorId, type AgentActor, type Asker, type ChatMessage, type ClientInfo, type InstanceName, type Json, type MessageId, type MessagePart, type OutgoingPart, type SuggestionRecord,
   type QualifiedName, type ResolvedLimits, type Run, type RunId, type RunSettled, type Session, type SessionId, type SystemName, type Turn, type TurnId, type UserInfo,
 } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
@@ -114,7 +114,7 @@ export class StoreTurnService implements TurnService {
     return { turn, message };
   }
 
-  async invoke(input: { session: SessionId; author: ActorId; fn: QualifiedName; args: Json; client: ClientInfo }): Promise<{ turn: TurnId; run: RunId }> {
+  async invoke(input: { session: SessionId; author: ActorId; fn: QualifiedName; args: Json; on?: InstanceName | undefined; client: ClientInfo }): Promise<{ turn: TurnId; run: RunId }> {
     const { session, user, asker } = await this.#begin(input.session, input.author, input.client);
     const fn = await this.#deps.catalog.fn(input.fn);
     const access = await this.#deps.access.scope(input.author);
@@ -132,7 +132,7 @@ export class StoreTurnService implements TurnService {
     try {
       started = await this.#deps.runs.start({
         fn: input.fn, args: input.args, turn, session: session.id, key: 'invoke', actor: input.author, caller: input.author, priority: limits.priority,
-        background: false, handlers: [], budget: { cost: limits.turn.cost, time: limits.turn.time },
+        ...(input.on === undefined ? {} : { on: input.on }), background: false, handlers: [], budget: { cost: limits.turn.cost, time: limits.turn.time },
       });
     } catch (error) {
       // A run that never started must not leave its turn running forever.

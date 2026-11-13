@@ -6,10 +6,9 @@
  * and checks it by connecting with what they gave.
  */
 import { InstanceName, Json, McpServerConfig, McpToolSpec, type ImportReport } from '@harness/core';
-import { wireType, type ConfigOf, type SystemCtx, type SystemImpl } from '@harness/sdk';
+import { accountLabel, credentialsFromForm, wireType, type ConfigOf, type SystemCtx, type SystemImpl } from '@harness/sdk';
 import type { SystemPatch } from '@harness/sdk/server';
 import { ToolOutputType, type McpContract } from '../shared/index.ts';
-import { accountLabel, credentialsFromForm } from './auth.ts';
 import type { DialerFactory } from './dial.ts';
 import type { McpSettings } from './env.ts';
 import { answerText, downFailure, McpInstance, readConfig } from './instance.ts';

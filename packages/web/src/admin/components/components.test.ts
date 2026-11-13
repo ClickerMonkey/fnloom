@@ -115,20 +115,22 @@ describe('lists and cards', () => {
     expect(token.find('[data-testid=pairing-code]').exists()).toBe(false);
   });
 
-  it('FnList says why a fn is off and links to its page and its runs', () => {
-    const list = mount(FnList, { props: { fns: [fnRecord(), fnRecord({ name: 'fs/write_file', available: { unavailable: 'disabled', detail: '' }, paused: true })], now: T0, runsOf: (fn: string) => `/runs?fn=${fn}`, pageOf: (fn: string) => `/fns/${fn}` }, global: { stubs } });
+  it('FnList says why a fn is off, opens a fn in the fn modal and links to its runs', async () => {
+    const list = mount(FnList, { props: { fns: [fnRecord(), fnRecord({ name: 'fs/write_file', available: { unavailable: 'disabled', detail: '' }, paused: true })], now: T0, runsOf: (fn: string) => `/runs?fn=${fn}` }, global: { stubs: { ...stubs, FnModal: true } } });
     expect(list.text()).toContain('Read file');
     expect(list.text()).toContain('Turned off');
     expect(list.text()).toContain('Paused');
     expect(list.text()).toContain('140 runs');
     expect(list.text()).toContain('2% failed');
-    // each fn links to its page (its name) and its runs (its numbers)
-    expect(list.findAllComponents(RouterLinkStub)[0]?.props('to')).toBe('/fns/fs/read_file');
-    expect(list.findAllComponents(RouterLinkStub)[3]?.props('to')).toBe('/runs?fn=fs/write_file');
+    // its numbers link to its runs; its name opens it in the fn modal, with its switch and numbers, over the list
+    expect(list.findAllComponents(RouterLinkStub)[1]?.props('to')).toBe('/runs?fn=fs/write_file');
+    expect(list.find('fn-modal-stub').exists()).toBe(false);
+    await list.findAll('[data-testid=fn-page]')[1]?.trigger('click');
+    expect(list.get('fn-modal-stub').attributes()).toMatchObject({ fn: 'fs/write_file', manage: 'true', canopenpage: 'true' });
   });
 
   it('FnList switches each fn by itself on a system’s page', async () => {
-    const list = mount(FnList, { props: { fns: [fnRecord(), fnRecord({ name: 'fs/write_file', disabled: true })], now: T0, runsOf: (fn: string) => `/runs?fn=${fn}`, pageOf: (fn: string) => `/fns/${fn}`, switchable: true }, global: { stubs } });
+    const list = mount(FnList, { props: { fns: [fnRecord(), fnRecord({ name: 'fs/write_file', disabled: true })], now: T0, runsOf: (fn: string) => `/runs?fn=${fn}`, switchable: true }, global: { stubs } });
     const switches = list.findAll('[data-testid="fn-switch"] [role="switch"]');
     expect(switches.map((one) => one.attributes('aria-checked'))).toEqual(['true', 'false']);
     await switches[1]?.trigger('click');

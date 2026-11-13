@@ -32,7 +32,7 @@ watch(filter, (value, before) => { if (JSON.stringify(value) !== JSON.stringify(
         :loading="fns.loading.value" :problem="fns.problem.value" :ready="fns.loaded.value" :empty="fns.items.value.length === 0" :lines="8"
         empty-icon="fn" :empty-title="narrowed ? 'No fns match' : 'No fns yet'" :empty-body="narrowed ? 'Try a wider filter.' : 'Fns show here as systems pair.'" @retry="fns.load()"
       >
-        <FnList :fns="fns.items.value" :now="now" :runs-of="links.fnRuns" :page-of="(fn) => links.fn(fn)" />
+        <FnList :fns="fns.items.value" :now="now" :runs-of="links.fnRuns" />
         <div v-if="fns.hasMore.value" class="more">
           <UiButton variant="ghost" :loading="fns.loadingMore.value" data-testid="more" @click="fns.more()">Show more</UiButton>
         </div>

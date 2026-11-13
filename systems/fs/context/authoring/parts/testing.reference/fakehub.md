@@ -311,7 +311,7 @@ const liveEnv: Env<EnvOutput<{}, { readonly OPENROUTER_API_KEY: z.ZodOptional<z.
 
 function · `import { liveModels } from '@harness/sdk/server/testing'`
 
-The free models to try, first choice first.
+The models to try, first choice first.
 
 ```ts
 function liveModels(): string[];

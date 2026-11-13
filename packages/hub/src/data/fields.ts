@@ -25,6 +25,15 @@ const KINDS: Readonly<Record<string, ColumnKind>> = {
   timestamp: 'datetime', date: 'date', time: 'time', json: 'json', any: 'json',
 };
 
+/** An enum: its values are of its value type (`V`), text most often. */
+const EnumDef = z.object({ name: z.literal('enum'), generic: z.object({ V: GinTypeDef }) });
+
+/** The column kind of a field's type: an enum's is its value type's (so a status can be filtered), else by its name. */
+function kindOf(type: GinTypeDef): ColumnKind {
+  const choice = EnumDef.safeParse(type);
+  return KINDS[choice.success ? choice.data.generic.V.name : type.name] ?? 'json';
+}
+
 /** A field's gin type with any optional or nullable wrapper taken off, and whether there was one. */
 function unwrap(type: GinTypeDef): { readonly type: GinTypeDef; readonly nullable: boolean } {
   const wrapped = Wrapped.safeParse(type);
@@ -37,7 +46,7 @@ export function recordFields(def: GinTypeDef): RecordField[] {
   if (!obj.success) { return []; }
   return Object.entries(obj.data.props).map(([name, prop]) => {
     const { type, nullable } = unwrap(prop.type);
-    return { name, kind: KINDS[type.name] ?? 'json', nullable, type };
+    return { name, kind: kindOf(type), nullable, type };
   });
 }
 

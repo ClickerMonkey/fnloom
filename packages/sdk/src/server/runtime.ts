@@ -407,7 +407,7 @@ export class SystemRuntime<C extends ContractShape> {
           return link === undefined ? undefined : (await link.call('fnShape', { name })).fn;
         }
         const def = table.fnDef(name.slice(system.length));
-        return def === undefined ? undefined : { args: wireType(def.args), returns: wireType(def.returns), description: def.description };
+        return def === undefined ? undefined : { args: wireType(def.args), returns: wireType(def.returns), description: def.description, mode: def.effects?.mode ?? 'read' };
       },
     };
   }

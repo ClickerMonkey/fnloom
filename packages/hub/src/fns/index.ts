@@ -133,10 +133,5 @@ export interface FnsServices {
   readonly clientLogs: ClientLogs;
 }
 
-/** How a fn mode ranks against another: read below write below delete. */
-export const MODE_RANK: Readonly<Record<FnMode, number>> = { read: 0, write: 1, delete: 2 };
-
-/** The stronger of two modes. */
-export function strongerMode(a: FnMode, b: FnMode): FnMode {
-  return MODE_RANK[a] >= MODE_RANK[b] ? a : b;
-}
+/** Mode ranks live in core, beside `FnMode`. */
+export { MODE_RANK, strongerMode } from '@harness/core';

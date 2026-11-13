@@ -36,7 +36,7 @@ const DEV_DATABASE = {
   audience: { visibility: 'private', with: [] },
 } as const satisfies NonNullable<StackOptions['systems']['databases']>[string];
 
-const COLOURS = { web: 36, hub: 35, fs: 33, embedder: 32, 'web-system': 34, input: 94, widgets: 92, calendar: 95, database: 96, claude: 91 } as const satisfies Record<ComponentName, number>;
+const COLOURS = { web: 36, hub: 35, fs: 33, embedder: 32, 'web-system': 34, input: 94, widgets: 92, code: 93, calendar: 95, database: 96, claude: 91 } as const satisfies Record<ComponentName, number>;
 const isComponent = (name: string): name is ComponentName => COMPONENTS.some((c) => c === name);
 
 /** How this run differs: dev builds the web app and watches the source; live runs a pinned build and watches nothing. */

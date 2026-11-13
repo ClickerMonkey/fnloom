@@ -44,13 +44,13 @@ export class FakeRecords {
   }
 
   get(body: RecordGet): { record?: DataRecord } {
-    this.#stored(body.type, body.run);
+    this.#stored(body.type);
     const record = this.records.get(body.id);
-    return record === undefined || record.type !== body.type || !this.#sees(record) ? {} : { record };
+    return record === undefined || record.type !== body.type || !this.#sees(record, body.run) ? {} : { record };
   }
 
   table(body: RecordTableQuery): ResultTable {
-    const decl = this.#stored(body.type, body.run);
+    const decl = this.#stored(body.type);
     const offset = body.offset ?? 0;
     const limit = body.limit ?? DEFAULT_PAGE;
     const { rows } = this.#select(body, body.query);
@@ -72,11 +72,11 @@ export class FakeRecords {
   }
 
   save(body: RecordSave, time = Date.now()): DataRecord {
-    const decl = this.#stored(body.type, body.run);
+    const decl = this.#stored(body.type);
     const existing = body.id === undefined
-      ? (decl.records.shape === 'value' ? this.of(body.type).find((record) => this.#sees(record)) : undefined)
+      ? (decl.records.shape === 'value' ? this.of(body.type).find((record) => this.#sees(record, body.run)) : undefined)
       : this.records.get(body.id);
-    if (body.id !== undefined && (existing === undefined || existing.type !== body.type || !this.#sees(existing))) {
+    if (body.id !== undefined && (existing === undefined || existing.type !== body.type || !this.#sees(existing, body.run))) {
       throw reject(404, 'NOT_FOUND', `No ${body.type} record ${body.id}.`);
     }
     if (body.expect !== undefined && existing !== undefined && existing.version !== body.expect) {
@@ -100,9 +100,9 @@ export class FakeRecords {
   }
 
   remove(body: RecordRemove, time = Date.now()): { removed: boolean } {
-    this.#stored(body.type, body.run);
+    this.#stored(body.type);
     const record = this.records.get(body.id);
-    if (record === undefined || record.type !== body.type || !this.#sees(record)) { return { removed: false }; }
+    if (record === undefined || record.type !== body.type || !this.#sees(record, body.run)) { return { removed: false }; }
     this.records.delete(body.id);
     this.#version({ ...record, version: record.version + 1 }, 'removed', time);
     return { removed: true };
@@ -110,14 +110,14 @@ export class FakeRecords {
 
   /** The records a query selects, filtered, searched and sorted, with its offset and limit. */
   #select(query: RecordQuery, list: Omit<ListQuery, 'cursor' | 'limit'> & Partial<Pick<ListQuery, 'cursor' | 'limit'>> | undefined): { rows: DataRecord[]; offset: number; limit: number } {
-    const decl = this.#stored(query.type, query.run);
+    const decl = this.#stored(query.type);
     const fields = new Set(Object.keys(decl.def.props ?? {}));
     for (const field of [...(list?.filters ?? []).map((f) => f.field), ...(list?.sort ?? []).map((s) => s.field)]) {
       if (!fields.has(field)) { throw reject(400, 'UNKNOWN_FIELD', `${query.type} has no field ${field}.`); }
     }
     const words = [list?.text, query.search].filter((text): text is string => text !== undefined && text !== '').join(' ').toLowerCase().split(/\s+/).filter((word) => word !== '');
     const rows = this.of(query.type)
-      .filter((record) => this.#sees(record))
+      .filter((record) => this.#sees(record, query.run))
       .filter((record) => (list?.filters ?? []).every((filter) => matches(filter, fieldOf(record.value, filter.field))))
       .filter((record) => words.length === 0 || words.every((word) => decl.records.search.text.some((field) => textOf(fieldOf(record.value, field)).toLowerCase().includes(word))));
     for (const sort of [...(list?.sort ?? [])].reverse()) {
@@ -126,19 +126,19 @@ export class FakeRecords {
     return { rows, offset: Number(list?.cursor ?? '0'), limit: list?.limit ?? DEFAULT_PAGE };
   }
 
-  /** A stored type's declaration; a person-owned type is refused outside a run, which has no person to act for. */
-  #stored(type: QualifiedName, run: RunId | undefined): StoredTypeDecl {
+  /** A stored type's declaration (one of the system's own). */
+  #stored(type: QualifiedName): StoredTypeDecl {
     const decl = this.#types(type);
     if (decl === undefined) { throw reject(404, 'NOT_FOUND', `${type} is not a stored type (declare it with type({ records })).`); }
-    if (decl.records.owner === 'person' && run === undefined) {
-      throw reject(403, 'NO_PERSON', `${type} records are each one person's, so they are read in a run, as its person.`);
-    }
     return decl;
   }
 
-  /** Whether the asker sees a record: a person-owned one only its owner. */
-  #sees(record: DataRecord): boolean {
-    return record.owner === undefined || record.owner === this.#owner();
+  /**
+   * Whether the asker sees a record: in a run, a person-owned one only its owner; outside a run the system keeps the
+   * records of its own types, every one, as the hub lets it.
+   */
+  #sees(record: DataRecord, run: RunId | undefined): boolean {
+    return run === undefined || record.owner === undefined || record.owner === this.#owner();
   }
 
   #version(record: DataRecord, change: RecordVersion['change'], at: number): void {

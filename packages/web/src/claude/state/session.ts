@@ -42,8 +42,12 @@ export class ClaudeSessionStore {
   readonly items = shallowRef<readonly ClaudeTranscriptItem[]>([]);
   readonly transcriptLoading = ref(false);
   readonly transcriptProblem = ref('');
-  /** The offset of the next page; undefined once the transcript is read to its end. */
-  readonly next = ref<number | undefined>(undefined);
+  /** The first stored message shown (the transcript reads newest first); older ones are read above it. */
+  readonly first = ref(0);
+  /** Older messages come before the ones shown. */
+  readonly older = computed(() => this.first.value > 0);
+  /** Just past the newest stored message shown: new ones are read from here while it works. */
+  #end = 0;
   readonly sending = ref(false);
   /** A run this page started waits for the person's approval (shown in place). */
   readonly awaiting = ref(false);
@@ -84,7 +88,7 @@ export class ClaudeSessionStore {
   async open(): Promise<void> {
     await this.#readRecord();
     this.loading.value = false;
-    if (this.record.value !== undefined) { await this.#page(0); }
+    if (this.record.value !== undefined) { await this.#page({ offset: 0, limit: TRANSCRIPT_PAGE, fromEnd: true }, 'latest'); }
   }
 
   /** Read the record again quietly, the new transcript entries while it works, and its waiting runs' approvals. */
@@ -94,12 +98,13 @@ export class ClaudeSessionStore {
     const thread = this.runs.thread.value;
     if (thread !== undefined) { for (const approval of thread.approvals.value) { void thread.ensureRun(approval.run); } }
     const changed = this.record.value?.value.updatedAt !== before;
-    if (this.next.value === undefined && (changed || this.busy.value)) { await this.#page(this.items.value.length, true); }
+    if (changed || this.busy.value) { await this.#page({ offset: this.#end, limit: TRANSCRIPT_PAGE, fromEnd: false }, 'after'); }
   }
 
-  /** The next page of the transcript. */
+  /** The page of the transcript before the oldest shown. */
   async more(): Promise<void> {
-    if (this.next.value !== undefined) { await this.#page(this.next.value); }
+    const start = Math.max(0, this.first.value - TRANSCRIPT_PAGE);
+    if (this.older.value) { await this.#page({ offset: start, limit: this.first.value - start, fromEnd: false }, 'before'); }
   }
 
   /** Send Claude a message (it resumes a closed session first). */
@@ -108,7 +113,7 @@ export class ClaudeSessionStore {
     if (message === '' || this.sending.value) { return false; }
     this.sending.value = true;
     try {
-      const outcome = await this.runs.run(CLAUDE_FNS.send, { ...this.ref, text: message, wait: false }, () => { this.awaiting.value = true; });
+      const outcome = await this.runs.run(CLAUDE_FNS.send, { ...this.ref, text: message, wait: false }, () => { this.awaiting.value = true; }, this.ref.instance);
       if (!outcome.ok) { this.problem.value = outcome.problem; return false; }
       this.problem.value = '';
       await this.refresh();
@@ -119,12 +124,12 @@ export class ClaudeSessionStore {
     }
   }
 
-  /** Interrupt the current turn or stop the session, switching its permission mode with it when `mode` is given. */
+  /** Interrupt the current turn, stop the session or (`mode`) only switch its permission mode; `mode` switches it with the others too. */
   async control(action: ClaudeControl['action'], mode?: ClaudePermissionMode): Promise<boolean> {
     if (this.controlling.value) { return false; }
     this.controlling.value = true;
     try {
-      const outcome = await this.runs.run(CLAUDE_FNS.control, { ...this.ref, action, ...(mode === undefined ? {} : { mode }) }, () => { this.awaiting.value = true; });
+      const outcome = await this.runs.run(CLAUDE_FNS.control, { ...this.ref, action, ...(mode === undefined ? {} : { mode }) }, () => { this.awaiting.value = true; }, this.ref.instance);
       if (!outcome.ok) { this.problem.value = outcome.problem; return false; }
       this.problem.value = '';
       await this.refresh();
@@ -175,16 +180,25 @@ export class ClaudeSessionStore {
     }
   }
 
-  /** Read a page of the transcript from `offset`; `quiet` (new entries while it works) keeps the loading state off. */
-  async #page(offset: number, quiet = false): Promise<void> {
+  /**
+   * Read a page of the transcript: the `latest` one (replacing what is shown), the one `before` the oldest shown, or
+   * what came `after` the newest (quietly, while it works: the loading state stays off).
+   */
+  async #page(at: { offset: number; limit: number; fromEnd: boolean }, place: 'latest' | 'before' | 'after'): Promise<void> {
     if (this.transcriptLoading.value) { return; }
+    const quiet = place === 'after';
     if (!quiet) { this.transcriptLoading.value = true; }
     try {
-      const raw = await this.#deps.data.readFn(CLAUDE_FNS.transcript, { ...this.ref, offset, limit: TRANSCRIPT_PAGE, ...(this.#agent === undefined ? {} : { agent: this.#agent }) });
+      const raw = await this.#deps.data.readFn(CLAUDE_FNS.transcript, { ...this.ref, ...at, ...(this.#agent === undefined ? {} : { agent: this.#agent }) });
       const page = ClaudeTranscriptPage.parse(raw);
-      const known = this.items.value.slice(0, offset);
-      this.items.value = [...known, ...page.items];
-      this.next.value = page.next;
+      if (place === 'before') {
+        this.items.value = [...page.items, ...this.items.value];
+        this.first.value = page.offset;
+      } else {
+        this.items.value = place === 'latest' ? page.items : [...this.items.value, ...page.items];
+        if (place === 'latest') { this.first.value = page.offset; }
+        this.#end = page.end;
+      }
       this.transcriptProblem.value = '';
     } catch (error) {
       if (!quiet) { this.transcriptProblem.value = problemText(error, "Couldn't read the transcript."); }

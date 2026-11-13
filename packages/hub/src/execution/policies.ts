@@ -229,11 +229,13 @@ export class HubPolicyEngine implements PolicyEngine {
 
   /**
    * Build 9: put the approver's answer to a proposal's form in its run's args (`args[into]`), checked against the form's
-   * type and then the fn's args, before the approval lets the run go ahead.
+   * type and then the fn's args, before the approval lets the run go ahead. A form of an optional type (a card's "always
+   * allow" tick) may be left unanswered: the args keep their own default.
    */
   async #fill(approval: Approval, run: Run, answer: Json | undefined): Promise<void> {
     const ask = approval.ask;
     if (ask === undefined) return;
+    if (answer === undefined && ask.type.name === 'optional') return;
     if (answer === undefined) throw reject(422, 'ANSWER_NEEDED', 'This asks a question: fill in the form to approve it.');
     const problems = await this.#deps.catalog.check(run.system, ask.type, answer);
     if (problems.length > 0) throw reject(422, 'ANSWER_INVALID', problems.join('; '));

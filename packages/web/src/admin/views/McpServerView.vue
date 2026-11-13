@@ -6,7 +6,7 @@
  * loosely mapped ones marked), its prompts (context items with `/commands`) and its settings (saved as the instance's
  * config; kept secrets stay unless replaced). Removing it removes the instance.
  */
-import { InstanceName, connectFlowOf, mcpRootOf, type QualifiedName } from '@harness/core';
+import { InstanceName, connectFlowOf, mcpRootOf } from '@harness/core';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AppPage from '../../app/AppPage.vue';
@@ -101,7 +101,6 @@ async function remove(): Promise<void> {
   await router.push(links.mcpServers());
 }
 
-const pageOf = (fn: QualifiedName) => links.fn(fn);
 </script>
 
 <template>
@@ -148,7 +147,7 @@ const pageOf = (fn: QualifiedName) => links.fn(fn);
             {{ degraded.length === 1 ? 'One tool takes' : `${degraded.length} tools take` }} any JSON: the server's schema did not map cleanly, so the server checks the args.
           </UiBanner>
           <LoadState :loading="store.tools.loading.value" :problem="store.tools.problem.value" :ready="store.tools.value.value !== undefined" :empty="tools.length === 0" empty-icon="fn" empty-title="No tools" empty-body="It has not listed any tools yet." @retry="store.show(instance)">
-            <FnList :fns="tools" :now="now" :runs-of="links.fnRuns" :page-of="pageOf" />
+            <FnList :fns="tools" :now="now" :runs-of="links.fnRuns" />
           </LoadState>
         </template>
 

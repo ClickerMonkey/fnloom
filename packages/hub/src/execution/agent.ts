@@ -392,7 +392,8 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     if (blocks !== undefined) stream(blocks.end());
     const at = await conversation.append(collected);
     const last = scope.last;
-    if (last !== undefined) await store.table('llmInteractions').update(last.interaction, { selection: planned.report });
+    // every call of the iteration (its retries and repairs too) was made from the same selection
+    for (const call of scope.calls) { await store.table('llmInteractions').update(call.interaction, { selection: planned.report }); }
 
     const made = suspended ? this.#toolCalls(collected, calls) : this.#blockCalls(collected, answer, state.iteration);
     if (made !== undefined) {

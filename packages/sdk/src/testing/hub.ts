@@ -98,6 +98,8 @@ export interface TestHubOptions {
   readonly hub?: Omit<FakeHubOptions, 'config'>;
   /** More serve options (its context folder, files, fetch, version, …). */
   readonly serve?: Partial<Omit<ServeOptions, 'hub' | 'state'>>;
+  /** Records the hub keeps before the system starts (what a restarted system finds), as stored. */
+  readonly records?: readonly DataRecord[];
 }
 
 /** A system served to a fake hub: run its fns and kinds, read what it asked the hub for, and stop it. */
@@ -241,6 +243,7 @@ export class TestSystem<N extends string, C extends ContractShape> {
 /** Serve a system to a fake hub in memory and wait until it is ready (connected, configured, its contract imported). */
 export async function testHub<N extends string, C extends ContractShape>(contract: SystemContract<N, C>, impl: SystemImpl<C>, options: TestHubOptions = {}): Promise<TestSystem<N, C>> {
   const hub = new FakeHub({ ...options.hub, ...(options.config === undefined ? {} : { config: options.config }) });
+  for (const record of options.records ?? []) { hub.data.records.set(record.id, record); }
   const model = options.model;
   if (model !== undefined) {
     hub.onLlm = (forward) => model.llm(forward);

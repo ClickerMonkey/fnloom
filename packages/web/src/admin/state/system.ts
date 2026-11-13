@@ -84,14 +84,16 @@ export class SystemStore {
    * Turn one fn on or off by itself: shown at once, put back if the hub refuses. The fns are read again after, since
    * whether each can be used (and what depends on it) follows the switch.
    */
+  /** A fn of the list was switched elsewhere (its modal): show it so. */
+  fnSwitched(name: QualifiedName, on: boolean): void {
+    const fns = this.fns.value.value;
+    if (fns !== undefined) { this.fns.set(fns.map((fn) => (fn.name === name ? { ...fn, disabled: !on } : fn))); }
+  }
+
   async switchFn(name: QualifiedName, on: boolean): Promise<boolean> {
-    const flip = (disabled: boolean): void => {
-      const fns = this.fns.value.value;
-      if (fns !== undefined) { this.fns.set(fns.map((fn) => (fn.name === name ? { ...fn, disabled } : fn))); }
-    };
-    flip(!on);
+    this.fnSwitched(name, on);
     const result = await this.switching.run(() => this.#api.switchItem.call({ section: 'fns', name, on }), "Couldn't switch that.");
-    if (!result.ok) { flip(on); return false; }
+    if (!result.ok) { this.fnSwitched(name, !on); return false; }
     const system = this.name.value;
     if (system !== undefined) { await this.fns.load(() => this.#api.systemFns.call({ system }), "Couldn't load this system's fns.", true); }
     return true;

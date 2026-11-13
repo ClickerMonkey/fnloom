@@ -2,6 +2,7 @@
 import { fn, g } from '@harness/sdk';
 import { ActorId, MAIN_INSTANCE, mintId, proposalKeyFor, QualifiedName, SystemName, type Approval, type FnApproval, type ProposedRun, type Json, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
+import { askingOf } from '../link/reads.ts';
 import type { RunInput } from './index.ts';
 import { ALICE, executionRig, SESSION, settle, until, type ExecutionRig } from './testing.ts';
 
@@ -87,6 +88,8 @@ describe('fns that always ask', () => {
     // build 6: a declined run is cancelled, with who declined and why in its errors
     const runs = await r.store.table('runs').find({ where: { fn: 'fs/write' }, limit: 1 });
     expect(runs.items[0]).toMatchObject({ status: 'cancelled', errors: [{ error: { message: 'Declined by Alice: not that table' } }] });
+    // build 9: a system that proposed the run hears the reason in the run's status words
+    expect(r.bus.of('run.update').at(-1)?.update).toMatchObject({ type: 'status', status: 'cancelled', text: { one: 'Declined by Alice: not that table' } });
   });
 
   it('asks the admins when its approver is the admins, and tells the run what was approved (build 6)', async () => {
@@ -194,6 +197,8 @@ describe('proposals that wait for a person, with a form (build 9)', () => {
     const proposed = await r.module.runs.propose(ask);
     expect(await r.module.runs.get(proposed.run)).toMatchObject({ actor: ALICE, session: CHAT, status: 'awaiting-approval' });
     expect(lastApproval(r)).toMatchObject({ approver: { by: 'actor', actor: ALICE }, ask: { into: 'answer' } });
+    // its run reads and writes the system's data as Alice (her session record), though it sits in the system's own turn
+    expect(await askingOf(r.store, { system: SystemName.parse('fs'), instance: MAIN_INSTANCE, boot: 'b' }, proposed.run)).toMatchObject({ actor: ALICE });
     await expect(r.module.policies.answer(proposed.approval, { by: ALICE, approve: true, remember: 'once' })).rejects.toThrow(/fill in the form/);
     await expect(r.module.policies.answer(proposed.approval, { by: ALICE, approve: true, remember: 'once', answer: 3 })).rejects.toThrow(/answer/);
     await expect(r.module.policies.answer(proposed.approval, { by: BOB, approve: true, remember: 'once', answer: 'dev' })).rejects.toThrow(/can't answer/);
@@ -202,6 +207,15 @@ describe('proposals that wait for a person, with a form (build 9)', () => {
     expect(await r.module.runs.wait(proposed.run)).toMatchObject({ status: 'done' });
     expect(system.requests.at(-1)?.args).toEqual({ request: 'q1', answer: 'main' });
     expect(await r.store.table('policies').count({})).toBe(0);
+  });
+
+  // the claude permit card's "always allow" tick: Approve alone allows the tool use once
+  it('approves an optional form left unanswered, keeping the args as they were', async () => {
+    const { r, ask, system } = await withSession();
+    const proposed = await r.module.runs.propose({ ...ask, ask: { type: { name: 'optional', generic: { T: { name: 'text' } } }, into: 'answer' } });
+    await r.module.policies.answer(proposed.approval, { by: ALICE, approve: true, remember: 'once' });
+    expect(await r.module.runs.wait(proposed.run)).toMatchObject({ status: 'done' });
+    expect(system.requests.at(-1)?.args).toEqual({ request: 'q1', answer: '' });
   });
 
   it('refuses a person who owns nothing the key names, and skips a chat they are not in', async () => {

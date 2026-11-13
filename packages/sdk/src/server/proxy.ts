@@ -12,11 +12,12 @@ import { createServer, request as forward, type IncomingMessage, type Server, ty
 import { connect, type AddressInfo, type Socket } from 'node:net';
 import type { Duplex } from 'node:stream';
 
-/** Whether a host is one the patterns allow: the same name, or for `*.example.com` any name under `example.com`. */
+/** Whether a host is one the patterns allow: the same name, for `*.example.com` any name under `example.com`, and for `*` any host. */
 export function hostAllowed(patterns: readonly string[], host: string): boolean {
   const name = host.toLowerCase().replace(/\.$/, '');
   return patterns.some((pattern) => {
     const allowed = pattern.toLowerCase();
+    if (allowed === '*') return true;
     return allowed.startsWith('*.') ? name.endsWith(allowed.slice(1)) : name === allowed;
   });
 }

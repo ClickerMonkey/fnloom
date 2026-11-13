@@ -96,6 +96,34 @@ export interface DriverPage<T> {
   readonly more: boolean;
 }
 
+/** A transcript page asked of the driver: `offset` and `limit` count stored messages, from the start or (`fromEnd`) back from the newest. */
+export interface TranscriptRequest {
+  readonly session: ClaudeSessionId;
+  readonly folder?: string | undefined;
+  readonly agent?: string | undefined;
+  readonly offset: number;
+  readonly limit: number;
+  readonly fromEnd: boolean;
+}
+
+/** A transcript page: its items, its first message and the one past its last (from the start), and `more` when later ones follow. */
+export interface TranscriptSlice {
+  readonly items: readonly ClaudeTranscriptItem[];
+  readonly offset: number;
+  readonly end: number;
+  readonly more: boolean;
+}
+
+/**
+ * The messages of one page out of `count` stored ones, as start (inclusive) and end (exclusive) from the start:
+ * `offset` counts from the start, or with `fromEnd` back from the newest.
+ */
+export function sliceOf(count: number, request: Pick<TranscriptRequest, 'offset' | 'limit' | 'fromEnd'>): { readonly start: number; readonly end: number } {
+  if (!request.fromEnd) { return { start: Math.min(request.offset, count), end: Math.min(request.offset + request.limit, count) }; }
+  const end = Math.max(0, count - request.offset);
+  return { start: Math.max(0, end - request.limit), end };
+}
+
 /** What Claude sees in a folder that can be imported, before the harness says what it has imported. */
 export type FoundImportable = ClaudeImportable extends infer I ? (I extends { imported: boolean } ? Omit<I, 'imported'> : never) : never;
 
@@ -107,8 +135,8 @@ export interface ClaudeDriver {
   sessions(query: { readonly folder?: string | undefined; readonly offset: number; readonly limit: number }): Promise<DriverPage<StoredSession>>;
   /** One session in the store, or `undefined`. */
   session(session: ClaudeSessionId): Promise<StoredSession | undefined>;
-  /** A page of a session's transcript (or of one subagent's), from the start. */
-  transcript(query: { readonly session: ClaudeSessionId; readonly folder?: string | undefined; readonly agent?: string | undefined; readonly offset: number; readonly limit: number }): Promise<DriverPage<ClaudeTranscriptItem>>;
+  /** A page of a session's transcript (or of one subagent's), counted in stored messages from the start or (`fromEnd`) the newest. */
+  transcript(query: TranscriptRequest): Promise<TranscriptSlice>;
   /** The agents, skills and MCP servers Claude sees in a folder. */
   importables(folder: string): Promise<FoundImportable[]>;
   /** A skill's instructions (its `SKILL.md` body), or `undefined` when it has no file to read (a plugin's). */

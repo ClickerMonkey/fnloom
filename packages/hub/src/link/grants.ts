@@ -178,7 +178,7 @@ export class SystemGrantGuard {
     return { rule: 'capability', attempt: endpoint, detail: `it didn't declare the ${capability} capability, which ${endpoint} needs` };
   }
 
-  /** A child call: to another system it needs `fns` and `grants.calls`; its mode can't go past its parent fn's declared mode. */
+  /** A child call: to another system it needs `fns` and `grants.calls` (or the target as a dep of the parent's fn); its mode can't go past its parent fn's declared mode. */
   async #call(link: LinkSession, grants: SystemGrants, body: unknown): Promise<Refusal | undefined> {
     const parsed = CallBody.safeParse(body);
     if (!parsed.success) { return undefined; }
@@ -189,7 +189,9 @@ export class SystemGrantGuard {
     if (targetSystem !== link.system) {
       if (!grants.hub.includes('fns')) { return { ...base, rule: 'capability', attempt: target, detail: `it didn't declare the fns capability, which calling ${target} needs` }; }
       const calls = grants.calls ?? [];
-      if (!calls.some((allowed) => allowed === target || allowed === targetSystem)) { return { ...base, rule: 'calls', attempt: target, detail: `it didn't declare that it calls ${target}` }; }
+      // a fn the parent's fn declares as a dep (as a saved program's describe gives the fns it calls) was reviewed with it
+      const dep = parent !== undefined && (await this.#options.catalog.fn(parent.fn))?.decl.deps.includes(target) === true;
+      if (!dep && !calls.some((allowed) => allowed === target || allowed === targetSystem)) { return { ...base, rule: 'calls', attempt: target, detail: `it didn't declare that it calls ${target}` }; }
     }
     return parent === undefined ? undefined : this.#mode(parent, target, false);
   }

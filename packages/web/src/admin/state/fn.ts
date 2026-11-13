@@ -6,10 +6,10 @@
 import { splitName, SystemName, type FnMetrics, type FnMetricsDay, type FnRecord, type QualifiedName, type Run, type UserEvent } from '@harness/core';
 import { ref } from 'vue';
 import type { UserEvents } from '../../api/notifications.ts';
-import { Loaded } from '../../state/loaded.ts';
+import { Loaded, Task } from '../../state/loaded.ts';
 import type { AdminApi } from '../api.ts';
 
-type FnApi = Pick<AdminApi, 'systemFns' | 'fnMetrics' | 'fnMetricsDays' | 'runs'>;
+type FnApi = Pick<AdminApi, 'systemFns' | 'fnMetrics' | 'fnMetricsDays' | 'runs' | 'switchItem'>;
 
 /** How many of its latest runs the page lists; the rest are a link away. */
 export const FN_RECENT_RUNS = 8;
@@ -30,6 +30,8 @@ export class FnStore {
   readonly daily = new Loaded<readonly FnMetricsDay[]>();
   /** Its latest runs, newest first. */
   readonly recent = new Loaded<readonly Run[]>();
+  /** Turning it on or off. */
+  readonly switching = new Task();
 
   constructor(api: FnApi, events: UserEvents) {
     this.#api = api;
@@ -44,6 +46,16 @@ export class FnStore {
     this.days.value = days;
     this.#stop ??= this.#events((event) => { this.#onEvent(event); });
     await Promise.all([this.#loadRecord(fn, same), this.#loadMetrics(fn, days, same && this.metrics.value.value !== undefined)]);
+  }
+
+  /** Turn the fn shown on or off (shown at once, put back if the hub refuses); whether it worked. */
+  async switchOn(on: boolean): Promise<boolean> {
+    const record = this.record.value.value;
+    if (record === undefined) { return false; }
+    this.record.set({ ...record, disabled: !on });
+    const result = await this.switching.run(() => this.#api.switchItem.call({ section: 'fns', name: record.name, on }), "Couldn't switch that.");
+    if (!result.ok) { this.record.set(record); return false; }
+    return true;
   }
 
   close(): void {

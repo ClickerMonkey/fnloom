@@ -9,10 +9,9 @@ import {
   Json, JsonObject, McpServerConfig, ResourceUri, mcpRootOf, messageOf, type ConnectionUpdate, type ImportReport, type InstanceConnect, type InstanceName, type McpServerState,
   type McpServerStatus, type Page, type ReadWant, type RemoteCredentials, type ResourceRead, type ResourceRoot, type ResourceStat, type RunConnection,
 } from '@harness/core';
-import type { Log, ResourceProvider } from '@harness/sdk';
+import { credentialHeaders, instanceConnectOf, readCredentials, sharedHeaders, usesConnections, type Log, type ResourceProvider } from '@harness/sdk';
 import type { SystemPatch } from '@harness/sdk/server';
 import type { z } from 'zod';
-import { headersOf, instanceConnectOf, readCredentials, sharedHeaders, usesConnections } from './auth.ts';
 import type { DialerFactory, Signer } from './dial.ts';
 import { Elicitations, type AskingRun } from './elicitation.ts';
 import type { McpSettings } from './env.ts';
@@ -71,7 +70,7 @@ class PersonSigner implements Signer {
     this.#oauth = oauth;
   }
 
-  headers(): Promise<Record<string, string>> { return Promise.resolve(headersOf(this.credentials)); }
+  headers(): Promise<Record<string, string>> { return Promise.resolve(credentialHeaders(this.credentials)); }
 
   async refresh(): Promise<boolean> {
     const fresh = await this.#oauth?.refresh(this.credentials);
@@ -142,7 +141,7 @@ export class McpInstance {
 
   /** Say how people connect, and connect the instance's own link (which mirrors once connected). */
   async start(): Promise<void> {
-    await this.#deps.hub.instanceConnect(instanceConnectOf(this.#config));
+    await this.#deps.hub.instanceConnect(instanceConnectOf(this.#config.label, this.#config.auth));
     this.#own?.start();
   }
 

@@ -4,7 +4,7 @@
  * show) when it has one, else one made for it the first time something runs. A run that stops for approval is
  * answered on the page (the thread's approvals) or in that chat.
  */
-import type { Json, QualifiedName, SessionId } from '@harness/core';
+import type { InstanceName, Json, QualifiedName, SessionId } from '@harness/core';
 import { shallowRef } from 'vue';
 import type { ChatStore } from '../../chat/state/chat.ts';
 import type { ThreadStore } from '../../chat/state/thread.ts';
@@ -34,14 +34,17 @@ export class ClaudeRuns {
     this.#opening ??= this.#open(session);
   }
 
-  /** Run a fn as the person's run in the chat, resolving when it settles; `waiting` is called if it stops for approval. */
-  async run(fn: QualifiedName, args: Json, waiting?: () => void): Promise<RunOutcome> {
+  /**
+   * Run a fn as the person's run in the chat, resolving when it settles; `waiting` is called if it stops for approval,
+   * and `on` names the machine (claude instance) it runs on.
+   */
+  async run(fn: QualifiedName, args: Json, waiting?: () => void, on?: InstanceName): Promise<RunOutcome> {
     const thread = await (this.#opening ??= this.#open(undefined));
     if (thread === undefined) {
       this.#opening = undefined;
       return { ok: false, problem: this.#chat.sessions.problem.value || "Couldn't start a chat to run it in." };
     }
-    const id = await thread.invoke(fn, args);
+    const id = await thread.invoke(fn, args, on);
     if (id === undefined) { return { ok: false, problem: thread.problem.value || "Couldn't run that." }; }
     return settledRun(thread, id, waiting);
   }

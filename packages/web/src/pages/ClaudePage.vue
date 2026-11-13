@@ -60,14 +60,15 @@ function clear(): void {
 // ── a new session ─────────────────────────────────────────────────────────────
 
 const starter = new ClaudeStarter(chat);
-const draft = ref<StartDraft>(startDraft(folder.value));
+const draft = ref<StartDraft>(startDraft(folder.value, machine.value));
 const dialogOpen = computed({ get: () => adding.value === '1', set: (open: boolean) => { adding.value = open ? '1' : ''; } });
-watch(dialogOpen, (open) => { if (open) { draft.value = startDraft(folder.value); } else { starter.close(); } });
+watch(dialogOpen, (open) => { if (open) { draft.value = startDraft(folder.value, machine.value); } else { starter.close(); } });
 onBeforeUnmount(() => { starter.close(); });
 
 /** The start's own approval (it is a write), answered here. */
 const startApproval = computed(() => starter.runs.value?.thread.value?.approvals.value[0]);
 const usedFolders = computed(() => choicesOf(sessions.value, 'folder', ''));
+const usedMachines = computed(() => choicesOf(sessions.value, 'instance', ''));
 
 async function start(): Promise<void> {
   const started = await starter.start(draft.value);
@@ -117,7 +118,7 @@ async function decideStart(approve: boolean, remember: Remember, reason: string,
 
     <UiDialog v-model:open="dialogOpen" title="New Claude session" description="It starts in the folder and works on its own; you answer what it asks." width="600px">
       <div class="dialog" data-testid="claude-new-dialog">
-        <NewSessionForm v-model="draft" :folders="usedFolders" :problems="starter.problems.value" :disabled="starter.busy.value" />
+        <NewSessionForm v-model="draft" :folders="usedFolders" :machines="usedMachines" :problems="starter.problems.value" :disabled="starter.busy.value" />
         <ApprovalCard
           v-if="startApproval" :ident="startApproval.id" :fn="startApproval.fn" description="Starting a session runs Claude Code on the machine." :args="undefined"
           :preview="startApproval.preview" :rememberable="isRememberable(startApproval)" :ask="startApproval.ask" @decide="decideStart"

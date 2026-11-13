@@ -12,11 +12,11 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
   getSessionInfo, getSessionMessages, getSubagentMessages, listSessions, query,
-  type CanUseTool, type McpServerStatus, type OnElicitation, type OnUserDialog, type Options, type PermissionResult, type Query, type SDKMessage, type SDKSessionInfo, type SDKUserMessage,
+  type CanUseTool, type McpServerStatus, type OnElicitation, type OnUserDialog, type Options, type PermissionResult, type Query, type SDKMessage, type SDKSessionInfo, type SDKUserMessage, type SessionMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import { ClaudeSessionId, McpServerConfig, isJsonObject, jsonOf, type ClaudeTask, type ClaudeTaskKind, type ClaudeTranscriptItem, type JsonObject } from '@harness/core';
 import { g, wireType } from '@harness/sdk';
-import type { ClaudeDriver, DriverEvent, DriverOpen, DriverPage, FoundImportable, LiveSession, SessionListener, StoredSession, TaskChange } from './driver.ts';
+import { sliceOf, type ClaudeDriver, type DriverEvent, type DriverOpen, type DriverPage, type FoundImportable, type LiveSession, type SessionListener, type StoredSession, type TaskChange, type TranscriptRequest, type TranscriptSlice } from './driver.ts';
 import { AskUserQuestionInput, askUserQuestionForm, elicitationForm } from './questions.ts';
 import { itemsOf, toolLine } from './transcript.ts';
 
@@ -263,10 +263,21 @@ export class AgentSdkDriver implements ClaudeDriver {
     return info === undefined ? undefined : storedOf(info)[0];
   }
 
-  async transcript(request: { readonly session: ClaudeSessionId; readonly folder?: string | undefined; readonly agent?: string | undefined; readonly offset: number; readonly limit: number }): Promise<DriverPage<ClaudeTranscriptItem>> {
-    const options = { ...(request.folder === undefined ? {} : { dir: request.folder }), offset: request.offset, limit: request.limit + 1 };
-    const messages = request.agent === undefined ? await getSessionMessages(request.session, options) : await getSubagentMessages(request.session, request.agent, options);
-    return { items: messages.slice(0, request.limit).flatMap((message) => itemsOf(message, this.#options.textMax)), more: messages.length > request.limit };
+  async transcript(request: TranscriptRequest): Promise<TranscriptSlice> {
+    const dir = request.folder === undefined ? {} : { dir: request.folder };
+    const read = (options: { dir?: string; offset?: number; limit?: number }): Promise<SessionMessage[]> => (
+      request.agent === undefined ? getSessionMessages(request.session, options) : getSubagentMessages(request.session, request.agent, options)
+    );
+    const itemsOfAll = (messages: readonly SessionMessage[]): ClaudeTranscriptItem[] => messages.flatMap((message) => itemsOf(message, this.#options.textMax));
+    if (!request.fromEnd) {
+      const messages = await read({ ...dir, offset: request.offset, limit: request.limit + 1 });
+      const page = messages.slice(0, request.limit);
+      return { items: itemsOfAll(page), offset: request.offset, end: request.offset + page.length, more: messages.length > request.limit };
+    }
+    // the SDK has no count and pages only from the start (it parses the whole file for any page): read it all, then slice
+    const messages = await read(dir);
+    const { start, end } = sliceOf(messages.length, request);
+    return { items: itemsOfAll(messages.slice(start, end)), offset: start, end, more: end < messages.length };
   }
 
   async importables(folder: string): Promise<FoundImportable[]> {

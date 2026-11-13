@@ -48,9 +48,10 @@ const remember = ref<Remember>('once');
 const reviewing = ref(false);
 /** The form's value while it fits; undefined while it doesn't (or there is no form). */
 const answer = shallowRef<Json | undefined>(undefined);
-/** Approve waits for a form that fits. */
-const blocked = computed(() => props.ask !== undefined && answer.value === undefined);
-const approveLabel = computed(() => (props.ask === undefined ? 'Approve' : 'Answer'));
+/** An optional form (an "always allow" tick) may be left as it is; Approve waits for any other form to fit. */
+const optional = computed(() => props.ask?.type.name === 'optional');
+const blocked = computed(() => props.ask !== undefined && !optional.value && answer.value === undefined);
+const approveLabel = computed(() => (props.ask === undefined || optional.value ? 'Approve' : 'Answer'));
 const body = ref<HTMLElement | null>(null);
 const cut = useClipped(body);
 const clipped = computed(() => props.bounded && cut.value);

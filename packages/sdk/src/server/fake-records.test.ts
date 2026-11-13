@@ -25,10 +25,12 @@ function fake() {
 }
 
 describe('person-owned records on the fake hub', () => {
-  it('refuses a person-owned type outside a run', () => {
-    const { records } = fake();
-    expect(() => records.save({ type: NOTE, value: { title: 'x' } })).toThrow(/read in a run/);
-    expect(() => records.find({ type: NOTE, query: ALL })).toThrow(/read in a run/);
+  it('lets the system keep every record of its own types outside a run, keeping each owner', () => {
+    const { records, as } = fake();
+    const ann = records.save({ type: NOTE, value: { title: 'Ann note' }, run: RUN });
+    as.actor = BOB;
+    expect(records.find({ type: NOTE, query: ALL }).items.map((record) => record.id)).toEqual([ann.id]);
+    expect(records.save({ type: NOTE, id: ann.id, value: { title: 'done' } }).owner).toBe(ANN);
   });
 
   it('hides one person\'s records from another', () => {

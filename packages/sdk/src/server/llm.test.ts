@@ -165,6 +165,15 @@ describe('HarnessProvider', () => {
     await expect(new HubLlm({ hub: access, content: new MemoryContent() }).text({ prompt: 'x' })).rejects.toMatchObject({ name: 'HubLlmError', kind: 'limit' });
     expect(new HubLlmError('m', 'model').kind).toBe('model');
   });
+
+  // OpenAI refused the program authoring agents' `signature` tool in strict mode (a gin record's propertyNames)
+  it('turns a provider\'s refusal of a tool schema into aeye\'s schema rejection, so the prompt can fall back', async () => {
+    const message = 'Invalid schema for function \'signature\': In context=(\'properties\', \'props\', \'anyOf\', \'0\'), \'propertyNames\' is not permitted.';
+    const { access } = scriptedHub([() => [{ type: 'error', message, kind: 'provider' }]]);
+    const request = { messages: [{ role: 'user' as const, content: 'x' }], tools: [{ name: 'signature', parameters: z.object({ q: z.string() }) }] };
+    const stream = new HarnessProvider({ hub: access, content: new MemoryContent() }).forward(request, undefined);
+    await expect(stream.next()).rejects.toMatchObject({ name: 'SchemaRejectedError', target: { kind: 'tool', name: 'signature' } });
+  });
 });
 
 describe('the hub\'s real models (ctx.ai / hubAi)', () => {

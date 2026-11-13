@@ -6,7 +6,7 @@
 import { CODE_KIND, CodeFnSpec, KindDescription, QualifiedName, splitName, type Json } from '@harness/core';
 import { CallFailed, hub, type FnCtx, type KindCheckCtx, type SystemImpl, type TypesOf } from '@harness/sdk';
 import {
-  ProgramError, checkProgram, hubProgramHost, kindCheckLookups, kindRunLookups, runProgram, storedProgramScope, type ProgramCheck, type ProgramLookups,
+  ProgramError, calleesMode, checkProgram, hubProgramHost, kindCheckLookups, kindRunLookups, runProgram, storedProgramScope, type ProgramCheck, type ProgramLookups,
 } from '@harness/sdk/program';
 import { AuthoringError } from '@harness/sdk/server';
 import type { CodeContract } from '../shared/index.ts';
@@ -90,15 +90,16 @@ export function createCodeImpl(_deps: CodeDeps): SystemImpl<CodeContract['defs']
         check: (payload, ctx) => payloadProblems(CodeFnSpec.parse(payload), ctx),
         async describe(payload, ctx) {
           const spec = CodeFnSpec.parse(payload);
-          const { check } = await checked(spec, kindCheckLookups(ctx));
+          const lookups = kindCheckLookups(ctx);
+          const { check } = await checked(spec, lookups);
           return KindDescription.parse({
             args: spec.args,
             returns: spec.returns,
             // the fns it calls, and hub/fn_get to read their signatures when it runs
             deps: check.calls.length === 0 ? [] : [...check.calls, hub.fns.fn_get.name],
             operations: { cancel: true, pause: false, undo: false, background: false },
-            // its own work is free and only reads; the hub works out the rest from the fns it calls
-            ...(check.calls.length === 0 ? { effects: { mode: 'read', free: true } } : {}),
+            // its own work is free and only reads; calling fns, it does what the strongest of them does
+            effects: check.calls.length === 0 ? { mode: 'read', free: true } : { mode: await calleesMode(check.calls, lookups) },
             ...(check.code === undefined ? {} : { readable: { language: 'ts', code: check.code } }),
           });
         },

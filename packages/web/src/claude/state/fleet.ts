@@ -106,7 +106,7 @@ export class ClaudeStarter {
     this.#runs?.close();
     this.#runs = runs;
     this.runs.value = runs;
-    const outcome = await runs.run(CLAUDE_FNS.start, jsonOf(checked.args), () => { this.phase.value = 'approval'; });
+    const outcome = await runs.run(CLAUDE_FNS.start, jsonOf(checked.args), () => { this.phase.value = 'approval'; }, checked.on);
     this.phase.value = 'typing';
     if (!outcome.ok) { this.problem.value = outcome.problem; return undefined; }
     const turn = ClaudeTurn.safeParse(outcome.output);

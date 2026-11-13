@@ -56,7 +56,7 @@ const waiting = computed(() => store.value?.waiting.value ?? []);
 const transcriptOf = (id: string) => links.claudeSession(param('instance'), param('session'), task.value === id ? {} : { task: id });
 const mode = computed({
   get: () => record.value?.permissionMode ?? 'default',
-  set: (next: ClaudePermissionMode) => { if (next !== record.value?.permissionMode) { void act('interrupt', next); } },
+  set: (next: ClaudePermissionMode) => { if (next !== record.value?.permissionMode) { void act('mode', next); } },
 });
 const composerHint = computed(() => {
   if (record.value === undefined) { return ''; }
@@ -68,7 +68,7 @@ async function act(action: ClaudeControl['action'], next?: ClaudePermissionMode)
   const current = store.value;
   if (current === undefined) { return; }
   if (await current.control(action, next)) { toasts.ok(next !== undefined ? `Mode: ${MODE_OPTIONS.find((o) => o.value === next)?.label ?? next}` : action === 'stop' ? 'Session stopped' : 'Interrupted'); }
-  else { toasts.error(action === 'stop' ? "Couldn't stop it" : "Couldn't interrupt it", current.problem.value); }
+  else { toasts.error(action === 'mode' ? "Couldn't switch the mode" : action === 'stop' ? "Couldn't stop it" : "Couldn't interrupt it", current.problem.value); }
 }
 
 async function send(text: string, done: (sent: boolean) => void): Promise<void> {
@@ -136,7 +136,7 @@ async function decide(card: WaitingCard, approve: boolean, remember: Remember, r
           </UiBanner>
           <UiBanner v-if="store?.transcriptProblem.value" tone="danger">{{ store.transcriptProblem.value }}</UiBanner>
           <ClaudeTranscript
-            v-if="store" :items="store.items.value" :more="store.next.value !== undefined" :loading="store.transcriptLoading.value" @more="store.more()"
+            v-if="store" :items="store.items.value" :more="store.older.value" :loading="store.transcriptLoading.value" @more="store.more()"
           />
           <p v-if="store && store.items.value.length === 0 && !store.transcriptLoading.value && !store.transcriptProblem.value" class="note">Nothing in the transcript yet.</p>
           <ClaudeComposer v-if="task === ''" :busy="store?.sending.value ?? false" :hint="composerHint" @send="send" />

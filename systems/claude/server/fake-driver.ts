@@ -4,7 +4,7 @@
  * a question (each resolves with what the person decided). Claude's store is a list the test fills.
  */
 import type { ClaudePermissionMode, ClaudeSessionId, ClaudeTranscriptItem } from '@harness/core';
-import type { ClaudeDriver, DriverEvent, DriverOpen, DriverPage, FoundImportable, LiveSession, PermitDecision, PermitRequest, QuestionReply, QuestionRequest, SessionListener, StoredSession } from './driver.ts';
+import { sliceOf, type ClaudeDriver, type DriverEvent, type DriverOpen, type DriverPage, type FoundImportable, type LiveSession, type PermitDecision, type PermitRequest, type QuestionReply, type QuestionRequest, type SessionListener, type StoredSession, type TranscriptRequest, type TranscriptSlice } from './driver.ts';
 
 /** One session the fake opened, and what happened to it. */
 export class FakeSession implements LiveSession {
@@ -95,9 +95,11 @@ export class FakeClaudeDriver implements ClaudeDriver {
     return Promise.resolve(this.stored.find((s) => s.session === session));
   }
 
-  transcript(query: { readonly session: ClaudeSessionId; readonly agent?: string | undefined; readonly offset: number; readonly limit: number }): Promise<DriverPage<ClaudeTranscriptItem>> {
+  /** Each scripted item stands for one stored message. */
+  transcript(query: TranscriptRequest): Promise<TranscriptSlice> {
     const all = this.transcripts.get(query.agent === undefined ? query.session : `${query.session}/${query.agent}`) ?? [];
-    return Promise.resolve({ items: all.slice(query.offset, query.offset + query.limit), more: all.length > query.offset + query.limit });
+    const { start, end } = sliceOf(all.length, query);
+    return Promise.resolve({ items: all.slice(start, end), offset: start, end, more: end < all.length });
   }
 
   importables(): Promise<FoundImportable[]> {

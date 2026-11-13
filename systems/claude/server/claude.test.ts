@@ -6,7 +6,7 @@
  * transcript items, forms, MCP configs) are checked on their own.
  */
 import { resolve } from 'node:path';
-import { jsonOf, McpServerConfig, mintId, qualify, SystemView, type ClaudeTranscriptItem } from '@harness/core';
+import { jsonOf, McpServerConfig, mintId, qualify, SystemView, type ClaudeTranscriptItem, type DataRecord } from '@harness/core';
 import { TEST_USER, testHub, type TestSystem } from '@harness/sdk/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -27,12 +27,12 @@ const MEMBER = { ...TEST_USER, role: 'member' as const };
 let kit: TestSystem<'claude', typeof claude.defs> | undefined;
 afterEach(async () => { await kit?.stop(); kit = undefined; });
 
-async function setup() {
+async function setup(records: readonly DataRecord[] = []) {
   const driver = new FakeClaudeDriver();
   const patches: Parameters<ClaudeRuntime['patch']>[0][] = [];
   const runtime: ClaudeRuntime = { patch: (change) => { patches.push(change); return Promise.resolve({ added: [], updated: [], removed: [], refused: [] }); } };
   const server = createClaudeImpl({ settings: claudeEnv.parse(), driver, runtime: () => Promise.resolve(runtime) });
-  kit = await testHub(claude, server.impl, { config: { folders: [{ path: ROOT, label: 'Code' }], maxLive: 2 } });
+  kit = await testHub(claude, server.impl, { config: { folders: [{ path: ROOT, label: 'Code' }], maxLive: 2 }, records });
   return { kit, driver, patches, fleet: server.fleet };
 }
 
@@ -96,8 +96,23 @@ describe('claude system', () => {
     await vi.waitFor(() => { expect(kit.hub.proposals).toHaveLength(1); });
     const proposal = kit.hub.proposals[0];
     expect(proposal).toMatchObject({ fn: 'answer', ask: { into: 'answer', type: form.form }, preview: { title: 'Claude asks: Which database?' } });
-    await kit.hub.peer().call('event', { type: 'run', run: proposal?.run ?? mintId('run'), fn: qualify('claude', 'answer'), update: { type: 'status', status: 'cancelled' } });
-    await expect(replied).resolves.toEqual({ declined: 'The person declined.' });
+    // Claude hears who declined and why, in the hub's words
+    await kit.hub.declineProposal(proposal?.run ?? mintId('run'), 'use what we have');
+    await expect(replied).resolves.toEqual({ declined: `Declined by ${TEST_USER.name}: use what we have` });
+  });
+
+  it('closes, on start, the busy records of sessions a restart left without a live handle', async () => {
+    const waiting = mintId('run');
+    const stuck = {
+      id: mintId('record'), type: qualify('claude', 'Session'), owner: TEST_USER.id, title: 'Old work', version: 3, createdAt: 1, updatedAt: 1, updatedBy: TEST_USER.id,
+      value: {
+        instance: 'main', session: '6f1d7a52-9a3e-4a6e-8f0a-0c1b2d3e4f50', folder: FOLDER, title: 'Old work', status: 'waiting', permissionMode: 'default',
+        owner: TEST_USER.id, waiting: [waiting], asking: ['x'], tasks: [], turns: 1, costUsd: 0, startedAt: 1, updatedAt: 1,
+      },
+    };
+    const { kit } = await setup([stuck]);
+    await vi.waitFor(() => { expect(kit.hub.data.records.get(stuck.id)?.value).toMatchObject({ status: 'closed', waiting: [], asking: [] }); });
+    expect(kit.hub.data.records.get(stuck.id)?.owner).toBe(TEST_USER.id);
   });
 
   it('pages a transcript, interrupts and stops a session, and lists Claude\'s store for admins only', async () => {
@@ -106,10 +121,17 @@ describe('claude system', () => {
     const items: ClaudeTranscriptItem[] = [{ type: 'user', uuid: 'u1', text: 'Hello.' }, { type: 'assistant', uuid: 'a1', text: 'Hi!' }, { type: 'assistant', uuid: 'a2', text: 'Ready.' }];
     driver.transcripts.set(result.session, items);
     const page = await kit.call('transcript', { instance: 'main', session: result.session, offset: 0, limit: 2 });
-    expect(page.result).toEqual({ items: items.slice(0, 2), offset: 0, next: 2 });
+    expect(page.result).toEqual({ items: items.slice(0, 2), offset: 0, end: 2, next: 2 });
+    // the newest page first: two back from the end
+    const latest = await kit.call('transcript', { instance: 'main', session: result.session, offset: 0, limit: 2, fromEnd: true });
+    expect(latest.result).toEqual({ items: items.slice(1), offset: 1, end: 3 });
 
     await kit.call('control', { instance: 'main', session: result.session, action: 'interrupt', mode: 'plan' });
     expect(driver.live(result.session)).toMatchObject({ interrupts: 1, modes: ['plan'] });
+    // a mode switch alone leaves the turn running
+    await kit.call('control', { instance: 'main', session: result.session, action: 'mode', mode: 'acceptEdits' });
+    expect(driver.live(result.session)).toMatchObject({ interrupts: 1, modes: ['plan', 'acceptEdits'] });
+    expect((await kit.run('control', { instance: 'main', session: result.session, action: 'mode' })).outcome.status).toBe('invalid-input');
     const stopped = await kit.call('control', { instance: 'main', session: result.session, action: 'stop' });
     expect(stopped.result.status).toBe('closed');
     expect(fleet.isLive(result.session)).toBe(false);

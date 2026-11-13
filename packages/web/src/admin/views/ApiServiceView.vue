@@ -5,7 +5,7 @@
  * and the api fns that run on it, made in the chat with `api/make_api`) and its settings (saved as the instance's
  * config; kept secrets stay unless replaced). Removing it removes the instance.
  */
-import { InstanceName, connectFlowOf, type QualifiedName } from '@harness/core';
+import { InstanceName, connectFlowOf } from '@harness/core';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AppPage from '../../app/AppPage.vue';
@@ -84,7 +84,6 @@ async function remove(): Promise<void> {
   await router.push(links.apiServices());
 }
 
-const pageOf = (fn: QualifiedName) => links.fn(fn);
 </script>
 
 <template>
@@ -119,7 +118,7 @@ const pageOf = (fn: QualifiedName) => links.fn(fn);
             empty-icon="fn" empty-title="No fns yet" :empty-body="`Ask in the chat for a fn that calls ${title}; the authoring agent reads its OpenAPI document and tests GETs.`"
             @retry="store.show(instance)"
           >
-            <FnList :fns="fns" :now="now" :runs-of="links.fnRuns" :page-of="pageOf" />
+            <FnList :fns="fns" :now="now" :runs-of="links.fnRuns" />
           </LoadState>
         </template>
 

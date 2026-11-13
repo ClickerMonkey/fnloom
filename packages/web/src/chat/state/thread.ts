@@ -8,7 +8,7 @@
  */
 import {
   compositeKey, isSettled, type ActorId, type Approval, type ApprovalId, type ChatMessage, type ClientInfo, type DeliveryId, type DeliveryView, type HandlerCall,
-  type HandlerCallId, type Json, type MessageId, type NotifyChoice, type OutgoingPart, type Presence, type QualifiedName, type Remember,
+  type HandlerCallId, type InstanceName, type Json, type MessageId, type NotifyChoice, type OutgoingPart, type Presence, type QualifiedName, type Remember,
   type ResolvedLimits, type RunId, type Session, type SessionControls, type SessionEvent, type SessionId, type SessionSummary, type StateFieldValue,
   type SystemName, type TurnId, type UndoReport,
 } from '@harness/core';
@@ -431,9 +431,9 @@ export class ThreadStore {
   }
 
   /** Run a fn by hand (`!fn`); submitting its form is the approval. */
-  async invoke(fn: QualifiedName, args: Json): Promise<RunId | undefined> {
+  async invoke(fn: QualifiedName, args: Json, on?: InstanceName): Promise<RunId | undefined> {
     try {
-      const started = await this.#deps.api.invoke.call({ session: this.id, fn, args, client: this.#deps.client() });
+      const started = await this.#deps.api.invoke.call({ session: this.id, fn, args, ...(on === undefined ? {} : { on }), client: this.#deps.client() });
       this.#upsertRun(this.runs.value.get(started.run) ?? emptyRun(started.run, fn));
       this.awaiting.value = started.turn;
       this.#newTurn();

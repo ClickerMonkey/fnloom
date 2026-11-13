@@ -130,6 +130,14 @@ export const FN_MODES = ['read', 'write', 'delete'] as const;
 export const FnMode = z.enum(FN_MODES);
 export type FnMode = z.infer<typeof FnMode>;
 
+/** How a fn mode ranks against another: read below write below delete. */
+export const MODE_RANK: Readonly<Record<FnMode, number>> = { read: 0, write: 1, delete: 2 };
+
+/** The stronger of two modes. */
+export function strongerMode(a: FnMode, b: FnMode): FnMode {
+  return MODE_RANK[a] >= MODE_RANK[b] ? a : b;
+}
+
 /**
  * How far a chat lets its agent go: `none` offers no fns, `read` / `write` / `delete` allow fns up to that mode, and
  * `auto` asks the hub's classifier model (`AutoClassifier`) about each call above `read`, as Claude Code's auto mode does.
@@ -450,8 +458,11 @@ export const ImportReport = z.object({
 });
 export type ImportReport = z.infer<typeof ImportReport>;
 
-/** A fn as a kind's check sees it (sdk `KindCheckCtx.fn`, hub link `fnShape`): its args, result and description. */
-export const KindFnShape = z.object({ args: GinTypeDef, returns: GinTypeDef, description: z.string() });
+/**
+ * A fn as a kind's check sees it (sdk `KindCheckCtx.fn`, hub link `fnShape`): its args, result, description and mode
+ * (worked out through what it calls, when the hub has its facts), so a kind can declare the effects of what it calls.
+ */
+export const KindFnShape = z.object({ args: GinTypeDef, returns: GinTypeDef, description: z.string(), mode: FnMode });
 export type KindFnShape = z.infer<typeof KindFnShape>;
 
 /**

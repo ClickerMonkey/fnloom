@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BUILT_IN_ENTRIES, WidgetSpecV1, columnFacts, rankVisuals, upgradeWidgetSpec, type ResultTable } from './index.ts';
+import { BUILT_IN_ENTRIES, RecordUpdate, WidgetSpecV1, columnFacts, rankVisuals, toCsv, upgradeWidgetSpec, type ResultTable } from './index.ts';
 
 const table = (columns: ResultTable['columns'], rows: ResultTable['rows'], truncated = false): ResultTable => ({ columns, rows, offset: 0, truncated, sort: [] });
 
@@ -42,5 +42,14 @@ describe('visual ranking (widget pass)', () => {
       title: 'T', source: 'database/q', visuals: [{ visual: 'category', style: 'bar', bind: { x: ['s'], y: ['n'] } }], args: { p: { show: 'pinned', value: { literal: 'x' } } }, presets: [],
       actions: [{ fn: 'todo/Task.done', bind: {}, then: 'open' }],
     });
+    const chosen = WidgetSpecV1.parse({ title: 'T', source: 'database/q', visuals: [{ visual: 'bar', bind: { label: ['s'], value: ['n'] } }], controls: [{ arg: 'status', choices: ['open', 3] }, { arg: 'h', hidden: true }] });
+    expect(upgradeWidgetSpec(chosen).args).toEqual({
+      status: { show: 'control', choices: [{ label: 'open', value: { literal: 'open' } }, { label: '3', value: { literal: 3 } }] }, h: { show: 'hidden' },
+    });
+  });
+
+  it('writes a table as CSV, the header first, and refuses a record update that sets nothing', () => {
+    expect(toCsv([{ name: 'a' }, { name: 'b' }], [[1, 'x,y']]).split('\r\n')).toEqual(['a,b', '1,"x,y"', '']);
+    expect(RecordUpdate.safeParse({ type: 'notes/Note', id: 'rec_1', set: {} }).success).toBe(false);
   });
 });

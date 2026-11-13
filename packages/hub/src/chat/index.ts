@@ -9,7 +9,7 @@
  * manifest entries (`Catalog.entries`).
  */
 import type {
-  ActorId, Approver, Asker, ChatMessage, ClientInfo, DeliveryId, DeliveryRecord, HookBlock, Json, MentionHover, MentionOption,
+  ActorId, Approver, Asker, ChatMessage, ClientInfo, DeliveryId, DeliveryRecord, HookBlock, InstanceName, Json, MentionHover, MentionOption,
   MessageId, MessagePart, Notification, NotificationId, NotificationLink, NotificationReason, OutgoingPart, Page, Presence, QualifiedName, RunId,
   Session, SessionControls, SessionId, Suggestion, SuggestDecision, SuggestDecisionView, SuggestionRecord, SessionPatch, SessionSummary, StateFieldValue, StateOwner, SystemName, TurnId, TurnStatus, UndoReport, UserInfo,
   Compact, DecideAnswer, DecideRequest, SessionListQuery, MessageListQuery, NotificationListQuery, SessionControlAction,
@@ -59,7 +59,7 @@ export type TurnEnd = Exclude<TurnStatus, 'running' | 'paused' | 'undone'>;
 /** Turns: a user message (or `!` invocation) and everything it caused. */
 export interface TurnService {
   send(input: { session: SessionId; author: ActorId; parts: OutgoingPart[]; replyTo?: MessageId; replyAll?: boolean; client: ClientInfo }): Promise<{ turn: TurnId; message: ChatMessage }>;
-  invoke(input: { session: SessionId; author: ActorId; fn: QualifiedName; args: Json; client: ClientInfo }): Promise<{ turn: TurnId; run: RunId }>;
+  invoke(input: { session: SessionId; author: ActorId; fn: QualifiedName; args: Json; on?: InstanceName | undefined; client: ClientInfo }): Promise<{ turn: TurnId; run: RunId }>;
   /** Open an assistant message for an agent's answer (from the agent loop); it streams until `finish`. */
   begin(input: { turn: TurnId; author: ActorId; replyTo?: MessageId }): Promise<ChatMessage>;
   /** Append streamed text to an assistant message (from the agent loop). */

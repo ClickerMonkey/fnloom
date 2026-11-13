@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
  * A session's transcript as rows: the person's messages, Claude's answers (markdown), its thinking (folded), each tool
- * use in a line (the tool and what it does) that opens to its input and result, and notes. Later pages are read with
- * "Show more" while the transcript has more.
+ * use in a line (the tool and what it does) that opens to its input and result, and notes. It shows the newest page
+ * first; earlier pages are read with "Show earlier" above it.
  */
 import { computed } from 'vue';
 import { UiButton, UiCodeBlock, UiIcon, UiMarkdown, UiSpinner } from '../../ui/index.ts';
@@ -11,7 +11,7 @@ import { transcriptRows } from '../logic/claude.ts';
 
 const props = defineProps<{
   items: readonly ClaudeTranscriptItem[];
-  /** More entries follow the ones shown. */
+  /** Earlier entries come before the ones shown. */
   more: boolean;
   loading: boolean;
 }>();
@@ -23,6 +23,8 @@ const json = (value: unknown): string => JSON.stringify(value, null, 2);
 
 <template>
   <ol class="transcript" data-testid="claude-transcript">
+    <li v-if="loading" class="row loading"><UiSpinner :size="16" /></li>
+    <li v-else-if="more" class="row loading"><UiButton size="sm" variant="ghost" data-testid="transcript-more" @click="emit('more')">Show earlier</UiButton></li>
     <li v-for="row in rows" :key="row.key" :class="['row', `row-${row.type}`]" :data-type="row.type">
       <p v-if="row.type === 'user'" class="user">{{ row.text }}</p>
       <div v-else-if="row.type === 'assistant'" class="assistant"><UiMarkdown :source="row.text" /></div>
@@ -43,8 +45,6 @@ const json = (value: unknown): string => JSON.stringify(value, null, 2);
       </details>
       <p v-else class="note">{{ row.text }}</p>
     </li>
-    <li v-if="loading" class="row loading"><UiSpinner :size="16" /></li>
-    <li v-else-if="more" class="row loading"><UiButton size="sm" variant="ghost" data-testid="transcript-more" @click="emit('more')">Show more</UiButton></li>
   </ol>
 </template>
 

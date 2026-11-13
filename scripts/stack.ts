@@ -1,6 +1,6 @@
 /**
  * Boots the whole harness on this machine: builds the web app, starts the hub (which serves the build), signs in as
- * the single admin account, pairs the fs, embedder, web, input, widgets, claude, (when its OAuth client is given) google-calendar and
+ * the single admin account, pairs the fs, embedder, web, input, widgets, code, claude, (when its OAuth client is given) google-calendar and
  * (one process per configured database instance) database systems with one-time pairing tokens the first time, starts them, and configures
  * each with its config. `npm run dev` and the e2e tests both use it; `stop()` stops every process it started. With
  * `restart`, each process is supervised: restarted when it crashes or stops answering, with why in the crash log.
@@ -20,6 +20,7 @@ import { googleCalendar, type CalendarContract } from '../systems/google-calenda
 import { input } from '../systems/input/shared/index.ts';
 import { widgets } from '../systems/widgets/shared/index.ts';
 import { claude } from '../systems/claude/shared/index.ts';
+import { code } from '../systems/code/shared/index.ts';
 import { web, type WebContract } from '../systems/web/shared/index.ts';
 import { Supervisor, type SuperviseOptions } from './supervise.ts';
 import { signIn, waitFor, type Credentials, type SignedIn } from './hub-client.ts';
@@ -42,7 +43,7 @@ export interface StackSystems {
 }
 
 /** The process each system runs as: its own name, but `web-system` for the web system (`web` is the app's build). */
-export const SYSTEM_COMPONENTS = { fs: 'fs', embedder: 'embedder', web: 'web-system', input: 'input', widgets: 'widgets', calendar: 'calendar', database: 'database', claude: 'claude' } as const satisfies Record<Exclude<keyof StackSystems, 'databases'> | 'input' | 'widgets' | 'database' | 'claude', string>;
+export const SYSTEM_COMPONENTS = { fs: 'fs', embedder: 'embedder', web: 'web-system', input: 'input', widgets: 'widgets', code: 'code', calendar: 'calendar', database: 'database', claude: 'claude' } as const satisfies Record<Exclude<keyof StackSystems, 'databases'> | 'input' | 'widgets' | 'code' | 'database' | 'claude', string>;
 
 /** A process the stack runs. */
 export type ComponentName = 'web' | 'hub' | (typeof SYSTEM_COMPONENTS)[keyof typeof SYSTEM_COMPONENTS];
@@ -63,7 +64,7 @@ export interface StackOptions {
    * Never watched.
    */
   readonly pinned?: { readonly hub: string; readonly web: string };
-  /** Which of hub, fs, embedder, web-system, input, widgets, calendar and database to run (`web` is the build step). */
+  /** Which of hub, fs, embedder, web-system, input, widgets, code, claude, calendar and database to run (`web` is the build step). */
   readonly only: ReadonlySet<ComponentName>;
   readonly systems: StackSystems;
   /** Extra environment for the hub (models, tunables). */
@@ -232,6 +233,7 @@ export async function startStack(options: StackOptions): Promise<Stack> {
       { name: 'web', entry: join(ROOT, 'systems', 'web', 'server', 'main.ts'), config: encodeValue(web.defs.config, options.systems.web ?? {}) },
       { name: 'input', system: input.name, entry: join(ROOT, 'systems', 'input', 'server', 'main.ts'), config: encodeValue(input.defs.config, {}) },
       { name: 'widgets', system: widgets.name, entry: join(ROOT, 'systems', 'widgets', 'server', 'main.ts'), config: encodeValue(widgets.defs.config, {}) },
+      { name: 'code', system: code.name, entry: join(ROOT, 'systems', 'code', 'server', 'main.ts'), config: encodeValue(code.defs.config, {}) },
       // Claude Code sessions may start in any folder beside this repository
       { name: 'claude', system: claude.name, entry: join(ROOT, 'systems', 'claude', 'server', 'main.ts'), config: encodeValue(claude.defs.config, { folders: [{ path: dirname(ROOT), label: basename(dirname(ROOT)) }] }) },
       ...(options.systems.calendar === undefined ? [] : [{

@@ -89,8 +89,8 @@ export class StoreDataService implements DataService {
     const offset = offsetOf(query.cursor);
     const page = seen.slice(offset, offset + (query.limit ?? this.#deps.settings.HARNESS_DATA_SET_PAGE));
     const counts = this.#deps.store.recordQueries;
-    const shared = await counts.counts(page.filter((t) => !this.#ownOnly(t.records, asker)).map((t) => t.name));
-    const own = await counts.counts(page.filter((t) => this.#ownOnly(t.records, asker)).map((t) => t.name), asker.actor);
+    const shared = await counts.counts(page.filter((t) => !this.#ownOnly(t, asker)).map((t) => t.name));
+    const own = await counts.counts(page.filter((t) => this.#ownOnly(t, asker)).map((t) => t.name), asker.actor);
     const items = page.map((type): DataSetView => {
       const count = shared.get(type.name) ?? own.get(type.name);
       return {
@@ -111,7 +111,7 @@ export class StoreDataService implements DataService {
     const text = [query.search, list.text].filter((t): t is string => t !== undefined && t.trim() !== '').join(' ');
     const ranked = text === '' ? undefined : await this.#searched(stored, text, asker);
     const found = await this.#deps.store.recordQueries.find({
-      type: stored.type.name, owner: this.#ownOnly(stored.type.records, asker) ? asker.actor : undefined,
+      type: stored.type.name, owner: this.#ownOnly(stored.type, asker) ? asker.actor : undefined,
       ids: ranked, filters, sort,
       // a search with no sort of its own is read in rank order below, so it pages over the whole ranked set
       offset: ranked !== undefined && sort.length === 0 ? 0 : offset, limit: ranked !== undefined && sort.length === 0 ? ranked.length || 1 : limit,
@@ -214,7 +214,7 @@ export class StoreDataService implements DataService {
       where: { record: query.id, type: stored.type.name }, order: [['number', 'desc']], limit: query.limit ?? this.#deps.settings.HARNESS_RECORD_PAGE, cursor: query.cursor,
     });
     // a person-owned record's history is its owner's (and admins'), as the record is; a removed one's, whoever wrote it
-    if (this.#ownOnly(stored.type.records, asker)) {
+    if (this.#ownOnly(stored.type, asker)) {
       const current = await this.#deps.store.table('records').get(query.id);
       const theirs = current === undefined ? page.items.every((version) => version.by === asker.actor) : this.#sees(current, stored, asker);
       if (!theirs) { return { items: [] }; }
@@ -231,14 +231,17 @@ export class StoreDataService implements DataService {
     return { type: { ...type, records: type.records }, fields: recordFields(type.def) };
   }
 
-  /** Whether reads of a type keep to the asker's own records: a person-owned type, for anyone but an admin. */
-  #ownOnly(storage: RecordStorage, asker: DataAsker): boolean {
-    return storage.owner === 'person' && !asker.access.admin;
+  /** Whether reads of a type keep to the asker's own records: a person-owned type, for anyone but an admin or its own system outside a run. */
+  #ownOnly(type: Pick<TypeRecord, 'system'> & { readonly records: RecordStorage }, asker: DataAsker): boolean {
+    if (type.records.owner !== 'person' || asker.access.admin) return false;
+    // a system keeps the records of its own types outside a run (a session's status as it changes): it reads and
+    // writes all of them, and a save keeps each record's owner
+    return !(asker.system !== undefined && asker.run === undefined && asker.system === type.system);
   }
 
   /** Whether the asker sees a record of a stored type. */
   #sees(record: DataRecord, stored: Stored, asker: DataAsker): boolean {
-    return record.type === stored.type.name && (!this.#ownOnly(stored.type.records, asker) || record.owner === asker.actor);
+    return record.type === stored.type.name && (!this.#ownOnly(stored.type, asker) || record.owner === asker.actor);
   }
 
   /** Filters and sorts on the type's queryable fields with operators their type takes; refused (400) otherwise. */
@@ -264,7 +267,7 @@ export class StoreDataService implements DataService {
    * keeps to the type's keys (and the asker's own, when reads keep to them), so other records never use up the depth.
    */
   async #searched(stored: Stored, text: string, asker: DataAsker): Promise<RecordId[]> {
-    const prefix = indexPrefix(stored.type.name, this.#ownOnly(stored.type.records, asker) ? asker.actor : undefined);
+    const prefix = indexPrefix(stored.type.name, this.#ownOnly(stored.type, asker) ? asker.actor : undefined);
     const depth = this.#deps.settings.HARNESS_RECORD_SEARCH_DEPTH;
     const keys = stored.type.records.search.embed
       ? (await this.#deps.search().search({ text, kinds: ['record'], limit: depth, prefix })).map((hit) => hit.key)

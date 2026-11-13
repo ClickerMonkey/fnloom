@@ -32,7 +32,7 @@ async function start(script: readonly ScriptStep[]): Promise<Kit> {
 /** Answer child calls as the hub does: `hub/fn_get` of weather/forecast with its signature, the forecast itself, else the kit's fns. */
 function scriptHub(running: Kit): Array<{ fn: string; args: Json }> {
   const seen: Array<{ fn: string; args: Json }> = [];
-  running.hub.onFnShape = (name) => Promise.resolve(name === 'weather/forecast' ? { fn: { ...FORECAST, description: 'The forecast for a city.' } } : {});
+  running.hub.onFnShape = (name) => Promise.resolve(name === 'weather/forecast' ? { fn: { ...FORECAST, description: 'The forecast for a city.', mode: 'read' as const } } : {});
   running.hub.onCall = async (call) => {
     seen.push({ fn: call.fn, args: call.args });
     await running.hub.peer().call('child', { parent: call.parent, key: call.key, run: mintId('run') });
@@ -102,7 +102,7 @@ describe('the program kind', () => {
     scriptHub(running);
     const props = await running.kindProps('program', CALLS);
     expect(props.problems).toEqual([]);
-    expect(props.description).toMatchObject({ deps: ['weather/forecast', hub.fns.fn_get.name], args: CALLS.args, returns: CALLS.returns, readable: { language: 'ts' } });
+    expect(props.description).toMatchObject({ deps: ['weather/forecast', hub.fns.fn_get.name], args: CALLS.args, returns: CALLS.returns, readable: { language: 'ts' }, effects: { mode: 'read' } });
     const loop: CodeFnSpec = { ...CALLS, program: { kind: 'loop', over: { kind: 'new', type: { name: 'bool' }, value: true }, body: { kind: 'get', path: [{ prop: 'args' }] } } };
     expect((await running.kindProps('program', loop)).problems.join('\n')).toContain('while-loop');
   });

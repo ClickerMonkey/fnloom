@@ -110,15 +110,15 @@ describe('approval', () => {
   });
 
   it('makes a table from a gin type once approved, and it becomes a hub type', async () => {
-    const { run } = await me.hub.call('invoke', {
+    await me.hub.call('invoke', {
       session, fn: QualifiedName.parse('database/create_table'), client: clientInfo(),
       args: { table: 'notes', database: 'main', type: { name: 'obj', props: { id: { type: { name: 'num', options: { whole: true } } }, title: { type: { name: 'text' } } } } },
     });
-    const change = await waitingRun('database/change_schema');
+    // create_table asks once itself, its card showing the DDL (the owner's 2026-11-13 fix), and makes the table once approved
+    const change = await waitingRun('database/create_table');
     const [approval] = await me.hub.call('approvals', { runs: [change.id] });
-    expect(approval?.preview?.parts.map((part) => part.type)).toEqual(expect.arrayContaining(['code', 'type-diff']));
+    expect(approval?.preview?.parts.map((part) => part.type)).toContain('code');
     expect((await decide(change.id, true)).status).toBe('done');
-    await waitFor('create_table to settle', async () => (isSettled((await me.hub.call('run', { run })).status) ? true : undefined), { timeout: TURN, every: 500 });
     expect((await me.hub.call('types', { names: [QualifiedName.parse('database/main.notes')] })).missing).toEqual([]);
   });
 });

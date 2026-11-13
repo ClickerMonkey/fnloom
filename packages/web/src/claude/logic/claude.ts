@@ -5,7 +5,7 @@
  * drawn (each tool use with its result), and the checked args of a new session.
  */
 import {
-  CLAUDE_SESSION_TYPE, CLAUDE_SYSTEM, ClaudePermissionMode, ClaudeSession, ClaudeSessionStatus, ClaudeStart, qualify, type ClaudeTask, type ClaudeTranscriptItem,
+  CLAUDE_SESSION_TYPE, CLAUDE_SYSTEM, ClaudePermissionMode, ClaudeSession, ClaudeSessionStatus, ClaudeStart, InstanceName, qualify, type ClaudeTask, type ClaudeTranscriptItem,
   type DataRecord, type Filter, type Json, type QualifiedName, type RecordId, type RecordQuery,
 } from '@harness/core';
 import { z } from 'zod';
@@ -214,24 +214,27 @@ export function transcriptRows(items: readonly ClaudeTranscriptItem[]): Transcri
 
 /** The new-session form as typed. */
 export interface StartDraft {
+  /** The machine (claude instance) it starts on; blank lets the hub pick. */
+  readonly machine: string;
   readonly folder: string;
   readonly prompt: string;
   readonly title: string;
   readonly mode: ClaudePermissionMode | '';
 }
 
-/** An empty new-session form, in a folder when one is given. */
-export function startDraft(folder = ''): StartDraft {
-  return { folder, prompt: '', title: '', mode: '' };
+/** An empty new-session form, on a machine and in a folder when they are given. */
+export function startDraft(folder = '', machine = ''): StartDraft {
+  return { machine, folder, prompt: '', title: '', mode: '' };
 }
 
-/** The args of `claude/start_session` from the form, or what is wrong with each field. */
-export function startArgs(draft: StartDraft): { readonly ok: true; readonly args: ClaudeStart } | { readonly ok: false; readonly problems: Readonly<Record<string, string>> } {
+/** The args of `claude/start_session` from the form and the machine it runs on, or what is wrong with each field. */
+export function startArgs(draft: StartDraft): { readonly ok: true; readonly args: ClaudeStart; readonly on?: InstanceName } | { readonly ok: false; readonly problems: Readonly<Record<string, string>> } {
   const checked = ClaudeStart.safeParse({
     folder: draft.folder.trim(), prompt: draft.prompt.trim(), wait: false,
     ...(draft.title.trim() === '' ? {} : { title: draft.title.trim() }), ...(draft.mode === '' ? {} : { permissionMode: draft.mode }),
   });
-  if (checked.success) { return { ok: true, args: checked.data }; }
+  const machine = InstanceName.safeParse(draft.machine);
+  if (checked.success) { return { ok: true, args: checked.data, ...(machine.success ? { on: machine.data } : {}) }; }
   const problems: Record<string, string> = {};
   for (const issue of checked.error.issues) {
     const path = issue.path.join('.');

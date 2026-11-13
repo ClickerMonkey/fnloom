@@ -36,7 +36,7 @@ describe.skipIf(!enabled)('Claude Code through the Agent SDK (live)', () => {
       expect(result.ok).toBe(true);
       expect(result.text.toLowerCase()).toContain('ok');
       expect(result.costUsd).toBeGreaterThan(0);
-      const page = await driver.transcript({ session, folder, offset: 0, limit: 20 });
+      const page = await driver.transcript({ session, folder, offset: 0, limit: 20, fromEnd: true });
       expect(page.items.some((item) => item.type === 'user' && item.text.includes('single word'))).toBe(true);
       expect(page.items.some((item) => item.type === 'assistant')).toBe(true);
     } finally {

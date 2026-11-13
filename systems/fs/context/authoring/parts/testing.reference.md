@@ -12,12 +12,12 @@ choices:
     when: "Pick this for FakeHub, FakeHubOptions, FakeProcess, TEST_USER, TEST_PLACE, NO_ASKS, HubBody, SystemBody, streamOf, liveEnv, liveModels, expectType, Equal, Simplify, MemoryKeyStore, MemoryJournal,…"
   - to: "fs/authoring.testing.reference.fakehubwidgets"
     when: "Pick this for FakeHubWidgets, HUB_WIDGET_FNS, FakeTableSource, FakeModelLink, fakeHubAi, replyChunks, FakeModelOptions, FakeReply, checkContextFolder, contextFolderLinks, CheckedContext, KnownNames,…"
-  - to: "fs/authoring.testing.reference.realmodeltest"
-    when: "Pick this for RealModelTest, OpenRouterModelLink, OpenRouterOptions, preview, PreviewOptions, SavedShot, renderHtml, galleryHtml, PreviewIndex, PREVIEW_INDEX, PREVIEW_THEMES, PreviewTheme,…"
+  - to: "fs/authoring.testing.reference.realmodel"
+    when: "Pick this for realModel, RealModelTest, OpenRouterModelLink, OpenRouterOptions, preview, PreviewOptions, SavedShot, renderHtml, galleryHtml, PreviewIndex, PREVIEW_INDEX, PREVIEW_THEMES,…"
 ---
 
 This part is in 3 pieces; load the one you need:
 
 - [FakeHub … KeptFn](context:fs/authoring.testing.reference.fakehub)
-- [FakeHubWidgets … realModel](context:fs/authoring.testing.reference.fakehubwidgets)
-- [RealModelTest … StoredTypeDecl](context:fs/authoring.testing.reference.realmodeltest)
+- [FakeHubWidgets … RecordingOptions](context:fs/authoring.testing.reference.fakehubwidgets)
+- [realModel … StoredTypeDecl](context:fs/authoring.testing.reference.realmodel)

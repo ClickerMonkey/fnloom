@@ -110,11 +110,14 @@ export const claude = system(CLAUDE_SYSTEM, {
       }),
       control: fn({
         group: 'sessions',
-        description: 'Interrupt a Claude Code session\'s current turn, or stop the session (it stays resumable); `mode` also switches its permission mode.',
-        instructions: 'Use `interrupt` when the person wants Claude to stop what it is doing now and wait; `stop` when they are done with the session.',
+        description: 'Interrupt a Claude Code session\'s current turn, stop the session (it stays resumable), or only switch its permission mode (`action: "mode"` with `mode`).',
+        instructions: 'Use `interrupt` when the person wants Claude to stop what it is doing now and wait; `stop` when they are done with the session; `mode` to change what Claude may do without asking (for example `plan` or `acceptEdits`) while it keeps working.',
         args: ginAs(ClaudeControl),
         returns: ginAs(ControlOutcome),
-        examples: [{ args: { instance: 'main', session: SESSION, action: 'interrupt' }, result: { instance: 'main', session: SESSION, status: 'idle' } }],
+        examples: [
+          { args: { instance: 'main', session: SESSION, action: 'interrupt' }, result: { instance: 'main', session: SESSION, status: 'idle' } },
+          { args: { instance: 'main', session: SESSION, action: 'mode', mode: 'acceptEdits' }, result: { instance: 'main', session: SESSION, status: 'working' }, note: 'Switch the mode only; the turn keeps running.' },
+        ],
         status: status('Controlling a Claude session…', 'Done', 'Controlling the session failed'),
         effects: { mode: 'write', free: true },
         tags: ['claude', 'write'],

@@ -45,7 +45,7 @@ async function world(depth?: number) {
     indexer: () => ({ upsert: (items) => { embedded.push(...items); return Promise.resolve(); }, remove: () => Promise.resolve() }),
     search: () => ({ search: (): Promise<SearchHit[]> => Promise.resolve([]) }),
   });
-  const ann: DataAsker = { actor: ANN, access: member(ANN), system: SystemName.parse('shop') };
+  const ann: DataAsker = { actor: ANN, access: member(ANN), system: SystemName.parse('shop'), run: IDS.run.parse('run_ann') };
   const ben: DataAsker = { actor: BEN, access: member(BEN) };
   return { store, data, ann, ben, embedded };
 }
@@ -104,6 +104,19 @@ describe('the data system', () => {
     const sets = await data.sets({}, ben);
     expect(sets.items.map((s) => [s.type, s.records])).toEqual([['shop/Note', 0], ['shop/Prefs', 1]]);
     await expect(data.find({ type: QualifiedName.parse('shop/Product') }, ann)).rejects.toMatchObject({ code: 'NO_STORED_TYPE' });
+  });
+
+  // the claude system keeps each person's session record up to date as Claude works, outside any run
+  it('lets a system keep every record of its own person-owned types outside a run, keeping each owner', async () => {
+    const { data, ben } = await world();
+    const bens = await data.save({ type: PREFS, value: { theme: 'blue' } }, ben);
+    const shop: DataAsker = { actor: ActorId.parse('act_shop'), access: member(ActorId.parse('act_shop')), system: SystemName.parse('shop') };
+    expect((await data.find({ type: PREFS }, shop)).items.map((r) => r.id)).toEqual([bens.id]);
+    const kept = await data.update({ type: PREFS, id: bens.id, set: { theme: 'green' } }, shop);
+    expect(kept).toMatchObject({ owner: BEN, value: { theme: 'green' }, updatedBySystem: 'shop' });
+    // another system, or the same one in a run, still sees only its person's records
+    const other: DataAsker = { ...shop, system: SystemName.parse('mail') };
+    expect((await data.find({ type: PREFS }, other)).items).toEqual([]);
   });
 
   it('searches within one type and the asker’s own records, so other matches never use up the depth', async () => {

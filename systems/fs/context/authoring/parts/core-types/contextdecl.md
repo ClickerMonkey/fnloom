@@ -311,13 +311,15 @@ type KindDescription = {
 
 const, type · declared in `packages/core/src/manifest.ts`
 
-A fn as a kind's check sees it (sdk `KindCheckCtx.fn`, hub link `fnShape`): its args, result and description.
+A fn as a kind's check sees it (sdk `KindCheckCtx.fn`, hub link `fnShape`): its args, result, description and mode
+(worked out through what it calls, when the hub has its facts), so a kind can declare the effects of what it calls.
 
 ```ts
 type KindFnShape = {
   args: TypeDef<any>;
   returns: TypeDef<any>;
   description: string;
+  mode: "write" | "read" | "delete";
 };
 ```
 

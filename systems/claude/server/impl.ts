@@ -58,6 +58,9 @@ export function allowedFolder(folder: string, config: ClaudeInstanceConfig): str
   }) ? wanted : undefined;
 }
 
+/** The statuses of a session with a live handle, which a restart leaves without one. */
+const BUSY_STATUSES = ['starting', 'working', 'waiting'] as const;
+
 /** A skill's context entry: its instructions, offered by `/name`. */
 export function skillContext(skill: { readonly name: string; readonly description: string; readonly content: string }): ContextDecl {
   return {
@@ -214,11 +217,31 @@ export function createClaudeImpl(deps: ClaudeDeps): { readonly impl: SystemImpl<
     } while (cursor !== undefined);
   }
 
+  /**
+   * After a restart, a session this instance's records show as busy has no live handle: its waiting requests are gone
+   * and its runs fail plainly, so its record says it is closed (it stays resumable). A page of records at a time.
+   */
+  async function sweepSessions(ctx: SystemCtx): Promise<void> {
+    for (const status of BUSY_STATUSES) {
+      let cursor: string | undefined;
+      do {
+        const page = await ctx.data.find(claude.types.Session, { query: { filters: [{ field: 'instance', op: 'is', value: instance }, { field: 'status', op: 'is', value: status }], limit: 50, ...(cursor === undefined ? {} : { cursor }) } });
+        for (const record of page.items) {
+          const value = ClaudeSession.parse(record.value);
+          if (fleet.value(value.session) !== undefined) { continue; }
+          await ctx.data.save(claude.types.Session, { ...value, status: 'closed', waiting: [], asking: [], updatedAt: now() }, { id: record.id });
+        }
+        cursor = page.cursor;
+      } while (cursor !== undefined);
+    }
+  }
+
   const impl: SystemImpl<ClaudeContract['defs']> = {
     lifecycle: {
       started: async (ctx) => {
         system = ctx;
         await declareSkills(ctx).catch((error: unknown) => { ctx.log.warn('claude.skills_failed', { problem: String(error) }); });
+        await sweepSessions(ctx).catch((error: unknown) => { ctx.log.warn('claude.sweep_failed', { problem: String(error) }); });
       },
       configured: (ctx) => { system = ctx; return Promise.resolve(); },
       stopping: async () => { await fleet.stopAll(); },
@@ -228,7 +251,8 @@ export function createClaudeImpl(deps: ClaudeDeps): { readonly impl: SystemImpl<
         system = ctx;
         const proposed = event.fn === qualify(claude.name, 'permit') || event.fn === qualify(claude.name, 'answer');
         if (proposed && event.update.type === 'status' && event.update.status === 'cancelled') {
-          fleet.declined(event.run, 'The person declined.');
+          // the hub's words say who declined and why
+          fleet.declined(event.run, event.update.text?.one ?? 'The person declined.');
         }
         return Promise.resolve();
       },
@@ -271,8 +295,9 @@ export function createClaudeImpl(deps: ClaudeDeps): { readonly impl: SystemImpl<
           const args = ClaudeControl.parse(raw);
           if (args.instance !== instance) { return ctx.invalid(elsewhere(args.instance)); }
           if (await recordOf(ctx.data, args.session) === undefined) { return ctx.invalid([{ path: 'session', message: 'No such session of yours on this machine.' }]); }
+          if (args.action === 'mode' && args.mode === undefined) { return ctx.invalid([{ path: 'mode', message: 'Give the permission mode to switch to.' }]); }
           if (args.mode !== undefined) { await fleet.setMode(args.session, args.mode); }
-          if (args.action === 'interrupt') { await fleet.interrupt(args.session); } else { fleet.stop(args.session); }
+          if (args.action === 'interrupt') { await fleet.interrupt(args.session); } else if (args.action === 'stop') { fleet.stop(args.session); }
           return ctx.done({ instance, session: args.session, status: fleet.value(args.session)?.status ?? 'closed' });
         },
       },
@@ -282,8 +307,8 @@ export function createClaudeImpl(deps: ClaudeDeps): { readonly impl: SystemImpl<
           if (args.instance !== instance) { return ctx.invalid(elsewhere(args.instance)); }
           const record = await recordOf(ctx.data, args.session);
           if (record === undefined && !isAdmin(ctx.run.user)) { return ctx.invalid([{ path: 'session', message: 'No such session of yours on this machine.' }]); }
-          const page = await deps.driver.transcript({ session: args.session, folder: record?.value.folder, agent: args.agent, offset: args.offset, limit: args.limit });
-          return ctx.done({ items: [...page.items], offset: args.offset, ...(page.more ? { next: args.offset + args.limit } : {}) });
+          const page = await deps.driver.transcript({ session: args.session, folder: record?.value.folder, agent: args.agent, offset: args.offset, limit: args.limit, fromEnd: args.fromEnd });
+          return ctx.done({ items: [...page.items], offset: page.offset, end: page.end, ...(page.more ? { next: page.end } : {}) });
         },
       },
       disk_sessions: {

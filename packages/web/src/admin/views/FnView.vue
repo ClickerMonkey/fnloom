@@ -17,7 +17,6 @@ import { z } from 'zod';
 import AppPage from '../../app/AppPage.vue';
 import { links, ROUTES } from '../../app/routes.ts';
 import { useRouteQuery } from '../../app/url.ts';
-import { formatDuration } from '../../chat/logic/format.ts';
 import { fnLabel } from '../../chat/logic/labels.ts';
 import { useStores } from '../../state/stores.ts';
 import FnOverview from '../../fns/components/FnOverview.vue';
@@ -25,34 +24,31 @@ import FnRuns from '../../fns/components/FnRuns.vue';
 import { frameOf } from '../../components/widgets/widget-source.ts';
 import WidgetView from '../../components/widgets/WidgetView.vue';
 import { useWidgetOpener } from '../../data/state/open-widget.ts';
-import { UiBadge, UiButton, UiCard, UiCodeBlock, UiEmpty, UiIcon, UiSegmented, type SegmentOption } from '../../ui/index.ts';
+import { UiBadge, UiButton, UiCard, UiCodeBlock, UiEmpty, UiIcon, UiSegmented, UiSwitch, type SegmentOption } from '../../ui/index.ts';
 import { useNow } from '../../ui/now.ts';
-import DayBars from '../components/DayBars.vue';
+import FnStats from '../components/FnStats.vue';
 import LoadState from '../components/LoadState.vue';
-import { dayBars, figures } from '../logic/metrics.ts';
 import { FN_PERIODS, type FnPeriod } from '../state/fn.ts';
 
-const { admin, fns } = useStores();
+const { admin, fns, toasts } = useStores();
 const store = admin.fn;
 const route = useRoute();
 const router = useRouter();
 const query = useRouteQuery(ROUTES.fn);
 const Period = z.enum(['7', '30', '90']);
 const days = query.choice('days', Period, '7');
-const period = computed<FnPeriod>(() => FN_PERIODS.find((d) => String(d) === days.value) ?? 7);
-const PERIODS: readonly SegmentOption<z.infer<typeof Period>>[] = Period.options.map((value) => ({ value, label: `${value} days` }));
+const period = computed<FnPeriod>({
+  get: () => FN_PERIODS.find((d) => String(d) === days.value) ?? 7,
+  set: (value) => { days.value = Period.parse(String(value)); },
+});
 
 const name = computed(() => {
   const parsed = QualifiedName.safeParse(`${String(route.params['name'])}/${String(route.params['fn'])}`);
   return parsed.success ? parsed.data : undefined;
 });
 const record = computed(() => store.record.value.value);
-const metrics = computed(() => store.metrics.value.value);
-const strip = computed(() => (metrics.value === undefined ? [] : figures(metrics.value)));
 const now = useNow(30_000);
 const recent = computed(() => store.recent.value.value ?? []);
-const dayWindow = computed(() => ({ period: period.value, now: now.value }));
-const runBars = computed(() => dayBars(store.daily.value.value ?? [], 'runs', dayWindow.value));
 const back = computed(() => {
   const r = record.value;
   if (r === undefined) { return undefined; }
@@ -73,7 +69,10 @@ const widgetFrame = computed(() => {
   return run?.outcome?.status === 'done' && name.value !== undefined ? frameOf(run.outcome.result, fnLabel(name.value)) : undefined;
 });
 const { opening, open: openWidget } = useWidgetOpener();
-const timeBars = computed(() => dayBars(store.daily.value.value ?? [], 'time', dayWindow.value));
+
+async function switchOn(on: boolean): Promise<void> {
+  if (!await store.switchOn(on)) { toasts.error(store.switching.problem.value); }
+}
 
 watch([name, period], ([fn, d]) => { if (fn !== undefined) { void store.open(fn, d); } }, { immediate: true });
 watch(name, (fn) => { if (fn !== undefined) { void fns.open(fn); } }, { immediate: true });
@@ -102,31 +101,15 @@ onBeforeUnmount(() => { store.close(); fns.close(); });
           :examples-problem="fns.examplesProblem.value" @fn="router.push(links.fn($event))" @more="fns.moreExamples()" @retry="fns.open(name)"
         >
           <template #badges>
+            <UiSwitch :model-value="!record.disabled" label="In use" :disabled="store.switching.busy.value" data-testid="fn-on" @update:model-value="switchOn" />
             <UiBadge v-if="record.paused">Paused</UiBadge>
             <UiBadge v-for="tag in record.decl.tags" :key="tag">{{ tag }}</UiBadge>
           </template>
         </FnOverview>
-        <div class="period">
-          <h2 class="period-title">Over the last {{ days }} days</h2>
-          <UiSegmented v-model="days" :options="PERIODS" label="Period" data-testid="fn-period" />
-        </div>
-        <LoadState
-          :loading="store.metrics.loading.value" :problem="store.metrics.problem.value || store.daily.problem.value" :ready="store.metrics.value.value !== undefined || !store.metrics.loading.value"
-          :empty="false" @retry="store.open(name, period)"
-        >
-          <ul v-if="metrics" class="strip" data-testid="fn-metrics">
-            <li v-for="figure in strip" :key="figure.key" class="figure" :data-figure="figure.key">
-              <span class="label">{{ figure.label }}</span>
-              <span class="value">{{ figure.value }}</span>
-              <span v-if="figure.detail" class="detail">{{ figure.detail }}</span>
-            </li>
-          </ul>
-          <UiEmpty v-else icon="fn" title="No runs in this period" body="Its numbers show here once it runs." />
-          <div v-if="runBars.length > 0" class="charts">
-            <UiCard><DayBars title="Runs per day" :bars="runBars" :format="(v) => v.toLocaleString()" testid="fn-runs-chart" /></UiCard>
-            <UiCard><DayBars title="Typical time per day" :bars="timeBars" :format="formatDuration" testid="fn-time-chart" /></UiCard>
-          </div>
-        </LoadState>
+        <FnStats
+          v-model:days="period" :metrics="store.metrics.value.value" :daily="store.daily.value.value ?? []" :loading="store.metrics.loading.value"
+          :problem="store.metrics.problem.value || store.daily.problem.value" :now="now" @retry="store.open(name, period)"
+        />
         <UiCard v-if="payload !== ''" title="What it runs" data-testid="fn-payload">
           <template v-if="readable" #actions><UiSegmented v-model="form" :options="FORMS" label="Show it as" data-testid="fn-payload-form" /></template>
           <UiCodeBlock :code="shownPayload.code" :language="shownPayload.language" wrap :max-height="360" />
@@ -144,14 +127,6 @@ onBeforeUnmount(() => { store.close(); fns.close(); });
 </template>
 
 <style scoped>
-.period { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
-.period-title { margin: 0; font-size: var(--text-md); font-weight: var(--weight-strong); }
-.strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 128px), 1fr)); gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
-.figure { display: grid; align-content: start; gap: 2px; padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
-.label { color: var(--text-dim); font-size: var(--text-xs); }
-.value { font-size: var(--text-lg); font-weight: var(--weight-strong); font-variant-numeric: tabular-nums; }
-.detail { color: var(--text-faint); font-size: var(--text-xs); }
-.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: var(--space-4); }
 .crumb { display: inline-flex; align-items: center; gap: 2px; margin-left: -2px; color: var(--text-dim); font-weight: var(--weight-medium); text-decoration: none; }
 .crumb:hover { color: var(--accent); }
 </style>

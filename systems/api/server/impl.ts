@@ -4,9 +4,9 @@
  * `test_request`, and `connect` (a person's own token or header values for a service whose auth is per person).
  * Nothing is stored here: api fns are the hub's, and a person's credentials are the hub's secrets, sent with each run.
  */
-import { API_KIND, ApiFnSpec, ApiServiceConfig, Json, KindDescription, type QualifiedName, type ResourceUri } from '@harness/core';
+import { API_KIND, ApiFnSpec, ApiServiceConfig, Json, KindDescription, strongerMode, type QualifiedName, type ResourceUri } from '@harness/core';
 import { accountLabel, CallFailed, credentialsFromForm, hub, instanceConnectOf, type Files, type KindCheckCtx, type ConfigOf, type SystemCtx, type SystemImpl } from '@harness/sdk';
-import { hubProgramHost, kindCheckLookups, kindRunLookups, ProgramError, storedProgramScope, type ProgramLookups } from '@harness/sdk/program';
+import { calleesMode, hubProgramHost, kindCheckLookups, kindRunLookups, ProgramError, storedProgramScope, type ProgramLookups } from '@harness/sdk/program';
 import { AuthoringError } from '@harness/sdk/server';
 import { HttpRequest, type ApiContract } from '../shared/index.ts';
 import { ApiAuthoring, apiAuthoring } from './authoring.ts';
@@ -121,15 +121,17 @@ export function createApiImpl(deps: ApiDeps): SystemImpl<ApiContract['defs']> {
         check: (payload, ctx) => payloadProblems(ApiFnSpec.parse(payload), ctx),
         async describe(payload, ctx) {
           const spec = ApiFnSpec.parse(payload);
-          const { check } = await checked(spec, kindCheckLookups(ctx));
-          const mode = modeOf(check.method);
+          const lookups = kindCheckLookups(ctx);
+          const { check } = await checked(spec, lookups);
+          // GET and HEAD read; anything else changes the service; a program that calls fns also does what they do
+          const mode = strongerMode(modeOf(check.method), await calleesMode(check.calls, lookups));
           return KindDescription.parse({
             args: spec.args,
             returns: spec.returns,
             deps: check.calls.length === 0 ? [] : [...check.calls, hub.fns.fn_get.name],
             operations: { cancel: true, pause: false, undo: false, background: false },
-            // GET and HEAD read; anything else changes the service, so the hub's policies ask before it runs
-            ...(check.calls.length === 0 ? { effects: { mode } } : mode === 'read' ? {} : { effects: { mode } }),
+            // a mode past read makes the hub's policies ask before it runs
+            effects: { mode },
             ...(check.request.code === undefined ? {} : { readable: { language: 'ts', code: check.request.code } }),
           });
         },

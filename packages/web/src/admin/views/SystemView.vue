@@ -245,7 +245,7 @@ async function act(action: SystemAction, version?: string): Promise<void> {
           :empty="(store.fns.value.value?.length ?? 0) === 0" empty-icon="fn" empty-title="No fns" empty-body="This system doesn't add any fns." @retry="store.loadFns()"
         >
           <RouterLink v-if="name !== undefined" :to="links.systemFns(name)" class="search-fns" data-testid="search-system-fns"><UiIcon name="search" :size="14" />Search and sort in Fns</RouterLink>
-          <FnList :fns="store.fns.value.value ?? []" :now="now" :runs-of="links.fnRuns" :page-of="(fn) => links.fn(fn)" switchable @switch="switchFn" />
+          <FnList :fns="store.fns.value.value ?? []" :now="now" :runs-of="links.fnRuns" switchable @switch="switchFn" @switched="(fn, on) => store.fnSwitched(fn, on)" />
         </LoadState>
         <LoadState
           v-else-if="tab === 'context'" :loading="parts.context.loading.value" :problem="parts.context.problem.value" :ready="parts.context.loaded.value"

@@ -29,10 +29,10 @@ async function newRig(options: Parameters<typeof linkRig>[0] = {}): Promise<Link
   return rig;
 }
 
-/** A rig enforcing grants, with notes connected and live, declaring `grants`. */
-async function withGrants(grants: SystemGrants | undefined, pause = 50): Promise<Manifest> {
+/** A rig enforcing grants, with notes connected and live, declaring `grants` (and, `change`d, more of its manifest). */
+async function withGrants(grants: SystemGrants | undefined, pause = 50, change: (manifest: Manifest) => Manifest = (same) => same): Promise<Manifest> {
   await newRig({ review: { HARNESS_GRANTS: 'enforce', HARNESS_REFUSALS_PAUSE: pause } });
-  const manifest = { ...await manifestFor(notes), ...(grants === undefined ? {} : { grants }) };
+  const manifest = change({ ...await manifestFor(notes), ...(grants === undefined ? {} : { grants }) });
   const fake = new FakeSystem(rig.app, 'notes', manifest);
   await pairDirectly(rig, fake);
   await fake.start();
@@ -89,6 +89,13 @@ describe('calls and modes', () => {
     await rig.grants.check(LINK, 'call', { parent: parent.id, fn: 'notes/read' });
     await rig.grants.check(LINK, 'call', { parent: parent.id, fn: 'database/query_run' });
     expect(await refused(rig.grants.check(LINK, 'call', { parent: parent.id, fn: 'fs/write' }))).toBe('it didn\'t declare that it calls fs/write');
+  });
+
+  // a saved program (a code or api fn) calls the fns its describe gave as deps, which were reviewed with it
+  it('lets a run call what its fn declares as a dep', async () => {
+    await withGrants({ hub: ['fns'] }, 50, (manifest) => ({ ...manifest, fns: manifest.fns.map((fn) => (fn.name === 'write' ? { ...fn, deps: [QualifiedName.parse('fs/write')] } : fn)) }));
+    await rig.grants.check(LINK, 'call', { parent: (await runOf('write')).id, fn: 'fs/write' });
+    expect(await refused(rig.grants.check(LINK, 'call', { parent: (await runOf('read')).id, fn: 'fs/write' }))).toBe('it didn\'t declare that it calls fs/write');
   });
 
   it('keeps a read fn from writing, and a write fn from deleting', async () => {

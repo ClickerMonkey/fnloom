@@ -212,7 +212,9 @@ export class LinkServices {
     if (record === undefined) return {};
     const access = this.#deps.access;
     if (access !== undefined && !(await access((await askingOf(this.#deps.store(), link, undefined)).actor)).seesFn(record)) return {};
-    return { fn: { args: record.decl.args, returns: record.decl.returns, description: record.decl.description } };
+    // its mode as the hub's grants judge it: worked out deeply when its facts are stored, else what it declares
+    const mode = (await this.#deps.store().table('fnFacts').get(record.name))?.mode ?? record.decl.effects?.mode ?? 'read';
+    return { fn: { args: record.decl.args, returns: record.decl.returns, description: record.decl.description, mode } };
   }
 
   /** The run a system names, refused unless that system ran it. */
