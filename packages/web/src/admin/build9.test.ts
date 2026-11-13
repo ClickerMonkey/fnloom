@@ -7,7 +7,7 @@ import { ApiError } from '@ayepi/core/client';
 import { mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it } from 'vitest';
 import McpServerForm from './components/McpServerForm.vue';
-import { apiServiceConfig, apiServiceDraft } from './logic/api-services.ts';
+import { API_AUTH_KINDS, apiServiceConfig, apiServiceDraft } from './logic/api-services.ts';
 import { countsText, mcpServerConfig, mcpServerDraft, mirrorPrefix, serverLook } from './logic/mcp-servers.ts';
 import { authCandidate, authDraft, instanceNameOf, withoutKept } from './logic/remote-config.ts';
 import { McpServersStore, promptsQuery } from './state/mcp-servers.ts';
@@ -55,14 +55,16 @@ describe('remote service configs', () => {
     expect(authCandidate(typed).auth).toEqual({ kind: 'headers', per: 'shared', names: ['X-Api-Key'], values: { 'X-Api-Key': 'k1' } });
   });
 
-  it('checks an API service and puts its kept client secret back', () => {
-    const saved: Json = { label: 'Linear', baseUrl: 'https://api.linear.app', auth: { kind: 'oauth', per: 'person', clientId: 'c1', clientSecret: SECRET_KEPT }, timeout: 10_000, maxBody: 2048 };
+  it('checks an API service, puts its kept token back, and refuses OAuth (a service names no sign-in endpoints)', () => {
+    const saved: Json = { label: 'Linear', baseUrl: 'https://api.linear.app', auth: { kind: 'bearer', per: 'shared', token: SECRET_KEPT }, timeout: 10_000, maxBody: 2048 };
     const draft = apiServiceDraft(saved);
-    expect(draft).toMatchObject({ baseUrl: 'https://api.linear.app', timeout: '10', maxBody: '2', auth: { kind: 'oauth', clientId: 'c1', clientSecret: '', kept: ['clientSecret'] } });
+    expect(draft).toMatchObject({ baseUrl: 'https://api.linear.app', timeout: '10', maxBody: '2', auth: { kind: 'bearer', token: '', kept: ['token'] } });
     const checked = apiServiceConfig(draft);
-    expect(checked.ok && checked.config['auth']).toEqual({ kind: 'oauth', per: 'person', clientId: 'c1', clientSecret: SECRET_KEPT });
-    expect(withoutKept(saved, ['auth.clientSecret'])).not.toHaveProperty('auth.clientSecret');
+    expect(checked.ok && checked.config['auth']).toEqual({ kind: 'bearer', per: 'shared', token: SECRET_KEPT });
+    expect(withoutKept(saved, ['auth.token'])).not.toHaveProperty('auth.token');
     expect(apiServiceConfig({ ...draft, baseUrl: 'api.linear.app' }).ok).toBe(false);
+    expect(apiServiceConfig({ ...draft, auth: { ...draft.auth, kind: 'oauth', per: 'person' } }).ok).toBe(false);
+    expect(API_AUTH_KINDS).not.toContain('oauth');
   });
 
   it('makes instance names from labels and the mirror prefix from the instance', () => {

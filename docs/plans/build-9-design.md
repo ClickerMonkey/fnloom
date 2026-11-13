@@ -45,10 +45,10 @@ Owner rules: the Decided section of [../harness.md](../harness.md). The shared c
 
 | File | Holds |
 |---|---|
-| `remote-auth.ts` | `RemoteAuth`, `RemoteAuthPer`, `HeaderValues`, `REMOTE_AUTH_SECRETS`, `connectFlowOf`, `RemoteCredentials` |
+| `remote-auth.ts` | `RemoteAuth`, `RemoteAuthPer`, `HeaderValues`, `REMOTE_AUTH_SECRETS`, `TypedAuth` and `TYPED_AUTH_SECRETS` (no OAuth: API services), `connectFlowOf`, `RemoteCredentials` |
 | `mcp-servers.ts` | `MCP_SYSTEM`, `MCP_TOOL_KIND`, `McpTransport` (stdio, http, sse), `McpServerConfig`, `MCP_CONFIG_SECRETS`, `McpServerStatus`, `McpToolAnnotations`, `McpToolSpec` (the `mcp/tool` payload), `mcpToolFnName`, `mcpRootOf` |
 | `programs.ts` | `CODE_SYSTEM`, `CODE_KIND` (`code/program`), `CodeFnSpec`; `API_SYSTEM`, `API_KIND` (`api/request`), `ApiFnSpec`, `HttpMethod`, `ApiServiceConfig`, `API_CONFIG_SECRETS`, `HttpExchange` |
-| `claude.ts` | `CLAUDE_SYSTEM`, `CLAUDE_SESSION_TYPE`, `ClaudeInstanceConfig`, `CLAUDE_CONFIG_SECRETS`, `ClaudeSession`, `ClaudeSessionStatus`, `ClaudeTask`, transcript `Query`/`Page`/`Item`, `ClaudeStart`, `ClaudeSend`, `ClaudeTurn`, `ClaudeControl`, `ClaudePermit`, `ClaudeAnswer`, `ClaudeImportable`, `ClaudeImport` |
+| `claude.ts` | `CLAUDE_SYSTEM`, `CLAUDE_SESSION_TYPE`, `ClaudeInstanceConfig`, `CLAUDE_CONFIG_SECRETS`, `ClaudeSession`, `ClaudeSessionStatus`, `ClaudeTask`, transcript `Query`/`Page`/`Item`, `ClaudeStart`, `ClaudeSend`, `ClaudeTurn`, `ClaudeControl`, `ClaudePermit`, `ClaudeAnswer`, `ClaudeImportable` (an MCP server as `ClaudeMcpServerSummary`: never its secrets), `ClaudeImport` |
 | `connections.ts` | `ConnectDecl.scope` / `defaults`, `UserConnection.instance`, `ConnectStart`/`ConnectFinish.instance`, `InstanceConnect`, `ConnectPage.instances` |
 | `approvals.ts`, `records/actors.ts` | `ProposalAsk`; `ProposeRun.for` / `chat` / `ask`; `Approval.ask` |
 | `package.ts`, `web.ts`, `link.ts` | `AddInstance`; web `addInstance` (packaging slice), `connect` takes `instance`, `approve` takes `answer`; hub link `instanceConnect` |

@@ -18,8 +18,6 @@ defineProps<{ facts: readonly Fact[]; testid: string }>();
 .facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-2) var(--space-4); margin: 0; font-size: var(--text-sm); }
 .facts dt { color: var(--text-dim); }
 .facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-@media (max-width: 479.98px) {
-  .facts { grid-template-columns: minmax(0, 1fr); }
-  .facts dt { margin-top: var(--space-1); }
-}
+/* phones keep the two columns, closer together */
+@media (max-width: 479.98px) { .facts { gap: var(--space-1) var(--space-3); } }
 </style>

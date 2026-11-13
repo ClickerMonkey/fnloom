@@ -222,13 +222,16 @@ function checkedGroups(system: string, groups: readonly ApiGroupDecl[], fns: rea
   return groups.map((group) => ({ ...group }));
 }
 
-/** The config's secret paths, checked: each must name a text field (optional or nullable allowed) of the config type. */
+/**
+ * The config's secret paths, checked: each must name a text field of the config type, or an `any` one (how gin reads a
+ * record over open keys, such as environment or header values, which the hub seals whole); optional or nullable allowed.
+ */
 export function checkedSecrets(system: string, config: GinTypeDef, paths: readonly string[]): string[] {
   for (const path of paths) {
     let at: GinTypeDef[] = [config];
     for (const key of path.split('.')) { at = at.flatMap(variantsOf).flatMap((def) => { const type = def.props?.[key]?.type; return type === undefined ? [] : [type]; }); }
-    if (at.length === 0 || !at.flatMap(variantsOf).every((def) => def.name === 'text')) {
-      throw new Error(`system ${system}: config secret '${path}' must be a text field of the config.`);
+    if (at.length === 0 || !at.flatMap(variantsOf).every((def) => def.name === 'text' || def.name === 'any')) {
+      throw new Error(`system ${system}: config secret '${path}' must be a text field (or a record of text) of the config.`);
     }
   }
   return [...paths];

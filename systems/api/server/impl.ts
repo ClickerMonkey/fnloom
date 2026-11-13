@@ -159,8 +159,8 @@ export function createApiImpl(deps: ApiDeps): SystemImpl<ApiContract['defs']> {
     connect: {
       start(request, ctx) {
         const config = ApiServiceConfig.parse(ctx.config);
-        // a typed token or header values connect on the connections page; a sign-in flow is not offered for API services yet
-        throw new Error(`${config.label} signs in with ${config.auth.kind}, which API services can't connect with yet (connection ${request.connection}).`);
+        // API services sign in with a typed token or header values (`TypedAuth`, never OAuth): there is no browser flow to start
+        throw new Error(`${config.label} takes a typed token or header values on the connections page, not a sign-in (connection ${request.connection}).`);
       },
       finish(request, ctx) {
         const config = ApiServiceConfig.parse(ctx.config);

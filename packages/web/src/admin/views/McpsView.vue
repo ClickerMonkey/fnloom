@@ -38,13 +38,13 @@ async function make(input: HubMcpInput): Promise<void> {
 </script>
 
 <template>
-  <AppPage title="MCPs" description="MCP endpoints into the hub, each with its own route, secret and rules over what it exposes.">
+  <AppPage title="Hub MCP" description="MCP endpoints into the hub, each with its own route, secret and rules over what it exposes.">
     <template #actions>
       <UiButton variant="primary" icon="plus" data-testid="new-mcp" @click="creating = true">New MCP</UiButton>
     </template>
     <LoadState :loading="mcps.list.loading.value" :problem="mcps.list.problem.value" :ready="mcps.list.value.value !== undefined" :empty="list.length === 0" @retry="mcps.load()">
       <template #empty>
-        <UiEmpty icon="link" title="No MCPs yet" body="Make one to give an MCP client (a Claude session, say) a way into the hub, exposing only what you choose.">
+        <UiEmpty icon="link" title="No hub MCP endpoints yet" body="Make one to give an MCP client (a Claude session, say) a way into the hub, exposing only what you choose.">
           <template #actions><UiButton variant="primary" icon="plus" @click="creating = true">New MCP</UiButton></template>
         </UiEmpty>
       </template>

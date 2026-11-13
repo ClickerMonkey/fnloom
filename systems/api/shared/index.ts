@@ -23,12 +23,6 @@ export * from './http.ts';
 /** An api fn's payload, as gin (`ApiFnSpec`'s type). */
 export const ApiPayload = ginAs(ApiFnSpec);
 
-/**
- * The config paths sealed as secrets. Core's `API_CONFIG_SECRETS` also names `auth.values`, a record of text, but the
- * SDK and the hub seal text fields only (`checkedSecrets` refuses the rest): until they seal records, it is plain config.
- */
-const SEALED_SECRETS = API_CONFIG_SECRETS.filter((path) => path !== 'auth.values');
-
 /** One operation of the service's OpenAPI document. */
 export const ApiOperation = z.object({ method: z.string(), path: z.string(), summary: z.string(), operationId: z.string().optional() });
 export type ApiOperation = z.infer<typeof ApiOperation>;
@@ -60,7 +54,8 @@ const MAKE_USAGE = [
 const declared = system(API_SYSTEM, {
   description: 'Web API services, one per instance: each signs in its own way, and the requests asked for are kept as fns of the service.',
   groups: [{ name: 'requests', title: 'Requests', description: 'Write a request to a service as a fn, read its operations, and try a GET.' }],
-  configSecrets: SEALED_SECRETS,
+  // the hub seals each: the token and client secret as text, the header values whole
+  configSecrets: [...API_CONFIG_SECRETS],
   // the authoring agent is a model; api fns are hub fns it searches, reads and saves; requests go to the configured
   // service, whose host is only known from the config (reviewed when an admin adds the service)
   grants: { hub: ['ai', 'fns', 'search', 'connections'], calls: [hub.fns.fn_get.name, hub.fns.save_fn.name], network: ['*'] },
@@ -155,7 +150,7 @@ const declared = system(API_SYSTEM, {
  * for their own token or header values (the form flow); its own fns and every saved request act as the person.
  */
 export const API_CONNECT: ConnectDecl = ConnectDecl.parse({
-  title: 'API services',
+  title: 'API sign-ins',
   description: 'Sign in to the web API services that need your own credentials, so the requests you run act as you.',
   icon: 'globe',
   // each instance says how people connect to it (`ctx.instanceConnect`); this is the system-wide default, a token

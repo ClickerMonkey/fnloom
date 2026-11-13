@@ -6,7 +6,7 @@
  * transcript items, forms, MCP configs) are checked on their own.
  */
 import { resolve } from 'node:path';
-import { jsonOf, McpServerConfig, mintId, qualify, SystemView, type ClaudeTranscriptItem, type DataRecord } from '@harness/core';
+import { ActorId, jsonOf, McpServerConfig, mintId, qualify, SystemView, type ClaudeTranscriptItem, type DataRecord } from '@harness/core';
 import { TEST_USER, testHub, type TestSystem } from '@harness/sdk/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -50,6 +50,20 @@ describe('claude system', () => {
 
     const outside = await kit.run('start_session', { folder: resolve('..'), prompt: 'Hi.' });
     expect(outside.outcome.status).toBe('invalid-input');
+    // a model learns where sessions may start from claude/folders
+    expect((await kit.call('folders', {})).result).toEqual({ instance: 'main', folders: [{ path: ROOT, label: 'Code' }] });
+  });
+
+  it("refuses an admin's send to a member's session, whose questions only that member answers", async () => {
+    const { kit, driver } = await setup();
+    const member = { ...MEMBER, id: ActorId.parse('act_member') };
+    const asMember = (fn: string) => ({ run: kit.hub.runInfo(qualify('claude', fn), { user: member }) });
+    const started = await kit.run('start_session', { folder: FOLDER, prompt: 'Look at the tests.' }, asMember('start_session'));
+    const session = z.object({ session: z.string() }).parse(started.outcome.status === 'done' ? started.outcome.result : {}).session;
+    const sent = await kit.run('send', { instance: 'main', session, text: 'Delete everything.' });
+    expect(sent.outcome.status).toBe('invalid-input');
+    expect(driver.live(session).sent).toEqual(['Look at the tests.']);
+    expect(kit.records('Session')[0]?.value).toMatchObject({ owner: member.id });
   });
 
   it('sends with wait, following the turn as progress and answering with Claude\'s reply', async () => {
@@ -135,6 +149,10 @@ describe('claude system', () => {
     const stopped = await kit.call('control', { instance: 'main', session: result.session, action: 'stop' });
     expect(stopped.result.status).toBe('closed');
     expect(fleet.isLive(result.session)).toBe(false);
+    // a closed session can't be interrupted, and keeps a mode switch for its next resume
+    expect((await kit.run('control', { instance: 'main', session: result.session, action: 'interrupt' })).outcome.status).toBe('invalid-input');
+    expect((await kit.call('control', { instance: 'main', session: result.session, action: 'mode', mode: 'plan' })).result.status).toBe('closed');
+    expect(kit.records('Session')[0]?.value).toMatchObject({ permissionMode: 'plan' });
 
     driver.stored.push({ session: result.session, folder: FOLDER, title: 'Hello.', updatedAt: 7 });
     const listed = await kit.call('disk_sessions', { offset: 0, limit: 10 });
@@ -149,6 +167,7 @@ describe('claude system', () => {
       { kind: 'skill', name: 'release-notes', description: 'Write release notes.', scope: 'project', folder: FOLDER },
       { kind: 'agent', name: 'code-reviewer', description: 'Reviews a change.', scope: 'user' },
       { kind: 'mcp-server', name: 'linear', description: 'Linear', scope: 'user', server: McpServerConfig.parse({ label: 'linear', transport: { type: 'http', url: 'https://mcp.linear.app/mcp' } }) },
+      { kind: 'mcp-server', name: 'github', description: 'GitHub', scope: 'user', server: McpServerConfig.parse({ label: 'github', transport: { type: 'stdio', command: 'npx', args: ['--token', 'ghp_arg'], env: { GITHUB_PERSONAL_ACCESS_TOKEN: 'ghp_secret' } } }) },
     ];
     driver.skills.set('release-notes', 'Read the merged changes and write notes.');
     const fallback = kit.hub.onCall;
@@ -173,7 +192,10 @@ describe('claude system', () => {
     expect(imported.hubCalls.calls.map((call) => call.fn)).toContain('hub/save_fn');
 
     const listed = await kit.call('importables', { folder: FOLDER });
-    expect(listed.result.items.map((item) => [item.name, item.imported])).toEqual([['release-notes', true], ['code-reviewer', true], ['linear', true]]);
+    expect(listed.result.items.map((item) => [item.name, item.imported])).toEqual([['release-notes', true], ['code-reviewer', true], ['linear', true], ['github', false]]);
+    // a list never carries a server's secrets: only how it is reached and their names
+    expect(listed.result.items[3]).toMatchObject({ server: { transport: 'stdio', where: 'npx', secrets: ['GITHUB_PERSONAL_ACCESS_TOKEN'] } });
+    expect(JSON.stringify(listed.result)).not.toContain('ghp_');
   });
 });
 

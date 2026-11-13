@@ -6,7 +6,7 @@ import {
   budgetBody, budgetDraft, categoryBody, installFields, installSource, policyBody, policyDraft, priorityBody, priorityDraft, providerBody, providerFields, tokenBody, autoPairPart,
 } from './forms.ts';
 import { budgetAmount, budgetUse, periodText, resolvedText, scopeText } from './limits.ts';
-import { adminNav } from './nav.ts';
+import { adminNav, adminNavGroups } from './nav.ts';
 import { decisionText, sortPolicies, subjectText, targetText } from './policies.ts';
 import { autoPairState, availabilityText, endsText, groupedCode, pendingPairings, sortSystems, systemActions, timeLeft } from './systems.ts';
 import { decisionDraft, decisionModelText, decisionOf, previewParts } from './suggestions.ts';
@@ -182,6 +182,15 @@ describe('browsers and nav', () => {
     expect(entries.find((e) => e.active)?.id).toBe('systems');
     expect(entries[0]?.count).toBe(2);
     expect(adminNav({ name: undefined }).some((e) => e.active)).toBe(false);
+  });
+
+  it('groups the admin sections, each once, and opens the group of the current one', () => {
+    const groups = adminNavGroups({ name: 'mcp-server' }, { systems: 2 });
+    const ids = groups.flatMap((g) => g.entries.map((e) => e.id));
+    expect([...ids].sort()).toEqual(adminNav({}).map((e) => e.id).sort());
+    expect(groups.find((g) => g.active)?.id).toBe('systems');
+    expect(groups.find((g) => g.active)?.entries.find((e) => e.active)?.label).toBe('MCP servers');
+    expect(groups[0]?.count).toBe(2);
   });
 });
 

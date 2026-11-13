@@ -7,11 +7,11 @@ import { computed, onBeforeUnmount, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { useStores } from '../../state/stores.ts';
 import AdminNav from '../components/AdminNav.vue';
-import { adminNav } from '../logic/nav.ts';
+import { adminNavGroups } from '../logic/nav.ts';
 
 const { admin } = useStores();
 const route = useRoute();
-const entries = computed(() => adminNav(route, { systems: admin.systems.pending.value }));
+const groups = computed(() => adminNavGroups(route, { systems: admin.systems.pending.value }));
 
 onMounted(() => { admin.start(); });
 onBeforeUnmount(() => { admin.stop(); });
@@ -19,7 +19,7 @@ onBeforeUnmount(() => { admin.stop(); });
 
 <template>
   <div class="admin" data-testid="admin">
-    <AdminNav :entries="entries" />
+    <AdminNav :groups="groups" />
     <RouterView />
   </div>
 </template>

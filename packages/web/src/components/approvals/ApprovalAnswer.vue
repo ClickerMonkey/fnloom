@@ -22,7 +22,9 @@ const props = withDefaults(defineProps<{
   blocked?: boolean;
   /** The word on Approve ("Answer" for a question). */
   approveLabel?: string;
-}>(), { rememberable: true, irreversible: false, ident: '', review: false, blocked: false, approveLabel: 'Approve' });
+  /** The word on Deny ("Skip" for a question). */
+  denyLabel?: string;
+}>(), { rememberable: true, irreversible: false, ident: '', review: false, blocked: false, approveLabel: 'Approve', denyLabel: 'Deny' });
 const emit = defineEmits<{ decide: [approve: boolean, remember: Remember, reason: string]; review: [] }>();
 defineSlots<{ buttons?: (scope: { remember: Remember }) => unknown }>();
 
@@ -47,8 +49,8 @@ function decide(approve: boolean): void {
       <UiSegmented v-if="rememberable" v-model="remember" :options="REMEMBER" label="Remember this answer" />
       <div class="buttons">
         <slot name="buttons" :remember="remember" />
-        <UiButton v-if="!denying" size="sm" variant="secondary" data-testid="deny" @click="denying = true">Deny</UiButton>
-        <UiButton v-else size="sm" variant="danger" data-testid="deny-confirm" @click="decide(false)">Deny</UiButton>
+        <UiButton v-if="!denying" size="sm" variant="secondary" data-testid="deny" @click="denying = true">{{ denyLabel }}</UiButton>
+        <UiButton v-else size="sm" variant="danger" data-testid="deny-confirm" @click="decide(false)">{{ denyLabel }}</UiButton>
         <UiButton v-if="review" size="sm" :variant="irreversible ? 'danger' : 'primary'" icon="eye" data-testid="review" @click="emit('review')">Review</UiButton>
         <UiButton v-else size="sm" :variant="irreversible ? 'danger' : 'primary'" icon="check" data-testid="approve" :disabled="blocked" @click="decide(true)">{{ approveLabel }}</UiButton>
       </div>

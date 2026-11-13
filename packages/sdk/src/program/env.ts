@@ -8,6 +8,11 @@ import { z } from 'zod';
 export const programEnv = env({
   /** The longest one program run may take, in milliseconds (fn calls included). */
   HARNESS_PROGRAM_TIMEOUT: z.coerce.number().int().min(100).default(30_000),
+  /**
+   * The longest stretch, in milliseconds, one program run holds the thread before it lets other work on the system in
+   * (and a deadline or cancel land).
+   */
+  HARNESS_PROGRAM_SLICE: z.coerce.number().int().min(1).max(1_000).default(10),
   /** The most fn calls one program run may make. */
   HARNESS_PROGRAM_MAX_CALLS: z.coerce.number().int().min(0).default(50),
   /** The most complex program accepted (gin's `complexity()`: loops and lambdas cost more). */

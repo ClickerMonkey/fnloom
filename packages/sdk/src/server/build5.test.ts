@@ -4,12 +4,14 @@
  * model, registries, contributions and config secrets in the manifest, and the model's result block.
  */
 import { afterEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import type { ApprovalPreview, ResultTable } from '@harness/core';
 import { kind } from '../declare.ts';
 import { fn } from '../fn.ts';
 import { g } from '../gin.ts';
 import { manifestOf } from '../manifest.ts';
 import { system } from '../system.ts';
+import { ginAs } from '../zod-gin.ts';
 import { serve, type RunningSystem } from './index.ts';
 import { resultBlock } from './results.ts';
 import { FakeHub } from './testing.ts';
@@ -133,6 +135,11 @@ describe('registries, contributions and config secrets', () => {
   it('refuses a secret path that is not a text field of the config', async () => {
     const wrong = system('wrong', { description: 'Wrong.', configSecrets: ['port'] }).with({ config: g.obj({ port: g.num() }) });
     await expect(manifestOf(wrong, { version: '1.0.0' })).rejects.toThrow(/must be a text field/);
+  });
+
+  it('takes a record of text as a secret (the hub seals it whole)', async () => {
+    const env = system('env', { description: 'Env.', configSecrets: ['transport.env'] }).with({ config: ginAs(z.object({ transport: z.object({ env: z.record(z.string(), z.string()).optional() }) })) });
+    expect((await manifestOf(env, { version: '1.0.0' })).configSecrets).toEqual(['transport.env']);
   });
 });
 

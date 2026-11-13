@@ -1,7 +1,8 @@
 /**
  * The gin program runtime: a program reads `args`, calls a loaded fn as `fns.<system>.<name>(…)` (its answer parsed
  * through the callee's return type), and is refused when it breaks a rule (an unloaded fn, a fn not called in place,
- * a while-loop, `recurse`, an unknown type, a result of the wrong type); a run stops at the call cap; and a stored
+ * a while-loop, `recurse`, an unknown type, a result of the wrong type); a run stops at the call cap, the deadline and a
+ * cancel, even mid-loop, without holding the thread; and a stored
  * program's world is rebuilt from its lookups.
  */
 import type { ExprDef, TypeDef } from '@aeye/gin';
@@ -28,9 +29,38 @@ function world(): ProgramScope {
   return program;
 }
 
-afterEach(() => { programEnv.set({ HARNESS_PROGRAM_MAX_CALLS: '50' }); });
+afterEach(() => { programEnv.set({ HARNESS_PROGRAM_MAX_CALLS: '50', HARNESS_PROGRAM_TIMEOUT: '30000' }); });
+
+/** `loop args.count { }`: as many rounds as the caller asks for. */
+const COUNT_LOOP: ExprDef = { kind: 'loop', over: arg('count'), body: { kind: 'block', lines: [] } };
+const COUNT = { name: 'obj', props: { count: { type: num } } };
 
 describe('the program runtime', () => {
+  it('stops a loop over a huge count at the deadline, and other work goes on meanwhile', async () => {
+    programEnv.set({ HARNESS_PROGRAM_TIMEOUT: '100' });
+    const program = world();
+    const check = checkProgram(program, COUNT_LOOP, { args: COUNT, returns: { name: 'void' } });
+    expect(check.problems).toEqual([]);
+    if (check.expr === undefined) throw new Error('no expr');
+    let ticks = 0;
+    const timer = setInterval(() => { ticks += 1; }, 5);
+    try {
+      const run = runProgram({ program, expr: check.expr, args: COUNT, returns: { name: 'void' }, calls: [], call: () => Promise.resolve(null) }, { count: 1e12 });
+      await expect(run).rejects.toMatchObject({ reason: 'limit', message: 'The program ran past 100 ms.' });
+    } finally { clearInterval(timer); }
+    expect(ticks).toBeGreaterThan(2);
+  });
+
+  it('stops a running loop when the caller cancels', async () => {
+    const program = world();
+    const check = checkProgram(program, COUNT_LOOP, { args: COUNT, returns: { name: 'void' } });
+    if (check.expr === undefined) throw new Error('no expr');
+    const controller = new AbortController();
+    setTimeout(() => { controller.abort(); }, 30);
+    const run = runProgram({ program, expr: check.expr, args: COUNT, returns: { name: 'void' }, calls: [], call: () => Promise.resolve(null), signal: controller.signal }, { count: 1e12 });
+    await expect(run).rejects.toMatchObject({ reason: 'limit', message: 'The run was stopped.' });
+  });
+
   it('checks and runs a program that calls a fn, through its declared return type', async () => {
     const program = world();
     const def = callForecast([{ prop: 'summary' }]);

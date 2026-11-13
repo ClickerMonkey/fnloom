@@ -19,7 +19,7 @@ import {
 } from '@harness/core';
 import { context, fn, ginAs, hub, kind, linear, system, type } from '@harness/sdk';
 import {
-  AgentPayload, AnswerOutcome, ControlOutcome, DiskSessionsPage, DiskSessionsQuery, ImportOutcome, ImportablesList, ImportablesQuery, ImportedSkill, PermitOutcome,
+  AgentPayload, AnswerOutcome, ControlOutcome, DiskSessionsPage, DiskSessionsQuery, FoldersList, FoldersQuery, ImportOutcome, ImportablesList, ImportablesQuery, ImportedSkill, PermitOutcome,
 } from './shapes.ts';
 
 export * from './shapes.ts';
@@ -81,10 +81,20 @@ export const claude = system(CLAUDE_SYSTEM, {
       }),
     },
     fns: {
+      folders: fn({
+        group: 'sessions',
+        description: 'The folders on this machine that Claude sessions may start in and imports are read from, with their labels.',
+        instructions: 'Call it before claude/start_session or claude/importables when the person has not named a folder you know is allowed: every folder given to those must be one of these or under one.',
+        args: ginAs(FoldersQuery),
+        returns: ginAs(FoldersList),
+        examples: [{ args: {}, result: { instance: 'main', folders: [{ path: 'C:/code', label: 'Code' }] }, note: 'Sessions start in C:/code or a folder under it, such as C:/code/shop.' }],
+        effects: { mode: 'read', free: true },
+        tags: ['claude', 'read'],
+      }),
       start_session: fn({
         group: 'sessions',
         description: 'Start a Claude Code session in a folder with a first message; it keeps working on its own and asks the person when it needs approval or an answer.',
-        instructions: 'Use it to hand a coding task to Claude Code. `folder` must be under one of the instance\'s folders. Leave `wait` off for long work: the session shows in the fleet and reports its tasks; set it to have this run wait for the first turn\'s answer.',
+        instructions: 'Use it to hand a coding task to Claude Code. `folder` must be under one of the instance\'s folders (claude/folders lists them). Leave `wait` off for long work: the session shows in the fleet and reports its tasks; set it to have this run wait for the first turn\'s answer.',
         args: ginAs(ClaudeStart),
         returns: ginAs(ClaudeTurn),
         progress: linear,
@@ -171,7 +181,7 @@ export const claude = system(CLAUDE_SYSTEM, {
       importables: fn({
         group: 'imports',
         description: 'The agents, skills and MCP servers Claude sees in a folder (user, project and plugin scope), and whether each is imported.',
-        instructions: 'Use it before claude/import to see what there is. `folder` must be under one of the instance\'s folders.',
+        instructions: 'Use it before claude/import to see what there is. `folder` must be under one of the instance\'s folders (claude/folders lists them).',
         args: ginAs(ImportablesQuery),
         returns: ginAs(ImportablesList),
         // the mcp system's instances say which MCP servers are imported already

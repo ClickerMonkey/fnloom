@@ -24,34 +24,51 @@ export type HeaderName = z.infer<typeof HeaderName>;
 export const HeaderValues = z.record(HeaderName, z.string());
 export type HeaderValues = z.infer<typeof HeaderValues>;
 
+/** Nothing to send. */
+const NoAuth = z.object({ kind: z.literal('none') });
+
+/** A bearer token. */
+const BearerAuth = z.object({
+  kind: z.literal('bearer'),
+  per: RemoteAuthPer,
+  /** The shared token (a config secret); absent for `per: 'person'`. */
+  token: z.string().min(1).optional(),
+});
+
+/** Header values. */
+const HeadersAuth = z.object({
+  kind: z.literal('headers'),
+  per: RemoteAuthPer,
+  /** The header names a person fills in (`per: 'person'`), or the shared values by name (config secrets). */
+  names: z.array(HeaderName).min(1),
+  values: HeaderValues.optional(),
+});
+
+/** The browser sign-in. */
+const OAuthAuth = z.object({
+  kind: z.literal('oauth'),
+  per: RemoteAuthPer,
+  /** Scopes to ask for; absent asks for what the server's metadata says it supports. */
+  scopes: z.array(z.string().min(1)).optional(),
+  /** A client registered by hand; absent, the instance registers itself (OAuth dynamic client registration). */
+  clientId: z.string().min(1).optional(),
+  /** That client's secret (a config secret), for a confidential client. */
+  clientSecret: z.string().min(1).optional(),
+});
+
 /** How an instance signs in to its remote service. */
-export const RemoteAuth = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('none') }),
-  z.object({
-    kind: z.literal('bearer'),
-    per: RemoteAuthPer,
-    /** The shared token (a config secret); absent for `per: 'person'`. */
-    token: z.string().min(1).optional(),
-  }),
-  z.object({
-    kind: z.literal('headers'),
-    per: RemoteAuthPer,
-    /** The header names a person fills in (`per: 'person'`), or the shared values by name (config secrets). */
-    names: z.array(HeaderName).min(1),
-    values: HeaderValues.optional(),
-  }),
-  z.object({
-    kind: z.literal('oauth'),
-    per: RemoteAuthPer,
-    /** Scopes to ask for; absent asks for what the server's metadata says it supports. */
-    scopes: z.array(z.string().min(1)).optional(),
-    /** A client registered by hand; absent, the instance registers itself (OAuth dynamic client registration). */
-    clientId: z.string().min(1).optional(),
-    /** That client's secret (a config secret), for a confidential client. */
-    clientSecret: z.string().min(1).optional(),
-  }),
-]);
+export const RemoteAuth = z.discriminatedUnion('kind', [NoAuth, BearerAuth, HeadersAuth, OAuthAuth]);
 export type RemoteAuth = z.infer<typeof RemoteAuth>;
+
+/**
+ * The sign-ins that need no browser flow: none, a token or header values. A service whose OAuth endpoints are not
+ * found from the server itself (an API service, unlike an MCP server) signs in with one of these.
+ */
+export const TypedAuth = z.discriminatedUnion('kind', [NoAuth, BearerAuth, HeadersAuth]);
+export type TypedAuth = z.infer<typeof TypedAuth>;
+
+/** The config paths (under an instance's `auth` field) that hold a `TypedAuth`'s secrets. */
+export const TYPED_AUTH_SECRETS = ['auth.token', 'auth.values'] as const satisfies readonly ConfigPath[];
 
 /** The config paths (under an instance's `auth` field) that hold secrets: sealed by the hub, never shown again. */
 export const REMOTE_AUTH_SECRETS = ['auth.token', 'auth.values', 'auth.clientSecret'] as const satisfies readonly ConfigPath[];

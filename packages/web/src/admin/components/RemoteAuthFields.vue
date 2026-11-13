@@ -3,7 +3,7 @@
  * How a remote service is signed in to (`RemoteAuth`): none, a token, headers or OAuth, each shared (typed here,
  * sealed by the hub) or per person (each person connects on the connections page). A kept secret reads as kept; a
  * blank token or client secret keeps it, and header values are replaced as a whole. Problems come by config path
- * (`auth.token`).
+ * (`auth.token`). `kinds` narrows the ways offered (an API service has no OAuth).
  */
 import type { RemoteAuthPer } from '@harness/core';
 import { computed } from 'vue';
@@ -12,10 +12,10 @@ import { AUTH_WORDS, PER_WORDS, type AuthDraft, type PairRow, type RemoteAuthKin
 import type { PathProblems } from '../../state/problems.ts';
 import PairRowsEditor from './PairRowsEditor.vue';
 
-withDefaults(defineProps<{ problems?: PathProblems }>(), { problems: () => ({}) });
+const props = withDefaults(defineProps<{ problems?: PathProblems; kinds?: readonly RemoteAuthKind[] }>(), { problems: () => ({}), kinds: () => ['none', 'bearer', 'headers', 'oauth'] });
 const auth = defineModel<AuthDraft>({ required: true });
 
-const KINDS: readonly SegmentOption<RemoteAuthKind>[] = (['none', 'bearer', 'headers', 'oauth'] as const).map((kind) => ({ value: kind, label: AUTH_WORDS[kind].label }));
+const kindOptions = computed((): SegmentOption<RemoteAuthKind>[] => props.kinds.map((kind) => ({ value: kind, label: AUTH_WORDS[kind].label })));
 const PERS: readonly SegmentOption<RemoteAuthPer>[] = (['shared', 'person'] as const).map((per) => ({ value: per, label: PER_WORDS[per].label }));
 
 const kind = computed({ get: () => auth.value.kind, set: (next: RemoteAuthKind) => { auth.value = { ...auth.value, kind: next }; } });
@@ -43,7 +43,7 @@ const readScope = (text: string): string | undefined => (text.trim() === '' ? un
 <template>
   <fieldset class="auth" data-testid="remote-auth">
     <legend class="label">Sign-in</legend>
-    <UiSegmented v-model="kind" :options="KINDS" label="Sign-in" data-testid="auth-kind" />
+    <UiSegmented v-model="kind" :options="kindOptions" label="Sign-in" data-testid="auth-kind" />
     <p class="hint">{{ AUTH_WORDS[kind].about }}</p>
     <template v-if="kind !== 'none'">
       <UiSegmented v-model="per" :options="PERS" label="Whose credentials" data-testid="auth-per" />

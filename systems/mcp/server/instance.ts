@@ -7,7 +7,7 @@ import type { McpClient, McpElicitRequest, McpElicitResult, McpTool, McpToolResu
 import { McpError } from '@ayepi/mcp';
 import {
   Json, JsonObject, McpServerConfig, ResourceUri, mcpRootOf, messageOf, type ConnectionUpdate, type ImportReport, type InstanceConnect, type InstanceName, type McpServerState,
-  type McpServerStatus, type Page, type ReadWant, type RemoteCredentials, type ResourceRead, type ResourceRoot, type ResourceStat, type RunConnection,
+  type McpServerStatus, type Page, type ReadWant, type RemoteCredentials, type ResourceRead, type ResourceRoot, type ResourceStat, type RunConnection, type RunInfo,
 } from '@harness/core';
 import { credentialHeaders, instanceConnectOf, readCredentials, sharedHeaders, usesConnections, type Log, type ResourceProvider } from '@harness/sdk';
 import type { SystemPatch } from '@harness/sdk/server';
@@ -41,6 +41,8 @@ export interface InstanceDeps {
 
 /** A tool call's run, as the instance needs it: its connection, end, proposals and refreshing its credentials. */
 export interface CallingRun extends AskingRun {
+  /** Whose run it is: a server's question during the call is asked of this person. */
+  readonly run: { readonly user: Pick<RunInfo['user'], 'id'> };
   readonly connection: RunConnection | undefined;
   updateConnection(update: ConnectionUpdate['update']): Promise<void>;
 }
@@ -149,7 +151,7 @@ export class McpInstance {
   status(): McpServerStatus {
     const link = this.#own ?? this.#last;
     const state: McpServerState = link?.state ?? 'needs-auth';
-    const problem = link === undefined ? 'Each person signs in to this server on the Connections page; its tools are mirrored once someone has.' : link.problem;
+    const problem = link === undefined ? 'Each person signs in to this server on the MCP sign-ins page; its tools are mirrored once someone has.' : link.problem;
     const server = link?.server;
     return {
       instance: this.instance,
@@ -236,12 +238,15 @@ export class McpInstance {
   }
 
   /**
-   * A question the server asked on a link: asked of the person of the newest call in flight on it (servers ask while
-   * answering a call); declined when no call is waiting.
+   * A question the server asked on a link (servers ask while answering a call). The client is not told which call it
+   * is about, so it is asked only when every call in flight on the link is one person's (the newest of them), and
+   * declined when no call is waiting or when calls of several people share the link: asking one of them could show
+   * them another's question and send their answer for the other's call.
    */
   elicit(link: ServerLink, request: McpElicitRequest): Promise<McpElicitResult> {
-    const run = this.#inFlight.get(link)?.at(-1);
-    if (run === undefined) { return Promise.resolve({ action: 'decline' }); }
+    const calls = this.#inFlight.get(link) ?? [];
+    const run = calls.at(-1);
+    if (run === undefined || calls.some((call) => call.run.user.id !== run.run.user.id)) { return Promise.resolve({ action: 'decline' }); }
     return this.elicitations.ask(request, run);
   }
 
@@ -327,7 +332,7 @@ export class McpInstance {
   /** The link a run calls through: the instance's own, or the run's connection's (made or remade as its credentials say). */
   #linkFor(run: CallingRun): ServerLink | { readonly refused: string } {
     if (this.#own !== undefined) { return this.#own; }
-    if (run.connection === undefined) { return { refused: `Sign in to ${this.#config.label} on the Connections page first.` }; }
+    if (run.connection === undefined) { return { refused: `Sign in to ${this.#config.label} on the MCP sign-ins page first.` }; }
     const person = this.#personLink(run.connection);
     if (person === undefined) { return { refused: `Your connection to ${this.#config.label} has no credentials this system can use: connect again.` }; }
     person.signer.update = (update) => run.updateConnection(update);

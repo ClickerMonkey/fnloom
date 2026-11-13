@@ -334,7 +334,7 @@ export const routes: RouteRecordRaw[] = [
       { path: 'model-calls', name: ROUTES.modelCalls, component: () => import('../admin/views/ModelCallsView.vue'), meta: { title: 'Model calls' } },
       // one call by its address: the list with that call open
       { path: 'model-calls/:id', redirect: (to) => ({ name: ROUTES.modelCalls, query: { ...to.query, call: to.params['id'] } }) },
-      { path: 'mcps', name: ROUTES.mcps, component: () => import('../admin/views/McpsView.vue'), meta: { title: 'MCPs' } },
+      { path: 'mcps', name: ROUTES.mcps, component: () => import('../admin/views/McpsView.vue'), meta: { title: 'Hub MCP' } },
       { path: `mcps/:id/:tab(${tabs(McpTab)})?`, name: ROUTES.mcp, component: () => import('../admin/views/McpView.vue'), meta: { title: 'MCP' } },
       { path: 'mcp-servers', name: ROUTES.mcpServers, component: () => import('../admin/views/McpServersView.vue'), meta: { title: 'MCP servers' } },
       { path: `mcp-servers/:instance/:tab(${tabs(McpServerTab)})?`, name: ROUTES.mcpServer, component: () => import('../admin/views/McpServerView.vue'), meta: { title: 'MCP server' } },

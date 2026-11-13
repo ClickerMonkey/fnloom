@@ -10,10 +10,11 @@
  * `fns.<system>.<instance>.<name>(…)`), a path that ends in a call step. Values cross a fn call as logical JSON: the
  * args are encoded from gin, and the answer is parsed back through the callee's declared return type.
  *
- * **Limits.** gin has no step budget or abort, so a run can't be stopped mid-evaluation. The rules that keep a run
- * finite are therefore static: no while-loops (a loop over a `bool`, re-evaluated each round), no loop over a value of
- * unknown type, no `recurse`, a complexity cap; and at run time a cap on fn calls and a deadline that holds whenever the
- * program waits on a call.
+ * **Limits.** A run is given gin's run signal: every loop round and fn call is a checkpoint, so the deadline
+ * (`HARNESS_PROGRAM_TIMEOUT`) or the caller's cancel stops the engine there, and a long run yields to the event loop
+ * between slices, so other runs and requests on the same system go on meanwhile. On top of that, static rules keep
+ * programs plain: no while-loops (a loop over a `bool`, re-evaluated each round), no loop over a value of unknown type,
+ * no `recurse`, a complexity cap; and at run time a cap on fn calls.
  */
 import { buildSchemas, createEngine, createRegistry, typeReferences, val, type Engine, type SchemaOptions, type Expr, type ExprDef, type LocalScope, type Type, type TypeDef, type Value } from '@aeye/gin';
 import { Json, QualifiedName, isGinExprDef, isGinTypeDef, type FnMode } from '@harness/core';
@@ -532,9 +533,10 @@ export async function runProgram(run: ProgramRun, input: Json): Promise<Json> {
   const maxCalls = programEnv.get('HARNESS_PROGRAM_MAX_CALLS');
   const deadline = AbortSignal.timeout(timeout);
   const signal = run.signal === undefined ? deadline : AbortSignal.any([run.signal, deadline]);
+  const limitError = (): ProgramError => new ProgramError(deadline.aborted ? `The program ran past ${String(timeout)} ms.` : 'The run was stopped.', 'limit');
   let made = 0;
   const fns = run.program.fnsValue(run.calls, async (fn, args) => {
-    if (signal.aborted) throw new ProgramError(deadline.aborted ? `The program ran past ${String(timeout)} ms.` : 'The run was stopped.', 'limit');
+    if (signal.aborted) throw limitError();
     made += 1;
     if (made > maxCalls) throw new ProgramError(`The program made more than ${String(maxCalls)} fn calls.`, 'limit');
     return run.call(fn, args);
@@ -544,16 +546,27 @@ export async function runProgram(run: ProgramRun, input: Json): Promise<Json> {
     throw new ProgramError(`The args don't fit: ${error instanceof Error ? error.message : String(error)}`, 'failed');
   }
   const extras: Record<string, Value> = { [ARGS_SCOPE]: argsValue, ...(fns === undefined ? {} : { [FNS_SCOPE]: fns }), ...run.owned };
+  // the engine stops itself at its next loop round or fn call once `signal` aborts; the race answers at once even when
+  // the run is waiting on a fn call that hasn't come back
+  let cleanup = (): void => undefined;
   const stopped = new Promise<never>((_resolve, reject) => {
-    const stop = () => { reject(new ProgramError(deadline.aborted ? `The program ran past ${String(timeout)} ms.` : 'The run was stopped.', 'limit')); };
-    if (signal.aborted) stop(); else signal.addEventListener('abort', stop, { once: true });
+    const stop = () => { reject(limitError()); };
+    if (signal.aborted) { stop(); return; }
+    signal.addEventListener('abort', stop, { once: true });
+    cleanup = () => { signal.removeEventListener('abort', stop); };
   });
+  const running = run.program.engine.run(run.expr, extras, { signal, slice: programEnv.get('HARNESS_PROGRAM_SLICE') });
+  // a run the race left behind still settles (it stops at its next checkpoint); its outcome is already answered
+  void running.catch(() => undefined);
   let out: Value;
   try {
-    out = await Promise.race([run.program.engine.run(run.expr, extras), stopped]);
+    out = await Promise.race([running, stopped]);
   } catch (error) {
     if (error instanceof ProgramError) throw error;
+    if (signal.aborted) throw limitError();
     throw new ProgramError(error instanceof Error ? error.message : String(error), 'failed');
+  } finally {
+    cleanup();
   }
   try {
     return Json.parse(run.program.parse(run.returns).parse(out.encodeLogical()).encodeLogical());

@@ -2,7 +2,7 @@
 /**
  * One MCP server (`/admin/mcp-servers/:instance`), its tab in the URL: the overview (its state with its server and
  * why, what the server said about itself, where it is and how it signs in, what it mirrors, with links to its
- * resources, its instance and its connections page when people sign in to it), its tools (the fns it mirrors, the
+ * resources, its instance and its sign-ins page when people sign in to it), its tools (the fns it mirrors, the
  * loosely mapped ones marked), its prompts (context items with `/commands`) and its settings (saved as the instance's
  * config; kept secrets stay unless replaced). Removing it removes the instance.
  */
@@ -67,6 +67,7 @@ const facts = computed<readonly Fact[]>(() => {
     list.push({ label: 'Mirrors', value: countsText(s) });
     list.push({ label: 'Checked', value: relativeTime(s.checkedAt, now.value), title: fullTime(s.checkedAt) });
   }
+  if (instance.value !== undefined) { list.push({ label: 'Instance', value: instance.value, code: true }); }
   return list;
 });
 
@@ -119,7 +120,6 @@ async function remove(): Promise<void> {
       <template v-if="view && instance">
         <div class="status-row">
           <StatusBadge v-if="look" :look="look" />
-          <code class="dim">{{ instance }}</code>
         </div>
         <UiTabs v-model="tab" :tabs="tabs" label="MCP server" />
 
@@ -136,7 +136,7 @@ async function remove(): Promise<void> {
           </UiCard>
           <div class="links">
             <RouterLink v-if="(status?.resources ?? 0) > 0" :to="links.resources({ under: mcpRootOf(instance) })"><UiIcon name="layers" :size="14" />Its resources</RouterLink>
-            <RouterLink v-if="signIn !== undefined" :to="links.connect(MCP)" data-testid="server-connections"><UiIcon name="key" :size="14" />Connections</RouterLink>
+            <RouterLink v-if="signIn !== undefined" :to="links.connect(MCP)" data-testid="server-connections"><UiIcon name="key" :size="14" />Sign-ins</RouterLink>
             <RouterLink :to="links.instance(MCP, instance)"><UiIcon name="server" :size="14" />Its instance</RouterLink>
           </div>
           <p v-if="(status?.leftOut ?? 0) > 0" class="dim">{{ status?.leftOut }} tools were left out past the most tools setting.</p>

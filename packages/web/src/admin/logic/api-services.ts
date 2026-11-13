@@ -2,13 +2,16 @@
  * Build 9: API services as the admin pages show them (each an instance of the bundled `api` system, whose api fns run
  * on it): the form's draft of an `ApiServiceConfig` and the config it sends. Pure, so it is tested alone.
  */
-import { API_CONFIG_SECRETS, API_SYSTEM, ApiServiceConfig, SystemName, type Json, type JsonObject } from '@harness/core';
+import { API_CONFIG_SECRETS, API_SYSTEM, ApiServiceConfig, SystemName, type Json, type JsonObject, type TypedAuth } from '@harness/core';
 import {
   authCandidate, authDraft, checkConfig, keptPaths, numberOr, recordOf, rowsOf, textOr, withoutKept, type AuthDraft, type CheckedConfig, type PairRow,
 } from './remote-config.ts';
 
 /** The `api` system's name. */
 export const API = SystemName.parse(API_SYSTEM);
+
+/** The ways an API service signs in (`TypedAuth`): no OAuth, since a service names no endpoints to sign in through. */
+export const API_AUTH_KINDS = ['none', 'bearer', 'headers'] as const satisfies readonly TypedAuth['kind'][];
 
 /** An API service's form as the inputs hold it. Numbers are text as typed: the timeout in seconds, the body ceiling in KB. */
 export interface ApiServiceDraft {

@@ -2,7 +2,7 @@
  * The claude system's own shapes (zod first; the contract reads them into gin with `ginAs`). The shared contracts a
  * web page or another system also reads (`ClaudeSession`, `ClaudeStart`, …) are in `@harness/core` (`claude.ts`).
  */
-import { ClaudeImportable, ClaudeSessionId, ClaudeSessionRef, InstanceName, Timestamp } from '@harness/core';
+import { ClaudeFolder, ClaudeImportable, ClaudeSessionId, ClaudeSessionRef, InstanceName, Timestamp } from '@harness/core';
 import { z } from 'zod';
 
 /** A page of Claude's own store (`claude/disk_sessions`): every session on the machine, live or not. */
@@ -31,6 +31,14 @@ export type DiskSession = z.infer<typeof DiskSession>;
 /** A page of disk sessions, newest first; `next` is the offset of the following page, absent at the end. */
 export const DiskSessionsPage = z.object({ items: z.array(DiskSession), next: z.number().int().min(0).optional() });
 export type DiskSessionsPage = z.infer<typeof DiskSessionsPage>;
+
+/** What `claude/folders` reads: nothing (the instance it runs on). */
+export const FoldersQuery = z.object({});
+export type FoldersQuery = z.infer<typeof FoldersQuery>;
+
+/** The folders sessions may start in on this machine (and imports are read from): each session folder is under one. */
+export const FoldersList = z.object({ instance: InstanceName, folders: z.array(ClaudeFolder) });
+export type FoldersList = z.infer<typeof FoldersList>;
 
 /** What `claude/importables` reads: the agents, skills and MCP servers Claude sees in one folder. */
 export const ImportablesQuery = z.object({ folder: z.string().min(1) });

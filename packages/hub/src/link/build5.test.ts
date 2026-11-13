@@ -3,7 +3,7 @@ import { InstanceName, isJsonObject, MAIN_INSTANCE, SECRET_KEPT, SealedConfigSec
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ADMIN, instanceRow, manifestFor, shop, systemRow } from '../catalog/fixtures.ts';
 import { fromInstance } from '../catalog/catalog.ts';
-import { maskSecrets, valueAt, withValueAt } from './config-secrets.ts';
+import { ConfigSecretKeeper, maskSecrets, valueAt, withValueAt } from './config-secrets.ts';
 import { linkRig, type LinkRig } from './rig.ts';
 
 const SHOP = SystemName.parse('shop');
@@ -90,6 +90,26 @@ describe('secret config fields', () => {
     expect(await storedSecret()).not.toBe(first);
     expect(await rig.vault.reveal(first)).toBeUndefined();
     expect(await rig.config.set(SHOP, { currency: 'EURO' }, ADMIN)).toHaveProperty('problems');
+  });
+
+  it('seals a record of text (environment or header values) whole, keeps it on SECRET_KEPT and reveals it as the record', async () => {
+    const keeper = new ConfigSecretKeeper(() => rig.vault);
+    const ref = { system: SHOP, instance: MAIN_INSTANCE };
+    const env = { GITHUB_TOKEN: 'ghp_1', OTHER: 'x' };
+    const first = await keeper.seal(ref, { label: 'GitHub', transport: { env } }, undefined, ['transport.env'], ADMIN);
+    expect(first.plain).toEqual({ label: 'GitHub', transport: { env } });
+    const sealed = SealedConfigSecret.parse(valueAt(first.sealed, 'transport.env'));
+    expect(sealed.json).toBe(true);
+    expect(JSON.stringify(first.sealed)).not.toContain('ghp_1');
+    expect(maskSecrets(first.sealed)).toEqual({ label: 'GitHub', transport: { env: SECRET_KEPT } });
+    expect(await keeper.unseal(first.sealed)).toEqual({ label: 'GitHub', transport: { env } });
+    const kept = await keeper.seal(ref, { label: 'GitHub', transport: { env: SECRET_KEPT } }, first.sealed, ['transport.env'], ADMIN);
+    expect(kept.plain).toEqual({ label: 'GitHub', transport: { env } });
+    expect(valueAt(kept.sealed, 'transport.env')).toEqual(valueAt(first.sealed, 'transport.env'));
+    const changed = await keeper.seal(ref, { label: 'GitHub', transport: { env: { GITHUB_TOKEN: 'ghp_2' } } }, first.sealed, ['transport.env'], ADMIN);
+    await changed.release();
+    expect(await rig.vault.reveal(sealed.$secret)).toBeUndefined();
+    expect(await keeper.unseal(changed.sealed)).toEqual({ label: 'GitHub', transport: { env: { GITHUB_TOKEN: 'ghp_2' } } });
   });
 
   it('shows the web app SECRET_KEPT, and reads and writes dot paths', () => {

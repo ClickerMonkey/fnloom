@@ -385,7 +385,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       access: ({ data }) => data.targets.map((target) => build4.access(readAccess(target))),
       setAccess: ({ data }) => build4.setAccess(readAccess(data.target), { visibility: data.sharing.visibility, with: readActors(data.sharing.with) }),
       // build 4: the calendar each person connects
-      connectPages: () => [...build4.connectPages(), build9.connectPage()],
+      connectPages: () => [...build4.connectPages(), ...build9.connectPages()],
       connect: () => build4.connect(),
       updateConnection: ({ data }) => build4.updateConnection(data),
       disconnect: ({ data }) => build4.disconnect(data.connection),

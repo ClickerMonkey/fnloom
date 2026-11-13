@@ -94,7 +94,7 @@ async function remove(): Promise<void> {
 <template>
   <AppPage :title="view?.name ?? 'MCP'" :description="view?.instructions ?? ''" keep-title>
     <template #crumb>
-      <RouterLink :to="links.mcps()" class="crumb" data-testid="back-to-mcps"><UiIcon name="chevron-left" :size="14" />MCPs</RouterLink>
+      <RouterLink :to="links.mcps()" class="crumb" data-testid="back-to-mcps"><UiIcon name="chevron-left" :size="14" />Hub MCP</RouterLink>
     </template>
     <template v-if="view" #actions>
       <UiSwitch :model-value="view.enabled" label="On" data-testid="mcp-enabled" @update:model-value="enable" />

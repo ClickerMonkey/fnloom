@@ -5,7 +5,7 @@
  * the three requests a person answers (`PermitRequest`, `QuestionRequest`), already in the harness's words, so the
  * fleet never sees an SDK message.
  */
-import type { ClaudeImportable, ClaudePermissionMode, ClaudeSessionId, ClaudeTask, ClaudeTranscriptItem, GinTypeDef, Json, JsonObject } from '@harness/core';
+import type { ClaudeImportable, ClaudePermissionMode, McpServerConfig, ClaudeSessionId, ClaudeTask, ClaudeTranscriptItem, GinTypeDef, Json, JsonObject } from '@harness/core';
 
 /** How to open a live session: a new one (with its id minted by the fleet) or one resumed from Claude's store. */
 export interface DriverOpen {
@@ -124,8 +124,16 @@ export function sliceOf(count: number, request: Pick<TranscriptRequest, 'offset'
   return { start: Math.max(0, end - request.limit), end };
 }
 
-/** What Claude sees in a folder that can be imported, before the harness says what it has imported. */
-export type FoundImportable = ClaudeImportable extends infer I ? (I extends { imported: boolean } ? Omit<I, 'imported'> : never) : never;
+/** An importable as a list shows it, before the harness says whether it has imported it. */
+type Unmarked<I> = I extends { imported: boolean } ? Omit<I, 'imported'> : never;
+
+/**
+ * What Claude sees in a folder that can be imported, before the harness says what it has imported. An MCP server
+ * carries its whole config here (secrets included, for `import` to hand to the hub); lists show only its summary.
+ */
+export type FoundImportable =
+  | Unmarked<Exclude<ClaudeImportable, { kind: 'mcp-server' }>>
+  | (Omit<Unmarked<Extract<ClaudeImportable, { kind: 'mcp-server' }>>, 'server'> & { readonly server: McpServerConfig });
 
 /** Claude Code on one machine. */
 export interface ClaudeDriver {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * One API service (`/admin/api-services/:instance`), its tab in the URL: the overview (its instance's status, base URL,
- * sign-in, OpenAPI document and limits, links to its connections page when people sign in to it and to its instance,
+ * sign-in, OpenAPI document and limits, links to its sign-ins page when people sign in to it and to its instance,
  * and the api fns that run on it, made in the chat with `api/make_api`) and its settings (saved as the instance's
  * config; kept secrets stay unless replaced). Removing it removes the instance.
  */
@@ -53,6 +53,7 @@ const facts = computed<readonly Fact[]>(() => {
     ...(c.openapi === undefined ? [] : [{ label: 'OpenAPI', value: c.openapi, code: true }]),
     ...(c.headers === undefined ? [] : [{ label: 'Headers', value: Object.keys(c.headers).join(', ') }]),
     { label: 'Limits', value: `${c.timeout / 1000} s a request, bodies up to ${formatBytes(c.maxBody)}` },
+    ...(instance.value === undefined ? [] : [{ label: 'Instance', value: instance.value, code: true }]),
   ];
 });
 
@@ -92,6 +93,7 @@ async function remove(): Promise<void> {
       <RouterLink :to="links.apiServices()" class="crumb" data-testid="back-to-services"><UiIcon name="chevron-left" :size="14" />API services</RouterLink>
     </template>
     <template #actions>
+      <UiButton v-if="instance" icon="refresh" variant="ghost" :loading="fleet.list.loading.value" data-testid="service-refresh" @click="store.show(instance)">Check</UiButton>
       <UiButton icon="trash" variant="ghost" data-testid="service-remove" @click="removing = true">Remove</UiButton>
     </template>
     <LoadState
@@ -101,7 +103,6 @@ async function remove(): Promise<void> {
       <template v-if="view && instance">
         <div class="status-row">
           <StatusBadge :look="SYSTEM_STATUS_LOOK[view.status]" />
-          <code class="dim">{{ instance }}</code>
         </div>
         <UiTabs v-model="tab" :tabs="tabs" label="API service" />
 
@@ -110,7 +111,7 @@ async function remove(): Promise<void> {
             <FactList :facts="facts" testid="service-facts" />
           </UiCard>
           <div class="links">
-            <RouterLink v-if="signIn !== undefined" :to="links.connect(API)" data-testid="service-connections"><UiIcon name="key" :size="14" />Connections</RouterLink>
+            <RouterLink v-if="signIn !== undefined" :to="links.connect(API)" data-testid="service-connections"><UiIcon name="key" :size="14" />Sign-ins</RouterLink>
             <RouterLink :to="links.instance(API, instance)"><UiIcon name="server" :size="14" />Its instance</RouterLink>
           </div>
           <LoadState

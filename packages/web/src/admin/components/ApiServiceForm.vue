@@ -5,7 +5,7 @@
  * operations), and its limits. The parent checks and saves the draft; problems come by config path.
  */
 import { UiInput, UiTextarea } from '../../ui/index.ts';
-import type { ApiServiceDraft } from '../logic/api-services.ts';
+import { API_AUTH_KINDS, type ApiServiceDraft } from '../logic/api-services.ts';
 import type { PathProblems } from '../../state/problems.ts';
 import { draftFields } from '../state/draft.ts';
 import PairRowsEditor from './PairRowsEditor.vue';
@@ -33,11 +33,11 @@ const maxBody = field('maxBody');
       v-model="baseUrl" label="Base URL" type="url" placeholder="https://api.github.com" required hint="Every request is made under it; a program can't leave it."
       :error="problems['baseUrl'] ?? ''" data-testid="service-base-url"
     />
-    <RemoteAuthFields v-model="auth" :problems="problems" />
+    <RemoteAuthFields v-model="auth" :problems="problems" :kinds="API_AUTH_KINDS" />
     <PairRowsEditor v-model:rows="headers" label="Headers on every request" name-placeholder="Accept" value-placeholder="application/json" hint="Not secrets; the sign-in carries those." :error="problems['headers'] ?? ''" testid="service-headers" />
     <UiInput v-model="openapi" label="OpenAPI document" type="url" placeholder="https://api.example.com/openapi.json" hint="The authoring agent reads its operations." :error="problems['openapi'] ?? ''" />
     <div class="pair">
-      <UiInput v-model="timeout" label="Request timeout (seconds)" type="number" :error="problems['timeout'] ?? ''" />
+      <UiInput v-model="timeout" label="Request timeout (seconds)" type="number" hint="A slower request is stopped." :error="problems['timeout'] ?? ''" />
       <UiInput v-model="maxBody" label="Largest body kept (KB)" type="number" hint="A larger response becomes a resource." :error="problems['maxBody'] ?? ''" />
     </div>
   </div>

@@ -30,9 +30,9 @@ const status = (active: string, done: string, failed: string) => ({
  * asking by default; the server's own approval policy (`McpServerConfig.approval`) still asks where it says to.
  */
 export const MCP_CONNECT: ConnectDecl = ConnectDecl.parse({
-  title: 'MCP servers',
+  title: 'MCP sign-ins',
   description: 'Sign in to the MCP servers that need your own account, so the chat can use their tools as you.',
-  icon: 'plug',
+  icon: 'key',
   how: { flow: 'oauth' },
   settings: wireType(g.obj({})),
   fns: {},
@@ -40,20 +40,14 @@ export const MCP_CONNECT: ConnectDecl = ConnectDecl.parse({
   defaults: { on: true, ask: false },
 });
 
-/**
- * The config paths sealed as secrets. Core's `MCP_CONFIG_SECRETS` also names `transport.env` and `auth.values`, but
- * those are records of text, and the SDK and the hub seal text fields only (`checkedSecrets` refuses the rest): until
- * they seal records, those two are kept as plain config.
- */
-const SEALED_SECRETS = MCP_CONFIG_SECRETS.filter((path) => path !== 'transport.env' && path !== 'auth.values');
-
 const declared = system(MCP_SYSTEM, {
   description: 'Use the tools, prompts and resources of MCP servers: each server added is an instance, its tools are fns, its prompts are /commands and its resources are browsable.',
   groups: [
     { name: 'servers', title: 'Servers', description: 'Where each MCP server is (connected, needs sign-in, unreachable) and listing its tools again.' },
     { name: 'instances', title: 'Instances', description: 'Work forwarded to the instance that holds a server; called by this system\'s own fns only.' },
   ],
-  configSecrets: SEALED_SECRETS,
+  // the hub seals each: the token and client secret as text, the environment and header values whole
+  configSecrets: [...MCP_CONFIG_SECRETS],
   // tool calls may ask a person (elicitations) and act as their connection; each server is wherever its URL says
   grants: { hub: ['approvals', 'connections', 'resources'], network: ['*'] },
 })

@@ -18,7 +18,6 @@
  *   session with that agent, and an MCP server an `mcp` instance (`McpServerConfig`).
  */
 import { z } from 'zod';
-import { McpServerConfig } from './mcp-servers.ts';
 import { ActorId, InstanceName, Json, RunId, SessionId, Timestamp } from './primitives.ts';
 import type { ConfigPath } from './config-secrets.ts';
 
@@ -220,11 +219,24 @@ export const ClaudeAnswer = ClaudeSessionRef.extend({
 });
 export type ClaudeAnswer = z.infer<typeof ClaudeAnswer>;
 
+/**
+ * An MCP server Claude has configured, as a list shows it: how it is reached and the names of the secrets it signs in
+ * with, never their values (those stay on the machine until an import hands them to the hub, which seals them).
+ */
+export const ClaudeMcpServerSummary = z.object({
+  transport: z.enum(['stdio', 'http', 'sse']),
+  /** The command it starts (without its args, which may hold credentials), or its URL without the query. */
+  where: z.string(),
+  /** The environment values (stdio) or headers (http, sse) it signs in with, by name. */
+  secrets: z.array(z.string()),
+});
+export type ClaudeMcpServerSummary = z.infer<typeof ClaudeMcpServerSummary>;
+
 /** A thing on the machine that can be imported. */
 export const ClaudeImportable = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('agent'), name: z.string(), description: z.string(), scope: z.enum(['user', 'project', 'plugin']), folder: z.string().optional(), imported: z.boolean() }),
   z.object({ kind: z.literal('skill'), name: z.string(), description: z.string(), scope: z.enum(['user', 'project', 'plugin']), folder: z.string().optional(), imported: z.boolean() }),
-  z.object({ kind: z.literal('mcp-server'), name: z.string(), description: z.string(), scope: z.enum(['user', 'project', 'local', 'plugin']), folder: z.string().optional(), imported: z.boolean(), server: McpServerConfig }),
+  z.object({ kind: z.literal('mcp-server'), name: z.string(), description: z.string(), scope: z.enum(['user', 'project', 'local', 'plugin']), folder: z.string().optional(), imported: z.boolean(), server: ClaudeMcpServerSummary }),
 ]);
 export type ClaudeImportable = z.infer<typeof ClaudeImportable>;
 

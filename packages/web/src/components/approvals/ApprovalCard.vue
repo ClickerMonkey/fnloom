@@ -52,6 +52,8 @@ const answer = shallowRef<Json | undefined>(undefined);
 const optional = computed(() => props.ask?.type.name === 'optional');
 const blocked = computed(() => props.ask !== undefined && !optional.value && answer.value === undefined);
 const approveLabel = computed(() => (props.ask === undefined || optional.value ? 'Approve' : 'Answer'));
+/** A question is skipped, not denied. */
+const denyLabel = computed(() => (approveLabel.value === 'Answer' ? 'Skip' : 'Deny'));
 const body = ref<HTMLElement | null>(null);
 const cut = useClipped(body);
 const clipped = computed(() => props.bounded && cut.value);
@@ -96,7 +98,7 @@ function decide(approve: boolean, remembered: Remember, reason: string): void {
     <SensitiveFiles v-if="trayFlags.length > 0" :flags="trayFlags" compact />
     <ApprovalAsk v-if="ask" :type="ask.type" :ident="ident" @change="answer = $event" />
     <slot name="after" />
-    <ApprovalAnswer v-model:remember="remember" :rememberable="canRemember" :irreversible="irreversible" :ident="ident" :review="clipped" :blocked="blocked" :approve-label="approveLabel" @decide="decide" @review="reviewing = true">
+    <ApprovalAnswer v-model:remember="remember" :rememberable="canRemember" :irreversible="irreversible" :ident="ident" :review="clipped" :blocked="blocked" :approve-label="approveLabel" :deny-label="denyLabel" @decide="decide" @review="reviewing = true">
       <template #buttons="scope"><slot name="buttons" :remember="scope.remember" /></template>
     </ApprovalAnswer>
 
@@ -106,7 +108,7 @@ function decide(approve: boolean, remembered: Remember, reason: string): void {
         <ArgList v-else :args="args" />
       </div>
       <template #footer>
-        <ApprovalAnswer v-model:remember="remember" :rememberable="canRemember" :irreversible="irreversible" :ident="ident" :blocked="blocked" :approve-label="approveLabel" @decide="decide" />
+        <ApprovalAnswer v-model:remember="remember" :rememberable="canRemember" :irreversible="irreversible" :ident="ident" :blocked="blocked" :approve-label="approveLabel" :deny-label="denyLabel" @decide="decide" />
       </template>
     </UiDialog>
   </section>

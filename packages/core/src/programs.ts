@@ -6,12 +6,12 @@
  * the SDK's staged helper and the gin program runtime (`@harness/sdk/program`), and tested with the SDK test kit.
  *
  * An api fn runs on one service: an instance of the bundled `api` system (config `ApiServiceConfig`) that holds the
- * base URL and signs every request (`RemoteAuth`). A program never sees a credential.
+ * base URL and signs every request (`TypedAuth`). A program never sees a credential.
  */
 import { z } from 'zod';
 import { GinExprDef, GinTypeDef } from './gin.ts';
 import { InstanceName, Json } from './primitives.ts';
-import { HeaderValues, RemoteAuth, REMOTE_AUTH_SECRETS } from './remote-auth.ts';
+import { HeaderValues, TypedAuth, TYPED_AUTH_SECRETS } from './remote-auth.ts';
 import type { ConfigPath } from './config-secrets.ts';
 
 /** The bundled system of code fns. */
@@ -61,7 +61,8 @@ export const ApiServiceConfig = z.object({
   description: z.string().optional(),
   /** Every request's URL is relative to this; a program can't leave it. */
   baseUrl: z.url(),
-  auth: RemoteAuth.default({ kind: 'none' }),
+  /** How it signs in: no OAuth, since an API service names no endpoints to sign in through. */
+  auth: TypedAuth.default({ kind: 'none' }),
   /** Headers sent on every request (not secrets; `auth` carries those). */
   headers: HeaderValues.optional(),
   /** An OpenAPI document's URL; the authoring agent reads its operations through `api/operations`. */
@@ -69,12 +70,12 @@ export const ApiServiceConfig = z.object({
   /** How long one request may take, in milliseconds. */
   timeout: z.number().int().min(1000).default(60_000),
   /** The largest response body kept, in bytes; a larger one becomes a resource. */
-  maxBody: z.number().int().min(1024).default(2_000_000),
+  maxBody: z.number().int().min(1024).default(2 * 1024 * 1024),
 });
 export type ApiServiceConfig = z.infer<typeof ApiServiceConfig>;
 
 /** The secret config paths of an api service instance. */
-export const API_CONFIG_SECRETS = [...REMOTE_AUTH_SECRETS] as const satisfies readonly ConfigPath[];
+export const API_CONFIG_SECRETS = [...TYPED_AUTH_SECRETS] as const satisfies readonly ConfigPath[];
 
 /**
  * What `api_test` (the authoring agent's check) and a run's trace show of one request: the materialized request with

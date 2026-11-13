@@ -11,7 +11,7 @@ import {
   type JsonRpcNotification, type JsonRpcOutgoingRequest, type JsonRpcResponse, type McpClientTransport, type McpPromptSource,
   type McpResourceSource, type McpServer,
 } from '@ayepi/mcp';
-import { MCP_TOOL_KIND, McpToolSpec, SystemPackageManifest, type FnDecl, type Json, mintId, type ContextDecl, type OutcomeWire, type RunConnection } from '@harness/core';
+import { ActorId, MCP_TOOL_KIND, McpToolSpec, SystemPackageManifest, type FnDecl, type Json, mintId, type ContextDecl, type OutcomeWire, type RunConnection } from '@harness/core';
 import { testHub, TEST_USER, type TestSystem } from '@harness/sdk/testing';
 import type { RunningSystem, SystemPatch } from '@harness/sdk/server';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -295,5 +295,19 @@ describe('the mcp system', () => {
     expect((await test.call('answer_elicitation', { request: waiting.request, content: { project: 'Forged' } })).result).toEqual({ sent: false });
     await test.hub.declineProposal(test.hub.proposals[1]?.key ?? '', 'not now');
     expect(done(await again)).toEqual({ text: JSON.stringify({ action: 'decline' }) });
+  });
+
+  it('declines a server question when calls of two people share the link, never asking one about the other\'s call', async () => {
+    const test = await start(new MemoryDialers(fixture().server));
+    await until(() => fnsSent(test).length > 0, 'the mirror');
+    const first = runTool(test, 'main_choose', {});
+    await until(() => test.hub.proposals.length === 1, 'the first person\'s question');
+    const decl = toolFn(test, 'main_choose');
+    const other = { ...TEST_USER, id: ActorId.parse('act_bea'), name: 'Bea' };
+    const second = test.hub.run('mcp/main_choose', {}, { kind: MCP_TOOL_KIND, ...(decl.payload === undefined ? {} : { payload: decl.payload }), run: test.hub.runInfo('mcp/main_choose', { user: other }) });
+    expect(done(await second)).toEqual({ text: JSON.stringify({ action: 'decline' }) });
+    expect(test.hub.proposals).toHaveLength(1);
+    await test.hub.approveProposal(test.hub.proposals[0]?.key ?? '', { answer: { project: 'Website' } });
+    expect(done(await first)).toEqual({ text: JSON.stringify({ action: 'accept', content: { project: 'Website' } }) });
   });
 });

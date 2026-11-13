@@ -96,9 +96,9 @@ async function decideStart(approve: boolean, remember: Remember, reason: string,
 
     <div class="filters" data-testid="claude-filters">
       <UiInput v-model="words.draft.value" class="words" label="Search sessions" hide-label icon="search" placeholder="Search titles, folders and answers" clearable />
-      <UiSelect v-model="machine" :options="machines" label="Machine" hide-label size="sm" />
-      <UiSelect v-model="folder" :options="folders" label="Folder" hide-label size="sm" />
-      <UiSelect v-model="statusModel" :options="STATUS_OPTIONS" label="Status" hide-label size="sm" />
+      <UiSelect v-model="machine" :options="machines" label="Machine" hide-label />
+      <UiSelect v-model="folder" :options="folders" label="Folder" hide-label />
+      <UiSelect v-model="statusModel" :options="STATUS_OPTIONS" label="Status" hide-label />
     </div>
 
     <LoadState :loading="fleet.loading.value" :problem="fleet.problem.value" :ready="fleet.loaded.value" :empty="sessions.length === 0" @retry="fleet.show(url)">

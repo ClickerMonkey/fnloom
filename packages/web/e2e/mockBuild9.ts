@@ -6,10 +6,10 @@
  * waiting on them, with a running workflow), and a session's transcript (`readFn` of `claude/transcript`).
  */
 import {
-  ClaudeSession, ClaudeTranscriptQuery, ConnectDecl, DataRecord, InstanceName, Json, McpServerStatus, SECRET_KEPT, type SystemName, type AddInstance, type ApprovalPreview, type ClaudeTranscriptItem,
+  ClaudeSession, ClaudeTranscriptQuery, ConnectDecl, DataRecord, InstanceName, Json, McpServerStatus, SECRET_KEPT, type SystemName, type AddInstance, type ApprovalPreview, type ClaudeTranscriptItem, type ClaudeTranscriptPage,
   type ConnectPage, type InstanceRef, type InstanceView, type ProposalAsk, type ReadTableArgs, type RecordPage, type RecordQuery, type RunId, type SessionId,
 } from '@harness/core';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { CLAUDE_FNS, SESSION_TYPE } from '../src/claude/logic/claude.ts';
 import { instanceView } from '../src/admin/test/build2.ts';
 import { API } from '../src/admin/logic/api-services.ts';
@@ -18,9 +18,17 @@ import { SERVER_STATUS_FN } from '../src/admin/state/mcp-servers.ts';
 import { fixture } from './fixture.ts';
 
 const MCP_CONNECT = fixture(ConnectDecl, {
-  title: 'MCP servers', description: 'Sign in to the MCP servers that need your own account.', icon: 'braces', how: { flow: 'oauth' },
+  title: 'MCP sign-ins', description: 'Sign in to the MCP servers that need your own account.', icon: 'key', how: { flow: 'oauth' },
   settings: { name: 'obj', props: {} }, fns: {}, scope: 'instance', defaults: { on: true, ask: false },
 });
+
+const API_CONNECT = fixture(ConnectDecl, {
+  title: 'API sign-ins', description: 'Sign in to the web API services that need your own credentials.', icon: 'globe', how: { flow: 'oauth' },
+  settings: { name: 'obj', props: {} }, fns: {}, scope: 'instance', defaults: { on: true, ask: false },
+});
+
+/** What the connect cards read of a server's or service's config: its label, and whether its sign-in is shared. */
+const CardConfig = z.object({ label: z.string().min(1), auth: z.object({ per: z.enum(['person', 'shared']).optional() }).optional() });
 
 /** The Claude session that waits on the person. */
 export const CLAUDE_WAITING = { instance: 'laptop', session: '0b6f3c1e-4a3e-4c55-9d5c-2f1e8a7b9c10' } as const;
@@ -61,7 +69,7 @@ export class MockBuild9 {
     })]);
     this.fleets.set(API, [instanceView({
       system: API, instance: 'github', description: 'GitHub REST', version: '0.1.0', dirs: undefined,
-      config: { value: { label: 'GitHub', baseUrl: 'https://api.github.com', auth: { kind: 'bearer', per: 'shared', token: SECRET_KEPT }, headers: { Accept: 'application/vnd.github+json' }, timeout: 60_000, maxBody: 2_000_000 }, version: 1, setBy: 'act_ada', setAt: at },
+      config: { value: { label: 'GitHub', baseUrl: 'https://api.github.com', auth: { kind: 'bearer', per: 'shared', token: SECRET_KEPT }, headers: { Accept: 'application/vnd.github+json' }, timeout: 60_000, maxBody: 2 * 1024 * 1024 }, version: 1, setBy: 'act_ada', setAt: at },
     })]);
   }
 
@@ -146,7 +154,11 @@ export class MockBuild9 {
     if (input.fn === CLAUDE_FNS.transcript) {
       const query = ClaudeTranscriptQuery.parse(input.args);
       const items = query.agent === undefined ? TRANSCRIPT : TRANSCRIPT.slice(1, 3);
-      return Json.parse({ items: items.slice(query.offset, query.offset + query.limit), offset: query.offset });
+      // one item a stored message: a page from the start, or back from the newest
+      const end = query.fromEnd ? Math.max(0, items.length - query.offset) : Math.min(items.length, query.offset + query.limit);
+      const offset = query.fromEnd ? Math.max(0, end - query.limit) : Math.min(query.offset, end);
+      const page: ClaudeTranscriptPage = { items: items.slice(offset, end), offset, end, ...(end < items.length ? { next: end } : {}) };
+      return Json.parse(page);
     }
     if (input.fn !== SERVER_STATUS_FN) { return undefined; }
     const instance = InstanceName.parse(input.args['instance']);
@@ -157,11 +169,17 @@ export class MockBuild9 {
     }));
   }
 
-  /** The `mcp` system's connect page: one card per server. */
-  connectPage(): ConnectPage {
-    return {
-      system: MCP, decl: MCP_CONNECT, ready: true, connections: [],
-      instances: this.instancesOf(MCP).map((view) => ({ instance: view.instance, label: view.description || view.instance, connect: { flow: { flow: 'oauth' }, share: false, title: `Sign in to ${view.instance}` } })),
-    };
+  /** The `mcp` and `api` systems' connect pages: one card per server (a shared sign-in needs nothing of the person). */
+  connectPages(): ConnectPage[] {
+    const cards = (system: SystemName): ConnectPage['instances'] => this.instancesOf(system).map((view) => {
+      const config = CardConfig.safeParse(view.config?.value);
+      const label = config.success ? config.data.label : view.instance;
+      const shared = config.success && config.data.auth?.per === 'shared';
+      return { instance: view.instance, label: view.description || label, connect: { ...(shared ? {} : { flow: { flow: 'oauth' as const } }), share: false, title: `Sign in to ${label}` } };
+    });
+    return [
+      { system: MCP, decl: MCP_CONNECT, ready: true, connections: [], instances: cards(MCP) },
+      { system: API, decl: API_CONNECT, ready: true, connections: [], instances: cards(API) },
+    ];
   }
 }

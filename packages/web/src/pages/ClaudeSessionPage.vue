@@ -91,7 +91,10 @@ async function decide(card: WaitingCard, approve: boolean, remember: Remember, r
   <AppPage :title="title" keep-title>
     <template #crumb><RouterLink :to="links.claude()">Claude</RouterLink></template>
     <template v-if="record" #actions>
-      <UiSelect v-model="mode" :options="MODE_OPTIONS" label="Permission mode" hide-label size="sm" :disabled="store?.controlling.value ?? false" data-testid="claude-mode" />
+      <span class="mode">
+        <span class="mode-word" aria-hidden="true">Permissions</span>
+        <UiSelect v-model="mode" :options="MODE_OPTIONS" label="Permission mode" hide-label size="sm" :disabled="store?.controlling.value ?? false" data-testid="claude-mode" />
+      </span>
       <UiButton v-if="live" size="sm" variant="secondary" icon="pause" :disabled="!(store?.busy.value ?? false)" :loading="store?.controlling.value ?? false" data-testid="claude-interrupt" @click="act('interrupt')">Interrupt</UiButton>
       <UiButton v-if="live" size="sm" variant="secondary" icon="stop" data-testid="claude-stop" @click="act('stop')">Stop</UiButton>
     </template>
@@ -147,6 +150,8 @@ async function decide(card: WaitingCard, approve: boolean, remember: Remember, r
 </template>
 
 <style scoped>
+.mode { display: inline-flex; align-items: center; gap: var(--space-2); }
+.mode-word { color: var(--text-dim); font-size: var(--text-sm); white-space: nowrap; }
 .session { display: grid; gap: var(--space-4); min-width: 0; }
 .facts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); min-width: 0; color: var(--text-dim); font-size: var(--text-sm); }
 .folder { overflow: hidden; max-width: 100%; text-overflow: ellipsis; white-space: nowrap; }

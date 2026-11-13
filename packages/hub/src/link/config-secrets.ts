@@ -1,12 +1,12 @@
 /**
- * Secret fields in instance config (build 5). A system names its config's secret text fields by dot path
- * (`Manifest.configSecrets`). When a config is saved each such value is sealed into the hub's secrets table and the
- * stored config holds `{ $secret: id }` in its place; only the system, in its welcome and `configure`, gets the plain
+ * Secret fields in instance config (build 5). A system names its config's secret fields by dot path
+ * (`Manifest.configSecrets`): text, or a record of text sealed whole as JSON text (build 9). When a config is saved
+ * each such value is sealed into the hub's secrets table and the stored config holds `{ $secret: id }` in its place; only the system, in its welcome and `configure`, gets the plain
  * value. The web app sees `SECRET_KEPT` in a set secret field and sends it back to keep the stored secret. A changed
  * value replaces its secret; a value taken away removes it.
  */
 import {
-  isJsonObject, SealedConfigSecret, SECRET_KEPT, type ActorId, type ConfigPath, type InstanceRef, type Json, type JsonObject, type SecretId,
+  isJsonObject, Json, SealedConfigSecret, SECRET_KEPT, type ActorId, type ConfigPath, type InstanceRef, type JsonObject, type SecretId,
 } from '@harness/core';
 import type { SecretVault } from '../api/index.ts';
 
@@ -14,9 +14,31 @@ import type { SecretVault } from '../api/index.ts';
 export type ConfigVault = Pick<SecretVault, 'store' | 'reveal' | 'remove'>;
 
 /** The sealed secret a config value holds, if it is one. */
-function sealedOf(value: Json | undefined): SecretId | undefined {
+function sealedOf(value: Json | undefined): SealedConfigSecret | undefined {
   const parsed = SealedConfigSecret.safeParse(value);
-  return parsed.success ? parsed.data.$secret : undefined;
+  return parsed.success ? parsed.data : undefined;
+}
+
+/** A sealed secret as the stored config holds it. */
+function storedOf(sealed: SealedConfigSecret): JsonObject {
+  return sealed.json === true ? { $secret: sealed.$secret, json: true } : { $secret: sealed.$secret };
+}
+
+/** The text a secret value is sealed as: text as it is, a record (or any other object or list) as JSON text. */
+function secretText(value: Json | undefined): string | undefined {
+  if (typeof value === 'string') { return value; }
+  return value !== null && typeof value === 'object' ? JSON.stringify(value) : undefined;
+}
+
+/** A sealed secret's value from its text: JSON text read back for one sealed whole (missing when unreadable). */
+function secretValue(sealed: SealedConfigSecret, text: string | undefined): Json | undefined {
+  if (text === undefined || sealed.json !== true) { return text; }
+  try {
+    const parsed = Json.safeParse(JSON.parse(text));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The value at a dot path of a JSON value, if there is one. */
@@ -43,9 +65,9 @@ export function withValueAt(value: JsonObject, path: ConfigPath, next: Json | un
 }
 
 /** Every sealed secret anywhere in a value, mapped (depth first). */
-async function mapSealed(value: Json, map: (id: SecretId) => Promise<Json>): Promise<Json> {
-  const id = sealedOf(value);
-  if (id !== undefined) { return map(id); }
+async function mapSealed(value: Json, map: (sealed: SealedConfigSecret) => Promise<Json>): Promise<Json> {
+  const sealed = sealedOf(value);
+  if (sealed !== undefined) { return map(sealed); }
   if (Array.isArray(value)) { return Promise.all(value.map((item) => mapSealed(item, map))); }
   if (!isJsonObject(value)) { return value; }
   const out: JsonObject = {};
@@ -85,22 +107,24 @@ export class ConfigSecretKeeper {
       const old = sealedOf(valueAt(before, path));
       const given = valueAt(value, path);
       if (given === SECRET_KEPT) {
-        const kept = old === undefined ? undefined : await vault.reveal(old);
+        const kept = old === undefined ? undefined : secretValue(old, await vault.reveal(old.$secret));
         plain = withValueAt(plain, path, kept);
-        sealed = withValueAt(sealed, path, old === undefined || kept === undefined ? undefined : { $secret: old });
+        sealed = withValueAt(sealed, path, old === undefined || kept === undefined ? undefined : storedOf(old));
         continue;
       }
-      if (typeof given !== 'string') {
-        if (old !== undefined) { dropped.push(old); }
+      const text = secretText(given);
+      if (text === undefined) {
+        if (old !== undefined) { dropped.push(old.$secret); }
         continue;
       }
-      if (old !== undefined && await vault.reveal(old) === given) {
-        sealed = withValueAt(sealed, path, { $secret: old });
+      const json = typeof given !== 'string';
+      if (old !== undefined && (old.json === true) === json && await vault.reveal(old.$secret) === text) {
+        sealed = withValueAt(sealed, path, storedOf(old));
         continue;
       }
-      const id = await vault.store({ name: `config ${ref.system}@${ref.instance} ${path}`, owner: by, value: given });
-      sealed = withValueAt(sealed, path, { $secret: id });
-      if (old !== undefined) { dropped.push(old); }
+      const id = await vault.store({ name: `config ${ref.system}@${ref.instance} ${path}`, owner: by, value: text });
+      sealed = withValueAt(sealed, path, storedOf({ $secret: id, ...(json ? { json: true } : {}) }));
+      if (old !== undefined) { dropped.push(old.$secret); }
     }
     return { plain, sealed, release: async () => { for (const id of dropped) { await vault.remove(id); } } };
   }
@@ -108,15 +132,15 @@ export class ConfigSecretKeeper {
   /** A stored config with each sealed secret revealed (a secret that is gone reads as missing). */
   async unseal(value: Json): Promise<Json> {
     const vault = this.#vault();
-    return mapSealed(value, async (id) => (await vault.reveal(id)) ?? '');
+    return mapSealed(value, async (sealed) => secretValue(sealed, await vault.reveal(sealed.$secret)) ?? '');
   }
 
   /** Remove the secrets of `before` that `after` no longer holds (a config type with no secret fields any more). */
   async #removeAll(before: Json | undefined, after: Json): Promise<void> {
     if (before === undefined) { return; }
     const kept = new Set<SecretId>();
-    await mapSealed(after, (id) => { kept.add(id); return Promise.resolve(null); });
+    await mapSealed(after, (sealed) => { kept.add(sealed.$secret); return Promise.resolve(null); });
     const vault = this.#vault();
-    await mapSealed(before, async (id) => { if (!kept.has(id)) { await vault.remove(id); } return null; });
+    await mapSealed(before, async (sealed) => { if (!kept.has(sealed.$secret)) { await vault.remove(sealed.$secret); } return null; });
   }
 }

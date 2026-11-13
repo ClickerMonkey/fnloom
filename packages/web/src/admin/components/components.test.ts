@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { nextTick, ref } from 'vue';
 import UiSelect from '../../ui/UiSelect.vue';
 import { budget, category, fnRecord, installed, logLine, model, pairing, settingValue, settingView, systemView, T0 } from '../test/fakes.ts';
-import { adminNav } from '../logic/nav.ts';
+import { adminNavGroups } from '../logic/nav.ts';
 import AdminNav from './AdminNav.vue';
 import BrowserRow from './BrowserRow.vue';
 import BudgetDialog from './BudgetDialog.vue';
@@ -221,11 +221,14 @@ describe('lists and cards', () => {
     expect(empty.text()).toContain('None');
   });
 
-  it('AdminNav links every section and marks the current one', () => {
-    const nav = mount(AdminNav, { props: { entries: adminNav({ name: 'runs' }, { systems: 3 }) }, global: { stubs } });
-    expect(nav.findAllComponents(RouterLinkStub)).toHaveLength(11);
+  it('AdminNav links a group each, opens the current group into its sections and marks the current one', () => {
+    const nav = mount(AdminNav, { props: { groups: adminNavGroups({ name: 'runs' }, { systems: 3 }) }, global: { stubs } });
+    // six groups, the open one (Runs, Model calls) as two links
+    expect(nav.findAllComponents(RouterLinkStub)).toHaveLength(7);
     expect(nav.get('[aria-current=page]').text()).toContain('Runs');
-    expect(nav.get('.count').text()).toBe('3');
+    expect(nav.get('[data-testid=admin-nav-model-calls]').text()).toContain('Model calls');
+    expect(nav.get('[data-testid=admin-nav-group-systems] .count').text()).toBe('3');
+    expect(nav.get('[data-testid=admin-nav-mcps]').text()).toContain('Hub MCP');
   });
 
   it('SettingCard lists values per actor and asks to edit', async () => {

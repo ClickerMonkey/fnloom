@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { isAbsolute, relative, resolve } from 'node:path';
 import {
   ClaudeAnswer, ClaudeControl, ClaudeImport, ClaudeInstanceConfig, ClaudePermit, ClaudeSend, ClaudeSession, ClaudeStart, ClaudeTranscriptQuery, ClaudeTurn, jsonOf, KindDescription, MCP_SYSTEM, qualify,
-  type ClaudeImportable, type ClaudeSessionId, type ContextDecl, type ImportReport, type InputProblem, type RunInfo, type UserInfo,
+  type ClaudeImportable, type ClaudeMcpServerSummary, type ClaudeSessionId, type McpServerConfig, type ContextDecl, type ImportReport, type InputProblem, type RunInfo, type UserInfo,
 } from '@harness/core';
 import { CallFailed, ginAs, wireType, type Data, type ProposeOptions, type StoredRecord, type SystemCtx, type SystemImpl } from '@harness/sdk';
 import type { SystemPatch } from '@harness/sdk/server';
@@ -166,9 +166,11 @@ export function createClaudeImpl(deps: ClaudeDeps): { readonly impl: SystemImpl<
     if (config === undefined) { return { failed: 'This claude instance is not configured yet.' }; }
     const record = await recordOf(side.data, args.session) ?? await adopt(args.session, side, config);
     if (record === undefined) { return { invalid: [{ path: 'session', message: 'No such session of yours on this machine.' }] }; }
+    // what Claude asks is proposed to the session's person, so only they talk to it (an admin may read, stop or interrupt it)
+    if (record.value.owner !== side.run.user.id) { return { invalid: [{ path: 'session', message: "This session is another person's: only they can send to it or resume it. You can read its transcript, interrupt it or stop it." }] }; }
     if (!fleet.send(args.session, args.text)) {
       if (fleet.size >= config.maxLive) { return { failed: `${String(config.maxLive)} sessions are live on this machine, the most it runs at once: stop one first.` }; }
-      const value: ClaudeSession = { ...record.value, owner: side.run.user.id, ...(side.run.session === undefined ? {} : { chat: side.run.session }), waiting: [], asking: [] };
+      const value: ClaudeSession = { ...record.value, ...(side.run.session === undefined ? {} : { chat: side.run.session }), waiting: [], asking: [] };
       fleet.open(record.id, value, openOf(value, true, config), args.text, config.idleClose);
     }
     return turnOf(args.session, args.wait, side);
@@ -200,7 +202,7 @@ export function createClaudeImpl(deps: ClaudeDeps): { readonly impl: SystemImpl<
       switch (item.kind) {
         case 'skill': return { ...item, imported: skillNames.has(item.name) };
         case 'agent': return { ...item, imported: agentNames.has(qualify(claude.name, localNameOf('agent', item.name))) };
-        case 'mcp-server': return { ...item, imported: servers.has(instanceNameOf(item.name)) };
+        case 'mcp-server': { const { server, ...rest } = item; return { ...rest, server: summaryOf(server), imported: servers.has(instanceNameOf(item.name)) }; }
       }
     });
   }
@@ -278,6 +280,13 @@ export function createClaudeImpl(deps: ClaudeDeps): { readonly impl: SystemImpl<
       },
     },
     fns: {
+      folders: {
+        run(_args, ctx) {
+          const config = configOf(ctx.config);
+          if (config === undefined) { return Promise.resolve(ctx.fail('caller', 'This claude instance is not configured yet.')); }
+          return Promise.resolve(ctx.done({ instance, folders: config.folders.map((folder) => ({ ...folder })) }));
+        },
+      },
       start_session: {
         async run(args, ctx) {
           const outcome = await start(ClaudeStart.parse(args), { ...ctx, progress: (line, count) => { ctx.progress.set(fractionOf(count), line); } });
@@ -294,8 +303,15 @@ export function createClaudeImpl(deps: ClaudeDeps): { readonly impl: SystemImpl<
         async run(raw, ctx) {
           const args = ClaudeControl.parse(raw);
           if (args.instance !== instance) { return ctx.invalid(elsewhere(args.instance)); }
-          if (await recordOf(ctx.data, args.session) === undefined) { return ctx.invalid([{ path: 'session', message: 'No such session of yours on this machine.' }]); }
+          const record = await recordOf(ctx.data, args.session);
+          if (record === undefined) { return ctx.invalid([{ path: 'session', message: 'No such session of yours on this machine.' }]); }
           if (args.action === 'mode' && args.mode === undefined) { return ctx.invalid([{ path: 'mode', message: 'Give the permission mode to switch to.' }]); }
+          if (!fleet.isLive(args.session)) {
+            if (args.action !== 'mode') { return ctx.invalid([{ path: 'session', message: `The session is not live, so there is nothing to ${args.action}.` }]); }
+            // a closed session takes the mode when it is next resumed (`send` opens it with its record's mode)
+            if (args.mode !== undefined) { await ctx.data.save(claude.types.Session, { ...record.value, permissionMode: args.mode }, { id: record.id }); }
+            return ctx.done({ instance, session: args.session, status: 'closed' });
+          }
           if (args.mode !== undefined) { await fleet.setMode(args.session, args.mode); }
           if (args.action === 'interrupt') { await fleet.interrupt(args.session); } else if (args.action === 'stop') { fleet.stop(args.session); }
           return ctx.done({ instance, session: args.session, status: fleet.value(args.session)?.status ?? 'closed' });
@@ -414,6 +430,16 @@ export function createClaudeImpl(deps: ClaudeDeps): { readonly impl: SystemImpl<
   };
 
   return { impl, fleet, close: () => fleet.stopAll() };
+}
+
+/** An MCP server's config as a list shows it: how it is reached and its secrets' names, never their values. */
+export function summaryOf(server: McpServerConfig): ClaudeMcpServerSummary {
+  const transport = server.transport;
+  if (transport.type === 'stdio') { return { transport: 'stdio', where: transport.command, secrets: Object.keys(transport.env ?? {}) }; }
+  const url = new URL(transport.url);
+  const auth = server.auth;
+  const secrets = auth.kind === 'headers' ? [...auth.names] : auth.kind === 'bearer' ? ['Authorization'] : [];
+  return { transport: transport.type, where: `${url.origin}${url.pathname}`, secrets };
 }
 
 /** Whether a person is an admin. */
