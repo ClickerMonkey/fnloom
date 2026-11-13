@@ -251,6 +251,30 @@ describe('the database system over the link', () => {
     expect(JSON.stringify(await hub.preview({ run: mintId('run'), fn: 'change_schema', args, user: TEST_USER }))).toContain('exists already');
   });
 
+  // the owner's chat sent these three to create_table: each failed deep in the DDL code, and the null one was put to
+  // the person for approval before anything checked it
+  it('create_table reads the row types models send, refuses unreadable ones before anyone is asked, and asks once with the DDL', async () => {
+    dir = shopFile().dir;
+    await start();
+    expect(hub.manifests[0]?.fns.find((item) => item.name === 'create_table')).toMatchObject({ approval: { preview: true, remember: false } });
+    const refusedPreview = async (type: unknown) => JSON.stringify(await hub.preview({ run: mintId('run'), fn: 'create_table', args: { table: 'Todo', database: 'main', type }, user: TEST_USER }));
+    expect(await refusedPreview(null)).toContain('is missing');
+    expect(await refusedPreview({ id: 'integer', title: 'sometimes' })).toContain('title: \\"sometimes\\"');
+    // a JSON string of name to type, as the owner's model sent it
+    const asString = { table: 'Todo', database: 'main', type: '{"id":"string","title":"string","completed":"boolean","created_at":"datetime"}' };
+    const preview = await hub.preview({ run: mintId('run'), fn: 'create_table', args: asString, user: TEST_USER });
+    expect(preview).toMatchObject({ preview: { title: 'Create table Todo (Shop database)' } });
+    expect(JSON.stringify(preview)).toContain('CREATE TABLE');
+    const made = done(await hub.run('database/create_table', asString));
+    expect(JSON.stringify(made)).toContain('"database/main.Todo"');
+    // a list of { key, value } pairs, as the owner's model sent it on another try
+    const pairs = [{ key: 'id', value: 'integer' }, { key: 'body', value: 'text' }, { key: 'due', value: 'date?' }];
+    expect(JSON.stringify(done(await hub.run('database/create_table', { table: 'notes', database: 'main', type: pairs })))).toContain('"database/main.notes"');
+    // a model that never fixed its type gets the shape to send, as invalid input it can retry
+    const bad = await hub.run('database/create_table', { table: 'later', database: 'main', type: null });
+    expect(bad.status === 'invalid-input' ? bad.invalid.problems[0]?.message : bad).toContain('object of column name to column type');
+  });
+
   it('holds back a breaking rescan for an admin, naming the saved queries the hub says read the table, and applies it once approved', async () => {
     dir = shopFile().dir;
     await start();

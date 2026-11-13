@@ -22,6 +22,7 @@ import { DatabaseInstance, changeWords, widens, type HubSide, type ScanReport } 
 import { QueryService, callArgs, isProblem, mayUse, notYours, queryInstance, type QueryProblem, type QueryRunCtx } from './queries.ts';
 import { QueryAuthoring, localName, queryAuthoring, type EditedQuery } from './authoring.ts';
 import { pickDatabase } from './pick.ts';
+import { toRowType } from '../shared/row-type.ts';
 import { TableFnService, type TableFnsCtx, type TableFnsReadCtx } from './table-fns.ts';
 import { hubTypeOf, qualifiedTypeOf, tableMetaOf } from './types.ts';
 
@@ -133,9 +134,11 @@ async function schemaPlan(
   instance: DatabaseInstance, args: SchemaArgs, hub: Pick<HubSide, 'readers'>,
 ): Promise<{ steps: ReturnType<DatabaseInstance['catalog']['dialect']['ddl']['alterTable']>; preview: ApprovalPreview } | { refused: string }> {
   if (!instance.schemaChanges) { return { refused: `The database ${instance.config.label} doesn't allow schema changes (its admin can allow them on the system's page).` }; }
+  const rowType = toRowType(args.type);
+  if ('problem' in rowType) { return { refused: rowType.problem }; }
   let planned: ReturnType<DatabaseInstance['tableFor']>;
   try {
-    planned = instance.tableFor(args.table, args.type);
+    planned = instance.tableFor(args.table, rowType.type);
   } catch (error) {
     return { refused: error instanceof Error ? error.message : String(error) };
   }
@@ -582,8 +585,8 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
           return isProblem(answer) ? refuse(ctx, answer) : ctx.done(answer);
         },
       },
-      create_table: { run: (args, ctx) => forwardSchema('create', args, ctx) },
-      alter_table: { run: (args, ctx) => forwardSchema('alter', args, ctx) },
+      create_table: { run: (args, ctx) => forwardSchema('create', args, ctx), preview: (args, ctx) => schemaPreview('create', args, ctx.user) },
+      alter_table: { run: (args, ctx) => forwardSchema('alter', args, ctx), preview: (args, ctx) => schemaPreview('alter', args, ctx.user) },
       change_schema: {
         async run(args, ctx) {
           if (instance !== undefined && !mayUse(instance.config.audience, ctx.run.user)) { return ctx.invalid(notYours(instance.config.label).invalid); }
@@ -703,10 +706,33 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
     return { instance: only.instance, table };
   }
 
-  /** `create_table` / `alter_table`: hand the change to its instance's `change_schema`, which waits for approval. */
+  /**
+   * `create_table` / `alter_table`'s approval: the row type is read first (a type that can't be read is refused before
+   * anyone is asked), then the DDL on this instance, or a note that the instance named shows its own.
+   */
+  async function schemaPreview(action: 'create' | 'alter', args: { table: string; type: SchemaArgs['type']; database?: string | undefined }, user: Parameters<typeof mayUse>[1]): Promise<PreviewAnswer> {
+    const rowType = toRowType(args.type);
+    if ('problem' in rowType) { return { refused: rowType.problem }; }
+    const here = instance;
+    if (here === undefined) { return { refused: 'This database is not configured yet.' }; }
+    const named = args.database?.replace(/^database\//, '');
+    if (named === undefined || named === here.instance) {
+      if (!mayUse(here.config.audience, user)) { return { refused: notYours(here.config.label).invalid }; }
+      const planned = await schemaPlan(here, { table: args.table, type: rowType.type, action, database: here.instance }, hubSide);
+      return 'refused' in planned ? { refused: planned.refused } : { preview: planned.preview };
+    }
+    return { preview: { title: `${action === 'create' ? 'Create' : 'Change'} table ${args.table} (${named} database)`, parts: [{ type: 'text', text: 'That database shows its DDL for approval next.' }], irreversible: action === 'alter' } };
+  }
+
+  /**
+   * `create_table` / `alter_table`: on this instance the change runs here (its approval, with the DDL, was this run's);
+   * on another it goes to that instance's `change_schema`, which asks with its own DDL.
+   */
   async function forwardSchema(action: 'create' | 'alter', args: { table: string; type: SchemaArgs['type']; database?: string | undefined }, ctx: CtxOf<'create_table'>) {
     const here = instance;
     if (here === undefined) { return ctx.fail('caller', 'This database is not configured yet.'); }
+    const rowType = toRowType(args.type);
+    if ('problem' in rowType) { return ctx.invalid([{ path: 'type', message: rowType.problem }]); }
     let target = args.database;
     if (target === undefined) {
       // with no database named, only the one database the person may use is meant, never whichever instance answered
@@ -721,8 +747,12 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
     }
     const on = InstanceName.safeParse(target.replace(/^database\//, ''));
     if (!on.success) { return ctx.invalid([{ path: 'database', message: `"${target}" isn't a database instance name; call database/databases for them.` }]); }
+    if (on.data === here.instance) {
+      const changed = await changeSchema({ table: args.table, type: rowType.type, action, database: on.data }, ctx);
+      return 'database' in changed ? ctx.done(changed) : 'failed' in changed ? ctx.fail('caller', changed.failed) : ctx.invalid([{ path: 'type', message: changed.invalid }]);
+    }
     try {
-      return ctx.done(await ctx.fns.change_schema({ table: args.table, type: args.type, action, database: on.data }, { on: on.data }));
+      return ctx.done(await ctx.fns.change_schema({ table: args.table, type: rowType.type, action, database: on.data }, { on: on.data }));
     } catch (error) {
       if (error instanceof CallFailed) {
         return error.error.class === 'cancelled' ? ctx.fail('caller', `Not done: ${error.message}`) : ctx.fail('caller', error.error.message);

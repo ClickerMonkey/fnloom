@@ -256,7 +256,7 @@ export type SchemaChanged = z.infer<typeof SchemaChanged>;
 /** `create_table` / `alter_table` args: a table's name and its row type. */
 export const TableArgs = z.object({
   table: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/).describe('The table\'s name (`invoices`).'),
-  type: GinTypeDef.describe('The row type: an `obj` whose fields are the columns. `optional` fields may be empty; an `id` field (or `key`) is the primary key.'),
+  type: z.union([z.record(z.string(), z.string()), GinTypeDef]).describe('The row type: the columns as an object of column name to type, such as { "id": "integer", "title": "text", "done": "boolean", "due": "date?" } (text, integer, number, boolean, date, datetime, json, uuid; end with ? when the column may be empty), or a gin `obj` type whose props are the columns. An `id` column (or `key`) is the primary key.'),
   database: z.string().min(1).optional().describe('The database instance; the only one when empty.'),
 });
 export type TableArgs = z.infer<typeof TableArgs>;
