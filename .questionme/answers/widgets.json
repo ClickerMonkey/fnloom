@@ -1,0 +1,476 @@
+{
+  "version": 1,
+  "seq": 47,
+  "readSeq": 47,
+  "answers": {
+    "scope-depth": {
+      "status": "answered",
+      "picked": [
+        "all"
+      ],
+      "labels": [
+        "Everything"
+      ],
+      "rev": "1tqwssd",
+      "at": "2026-11-13T00:30:00.180Z",
+      "seq": 1
+    },
+    "scope-hub-kind": {
+      "status": "answered",
+      "picked": [
+        "system"
+      ],
+      "labels": [
+        "A bundled widgets system"
+      ],
+      "rev": "1bgmqkp",
+      "at": "2026-11-13T00:30:54.308Z",
+      "seq": 4
+    },
+    "scope-dashboards": {
+      "status": "answered",
+      "picked": [
+        "later"
+      ],
+      "labels": [
+        "Later"
+      ],
+      "rev": "nk0r7",
+      "at": "2026-11-13T00:32:52.220Z",
+      "seq": 5
+    },
+    "charts-catalog": {
+      "status": "answered",
+      "picked": [
+        "tabular"
+      ],
+      "labels": [
+        "Every one that draws from rows and columns"
+      ],
+      "rev": "15tdm55",
+      "at": "2026-11-13T00:33:09.400Z",
+      "seq": 6
+    },
+    "charts-switcher": {
+      "status": "answered",
+      "picked": [
+        "families"
+      ],
+      "labels": [
+        "About 12 families, each with a style picker"
+      ],
+      "rev": "vriv92",
+      "at": "2026-11-13T00:33:25.362Z",
+      "seq": 7
+    },
+    "charts-browser-math": {
+      "status": "answered",
+      "picked": [
+        "whole"
+      ],
+      "labels": [
+        "In the browser, only when the result is whole"
+      ],
+      "rev": "dx7mt0",
+      "at": "2026-11-13T00:33:35.133Z",
+      "seq": 8
+    },
+    "charts-candlestick": {
+      "status": "answered",
+      "picked": [
+        "yes"
+      ],
+      "labels": [
+        "Yes"
+      ],
+      "rev": "1hsm3bs",
+      "at": "2026-11-13T00:33:40.068Z",
+      "seq": 9
+    },
+    "registry-shape": {
+      "status": "answered",
+      "picked": [
+        "declarative"
+      ],
+      "labels": [
+        "Extended, declarative"
+      ],
+      "rev": "hd8yxh",
+      "at": "2026-11-13T00:34:41.577Z",
+      "seq": 10
+    },
+    "registry-column-facts": {
+      "status": "answered",
+      "picked": [
+        "both"
+      ],
+      "labels": [
+        "Both"
+      ],
+      "rev": "lmp6c2",
+      "at": "2026-11-13T00:36:18.491Z",
+      "seq": 13
+    },
+    "registry-ranking": {
+      "status": "answered",
+      "picked": [
+        "coverage"
+      ],
+      "labels": [
+        "Product's order"
+      ],
+      "rev": "m52s8s",
+      "at": "2026-11-13T00:36:27.692Z",
+      "seq": 14
+    },
+    "registry-withheld": {
+      "status": "answered",
+      "picked": [
+        "hide"
+      ],
+      "labels": [
+        "Hide them (today)"
+      ],
+      "rev": "1fjt7sl",
+      "at": "2026-11-13T00:36:39.196Z",
+      "seq": 15
+    },
+    "registry-database-visuals": {
+      "status": "answered",
+      "picked": [
+        "delete"
+      ],
+      "labels": [
+        "Delete them"
+      ],
+      "rev": "cdy4mb",
+      "at": "2026-11-13T00:36:51.964Z",
+      "seq": 16
+    },
+    "registry-system-charts": {
+      "status": "answered",
+      "picked": [
+        "bundle"
+      ],
+      "labels": [
+        "Yes, each system bundles ECharts"
+      ],
+      "rev": "1u6ta2",
+      "at": "2026-11-13T00:37:08.827Z",
+      "seq": 17
+    },
+    "controls-choice-labels": {
+      "status": "answered",
+      "picked": [
+        "labels"
+      ],
+      "labels": [
+        "Label + value, plus an \"Any\" row that clears it"
+      ],
+      "rev": "183a58u",
+      "at": "2026-11-13T00:37:28.647Z",
+      "seq": 18
+    },
+    "controls-hidden-pinned": {
+      "status": "answered",
+      "picked": [
+        "both"
+      ],
+      "labels": [
+        "Both"
+      ],
+      "rev": "1p2hib1",
+      "at": "2026-11-13T00:38:13.473Z",
+      "seq": 19
+    },
+    "controls-presets": {
+      "status": "answered",
+      "picked": [
+        "yes"
+      ],
+      "labels": [
+        "Yes"
+      ],
+      "rev": "1qs29cp",
+      "at": "2026-11-13T00:38:38.368Z",
+      "seq": 20
+    },
+    "controls-relative-dates": {
+      "status": "answered",
+      "picked": [
+        "list"
+      ],
+      "labels": [
+        "A fixed list now"
+      ],
+      "rev": "1nnmeup",
+      "at": "2026-11-13T00:38:58.709Z",
+      "seq": 21
+    },
+    "controls-bar": {
+      "status": "answered",
+      "picked": [
+        "chips"
+      ],
+      "labels": [
+        "An always-visible chip row"
+      ],
+      "rev": "fudjf7",
+      "at": "2026-11-13T00:39:10.405Z",
+      "seq": 22
+    },
+    "controls-visual-claims": {
+      "status": "answered",
+      "picked": [
+        "range"
+      ],
+      "labels": [
+        "Range args yes, brush later"
+      ],
+      "rev": "13nd7si",
+      "at": "2026-11-13T00:39:28.794Z",
+      "seq": 23
+    },
+    "controls-paging": {
+      "status": "answered",
+      "picked": [
+        "buffer"
+      ],
+      "labels": [
+        "Product's buffer"
+      ],
+      "rev": "1fchfma",
+      "at": "2026-11-13T00:39:42.289Z",
+      "seq": 24
+    },
+    "actions-confirm": {
+      "status": "answered",
+      "picked": [
+        "both"
+      ],
+      "labels": [
+        "Form, then confirm (today)"
+      ],
+      "rev": "r6rh6g",
+      "at": "2026-11-13T00:40:25.883Z",
+      "seq": 25
+    },
+    "actions-then": {
+      "status": "answered",
+      "picked": [
+        "derived"
+      ],
+      "labels": [
+        "Derived"
+      ],
+      "rev": "n697e3",
+      "at": "2026-11-13T00:40:34.938Z",
+      "seq": 26
+    },
+    "actions-drill": {
+      "status": "answered",
+      "picked": [
+        "drill"
+      ],
+      "labels": [
+        "Runs the widget's declared drill action"
+      ],
+      "rev": "fjf7xs",
+      "at": "2026-11-13T00:40:57.465Z",
+      "seq": 27
+    },
+    "actions-read-only-writes": {
+      "status": "answered",
+      "picked": [
+        "readonly"
+      ],
+      "labels": [
+        "Read-only"
+      ],
+      "rev": "1139jje",
+      "at": "2026-11-13T00:41:12.608Z",
+      "seq": 28
+    },
+    "actions-any-fn": {
+      "status": "answered",
+      "picked": [
+        "keep"
+      ],
+      "labels": [
+        "Keep"
+      ],
+      "rev": "10741el",
+      "at": "2026-11-13T00:41:24.290Z",
+      "seq": 29
+    },
+    "actions-bulk": {
+      "status": "answered",
+      "picked": [
+        "later"
+      ],
+      "labels": [
+        "Later"
+      ],
+      "rev": "1opmcs3",
+      "at": "2026-11-13T00:41:30.865Z",
+      "seq": 30
+    },
+    "authoring-save": {
+      "status": "answered",
+      "picked": [
+        "preview"
+      ],
+      "labels": [
+        "The agent proposes; the chat shows a preview; you press Save"
+      ],
+      "rev": "1n1rehz",
+      "at": "2026-11-13T00:41:41.771Z",
+      "seq": 31
+    },
+    "authoring-strict-schema": {
+      "status": "answered",
+      "picked": [
+        "strict"
+      ],
+      "labels": [
+        "Product's strict schema, built per call"
+      ],
+      "rev": "1g22ee4",
+      "at": "2026-11-13T00:41:50.853Z",
+      "seq": 32
+    },
+    "authoring-sources": {
+      "status": "answered",
+      "picked": [
+        "read"
+      ],
+      "labels": [
+        "Only read fns returning a table"
+      ],
+      "rev": "wlfjgm",
+      "at": "2026-11-13T00:42:00.765Z",
+      "seq": 33
+    },
+    "authoring-edit-source": {
+      "status": "answered",
+      "picked": [
+        "allow"
+      ],
+      "labels": [
+        "Allow when the arguments are compatible"
+      ],
+      "rev": "nvcw4s",
+      "at": "2026-11-13T00:42:58.444Z",
+      "seq": 36
+    },
+    "routing-declared": {
+      "status": "answered",
+      "picked": [
+        "derived"
+      ],
+      "labels": [
+        "A line derived from each fn's declared return, plus a short instruction"
+      ],
+      "rev": "vvxdcs",
+      "at": "2026-11-13T00:43:11.140Z",
+      "seq": 37
+    },
+    "routing-tool-result": {
+      "status": "answered",
+      "picked": [
+        "summary"
+      ],
+      "labels": [
+        "A summary plus the first few rows"
+      ],
+      "rev": "s42k9h",
+      "at": "2026-11-13T00:43:20.578Z",
+      "seq": 38
+    },
+    "routing-run-after-make": {
+      "status": "answered",
+      "picked": [
+        "asked"
+      ],
+      "labels": [
+        "Yes, when the person asked to see something"
+      ],
+      "rev": "hlw87j",
+      "at": "2026-11-13T00:43:32.416Z",
+      "seq": 39
+    },
+    "data-grid": {
+      "status": "answered",
+      "picked": [
+        "one"
+      ],
+      "labels": [
+        "Yes, one view"
+      ],
+      "rev": "1repi2n",
+      "at": "2026-11-13T00:44:10.825Z",
+      "seq": 40
+    },
+    "data-refresh": {
+      "status": "answered",
+      "picked": [
+        "nothing"
+      ],
+      "labels": [
+        "Nothing (build 8), a reload chip later"
+      ],
+      "rev": "2vlbj9",
+      "at": "2026-11-13T00:44:24.222Z",
+      "seq": 41
+    },
+    "data-home": {
+      "status": "answered",
+      "picked": [
+        "data"
+      ],
+      "labels": [
+        "/data/widgets, plus the fn page and chat (as designed)"
+      ],
+      "rev": "oaxyhr",
+      "at": "2026-11-13T00:44:39.244Z",
+      "seq": 44
+    },
+    "look-palette": {
+      "status": "answered",
+      "picked": [
+        "palette"
+      ],
+      "labels": [
+        "A small categorical palette tuned to the accent, light and dark"
+      ],
+      "rev": "1oww23m",
+      "at": "2026-11-13T00:44:52.901Z",
+      "seq": 45
+    },
+    "look-phone": {
+      "status": "answered",
+      "picked": [
+        "product"
+      ],
+      "labels": [
+        "Product's rules"
+      ],
+      "rev": "1eqld0c",
+      "at": "2026-11-13T00:45:08.326Z",
+      "seq": 46
+    },
+    "look-export": {
+      "status": "answered",
+      "picked": [
+        "yes"
+      ],
+      "labels": [
+        "Yes"
+      ],
+      "rev": "iyc1a4",
+      "at": "2026-11-13T00:45:11.909Z",
+      "seq": 47
+    }
+  },
+  "threads": {}
+}

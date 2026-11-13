@@ -1,0 +1,456 @@
+{
+  "$schema": "https://unpkg.com/questionme/schema/set.schema.json",
+  "title": "Widgets: product's plan, ECharts and build 8",
+  "intro": "I compared product's widget plan (`product/design/widget-*.md` and `query-visuals.md`) with build 8's design (`docs/plans/build-8-design.md` §1) and what harness has today (table, CSS bars, value; no chart library). Each question has my recommendation; **Take the recommendations** if you agree and change the few you don't. **Blocking** ones decide the contracts, so I need them first. Build 8 is already building widgets from the current design; your answers will be applied as a focused pass on top of it.",
+  "content": [
+    {
+      "title": "Where build 8's design differs from product's plan",
+      "md": "| Product | Build 8 design | |\n|---|---|---|\n| Widget = fn of kind `widget`, renders in chat | `hub/widget` kind, `WidgetSpec` | same |\n| Rich gate: column facts (grouped vs measure, distinct counts, ranges, ids) + rules | required column kinds, row range, `whole` | much thinner |\n| Ranking: most columns shown wins, then priority; non-fits shown greyed with why | client score 0..1, non-fits hidden | different |\n| 13 families with styles (bar/stacked/100%…) | table, bar, value | missing |\n| Size strategies: top-N, \"Other\" slice | — | missing |\n| Buffered pager (fetch 50, page locally) | each page is a run | different |\n| Choices as label + value, presets, relative dates | plain values, no presets | missing |\n| A chart can drive range args (calendar, zoom) | — | missing |\n| Form counts as the confirm (no double prompt) | form, then confirm | different |\n| After an action: derived from what it returns; drill-down stack | author says refresh/show/none; no drill | different |\n| Read-only view for results of writes | — | missing |\n| Strict per-call authoring schema; proposes, you save | check loop; agent saves | different |\n| Routing line derived from each fn's return type; run after authoring | instruction prose | different |\n| Renderer tiers, no system JS in the browser | trusted Vue visuals in one hub registry | harness better |\n| Realtime refresh, streamed export, dashboards | — | both later |",
+      "collapsed": true
+    },
+    {
+      "title": "What I'd take, and what I wouldn't",
+      "md": "**Take:** declared richer matching judged on the hub; coverage-first ranking with greyed non-fits; families with styles on ECharts `dataset`+`encode`; honest partial data (whole-only visuals withheld, \"Showing N of M\", top-N + Other); buffered pager; labelled choices, presets, relative dates, range claims; confirm without a double prompt and derived result routing; drill-down; read-only write results; a short model summary of widget runs; product's ECharts rules (own lazy chunk, one `use()`, `setTheme`, SVG, `outerBounds`, coarse pointer, clicks via `dataIndex`); full screen and image download.\n\n**Don't take:** product's renderer tiers / no-system-JS (harness already decided trusted Vue visuals); gates as code the hub runs (use declarative rules); multi-source widgets and shape memory in localStorage; product's ORM machinery; aggregation in the browser over a partial page (breaks \"no in-memory filtering\"); realtime, streamed export, dashboards, map/geo charts this build."
+    }
+  ],
+  "sections": [
+    {
+      "id": "scope",
+      "title": "Scope",
+      "questions": [
+        {
+          "id": "scope-depth",
+          "question": "How much of product's widget plan goes into build 8?",
+          "why": "Sets the size of every lane.",
+          "blocking": true,
+          "options": [
+            { "id": "all", "label": "Everything", "description": "Including realtime refresh, streamed export and dashboards." },
+            { "id": "core", "label": "Core", "description": "Widget fn, matching, every ECharts chart that fits, controls, actions, drill, read-only writes, authoring, full screen. Realtime, streamed export and dashboards later.", "recommended": true },
+            { "id": "min", "label": "Minimal", "description": "Today's build 8 design plus ECharts charts." }
+          ]
+        },
+        {
+          "id": "scope-hub-kind",
+          "question": "Should the widget kind belong to the hub (`hub/widget`)? harness.md says the hub ships only `native` and `llm` kinds.",
+          "why": "Decides which lane owns it, and fixes a contradiction in the docs.",
+          "blocking": true,
+          "options": [
+            { "id": "hub", "label": "Hub kind", "description": "As designed; update harness.md. Widgets tie the hub's visual registry, data pages and chat together.", "recommended": true },
+            { "id": "system", "label": "A bundled widgets system", "description": "A system owns the kind." }
+          ]
+        },
+        {
+          "id": "scope-dashboards",
+          "question": "Dashboards (pages placing several widgets)?",
+          "why": "Placement is its own design.",
+          "options": [
+            { "id": "later", "label": "Later", "recommended": true },
+            { "id": "pinned", "label": "A simple pinned-widgets page now" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "charts",
+      "title": "Chart types",
+      "questions": [
+        {
+          "id": "charts-catalog",
+          "question": "\"Every type\": which ECharts charts become visuals?",
+          "why": "The visual list, bundle size (about 300 KB gzipped for everything, loaded only when a chart is drawn) and the test matrix.",
+          "blocking": true,
+          "options": [
+            { "id": "all", "label": "All 23 ECharts series", "description": "Including map, lines, effectScatter and pictorialBar." },
+            { "id": "tabular", "label": "Every one that draws from rows and columns", "description": "bar, line, pie, funnel, scatter, heatmap, calendar, matrix, radar, gauge, treemap, sunburst, tree, sankey, graph, chord, candlestick, boxplot, parallel, themeRiver, gantt. Map and lines need geography data you don't have; pictorial and effect are styles at most.", "recommended": true },
+            { "id": "wave", "label": "A first wave of about 8" }
+          ]
+        },
+        {
+          "id": "charts-switcher",
+          "question": "In the visual switcher: one entry per chart type, or families with styles inside?",
+          "why": "The contract shape (styles) and the phone layout.",
+          "blocking": true,
+          "content": [{ "code": "[Table] [Bar▾] [Pie▾] [Line▾] [More…]\nBar▾ = Bars · Stacked · 100% · Horizontal · Radar", "title": "families" }],
+          "options": [
+            { "id": "types", "label": "One entry per type", "description": "About 20 icons." },
+            { "id": "families", "label": "About 12 families, each with a style picker", "description": "Short on a phone; bindings carry over between styles.", "recommended": true }
+          ]
+        },
+        {
+          "id": "charts-browser-math",
+          "question": "Histograms, boxplots from raw rows and a pie's \"Other\" slice need maths over rows. Where?",
+          "why": "Correctness, and the Decided rule against in-memory filtering.",
+          "options": [
+            { "id": "whole", "label": "In the browser, only when the result is whole", "description": "Otherwise the agent writes an aggregate query.", "recommended": true },
+            { "id": "sql", "label": "Always in SQL" },
+            { "id": "page", "label": "In the browser on whatever page is held", "description": "With a notice." }
+          ]
+        },
+        {
+          "id": "charts-candlestick",
+          "question": "Include candlestick (open/high/low/close) charts now?",
+          "why": "A little extra scope.",
+          "options": [
+            { "id": "yes", "label": "Yes", "description": "Cheap once the declared shape exists.", "recommended": true },
+            { "id": "later", "label": "Later" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "registry",
+      "title": "Visuals registry",
+      "questions": [
+        {
+          "id": "registry-shape",
+          "question": "How does a visual declare the data it can draw?",
+          "why": "The core contract every lane builds on.",
+          "blocking": true,
+          "content": [{ "code": "VisualShape = {\n  channels: [{ name, label, accepts: ColumnKind[], facet?, required, many, role?: 'group'|'measure' }],\n  rows: { min, max? }, whole: boolean,\n  rules?: ('keysDistinct'|'nonNegative'|'oneRowPerKey'|'acyclic'|'declaredMax'|'unaggregated')[],\n  strategy?: 'window'|'top-n'|'partition'|'aggregate',\n  subTypes?: { name, label, whole? }[],\n  claims?: 'range',\n  priority: number,\n}", "lang": "ts", "title": "option b" }],
+          "options": [
+            { "id": "today", "label": "Today's shape", "description": "Column kinds per channel, row range, whole." },
+            { "id": "declarative", "label": "Extended, declarative", "description": "Column facts, a closed rule list, size strategy, styles, range claims, priority. The hub and the agent can judge fits without running a system's code.", "recommended": true },
+            { "id": "code", "label": "Product-style code gates run by the hub" }
+          ]
+        },
+        {
+          "id": "registry-column-facts",
+          "question": "Who works out column facts (grouped vs measure, distinct counts, ranges)?",
+          "why": "A change to the ResultColumn contract.",
+          "blocking": true,
+          "options": [
+            { "id": "hub", "label": "The hub", "description": "From the rows and gin types." },
+            { "id": "source", "label": "The source fn reports them" },
+            { "id": "both", "label": "Both", "description": "Sources may add role and key (the database knows aggregates); the hub derives the rest.", "recommended": true }
+          ]
+        },
+        {
+          "id": "registry-ranking",
+          "question": "How is the best visual picked?",
+          "why": "Changes VisualFit; the agent sees the same order.",
+          "blocking": true,
+          "options": [
+            { "id": "scores", "label": "Client scores 0..1 (today)" },
+            { "id": "coverage", "label": "Product's order", "description": "The visual showing the most columns wins, then priority bands, then registry order; the client may veto. Stable and explainable.", "recommended": true }
+          ]
+        },
+        {
+          "id": "registry-withheld",
+          "question": "Show visuals that can't draw this data?",
+          "why": "The switcher UI.",
+          "options": [
+            { "id": "hide", "label": "Hide them (today)" },
+            { "id": "grey", "label": "Show them greyed with the reason", "description": "\"Pie: needs the whole result\" teaches people what to ask for.", "recommended": true }
+          ]
+        },
+        {
+          "id": "registry-database-visuals",
+          "question": "The database system's own table, bar and value visuals?",
+          "why": "Less code, one look.",
+          "blocking": true,
+          "options": [
+            { "id": "move", "label": "Move them to the hub registry", "description": "As designed." },
+            { "id": "delete", "label": "Delete them", "description": "The app's built-ins (table, value, all ECharts) serve every system.", "recommended": true }
+          ]
+        },
+        {
+          "id": "registry-system-charts",
+          "question": "Can systems contribute their own ECharts charts?",
+          "why": "Conflicts with the rule that system builds bundle their own dependencies.",
+          "options": [
+            { "id": "no", "label": "No, the app owns every chart", "description": "For build 8; an SDK wrapper later.", "recommended": true },
+            { "id": "sdk", "label": "Yes, through an SDK chart wrapper", "description": "Uses the app's ECharts: an exception to self-contained builds." },
+            { "id": "bundle", "label": "Yes, each system bundles ECharts", "description": "About 100–300 KB each." }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "controls",
+      "title": "Controls",
+      "questions": [
+        {
+          "id": "controls-choice-labels",
+          "question": "Should dropdown choices carry their own words?",
+          "why": "The WidgetControl contract.",
+          "blocking": true,
+          "options": [
+            { "id": "values", "label": "Plain values (today)" },
+            { "id": "labels", "label": "Label + value, plus an \"Any\" row that clears it", "description": "\"In progress\" reads better than in_progress.", "recommended": true }
+          ]
+        },
+        {
+          "id": "controls-hidden-pinned",
+          "question": "Keep both \"pinned\" (fixed value, hidden) and \"hidden\" (no control, takes its default)?",
+          "why": "The contract and the agent's schema.",
+          "blocking": true,
+          "options": [
+            { "id": "both", "label": "Both", "description": "Hidden only when the argument has a default.", "recommended": true },
+            { "id": "one", "label": "One member, as in product", "description": "A hidden argument must be pinned." }
+          ]
+        },
+        {
+          "id": "controls-presets",
+          "question": "Named presets that set several arguments in one tap (\"Overdue\", \"This week\")?",
+          "why": "A contract field; the agent can write them.",
+          "options": [
+            { "id": "yes", "label": "Yes", "recommended": true },
+            { "id": "later", "label": "Later" }
+          ]
+        },
+        {
+          "id": "controls-relative-dates",
+          "question": "Relative dates in date controls, so saved widgets stay current?",
+          "why": "Saved widgets that stay current.",
+          "options": [
+            { "id": "grammar", "label": "Product's mini-language", "description": "today-30d, startOf(month), resolved when applied." },
+            { "id": "list", "label": "A fixed list now", "description": "Today, Last 7/30 days, This month…, stored in the grammar's form so the language can follow.", "recommended": true },
+            { "id": "none", "label": "None" }
+          ]
+        },
+        {
+          "id": "controls-bar",
+          "question": "How do a widget's controls look?",
+          "why": "The main widget chrome.",
+          "content": [{ "code": "Project: Acme ▾   Status: Any ▾   Due: Last 30 days ▾   Sort: Due ↑ ▾   [Apply]", "title": "chip row" }],
+          "options": [
+            { "id": "dialog", "label": "A form in a dialog", "description": "What build 8 is building now." },
+            { "id": "chips", "label": "An always-visible chip row", "description": "One chip per argument opening a small popover, Apply beside it. Shows what's filtered at a glance; fits a phone.", "recommended": true },
+            { "id": "inline", "label": "An inline form above the chart" }
+          ]
+        },
+        {
+          "id": "controls-visual-claims",
+          "question": "Should a chart drive arguments itself (the calendar's month or a zoomed time axis sets from/to; brushing sets a range filter)?",
+          "why": "The claims field and zoom wiring.",
+          "options": [
+            { "id": "range", "label": "Range args yes, brush later", "recommended": true },
+            { "id": "both", "label": "Both now" },
+            { "id": "no", "label": "No" }
+          ]
+        },
+        {
+          "id": "controls-paging",
+          "question": "How does paging work?",
+          "why": "WidgetPaging needs a fetch-window size.",
+          "blocking": true,
+          "options": [
+            { "id": "run", "label": "Each page is a new run" },
+            { "id": "buffer", "label": "Product's buffer", "description": "Fetch, say, 50 rows, page through them locally, and run again only when you run out. Fewer runs, instant paging.", "recommended": true }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "actions",
+      "title": "Actions and writes",
+      "questions": [
+        {
+          "id": "actions-confirm",
+          "question": "A write action with a form: is filling the form the confirmation, or does a confirm follow it?",
+          "why": "The confirm rule.",
+          "blocking": true,
+          "options": [
+            { "id": "both", "label": "Form, then confirm (today)" },
+            { "id": "form", "label": "The form is the confirmation", "description": "A confirm only for writes with nothing to fill in." },
+            { "id": "form-delete", "label": "As above, but deletes always confirm, naming the record", "description": "No double prompt, deletes stay safe.", "recommended": true }
+          ]
+        },
+        {
+          "id": "actions-then",
+          "question": "What happens after an action runs?",
+          "why": "Action behaviour, and how much the agent must write.",
+          "options": [
+            { "id": "declared", "label": "The author declares refresh / show / none (today)" },
+            { "id": "derived", "label": "Derived", "description": "Rows returned open a new level; a write refreshes; otherwise a status line. The author may override.", "recommended": true }
+          ]
+        },
+        {
+          "id": "actions-drill",
+          "question": "Clicking a bar, slice or point?",
+          "why": "Adds a drill entry to the widget spec.",
+          "options": [
+            { "id": "menu", "label": "Opens that row's action menu" },
+            { "id": "drill", "label": "Runs the widget's declared drill action", "description": "E.g. \"tasks in this stage\", as a new level with a breadcrumb; the action menu if none is declared.", "recommended": true },
+            { "id": "nothing", "label": "Nothing" }
+          ]
+        },
+        {
+          "id": "actions-read-only-writes",
+          "question": "When the rows shown came from a write (\"update my tasks and show them\")?",
+          "why": "Re-running a write by accident repeats it. Needs an affected count on results.",
+          "options": [
+            { "id": "readonly", "label": "Read-only", "description": "No controls, no fetching more, no drill; row actions allowed; \"Run again\" asks first.", "recommended": true },
+            { "id": "normal", "label": "Treat it like any result" }
+          ]
+        },
+        {
+          "id": "actions-any-fn",
+          "question": "Keep harness's ability to bind any fn (not just the row type's own methods) to a row's columns?",
+          "why": "The actions contract. Confirms and approvals still apply.",
+          "options": [
+            { "id": "keep", "label": "Keep", "recommended": true },
+            { "id": "methods", "label": "Methods only, as in product" }
+          ]
+        },
+        {
+          "id": "actions-bulk",
+          "question": "Act on several selected rows at once (table checkboxes or a chart brush)?",
+          "why": "Scope.",
+          "options": [
+            { "id": "later", "label": "Later", "recommended": true },
+            { "id": "now", "label": "Now" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "authoring",
+      "title": "Authoring",
+      "questions": [
+        {
+          "id": "authoring-save",
+          "question": "How does a new widget get saved?",
+          "why": "The tool flow and declared effects.",
+          "blocking": true,
+          "options": [
+            { "id": "agent", "label": "The agent saves directly", "description": "Approval through the chat mode (as designed)." },
+            { "id": "preview", "label": "The agent proposes; the chat shows a preview; you press Save", "description": "You see the chart before it becomes a fn.", "recommended": true },
+            { "id": "draft", "label": "Saved as a draft to review later" }
+          ]
+        },
+        {
+          "id": "authoring-strict-schema",
+          "question": "How strict is the authoring agent's tool schema?",
+          "why": "Small models are the main audience.",
+          "blocking": true,
+          "options": [
+            { "id": "generic", "label": "Generic schema plus a check-and-fix loop" },
+            { "id": "strict", "label": "Product's strict schema, built per call", "description": "Only fitting visuals, columns per channel as choices, typed values per argument: a broken widget can't be expressed.", "recommended": true }
+          ]
+        },
+        {
+          "id": "authoring-sources",
+          "question": "Which fns can a widget draw from?",
+          "why": "The sample run and every refresh must be safe.",
+          "blocking": true,
+          "options": [
+            { "id": "any", "label": "Any fn returning a table" },
+            { "id": "read", "label": "Only read fns returning a table", "description": "Writes show read-only results but can't be saved as widgets.", "recommended": true }
+          ]
+        },
+        {
+          "id": "authoring-edit-source",
+          "question": "Changing an existing widget to a different source fn?",
+          "why": "Edit flow.",
+          "options": [
+            { "id": "refuse", "label": "Refuse; make a new widget", "description": "Simpler; product made the same call.", "recommended": true },
+            { "id": "allow", "label": "Allow when the arguments are compatible" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "routing",
+      "title": "Routing in chat",
+      "questions": [
+        {
+          "id": "routing-declared",
+          "question": "How does the chat model learn that table results draw as charts?",
+          "why": "Picking the right fn. Product found prose alone drifted.",
+          "options": [
+            { "id": "prose", "label": "Instruction prose (as designed)" },
+            { "id": "derived", "label": "A line derived from each fn's declared return, plus a short instruction", "recommended": true }
+          ]
+        },
+        {
+          "id": "routing-tool-result",
+          "question": "What does the model see after a widget run?",
+          "why": "Cost and context.",
+          "options": [
+            { "id": "table", "label": "The whole table" },
+            { "id": "summary", "label": "A summary plus the first few rows", "description": "\"Bar chart of count by stage, 12 rows, shown to the person\". The person sees the chart.", "recommended": true }
+          ]
+        },
+        {
+          "id": "routing-run-after-make",
+          "question": "After a widget is made, should the chat run it at once?",
+          "why": "Whether the person sees the result.",
+          "options": [
+            { "id": "asked", "label": "Yes, when the person asked to see something", "description": "Matches your ruling in product.", "recommended": true },
+            { "id": "never", "label": "Never" },
+            { "id": "always", "label": "Always" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "data",
+      "title": "Data system link",
+      "questions": [
+        {
+          "id": "data-grid",
+          "question": "Should the Data page's record tables use the widget view (same visuals, controls, actions), with inline editing added?",
+          "why": "One place to improve.",
+          "options": [
+            { "id": "one", "label": "Yes, one view", "recommended": true },
+            { "id": "separate", "label": "A separate grid" }
+          ]
+        },
+        {
+          "id": "data-refresh",
+          "question": "When hub records change, what do widgets showing them do?",
+          "why": "Needs record change events.",
+          "options": [
+            { "id": "nothing", "label": "Nothing (build 8), a reload chip later", "recommended": true },
+            { "id": "chip", "label": "A \"Results changed — reload\" chip now" },
+            { "id": "live", "label": "Live auto-refresh" }
+          ]
+        },
+        {
+          "id": "data-home",
+          "question": "Where do saved widgets live?",
+          "why": "Navigation.",
+          "options": [
+            { "id": "data", "label": "/data/widgets, plus the fn page and chat (as designed)", "recommended": true },
+            { "id": "home", "label": "Also pinnable to the home page" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "look",
+      "title": "Look",
+      "questions": [
+        {
+          "id": "look-palette",
+          "question": "Chart colours, given the app's \"one accent colour\" rule?",
+          "why": "Theming tokens.",
+          "options": [
+            { "id": "accent", "label": "Shades of the accent only" },
+            { "id": "palette", "label": "A small categorical palette tuned to the accent, light and dark", "description": "Several series need colours you can tell apart.", "recommended": true },
+            { "id": "default", "label": "ECharts defaults" }
+          ]
+        },
+        {
+          "id": "look-phone",
+          "question": "Charts on a phone?",
+          "why": "The phone check every build does.",
+          "options": [
+            { "id": "product", "label": "Product's rules", "description": "Legend at the bottom and scrolling, tap for tooltips, full screen as a sheet, tables become cards when narrow, pinch-zoom.", "recommended": true },
+            { "id": "scaled", "label": "Desktop layout, just scaled" }
+          ]
+        },
+        {
+          "id": "look-export",
+          "question": "Download a chart as an image (PNG/SVG)?",
+          "why": "Small scope; one call in ECharts.",
+          "options": [
+            { "id": "yes", "label": "Yes", "recommended": true },
+            { "id": "no", "label": "No" }
+          ]
+        }
+      ]
+    }
+  ]
+}
