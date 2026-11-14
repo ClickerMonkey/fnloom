@@ -60,6 +60,11 @@ type ApprovalPreview = {
         type: `${string}/${string}`;
         id: string;
       } | undefined;
+      drill?: {
+        fn: `${string}/${string}`;
+        args: Record<string, z.core.util.JSONType>;
+        keys: string[];
+      } | undefined;
     };
   } | {
     type: "type-diff";
@@ -213,6 +218,11 @@ type ApprovedRun = {
         records?: {
           type: `${string}/${string}`;
           id: string;
+        } | undefined;
+        drill?: {
+          fn: `${string}/${string}`;
+          args: Record<string, z.core.util.JSONType>;
+          keys: string[];
         } | undefined;
       };
     } | {
@@ -441,6 +451,11 @@ type PreviewAnswer = {
         records?: {
           type: `${string}/${string}`;
           id: string;
+        } | undefined;
+        drill?: {
+          fn: `${string}/${string}`;
+          args: Record<string, z.core.util.JSONType>;
+          keys: string[];
         } | undefined;
       };
     } | {

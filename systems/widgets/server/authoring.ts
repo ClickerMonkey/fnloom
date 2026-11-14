@@ -140,7 +140,7 @@ const INSTRUCTIONS = [
   '     pinned for what the request fixes (a record type, "only open tasks"); hidden for what nobody needs to see (only an arg with a default). Dates may be relative ({"relative": "today-7d"}), so a saved widget stays current.',
   '     Range args (source says the range drives them) are always chips, never pinned or hidden: the chart moves them, and their defaults are where the range opens, so a required one needs a default.',
   '   - presets: named chips that set several args at once when the request names them ("Overdue", "This week"); [] otherwise.',
-  '   - actions: leave out to offer every row action; list them only to narrow, relabel or bind another fn to the row\'s columns. drill: only when the request says what a click should open.',
+  '   - actions: leave out to offer every row action; list them only to narrow, relabel or bind another fn to the row\'s columns. drill: only when the request says what a click should open (a grouped database query drills into the rows behind a group on its own).',
   '   - name: snake_case after what it shows; title: a few words; description: one sentence.',
   '3. The proposal is run for real and checked. Fix every problem listed and propose again, whole. When it is clean, call offer, then answer in one line.',
   '',

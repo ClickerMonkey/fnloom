@@ -6,7 +6,7 @@
  */
 import {
   columnFacts, type ExportQuery, type Json, type QualifiedName, type ResultFacts, type ResultTable, type WidgetActionOption, type WidgetDrill, type WidgetPager,
-  type WidgetPreset, type WidgetRange, type WidgetResult, type WidgetShownControl, type WidgetVisual,
+  type WidgetPaging, type WidgetPreset, type WidgetRange, type WidgetResult, type WidgetShownControl, type WidgetVisual,
 } from '@harness/core';
 import { exportQuery, resultTableOf, widgetResultOf, type WidgetHost } from './widgets.ts';
 
@@ -43,20 +43,25 @@ export function resultFrame(result: WidgetResult): WidgetFrame {
   };
 }
 
-/** A plain result table as a frame: every fitting visual, no chips or pager, read-only when it came from a write. */
-export function tableFrame(table: ResultTable, title: string): WidgetFrame {
+/**
+ * A plain result table as a frame: every fitting visual, no chips, read-only when it came from a write. With `paged`
+ * (the paging args of its fn, a drill through the query's) the pager reads more by them while the table says more
+ * may follow; without, it has no pager.
+ */
+export function tableFrame(table: ResultTable, title: string, paged?: WidgetPaging): WidgetFrame {
+  const paging = paged === undefined || table.write !== undefined || table.limit === undefined ? undefined : { ...paged, window: table.limit, more: table.truncated };
   return {
-    title, table, facts: columnFacts(table), visuals: undefined, controls: [], presets: [], range: undefined, paging: undefined, actions: undefined,
+    title, table, facts: columnFacts(table), visuals: undefined, controls: [], presets: [], range: undefined, paging, actions: undefined,
     drill: undefined, readOnly: table.write !== undefined, live: undefined, problems: [], export: undefined,
   };
 }
 
-/** A run's output as a frame: a widget's result or a result table; undefined for anything else. */
-export function frameOf(output: Json | undefined, title: string): WidgetFrame | undefined {
+/** A run's output as a frame: a widget's result or a result table (paged by `paged`); undefined for anything else. */
+export function frameOf(output: Json | undefined, title: string, paged?: WidgetPaging): WidgetFrame | undefined {
   const result = widgetResultOf(output);
   if (result !== undefined) { return resultFrame(result); }
   const table = resultTableOf(output);
-  return table === undefined ? undefined : tableFrame(table, title);
+  return table === undefined ? undefined : tableFrame(table, title, paged);
 }
 
 /** A widget level's rows, asked again with other args. */
@@ -65,20 +70,26 @@ export interface WidgetSource {
   run(args: Readonly<Record<string, Json>>): Promise<WidgetFrame>;
 }
 
-/** A fn whose output is a widget's result or a result table (a widget fn, a drill's fn), read through the host. */
+/**
+ * A fn whose output is a widget's result or a result table (a widget fn, a drill's fn), read through the host; a
+ * table it gives is paged by `paged` when given (a drill through the query reads the rows behind a group a page at a
+ * time).
+ */
 export class FnWidgetSource implements WidgetSource {
   readonly #host: WidgetHost;
   readonly #fn: QualifiedName;
   readonly #title: string;
+  readonly #paged: WidgetPaging | undefined;
 
-  constructor(host: WidgetHost, fn: QualifiedName, title: string) {
+  constructor(host: WidgetHost, fn: QualifiedName, title: string, paged?: WidgetPaging) {
     this.#host = host;
     this.#fn = fn;
     this.#title = title;
+    this.#paged = paged;
   }
 
   async run(args: Readonly<Record<string, Json>>): Promise<WidgetFrame> {
-    const frame = frameOf(await this.#host.read(this.#fn, args), this.#title);
+    const frame = frameOf(await this.#host.read(this.#fn, args), this.#title, this.#paged);
     if (frame === undefined) { throw new Error(`${this.#fn} didn't return a table.`); }
     return frame;
   }

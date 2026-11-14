@@ -5961,7 +5961,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/records_table`: Records of one stored type as a table (one column per field, then the record id), offset-paged: what widgets and the result view draw. Tags: `read`.
 
   ```text
-  (obj{ type, query?, search?, run?, offset?, limit? … }) => obj{ columns, rows, offset, limit?, total?, truncated, sort, write?, records? … }
+  (obj{ type, query?, search?, run?, offset?, limit? … }) => obj{ columns, rows, offset, limit?, total?, truncated, sort, write?, records?, drill? … }
   ```
 - `hub/record_versions`: A record's history, newest first: each version's value, how it changed, and who changed it. Tags: `read`.
 
@@ -6035,7 +6035,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/read_table`: Run a read fn that returns a table, as a child run of the caller, as its person, and give the table. Tags: `read`.
 
   ```text
-  (obj{fn: text, args: any}) => obj{ columns, rows, offset, limit?, total?, truncated, sort, write?, records? … }
+  (obj{fn: text, args: any}) => obj{ columns, rows, offset, limit?, total?, truncated, sort, write?, records?, drill? … }
   ```
 - `hub/visuals`: Every visual of the hub's visual registry (hub/visuals), with its declared shape and the system that draws it, in registry order. Tags: `read`.
 
@@ -9794,7 +9794,11 @@ from its name (`actionLabel`), with a form for the args left after binding (`wid
 bind any fn's args to columns. Anything that is not a read asks after its form (`confirmOf`); a widget can add a
 confirm, never remove one. What follows is derived (`deriveThen`): rows returned open as a new level, a write
 refreshes, else a status line. A click on a bar, slice or row runs the widget's `drill` (its args from the row,
-`boundArgs`), else opens the row's action menu. Give a stored type methods to make its records actionable.
+`boundArgs`), else the drill its rows declare (`ResultTable.drill`: a fn that reads the rows behind one group, with
+the source's args and the clicked row's group key columns as `group`, paged by `limit` / `offset`), else opens the
+row's action menu. A drill opens in a modal as a widget of its own, a table first. A saved database query that groups
+rows declares its drill on its own (`database/drill_down`, through `@aeye/query`'s `drillDown`); a NULL group or an
+"Other" slice opens nothing. Give a stored type methods to make its records actionable.
 
 **Making widgets.** People ask in the chat ("show my open tasks by owner as bars"). `widgets/make_widget` is an agent
 fn handed the source: it reads a sample (`hub/read_table`) and proposes against a strict schema built for that call
@@ -15864,6 +15868,11 @@ type ApprovalPreview = {
         type: `${string}/${string}`;
         id: string;
       } | undefined;
+      drill?: {
+        fn: `${string}/${string}`;
+        args: Record<string, z.core.util.JSONType>;
+        keys: string[];
+      } | undefined;
     };
   } | {
     type: "type-diff";
@@ -16017,6 +16026,11 @@ type ApprovedRun = {
         records?: {
           type: `${string}/${string}`;
           id: string;
+        } | undefined;
+        drill?: {
+          fn: `${string}/${string}`;
+          args: Record<string, z.core.util.JSONType>;
+          keys: string[];
         } | undefined;
       };
     } | {
@@ -16245,6 +16259,11 @@ type PreviewAnswer = {
         records?: {
           type: `${string}/${string}`;
           id: string;
+        } | undefined;
+        drill?: {
+          fn: `${string}/${string}`;
+          args: Record<string, z.core.util.JSONType>;
+          keys: string[];
         } | undefined;
       };
     } | {
@@ -17425,6 +17444,11 @@ type RunRequest = {
           records?: {
             type: `${string}/${string}`;
             id: string;
+          } | undefined;
+          drill?: {
+            fn: `${string}/${string}`;
+            args: Record<string, z.core.util.JSONType>;
+            keys: string[];
           } | undefined;
         };
       } | {
@@ -19851,6 +19875,11 @@ type ResultTable = {
   records?: {
     type: `${string}/${string}`;
     id: string;
+  } | undefined;
+  drill?: {
+    fn: `${string}/${string}`;
+    args: Record<string, z.core.util.JSONType>;
+    keys: string[];
   } | undefined;
 };
 ```

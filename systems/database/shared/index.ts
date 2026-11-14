@@ -12,7 +12,7 @@
 import { ResultTable, type FnEffects } from '@harness/core';
 import { attachment, context, fn, g, ginAs, hub, kind, system, type Infer } from '@harness/sdk';
 import {
-  ApplyArgs, AuthorArgs, CONFIG_SECRETS, DatabaseConfig, DatabasePick, DatabaseSummary, PickArgs, InstanceAnswer, InstanceOp, ReadInstanceOp, ParamValues, QueryAgentAnswer, QueryAnswer, QueryPayload, QueryRun,
+  ApplyArgs, AuthorArgs, CONFIG_SECRETS, DatabaseConfig, DatabasePick, DrillArgs, DatabaseSummary, PickArgs, InstanceAnswer, InstanceOp, ReadInstanceOp, ParamValues, QueryAgentAnswer, QueryAnswer, QueryPayload, QueryRun,
   type QueryHow,
   SchemaArgs, SchemaChanged, TableArgs, TableFnsArgs, TableFnsGenerateArgs, TableFnsGenerated, TableFnsList, TablesInfo,
 } from './shapes.ts';
@@ -221,6 +221,20 @@ export const database = system('database', {
         examples: [{ args: { database: 'main' } }],
         visibility: 'llm',
         display: 'hidden',
+        routing: { to: 'any' },
+        effects: { mode: 'read', free: true },
+        tags: ['database', 'read'],
+      }),
+      drill_down: fn({
+        group: 'queries',
+        description: 'The rows behind one group of a saved grouped query\'s result (a bar, a slice, a grouped row clicked), a page at a time: the query un-ravelled by @aeye/query\'s drillDown, each group key pinned to the clicked value.',
+        instructions: 'Called by the app when a person clicks a part of a result that stands for a group; the result says it can be drilled (`drill`) with the fn and args to pass.',
+        args: ginAs(DrillArgs),
+        returns: ResultData,
+        deps: { at: fns.read_at_instance },
+        examples: [{ args: { fn: 'database/main.orders_per_status', args: {}, group: { status: 'paid' } }, note: 'The paid orders behind the "paid" bar.' }],
+        // the person's click runs it, never the model: it takes a result's group, not a request
+        visibility: 'user',
         routing: { to: 'any' },
         effects: { mode: 'read', free: true },
         tags: ['database', 'read'],

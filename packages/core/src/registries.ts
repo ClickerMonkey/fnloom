@@ -190,6 +190,20 @@ export const ResultSort = z.object({ column: z.string().min(1), dir: z.enum(['as
 export type ResultSort = z.infer<typeof ResultSort>;
 
 /**
+ * How a grouped result's rows are drilled into (build-9 feedback, drill-downs through the query): `fn` reads the rows
+ * behind one group, called with `args` and `group`, the clicked row's value of each `keys` column (by column name),
+ * plus `limit` / `offset` to page them. The source says so only when its query can be un-ravelled (the database's
+ * `drillDown`), so a result without it has no drillable parts. A row whose key is empty (NULL) stands for no group a
+ * query can pin, so it is not drilled.
+ */
+export const ResultDrill = z.object({
+  fn: QualifiedName,
+  args: z.record(z.string(), Json),
+  keys: z.array(z.string().min(1)),
+});
+export type ResultDrill = z.infer<typeof ResultDrill>;
+
+/**
  * Rows as the person sees them: columns once, then each row as an array in column order. `total` is there when the
  * source counted it; `truncated` says more rows exist past `offset + rows.length`.
  */
@@ -208,5 +222,8 @@ export const ResultTable = z.object({
   write: z.object({ affected: z.number().int().min(0) }).optional(),
   /** Widget pass: the rows are records of a stored type, with the column holding each record's id (inline editing). */
   records: z.object({ type: QualifiedName, id: z.string().min(1) }).optional(),
+  /** Each row is a group its source can open (`ResultDrill`): a click on one reads the rows behind it. */
+  drill: ResultDrill.optional(),
 });
 export type ResultTable = z.infer<typeof ResultTable>;
+

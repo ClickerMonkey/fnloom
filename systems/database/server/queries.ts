@@ -6,11 +6,11 @@
  * a write is proposed as a run of its fn that waits for the person's approval, with a preview of what it would do.
  */
 import { CallFailed, SAVE_FN_TAKEN, type Log, type ResultBlock } from '@harness/sdk';
-import { Json, qualify, type InstanceName, type ApprovalPreview, type FnExample, type ProposedRun, type ResultTable, type RunInfo, type ShareRule, type UserInfo } from '@harness/core';
+import { Json, QualifiedName, qualify, type InstanceName, type ApprovalPreview, type FnExample, type ProposedRun, type ResultDrill, type ResultTable, type RunInfo, type ShareRule, type UserInfo } from '@harness/core';
 import { resultBlock } from '@harness/sdk/server';
 import { QUERY_KIND, database } from '../shared/index.ts';
-import { QueryPayload, SortArg, type QueryCheck, type QueryDraft, type QueryRun, type SavedQueryRef, type TablesInfo, type WriteResult } from '../shared/shapes.ts';
-import { argProblems, argsTypeOf, signatureOf, type CallPlan, type CompiledQuery, type Refusal } from './compile.ts';
+import { QueryPayload, SortArg, type DrillArgs, type QueryCheck, type QueryDraft, type QueryRun, type SavedQueryRef, type TablesInfo, type WriteResult } from '../shared/shapes.ts';
+import { argProblems, argsTypeOf, drillOf, signatureOf, type CallPlan, type CompiledQuery, type Refusal } from './compile.ts';
 
 /** Where an authoring draft stands: the draft check with the request's args checked too, and the first rows a clean read gives. */
 export interface DraftTrial {
@@ -105,6 +105,24 @@ export function callArgs(args: Json): { values: Record<string, Json>; sort: Sort
 /** A call's args again from its param values and sort (the sort left out when there is none). */
 export function callOf(values: Readonly<Record<string, Json>>, sort: SortArg): Record<string, Json> {
   return sort.length === 0 ? { ...values } : { ...values, sort: sort.map((entry) => ({ column: entry.column, dir: entry.dir })) };
+}
+
+/** The fn that reads the rows behind one group of a saved grouped read (`drill_down`). */
+export const DRILL_FN = QualifiedName.parse(qualify(database.name, 'drill_down'));
+
+/**
+ * The `drill` a saved read's result carries when its query can be drilled into (`drillOf`): `drill_down` with the fn
+ * and the params it ran with (no paging or sort), and the group key columns a click takes its values from.
+ */
+export function drillFor(compiled: CompiledQuery, fn: string, values: Readonly<Record<string, Json>>): ResultDrill | undefined {
+  const drill = drillOf(compiled);
+  if (drill === undefined) { return undefined; }
+  const params: Record<string, Json> = {};
+  for (const param of compiled.params) {
+    const value = values[param.name];
+    if (value !== undefined) { params[param.name] = value; }
+  }
+  return { fn: DRILL_FN, args: { fn, args: params }, keys: drill.keys.map((key) => key.column) };
 }
 
 /** Whether an answer is a problem rather than what was asked for. */
@@ -223,14 +241,60 @@ export class QueryService {
     return { ...base, result: await this.read(instance, compiled, plan, called, callOf(values, sort), { attach: (table, title) => { ctx.attach(table, title); }, watched: ctx.run.watched }) };
   }
 
-  /** Read rows as a result table: a saved query run directly (its output is the table; the hub words it for the model). */
-  async table(instance: DatabaseInstance, compiled: CompiledQuery, plan: CallPlan): Promise<ResultTable> {
-    return resultTable(await instance.read(plan), compiled.columns, plan);
+  /**
+   * Read rows as a result table: a saved query run directly (its output is the table; the hub words it for the model).
+   * `drill` says how its groups are drilled into, when they can be.
+   */
+  async table(instance: DatabaseInstance, compiled: CompiledQuery, plan: CallPlan, drill?: ResultDrill): Promise<ResultTable> {
+    const table = resultTable(await instance.read(plan), compiled.columns, plan);
+    return drill === undefined ? table : { ...table, drill };
+  }
+
+  /**
+   * `drill_down`: the rows behind one group of a saved grouped read, a page at a time. The saved query is read as the
+   * person (`hub/fn_get`), its args checked as a call's are, its select un-ravelled (`drillOf`) with each group key
+   * pinned to the clicked group's value; a query that can't be drilled into, or a group without a value for a key
+   * (NULL included: it pins no rows), is the caller's to fix.
+   */
+  async drill(instance: DatabaseInstance, args: DrillArgs, ctx: Pick<QueryRunCtx, 'getFn'>): Promise<ResultTable | QueryProblem> {
+    const stored = await ctx.getFn(args.fn);
+    const parsed = QueryPayload.safeParse(stored.payload);
+    if (stored.kind !== QUERY_KIND || !parsed.success) { return { invalid: `${args.fn} is not a saved database query.` }; }
+    if (parsed.data.instance !== instance.instance) { return { invalid: `${args.fn} runs on the ${parsed.data.instance} database, not this one.` }; }
+    const payload = this.#refresh(instance, parsed.data);
+    const compiled = instance.compile(payload);
+    if (!('query' in compiled)) { return this.#stale(args.fn, compiled); }
+    const given = Json.parse({ ...args.args });
+    const problems = argProblems(argsTypeOf(compiled, payload.sorters, this.#limits(), payload.optional), given);
+    if (problems.length > 0) { return { invalid: `The args don't fit ${args.fn}: ${problems.join('; ')}` }; }
+    const drill = drillOf(compiled);
+    if (drill === undefined) { return { invalid: `${args.fn} can't be drilled into: its query doesn't group rows in a way that un-ravels.` }; }
+    const { values } = callArgs(given);
+    const bound: Record<string, Json> = {};
+    for (const param of compiled.params) {
+      const value = values[param.name];
+      if (value !== undefined) { bound[param.name] = value; }
+    }
+    for (const key of drill.keys) {
+      const value = args.group[key.column];
+      if (value === undefined || value === null || Array.isArray(value)) { return { invalid: `The group has no value for ${key.column} to drill into.` }; }
+      bound[key.param] = value;
+    }
+    const drilled = instance.compile({
+      instance: payload.instance, description: payload.description, query: Json.parse(drill.def), sorters: [], list: true,
+      ...(payload.generated === undefined ? {} : { generated: payload.generated }),
+    });
+    if (!('query' in drilled)) { return { failed: `The rows behind that group can't be read: ${drilled.problems.join(' ')}` }; }
+    const page = { ...(args.limit === undefined ? {} : { limit: args.limit }), ...(args.offset === undefined ? {} : { offset: args.offset }) };
+    const plan = instance.plan(drilled, { ...bound, ...page }, []);
+    return resultTable(await instance.read(plan), drilled.columns, plan);
   }
 
   /** Read rows for a call: attach them for the person, and give the model its result block (`args` as called, sort too, for the next page's call). */
   async read(instance: DatabaseInstance, compiled: CompiledQuery, plan: CallPlan, fn: { name: string; signature: string }, args: Readonly<Record<string, Json>>, ctx: ReadCtx): Promise<ResultBlock> {
-    const table = resultTable(await instance.read(plan), compiled.columns, plan);
+    const read = resultTable(await instance.read(plan), compiled.columns, plan);
+    const drill = drillFor(compiled, fn.name, callArgs(Json.parse({ ...args })).values);
+    const table = drill === undefined ? read : { ...read, drill };
     ctx.attach(table, fn.name);
     return resultBlock(table, { fn, args, watched: ctx.watched === true });
   }

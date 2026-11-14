@@ -21,6 +21,7 @@ import { summaryOf as summary } from '../src/chat/state/sessions.ts';
 import { selectionReport } from '../src/chat/test/fakes.ts';
 import { NOTE_TYPE, NOTES_WIDGET, SAMPLE_PAGED_WIDGET, SAMPLE_PROPOSAL, SAMPLE_TABLE, SAMPLE_WIDGET } from '../src/data/test/samples.ts';
 import { BASH_CHANGES, FLAGGED_COMMAND, FLAGGED_PREVIEW, widgetRunOutput } from './mockBuild8.ts';
+import { galleryResult } from './mockDrill.ts';
 import { CHART_SAMPLES } from '../src/components/visuals/test/samples.ts';
 
 /** Send one event on a session's channel. */
@@ -508,7 +509,7 @@ export class MockChat {
     this.#add(chat.id, { turn, author: this.#owner(), role: 'user', status: 'done', createdAt: now - 100_000, parts: [{ type: 'text', text: 'Show me every kind of chart.' }] });
     const runs = Object.entries(CHART_SAMPLES).map(([family, table], i) => {
       const run = this.#run(chat.id, turn, QualifiedName.parse('database/shop.sample'), { family }, AGENT);
-      this.runs.set(run.id, { ...run, status: 'done', startedAt: now - 90_000 + i, endedAt: now - 89_000 + i, outcome: { status: 'done', result: Json.parse(table) } });
+      this.runs.set(run.id, { ...run, status: 'done', startedAt: now - 90_000 + i, endedAt: now - 89_000 + i, outcome: { status: 'done', result: galleryResult(family, table) } });
       return run.id;
     });
     this.#add(chat.id, { turn, author: AGENT, role: 'assistant', status: 'done', createdAt: now - 80_000, runs, parts: [{ type: 'text', text: `One result for each of the ${String(runs.length)} chart families.` }] });

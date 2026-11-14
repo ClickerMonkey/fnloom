@@ -19,7 +19,7 @@ import { argProblems, argsTypeOf, effectsOf, signatureOf, type CompiledQuery } f
 import type { Database } from './drivers/index.ts';
 import type { DatabaseSettings } from './env.ts';
 import { DatabaseInstance, changeWords, widens, type HubSide, type ScanReport } from './instance.ts';
-import { QueryService, callArgs, isProblem, mayUse, notYours, queryInstance, type QueryProblem, type QueryRunCtx } from './queries.ts';
+import { QueryService, callArgs, drillFor, isProblem, mayUse, notYours, queryInstance, type QueryProblem, type QueryRunCtx } from './queries.ts';
 import { QueryAuthoring, localName, queryAuthoring, type EditedQuery } from './authoring.ts';
 import { pickDatabase } from './pick.ts';
 import { TableFnService, type TableFnsCtx, type TableFnsReadCtx } from './table-fns.ts';
@@ -347,6 +347,10 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
         const list = await tableFnService.list(here, op.table, tableFnsReadCtx(ctx));
         return 'groups' in list ? { op: 'table-fns', list } : list;
       }
+      case 'drill': {
+        const table = await queries.drill(here, op.drill, { getFn: async (fn) => await ctx.fns.getFn({ fn }) });
+        return 'columns' in table ? { op: 'drill', table } : table;
+      }
     }
   }
 
@@ -355,7 +359,7 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
     const here = await hereFor(ctx);
     if (!('db' in here)) { return here; }
     switch (op.op) {
-      case 'tables': case 'table-fns': return readHere(op, here, ctx);
+      case 'tables': case 'table-fns': case 'drill': return readHere(op, here, ctx);
       case 'run': {
         const ran = await queries.run(here, op.fn, op.args ?? {}, runCtx(ctx));
         return 'database' in ran ? { op: 'run', run: ran } : ran;
@@ -515,6 +519,15 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
           return isProblem(answer) ? refuse(ctx, answer) : ctx.done(answer);
         },
       },
+      drill_down: {
+        async run(args, ctx) {
+          const target = queryInstance(args.fn);
+          if (target === undefined) { return ctx.invalid([{ path: 'fn', message: `"${args.fn}" isn't a saved query fn; they are named database/<database>.<name>.` }]); }
+          const drill = { ...args, fn: qualify(database.name, target.local) };
+          const answer = await at(ctx, target.instance, { op: 'drill', drill }, (found) => (found.op === 'drill' ? found.table : undefined));
+          return isProblem(answer) ? refuse(ctx, answer) : ctx.done(answer);
+        },
+      },
       table_fns_available: {
         async run(args, ctx) {
           const target = await tableTarget(args, ctx);
@@ -651,7 +664,8 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
             if (!instance.writes) { return ctx.fail('caller', `${instance.config.label} is read-only now.`); }
             return ctx.done(Json.parse(await queries.write(instance, compiled, plan, fn, { attach, watched: ctx.run.watched })));
           }
-          return ctx.done(Json.parse(await queries.table(instance, compiled, plan)));
+          // a grouped read says how a click on one of its groups reads the rows behind it (drill_down)
+          return ctx.done(Json.parse(await queries.table(instance, compiled, plan, drillFor(compiled, ctx.run.fn, values))));
         },
         async preview(payload, args, ctx): Promise<PreviewAnswer> {
           if (instance === undefined) { return { refused: 'This database is not configured yet.' }; }

@@ -5,8 +5,8 @@
  */
 import { createRegistry, type TypeDef as GinDef } from '@aeye/gin';
 import {
-  FieldRefExpr, SelectQuery, asFieldType, autoPaginate, canAutoPaginate, parseQueryRequest,
-  type FieldTypeDef, type ParamInfo, type Query, type QueryDef, type QueryEngine, type SqlParamValue,
+  FieldRefExpr, SelectQuery, asFieldType, autoPaginate, canAutoPaginate, drillDown, parseQueryRequest,
+  type FieldTypeDef, type ParamInfo, type Query, type QueryDef, type QueryEngine, type SelectDef, type SqlParamValue,
 } from '@aeye/query';
 import { GinTypeDef, type ColumnKind, type Json, type ResultColumn, type ResultSort } from '@harness/core';
 import type { Dialect } from '@aeye/query';
@@ -101,6 +101,39 @@ function outputRoles(engine: QueryEngine, query: Query): ReadonlyArray<Pick<Resu
     const table = engine.type(expr.source);
     return table?.primaryKey().some((field) => field.name === expr.field) === true ? { key: true } : {};
   });
+}
+
+/** One group key of a drilled query: the output column carrying its value per row, and the param it pins. */
+export interface DrillKey {
+  readonly column: string;
+  readonly param: string;
+}
+
+/** The query for the rows behind one group of a grouped read, and the group keys it pins. */
+export interface DrillPlan {
+  /** The un-ravelled select (`@aeye/query`'s `drillDown`), with no row bound of its own, so it pages. */
+  readonly def: SelectDef;
+  /** Its group keys, in the group-by's order (none for a bare aggregate: the rows behind the one total). */
+  readonly keys: readonly DrillKey[];
+}
+
+/**
+ * How a saved read's groups are drilled into (build-9 feedback): `drillDown` turns its grouped select into the select
+ * for the rows behind one group, each group key pinned to a param. Undefined where it can't: a write, a set operation
+ * or CTE, a select with no grouping, one `drillDown` refuses (a window function, a HAVING over an aggregate, an
+ * aggregate with no field under it), or a group key the select doesn't output (a click would have no value for it).
+ * The select's own LIMIT / OFFSET bound its groups, not the rows in one, so the drilled query drops them and pages.
+ */
+export function drillOf(compiled: CompiledQuery): DrillPlan | undefined {
+  if (compiled.writes || !(compiled.query instanceof SelectQuery)) { return undefined; }
+  const drilled = drillDown(compiled.query, compiled.engine);
+  if ('error' in drilled) { return undefined; }
+  const columns = new Set(compiled.columns.map((column) => column.name));
+  if (drilled.params.some((param) => !columns.has(param.field))) { return undefined; }
+  const unbounded: SelectDef = { ...drilled.query.toJSON() };
+  delete unbounded.limit;
+  delete unbounded.offset;
+  return { def: unbounded, keys: drilled.params.map((param) => ({ column: param.field, param: param.name })) };
 }
 
 /** Every type a query reads from by name (`{ kind: 'type', type }` sources), at any depth. */

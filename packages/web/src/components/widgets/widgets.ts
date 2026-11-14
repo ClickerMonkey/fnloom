@@ -6,8 +6,8 @@
  * `WidgetHost`, which runs what the view asks for, so the view knows nothing of where it is.
  */
 import {
-  ExportQuery, QualifiedName, RELATIVE_DATES, ResultTable, WidgetProposal, WidgetResult, type ArgValue, type FnMode, type Json,
-  type RecordUpdate, type RowActionsQuery, type SaveWidgetArgs, type WidgetActionOption, type WidgetShownControl, type WidgetVisual,
+  ExportQuery, QualifiedName, RELATIVE_DATES, ResultTable, WidgetPaging, WidgetProposal, WidgetResult, type ArgValue, type FnMode, type Json,
+  type RecordUpdate, type RowActionsQuery, type SaveWidgetArgs, type WidgetActionOption, type WidgetDrill, type WidgetShownControl, type WidgetVisual,
 } from '@harness/core';
 import { relativeDatesFor, resolveArgValue } from '@harness/sdk';
 import type { InjectionKey } from 'vue';
@@ -189,9 +189,51 @@ export function chipArgs(controls: readonly WidgetShownControl[], staged: Readon
 
 // ─── Drill levels in the URL ──────────────────────────────────────────────────
 
-/** One drill step: the fn it ran, its crumb and the args it took from the clicked row. */
-export const DrillStep = z.object({ fn: QualifiedName, label: z.string().min(1), args: z.record(z.string(), z.json()) });
+/**
+ * One drill step: the fn it ran, its crumb and the args it took from the clicked row, and the paging args its rows are
+ * read in pages by (a drill through the query: `limit` / `offset`).
+ */
+export const DrillStep = z.object({ fn: QualifiedName, label: z.string().min(1), args: z.record(z.string(), z.json()), paging: WidgetPaging.optional() });
 export type DrillStep = z.infer<typeof DrillStep>;
+
+/** The paging args a drill through the query reads the rows behind a group with. */
+export const DRILL_PAGING: WidgetPaging = { offset: 'offset', limit: 'limit' };
+
+/** Whether a group key's value pins rows: NULL (or nothing) stands for no group a query can pin, a list for none. */
+function pinnable(value: Json | undefined): value is Json {
+  return value !== undefined && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The drill through the query for one clicked row (`ResultTable.drill`, build-9 feedback): its source's drill fn with the
+ * source's args and the row's value of each group key column, its crumb the keys' labels and values ("Status: paid"),
+ * paged. Undefined when the table can't be drilled into or the row has no value for a key (a NULL group).
+ */
+export function groupDrill(table: Pick<ResultTable, 'columns' | 'rows' | 'drill'>, rowIndex: number): DrillStep | undefined {
+  const drill = table.drill;
+  const row = table.rows[rowIndex];
+  if (drill === undefined || row === undefined) { return undefined; }
+  const group: Record<string, Json> = {};
+  const words: string[] = [];
+  for (const key of drill.keys) {
+    const at = table.columns.findIndex((column) => column.name === key);
+    const value = at < 0 ? undefined : row[at];
+    if (!pinnable(value)) { return undefined; }
+    group[key] = value;
+    words.push(`${table.columns[at]?.label ?? key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`);
+  }
+  return { fn: drill.fn, label: words.length === 0 ? 'Every row' : words.join(' · '), args: { ...drill.args, group }, paging: DRILL_PAGING };
+}
+
+/**
+ * What a click on a row's mark opens: the widget's own drill when it binds one (`WidgetDrill`, a fn the author chose),
+ * else the drill through the query when the source's result says it has one; undefined for neither.
+ */
+export function drillStepOf(own: WidgetDrill | undefined, table: Pick<ResultTable, 'columns' | 'rows' | 'drill'>, rowIndex: number): DrillStep | undefined {
+  if (own === undefined) { return groupDrill(table, rowIndex); }
+  const args = rowArgs(own.bind, table, rowIndex);
+  return args === undefined ? undefined : { fn: own.fn, label: crumbLabel(own.label, rowName(table, rowIndex)), args };
+}
 
 /** The drill levels of one widget (`of`, its view key), as the URL's `level` keeps them. */
 export const WidgetLevels = z.object({ of: z.string().min(1), steps: z.array(DrillStep).min(1).max(8) });

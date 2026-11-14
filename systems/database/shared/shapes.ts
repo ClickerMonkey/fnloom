@@ -3,7 +3,7 @@
  * model. The contract (`index.ts`) carries each as gin (`ginAs`), and the server parses with these, so each shape has
  * one source.
  */
-import { GinObjTypeDef, Json, ShareRule } from '@harness/core';
+import { GinObjTypeDef, Json, ResultTable, ShareRule } from '@harness/core';
 import { ResultBlock, ResultFn } from '@harness/sdk';
 import { z } from 'zod';
 
@@ -353,10 +353,25 @@ export type GeneratedTableFn = z.infer<typeof GeneratedTableFn>;
 export const TableFnsGenerated = z.object({ database: DatabaseInfo, table: z.string(), fns: z.array(GeneratedTableFn) });
 export type TableFnsGenerated = z.infer<typeof TableFnsGenerated>;
 
+/**
+ * `drill_down`'s args: a saved grouped read, the args it ran with, and the group clicked (each group key column's
+ * value), with the page of the rows behind it. A result table of a query that can be drilled into says so
+ * (`ResultTable.drill`), with these args but the group and the page.
+ */
+export const DrillArgs = z.object({
+  fn: z.string().min(1).describe('The saved query fn whose result was clicked (`database/main.orders_by_status`).'),
+  args: z.record(z.string(), Json).optional().describe('The args it ran with: its params (no paging or sort).'),
+  group: z.record(z.string(), Json).describe('The clicked group: the value of each group key column, by column name.'),
+  limit: z.number().int().min(1).optional().describe('How many rows (the page size when empty).'),
+  offset: z.number().int().min(0).optional().describe('How many rows to skip, for the next page.'),
+});
+export type DrillArgs = z.infer<typeof DrillArgs>;
+
 /** What one instance is asked to read for a tool another instance answered (`read_at_instance`, declared read). */
 export const ReadInstanceOp = z.discriminatedUnion('op', [
   z.object({ op: z.literal('tables') }),
   z.object({ op: z.literal('table-fns'), table: z.string().min(1) }),
+  z.object({ op: z.literal('drill'), drill: DrillArgs }),
 ]);
 export type ReadInstanceOp = z.infer<typeof ReadInstanceOp>;
 
@@ -374,6 +389,7 @@ export const InstanceAnswer = z.discriminatedUnion('op', [
   z.object({ op: z.literal('run'), run: QueryRun }),
   z.object({ op: z.literal('table-fns'), list: TableFnsList }),
   z.object({ op: z.literal('table-fns-generate'), generated: TableFnsGenerated }),
+  z.object({ op: z.literal('drill'), table: ResultTable }),
 ]);
 export type InstanceAnswer = z.infer<typeof InstanceAnswer>;
 

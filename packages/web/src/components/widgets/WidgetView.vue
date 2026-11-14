@@ -8,8 +8,11 @@
  * returned: those are read-only, without chips, pager or drill), the page's items, full screen and Settings (every
  * fitting visual and its style; a saved widget's look is saved by asking the agent to change it, which the person
  * then saves). The grid pages through the rows held and the buffered pager reads more only when a page needs them; a
- * chart's zoom or period sets the range args; a click on a row's mark runs the drill, else opens the row's actions
- * (form, then confirm). Without a widget host, or without a fn to ask again (a proposal's preview), it draws what it has.
+ * chart's zoom or period sets the range args; a click on a row's mark runs the drill (the widget's own, else the one
+ * through the query its rows declare: build-9 feedback), else opens the row's actions (form, then confirm). A drill opens
+ * the rows behind the group in a modal (`DrillDialog`), as a widget of its own, a table first; inside it (`inDrill`) a
+ * drill opens as a level, with a breadcrumb back. Without a widget host, or without a fn to ask again (a proposal's
+ * preview), it draws what it has.
  *
  * A page can give it its own source (the Data page's records over `hub/records_table`), its own row menu (`opener`), a
  * sort its source does (`sort`), context beside its chips (`lead`: the Data page's search and filters) and menu items
@@ -19,18 +22,20 @@
 import { HUB_VISUALS, QualifiedName, type Json, type ResultSort } from '@harness/core';
 import { computed, inject, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from 'vue';
 import ConfirmDialog from '../../admin/components/ConfirmDialog.vue';
+// the drill's modal draws a widget view of its own (the two import each other; each uses the other only when drawn)
+import DrillDialog from './DrillDialog.vue';
 import { UiBanner, UiButton, UiIcon, type MenuAction } from '../../ui/index.ts';
 import { OWN_HOST, RESULTS_HOST } from '../results/builtin.ts';
 import ResultView from '../results/ResultView.vue';
 import type { PageRequest, ResultPager } from '../results/table.ts';
-import { chosenVisual, styleLabel, type RowOpener, type VisualChoice } from '../results/visuals.ts';
+import { DRILLABLE, chosenVisual, styleLabel, type RowOpener, type VisualChoice } from '../results/visuals.ts';
 import { CELL_EDITOR, editInput, RecordEdits } from './record-edits.ts';
 import RecordEditsDialog from './RecordEditsDialog.vue';
 import WidgetActionDialog from './WidgetActionDialog.vue';
 import WidgetChips from './WidgetChips.vue';
 import { FnWidgetSource, type WidgetFrame, type WidgetSource } from './widget-source.ts';
 import { startArgs, WidgetState } from './widget-state.ts';
-import { saveLookRequest, WIDGET_HOST, widgetVisuals } from './widgets.ts';
+import { saveLookRequest, WIDGET_HOST, widgetVisuals, type DrillStep } from './widgets.ts';
 
 const props = withDefaults(defineProps<{
   frame: WidgetFrame;
@@ -51,7 +56,11 @@ const props = withDefaults(defineProps<{
   widget?: QualifiedName | undefined;
   /** The page's own items in the 3-dot menu (Make a widget); a pick emits `item`. */
   items?: readonly MenuAction<string>[];
-}>(), { fn: undefined, args: undefined, viewKey: '', showTitle: true, source: undefined, opener: undefined, sort: undefined, widget: undefined, items: () => [] });
+  /** It draws a drill in its modal: a drill opens as a level here, with a breadcrumb back, rather than another modal. */
+  inDrill?: boolean;
+  /** The visual shown until the person picks another (a drill's rows: the table). */
+  firstVisual?: string | undefined;
+}>(), { fn: undefined, args: undefined, viewKey: '', showTitle: true, source: undefined, opener: undefined, sort: undefined, widget: undefined, items: () => [], inDrill: false, firstVisual: undefined });
 const emit = defineEmits<{ saved: [count: number]; item: [value: string] }>();
 
 const results = inject(RESULTS_HOST, OWN_HOST);
@@ -67,7 +76,7 @@ const state = new WidgetState(host, {
 const level = state.level;
 const top = computed(() => level.value.frame);
 const keyed = computed(() => (state.levels.value.length > 1 ? `${props.viewKey}#${String(state.levels.value.length - 1)}` : props.viewKey));
-const local = ref<VisualChoice | undefined>(undefined);
+const local = ref<VisualChoice | undefined>(props.firstVisual === undefined ? undefined : { visual: props.firstVisual });
 const choice = computed({
   // the host keeps it under the view's key where it can; the local copy holds it on a page whose host keeps none
   get: () => (keyed.value === '' ? undefined : results.choice(keyed.value)) ?? local.value,
@@ -89,6 +98,16 @@ const visuals = computed(() => (subset.value && top.value.visuals !== undefined 
 const others = computed(() => (subset.value ? ranked.value.filter((r) => !visuals.value.some((v) => v.visual.name === r.visual.name)) : []));
 
 const editable = computed(() => state.live.value && !top.value.readOnly);
+/** A click on a row's mark drills (the visuals mark what they draw as clickable then). */
+const drillable = computed(() => state.drills.value && !top.value.readOnly);
+provide(DRILLABLE, drillable);
+/** The drill open in the modal. */
+const drilling = shallowRef<DrillStep | undefined>(undefined);
+function onDrill(row: number): void {
+  if (props.inDrill) { void state.drill(row); return; }
+  const step = state.drillStep(row);
+  if (step !== undefined) { drilling.value = step; }
+}
 const pager = computed((): ResultPager | undefined => {
   if (!editable.value || top.value.paging === undefined) { return undefined; }
   const ask = (request: PageRequest): void => { if (request.offset >= state.table.value.rows.length) { void state.more(); } };
@@ -214,8 +233,8 @@ async function saveLook(close: () => void): Promise<void> {
   <section ref="root" class="widget" data-testid="widget-view" :data-widget="fn" :data-level="state.levels.value.length - 1">
     <ResultView
       v-model:choice="choice" :table="state.table.value" :title="top.title" :visuals="visuals" :others="others" :toggle="subset" :facts="state.facts.value" :pager="pager"
-      :opener="opener" :drills="state.drills.value && !top.readOnly" :items="menuItems"
-      :export-all="top.export !== undefined && host !== undefined ? exportAll : undefined" @drill="state.drill($event)" @range="state.range($event)" @item="onItem"
+      :opener="opener" :drills="drillable" :items="menuItems"
+      :export-all="top.export !== undefined && host !== undefined ? exportAll : undefined" @drill="onDrill" @range="state.range($event)" @item="onItem"
     >
       <template #context>
         <nav v-if="state.levels.value.length > 1" class="crumbs" aria-label="Levels" data-testid="widget-crumbs">
@@ -256,6 +275,7 @@ async function saveLook(close: () => void): Promise<void> {
       v-model:open="actionsOpen" :offered="state.offered.value" :picked="state.picked.value" :step="state.step.value" :row="state.rowName.value"
       :busy="state.acting.busy.value" :problem="state.acting.problem.value" :lead="lead" @lead="openFromPage" @choose="state.choose($event)" @form="state.submitForm($event)" @run="state.runAction()"
     />
+    <DrillDialog v-if="drilling" :key="JSON.stringify(drilling)" :step="drilling" :from="top.title" :view-key="keyed === '' ? '' : `${keyed}>drill`" @close="drilling = undefined" />
     <RecordEditsDialog v-model:open="confirming" :lines="editLines" :count="edits.count.value" :busy="saving" :failed="failed" @save="saveEdits" />
     <ConfirmDialog
       v-model:open="askingAgain" title="Run it again?" confirm="Run again" :danger="false"

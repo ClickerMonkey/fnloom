@@ -2,8 +2,10 @@
  * One drawn widget's state (widget pass), apart from any component:
  *
  * - **Levels.** The widget's own level, then a level per drill (a click on a row's mark runs the widget's drill fn with
- *   args from the row) or per action whose rows open; a breadcrumb leads back. Drill levels are kept in the URL
- *   (`level`, through the host) and replayed when the page opens again.
+ *   args from the row, else the drill through the query its result declares, `ResultTable.drill`) or per action whose
+ *   rows open; a breadcrumb leads back. Drill levels are kept in the URL (`level`, through the host) and replayed when
+ *   the page opens again. A widget view on a page opens a drill in a modal instead (`drillStep`), whose own view
+ *   drills again as levels.
  * - **The buffer.** Each level holds the rows read so far; the grid pages through them locally and the pager asks the
  *   source again (offset = rows held) only when a page needs more. An empty answer means "No more rows".
  * - **The chip row.** Chip changes are staged and applied together (relative dates resolved then); a preset sets its
@@ -23,7 +25,7 @@ import { csvFileName } from '../results/table.ts';
 import type { VisualRange } from '../results/visuals.ts';
 import { FnWidgetSource, frameOf, type WidgetFrame, type WidgetSource } from './widget-source.ts';
 import {
-  actionArgs, actionsForRow, chipArgs, crumbLabel, localZone, readLevels, rowArgs, rowName, rowTypes, sameValue, type ChipValue, type DrillStep, type WidgetHost,
+  actionArgs, actionsForRow, chipArgs, crumbLabel, drillStepOf, localZone, readLevels, rowArgs, rowName, rowTypes, sameValue, type ChipValue, type DrillStep, type WidgetHost,
 } from './widgets.ts';
 
 /** One level of the widget: its frame, the args it ran with, the rows held and how it is asked again. */
@@ -127,8 +129,11 @@ export class WidgetState {
   readonly live = computed(() => this.#host !== undefined && this.level.value.source !== undefined);
   /** Whether the chip row has changes to apply. */
   readonly dirty = computed(() => this.level.value.frame.controls.some((c) => Object.hasOwn(this.staged.value, c.arg) && !sameValue(this.staged.value[c.arg], c.value)));
-  /** Whether rows can be clicked into (the level declares a drill, and can be asked). */
-  readonly drills = computed(() => this.#host !== undefined && this.level.value.frame.drill !== undefined);
+  /** Whether rows can be clicked into: the level declares a drill or its rows one through the query, and can be asked. */
+  readonly drills = computed(() => {
+    const { frame } = this.level.value;
+    return this.#host !== undefined && !frame.readOnly && (frame.drill !== undefined || frame.table.drill !== undefined);
+  });
 
   // ── chips ───────────────────────────────────────────────────────────────────
 
@@ -194,14 +199,21 @@ export class WidgetState {
 
   // ── levels ──────────────────────────────────────────────────────────────────
 
-  /** A click on a row's mark: run the level's drill with args from the row as a new level. */
+  /**
+   * What a click on a row's mark drills into: the level's own drill with args from the row, else the drill through
+   * the query its rows declare; undefined when the row stands for no group it can open (a NULL key) or nothing drills.
+   */
+  drillStep(rowIndex: number): DrillStep | undefined {
+    if (!this.drills.value) { return undefined; }
+    return drillStepOf(this.level.value.frame.drill, this.table.value, rowIndex);
+  }
+
+  /** A click on a row's mark: run its drill (`drillStep`) as a new level. */
   async drill(rowIndex: number): Promise<boolean> {
-    const drill = this.level.value.frame.drill;
+    const step = this.drillStep(rowIndex);
     const host = this.#host;
-    if (drill === undefined || host === undefined) { return false; }
-    const args = rowArgs(drill.bind, this.table.value, rowIndex);
-    if (args === undefined) { return false; }
-    return this.#open({ fn: drill.fn, label: crumbLabel(drill.label, rowName(this.table.value, rowIndex)), args }, host);
+    if (step === undefined || host === undefined) { return false; }
+    return this.#open(step, host);
   }
 
   /** Go back to a level (its index in the breadcrumb). */
@@ -224,7 +236,7 @@ export class WidgetState {
   }
 
   async #open(step: DrillStep, host: WidgetHost): Promise<boolean> {
-    const source = new FnWidgetSource(host, step.fn, step.label);
+    const source = new FnWidgetSource(host, step.fn, step.label, step.paging);
     const generation = ++this.#generation;
     const outcome = await this.reading.run(() => source.run(step.args), `Couldn't open ${step.label}.`);
     if (!outcome.ok || generation !== this.#generation) { return false; }

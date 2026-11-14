@@ -102,7 +102,7 @@ describe('the database system over the link', () => {
     for (const decl of manifest?.fns ?? []) { expect(['queries', 'tables', 'schema', 'instances'], decl.name).toContain(decl.group); }
     expect(manifest?.kinds.map((item) => item.name)).toEqual(['query']);
     expect(manifest?.fns.map((item) => item.name).sort()).toEqual([
-      'alter_table', 'apply_type_changes', 'at_instance', 'author_query', 'change_schema', 'create_table', 'databases', 'edit_query', 'get_query', 'pick_database', 'read_at_instance', 'run_query',
+      'alter_table', 'apply_type_changes', 'at_instance', 'author_query', 'change_schema', 'create_table', 'databases', 'drill_down', 'edit_query', 'get_query', 'pick_database', 'read_at_instance', 'run_query',
       'table_fns_available', 'table_fns_generate', 'tables',
     ]);
     // get_query and edit_query are native fns that forward to the authoring agent on the instance with the database
@@ -183,6 +183,37 @@ describe('the database system over the link', () => {
     expect(paged).toMatchObject({ rows: [[expect.anything(), expect.anything(), 'Bo', expect.anything()]] });
     expect(paged).toMatchObject({ columns: [{ name: 'id' }, { name: 'total' }, { name: 'customer' }, { name: 'placed', kind: 'date' }] });
     expect(await hub.run('database/main.orders_by_status', { limit: 1 }, { kind: 'database/query', payload })).toMatchObject({ status: 'invalid-input' });
+  });
+
+  it('drills into a saved grouped read: its result says so, and drill_down reads the rows behind one group as the person', async () => {
+    dir = shopFile().dir;
+    await start();
+    const perStatus = {
+      name: 'orders_per_status', title: 'Orders per status', description: 'How many orders there are of each status, and their total.',
+      query: {
+        kind: 'select',
+        fields: [{ expr: ref('orders', 'status'), as: 'status' }, { expr: { kind: 'aggregate', function: 'sum', args: { value: ref('orders', 'total') } }, as: 'sales' }],
+        from: { kind: 'type', type: 'orders' },
+        groupBy: [ref('orders', 'status')],
+      },
+    };
+    expect((await keep(perStatus)).fn).toMatchObject({ name: 'database/main.orders_per_status' });
+    const payload = hub.fns.kept.get('database/main.orders_per_status')?.saved.payload ?? null;
+    const grouped = done(await hub.run('database/main.orders_per_status', {}, { kind: QUERY_KIND, payload }));
+    expect(grouped).toMatchObject({ drill: { fn: 'database/drill_down', args: { fn: 'database/main.orders_per_status', args: {} }, keys: ['status'] } });
+    // the chat's attachment of the same read carries it too
+    done(await hub.run('database/run_query', { fn: 'database/main.orders_per_status' }));
+    expect(hub.attachments.at(-1)?.item).toMatchObject({ data: { drill: { keys: ['status'] } } });
+    const rows = done(await hub.run('database/drill_down', { fn: 'database/main.orders_per_status', args: {}, group: { status: 'open' } }));
+    expect(rows).toMatchObject({ total: 2, truncated: false });
+    expect(rows).not.toHaveProperty('drill');
+    expect(await hub.run('database/drill_down', { fn: 'database/main.orders_per_status', group: {} })).toMatchObject({ status: 'invalid-input' });
+    expect(await hub.run('database/drill_down', { fn: 'orders', group: { status: 'open' } })).toMatchObject({ status: 'invalid-input' });
+    // a plain read has no groups: no drill on its result, and drill_down refuses it
+    expect((await keep(ORDERS_BY_STATUS, { args: { status: 'paid' } })).fn).toMatchObject({ name: 'database/main.orders_by_status' });
+    const plain = hub.fns.kept.get('database/main.orders_by_status')?.saved.payload ?? null;
+    expect(done(await hub.run('database/main.orders_by_status', { status: 'paid' }, { kind: QUERY_KIND, payload: plain }))).not.toHaveProperty('drill');
+    expect(await hub.run('database/drill_down', { fn: 'database/main.orders_by_status', args: { status: 'paid' }, group: {} })).toMatchObject({ status: 'invalid-input' });
   });
 
   it('proposes a write for the person, previews it, and runs it once approved', async () => {

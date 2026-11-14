@@ -221,6 +221,11 @@ type RunRequest = {
             type: `${string}/${string}`;
             id: string;
           } | undefined;
+          drill?: {
+            fn: `${string}/${string}`;
+            args: Record<string, z.core.util.JSONType>;
+            keys: string[];
+          } | undefined;
         };
       } | {
         type: "type-diff";

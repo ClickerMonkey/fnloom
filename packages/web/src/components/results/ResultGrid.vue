@@ -13,7 +13,7 @@
  * a chat card on a wide screen keeps a table its columns fit in). With a binding it draws the
  * bound columns only (ranking leaves out the opaque ones: ids, keys, references), in their order. A click on a row
  * (or card) emits `drill` with its index in the table, as a chart's mark does: the page runs its drill there, else
- * opens the row's actions. Where the widget view provides a cell editor (the Data page's records), an editable column's
+ * opens the row's actions; where a click drills (`DRILLABLE`) the rows show they can be clicked. Where the widget view provides a cell editor (the Data page's records), an editable column's
  * cells are inputs: what is typed is staged there, a changed cell marked, and a click in one never opens the row.
  */
 import type { ResultSort } from '@harness/core';
@@ -24,7 +24,7 @@ import { PHONE_WIDTH, useWidth } from '../visuals/size.ts';
 import { cellText, GRID_PAGE, gridWindow, isComplete, isNumeric, nextSort, PAGE_SIZES, sortRows, windowLabel } from './table.ts';
 import { CELL_EDITOR } from '../widgets/record-edits.ts';
 import { WIDGET_HOST } from '../widgets/widgets.ts';
-import type { VisualProps } from './visuals.ts';
+import { DRILLABLE, type VisualProps } from './visuals.ts';
 
 /** The width a column needs to read as a table column; a narrower frame draws cards. */
 const COLUMN_FITS = 130;
@@ -45,6 +45,10 @@ function clicked(row: readonly unknown[]): void {
   const index = props.table.rows.findIndex((held) => held === row);
   if (index >= 0) { emit('drill', index); }
 }
+
+/** Whether a row's click drills into it, as the widget view around it says. */
+const drillable = inject(DRILLABLE, undefined);
+const drills = computed(() => drillable?.value === true);
 
 /** The cell editor of the widget view around it, when its cells are edited in place. */
 const editor = inject(CELL_EDITOR, undefined);
@@ -128,7 +132,7 @@ const ariaSort = (column: string): 'ascending' | 'descending' | 'none' => (sort.
 </script>
 
 <template>
-  <div ref="root" class="grid" :class="shown" data-testid="result-grid" :data-style="shown">
+  <div ref="root" class="grid" :class="[shown, { drills }]" data-testid="result-grid" :data-style="shown">
     <ul v-if="shown === 'cards'" class="cards" :aria-label="title">
       <li v-for="(row, r) in window.rows" :key="window.from + r" class="card" data-testid="result-card" @click="clicked(row)">
         <dl>
@@ -224,6 +228,7 @@ td { padding: 6px var(--space-3); border-bottom: 1px solid var(--border); vertic
 .compact td { padding: 2px var(--space-2); }
 .compact .sort { padding: var(--space-1) var(--space-2); }
 tbody tr:last-child td { border-bottom: 0; }
+.drills tbody tr, .drills .card { cursor: pointer; }
 tbody tr:hover td { background: var(--surface-2); }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 .mono { font-family: var(--mono); font-size: var(--text-xs); }

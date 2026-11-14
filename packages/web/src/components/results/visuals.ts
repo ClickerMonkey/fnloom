@@ -7,7 +7,7 @@
  * draw the data are hidden, and a visual's own `veto` may only remove itself, never reorder.
  */
 import { rankVisuals, type Json, type ResultFacts, type ResultTable, type VisualBinding, type VisualRank, type VisualShape } from '@harness/core';
-import type { Component } from 'vue';
+import type { Component, InjectionKey, Ref } from 'vue';
 import { ICONS, type IconName } from '../../ui/icons.ts';
 import type { ChartPalette } from '../visuals/palette.ts';
 import type { ResultPager } from './table.ts';
@@ -31,6 +31,12 @@ export interface VisualProps {
 
 /** A from/to a visual sets, and what every visual emits (`drill` a row, `range` shown): the sdk's, so a system's chart and the app's own emit alike. */
 export type { VisualEmits, VisualRange } from '@harness/sdk';
+
+/**
+ * Whether a click on a row's mark drills into it (build-9 feedback), as the widget view around a visual says: the table
+ * marks its rows as clickable then, and a chart whose marks open nothing (no drill, no row menu) doesn't point at them.
+ */
+export const DRILLABLE: InjectionKey<Readonly<Ref<boolean>>> = Symbol('drillable');
 
 /** A button on each row that opens what it offers. */
 export interface RowOpener {

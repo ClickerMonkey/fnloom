@@ -103,7 +103,7 @@ tags: ["authoring"]
 - `hub/records_table`: Records of one stored type as a table (one column per field, then the record id), offset-paged: what widgets and the result view draw. Tags: `read`.
 
   ```text
-  (obj{ type, query?, search?, run?, offset?, limit? … }) => obj{ columns, rows, offset, limit?, total?, truncated, sort, write?, records? … }
+  (obj{ type, query?, search?, run?, offset?, limit? … }) => obj{ columns, rows, offset, limit?, total?, truncated, sort, write?, records?, drill? … }
   ```
 - `hub/record_versions`: A record's history, newest first: each version's value, how it changed, and who changed it. Tags: `read`.
 
@@ -177,7 +177,7 @@ tags: ["authoring"]
 - `hub/read_table`: Run a read fn that returns a table, as a child run of the caller, as its person, and give the table. Tags: `read`.
 
   ```text
-  (obj{fn: text, args: any}) => obj{ columns, rows, offset, limit?, total?, truncated, sort, write?, records? … }
+  (obj{fn: text, args: any}) => obj{ columns, rows, offset, limit?, total?, truncated, sort, write?, records?, drill? … }
   ```
 - `hub/visuals`: Every visual of the hub's visual registry (hub/visuals), with its declared shape and the system that draws it, in registry order. Tags: `read`.
 

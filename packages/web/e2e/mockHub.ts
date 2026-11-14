@@ -44,6 +44,7 @@ import { graphOf, SAMPLE_EDGES, SAMPLE_NODES } from '../src/graph/test/graph.ts'
 import { fsAuthoringGraph } from './fsGraph.ts';
 import { contextFolderSamples, FS_CLIENT, HOSTED_RANDOM, MOCK_CLIENTS, MockExplorer, systemPartsOf } from './mockBuild6.ts';
 import { DATABASE_CONFIG_TYPE, SHOP_CONFIG, shopFns, shopTypes } from './mockDatabase.ts';
+import { drillRead } from './mockDrill.ts';
 import { withOpenable } from './mockOpenable.ts';
 import { systemView } from '../src/admin/test/fakes.ts';
 import { instanceView } from '../src/admin/test/build2.ts';
@@ -371,7 +372,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       instances: ({ data }) => (build9.has(data.system) ? build9.instancesOf(data.system) : build2.instancesOf(data.system)),
       // build 9: MCP servers and API services added from the browser, and a server's status
       addInstance: ({ data }) => build9.add(data),
-      readFn: ({ data }) => build9.read(data) ?? null,
+      readFn: ({ data }) => build9.read(data) ?? drillRead(data) ?? null,
       installPackage: ({ data }) => build2.install(library.nameOf(data.zip.hash) ?? 'package.zip', data.zip.hash, data.instance),
       removeInstance: ({ data }) => (build9.has(data.system) ? build9.remove(data) : build2.removeInstance(data)),
       exportSystemData: ({ data }) => build2.exportData(data),
