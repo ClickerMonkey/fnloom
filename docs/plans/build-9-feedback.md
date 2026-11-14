@@ -131,3 +131,17 @@ What this means:
   clicking a part that stands for a group (a bar, a slice, a grouped row) runs that query for the group and shows its
   rows as another widget in a modal, a table by default. A query that can't be drilled says so (the transform
   refuses) and its parts aren't clickable.
+
+## 2026-11-14 (human-friendly labels; the data tab's empty state)
+
+> For widgets let's have a rule where all labels (like fields) are passed through a human friendly function to convert id to ID and title to Title and due_date to Due date etc. the title attribute for those things can have the original value of the person is curious.
+>
+> I saw task in data tab and it says 128 rows but when I click on it it says no records yet. Either there are and we shouldn't show that message until we know for sure or a loading visual
+
+What this means:
+
+- **Widget labels are humanized:** every label a widget shows from a name (columns, fields, axes, legends, chips,
+  crumbs) goes through one human-friendly function (`id` → ID, `title` → Title, `due_date` → Due date). An explicit
+  label still wins. The original name is the element's `title` attribute, for anyone curious.
+- **No false empty state:** a type the data tab lists with rows never says "No records yet" while its records load; it
+  shows a loading state until the answer is known, and the empty message only when there truly are none.
