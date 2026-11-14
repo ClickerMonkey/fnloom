@@ -64,7 +64,10 @@ const failureRate = (fn: FnRecord): string => (runTotal(fn) === 0 ? '' : `${Math
       </RouterLink>
     </li>
   </ul>
-  <FnModal v-if="opened" v-model:fn="opened" manage can-open-page @page="router.push(links.fn($event))" @switched="(fn, on) => emit('switched', fn, on)" />
+  <FnModal
+    v-if="opened" v-model:fn="opened" manage can-open-page @page="router.push(links.fn($event))" @run="router.push(links.runs({ run: $event }))"
+    @switched="(fn, on) => emit('switched', fn, on)"
+  />
 </template>
 
 <style scoped>

@@ -138,7 +138,7 @@ function openTree(): void {
         />
       </template>
     </BrowserFrame>
-    <FnModal v-if="fnOpen" v-model:fn="fnOpen" :runs="listedInOrder" can-open-page @run="(id) => { fnOpen = undefined; opened = id; }" @page="router.push(links.fn($event))" />
+    <FnModal v-if="fnOpen" v-model:fn="fnOpen" :runs="listedInOrder" manage can-open-page @run="(id) => { fnOpen = undefined; opened = id; }" @page="router.push(links.fn($event))" />
   </AppPage>
 </template>
 

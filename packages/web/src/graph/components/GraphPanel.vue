@@ -73,7 +73,7 @@ function expand(more: GraphMore): void {
         <GraphView :page="page" :clusters="!props.scoped" v-bind="props.height === undefined ? {} : { height: props.height }" @open="open" @focus="focus" @expand="expand" />
       </template>
     </LoadState>
-    <FnModal v-if="fnOpen" v-model:fn="fnOpen" :can-open-page="isAdmin" @page="router.push(links.fn($event))" />
+    <FnModal v-if="fnOpen" v-model:fn="fnOpen" :can-open-page="isAdmin" :manage="isAdmin" @page="router.push(links.fn($event))" @run="router.push(links.runs({ run: $event }))" />
   </div>
 </template>
 

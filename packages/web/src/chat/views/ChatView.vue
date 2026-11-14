@@ -337,7 +337,7 @@ onBeforeUnmount(() => {
 
     <ShortcutsDialog v-model:open="shortcutsOpen" />
     <FnModal
-      v-if="fnOpen" v-model:fn="fnOpen" :runs="threadRuns" :can-open-page="auth.user.value?.role === 'admin'"
+      v-if="fnOpen" v-model:fn="fnOpen" :runs="threadRuns" :can-open-page="auth.user.value?.role === 'admin'" :manage="auth.user.value?.role === 'admin'"
       @run="(id) => { fnOpen = undefined; url.open('run', id); }" @page="router.push(links.fn($event))"
     />
     <ConfirmDialog
