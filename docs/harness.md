@@ -1251,3 +1251,8 @@ Already checked: type-checking all of the types and examples takes about two sec
   be very complex and there can be tons of tables and that's why product has progressive disclosure for all that".
   The chat agent creates and edits saved queries by describing them in words; only the query-authoring agent, which
   discloses tables progressively, writes query JSON. The policy/MCP-rule `when` becomes a typed gin expression.
+- **aeye handles any schema** (2026-11-14): "the schema files and prompt clas in aeye core should handle that behavior
+  already. Make sure the right schema rules are being applied because there should be no error.  But also see if the
+  schema can be made smaller by just changing which types are named and ref'd. I am interested in you fixing it because
+  aeye is suppose to handle anything for the dev". A schema that fails at the provider is an aeye bug, fixed in aeye;
+  gin's TypeDef schema is shrunk by what is named and referenced. Full note in `docs/plans/build-9-feedback.md`.

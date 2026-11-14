@@ -61,3 +61,19 @@ What this means:
   and checks the `@aeye/query` JSON. Fns that take query JSON are not visible to the chat model.
 - **`when` is a gin expression.** The policy and MCP-rule `when` is typed as a gin predicate over the args, so its
   tool schema is gin's strict expression schema.
+
+## 2026-11-14 (OpenAI strict mode and gin's TypeDef schema)
+
+Asked how gin-type tool args should reach OpenAI, after strict mode failed outright on gin's full TypeDef schema
+(make_code / make_api `signature`: finish reason "length", no output):
+
+> the schema files and prompt clas in aeye core should handle that behavior already. Make sure the right schema rules are being applied because there should be no error.  But also see if the schema can be made smaller by just changing which types are named and ref'd. I am interested in you fixing it because aeye is suppose to handle anything for the dev
+
+What this means:
+
+- **aeye handles any schema.** A tool schema a dev hands aeye never errors at the provider: aeye core's schema rules
+  (dialect descriptors, budget, strict/non-strict choice, cycle breaking) and its Prompt class must apply so the
+  request goes through. A schema that reaches the provider and fails is an aeye bug to fix in aeye, not worked around
+  in harness.
+- **Smaller by naming.** gin's TypeDef schema is made smaller by choosing which types are named `$defs` and referenced,
+  not by dropping structure.
