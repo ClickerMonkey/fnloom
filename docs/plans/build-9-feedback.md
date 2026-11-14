@@ -47,3 +47,17 @@ What this means:
 - **One shape.** The database's lenient row-type reader (column maps, key/value lists, JSON strings) is removed.
 - **No empty schemas.** A test walks every fn a model can call and fails on an arg position with no schema, except
   an explicit allow-list where each entry says why.
+
+## 2026-11-13 (queries are described, not written, by the chat agent)
+
+Asked whether to fix the two open positions the tool-schema audit found (a query draft's `query` and the rules' `when`):
+
+> Yes fix both, but to be clear normal chat agent shouldn't be able to specify query object, only text descriptions for editing and creating given the json can be very complex and there can be tons of tables and that's why product has progressive disclosure for all that
+
+What this means:
+
+- **The chat agent never sends query JSON.** Creating or editing a saved query takes a description in words (and, for
+  an edit, which query); the query-authoring agent, which discloses tables, columns and examples progressively, writes
+  and checks the `@aeye/query` JSON. Fns that take query JSON are not visible to the chat model.
+- **`when` is a gin expression.** The policy and MCP-rule `when` is typed as a gin predicate over the args, so its
+  tool schema is gin's strict expression schema.

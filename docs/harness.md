@@ -1246,3 +1246,8 @@ Already checked: type-checking all of the types and examples takes about two sec
   (`buildSchemas`), so the tool JSON schema and the hub's arg check both carry the shape. No LLM-visible arg position
   is an empty schema unless it is on an explicit, reasoned allow-list (tested). Handlers take gin's one shape; they don't
   reinterpret other shapes. Full note in `docs/plans/build-9-feedback.md`.
+- **Chat describes queries; the authoring agent writes them** (2026-11-13): "Yes fix both, but to be clear normal chat
+  agent shouldn't be able to specify query object, only text descriptions for editing and creating given the json can
+  be very complex and there can be tons of tables and that's why product has progressive disclosure for all that".
+  The chat agent creates and edits saved queries by describing them in words; only the query-authoring agent, which
+  discloses tables progressively, writes query JSON. The policy/MCP-rule `when` becomes a typed gin expression.
