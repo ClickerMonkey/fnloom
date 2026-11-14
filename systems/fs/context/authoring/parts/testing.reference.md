@@ -13,7 +13,7 @@ choices:
   - to: "fs/authoring.testing.reference.fakehubwidgets"
     when: "Pick this for FakeHubWidgets, HUB_WIDGET_FNS, FakeTableSource, FakeModelLink, fakeHubAi, replyChunks, FakeModelOptions, FakeReply, checkContextFolder, contextFolderLinks, CheckedContext, KnownNames,…"
   - to: "fs/authoring.testing.reference.realmodel"
-    when: "Pick this for realModel, RealModelTest, OpenRouterModelLink, OpenRouterOptions, preview, PreviewOptions, SavedShot, renderHtml, galleryHtml, PreviewIndex, PREVIEW_INDEX, PREVIEW_THEMES,…"
+    when: "Pick this for realModel, RealModelTest, liveTurn, OpenRouterModelLink, OpenRouterOptions, preview, PreviewOptions, SavedShot, renderHtml, galleryHtml, PreviewIndex, PREVIEW_INDEX, PREVIEW_THEMES,…"
 ---
 
 This part is in 3 pieces; load the one you need:

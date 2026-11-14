@@ -422,6 +422,8 @@ interface AuthoringToolInput<S, D, I extends object> {
   readonly schema: z.ZodType<I> | ((session: AuthoringSession<S, D>) => z.ZodType<I>);
   /** Offered only while this also holds (a load tool while something is aware but not loaded). */
   readonly when?: (session: AuthoringSession<S, D>) => boolean;
+  /** aeye's strictness for its args (default: prefer strict). */
+  readonly strict?: boolean | number;
   /** Do it; the text is what the model reads. A thrown error is shown to the model as the tool's failure. */
   call(input: I, session: AuthoringSession<S, D>): Promise<string> | string;
 }

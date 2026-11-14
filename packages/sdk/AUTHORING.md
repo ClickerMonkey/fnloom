@@ -3875,6 +3875,8 @@ interface AuthoringToolInput<S, D, I extends object> {
   readonly schema: z.ZodType<I> | ((session: AuthoringSession<S, D>) => z.ZodType<I>);
   /** Offered only while this also holds (a load tool while something is aware but not loaded). */
   readonly when?: (session: AuthoringSession<S, D>) => boolean;
+  /** aeye's strictness for its args (default: prefer strict). */
+  readonly strict?: boolean | number;
   /** Do it; the text is what the model reads. A thrown error is shown to the model as the tool's failure. */
   call(input: I, session: AuthoringSession<S, D>): Promise<string> | string;
 }
@@ -12025,6 +12027,18 @@ A test body that gets the real model.
 type RealModelTest = (model: OpenRouterModelLink, context: TestContext) => Promise<void> | void;
 ```
 
+#### `liveTurn`
+
+function · `import { liveTurn } from '@harness/sdk/testing'`
+
+A run's time for a call that drives a real model through an agent (authoring a fn): four minutes, like a turn on the
+hub (`HARNESS_TURN_TIME`, ten minutes by default), not the test hub's 60-second default, which a real model writing
+and checking a program can pass without anything being wrong. Pass it as `kit.call`'s extra.
+
+```ts
+function liveTurn(ms?: number): { deadline: number; budget: { cost: number; time: number; limitedBy: "turn"; }; };
+```
+
 #### `OpenRouterModelLink`
 
 class · `import { OpenRouterModelLink } from '@harness/sdk/testing'`
@@ -12059,7 +12073,7 @@ interface OpenRouterOptions {
   readonly key: string;
   /** The models to try, first choice first (OpenRouter ids, e.g. `vendor/model:free`). */
   readonly models: readonly string[];
-  /** The most tokens one reply may have (default 2000). */
+  /** The most tokens one reply may have when the request sets none (default: no cap, as the hub's gateway). */
   readonly maxTokens?: number;
 }
 ```
@@ -15064,10 +15078,11 @@ class · `import { AllowlistProxy } from '@harness/sdk/server'`
 An HTTP proxy on 127.0.0.1 that lets through only allowed hosts: `CONNECT` tunnels for https, forwarding for http.
 
 ```ts
-class AllowlistProxy {
+class AllowlistProxy implements NetworkGate {
   constructor(options: AllowlistProxyOptions);
   /** Listen on a free port of 127.0.0.1; resolves to the proxy's URL. */
   start(): Promise<string>;
+  setAllowed(allow: readonly string[]): void;
   /** Stop listening and cut every open tunnel. */
   close(): Promise<void>;
 }
@@ -15081,7 +15096,7 @@ What an allowlist proxy lets through, and who hears of what it refuses.
 
 ```ts
 interface AllowlistProxyOptions {
-  /** The hosts let through (`grants.network`, plus the hub's own). */
+  /** The hosts let through at first (`grants.network`, plus the hub's own); `setAllowed` changes them. */
   readonly allow: readonly string[];
   readonly onRefused: (refusal: ProxyRefusal) => void;
 }
@@ -15118,6 +15133,179 @@ The variables that send a child's `fetch` and `http(s)` through the proxy at `ur
 
 ```ts
 function proxyEnv(url: string, direct: readonly string[]): Record<string, string>;
+```
+
+#### `NETWORK_GUARD`
+
+const · `import { NETWORK_GUARD } from '@harness/sdk/server'`
+
+What a supervised child preloads to hold its sockets to its proxy and the hub. `--require`, not `--import`: a preload
+runs before a loader's `--import`, so Node strips the guard's types itself, and the loader still registers after it.
+
+```ts
+const NETWORK_GUARD: string;
+```
+
+#### `NETWORK_GUARD_FILES`
+
+const · `import { NETWORK_GUARD_FILES } from '@harness/sdk/server'`
+
+The guard's files, which a child under Node's permission model must be let read.
+
+```ts
+const NETWORK_GUARD_FILES: readonly string[];
+```
+
+#### `guardedEnv`
+
+function · `import { guardedEnv } from '@harness/sdk/server'`
+
+A guarded child's network variables: `proxyEnv` for the proxy at `url` with the `direct` endpoints' hosts not
+proxied, and the endpoints the preloaded guard lets its sockets reach (the proxy and `direct`).
+
+```ts
+function guardedEnv(url: string, direct: readonly Endpoint[]): Record<string, string>;
+```
+
+#### `NetworkGate`
+
+interface · `import { NetworkGate } from '@harness/sdk/server'`
+
+A child's network gate: listens, can change what it lets through, and is closed once the child is gone.
+
+```ts
+interface NetworkGate {
+  /** Start listening; resolves to the proxy URL the child is pointed at. */
+  start(): Promise<string>;
+  /** Let through `allow` from now on (the grant changed while the child runs); tunnels already open stay. */
+  setAllowed(allow: readonly string[]): void;
+  close(): Promise<void>;
+}
+```
+
+#### `NETWORK_ALLOW_VAR`
+
+const · `import { NETWORK_ALLOW_VAR } from '@harness/sdk/server'`
+
+The variable a supervisor names a child's allowed endpoints in (`endpointsText`), for `hosted-network-guard.ts`.
+
+```ts
+const NETWORK_ALLOW_VAR: "HARNESS_NETWORK_ALLOW";
+```
+
+#### `endpointOf`
+
+function · `import { endpointOf } from '@harness/sdk/server'`
+
+The endpoint of a URL (`http://127.0.0.1:4300` → 127.0.0.1:4300), with the scheme's port when it names none.
+
+```ts
+function endpointOf(url: string): Endpoint;
+```
+
+#### `endpointText`
+
+function · `import { endpointText } from '@harness/sdk/server'`
+
+An endpoint as `host:port`, the form a refusal names it by.
+
+```ts
+function endpointText(endpoint: Endpoint): string;
+```
+
+#### `endpointsText`
+
+function · `import { endpointsText } from '@harness/sdk/server'`
+
+Endpoints as one environment value (`host:port,host:port`), and back; malformed parts are dropped.
+
+```ts
+function endpointsText(endpoints: readonly Endpoint[]): string;
+```
+
+#### `guardNetwork`
+
+function · `import { guardNetwork } from '@harness/sdk/server'`
+
+Guard this process's network (see the module doc). Call once, before any other code runs.
+
+```ts
+function guardNetwork(options: GuardOptions): void;
+```
+
+#### `hostKey`
+
+function · `import { hostKey } from '@harness/sdk/server'`
+
+A host as compared: lower case, no brackets around an IPv6 address, no trailing dot.
+
+```ts
+function hostKey(host: string): string;
+```
+
+#### `networkRefusedLine`
+
+function · `import { networkRefusedLine } from '@harness/sdk/server'`
+
+The line printed for a refused attempt (`host:port`, or a pipe's path).
+
+```ts
+function networkRefusedLine(target: string): string;
+```
+
+#### `parseEndpoints`
+
+function · `import { parseEndpoints } from '@harness/sdk/server'`
+
+```ts
+function parseEndpoints(text: string | undefined): Endpoint[];
+```
+
+#### `refusedOfLine`
+
+function · `import { refusedOfLine } from '@harness/sdk/server'`
+
+What a printed line says was refused, when it is a refusal line.
+
+```ts
+function refusedOfLine(line: string): string | undefined;
+```
+
+#### `Endpoint`
+
+interface · `import { Endpoint } from '@harness/sdk/server'`
+
+One place a guarded child may connect to.
+
+```ts
+interface Endpoint {
+  readonly host: string;
+  readonly port: number;
+}
+```
+
+#### `GuardOptions`
+
+interface · `import { GuardOptions } from '@harness/sdk/server'`
+
+What a guard lets through, and the message of the error everything else fails with.
+
+```ts
+interface GuardOptions {
+  readonly allow: readonly Endpoint[];
+  /** The error message for a refused attempt (`target` is `host:port`, a pipe's path, or what was asked for). */
+  readonly refused: (target: string, kind: Refused) => string;
+}
+```
+
+#### `Refused`
+
+type · `import { Refused } from '@harness/sdk/server'`
+
+What a refused attempt was: a connection to a host, to a local pipe, a server, UDP, or a name lookup or query.
+
+```ts
+type Refused = 'connect' | 'pipe' | 'listen' | 'udp' | 'dns';
 ```
 
 #### `McpFace`
