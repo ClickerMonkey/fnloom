@@ -3,7 +3,7 @@ import { InstanceName, isJsonObject, MAIN_INSTANCE, SECRET_KEPT, SealedConfigSec
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ADMIN, instanceRow, manifestFor, shop, systemRow } from '../catalog/fixtures.ts';
 import { fromInstance } from '../catalog/catalog.ts';
-import { ConfigSecretKeeper, maskSecrets, valueAt, withValueAt } from './config-secrets.ts';
+import { ConfigSecretKeeper, maskSecrets, secretRefsIn, valueAt, withValueAt } from './config-secrets.ts';
 import { linkRig, type LinkRig } from './rig.ts';
 
 const SHOP = SystemName.parse('shop');
@@ -110,6 +110,21 @@ describe('secret config fields', () => {
     await changed.release();
     expect(await rig.vault.reveal(sealed.$secret)).toBeUndefined();
     expect(await keeper.unseal(changed.sealed)).toEqual({ label: 'GitHub', transport: { env: { GITHUB_TOKEN: 'ghp_2' } } });
+  });
+
+  it('refuses a config that names a stored secret, at a secret field or any other, and never seals or reveals it', async () => {
+    expect(await rig.config.set(SHOP, { currency: 'USD' }, ADMIN)).toEqual({ version: 1 });
+    const own = await storedSecret();
+    const other = await rig.vault.store({ name: 'provider:openrouter', owner: ADMIN, value: 'KEY' });
+    expect(JSON.stringify(await rig.config.set(SHOP, { currency: { $secret: other } }, ADMIN))).toContain('names a stored secret at currency');
+    // its own stored secret by id is refused too: SECRET_KEPT is how a caller keeps it
+    expect(await rig.config.set(SHOP, { currency: { $secret: own } }, ADMIN)).toHaveProperty('problems');
+    expect(JSON.stringify(await rig.config.set(SHOP, { currency: 'USD', extra: [{ $secret: other }] }, ADMIN))).toContain('names a stored secret at extra.0');
+    expect(secretRefsIn({ a: { $secret: other }, b: [1, { $secret: other }], c: SECRET_KEPT })).toEqual(['a', 'b.1']);
+    const keeper = new ConfigSecretKeeper(() => rig.vault);
+    await expect(keeper.seal({ system: SHOP, instance: MAIN_INSTANCE }, { currency: { $secret: other } }, undefined, ['currency'], ADMIN)).rejects.toThrow('names a stored secret');
+    expect(await storedSecret()).toBe(own);
+    expect(await rig.config.current(SHOP)).toEqual({ value: { currency: 'USD' }, version: 1 });
   });
 
   it('shows the web app SECRET_KEPT, and reads and writes dot paths', () => {

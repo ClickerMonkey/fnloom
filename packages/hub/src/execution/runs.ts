@@ -115,6 +115,23 @@ export const DECLINED_CODE = 'denied';
 /** Build 6: the hub fn whose runs hold the model calls a system makes outside its own runs (`systemWork`). */
 export const SYSTEM_CALLS_FN: QualifiedName = 'hub/system_calls';
 
+/**
+ * Secrets in a run's args (`boot/admin-secrets.ts`): the args of a fn that carries secret values (a system's config,
+ * a provider's keys) are sealed before the run is stored, so its row, its approval and anything shown from them hold
+ * none in plain text; the executor gets them unsealed, and they are removed once the run settles.
+ */
+export interface RunArgSecrets {
+  /**
+   * The args to store for a new run: each secret value sealed (in a secret named for the run), anything else as given;
+   * `invalid` when the caller wrote a `{ $secret }` reference of its own, which is refused (never revealed).
+   */
+  seal(input: { readonly run: RunId; readonly fn: QualifiedName; readonly args: Json; readonly owner: ActorId }): Promise<{ args: Json; invalid?: InvalidInput }>;
+  /** A run's args as its executor gets them: the secrets sealed for this run revealed. */
+  unseal(run: Pick<Run, 'id' | 'fn' | 'args'>): Promise<Json>;
+  /** Remove the secrets sealed for a settled run. */
+  release(run: Pick<Run, 'id' | 'fn' | 'args'>): Promise<void>;
+}
+
 /** A promise with its resolver. */
 interface Waiter {
   readonly promise: Promise<RunSettled>;
@@ -155,6 +172,8 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
   readonly #deadlines: DeadlineTimers;
   /** What a chat's fn mode lets its agent run (the fns module sets it at start). */
   #gate: FnModeGate | undefined;
+  /** Seals the secrets in the args of the fns that carry them (boot sets it with the admin fns). */
+  #argSecrets: RunArgSecrets | undefined;
 
   constructor(deps: RunServiceDeps) {
     this.#deps = deps;
@@ -170,6 +189,14 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
 
   gateWith(gate: FnModeGate): void {
     this.#gate = gate;
+  }
+
+  /** Seal the secrets in run args with this from now on, removing a run's once it settles. */
+  sealArgsWith(secrets: RunArgSecrets): void {
+    this.#argSecrets = secrets;
+    this.onSettled((run) => {
+      void secrets.release(run).catch((error: unknown) => { this.#deps.log.error('run.arg-secrets.release-failed', { run: run.id, error: messageOf(error) }); });
+    });
   }
 
   /** Set the executor for one kind of target. */
@@ -209,10 +236,14 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const routed = checked === undefined && executorKind(fn) === 'system'
       ? await this.#deps.instances.route({ system, args: input.args, on: input.on, session: input.session, routing: fn.decl.routing })
       : undefined;
-    const invalid = checked ?? (routed !== undefined && 'invalid' in routed ? routed.invalid : undefined);
+    const refused = checked ?? (routed !== undefined && 'invalid' in routed ? routed.invalid : undefined);
     const instance = routed !== undefined && 'instance' in routed ? routed.instance.instance : undefined;
 
     const id = mintId('run', this.#deps.random);
+    // secrets in the args never rest in plain text: the row, its approval and its views hold them sealed
+    const sealing = this.#argSecrets === undefined ? { args: input.args } : await this.#argSecrets.seal({ run: id, fn: fn.name, args: input.args, owner: input.actor });
+    const { args } = sealing;
+    const invalid = refused ?? sealing.invalid;
     const { operations } = fn.decl;
     const run: Run = {
       id,
@@ -231,7 +262,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       ...(connection?.state === 'ready' ? { connection: connection.connection.id } : {}),
       ...(input.llmCall === undefined ? {} : { llmCall: input.llmCall }),
       ...(input.toolCallId === undefined ? {} : { toolCallId: input.toolCallId }),
-      args: input.args,
+      args,
       ...(test ? { test: true } : {}),
       status: 'queued',
       allowed: { cancel: operations.cancel, pause: operations.pause, background: operations.background },
@@ -292,7 +323,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       }
       : asked === undefined ? undefined : () => Promise.resolve(asked);
     const decision = await this.#deps.policies.decide({
-      fn: fn.name, actor: input.actor, turnUser: turn.user.id, args: input.args, run: id, caller: input.caller, ...(input.session === undefined ? {} : { session: input.session }),
+      fn: fn.name, actor: input.actor, turnUser: turn.user.id, args, run: id, caller: input.caller, ...(input.session === undefined ? {} : { session: input.session }),
       ...(preview === undefined ? {} : { preview }),
       ...(sensitive.effect === 'ask' ? { sensitive: true } : {}),
       ...(mode.effect === 'ask' ? { ask: { by: 'turn-user' } } : {}),
@@ -837,7 +868,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       fn: splitName(fn.name).local,
       kind: fn.decl.kind,
       ...(fn.decl.payload === undefined ? {} : { payload: fn.decl.payload }),
-      args: run.args,
+      args: this.#argSecrets === undefined ? run.args : await this.#argSecrets.unseal(run),
       budget: { cost: left.cost, time: Math.max(0, turnDeadline - now), limitedBy: left.limitedBy },
       handlers: [...(this.#handlers.get(run.id) ?? [])],
       ...(resume === undefined ? {} : { resume }),

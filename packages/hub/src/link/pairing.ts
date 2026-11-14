@@ -27,7 +27,7 @@ import type { HubStore } from '../store/index.ts';
 import type { AutoPairService } from './auto-pair.ts';
 import type { PairingChoice, PairingService } from './index.ts';
 import { fingerprint, pairingCode, randomToken, sha256Hex } from './keys.ts';
-import type { ConfigSecretKeeper } from './config-secrets.ts';
+import { secretRefsRefusal, type ConfigSecretKeeper } from './config-secrets.ts';
 import { pairedInstance } from './install.ts';
 import type { InstanceKeeper } from './status.ts';
 
@@ -374,6 +374,8 @@ export class StorePairingService implements PairingService {
     if (!shown && existing !== undefined && existing.status !== 'removed' && existing.keyFingerprint !== request.keyFingerprint) {
       throw refuse(409, 'INSTANCE_TAKEN', `${instanceLabel(ref)} is another machine's instance: pick a name of its own`);
     }
+    const refused = choice.config === undefined ? undefined : secretRefsRefusal(choice.config);
+    if (refused !== undefined) { throw refuse(422, 'BAD_CONFIG', `the config for ${instanceLabel(ref)} doesn't fit: ${refused}`); }
     const paths = await this.#options.configSecrets(ref.system) ?? request.configSecrets ?? [];
     const sealing = choice.config === undefined ? undefined : await this.#options.secrets.seal(ref, choice.config, existing?.config?.value, paths, by);
     if (sealing !== undefined) { await this.#checked(ref, sealing.plain, request.configType); }

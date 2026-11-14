@@ -85,6 +85,16 @@ describe('approving with config and an instance name', () => {
     expect((await r.pairing.get(reply.pairing)).status).toBe('pending');
   });
 
+  it('refuses a config that names a stored secret ({ $secret }), revealing nothing and pairing nothing', async () => {
+    const { rig: r, system } = await start();
+    const reply = waiting(await system.connect());
+    await system.sdk.call('pairingInfo', { pairing: reply.pairing, description: 'shop', instance: MAIN_INSTANCE, configType: SHOP_CONFIG });
+    const other = await r.vault.store({ name: 'provider:openrouter', owner: ADMIN, value: 'not-for-shop' });
+    expect(await refusal(r.pairing.approve(reply.pairing, ADMIN, { config: { currency: { $secret: other } } }))).toEqual({ status: 422, code: 'BAD_CONFIG' });
+    expect(await r.instances.of(SHOP)).toEqual([]);
+    expect((await r.pairing.get(reply.pairing)).status).toBe('pending');
+  });
+
   it('refuses a config when the system never said what its config is', async () => {
     const { rig: r, system } = await start();
     const reply = waiting(await system.connect());

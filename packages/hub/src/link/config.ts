@@ -11,7 +11,7 @@ import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
 import { messageOf } from '../catalog/scope.ts';
 import type { ConfigService, LinkService } from './index.ts';
-import type { ConfigSecretKeeper } from './config-secrets.ts';
+import { secretRefsRefusal, type ConfigSecretKeeper } from './config-secrets.ts';
 import type { InstanceKeeper } from './status.ts';
 
 /** What config needs. */
@@ -49,6 +49,8 @@ export class StoreConfigService implements ConfigService {
   async set(system: SystemName, value: Json, by: ActorId, instance?: InstanceName): Promise<{ version: number } | { problems: string[] }> {
     const ref = await this.#ref(system, instance);
     if (ref === undefined) { return { problems: [`${system} has no instance${instance === undefined ? '' : ` ${instance}`}`] }; }
+    const refused = secretRefsRefusal(value);
+    if (refused !== undefined) { return { problems: [refused] }; }
     const before = (await this.#options.instances.get(ref))?.config?.value;
     const paths = (await this.#options.catalog.manifest(system))?.configSecrets ?? [];
     const { plain, sealed, release } = await this.#options.secrets.seal(ref, value, before, paths, by);

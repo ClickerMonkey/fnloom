@@ -27,6 +27,7 @@ import { hubReads, type HubReads } from '../api/reads.ts';
 import { registerMcpFns } from '../mcp/fns.ts';
 import type { McpScope } from '../mcp/index.ts';
 import { registerAdminFns } from './admin-fns.ts';
+import { AdminArgSecrets } from './admin-secrets.ts';
 import { registerReadFns } from './read-fns.ts';
 import { registerHubFns } from './hub-fns.ts';
 import { HUB_INFO } from './info.ts';
@@ -166,7 +167,10 @@ const chatModule: ModuleFactory<'chat'> = ({ hub, hubActor }) => {
  * (mcp, resources, contextor). Every native fn the contract declares is implemented here (a boot test checks it);
  * services are read when a fn runs, never while registering.
  */
-export function registerHubContract(module: { readonly hubFns: ExecutionModule['hubFns']; readonly handlers: Pick<ExecutionModule['handlers'], 'askPerson'> }, hub: HubServices): void {
+export function registerHubContract(
+  module: { readonly hubFns: ExecutionModule['hubFns']; readonly handlers: Pick<ExecutionModule['handlers'], 'askPerson'>; readonly runs?: Pick<ExecutionModule['runs'], 'sealArgsWith'> },
+  hub: HubServices,
+): void {
   // what the hub MCP a run's caller acts as exposes, so fns that reach resources and context keep to its rules
   const mcpScope = async (caller: ActorId): Promise<McpScope | undefined> => {
     const mcp = (await hub.store.table('mcps').find({ where: { actor: caller }, limit: 1 })).items[0];
@@ -178,6 +182,8 @@ export function registerHubContract(module: { readonly hubFns: ExecutionModule['
   });
   let ops: AdminOperations | undefined;
   registerAdminFns(module.hubFns, () => (ops ??= adminOperations(hub)));
+  // the secrets the admin fns' args carry (a system's config, a provider's keys) are stored sealed on their runs
+  module.runs?.sealArgsWith(new AdminArgSecrets(hub));
   let reads: HubReads | undefined;
   registerReadFns(module.hubFns, () => (reads ??= hubReads(hub)));
   let person: PersonOperations | undefined;

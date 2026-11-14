@@ -24,6 +24,7 @@ import { timeInfo } from '../execution/time.ts';
 import { bundledSystemsDir } from '../boot/info.ts';
 import type { Supervisor } from '../link/index.ts';
 import type { PackagingEnv } from '../link/env.ts';
+import { secretRefsRefusal } from '../link/config-secrets.ts';
 
 /** What an endpoint answers: its response schema's output, or nothing. */
 type ResultOf<E> = E extends { readonly cfg: { readonly response: infer R extends z.ZodType } } ? z.output<R> : void;
@@ -68,6 +69,15 @@ async function sealProvider(hub: Pick<HubServices, 'api'>, input: ProviderInput,
       return { provider: 'aws', region: input.region, auth: sealed, ...(input.profilePrefix === undefined ? {} : { profilePrefix: input.profilePrefix }) };
     }
   }
+}
+
+/**
+ * Refuse a config that names a stored secret (`{ $secret }`): only the hub seals secrets into a config, so one a caller
+ * wrote would reveal some other secret to the system (`secretRefsIn`). A config set later goes through the same check.
+ */
+function refuseSecretRefs(config: Json | undefined): void {
+  const refused = secretRefsRefusal(config);
+  if (refused !== undefined) throw reject(422, 'CONFIG_INVALID', refused);
 }
 
 /** Every actor id given must be an actor of this kind. */
@@ -274,6 +284,7 @@ export function adminOperations(hub: HubServices): AdminOperations {
       return removed;
     },
     install_system: async (data, by) => {
+      refuseSecretRefs(data.config);
       const installed = await link.supervisor.install({ ...compact(data), by });
       hub.log.info('system.installed', { system: installed.name, version: installed.version, user: by });
       return { name: installed.name };
@@ -313,6 +324,7 @@ export function adminOperations(hub: HubServices): AdminOperations {
     delete_mcp: async (data, by) => ({ ok: await hub.mcp.registry.remove(data.mcp, by) }),
     preview_mcp: (data) => hub.mcp.scopes.preview(data.rules),
     install_package: async (data, by) => {
+      refuseSecretRefs(data.config);
       const ref = await link.packages.installZip({ ...compact({ instance: data.instance, config: data.config, data: data.data, autoStart: data.autoStart }), zip: data.zip, by });
       hub.log.info('package.installed', { system: ref.system, instance: ref.instance, user: by });
       return ref;
@@ -320,6 +332,7 @@ export function adminOperations(hub: HubServices): AdminOperations {
     add_instance: async (data, by) => {
       const taken = await store.table('instances').get({ system: data.system, instance: data.instance });
       if (taken !== undefined && taken.status !== 'removed') throw reject(409, 'INSTANCE_TAKEN', `${data.system} already has an instance named ${data.instance}`);
+      refuseSecretRefs(data.config);
       // the contract is known once any instance has connected: check the config now rather than at its first start
       const manifest = await catalog.manifest(data.system);
       const problems = manifest === undefined ? [] : await catalog.check(data.system, manifest.config, data.config);

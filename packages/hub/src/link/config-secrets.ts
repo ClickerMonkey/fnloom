@@ -75,6 +75,25 @@ async function mapSealed(value: Json, map: (sealed: SealedConfigSecret) => Promi
   return out;
 }
 
+/**
+ * The dot paths (`a.b`, `list.0`) of every `{ $secret }` reference in a value a caller gave. Only the keeper writes
+ * sealed references into a config, each for its own instance and path, so one a caller wrote is refused: revealing it
+ * would hand that secret (another system's, a provider's key) to whatever system the config is sent to. A caller keeps
+ * a stored secret with `SECRET_KEPT` instead.
+ */
+export function secretRefsIn(value: Json | undefined, at = ''): string[] {
+  if (sealedOf(value) !== undefined) { return [at === '' ? '(the whole value)' : at]; }
+  const entries: Array<[string, Json]> = Array.isArray(value) ? value.map((item, index) => [String(index), item]) : isJsonObject(value) ? Object.entries(value) : [];
+  return entries.flatMap(([key, item]) => secretRefsIn(item, at === '' ? key : `${at}.${key}`));
+}
+
+/** Why a value holding `{ $secret }` references is refused (`secretRefsIn`), or undefined when it holds none. */
+export function secretRefsRefusal(value: Json | undefined, what = 'the config'): string | undefined {
+  const refs = secretRefsIn(value);
+  return refs.length === 0 ? undefined
+    : `${what} names a stored secret at ${refs.join(', ')}: give the value itself, or ${JSON.stringify(SECRET_KEPT)} to keep the one already stored`;
+}
+
 /** A config as the web app sees it: each sealed secret as `SECRET_KEPT`. */
 export function maskSecrets(value: Json): Json {
   if (sealedOf(value) !== undefined) { return SECRET_KEPT; }
@@ -95,9 +114,15 @@ export class ConfigSecretKeeper {
   /**
    * A config about to be saved over `before` (the stored value, sealed): `plain` with `SECRET_KEPT` put back to the
    * stored secret's value (to check and to send the system), and `sealed` with each secret path sealed (to store).
-   * Secrets no longer used are removed once the caller has stored `sealed` (`release`).
+   * Secrets no longer used are removed once the caller has stored `sealed` (`release`). `name` names each new secret
+   * (a run's sealed args name their run, so only that run unseals them).
    */
-  async seal(ref: InstanceRef, value: Json, before: Json | undefined, paths: readonly ConfigPath[], by: ActorId): Promise<{ plain: Json; sealed: Json; release: () => Promise<void> }> {
+  async seal(
+    ref: InstanceRef, value: Json, before: Json | undefined, paths: readonly ConfigPath[], by: ActorId, name?: (path: ConfigPath) => string,
+  ): Promise<{ plain: Json; sealed: Json; release: () => Promise<void> }> {
+    // a caller's own `{ $secret }` reference is never stored, so it can never be revealed (callers refuse it first)
+    const refused = secretRefsRefusal(value);
+    if (refused !== undefined) { throw new Error(refused); }
     if (paths.length === 0 || !isJsonObject(value)) { return { plain: value, sealed: value, release: () => this.#removeAll(before, value) }; }
     const vault = this.#vault();
     let plain: JsonObject = value;
@@ -122,7 +147,7 @@ export class ConfigSecretKeeper {
         sealed = withValueAt(sealed, path, storedOf(old));
         continue;
       }
-      const id = await vault.store({ name: `config ${ref.system}@${ref.instance} ${path}`, owner: by, value: text });
+      const id = await vault.store({ name: name?.(path) ?? `config ${ref.system}@${ref.instance} ${path}`, owner: by, value: text });
       sealed = withValueAt(sealed, path, storedOf({ $secret: id, ...(json ? { json: true } : {}) }));
       if (old !== undefined) { dropped.push(old.$secret); }
     }
