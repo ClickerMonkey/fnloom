@@ -44,9 +44,10 @@ every web operation. Build 7 adds staged authoring agents (`authoringAgent`: fin
 - **A local Ollama** (optional) on `http://127.0.0.1:11434` for small local models; an admin adds it under Models →
   Providers. The graph contextor e2e suite uses the first of `HARNESS_E2E_OLLAMA_MODELS` it has (a small tool-capable
   one such as `qwen2.5:3b` first).
-- **The EmbeddingGemma service** from `product/services/embedder` (see its README: a Python venv, then
-  `uvicorn main:app --host 0.0.0.0 --port 8760`). It listens on `http://127.0.0.1:8760`; the embedder system wraps
-  it. Without it the hub still works, with words-only search and no suggestions.
+- **The EmbeddingGemma service**, the one this machine shares with every project: start it with
+  `node ../dg-harness/services/embedder/start.mjs` (it does nothing when something already listens on 8760 or another
+  launcher is starting it, and runs on the GPU through product's CUDA venv). It listens on `http://127.0.0.1:8760`;
+  the embedder system wraps it — never start a second copy. Without it the hub still works, with words-only search and no suggestions.
 
 ## Running it
 
