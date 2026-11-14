@@ -94,6 +94,45 @@ describe('make_code', () => {
   });
 });
 
+describe('make_code over another fn', () => {
+  it('loads only fns search listed, with their signatures from the hub, then saves a program that calls one', async () => {
+    const total = { kind: 'get', path: [{ prop: 'fns' }, { prop: 'code' }, { prop: 'price_with_tax' }, { args: { amount: { kind: 'get', path: [{ prop: 'args' }, { prop: 'amount' }] }, rate: { kind: 'get', path: [{ prop: 'args' }, { prop: 'rate' }] } } }, { prop: 'total' }] };
+    const signature = { args: CODE_EXAMPLES.priceWithTax.signature.args, returns: { name: 'num' } };
+    const running = await start([
+      toolCall('search', { text: 'price with tax' }),
+      // a name search never listed is refused in words; the listed one loads with its signature
+      toolCall('load', { fns: ['code/price_with_tax', 'shop/discount'] }),
+      toolCall('load', { fns: ['code/price_with_tax'] }),
+      toolCall('signature', signature),
+      toolCall('set', { draft: { name: 'total_with_tax', description: 'Only the total of an amount with tax.', program: total, sample: { amount: 100, rate: 8.25 } } }),
+      toolCall('return', {}),
+      'Saved code/total_with_tax.',
+    ]);
+    const seen = scriptHub(running);
+    const fake = running.hub;
+    fake.fns.save({ kind: CODE_KIND, name: 'price_with_tax', description: 'A price with tax at a percentage rate.', payload: encodeValue(CodePayload, PRICE) });
+    // the hub's declaration of the saved fn (`hub/fn_get`), and its answer when the sample runs
+    const inner = running.hub.onCall;
+    running.hub.onCall = async (call) => {
+      const getsPrice = call.fn === hub.fns.fn_get.name && JSON.stringify(call.args).includes('code/price_with_tax');
+      if (call.fn !== 'code/price_with_tax' && !getsPrice) { return inner(call); }
+      seen.push({ fn: call.fn, args: call.args });
+      await running.hub.peer().call('child', { parent: call.parent, key: call.key, run: mintId('run') });
+      return getsPrice
+        ? done(Json.parse({ fn: 'code/price_with_tax', kind: CODE_KIND, description: 'A price with tax at a percentage rate.', version: 1, available: true, args: PRICE.args, returns: PRICE.returns }))
+        : done({ total: 108.25, note: '100 at 8.25%' });
+    };
+    const { result } = await running.call('make_code', { request: 'Just the total of a price with tax.' });
+    expect(result).toMatchObject({ fn: 'code/total_with_tax', version: 1, reused: false });
+    // the refused load named what search never listed; the second load showed how a program calls the fn
+    expect(JSON.stringify(fake.forwards[2]?.request.messages)).toContain('shop/discount was not listed');
+    expect(JSON.stringify(fake.forwards[3]?.request.messages)).toContain('code/price_with_tax');
+    // the hub was asked for the callee's declaration, and the saved program calls it
+    expect(seen.some((call) => call.fn === hub.fns.fn_get.name && JSON.stringify(call.args).includes('code/price_with_tax'))).toBe(true);
+    expect(JSON.stringify(fake.fns.kept.get('code/total_with_tax')?.saved.payload)).toContain('price_with_tax');
+  });
+});
+
 describe('the program kind', () => {
   const CALLS: CodeFnSpec = { ...CODE_EXAMPLES.callsFn.signature, program: CODE_EXAMPLES.callsFn.program };
 

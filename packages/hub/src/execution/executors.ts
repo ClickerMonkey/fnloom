@@ -9,7 +9,7 @@
  */
 import { encodeValue, parseValue, type FnRef } from '@harness/sdk';
 import {
-  splitName, type InputProblem, type InvalidInput, type Json, type OutcomeWire, type QualifiedName, type Run, type RunRequest, type UndoOutcome, type RunControlAction,
+  splitName, type ActorId, type InputProblem, type InvalidInput, type Json, type OutcomeWire, type QualifiedName, type Run, type RunId, type RunRequest, type UndoOutcome, type RunControlAction,
 } from '@harness/core';
 import type { SystemConnection } from '../link/index.ts';
 import { causeOf, fnError, messageOf, RunRefused, RunStopped } from './errors.ts';
@@ -139,16 +139,46 @@ export interface HubFnCtx {
 /** One hub fn implementation, erased to JSON in and out (its typed form is checked when it is registered). */
 type HubFnImpl = (args: Json, ctx: HubFnCtx) => Promise<Json>;
 
+/** Who a hub fn's args are checked for before anyone is asked: the run's person and the run. */
+export interface HubFnAsker {
+  readonly actor: ActorId;
+  readonly run: RunId;
+}
+
+/**
+ * What is wrong with a hub fn's args beyond their gin type (a record's value against the type it names), worked out
+ * before the policies, so a wrong call is refused as invalid input and never put to a person.
+ */
+export type HubFnCheck<A> = (args: A, asker: HubFnAsker) => Promise<InputProblem[]>;
+
 /**
  * The hub's own native fns (`hub/run_status`, `hub/search_fns`, …). Each module registers the fns it implements
  * against the hub contract's refs, so args and results are typed and checked with the contract's gin types.
  */
 export class HubFns implements RunExecutor {
   readonly #impls = new Map<QualifiedName, HubFnImpl>();
+  readonly #checks = new Map<QualifiedName, HubFnCheck<Json>>();
 
-  /** Implement a hub fn. Its args arrive checked and in their plain form; its result is checked on the way out. */
-  register<A, R>(ref: FnRef<QualifiedName, A, R>, impl: (args: A, ctx: HubFnCtx) => Promise<R>): void {
+  /**
+   * Implement a hub fn. Its args arrive checked and in their plain form; its result is checked on the way out. A
+   * `check` finds what the gin type can't say about the args, before the run is decided (`check` below).
+   */
+  register<A, R>(ref: FnRef<QualifiedName, A, R>, impl: (args: A, ctx: HubFnCtx) => Promise<R>, check?: HubFnCheck<A>): void {
     this.#impls.set(ref.name, async (args, ctx) => encodeValue(ref.returns, await impl(parseValue(ref.args, args), ctx)));
+    if (check !== undefined) this.#checks.set(ref.name, (args, asker) => check(parseValue(ref.args, args), asker));
+  }
+
+  /**
+   * A run's args as its fn's own check finds them, before anyone is asked: the problems, or undefined when they fit
+   * (or the fn has no check). A check that can't decide leaves it to the run, which reports what it hits.
+   */
+  async check(run: Pick<Run, 'id' | 'fn' | 'args'>, actor: ActorId): Promise<InvalidInput | undefined> {
+    const check = this.#checks.get(run.fn);
+    if (check === undefined) return undefined;
+    // args that don't parse were refused by the gin check before this; a check that throws leaves it to the run
+    const problems = await Promise.resolve().then(() => check(run.args, { actor, run: run.id })).catch((): InputProblem[] => []);
+    const [first, ...rest] = problems;
+    return first === undefined ? undefined : { source: 'validation', problems: [first, ...rest] };
   }
 
   /** Whether a hub fn has an implementation. */

@@ -146,6 +146,47 @@ describe('make_widget', () => {
   });
 });
 
+describe('make_widget with the shapes models send wrongly', () => {
+  // a chat model asked "show my tasks as a donut" guesses visual names, ECharts option objects and arg values as words
+  it('sends each wrong proposal back to the agent with its path, offers nothing until one is clean, and refuses wrong call args before the agent starts', async () => {
+    const good = {
+      name: 'tasks_by_stage', description: 'Tasks counted by stage.', title: 'Tasks by stage',
+      choice: { visual: 'category', style: 'bar' }, more: ['table'],
+      args: { owner: { show: 'control', label: 'Owner' }, since: { show: 'pinned', value: { relative: 'startOf(month)' } } },
+      presets: [],
+    };
+    const wrong = [
+      // a style its family has not, an ECharts option object in place of a choice, a column the source has not
+      { ...good, choice: { visual: 'category', style: 'donut' } },
+      { ...good, choice: { series: [{ type: 'pie', data: [] }] } },
+      { ...good, args: { ...good.args, owner: 'me' } },
+    ];
+    const model = mockModel([toolCall('source', {}), ...wrong.map((draft) => toolCall('propose', { draft })), toolCall('propose', { draft: good }), toolCall('offer', {}), replyChunks('Proposed.')]);
+    kit = await testHub(widgets, createWidgetsImpl({ settings: widgetsEnv.parse() }), { config: {}, model });
+    const seen = scriptHub(kit, () => tasks());
+    const made = await kit.call('make_widget', { source: SOURCE, request: 'my tasks as a donut, the owner as a chip, this month', args: { since: '2026-03-01' }, show: true });
+    expect(made.result).toMatchObject({ name: 'tasks_by_stage', spec: { visuals: [{ visual: 'category', style: 'bar' }, { visual: 'table' }] } });
+    const forwards = made.hubCalls.forwards;
+    // after each wrong proposal the agent was told what is wrong, by where, and offer was not yet offered
+    const told = (at: number) => JSON.stringify(forwards[at]?.request.messages.at(-1));
+    expect(told(2)).toMatch(/choice/);
+    expect(told(2)).toMatch(/style/);
+    expect(told(3)).toMatch(/choice/);
+    expect(told(4)).toMatch(/owner/);
+    for (const at of [2, 3, 4]) { expect(offered(forwards[at]), String(at)).not.toContain('offer'); }
+    expect(offered(forwards[5])).toContain('offer');
+    expect(seen.some((call) => call.fn === hub.fns.save_fn.name)).toBe(false);
+    // the call itself, as a chat model sends it wrongly: a source that isn't a fn name, the sample args as a JSON string
+    for (const args of [{ source: 'tasks by stage', request: 'tasks', args: { since: '2026-03-01' }, show: true }, { source: SOURCE, request: 'tasks', args: '{"since":"2026-03-01"}', show: true }]) {
+      const before = kit.hub.forwards.length;
+      const outcome = await kit.hub.run(QualifiedName.parse('widgets/make_widget'), args);
+      expect(outcome.status, JSON.stringify(args)).toBe('invalid-input');
+      expect(outcome.status === 'invalid-input' ? outcome.invalid.problems.map((problem) => problem.path).join(' ') : '', JSON.stringify(outcome)).toMatch(/source|args/);
+      expect(kit.hub.forwards.length).toBe(before);
+    }
+  });
+});
+
 describe('save_widget', () => {
   it('keeps the widget as the person’s own, takes the next free name, and saves over the widget it changes', async () => {
     kit = await testHub(widgets, createWidgetsImpl({ settings: widgetsEnv.parse() }), { config: {} });

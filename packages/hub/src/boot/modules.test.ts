@@ -5,7 +5,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fn, g, hub as hubContract, manifestOf, system } from '@harness/sdk';
+import { agent, fn, g, hub as hubContract, manifestOf, system } from '@harness/sdk';
 import { mintId, QualifiedName, ResourceUri, SystemName, type UserView } from '@harness/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { recordingPush, testSettings } from '../api/testing/rig.ts';
@@ -133,5 +133,25 @@ describe('the fns module over the real modules', () => {
     const jot = QualifiedName.parse('notes/jot');
     for (let i = 0; i < 100 && (await running.services.store.table('fnFacts').get(jot)) === undefined; i += 1) { await new Promise((resolve) => setTimeout(resolve, 10)); }
     expect((await fns.facts.facts(jot)).mode).toBe('write');
+  });
+
+  it('prices an agent that has never run from the models it may use', async () => {
+    const helper = system('helper', { description: 'Helps.' }).with({ fns: { plan: agent({ description: 'Plan a trip.', args: g.obj({ city: g.text() }), returns: g.text(), instructions: 'Plan it.', tools: [], maxIterations: 3, model: { model: TEST_MODEL.id } }) } });
+    await running.services.catalog.importManifest(await manifestOf(helper, { version: '1' }));
+    const facts = await running.services.fns.facts.facts(QualifiedName.parse('helper/plan'));
+    expect(facts.cost).toMatchObject({ basis: 'payload', runs: 0 });
+    expect(facts.cost.max).toBeGreaterThan(facts.cost.min);
+    expect(facts.cost.typical).toBeGreaterThanOrEqual(0);
+  });
+
+  it('keeps a browser\'s logs in its person\'s log file, one file a day, adding to it', async () => {
+    const actor = mintId('actor');
+    await running.services.store.table('actors').insert({ id: actor, kind: 'user', name: 'Ed', about: '', email: 'ed@example.com', role: 'member', createdAt: 1, disabled: false });
+    const { clientLogs } = running.services.fns;
+    const first = await clientLogs.write(actor, { entries: [{ type: 'log', at: 1, level: 'warn', message: 'slow send' }], page: '/chat' });
+    const second = await clientLogs.write(actor, { entries: [{ type: 'traffic', at: 2, method: 'POST', endpoint: 'send', status: 200, duration: 12 }, { type: 'log', at: 3, level: 'error', message: 'lost socket' }] });
+    expect(first).toMatchObject({ written: 1 });
+    expect(second).toEqual({ uri: first.uri, written: 2 });
+    expect(first.uri).toMatch(/^hub:\/\//);
   });
 });

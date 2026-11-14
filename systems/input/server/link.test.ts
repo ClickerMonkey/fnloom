@@ -74,6 +74,42 @@ describe('input over the link', () => {
     expect(done(await hub.run('input/check_form', { form: { ...TRIP, type: { name: 'obj', props: { a: { type: { name: 'color' } } } } } }))).toMatchObject({ ok: false, problems: [expect.stringContaining('"color"')] });
   });
 
+  // what chat models send for "ask me where and how long": a column map, a field list, the type as a JSON string, a
+  // bare type name, no type at all; a choice as a comma list, a number range as words
+  it('refuses the form shapes models send wrongly as invalid input with their path, before anyone is asked', async () => {
+    await start();
+    const props = TRIP.type.props;
+    const guessed: Json[] = [
+      { city: 'text', nights: 'number' },
+      [{ name: 'city', type: 'text' }, { name: 'nights', type: 'num' }],
+      JSON.stringify(TRIP.type),
+      'obj',
+      { name: 'obj', props: { city: { type: 'text' } } },
+      { name: 'list', generic: { V: { name: 'text' } } },
+    ];
+    for (const type of guessed) {
+      for (const fn of ['input/check_form', 'input/save_form'] as const) {
+        const args = fn === 'input/check_form' ? { form: { ...TRIP, type } } : { name: 'Trip', description: 'Where you go.', form: { ...TRIP, type } };
+        const refused = await hub.run(fn, args);
+        expect(refused.status, `${fn} ${JSON.stringify(type)}`).toBe('invalid-input');
+        expect(refused.status === 'invalid-input' ? refused.invalid.problems.map((problem) => problem.path).join(' ') : '', `${fn} ${JSON.stringify(type)}`).toContain('form.type');
+      }
+    }
+    // a form with no title, or none at all
+    const untitled = await hub.run('input/check_form', { form: { description: '', type: { name: 'obj', props } } });
+    expect(untitled.status === 'invalid-input' ? untitled.invalid.problems.map((problem) => problem.path) : untitled).toContain('form.title');
+    expect(await hub.run('input/check_form', {})).toMatchObject({ status: 'invalid-input' });
+    // the quick questions: options as one comma-separated string, a range given as words, no question
+    const choice = await hub.run('input/ask_choice', { question: 'Size?', options: 'S, M, L' });
+    expect(choice.status === 'invalid-input' ? choice.invalid.problems.map((problem) => problem.path) : choice).toContain('options');
+    const number = await hub.run('input/ask_number', { question: 'How many?', min: 'one' });
+    expect(number.status === 'invalid-input' ? number.invalid.problems.map((problem) => problem.path) : number).toContain('min');
+    const nothing = await hub.run('input/ask_text', { placeholder: 'harness-docs' });
+    expect(nothing.status === 'invalid-input' ? nothing.invalid.problems.map((problem) => problem.path) : nothing).toContain('question');
+    // nothing was kept
+    expect(hub.fns.kept.size).toBe(0);
+  });
+
   it('asks quick questions as one-field forms, and refuses a choice of one', async () => {
     await start();
     expect(done(await hub.run('input/ask_confirm', { question: 'Book it?' }))).toMatchObject({ form: { title: 'Book it?', type: { name: 'obj', props: { answer: { docs: 'Book it?', type: { name: 'bool' } } } } } });

@@ -5,7 +5,7 @@
  * to the hub's index. The implementation is `StoreDataService` (`data/service.ts`).
  */
 import type {
-  ActorId, DataRecord, DataSetPage, DataSetQuery, RecordGet, RecordPage, RecordQuery, RecordRemove, RecordSave, RecordTableQuery, RecordUpdate,
+  ActorId, DataRecord, DataSetPage, InputProblem, DataSetQuery, RecordGet, RecordPage, RecordQuery, RecordRemove, RecordSave, RecordTableQuery, RecordUpdate,
   RecordVersionsPage, RecordVersionsQuery, ResultTable, RunId, SystemName,
 } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
@@ -37,6 +37,12 @@ export interface DataService {
   save(input: RecordSave, asker: DataAsker): Promise<DataRecord>;
   /** Widget pass: change some fields of one record in place (the Data grid's inline edit); checked like a save. */
   update(input: RecordUpdate, asker: DataAsker): Promise<DataRecord>;
+  /**
+   * What a save or an update would be refused for, with the arg path of each problem (`value.stars`, `set.due`),
+   * without saving anything: the hub fns check this before anyone is asked to approve the write. A record that isn't
+   * there (or the asker can't see) is left to the save, which says so.
+   */
+  problems(input: RecordSave | RecordUpdate, asker: DataAsker): Promise<InputProblem[]>;
   /** Remove a record; its versions stay. */
   remove(input: RecordRemove, asker: DataAsker): Promise<boolean>;
   /** A record's history, newest first. */

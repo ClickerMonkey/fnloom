@@ -5,7 +5,7 @@
 import type { Streamer } from '@aeye/core';
 import type { Logger } from '@ayepi/log';
 import type {
-  FnError, FnRecord, IdRandom, Json, LlmMessage, OutcomeWire, Run, RunId, RunInfo, RunRequest, RunSettled, UndoOutcome, Usd,
+  ActorId, FnError, FnRecord, IdRandom, InvalidInput, Json, LlmMessage, OutcomeWire, Run, RunId, RunInfo, RunRequest, RunSettled, UndoOutcome, Usd,
   ModelInfo, HubModelInfo, RunControlAction,
 } from '@harness/core';
 import type { HubSettings } from '../boot/env.ts';
@@ -98,6 +98,11 @@ export interface RunExecutor {
    */
   stop(run: Run, error: FnError): Promise<void>;
   undo(job: UndoJob): Promise<UndoOutcome>;
+  /**
+   * What is wrong with a run's args beyond their gin type, before the policies decide it (the hub's fns that hold a
+   * value of a type another arg names): the run then settles `invalid-input` and nobody is asked.
+   */
+  check?(run: Pick<Run, 'id' | 'fn' | 'args'>, actor: ActorId): Promise<InvalidInput | undefined>;
 }
 
 /** Settling a run from outside the run worker (the agent loop). */

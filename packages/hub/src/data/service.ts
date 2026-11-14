@@ -10,7 +10,7 @@
 import { reject } from '@ayepi/core';
 import {
   DataRecord, mintId, OPS_BY_TYPE, recordVersionId,
-  type DataSetPage, type DataSetQuery, type DataSetView, type Filter, type IdRandom, type QualifiedName, type RecordGet, type RecordId, type RecordPage,
+  type DataSetPage, type InputProblem, type DataSetQuery, type DataSetView, type Filter, type IdRandom, type QualifiedName, type RecordGet, type RecordId, type RecordPage,
   type RecordQuery, type RecordRemove, type RecordSave, type RecordStorage, type RecordTableQuery, type RecordUpdate, type RecordVersion, type RecordVersionsPage,
   type RecordVersionsQuery, type ResultTable, type Sort, type TypeRecord,
 } from '@harness/core';
@@ -192,6 +192,20 @@ export class StoreDataService implements DataService {
     return this.save({ type: input.type, id: input.id, value: { ...value, ...input.set }, expect: input.expect ?? current.version, ...(input.run === undefined ? {} : { run: input.run }) }, asker);
   }
 
+  async problems(input: RecordSave | RecordUpdate, asker: DataAsker): Promise<InputProblem[]> {
+    const type = await this.#deps.catalog.type(input.type);
+    if (type?.records === undefined || !asker.access.seesType(type)) { return [{ path: 'type', message: `no stored type ${input.type}` }]; }
+    const stored: Stored = { type: { ...type, records: type.records }, fields: recordFields(type.def) };
+    if (!('set' in input)) { return (await this.#deps.catalog.check(type.system, type.def, input.value)).map((problem) => problemAt('value', problem)); }
+    const fields = new Set(stored.fields.map((field) => field.name));
+    const unknown = Object.keys(input.set).filter((name) => !fields.has(name));
+    if (unknown.length > 0) { return unknown.map((name) => ({ path: `set.${name}`, message: `${type.name} has no field ${name}` })); }
+    const current = await this.#deps.store.table('records').get(input.id);
+    if (current === undefined || !this.#sees(current, stored, asker)) { return []; }
+    const value = typeof current.value === 'object' && current.value !== null && !Array.isArray(current.value) ? current.value : {};
+    return (await this.#deps.catalog.check(type.system, type.def, { ...value, ...input.set })).map((problem) => problemAt('set', problem));
+  }
+
   async remove(input: RecordRemove, asker: DataAsker): Promise<boolean> {
     const stored = await this.#stored(input.type, asker);
     const removed = await this.#deps.store.tx(async (tx) => {
@@ -306,3 +320,8 @@ export class StoreDataService implements DataService {
   }
 }
 
+/** A catalog check's line (`stars: Expected a number`, or a message for the whole value) as a problem under an arg. */
+function problemAt(arg: string, line: string): InputProblem {
+  const split = /^([\w$.[\]-]+): (.+)$/s.exec(line);
+  return split === null ? { path: arg, message: line } : { path: `${arg}.${split[1] ?? ''}`, message: split[2] ?? line };
+}

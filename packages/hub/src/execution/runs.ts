@@ -243,7 +243,8 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     // secrets in the args never rest in plain text: the row, its approval and its views hold them sealed
     const sealing = this.#argSecrets === undefined ? { args: input.args } : await this.#argSecrets.seal({ run: id, fn: fn.name, args: input.args, owner: input.actor });
     const { args } = sealing;
-    const invalid = refused ?? sealing.invalid;
+    // a hub fn's own check (a record's value against its type) runs on the args as given, before anyone is asked
+    const invalid = refused ?? sealing.invalid ?? await this.#executors.get(executorKind(fn))?.check?.({ id, fn: fn.name, args: input.args }, turn.user.id);
     const { operations } = fn.decl;
     const run: Run = {
       id,

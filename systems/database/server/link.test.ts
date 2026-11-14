@@ -302,6 +302,68 @@ describe('the database system over the link', () => {
     expect(JSON.stringify(await hub.preview({ run: mintId('run'), fn: 'create_table', args: { table: 'empty', database: 'main', type: { name: 'obj' } }, user: TEST_USER }))).toContain('no columns');
   });
 
+  // the chat describes queries in words; only the authoring agent writes query JSON
+  it('refuses query JSON and other shapes a chat model sends to get_query, edit_query and run_query, by path, before the authoring agent is asked', async () => {
+    dir = shopFile().dir;
+    await start();
+    await keep(ORDERS_BY_STATUS, { args: { status: 'paid' } });
+    const problemsOf = async (fn: `${string}/${string}`, args: Json) => {
+      const before = hub.forwards.length;
+      const refused = await hub.run(fn, args);
+      expect(refused.status, `${fn} ${JSON.stringify(args)}`).toBe('invalid-input');
+      // nothing reached the authoring model
+      expect(hub.forwards.length, `${fn} ${JSON.stringify(args)}`).toBe(before);
+      return refused.status === 'invalid-input' ? refused.invalid.problems : [];
+    };
+    // (a query sent alongside the description is an unknown key, which the hub's strict check refuses before the system
+    // sees it: scripts/tool-schemas.test.ts) a description that is not text, and none at all
+    expect((await problemsOf('database/get_query', { detailedDescription: { text: 'paid orders' } })).map((problem) => problem.path)).toContain('detailedDescription');
+    expect((await problemsOf('database/get_query', {})).map((problem) => problem.path)).toContain('detailedDescription');
+    // an edit with the new query JSON in place of instructions, or without saying which query
+    expect((await problemsOf('database/edit_query', { name: 'database/main.orders_by_status', instructions: ORDERS_BY_STATUS.query })).map((problem) => problem.path)).toContain('instructions');
+    expect((await problemsOf('database/edit_query', { instructions: 'Also show the date.' })).map((problem) => problem.path)).toContain('name');
+    // a saved query's args as a JSON string or a list of pairs, not the values by name
+    for (const args of ['{"status":"paid"}', [{ name: 'status', value: 'paid' }]]) {
+      const problems = await problemsOf('database/run_query', { fn: 'database/main.orders_by_status', args });
+      expect(problems.map((problem) => problem.path), JSON.stringify(args)).toContain('args');
+    }
+  });
+
+  it('alter_table changes a table to the whole gin obj row type it is given, previewing the steps, and refuses wrong shapes before anyone is asked', async () => {
+    dir = shopFile().dir;
+    await start();
+    expect(hub.manifests[0]?.fns.find((item) => item.name === 'alter_table')).toMatchObject({ approval: { preview: true, remember: false } });
+    const props = { id: { type: { name: 'num', options: { whole: true } } }, title: { type: { name: 'text' } } };
+    expect(JSON.stringify(done(await hub.run('database/create_table', { table: 'Todo', database: 'main', type: { name: 'obj', props } })))).toContain('"database/main.Todo"');
+    const wider = { name: 'obj', props: { ...props, priority: { type: { name: 'optional', generic: { T: { name: 'num', options: { whole: true } } } } } } };
+    const args = { table: 'Todo', database: 'main', type: wider };
+    const preview = await hub.preview({ run: mintId('run'), fn: 'alter_table', args, user: TEST_USER });
+    expect(preview).toMatchObject({ preview: { title: 'Change table Todo (Shop database) (1 step)', irreversible: false } });
+    expect(JSON.stringify(preview)).toContain('ALTER TABLE');
+    expect(JSON.stringify(preview)).toContain('priority');
+    const changed = done(await hub.run('database/alter_table', args));
+    expect(JSON.stringify(changed)).toContain('"database/main.Todo"');
+    const db = new BetterSqlite3(join(dir, 'shop.db'));
+    expect(db.prepare("SELECT name FROM pragma_table_info('Todo')").pluck().all()).toEqual(['id', 'title', 'priority']);
+    db.close();
+    // the same type again has nothing to do, and a table that isn't there is create_table's: both said when asked
+    expect(JSON.stringify(await hub.preview({ run: mintId('run'), fn: 'alter_table', args, user: TEST_USER }))).toContain('already matches');
+    expect(JSON.stringify(await hub.preview({ run: mintId('run'), fn: 'alter_table', args: { ...args, table: 'Nope' }, user: TEST_USER }))).toContain('use create_table');
+    // what models send for "add a priority column": only the new column, a column list, the type as a JSON string, a
+    // prop whose type is a bare name: none is a gin obj row type
+    const guessed: Json[] = [
+      { priority: 'integer' },
+      [{ name: 'priority', type: 'num' }],
+      JSON.stringify(wider),
+      { name: 'obj', props: { ...props, priority: { type: 'num' } } },
+    ];
+    for (const type of guessed) {
+      const refused = await hub.run('database/alter_table', { table: 'Todo', database: 'main', type });
+      expect(refused.status, JSON.stringify(type)).toBe('invalid-input');
+      expect(refused.status === 'invalid-input' ? refused.invalid.problems.map((problem) => problem.path) : []).toContain('type');
+    }
+  });
+
   it('holds back a breaking rescan for an admin, naming the saved queries the hub says read the table, and applies it once approved', async () => {
     dir = shopFile().dir;
     await start();

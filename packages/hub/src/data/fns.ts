@@ -4,9 +4,9 @@
  * types (made from the endpoints' bodies); parsing them adds the brands.
  */
 import { hub, HUB_DATA_ENDPOINTS, toolArgsOf } from '@harness/sdk';
-import type { ActorId } from '@harness/core';
+import type { ActorId, RecordSave, RecordUpdate } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
-import type { HubFnCtx, HubFns } from '../execution/executors.ts';
+import type { HubFnAsker, HubFnCtx, HubFns } from '../execution/executors.ts';
 import type { DataAsker, DataService } from './index.ts';
 
 /** What the data fns use, each looked up when a run arrives. */
@@ -42,7 +42,9 @@ export function registerDataFns(fns: HubFns, deps: DataFnDeps): void {
   });
   fns.register(refs.records_table, async (given, ctx) => deps.data().table(args.table(given), await askerOf(deps, ctx)));
   fns.register(refs.record_versions, async (given, ctx) => deps.data().versions(args.versions(given), await askerOf(deps, ctx)));
-  fns.register(refs.record_save, async (given, ctx) => deps.data().save(args.save(given), await askerOf(deps, ctx)));
-  fns.register(refs.record_update, async (given, ctx) => deps.data().update(args.update(given), await askerOf(deps, ctx)));
+  // a record's value is checked against its type before anyone is asked to approve the write
+  const check = async (input: RecordSave | RecordUpdate, asker: HubFnAsker) => deps.data().problems(input, { actor: asker.actor, access: await deps.access(asker.actor), run: asker.run });
+  fns.register(refs.record_save, async (given, ctx) => deps.data().save(args.save(given), await askerOf(deps, ctx)), (given, asker) => check(args.save(given), asker));
+  fns.register(refs.record_update, async (given, ctx) => deps.data().update(args.update(given), await askerOf(deps, ctx)), (given, asker) => check(args.update(given), asker));
   fns.register(refs.record_remove, async (given, ctx) => ({ removed: await deps.data().remove(args.remove(given), await askerOf(deps, ctx)) }));
 }

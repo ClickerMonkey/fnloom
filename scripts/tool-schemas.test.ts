@@ -145,4 +145,20 @@ describe('tool schemas', () => {
       expect(signature.argsSchema.safeParse({ table: 'Todo', type }).success, JSON.stringify(type)).toBe(false);
     }
   });
+
+  it("refuses, in the hub's own check of a chat call, query JSON sent to the query fns and wrong row types sent to alter_table", async () => {
+    const { catalog } = await catalogOfEverything();
+    const check = async (fn: string, args: unknown) => (await catalog.signature(QualifiedName.parse(fn))).argsSchema.safeParse(args).success;
+    const query = { kind: 'select', fields: [{ expr: { kind: 'field-ref', source: 'orders', field: 'id' } }], from: { kind: 'type', type: 'orders' } };
+    expect(await check('database/get_query', { detailedDescription: 'paid orders' })).toBe(true);
+    expect(await check('database/get_query', { detailedDescription: 'paid orders', query })).toBe(false);
+    expect(await check('database/get_query', { query })).toBe(false);
+    expect(await check('database/edit_query', { name: 'database/main.orders', instructions: 'Add the date.' })).toBe(true);
+    expect(await check('database/edit_query', { name: 'database/main.orders', instructions: 'Add the date.', query })).toBe(false);
+    const row = { name: 'obj', props: { id: { type: { name: 'num', options: { whole: true } } }, done: { type: { name: 'bool' } } } };
+    expect(await check('database/alter_table', { table: 'Todo', type: row })).toBe(true);
+    for (const type of [{ done: 'boolean' }, [{ name: 'done', type: 'bool' }], JSON.stringify(row), { name: 'obj', props: { done: { type: 'bool' } } }]) {
+      expect(await check('database/alter_table', { table: 'Todo', type }), JSON.stringify(type)).toBe(false);
+    }
+  });
 });

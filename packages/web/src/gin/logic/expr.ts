@@ -316,8 +316,9 @@ export function withChild(view: ExprView, slot: ExprSlot, def: ExprDef | undefin
     case 'template':
       return slot.at === 'template.params' ? optionalKey(view.def, 'params', def) : view.def;
     case 'flow':
-      if (slot.at === 'flow.value') { return optionalKey(view.def, 'value', def); }
-      return slot.at === 'flow.error' ? optionalKey(view.def, 'error', def) : view.def;
+      // a return or exit carries a value and a throw an error; the other actions have neither slot
+      if (slot.at === 'flow.value' && (view.def.action === 'return' || view.def.action === 'exit')) { return optionalKey(view.def, 'value', def); }
+      return slot.at === 'flow.error' && view.def.action === 'throw' ? optionalKey(view.def, 'error', def) : view.def;
   }
 }
 

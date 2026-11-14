@@ -2,7 +2,9 @@ import { ApiError } from '@ayepi/core';
 import { IDS, LIST_FIELDS, QualifiedName, ResourceUri, SystemName, TypeRecord, noFnStats, type ActorId, type FieldDecl, type Filter, type ListQuery, type ModelCall, type SessionId } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { chatWorld, FixtureCatalog, makeRun } from '../chat/testing.ts';
-import { testStore } from '../testing.ts';
+import { instanceRow, systemRow } from '../catalog/fixtures.ts';
+import { memoryLog, RecordingBus, testStore } from '../testing.ts';
+import { StoreCatalog } from '../catalog/catalog.ts';
 import { queryEnv } from './env.ts';
 import { evaluate, passes } from './evaluate.ts';
 import { HubQuery } from './service.ts';
@@ -161,5 +163,54 @@ describe('the lists', () => {
         expect((counted[0] ?? 0) + (counted[1] ?? 0)).toBe(all);
       }
     }
+  });
+
+  it('finds rows of each list by their words, and lists the systems to admins, without removed ones, by every field', async () => {
+    const w = await chatWorld();
+    const lists = new HubQuery(listSources({ ...w, access: w.deps.access }, queryEnv.parse()));
+    const turn = IDS.turn.parse('trn_w');
+    await w.store.table('runs').insert(makeRun({ id: IDS.run.parse('run_oslo'), fn: 'fs/read', turn, actor: admin.id, status: 'done', createdAt: 5 }));
+    await w.store.table('runs').insert(makeRun({ id: IDS.run.parse('run_rome'), fn: 'fs/read', turn, actor: admin.id, status: 'done', createdAt: 6 }));
+    await w.store.table('notifications').insert({
+      id: IDS.notification.parse('ntf_1'), user: admin.id, reason: 'message', title: 'Trip booked', body: 'Oslo on Friday', link: { session: w.session.id }, read: false, pushed: false, createdAt: 4,
+    });
+    await w.store.table('notifications').insert({
+      id: IDS.notification.parse('ntf_2'), user: admin.id, reason: 'message', title: 'Rent', body: 'Due soon', link: { session: w.session.id }, read: true, pushed: false, createdAt: 5,
+    });
+    await w.store.table('context').put(w.catalog.addContext('fs', { name: 'guide', description: 'How fs reads files', tags: ['files'] }));
+    await w.store.table('context').put(w.catalog.addContext('fs', { name: 'style', description: 'House style for notes', tags: [] }));
+    for (const [name, description] of [['Entry', 'A file on disk.'], ['Folder', 'A directory of entries.']] as const) {
+      await w.store.table('types').insert(TypeRecord.parse({ name: QualifiedName.parse(`fs/${name}`), system: SystemName.parse('fs'), description, def: { name: 'text' }, display: { label: name }, references: [], updatedAt: 1 }));
+    }
+    const call = (id: string, fn: string, session?: SessionId): ModelCall => ({
+      id: IDS.modelCall.parse(id), provider: 'p', model: 'm', modality: 'chat', units: { modality: 'chat', input: 10, output: 5 }, cost: 0.001, status: 'done', sent: 0, received: 0,
+      queued: 0, total: 30, startedAt: 1, fn: QualifiedName.parse(fn), purpose: 'chat', ...(session === undefined ? {} : { session }),
+    });
+    await w.store.table('modelCalls').insert(call('mdl_1', 'hub/chat', w.session.id));
+    await w.store.table('modelCalls').insert(call('mdl_2', 'fs/summarise', w.session.id));
+    const found = async <L extends 'runs' | 'notifications' | 'contexts' | 'types' | 'modelCalls'>(list: L, text: string, who: typeof admin | typeof member = admin) => (await lists.page(list, { text }, who)).items.length;
+    expect(await found('runs', 'oslo')).toBe(1);
+    expect(await found('notifications', 'oslo friday')).toBe(1);
+    expect(await found('contexts', 'house style')).toBe(1);
+    expect(await found('types', 'directory')).toBe(1);
+    expect(await found('modelCalls', 'summarise')).toBe(1);
+    // a member asking for sessions that aren't theirs sees none of their calls
+    expect((await lists.page('modelCalls', { filters: [{ field: 'session', op: 'in', values: ['ses_other'] }] }, { id: w.admin.id, role: 'member' })).items).toEqual([]);
+
+    await w.store.table('systems').put(systemRow('fs', 'connected', { lastSeenAt: 10 }));
+    await w.store.table('systems').put(systemRow('web', 'disconnected', { lastSeenAt: 5 }));
+    await w.store.table('systems').put(systemRow('old', 'removed'));
+    await w.store.table('instances').put(instanceRow('fs', 'connected'));
+    // a system's view counts its fns from the real catalog
+    const catalog = new StoreCatalog({ store: w.store, bus: new RecordingBus(), log: memoryLog().log, clock: () => 1, describer: { describe: () => Promise.resolve({ problems: [] }) } });
+    const withSystems = new HubQuery(listSources({ store: w.store, catalog, access: OPEN_ACCESS }, queryEnv.parse()));
+    const systems = async (query: ListQuery) => (await withSystems.page('systems', query, admin)).items.map((s) => s.name);
+    expect(await systems({})).toEqual(['fs', 'web']);
+    expect(await systems({ filters: [{ field: 'status', op: 'is', value: 'connected' }] })).toEqual(['fs']);
+    expect(await systems({ sort: [{ field: 'name', dir: 'desc' }] })).toEqual(['web', 'fs']);
+    expect(await systems({ filters: [{ field: 'lastSeenAt', op: 'empty' }] })).toEqual(expect.any(Array));
+    expect(await systems({ filters: [{ field: 'instances', op: 'gt', value: 0 }] })).toEqual(['fs']);
+    expect(await systems({ filters: [{ field: 'version', op: 'is', value: '1.0.0' }, { field: 'fns', op: 'gte', value: 0 }, { field: 'name', op: 'contains', value: 'w' }] })).toEqual(['web']);
+    await expect(withSystems.page('systems', {}, member)).rejects.toSatisfy((e) => e instanceof ApiError && e.status === 403);
   });
 });

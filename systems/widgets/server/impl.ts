@@ -142,7 +142,13 @@ export function createWidgetsImpl(deps: WidgetsDeps): SystemImpl<WidgetsContract
         async run(input, ctx) {
           // `args` is a JSON object in gin's eyes only as `any`, so its shape is checked here
           const checked = MakeWidgetArgs.safeParse(input);
-          if (!checked.success) { return ctx.invalid(`The args don't fit: ${checked.error.issues.map((issue) => `${issue.path.join('.') || 'args'}: ${issue.message}`).join('; ')}. Give \`args\` as an object of the source's args.`); }
+          // each problem keeps its path, so the caller sees which arg is wrong (`source`, `args`)
+          if (!checked.success) {
+            return ctx.invalid(checked.error.issues.map((issue) => {
+              const path = issue.path.join('.');
+              return { path, message: path === 'args' ? `${issue.message}. Give \`args\` as an object of the source's args, such as { "since": "2026-03-01" }.` : issue.message };
+            }));
+          }
           const args = checked.data;
           const source = args.source;
           const sourceOf = async (fn: QualifiedName): Promise<SourceDecl> => sourceDecl(await ctx.fns.getFn({ fn }));
