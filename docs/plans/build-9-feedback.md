@@ -77,3 +77,17 @@ What this means:
   in harness.
 - **Smaller by naming.** gin's TypeDef schema is made smaller by choosing which types are named `$defs` and referenced,
   not by dropping structure.
+
+## 2026-11-14 (gin's strict new values; why make_api / make_code fail)
+
+Asked whether gin's strict `new` schema should take a plain value where a field is a primitive or enum:
+
+> Yeah let's update gin to support that. And figure out further why any make API or code call falls and fix it. Whether it's missing or incorrect examples or docs in the prompt.... Make sure what's sent to the llm is accurate
+
+What this means:
+
+- **gin's strict `new`:** a primitive or enum slot of a `new` value takes its plain value (`method: "GET"`) or an
+  expression, so authoring programs use `newStrict` typed values and the model never writes objects as pairs.
+- **make_api / make_code work end to end on the live model.** Each failure is traced to its cause (missing or wrong
+  examples, docs or prompt text, schema or decoding) and fixed there.
+- **What the LLM is sent is accurate:** prompts, examples, docs and tool schemas agree with what the code accepts.

@@ -1256,3 +1256,8 @@ Already checked: type-checking all of the types and examples takes about two sec
   schema can be made smaller by just changing which types are named and ref'd. I am interested in you fixing it because
   aeye is suppose to handle anything for the dev". A schema that fails at the provider is an aeye bug, fixed in aeye;
   gin's TypeDef schema is shrunk by what is named and referenced. Full note in `docs/plans/build-9-feedback.md`.
+- **Authoring works live; what the LLM is sent is accurate** (2026-11-14): "Yeah let's update gin to support that. And
+  figure out further why any make API or code call falls and fix it. Whether it's missing or incorrect examples or docs
+  in the prompt.... Make sure what's sent to the llm is accurate". gin's strict `new` takes plain values in primitive
+  and enum slots; make_api / make_code failures are fixed at their cause; prompts, examples, docs and schemas match the
+  code. Full note in `docs/plans/build-9-feedback.md`.
