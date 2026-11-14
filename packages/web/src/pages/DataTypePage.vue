@@ -65,6 +65,13 @@ const runs = new RecordsRuns(chat, () => `Data: ${param('local')}`);
 onBeforeUnmount(() => { records.close(); runs.close(); });
 
 const table = computed(() => records.table.value.value);
+/**
+ * Whether the table shown answers the query asked. Until it does (the first load, or a new search, filter or sort on
+ * its way), rows already there stay, but no rows yet only means loading: "No records yet" waits for a definite answer.
+ */
+const settled = computed(() => tableQuery.value !== undefined && JSON.stringify(records.shown.value) === JSON.stringify(tableQuery.value));
+const ready = computed(() => table.value !== undefined && (settled.value || table.value.rows.length > 0));
+const empty = computed(() => settled.value && table.value?.rows.length === 0 && words.value.value === '' && filters.value.length === 0);
 /** People's names for the record's history. */
 const { nameOf } = useActorNames(chat.pickers.source('person'), () => records.versions.value.flatMap((version) => (version.by === undefined ? [] : [version.by])));
 
@@ -147,7 +154,7 @@ async function showAsWidget(): Promise<void> {
       <UiButton size="sm" variant="primary" icon="plus" data-testid="record-new" @click="open(NEW)">New record</UiButton>
     </template>
     <LoadState
-      :loading="records.table.loading.value" :problem="records.table.problem.value" :ready="table !== undefined" :empty="table?.rows.length === 0 && words.value.value === '' && filters.length === 0"
+      :loading="records.table.loading.value" :problem="records.table.problem.value" :ready="ready" :empty="empty"
       empty-title="No records yet" empty-body="Add one with New record, or let a system add them." empty-icon="database" :lines="8" @retry="type && records.show(recordTableQuery(type, url))"
     >
       <WidgetView

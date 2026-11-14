@@ -7,16 +7,16 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMemoryHistory } from 'vue-router';
-import { Json, RunId, SystemName } from '@harness/core';
+import { Json, RunId, SystemName, type ResultTable } from '@harness/core';
 import { createAppRouter } from '../app/router.ts';
 import App from '../app/App.vue';
 import { STORES } from '../state/stores.ts';
-import { fakeCaller, fakeStores } from '../test/fakes.ts';
+import { failingCaller, fakeCaller, fakeStores } from '../test/fakes.ts';
 import { run } from '../chat/test/fakes.ts';
 import ItemHistory from '../components/versions/ItemHistory.vue';
 import { ITEM_VERSIONS } from '../components/versions/versions.ts';
 import { filterLabel, filtersOf, filtersParam, recordIdOf, recordTableQuery, sortOf, sortParam, storageWords } from './logic/data.ts';
-import { NOTE_TYPE, SAMPLE_TABLE, SAMPLE_WIDGET, sampleItemVersions } from './test/samples.ts';
+import { NOTE_TYPE, SAMPLE_RECORD_TABLE, SAMPLE_TABLE, SAMPLE_WIDGET, sampleItemVersions } from './test/samples.ts';
 import { collapsedByDefault } from '../chat/state/collapse.ts';
 import { groupPieces } from '../chat/logic/groups.ts';
 
@@ -53,8 +53,9 @@ describe('the Data pages\' logic', () => {
 });
 
 /** Mount the app, signed in, at a path. */
-async function visit(path: string) {
+async function visit(path: string, prepare?: (fakes: ReturnType<typeof fakeStores>) => void) {
   const fakes = fakeStores({ signedIn: true });
+  prepare?.(fakes);
   const router = createAppRouter(fakes.stores.session, createMemoryHistory());
   await router.push(path);
   await router.isReady();
@@ -109,6 +110,58 @@ describe('the Data pages', () => {
     document.body.querySelector<HTMLFormElement>('[data-testid=record-panel] form')?.dispatchEvent(new Event('submit'));
     await flushPromises();
     expect(data.saveRecord.calls.at(-1)?.[0]).toMatchObject({ type: NOTE_TYPE, id: 'rec_note_1', expect: 1 });
+    app.unmount();
+  });
+
+  it("shows a loading state, not 'No records yet', until the type's first page answers, then its records", async () => {
+    let answer: (table: ResultTable) => void = () => undefined;
+    const { app } = await visit('/data/tasks/Task', ({ data }) => {
+      Object.assign(data, { recordTable: fakeCaller<'recordTable'>(() => new Promise<ResultTable>((resolve) => { answer = resolve; })) });
+    });
+    expect(app.find('.ui-skeleton-lines').exists()).toBe(true);
+    expect(app.text()).not.toContain('No records yet');
+    answer(SAMPLE_RECORD_TABLE);
+    await flushPromises();
+    expect(app.find('.ui-skeleton-lines').exists()).toBe(false);
+    expect(app.find('[data-testid=records-widget]').exists()).toBe(true);
+    expect(app.text()).not.toContain('No records yet');
+    app.unmount();
+  });
+
+  it("says 'No records yet' only once the hub answers with none", async () => {
+    const { app } = await visit('/data/tasks/Task', ({ data }) => {
+      Object.assign(data, { recordTable: fakeCaller<'recordTable'>(() => Promise.resolve({ ...SAMPLE_RECORD_TABLE, rows: [], total: 0 })) });
+    });
+    expect(app.text()).toContain('No records yet');
+    expect(app.find('[data-testid=records-widget]').exists()).toBe(false);
+    app.unmount();
+  });
+
+  it('shows the problem with Retry, not an empty state, when the records fail to load', async () => {
+    const { app } = await visit('/data/tasks/Task', ({ data }) => { Object.assign(data, { recordTable: failingCaller<'recordTable'>(new Error('hub down')) }); });
+    expect(app.find('[data-testid=retry]').exists()).toBe(true);
+    expect(app.text()).not.toContain('No records yet');
+    expect(app.find('.ui-skeleton-lines').exists()).toBe(false);
+    app.unmount();
+  });
+
+  it("doesn't call a type empty while a cleared search loads: a search's empty answer isn't the type's", async () => {
+    const pending: Array<() => void> = [];
+    const { app, router } = await visit('/data/notes/Note?q=nothing', ({ data }) => {
+      Object.assign(data, {
+        recordTable: fakeCaller<'recordTable'>((body) => (body.search === undefined
+          ? new Promise<ResultTable>((resolve) => { pending.push(() => { resolve(SAMPLE_RECORD_TABLE); }); })
+          : Promise.resolve({ ...SAMPLE_RECORD_TABLE, rows: [], total: 0 }))),
+      });
+    });
+    expect(app.text()).not.toContain('No records yet');
+    await router.push('/data/notes/Note');
+    await flushPromises();
+    expect(app.text()).not.toContain('No records yet');
+    expect(app.find('.ui-skeleton-lines').exists()).toBe(true);
+    for (const go of pending) { go(); }
+    await flushPromises();
+    expect(app.find('[data-testid=records-widget]').exists()).toBe(true);
     app.unmount();
   });
 

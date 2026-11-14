@@ -91,6 +91,11 @@ export class RecordsStore {
   readonly #api: StoreApi;
   /** The page of records, as a result table. */
   readonly table = new Loaded<ResultTable>();
+  /**
+   * The query the table shown answers, once one has: until it is the query asked, the table is another query's (an
+   * earlier search, filter or type), so it can't say this one has no records.
+   */
+  readonly shown = shallowRef<RecordTableQuery | undefined>(undefined);
   #query: RecordTableQuery | undefined;
   /** The record opened, undefined when the hub has none by that id (or the person may not see it). */
   readonly record = new Loaded<DataRecord | undefined>();
@@ -109,8 +114,11 @@ export class RecordsStore {
   /** Show a page of records; the same query again refreshes quietly. */
   async show(query: RecordTableQuery): Promise<void> {
     const quiet = this.#query !== undefined && JSON.stringify(this.#query) === JSON.stringify(query) && this.table.value.value !== undefined;
+    // another type's records are never shown as this one's while it loads
+    if (this.#query !== undefined && this.#query.type !== query.type) { this.table.reset(); this.shown.value = undefined; }
     this.#query = query;
     await this.table.load(() => this.#api.recordTable.call(query), "Couldn't load these records.", quiet);
+    if (this.#query === query && this.table.problem.value === '') { this.shown.value = query; }
   }
 
   /** Open one record and its first page of history. */

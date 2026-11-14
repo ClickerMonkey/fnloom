@@ -9,7 +9,8 @@ import {
   type FnRecord, type RecordGet, type RecordRemove, type RecordSave, type RecordUpdate, type RecordTableQuery, type RecordVersionsPage, type RecordVersionsQuery, type ResultTable, type WidgetActionOption,
 } from '@harness/core';
 import { fnRecord } from '../src/admin/test/fakes.ts';
-import { NOTE_TYPE, NOTE_WORDS, NOTES_WIDGET, SAMPLE_ACTIONS, SAMPLE_PAGED_WIDGET, SAMPLE_WORDS, SAMPLE_RECORD_TABLE, SAMPLE_RECORDS, SAMPLE_SETS, SAMPLE_TABLE, sampleItemVersions, sampleRecordVersions } from '../src/data/test/samples.ts';
+import { RECORD_COLUMNS, recordTypes, SETTINGS_RECORDS, TASK_RECORDS } from './mockRecords.ts';
+import { NOTE_TYPE, NOTE_WORDS, NOTES_WIDGET, SAMPLE_ACTIONS, SAMPLE_PAGED_WIDGET, SAMPLE_WORDS, SAMPLE_RECORDS, SAMPLE_SETS, SAMPLE_TABLE, sampleItemVersions, sampleRecordVersions } from '../src/data/test/samples.ts';
 
 const HUB = SystemName.parse('hub');
 const WIDGETS = SystemName.parse('widgets');
@@ -62,7 +63,7 @@ export const FLAGGED_PREVIEW = ApprovalPreview.parse({
 /** The stored types, their records and the saved widgets. */
 export class MockData {
   readonly #now: () => number;
-  readonly #records = new Map<string, DataRecord>(SAMPLE_RECORDS.map((record) => [record.id, record]));
+  readonly #records = new Map<string, DataRecord>([...SAMPLE_RECORDS, ...TASK_RECORDS, ...SETTINGS_RECORDS].map((record) => [record.id, record]));
   #made = 0;
 
   constructor(now: () => number) {
@@ -73,17 +74,23 @@ export class MockData {
     const words = query.text?.toLowerCase() ?? '';
     const items = SAMPLE_SETS
       .filter((set) => (query.system === undefined || set.system === query.system) && (words === '' || `${set.type} ${set.description}`.toLowerCase().includes(words)))
-      .map((set) => (set.type === NOTE_TYPE ? { ...set, records: this.#records.size } : set));
+      // counted from the records the listing reads, so a type's count is what opening it shows
+      .map((set) => ({ ...set, records: this.#of(set.type).length }));
     return { items };
   }
 
-  /** The notes as a result table: searched by words, filtered and sorted on their fields, a window at a time, each field editable. */
+  /** A type's records, in the order they were kept. */
+  #of(type: string): DataRecord[] {
+    return [...this.#records.values()].filter((record) => record.type === type);
+  }
+
+  /** A type's records as a result table: searched by words, filtered and sorted on their fields, a window at a time, each field editable. */
   table(query: RecordTableQuery): ResultTable {
-    if (query.type !== NOTE_TYPE) { return { ...SAMPLE_TABLE, rows: [], total: 0 }; }
-    const columns = SAMPLE_RECORD_TABLE.columns;
+    const columns = RECORD_COLUMNS.get(query.type);
+    if (columns === undefined) { return { ...SAMPLE_TABLE, rows: [], total: 0, records: { type: query.type, id: 'id' } }; }
     const at = (name: string): number => columns.findIndex((c) => c.name === name);
     const words = query.search?.toLowerCase() ?? '';
-    let rows = [...this.#records.values()].map((record) => columns.map((c) => (c.name === 'id' ? record.id : valueOf(record, c.name))));
+    let rows = this.#of(query.type).map((record) => columns.map((c) => (c.name === 'id' ? record.id : valueOf(record, c.name))));
     if (words !== '') { rows = rows.filter((row) => row.some((cell) => typeof cell === 'string' && cell.toLowerCase().includes(words))); }
     for (const filter of query.query?.filters ?? []) {
       const i = at(filter.field);
@@ -104,14 +111,14 @@ export class MockData {
     const offset = query.offset ?? 0;
     const limit = query.limit ?? 50;
     return {
-      columns, records: SAMPLE_RECORD_TABLE.records, rows: rows.slice(offset, offset + limit), offset, limit, total: rows.length, truncated: offset + limit < rows.length,
+      columns: [...columns], records: { type: query.type, id: 'id' }, rows: rows.slice(offset, offset + limit), offset, limit, total: rows.length, truncated: offset + limit < rows.length,
       sort: sort === undefined ? [] : [{ column: sort.field, dir: sort.dir }],
     };
   }
 
   record(query: RecordGet): { record?: DataRecord } {
     const record = this.#records.get(query.id);
-    return record === undefined ? {} : { record };
+    return record === undefined || record.type !== query.type ? {} : { record };
   }
 
   save(query: RecordSave, by: string): DataRecord {
@@ -164,9 +171,9 @@ export class MockData {
     })];
   }
 
-  /** The stored note type, so a record is drawn as its type. */
+  /** The stored types, so a record is drawn as its type. */
   types(now: number): TypeRecord[] {
-    return [TypeRecord.parse({
+    return [...recordTypes(now), TypeRecord.parse({
       name: NOTE_TYPE, system: 'notes', instance: 'main', description: 'A note: a title, its text, open or done, and how many words.', display: { label: 'Note', title: 'title' }, references: [], updatedAt: now - 3_600_000,
       def: { name: 'obj', props: { title: { type: { name: 'text' } }, body: { type: { name: 'text' } }, status: { type: { name: 'text' } }, words: { type: { name: 'num' } } } },
     })];
