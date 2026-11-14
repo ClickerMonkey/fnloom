@@ -233,6 +233,8 @@ export interface AuthoringToolInput<S, D, I extends object> {
   readonly schema: z.ZodType<I> | ((session: AuthoringSession<S, D>) => z.ZodType<I>);
   /** Offered only while this also holds (a load tool while something is aware but not loaded). */
   readonly when?: (session: AuthoringSession<S, D>) => boolean;
+  /** aeye's strictness for its args (default: prefer strict). */
+  readonly strict?: boolean | number;
   /** Do it; the text is what the model reads. A thrown error is shown to the model as the tool's failure. */
   call(input: I, session: AuthoringSession<S, D>): Promise<string> | string;
 }
@@ -259,6 +261,7 @@ export function authoringTool<S, D, I extends object>(def: AuthoringToolInput<S,
       name: def.name,
       description: def.description,
       ...(def.instructions === undefined ? {} : { instructions: def.instructions }),
+      ...(def.strict === undefined ? {} : { strict: def.strict }),
       schema: () => (typeof def.schema === 'function' ? def.schema(session) : def.schema),
       applicable: () => session.open(def.stage) && (def.when?.(session) ?? true),
       call: async (input: I) => {
@@ -348,6 +351,11 @@ export function authoringAgent<S, D>(def: AuthoringAgentInput<S, D>): AuthoringA
       const draftTool = authoringTool<S, D, { draft: D }>({
         name: names.draft,
         stage: 'draft',
+        // A draft is a whole program or query: a recursive grammar with optional fields at every level. Strict decoding
+        // makes the model write each absent optional as null at every level and steers it into wrong branches, so a
+        // draft took minutes (or never finished) and came back malformed, where non-strict took seconds and was right
+        // (measured on GPT-6 Luna). The schema still guides the model, and the check names every problem by path.
+        strict: false,
         description: `Write (or rewrite) the whole draft: ${def.draft.description} It is checked at once; the answer lists every problem, or says it is clean.`,
         schema: (s) => z.object({ draft: typeof def.draft.schema === 'function' ? def.draft.schema(s) : def.draft.schema }),
         call: async ({ draft }, s) => {

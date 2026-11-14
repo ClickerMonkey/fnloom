@@ -4,7 +4,7 @@
  * `npm run test:live`.
  */
 import { InstanceName, type ApiServiceConfig, type Json } from '@harness/core';
-import { realModel, testHub } from '@harness/sdk/testing';
+import { liveTurn, realModel, testHub } from '@harness/sdk/testing';
 import { describe, expect } from 'vitest';
 import { api } from '../shared/index.ts';
 import { apiEnv } from './env.ts';
@@ -25,7 +25,7 @@ describe('make_api, live', () => {
   realModel.it('writes a GET from the operations, sends it with its sample and saves it', async (model) => {
     const kit = await testHub(api, createApiImpl({ settings: apiEnv.parse() }), { config: CONFIG, model, hub: { instance: InstanceName.parse('tracker') }, serve: { fetch: service } });
     try {
-      const { result } = await kit.call('make_api', { request: 'The star count of a repository: GET /repos/{owner}/{repo}; args owner and repo (text); give the stargazers_count as a num. acme/web has 42.' });
+      const { result } = await kit.call('make_api', { request: 'The star count of a repository: GET /repos/{owner}/{repo}; args owner and repo (text); give the stargazers_count as a num. acme/web has 42.' }, liveTurn());
       expect(result.fn).toMatch(/^api\/tracker\./);
       expect(kit.hub.fns.kept.get(result.fn)?.saved.routing).toEqual({ to: 'instance', instance: 'tracker' });
     } finally {

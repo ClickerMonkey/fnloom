@@ -128,6 +128,15 @@ function isSteps(input: readonly ScriptStep[] | RecordingOptions): input is read
   return Array.isArray(input);
 }
 
+/**
+ * A run's time for a call that drives a real model through an agent (authoring a fn): four minutes, like a turn on the
+ * hub (`HARNESS_TURN_TIME`, ten minutes by default), not the test hub's 60-second default, which a real model writing
+ * and checking a program can pass without anything being wrong. Pass it as `kit.call`'s extra.
+ */
+export function liveTurn(ms = 240_000): { deadline: number; budget: { cost: number; time: number; limitedBy: 'turn' } } {
+  return { deadline: Date.now() + ms, budget: { cost: 1, time: ms, limitedBy: 'turn' } };
+}
+
 /** A test body that gets the real model. */
 export type RealModelTest = (model: OpenRouterModelLink, context: TestContext) => Promise<void> | void;
 
