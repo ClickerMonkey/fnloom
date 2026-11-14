@@ -104,3 +104,15 @@ What this means:
   those branches is pushed.
 - **Orchestration:** the main session orchestrates. It passes the owner's requests, with the context an agent needs,
   to agents that do the work, and reviews, verifies and commits what they return.
+
+## 2026-11-14 (widget chrome: data context visible, the rest in a hover menu)
+
+> Let's update the look of the widgets so that what you see by default is only stuff that when you're thinking about what data am I looking at, it helps tell you. So it would be something like the filters, stuff like that is what would be visible. And then if the settings has a subset of the valid widgets that the user agent has pre-selected, those would be in a little toggle. But a lot of the other icons and toggles that you have at the top of widgets right now, it's a whole lot going on. So let's put it in a 3-dot menu that is in the top right and only shows up on widget hover. And we should be able to, if supported, export image or export as JSON or CSV. And full screen a widget. And the settings just to change it visually and to save it.
+
+What this means:
+
+- **Visible by default:** only what tells you what data you're looking at (title, filters and similar context).
+- **Visual toggle:** when the widget's settings carry a subset of valid visuals pre-selected (by the user or the
+  agent), they show as a small toggle to switch between them.
+- **Everything else** moves to a 3-dot menu at the top right, shown on widget hover: export image, JSON or CSV (where
+  supported), full screen, and settings (change the look visually, save it).

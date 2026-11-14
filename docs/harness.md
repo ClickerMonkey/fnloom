@@ -1266,3 +1266,11 @@ Already checked: type-checking all of the types and examples takes about two sec
   tested we should switch to live libraries and that flow when I give the signal / Just pass my requests and the
   context you have that's need to agents and you orchestrate from now on". harness stays on the local linked branches
   until the signal, then moves to the published packages; work is done by agents the session briefs and reviews.
+- **Widget chrome shows the data context; the rest is in a hover menu** (2026-11-14): "Let's update the look of the
+  widgets so that what you see by default is only stuff that when you're thinking about what data am I looking at, it
+  helps tell you. So it would be something like the filters, stuff like that is what would be visible. And then if the
+  settings has a subset of the valid widgets that the user agent has pre-selected, those would be in a little toggle.
+  But a lot of the other icons and toggles that you have at the top of widgets right now, it's a whole lot going on. So
+  let's put it in a 3-dot menu that is in the top right and only shows up on widget hover. And we should be able to, if
+  supported, export image or export as JSON or CSV. And full screen a widget. And the settings just to change it
+  visually and to save it." Full note in `docs/plans/build-9-feedback.md`.
