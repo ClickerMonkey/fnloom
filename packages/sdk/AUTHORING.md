@@ -614,7 +614,10 @@ registries this system hosts by local name (`RegistryDef`: a description and the
 draws); `contributes`, the entries this system adds to any registry (`{ registry: 'hub/visuals', name:
 'map', label: 'Map' }`), whose components are in its client bundle; and `configSecrets`, the dot paths of its config's
 secret text fields (`connection.password`), which the hub seals and only `configure` carries in plain. A secret path
-that is not a text field of the config fails the manifest.
+that is not a text field of the config fails the manifest. The admin fns that carry a config (`hub/configure_system`,
+`hub/add_instance`, installing or pairing a system) seal those fields in their args before the run is stored, so a run,
+its approval and its words never hold the plain value. Pass secrets as plain values: a `{ $secret }` ref written by a
+caller is refused (`SECRET_KEPT` keeps the stored one).
 
 **Grants and what the hub enforces.** `system(name, info)` also takes `grants` (`SystemGrants`): what the system may
 do through the hub, and on its machine when fs hosts it. The hub checks every call a system makes over the link
@@ -636,7 +639,13 @@ Anything else needs a capability in `grants.hub`:
 | `ctx.state` (`get`, `set`, `update`, `clear`) | `hub: ['state']` |
 | `ctx.data` (`find`, `get`, `table`, `save`, `remove`) | `hub: ['data']` |
 | a hub secret by name | its name in `secrets` (its own config secrets are always its own) |
-| a host on the network, a path outside its folders (hosted by fs only) | the host in `network`, the path in `files` |
+| a host on the network (any supervised system: hosted by fs or installed under the hub) | the host in `network` |
+| a path outside its folders (hosted by fs only) | the path in `files` |
+
+`network` holds for the whole process, not only for calls through the hub: each supervised process gets an allowlist
+proxy of its own (`HTTP(S)_PROXY`) and preloads the SDK's socket guard, so a raw socket or a client with its own agent
+reaches only the proxy and the hub. A refused host is the instance's refusal like any other, and a grant approved while
+the system runs applies to its proxy at once. So declare every host the code (and every library it uses) connects to.
 
 Beyond the grants, the hub enforces what each fn declares in `effects`: a fn declared `read` can't call or propose a
 fn that writes or deletes (a hub fn tagged `own`, which changes only what the system owns, aside), a `write` fn can't
@@ -909,6 +918,10 @@ A gin type is a real runtime type (it parses and checks values, serializes to JS
 schema and the chat's input form) **and** it carries the TypeScript type of its values: `Infer<typeof T>` is exact. So
 write each shape once with `g` and infer the TypeScript type from it.
 
+A fn's args reach the model as a **strict tool call** built from their gin types (through aeye), and the hub checks the
+call against the same types, so the shape a model is told is the shape it is held to. Give every arg a real type: an
+arg the model sees should never be any JSON unless nothing else fits.
+
 | Builder | Values (`Infer`) | Notes |
 |---|---|---|
 | `g.text({ minLength?, maxLength?, pattern? })` | `string` | |
@@ -993,7 +1006,9 @@ to write.
 
 To read values of another system's named type at runtime, ask the hub for its definition
 (`ctx.types.definitions([name])`) and parse it with `loadTypes`. `ginOf(zodSchema)` makes a gin type from a zod
-schema (the hub uses it to mirror core schemas); a system's own shapes are written with `g` directly.
+schema (the hub uses it to mirror core schemas): core's `GinExprDef` becomes gin's `fn` (an expression), and
+`GinTypeDef` / `GinObjTypeDef` become gin's `typ` (a gin type, whose tool schema is gin's strict TypeDef schema), never
+any JSON. A system's own shapes are written with `g` directly.
 
 **Gotchas.** `g.optional` makes the key optional; with `exactOptionalPropertyTypes`, build objects with conditional
 spreads (`...(x === undefined ? {} : { x })`) rather than `x: undefined` where a type says `x?: T`. A `g.timestamp()`
@@ -1996,7 +2011,9 @@ buy: fn({
 ```
 
 **Approval.** `approval: {}` makes every run of a fn wait for the person's approval, whatever the policies say (use it
-for writes and schema changes). By default (`preview: true`) the hub first asks the implementation's
+for writes and schema changes). A policy, or a hub MCP's fn rule, picks fns by name or glob (`fs/*`), system, kind,
+tags and `when`, a gin expression over the args whose value is a bool (`FnMatch`), so typed args are what a `when` can
+read. By default (`preview: true`) the hub first asks the implementation's
 `preview(args, ctx)` what the run would do and shows it on the approval card: return `{ preview: { title, parts,
 irreversible } }` (parts: `text`, `code`, `table`, `type-diff`), or `{ refused: 'why' }` to fail the run as invalid
 input. A preview gets a `PreviewCtx` (the system context, the waiting run and its person) and must not change
@@ -3343,8 +3360,9 @@ _From `scripts/docs/example/shared/index.ts`:_
 
 ### Authoring agents
 
-Some fns write something hard: a query, a form's gin type, later an API call or code. Don't hand that to the chat model
-(it would carry every table or type in its context and guess at the shape), and don't make it an `agent()` (a free
+Some fns write something hard: a query, a form's gin type, an API call or code. Don't hand that to the chat model
+(it would carry every table or type in its context and guess at the shape; the database's chat fns `get_query` and
+`edit_query` take a description in words, never query JSON), and don't make it an `agent()` (a free
 loop of tools can draft before it has looked, and never has to check). Write a native fn that runs an **authoring
 agent**: `authoringAgent({ name, description, instructions, tools, draft, check, save, reuse? })` from
 `@harness/sdk/server`, run with the run's `ctx.ai()`. The chat model passes only a description of what it wants and
@@ -3357,12 +3375,27 @@ The agent works through fixed stages: **find** (search what exists; `reuse` answ
 schema), **check** (your `check`, run on every draft: each problem on its own line, in words the model can act on),
 **fix** (a draft with problems sends the model back, up to `HARNESS_AUTHORING_FIXES` times) and **save** (offered only
 once a draft checked clean; your `save` keeps it as a fn). A tool of a stage is offered only once every stage before
-it is done, so the model can't draft before it has searched. `authoringTool({ name, stage, description, schema, when?,
-call })` declares a find or inspect tool; `when` narrows it further. `session.disclosure` (`Disclosure`) records what
-the model has seen (`markAware`), loaded (`markLoaded`) and searched (`markSearched`), per level (`fn`, `type`,
-`table`): a load tool is offered while something is aware but not loaded, and nothing is shown twice. The run's own
-state (deps, the instance, what it chose) is `session.state`, the `AuthoringSession`'s second type parameter. Write
-`instructions` as the job step by step, with a worked example of a good draft.
+it is done, so the model can't draft before it has searched, and until something is saved or reused every round must
+call a tool (`toolChoice: 'required'`), so a model can't stop in words with a clean draft unsaved.
+`authoringTool({ name, stage, description, schema, when?, strict?, call })` declares a find or inspect tool; `when`
+narrows it further. aeye sends tool args as strict tool calls when the model can take them; `strict` is aeye's setting
+for one tool (`true` requires strict, a number is how much it is wanted, `false` sends it non-strict). The built-in
+`draft` tool is sent non-strict: strict decoding of a whole program or query (a recursive grammar, optional fields at
+every level) made models fill every absent optional with null and pick wrong branches, so the schema guides the draft
+and your `check` names each problem by path. `session.disclosure` (`Disclosure`) records what the model has seen
+(`markAware`), loaded (`markLoaded`) and searched (`markSearched`), per level (`fn`, `type`, `table`): a load tool is
+offered while something is aware but not loaded, and nothing is shown twice. The run's own state (deps, the instance,
+what it chose) is `session.state`, the `AuthoringSession`'s second type parameter. Write `instructions` as the job step
+by step, with a worked example of a good draft.
+
+**Programs.** The `code` and `api` systems author gin programs with `@harness/sdk/program` (`ProgramScope`,
+`programTools`, `testTool`, `ProgramAuthoring` on `authoringAgent`). A program's schemas are gin's strict ones
+(`buildSchemas(registry, { newStrict: true })`): a `{ kind: 'new', type, value }` is typed by the type it names. In its
+value a plain field (text, a number, a bool, an enum or literal, a date) takes its value as is (`"GET"`) or an
+expression; every other field (a list, an object, a body, any JSON) takes an expression, usually a `new` of its type.
+A type also accepts a named extension of a type it accepts (`list<obj{ key, value }>` takes `list<api/HttpParam>`).
+Write the examples in an authoring agent's `instructions` the same way, and test that each fits the schemas the tools
+are sent (`examples.test.ts` in the api, code and database systems).
 
 An agent handed what it builds on has nothing to find: `stages: { find: false }` starts it in **inspect** (a find
 tool or `reuse` is then refused). `toolNames: { draft, save }` names the built-in tools for the job (`{ draft:
@@ -10903,7 +10936,10 @@ Every system tests itself with the SDK's **test kit** (`@harness/sdk/testing`), 
 - **Models.** `mockModel([toolCall('search', { text: 'x' }), 'Saved.'])` answers `ctx.ai()` with scripted replies, in
   order; `mockModel({ recording: 'test/title.json' })` replays replies recorded once from a real model. A few tests may
   call a real free model with `realModel.it('…', async (model) => { … })` and pass `model` to `testHub`: they are
-  marked `real` and skipped without `OPENROUTER_API_KEY`.
+  marked `real` and skipped without `OPENROUTER_API_KEY`. The model gets the request as the hub's gateway sends it
+  (the same tool schemas, strictness and token cap). A real model driving an agent (an authoring fn writing and
+  checking a draft) needs a turn's time, not the test hub's 60 seconds: pass `liveTurn()` (four minutes) as the call's
+  extra, `kit.call('make_api', { request }, liveTurn())`.
 - **Kinds.** `kit.kindProps('<kind>', payload)` gives the problems the kind finds in a payload and the fn props it
   derives. `kit.runKind('<kind>', '<fn>', payload, args)` runs a fn of the kind as the hub runs a saved one (a code
   program, an API request) and gives its outcome, progress and hub calls.
@@ -14262,6 +14298,12 @@ export type BashOutput = Infer<typeof BashResult>;
 The rest of what the SDK exports: the pieces `serve` is built from (the manifest builder, keys, the outcome journal, the
 link transport, the LLM wire, the MCP face, files and process control, client bundles). A system rarely uses these
 directly; they are here so nothing is undocumented, and for tests and tools that need a seam.
+
+The network guard is here too. Every supervised system's process (fs's hosted systems and the hub's installed
+instances) gets an `AllowlistProxy` of its own for its `grants.network`, is pointed at it with `guardedEnv`, and
+preloads `NETWORK_GUARD` (`--require`), the socket guard (`guardNetwork`, also `@harness/sdk/server/socket-guard`) that
+holds every socket to the proxy and the hub. A refused host prints a `networkRefusedLine`, which the supervisor reads
+back (`refusedOfLine`) and reports to the hub; `setAllowed` changes what a running proxy lets through.
 
 ### Reference: runtime internals
 

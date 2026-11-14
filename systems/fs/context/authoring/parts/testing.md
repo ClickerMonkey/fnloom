@@ -27,7 +27,10 @@ Every system tests itself with the SDK's **test kit** (`@harness/sdk/testing`), 
 - **Models.** `mockModel([toolCall('search', { text: 'x' }), 'Saved.'])` answers `ctx.ai()` with scripted replies, in
   order; `mockModel({ recording: 'test/title.json' })` replays replies recorded once from a real model. A few tests may
   call a real free model with `realModel.it('…', async (model) => { … })` and pass `model` to `testHub`: they are
-  marked `real` and skipped without `OPENROUTER_API_KEY`.
+  marked `real` and skipped without `OPENROUTER_API_KEY`. The model gets the request as the hub's gateway sends it
+  (the same tool schemas, strictness and token cap). A real model driving an agent (an authoring fn writing and
+  checking a draft) needs a turn's time, not the test hub's 60 seconds: pass `liveTurn()` (four minutes) as the call's
+  extra, `kit.call('make_api', { request }, liveTurn())`.
 - **Kinds.** `kit.kindProps('<kind>', payload)` gives the problems the kind finds in a payload and the fn props it
   derives. `kit.runKind('<kind>', '<fn>', payload, args)` runs a fn of the kind as the hub runs a saved one (a code
   program, an API request) and gives its outcome, progress and hub calls.

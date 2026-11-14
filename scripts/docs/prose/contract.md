@@ -34,7 +34,10 @@ registries this system hosts by local name (`RegistryDef`: a description and the
 draws); `contributes`, the entries this system adds to any registry (`{ registry: 'hub/visuals', name:
 'map', label: 'Map' }`), whose components are in its client bundle; and `configSecrets`, the dot paths of its config's
 secret text fields (`connection.password`), which the hub seals and only `configure` carries in plain. A secret path
-that is not a text field of the config fails the manifest.
+that is not a text field of the config fails the manifest. The admin fns that carry a config (`hub/configure_system`,
+`hub/add_instance`, installing or pairing a system) seal those fields in their args before the run is stored, so a run,
+its approval and its words never hold the plain value. Pass secrets as plain values: a `{ $secret }` ref written by a
+caller is refused (`SECRET_KEPT` keeps the stored one).
 
 **Grants and what the hub enforces.** `system(name, info)` also takes `grants` (`SystemGrants`): what the system may
 do through the hub, and on its machine when fs hosts it. The hub checks every call a system makes over the link
@@ -56,7 +59,13 @@ Anything else needs a capability in `grants.hub`:
 | `ctx.state` (`get`, `set`, `update`, `clear`) | `hub: ['state']` |
 | `ctx.data` (`find`, `get`, `table`, `save`, `remove`) | `hub: ['data']` |
 | a hub secret by name | its name in `secrets` (its own config secrets are always its own) |
-| a host on the network, a path outside its folders (hosted by fs only) | the host in `network`, the path in `files` |
+| a host on the network (any supervised system: hosted by fs or installed under the hub) | the host in `network` |
+| a path outside its folders (hosted by fs only) | the path in `files` |
+
+`network` holds for the whole process, not only for calls through the hub: each supervised process gets an allowlist
+proxy of its own (`HTTP(S)_PROXY`) and preloads the SDK's socket guard, so a raw socket or a client with its own agent
+reaches only the proxy and the hub. A refused host is the instance's refusal like any other, and a grant approved while
+the system runs applies to its proxy at once. So declare every host the code (and every library it uses) connects to.
 
 Beyond the grants, the hub enforces what each fn declares in `effects`: a fn declared `read` can't call or propose a
 fn that writes or deletes (a hub fn tagged `own`, which changes only what the system owns, aside), a `write` fn can't

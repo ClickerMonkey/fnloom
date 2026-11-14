@@ -129,8 +129,9 @@ _From `scripts/docs/example/shared/index.ts`:_
 
 ### Authoring agents
 
-Some fns write something hard: a query, a form's gin type, later an API call or code. Don't hand that to the chat model
-(it would carry every table or type in its context and guess at the shape), and don't make it an `agent()` (a free
+Some fns write something hard: a query, a form's gin type, an API call or code. Don't hand that to the chat model
+(it would carry every table or type in its context and guess at the shape; the database's chat fns `get_query` and
+`edit_query` take a description in words, never query JSON), and don't make it an `agent()` (a free
 loop of tools can draft before it has looked, and never has to check). Write a native fn that runs an **authoring
 agent**: `authoringAgent({ name, description, instructions, tools, draft, check, save, reuse? })` from
 `@harness/sdk/server`, run with the run's `ctx.ai()`. The chat model passes only a description of what it wants and
@@ -143,12 +144,27 @@ The agent works through fixed stages: **find** (search what exists; `reuse` answ
 schema), **check** (your `check`, run on every draft: each problem on its own line, in words the model can act on),
 **fix** (a draft with problems sends the model back, up to `HARNESS_AUTHORING_FIXES` times) and **save** (offered only
 once a draft checked clean; your `save` keeps it as a fn). A tool of a stage is offered only once every stage before
-it is done, so the model can't draft before it has searched. `authoringTool({ name, stage, description, schema, when?,
-call })` declares a find or inspect tool; `when` narrows it further. `session.disclosure` (`Disclosure`) records what
-the model has seen (`markAware`), loaded (`markLoaded`) and searched (`markSearched`), per level (`fn`, `type`,
-`table`): a load tool is offered while something is aware but not loaded, and nothing is shown twice. The run's own
-state (deps, the instance, what it chose) is `session.state`, the `AuthoringSession`'s second type parameter. Write
-`instructions` as the job step by step, with a worked example of a good draft.
+it is done, so the model can't draft before it has searched, and until something is saved or reused every round must
+call a tool (`toolChoice: 'required'`), so a model can't stop in words with a clean draft unsaved.
+`authoringTool({ name, stage, description, schema, when?, strict?, call })` declares a find or inspect tool; `when`
+narrows it further. aeye sends tool args as strict tool calls when the model can take them; `strict` is aeye's setting
+for one tool (`true` requires strict, a number is how much it is wanted, `false` sends it non-strict). The built-in
+`draft` tool is sent non-strict: strict decoding of a whole program or query (a recursive grammar, optional fields at
+every level) made models fill every absent optional with null and pick wrong branches, so the schema guides the draft
+and your `check` names each problem by path. `session.disclosure` (`Disclosure`) records what the model has seen
+(`markAware`), loaded (`markLoaded`) and searched (`markSearched`), per level (`fn`, `type`, `table`): a load tool is
+offered while something is aware but not loaded, and nothing is shown twice. The run's own state (deps, the instance,
+what it chose) is `session.state`, the `AuthoringSession`'s second type parameter. Write `instructions` as the job step
+by step, with a worked example of a good draft.
+
+**Programs.** The `code` and `api` systems author gin programs with `@harness/sdk/program` (`ProgramScope`,
+`programTools`, `testTool`, `ProgramAuthoring` on `authoringAgent`). A program's schemas are gin's strict ones
+(`buildSchemas(registry, { newStrict: true })`): a `{ kind: 'new', type, value }` is typed by the type it names. In its
+value a plain field (text, a number, a bool, an enum or literal, a date) takes its value as is (`"GET"`) or an
+expression; every other field (a list, an object, a body, any JSON) takes an expression, usually a `new` of its type.
+A type also accepts a named extension of a type it accepts (`list<obj{ key, value }>` takes `list<api/HttpParam>`).
+Write the examples in an authoring agent's `instructions` the same way, and test that each fits the schemas the tools
+are sent (`examples.test.ts` in the api, code and database systems).
 
 An agent handed what it builds on has nothing to find: `stages: { find: false }` starts it in **inspect** (a find
 tool or `reuse` is then refused). `toolNames: { draft, save }` names the built-in tools for the job (`{ draft:

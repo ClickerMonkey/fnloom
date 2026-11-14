@@ -22,6 +22,10 @@ A gin type is a real runtime type (it parses and checks values, serializes to JS
 schema and the chat's input form) **and** it carries the TypeScript type of its values: `Infer<typeof T>` is exact. So
 write each shape once with `g` and infer the TypeScript type from it.
 
+A fn's args reach the model as a **strict tool call** built from their gin types (through aeye), and the hub checks the
+call against the same types, so the shape a model is told is the shape it is held to. Give every arg a real type: an
+arg the model sees should never be any JSON unless nothing else fits.
+
 | Builder | Values (`Infer`) | Notes |
 |---|---|---|
 | `g.text({ minLength?, maxLength?, pattern? })` | `string` | |
@@ -106,7 +110,9 @@ to write.
 
 To read values of another system's named type at runtime, ask the hub for its definition
 (`ctx.types.definitions([name])`) and parse it with `loadTypes`. `ginOf(zodSchema)` makes a gin type from a zod
-schema (the hub uses it to mirror core schemas); a system's own shapes are written with `g` directly.
+schema (the hub uses it to mirror core schemas): core's `GinExprDef` becomes gin's `fn` (an expression), and
+`GinTypeDef` / `GinObjTypeDef` become gin's `typ` (a gin type, whose tool schema is gin's strict TypeDef schema), never
+any JSON. A system's own shapes are written with `g` directly.
 
 **Gotchas.** `g.optional` makes the key optional; with `exactOptionalPropertyTypes`, build objects with conditional
 spreads (`...(x === undefined ? {} : { x })`) rather than `x: undefined` where a type says `x?: T`. A `g.timestamp()`

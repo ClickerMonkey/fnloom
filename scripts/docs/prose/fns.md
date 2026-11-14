@@ -76,7 +76,9 @@ buy: fn({
 ```
 
 **Approval.** `approval: {}` makes every run of a fn wait for the person's approval, whatever the policies say (use it
-for writes and schema changes). By default (`preview: true`) the hub first asks the implementation's
+for writes and schema changes). A policy, or a hub MCP's fn rule, picks fns by name or glob (`fs/*`), system, kind,
+tags and `when`, a gin expression over the args whose value is a bool (`FnMatch`), so typed args are what a `when` can
+read. By default (`preview: true`) the hub first asks the implementation's
 `preview(args, ctx)` what the run would do and shows it on the approval card: return `{ preview: { title, parts,
 irreversible } }` (parts: `text`, `code`, `table`, `type-diff`), or `{ refused: 'why' }` to fail the run as invalid
 input. A preview gets a `PreviewCtx` (the system context, the waiting run and its person) and must not change
