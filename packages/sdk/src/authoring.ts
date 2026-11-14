@@ -403,6 +403,9 @@ export function authoringAgent<S, D>(def: AuthoringAgentInput<S, D>): AuthoringA
         input: () => ({ request: session.request, stage: session.stage, guide: guide[session.stage] }),
         tools,
         dynamic: true,
+        // until something is saved (or reused) every round must call a tool: a model that answers in words mid-way (a
+        // clean draft and no `save`) otherwise ends the run with nothing kept
+        config: () => (session.going ? { toolChoice: 'required' } : {}),
         toolIterations: rounds,
         toolExecution: 'sequential',
         // no model named: the hub picks (its stand-in has every capability), never aeye among the hub's whole list,
