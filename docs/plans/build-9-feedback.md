@@ -116,3 +116,18 @@ What this means:
   agent), they show as a small toggle to switch between them.
 - **Everything else** moves to a 3-dot menu at the top right, shown on widget hover: export image, JSON or CSV (where
   supported), full screen, and settings (change the look visually, save it).
+
+## 2026-11-14 (fn modal fails on the mock; drill-downs from every widget)
+
+Looking at the mock data on the phone, the fn modal for `database/shop.sample` showed "Couldn't load this fn.":
+
+> Not good! Also was drill downs implemented? There's a drilldownify and and maybe paginate or something functions that take a gin query and make them safe to use for widgets so all can support pagination and drilldowns. If the query doesn't support drilldowns it throws an error or something. So every widget if I click on a part of it that basically represents a group and should be sent to a drilldownify query which flattens a query to produce the rows that made that group - in turn another widget could be displayed in a modal. Default to table.
+
+What this means:
+
+- **The fn modal loads every fn** it can be opened on, in the real app and the mock.
+- **Drill-downs come from the query, not a hand-bound fn:** `@aeye/query`'s `drillDown` (with `autoPaginate`) turns a
+  grouped query into the query for the rows behind one group. Every widget whose query supports it can be drilled:
+  clicking a part that stands for a group (a bar, a slice, a grouped row) runs that query for the group and shows its
+  rows as another widget in a modal, a table by default. A query that can't be drilled says so (the transform
+  refuses) and its parts aren't clickable.

@@ -1274,3 +1274,9 @@ Already checked: type-checking all of the types and examples takes about two sec
   let's put it in a 3-dot menu that is in the top right and only shows up on widget hover. And we should be able to, if
   supported, export image or export as JSON or CSV. And full screen a widget. And the settings just to change it
   visually and to save it." Full note in `docs/plans/build-9-feedback.md`.
+- **Every widget drills down through the query** (2026-11-14): "Also was drill downs implemented? There's a
+  drilldownify and and maybe paginate or something functions that take a gin query and make them safe to use for
+  widgets so all can support pagination and drilldowns. If the query doesn't support drilldowns it throws an error or
+  something. So every widget if I click on a part of it that basically represents a group and should be sent to a
+  drilldownify query which flattens a query to produce the rows that made that group - in turn another widget could be
+  displayed in a modal. Default to table." Full note in `docs/plans/build-9-feedback.md`.
