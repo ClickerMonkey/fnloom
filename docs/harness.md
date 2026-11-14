@@ -1286,3 +1286,6 @@ Already checked: type-checking all of the types and examples takes about two sec
   task in data tab and it says 128 rows but when I click on it it says no records yet. Either there are and we
   shouldn't show that message until we know for sure or a loading visual". Full note in
   `docs/plans/build-9-feedback.md`.
+- **No data types beside field names** (2026-11-14): "Hmm let's remove data type from the table columns or anywhere
+  else, not particularly useful for user but you could add that info to tooltip". Full note in
+  `docs/plans/build-9-feedback.md`.

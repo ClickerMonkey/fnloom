@@ -145,3 +145,12 @@ What this means:
   label still wins. The original name is the element's `title` attribute, for anyone curious.
 - **No false empty state:** a type the data tab lists with rows never says "No records yet" while its records load; it
   shows a loading state until the answer is known, and the empty message only when there truly are none.
+
+## 2026-11-14 (no data types in column headers)
+
+> Hmm let's remove data type from the table columns or anywhere else, not particularly useful for user but you could add that info to tooltip
+
+What this means:
+
+- **Data types aren't shown as labels:** table headers (and anywhere else a field's data type sits beside its name)
+  show only the friendly name. The type moves into the tooltip, beside the raw name (e.g. `due_date · date`).
