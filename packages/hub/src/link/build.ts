@@ -43,7 +43,7 @@ import { MemorySystemOutput } from './output.ts';
 import { PeerResourceRouter } from './resources.ts';
 import { InstanceKeeper } from './status.ts';
 import { ConfigSecretKeeper, type ConfigVault } from './config-secrets.ts';
-import { ProcessSupervisor } from './supervisor.ts';
+import { ProcessSupervisor, grantedNetwork } from './supervisor.ts';
 import { StoreSystemAdmin } from './systems.ts';
 
 /** The settings the system side reads, from the env slices. */
@@ -124,7 +124,7 @@ export function buildSystems(options: SystemsOptions) {
   const relay = new SystemEventRelay({ bus, links: connections, catalog, log });
   const output = new MemorySystemOutput({ bus, clock });
   const supervisor = new ProcessSupervisor({
-    store, log, clock, links: connections, pairing, config, instances, launcher: options.launcher, installer,
+    store, log, clock, links: connections, pairing, config, instances, launcher: options.launcher, installer, network: grantedNetwork(grants, bus),
     settings: {
       systemsDir: settings.hub.HARNESS_SYSTEMS_DIR, hubLink: linkUrl(settings.hub.HARNESS_URL), stopTimeout: settings.link.HARNESS_STOP_TIMEOUT,
       backoff: settings.link.HARNESS_RESTART_BACKOFF, perHour: settings.link.HARNESS_RESTARTS_PER_HOUR, maxBackoff: settings.link.HARNESS_RESTART_BACKOFF_MAX,

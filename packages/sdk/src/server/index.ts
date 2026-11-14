@@ -178,7 +178,12 @@ export {
   AccessDeniedReader, BASIC_ENV, CrashPolicy, RunningStatus, SHARED_ENV, STATUS_LOG, NodeStarter, permissionArgs, scrubbedEnv, statusOfLine,
   type AccessDenied, type CrashPolicyOptions, type ExitDecision, type NodeStarterOptions, type ProcessCommand, type ProcessExit, type ProcessGrants, type ProcessStarter, type SupervisedProcess,
 } from './supervise.ts';
-export { AllowlistProxy, hostAllowed, proxyEnv, type AllowlistProxyOptions, type ProxyRefusal } from './proxy.ts';
+export {
+  AllowlistProxy, NETWORK_GUARD, NETWORK_GUARD_FILES, guardedEnv, hostAllowed, proxyEnv, type AllowlistProxyOptions, type NetworkGate, type ProxyRefusal,
+} from './proxy.ts';
+export {
+  NETWORK_ALLOW_VAR, endpointOf, endpointText, endpointsText, guardNetwork, hostKey, networkRefusedLine, parseEndpoints, refusedOfLine, type Endpoint, type GuardOptions, type Refused,
+} from './socket-guard.ts';
 export { StateConflict } from './state.ts';
 export { McpFace, mcpToolNameOf, type McpLimits } from './mcp.ts';
 export {

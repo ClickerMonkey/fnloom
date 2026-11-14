@@ -4,38 +4,27 @@
  * model (`permissionArgs`: read its bundle and the loader, write its own folders, child processes and workers only when
  * `system.json` asks, plus the paths its contract's `grants.files` names), its network through an allowlist proxy of the
  * hosts its `grants.network` names (`proxyEnv`; the hub link goes direct) with its sockets held to that proxy and the hub
- * (`hosted-network-guard.ts`, preloaded, so a raw socket or a client with its own agent can't go around the proxy), and restarted after a crash by the `CrashPolicy` (backoff doubling, a cap per hour, then
- * disabled). A start waits until that very process says the hub welcomed it (its `system.status` log line, `connected`
+ * (the SDK's `NETWORK_GUARD`, preloaded, so a raw socket or a client with its own agent can't go around the proxy; the
+ * hub's supervisor runs its installed instances the same way), and restarted after a crash by the `CrashPolicy`
+ * (backoff doubling, a cap per hour, then disabled). A start waits until that very process says the hub welcomed it (its `system.status` log line, `connected`
  * or `needs-config`: the SDK writes it once the hub accepted its key and, for a first install, the approved contract),
  * it exits, or the time is up. Another instance of the system, or the old process of an update, never counts. A host
  * the proxy or the socket guard refuses, and a path Node's permission model refuses (read from what the child prints), are reported to the
  * hub as that instance's refusals.
  */
-import { AccessDeniedReader, permissionArgs, proxyEnv, statusOfLine, type CrashPolicy, type ProcessStarter, type ProxyRefusal, type SupervisedProcess } from '@harness/sdk/server';
+import {
+  AccessDeniedReader, NETWORK_GUARD, NETWORK_GUARD_FILES, guardedEnv, permissionArgs, refusedOfLine, statusOfLine,
+  type CrashPolicy, type Endpoint, type NetworkGate as SdkNetworkGate, type ProcessStarter, type ProxyRefusal, type SupervisedProcess,
+} from '@harness/sdk/server';
 import type { HostRefusal, RestartPolicy } from '@harness/core';
 import type { HostedStateValue } from '../shared/hosting.ts';
-import { fileURLToPath } from 'node:url';
 import type { HostedLaunch, HostedRunner, RunnerStatus, StartOutcome } from './hosting.ts';
-import { NETWORK_ALLOW_VAR, endpointOf, endpointsText, refusedOfLine, type Endpoint } from './socket-guard.ts';
 
 /** An hour, the window restarts are counted in. */
 const HOUR = 3_600_000;
 
-/**
- * What each hosted process preloads to hold its sockets to its proxy and the hub. `--require`, not `--import`: a
- * preload runs before the loader's `--import`, so Node strips the guard's types itself (tsx would need a worker to
- * transform it, which the permission model denies), and tsx still registers its hooks after it.
- */
-const NETWORK_GUARD = fileURLToPath(new URL('./hosted-network-guard.ts', import.meta.url));
-/** The guard's files, which every hosted process may read. */
-const GUARD_FILES = [NETWORK_GUARD, fileURLToPath(new URL('./socket-guard.ts', import.meta.url))];
-
-/** A child's network gate: listens, and is closed when the child is stopped for good (`AllowlistProxy`). */
-export interface NetworkGate {
-  /** Start listening; resolves to the proxy URL the child is pointed at. */
-  start(): Promise<string>;
-  close(): Promise<void>;
-}
+/** A child's network gate (the SDK's `AllowlistProxy`): listens, and is closed when the child is stopped for good. */
+export type NetworkGate = Pick<SdkNetworkGate, 'start' | 'close'>;
 
 /** What the runner is built from. */
 export interface RunnerDeps {
@@ -136,7 +125,7 @@ export class SupervisedRunner implements HostedRunner {
   #spawn(key: string, entry: Entry): SupervisedProcess {
     const { launch } = entry;
     const grants = {
-      read: [launch.cwd, ...this.#deps.reads, ...GUARD_FILES, ...launch.files.read], write: [...launch.writes, ...launch.files.write],
+      read: [launch.cwd, ...this.#deps.reads, ...NETWORK_GUARD_FILES, ...launch.files.read], write: [...launch.writes, ...launch.files.write],
       ...(launch.permissions === undefined ? {} : { permissions: launch.permissions }),
     };
     entry.said = undefined;
@@ -158,8 +147,7 @@ export class SupervisedRunner implements HostedRunner {
       }
     };
     const env = {
-      ...launch.env, ...proxyEnv(entry.gate.url, this.#directHosts()),
-      [NETWORK_ALLOW_VAR]: endpointsText([endpointOf(entry.gate.url), ...this.#deps.direct]),
+      ...launch.env, ...guardedEnv(entry.gate.url, this.#deps.direct),
     };
     const args = [...permissionArgs(grants), '--require', NETWORK_GUARD, launch.entry];
     const child: SupervisedProcess = this.#deps.starter.launch({ run: process.execPath, args, cwd: launch.cwd, env, onOutput: heard });

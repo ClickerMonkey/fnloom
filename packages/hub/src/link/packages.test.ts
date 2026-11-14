@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { InstanceName, MAIN_INSTANCE, SystemName, type ContentRef, type InstanceRef, type SystemPackageManifest } from '@harness/core';
-import { SYSTEM_ENV } from '@harness/sdk/server';
+import { NETWORK_GUARD, SYSTEM_ENV } from '@harness/sdk/server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ADMIN, manifestFor, vectors } from '../catalog/fixtures.ts';
 import { settle } from '../testing.ts';
@@ -11,7 +11,7 @@ import { StoredKeyPair } from './keys.ts';
 import { readExport, sealPackage, unzip, zip, type ZipEntry } from './package/index.ts';
 import { contentBytes, HubPackages, newer, ZIP_MIME } from './packages.ts';
 import { NodeInstaller } from './process.ts';
-import { FakeLauncher, FakeSystem, RIG_SETTINGS, linkRig, systemJson, type LinkRig } from './rig.ts';
+import { FakeLauncher, FakeNetwork, FakeSystem, RIG_SETTINGS, linkRig, systemJson, type LinkRig } from './rig.ts';
 import { ProcessSupervisor } from './supervisor.ts';
 
 const NAME = SystemName.parse('vectors');
@@ -30,7 +30,7 @@ beforeEach(async () => {
   const installer = new NodeInstaller({ npm: RIG_SETTINGS.packaging.HARNESS_NPM, maxBytes: RIG_SETTINGS.packaging.HARNESS_PACKAGE_MAX, zips: { bytes: (hash) => contentBytes(rig.content, hash) } });
   supervisor = new ProcessSupervisor({
     store: rig.store, log: rig.log, clock: () => rig.time.now, links: rig.links, pairing: rig.pairing, config: rig.config, instances: rig.instances,
-    launcher, installer, settings: { systemsDir: dir, hubLink: 'ws://hub:4300/link', stopTimeout: 50, backoff: 5, perHour: 2, maxBackoff: 300_000 },
+    launcher, installer, network: new FakeNetwork(), settings: { systemsDir: dir, hubLink: 'ws://hub:4300/link', stopTimeout: 50, backoff: 5, perHour: 2, maxBackoff: 300_000 },
   });
   packages = new HubPackages({
     content: () => rig.content, supervisor, admin: rig.admin, instances: rig.instances, links: rig.links, config: rig.config, exportTimeout: 200, log: rig.log,
@@ -64,7 +64,7 @@ describe('installing a package zip', () => {
     expect(ref).toEqual({ system: NAME, instance: MAIN_INSTANCE });
     const dirs = supervisor.dirsOf(ref);
     expect(launcher.last.command).toMatchObject({
-      args: [join(dir, 'vectors', 'versions', '1.0.0', 'server', 'main.js')],
+      args: ['--require', NETWORK_GUARD, join(dir, 'vectors', 'versions', '1.0.0', 'server', 'main.js')],
       env: { [SYSTEM_ENV.data]: dirs.data, [SYSTEM_ENV.cache]: dirs.cache, [SYSTEM_ENV.state]: dirs.state, [SYSTEM_ENV.instance]: 'main' },
     });
     expect(await readFile(join(dir, 'vectors', 'versions', '1.0.0', 'server', 'main.js'), 'utf8')).toBe('// 1.0.0');

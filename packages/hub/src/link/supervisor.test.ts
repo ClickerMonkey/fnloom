@@ -9,8 +9,8 @@ import { ADMIN, manifestFor, shop, vectors } from '../catalog/fixtures.ts';
 import { settle } from '../testing.ts';
 import { StoredKeyPair } from './keys.ts';
 import { NodeInstaller, readManifest, type Installer, type SystemPackage } from './process.ts';
-import { FakeLauncher, FakeSystem, RIG_SETTINGS, linkRig, systemJson, type LinkRig } from './rig.ts';
-import { RESTART_CODE, SYSTEM_ENV } from '@harness/sdk/server';
+import { FakeLauncher, FakeNetwork, FakeSystem, RIG_SETTINGS, linkRig, systemJson, type LinkRig } from './rig.ts';
+import { NETWORK_GUARD, RESTART_CODE, SYSTEM_ENV } from '@harness/sdk/server';
 import { ProcessSupervisor } from './supervisor.ts';
 import { addSource } from '../api/admin-ops.ts';
 
@@ -42,7 +42,7 @@ const SHOP = SystemName.parse('shop');
 function supervisor(name = 'shop', perHour = 2, installer = new FakeInstaller(name), systemsDir = dir) {
   return new ProcessSupervisor({
     store: rig.store, log: rig.log, clock: () => rig.time.now, links: rig.links, pairing: rig.pairing, config: rig.config, instances: rig.instances,
-    launcher, installer,
+    launcher, installer, network: new FakeNetwork(),
     settings: { systemsDir, hubLink: 'ws://hub:4300/link', stopTimeout: 50, backoff: 5, perHour, maxBackoff: 300_000 },
   });
 }
@@ -74,7 +74,7 @@ describe('installing', () => {
     expect(installed).toMatchObject({ name: 'shop', instance: 'main', version: '1.0.0', status: 'starting', autoStart: true, pid: 100, dir: join(dir, 'shop') });
     expect(launcher.last.command).toMatchObject({
       run: process.execPath,
-      args: [join(dir, 'shop', 'versions', '1.0.0', 'server', 'main.ts')],
+      args: ['--require', NETWORK_GUARD, join(dir, 'shop', 'versions', '1.0.0', 'server', 'main.ts')],
       env: {
         [SYSTEM_ENV.hub]: 'ws://hub:4300/link', [SYSTEM_ENV.name]: 'shop', [SYSTEM_ENV.instance]: 'main',
         [SYSTEM_ENV.state]: join(dir, 'shop', 'instances', 'main', 'state'), [SYSTEM_ENV.data]: join(dir, 'shop', 'instances', 'main', 'data'),
@@ -103,7 +103,7 @@ describe('installing', () => {
     const sup = supervisor('shop', 2, new FakeInstaller('shop'), relative(process.cwd(), dir));
     await sup.install({ source: { package: '@x/shop', version: '1.0.0' }, by: ADMIN });
     expect(launcher.last.command.env[SYSTEM_ENV.state]).toBe(join(dir, 'shop', 'instances', 'main', 'state'));
-    expect(isAbsolute(launcher.last.command.args[0] ?? '')).toBe(true);
+    expect(isAbsolute(launcher.last.command.args.at(-1) ?? '')).toBe(true);
   });
 
   it('runs a folder source in place', async () => {
@@ -145,14 +145,14 @@ describe('running', () => {
     expect(await sup.upgrade(SHOP, '2.0.0')).toEqual({ from: '1.0.0', to: '2.0.0' });
     await settle(60);
     expect(launcher.launched[0]?.killed).toBe(true);
-    expect(launcher.last.command.args[0]).toContain(join('versions', '2.0.0'));
+    expect(launcher.last.command.args.at(-1)).toContain(join('versions', '2.0.0'));
     launcher.last.exit(1);
     await settle(20);
     launcher.last.exit(1);
     await settle(20);
     const [installed] = await sup.list();
     expect(installed).toMatchObject({ version: '1.0.0', goodVersion: '1.0.0' });
-    expect(launcher.last.command.args[0]).toContain(join('versions', '1.0.0'));
+    expect(launcher.last.command.args.at(-1)).toContain(join('versions', '1.0.0'));
   });
 
   it('starts a system that exits with the restart code again at once, without counting a crash', async () => {

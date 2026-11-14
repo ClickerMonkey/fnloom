@@ -8,20 +8,36 @@
  * the hub's): it is started again at once and that doesn't count as a crash. Then an instance that has a last good
  * version (the last one that connected) rolls back to it; one that doesn't is disabled until an admin starts it.
  * Stopping asks over the link first, then ends the process.
+ *
+ * Each process's network is held to its system's `grants.network` the way fs holds the systems it hosts: it gets an
+ * `AllowlistProxy` of its own letting through those hosts (the approved grants once the system is live, else what its
+ * contract declares: `SystemGrantGuard.grants`) and the hub's, is pointed at it (`guardedEnv`; the hub link goes
+ * direct), and preloads the SDK's socket guard (`NETWORK_GUARD`), so a raw socket reaches only the proxy and the hub.
+ * A host the proxy or the guard refuses is kept as that instance's refusal (`SystemGrantGuard.refused`, as fs's
+ * `reportRefusal` is). The proxy lives as long as the process: it is closed once the process has exited (stopped,
+ * crashed or restarting) and a new start gets a new one. A grant that changes while it runs (its contract imported,
+ * approved or rejected) changes what its proxy lets through at once; the guard it started with stays until it restarts.
+ * Node's permission model (files, child processes) is not applied to these instances, so unlike fs's hosted systems
+ * nothing denies `process.binding`, the way around the guard: the guard holds honest code, not a determined one.
  */
 import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { reject as refuse } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
-import { CrashPolicy, RESTART_CODE, SYSTEM_ENV, type ProcessExit, type ProcessStarter, type SupervisedProcess } from '@harness/sdk/server';
+import {
+  AllowlistProxy, CrashPolicy, NETWORK_GUARD, RESTART_CODE, SYSTEM_ENV, endpointOf, guardedEnv, refusedOfLine,
+  type Endpoint, type NetworkGate, type ProcessCommand, type ProcessExit, type ProcessStarter, type ProxyRefusal, type SupervisedProcess,
+} from '@harness/sdk/server';
 import {
   MAIN_INSTANCE, instanceLabel, type InstallSource, type InstalledSystem, type InstanceDirs, type InstanceName, type InstanceRecord, type InstanceRef,
-  type StopReason, type SystemName,
+  type HostRefusal, type StopReason, type SystemName,
 } from '@harness/core';
+import type { EventBus } from '../bus.ts';
 import { allRows } from '../store/rows.ts';
 import { messageOf } from '../catalog/scope.ts';
 import type { HubStore } from '../store/index.ts';
 import type { StoreConfigService } from './config.ts';
+import type { SystemGrantGuard } from './grants.ts';
 import type { InstallInput, LinkService, PairingService, Supervisor } from './index.ts';
 import { KEY_FILE, makeKeyPair, randomToken } from './keys.ts';
 import type { Installer, SystemPackage } from './process.ts';
@@ -43,6 +59,34 @@ export interface SupervisorSettings {
   readonly maxBackoff: number;
 }
 
+/** How the supervisor holds each process's network to its grant. */
+export interface SupervisorNetwork {
+  /** The hosts an instance of `system` may reach (`grants.network`; none declared, none). */
+  hosts(system: SystemName): Promise<readonly string[]>;
+  /** A gate letting through `allow` and telling `refused` of every other host: an `AllowlistProxy`. */
+  gate(allow: readonly string[], refused: (refusal: ProxyRefusal) => void): NetworkGate;
+  /** Keep a host an instance was refused as its refusal. */
+  refused(refusal: HostRefusal): Promise<unknown>;
+  /** Calls `listener` whenever grants may have changed. */
+  onChange(listener: () => void): void;
+}
+
+/**
+ * The supervisor's network over the grant guard: the grants it enforces over the link, its refusals (kept as
+ * `reportRefusal` keeps fs's), and the bus events a contract import, approval or rejection publishes.
+ */
+export function grantedNetwork(grants: Pick<SystemGrantGuard, 'grants' | 'refused'>, bus: Pick<EventBus, 'subscribe'>): SupervisorNetwork {
+  return {
+    hosts: async (system) => (await grants.grants(system)).network ?? [],
+    gate: (allow, refused) => new AllowlistProxy({ allow, onRefused: refused }),
+    refused: (refusal) => grants.refused(refusal.instance, { rule: refusal.rule, attempt: refusal.attempt, detail: refusal.detail }),
+    onChange: (listener) => {
+      bus.subscribe('capabilities.changed', listener);
+      bus.subscribe('catalog.changed', listener);
+    },
+  };
+}
+
 /** What the supervisor needs. */
 export interface SupervisorOptions {
   readonly store: HubStore;
@@ -55,12 +99,17 @@ export interface SupervisorOptions {
   /** Starts processes: the SDK's `NodeStarter` (a scrubbed environment) in production. */
   readonly launcher: ProcessStarter;
   readonly installer: Installer;
+  /** Each process's network gate (`grantedNetwork` in production). */
+  readonly network: SupervisorNetwork;
   readonly settings: SupervisorSettings;
 }
 
 /** One running process. */
 interface Running {
+  readonly ref: InstanceRef;
   readonly process: SupervisedProcess;
+  /** Its network gate, closed once it has exited. */
+  readonly gate: NetworkGate;
   /** Settles once the exit has been handled (status written, restart started), so a stop can wait for all of it. */
   readonly handled: Promise<void>;
   stopping: boolean;
@@ -79,13 +128,19 @@ export class ProcessSupervisor implements Supervisor {
   /** The shared restart rule, keyed by `system@instance`. */
   readonly #crashes: CrashPolicy;
   readonly #timers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Starts still opening their gate, so a second start or a stop waits for them. */
+  readonly #starting = new Map<string, Promise<void>>();
+  /** The hub's link endpoint, which every process reaches directly (never through its proxy). */
+  readonly #hub: Endpoint;
 
   constructor(options: SupervisorOptions) {
     this.#options = options;
+    this.#hub = endpointOf(options.settings.hubLink);
     this.#crashes = new CrashPolicy({ maxWait: options.settings.maxBackoff, restartCode: RESTART_CODE, clock: options.clock });
     options.links.onChange((change) => {
       if (change.connected && this.#running.has(instanceLabel(change))) { void this.#connected(change); }
     });
+    options.network.onChange(() => { void this.#regrant(); });
   }
 
   /** A system's folder (absolute, since each process runs in its own package folder). */
@@ -216,17 +271,38 @@ export class ProcessSupervisor implements Supervisor {
 
   // ─── Starting and stopping one instance ─────────────────────────────────────
 
-  async #start(installed: InstalledSystem): Promise<void> {
+  #start(installed: InstalledSystem): Promise<void> {
+    const key = instanceLabel(refOf(installed));
+    const pending = this.#starting.get(key);
+    if (pending !== undefined) { return pending; }
+    // released once the process is running, so an exit at once can start it again
+    const release = (): void => { if (this.#starting.get(key) === starting) { this.#starting.delete(key); } };
+    const starting: Promise<void> = this.#launch(installed, release).finally(release);
+    this.#starting.set(key, starting);
+    return starting;
+  }
+
+  /** Open the instance's gate, then launch it pointed at it (`launched` once it is running). */
+  async #launch(installed: InstalledSystem, launched: () => void): Promise<void> {
     const ref = refOf(installed);
     const key = instanceLabel(ref);
     this.#clearTimer(key);
     if (this.#running.has(key)) { return; }
     if (installed.status === 'disabled') { this.#crashes.forget(key); }
-    const process = this.#options.launcher.launch(installed.command);
+    const gate = this.#options.network.gate(await this.#allowed(ref), (refusal) => { this.#refusedHost(ref, refusal.host, `${refusal.host}:${String(refusal.port)}`); });
+    const url = await gate.start();
+    let process: SupervisedProcess;
+    try {
+      process = this.#options.launcher.launch(this.#guarded(installed.command, url, ref));
+    } catch (error) {
+      await gate.close();
+      throw error;
+    }
     const handled = process.exited.then((exit) => this.#exited(ref, exit)).catch((error: unknown) => {
       this.#options.log.error('supervisor.exit.failed', { system: ref.system, instance: ref.instance, error: messageOf(error) });
     });
-    this.#running.set(key, { process, handled, stopping: false });
+    this.#running.set(key, { ref, process, gate, handled, stopping: false });
+    launched();
     await this.#update(ref, { status: 'starting', ...(process.pid === undefined ? {} : { pid: process.pid }) });
     this.#options.log.info('supervisor.started', { system: ref.system, instance: ref.instance, version: installed.version, pid: process.pid });
   }
@@ -234,6 +310,8 @@ export class ProcessSupervisor implements Supervisor {
   async #stop(ref: InstanceRef, reason: StopReason): Promise<void> {
     const { links, settings, log } = this.#options;
     const key = instanceLabel(ref);
+    // a start still opening its gate launches first, then is stopped
+    await this.#starting.get(key)?.catch(() => undefined);
     this.#clearTimer(key);
     const running = this.#running.get(key);
     if (running === undefined) {
@@ -262,8 +340,9 @@ export class ProcessSupervisor implements Supervisor {
 
   // ─── Exits, restarts and roll backs ─────────────────────────────────────────
 
-  /** A started instance connected: this version starts cleanly. */
+  /** A started instance connected: this version starts cleanly (and its contract may be new, so its grant too). */
   async #connected(ref: InstanceRef): Promise<void> {
+    void this.#regrant();
     const installed = await this.#installed(ref);
     if (installed === undefined) { return; }
     await this.#update(ref, { status: 'running', goodVersion: installed.version });
@@ -274,6 +353,8 @@ export class ProcessSupervisor implements Supervisor {
     const key = instanceLabel(ref);
     const running = this.#running.get(key);
     this.#running.delete(key);
+    // the gate goes with its process; a restart gets a new one
+    await running?.gate.close();
     const installed = await this.#installed(ref);
     if (installed === undefined) { return; }
     const lastExit = { code: exit.code, at: clock(), output: exit.output };
@@ -319,6 +400,50 @@ export class ProcessSupervisor implements Supervisor {
     }
     await this.#update(ref, { status: 'disabled', lastExit });
     log.error('supervisor.gave.up', { system: ref.system, instance: ref.instance, version: installed.version, crashes: installed.restart.maxPerHour + 1 });
+  }
+
+  // ─── Network ──────────────────────────────────────────────────────────────
+
+  /** What an instance's proxy lets through: its grant's hosts and the hub's. */
+  async #allowed(ref: InstanceRef): Promise<string[]> {
+    return [...await this.#options.network.hosts(ref.system), this.#hub.host];
+  }
+
+  /** Give every running process's proxy its grant as it is now. */
+  async #regrant(): Promise<void> {
+    for (const running of [...this.#running.values()]) {
+      try {
+        running.gate.setAllowed(await this.#allowed(running.ref));
+      } catch (error) {
+        this.#options.log.warn('supervisor.regrant.failed', { system: running.ref.system, instance: running.ref.instance, error: messageOf(error) });
+      }
+    }
+  }
+
+  /**
+   * An installed command as it is launched: pointed at its proxy (the hub direct), with the socket guard preloaded when
+   * it runs on Node, and what it prints read for the guard's refusal lines.
+   */
+  #guarded(command: InstalledSystem['command'], url: string, ref: InstanceRef): ProcessCommand {
+    let partial = '';
+    const onOutput = (text: string): void => {
+      const lines = (partial + text).split(/\r?\n/);
+      partial = lines.pop() ?? '';
+      for (const line of lines) {
+        const target = refusedOfLine(line);
+        if (target !== undefined) { this.#refusedHost(ref, target.replace(/:\d+$/, ''), target); }
+      }
+    };
+    const args = command.run === process.execPath ? ['--require', NETWORK_GUARD, ...command.args] : command.args;
+    return { ...command, args, env: { ...command.env, ...guardedEnv(url, [this.#hub]) }, onOutput };
+  }
+
+  /** Keep that the instance tried to reach `host` (`attempt` is what it asked for), which its grant doesn't name. */
+  #refusedHost(ref: InstanceRef, host: string, attempt: string): void {
+    const refusal: HostRefusal = { instance: ref, rule: 'network', attempt, detail: `${ref.system} tried to reach ${host}, which its grants.network doesn't name` };
+    this.#options.network.refused(refusal).catch((error: unknown) => {
+      this.#options.log.warn('supervisor.refusal.unkept', { system: ref.system, instance: ref.instance, attempt, error: messageOf(error) });
+    });
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────

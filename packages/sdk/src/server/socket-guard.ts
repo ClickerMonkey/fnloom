@@ -1,6 +1,7 @@
 /**
- * The network side of a sandboxed child, loaded first (`--import`) by the modules that use it (`network-guard.ts` for
- * an unapproved folder's tests, `hosted-network-guard.ts` for a hosted system). Node 22's permission model limits the
+ * The network side of a sandboxed child, loaded first by the modules that use it (fs's `network-guard.ts` for an
+ * unapproved folder's tests, through `@harness/sdk/server/socket-guard`; `hosted-network-guard.ts` beside this for a
+ * supervised system, whether fs hosts it or the hub's supervisor runs it). Node 22's permission model limits the
  * disk, child processes, workers and addons but not the network, and `HTTP(S)_PROXY` only steers the clients that
  * honour it (a raw `net.connect`, or `http.get` with an agent of its own, goes straight out). So this guards the
  * sockets themselves: TCP and TLS (net, tls, http, https, http2, fetch and WebSocket all connect through
@@ -144,10 +145,10 @@ export function guardNetwork(options: GuardOptions): void {
   syncBuiltinESMExports();
 }
 
-/** The variable a hosted system's runner names its allowed endpoints in (`endpointsText`), for `hosted-network-guard.ts`. */
+/** The variable a supervisor names a child's allowed endpoints in (`endpointsText`), for `hosted-network-guard.ts`. */
 export const NETWORK_ALLOW_VAR = 'HARNESS_NETWORK_ALLOW';
 
-/** The start of the line a hosted system prints for a refused attempt, followed by what was asked for. */
+/** The start of the line a guarded system prints for a refused attempt, followed by what was asked for. */
 const NETWORK_REFUSED = 'harness.network.refused ';
 
 /** The line printed for a refused attempt (`host:port`, or a pipe's path). */

@@ -17,7 +17,8 @@ import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
 import { buildSystems, type SystemsSettings } from './build.ts';
 import { LINK_SPEC, type LinkSpec } from './handlers.ts';
 import { makeKeyPair, signNonce, type StoredKeyPair } from './keys.ts';
-import type { ProcessExit, ProcessStarter, SupervisedProcess } from '@harness/sdk/server';
+import type { NetworkGate, ProcessExit, ProcessStarter, SupervisedProcess } from '@harness/sdk/server';
+import type { SupervisorNetwork } from './supervisor.ts';
 import type { SystemCommand } from './process.ts';
 import { sha256 } from './package/index.ts';
 import type { PackageContent } from './packages.ts';
@@ -270,6 +271,34 @@ export class FakeProcess implements SupervisedProcess {
 
   exit(code: number, output = ''): void { this.#end({ code, output }); }
   kill(): void { this.killed = true; this.exit(143, 'killed'); }
+}
+
+/** A network gate that only keeps what it was told: for tests of the supervisor's other work. */
+export class FakeGate implements NetworkGate {
+  allow: readonly string[];
+  readonly url: string;
+  closed = false;
+
+  constructor(allow: readonly string[], url: string) {
+    this.allow = allow;
+    this.url = url;
+  }
+  start(): Promise<string> { return Promise.resolve(this.url); }
+  setAllowed(allow: readonly string[]): void { this.allow = [...allow]; }
+  close(): Promise<void> { this.closed = true; return Promise.resolve(); }
+}
+
+/** A supervisor network of fake gates, granting no hosts; keeps the gates it opened. */
+export class FakeNetwork implements SupervisorNetwork {
+  readonly gates: FakeGate[] = [];
+  hosts(): Promise<readonly string[]> { return Promise.resolve([]); }
+  gate(allow: readonly string[]): FakeGate {
+    const gate = new FakeGate(allow, `http://127.0.0.1:${String(9000 + this.gates.length)}`);
+    this.gates.push(gate);
+    return gate;
+  }
+  refused(): Promise<void> { return Promise.resolve(); }
+  onChange(): void { /* grants never change here */ }
 }
 
 /** Records what it launches; tests end the processes. */

@@ -5,12 +5,25 @@
  * the system's `grants.network` names (`api.tavily.com`, or `*.googleapis.com` for any name under it) and reports
  * every other host it is asked for, which the supervisor sends to the hub as a `network` refusal.
  *
- * It holds back what goes through Node's proxy support; a raw socket opened on purpose is not proxied. The hub link
- * goes direct (`NO_PROXY`).
+ * The proxy holds back what goes through Node's proxy support; a raw socket opened on purpose is not proxied, so the
+ * supervisor also preloads the socket guard (`NETWORK_GUARD`: `hosted-network-guard.ts` over `socket-guard.ts`), which
+ * holds every socket to the proxy and the hub (`guardedEnv` names both). The hub link goes direct (`NO_PROXY`). fs's
+ * `SupervisedRunner` (the systems it hosts) and the hub's `ProcessSupervisor` (installed instances) both run children
+ * this way.
  */
 import { createServer, request as forward, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { connect, type AddressInfo, type Socket } from 'node:net';
 import type { Duplex } from 'node:stream';
+import { fileURLToPath } from 'node:url';
+import { NETWORK_ALLOW_VAR, endpointOf, endpointsText, type Endpoint } from './socket-guard.ts';
+
+/**
+ * What a supervised child preloads to hold its sockets to its proxy and the hub. `--require`, not `--import`: a preload
+ * runs before a loader's `--import`, so Node strips the guard's types itself, and the loader still registers after it.
+ */
+export const NETWORK_GUARD = fileURLToPath(new URL('./hosted-network-guard.ts', import.meta.url));
+/** The guard's files, which a child under Node's permission model must be let read. */
+export const NETWORK_GUARD_FILES: readonly string[] = [NETWORK_GUARD, fileURLToPath(new URL('./socket-guard.ts', import.meta.url))];
 
 /** Whether a host is one the patterns allow: the same name, for `*.example.com` any name under `example.com`, and for `*` any host. */
 export function hostAllowed(patterns: readonly string[], host: string): boolean {
@@ -30,7 +43,7 @@ export interface ProxyRefusal {
 
 /** What an allowlist proxy lets through, and who hears of what it refuses. */
 export interface AllowlistProxyOptions {
-  /** The hosts let through (`grants.network`, plus the hub's own). */
+  /** The hosts let through at first (`grants.network`, plus the hub's own); `setAllowed` changes them. */
   readonly allow: readonly string[];
   readonly onRefused: (refusal: ProxyRefusal) => void;
 }
@@ -39,6 +52,23 @@ export interface AllowlistProxyOptions {
 export function proxyEnv(url: string, direct: readonly string[]): Record<string, string> {
   const noProxy = direct.join(',');
   return { HTTP_PROXY: url, HTTPS_PROXY: url, http_proxy: url, https_proxy: url, NO_PROXY: noProxy, no_proxy: noProxy, NODE_USE_ENV_PROXY: '1' };
+}
+
+/**
+ * A guarded child's network variables: `proxyEnv` for the proxy at `url` with the `direct` endpoints' hosts not
+ * proxied, and the endpoints the preloaded guard lets its sockets reach (the proxy and `direct`).
+ */
+export function guardedEnv(url: string, direct: readonly Endpoint[]): Record<string, string> {
+  return { ...proxyEnv(url, [...new Set(direct.map((endpoint) => endpoint.host))]), [NETWORK_ALLOW_VAR]: endpointsText([endpointOf(url), ...direct]) };
+}
+
+/** A child's network gate: listens, can change what it lets through, and is closed once the child is gone. */
+export interface NetworkGate {
+  /** Start listening; resolves to the proxy URL the child is pointed at. */
+  start(): Promise<string>;
+  /** Let through `allow` from now on (the grant changed while the child runs); tunnels already open stay. */
+  setAllowed(allow: readonly string[]): void;
+  close(): Promise<void>;
 }
 
 /** The host and port of a `CONNECT` target (`api.example.com:443`, `[::1]:443`). */
@@ -52,13 +82,15 @@ function targetOf(authority: string, fallback: number): ProxyRefusal | undefined
 }
 
 /** An HTTP proxy on 127.0.0.1 that lets through only allowed hosts: `CONNECT` tunnels for https, forwarding for http. */
-export class AllowlistProxy {
+export class AllowlistProxy implements NetworkGate {
   readonly #options: AllowlistProxyOptions;
   readonly #server: Server;
   readonly #open = new Set<Duplex>();
+  #allow: readonly string[];
 
   constructor(options: AllowlistProxyOptions) {
     this.#options = options;
+    this.#allow = options.allow;
     this.#server = createServer((req, res) => { this.#request(req, res); });
     this.#server.on('connect', (req: IncomingMessage, client: Duplex, head: Buffer) => { this.#tunnel(req, client, head); });
   }
@@ -75,6 +107,10 @@ export class AllowlistProxy {
     });
   }
 
+  setAllowed(allow: readonly string[]): void {
+    this.#allow = [...allow];
+  }
+
   /** Stop listening and cut every open tunnel. */
   close(): Promise<void> {
     for (const socket of this.#open) { socket.destroy(); }
@@ -83,7 +119,7 @@ export class AllowlistProxy {
 
   /** Whether a host may be reached; a refused one is reported. */
   #allowed(target: ProxyRefusal): boolean {
-    if (hostAllowed(this.#options.allow, target.host)) { return true; }
+    if (hostAllowed(this.#allow, target.host)) { return true; }
     this.#options.onRefused(target);
     return false;
   }
