@@ -390,14 +390,13 @@ export const database = system('database', {
       create_table: fn({
         group: 'schema',
         description: 'Make a table from a row type (on a database whose schema may change). Runs only after the person approves the DDL.',
-        instructions: 'Give the table name and the columns as an object of column name to type ({ "id": "integer", "title": "text" }); `id` is the primary key. Say what it is for; the person sees the DDL before it runs.',
+        instructions: 'Give the table name and the row type, a gin obj type whose props are the columns; `id` is the primary key. Say what it is for; the person sees the DDL before it runs.',
         args: ginAs(TableArgs),
         returns: ginAs(SchemaChanged),
         deps: { change_schema: fns.change_schema },
         approval: { preview: true, remember: false },
         examples: [
-          { args: { table: 'todos', type: { id: 'integer', title: 'text', done: 'boolean', due: 'date?' } }, note: 'Columns as name to type; `?` lets a column be empty.' },
-          { args: { table: 'notes', type: { name: 'obj', props: { id: { type: { name: 'num', options: { whole: true } } }, text: { type: { name: 'text' } }, due: { type: { name: 'optional', generic: { T: { name: 'date' } } } } } } }, note: 'The same as a gin obj type.' },
+          { args: { table: 'notes', type: { name: 'obj', props: { id: { type: { name: 'num', options: { whole: true } } }, text: { type: { name: 'text' } }, due: { type: { name: 'optional', generic: { T: { name: 'date' } } } } } } }, note: 'A whole-number id, a text column, and a date that may be empty.' },
         ],
         status: status('Creating {args.table}…', 'Created {args.table}', 'Creating {args.table} failed'),
         effects: { mode: 'write', free: true, registry: [{ thing: 'types', action: 'create' }] },

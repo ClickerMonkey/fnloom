@@ -21,6 +21,17 @@ export function isGinTypeDef(value: unknown): value is TypeDef {
 export const GinTypeDef = z.custom<TypeDef>(isGinTypeDef, { message: 'Expected a gin type definition ({ name, ... }).' });
 export type GinTypeDef = z.infer<typeof GinTypeDef>;
 
+/** `isGinTypeDef` for an object type; its own function, so `GinObjTypeDef` is told apart from `GinTypeDef`. */
+export function isGinObjTypeDef(value: unknown): value is TypeDef {
+  return isGinTypeDef(value);
+}
+
+/**
+ * A gin object type in its JSON wire form (`{ name: 'obj', props }`, or a named type or extension of one): a row, a
+ * form's answers. In a fn's args it is gin's `typ<obj>`, so a model is sent the strict obj TypeDef schema.
+ */
+export const GinObjTypeDef = z.custom<TypeDef>(isGinObjTypeDef, { message: 'Expected a gin object type definition ({ name: "obj", props: { ... } }).' });
+
 /** True when `value` has the outer shape of a gin expression: an object with a string `kind`. */
 export function isGinExprDef(value: unknown): value is ExprDef {
   return isRecord(value) && 'kind' in value && typeof value.kind === 'string';

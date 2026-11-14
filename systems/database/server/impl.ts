@@ -22,7 +22,6 @@ import { DatabaseInstance, changeWords, widens, type HubSide, type ScanReport } 
 import { QueryService, callArgs, isProblem, mayUse, notYours, queryInstance, type QueryProblem, type QueryRunCtx } from './queries.ts';
 import { QueryAuthoring, localName, queryAuthoring, type EditedQuery } from './authoring.ts';
 import { pickDatabase } from './pick.ts';
-import { toRowType } from '../shared/row-type.ts';
 import { TableFnService, type TableFnsCtx, type TableFnsReadCtx } from './table-fns.ts';
 import { hubTypeOf, qualifiedTypeOf, tableMetaOf } from './types.ts';
 
@@ -124,6 +123,16 @@ async function readersOf(link: HubLink, instance: InstanceName, type: QualifiedN
     offset = page.next;
   }
   return found;
+}
+
+/**
+ * The row type `create_table` / `alter_table` got, or why it has no columns. Its shape was checked against gin's obj
+ * TypeDef schema before the fn ran (the arg is `typ<obj>`), so this only refuses a row type with nothing in it.
+ */
+function toRowType(type: SchemaArgs['type']): { type: SchemaArgs['type'] } | { problem: string } {
+  return type.props === undefined || Object.keys(type.props).length === 0
+    ? { problem: 'The row type has no columns: give its columns as the props of the obj type.' }
+    : { type };
 }
 
 /**

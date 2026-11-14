@@ -4,7 +4,7 @@
  * JSON definition (`toJSON`), value parsing (`parse`), a zod value schema (`toValueSchema`) and the named types it
  * references (`references`). Named types a contract declares are registered in `g`, so they serialize by name.
  */
-import { createRegistry, type Infer, type Registry, type Type } from '@aeye/gin';
+import { createRegistry, Type, type Infer, type Registry } from '@aeye/gin';
 import { GinTypeDef, Json, QualifiedName, type TypeDefinitions } from '@harness/core';
 
 /** The gin type builder: gin's registry, shared by every contract in this process. */
@@ -31,7 +31,31 @@ export function wireType(type: GinType): GinTypeDef {
  * gin error naming the problem when the value doesn't fit.
  */
 export function parseValue<T>(type: GinType<T>, value: unknown): T {
-  return type.parse(value).toLogical();
+  return definitionsOf(type.parse(value).toLogical());
+}
+
+/**
+ * A plain value with each gin type in it (a `typ` value, which gin keeps as a live type) written as its JSON
+ * definition, the form fns and the wire hold types in.
+ */
+function definitionsOf<T>(value: T): T {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- a typ value's plain form is its definition, the TypeScript type fns declare
+  return walk(value) as T;
+}
+
+/** `definitionsOf`, untyped: the same value back when nothing in it is a gin type. */
+function walk(value: unknown): unknown {
+  if (value instanceof Type) return value.toJSON();
+  if (Array.isArray(value)) {
+    const items = value.map(walk);
+    return items.some((item, i) => item !== value[i]) ? items : value;
+  }
+  if (typeof value === 'object' && value !== null && Object.getPrototypeOf(value) === Object.prototype) {
+    const entries = Object.entries(value);
+    const walked = entries.map(([key, item]) => [key, walk(item)] as const);
+    return walked.some(([, item], i) => item !== entries[i]?.[1]) ? Object.fromEntries(walked) : value;
+  }
+  return value;
 }
 
 /** A checked value as JSON for the wire (dates as ISO strings, absent optional fields left out). */

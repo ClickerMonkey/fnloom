@@ -253,26 +253,30 @@ describe('the database system over the link', () => {
 
   // the owner's chat sent these three to create_table: each failed deep in the DDL code, and the null one was put to
   // the person for approval before anything checked it
-  it('create_table reads the row types models send, refuses unreadable ones before anyone is asked, and asks once with the DDL', async () => {
+  it('create_table takes a gin obj row type, refuses the shapes models guessed as invalid input before anyone is asked, and asks once with the DDL', async () => {
     dir = shopFile().dir;
     await start();
     expect(hub.manifests[0]?.fns.find((item) => item.name === 'create_table')).toMatchObject({ approval: { preview: true, remember: false } });
-    const refusedPreview = async (type: Json) => JSON.stringify(await hub.preview({ run: mintId('run'), fn: 'create_table', args: { table: 'Todo', database: 'main', type }, user: TEST_USER }));
-    expect(await refusedPreview(null)).toContain('is missing');
-    expect(await refusedPreview({ id: 'integer', title: 'sometimes' })).toContain('title: \\"sometimes\\"');
-    // a JSON string of name to type, as the owner's model sent it
-    const asString = { table: 'Todo', database: 'main', type: '{"id":"string","title":"string","completed":"boolean","created_at":"datetime"}' };
-    const preview = await hub.preview({ run: mintId('run'), fn: 'create_table', args: asString, user: TEST_USER });
+    const todo = { name: 'obj', props: { id: { type: { name: 'num', options: { whole: true } } }, title: { type: { name: 'text' } }, done: { type: { name: 'bool' } }, due: { type: { name: 'optional', generic: { T: { name: 'date' } } } } } };
+    const preview = await hub.preview({ run: mintId('run'), fn: 'create_table', args: { table: 'Todo', database: 'main', type: todo }, user: TEST_USER });
     expect(preview).toMatchObject({ preview: { title: 'Create table Todo (Shop database)' } });
     expect(JSON.stringify(preview)).toContain('CREATE TABLE');
-    const made = done(await hub.run('database/create_table', asString));
-    expect(JSON.stringify(made)).toContain('"database/main.Todo"');
-    // a list of { key, value } pairs, as the owner's model sent it on another try
-    const pairs = [{ key: 'id', value: 'integer' }, { key: 'body', value: 'text' }, { key: 'due', value: 'date?' }];
-    expect(JSON.stringify(done(await hub.run('database/create_table', { table: 'notes', database: 'main', type: pairs })))).toContain('"database/main.notes"');
-    // a model that never fixed its type gets the shape to send, as invalid input it can retry
-    const bad = await hub.run('database/create_table', { table: 'later', database: 'main', type: null });
-    expect(bad.status === 'invalid-input' ? bad.invalid.problems[0]?.message : bad).toContain('object of column name to column type');
+    expect(JSON.stringify(done(await hub.run('database/create_table', { table: 'Todo', database: 'main', type: todo })))).toContain('"database/main.Todo"');
+    // the shapes the owner's model sent (a JSON string, a key/value list, null) and a column map are not gin types
+    const guessed: Json[] = [
+      '{"id":"string","title":"string","completed":"boolean","created_at":"datetime"}',
+      [{ key: 'id', value: 'integer' }, { key: 'body', value: 'text' }],
+      null,
+      { id: 'integer', title: 'text' },
+      { name: 'obj', props: { id: { type: { name: 'integer' } } } },
+    ];
+    for (const type of guessed) {
+      const refused = await hub.run('database/create_table', { table: 'later', database: 'main', type });
+      expect(refused.status, JSON.stringify(type)).toBe('invalid-input');
+      expect(refused.status === 'invalid-input' ? refused.invalid.problems.map((problem) => problem.path) : []).toContain('type');
+    }
+    // the right shape with no columns: refused when asked, before any approval
+    expect(JSON.stringify(await hub.preview({ run: mintId('run'), fn: 'create_table', args: { table: 'empty', database: 'main', type: { name: 'obj' } }, user: TEST_USER }))).toContain('no columns');
   });
 
   it('holds back a breaking rescan for an admin, naming the saved queries the hub says read the table, and applies it once approved', async () => {

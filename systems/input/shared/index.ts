@@ -7,7 +7,7 @@
  * the chat hides. A quick form the person liked is kept in the hub as an `input/form` fn (`save_form` through
  * `hub/save_fn`), so it is found next time.
  */
-import { ActorId, GinTypeDef, Visibility } from '@harness/core';
+import { ActorId, GinObjTypeDef, Visibility } from '@harness/core';
 import { type Infer, context, fn, g, ginAs, hub, kind, system } from '@harness/sdk';
 import { z } from 'zod';
 import { FIELD_TYPES } from './forms.ts';
@@ -19,7 +19,7 @@ import { FIELD_TYPES } from './forms.ts';
 export const InputFormSchema = z.object({
   title: z.string().min(1),
   description: z.string(),
-  type: GinTypeDef.describe('The answers\' gin type: an object whose fields are the questions (each field\'s docs is its label).'),
+  type: GinObjTypeDef.describe('The answers\' gin type: an object whose fields are the questions (each field\'s docs is its label).'),
   submit: z.string().min(1).optional().describe('The submit button\'s words ("Send" when absent).'),
 });
 

@@ -7,11 +7,12 @@
  * whole numbers), booleans, literals, enums, arrays, unions (discriminated or not), optional, nullable,
  * defaults (optional on input), pipes (their input side), and records over a closed set of keys (an enum or literals),
  * which become an object with one field per key (optional for `z.partialRecord`). JSON, records over open keys,
- * `unknown` and lazy schemas become any JSON. A gin program (`GinExprDef`) becomes gin's `fn` type, whose value is an
+ * `unknown` and lazy schemas become any JSON. A gin type (`GinTypeDef`, `GinObjTypeDef`) becomes gin's `typ`, whose
+ * value schema is gin's strict TypeDef schema (a model is told the shape, not sent an empty schema). A gin program (`GinExprDef`) becomes gin's `fn` type, whose value is an
  * expression: any JSON would refuse a program whose root is a `new` (gin reads that as a misplaced expression).
  */
 import type { FieldsInput } from '@aeye/gin';
-import { GinExprDef } from '@harness/core';
+import { GinExprDef, GinObjTypeDef, GinTypeDef } from '@harness/core';
 import { z } from 'zod';
 import { g, json, type GinType } from './gin.ts';
 
@@ -28,6 +29,11 @@ function literalOf(value: unknown): GinType {
 /** A schema without its outer optional or default (what `.required()` makes of a field). */
 function required(schema: z.core.$ZodType): z.core.$ZodType {
   return schema instanceof z.ZodOptional || schema instanceof z.ZodDefault || schema instanceof z.ZodPrefault ? schema.unwrap() : schema;
+}
+
+/** Whether `schema` is `core` (a custom schema), or a copy of it made by `.describe()` or `.meta()`. */
+function sameCheck(schema: z.core.$ZodType, core: z.ZodCustom): boolean {
+  return schema instanceof z.ZodCustom && schema._zod.def.fn === core._zod.def.fn;
 }
 
 /** The input-side gin type of a zod schema; throws for a schema with no gin counterpart (a function, a promise). */
@@ -69,7 +75,11 @@ export function ginOf(schema: z.core.$ZodType): GinType {
   }
   if (schema instanceof z.ZodNull) return g.null();
   if (schema instanceof z.ZodRecord) return recordOf(schema);
-  if (schema === GinExprDef) return g.fn({ args: g.obj({}), returns: g.any() });
+  // core's gin schemas are told apart by their check, which `.describe()` and `.meta()` keep (they make a new schema)
+  if (sameCheck(schema, GinExprDef)) return g.fn({ args: g.obj({}), returns: g.any() });
+  // a gin type in an arg is gin's typ, whose value schema is gin's strict TypeDef schema: never any JSON
+  if (sameCheck(schema, GinObjTypeDef)) return g.typ(g.obj({}));
+  if (sameCheck(schema, GinTypeDef)) return g.typ(g.any());
   if (schema instanceof z.ZodLazy || schema instanceof z.ZodUnknown || schema instanceof z.ZodAny || schema instanceof z.ZodCustom) return json();
   throw new Error(`zod-gin: a ${schema._zod.def.type} schema has no gin type`);
 }
