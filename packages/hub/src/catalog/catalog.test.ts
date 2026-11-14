@@ -385,6 +385,9 @@ describe('patches, runtime fns and re-imports', () => {
     expect(await catalog.declare(SHOP, { ...get, name: 'extra' }, ADMIN)).toMatchObject({ added: ['shop/extra'] });
     expect(await catalog.fn(q('shop/extra'))).toMatchObject({ origin: 'runtime', addedBy: ADMIN });
     expect((await catalog.declare(SHOP, get, ADMIN)).refused[0]?.problems).toEqual(['a fn of the contract has this name']);
+    // an instance's fn (a local name with a dot) is listed in its system's fns by its whole name, where the fn modal finds it
+    expect(await catalog.declare(SHOP, { ...get, name: 'main.sample' }, ADMIN)).toMatchObject({ added: ['shop/main.sample'] });
+    expect((await catalog.fns({ system: SHOP })).map((f) => f.name)).toContain('shop/main.sample');
     // a whole manifest leaves runtime fns alone
     await catalog.importManifest(manifest);
     expect(await catalog.fn(q('shop/extra'))).toBeDefined();

@@ -44,6 +44,7 @@ import { graphOf, SAMPLE_EDGES, SAMPLE_NODES } from '../src/graph/test/graph.ts'
 import { fsAuthoringGraph } from './fsGraph.ts';
 import { contextFolderSamples, FS_CLIENT, HOSTED_RANDOM, MOCK_CLIENTS, MockExplorer, systemPartsOf } from './mockBuild6.ts';
 import { DATABASE_CONFIG_TYPE, SHOP_CONFIG, shopFns, shopTypes } from './mockDatabase.ts';
+import { withOpenable } from './mockOpenable.ts';
 import { systemView } from '../src/admin/test/fakes.ts';
 import { instanceView } from '../src/admin/test/build2.ts';
 import { MOCK_FILES, MOCK_UPLOADS, MockResources } from './mockResources.ts';
@@ -292,7 +293,8 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       stopSystem: ({ data }) => admin.process(data.system, 'stopped'),
       upgradeSystem: ({ data }) => admin.upgrade(data.system, data.version),
       reimport: () => admin.reimport(),
-      systemFns: ({ data }) => (build9.has(data.system) ? [] : data.system === 'database' ? shopFns(Date.now()) : data.system === 'widgets' ? build8.widgetFns(Date.now()) : admin.fns(data.system)),
+      // plus the fns its chats, runs and graph open that the lists lack (mockOpenable.ts); a system it doesn't know has none, as the real hub answers
+      systemFns: ({ data }) => withOpenable(data.system, build9.has(data.system) ? [] : data.system === 'database' ? shopFns(Date.now()) : data.system === 'widgets' ? build8.widgetFns(Date.now()) : admin.systems.has(data.system) ? admin.fns(data.system) : [], Date.now()),
       types: ({ data }) => {
         const known = [...shopTypes(Date.now()), ...build8.types(Date.now())].filter((type) => data.names.includes(type.name));
         return { types: known, missing: data.names.filter((name) => !known.some((type) => type.name === name)) };

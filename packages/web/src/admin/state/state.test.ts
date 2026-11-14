@@ -7,7 +7,7 @@ import { Loaded, Paged, Task } from '../../state/loaded.ts';
 import { withPage } from '../../state/query.ts';
 import { modelCallsBody } from './browsers.ts';
 import { RESTART_REASON } from './system.ts';
-import { budget, fakeAdmin, fakeAdminApi, installed, logLine, pairing, settingView, systemView, T0 } from '../test/fakes.ts';
+import { budget, fakeAdmin, fakeAdminApi, fnRecord, installed, logLine, pairing, settingView, systemView, T0 } from '../test/fakes.ts';
 
 const fs = SystemName.parse('fs');
 const failure = new ApiError(500, 'boom', undefined);
@@ -186,6 +186,20 @@ describe('SystemStore', () => {
     expect(await refusing.admin.fn.switchOn(false)).toBe(false);
     expect(refusing.admin.fn.record.value.value?.disabled).toBe(false);
     expect(refusing.admin.fn.switching.problem.value).not.toBe('');
+  });
+
+  it('finds a fn whose local name has a dot in its system\'s fns, and says why one it can\'t find is missing', async () => {
+    const sample = QualifiedName.parse('database/shop.sample');
+    const listed = [fnRecord({ name: sample, system: 'database', decl: { ...fnRecord().decl, name: 'shop.sample', kind: 'database/query' } })];
+    const { admin, api } = fakeAdmin({ api: { ...fakeAdminApi(), systemFns: fakeCaller<'systemFns'>(({ system }) => Promise.resolve(system === 'database' ? listed : [])) } });
+    await admin.fn.open(sample, 7);
+    expect(api.systemFns.calls.map(([body]) => body)).toEqual([{ system: 'database' }]);
+    expect(admin.fn.record.value.value?.name).toBe(sample);
+    expect(admin.fn.record.problem.value).toBe('');
+    await admin.fn.open(QualifiedName.parse('database/shop.gone'), 7);
+    expect(admin.fn.record.problem.value).toBe('database has no fn named shop.gone now. It may have been removed or renamed since it ran.');
+    await admin.fn.open(QualifiedName.parse('claude/permit'), 7);
+    expect(admin.fn.record.problem.value).toBe("claude has no fns on this hub now (it may be uninstalled or not connected yet), so claude/permit can't be shown.");
   });
 
   it('switches its context on the Overview, and reads its other parts and resource roots', async () => {

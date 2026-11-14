@@ -7,6 +7,7 @@ import { splitName, SystemName, type FnMetrics, type FnMetricsDay, type FnRecord
 import { ref } from 'vue';
 import type { UserEvents } from '../../api/notifications.ts';
 import { Loaded, Task } from '../../state/loaded.ts';
+import { Problem } from '../../state/problems.ts';
 import type { AdminApi } from '../api.ts';
 
 type FnApi = Pick<AdminApi, 'systemFns' | 'fnMetrics' | 'fnMetricsDays' | 'runs' | 'switchItem'>;
@@ -17,6 +18,17 @@ export const FN_RECENT_RUNS = 8;
 /** The periods the page offers, in days. */
 export const FN_PERIODS = [7, 30, 90] as const;
 export type FnPeriod = (typeof FN_PERIODS)[number];
+
+/**
+ * Why a fn can't be shown when its system's fns don't hold it: the system has none on this hub (not installed, or
+ * not connected yet), or the fn is gone (removed or renamed since a run of it).
+ */
+export function missingFn(fn: QualifiedName, listed: number): string {
+  const { system, local } = splitName(fn);
+  return listed === 0
+    ? `${system} has no fns on this hub now (it may be uninstalled or not connected yet), so ${fn} can't be shown.`
+    : `${system} has no fn named ${local} now. It may have been removed or renamed since it ran.`;
+}
 
 /** One fn's page. */
 export class FnStore {
@@ -71,8 +83,9 @@ export class FnStore {
   async #loadRecord(fn: QualifiedName, quiet: boolean): Promise<void> {
     const system = SystemName.parse(splitName(fn).system);
     await this.record.load(async () => {
-      const found = (await this.#api.systemFns.call({ system })).find((f) => f.name === fn);
-      if (found === undefined) { throw new Error(`${system} has no fn ${fn}.`); }
+      const listed = await this.#api.systemFns.call({ system });
+      const found = listed.find((f) => f.name === fn);
+      if (found === undefined) { throw new Problem(missingFn(fn, listed.length)); }
       return found;
     }, "Couldn't load this fn.", quiet);
   }

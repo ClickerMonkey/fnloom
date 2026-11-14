@@ -30,10 +30,19 @@ function sentence(message: string): string {
 }
 
 /**
+ * A failure a store found itself and already wrote for people (the fn asked for isn't among its system's fns):
+ * `problemText` shows its message as it is, where any other plain error shows the caller's fallback.
+ */
+export class Problem extends Error {
+  override readonly name = 'Problem';
+}
+
+/**
  * One sentence for a failed call. A declared error's `reason` wins over the status's default, and so does the hub's
- * own message on a refusal (403, 404, 409) that has one besides its code.
+ * own message on a refusal (403, 404, 409) that has one besides its code. A `Problem` says its own message.
  */
 export function problemText(error: unknown, fallback = 'Something went wrong. Try again.'): string {
+  if (error instanceof Problem) { return error.message; }
   if (error instanceof ApiError) {
     const reason = z.object({ reason: z.string() }).safeParse(error.data);
     if (reason.success) { return reason.data.reason; }
