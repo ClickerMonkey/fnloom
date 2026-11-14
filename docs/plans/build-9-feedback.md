@@ -28,3 +28,22 @@ What this means:
 - **Fn modal:** clicking a fn on a system page opens the fn modal (not an inline expand). The modal shows
   everything about the fn, the on/off toggle and its stats. The fn modal and the fn page show the same content from
   the same components, so chat and other pages can open a fn without taking the person away from where they are.
+
+## 2026-11-13 (why create_table's tool call failed)
+
+> The fns signature should be using gin to convert it to a strict tool call with zod etc and all the work I did in aeye. Please report back why it had a tool call problem
+
+Why it failed: `create_table`'s `type` arg was core's `GinTypeDef`, a `z.custom` that only checks for a `name`. The
+SDK's zod→gin bridge turned every `z.custom` into gin `any`, so the hub sent the model an empty schema for it (marked
+strict, with nothing to enforce) and its own arg check accepted anything. GPT-6 Luna guessed a key/value list, `null`
+and a JSON string; `null` reached an approval and the others failed deep in `ginTypeToTable`.
+
+What this means:
+
+- **Gin types in fn args are gin `typ<T>`.** `GinTypeDef` maps to `typ<any>` and the row type to `typ<obj>`. In aeye,
+  `typ<T>`'s value schema is the strict TypeDef schema from `buildSchemas` (the class schemas of the types compatible
+  with `T`, named types by name, inline extensions), refined by parsing the definition, so the model sees the shape
+  and the hub refuses a wrong one before anyone is asked.
+- **One shape.** The database's lenient row-type reader (column maps, key/value lists, JSON strings) is removed.
+- **No empty schemas.** A test walks every fn a model can call and fails on an arg position with no schema, except
+  an explicit allow-list where each entry says why.

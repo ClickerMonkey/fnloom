@@ -1240,3 +1240,9 @@ Already checked: type-checking all of the types and examples takes about two sec
   you're doing a final test across them all after you handle each individually. In system page when I click on a fn
   it expands - I think a modal should open up - ... fn modal and page should share same stuff since I asked that the
   chat open a modal and not take the user away from where they are." Full note in `docs/plans/build-9-feedback.md`.
+- **Fn signatures are strict gin tool calls** (2026-11-13): "The fns signature should be using gin to convert it to a
+  strict tool call with zod etc and all the work I did in aeye. Please report back why it had a tool call problem".
+  A fn arg that holds a gin type is gin's `typ<T>`, whose value schema is aeye's strict TypeDef schema
+  (`buildSchemas`), so the tool JSON schema and the hub's arg check both carry the shape. No LLM-visible arg position
+  is an empty schema unless it is on an explicit, reasoned allow-list (tested). Handlers take gin's one shape; they don't
+  reinterpret other shapes. Full note in `docs/plans/build-9-feedback.md`.
