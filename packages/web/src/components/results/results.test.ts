@@ -188,18 +188,21 @@ describe('ResultView', () => {
     view.unmount();
   });
 
-  it('heads each column with its own label, else its name humanized, the raw name its hover text; cells stay as they are', async () => {
+  it('heads each column with its own label, else its name humanized, the raw name and kind its hover text; cells stay as they are', async () => {
     const named = table({
-      columns: [{ name: 'user_id', kind: 'text', nullable: false }, { name: 'dueDate', kind: 'text', nullable: false }, { name: 'city', kind: 'text', nullable: false, label: 'where_to' }],
+      columns: [{ name: 'user_id', kind: 'text', nullable: false }, { name: 'dueDate', kind: 'date', nullable: false }, { name: 'city', kind: 'text', nullable: false, label: 'where_to' }],
       rows: [['user_id', '2026-11-14', 'oslo']],
     });
     const grid = mount(ResultGrid, { props: { table: named, title: 'People' } });
-    expect(grid.findAll('th .name').map((th) => [th.text(), th.attributes('title')])).toEqual([['User ID', 'user_id'], ['Due date', 'dueDate'], ['where_to', 'city']]);
+    expect(grid.findAll('th .name').map((th) => [th.text(), th.attributes('title')])).toEqual([['User ID', 'user_id · text'], ['Due date', 'dueDate · date'], ['where_to', 'city · text']]);
     expect(grid.findAll('th button').map((b) => b.attributes('title'))).toEqual(['Sort by User ID', 'Sort by Due date', 'Sort by where_to']);
+    // no kind is printed beside a name
+    expect(grid.findAll('th button').map((b) => b.text())).toEqual(['User ID', 'Due date', 'where_to']);
+    expect(grid.find('th .kind').exists()).toBe(false);
     expect(grid.findAll('tbody td').map((td) => td.text())).toEqual(['user_id', '2026-11-14', 'oslo']);
     // the phone layout labels each field the same way
     const cards = mount(ResultGrid, { props: { table: named, title: 'People', style: 'cards' } });
-    expect(cards.findAll('dt').map((dt) => [dt.text(), dt.attributes('title')])).toEqual([['User ID', 'user_id'], ['Due date', 'dueDate'], ['where_to', 'city']]);
+    expect(cards.findAll('dt').map((dt) => [dt.text(), dt.attributes('title')])).toEqual([['User ID', 'user_id · text'], ['Due date', 'dueDate · date'], ['where_to', 'city · text']]);
     // exports keep the raw column names
     expect(toCsv(named, named.rows).split('\r\n')[0]).toBe('user_id,dueDate,city');
   });

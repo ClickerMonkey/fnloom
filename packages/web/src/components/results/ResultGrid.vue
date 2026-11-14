@@ -21,7 +21,7 @@ import { labelFor, type Json, type ResultColumn } from '@harness/core';
 import { computed, inject, ref, watch } from 'vue';
 import { UiIcon, UiIconButton, UiSelect, useMoreEdges, type SelectOption } from '../../ui/index.ts';
 import { PHONE_WIDTH, useWidth } from '../visuals/size.ts';
-import { cellText, GRID_PAGE, gridWindow, isComplete, isNumeric, nextSort, PAGE_SIZES, sortRows, windowLabel } from './table.ts';
+import { cellText, columnTitle, GRID_PAGE, gridWindow, isComplete, isNumeric, nextSort, PAGE_SIZES, sortRows, windowLabel } from './table.ts';
 import { CELL_EDITOR } from '../widgets/record-edits.ts';
 import { WIDGET_HOST } from '../widgets/widgets.ts';
 import { DRILLABLE, type VisualProps } from './visuals.ts';
@@ -65,7 +65,7 @@ function typed(row: readonly Json[], index: number, event: Event): void {
 
 const root = ref<HTMLElement | null>(null);
 const width = useWidth(root);
-/** The columns drawn, with their index in the row and their words (an own label, else the name humanized; the raw name is the title): the bound ones, else every one. */
+/** The columns drawn, with their index in the row and their words (an own label, else the name humanized; the raw name and kind in words are the title, never printed beside it): the bound ones, else every one. */
 const columns = computed(() => {
   const all = props.table.columns.map((column, index) => ({ column, index, heading: labelFor(column) }));
   const names = props.bind?.['columns'];
@@ -137,7 +137,7 @@ const ariaSort = (column: string): 'ascending' | 'descending' | 'none' => (sort.
       <li v-for="(row, r) in window.rows" :key="window.from + r" class="card" data-testid="result-card" @click="clicked(row)">
         <dl>
           <div v-for="{ column, index, heading } in columns" :key="column.name" class="field">
-            <dt :title="column.name">{{ heading }}</dt>
+            <dt :title="columnTitle(column)">{{ heading }}</dt>
             <dd :class="{ num: isNumeric(column), changed: editor?.changed(row, index) }">
               <input
                 v-if="inputOf(column) === 'checkbox'" type="checkbox" class="edit-check" :checked="editor?.value(row, index) === true" :aria-label="heading"
@@ -163,8 +163,7 @@ const ariaSort = (column: string): 'ascending' | 'descending' | 'none' => (sort.
             <tr>
               <th v-for="{ column, heading } in columns" :key="column.name" scope="col" :class="{ num: isNumeric(column) }" :aria-sort="ariaSort(column.name)">
                 <button type="button" class="sort" :title="`Sort by ${heading}`" @click="sortBy(column.name)">
-                  <span class="name" :title="column.name">{{ heading }}</span>
-                  <span class="kind">{{ column.kind }}</span>
+                  <span class="name" :title="columnTitle(column)">{{ heading }}</span>
                   <UiIcon v-if="sort?.column === column.name" :name="sort.dir === 'asc' ? 'chevron-up' : 'chevron-down'" :size="12" />
                 </button>
               </th>
@@ -223,7 +222,6 @@ th { padding: 0; border-bottom: 1px solid var(--border-strong); background: var(
 .sort:hover { background: var(--surface-3); }
 .sort:focus-visible { outline: none; box-shadow: inset var(--ring); }
 .num .sort { justify-content: flex-end; }
-.kind { color: var(--text-faint); font-size: var(--text-xs); font-weight: 400; }
 td { padding: 6px var(--space-3); border-bottom: 1px solid var(--border); vertical-align: top; }
 .compact td { padding: 2px var(--space-2); }
 .compact .sort { padding: var(--space-1) var(--space-2); }

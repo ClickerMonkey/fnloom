@@ -36,6 +36,17 @@ export function isNumeric(column: Pick<ResultColumn, 'kind'>): boolean {
   return NUMERIC.has(column.kind);
 }
 
+/** A column kind in words, for hover text (the grid doesn't print kinds beside names). */
+export const COLUMN_KIND_WORDS: Readonly<Record<ColumnKind, string>> = {
+  text: 'text', integer: 'whole number', number: 'number', boolean: 'yes or no', date: 'date', datetime: 'date and time',
+  time: 'time', uuid: 'ID', json: 'JSON', binary: 'binary',
+};
+
+/** A column's hover text: its raw name and its kind in words (`due_date · date`). */
+export function columnTitle(column: Pick<ResultColumn, 'name' | 'kind'>): string {
+  return `${column.name} · ${COLUMN_KIND_WORDS[column.kind]}`;
+}
+
 const NUMBER = new Intl.NumberFormat(undefined, { maximumFractionDigits: 6 });
 const DATETIME = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
