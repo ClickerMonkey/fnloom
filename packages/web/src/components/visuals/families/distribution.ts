@@ -4,7 +4,7 @@
  * column makes a series per group. Histogram and box plot are whole-result styles (ranking hides them otherwise).
  */
 import type { EffectScatterSeriesOption, ScatterSeriesOption } from 'echarts/charts';
-import { bound, boundAll, labelOf, legend, needed, numberOf, plotGrid, splitRows, tooltip, type ChartBuilder, type ChartInput, type RowGroup } from '../chart-data.ts';
+import { bound, boundAll, dimension, labelOf, legend, needed, numberOf, plotGrid, splitRows, tooltip, type ChartBuilder, type ChartInput, type RowGroup } from '../chart-data.ts';
 import { histogram } from '../maths.ts';
 
 /** The smallest and largest bubble, in pixels. */
@@ -89,7 +89,7 @@ export const distribution: ChartBuilder = (input) => {
     option: {
       tooltip: tooltip('item'), legend: legend(named), grid: plotGrid(named ? 36 : 8),
       dataset: groups.map((group) => ({
-        dimensions: size === undefined ? ['x', 'y'] : ['x', 'y', 'size'],
+        dimensions: [dimension(x, 'x'), dimension(y, 'y'), ...(size === undefined ? [] : [dimension(size, 'size')])],
         source: group.rows.map((at) => { const row = input.table.rows[at] ?? []; return [numberOf(row[x.index]), numberOf(row[y.index]), ...(size === undefined ? [] : [numberOf(row[size.index])])]; }),
       })),
       xAxis: { type: 'value', name: x.label, nameLocation: 'middle', nameGap: 28, scale: true }, yAxis: { type: 'value', name: y.label, scale: true },

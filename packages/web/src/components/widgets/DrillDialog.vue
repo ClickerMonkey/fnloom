@@ -9,7 +9,7 @@
 import { inject, onMounted, provide, ref, shallowRef } from 'vue';
 import { UiBanner, UiDialog, UiSpinner } from '../../ui/index.ts';
 import { FnWidgetSource, type WidgetFrame } from './widget-source.ts';
-import { WIDGET_HOST, type DrillStep } from './widgets.ts';
+import { groupCrumbHint, WIDGET_HOST, type DrillStep } from './widgets.ts';
 import WidgetView from './WidgetView.vue';
 
 const props = defineProps<{
@@ -45,7 +45,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <UiDialog :open="open" :title="step.label" :description="`The rows behind it, from ${from}.`" width="960px" data-testid="drill-dialog" @update:open="close">
+  <UiDialog :open="open" :title="step.label" :title-hint="groupCrumbHint(step)" :description="`The rows behind it, from ${from}.`" width="960px" data-testid="drill-dialog" @update:open="close">
     <div class="drill">
       <UiBanner v-if="problem !== ''" tone="danger" data-testid="drill-problem">{{ problem }}</UiBanner>
       <WidgetView

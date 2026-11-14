@@ -3,8 +3,9 @@
  * The value family (DOM, not ECharts): one to four rows of numbers. `cards` shows each bound number of each row as a
  * card titled by the row's title column (with the number's name when a row has several), else by the number's name;
  * `single` shows the first number large with the rest of its row under it. A card is a button when the row can be
- * drilled into.
+ * drilled into. A number's name is its column's label (else the name humanized), the raw name its title.
  */
+import { labelFor } from '@harness/core';
 import { computed } from 'vue';
 import type { VisualProps } from '../results/visuals.ts';
 import { cellText } from '../results/table.ts';
@@ -15,7 +16,7 @@ const emit = defineEmits<{ drill: [row: number] }>();
 const columns = computed(() => (props.bind['value'] ?? []).flatMap((name) => {
   const index = props.table.columns.findIndex((c) => c.name === name);
   const column = props.table.columns[index];
-  return column === undefined ? [] : [{ index, column, label: column.label ?? column.name }];
+  return column === undefined ? [] : [{ index, column, label: labelFor(column) }];
 }));
 const title = computed(() => {
   const name = props.bind['title']?.[0];
@@ -35,18 +36,18 @@ const lead = computed(() => cards.value[0]);
   <div class="values" data-testid="value-visual" :data-style="style">
     <div v-if="style === 'single' && lead" class="single">
       <button type="button" class="big" data-testid="value-card" @click="emit('drill', lead.at)">
-        <span class="label">{{ lead.values[0]?.label }}</span>
+        <span class="label" :title="lead.values[0]?.name">{{ lead.values[0]?.label }}</span>
         <span class="number">{{ lead.values[0]?.text }}</span>
       </button>
       <dl v-if="lead.values.length > 1" class="rest">
-        <div v-for="value in lead.values.slice(1)" :key="value.name"><dt>{{ value.label }}</dt><dd>{{ value.text }}</dd></div>
+        <div v-for="value in lead.values.slice(1)" :key="value.name"><dt :title="value.name">{{ value.label }}</dt><dd>{{ value.text }}</dd></div>
       </dl>
     </div>
     <ul v-else class="cards">
       <template v-for="card in cards" :key="card.at">
         <li v-for="value in card.values" :key="`${card.at}:${value.name}`">
           <button type="button" class="card" data-testid="value-card" @click="emit('drill', card.at)">
-            <span class="label">{{ value.label }}</span>
+            <span class="label" :title="value.name">{{ value.label }}</span>
             <span class="number">{{ value.text }}</span>
           </button>
         </li>

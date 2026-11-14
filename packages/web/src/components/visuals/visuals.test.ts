@@ -120,17 +120,40 @@ describe('chart families', () => {
   });
 });
 
+describe('chart labels', () => {
+  const Labelled = z.object({
+    dataset: z.unknown(),
+    series: z.array(z.object({ name: z.string().optional() })),
+    xAxis: z.object({ name: z.string().optional() }).optional(),
+    yAxis: z.object({ name: z.string().optional() }).optional(),
+  });
+  const optionOf = (wrapper: ReturnType<typeof draw>) => Labelled.parse(wrapper.getComponent(VChart).props('option'));
+
+  it('names series, axes and tooltip dimensions by the humanized column names, an own label as it is; values stay', () => {
+    const sales = tableOf([col('store_id', 'text'), { ...col('total_sales', 'integer'), label: 'sales (all)' }, col('refundCount', 'integer')], [['oslo_1', 12, 1], ['lima_2', 3, 0]]);
+    expect(optionOf(draw('category', 'bar', sales)).series.map((series) => series.name)).toEqual(['sales (all)', 'Refund count']);
+    const pie = optionOf(draw('part', 'pie', tableOf([col('store_id', 'text'), col('order_count', 'integer')], [['oslo_1', 12], ['lima_2', 3]])));
+    expect(pie.dataset).toMatchObject({ dimensions: [{ name: 'store_id', displayName: 'Store ID' }, { name: 'order_count', displayName: 'Order count' }], source: [['oslo_1', 12], ['lima_2', 3]] });
+    expect(pie.series[0]?.name).toBe('Order count');
+    const scatter = optionOf(draw('distribution', 'scatter', tableOf([col('unit_price', 'number'), col('qty_sold', 'number')], [[1, 2], [2, 3], [3, 1], [4, 5]])));
+    expect([scatter.xAxis?.name, scatter.yAxis?.name]).toEqual(['Unit price', 'Qty sold']);
+    expect(scatter.dataset).toMatchObject([{ dimensions: [{ name: 'x', displayName: 'Unit price' }, { name: 'y', displayName: 'Qty sold' }] }]);
+  });
+});
+
 describe('the value family', () => {
   it('shows each bound value as a card, or the first large, and drills into its row', async () => {
     const table = tableOf([col('open', 'integer'), col('done', 'integer')], [[4, 9]]);
     const rank = rankOf('value', table);
     const props = { table, title: 'Tasks', facts: columnFacts(table), bind: rank?.bind ?? {}, palette: LIGHT_PALETTE };
     const cards = mount(ValueVisual, { props: { ...props, style: 'cards' } });
-    expect(cards.findAll('[data-testid=value-card]').map((c) => c.text())).toEqual(['open4', 'done9']);
+    expect(cards.findAll('[data-testid=value-card]').map((c) => c.text())).toEqual(['Open4', 'Done9']);
+    // the humanized name shows, the raw name is the hover text
+    expect(cards.findAll('[data-testid=value-card] .label').map((c) => c.attributes('title'))).toEqual(['open', 'done']);
     await cards.get('[data-testid=value-card]').trigger('click');
     expect(cards.emitted('drill')).toEqual([[0]]);
     const single = mount(ValueVisual, { props: { ...props, style: 'single' } });
-    expect(single.get('.big').text()).toBe('open4');
+    expect(single.get('.big').text()).toBe('Open4');
   });
 });
 

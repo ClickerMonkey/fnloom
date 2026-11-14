@@ -3,7 +3,7 @@
  * columns by channel, rows split by a key, long rows pivoted wide. None of it aggregates; the maths that does
  * (histogram bins, quartiles, a pie's "Other") is in `maths.ts` and runs only over a whole result.
  */
-import type { ColumnFacts, Json, ResultFacts, ResultTable, VisualBinding } from '@harness/core';
+import { labelFor, type ColumnFacts, type Json, type ResultFacts, type ResultTable, type VisualBinding } from '@harness/core';
 import type { ChartOption } from './echarts-setup.ts';
 import type { ChartPalette } from './palette.ts';
 
@@ -90,7 +90,7 @@ export interface BoundColumn {
   readonly name: string;
   readonly index: number;
   readonly facts: ColumnFacts | undefined;
-  /** What a person reads for it: its label, else its name. */
+  /** What a person reads for it (axis names, series names, tooltips): its own label, else its name humanized. */
   readonly label: string;
 }
 
@@ -100,7 +100,7 @@ export function boundAll(input: Pick<ChartInput, 'table' | 'facts' | 'bind'>, ch
     const index = input.table.columns.findIndex((column) => column.name === name);
     const column = input.table.columns[index];
     if (column === undefined) { return []; }
-    return [{ name, index, facts: input.facts.columns.find((c) => c.name === name), label: column.label ?? name }];
+    return [{ name, index, facts: input.facts.columns.find((c) => c.name === name), label: labelFor(column) }];
   });
 }
 
@@ -116,9 +116,20 @@ export function needed(input: Pick<ChartInput, 'table' | 'facts' | 'bind'>, chan
   return column;
 }
 
-/** The whole table as a dataset: a dimension per column (by name, so `encode` names columns) and a row per row. */
-export function dataset(table: ResultTable): { dimensions: string[]; source: ChartValue[][] } {
-  return { dimensions: table.columns.map((column) => column.name), source: table.rows.map((row) => row.map(chartValue)) };
+/** A dataset dimension: named for `encode`, with the words a tooltip shows for it (`displayName`). */
+export interface Dimension {
+  readonly name: string;
+  readonly displayName: string;
+}
+
+/** The dimension of a bound column: its name for `encode`, its label for the tooltip. */
+export function dimension(column: Pick<BoundColumn, 'name' | 'label'>, name = column.name): Dimension {
+  return { name, displayName: column.label };
+}
+
+/** The whole table as a dataset: a dimension per column (by name, so `encode` names columns; its label for tooltips) and a row per row. */
+export function dataset(table: ResultTable): { dimensions: Dimension[]; source: ChartValue[][] } {
+  return { dimensions: table.columns.map((column) => ({ name: column.name, displayName: labelFor(column) })), source: table.rows.map((row) => row.map(chartValue)) };
 }
 
 /** The distinct values of a column, in the order they first appear. */

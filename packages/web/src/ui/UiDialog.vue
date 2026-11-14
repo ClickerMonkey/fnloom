@@ -9,10 +9,12 @@ import UiModal from './UiModal.vue';
 
 withDefaults(defineProps<{
   title: string;
+  /** The title's hover text (`title` attribute), such as the raw names behind a humanized title. */
+  titleHint?: string | undefined;
   description?: string;
   role?: 'dialog' | 'alertdialog';
   width?: string;
-}>(), { description: '', role: 'dialog', width: '480px' });
+}>(), { titleHint: undefined, description: '', role: 'dialog', width: '480px' });
 
 const open = defineModel<boolean>('open', { required: true });
 const id = useId();
@@ -24,7 +26,7 @@ const slots = defineSlots<{ default?: () => unknown; footer?: () => unknown }>()
   <UiModal v-model:open="open" :role="role" :width="width" :labelled-by="`${id}-title`" :described-by="description === '' ? undefined : `${id}-desc`">
     <header class="head">
       <div class="titles">
-        <h2 :id="`${id}-title`" class="title">{{ title }}</h2>
+        <h2 :id="`${id}-title`" class="title" :title="titleHint">{{ title }}</h2>
         <p v-if="description !== ''" :id="`${id}-desc`" class="description">{{ description }}</p>
       </div>
       <UiIconButton icon="x" label="Close" size="sm" @click="open = false" />

@@ -13,7 +13,7 @@ import { DRILL_FN, DRILL_PAGE, DRILL_SOURCE, drillableSample, drilledRows } from
 import { tableFrame } from './widget-source.ts';
 import { WidgetState } from './widget-state.ts';
 import WidgetView from './WidgetView.vue';
-import { DRILL_PAGING, WIDGET_HOST, drillStepOf, groupDrill, type WidgetHost } from './widgets.ts';
+import { DRILL_PAGING, WIDGET_HOST, drillStepOf, groupCrumbHint, groupDrill, type WidgetHost } from './widgets.ts';
 
 const BY_CITY = drillableSample('category', CHART_SAMPLES.category);
 const BY_MONTH_AND_SHOP = drillableSample('crosstab', CHART_SAMPLES.crosstab);
@@ -42,11 +42,13 @@ afterEach(() => { document.body.innerHTML = ''; });
 describe('a drill through the query', () => {
   it("binds the clicked group's key values to the drill fn, with the source's args, a crumb and its paging", () => {
     expect(groupDrill(BY_CITY, 0)).toEqual({
-      fn: DRILL_FN, label: 'city: Oslo', args: { fn: DRILL_SOURCE, args: { family: 'category' }, group: { city: 'Oslo' } }, paging: DRILL_PAGING,
+      fn: DRILL_FN, label: 'City: Oslo', args: { fn: DRILL_SOURCE, args: { family: 'category' }, group: { city: 'Oslo' } }, paging: DRILL_PAGING,
     });
-    // every key of a two-key group, each by its column's label when it has one
-    const labelled = { ...BY_MONTH_AND_SHOP, columns: BY_MONTH_AND_SHOP.columns.map((column) => (column.name === 'month' ? { ...column, label: 'Month' } : column)) };
-    expect(groupDrill(labelled, 3)).toMatchObject({ label: 'Month: Feb · shop: b', args: { group: { month: 'Feb', shop: 'b' } } });
+    // its hover text keeps the raw key
+    expect(groupCrumbHint(groupDrill(BY_CITY, 0))).toBe('city: Oslo');
+    // every key of a two-key group, each by its column's label when it has one (as it is), else its name humanized
+    const labelled = { ...BY_MONTH_AND_SHOP, columns: BY_MONTH_AND_SHOP.columns.map((column) => (column.name === 'month' ? { ...column, label: 'month of year' } : column)) };
+    expect(groupDrill(labelled, 3)).toMatchObject({ label: 'month of year: Feb · Shop: b', args: { group: { month: 'Feb', shop: 'b' } } });
   });
 
   it('opens nothing for a NULL group, a row that is not there, or a result that says nothing of drilling', () => {
@@ -93,7 +95,8 @@ describe('the drill modal', () => {
     await shown('[data-testid=drill-dialog] [data-testid=result-row]');
     expect(reads[0]).toEqual({ fn: DRILL_FN, args: { fn: DRILL_SOURCE, args: { family: 'category' }, group: { city: 'Oslo' } } });
     const dialog = document.querySelector<HTMLElement>('[data-testid=drill-dialog]');
-    expect(dialog?.textContent).toContain('city: Oslo');
+    expect(dialog?.textContent).toContain('City: Oslo');
+    expect(dialog?.querySelector('h2')?.getAttribute('title')).toBe('city: Oslo');
     expect(dialog?.textContent).toContain('from Orders by city');
     // a table first, of the first page of the twelve Oslo orders
     const inner = dialog?.querySelector<HTMLElement>('[data-testid=result-view]');
@@ -106,7 +109,8 @@ describe('the drill modal', () => {
     dialog?.querySelector<HTMLElement>('[data-testid=result-row]')?.click();
     await flushPromises();
     expect(reads.at(-1)).toEqual({ fn: 'shop/by_customer', args: { group: { customer: 'Ada' } } });
-    expect([...(dialog?.querySelectorAll('[data-testid=widget-crumbs] .crumb') ?? [])].map((crumb) => crumb.textContent)).toEqual(['city: Oslo', 'customer: Ada']);
+    expect([...(dialog?.querySelectorAll('[data-testid=widget-crumbs] .crumb') ?? [])].map((crumb) => crumb.textContent)).toEqual(['City: Oslo', 'Customer: Ada']);
+    expect([...(dialog?.querySelectorAll('[data-testid=widget-crumbs] .crumb') ?? [])].map((crumb) => crumb.getAttribute('title'))).toEqual([null, 'customer: Ada']);
     dialog?.querySelector<HTMLElement>('[data-testid=widget-crumb]')?.click();
     await flushPromises();
     expect(dialog?.querySelector('[data-testid=widget-crumbs]')).toBeNull();

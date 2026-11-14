@@ -16,6 +16,7 @@
  */
 import { z } from 'zod';
 import { GinTypeDef } from './gin.ts';
+import { humanize } from './labels.ts';
 import { FnMode } from './manifest.ts';
 import { Json, LocalName, QualifiedName, RunId } from './primitives.ts';
 import { ResultTable } from './registries.ts';
@@ -355,11 +356,10 @@ export function deriveThen(mode: FnMode, returnsTable: boolean): ActionThen {
   return mode === 'read' ? 'status' : 'refresh';
 }
 
-/** A method or fn name as a label: `mark_done` → "Mark done", `Task.archive` → "Archive". */
+/** A method, fn or arg name as a label: `mark_done` → "Mark done", `Task.archive` → "Archive", `owner_id` → "Owner ID". */
 export function actionLabel(fn: string): string {
   const last = fn.split(/[/.]/).pop() ?? fn;
-  const words = last.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim().toLowerCase();
-  return words.length === 0 ? fn : words.charAt(0).toUpperCase() + words.slice(1);
+  return humanize(last) || fn;
 }
 
 /** Build 8's visuals as the widget pass names them: the family and its style, and how the old channels map. */

@@ -35,7 +35,7 @@ import WidgetActionDialog from './WidgetActionDialog.vue';
 import WidgetChips from './WidgetChips.vue';
 import { FnWidgetSource, type WidgetFrame, type WidgetSource } from './widget-source.ts';
 import { startArgs, WidgetState } from './widget-state.ts';
-import { saveLookRequest, WIDGET_HOST, widgetVisuals, type DrillStep } from './widgets.ts';
+import { groupCrumbHint, saveLookRequest, WIDGET_HOST, widgetVisuals, type DrillStep } from './widgets.ts';
 
 const props = withDefaults(defineProps<{
   frame: WidgetFrame;
@@ -240,8 +240,8 @@ async function saveLook(close: () => void): Promise<void> {
         <nav v-if="state.levels.value.length > 1" class="crumbs" aria-label="Levels" data-testid="widget-crumbs">
           <template v-for="(crumb, i) in state.levels.value" :key="i">
             <UiIcon v-if="i > 0" name="chevron-right" :size="12" class="sep" />
-            <button v-if="i < state.levels.value.length - 1" type="button" class="crumb" data-testid="widget-crumb" @click="state.back(i)">{{ crumb.label }}</button>
-            <span v-else class="crumb here" aria-current="page">{{ crumb.label }}</span>
+            <button v-if="i < state.levels.value.length - 1" type="button" class="crumb" data-testid="widget-crumb" :title="groupCrumbHint(crumb.step)" @click="state.back(i)">{{ crumb.label }}</button>
+            <span v-else class="crumb here" aria-current="page" :title="groupCrumbHint(crumb.step)">{{ crumb.label }}</span>
           </template>
         </nav>
         <h3 v-else-if="showTitle" class="title">{{ top.title }}</h3>

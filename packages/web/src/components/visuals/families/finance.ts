@@ -3,7 +3,7 @@
  * and falls in the theme's ok and danger colours. The period axis zooms both grids; a zoom sets the widget's
  * from/to args.
  */
-import { chartValue, needed, tooltip, type ChartBuilder } from '../chart-data.ts';
+import { chartValue, dimension, needed, tooltip, type ChartBuilder } from '../chart-data.ts';
 
 export const finance: ChartBuilder = (input) => {
   const x = needed(input, 'x');
@@ -11,7 +11,7 @@ export const finance: ChartBuilder = (input) => {
   const volume = input.style === 'volume' ? needed(input, 'volume') : undefined;
   const all = [x, ...columns, ...(volume === undefined ? [] : [volume])];
   const source = input.table.rows.map((row) => all.map((column) => chartValue(row[column.index])));
-  const dims = all.map((column) => column.name);
+  const dims = all.map((column) => dimension(column));
   const periods = source.map((row) => row[0] ?? null);
   const axes = volume === undefined ? [0] : [0, 1];
   const zoomBottom = input.phone ? 0 : 28;

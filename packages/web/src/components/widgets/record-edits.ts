@@ -5,7 +5,7 @@
  * "Save N changes" sends one `RecordUpdate` per record after one confirm naming them all. A change typed back to what
  * the record holds is no change; a value that doesn't read as its column's kind (letters in a number) is not staged.
  */
-import { RecordId, type Json, type RecordUpdate, type ResultColumn, type ResultTable } from '@harness/core';
+import { humanize, lowerFirst, RecordId, type Json, type RecordUpdate, type ResultColumn, type ResultTable } from '@harness/core';
 import { computed, shallowRef, type InjectionKey } from 'vue';
 import { cellText } from '../results/table.ts';
 import { rowName } from './widgets.ts';
@@ -141,7 +141,7 @@ export class RecordEdits implements CellEditor {
     const columns = this.#table()?.columns ?? [];
     const fields = Object.entries(change.set).map(([name, value]) => {
       const column = columns.find((c) => c.name === name);
-      const label = column?.label ?? name;
+      const label = column?.label ?? lowerFirst(humanize(name));
       const say = (held: Json): string => {
         const text = column === undefined ? JSON.stringify(held) : cellText(held, column);
         return text === undefined ? 'empty' : column?.kind === 'text' ? `“${text}”` : text;

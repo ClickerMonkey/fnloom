@@ -79,7 +79,9 @@ export default feature({
     await page.waitForSelector(`${tid('drill-dialog')} ${tid('result-row')}, ${tid('drill-dialog')} ${tid('result-card')}`, { visible: true });
     await settle(page, 600);
     const title = await page.$eval(tid('drill-dialog'), (dialog) => dialog.textContent);
-    check(title.includes('city:'), 'the modal names the group it opened');
+    check(title.includes('City:'), 'the modal names the group it opened, its key humanized');
+    const hint = await page.$eval(`${tid('drill-dialog')} h2`, (heading) => heading.getAttribute('title') ?? '');
+    check(hint.startsWith('city: '), 'its title keeps the raw key for anyone curious');
     const visual = await page.$eval(`${tid('drill-dialog')} ${tid('result-view')}`, (view) => (view instanceof HTMLElement ? view.dataset['visual'] : undefined));
     check(visual === 'table', 'the rows behind the group show as a table first');
     await ctx.shot('modal');

@@ -17,7 +17,7 @@
  * cells are inputs: what is typed is staged there, a changed cell marked, and a click in one never opens the row.
  */
 import type { ResultSort } from '@harness/core';
-import type { Json, ResultColumn } from '@harness/core';
+import { labelFor, type Json, type ResultColumn } from '@harness/core';
 import { computed, inject, ref, watch } from 'vue';
 import { UiIcon, UiIconButton, UiSelect, useMoreEdges, type SelectOption } from '../../ui/index.ts';
 import { PHONE_WIDTH, useWidth } from '../visuals/size.ts';
@@ -65,9 +65,9 @@ function typed(row: readonly Json[], index: number, event: Event): void {
 
 const root = ref<HTMLElement | null>(null);
 const width = useWidth(root);
-/** The columns drawn, with their index in the row: the bound ones, else every one. */
+/** The columns drawn, with their index in the row and their words (an own label, else the name humanized; the raw name is the title): the bound ones, else every one. */
 const columns = computed(() => {
-  const all = props.table.columns.map((column, index) => ({ column, index }));
+  const all = props.table.columns.map((column, index) => ({ column, index, heading: labelFor(column) }));
   const names = props.bind?.['columns'];
   return names === undefined ? all : names.flatMap((name) => all.filter((c) => c.column.name === name));
 });
@@ -136,15 +136,15 @@ const ariaSort = (column: string): 'ascending' | 'descending' | 'none' => (sort.
     <ul v-if="shown === 'cards'" class="cards" :aria-label="title">
       <li v-for="(row, r) in window.rows" :key="window.from + r" class="card" data-testid="result-card" @click="clicked(row)">
         <dl>
-          <div v-for="{ column, index } in columns" :key="column.name" class="field">
-            <dt>{{ column.label ?? column.name }}</dt>
+          <div v-for="{ column, index, heading } in columns" :key="column.name" class="field">
+            <dt :title="column.name">{{ heading }}</dt>
             <dd :class="{ num: isNumeric(column), changed: editor?.changed(row, index) }">
               <input
-                v-if="inputOf(column) === 'checkbox'" type="checkbox" class="edit-check" :checked="editor?.value(row, index) === true" :aria-label="column.label ?? column.name"
+                v-if="inputOf(column) === 'checkbox'" type="checkbox" class="edit-check" :checked="editor?.value(row, index) === true" :aria-label="heading"
                 data-testid="result-cell-edit" :data-column="column.name" @click.stop @change="typed(row, index, $event)"
               >
               <input
-                v-else-if="inputOf(column)" :type="inputOf(column)" class="edit" :value="entry(row, index)" :aria-label="column.label ?? column.name"
+                v-else-if="inputOf(column)" :type="inputOf(column)" class="edit" :value="entry(row, index)" :aria-label="heading"
                 data-testid="result-cell-edit" :data-column="column.name" @click.stop @change="typed(row, index, $event)"
               >
               <span v-else-if="cellText(row[index], column) === undefined" class="empty">null</span>
@@ -161,9 +161,9 @@ const ariaSort = (column: string): 'ascending' | 'descending' | 'none' => (sort.
         <table>
           <thead>
             <tr>
-              <th v-for="{ column } in columns" :key="column.name" scope="col" :class="{ num: isNumeric(column) }" :aria-sort="ariaSort(column.name)">
-                <button type="button" class="sort" :title="`Sort by ${column.label ?? column.name}`" @click="sortBy(column.name)">
-                  <span class="name">{{ column.label ?? column.name }}</span>
+              <th v-for="{ column, heading } in columns" :key="column.name" scope="col" :class="{ num: isNumeric(column) }" :aria-sort="ariaSort(column.name)">
+                <button type="button" class="sort" :title="`Sort by ${heading}`" @click="sortBy(column.name)">
+                  <span class="name" :title="column.name">{{ heading }}</span>
                   <span class="kind">{{ column.kind }}</span>
                   <UiIcon v-if="sort?.column === column.name" :name="sort.dir === 'asc' ? 'chevron-up' : 'chevron-down'" :size="12" />
                 </button>
@@ -174,15 +174,15 @@ const ariaSort = (column: string): 'ascending' | 'descending' | 'none' => (sort.
           <tbody>
             <tr v-for="(row, r) in window.rows" :key="window.from + r" data-testid="result-row" @click="clicked(row)">
               <td
-                v-for="{ column, index } in columns" :key="column.name"
+                v-for="{ column, index, heading } in columns" :key="column.name"
                 :class="{ num: isNumeric(column), mono: column.kind === 'json' || column.kind === 'uuid', editing: inputOf(column) !== undefined, changed: editor?.changed(row, index) }"
               >
                 <input
-                  v-if="inputOf(column) === 'checkbox'" type="checkbox" class="edit-check" :checked="editor?.value(row, index) === true" :aria-label="column.label ?? column.name"
+                  v-if="inputOf(column) === 'checkbox'" type="checkbox" class="edit-check" :checked="editor?.value(row, index) === true" :aria-label="heading"
                   data-testid="result-cell-edit" :data-column="column.name" @click.stop @change="typed(row, index, $event)"
                 >
                 <input
-                  v-else-if="inputOf(column)" :type="inputOf(column)" class="edit" :class="{ num: isNumeric(column) }" :value="entry(row, index)" :aria-label="column.label ?? column.name"
+                  v-else-if="inputOf(column)" :type="inputOf(column)" class="edit" :class="{ num: isNumeric(column) }" :value="entry(row, index)" :aria-label="heading"
                   data-testid="result-cell-edit" :data-column="column.name" @click.stop @change="typed(row, index, $event)"
                 >
                 <span v-else-if="cellText(row[index], column) === undefined" class="empty">null</span>

@@ -4,7 +4,7 @@
  * labelled inside). The time axis zooms; a zoom sets the widget's from/to args.
  */
 import type { CustomSeriesRenderItem } from 'echarts';
-import { bound, chartValue, labelOf, needed, plotGrid, splitRows, tooltip, zoom, type ChartBuilder, type ChartValue } from '../chart-data.ts';
+import { bound, chartValue, dimension, labelOf, needed, plotGrid, splitRows, tooltip, zoom, type ChartBuilder, type ChartValue } from '../chart-data.ts';
 import { timeAxis } from './time.ts';
 
 /** A value as milliseconds, or `null` when it is not a time. */
@@ -74,7 +74,7 @@ export const timeline: ChartBuilder = (input) => {
     option: {
       useUTC: day, tooltip: tooltip('item'), grid: plotGrid(input.phone ? 8 : 40), dataZoom: zoom(input.phone, { xAxisIndex: [0] }),
       // typed dimensions, so a bar's start and end read as times (text dates otherwise read as names and draw nothing)
-      dataset: { dimensions: [{ name: 'lane', type: 'number' as const }, { name: 'start', type: 'time' as const }, { name: 'end', type: 'time' as const }, { name: 'label', type: 'ordinal' as const }], source },
+      dataset: { dimensions: [{ name: 'lane', type: 'number' as const }, { ...dimension(start, 'start'), type: 'time' as const }, { ...dimension(end, 'end'), type: 'time' as const }, { ...dimension(label, 'label'), type: 'ordinal' as const }], source },
       xAxis: timeAxis(day),
       yAxis: { type: 'category' as const, data: names, inverse: true, ...(packed ? { show: false } : { axisLabel: { hideOverlap: true, width: input.phone ? 80 : 160, overflow: 'truncate' as const } }) },
       series: [{ type: 'custom' as const, renderItem: packed ? bar(input.palette.surface) : ganttBar, encode: { x: ['start', 'end'], y: 'lane', tooltip: ['label', 'start', 'end'] } }],

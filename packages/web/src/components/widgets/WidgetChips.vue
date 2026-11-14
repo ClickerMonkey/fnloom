@@ -4,7 +4,7 @@
  * runs), then one chip per shown control with its label and value ("Any" when unset). A chip opens a popover with the
  * editor for its argument: its choices (an optional one has an "Any" row), the relative dates for a date, and a typed
  * value where one may be typed. Changes are staged: the chip marks itself and Apply beside the row runs them together.
- * It wraps on a phone. Without `editable` (a preview, a page that can't run it) the chips only show their values.
+ * A chip's label is the plan's, else the arg's name humanized (`actionLabel`), with the raw arg name as its title. It wraps on a phone. Without `editable` (a preview, a page that can't run it) the chips only show their values.
  */
 import type { Json, WidgetPreset, WidgetShownControl } from '@harness/core';
 import { computed, ref } from 'vue';
@@ -63,7 +63,7 @@ const isPicked = (value: ChipValue): boolean => control.value !== undefined && s
       v-for="c in controls" :key="c.arg" :ref="(el) => setAnchor(c.arg, el)" type="button" class="chip" :class="{ changed: changed(c) }" :disabled="!editable"
       :aria-expanded="openArg === c.arg" aria-haspopup="dialog" :data-arg="c.arg" data-testid="widget-chip" @click="openArg = openArg === c.arg ? undefined : c.arg"
     >
-      <span class="label">{{ c.label }}</span>
+      <span class="label" :title="c.arg">{{ c.label }}</span>
       <span class="value">{{ chipText(c, currentOf(c.arg)) }}</span>
       <UiIcon v-if="editable" name="chevron-down" :size="12" />
     </button>

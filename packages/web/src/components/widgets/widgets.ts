@@ -6,7 +6,7 @@
  * `WidgetHost`, which runs what the view asks for, so the view knows nothing of where it is.
  */
 import {
-  ExportQuery, QualifiedName, RELATIVE_DATES, ResultTable, WidgetPaging, WidgetProposal, WidgetResult, type ArgValue, type FnMode, type Json,
+  ExportQuery, humanize, labelFor, QualifiedName, RELATIVE_DATES, ResultTable, WidgetPaging, WidgetProposal, WidgetResult, type ArgValue, type FnMode, type Json,
   type RecordUpdate, type RowActionsQuery, type SaveWidgetArgs, type WidgetActionOption, type WidgetDrill, type WidgetShownControl, type WidgetVisual,
 } from '@harness/core';
 import { relativeDatesFor, resolveArgValue } from '@harness/sdk';
@@ -206,7 +206,8 @@ function pinnable(value: Json | undefined): value is Json {
 
 /**
  * The drill through the query for one clicked row (`ResultTable.drill`, build-9 feedback): its source's drill fn with the
- * source's args and the row's value of each group key column, its crumb the keys' labels and values ("Status: paid"),
+ * source's args and the row's value of each group key column, its crumb the keys' labels (humanized names when they
+ * have none) and values ("Status: paid", `groupCrumbHint` keeps the raw names),
  * paged. Undefined when the table can't be drilled into or the row has no value for a key (a NULL group).
  */
 export function groupDrill(table: Pick<ResultTable, 'columns' | 'rows' | 'drill'>, rowIndex: number): DrillStep | undefined {
@@ -220,7 +221,8 @@ export function groupDrill(table: Pick<ResultTable, 'columns' | 'rows' | 'drill'
     const value = at < 0 ? undefined : row[at];
     if (!pinnable(value)) { return undefined; }
     group[key] = value;
-    words.push(`${table.columns[at]?.label ?? key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`);
+    const column = table.columns[at];
+    words.push(`${column === undefined ? humanize(key) : labelFor(column)}: ${typeof value === 'string' ? value : JSON.stringify(value)}`);
   }
   return { fn: drill.fn, label: words.length === 0 ? 'Every row' : words.join(' · '), args: { ...drill.args, group }, paging: DRILL_PAGING };
 }
@@ -313,6 +315,17 @@ export const SAVE_WIDGET_FN = QualifiedName.parse('widgets/save_widget');
 /** A proposal as `widgets/save_widget` takes it. */
 export function saveArgs(proposal: WidgetProposal): SaveWidgetArgs {
   return { name: proposal.name, description: proposal.description, spec: proposal.spec, ...(proposal.replaces === undefined ? {} : { replace: proposal.replaces }) };
+}
+
+/**
+ * A drill-through-the-query crumb's hover text: the raw group keys and values its humanized words stand for
+ * ("due_date: 2026-11-14"); undefined for a step that pins no group.
+ */
+export function groupCrumbHint(step: Pick<DrillStep, 'args'> | undefined): string | undefined {
+  const group = step?.args['group'];
+  if (group === null || group === undefined || typeof group !== 'object' || Array.isArray(group)) { return undefined; }
+  const words = Object.entries(group).map(([key, value]) => `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`);
+  return words.length === 0 ? undefined : words.join(' · ');
 }
 
 /** A level's crumb: the drill's or action's label and the row it was asked for ("Orders: Oslo"). */
