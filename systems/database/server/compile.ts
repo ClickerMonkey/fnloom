@@ -250,7 +250,7 @@ export interface CallPlan {
 
 /**
  * The SQL for a call with these args. A call's args were checked first (`argProblems`), so every param is given; a
- * param is bound as NULL only for the SQL shown without a call (`check_query`, a saved fn's readable SQL).
+ * param is bound as NULL only for the SQL shown without a call (a draft check, a saved fn's readable SQL).
  */
 export function planCall(compiled: CompiledQuery, dialect: Dialect, args: Readonly<Record<string, Json>>, sort: SortArg, limits: PageLimits): CallPlan {
   const bound: Record<string, SqlParamValue> = {};

@@ -172,7 +172,7 @@ export const QueryDraft = z.object({
 });
 export type QueryDraft = z.infer<typeof QueryDraft>;
 
-/** What `check_query` says about a draft: whether it runs here, its SQL and signature, or what to fix. */
+/** What the draft check says about a draft: whether it runs here, its SQL and signature, or what to fix. */
 export const QueryCheck = z.object({
   ok: z.boolean(),
   problems: z.array(z.string()).describe('Each problem, with what to change; empty when `ok`.'),
@@ -190,7 +190,7 @@ export const TablesInfo = z.object({
 });
 export type TablesInfo = z.infer<typeof TablesInfo>;
 
-/** A query `save_query` kept in the hub. */
+/** A query the authoring agent kept in the hub. */
 export const SavedQueryRef = z.object({
   fn: z.string().describe('The saved fn (`database/main.overdue_invoices`).'),
   signature: z.string(),
@@ -356,7 +356,6 @@ export type TableFnsGenerated = z.infer<typeof TableFnsGenerated>;
 /** What one instance is asked to read for a tool another instance answered (`read_at_instance`, declared read). */
 export const ReadInstanceOp = z.discriminatedUnion('op', [
   z.object({ op: z.literal('tables') }),
-  z.object({ op: z.literal('check'), draft: QueryDraft }),
   z.object({ op: z.literal('table-fns'), table: z.string().min(1) }),
 ]);
 export type ReadInstanceOp = z.infer<typeof ReadInstanceOp>;
@@ -364,9 +363,6 @@ export type ReadInstanceOp = z.infer<typeof ReadInstanceOp>;
 /** What one instance is asked to do for a tool another instance answered (`at_instance`): the reads and the writes. */
 export const InstanceOp = z.discriminatedUnion('op', [
   ...ReadInstanceOp.options,
-  z.object({
-    op: z.literal('save'), draft: QueryDraft, args: ParamValues.optional(), askedFor: z.string().optional(), replace: z.boolean().optional(),
-  }),
   z.object({ op: z.literal('run'), fn: z.string().min(1), args: ParamValues.optional() }),
   z.object({ op: z.literal('table-fns-generate'), table: z.string().min(1), names: z.array(z.string().min(1)).min(1), derived: z.array(z.string().min(1)).optional() }),
 ]);
@@ -375,8 +371,6 @@ export type InstanceOp = z.infer<typeof InstanceOp>;
 /** What an instance answers an `InstanceOp` with, by the same `op`. */
 export const InstanceAnswer = z.discriminatedUnion('op', [
   z.object({ op: z.literal('tables'), tables: TablesInfo }),
-  z.object({ op: z.literal('check'), check: QueryCheck }),
-  z.object({ op: z.literal('save'), saved: SavedQueryRef }),
   z.object({ op: z.literal('run'), run: QueryRun }),
   z.object({ op: z.literal('table-fns'), list: TableFnsList }),
   z.object({ op: z.literal('table-fns-generate'), generated: TableFnsGenerated }),

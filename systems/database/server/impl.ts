@@ -4,7 +4,7 @@
  * saved queries or drop a type. `get_query` picks the database (the one named, the only one, the decision model's pick,
  * or a question back) and `edit_query` reads it off the saved query; both hand the request to `author_query` on that
  * instance, which runs the query authoring agent (`authoring.ts`) on the run's `ctx.ai()` and then the query it kept.
- * The direct tools (`databases`, `tables`, `check_query`, `save_query`, `run_query`) are each done by the instance
+ * The direct tools (`databases`, `tables`, `run_query`) are each done by the instance
  * that has the database (`at_instance`, forwarded with `on` when that is another one). Saved queries live in the hub;
  * the `query` kind runs them, and previews the writes among them for their approval.
  */
@@ -343,7 +343,6 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
   async function readHere(op: ReadInstanceOp, here: DatabaseInstance, ctx: ReadCtx): Promise<InstanceAnswer | QueryProblem> {
     switch (op.op) {
       case 'tables': return { op: 'tables', tables: queries.tables(here) };
-      case 'check': return { op: 'check', check: queries.check(here, op.draft) };
       case 'table-fns': {
         const list = await tableFnService.list(here, op.table, tableFnsReadCtx(ctx));
         return 'groups' in list ? { op: 'table-fns', list } : list;
@@ -356,11 +355,7 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
     const here = await hereFor(ctx);
     if (!('db' in here)) { return here; }
     switch (op.op) {
-      case 'tables': case 'check': case 'table-fns': return readHere(op, here, ctx);
-      case 'save': {
-        const saved = await queries.save(here, op.draft, { args: op.args, askedFor: op.askedFor, replace: op.replace }, runCtx(ctx));
-        return 'fn' in saved ? { op: 'save', saved } : saved;
-      }
+      case 'tables': case 'table-fns': return readHere(op, here, ctx);
       case 'run': {
         const ran = await queries.run(here, op.fn, op.args ?? {}, runCtx(ctx));
         return 'database' in ran ? { op: 'run', run: ran } : ran;
@@ -517,24 +512,6 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
       tables: {
         async run(args, ctx) {
           const answer = await at(ctx, args.database, { op: 'tables' }, (found) => (found.op === 'tables' ? found.tables : undefined));
-          return isProblem(answer) ? refuse(ctx, answer) : ctx.done(answer);
-        },
-      },
-      check_query: {
-        async run(args, ctx) {
-          const answer = await at(ctx, args.database, { op: 'check', draft: args.draft }, (found) => (found.op === 'check' ? found.check : undefined));
-          return isProblem(answer) ? refuse(ctx, answer) : ctx.done(answer);
-        },
-      },
-      save_query: {
-        async run(args, ctx) {
-          if (!ParamValues.optional().safeParse(args.args).success) { return ctx.invalid([NOT_VALUES]); }
-          const answer = await at(ctx, args.database, {
-            op: 'save', draft: args.draft,
-            ...(args.args === undefined ? {} : { args: args.args }),
-            ...(args.askedFor === undefined ? {} : { askedFor: args.askedFor }),
-            ...(args.replace === undefined ? {} : { replace: args.replace }),
-          }, (found) => (found.op === 'save' ? found.saved : undefined));
           return isProblem(answer) ? refuse(ctx, answer) : ctx.done(answer);
         },
       },

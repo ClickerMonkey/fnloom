@@ -7,7 +7,7 @@ import { z } from 'zod';
 
 export const databaseEnv = env({
   ...systemFields(),
-  /** How many names save_query tries (`orders`, `orders_2`, …) before giving up on a taken name. */
+  /** How many names saving a query tries (`orders`, `orders_2`, …) before giving up on a taken name. */
   DATABASE_NAME_TRIES: z.number().int().min(1).max(50).default(10),
   /** Rows a list query reads when the caller gives no `limit`. */
   DATABASE_PAGE_ROWS: z.number().int().min(1).default(50),

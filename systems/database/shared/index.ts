@@ -12,9 +12,9 @@
 import { ResultTable, type FnEffects } from '@harness/core';
 import { attachment, context, fn, g, ginAs, hub, kind, system, type Infer } from '@harness/sdk';
 import {
-  ApplyArgs, AuthorArgs, CONFIG_SECRETS, DatabaseConfig, DatabasePick, DatabaseSummary, PickArgs, InstanceAnswer, InstanceOp, ReadInstanceOp, ParamValues, QueryAgentAnswer, QueryAnswer, QueryCheck, QueryDraft, QueryPayload, QueryRun,
+  ApplyArgs, AuthorArgs, CONFIG_SECRETS, DatabaseConfig, DatabasePick, DatabaseSummary, PickArgs, InstanceAnswer, InstanceOp, ReadInstanceOp, ParamValues, QueryAgentAnswer, QueryAnswer, QueryPayload, QueryRun,
   type QueryHow,
-  SavedQueryRef, SchemaArgs, SchemaChanged, TableArgs, TableFnsArgs, TableFnsGenerateArgs, TableFnsGenerated, TableFnsList, TablesInfo,
+  SchemaArgs, SchemaChanged, TableArgs, TableFnsArgs, TableFnsGenerateArgs, TableFnsGenerated, TableFnsList, TablesInfo,
 } from './shapes.ts';
 
 export * from './shapes.ts';
@@ -68,8 +68,6 @@ const ORDERS_BY_STATUS = {
   where: [{ kind: 'comparison', op: '=', left: { kind: 'field-ref', source: 'orders', field: 'status' }, right: { kind: 'param', name: 'status' } }],
   order: [{ expr: { kind: 'field-ref', source: 'orders', field: 'total' }, dir: 'desc' }],
 };
-
-const ORDERS_DRAFT = { name: 'orders_by_status', title: 'Orders by status', description: 'Orders with a given status and their customer, biggest first.', query: ORDERS_BY_STATUS, sorters: ['total', 'customer'] };
 
 /** How a query's args are given: the tool schema can only say `any JSON` for them, so the words say it. */
 const PARAM_VALUES_DOCS = 'An object of the values by param name, such as { "status": "paid" }: a JSON object, never a string holding JSON.';
@@ -226,51 +224,6 @@ export const database = system('database', {
         routing: { to: 'any' },
         effects: { mode: 'read', free: true },
         tags: ['database', 'read'],
-      }),
-      check_query: fn({
-        group: 'queries',
-        description: 'Check a draft query against a database\'s tables: whether it runs, its SQL and signature, or each problem and how to fix it.',
-        instructions: 'Check every draft before saving it, and fix each listed problem. A write on a read-only database is a problem.',
-        args: g.obj({ database: databaseArg(), draft: ginAs(QueryDraft) }),
-        returns: ginAs(QueryCheck),
-        deps: { at: fns.read_at_instance },
-        examples: [{
-          args: { database: 'main', draft: ORDERS_DRAFT },
-          result: { ok: true, problems: [], writes: false, sql: 'SELECT orders.id AS id, … WHERE orders.status = ? ORDER BY orders.total DESC', signature: 'database/main.orders_by_status(status: text, limit?, offset?, sort?) → rows' },
-        }],
-        // query JSON is the authoring agent's to write (it discloses tables progressively); the chat model describes a
-        // query to get_query / edit_query instead
-        visibility: 'none',
-        display: 'hidden',
-        routing: { to: 'any' },
-        effects: { mode: 'read', free: true },
-        tags: ['database', 'read'],
-      }),
-      save_query: fn({
-        group: 'queries',
-        description: 'Keep a checked query in the hub as a `database/query` fn of its database (`database/<database>.<name>`), shared as the database says; with `replace`, a new version of a saved one.',
-        instructions: 'Save only drafts check_query passed. Give the args for this request (kept as its first example) and the request as `askedFor`. A taken name without `replace` is saved under the next free one.',
-        args: g.obj({
-          database: databaseArg(),
-          draft: ginAs(QueryDraft),
-          args: g.field(g.optional(ginAs(ParamValues)), { docs: PARAM_VALUES_DOCS }),
-          askedFor: g.field(g.optional(g.text()), { docs: 'The request it was written for.' }),
-          replace: g.field(g.optional(g.bool()), { docs: 'Save over the saved query of this name (edit_query), keeping the old version.' }),
-        }),
-        returns: ginAs(SavedQueryRef),
-        deps: { at: fns.at_instance },
-        examples: [{
-          args: { database: 'main', draft: ORDERS_DRAFT, args: { status: 'paid' }, askedFor: 'paid orders, biggest first, with the customer' },
-          result: { fn: 'database/main.orders_by_status', signature: 'database/main.orders_by_status(status: text, limit?, offset?, sort?) → rows', version: 1, created: true },
-        }],
-        // query JSON is the authoring agent's to write (it discloses tables progressively); the chat model describes a
-        // query to get_query / edit_query instead
-        visibility: 'none',
-        display: 'hidden',
-        routing: { to: 'any' },
-        // keeping a query changes no table, but it creates or updates a hub fn; a write query asks for approval each time it runs
-        effects: SAVES_QUERIES,
-        tags: ['database', 'query'],
       }),
       table_fns_available: fn({
         group: 'tables',

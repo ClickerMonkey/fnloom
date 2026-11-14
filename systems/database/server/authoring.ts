@@ -95,7 +95,7 @@ export function callText(fn: string, args: Readonly<Record<string, Json>>): stri
   return `${fn}(${JSON.stringify(args)})`;
 }
 
-/** The draft as `check_query` and `save_query` take it. */
+/** The draft as the instance checks and keeps it (`QueryService.check` / `save`). */
 function asDraft(draft: AuthoringDraft): QueryDraft {
   return QueryDraft.parse({ name: draft.name, title: draft.title, description: draft.description, query: Json.parse(draft.query), ...(draft.sorters === undefined ? {} : { sorters: draft.sorters }) });
 }

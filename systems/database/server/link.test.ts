@@ -1,8 +1,8 @@
 /**
  * The database system over the SDK's real link runtime and an in-memory hub, on a real SQLite file: the manifest
  * (the query agents with their prompts and tools, every fn's instructions and examples, the query kind, the visuals
- * registry, the secret config fields), the agents' tools (tables, a draft checked, kept in the hub and run, a taken
- * name, a new version), a saved query run through its kind, a write proposed for the person's approval (with its
+ * registry, the secret config fields), queries kept the one way they are (the authoring agent, scripted: a draft
+ * checked, kept in the hub and run, a taken name, a new version), a saved query run through its kind, a write proposed for the person's approval (with its
  * preview) and run once approved, a read-only database refusing writes, a schema change previewed and applied, and a
  * rescan whose breaking change (found through the hub's search) waits for an admin.
  */
@@ -10,10 +10,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ActorId, SystemPackageManifest, mintId, type Json, type OutcomeWire } from '@harness/core';
 import { hub as hubContract } from '@harness/sdk';
-import { TEST_USER, type FakeHub } from '@harness/sdk/server/testing';
+import { TEST_USER, streamOf, type FakeHub } from '@harness/sdk/server/testing';
+import { replyChunks, toolCall as callTool } from '@harness/sdk/testing';
 import BetterSqlite3 from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
-import { QUERY_KIND, QueryRun, database } from '../shared/index.ts';
+import { QUERY_KIND, QueryAgentAnswer, QueryRun, database } from '../shared/index.ts';
 import { serveDatabase, shopConfig, shopFile, type RecordingHub, type ServedDatabase } from './fixture.ts';
 import type { DatabaseServer } from './impl.ts';
 
@@ -43,7 +44,7 @@ const ORDERS_BY_STATUS = {
 
 const MARK_PAID = {
   name: 'mark_paid', title: 'Mark open orders paid', description: 'Marks every open order as paid.',
-  query: { kind: 'update', type: 'orders', set: { status: 'paid' }, where: byStatus({ kind: 'literal', value: 'open' }) },
+  query: { kind: 'update', type: 'orders', set: { status: { kind: 'literal', value: 'paid' } }, where: byStatus({ kind: 'literal', value: 'open' }) },
 };
 
 describe('the database system over the link', () => {
@@ -66,6 +67,31 @@ describe('the database system over the link', () => {
     afterPatch = undefined;
   });
 
+  /** A query draft as these tests write it. */
+  type Draft = { readonly name: string; readonly title: string; readonly description: string; readonly query: Json; readonly sorters?: readonly string[] };
+
+  /**
+   * Keep a query the one way queries are kept: `get_query` (or `edit_query` of `replace`) with the authoring model
+   * scripted to find, load the tables (or the query), draft it with `args` and save it. Gives the agent's answer.
+   */
+  async function keep(draft: Draft, options: { args?: Record<string, Json>; askedFor?: string; replace?: string; before?: Draft[] } = {}): Promise<Exclude<QueryAgentAnswer, { ask: string }>> {
+    const script = [
+      callTool('find_queries', { text: draft.description }),
+      options.replace === undefined ? callTool('load_tables', { names: ['orders', 'customers'] }) : callTool('load_query', { fn: options.replace }),
+      ...(options.before ?? []).map((earlier) => callTool('draft', { draft: { ...earlier, args: options.args ?? {} } })),
+      callTool('draft', { draft: { ...draft, args: options.args ?? {} } }),
+      callTool('save', {}),
+      replyChunks('Saved.'),
+    ];
+    hub.onLlm = () => streamOf(script.shift() ?? replyChunks('Done.'));
+    const asked = options.askedFor ?? draft.description;
+    const answer = QueryAgentAnswer.parse(done(options.replace === undefined
+      ? await hub.run('database/get_query', { detailedDescription: asked })
+      : await hub.run('database/edit_query', { name: options.replace, instructions: asked })));
+    if ('ask' in answer) { throw new Error(`expected a kept query, got a question: ${JSON.stringify(answer)}`); }
+    return answer;
+  }
+
   it('declares the authoring fns, every fn with instructions and examples, the query kind, the registry and the secrets', async () => {
     dir = shopFile().dir;
     await start();
@@ -76,7 +102,7 @@ describe('the database system over the link', () => {
     for (const decl of manifest?.fns ?? []) { expect(['queries', 'tables', 'schema', 'instances'], decl.name).toContain(decl.group); }
     expect(manifest?.kinds.map((item) => item.name)).toEqual(['query']);
     expect(manifest?.fns.map((item) => item.name).sort()).toEqual([
-      'alter_table', 'apply_type_changes', 'at_instance', 'author_query', 'change_schema', 'check_query', 'create_table', 'databases', 'edit_query', 'get_query', 'pick_database', 'read_at_instance', 'run_query', 'save_query',
+      'alter_table', 'apply_type_changes', 'at_instance', 'author_query', 'change_schema', 'create_table', 'databases', 'edit_query', 'get_query', 'pick_database', 'read_at_instance', 'run_query',
       'table_fns_available', 'table_fns_generate', 'tables',
     ]);
     // get_query and edit_query are native fns that forward to the authoring agent on the instance with the database
@@ -106,18 +132,11 @@ describe('the database system over the link', () => {
     expect(JSON.stringify(tables)).toContain('orders');
     expect(await hub.run('database/tables', { database: 'not a name!' })).toMatchObject({ status: 'invalid-input' });
 
+    // a broken draft's problem goes back to the agent, which fixes it before it may save
     const broken = { ...ORDERS_BY_STATUS, query: { kind: 'select', fields: [{ expr: ref('orders', 'ghost') }], from: { kind: 'type', type: 'orders' } } };
-    expect(done(await hub.run('database/check_query', { database: 'main', draft: broken }))).toMatchObject({ ok: false, problems: [expect.stringContaining('ghost')] });
-    const checked = done(await hub.run('database/check_query', { database: 'main', draft: ORDERS_BY_STATUS }));
-    expect(checked).toMatchObject({ ok: true, problems: [], writes: false });
-    expect(checked).toHaveProperty('sql', expect.stringContaining('SELECT'));
-    expect(checked).toHaveProperty('signature', expect.stringContaining('database/main.orders_by_status('));
-    expect(await hub.run('database/save_query', { database: 'main', draft: broken })).toMatchObject({ status: 'invalid-input' });
-    // args given as text (gin reads an open record as any JSON) are refused by name
-    expect(await hub.run('database/save_query', { database: 'main', draft: ORDERS_BY_STATUS, args: '{"status":"paid"}' })).toMatchObject({ status: 'invalid-input', invalid: { problems: [{ path: 'args' }] } });
-
-    const saved = done(await hub.run('database/save_query', { database: 'main', draft: ORDERS_BY_STATUS, args: { status: 'paid' }, askedFor: 'paid orders, biggest first' }));
-    expect(saved).toMatchObject({ fn: 'database/main.orders_by_status', version: 1, created: true });
+    const saved = await keep(ORDERS_BY_STATUS, { args: { status: 'paid' }, askedFor: 'paid orders, biggest first', before: [broken] });
+    expect(JSON.stringify(hub.forwards.map((forward) => forward.request.messages))).toContain('ghost');
+    expect(saved.fn).toMatchObject({ name: 'database/main.orders_by_status', version: 1, how: 'created' });
     expect(hub.fns.kept.get('database/main.orders_by_status')?.saved).toMatchObject({
       kind: QUERY_KIND, routing: { to: 'instance', instance: 'main' }, share: { visibility: 'public' },
       examples: [{ args: { status: 'paid' }, note: 'paid orders, biggest first' }],
@@ -153,9 +172,9 @@ describe('the database system over the link', () => {
     expect(QueryRun.parse(sorted).result?.nextPage?.call).toContain('"sort":[{"column":"customer","dir":"asc"}]');
 
     // a taken name gets the next one; replace keeps the old version in the hub's history
-    expect(done(await hub.run('database/save_query', { database: 'main', draft: ORDERS_BY_STATUS }))).toMatchObject({ fn: 'database/main.orders_by_status_2', created: true });
+    expect((await keep(ORDERS_BY_STATUS, { args: { status: 'open' } })).fn).toMatchObject({ name: 'database/main.orders_by_status_2', how: 'created' });
     const placed = { ...ORDERS_BY_STATUS, query: { ...ORDERS_BY_STATUS.query, fields: [...ORDERS_BY_STATUS.query.fields, { expr: ref('orders', 'placed'), as: 'placed' }] } };
-    expect(done(await hub.run('database/save_query', { database: 'main', draft: placed, replace: true }))).toMatchObject({ fn: 'database/main.orders_by_status', version: 2, created: false });
+    expect((await keep(placed, { args: { status: 'paid' }, replace: 'database/main.orders_by_status' })).fn).toMatchObject({ name: 'database/main.orders_by_status', version: 2, how: 'edited' });
     expect(hub.fns.kept.get('database/main.orders_by_status')?.history).toHaveLength(1);
 
     const payload = hub.fns.kept.get('database/main.orders_by_status')?.saved.payload ?? null;
@@ -169,7 +188,7 @@ describe('the database system over the link', () => {
   it('proposes a write for the person, previews it, and runs it once approved', async () => {
     dir = shopFile().dir;
     await start();
-    expect(done(await hub.run('database/save_query', { database: 'main', draft: MARK_PAID }))).toMatchObject({ fn: 'database/main.mark_paid' });
+    expect((await keep(MARK_PAID)).fn).toMatchObject({ name: 'database/main.mark_paid' });
     const answer = done(await hub.run('database/run_query', { fn: 'database/main.mark_paid' }));
     expect(answer).toMatchObject({ fn: { name: 'database/main.mark_paid' }, query: { writes: true }, approval: { state: 'waiting' } });
     expect(answer).not.toHaveProperty('result');
@@ -187,8 +206,8 @@ describe('the database system over the link', () => {
     check.close();
 
     // a write that returns rows: the rows it changed are attached read-only, carrying how many rows it changed
-    const returning = { ...MARK_PAID, name: 'mark_shipped', title: 'Mark paid orders shipped', description: 'Marks every paid order as shipped, giving back the orders changed.', query: { kind: 'update', type: 'orders', set: { status: 'shipped' }, where: byStatus({ kind: 'literal', value: 'paid' }), returning: [{ expr: ref('orders', 'id'), as: 'id' }] } };
-    expect(done(await hub.run('database/save_query', { database: 'main', draft: returning }))).toMatchObject({ fn: 'database/main.mark_shipped' });
+    const returning = { ...MARK_PAID, name: 'mark_shipped', title: 'Mark paid orders shipped', description: 'Marks every paid order as shipped, giving back the orders changed.', query: { kind: 'update', type: 'orders', set: { status: { kind: 'literal', value: 'shipped' } }, where: byStatus({ kind: 'literal', value: 'paid' }), returning: [{ expr: ref('orders', 'id'), as: 'id' }] } };
+    expect((await keep(returning)).fn).toMatchObject({ name: 'database/main.mark_shipped' });
     const shippedPayload = hub.fns.kept.get('database/main.mark_shipped')?.saved.payload ?? null;
     const shipped = done(await hub.run('database/main.mark_shipped', {}, { kind: 'database/query', payload: shippedPayload }));
     expect(shipped).toMatchObject({ affected: 4, returned: { rowCount: 4 } });
@@ -199,8 +218,12 @@ describe('the database system over the link', () => {
     dir = shopFile().dir;
     await start(shopConfig({ data: 'read-only', schema: 'none' }));
     const wipe = { name: 'wipe', title: 'Wipe', description: 'Deletes every order.', query: { kind: 'delete', from: 'orders' } };
-    expect(done(await hub.run('database/check_query', { database: 'main', draft: wipe }))).toMatchObject({ ok: false, problems: [expect.stringContaining('read-only')] });
-    expect(await hub.run('database/save_query', { database: 'main', draft: wipe })).toMatchObject({ status: 'invalid-input' });
+    const script = [callTool('find_queries', { text: 'wipe' }), callTool('load_tables', { names: ['orders', 'customers'] }), callTool('draft', { draft: { ...wipe, args: {} } }), replyChunks('It cannot be done here.')];
+    hub.onLlm = () => streamOf(script.shift() ?? replyChunks('Done.'));
+    await hub.run('database/get_query', { detailedDescription: 'Delete every order.' });
+    // the draft was refused for the read-only database, so save was never offered
+    expect(JSON.stringify(hub.forwards.at(-1)?.request.messages)).toContain('read-only');
+    expect((hub.forwards.at(-1)?.request.tools ?? []).map((tool) => tool.name)).not.toContain('save');
     expect(hub.fns.kept.size).toBe(0);
     expect(hub.proposals).toEqual([]);
     const args = { action: 'create', table: 'notes', database: 'main', type: { name: 'obj', props: { id: { type: { name: 'num' } } } } };
@@ -217,7 +240,7 @@ describe('the database system over the link', () => {
     expect(refused.status === 'invalid-input' ? refused.invalid.problems.map((problem) => problem.message) : refused).toEqual(['You may not use the Shop database; an admin chooses who may on its config.']);
     expect(done(await hub.run('database/at_instance', { op: 'tables' }, as(bo)))).toHaveProperty('tables.schema');
     // a saved query fn called directly is held to the database's audience as it is now
-    done(await hub.run('database/save_query', { database: 'main', draft: ORDERS_BY_STATUS }));
+    await keep(ORDERS_BY_STATUS, { args: { status: 'paid' } });
     const payload = hub.fns.kept.get('database/main.orders_by_status')?.saved.payload ?? null;
     const cy = { ...TEST_USER, id: ActorId.parse('act_cy'), role: 'member' as const };
     const direct = await hub.run('database/main.orders_by_status', { status: 'paid' }, { kind: 'database/query', payload, run: hub.runInfo('database/main.orders_by_status', { user: cy }) });
@@ -228,7 +251,7 @@ describe('the database system over the link', () => {
   it('describes saved queries against the scanned tables while the types of a rescan reach the hub', async () => {
     dir = shopFile().dir;
     await start();
-    done(await hub.run('database/save_query', { database: 'main', draft: ORDERS_BY_STATUS }));
+    await keep(ORDERS_BY_STATUS, { args: { status: 'paid' } });
     const payload = hub.fns.kept.get('database/main.orders_by_status')?.saved.payload ?? null;
     const described: unknown[] = [];
     afterPatch = async () => { described.push(await hub.peer().call('check', { kind: 'query', payload })); };
@@ -282,7 +305,7 @@ describe('the database system over the link', () => {
   it('holds back a breaking rescan for an admin, naming the saved queries the hub says read the table, and applies it once approved', async () => {
     dir = shopFile().dir;
     await start();
-    done(await hub.run('database/save_query', { database: 'main', draft: ORDERS_BY_STATUS }));
+    await keep(ORDERS_BY_STATUS, { args: { status: 'paid' } });
     const db = new BetterSqlite3(join(dir, 'shop.db'));
     db.exec('ALTER TABLE orders DROP COLUMN total');
     db.close();

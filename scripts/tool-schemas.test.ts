@@ -125,7 +125,10 @@ describe('tool schemas', () => {
     const manifest = await manifestOf(database, { version: '1.0.0', resources: false });
     const visible = new Set(manifest.fns.filter((fn) => fn.visibility === 'llm' || fn.visibility === 'both').map((fn) => fn.name));
     expect([...visible]).toEqual(expect.arrayContaining(['get_query', 'edit_query']));
-    for (const name of ['check_query', 'save_query', 'author_query']) { expect(visible.has(name), name).toBe(false); }
+    // query JSON is only ever the authoring agent's: no fn takes a draft from outside it
+    expect(manifest.fns.map((fn) => fn.name)).not.toEqual(expect.arrayContaining(['check_query']));
+    expect(manifest.fns.map((fn) => fn.name)).not.toEqual(expect.arrayContaining(['save_query']));
+    expect(visible.has('author_query')).toBe(false);
     for (const fn of manifest.fns.filter((item) => visible.has(item.name))) {
       expect(JSON.stringify(fn.args), fn.name).not.toContain('"draft"');
     }

@@ -12,7 +12,7 @@ import { QUERY_KIND, database } from '../shared/index.ts';
 import { QueryPayload, SortArg, type QueryCheck, type QueryDraft, type QueryRun, type SavedQueryRef, type TablesInfo, type WriteResult } from '../shared/shapes.ts';
 import { argProblems, argsTypeOf, signatureOf, type CallPlan, type CompiledQuery, type Refusal } from './compile.ts';
 
-/** Where an authoring draft stands: `check_query`'s answer with the request's args checked too, and the first rows a clean read gives. */
+/** Where an authoring draft stands: the draft check with the request's args checked too, and the first rows a clean read gives. */
 export interface DraftTrial {
   readonly check: QueryCheck;
   readonly sample?: ReadonlyArray<Record<string, Json>>;
@@ -150,7 +150,7 @@ export class QueryService {
     return { database: instance.info, writes: instance.writes, schema: instance.catalog.describe() };
   }
 
-  /** `check_query`: whether a draft runs here, its SQL and signature, or what to fix. */
+  /** Whether a draft runs here, its SQL and signature, or what to fix. */
   check(instance: DatabaseInstance, draft: QueryDraft): QueryCheck {
     const compiled = instance.compile(this.#payload(instance, draft));
     if (!('query' in compiled)) { return { ok: false, problems: compiled.problems }; }
@@ -160,13 +160,13 @@ export class QueryService {
     return { ok: problems.length === 0, problems, sql: plan.sql, signature: signatureOf(fn, argsTypeOf(compiled, draft.sorters ?? [], this.#limits())), writes: compiled.writes };
   }
 
-  /** `save_query`: keep a checked draft in the hub as this instance's query fn; a taken name gets the next free one. */
+  /** Keep a checked draft in the hub as this instance's query fn; a taken name gets the next free one. */
   async save(
     instance: DatabaseInstance, draft: QueryDraft,
     extra: { args?: Readonly<Record<string, Json>> | undefined; askedFor?: string | undefined; replace?: boolean | undefined }, ctx: QueryRunCtx,
   ): Promise<SavedQueryRef | QueryProblem> {
     const compiled = instance.compile(this.#payload(instance, draft));
-    if (!('query' in compiled)) { return { invalid: `The draft doesn't run here: ${compiled.problems.join(' ')} Fix it with check_query first.` }; }
+    if (!('query' in compiled)) { return { invalid: `The draft doesn't run here: ${compiled.problems.join(' ')} Fix the draft first.` }; }
     if (compiled.writes && !instance.writes) { return { invalid: `${instance.config.label} is read-only: a query that writes can't be saved.` }; }
     const payload = this.#payload(instance, draft, compiled);
     const example: FnExample = { args: Json.parse({ ...extra.args }), ...(extra.askedFor === undefined ? {} : { note: extra.askedFor }) };
@@ -236,7 +236,7 @@ export class QueryService {
   }
 
   /**
-   * Try an authoring draft: `check_query`'s answer, then the args for this request against the fn it would be (a
+   * Try an authoring draft: the draft check, then the args for this request against the fn it would be (a
    * missing required param is a problem, never NULL), then, for a clean read, its first `rows` rows with those args.
    */
   async tryDraft(instance: DatabaseInstance, draft: QueryDraft, args: Readonly<Record<string, Json>>, rows: number): Promise<DraftTrial> {
