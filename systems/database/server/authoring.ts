@@ -101,7 +101,7 @@ function asDraft(draft: AuthoringDraft): QueryDraft {
 }
 
 /** The query draft the examples write: orders with a status and their customer, biggest first. */
-const EXAMPLE_DRAFT = {
+export const EXAMPLE_DRAFT = {
   name: 'orders_by_status', title: 'Orders by status', description: 'Orders with a given status and their customer, biggest first; the status is a param.', sorters: ['total', 'customer'],
   query: {
     kind: 'select',
