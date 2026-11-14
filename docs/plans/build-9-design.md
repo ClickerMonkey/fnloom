@@ -152,3 +152,35 @@ change writes it in its report.
 
 core (done) → platform and hub in parallel with mcp, codeapi and claude (they build on the test kit's fakes) → web →
 integration (stack, e2e API checks, ui-tests for the new pages' layout).
+
+## 9. Status (2026-11-13, integration)
+
+- **Core contracts** (§1): done as written.
+- **Platform** (§2): done. `@ayepi/mcp` on its harness branch has the server-request handler (elicitation, roots,
+  ping; sampling refused with `-32601`), `McpSseClientTransport`, the OAuth client functions and `spawnStdioClient`
+  (`@ayepi/mcp/node`), with docs; dist rebuilt. The SDK has `system.instanceConnect`, `propose` with `for` / `chat` /
+  `ask`, and recorded proposals in the test kit. gin (aits harness branch) gained stoppable runs (`RunOptions`
+  `signal` / `slice`, `RunStoppedError`), which the program runtime uses. Both branches are committed with clean builds.
+- **Hub** (§3): done. `add_instance` (web and `hub/add_instance`, `HARNESS_BUNDLED_SYSTEMS`), instance-scoped
+  connections, proposals with `for`, `chat` and `ask` (answer checked and set at `args[into]`).
+- **MCP** (§4): done. stdio, HTTP and SSE; `RemoteAuth` incl. OAuth with refresh; tools, prompts and resources
+  mirrored and re-mirrored on `list_changed`; degraded schemas counted on the status; elicitations as proposals.
+  Tests: unit over the kit and memory transports; e2e adds a stdio server and an HTTP server behind a bearer token.
+- **Code and API** (§5): done. `@harness/sdk/program` (runtime and authoring tools), `make_code`, `make_api`,
+  `operations`, `test_request`, the HTTP executor. One `realModel` live test each. Left: gin's `buildSchemas` lazy
+  getters rebuild on every call, worked around in `program/runtime.ts` (marked `LIBRARY GAP (gin)`).
+- **Claude** (§6): done on the Agent SDK behind `ClaudeDriver` (fake driver in every unit test). The e2e session test
+  is opt-in (`HARNESS_E2E_CLAUDE=true`, one real Haiku session) and is not run by default, so the real driver against
+  a real Claude Code is only covered by `agent-sdk.live.test.ts` (opt-in too).
+- **Web** (§7): done. MCP servers and API services pages, instance connection cards, `ApprovalAsk` on approval cards,
+  `/claude` fleet and session pages (transcript paged, tasks, waiting cards, composer, controls).
+- **Owner feedback** (build-9-feedback.md): the create-table bug has a regression test (database `link.test.ts`,
+  the model's string-typed `type`); tests use GPT-6 Luna (`HARNESS_LIVE_MODEL`); a fn on a system page opens the fn
+  modal (`FnModal.vue`, shared with the fn page).
+- **Integration run** (2026-11-13): `npm run check` passes except tests that time out only under load (8 files in the
+  full run; each passes alone). `npm run e2e`: 11 of 16 files pass, `build9` among them. The rest failed twice on a
+  loaded machine: the shared embedder took 90s for one embedding, so `chat` (fn suggestions from embeddings), `runs`
+  (embedding calls recorded), `build5` (the saved query fn not found to reuse) and `build3` (the model did not call
+  `hub/query`) did not get their search results; `authoring` ran out of iterations on GPT-6 Luna (its install test
+  depends on it). The stack start wait is now `HARNESS_E2E_START_TIMEOUT` (default 180s; the hub alone takes about
+  45s from source on a busy machine). Rerun these five suites when the embedder is idle.

@@ -7942,6 +7942,8 @@ Reading resources. The hub routes each URI to the system that serves it.
 interface Resources {
   stat(uri: ResourceUri): Promise<ResourceStat | undefined>;
   text(uri: ResourceUri, sections?: SectionKey[]): Promise<string>;
+  /** A resource's raw bytes (an image, a PDF, a zip), unconverted; a text-only resource gives its text as UTF-8. */
+  bytes(uri: ResourceUri): Promise<Uint8Array>;
   links(uri: ResourceUri): Promise<ResourceLink[]>;
   sections(uri: ResourceUri): Promise<Section[]>;
   /**

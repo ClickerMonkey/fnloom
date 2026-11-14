@@ -110,6 +110,8 @@ Dependencies point one way: `core` ← `sdk` ← `hub`, `systems/*`, `web`. `cor
 | `data.ts` (build 8) | hub records of stored types: `RecordStorage` (`TypeDecl.records`), `DataRecord`, `RecordVersion`, the query, save, remove and table shapes, `DataSetView`; tables `records`, `recordVersions`; capability `data`; hub link and web `dataSlice` |
 | `sensitivity.ts`, `changes.ts` (build 8) | fs safeguards: `SensitivityRule`, `SensitivityFlag`, `FlagsAnswer`, `flagsVerdict`, `flagLine` (`FnDecl.flags`, system link `flags`, preview part `flags`); bash's `ChangeSet` / `FileChange` / `NoDiffReason` |
 | `identity.ts`, `versions.ts`, `api-index.ts`, `mention-search.ts` (build 8) | the hub's display name (`hubNameOf`, web `identitySlice`); `ItemVersionRecord` (table `itemVersions`, web `versionsSlice`); `FnDecl.group` / `Manifest.groups`; `MentionRequestId` and hub link `mentionResources` |
+| `remote-auth.ts`, `mcp-servers.ts`, `programs.ts`, `claude.ts` (build 9) | `RemoteAuth` (none, bearer, headers, OAuth; shared or per person) and `TypedAuth`; the MCP server config, status and `McpToolSpec` (`mcp/tool`); `CodeFnSpec` (`code/program`), `ApiFnSpec` (`api/request`), `ApiServiceConfig`, `HttpExchange`; the Claude session record, transcript page, start, send, control, permit and answer shapes and `ClaudeImportable` |
+| `connections.ts`, `approvals.ts`, `package.ts`, `link.ts` (build 9 changes) | instance-scoped connects (`ConnectDecl.scope: "instance"`, `InstanceConnect`, `UserConnection.instance`, hub link `instanceConnect`); `ProposeRun.for` / `chat` / `ask` (`ProposalAsk`, filled on approve as `answer`); `AddInstance` (web `addInstance`, hub fn `hub/add_instance`) |
 
 The web app gets the zod-free manifest of `hubWebSpec` from `packages/web/src/api/manifest.gen.ts`, written by
 `npm run web:manifest`. `npm run check` fails when it is stale.
@@ -128,6 +130,8 @@ field and serializes by name; its methods' args are `self` plus their own args.
 **Build 6** adds `ctx.ai()` on every ctx and `hubAi(system)` (an `@aeye/ai` instance over the hub link `models`), `RunningSystem.patch` / `examples()`, the `context/` watch in dev, and `server/supervise.ts` (env allowlist, permission flags, crash backoff), which the hub supervisor and fs hosting share.
 
 **Build 7** adds `authoringAgent()` (`authoring.ts`: a staged agent over `agent()`, find → inspect → draft → check → fix → save, each stage's tools shown once the one before is done, with the `authoredFn` result), `system({ grants, configComponent })`, the test kit `@harness/sdk/testing` (`testing/`: `testHub`, `callFn`, `mockModel`, `realModel`, `preview`, `kindProps`, `contextFolder`), and in `server/` the allowlist proxy (`proxy.ts`: `AllowlistProxy`, `proxyEnv`, refusals sent to the hub) and `AccessDeniedReader` (Node permission denials read from the child's stderr) beside `NodeStarter`.
+
+**Build 9** adds `@harness/sdk/program` (`sdk/src/program/`: the gin program runtime the `code` and `api` systems share: session prefeed, the validation pipeline, the scope-read walk, stoppable execution with `fns.<system>.<name>(…)` over `ctx.call`, and the authoring tools on `authoringAgent()`), `system.instanceConnect`, `propose` with `for` / `chat` / `ask`, and the test kit's recorded proposals (approve with an answer, or decline).
 
 **Built by the SDK lane** (interfaces in `sdk/src/server/index.ts` and `sdk/src/ctx.ts`): `LinkHost implements
 SystemHost` (the WebSocket link with ayepi peers, pairing keys via `KeyStore`, `FnCtx` / `ActionCtx` /
@@ -184,6 +188,8 @@ search requests; the run gate asks a fs-like system's `flags` before the mode ga
 and `server/sensitive.ts` (the rule list, which replaced `secrets.ts`).
 
 Build 7 adds to `link/`: `lifecycle.ts` (installed vs live: `goLive`, pending reviews, `approveReview` / `rejectReview`, test calls), `grants.ts` (the one enforcement guard on the link dispatcher and run checks, `RefusalRecord`s and the pause past `HARNESS_REFUSALS_PAUSE`); `api/web/review.ts` serves the review page (`/admin/systems/:name/review`).
+
+Build 9 adds `add_instance` (`api/admin-ops.ts`: a new hub-run instance from the system's bundled folder, `HARNESS_BUNDLED_SYSTEMS`, or an installed instance's source; web `addInstance`, hub fn `hub/add_instance`), instance-scoped connections in `connections/service.ts` (rows keyed by system, instance and owner; the hub link `instanceConnect`), and proposals with `for`, `chat` and `ask` (the answer is checked against the ask's type and set at `args[into]` before the run starts). In the web app: `admin/` MCP servers and API services pages (`/admin/mcp-servers`, `/admin/api-services`), `components/approvals/ApprovalAsk.vue` (an approval's form, drawn with the gin value editor) and `claude/` with `pages/ClaudePage.vue` / `ClaudeSessionPage.vue` (`/claude`, `/claude/:instance/:session`).
 
 The `link/` module also owns installed systems and fleets: `system.json` is checked by `checkManifest`
 (`link/package/format.ts`, the zip format beside it), the per-instance facts (key, config, status, install, folders)

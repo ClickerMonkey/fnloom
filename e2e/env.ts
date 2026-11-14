@@ -19,6 +19,8 @@ export const e2eEnv = env({
   HARNESS_E2E_CLAUDE: z.boolean().default(false),
   HARNESS_E2E_EMAIL: z.email().default('e2e@harness.local'),
   HARNESS_E2E_PASSWORD: z.string().min(10).default('e2e-admin-password'),
+  /** How long the stack may take to start each part (the hub alone takes about 45s from source on a busy machine). */
+  HARNESS_E2E_START_TIMEOUT: z.number().int().min(10_000).default(180_000),
   /** How long one agent turn may take with a free model. */
   HARNESS_E2E_TURN_TIMEOUT: z.number().int().min(10_000).default(240_000),
   /** The EmbeddingGemma service the embedder system wraps. */
