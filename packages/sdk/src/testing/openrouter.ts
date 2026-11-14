@@ -12,10 +12,12 @@ import { OpenRouterProvider } from '@aeye/openrouter';
 import { mintId, type HubModelInfo, type Json, type LlmChunk, type LlmForward, type LlmForwardChunk, type ModelForward, type ModelForwardResult } from '@harness/core';
 import { z } from 'zod';
 import type { ModelLink } from '../server/llm.ts';
+import { schemaFromWire } from '../server/llm-wire.ts';
 
 /** A forwarded JSON schema as zod again, wrapped when it isn't an object (tool parameters must be). */
 function objectSchema(json: Json): z.ZodType<object, object> {
-  const schema = z.fromJSONSchema(Object.fromEntries(Object.entries(typeof json === 'object' && json !== null && !Array.isArray(json) ? json : {})));
+  // the gateway's own rebuild, so a test model gets exactly the schema the hub sends
+  const schema = schemaFromWire(typeof json === 'object' && json !== null && !Array.isArray(json) ? json : {});
   return schema instanceof z.ZodObject ? schema : z.object({ value: schema });
 }
 
@@ -41,11 +43,14 @@ function wireChunk(chunk: Chunk): LlmChunk {
 }
 
 /** A forwarded request as an aeye request. */
-function aeyeRequest(forward: LlmForward, maxTokens: number): Request {
+function aeyeRequest(forward: LlmForward, maxTokens: number | undefined): Request {
   const format = forward.request.responseFormat;
+  // as the hub's gateway: the request's own cap, else this link's, else none (a reasoning model spends output tokens
+  // thinking, so a fixed small cap cut authoring replies off mid-draft)
+  const cap = forward.request.maxTokens ?? maxTokens;
   return {
     messages: forward.request.messages.map(aeyeMessage),
-    maxTokens,
+    ...(cap === undefined ? {} : { maxTokens: cap }),
     ...(forward.request.tools === undefined ? {} : {
       tools: forward.request.tools.map((t) => ({ name: t.name, parameters: objectSchema(t.parameters), ...(t.description === undefined ? {} : { description: t.description }), ...(t.strict === undefined ? {} : { strict: t.strict }) })),
     }),
@@ -59,7 +64,7 @@ export interface OpenRouterOptions {
   readonly key: string;
   /** The models to try, first choice first (OpenRouter ids, e.g. `vendor/model:free`). */
   readonly models: readonly string[];
-  /** The most tokens one reply may have (default 2000). */
+  /** The most tokens one reply may have when the request sets none (default: no cap, as the hub's gateway). */
   readonly maxTokens?: number;
 }
 
@@ -81,7 +86,7 @@ export class OpenRouterModelLink implements ModelLink {
 
   async *llm(forward: LlmForward, signal?: AbortSignal): AsyncGenerator<LlmForwardChunk> {
     this.forwards.push(forward);
-    const request = aeyeRequest(forward, this.#options.maxTokens ?? 2_000);
+    const request = aeyeRequest(forward, this.#options.maxTokens);
     const failures: string[] = [];
     for (const model of this.#options.models) {
       let started = false;

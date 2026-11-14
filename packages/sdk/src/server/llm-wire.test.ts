@@ -119,3 +119,18 @@ describe('descriptors, usage and chunks', () => {
     expect(chunkToWire(chunkFromWire(chunk))).toEqual(chunk);
   });
 });
+
+describe('tool schemas that cross the wire', () => {
+  it('keep their records as records, so OpenAI strict mode is sent pairs (gin type defs)', async () => {
+    const { buildSchemas, createRegistry } = await import('@aeye/gin');
+    const { OPENAI_STRICT, strictify, toJSONSchema } = await import('@aeye/core');
+    const { Type } = buildSchemas(createRegistry());
+    const parameters = z.toJSONSchema(z.object({ args: Type }), { io: 'input', unrepresentable: 'any' });
+    const request = requestFromWire(LlmRequest.parse({ messages: [{ role: 'user', content: 'hi' }], tools: [{ name: 'signature', parameters }] }));
+    const tool = request.tools?.[0];
+    if (tool === undefined) { throw new Error('no tool'); }
+    const sent = JSON.stringify(toJSONSchema(strictify(tool.parameters, OPENAI_STRICT), OPENAI_STRICT));
+    expect(sent).not.toContain('propertyNames');
+    expect(sent).toContain('"key"');
+  });
+});

@@ -2,9 +2,9 @@
  * Tests. Three projects:
  * - `unit`: every package's `*.test.ts` in Node, with injected seams and no live network.
  * - `web`: the Vue app's `*.test.ts` in happy-dom.
- * - `live`: `*.live.test.ts`, which call real services (OpenRouter with `OPENROUTER_API_KEY`, a free model; the local
+ * - `live`: `*.live.test.ts`, which call real services (OpenRouter with `OPENROUTER_API_KEY`, GPT-6 Luna; the local
  *   embedder). They are skipped by `npm test`; run them with `npm run test:live`.
- * - `e2e`: `e2e/*.e2e.test.ts`, the whole stack booted by `e2e/global-setup.ts` with a free model; `npm run e2e`.
+ * - `e2e`: `e2e/*.e2e.test.ts`, the whole stack booted by `e2e/global-setup.ts` with GPT-6 Luna; `npm run e2e`.
  */
 import vue from '@vitejs/plugin-vue';
 import { defineConfig } from 'vitest/config';
@@ -42,7 +42,8 @@ export default defineConfig({
           name: 'live',
           environment: 'node',
           include: [live],
-          exclude: ['**/node_modules/**'],
+          // `.harness-test` holds scratch copies of the repo; their tests are not this checkout's
+          exclude: ['**/node_modules/**', '.harness-test/**'],
           testTimeout: 120_000,
         },
       },

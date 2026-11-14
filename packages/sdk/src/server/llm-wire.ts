@@ -168,9 +168,36 @@ export function isObjectSchema(schema: z.ZodType): schema is z.ZodType<object, o
   return schema._zod.def.type === 'object';
 }
 
+/**
+ * A JSON schema without `propertyNames: { type: 'string' }`, which every JSON object's keys already meet: zod writes it
+ * for each record, and `fromJSONSchema` reads it back as a key check piped after the object, which hides the record from
+ * the provider's strict dialect (it then reaches the model as an object it can only fill with `{}`). Other key rules
+ * (a pattern, an enum) are kept.
+ */
+function withoutStringKeys(schema: Json): Json {
+  if (Array.isArray(schema)) { return schema.map(withoutStringKeys); }
+  if (schema === null || typeof schema !== 'object') { return schema; }
+  const out: Record<string, Json> = {};
+  for (const [key, value] of Object.entries(schema)) {
+    if (key === 'propertyNames' && isStringOnly(value)) { continue; }
+    out[key] = withoutStringKeys(value);
+  }
+  return out;
+}
+
+/** Whether a key schema says only "a string". */
+function isStringOnly(value: Json): boolean {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 1 && value['type'] === 'string';
+}
+
+/** A JSON schema from the wire rebuilt as zod, its records kept records for the provider's strict dialect. */
+export function schemaFromWire(schema: Json): z.ZodType {
+  return z.fromJSONSchema(JsonSchemaObject.parse(withoutStringKeys(schema)));
+}
+
 /** A JSON schema rebuilt as a zod schema of objects; refused when it doesn't describe an object. */
 function objectSchemaFromWire(schema: Json, what: string): z.ZodType<object, object> {
-  const rebuilt = z.fromJSONSchema(JsonSchemaObject.parse(schema));
+  const rebuilt = schemaFromWire(schema);
   if (!isObjectSchema(rebuilt)) { throw new Error(`${what} must be a JSON schema of an object`); }
   return rebuilt;
 }
