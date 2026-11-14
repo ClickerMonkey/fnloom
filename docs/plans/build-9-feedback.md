@@ -91,3 +91,16 @@ What this means:
 - **make_api / make_code work end to end on the live model.** Each failure is traced to its cause (missing or wrong
   examples, docs or prompt text, schema or decoding) and fixed there.
 - **What the LLM is sent is accurate:** prompts, examples, docs and tool schemas agree with what the code accepts.
+
+## 2026-11-14 (published libraries; orchestrate through agents)
+
+> Fyi I had another agent make the ayepi and aeye repos publish on commit I know we're working with local copies but once everything is done and tested we should switch to live libraries and that flow when I give the signal
+> Just pass my requests and the context you have that's need to agents and you orchestrate from now on
+
+What this means:
+
+- **Libraries:** ayepi and aeye now publish on commit. harness keeps using the local `harness` branches (linked) until
+  the owner signals; then harness switches to the published packages and that publish flow. Until then nothing on
+  those branches is pushed.
+- **Orchestration:** the main session orchestrates. It passes the owner's requests, with the context an agent needs,
+  to agents that do the work, and reviews, verifies and commits what they return.

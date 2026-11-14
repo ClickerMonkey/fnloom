@@ -1261,3 +1261,8 @@ Already checked: type-checking all of the types and examples takes about two sec
   in the prompt.... Make sure what's sent to the llm is accurate". gin's strict `new` takes plain values in primitive
   and enum slots; make_api / make_code failures are fixed at their cause; prompts, examples, docs and schemas match the
   code. Full note in `docs/plans/build-9-feedback.md`.
+- **Published libraries on the owner's signal; the session orchestrates** (2026-11-14): "Fyi I had another agent make
+  the ayepi and aeye repos publish on commit I know we're working with local copies but once everything is done and
+  tested we should switch to live libraries and that flow when I give the signal / Just pass my requests and the
+  context you have that's need to agents and you orchestrate from now on". harness stays on the local linked branches
+  until the signal, then moves to the published packages; work is done by agents the session briefs and reviews.
