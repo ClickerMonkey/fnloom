@@ -12,7 +12,7 @@ import { UiBanner, UiButton, UiDialog } from '../../ui/index.ts';
 
 const props = defineProps<{ match: FnMatch | undefined; title: string }>();
 const open = defineModel<boolean>('open', { required: true });
-const emit = defineEmits<{ save: [when: Json | undefined] }>();
+const emit = defineEmits<{ save: [when: GinExprDef | undefined] }>();
 
 /** What a condition may read: the fn's args (any shape, since a rule can match many fns). */
 const SCOPE = { args: g.any().toJSON() } as const;
@@ -36,7 +36,7 @@ function save(): void {
   if (draft.value === undefined) { emit('save', undefined); return; }
   const json = Json.safeParse(draft.value);
   if (!json.success) { problem.value = 'This condition can’t be saved as JSON.'; return; }
-  emit('save', json.data);
+  emit('save', draft.value);
 }
 </script>
 

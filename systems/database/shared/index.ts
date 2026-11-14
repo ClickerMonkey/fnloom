@@ -238,7 +238,9 @@ export const database = system('database', {
           args: { database: 'main', draft: ORDERS_DRAFT },
           result: { ok: true, problems: [], writes: false, sql: 'SELECT orders.id AS id, … WHERE orders.status = ? ORDER BY orders.total DESC', signature: 'database/main.orders_by_status(status: text, limit?, offset?, sort?) → rows' },
         }],
-        visibility: 'llm',
+        // query JSON is the authoring agent's to write (it discloses tables progressively); the chat model describes a
+        // query to get_query / edit_query instead
+        visibility: 'none',
         display: 'hidden',
         routing: { to: 'any' },
         effects: { mode: 'read', free: true },
@@ -261,7 +263,9 @@ export const database = system('database', {
           args: { database: 'main', draft: ORDERS_DRAFT, args: { status: 'paid' }, askedFor: 'paid orders, biggest first, with the customer' },
           result: { fn: 'database/main.orders_by_status', signature: 'database/main.orders_by_status(status: text, limit?, offset?, sort?) → rows', version: 1, created: true },
         }],
-        visibility: 'llm',
+        // query JSON is the authoring agent's to write (it discloses tables progressively); the chat model describes a
+        // query to get_query / edit_query instead
+        visibility: 'none',
         display: 'hidden',
         routing: { to: 'any' },
         // keeping a query changes no table, but it creates or updates a hub fn; a write query asks for approval each time it runs

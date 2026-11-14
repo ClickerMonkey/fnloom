@@ -45,17 +45,7 @@ const ANY_JSON: Readonly<Record<string, string>> = {
   'hub/install_system config': "the system's config type, checked against it",
   'hub/install_package config': "the package's config type, checked against it",
   'hub/add_instance config': "the system's config type, checked against it",
-  'hub/set_policy target.when': "OPEN: a predicate over the args the hub does not evaluate yet; its form is undecided",
-  'hub/create_mcp rules.include.fns.[].when': "OPEN: as set_policy's when",
-  'hub/create_mcp rules.exclude.fns.[].when': "OPEN: as set_policy's when",
-  'hub/update_mcp rules.include.fns.[].when': "OPEN: as set_policy's when",
-  'hub/update_mcp rules.exclude.fns.[].when': "OPEN: as set_policy's when",
-  'hub/preview_mcp rules.include.fns.[].when': "OPEN: as set_policy's when",
-  'hub/preview_mcp rules.exclude.fns.[].when': "OPEN: as set_policy's when",
   'api/test_request params.[].value': "a parameter value serialised by the operation's style: text, a number, a list or an object",
-  'database/check_query draft.query': "OPEN: @aeye/query JSON, whose strict schema is built per database from its tables (the authoring agent's draft tool has it)",
-  'database/save_query draft.query': "OPEN: as check_query's draft.query",
-  'database/save_query args': "values of the saved query's own args, checked against them",
   'database/run_query args': "values of the saved query's own args, checked against them",
   'widgets/make_widget args': "values of the widget's own args, checked against them",
 };
@@ -129,6 +119,16 @@ describe('tool schemas', () => {
     }
     expect(checked).toBeGreaterThan(50);
     expect(found).toEqual([]);
+  });
+
+  it('let the chat model create and edit saved queries only by describing them, never with query JSON', async () => {
+    const manifest = await manifestOf(database, { version: '1.0.0', resources: false });
+    const visible = new Set(manifest.fns.filter((fn) => fn.visibility === 'llm' || fn.visibility === 'both').map((fn) => fn.name));
+    expect([...visible]).toEqual(expect.arrayContaining(['get_query', 'edit_query']));
+    for (const name of ['check_query', 'save_query', 'author_query']) { expect(visible.has(name), name).toBe(false); }
+    for (const fn of manifest.fns.filter((item) => visible.has(item.name))) {
+      expect(JSON.stringify(fn.args), fn.name).not.toContain('"draft"');
+    }
   });
 
   it("sends create_table's row type as gin's obj TypeDef schema, and refuses the shapes a model guessed", async () => {

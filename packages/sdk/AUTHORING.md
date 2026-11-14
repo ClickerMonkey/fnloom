@@ -6025,7 +6025,7 @@ This is the hub contract as the SDK declares it now:
     mode: enum<text>{read, write, delete},
     confirm: bool,
     bind: any,
-    form?: any,
+    form?: typ<any>,
     then: enum<text>{open, refresh, status}
   }>
   ```

@@ -58,8 +58,8 @@ describe('what an MCP exposes', () => {
   });
 
   it('never includes by a `when` predicate, and always excludes by one', async () => {
-    expect((await resolveRules(rules({ fns: [{ fn: 'fs/read', when: { name: 'bool' } }] }), world())).fns).toEqual([]);
-    expect((await resolveRules(rules({ systems: [FS] }, { fns: [{ fn: 'fs/read', when: { name: 'bool' } }] }), world())).fns).toEqual(['fs/bash', 'fs/write']);
+    expect((await resolveRules(rules({ fns: [{ fn: 'fs/read', when: { kind: 'new', type: { name: 'bool' }, value: true } }] }), world())).fns).toEqual([]);
+    expect((await resolveRules(rules({ systems: [FS] }, { fns: [{ fn: 'fs/read', when: { kind: 'new', type: { name: 'bool' }, value: true } }] }), world())).fns).toEqual(['fs/bash', 'fs/write']);
   });
 
   it('exposes the types an exposed fn needs, warning when one was excluded', async () => {

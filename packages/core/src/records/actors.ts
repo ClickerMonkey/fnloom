@@ -4,6 +4,7 @@ import {
   ActorId, ActorKind, ApprovalId, AuthSessionId, FnKindName, HubMcpId, Json, PolicyId, QualifiedName, RunId, SystemName, Timestamp,
 } from '../primitives.ts';
 import { ApprovalPreview, ProposalAsk } from '../approvals.ts';
+import { GinExprDef } from '../gin.ts';
 
 const actorBase = {
   id: ActorId,
@@ -87,8 +88,8 @@ export const FnMatch = z.object({
   system: SystemName.optional(),
   kind: FnKindName.optional(),
   tags: z.array(z.string()).optional(),
-  /** A gin predicate over the args. */
-  when: Json.optional(),
+  /** A gin predicate over the args: an expression whose value is a bool. */
+  when: GinExprDef.optional(),
 });
 export type FnMatch = z.infer<typeof FnMatch>;
 

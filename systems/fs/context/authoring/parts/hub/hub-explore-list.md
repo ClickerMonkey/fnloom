@@ -202,7 +202,7 @@ tags: ["authoring"]
     mode: enum<text>{read, write, delete},
     confirm: bool,
     bind: any,
-    form?: any,
+    form?: typ<any>,
     then: enum<text>{open, refresh, status}
   }>
   ```

@@ -49,8 +49,8 @@ describe('matching', () => {
     expect(targetRank({ system: SystemName.parse('fs') }, write, 'allow')).toBe(2);
     expect(targetRank({ tags: ['files'] }, write, 'allow')).toBe(1);
     expect(targetRank({ tags: ['read'] }, write, 'allow')).toBeUndefined();
-    expect(targetRank({ fn: 'fs/write', when: { op: 'x' } }, write, 'allow')).toBeUndefined();
-    expect(targetRank({ fn: 'fs/write', when: { op: 'x' } }, write, 'deny')).toBe(8);
+    expect(targetRank({ fn: 'fs/write', when: { kind: 'new', type: { name: 'bool' }, value: true } }, write, 'allow')).toBeUndefined();
+    expect(targetRank({ fn: 'fs/write', when: { kind: 'new', type: { name: 'bool' }, value: true } }, write, 'deny')).toBe(8);
   });
 
   it('chooses by priority, then specificity, then deny over ask over allow', () => {

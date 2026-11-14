@@ -5,7 +5,7 @@
  * and press Enter. An entry is checked as it is added (a fn glob, a #tag, a URI prefix on system@instance); a bad one says why and isn't added.
  * A fn rule's condition (`FnMatch.when`, a gin predicate over its args) opens in gin's expression editor.
  */
-import type { Json, McpSelector, PickSource } from '@harness/core';
+import type { GinExprDef, McpSelector, PickSource } from '@harness/core';
 import { computed, ref } from 'vue';
 import HubPicker from '../../components/pickers/HubPicker.vue';
 import { UiIconButton } from '../../ui/index.ts';
@@ -32,7 +32,7 @@ const conditionOf = ref(-1);
 const conditionOpen = computed({ get: () => conditionOf.value >= 0, set: (isOpen: boolean) => { if (!isOpen) { conditionOf.value = -1; } } });
 const conditionMatch = computed(() => props.selector.fns?.[conditionOf.value]);
 const conditionTitle = computed(() => `Condition for ${entryText('fns', { fns: conditionMatch.value === undefined ? [] : [conditionMatch.value] })[0] ?? 'the rule'}`);
-function saveCondition(when: Json | undefined): void {
+function saveCondition(when: GinExprDef | undefined): void {
   emit('change', setFnCondition(props.selector, conditionOf.value, when));
   conditionOf.value = -1;
 }

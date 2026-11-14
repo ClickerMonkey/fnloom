@@ -5,7 +5,7 @@
  * is tested alone.
  */
 import {
-  FnMatch, McpSelector, McpSlug, NameGlob, ResourceSelector, SystemName, type HubMcpView, type Json, type McpRules, type McpToolMode,
+  FnMatch, McpSelector, McpSlug, NameGlob, ResourceSelector, SystemName, type GinExprDef, type HubMcpView, type McpRules, type McpToolMode,
 } from '@harness/core';
 import type { Outcome } from '../../ui/index.ts';
 
@@ -98,7 +98,7 @@ export function addEntry(selector: McpSelector, part: SelectorPart, text: string
 }
 
 /** A selector with the condition (`when`) of its fn rule at `index` set, or removed when `when` is undefined. */
-export function setFnCondition(selector: McpSelector, index: number, when: Json | undefined): McpSelector {
+export function setFnCondition(selector: McpSelector, index: number, when: GinExprDef | undefined): McpSelector {
   const fns = (selector.fns ?? []).map((match, i) => {
     if (i !== index) { return match; }
     const { when: _old, ...rest } = match;
