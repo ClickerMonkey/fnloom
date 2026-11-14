@@ -221,6 +221,11 @@ export function changeWidgetRequest(proposal: Pick<WidgetProposal, 'spec'>): str
   return `Change the proposed widget “${proposal.spec.title}” (from ${proposal.spec.source}): `;
 }
 
+/** The request that asks the agent to save a look picked in a widget's Settings as the saved widget's own (it proposes; the person saves). */
+export function saveLookRequest(widget: QualifiedName, visual: string, style: string): string {
+  return `Change the widget ${widget} so it opens as ${visual} (${style}) first, keeping its other visuals and everything else (use widgets/make_widget).`;
+}
+
 /** The streamed export of a widget's whole result (`GET /api/export`); undefined when its source doesn't page. */
 export function exportQuery(result: Pick<WidgetResult, 'source' | 'paging'>): ExportQuery | undefined {
   const paging = result.paging;

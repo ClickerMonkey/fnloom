@@ -1,34 +1,36 @@
 <script setup lang="ts">
 /**
- * A widget (widget pass): its title, or a breadcrumb once a drill or an action opened a level; the chip row (presets,
- * one chip per control, Apply); any binding that no longer fits; and the result view, drawn with the widget's own
- * visuals in its order (or every fitting one for a plain table). The grid pages through the rows held and the
- * buffered pager reads more only when a page needs them; a chart's zoom or period sets the range args; a click on a
- * row's mark runs the drill, else opens the row's actions (form, then confirm). Its tools: Live (re-runs in place while
- * shown), Refresh (or "Run again", which asks first, for rows a write returned: those are read-only, without chips,
- * pager or drill), and "Download every row" in the download menu (the hub's streamed export of the whole result).
- * Without a widget host, or without a fn to ask again (a proposal's preview), it draws what it has.
+ * A widget (widget pass). Its chrome shows only what says what data it is (build-9 feedback, widget chrome): its title,
+ * or a breadcrumb once a drill or an action opened a level; the chip row (presets, one chip per control, Apply); any
+ * binding that no longer fits; Live (re-runs in place while shown); and, when it offers a chosen few visuals (a
+ * widget's own), a small toggle between them. The rest is in the result view's 3-dot menu: exports (with "every row",
+ * the hub's streamed export of the whole result), Refresh (or "Run again", which asks first, for rows a write
+ * returned: those are read-only, without chips, pager or drill), the page's items, full screen and Settings (every
+ * fitting visual and its style; a saved widget's look is saved by asking the agent to change it, which the person
+ * then saves). The grid pages through the rows held and the buffered pager reads more only when a page needs them; a
+ * chart's zoom or period sets the range args; a click on a row's mark runs the drill, else opens the row's actions
+ * (form, then confirm). Without a widget host, or without a fn to ask again (a proposal's preview), it draws what it has.
  *
  * A page can give it its own source (the Data page's records over `hub/records_table`), its own row menu (`opener`), a
- * sort its source does (`sort`) and tools before the visual switcher (`lead`). Where the rows are stored records and
- * the host can change them, editable cells are inputs: changes are staged, then "Save N changes" asks once, naming
- * them, and saves each record.
+ * sort its source does (`sort`), context beside its chips (`lead`: the Data page's search and filters) and menu items
+ * (`items`, chosen with `item`). Where the rows are stored records and the host can change them, editable cells are
+ * inputs: changes are staged, then "Save N changes" asks once, naming them, and saves each record.
  */
 import { HUB_VISUALS, QualifiedName, type Json, type ResultSort } from '@harness/core';
 import { computed, inject, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from 'vue';
 import ConfirmDialog from '../../admin/components/ConfirmDialog.vue';
-import { UiBanner, UiButton, UiIcon, UiIconButton } from '../../ui/index.ts';
+import { UiBanner, UiButton, UiIcon, type MenuAction } from '../../ui/index.ts';
 import { OWN_HOST, RESULTS_HOST } from '../results/builtin.ts';
 import ResultView from '../results/ResultView.vue';
 import type { PageRequest, ResultPager } from '../results/table.ts';
-import type { RowOpener, VisualChoice } from '../results/visuals.ts';
+import { chosenVisual, styleLabel, type RowOpener, type VisualChoice } from '../results/visuals.ts';
 import { CELL_EDITOR, editInput, RecordEdits } from './record-edits.ts';
 import RecordEditsDialog from './RecordEditsDialog.vue';
 import WidgetActionDialog from './WidgetActionDialog.vue';
 import WidgetChips from './WidgetChips.vue';
 import { FnWidgetSource, type WidgetFrame, type WidgetSource } from './widget-source.ts';
 import { startArgs, WidgetState } from './widget-state.ts';
-import { WIDGET_HOST, widgetVisuals } from './widgets.ts';
+import { saveLookRequest, WIDGET_HOST, widgetVisuals } from './widgets.ts';
 
 const props = withDefaults(defineProps<{
   frame: WidgetFrame;
@@ -45,8 +47,12 @@ const props = withDefaults(defineProps<{
   opener?: RowOpener | undefined;
   /** A sort its source does (the rows held are a slice of a sorted whole); without it the grid sorts the rows held. */
   sort?: ((next: ResultSort | undefined) => void) | undefined;
-}>(), { fn: undefined, args: undefined, viewKey: '', showTitle: true, source: undefined, opener: undefined, sort: undefined });
-const emit = defineEmits<{ saved: [count: number] }>();
+  /** The saved widget this draws: Settings can save its look (by asking the agent to change it). */
+  widget?: QualifiedName | undefined;
+  /** The page's own items in the 3-dot menu (Make a widget); a pick emits `item`. */
+  items?: readonly MenuAction<string>[];
+}>(), { fn: undefined, args: undefined, viewKey: '', showTitle: true, source: undefined, opener: undefined, sort: undefined, widget: undefined, items: () => [] });
+const emit = defineEmits<{ saved: [count: number]; item: [value: string] }>();
 
 const results = inject(RESULTS_HOST, OWN_HOST);
 const host = inject(WIDGET_HOST, undefined);
@@ -71,10 +77,16 @@ const choice = computed({
     if (keyed.value !== '') { results.choose(keyed.value, picked); }
   },
 });
-const visuals = computed(() => {
-  const ranked = results.visuals(registry, state.table.value, state.facts.value);
-  return top.value.visuals === undefined ? ranked : widgetVisuals(ranked, top.value.visuals);
+/** Every visual that can draw it, best first. */
+const ranked = computed(() => results.visuals(registry, state.table.value, state.facts.value));
+/** A widget's own visuals (the few its author chose) show as a toggle; without them, every fitting one is in Settings. */
+const subset = computed(() => {
+  const own = top.value.visuals;
+  return own !== undefined && own.some((entry) => ranked.value.some((r) => r.visual.name === entry.visual));
 });
+const visuals = computed(() => (subset.value && top.value.visuals !== undefined ? widgetVisuals(ranked.value, top.value.visuals) : ranked.value));
+/** The fitting visuals beside a widget's own, offered in Settings only. */
+const others = computed(() => (subset.value ? ranked.value.filter((r) => !visuals.value.some((v) => v.visual.name === r.visual.name)) : []));
 
 const editable = computed(() => state.live.value && !top.value.readOnly);
 const pager = computed((): ResultPager | undefined => {
@@ -169,32 +181,61 @@ const liveText = computed(() => {
 });
 const problem = computed(() => state.reading.problem.value);
 function exportAll(): void { if (!state.reading.busy.value) { void state.exportCsv(); } }
+
+/** The menu's widget items: Run again (rows a write returned) or Refresh, then the page's own. */
+const menuItems = computed((): MenuAction<string>[] => [
+  ...(top.value.readOnly && host !== undefined && props.fn !== undefined ? [{ value: 'run-again', label: 'Run again…', icon: 'refresh' as const }]
+    : state.live.value ? [{ value: 'refresh', label: 'Refresh', icon: 'refresh' as const, disabled: state.reading.busy.value }] : []),
+  ...props.items,
+]);
+function onItem(value: string): void {
+  if (value === 'run-again') { askingAgain.value = true; return; }
+  if (value === 'refresh') { void state.refresh(); return; }
+  emit('item', value);
+}
+
+/** Save the look picked in Settings as the saved widget's own: the agent proposes the change, the person saves it. */
+const savingLook = ref(false);
+const canSaveLook = computed(() => props.widget !== undefined && host?.ask !== undefined);
+async function saveLook(close: () => void): Promise<void> {
+  const shown = chosenVisual([...visuals.value, ...others.value], choice.value);
+  if (props.widget === undefined || host?.ask === undefined || shown === undefined || savingLook.value) { return; }
+  savingLook.value = true;
+  try {
+    const asked = await host.ask(saveLookRequest(props.widget, shown.ranked.visual.label, styleLabel(shown.ranked.visual.shape, shown.style)), true);
+    if (asked) { close(); }
+  } finally {
+    savingLook.value = false;
+  }
+}
 </script>
 
 <template>
   <section ref="root" class="widget" data-testid="widget-view" :data-widget="fn" :data-level="state.levels.value.length - 1">
-    <nav v-if="state.levels.value.length > 1" class="crumbs" aria-label="Levels" data-testid="widget-crumbs">
-      <template v-for="(crumb, i) in state.levels.value" :key="i">
-        <UiIcon v-if="i > 0" name="chevron-right" :size="12" class="sep" />
-        <button v-if="i < state.levels.value.length - 1" type="button" class="crumb" data-testid="widget-crumb" @click="state.back(i)">{{ crumb.label }}</button>
-        <span v-else class="crumb here" aria-current="page">{{ crumb.label }}</span>
-      </template>
-    </nav>
-    <h3 v-else-if="showTitle" class="title">{{ top.title }}</h3>
-    <WidgetChips
-      v-if="!top.readOnly" :controls="top.controls" :presets="top.presets" :current-of="(arg) => state.chipValue(arg)" :dirty="state.dirty.value"
-      :busy="state.reading.busy.value" :editable="editable" @stage="(arg, value) => state.stage(arg, value)" @apply="state.apply()" @discard="state.discard()"
-      @preset="state.preset($event)"
-    />
-    <UiBanner v-if="top.problems.length > 0" tone="warn" data-testid="widget-problems">
-      {{ top.problems.length === 1 ? top.problems[0] : `${top.problems.length} views no longer fit:` }}
-      <ul v-if="top.problems.length > 1" class="problems"><li v-for="p in top.problems" :key="p">{{ p }}</li></ul>
-    </UiBanner>
     <ResultView
-      v-model:choice="choice" :table="state.table.value" :title="top.title" :visuals="visuals" :facts="state.facts.value" :pager="pager" :opener="opener"
-      :drills="state.drills.value && !top.readOnly"
-      :export-all="top.export !== undefined && host !== undefined ? exportAll : undefined" @drill="state.drill($event)" @range="state.range($event)"
+      v-model:choice="choice" :table="state.table.value" :title="top.title" :visuals="visuals" :others="others" :toggle="subset" :facts="state.facts.value" :pager="pager"
+      :opener="opener" :drills="state.drills.value && !top.readOnly" :items="menuItems"
+      :export-all="top.export !== undefined && host !== undefined ? exportAll : undefined" @drill="state.drill($event)" @range="state.range($event)" @item="onItem"
     >
+      <template #context>
+        <nav v-if="state.levels.value.length > 1" class="crumbs" aria-label="Levels" data-testid="widget-crumbs">
+          <template v-for="(crumb, i) in state.levels.value" :key="i">
+            <UiIcon v-if="i > 0" name="chevron-right" :size="12" class="sep" />
+            <button v-if="i < state.levels.value.length - 1" type="button" class="crumb" data-testid="widget-crumb" @click="state.back(i)">{{ crumb.label }}</button>
+            <span v-else class="crumb here" aria-current="page">{{ crumb.label }}</span>
+          </template>
+        </nav>
+        <h3 v-else-if="showTitle" class="title">{{ top.title }}</h3>
+        <WidgetChips
+          v-if="!top.readOnly" :controls="top.controls" :presets="top.presets" :current-of="(arg) => state.chipValue(arg)" :dirty="state.dirty.value"
+          :busy="state.reading.busy.value" :editable="editable" @stage="(arg, value) => state.stage(arg, value)" @apply="state.apply()" @discard="state.discard()"
+          @preset="state.preset($event)"
+        />
+        <UiBanner v-if="top.problems.length > 0" tone="warn" data-testid="widget-problems">
+          {{ top.problems.length === 1 ? top.problems[0] : `${top.problems.length} views no longer fit:` }}
+          <ul v-if="top.problems.length > 1" class="problems"><li v-for="p in top.problems" :key="p">{{ p }}</li></ul>
+        </UiBanner>
+      </template>
       <template v-if="$slots['lead']" #lead><slot name="lead" /></template>
       <template #tools>
         <template v-if="edits.count.value > 0">
@@ -203,10 +244,9 @@ function exportAll(): void { if (!state.reading.busy.value) { void state.exportC
         </template>
         <slot name="tools" />
         <span v-if="liveText !== ''" class="live" data-testid="widget-live"><span class="pulse" aria-hidden="true" />{{ liveText }}</span>
-        <UiIconButton v-if="top.readOnly && host && fn" icon="refresh" label="Run again" size="sm" data-testid="widget-run-again" @click="askingAgain = true" />
-        <UiIconButton
-          v-else-if="state.live.value" icon="refresh" label="Refresh" size="sm" :disabled="state.reading.busy.value" data-testid="widget-refresh" @click="state.refresh()"
-        />
+      </template>
+      <template v-if="canSaveLook" #settings="{ close }">
+        <UiButton variant="ghost" icon="check" :loading="savingLook" data-testid="widget-save-look" @click="saveLook(close)">Save to the widget</UiButton>
       </template>
     </ResultView>
     <p v-if="problem !== '' || state.status.value !== ''" class="status" :class="{ bad: problem !== '' }" role="status" data-testid="widget-status">

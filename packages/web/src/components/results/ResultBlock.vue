@@ -41,7 +41,7 @@ onMounted(() => { void host.prepare(props.registry); });
 
 <template>
   <ResultView v-model:choice="choice" :table="table" :title="title" :visuals="visuals" :facts="facts" :pager="pager" :opener="opener">
-    <template #lead><slot name="lead" /></template>
-    <template #tools><slot name="tools" /></template>
+    <template v-if="$slots['lead']" #lead><slot name="lead" /></template>
+    <template v-if="$slots['tools']" #tools><slot name="tools" /></template>
   </ResultView>
 </template>

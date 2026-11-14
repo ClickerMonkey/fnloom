@@ -98,7 +98,7 @@ defineSlots<{ trigger: (props: { toggle: () => void; open: boolean; attrs: { 'ar
       <template v-for="(item, index) in items" :key="index">
         <div v-if="item.kind === 'separator'" class="separator" role="separator" />
         <button
-          v-else type="button" role="menuitem" class="item" :class="{ danger: item.danger }" tabindex="-1"
+          v-else type="button" role="menuitem" class="item" :class="{ danger: item.danger }" tabindex="-1" :data-value="item.value"
           :aria-disabled="item.disabled === true ? 'true' : undefined" @click="choose(item)"
         >
           <UiIcon v-if="item.icon" :name="item.icon" :size="16" class="icon" />

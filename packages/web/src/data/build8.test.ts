@@ -83,7 +83,14 @@ describe('the Data pages', () => {
   it('shows a type\'s records from its URL, opens one with its history, and saves it with its version', async () => {
     const { app, data, router } = await visit('/data/notes/Note?q=trip&sort=-words');
     expect(data.recordTable.calls.at(-1)?.[0]).toMatchObject({ type: NOTE_TYPE, search: 'trip', query: { sort: [{ field: 'words', dir: 'desc' }] } });
-    await app.findAll('[data-testid=result-visuals] button').find((b) => b.attributes('aria-label') === 'Table')?.trigger('click');
+    // records offer every fitting visual, so the switch is in Settings (the 3-dot menu), not a toggle
+    expect(app.find('[data-testid=result-visuals]').exists()).toBe(false);
+    await app.get('[data-testid=widget-more]').trigger('click');
+    await flushPromises();
+    document.body.querySelector<HTMLButtonElement>('[role=menuitem][data-value=settings]')?.click();
+    await flushPromises();
+    [...document.body.querySelectorAll<HTMLButtonElement>('[data-testid=result-settings-visuals] [role=radio]')].find((b) => b.textContent.trim() === 'Table')?.click();
+    document.body.querySelector<HTMLButtonElement>('[data-testid=result-settings-done]')?.click();
     await vi.dynamicImportSettled();
     await flushPromises();
     expect(app.findAll('[data-testid=result-grid] tbody tr')).toHaveLength(3);

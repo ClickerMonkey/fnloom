@@ -22,6 +22,7 @@ import build7Graph from './build7-graph.ts';
 import build8Data from './build8-data.ts';
 import build8Changes from './build8-changes.ts';
 import widgetsCharts from './widgets-charts.ts';
+import widgetChrome from './widget-chrome.ts';
 import searchPills from './search-pills.ts';
 import chatManage from './chat-manage.ts';
 import chatShell from './chat-shell.ts';
@@ -84,5 +85,5 @@ export const FEATURES: readonly Feature[] = [
   adminSystems, pairing, adminSystem, adminModels, adminLimits, adminPolicies, adminActorSettings, adminRuns, adminLlm, adminResources,
   ginEditors, resourceBrowser, viewers,
   modelRoles, chatModes, contextGraph, contextItems, invalidInput, modelCalls, fnMetrics, hubMcps, instances, qrPairing,
-  streaming, approvals, build5Feedback, build6Screens, build6Install, build6Added, searchPills, build7Review, build7Graph, build8Data, build8Changes, widgetsCharts,
+  streaming, approvals, build5Feedback, build6Screens, build6Install, build6Added, searchPills, build7Review, build7Graph, build8Data, build8Changes, widgetsCharts, widgetChrome,
 ];

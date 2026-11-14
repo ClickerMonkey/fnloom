@@ -14,7 +14,7 @@ import { FnWidgetSource, resultFrame, tableFrame } from './widget-source.ts';
 import { WidgetState, type WidgetClock } from './widget-state.ts';
 import WidgetView from './WidgetView.vue';
 import { editInput, enteredValue } from './record-edits.ts';
-import { chipArgs, exportQuery, readLevels, rowTypes, SAVE_WIDGET_FN, WIDGET_HOST, widgetVisuals, type RunOutcome, type WidgetHost } from './widgets.ts';
+import { chipArgs, exportQuery, readLevels, rowTypes, SAVE_WIDGET_FN, saveLookRequest, WIDGET_HOST, widgetVisuals, type RunOutcome, type WidgetHost } from './widgets.ts';
 
 const CLOCK: WidgetClock = { now: () => new Date('2026-11-13T10:00:00Z'), zone: () => 'UTC' };
 
@@ -44,6 +44,13 @@ function fakeHost(overrides: Partial<WidgetHost> = {}) {
     ...overrides,
   };
   return { host, reads, runs, level: () => level };
+}
+
+/** The values of a widget's 3-dot menu items, once it is opened (the menu is drawn in a popover on the body). */
+async function menuOf(wrapper: { get(selector: string): { trigger(event: string): Promise<void> } }): Promise<Map<string, HTMLButtonElement>> {
+  await wrapper.get('[data-testid=widget-more]').trigger('click');
+  await flushPromises();
+  return new Map([...document.querySelectorAll<HTMLButtonElement>('[role=menuitem]')].map((item) => [item.dataset['value'] ?? '', item]));
 }
 
 function pagedState(host: WidgetHost): WidgetState {
@@ -230,8 +237,10 @@ describe('the widget view', () => {
     const wrapper = mount(WidgetView, { attachTo: document.body, props: { frame: tableFrame(written, 'Updated'), fn: QualifiedName.parse('db/update_notes'), args: {} }, global: { provide: { [WIDGET_HOST]: fake.host } } });
     await flushPromises();
     expect(wrapper.find('[data-testid=widget-chips]').exists()).toBe(false);
-    expect(wrapper.find('[data-testid=widget-refresh]').exists()).toBe(false);
-    await wrapper.get('[data-testid=widget-run-again]').trigger('click');
+    const menu = await menuOf(wrapper);
+    expect(menu.has('refresh')).toBe(false);
+    menu.get('run-again')?.click();
+    await flushPromises();
     expect(fake.runs).toEqual([]);
     document.querySelector<HTMLButtonElement>('[data-testid=confirm]')?.click();
     await flushPromises();
@@ -244,12 +253,62 @@ describe('the widget view', () => {
     const wrapper = mount(TableResult, { attachTo: document.body, props: { value: Json.parse(SAMPLE_PROPOSAL), fn: QualifiedName.parse('widgets/make_widget'), title: 'Make widget' }, global: { provide: { [WIDGET_HOST]: fake.host }, stubs: { RouterLink: { template: '<a><slot /></a>' } } } });
     await flushPromises();
     expect(wrapper.find('[data-testid=widget-view]').exists()).toBe(true);
-    expect(wrapper.find('[data-testid=widget-refresh]').exists()).toBe(false);
+    expect((await menuOf(wrapper)).has('refresh')).toBe(false);
     await wrapper.get('[data-testid=widget-proposal-save]').trigger('click');
     await flushPromises();
     expect(fake.runs).toEqual([{ fn: SAVE_WIDGET_FN, args: Json.parse({ name: 'open_notes', description: SAMPLE_PROPOSAL.description, spec: SAMPLE_PROPOSAL.spec }) }]);
     expect(wrapper.get('[data-testid=widget-proposal-saved]').text()).toBe('Saved as widgets/open_notes');
     wrapper.unmount();
+  });
+});
+
+describe('the widget chrome', () => {
+  it('shows a widget\'s own visuals as a toggle, and Refresh, exports, full screen and Settings in its menu', async () => {
+    const fake = fakeHost();
+    const wrapper = mount(WidgetView, { attachTo: document.body, props: { frame: resultFrame(SAMPLE_PAGED_WIDGET), fn: NOTES_WIDGET, args: { status: 'open' }, viewKey: 'run_1' }, global: { provide: { [WIDGET_HOST]: fake.host } } });
+    await flushPromises();
+    // the chips say what data this is, and stay out of the menu
+    expect(wrapper.findAll('[data-testid=widget-chip]')).toHaveLength(3);
+    const menu = await menuOf(wrapper);
+    expect([...menu.keys()]).toEqual(['png', 'csv', 'all', 'json', 'copy', 'refresh', 'full', 'settings']);
+    menu.get('refresh')?.click();
+    await flushPromises();
+    expect(fake.reads).toHaveLength(1);
+    wrapper.unmount();
+    const own = mount(TableResult, { attachTo: document.body, props: { value: Json.parse(SAMPLE_WIDGET), fn: NOTES_WIDGET, title: 'Open notes' }, global: { provide: { [WIDGET_HOST]: fake.host } } });
+    await flushPromises();
+    expect(own.findAll('[data-testid=result-visuals] [role=radio]').map((b) => b.attributes('aria-label'))).toEqual(['Words per note', 'Table']);
+    own.unmount();
+  });
+
+  it('a plain table has no toggle and offers Make a widget in its menu; a saved widget\'s Settings saves its look', async () => {
+    const asked: string[] = [];
+    const fake = fakeHost({ ask: (text) => { asked.push(text); return Promise.resolve(true); } });
+    const plain = mount(TableResult, { attachTo: document.body, props: { value: Json.parse(SAMPLE_TABLE), fn: QualifiedName.parse('db/notes'), title: 'Notes' }, global: { provide: { [WIDGET_HOST]: fake.host } } });
+    await flushPromises();
+    expect(plain.find('[data-testid=result-visuals]').exists()).toBe(false);
+    (await menuOf(plain)).get('make-widget')?.click();
+    await flushPromises();
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toContain('Make a widget from db/notes');
+    (await menuOf(plain)).get('settings')?.click();
+    await flushPromises();
+    expect(document.querySelector('[data-testid=result-settings]')).not.toBeNull();
+    expect(document.querySelector('[data-testid=widget-save-look]')).toBeNull();
+    plain.unmount();
+    document.body.innerHTML = '';
+
+    const saved = mount(TableResult, { attachTo: document.body, props: { value: Json.parse(SAMPLE_WIDGET), fn: NOTES_WIDGET, title: 'Open notes' }, global: { provide: { [WIDGET_HOST]: fake.host } } });
+    await flushPromises();
+    const menu = await menuOf(saved);
+    expect(menu.has('make-widget')).toBe(false);
+    menu.get('settings')?.click();
+    await flushPromises();
+    document.querySelector<HTMLButtonElement>('[data-testid=widget-save-look]')?.click();
+    await flushPromises();
+    expect(asked[1]).toBe(saveLookRequest(NOTES_WIDGET, 'Words per note', 'Bars'));
+    expect(document.querySelector('[data-testid=result-settings]')).toBeNull();
+    saved.unmount();
   });
 });
 

@@ -156,6 +156,13 @@ export function toCsv(table: Pick<ResultTable, 'columns'>, rows: readonly (reado
   return `${lines.join('\r\n')}\r\n`;
 }
 
+/** The rows held as JSON: an array of objects keyed by column name (empty cells `null`), indented for reading. */
+export function toJson(table: Pick<ResultTable, 'columns'>, rows: readonly (readonly Json[])[]): string {
+  const objects = rows.map((row) => Object.fromEntries(table.columns.map((column, i) => [column.name, row[i] ?? null])));
+  return `${JSON.stringify(objects, null, 2)}
+`;
+}
+
 /** A file name for a table's CSV, from its title: lower case, words joined by dashes. */
 export function csvFileName(title: string): string {
   const base = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);

@@ -43,14 +43,27 @@ export default feature({
         const view = (await page.$$(tid('result-view')))[index];
         check(view !== undefined, `the gallery has a result for ${family}`);
         await view.scrollIntoView();
-        await view.$eval(`[data-testid="result-visuals"] [aria-label="${BUILT_IN_VISUALS[family].label}"]`, (button) => { if (button instanceof HTMLElement) { button.click(); } });
+        // a plain result offers every visual in its Settings (the 3-dot menu), not in the chrome
+        await view.hover();
+        const more = await view.$(tid('widget-more'));
+        check(more !== null, `${family}: the result has its 3-dot menu`);
+        await more.click();
+        await page.waitForSelector('[role="menu"] [data-value="settings"]', { visible: true });
+        await page.click('[role="menu"] [data-value="settings"]');
+        await page.waitForSelector(tid('result-settings'), { visible: true });
+        await page.$$eval(`${tid('result-settings-visuals')} [role="radio"]`, (buttons, label) => {
+          const button = buttons.find((b) => b.textContent.trim() === label);
+          if (button instanceof HTMLElement) { button.click(); }
+        }, BUILT_IN_VISUALS[family].label);
         for (const style of BUILT_IN_VISUALS[family].shape.styles) {
-          const picker = await view.$('[data-testid="result-style"] select');
+          const picker = await page.$(`${tid('result-settings')} [data-testid="result-style"] select`);
           if (picker !== null) { await picker.select(style.name); }
           await settle(page, 300);
           const problem = await overlap(page, index);
           check(problem === undefined, `${family} ${style.name}: ${problem ?? ''}`);
         }
+        await page.click(tid('result-settings-done'));
+        await page.waitForSelector(tid('result-settings'), { hidden: true });
         check(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `${family}: the chat fits the screen`);
         await shot(family);
       }

@@ -79,10 +79,17 @@ describe('ResultView', () => {
   // the chart and grid load lazily; the first load (ECharts) is slow under a full run, so it happens once, up front
   beforeAll(async () => { await Promise.all([import('../visuals/ChartVisual.vue'), import('./ResultGrid.vue'), import('../visuals/ValueVisual.vue')]); }, 120_000);
 
-  it('draws the best, switches family and style, and hides the switch when only the table fits', async () => {
+  /** The 3-dot menu's items, by value, once it is opened (the menu is drawn in a popover on the body). */
+  async function openMenu(view: { get(selector: string): { trigger(event: string): Promise<void> } }): Promise<Map<string, HTMLButtonElement>> {
+    await view.get('[data-testid=widget-more]').trigger('click');
+    await flushPromises();
+    return new Map([...document.querySelectorAll<HTMLButtonElement>('[role=menuitem]')].map((item) => [item.dataset['value'] ?? '', item]));
+  }
+
+  it('draws the best, switches family and style, and shows the toggle only for a chosen few', async () => {
     const bars = table({ rows: [['Oslo', 12], ['Lima', 3]] });
     const facts = columnFacts(bars);
-    const view = mount(ResultView, { props: { table: bars, title: 'Orders', visuals: rankedVisuals(OWN_VISUALS, [], bars, facts), facts } });
+    const view = mount(ResultView, { attachTo: document.body, props: { table: bars, title: 'Orders', visuals: rankedVisuals(OWN_VISUALS, [], bars, facts), facts, toggle: true } });
     await vi.dynamicImportSettled();
     await flushPromises();
     expect(view.get('[data-testid=result-view]').attributes('data-visual')).toBe('part');
@@ -91,15 +98,94 @@ describe('ResultView', () => {
     expect(view.emitted('update:choice')?.[0]).toEqual([{ visual: 'category' }]);
     await view.setProps({ choice: { visual: 'category', style: 'line' } });
     expect(view.get('[data-testid=result-view]').attributes('data-style')).toBe('line');
+    // no chosen few (a plain result): no toggle; the visuals are in Settings
+    await view.setProps({ toggle: false });
+    expect(view.find('[data-testid=result-visuals]').exists()).toBe(false);
+    const words = table({ columns: [{ name: 'note', kind: 'text', nullable: false }], rows: [['a'], ['b'], ['c'], ['d'], ['e']] });
+    await view.setProps({ toggle: true, table: words, facts: columnFacts(words), visuals: rankedVisuals(OWN_VISUALS, [], words, columnFacts(words)) });
+    expect(view.find('[data-testid=result-visuals]').exists()).toBe(false);
+    view.unmount();
+  });
+
+  it('keeps its tools in a 3-dot menu: image export only for a chart, JSON and CSV for rows, the page\'s items', async () => {
+    const bars = table({ rows: [['Oslo', 12], ['Lima', 3]] });
+    const facts = columnFacts(bars);
+    const items = [{ value: 'make-widget', label: 'Make a widget' }];
+    const view = mount(ResultView, { attachTo: document.body, props: { table: bars, title: 'Orders', visuals: rankedVisuals(OWN_VISUALS, [], bars, facts), facts, items } });
+    await vi.dynamicImportSettled();
+    await flushPromises();
+    // a chart draws: its image can be exported
+    let menu = await openMenu(view);
+    expect([...menu.keys()]).toEqual(['png', 'svg', 'csv', 'json', 'copy', 'make-widget', 'full', 'settings']);
+    expect(menu.get('png')?.getAttribute('aria-disabled')).toBeNull();
+    const saved: string[] = [];
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { saved.push(this.download); });
+    URL.createObjectURL = vi.fn(() => 'blob:x');
+    URL.revokeObjectURL = vi.fn();
+    menu.get('json')?.click();
+    await flushPromises();
+    expect(saved).toEqual(['orders.json']);
+    menu = await openMenu(view);
+    menu.get('make-widget')?.click();
+    expect(view.emitted('item')).toEqual([['make-widget']]);
+    // the table draws no image: export image is there but off
     await view.setProps({ choice: { visual: 'table' } });
     await vi.dynamicImportSettled();
     await flushPromises();
-    expect(view.find('[data-testid=result-grid]').exists()).toBe(true);
-    await view.get('[data-testid=result-full]').trigger('click');
+    menu = await openMenu(view);
+    expect(menu.get('png')?.getAttribute('aria-disabled')).toBe('true');
+    expect(menu.has('svg')).toBe(false);
+    menu.get('png')?.click();
+    menu.get('csv')?.click();
+    await flushPromises();
+    expect(saved).toEqual(['orders.json', 'orders.csv']);
+    click.mockRestore();
+    view.unmount();
+  });
+
+  it('goes full screen from the menu, and Escape or its close button leaves', async () => {
+    const view = mount(ResultView, { attachTo: document.body, props: { table: table(), title: 'Orders', visuals: rankedVisuals(OWN_VISUALS, [], table(), columnFacts(table())), facts: columnFacts(table()) } });
+    await flushPromises();
+    (await openMenu(view)).get('full')?.click();
+    await flushPromises();
     expect(view.get('[data-testid=result-view]').classes()).toContain('full');
-    const words = table({ columns: [{ name: 'note', kind: 'text', nullable: false }], rows: [['a'], ['b'], ['c'], ['d'], ['e']] });
-    await view.setProps({ table: words, facts: columnFacts(words), visuals: rankedVisuals(OWN_VISUALS, [], words, columnFacts(words)) });
-    expect(view.find('[data-testid=result-visuals]').exists()).toBe(false);
+    expect(view.get('[data-testid=result-view]').attributes('role')).toBe('dialog');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await flushPromises();
+    expect(view.get('[data-testid=result-view]').classes()).not.toContain('full');
+    (await openMenu(view)).get('full')?.click();
+    await flushPromises();
+    await view.get('[data-testid=result-full-close]').trigger('click');
+    expect(view.get('[data-testid=result-view]').classes()).not.toContain('full');
+    view.unmount();
+  });
+
+  it('changes the look in Settings: every fitting visual, its style, and the page\'s Save', async () => {
+    const bars = table({ rows: [['Oslo', 12], ['Lima', 3]] });
+    const facts = columnFacts(bars);
+    const ranked = rankedVisuals(OWN_VISUALS, [], bars, facts);
+    const own = ranked.filter((v) => v.visual.name === 'category' || v.visual.name === 'table');
+    const others = ranked.filter((v) => !own.includes(v));
+    const view = mount(ResultView, {
+      attachTo: document.body, props: { table: bars, title: 'Orders', visuals: own, others, facts, toggle: true },
+      slots: { settings: '<button data-testid="page-save">Save</button>' },
+    });
+    await vi.dynamicImportSettled();
+    await flushPromises();
+    expect(view.findAll('[data-testid=result-visuals] [role=radio]')).toHaveLength(2);
+    (await openMenu(view)).get('settings')?.click();
+    await flushPromises();
+    const dialog = document.querySelector('[data-testid=result-settings]');
+    expect(dialog).not.toBeNull();
+    const choices = [...document.querySelectorAll<HTMLButtonElement>('[data-testid=result-settings-visuals] [role=radio]')];
+    expect(choices.length).toBe(ranked.length);
+    choices.find((b) => b.textContent.includes(OWN_VISUALS.find((v) => v.name === 'part')?.label ?? '?'))?.click();
+    expect(view.emitted('update:choice')?.at(-1)).toEqual([{ visual: 'part' }]);
+    expect(document.querySelector('[data-testid=page-save]')).not.toBeNull();
+    document.querySelector<HTMLButtonElement>('[data-testid=result-settings-done]')?.click();
+    await flushPromises();
+    expect(document.querySelector('[data-testid=result-settings]')).toBeNull();
+    view.unmount();
   });
 
   it('sorts held rows itself, and asks the fn when the rows are a slice', async () => {

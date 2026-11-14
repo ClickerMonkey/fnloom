@@ -74,7 +74,18 @@ export default feature({
     const widget = await page.$(tid('widget-view'));
     await widget?.scrollIntoView();
     check(await page.$(`${tid('widget-view')} [data-testid="result-view"]:not([data-visual="table"])`) !== null, 'the widget draws its best visual, not the table, first');
-    check(await page.$(tid('save-as-widget')) !== null, 'a plain result table offers Save as widget');
+    // a plain result table offers Make a widget in its 3-dot menu
+    const opened = await page.evaluate(() => {
+      const more = [...document.querySelectorAll('[data-testid="widget-view"]')]
+        .find((view) => view.closest('[data-testid="widget-proposal"]') === null && view.querySelector('[data-testid="result-visuals"]') === null && view.querySelector('[data-testid="widget-chips"]') === null)
+        ?.querySelector('[data-testid="widget-more"]');
+      if (!(more instanceof HTMLElement)) { return false; }
+      more.click();
+      return true;
+    });
+    check(opened, 'a plain result table has its 3-dot menu');
+    check(await page.waitForSelector('[role="menu"] [data-value="make-widget"]', { visible: true }) !== null, 'a plain result table offers Make a widget');
+    await page.keyboard.press('Escape');
     check(!await scrollsSideways(page), 'the chat with a widget fits the screen');
     await ctx.shot('chat-widget');
     // the widget with chips, presets and the buffered pager: each chip with its value, a chip's popover, the proposal card
