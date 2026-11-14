@@ -168,11 +168,8 @@ describe('records from chat', () => {
     expect(await tasks()).toEqual(before);
   });
 
-  // gin reads any object with `type` and `value` keys inside a list or obj slot as a value envelope ({ type, value }),
-  // so every record (which has both) fails the result check as hub/records_find's items or hub/record_get's record:
-  // "registry.parse: expected object, got string". A bug in @aeye/gin's parseValue dispatch, reported; this test
-  // fails until it is fixed there, and then should become a plain `it`.
-  it.fails('lists the records with hub/records_find', async () => {
+  // records have `type` and `value` keys; gin once read them as value envelopes (fixed in gin's parseValue)
+  it('lists the records with hub/records_find', async () => {
     const { results } = await chat('List my tasks', [
       calls([['hub__load_fns', { fns: ['hub/records_find'] }]]),
       calls([['hub__records_find', { type: TASK }]]),
