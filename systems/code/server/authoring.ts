@@ -104,7 +104,7 @@ export const CODE_EXAMPLES = {
 export const CODE_GUIDE = [
   'A program is one gin expression (JSON). Its value is the fn\'s result. Read args as {"kind":"get","path":[{"prop":"args"},{"prop":"<name>"}]}.',
   '- A method call is two steps: {"prop":"mul"} then {"args":{"other":<expr>}}. A literal is {"kind":"new","type":{"name":"num"},"value":2}.',
-  '- Build an obj with {"kind":"new","type":{"name":"obj","props":{…}},"value":{"<prop>":<expr>, …}}: the type slot holds the whole obj type, the value slot an expression per prop.',
+  '- Build an obj with {"kind":"new","type":{"name":"obj","props":{…}},"value":{"<prop>":<expr>, …}}: the type slot holds the whole obj type, the value slot one entry per prop: a plain prop (text, num, bool, an enum) takes its value as is ("note":"fixed") or an expression; any other prop an expression.',
   '- `define` binds locals (each may use the ones before) and its body is the result; `block` runs lines and gives the last; `if` and `switch` choose.',
   '- A loop goes over a list (or another value whose type is known), never a bool; accumulate with `set` into a local defined outside it. Lists have methods (map, filter, …) that take a lambda.',
   '- Call a loaded fn as fns.<system>.<name> followed by its call step: {"kind":"get","path":[{"prop":"fns"},{"prop":"weather"},{"prop":"forecast"},{"args":{"city":<expr>}}]}. An instance\'s fn adds the instance: fns.database.main.orders. Only loaded fns can be called.',

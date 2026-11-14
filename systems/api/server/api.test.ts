@@ -71,7 +71,8 @@ const CREATE: ApiFnSpec = {
 describe('make_api', () => {
   it('reads the operations, refuses two body slots, sends the GET with its sample, maps it and saves it on the service', async () => {
     const sent: Sent[] = [];
-    const twoSlots = { ...API_EXAMPLES.createIssue.request, value: { ...API_EXAMPLES.createIssue.request.value, body: { json: {}, text: 'x' } } };
+    // a body (written as the strict schema has it, a new api/HttpBody) that sets two slots
+    const twoSlots = { ...API_EXAMPLES.createIssue.request, value: { ...API_EXAMPLES.createIssue.request.value, body: { kind: 'new', type: { name: 'api/HttpBody' }, value: { json: { kind: 'new', type: { name: 'obj' }, value: {} }, text: 'x' } } } };
     const { repo } = API_EXAMPLES;
     const draft = { name: 'repo_stars', description: 'The name and stars of a repository.', request: repo.request, responseType: repo.responseType, output: repo.output, sample: { owner: 'acme', repo: 'web' } };
     const running = await start([

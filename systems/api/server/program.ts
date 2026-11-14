@@ -63,7 +63,9 @@ export function readableApi(check: Pick<ApiCheck, 'method' | 'request' | 'output
 /** Problems with the bodies the program writes literally: each sets exactly one slot. */
 function bodyProblems(def: ExprDef): string[] {
   return requestPayloads(def).flatMap((payload) => {
-    const body = payload['body'];
+    // the body as written: a literal `new api/HttpBody` (the strict form) or a bare object of slots
+    const written = payload['body'];
+    const body = isRecord(written) && written['kind'] === 'new' && isRecord(written['type']) && written['type']['name'] === 'api/HttpBody' ? written['value'] : written;
     if (!isRecord(body) || isGinExprDef(body)) return [];
     const slots = Object.keys(body);
     return slots.length === 1 ? [] : [`request: set exactly one body slot (json, form, multipart, text or binary); this body sets ${slots.length === 0 ? 'none' : slots.join(' and ')}. The slot you set is the wire encoding.`];

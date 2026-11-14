@@ -138,7 +138,9 @@ export class ProgramScope {
       const type = registry.parse(def);
       registry.register(type.name === name ? type : registry.extend(type, { name }));
     }
-    const schemas = buildSchemas(registry);
+    // `newStrict`: a `new` expression's value is typed by the type it names (gin's strict new schema: plain fields take their
+    // value, composite fields an Expr), so a strict tool call is told each value's shape rather than "any JSON"
+    const schemas = buildSchemas(registry, { newStrict: true });
     // LIBRARY GAP (gin): buildSchemas' lazy getters build fresh schemas on every call, so zod's input-side JSON schema
     // (what a tool's parameters are sent as) never meets the same schema twice and recurses until the stack runs out;
     // each getter is kept once here, and the classes' schemas read these slots when they are first built

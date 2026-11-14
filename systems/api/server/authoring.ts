@@ -60,6 +60,8 @@ const text = { name: 'text' } as const;
 const arg = (name: string) => ({ kind: 'get', path: [{ prop: 'args' }, { prop: name }] });
 
 const num = { name: 'num' } as const;
+/** A literal of a type: how a composite slot (a list, an object, a body, an any-JSON value) is written in a strict program. */
+const lit = (type: object, value: unknown) => ({ kind: 'new', type, value });
 const field = (from: string, name: string) => ({ kind: 'get', path: [{ prop: from }, { prop: 'body' }, { prop: name }] });
 const ISSUE = { name: 'obj', props: { number: { type: num }, title: { type: text } } };
 
@@ -83,7 +85,7 @@ export const API_EXAMPLES = {
       value: {
         method: 'GET',
         url: { kind: 'template', template: '/repos/{owner}/{repo}/issues', params: { kind: 'get', path: [{ prop: 'args' }] } },
-        params: [{ key: 'state', value: 'open' }],
+        params: lit({ name: 'list', generic: { V: { name: 'api/HttpParam' } } }, [lit({ name: 'api/HttpParam' }, { key: 'state', value: lit(text, 'open') })]),
       },
     },
   },
@@ -94,7 +96,7 @@ export const API_EXAMPLES = {
       value: {
         method: 'POST',
         url: { kind: 'template', template: '/repos/{owner}/{repo}/issues', params: { kind: 'get', path: [{ prop: 'args' }] } },
-        body: { json: { kind: 'new', type: { name: 'obj', props: { title: { type: text } } }, value: { title: arg('title') } } },
+        body: lit({ name: 'api/HttpBody' }, { json: lit({ name: 'obj', props: { title: { type: text } } }, { title: arg('title') }) }),
       },
     },
   },
@@ -103,8 +105,9 @@ export const API_EXAMPLES = {
 /** How api programs are written, with the worked examples (`examples`). */
 export const API_GUIDE = [
   'An api fn is two gin programs (JSON). request gives an api/HttpRequest; output (optional) reads `response` and gives the result. Both read args as {"kind":"get","path":[{"prop":"args"},{"prop":"<name>"}]}.',
-  '- Build the request with {"kind":"new","type":{"name":"api/HttpRequest"},"value":{…}}: method written literally (GET, POST, …), url relative to the service (a template fills path parts from args), params and headers as [{"key","value"}] lists.',
-  '- A body sets exactly one slot: {"json": <expr>} (most APIs), {"form": [params]}, {"multipart": [parts]}, {"text": <expr>} or {"binary": <resource uri>}. Never put a credential in a request: the service signs it.',
+  '- In a {"kind":"new"} value, a plain field (text, a number, a bool, an enum such as method) takes its value as is ("GET") or an expression; every other field (a list, an object, a body, a value of any JSON) takes an expression, usually a {"kind":"new"} of its type.',
+  '- Build the request with {"kind":"new","type":{"name":"api/HttpRequest"},"value":{…}}: method written literally ("GET", "POST", …), url relative to the service (a template fills path parts from args), params and headers each a new list<api/HttpParam> / list<api/HttpHeader> of new api/HttpParam / api/HttpHeader items.',
+  '- A body is a new api/HttpBody setting exactly one slot: json (most APIs, any JSON expression), form (a list of params), multipart (a list of parts), text or binary (a resource uri). Never put a credential in a request: the service signs it.',
   '- responseType is the type of response.body; output maps response (status, headers, body) to the result. Without output, the body is the result, so responseType must fit it.',
   '- A method call is two path steps: {"prop":"toText"} then {"args":{}}. A list result is best the body itself (no output, no responseType): the checker can not type a list mapped with a lambda yet.',
   '',
