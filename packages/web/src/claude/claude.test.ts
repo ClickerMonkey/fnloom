@@ -3,10 +3,10 @@
  * args, the fleet and session stores over fake callers (the record and transcript reads, sends in the session's chat,
  * answers with a form), and the approval card's form.
  */
-import { ApprovalId, ClaudeSession, DataRecord, InstanceName, Json, RunId, type ClaudeTask, type ClaudeTranscriptItem, type ProposalAsk } from '@harness/core';
+import { ApprovalId, ClaudeSession, DataRecord, InstanceName, Json, RunId, SessionId, type ClaudeTask, type ClaudeTranscriptItem, type ProposalAsk } from '@harness/core';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it } from 'vitest';
-import { approval as sampleApproval } from '../chat/test/fakes.ts';
+import { approval as sampleApproval, run as sampleRun } from '../chat/test/fakes.ts';
 import { fakeChat, fakeChatApi } from '../chat/test/fakes.ts';
 import ApprovalCard from '../components/approvals/ApprovalCard.vue';
 import { approvableTogether } from '../components/approvals/rules.ts';
@@ -171,6 +171,27 @@ describe('a session page', () => {
     await flushPromises();
     expect(api.createSession.calls).toHaveLength(0);
     expect(api.invoke.calls[0]?.[0]).toMatchObject({ session: 'ses_1', fn: CLAUDE_FNS.send, args: { instance: 'main', session: SESSION, text: 'Also add a test', wait: false } });
+    store.close();
+  });
+
+  it('counts a send as sent when the done event comes before the run\'s outcome (no false "It ended done.")', async () => {
+    const { store: data } = dataStore(() => [record(Json.parse(sessionValue({ chat: 'ses_1', waiting: [] })))], page);
+    const api = fakeChatApi();
+    let recorded = sampleRun({ id: 'run_inv', fn: CLAUDE_FNS.send, status: 'running' });
+    api.run = fakeCaller<'run'>(() => Promise.resolve(recorded));
+    const { chat, sessionEvents } = fakeChat({ api });
+    const store = new ClaudeSessionStore({ data, chat, desk: chat.approvals }, { instance: machine, session: SESSION });
+    await store.open();
+    let sent: boolean | undefined;
+    void store.send('Also add a test').then((ok) => { sent = ok; });
+    await flushPromises();
+    // the hub says done before the run's record (with the outcome) is read
+    recorded = sampleRun({ id: 'run_inv', fn: CLAUDE_FNS.send, status: 'done', outcome: { status: 'done', result: { session: SESSION } } });
+    sessionEvents.push(SessionId.parse('ses_1'), { type: 'run', run: RunId.parse('run_inv'), fn: CLAUDE_FNS.send, update: { type: 'status', status: 'done' } });
+    expect(sent).toBeUndefined();
+    await flushPromises();
+    expect(sent).toBe(true);
+    expect(store.problem.value).toBe('');
     store.close();
   });
 

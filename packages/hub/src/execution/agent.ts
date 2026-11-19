@@ -54,6 +54,8 @@ export type PendingCall = z.infer<typeof PendingCall>;
 export const AgentState = z.object({
   /** The next iteration to run. */
   iteration: z.number().int().min(0),
+  /** The iteration its step limit counts from: 0, or where a person last continued it (Continue gives a fresh budget). */
+  from: z.number().int().min(0).optional(),
   /** The tool calls of the last iteration, in call order, waiting to be answered. */
   pending: z.array(PendingCall),
   /** Where the assistant message holding those calls is in the conversation. */
@@ -75,6 +77,9 @@ export type AgentState = z.infer<typeof AgentState>;
 
 /** What an agent's earlier run says when a new message takes over. */
 export const INTERRUPTED = 'A new message came in; carrying on there.';
+
+/** The code of an agent run that stopped at its step limit (`maxIterations`); Continue can carry it on. */
+export const MAX_ITERATIONS = 'max-iterations';
 
 /** A fresh agent's state. */
 export const START: AgentState = { iteration: 0, pending: [], anchor: -1, failures: 0 };
@@ -160,7 +165,7 @@ export class RunConversation implements Conversation {
 
 /** What the agent loop uses. */
 export interface AgentLoopDeps extends ExecutionDeps {
-  readonly runs: Pick<HubRunService, 'start' | 'get' | 'wait' | 'settle' | 'background' | 'cancel' | 'info'>;
+  readonly runs: Pick<HubRunService, 'start' | 'get' | 'wait' | 'settle' | 'background' | 'cancel' | 'info' | 'reopen'>;
   readonly queues: Pick<ExecutionQueues, 'enqueueLlm' | 'cancel'>;
   readonly llm: Pick<LlmEngine, 'streamer'>;
   readonly models: Pick<ModelResolver, 'resolve'>;
@@ -270,8 +275,8 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     const fn = await catalog.fn(run.fn);
     if (fn === undefined) throw new Error(`${run.fn} no longer exists`);
     const payload = parseValue(LlmPayloadType, fn.decl.payload);
-    if (state.iteration >= payload.maxIterations) {
-      const failed = fnError('fatal', `${run.fn} stopped after ${payload.maxIterations} iterations without an answer.`, 'max-iterations');
+    if (state.iteration - (state.from ?? 0) >= payload.maxIterations) {
+      const failed = fnError('fatal', `${run.fn} stopped after ${payload.maxIterations} iterations without an answer.`, MAX_ITERATIONS);
       await this.#fail(run, state, failed);
       return { failed };
     }
@@ -474,6 +479,21 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     if (state.message !== undefined) await this.#deps.turns.finish(state.message, [{ type: 'text', text: INTERRUPTED }], 'done');
     await this.#deps.runs.settle(id, { status: 'done', result: INTERRUPTED });
     this.#deps.log.info('agent.interrupted', { run: id, pending: state.pending.length });
+  }
+
+  /**
+   * Carry on an agent run that stopped at its step limit or was cancelled (Continue): the same run, from where it
+   * stopped, with its conversation kept and a fresh step budget. Its calls left unanswered are answered first (a
+   * cancelled one says so), its failure count starts again, and its answer goes into a new message (the stopped one
+   * keeps saying why it stopped). Refused (`RunRefused`) for any other run.
+   */
+  async continue(id: RunId, by: ActorId): Promise<void> {
+    const run = await this.#deps.runs.get(id);
+    if (run?.kind !== AGENT_KIND || !continuable(run)) throw new RunRefused(fnError('caller', 'Only an agent run that stopped at its step limit or was cancelled can continue.', 'not-continuable'));
+    const { message: _message, refusals: _refusals, ...state } = stateOf(run);
+    const next: AgentState = { ...state, from: state.iteration, failures: 0 };
+    if (!(await this.#deps.runs.reopen(id, Json.parse(next), by))) throw new RunRefused(fnError('caller', 'The run is no longer stopped.', 'not-continuable'));
+    this.#deps.log.info('agent.continued', { run: id, by, iteration: next.iteration, pending: next.pending.length });
   }
 
   /** Move an iteration's running tool calls to the background (those that allow it). */
@@ -750,6 +770,11 @@ export function proposedResult(run: Pick<Run, 'fn'>, settled: Exclude<RunSettled
 /** What an agent's message says when its run fails. */
 function failureText(error: FnError): string {
   return `I couldn't finish: ${error.message}`;
+}
+
+/** Whether an agent run stopped in a way Continue carries on: at its step limit, or cancelled. */
+export function continuable(run: Pick<Run, 'status' | 'outcome'>): boolean {
+  return run.status === 'cancelled' || (run.status === 'failed' && run.outcome?.status === 'failed' && run.outcome.error.code === MAX_ITERATIONS);
 }
 
 /** An agent run's loop state. */

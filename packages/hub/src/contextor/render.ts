@@ -4,7 +4,7 @@
  * thing, used by every place that shows it (the prompt, `inspect`, an invalid-input reply), so they always read the
  * same.
  */
-import { problemLine, RESULT_TABLE_INSTRUCTION, type Detail, type FnExample, type FnRecord, type InputProblem, type QualifiedName } from '@harness/core';
+import { problemLine, RESULT_TABLE_INSTRUCTION, type Detail, type FnBlock, type FnExample, type FnRefusal, type FnRecord, type InputProblem, type QualifiedName } from '@harness/core';
 import type { CallProtocol, ChosenContext, ExchangeSummary, FnView } from './index.ts';
 
 /** How calls come back in a prompt (`CallProtocol`, named for the renderers' signatures). */
@@ -99,10 +99,52 @@ export function cardsSection(cards: readonly string[], protocol: Protocol): stri
   return cards.length === 0 ? '' : [cardsHeading(protocol), ...cards].join('\n\n');
 }
 
+/** How the hub says a fn is blocked, wherever it says it (a static `run`, `inspect`): its name, then the hub's reason. */
+export function blockedLine(fn: string, block: Pick<FnBlock, 'reason'>): string {
+  return `${fn} can't be used now: ${block.reason}`;
+}
+
+/**
+ * What a context item's brought fns are in this prompt: `added` (in the model's tools now), `waiting` (usable, but not
+ * in this step's tools: cut to fit, or listed only), and `blocked` (they can't be used now, each with what blocks it).
+ * A context block says only what is true of each, so the model is never told a held fn is in its tools.
+ */
+export interface BroughtFnLines {
+  readonly added: readonly string[];
+  readonly waiting?: readonly string[];
+  readonly blocked?: readonly FnRefusal[];
+}
+
+/**
+ * Blocked fns in one line, grouped by reason, each reason without its fn's own name in front ("database/create_table
+ * changed and waits for an admin to approve it" → "changed and waits for an admin to approve it"), so several held
+ * fns read as one group: `database/create_table, database/insert_rows (changed and waits for an admin to approve it)`.
+ */
+export function blockedFnsLine(blocked: readonly FnRefusal[]): string {
+  const groups = new Map<string, string[]>();
+  for (const refusal of blocked) {
+    const own = `${refusal.fn} `;
+    const reason = refusal.reason.startsWith(own) ? refusal.reason.slice(own.length) : refusal.reason;
+    groups.set(reason, [...(groups.get(reason) ?? []), refusal.fn]);
+  }
+  return [...groups].map(([reason, fns]) => `${fns.join(', ')} (${reason})`).join('; ');
+}
+
+/** A context block's lines about its brought fns: only the added ones as in the tools, the rest named for what they are. */
+function broughtLines(fns: BroughtFnLines | undefined): string[] {
+  if (fns === undefined) return [];
+  const { added, waiting = [], blocked = [] } = fns;
+  return [
+    ...(added.length === 0 ? [] : [`Fns it brings (in your tools now): ${added.join(', ')}`]),
+    ...(waiting.length === 0 ? [] : [`Fns it brings, not in your tools this step: ${waiting.join(', ')}`]),
+    ...(blocked.length === 0 ? [] : [`Fns it brings that you can't use now, not in your tools: ${blockedFnsLine(blocked)}. If you need one, tell the person what blocks it.`]),
+  ];
+}
+
 /** A chosen context item as the prompt shows it; `listed` items go in `moreContext` instead. */
-export function contextBlock(chosen: Pick<ChosenContext, 'detail' | 'text' | 'choices'> & { readonly name: string; readonly fns?: readonly string[] }): string {
+export function contextBlock(chosen: Pick<ChosenContext, 'detail' | 'text' | 'choices'> & { readonly name: string; readonly fns?: BroughtFnLines }): string {
   const detail = chosen.detail === 'full' ? '' : ' detail="summary"';
-  const fns = chosen.fns === undefined || chosen.fns.length === 0 ? [] : [`Fns it brings (in your tools now): ${chosen.fns.join(', ')}`];
+  const fns = broughtLines(chosen.fns);
   const choices = chosen.choices === undefined || chosen.choices.length === 0 ? [] : [
     'Where to go next: load the one that fits with hub/load_context, or none.',
     ...chosen.choices.map((c) => `- ${c.to}${c.tokens === undefined ? '' : ` (~${c.tokens} tokens)`}: ${c.when}`),

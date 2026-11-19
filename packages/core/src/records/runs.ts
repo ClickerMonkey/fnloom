@@ -7,7 +7,7 @@ import {
 } from '../primitives.ts';
 import { AllowedOperations, ClientInfo, FnError, OutcomeWire, ProgressWire, RunStatus, TimeInfo, UserInfo } from '../run.ts';
 import { RunText } from '../status.ts';
-import { SelectionReport } from '../modes.ts';
+import { GraphSelection, SelectionReport } from '../modes.ts';
 import { ResolvedLimits } from './spend.ts';
 
 /** A session state change a run made, with the value before, so undoing the turn can put it back. */
@@ -144,6 +144,19 @@ export type HandlerCall = z.infer<typeof HandlerCall>;
 export const TurnStatus = z.enum(['running', 'done', 'failed', 'cancelled', 'paused', 'undone']);
 export type TurnStatus = z.infer<typeof TurnStatus>;
 
+/**
+ * What a turn found on its session before it changed anything, so undoing it puts the session back: how long the
+ * transcript was, and the fns, context and graph selection the agent had loaded.
+ */
+export const TurnStart = z.object({
+  /** The transcript's length before the turn's first message went in. */
+  transcript: z.number().int().min(0),
+  tools: z.array(QualifiedName),
+  context: z.array(QualifiedName),
+  selection: GraphSelection.optional(),
+});
+export type TurnStart = z.infer<typeof TurnStart>;
+
 /** One user message (or `!` invocation) and everything it caused. Undo, budgets and the tree view work on turns. */
 export const Turn = z.object({
   id: TurnId,
@@ -159,7 +172,11 @@ export const Turn = z.object({
   cost: Usd,
   /** Stop after this many failures, or keep feeding errors to the agent. */
   errors: z.union([z.object({ max: z.number().int().min(1) }), z.literal('feed-back')]),
+  /** The session as the turn found it (a session turn; absent on turns from before it was kept). */
+  start: TurnStart.optional(),
   createdAt: Timestamp,
+  /** When a person last continued the turn after it stopped: its time budget counts from here. */
+  continuedAt: Timestamp.optional(),
   endedAt: Timestamp.optional(),
 });
 export type Turn = z.infer<typeof Turn>;
@@ -227,6 +244,15 @@ export const UndoReport = z.object({
   undone: z.array(z.object({ run: RunId, fn: QualifiedName, summary: z.string() })),
   failed: z.array(z.object({ run: RunId, fn: QualifiedName, error: FnError })),
   notUndoable: z.array(z.object({ run: RunId, fn: QualifiedName })),
+  /** How the session was put back to before the turn (a session turn that kept its start). */
+  session: z.object({
+    /** Messages of the turn taken out of the transcript the agent continues. */
+    messages: z.number().int().min(0),
+    /** Fns and context the turn loaded, unloaded again. */
+    unloaded: z.array(QualifiedName),
+    /** Fns and context the turn dropped, loaded again. */
+    reloaded: z.array(QualifiedName),
+  }).optional(),
 });
 export type UndoReport = z.infer<typeof UndoReport>;
 

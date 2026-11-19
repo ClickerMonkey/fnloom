@@ -128,6 +128,10 @@ export function chatPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>
         await visibleSession(hub, data.session, user);
         return chat.sessions.control(data.session, data.action, user.id, data.runs);
       },
+      controls: async ({ data, user }) => {
+        await visibleSession(hub, data.session, user);
+        return chat.sessions.controls(data.session);
+      },
       presence: async ({ data, user }) => {
         await visibleSession(hub, data.session, user);
         await chat.sessions.presence({ ...data, user: user.id });

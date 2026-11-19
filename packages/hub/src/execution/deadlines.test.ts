@@ -36,6 +36,8 @@ describe('run deadlines', () => {
     expect(runDeadline(2_000, turn, withTimeout(500))).toEqual({ at: 2_500, by: 'fn' });
     expect(runDeadline(2_000, turn, withTimeout(20_000))).toEqual({ at: 11_000, by: 'turn' });
     expect(runDeadline(2_000, turn, withTimeout())).toEqual({ at: 11_000, by: 'turn' });
+    // a turn a person continued gets its time budget again from then, so an old stopped turn doesn't time out at once
+    expect(runDeadline(50_000, { ...turn, continuedAt: 50_000 }, withTimeout())).toEqual({ at: 60_000, by: 'turn' });
     expect(deadlineError({ at: 0, by: 'fn' }, { fn: 'fs/slow' }, turn, withTimeout(500))).toEqual({ class: 'retry', message: 'fs/slow took longer than its 500 ms limit and was stopped.', code: 'timeout' });
     expect(deadlineError({ at: 0, by: 'turn' }, { fn: 'fs/slow' }, turn, withTimeout())).toMatchObject({ class: 'fatal', code: 'timeout' });
   });

@@ -205,4 +205,6 @@ export interface AgentLoop {
   iterate(run: RunId, iteration: number, signal: AbortSignal): Promise<'waiting-for-tools' | 'done' | { failed: FnError }>;
   /** A new user message arrived: move the agent's running tool calls to the background so it can answer now. */
   interrupt(run: RunId): Promise<void>;
+  /** Carry on an agent run that stopped at its step limit or was cancelled: the same run, a fresh step budget (Continue). */
+  continue(run: RunId, by: ActorId): Promise<void>;
 }

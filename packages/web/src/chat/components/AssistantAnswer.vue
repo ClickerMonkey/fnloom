@@ -3,19 +3,23 @@
  * One agent's answer to one turn as one bubble with one avatar and one time, its pieces in exactly the order the model
  * produced them (`answerPieces`): reasoning, words and the fns it ran (as cards, in call order; a stretch of calls, with the reasoning between
  * them, collapses into one section, `RunGroup`, when grouping is on), with what the fns
- * attached after them. Each stretch of reasoning sits collapsed where it happened, shimmering while it streams. Text
+ * attached after them. Each stretch of reasoning sits collapsed where it happened (reasoning next to reasoning, with no
+ * call that shows, words or card between, is one block: `mergeReasoning`), shimmering while it streams. Text
  * renders as markdown as it arrives, with one soft caret while streaming. Attachments draw through their system's renderer, links as cards. While the turn is in flight the status line sits at the foot of the
  * bubble; before anything arrives, a typing indicator stands in its place, and the message actions wait until there is
- * something to act on.
+ * something to act on. A turn that hit a system held for review gets a banner per such system (`heldSystems`), linking
+ * to its review for someone who can review.
  */
 import type { ChatMessage, Display, Link, MessagePart, RunId } from '@harness/core';
 import { computed, ref } from 'vue';
 import { UiAvatar, UiMarkdown, fullTime, relativeTime } from '../../ui/index.ts';
-import { groupPieces, type GroupedPiece } from '../logic/groups.ts';
+import { groupPieces, mergeReasoning, type GroupedPiece } from '../logic/groups.ts';
+import { heldSystems } from '../logic/held.ts';
 import { lineHasNews, runResult, runShows, type RunView, type StatusLine as Line } from '../logic/runs.ts';
 import { showsRows } from '../../components/widgets/widgets.ts';
 import { answerPieces, type AnswerPiece, type AnswerSegment } from '../logic/thread.ts';
 import AttachmentCard from './AttachmentCard.vue';
+import HeldBanner from './HeldBanner.vue';
 import LinkCard from './LinkCard.vue';
 import MessageActions from './MessageActions.vue';
 import ReasoningBlock from './ReasoningBlock.vue';
@@ -50,7 +54,9 @@ const props = withDefaults(defineProps<{
   navigate?: ((href: string) => void) | undefined;
   /** Collapse fn calls in a row into one section (the chat's "Group fn calls" option). */
   grouped?: boolean;
-}>(), { grouped: true, displayOf: () => (): Display => 'card', liveOf: (): undefined => undefined, statusLine: undefined, waiting: false, flash: false, navigate: undefined });
+  /** The person can review a system's pending changes (an admin): a held-system banner links to its review. */
+  canReview?: boolean;
+}>(), { grouped: true, canReview: false, displayOf: () => (): Display => 'card', liveOf: (): undefined => undefined, statusLine: undefined, waiting: false, flash: false, navigate: undefined });
 
 const emit = defineEmits<{
   action: [action: MessageAction];
@@ -62,12 +68,15 @@ const emit = defineEmits<{
   link: [link: Link];
 }>();
 
-const pieced = computed(() => new Map(props.messages.map((m) => [m.id, answerPieces(m, props.liveOf(m))])));
+/** Each message's pieces, reasoning next to reasoning (nothing shown between) merged into one block. */
+const pieced = computed(() => new Map(props.messages.map((m) => [m.id, mergeReasoning(answerPieces(m, props.liveOf(m)), (piece) => shownIn(piece.runs).length)])));
 const piecesOf = (message: ChatMessage): AnswerPiece[] => pieced.value.get(message.id) ?? [];
 /** Reasoning still arriving: the last piece of a streaming message. */
 const thinking = (message: ChatMessage, piece: AnswerPiece): boolean => message.status === 'streaming' && piecesOf(message).at(-1)?.key === piece.key;
 /** A message's runs by id, for its run pieces. */
 const runsById = computed(() => new Map(props.messages.flatMap((m) => props.runsOf(m)).map((run) => [run.id, run])));
+/** The systems this turn found held for review, one banner each. */
+const held = computed(() => heldSystems([...runsById.value.values()]));
 const runsIn = (ids: readonly RunId[]): RunView[] => ids.flatMap((id) => { const run = runsById.value.get(id); return run === undefined ? [] : [run]; });
 /** How each run shows now, by its fn's display once it is done. */
 const showOf = (run: RunView): Display => runShows(run, props.displayOf(run));
@@ -151,6 +160,7 @@ function setReasoning(id: string, open: boolean): void {
             <LinkCard v-else-if="piece.kind === 'link'" :link="piece.link" @open="emit('link', $event)" />
           </template>
         </template>
+        <HeldBanner v-for="system in held" :key="system.system" :held="system" :can-review="canReview" />
         <StatusLine v-if="statusLine && lineHasNews(statusLine)" :line="statusLine" @tree="emit('tree')" />
         <TypingDots v-else-if="pending" :label="`${authorName} is working`" data-testid="answer-typing" />
       </div>

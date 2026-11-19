@@ -1,6 +1,8 @@
 /**
  * Suggestions for a message: the fns and context the index finds closest to its text, limited to what the session
- * allows (its systems, and always the hub's own), what is available now, and what people may be offered.
+ * allows (its systems, and always the hub's own), what is available now, and what people may be offered. Scores are
+ * similarities of meaning, so a threshold can tell a fit from noise: while the query can't be embedded (no embedder,
+ * or one too busy to answer in time) nothing is suggested, rather than whatever the words ranked first.
  */
 import { QualifiedName, splitName, type SessionId, type Suggestion } from '@harness/core';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
@@ -34,7 +36,7 @@ export class IndexSuggester implements Suggester {
       const { system } = splitName(name);
       return system === HUB_SYSTEM || session.systems === 'all' || session.systems.some((s) => s === system);
     };
-    const hits = await this.#search.search({ text: input.text, kinds: ['fn', 'context'], limit: input.pool });
+    const hits = await this.#search.search({ text: input.text, kinds: ['fn', 'context'], limit: input.pool, meaning: true });
     for (const hit of hits) {
       const name = QualifiedName.safeParse(hit.key);
       if (!name.success || (hit.kind !== 'fn' && hit.kind !== 'context')) { continue; }

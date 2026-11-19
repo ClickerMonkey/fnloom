@@ -3,7 +3,9 @@
  * decides: the best candidates at or over `HARNESS_SUGGEST_THRESHOLD`, up to `HARNESS_SUGGESTIONS`. With the admin's
  * decision model on (`hubOptions['suggestDecision']`), the candidates scoring at least its floor and the last few
  * user messages go to that model, which picks; its call is a `ModelCall` (purpose `suggestions`) linked in the
- * record. If it fails or answers nonsense, the score decides and the items it left out say so (`failed`).
+ * record. If it fails or answers nonsense, the score decides and the items it left out say so (`failed`). A score is a
+ * candidate's similarity of meaning to the message (`index/suggester.ts`), never its rank, so the threshold and the
+ * floor tell a fit from noise.
  */
 import {
   messageOf, SuggestDecision, type ActorId, type DecideAnswer, type DecideRequest, type LlmMessage, type ModelCallId, type ModelChoice, type SessionId, type SkipReason, type Suggestion, type SuggestDecisionView,

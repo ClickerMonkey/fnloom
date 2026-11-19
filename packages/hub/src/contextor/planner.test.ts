@@ -277,4 +277,34 @@ describe('the plain contextor (build 6: a context brings its fns)', () => {
     expect(system).toContain('Fns it brings (in your tools now): fs/install_system');
     expect(system).toMatch(/- fs\/authoring\.kinds \(~\d+ tokens\): pick this when the system declares a kind/);
   });
+
+  it('says only the fns actually added are in the tools, and names the held ones with why (regression: "You there?")', async () => {
+    const { r, session, turn } = await planning([], { agent: 'hub/chat', context: ['database/guide'] });
+    const chat = await r.catalog.fn('hub/chat');
+    if (chat === undefined) throw new Error('no hub/chat');
+    const held = (name: string) => ({ available: { unavailable: 'held' as const, detail: `${name} changed and waits for an admin to approve it` } });
+    r.catalog.addContext(contextRecord('database/guide', {
+      description: 'Tables.', content: 'Make a table, then add rows.', fns: ['database/create_table', 'database/insert_rows', 'database/list_tables', 'database/gone'],
+    }));
+    r.catalog.addFn('database/create_table', fn({ description: 'Create a table.', args: g.obj({}), returns: g.text() }), held('database/create_table'));
+    r.catalog.addFn('database/insert_rows', fn({ description: 'Insert rows.', args: g.obj({}), returns: g.text() }), held('database/insert_rows'));
+    r.catalog.addFn('database/list_tables', fn({ description: 'List tables.', args: g.obj({}), returns: g.text() }));
+    const planned = await r.planner.plan({ session, turn, agent: chat, model: 'small', instructions: 'Be brief.', transcript: [{ role: 'user', content: 'track my tasks' }] });
+    expect(planned.tools.map((t) => t.name)).toEqual(['database__list_tables']);
+    expect(planned.context).toContain('Fns it brings (in your tools now): database/list_tables\n');
+    expect(planned.context).toContain('Fns it brings that you can\'t use now, not in your tools: database/create_table, database/insert_rows (changed and waits for an admin to approve it).');
+    // a fn that doesn't exist (or that the person can't see) is not named
+    expect(planned.context).not.toContain('database/gone');
+  });
+});
+
+describe('the chat agents\' prompt', () => {
+  it('tells the model to stop and say what blocks it, with the hub\'s reason, instead of retrying (Phil: a prompt rule, no guard)', () => {
+    for (const def of [hub.defs.fns.chat, hub.defs.fns.chat_small]) {
+      const { instructions } = def.payload;
+      expect(instructions).toContain('When something you need is unavailable or refused, or the same call keeps failing or returning nothing, stop:');
+      expect(instructions).toContain('tell the person what blocks you and why, with the reason the hub gave');
+      expect(instructions).toContain('instead of retrying, guessing or working around it.');
+    }
+  });
 });

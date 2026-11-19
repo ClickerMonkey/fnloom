@@ -11,12 +11,12 @@ import { watch, type WatchStopHandle } from 'vue';
 import { saveBlob } from '../../components/visuals/export.ts';
 import type { RunOutcome, WidgetHost } from '../../components/widgets/widgets.ts';
 import type { DataStore } from '../../data/state/data.ts';
-import { runError, runResult } from '../logic/runs.ts';
+import { runEnding } from '../logic/runs.ts';
 import type { ThreadStore } from './thread.ts';
 
 /** What the chat's widget host uses. */
 export interface ThreadWidgetDeps {
-  readonly thread: Pick<ThreadStore, 'invoke' | 'runs' | 'problem'>;
+  readonly thread: Pick<ThreadStore, 'invoke' | 'runs' | 'ensureRun' | 'problem'>;
   readonly data: Pick<DataStore, 'rowActions' | 'readFn' | 'exportCsv'>;
   /** The URL's `level` value. */
   readonly levels: { get(): string; set(text: string): void };
@@ -26,18 +26,46 @@ export interface ThreadWidgetDeps {
   started?(): void;
 }
 
-/** Wait for a run in the thread to settle, and give how it ended; `waiting` is called once if it stops for approval. */
-export function settledRun(thread: Pick<ThreadStore, 'runs'>, run: RunId, waiting?: () => void): Promise<RunOutcome> {
+/**
+ * How long a waiter gives a settled run's record to bring its outcome (ms before each read): the thread reads it as
+ * the status event lands, and these reads follow in case that one failed or came back before the hub stored it.
+ */
+export const OUTCOME_READS: readonly number[] = [0, 300, 1_000, 3_000];
+
+/**
+ * Wait for a run in the thread to end, and give how it ended (`runEnding`); `waiting` is called once if it stops for
+ * approval. A run the hub says has settled ends only with its outcome (the result, or why it was declined, refused or
+ * failed), which comes with its record after the status event: until then its record is read again (`OUTCOME_READS`),
+ * and then what is known stands.
+ */
+export function settledRun(thread: Pick<ThreadStore, 'runs' | 'ensureRun'>, run: RunId, waiting?: () => void): Promise<RunOutcome> {
   return new Promise((resolve) => {
-    let done = false;
+    let ended = false;
     let told = false;
-    const stop: WatchStopHandle = watch(() => thread.runs.value.get(run), (view) => {
-      if (!told && view?.status === 'awaiting-approval') { told = true; waiting?.(); }
-      if (done || view === undefined || !isSettled(view.status)) { return; }
-      done = true;
-      const output = runResult(view);
-      resolve(output !== undefined ? { ok: true, output } : { ok: false, problem: runError(view)?.message ?? `It ended ${view.status}.` });
+    let reading = false;
+    const end = (outcome: RunOutcome): void => {
+      if (ended) { return; }
+      ended = true;
+      resolve(outcome);
       queueMicrotask(() => { stop(); });
+    };
+    const readOutcome = async (): Promise<void> => {
+      for (const delay of OUTCOME_READS) {
+        await new Promise((wake) => { setTimeout(wake, delay); });
+        if (ended) { return; }
+        await thread.ensureRun(run, true);
+      }
+      // a run that started again meanwhile (a retry) is waited on afresh
+      const view = thread.runs.value.get(run);
+      const ending = view === undefined ? undefined : runEnding(view, true);
+      if (ending !== undefined) { end(ending); } else { reading = false; }
+    };
+    const stop: WatchStopHandle = watch(() => thread.runs.value.get(run), (view) => {
+      if (view === undefined || ended) { return; }
+      if (!told && view.status === 'awaiting-approval') { told = true; waiting?.(); }
+      const ending = runEnding(view);
+      if (ending !== undefined) { end(ending); return; }
+      if (isSettled(view.status) && !reading) { reading = true; void readOutcome(); }
     }, { immediate: true });
   });
 }

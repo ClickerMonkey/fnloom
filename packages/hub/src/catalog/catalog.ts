@@ -219,7 +219,7 @@ export class StoreCatalog implements Catalog {
     const among = (section: string): boolean => (context === undefined ? section !== 'fns' : section === 'context');
     const pending = (await this.options.store.table('systemReviews').get(system))?.pending;
     if (pending?.changes.some((change) => among(change.section) && change.name === name && change.change !== 'removed') === true) {
-      return unavailable('disabled', `${name} changed and waits for an admin to approve it`);
+      return unavailable('held', `${name} changed and waits for an admin to approve it`);
     }
     if (context === undefined && (await this.options.store.table('itemSwitches').find({ where: { system, name }, limit: 1 })).items.length > 0) {
       return unavailable('disabled', `${name} is switched off`);

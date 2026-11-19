@@ -94,9 +94,13 @@ describe('message actions', () => {
     expect(router.currentRoute.value.fullPath).toBe('/chat/ses_1/turn/trn_1/tree');
   });
 
-  it('retries the failed turn: undoes it and sends the question again', async () => {
+  it('retries the failed turn once confirmed: undoes it and sends the question again', async () => {
     const { app, api } = await start((a) => { a.messages = fakeCaller<'messages'>(() => Promise.resolve({ items: conversation() })); });
     await app.get('[data-testid=assistant-answer] [data-action=retry]').trigger('click');
+    await flushPromises();
+    // Retry always asks first: nothing is undone until the person confirms
+    expect(api.undoTurn.calls).toHaveLength(0);
+    document.querySelector<HTMLButtonElement>('[data-testid=confirm-retry] [data-testid=confirm]')?.click();
     await flushPromises();
     expect(api.undoTurn.calls.at(-1)?.[0]).toEqual({ turn: 'trn_1' });
     expect(api.send.calls.at(-1)?.[0]).toMatchObject({ session: 'ses_1', parts: [{ type: 'text', text: 'Read the README' }] });

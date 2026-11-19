@@ -22,7 +22,7 @@ describe('suggestions for a sent message', () => {
     const decided = await w.chat.suggestions.decide({ session: w.session.id, text: 'read the readme', actor: w.admin.id });
     expect(decided.suggestions.map((s) => s.name)).toEqual(['fs/read', 'fs/guide']);
     expect(decided.record).toEqual({
-      by: 'score', threshold: 0.15, items: [
+      by: 'score', threshold: 0.45, items: [
         { used: true, kind: 'fn', name: 'fs/read', score: 0.9 },
         { used: true, kind: 'context', name: 'fs/guide', score: 0.5 },
         { used: false, kind: 'fn', name: 'fs/write', score: 0.1, reason: 'below-threshold' },

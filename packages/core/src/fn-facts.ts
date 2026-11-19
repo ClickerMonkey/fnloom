@@ -18,6 +18,7 @@
 import { z } from 'zod';
 import { FnDecl, FnExample, FnMode, REGISTRY_ACTIONS, RegistryAction, RegistryEffect, RegistryThing, TypeDecl } from './manifest.ts';
 import { RoleModel } from './model-calls.ts';
+import { FnBlock } from './records/systems.ts';
 import { ActorId, Duration, FnKindName, IDS, InstanceName, Json, LocalName, QualifiedName, SystemName, Timestamp, Usd } from './primitives.ts';
 import { ResourceUri } from './resources.ts';
 
@@ -113,7 +114,7 @@ export const FnSearchQuery = z.object({
   effects: z.array(z.object({ thing: RegistryThing, action: RegistryAction.optional(), kind: z.string().min(1).optional() })).min(1).optional(),
   /** Only these items, by qualified name. */
   names: z.array(QualifiedName).min(1).max(100).optional(),
-  /** Only fns that can be used now (default true). */
+  /** Only fns that can be used now (default true; `hub/fns_search` for the model defaults to false); false keeps the rest too, each marked with what blocks it (`FnSearchHit.blocked`). */
   available: z.boolean().optional(),
   /** `score` (the default with `text`) or `name` (the default without). */
   order: z.enum(['score', 'name']).optional(),
@@ -137,9 +138,9 @@ export const FnSearchHit = z.object({
   effects: z.string().optional(),
   instance: InstanceName.optional(),
   score: z.number().optional(),
-  /** Whether the asker can use it now; why not when false. */
+  /** Whether the asker can use it now; what blocks it when false. */
   available: z.boolean(),
-  unavailable: z.string().optional(),
+  blocked: FnBlock.optional(),
 });
 export type FnSearchHit = z.infer<typeof FnSearchHit>;
 

@@ -11,8 +11,8 @@ tags: ["authoring"]
 choices:
   - to: "fs/authoring.hub.hub-load-fns"
     when: "Pick this for hub/load_fns, hub/drop_fns, hub/fns_search, hub/fn_examples, hub/fn_get, hub/save_fn, hub/load_context, hub/search_resources, hub/run_status, hub/run_wait, hub/ask_user, hub/inspect,…"
-  - to: "fs/authoring.hub.hub-explore-list"
-    when: "Pick this for hub/explore_list, hub/explore_read, hub/data_sets, hub/records_find, hub/record_get, hub/records_table, hub/record_versions, hub/record_save, hub/record_update, hub/record_remove,…"
+  - to: "fs/authoring.hub.hub-data-sets"
+    when: "Pick this for hub/data_sets, hub/records_find, hub/record_get, hub/records_table, hub/record_versions, hub/record_save, hub/record_update, hub/record_remove, hub/read_table, hub/visuals,…"
   - to: "fs/authoring.hub.kinds-of-hub"
     when: "Pick this for Kinds of hub, Types of hub, Mentions of hub, Sectioners of hub."
   - to: "fs/authoring.hub.reference"
@@ -34,8 +34,8 @@ This is the hub contract as the SDK declares it now:
 
 This part is in 3 pieces; load the one you need:
 
-- [hub/load_fns … hub/explore_roots](context:fs/authoring.hub.hub-load-fns)
-- [hub/explore_list … hub/suggest_decision_get](context:fs/authoring.hub.hub-explore-list)
+- [hub/load_fns … hub/explore_read](context:fs/authoring.hub.hub-load-fns)
+- [hub/data_sets … hub/suggest_decision_get](context:fs/authoring.hub.hub-data-sets)
 - [Kinds of hub … Sectioners of hub](context:fs/authoring.hub.kinds-of-hub)
 
 Fns for this: fn:fs/read, fn:fs/write, fn:fs/edit, fn:fs/bash.

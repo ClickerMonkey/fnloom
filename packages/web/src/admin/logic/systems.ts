@@ -66,6 +66,7 @@ export const UNAVAILABLE_TEXT = {
   'kind-system-disconnected': "Its kind's system is offline",
   'dep-unavailable': "A fn it needs can't be used",
   disabled: 'Turned off',
+  held: 'Waits for review',
   paused: 'Paused',
 } as const satisfies Record<FnUnavailable, string>;
 

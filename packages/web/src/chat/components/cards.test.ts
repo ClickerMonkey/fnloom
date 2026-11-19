@@ -108,6 +108,22 @@ describe('TurnNotice', () => {
     await notice.setProps({ failures: 3 });
     await notice.findAll('button').find((b) => b.text() === 'New chat')?.trigger('click');
     expect(notice.emitted('fresh')).toHaveLength(1);
+    expect(notice.find('[data-testid=continue]').exists()).toBe(false);
+  });
+
+  it('makes Continue the primary action for a turn that stopped at its step limit or was cancelled, with Retry beside it', async () => {
+    const notice = mount(TurnNotice, { props: { reason: "I couldn't finish: hub/chat stopped after 24 iterations without an answer.", failures: 1, fatal: true, continuable: true } });
+    expect(notice.text()).toContain('The agent stopped before it finished');
+    const buttons = notice.findAll('.actions button');
+    expect(buttons.map((b) => b.text())).toEqual(['Retry', 'Continue']);
+    expect(notice.get('[data-testid=continue]').classes()).toContain('primary');
+    expect(notice.get('[data-testid=retry]').classes()).not.toContain('primary');
+    expect(notice.get('[data-testid=retry]').attributes('title')).toContain('Undo this turn');
+    await notice.get('[data-testid=continue]').trigger('click');
+    expect(notice.emitted('continue')).toHaveLength(1);
+    expect(notice.emitted('retry')).toBeUndefined();
+    // a stop that can carry on is no terminal banner
+    expect(notice.get('[data-testid=turn-failed]').classes()).not.toContain('fatal');
   });
 });
 

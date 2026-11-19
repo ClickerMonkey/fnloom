@@ -394,6 +394,36 @@ describe('ThreadStore', () => {
     expect(undoSummary([]).undone).toBe(0);
   });
 
+  it('reads the controls on open, offers Continue only when the hub says the last turn can carry on, and continues it', async () => {
+    const t = thread();
+    const q = message({ turn: 'trn_q1', parts: [{ type: 'text', text: 'Create a place to track tasks' }] });
+    const a = message({ turn: 'trn_q1', role: 'assistant', author: 'act_agent', status: 'failed' });
+    t.api.messages = fakeCaller<'messages'>(() => Promise.resolve({ items: [a, q] }));
+    t.api.controls = fakeCaller<'controls'>(() => Promise.resolve({ pause: false, cancel: false, uncancellable: [], undoLastTurn: true, continueLastTurn: true }));
+    await t.store.open();
+    await vi.waitFor(() => { expect(t.store.canContinue.value).toBe(true); });
+    expect(t.api.controls.calls[0]?.[0]).toEqual({ session: S1 });
+    expect(await t.store.continueLast()).toBe(true);
+    expect(t.api.continueTurn.calls.at(-1)?.[0]).toEqual({ turn: 'trn_q1' });
+    // continuing never undoes or sends anything: the same turn carries on
+    expect(t.api.undoTurn.calls).toHaveLength(0);
+    expect(t.api.send.calls).toHaveLength(0);
+    t.push({ type: 'controls', controls: { pause: true, cancel: true, uncancellable: [], undoLastTurn: false, continueLastTurn: false } });
+    expect(t.store.canContinue.value).toBe(false);
+    t.api.continueTurn = failingCaller<'continueTurn'>(new ApiError(409, 'Only the last turn of the session can continue.', undefined));
+    expect(await t.store.continueTurn(TurnId.parse('trn_q1'))).toBe(false);
+    expect(t.store.problem.value).not.toBe('');
+  });
+
+  it('offers no Continue while the controls are unknown or say no', async () => {
+    const t = thread();
+    t.api.controls = failingCaller<'controls'>(new ApiError(500, 'down', undefined));
+    await t.store.open();
+    expect(t.store.canContinue.value).toBe(false);
+    t.push({ type: 'controls', controls: { pause: false, cancel: false, uncancellable: [], undoLastTurn: true } });
+    expect(t.store.canContinue.value).toBe(false);
+  });
+
   it('answers yes for the person when a run they approved asks to go ahead: approving runs it', async () => {
     const t = thread();
     await t.store.open();

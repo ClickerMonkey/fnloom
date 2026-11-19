@@ -4,7 +4,7 @@
  * once per fn version. Whether a session may use a fn (switched on, available, a system the session uses) is
  * answered here too, so every mode and contextor asks the same question the same way.
  */
-import { effectsLine, RESULT_TABLE_ROUTING, type Audience, type FnRecord, type QualifiedName, type RegistryEffect, type Session, type TypeRecord } from '@harness/core';
+import { effectsLine, RESULT_TABLE_ROUTING, type Audience, type FnBlock, type FnRefusal, type FnRecord, type QualifiedName, type RegistryEffect, type Session, type TypeRecord } from '@harness/core';
 import { returnsTable } from '@harness/sdk';
 import type { AccessScope } from '../access/index.ts';
 import type { Catalog } from '../catalog/index.ts';
@@ -31,17 +31,43 @@ export function modelMayUse(record: FnRecord, session: Pick<Session, 'systems'> 
 }
 
 /**
- * Why the model may not load or run a fn by name, or undefined when it may: the one check `hub/load`, `hub/load_fns`
- * and the static `run` share. A fn the person can't see reads as missing.
+ * What blocks the model from loading or running a fn by name, or undefined when nothing does: the one check
+ * `hub/load`, `hub/load_fns`, `hub/load_context`, the static `run`, `inspect` and the prompt's context blocks share.
+ * An unavailable fn says why in the hub's own words (its availability's `detail`, "database/create_table changed and
+ * waits for an admin to approve it"), never a bare "unavailable". A fn the person can't see reads as missing.
  */
-export function fnRefusal(record: FnRecord | undefined, session: Pick<Session, 'systems'> | undefined, access: AccessScope): string | undefined {
-  if (record === undefined || !access.seesFn(record)) return 'no such fn';
+export function fnRefusal(record: FnRecord | undefined, session: Pick<Session, 'systems'> | undefined, access: AccessScope): FnBlock | undefined {
+  if (record === undefined || !access.seesFn(record)) return { code: 'no-such-fn', reason: 'no such fn' };
   if (modelMayUse(record, session, access)) return undefined;
-  if (record.disabled) return 'switched off';
-  if (session !== undefined && !allowsSystem(session, record.system)) return 'this session does not use that system';
-  if (!forModel(record.decl.visibility)) return 'not for the model';
-  if (!access.mayUse(record)) return 'connect your account to use this fn';
-  return 'unavailable now';
+  const { system } = record;
+  if (record.disabled) return { code: 'disabled', reason: `${record.name} is switched off`, system };
+  if (session !== undefined && !allowsSystem(session, system)) return { code: 'other-system', reason: `this session does not use ${system}`, system };
+  if (!forModel(record.decl.visibility)) return { code: 'not-for-model', reason: 'not for the model', system };
+  // every other check passed above, so one of these two is what blocks it
+  return unavailableBlock(record, access) ?? { code: 'connect-account', reason: 'connect your account to use this fn', system };
+}
+
+/**
+ * What blocks a fn the person can see from being used now, whoever asks (the model or the web's search): its
+ * availability, in the hub's words, else an account to connect; undefined when it can be used.
+ */
+export function unavailableBlock(record: FnRecord, access: Pick<AccessScope, 'mayUse'>): FnBlock | undefined {
+  if (record.available !== true) return { code: record.available.unavailable, reason: record.available.detail, system: record.system };
+  if (!access.mayUse(record)) return { code: 'connect-account', reason: 'connect your account to use this fn', system: record.system };
+  return undefined;
+}
+
+/**
+ * Whether a block reads as "no such fn" where the model didn't name the fn itself (a context's brought fns, a static
+ * `run` of a guessed name): one the person can't see, or one never meant for the model, is not announced.
+ */
+export function readsAsMissing(block: Pick<FnBlock, 'code'>): boolean {
+  return block.code === 'no-such-fn' || block.code === 'not-for-model';
+}
+
+/** A refusal of a fn by the name it was asked for. */
+export function refusalOf(fn: string, block: FnBlock): FnRefusal {
+  return { fn, ...block };
 }
 
 /** A named type's definition as a card shows it. */

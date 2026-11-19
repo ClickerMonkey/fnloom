@@ -454,3 +454,77 @@ describe('loading fns and context into a session', () => {
     expect(w.bus.of('session.changed').length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe('continuing a turn', () => {
+  /** A sent turn whose agent stopped: at its step limit, cancelled, or failed some other way. */
+  async function stopped(how: 'max-iterations' | 'cancelled' | 'other') {
+    const w = await chatWorld();
+    const sent = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, parts: [{ type: 'text', text: 'Create a place to track tasks' }] });
+    const root = (await w.store.table('turns').get(sent.turn))?.root;
+    if (root === undefined) { throw new Error('no root run'); }
+    const code = how === 'max-iterations' ? 'max-iterations' : 'agent';
+    await w.store.table('runs').update(root, how === 'cancelled'
+      ? { status: 'cancelled', outcome: { status: 'cancelled' }, endedAt: 1 }
+      : { status: 'failed', outcome: { status: 'failed', error: { class: 'fatal', message: 'stopped', code } }, endedAt: 1 });
+    await w.chat.turns.settle(sent.turn, how === 'cancelled' ? 'cancelled' : 'failed');
+    return { ...w, turn: sent.turn, root };
+  }
+
+  it('offers Continue for a turn stopped at its step limit, and carries on the same run with the turn running again', async () => {
+    const w = await stopped('max-iterations');
+    expect((await w.chat.sessions.controls(w.session.id)).continueLastTurn).toBe(true);
+    const ended = await w.store.table('turns').get(w.turn);
+    expect(await w.chat.turns.continueTurn(w.turn, w.admin.id)).toEqual({ turn: w.turn, run: w.root });
+    expect(w.agents.continued).toEqual([w.root]);
+    const turn = await w.store.table('turns').get(w.turn);
+    expect(turn?.status).toBe('running');
+    expect(turn?.continuedAt).toBeTypeOf('number');
+    expect(turn?.endedAt).toBeUndefined();
+    expect(turn?.continuedAt).toBeGreaterThan(ended?.createdAt ?? Infinity);
+    expect((await w.store.table('sessions').get(w.session.id))?.status).toBe('running');
+    // no new turn: the same one carries on
+    expect(await w.store.table('turns').count({ session: w.session.id })).toBe(1);
+    await settle();
+    expect(w.bus.of('session.controls').at(-1)?.controls.continueLastTurn).toBe(false);
+  });
+
+  it('carries a stop on once when Continue is pressed twice at the same time (a double click)', async () => {
+    const w = await stopped('max-iterations');
+    const results = await Promise.allSettled([w.chat.turns.continueTurn(w.turn, w.admin.id), w.chat.turns.continueTurn(w.turn, w.admin.id)]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.find((r) => r.status === 'rejected')).toMatchObject({ reason: { code: 'conflict' } });
+    expect(w.agents.continued).toEqual([w.root]);
+  });
+
+  it('continues a cancelled turn too', async () => {
+    const w = await stopped('cancelled');
+    expect((await w.chat.sessions.controls(w.session.id)).continueLastTurn).toBe(true);
+    await w.chat.turns.continueTurn(w.turn, w.admin.id);
+    expect(w.agents.continued).toEqual([w.root]);
+  });
+
+  it('refuses a turn that failed another way, finished, is not the last, or is asked by someone outside', async () => {
+    const other = await stopped('other');
+    expect((await other.chat.sessions.controls(other.session.id)).continueLastTurn).toBe(false);
+    await expect(other.chat.turns.continueTurn(other.turn, other.admin.id)).rejects.toMatchObject({ code: 'conflict' });
+    const w = await stopped('max-iterations');
+    const bo = await w.user('Bo');
+    await expect(w.chat.turns.continueTurn(w.turn, bo.id)).rejects.toMatchObject({ code: 'not-found' });
+    await expect(w.chat.turns.continueTurn(IDS.turn.parse('trn_none'), w.admin.id)).rejects.toMatchObject({ code: 'not-found' });
+    const later = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, parts: [{ type: 'text', text: 'never mind' }] });
+    const notLast: unknown = expect.stringContaining('last turn');
+    await expect(w.chat.turns.continueTurn(w.turn, w.admin.id)).rejects.toMatchObject({ code: 'conflict', message: notLast });
+    expect((await w.chat.sessions.controls(w.session.id)).continueLastTurn).toBe(false);
+    expect(later.turn).not.toBe(w.turn);
+    expect(w.agents.continued).toEqual([]);
+  });
+
+  it('puts the turn back as it was when the agent loop refuses', async () => {
+    const w = await stopped('max-iterations');
+    const before = await w.store.table('turns').get(w.turn);
+    w.agents.refuseContinue = new Error('The run is no longer stopped.');
+    await expect(w.chat.turns.continueTurn(w.turn, w.admin.id)).rejects.toMatchObject({ code: 'conflict', message: 'The run is no longer stopped.' });
+    expect(await w.store.table('turns').get(w.turn)).toEqual(before);
+    expect((await w.store.table('sessions').get(w.session.id))?.status).toBe('idle');
+  });
+});

@@ -28,7 +28,7 @@ export type ControlAction = BodyOf<'control'>['action'];
 
 /** The callers a thread uses. */
 export type ThreadApi = Pick<ChatApi,
-  'session' | 'messages' | 'send' | 'invoke' | 'control' | 'background' | 'undoTurn' | 'run' | 'approve' | 'answer' | 'updateSession' | 'limits' | 'presence' | 'act' | 'submit' | 'waiting' | 'state'
+  'session' | 'messages' | 'send' | 'invoke' | 'control' | 'controls' | 'background' | 'undoTurn' | 'continueTurn' | 'run' | 'approve' | 'answer' | 'updateSession' | 'limits' | 'presence' | 'act' | 'submit' | 'waiting' | 'state'
   | 'setBudget'>;
 
 /** A used-up budget a run here waits on until someone raises it: the budget, the run, and which budget and how much in words. */
@@ -233,6 +233,8 @@ export class ThreadStore {
   readonly lastTurn = computed(() => [...this.messages.value].reverse().find((m) => m.role !== 'note' && !this.undone.value.has(m.turn))?.turn);
   /** Whether the last turn may be undone. */
   readonly canUndo = computed(() => this.controls.value?.undoLastTurn ?? (this.lastTurn.value !== undefined && !this.running.value));
+  /** Whether the last turn can carry on where its agent stopped (its step limit, or a cancel): the hub's controls say. */
+  readonly canContinue = computed(() => !this.running.value && this.controls.value?.continueLastTurn === true);
 
   constructor(id: SessionId, deps: ThreadDeps, settings: ThreadSettings = THREAD_SETTINGS) {
     this.id = id;
@@ -252,6 +254,7 @@ export class ThreadStore {
       const merged = await this.#load();
       void this.loadLimits();
       void this.loadWaiting();
+      void this.loadControls();
       void this.#fetchRuns(merged.flatMap((m) => m.runs).slice(-this.#settings.runsOnOpen));
     } catch (error) {
       // a chat already on screen stays there when catching up fails; only a chat that never loaded shows the error
@@ -490,6 +493,35 @@ export class ThreadStore {
     }
   }
 
+  /** Read what the session's controls can do now (later changes come as events). */
+  async loadControls(): Promise<void> {
+    try {
+      this.controls.value = await this.#deps.api.controls.call({ session: this.id });
+    } catch {
+      // the controls fall back to what the thread can tell by itself until the next controls event
+    }
+  }
+
+  /**
+   * Carry on a turn where its agent stopped (Continue): the same run goes on with the conversation kept and a fresh
+   * step budget. Its answer streams in as a new message.
+   */
+  async continueTurn(turn: TurnId): Promise<boolean> {
+    try {
+      await this.#deps.api.continueTurn.call({ turn });
+      return true;
+    } catch (error) {
+      this.problem.value = problemText(error, "Couldn't continue that.");
+      return false;
+    }
+  }
+
+  /** Continue the last turn. */
+  async continueLast(): Promise<boolean> {
+    const turn = this.lastTurn.value;
+    return turn === undefined ? false : this.continueTurn(turn);
+  }
+
   /** Undo the last turn. */
   async undoLast(): Promise<UndoReport | undefined> {
     const turn = this.lastTurn.value;
@@ -501,7 +533,7 @@ export class ThreadStore {
     return this.messages.value.find((m) => m.turn === turn && m.role === 'user');
   }
 
-  /** Undo an answer's turn and send its message again. */
+  /** Undo an answer's turn (the hub puts the session back to before it) and send its message again. */
   async retry(turn: TurnId): Promise<boolean> {
     const message = this.turnMessage(turn);
     if (message === undefined) { return false; }

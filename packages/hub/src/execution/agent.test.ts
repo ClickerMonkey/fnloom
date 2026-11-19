@@ -291,6 +291,63 @@ describe('a session agent', () => {
     const { run } = await r.module.agents.start(agentInput(turn));
     expect((await runTo(r, run)).settled).toMatchObject({ status: 'failed', error: { code: 'max-iterations' } });
   });
+
+  it('continues the same run after its iteration limit: a fresh budget, the transcript kept, the answer in a new message', async () => {
+    const r = await started();
+    r.connect('fs');
+    await r.session();
+    const turn = await r.turn({ session: SESSION, text: 'loop' });
+    r.provider.script(...[1, 2, 3, 4].map((i) => calls([['fs__read', { path: `f${i}` }]])), says('found it'));
+    const { run } = await r.module.agents.start(agentInput(turn));
+    expect((await runTo(r, run)).settled).toMatchObject({ status: 'failed', error: { code: 'max-iterations' } });
+    await r.module.agents.continue(run, ALICE);
+    const { settled, row } = await runTo(r, run);
+    expect(settled).toEqual({ status: 'done', result: 'found it' });
+    // the call left from the last iteration is answered first, and the model reads the whole conversation so far
+    expect(r.provider.requests).toHaveLength(5);
+    expect(r.provider.requests[4]?.messages.filter((m) => m.role === 'tool')).toHaveLength(4);
+    expect(stateOf(row)).toMatchObject({ iteration: 4, from: 4, failures: 0 });
+    const transcript = (await r.store.table('sessions').get(SESSION))?.transcript ?? [];
+    expect(transcript.filter((m) => m.role === 'user')).toHaveLength(1);
+    expect(transcript.at(-1)).toMatchObject({ role: 'assistant', content: 'found it' });
+    // the stopped message keeps saying why; the answer goes in a new one
+    expect(r.chat.finished.map((f) => f.status)).toEqual(['failed', 'done']);
+    expect(new Set(r.chat.finished.map((f) => f.message)).size).toBe(2);
+    expect(r.chat.settled).toEqual([{ turn: turn.id, status: 'failed' }, { turn: turn.id, status: 'done' }]);
+  });
+
+  it('continues a cancelled run, telling the model its cancelled call was cancelled', async () => {
+    const r = await started();
+    const fs = r.connect('fs');
+    let release: (o: { status: 'cancelled' }) => void = () => undefined;
+    fs.behaviour.run = () => new Promise((resolve) => { release = resolve; });
+    fs.behaviour.control = () => { release({ status: 'cancelled' }); return { accepted: true }; };
+    await r.session();
+    const turn = await r.turn({ session: SESSION, text: 'go' });
+    r.provider.script(calls([['fs__read', { path: 'big' }]]), says('carried on'));
+    const { run } = await r.module.agents.start(agentInput(turn));
+    await until(async () => (await r.module.runs.get(run))?.status === 'waiting' && fs.requests.length === 1, 'the agent to wait on its tool');
+    await r.module.runs.cancel(run, ALICE);
+    expect((await runTo(r, run)).settled).toEqual({ status: 'cancelled' });
+    const child = (await r.store.table('runs').find({ where: { parent: run }, limit: 1 })).items[0];
+    await until(async () => (await r.module.runs.get(child?.id ?? RunId.parse('run_x')))?.status === 'cancelled', 'the tool run to cancel');
+    await r.module.agents.continue(run, ALICE);
+    expect((await runTo(r, run)).settled).toEqual({ status: 'done', result: 'carried on' });
+    expect(r.provider.requests[1]?.messages.find((m) => m.role === 'tool')?.content).toBe('The run was cancelled before it finished.');
+  });
+
+  it('refuses to continue a run that finished, failed another way, or is still going', async () => {
+    const r = await started();
+    await r.session();
+    const turn = await r.turn({ session: SESSION, text: 'hi' });
+    r.provider.script(says('hello'));
+    const { run } = await r.module.agents.start(agentInput(turn));
+    await runTo(r, run);
+    await expect(r.module.agents.continue(run, ALICE)).rejects.toThrow(/step limit or was cancelled/);
+    await r.store.table('runs').update(run, { status: 'failed', outcome: { status: 'failed', error: { class: 'fatal', message: 'boom', code: 'agent' } } });
+    await expect(r.module.agents.continue(run, ALICE)).rejects.toThrow(/step limit or was cancelled/);
+    await expect(r.module.agents.continue(RunId.parse('run_none'), ALICE)).rejects.toThrow(/step limit or was cancelled/);
+  });
 });
 
 describe('an agent that runs out of time', () => {

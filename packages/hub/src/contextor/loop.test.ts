@@ -264,7 +264,15 @@ describe('what static `run` may run', () => {
     expect(children.every((child) => child.status === 'invalid-input' && child.startedAt === undefined)).toBe(true);
     const replies = ((await r.store.table('sessions').get(SESSION))?.transcript ?? []).filter((m) => m.role === 'tool').map((m) => say(m));
     expect(replies).toHaveLength(names.length);
-    names.forEach((name, i) => { expect(replies[i]).toContain(`There is no fn ${name} you can run here.`); });
+    // one that exists says what blocks it, in the hub's words (regression: "You there?"); one not for the model reads as missing
+    const said = [
+      'fs/off can\'t be used now: fs/off is switched off. Don\'t call it again; tell the person what blocks it.',
+      'fs/gone can\'t be used now: fs is not connected. Don\'t call it again; tell the person what blocks it.',
+      'git/status can\'t be used now: this session does not use git.',
+      'There is no fn web/fetch_raw you can run here.',
+      'There is no fn fs/mine you can run here.',
+    ];
+    said.forEach((line, i) => { expect(replies[i]).toContain(line); });
     expect(r.records.filter((rec) => rec.msg === 'agent.invalid-input')).toHaveLength(names.length);
   });
 
@@ -276,7 +284,7 @@ describe('what static `run` may run', () => {
     await answer(r, 'tools/small', 'Load the raw fetch');
     const replies = ((await r.store.table('sessions').get(SESSION))?.transcript ?? []).filter((m) => m.role === 'tool').map((m) => say(m));
     expect(replies[0]).toContain('not for the model');
-    expect(replies[1]).toContain('can\'t be used here');
+    expect(replies[1]).toContain('web/fetch_raw can\'t be used now: not for the model');
     expect((await r.store.table('sessions').get(SESSION))?.tools).toEqual([]);
   });
 });

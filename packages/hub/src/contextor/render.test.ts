@@ -1,9 +1,9 @@
 import { fn, g, ginAs } from '@harness/sdk';
-import { RESULT_TABLE_INSTRUCTION, RESULT_TABLE_ROUTING, ResultTable, type LlmMessage } from '@harness/core';
+import { RESULT_TABLE_INSTRUCTION, RESULT_TABLE_ROUTING, ResultTable, SystemName, type LlmMessage } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { contiguousTail, exchanges, textOf, firstAndLast, isPersonMessage, namedIn, personWords, shorten, shortenResults, summarise } from './history.ts';
 import type { FnView } from './index.ts';
-import { cardsSection, contextBlock, describedWithEffects, earlierBlock, fnCard, fnLine, listedLine, tableInstruction, moreContext, parseRunBlocks, resultText, RunBlockFilter, splitThinking, ThinkingFilter } from './render.ts';
+import { blockedFnsLine, blockedLine, cardsSection, contextBlock, describedWithEffects, earlierBlock, fnCard, fnLine, listedLine, tableInstruction, moreContext, parseRunBlocks, resultText, RunBlockFilter, splitThinking, ThinkingFilter } from './render.ts';
 import { ContextCatalog } from './testing.ts';
 import { CatalogFnViews } from './views.ts';
 
@@ -81,6 +81,22 @@ describe('prompt text', () => {
     expect(listedLine('x/y', 'z'.repeat(400)).length).toBeLessThan(170);
     expect(contextBlock({ name: 'fs/guide', detail: 'full', text: 'All of it.' })).toBe('<context name="fs/guide">\nAll of it.\n</context>');
     expect(contextBlock({ name: 'fs/guide', detail: 'signature', text: 'Short.' })).toContain('detail="summary"');
+    // a context's brought fns, each for what it is: in the tools, not this step, or blocked with the hub's reason
+    const held = (fn: string) => ({ fn, code: 'held' as const, reason: `${fn} changed and waits for an admin to approve it`, system: SystemName.parse('database') });
+    expect(contextBlock({ name: 'database/guide', detail: 'full', text: 'Tables.', fns: {
+      added: ['database/list_tables'], waiting: ['database/drop_table'],
+      blocked: [held('database/create_table'), held('database/insert_rows'), { fn: 'fs/read', code: 'system-disconnected', reason: 'fs is not connected' }],
+    } })).toBe([
+      '<context name="database/guide">', 'Tables.',
+      'Fns it brings (in your tools now): database/list_tables',
+      'Fns it brings, not in your tools this step: database/drop_table',
+      'Fns it brings that you can\'t use now, not in your tools: database/create_table, database/insert_rows (changed and waits for an admin to approve it); fs/read (fs is not connected). If you need one, tell the person what blocks it.',
+      '</context>',
+    ].join('\n'));
+    // nothing added says nothing is in the tools
+    expect(contextBlock({ name: 'database/guide', detail: 'full', text: 'Tables.', fns: { added: [], blocked: [held('database/create_table')] } })).not.toContain('in your tools now');
+    expect(blockedFnsLine([{ fn: 'x/a', code: 'paused', reason: 'x/a is paused' }])).toBe('x/a (is paused)');
+    expect(blockedLine('fs/off', { reason: 'fs/off is switched off' })).toBe('fs/off can\'t be used now: fs/off is switched off');
     expect(moreContext([])).toBe('');
     expect(moreContext(['a — b'])).toContain('- a — b');
     expect(earlierBlock({ turn: 3, user: 'q', answer: 'a', used: ['fs/read'] })).toBe('<earlier turn="3">\nUser: q\nAnswer: a\nUsed: fs/read\n</earlier>');

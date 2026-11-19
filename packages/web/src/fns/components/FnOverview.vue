@@ -51,11 +51,11 @@ const uses = computed(() => (props.facts?.uses ?? []).filter((fn) => fn !== prop
         <UiBadge v-if="facts?.free" tone="ok">Free</UiBadge>
         <UiBadge v-if="facts?.kind && facts.kind !== 'native'">{{ facts.kind }}</UiBadge>
         <UiBadge v-if="about?.instance">{{ about.instance }}</UiBadge>
-        <UiBadge v-if="about && !about.available" tone="warn" :title="about.unavailable">Not available now</UiBadge>
+        <UiBadge v-if="about && !about.available" tone="warn" :title="about.blocked?.reason">Not available now</UiBadge>
         <slot name="badges" />
       </div>
       <code v-if="about?.signature" class="signature" data-testid="fn-signature">{{ about.signature }}</code>
-      <p v-if="about && !about.available && about.unavailable" class="dim">{{ about.unavailable }}</p>
+      <p v-if="about && !about.available && about.blocked" class="dim">{{ about.blocked.reason }}</p>
     </section>
 
     <UiBanner v-if="facts?.notice" tone="neutral" data-testid="fn-notice">{{ facts.notice }}</UiBanner>

@@ -9,6 +9,7 @@ import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
 import type { ResourceRouter } from '../link/index.ts';
 import { FakeSystem, linkRig, pairDirectly } from '../link/rig.ts';
 import { HybridSearch } from '../store/hybrid.ts';
+import { chatEnv } from '../chat/env.ts';
 import { EmbedBatcher } from './batch.ts';
 import { StoreModelCallLog } from '../metrics/calls.ts';
 import { SystemEmbedders } from './embedders.ts';
@@ -48,11 +49,32 @@ class WordEmbedder implements Embedder {
   }
 }
 
+/**
+ * Five dimensions, by topic: the web, databases, tasks, small talk, and a little of everything. Unlike `wordVector`
+ * (whose constant makes any two texts with no topic word alike), text on one topic is far from text on another, as
+ * with a real embedder, so an unrelated message scores low.
+ */
+const TOPICS: ReadonlyArray<readonly string[]> = [
+  ['web', 'search', 'news', 'page', 'pages'], ['database', 'databases', 'table', 'tables', 'types'], ['task', 'tasks', 'track', 'todo'], ['you', 'there', 'hello', 'hi'],
+];
+function topicVector(text: string): number[] {
+  const words = text.toLowerCase().split(/\W+/);
+  return [...TOPICS.map((topic) => words.filter((w) => topic.includes(w)).length), 0.2];
+}
+
+class TopicEmbedder extends WordEmbedder {
+  constructor(name: QualifiedName) { super(name, 5); }
+  override embed(texts: readonly string[]): Promise<number[][]> {
+    this.calls += 1;
+    return this.stuck ? new Promise(() => undefined) : Promise.resolve(texts.map(topicVector));
+  }
+}
+
 class FakeEmbedders implements Embedders {
   readonly #map = new Map<string, Embedder>();
   readonly #listeners = new Set<() => void>();
-  document = new WordEmbedder(DOCUMENT);
-  query = new WordEmbedder(QUERY);
+  document: WordEmbedder = new WordEmbedder(DOCUMENT);
+  query: WordEmbedder = new WordEmbedder(QUERY);
   get(name: QualifiedName): Embedder | undefined { return this.#map.get(name); }
   active(): { document: Embedder; query: Embedder } | undefined {
     const document = this.#map.get(DOCUMENT);
@@ -397,8 +419,10 @@ describe('search and suggestions', () => {
     const hits = await ctx.search.search({ text: 'product sku', kinds: ['fn'], limit: 3 });
     expect(hits.map((h) => h.key)).toContain('shop/get');
     expect(embedders.query.calls).toBe(1);
+    expect(hits.every((h) => h.score === 0)).toBe(true);
+    // nothing has a vector yet, so nothing's meaning is measured: no suggestion rides on where the words ranked it
     await store.table('sessions').put(sessionRow([SystemName.parse('shop')]));
-    expect((await ctx.suggester.suggest({ session: SESSION, text: 'get a product by its sku', limit: 4 })).map((s) => s.name)).toContain('shop/get');
+    expect(await ctx.suggester.suggest({ session: SESSION, text: 'get a product by its sku', limit: 4 })).toEqual([]);
     expect(records.some((r) => r.msg === 'index.search.vectors.failed')).toBe(false);
   });
 
@@ -408,6 +432,55 @@ describe('search and suggestions', () => {
     ctx.embedders.connect();
     expect((await ctx.search.search({ text: 'engine', kinds: ['fn'], limit: 3 })).map((h) => h.key)).toEqual(['cars/drive']);
     expect(ctx.records.find((r) => r.msg === 'index.search.vectors.failed')).toMatchObject({ embedder: DOCUMENT });
+  });
+
+  // regression: the "You there?" chat (2026-11-17) offered the web fns at 0.94 to 1 for every message, as the score was
+  // only the fused rank (the first of any search scored 1) and words alone matched "you" and "there"
+  it('scores an unrelated message by its meaning, under the suggestion threshold, though its words rank first', async () => {
+    const { indexer, embedders, store } = ctx;
+    embedders.document = new TopicEmbedder(DOCUMENT);
+    embedders.query = new TopicEmbedder(QUERY);
+    embedders.connect();
+    await indexer.upsert([
+      { kind: 'fn', key: 'web/search', text: 'web/search: Search the web. Gives titles and snippets, and a short answer when there is one. Use it for anything you don’t know; then read a page.' },
+      { kind: 'context', key: 'web/guide', text: 'web/guide: How to search the web and read the pages you find.' },
+      { kind: 'fn', key: 'database/tables', text: 'database/tables: The tables of a database and the types of their columns.' },
+      { kind: 'fn', key: 'database/create_table', text: 'database/create_table: Make a table, say to track tasks.' },
+    ]);
+    const threshold = chatEnv.parse().HARNESS_SUGGEST_THRESHOLD;
+    const kinds = ['fn', 'context'] as const;
+    // the words alone put the web first for small talk, as they did that day
+    expect((await store.text.search({ text: 'You there?', kinds, limit: 4 }))[0]?.key).toMatch(/^web\//);
+
+    const chat = await ctx.search.search({ text: 'You there?', kinds, limit: 4 });
+    expect(chat.map((h) => h.key)).toContain('web/search');
+    expect(Math.max(...chat.map((h) => h.score))).toBeLessThan(threshold);
+    expect(chat[0]?.score).toBeLessThan(0.5);
+
+    const types = await ctx.search.search({ text: 'What types are in my database?', kinds, limit: 4 });
+    expect(types[0]).toMatchObject({ key: 'database/tables' });
+    expect(types[0]?.score).toBeGreaterThan(threshold);
+    expect(types.filter((h) => h.key.startsWith('web/')).every((h) => h.score < threshold)).toBe(true);
+
+    const tasks = await ctx.search.search({ text: 'Can you create a place for me to keep track of tasks?', kinds, limit: 4 });
+    expect(tasks[0]).toMatchObject({ key: 'database/create_table' });
+    expect(tasks.filter((h) => h.key.startsWith('web/')).every((h) => h.score < threshold)).toBe(true);
+
+    const web = await ctx.search.search({ text: 'search the web for news', kinds, limit: 4 });
+    expect(web[0]?.key).toMatch(/^web\//);
+    expect(web[0]?.score).toBeGreaterThan(threshold);
+  });
+
+  it('suggests nothing while the message can’t be embedded in time, where search still answers by words', async () => {
+    await indexed();
+    await ctx.store.table('sessions').put(sessionRow([SystemName.parse('shop')]));
+    ctx.embedders.query.stuck = true;
+    expect(await ctx.suggester.suggest({ session: SESSION, text: 'find a product by its sku', limit: 4 })).toEqual([]);
+    expect((await ctx.search.search({ text: 'product sku', kinds: ['fn'], limit: 4 })).map((h) => h.key)).toContain('shop/get');
+    expect(await ctx.search.search({ text: 'product sku', kinds: ['fn'], limit: 4, meaning: true })).toEqual([]);
+    ctx.embedders.query.stuck = false;
+    ctx.embedders.query.failing = true;
+    expect(await ctx.suggester.suggest({ session: SESSION, text: 'find a product by its sku', limit: 4 })).toEqual([]);
   });
 
   it('catches up embedders that connected before the indexer started', async () => {

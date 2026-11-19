@@ -27,7 +27,7 @@ export { default as UiSelect } from './UiSelect.vue';
 export { default as UiSkeleton } from './UiSkeleton.vue';
 export { default as UiSpinner } from './UiSpinner.vue';
 export { default as UiSplitter } from './UiSplitter.vue';
-export { clampWidth } from './split.ts';
+export { clampWidth, dragWidth, type SplitSide } from './split.ts';
 export { default as UiSwitch } from './UiSwitch.vue';
 export { default as UiTabs } from './UiTabs.vue';
 export { default as UiTextarea } from './UiTextarea.vue';

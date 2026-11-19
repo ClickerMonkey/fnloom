@@ -7,7 +7,7 @@
  */
 import {
   ACTIVE_RUN_STATUSES, isHiddenPart, mintId, splitName, type ActorId, type AgentActor, type Asker, type ChatMessage, type ClientInfo, type InstanceName, type Json, type MessageId, type MessagePart, type OutgoingPart, type SuggestionRecord,
-  type QualifiedName, type ResolvedLimits, type Run, type RunId, type RunSettled, type Session, type SessionId, type SystemName, type Turn, type TurnId, type UserInfo,
+  type QualifiedName, type ResolvedLimits, type Run, type RunId, type RunSettled, type Session, type SessionId, type SystemName, type Turn, type TurnId, type TurnStart, type UserInfo,
 } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
 import { seesContextNamed } from '../access/scope.ts';
@@ -18,7 +18,7 @@ import { ChatError, messageOf } from './errors.ts';
 import { AGENT_KIND } from '../execution/index.ts';
 import { isAttached, type AttachedPart, type MentionService, type MessageEnricher, type NotificationService, type PresenceTracker, type ReplyRule, type TurnEnd, type TurnService } from './index.ts';
 import type { People } from './people.ts';
-import { UNTITLED, type StoreSessionService } from './sessions.ts';
+import { continuableTurn, UNTITLED, type StoreSessionService } from './sessions.ts';
 import type { StreamBuffer } from './streams.ts';
 import { allowsSystem, clip, participantOf, peopleOf, unmark } from './support.ts';
 import { allRows } from '../store/rows.ts';
@@ -46,6 +46,11 @@ export function plainText(parts: readonly MessagePart[]): string {
 /** Whether a message has nothing a person reads: only hidden parts (and reasoning) and no files (the chat shows it in debug mode only). */
 export function hiddenMessage(message: Pick<ChatMessage, 'parts'>): boolean {
   return message.parts.every((part) => part.type === 'reasoning' || isHiddenPart(part));
+}
+
+/** The session as a turn finds it, so undoing the turn can put it back. */
+export function startOf(session: Pick<Session, 'transcript' | 'tools' | 'context' | 'selection'>): TurnStart {
+  return { transcript: session.transcript.length, tools: [...session.tools], context: [...session.context], ...(session.selection === undefined ? {} : { selection: session.selection }) };
 }
 
 /** How a settled run ends its turn. */
@@ -298,8 +303,42 @@ export class StoreTurnService implements TurnService {
     return {
       id: input.id, session: input.session.id, ...(input.message === undefined ? {} : { message: input.message }), actor: input.actor, user: input.user,
       time: timeInfo(now, input.user.timeZone), ...(input.client === undefined ? {} : { client: input.client }), status: input.running ? 'running' : 'done',
-      limits: input.limits, cost: 0, errors: errors === 0 ? 'feed-back' : { max: errors }, createdAt: now, ...(input.running ? {} : { endedAt: now }),
+      limits: input.limits, cost: 0, errors: errors === 0 ? 'feed-back' : { max: errors }, start: startOf(input.session), createdAt: now, ...(input.running ? {} : { endedAt: now }),
     };
+  }
+
+  async continueTurn(id: TurnId, by: ActorId): Promise<{ turn: TurnId; run: RunId }> {
+    const { store, clock, log, bus } = this.#deps;
+    const turn = await store.table('turns').get(id);
+    if (turn?.session === undefined) { throw new ChatError('not-found', `No turn ${id}.`); }
+    const session = await this.#parts.sessions.require(turn.session, by);
+    if (session.archived) { throw new ChatError('conflict', 'This session is archived.'); }
+    if (participantOf(session, by)?.role === 'agent') { throw new ChatError('forbidden', 'Agents answer through their runs.'); }
+    const root = turn.root === undefined ? undefined : await store.table('runs').get(turn.root);
+    if (!continuableTurn(turn, root)) { throw new ChatError('conflict', 'Only a turn whose agent stopped at its step limit or was cancelled can continue.'); }
+    if ((await this.#parts.sessions.lastTurn(session.id))?.id !== id) { throw new ChatError('conflict', 'Only the last turn of the session can continue.'); }
+    if ((await this.#answering(session)).length > 0) { throw new ChatError('conflict', 'An agent is answering in this session. Continue once it finishes.'); }
+    const { endedAt: _endedAt, ...going } = turn;
+    // running again before its run is, so the run settling ends it as usual; its time budget starts again now. Read
+    // and set in one transaction, so a second Continue of the same stop (a double click) is refused, not run twice.
+    const claimed = await store.tx(async (tx) => {
+      if ((await tx.table('turns').get(id))?.status !== turn.status) { return false; }
+      await tx.table('turns').put({ ...going, status: 'running', continuedAt: clock() });
+      return true;
+    });
+    if (!claimed) { throw new ChatError('conflict', 'This turn is already carrying on.'); }
+    await this.#parts.sessions.save(session.id, { status: 'running' });
+    try {
+      await this.#deps.agents.continue(root.id, by);
+    } catch (error) {
+      await store.table('turns').put(turn);
+      await this.#parts.sessions.save(session.id, { status: session.status });
+      log.warn('chat.turn.continue.refused', { turn: id, run: root.id, error: messageOf(error) });
+      throw new ChatError('conflict', messageOf(error));
+    }
+    log.info('chat.turn.continued', { session: session.id, turn: id, run: root.id, by, was: turn.status });
+    bus.publish('session.controls', { session: session.id, controls: await this.#parts.sessions.controls(session.id) });
+    return { turn: id, run: root.id };
   }
 
   async followUp(input: { turn: TurnId; agent: ActorId }): Promise<TurnId | undefined> {
@@ -375,6 +414,7 @@ export class StoreTurnService implements TurnService {
     if (answerers.length === 0) { return; }
     const busy = await this.#answering(session, turn.id);
     await Promise.all(busy.map(async (run) => this.#deps.agents.interrupt(run.id)));
+    if (busy.length > 0) { await this.#restart(turn); }
     const started: RunId[] = [];
     for (const actor of answerers) {
       const agent = await this.#agent(actor);
@@ -395,6 +435,16 @@ export class StoreTurnService implements TurnService {
       return;
     }
     await this.#deps.store.table('turns').update(turn.id, { root });
+  }
+
+  /**
+   * The agents a new turn took over from answered their open calls into the transcript, before this turn's messages:
+   * the turn starts after those (so undoing it keeps them).
+   */
+  async #restart(turn: Turn): Promise<void> {
+    const session = turn.session === undefined ? undefined : await this.#deps.store.table('sessions').get(turn.session);
+    if (session === undefined || turn.start === undefined) { return; }
+    await this.#deps.store.table('turns').update(turn.id, { start: { ...turn.start, transcript: session.transcript.length } });
   }
 
   async #agent(actor: ActorId): Promise<AgentActor | undefined> {

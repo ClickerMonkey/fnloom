@@ -119,3 +119,33 @@ export function groupPieces(
   flush();
   return out;
 }
+
+/** A piece of fn calls. */
+type RunsPiece = Extract<AnswerPiece, { kind: 'runs' }>;
+/** What separates two reasoning steps merged into one block, so each still reads as its own paragraph. */
+export const REASONING_JOIN = '\n\n';
+
+/**
+ * Merge reasoning that sits next to each other into one piece: nothing between them but fn calls none of which show
+ * (those leave, as they draw nothing). Reasoning a shown call, words, an attachment or a link separates stays its own
+ * piece, so everything keeps the exact order the model produced it in. The merged piece keeps the first one's key
+ * (its open state holds as more arrives) and its text grows as the last one streams.
+ */
+export function mergeReasoning(pieces: readonly AnswerPiece[], shown: (piece: RunsPiece) => number): AnswerPiece[] {
+  const out: AnswerPiece[] = [];
+  /** Calls that show nothing since the last reasoning, kept back until we know whether reasoning follows them. */
+  let held: RunsPiece[] = [];
+  for (const piece of pieces) {
+    const last = out.at(-1);
+    if (piece.kind === 'runs' && last?.kind === 'reasoning' && shown(piece) === 0) { held.push(piece); continue; }
+    if (piece.kind === 'reasoning' && last?.kind === 'reasoning') {
+      out[out.length - 1] = { kind: 'reasoning', key: last.key, text: [last.text, piece.text].filter((text) => text.trim() !== '').join(REASONING_JOIN) };
+      held = [];
+      continue;
+    }
+    out.push(...held, piece);
+    held = [];
+  }
+  out.push(...held);
+  return out;
+}

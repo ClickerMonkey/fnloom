@@ -5,7 +5,7 @@
  */
 import {
   ACTIVE_RUN_STATUSES, IDS, SessionSummary, isUnsettled, mintId, type ActorId, type ChatMessage, type Page, type Presence, type Priority, type PriorityRule, type QualifiedName,
-  type Run, type RunId, type Session, type SessionControls, type SessionId, type SessionPatch, type SystemName, type Compact, type SessionListQuery, type MessageListQuery, type SessionControlAction,
+  type Run, type RunId, type Session, type Turn, type SessionControls, type SessionId, type SessionPatch, type SystemName, type Compact, type SessionListQuery, type MessageListQuery, type SessionControlAction,
 } from '@harness/core';
 import { hub } from '@harness/sdk';
 import type { ChatDeps } from './deps.ts';
@@ -15,6 +15,8 @@ import type { People } from './people.ts';
 import type { StreamBuffer } from './streams.ts';
 import { agentActorId, participantOf, peopleOf } from './support.ts';
 import { allRows, filteredPage } from '../store/rows.ts';
+import { AGENT_KIND } from '../execution/index.ts';
+import { continuable } from '../execution/agent.ts';
 
 /** The title of a session nobody has named yet. Its first message names it. */
 export const UNTITLED = 'New chat';
@@ -25,6 +27,14 @@ export const DEFAULT_AGENT: QualifiedName = hub.fns.chat.name;
 /** Whether a run is not finished yet (it may still change things). */
 export function isActiveRun(run: Pick<Run, 'status'>): boolean {
   return isUnsettled(run.status);
+}
+
+/**
+ * Whether a turn can carry on where it stopped (Continue): it ended failed or cancelled, and its agent run (the root)
+ * stopped at its step limit or was cancelled.
+ */
+export function continuableTurn(turn: Pick<Turn, 'status'>, root: Run | undefined): root is Run {
+  return (turn.status === 'failed' || turn.status === 'cancelled') && root?.kind === AGENT_KIND && root.parent === undefined && continuable(root);
 }
 
 /** The id of a session's own priority rule: one per session, replaced on change. */
@@ -76,7 +86,7 @@ export class StoreSessionService implements SessionService {
     };
     await this.#deps.store.table('sessions').insert(session);
     this.#deps.log.info('chat.session.created', { session: session.id, owner: owner.id, agent: fn });
-    this.#changed(session);
+    this.changed(session);
     return session;
   }
 
@@ -162,12 +172,14 @@ export class StoreSessionService implements SessionService {
 
   async controls(session: SessionId): Promise<SessionControls> {
     const active = await this.#active(session);
-    const last = (await this.#deps.store.table('turns').find({ where: { session }, order: [['createdAt', 'desc']], limit: 1 })).items[0];
+    const last = await this.lastTurn(session);
+    const root = last?.root === undefined ? undefined : await this.#deps.store.table('runs').get(last.root);
     return {
       pause: active.some((r) => r.allowed.pause && r.status !== 'paused'),
       cancel: active.some((r) => r.allowed.cancel),
       uncancellable: active.filter((r) => !r.allowed.cancel).map((r) => r.id),
       undoLastTurn: active.length === 0 && last !== undefined && (last.status === 'done' || last.status === 'failed' || last.status === 'cancelled'),
+      continueLastTurn: active.length === 0 && last !== undefined && continuableTurn(last, root),
       runs: active.map((r) => ({ run: r.id, fn: r.fn, status: r.status, pause: r.allowed.pause && r.status !== 'paused', resume: r.status === 'paused', cancel: r.allowed.cancel })),
     };
   }
@@ -226,6 +238,11 @@ export class StoreSessionService implements SessionService {
     return Promise.resolve(this.#presence.active(session));
   }
 
+  /** The session's latest turn (undone or not). */
+  async lastTurn(session: SessionId): Promise<Turn | undefined> {
+    return (await this.#deps.store.table('turns').find({ where: { session }, order: [['createdAt', 'desc']], limit: 1 })).items[0];
+  }
+
   /** A session the actor is in; refused as not found otherwise (so its existence isn't revealed). */
   async require(id: SessionId, actor: ActorId): Promise<Session> {
     const session = await this.get(id, actor);
@@ -242,7 +259,7 @@ export class StoreSessionService implements SessionService {
 
   async save(id: SessionId, patch: Partial<Omit<Session, 'id' | 'updatedAt'>>): Promise<Session> {
     const session = await this.#deps.store.table('sessions').update(id, { ...patch, updatedAt: this.#deps.clock() });
-    this.#changed(session);
+    this.changed(session);
     return session;
   }
 
@@ -265,7 +282,7 @@ export class StoreSessionService implements SessionService {
       ...(clear.contextor || contextor === undefined ? {} : { contextor }),
       ...(clear.fnMode || fnMode === undefined ? {} : { fnMode }),
     });
-    this.#changed(cleared);
+    this.changed(cleared);
     return cleared;
   }
 
@@ -273,7 +290,8 @@ export class StoreSessionService implements SessionService {
     return allRows(this.#deps.store.table('runs'), { where: { session, status: { in: ACTIVE_RUN_STATUSES } } });
   }
 
-  #changed(session: Session): void {
+  /** Tell a session's people it changed. */
+  changed(session: Session): void {
     this.#deps.bus.publish('session.changed', { session: SessionSummary.parse(session), participants: audienceOf(session) });
   }
 }

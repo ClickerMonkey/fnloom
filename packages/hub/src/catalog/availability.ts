@@ -34,7 +34,7 @@ export function systemAvailability(system: SystemName, record: SystemRecord | un
   if (system === HUB_SYSTEM) { return true; }
   if (record === undefined) { return unavailable('system-disconnected', `${system} has never connected`); }
   switch (record.status) {
-    case 'connected': return options.staged !== false && record.stage === 'installed' ? unavailable('disabled', `${system} is installed and waits for an admin to review it and go live`) : true;
+    case 'connected': return options.staged !== false && record.stage === 'installed' ? unavailable('held', `${system} is installed and waits for an admin to review it and go live`) : true;
     case 'needs-config': return unavailable('system-needs-config', `${system} needs a valid config before it can be used`);
     case 'removed': return unavailable('system-removed', `${system} was removed; pair it again to use it`);
     case 'pairing': return unavailable('system-disconnected', `${system} is waiting to be paired`);
@@ -170,7 +170,7 @@ export class AvailabilityRules {
     const system = this.inputs.systems.get(record.system);
     if (record.disabled || system?.enabled.functions === false) { return unavailable('disabled', `${record.name} is switched off`); }
     if (record.paused) { return unavailable('paused', `${record.name} is paused`); }
-    if (this.inputs.held?.has(record.name) === true) { return unavailable('disabled', `${record.name} changed and waits for an admin to approve it`); }
+    if (this.inputs.held?.has(record.name) === true) { return unavailable('held', `${record.name} changed and waits for an admin to approve it`); }
     if (record.decl.kind !== 'native') {
       const kind = this.inputs.kinds.get(record.decl.kind);
       if (kind === undefined) { return unavailable('kind-missing', `its kind ${record.decl.kind} does not exist`); }

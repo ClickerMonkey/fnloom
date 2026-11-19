@@ -5,7 +5,7 @@
  * typed and checked by the contract's gin types. Services are read when a fn runs, never while registering. Every one
  * keeps to what the run's person may see and use (their `AccessScope`): search hits, loads and results alike.
  */
-import { contextOff, effectCovered, effectsLine, FnExamplesQuery, FnRouting, FnSearchQuery, QualifiedName, qualify, splitName, SystemName, type LoadContextResult, type SearchItemKind, type ActorId, type FnDecl, type FnExample, type Json, type IndexedKind, type RegistryEffect, type Run, type Session, type SessionId } from '@harness/core';
+import { contextOff, effectCovered, effectsLine, FnExamplesQuery, FnRouting, FnSearchQuery, QualifiedName, qualify, splitName, SystemName, type FnRefusal, type LoadContextResult, type SearchItemKind, type ActorId, type FnDecl, type FnExample, type Json, type IndexedKind, type RegistryEffect, type Run, type Session, type SessionId } from '@harness/core';
 import { hub, parseValue, SAVE_FN_TAKEN, wireType } from '@harness/sdk';
 import type { AccessService } from '../access/index.ts';
 import type { FnFactsService, FnsServices } from '../fns/index.ts';
@@ -24,7 +24,7 @@ import type { HandlerRelay } from '../execution/handlers.ts';
 import { parseSectionIndexKey } from '../index/indexer.ts';
 import { broughtFns, withImports } from '../contextor/brought.ts';
 import type { FnScope } from '../contextor/fns.ts';
-import { fnRefusal } from '../contextor/views.ts';
+import { fnRefusal, readsAsMissing, refusalOf } from '../contextor/views.ts';
 import { itemVersionCount } from '../catalog/versions.ts';
 
 /** How many results a search returns when the agent doesn't say. */
@@ -114,12 +114,12 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
   fns.register(hub.fns.load_fns, async (args, ctx) => {
     const { session, access } = await askerOf(deps, ctx);
     const { valid, invalid } = names(args.fns);
-    const refused = invalid.map((fn) => ({ fn, reason: 'not a qualified fn name (system/name)' }));
+    const refused: FnRefusal[] = invalid.map((fn) => ({ fn, code: 'not-a-name', reason: 'not a qualified fn name (system/name)' }));
     const loaded: QualifiedName[] = [];
     // the same check as hub/load and the static run: usable here and meant for the model
     for (const name of valid) {
-      const reason = fnRefusal(await deps.catalog().fn(name), session, access);
-      if (reason === undefined) { loaded.push(name); } else { refused.push({ fn: name, reason }); }
+      const blocked = fnRefusal(await deps.catalog().fn(name), session, access);
+      if (blocked === undefined) { loaded.push(name); } else { refused.push(refusalOf(name, blocked)); }
     }
     if (loaded.length > 0) { await deps.sessions().load(session.id, { tools: [...new Set([...session.tools, ...loaded])] }); }
     return { loaded, refused };
@@ -156,8 +156,11 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
     }
     const records = (await Promise.all(loaded.map(lookup))).flatMap((r) => (r === undefined ? [] : [r]));
     const brought: QualifiedName[] = [];
+    // a brought fn that can't be added is reported with what blocks it; one that reads as missing (unseen, not for the model) is left out
+    const fnsRefused: FnRefusal[] = [];
     for (const name of broughtFns(records)) {
-      if (fnRefusal(await deps.catalog().fn(name), session, access) === undefined) { brought.push(name); }
+      const blocked = fnRefusal(await deps.catalog().fn(name), session, access);
+      if (blocked === undefined) { brought.push(name); } else if (!readsAsMissing(blocked)) { fnsRefused.push(refusalOf(name, blocked)); }
     }
     if (loaded.length > 0) {
       // read again: a load_fns in the same step may have changed the tools meanwhile
@@ -166,7 +169,7 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
         context: [...new Set([...now.context, ...loaded])], ...(brought.length === 0 ? {} : { tools: [...new Set([...now.tools, ...brought])] }),
       });
     }
-    return { loaded, fns: brought, refused };
+    return { loaded, fns: brought, fnsRefused, refused };
   });
 
   fns.register(hub.fns.search_resources, async (args, ctx) => {
@@ -192,7 +195,9 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
     // in a session only its systems' items; through a hub MCP only what it exposes
     const keep = (item: SearchItemKind, name: QualifiedName): boolean => (session === undefined || allowsSystem(session, splitName(name).system))
       && (scope === undefined || (item === 'fn' ? scope.fns.has(name) : scope.context.has(name)));
-    return deps.fns().search.search(FnSearchQuery.parse(args), { actor, access, keep });
+    // the model sees what it can't use too, each hit marked with what blocks it, unless it asks for usable ones only
+    const query = FnSearchQuery.parse(args);
+    return deps.fns().search.search({ ...query, available: query.available ?? false }, { actor, access, keep });
   });
 
   fns.register(hub.fns.fn_examples, async (args, ctx) => {

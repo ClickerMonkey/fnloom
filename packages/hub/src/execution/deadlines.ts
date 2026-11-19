@@ -17,9 +17,12 @@ export interface RunDeadline {
   readonly by: DeadlineBy;
 }
 
-/** The deadline of an attempt that starts at `start`: the turn's, or the fn's timeout from `start` when that is sooner. */
-export function runDeadline(start: number, turn: Pick<Turn, 'createdAt' | 'limits'>, fn: Pick<FnRecord, 'decl'>): RunDeadline {
-  const turnAt = turn.createdAt + turn.limits.turn.time;
+/**
+ * The deadline of an attempt that starts at `start`: the turn's (its time budget from when it began, or from when a
+ * person last continued it), or the fn's timeout from `start` when that is sooner.
+ */
+export function runDeadline(start: number, turn: Pick<Turn, 'createdAt' | 'continuedAt' | 'limits'>, fn: Pick<FnRecord, 'decl'>): RunDeadline {
+  const turnAt = (turn.continuedAt ?? turn.createdAt) + turn.limits.turn.time;
   const timeout = fn.decl.limits.timeout;
   return timeout !== undefined && start + timeout < turnAt ? { at: start + timeout, by: 'fn' } : { at: turnAt, by: 'turn' };
 }

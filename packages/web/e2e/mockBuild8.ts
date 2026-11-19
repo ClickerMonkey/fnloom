@@ -158,7 +158,7 @@ export class MockData {
     return {
       items: [
         { item: 'fn', name: NOTES_WIDGET, system: WIDGETS, description: 'Open notes, with words per note as a bar chart. Archive or rename a note from its row.', kind: WIDGET_KIND, mode: 'read', available: true },
-        { item: 'fn', name: 'hub/orders_by_city', system: HUB, description: "This month's orders per city, from the shop database.", kind: WIDGET_KIND, mode: 'read', available: false, unavailable: 'The database system is offline.' },
+        { item: 'fn', name: 'hub/orders_by_city', system: HUB, description: "This month's orders per city, from the shop database.", kind: WIDGET_KIND, mode: 'read', available: false, blocked: { code: 'system-disconnected', reason: 'The database system is offline.', system: SystemName.parse('database') } },
       ],
     };
   }

@@ -30,7 +30,7 @@ describe('availability rules', () => {
   });
 
   it('offers nothing of an installed system, unless the stage is set aside (kinds described, test calls)', () => {
-    expect(systemAvailability(SHOP, system({ stage: 'installed' }))).toEqual({ unavailable: 'disabled', detail: 'shop is installed and waits for an admin to review it and go live' });
+    expect(systemAvailability(SHOP, system({ stage: 'installed' }))).toEqual({ unavailable: 'held', detail: 'shop is installed and waits for an admin to review it and go live' });
     expect(systemAvailability(SHOP, system({ stage: 'installed' }), { staged: false })).toBe(true);
     expect(systemAvailability(SHOP, system({ stage: 'live' }))).toBe(true);
   });
@@ -43,7 +43,7 @@ describe('availability rules', () => {
     const report: KindRecord = KindRecord.parse({ name: 'shop/report', system: SHOP, decl: { name: 'report', description: 'r', applicability: 'a', payload: { name: 'text' }, approveChanges: false } });
     const kinds = new Map([[report.name, report]]);
     const rules = new AvailabilityRules({ systems: new Map([['shop', system()]]), kinds, fns: records, held: new Set(['shop/list']), kindsOff: new Set(['shop/report']) });
-    expect(rules.fn('shop/list')).toEqual({ unavailable: 'disabled', detail: 'shop/list changed and waits for an admin to approve it' });
+    expect(rules.fn('shop/list')).toEqual({ unavailable: 'held', detail: 'shop/list changed and waits for an admin to approve it' });
     expect(rules.fn('shop/order')).toEqual({ unavailable: 'disabled', detail: 'its kind shop/report is switched off' });
   });
 

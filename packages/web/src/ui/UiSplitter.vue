@@ -1,13 +1,14 @@
 <script setup lang="ts">
 /**
  * A draggable divider between two side-by-side panes: drag it (mouse, pen or touch) or focus it and use the arrow
- * keys (Home and End jump to the limits) to set the width of the pane before it. `v-model` is that width in px, kept
- * between `min` and `max`; double-click puts it back to `reset`.
+ * keys (Home and End jump to the limits) to set the width of the pane on its `side`: the one `before` it (a tree
+ * on the left, the default) or the one `after` it (a side panel on the right, which grows as the divider moves left).
+ * `v-model` is that width in px, kept between `min` and `max`; double-click puts it back to `reset`.
  */
 import { onBeforeUnmount, shallowRef } from 'vue';
-import { clampWidth } from './split.ts';
+import { clampWidth, dragWidth, type SplitSide } from './split.ts';
 
-const props = withDefaults(defineProps<{ label: string; min: number; max: number; reset: number; step?: number }>(), { step: 16 });
+const props = withDefaults(defineProps<{ label: string; min: number; max: number; reset: number; step?: number; side?: SplitSide }>(), { step: 16, side: 'before' });
 const width = defineModel<number>({ required: true });
 const dragging = shallowRef(false);
 let stop: (() => void) | undefined;
@@ -22,7 +23,7 @@ function start(event: PointerEvent): void {
   const from = event.clientX;
   const was = width.value;
   dragging.value = true;
-  const move = (e: PointerEvent): void => { set(was + e.clientX - from); };
+  const move = (e: PointerEvent): void => { set(dragWidth(was, e.clientX - from, props.side)); };
   const end = (): void => { stop?.(); };
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', end);
@@ -37,7 +38,9 @@ function start(event: PointerEvent): void {
 }
 
 function key(event: KeyboardEvent): void {
-  const moves: Readonly<Record<string, number>> = { ArrowLeft: width.value - props.step, ArrowRight: width.value + props.step, Home: props.min, End: props.max };
+  const moves: Readonly<Record<string, number>> = {
+    ArrowLeft: dragWidth(width.value, -props.step, props.side), ArrowRight: dragWidth(width.value, props.step, props.side), Home: props.min, End: props.max,
+  };
   const next = moves[event.key];
   if (next === undefined) { return; }
   event.preventDefault();

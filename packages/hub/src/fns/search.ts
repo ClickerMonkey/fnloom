@@ -4,12 +4,14 @@
  * written over `fnTypes`, systems over `context`. What they let through is
  * ranked by words and meaning inside the database (the index search's `within`, which FTS5 and sqlite-vec filter
  * themselves), best first; without text it is listed by name. Nothing is loaded whole and no vector is compared here.
- * What the asker may not see is never counted; `visibility` and `available` are checked on each hit as it comes.
+ * What the asker may not see is never counted; `visibility` and `available` are checked on each hit as it comes, and a
+ * hit that can't be used now (kept with `available: false`) carries what blocks it (`FnSearchHit.blocked`).
  */
 import { contextOff, effectsLine, QualifiedName, type ContextRecord, type RegistryEffect, type FnRecord, type FnSearchHit, type FnSearchPage, type FnSearchQuery, type RowOf, type SearchItemKind } from '@harness/core';
 import type { Catalog } from '../catalog/index.ts';
 import type { AccessService } from '../access/index.ts';
 import type { FnViewSource } from '../contextor/index.ts';
+import { unavailableBlock } from '../contextor/views.ts';
 import type { Search } from '../index/index.ts';
 import type { HubStore, Where } from '../store/index.ts';
 import { rows } from '../store/rows.ts';
@@ -19,7 +21,7 @@ import type { Asker, FnSearch } from './index.ts';
 /** What search reads. */
 export interface FnSearchDeps {
   readonly store: () => HubStore;
-  readonly catalog: () => Pick<Catalog, 'fn' | 'context' | 'availability'>;
+  readonly catalog: () => Pick<Catalog, 'fn' | 'context'>;
   readonly search: () => Pick<Search, 'search'>;
   readonly views: () => Pick<FnViewSource, 'view'>;
   readonly access: () => Pick<AccessService, 'sharing'>;
@@ -174,9 +176,9 @@ export class StoreFnSearch implements FnSearch {
     const record = await catalog.fn(candidate.key);
     if (record === undefined || record.disabled || !asker.access.seesFn(record)) return undefined;
     if (query.visibility !== undefined && !(await this.#visible(record, query.visibility, asker))) return undefined;
-    const availability = await catalog.availability(record.name);
-    const available = availability === true && asker.access.mayUse(record);
-    if (query.available !== false && !available) return undefined;
+    // an unavailable fn is a hit too when the query keeps them (`available: false`), marked with what blocks it
+    const blocked = unavailableBlock(record, asker.access);
+    if (query.available !== false && blocked !== undefined) return undefined;
     const facts = await this.#deps.store().table('fnFacts').get(record.name);
     // checked on each hit too: over the candidate cap the filters count as none
     if (!changesAsAsked(query, facts?.registry)) return undefined;
@@ -189,8 +191,8 @@ export class StoreFnSearch implements FnSearch {
       ...(effects === undefined ? {} : { effects }),
       ...(facts?.instance === undefined ? {} : { instance: facts.instance }),
       ...(score === undefined ? {} : { score }),
-      available,
-      ...(available ? {} : { unavailable: availability === true ? 'connect your account to use this fn' : availability.detail }),
+      available: blocked === undefined,
+      ...(blocked === undefined ? {} : { blocked }),
     };
   }
 

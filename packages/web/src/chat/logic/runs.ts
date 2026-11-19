@@ -8,6 +8,7 @@ import {
   type RunPhase, type RunStatus, type RunText, type RunUpdate,
 } from '@harness/core';
 import { hub } from '@harness/sdk';
+import type { RunOutcome } from '../../components/widgets/widgets.ts';
 import type { IconName, Tone } from '../../ui/index.ts';
 import { clamp } from './format.ts';
 import { fnLabel, lowerFirst } from './labels.ts';
@@ -385,4 +386,31 @@ export function statusLine(runs: readonly RunView[], now: number, options: Statu
     : runs.some((run) => run.status === 'paused') ? 'Paused'
     : working ? '' : THINKING;
   return { groups: shown, more: Math.max(0, sorted.length - options.max), lead };
+}
+
+/** What a waiter is told of a run that is done when its record never brought the result. */
+export const UNREAD_OUTCOME = "It finished, but its result couldn't be read.";
+
+/**
+ * Whether a settled run's record has brought its outcome: the hub stores one with every settle (the result, the
+ * refusal, the error, the decline reason), and an undone run keeps the outcome it was done with.
+ */
+function outcomeRead(run: RunView): boolean {
+  return run.outcome !== undefined && (run.outcome.status === run.status || run.status === 'undone');
+}
+
+/**
+ * How a run ended, for whoever waits on it, once that is known. The live status event comes before the run's record,
+ * so a settled run hasn't ended for its waiter until its outcome is read (the result, or why it was declined, refused
+ * or failed): until then this is undefined, as it is while the run hasn't settled. `read` says the record has been
+ * read as often as it will be, so what is known stands (`UNREAD_OUTCOME` for a done run, else the status in words).
+ */
+export function runEnding(run: RunView, read = false): RunOutcome | undefined {
+  if (!isSettled(run.status)) { return undefined; }
+  const known = outcomeRead(run);
+  if (!known && !read) { return undefined; }
+  if (run.status === 'done') { return run.outcome?.status === 'done' ? { ok: true, output: run.outcome.result } : { ok: false, problem: UNREAD_OUTCOME }; }
+  const invalid = runInvalid(run);
+  const problem = runDeclined(run) ?? (invalid === undefined ? undefined : invalidLine(invalid)) ?? runError(run)?.message;
+  return { ok: false, problem: problem ?? `It ended ${STATUS_LOOK[run.status].word.toLowerCase()}.` };
 }

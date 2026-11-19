@@ -17,8 +17,8 @@ import { searchSystems } from '../chat/support.ts';
 import type {
   CallPlan, CallProtocol, CallScope, ChatMode, ChatModeFactories, ChosenFn, ContextorDeps, FnView, ModeContext, ModelCallOut, ModeTool, RenderedIteration, Selection,
 } from './index.ts';
-import { cardsSection, describedWithEffects, exampleLines, fnCard, fnLine, moreFns, problemLines, summaryHint, tableInstruction, textProtocolInstructions } from './render.ts';
-import { modelMayUse } from './views.ts';
+import { blockedLine, cardsSection, describedWithEffects, exampleLines, fnCard, fnLine, moreFns, problemLines, summaryHint, tableInstruction, textProtocolInstructions } from './render.ts';
+import { fnRefusal, readsAsMissing } from './views.ts';
 
 /** The static toolset's hub fns, by tool name, with their declarations. `run` is not among them: it runs the fn it names. */
 export const STATIC_HUB_FNS = {
@@ -113,15 +113,38 @@ function invalid(fn: QualifiedName | undefined, source: InvalidInput['source'], 
 }
 
 
+/**
+ * The reply to a call of a fn that exists but is blocked now (held for review, switched off, offline, another system,
+ * an account to connect): what blocks it, in the hub's words, and to stop. Undefined when nothing blocks it, or when the
+ * block reads as missing (unseen, not for the model), which the caller answers as an unknown name.
+ */
+function blockedCall(view: FnView | undefined, scope: CallScope): CallPlan | undefined {
+  const blocked = view === undefined ? undefined : fnRefusal(view.record, scope.session, scope.access);
+  if (view === undefined || blocked === undefined || readsAsMissing(blocked)) return undefined;
+  const line = blockedLine(view.record.name, blocked);
+  return invalid(view.record.name, 'schema', [{ path: 'fn', message: line }], `${line}. Don't call it again; tell the person what blocks it.`);
+}
+
+/**
+ * The fn a native tool name not in this step's tools may mean, for a better refusal: the model's own `system/name`,
+ * else `toolName` undone, kept only when it encodes back to the same tool name (a lossy name means none).
+ */
+function fnOfToolName(name: string): QualifiedName | undefined {
+  const given = QualifiedName.safeParse(name);
+  if (given.success) return given.data;
+  const guess = QualifiedName.safeParse(name.replaceAll('__', '/').replaceAll('--', '.'));
+  return guess.success && toolName(guess.data) === name ? guess.data : undefined;
+}
+
 /** Strict tools: one native tool per selected fn. */
 export class ToolsChatMode implements ChatMode {
   readonly type = 'tools';
   readonly loadDetail = 'signature';
   readonly alwaysDetail = 'signature';
   readonly replaces: ReadonlySet<string> = new Set();
-  readonly #deps: Pick<ContextorDeps, 'instances'>;
+  readonly #deps: Pick<ContextorDeps, 'instances' | 'views'>;
 
-  constructor(deps: Pick<ContextorDeps, 'instances'>) {
+  constructor(deps: Pick<ContextorDeps, 'instances' | 'views'>) {
     this.#deps = deps;
   }
 
@@ -161,14 +184,19 @@ export class ToolsChatMode implements ChatMode {
     return Promise.resolve({ tools, systemEnd, tail: undefined, protocol: 'native', fns, fleet });
   }
 
-  interpret(call: ModelCallOut, rendered: RenderedIteration): Promise<CallPlan> {
+  async interpret(call: ModelCallOut, rendered: RenderedIteration, scope: CallScope): Promise<CallPlan> {
     const name = call.type === 'tool' ? call.name : call.fn ?? '';
     const fn = rendered.fns.get(name);
-    if (fn === undefined || call.type !== 'tool') return Promise.resolve(invalid(undefined, 'schema', [{ path: '', message: `no tool named ${name}` }], `There is no tool named ${name}.`));
-    if (!rendered.fleet.has(name)) return Promise.resolve({ type: 'run', fn, args: call.args });
+    if (fn === undefined || call.type !== 'tool') {
+      // a held or offline fn's tool (a context named it, the model called it anyway) says what blocks it, as static `run` does
+      const meant = fnOfToolName(name);
+      const blocked = meant === undefined ? undefined : blockedCall(await this.#deps.views.view(meant), scope);
+      return blocked ?? invalid(undefined, 'schema', [{ path: '', message: `no tool named ${name}` }], `There is no tool named ${name}.`);
+    }
+    if (!rendered.fleet.has(name)) return { type: 'run', fn, args: call.args };
     const split = fleetArgs(call.args);
-    if ('problem' in split) return Promise.resolve(invalid(fn, 'validation', [split.problem], problemLine(split.problem), { args: call.args }));
-    return Promise.resolve({ type: 'run', fn, args: split.args, ...(split.on === undefined ? {} : { on: split.on }) });
+    if ('problem' in split) return invalid(fn, 'validation', [split.problem], problemLine(split.problem), { args: call.args });
+    return { type: 'run', fn, args: split.args, ...(split.on === undefined ? {} : { on: split.on }) };
   }
 
   exposed(views: readonly ChosenFn[]): string {
@@ -265,8 +293,11 @@ export class StaticChatMode implements ChatMode {
     const own = rendered.fns.get(name);
     if (own !== undefined) return { type: 'run', fn: own, args, ...(on === undefined ? {} : { on }) };
     const qualified = QualifiedName.safeParse(name);
+    // a fn that exists but can't run says what blocks it, in the hub's words; a missing one (or one not for the model) gets the nearest names
     const view = qualified.success ? await this.#deps.views.view(qualified.data) : undefined;
-    if (view === undefined || !modelMayUse(view.record, scope.session, scope.access)) {
+    const blocked = blockedCall(view, scope);
+    if (blocked !== undefined) return blocked;
+    if (view === undefined || fnRefusal(view.record, scope.session, scope.access) !== undefined) {
       const near = await this.#near(name, scope);
       const hint = near.length === 0 ? 'Use find to look for one.' : `The nearest: ${near.join(', ')}.`;
       return invalid(qualified.success ? qualified.data : undefined, 'schema', [{ path: 'fn', message: `no fn named ${name} can run here` }], `There is no fn ${name} you can run here. ${hint}`);

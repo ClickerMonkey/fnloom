@@ -128,7 +128,16 @@ All of this is described in one **manifest** the system sends on connect, plus s
    again.
 
 A fn is available only if its own system and its kind's system are connected, its kind still exists,
-and every fn it depends on is available.
+and every fn it depends on is available. A fn whose system has changes waiting for an admin's review is
+**held** until the review is approved. That is its own reason (`held`), apart from a fn an admin switched off
+(`disabled`).
+
+**The model always gets the reason.** Whenever the hub won't let the model use a fn (`hub/load_fns`, `hub/load`,
+`hub/load_context`, `hub/inspect`, static `run`, or a native tool call in tools mode), it answers with the hub's own
+words, for example "database/create_table changed and waits for an admin to approve it", and tells the model not to
+call it again but to tell the person what blocks it. Refusals are structured (a code, the reason, and the fn's
+system), so the web can act on them. For the model, `hub/fns_search` returns fns it can't use now marked with what
+blocks them instead of leaving them out; only fns an admin switched off stay out.
 
 ### Talking to the hub
 
@@ -608,8 +617,21 @@ right viewer: `<ResourceViewer :uri="uri" compact />`.
   is unblocked the same way.
 - **Pause and cancel** on the session are offered only as far as the running runs support them. Cancel
   stops what can stop; the rest finishes and is reported.
-- **Undo a turn:** every run with an undo payload is undone, newest first. The chat reports what was
-  created, updated and removed.
+- **Undo a turn:** every run with an undo payload is undone, newest first. The turn also goes back to where it
+  started: its messages come out of the conversation, the fns and context it loaded are unloaded, the ones it
+  dropped are loaded again, and the graph selection is put back. The chat reports what really changed, and says
+  "it had changed nothing" only when that is true. A turn can't be undone while a later turn of the session still
+  stands, so undo goes newest first.
+- **Retry** is undo and send again, a true redo. The web always asks before it retries.
+- **Continue** carries on a turn that stopped at the step limit or was cancelled. It resumes the same run with the
+  conversation kept: the step count and the turn's time start over, while the cost spent so far still counts
+  against the turn's cost cap. In the web, Continue is the main button on such a stop and Retry the second one.
+- **When it is blocked, it stops and says so.** Both chat agents' system prompts tell the model that when something
+  it needs is unavailable or refused, or the same call keeps failing or returning nothing, it should tell the person
+  what blocks it, with the reason the hub gave, instead of retrying or working around it. There is no hub guard for
+  this; the prompt rule is all.
+- **A held system shows a banner.** When a turn's runs show a fn refused because its system waits for a review, the
+  answer shows one warning per held system, naming its fns. Admins get a link to the system's pending review.
 
 ### Chat modes and contextors
 
@@ -637,12 +659,20 @@ model's limits; token estimates calibrate themselves against what the provider r
 
 Static plus graph is the setup for small local models; `hub/chat_small` is the chat agent with it.
 
+When a context item in the prompt brings fns, it says which of them are in the model's tools this step, which are
+not in its tools this step, and which it can't use now, with the reason (fns sharing a reason are named together).
+
 ### What gets added to a message
 
 Before the LLM sees a user message, two things may add to it:
 
 - **The hub itself**, whenever it can, with no system involved: the person's local time and time zone, and
   suggested context and fns (from the index).
+
+  A suggestion's score is its similarity of meaning to the message (cosine, measured in the database), not its rank:
+  related items score about 0.7, unrelated text about 0.2 to 0.4, and an item needs `HARNESS_SUGGEST_THRESHOLD`
+  (0.45) to be suggested. Searches still order hits by fusing the word and meaning ranks. Suggestions are found by
+  meaning only: while the embedder can't answer in time, nothing is suggested rather than the best word matches.
 - **Systems' hooks**: a system can declare a hook and add its own information (the git branch, the open
   ticket). A hook gets the message and the same who-and-when every run gets.
 
@@ -722,6 +752,11 @@ Search, hover and LLM text all run as the person mentioning, so they only show w
 
 The chat UI is fully driven by the hub. The hub tells the UI which features exist right now: voice only
 if a transcription service is configured, `@` only if a mention provider is connected, and so on.
+
+Reasoning pieces that sit next to each other in an answer (with nothing shown between them) read as one block.
+Side panels (a run, an LLM call, details, settings, people, the model) can be dragged wider or narrower from their
+left edge, between 360px and 60% of the window; each kind of panel remembers its own width, and a double-click
+puts it back. Tab strips scroll sideways with the mouse wheel and show an arrow on a side with more tabs beyond it.
 
 ### Configuring by asking
 

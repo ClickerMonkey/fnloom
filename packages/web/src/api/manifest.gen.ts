@@ -386,6 +386,26 @@ export const manifest = {
       "multi": false,
       "bodyEnc": "json"
     },
+    "controls": {
+      "method": "POST",
+      "path": "/controls",
+      "ws": "controls",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "session"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
     "presence": {
       "method": "POST",
       "path": "/presence",
@@ -432,6 +452,26 @@ export const manifest = {
       "method": "POST",
       "path": "/undoTurn",
       "ws": "undoTurn",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "turn"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "continueTurn": {
+      "method": "POST",
+      "path": "/continueTurn",
+      "ws": "continueTurn",
       "httpOnly": false,
       "streamIn": null,
       "itemsIn": false,

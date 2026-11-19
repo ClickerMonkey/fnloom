@@ -90,9 +90,9 @@ describe('finding and loading fns', () => {
     expect(settled).toEqual({ status: 'done', result: {
       loaded: ['fs/read'],
       refused: [
-        { fn: 'not a name', reason: 'not a qualified fn name (system/name)' },
-        { fn: 'shop/buy', reason: 'this session does not use that system' },
-        { fn: 'fs/nothing', reason: 'no such fn' },
+        { fn: 'not a name', code: 'not-a-name', reason: 'not a qualified fn name (system/name)' },
+        { fn: 'shop/buy', code: 'other-system', reason: 'this session does not use shop', system: 'shop' },
+        { fn: 'fs/nothing', code: 'no-such-fn', reason: 'no such fn' },
       ],
     } });
     expect((await r.store.table('sessions').get(SESSION))?.tools).toEqual(['fs/read']);
@@ -103,7 +103,24 @@ describe('finding and loading fns', () => {
   it('refuses a fn not meant for the model, as hub/load does', async () => {
     const { r, turn } = await started();
     r.catalog.add('fs', 'raw', fn({ description: 'Raw.', args: g.obj({}), returns: g.text(), visibility: 'user' }));
-    expect(await call(r, turn, 'load_fns', { fns: ['fs/raw'] })).toEqual({ status: 'done', result: { loaded: [], refused: [{ fn: 'fs/raw', reason: 'not for the model' }] } });
+    expect(await call(r, turn, 'load_fns', { fns: ['fs/raw'] })).toEqual({ status: 'done', result: { loaded: [], refused: [{ fn: 'fs/raw', code: 'not-for-model', reason: 'not for the model', system: 'fs' }] } });
+  });
+
+  it('refuses a held fn with the hub\'s reason, not a bare "unavailable" (regression: "You there?")', async () => {
+    const { r, turn } = await started();
+    const held = { unavailable: 'held' as const, detail: 'database/create_table changed and waits for an admin to approve it' };
+    r.catalog.add('database', 'create_table', fn({ description: 'Create a table.', args: g.obj({}), returns: g.text() }), { available: held });
+    await r.store.table('sessions').update(SESSION, { systems: 'all' });
+    expect(await call(r, turn, 'load_fns', { fns: ['database/create_table'] })).toEqual({ status: 'done', result: {
+      loaded: [], refused: [{ fn: 'database/create_table', code: 'held', reason: held.detail, system: 'database' }],
+    } });
+  });
+
+  it('searches unavailable fns too for the model, unless it asks for usable ones only', async () => {
+    const { r, turn, fnSearches } = await started();
+    await call(r, turn, 'fns_search', { text: 'buy' });
+    await call(r, turn, 'fns_search', { text: 'buy', available: true });
+    expect(fnSearches.map((q) => q.available)).toEqual([false, true]);
   });
 
   it('refuses outside a chat session', async () => {
@@ -121,10 +138,26 @@ describe('context and resources', () => {
     r.catalog.contexts.set(QualifiedName.parse('fs/guide.paths'), 'Paths are relative to the root.');
     r.catalog.contextDecls.set(QualifiedName.parse('fs/guide'), { imports: [QualifiedName.parse('fs/guide.paths')], fns: [QualifiedName.parse('fs/read')] });
     expect(await call(r, turn, 'load_context', { context: ['fs/guide: how to work with files', 'fs/missing'] })).toEqual({ status: 'done', result: {
-      loaded: ['fs/guide', 'fs/guide.paths'], fns: ['fs/read'],
+      loaded: ['fs/guide', 'fs/guide.paths'], fns: ['fs/read'], fnsRefused: [],
       refused: [{ context: 'fs/missing', reason: 'no context you can load has that name', closest: ['fs/guide'] }],
     } });
     expect(await r.store.table('sessions').get(SESSION)).toMatchObject({ context: ['fs/guide', 'fs/guide.paths'], tools: ['fs/read'] });
+  });
+
+  it('reports the brought fns it could not add, with the hub\'s reason, instead of fns: [] (regression: "You there?")', async () => {
+    const { r, turn } = await started();
+    await r.store.table('sessions').update(SESSION, { systems: 'all' });
+    const held = { unavailable: 'held' as const, detail: 'database/create_table changed and waits for an admin to approve it' };
+    r.catalog.add('database', 'create_table', fn({ description: 'Create a table.', args: g.obj({}), returns: g.text() }), { available: held });
+    r.catalog.add('database', 'raw', fn({ description: 'Raw.', args: g.obj({}), returns: g.text(), visibility: 'user' }));
+    r.catalog.contexts.set(QualifiedName.parse('database/guide'), 'How to make tables.');
+    r.catalog.contextDecls.set(QualifiedName.parse('database/guide'), { fns: [QualifiedName.parse('database/create_table'), QualifiedName.parse('fs/read'), QualifiedName.parse('database/raw'), QualifiedName.parse('database/gone')] });
+    expect(await call(r, turn, 'load_context', { context: ['database/guide'] })).toEqual({ status: 'done', result: {
+      // a fn never meant for the model, or one that doesn't exist, reads as missing and is not named
+      loaded: ['database/guide'], fns: ['fs/read'], refused: [],
+      fnsRefused: [{ fn: 'database/create_table', code: 'held', reason: held.detail, system: 'database' }],
+    } });
+    expect(await r.store.table('sessions').get(SESSION)).toMatchObject({ tools: ['fs/read'] });
   });
 
   it('never loads a switched-off item, by name or as an import, nor the fns only it brings (build 6)', async () => {
@@ -171,9 +204,9 @@ describe('keeping to what the person may see', () => {
     r.catalog.contexts.set(QualifiedName.parse('fs/guide'), 'How to work with files.');
     r.catalog.contexts.set(QualifiedName.parse('fs/secret'), 'Private notes.');
     r.catalog.contextDecls.set(QualifiedName.parse('fs/guide'), { imports: [QualifiedName.parse('fs/secret')], fns: [QualifiedName.parse('fs/secret')] });
-    expect(await call(r, turn, 'load_fns', { fns: ['fs/secret'] })).toEqual({ status: 'done', result: { loaded: [], refused: [{ fn: 'fs/secret', reason: 'no such fn' }] } });
+    expect(await call(r, turn, 'load_fns', { fns: ['fs/secret'] })).toEqual({ status: 'done', result: { loaded: [], refused: [{ fn: 'fs/secret', code: 'no-such-fn', reason: 'no such fn' }] } });
     // what it imports and brings is still kept to what the person may see
-    expect(await call(r, turn, 'load_context', { context: ['fs/guide', 'fs/secret'] })).toMatchObject({ status: 'done', result: { loaded: ['fs/guide'], fns: [] } });
+    expect(await call(r, turn, 'load_context', { context: ['fs/guide', 'fs/secret'] })).toMatchObject({ status: 'done', result: { loaded: ['fs/guide'], fns: [], fnsRefused: [] } });
     expect(await call(r, turn, 'search_resources', { query: 'x' })).toMatchObject({ status: 'done', result: [{ uri: 'file:///repo/README.md' }] });
   });
 });

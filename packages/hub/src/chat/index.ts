@@ -87,6 +87,12 @@ export interface TurnService {
    * the transcript on its next step) or when the session is gone or archived. Returns the turn started, if any.
    */
   followUp(input: { turn: TurnId; agent: ActorId }): Promise<TurnId | undefined>;
+  /**
+   * Carry on the session's last turn where its agent stopped (Continue): it hit its step limit or was cancelled. The
+   * same agent run goes on with the transcript kept and a fresh step budget, the turn running again with its time
+   * budget counted from now. Refused for any other turn, while an agent answers in the session, or by someone outside it.
+   */
+  continueTurn(turn: TurnId, by: ActorId): Promise<{ turn: TurnId; run: RunId }>;
 }
 
 /** Who answers a message: with one person, the session's agent; with more, only agents replied to, or every agent on reply-all. */
@@ -146,7 +152,10 @@ export interface DeliveryService {
   flush(system: SystemName): Promise<void>;
 }
 
-/** Undo a turn: every run with an undo payload, newest first; session state put back. */
+/**
+ * Undo a turn: every run with an undo payload, newest first; session state put back; and the session as the turn found
+ * it (its transcript, loaded fns and context, graph selection), so a retry starts again from before it.
+ */
 export interface UndoService {
   undoTurn(turn: TurnId, by: ActorId): Promise<UndoReport>;
 }

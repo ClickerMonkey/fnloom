@@ -46,7 +46,7 @@ export function contextDetails(record: ContextRecord): readonly Detail[] {
 export function contextCost(record: ContextRecord, detail: Detail, input: Pick<ContextorInput, 'ctx'>): number {
   const text = detail === 'listed'
     ? `- ${contextText(record, 'listed')}\n`
-    : `${contextBlock({ name: record.name, detail, text: contextText(record, detail), fns: record.decl.fns, ...(record.decl.choices === undefined ? {} : { choices: record.decl.choices }) })}\n\n`;
+    : `${contextBlock({ name: record.name, detail, text: contextText(record, detail), fns: { added: record.decl.fns }, ...(record.decl.choices === undefined ? {} : { choices: record.decl.choices }) })}\n\n`;
   return input.ctx.estimator.text(text);
 }
 

@@ -115,7 +115,7 @@ function searchTool<S extends ProgramAuthoring, D>(): AuthoringTool<S, D> {
       const own = page.items.filter((hit) => hit.kind === state.kind);
       return [
         page.items.length === 0 ? 'No fn fits.' : 'Fns that may fit (load the ones you call):',
-        ...page.items.map((hit) => `- ${hit.name}${hit.signature === undefined ? '' : ` ${hit.signature}`} (${hit.mode ?? 'mode unknown'}): ${hit.description}${hit.available ? '' : ` [unavailable: ${hit.unavailable ?? 'not now'}]`}`),
+        ...page.items.map((hit) => `- ${hit.name}${hit.signature === undefined ? '' : ` ${hit.signature}`} (${hit.mode ?? 'mode unknown'}): ${hit.description}${hit.available ? '' : ` [unavailable: ${hit.blocked?.reason ?? 'not now'}]`}`),
         own.length === 0 ? '' : `A ${state.kind} fn above that already does the whole request can be the answer: call reuse with its name.`,
         state.own.length === 0 ? '' : `Types of this kind you may load: ${state.own.join(', ')}.`,
       ].filter((line) => line !== '').join('\n');

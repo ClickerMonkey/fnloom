@@ -62,12 +62,34 @@ describe('fleet choices in the chat modes', () => {
     const mode = new ToolsChatMode(two.deps);
     const rendered = await mode.render(selected(two.view));
     expect([...rendered.fleet]).toEqual(['fs__read']);
-    const call = (args: Json) => mode.interpret({ type: 'tool', id: 'c1', name: 'fs__read', args }, rendered);
+    const scope = { session: undefined, access: openScope(mintId('actor')) };
+    const call = (args: Json) => mode.interpret({ type: 'tool', id: 'c1', name: 'fs__read', args }, rendered, scope);
     expect(await call({ path: 'a', on: 'desk' })).toEqual({ type: 'run', fn: READ, args: { path: 'a' }, on: DESK });
     expect(await call({ path: 'a' })).toEqual({ type: 'run', fn: READ, args: { path: 'a' } });
     expect(await call({ path: 'a', on: 7 })).toMatchObject({ type: 'invalid', fn: READ, invalid: { source: 'validation' }, args: { path: 'a', on: 7 } });
     const solo: RenderedIteration = { ...rendered, fleet: new Set() };
-    expect(await mode.interpret({ type: 'tool', id: 'c2', name: 'fs__read', args: { path: 'a', on: 'desk' } }, solo)).toEqual({ type: 'run', fn: READ, args: { path: 'a', on: 'desk' } });
+    expect(await mode.interpret({ type: 'tool', id: 'c2', name: 'fs__read', args: { path: 'a', on: 'desk' } }, solo, scope)).toEqual({ type: 'run', fn: READ, args: { path: 'a', on: 'desk' } });
+  });
+
+  it('in tools mode, answer a call of a held fn not in the tools with what blocks it, not "no tool" (regression: "You there?")', async () => {
+    const r = await contextorRig();
+    r.catalog.addFn(READ);
+    const held = { unavailable: 'held' as const, detail: 'database/create_table changed and waits for an admin to approve it' };
+    r.catalog.addFn(QualifiedName.parse('database/create_table'), undefined, { available: held });
+    const deps: Pick<ContextorDeps, 'instances' | 'views'> = { views: r.views, instances: { connected: () => [] } };
+    const mode = new ToolsChatMode(deps);
+    const view = await r.views.view(READ);
+    if (view === undefined) throw new Error('no view');
+    const rendered = await mode.render(selected(view));
+    const scope = { session: undefined, access: openScope(mintId('actor')) };
+    const said = (name: string) => mode.interpret({ type: 'tool', id: 'c1', name, args: {} }, rendered, scope);
+    const reply = "database/create_table can't be used now: database/create_table changed and waits for an admin to approve it. Don't call it again; tell the person what blocks it.";
+    // by its tool name, and by the qualified name weak models send
+    expect(await said('database__create_table')).toMatchObject({ type: 'invalid', fn: 'database/create_table', reply });
+    expect(await said('database/create_table')).toMatchObject({ type: 'invalid', fn: 'database/create_table', reply });
+    // a usable fn that just isn't loaded, and a name that is no fn, stay "no tool"
+    expect(await said('fs__write')).toMatchObject({ type: 'invalid', reply: 'There is no tool named fs__write.' });
+    expect(await said('nonsense')).toMatchObject({ type: 'invalid', reply: 'There is no tool named nonsense.' });
   });
 
   it('in static mode, pass run’s `on` to the run of the fn it names', async () => {

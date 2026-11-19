@@ -194,8 +194,18 @@ describe('fns search in the hub database', () => {
     const { search, asker } = await setup({ status: 'disconnected' });
     expect((await search.search({ systems: [SystemName.parse('books')], items: ['fn'] }, asker)).items).toEqual([]);
     const all = await search.search({ systems: [SystemName.parse('books')], items: ['fn'], available: false }, asker);
-    const anyReason: unknown = expect.any(String);
-    expect(all.items[0]).toMatchObject({ available: false, unavailable: anyReason });
+    // each marked with what blocks it, in the hub's words (regression: "You there?", where held fns were dropped silently)
+    expect(all.items.length).toBeGreaterThan(0);
+    for (const hit of all.items) expect(hit).toMatchObject({ available: false, blocked: { code: 'system-disconnected', reason: 'books is not connected', system: 'books' } });
+  });
+
+  it('marks a fn the person must connect an account for, rather than dropping it', async () => {
+    const { search } = await setup();
+    const unlinked: Asker = { actor: ME, access: { ...openScope(ME), mayUse: (f) => f.name !== 'books/overdue' } };
+    expect((await search.search({ names: [q('books/overdue')], items: ['fn'] }, unlinked)).items).toEqual([]);
+    expect((await search.search({ names: [q('books/overdue')], items: ['fn'], available: false }, unlinked)).items).toMatchObject([{
+      name: 'books/overdue', available: false, blocked: { code: 'connect-account', reason: 'connect your account to use this fn', system: 'books' },
+    }]);
   });
 
   it('ranks inside the database: a `within` list reaches the vector and text indexes', async () => {

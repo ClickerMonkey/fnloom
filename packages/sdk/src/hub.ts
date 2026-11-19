@@ -12,7 +12,7 @@ import {
   ADMIN_TAG, adminSlice, chatSlice, CONTENT_HASH_PATTERN, ChatModeConfig, contextorSlice, contextSlice, ContextorConfig, DETAIL_LEVELS, ERROR_CLASSES,
   graphSlice, versionsSlice, dataSlice, ContributionView, ReadTableArgs, ResultTable, RowActionsQuery, WidgetActionOption, mcpsSlice, metricsSlice, accessSlice, autoPairSlice, connectionsSlice, explorerSlice, suggestionsSlice, MintMcpTokenArgs, modelsSlice, OWN_TAG, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, RUN_STATUSES, runsSlice,
   FnLive, GinTypeDef, LIST_NAMES, querySlice, Section, settingsSlice, systemsSlice, LlmContentPart, ModelLimits, LINK_TARGET_KINDS, type Display,
-  FnExample, FnExamplesPage, FnExamplesQuery, FnRouting, FnSearchPage, FnSearchQuery, LoadContextResult, ShareRule, type RegistryEffect,
+  FnExample, FnExamplesPage, FnExamplesQuery, FnRouting, FnSearchPage, FnSearchQuery, FnRefusal, LoadContextResult, NameRefusal, ShareRule, type RegistryEffect,
 } from '@harness/core';
 import { z } from 'zod';
 import { fn, type FnExampleOf } from './fn.ts';
@@ -554,6 +554,7 @@ const FNS_SEARCH_GUIDE = [
   '(`kinds: ["database/query"], instance: "main"` for the saved queries of one database; `kinds: ["input/form"]` for saved forms).',
   'Each hit has a score: the higher, the closer; compare a hit\'s description with what you need before reusing it. Without `text` it lists alphabetically.',
   'Page with `offset` set to `next`. Call a hit by its name with the args its `signature` shows, or load it with hub/load_fns first.',
+  'A hit with `available: false` can\'t be used now: `blocked.reason` says why, in the hub\'s words. Don\'t load or call it; if you need it, tell the person what blocks it.',
 ].join(' ');
 
 const FNS_SEARCH_EXAMPLES = [
@@ -563,18 +564,30 @@ const FNS_SEARCH_EXAMPLES = [
 ];
 
 /**
+ * The chat agents' rule for being blocked (Phil, 2026-11-18: a prompt rule, no hub guard): stop and say what blocks
+ * them, with the hub's reason, rather than retrying or guessing.
+ */
+const CHAT_BLOCKED_RULE = [
+  'When something you need is unavailable or refused, or the same call keeps failing or returning nothing, stop:',
+  'tell the person what blocks you and why, with the reason the hub gave (such as "database/create_table changed and waits for an admin to approve it"),',
+  'instead of retrying, guessing or working around it.',
+].join(' ');
+
+/**
  * The chat agent's base prompt: one search, and loading context brings its imports and fns, a choice at a time.
  */
 const CHAT_BASE = [
   'You are a helpful assistant inside harness. Use tools when they help, say what you did, and keep answers short.',
   'Find fns and context with hub/fns_search. Loading a context (hub/load_context) loads what it imports too, and the fns it brings join your tools.',
   'When a context lists where to go next, load the one choice that fits, one step at a time, and only what the request needs.',
+  CHAT_BLOCKED_RULE,
 ].join(' ');
 
 /** The small-model chat agent's base prompt: the same, in the static toolset's words. */
 const CHAT_SMALL_BASE = [
   'You are a helpful assistant inside harness. Find, inspect and run fns when they help, say what you did, and keep answers short.',
   'Loading a context brings what it imports and its fns. When it lists where to go next, load the one choice that fits, a step at a time.',
+  CHAT_BLOCKED_RULE,
 ].join(' ');
 
 /** The hub's contract. */
@@ -615,10 +628,10 @@ export const hub = system('hub', {
     fns: {
       load_fns: fn({
         description: 'Add fns to your toolset for this session.',
-        instructions: 'Use it after hub/fns_search, with the names you will call; they can be called from your next step. A refused name says why (no such fn, not allowed, unavailable). Load only what you need: every loaded fn takes room in the prompt.',
+        instructions: 'Use it after hub/fns_search, with the names you will call; they can be called from your next step. A refused name says why in `reason`, in the hub\'s words (no such fn, another system, waits for an admin to approve it): do not load it again; tell the person what blocks it. Load only what you need: every loaded fn takes room in the prompt.',
         examples: [{ args: { fns: ['fs/read', 'fs/edit'] }, note: 'Two fns for a file change.' }],
         args: g.obj({ fns: g.list(g.text(), { minLength: 1 }) }),
-        returns: g.obj({ loaded: g.list(g.text()), refused: g.list(g.obj({ fn: g.text(), reason: g.text() })) }),
+        returns: g.obj({ loaded: g.list(g.text()), refused: g.list(ginAs(FnRefusal)) }),
         tags: [READ_TAG],
         display: 'hidden',
       }),
@@ -679,7 +692,7 @@ export const hub = system('hub', {
         description: 'Load context into this session.',
         instructions: [
           'Use it after hub/fns_search (or a choice under "Where to go next" in a context), with the names that fit; their text is in front of you from the next step.',
-          'Each loads with the context it imports, and the fns it brings go into your tools; the result lists both. A name you got wrong is refused with the closest names.',
+          'Each loads with the context it imports, and the fns it brings go into your tools; the result lists both. A brought fn that could not be added is in `fnsRefused` with the reason the hub gave: it is not in your tools. A name you got wrong is refused with the closest names.',
           'A line copied as `name: description` is fine. Load only what the task needs, one step at a time.',
         ].join(' '),
         examples: [
@@ -740,7 +753,7 @@ export const hub = system('hub', {
         instructions: 'Use it to keep fns and context you will use in front of you from the next step on. Use the lowest detail that is enough (`signature` for a fn you know how to call), since everything loaded takes room in the prompt.',
         examples: [{ args: { names: ['fs/read', 'fs/edit'], detail: 'signature' } }],
         args: g.obj({ names: g.list(g.text(), { minLength: 1 }), detail: g.optional(DetailType) }),
-        returns: g.obj({ loaded: g.list(g.text()), refused: g.list(RefusedName) }),
+        returns: g.obj({ loaded: g.list(g.text()), refused: g.list(ginAs(NameRefusal)) }),
         tags: [READ_TAG],
         display: 'hidden',
       }),

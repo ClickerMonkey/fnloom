@@ -93,7 +93,7 @@ const isAdmin = computed(() => session.user.value?.role === 'admin');
             <RouterLink v-if="isAdmin" class="name link" :to="links.fn(widget.name)" data-testid="data-widget-page">{{ fnLabel(widget.name) }}</RouterLink>
             <span v-else class="name">{{ fnLabel(widget.name) }}</span>
             <span v-if="widget.description !== ''" class="about">{{ widget.description }}</span>
-            <span v-if="widget.unavailable !== undefined" class="how">{{ widget.unavailable }}</span>
+            <span v-if="widget.blocked !== undefined" class="how">{{ widget.blocked.reason }}</span>
           </span>
           <UiButton size="sm" icon="play" :loading="opening === widget.name" :disabled="!widget.available" data-testid="data-widget-open" @click="openWidget(widget.name)">Open in chat</UiButton>
         </li>

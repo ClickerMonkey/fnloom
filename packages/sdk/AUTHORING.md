@@ -5352,10 +5352,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/load_fns`: Add fns to your toolset for this session. Tags: `read`.
 
   ```text
-  (obj{fns: list<text>{minLength=1}}) => obj{
-    loaded: list<text>,
-    refused: list<obj{fn: text, reason: text}>
-  }
+  (obj{fns: list<text>{minLength=1}}) => obj{ loaded, refused … }
   ```
 - `hub/drop_fns`: Remove fns from your toolset. Tags: `read`.
 
@@ -5365,23 +5362,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/fns_search`: Search fns and context in the hub by words, meaning or both, best first or by name, filtered by kind, system, instance, who shares them, the types they read or write and their mode, a page at a time. Tags: `read`.
 
   ```text
-  (obj{ text?, match?, items?, kinds?, systems?, instance?, visibility?, types?, modes?, effects?, names?, available?, order?, offset?, limit? … }) => obj{
-    items: list<obj{
-      item: enum<text>{fn, context},
-      name: text,
-      system: text,
-      description: text,
-      kind?: text,
-      mode?: enum<text>{read, write, delete},
-      signature?: text,
-      effects?: text,
-      instance?: text,
-      score?: num,
-      available: bool,
-      unavailable?: text
-    }>,
-    next?: num{whole=true, min=0}
-  }
+  (obj{ text?, match?, items?, kinds?, systems?, instance?, visibility?, types?, modes?, effects?, names?, available?, order?, offset?, limit? … }) => obj{ items, next? … }
   ```
 - `hub/fn_examples`: A page of a fn's examples (args, the result when kept, and what each shows), the closest to a query first. Tags: `read`.
 
@@ -5413,11 +5394,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/load_context`: Load context into this session. Tags: `read`.
 
   ```text
-  (obj{context: list<text>{minLength=1}}) => obj{
-    loaded: list<text>,
-    fns: list<text>,
-    refused: list<obj{context: text, reason: text{minLength=1}, closest: list<text>}>
-  }
+  (obj{context: list<text>{minLength=1}}) => obj{ loaded, fns, fnsRefused, refused … }
   ```
 - `hub/search_resources`: Search files and other resources by meaning and words. Tags: `read`.
 
@@ -5506,10 +5483,7 @@ This is the hub contract as the SDK declares it now:
   (obj{
     names: list<text>{minLength=1},
     detail?: enum<text>{listed, signature, full}
-  }) => obj{
-    loaded: list<text>,
-    refused: list<obj{name: text, reason: text}>
-  }
+  }) => obj{ loaded, refused … }
   ```
 - `hub/unload`: Take fns and context out of what you keep in front of you. Tags: `read`.
 
@@ -5798,21 +5772,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/turn_undo`: Undo what one message's runs did, where their fns can undo.
 
   ```text
-  (obj{/* turn id */ turn: text}) => obj{
-    /* turn id */ turn: text,
-    undone: list<obj{/* run id */ run: text, fn: text, summary: text}>,
-    failed: list<obj{
-      /* run id */ run: text,
-      fn: text,
-      error: obj{
-        class: enum<text>{retry, caller, fatal},
-        message: text,
-        code?: text,
-        data?: any
-      }
-    }>,
-    notUndoable: list<obj{/* run id */ run: text, fn: text}>
-  }
+  (obj{/* turn id */ turn: text}) => obj{ turn, undone, failed, notUndoable, session? … }
   ```
 - `hub/memory_update`: Change a memory: its text, title, weight, tags, the fns it brings or where it applies.
 
@@ -6527,7 +6487,7 @@ The hub's contract.
 const hub: typeof hub; // too large to print: see its section
 ```
 
-Refers to: [`ContributionView`](#core-contributionview), [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnSearchPage`](#core-fnsearchpage), [`FnSearchQuery`](#core-fnsearchquery), [`LoadContextResult`](#core-loadcontextresult), [`MintMcpTokenArgs`](#core-mintmcptokenargs), [`ReadTableArgs`](#core-readtableargs), [`ResourceOutlineArgs`](#core-resourceoutlineargs), [`ResourceSendArgs`](#core-resourcesendargs), [`ResultTable`](#core-resulttable), [`RowActionsQuery`](#core-rowactionsquery), [`Section`](#core-section), [`WidgetActionOption`](#core-widgetactionoption).
+Refers to: [`ContributionView`](#core-contributionview), [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnRefusal`](#core-fnrefusal), [`FnSearchPage`](#core-fnsearchpage), [`FnSearchQuery`](#core-fnsearchquery), [`LoadContextResult`](#core-loadcontextresult), [`MintMcpTokenArgs`](#core-mintmcptokenargs), [`NameRefusal`](#core-namerefusal), [`ReadTableArgs`](#core-readtableargs), [`ResourceOutlineArgs`](#core-resourceoutlineargs), [`ResourceSendArgs`](#core-resourcesendargs), [`ResultTable`](#core-resulttable), [`RowActionsQuery`](#core-rowactionsquery), [`Section`](#core-section), [`WidgetActionOption`](#core-widgetactionoption).
 
 #### `HubContract`
 
@@ -16715,12 +16675,19 @@ type ContextFileProblemCode = "header" | "duplicate-key" | "broken-link" | "cycl
 const, type · declared in `packages/core/src/context-files.ts`
 
 What `hub/load_context` did: the context it loaded (with what each loads with it, every time), the fns that context
-brings that went into the session's tools, and what it refused, each with the closest names it knows.
+brings that went into the session's tools, the fns it brings that could not (`fnsRefused`, each with what blocks it), and
+what it refused, each with the closest names it knows.
 
 ```ts
 type LoadContextResult = {
   loaded: `${string}/${string}`[];
   fns: `${string}/${string}`[];
+  fnsRefused: {
+    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+    reason: string;
+    fn: string;
+    system?: SystemName | undefined;
+  }[];
   refused: {
     context: string;
     reason: string;
@@ -17097,7 +17064,11 @@ type FnSearchPage = {
     effects?: string | undefined;
     instance?: InstanceName | undefined;
     score?: number | undefined;
-    unavailable?: string | undefined;
+    blocked?: {
+      code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+      reason: string;
+      system?: SystemName | undefined;
+    } | undefined;
   }[];
   next?: number | undefined;
 };
@@ -19619,6 +19590,36 @@ type DeliveryStatus = "queued" | "done" | "failed" | "expired" | "delivered";
 
 ### From `packages/core/src/records/systems.ts`
 
+#### <a id="core-fnrefusal"></a>`FnRefusal`
+
+const, type · declared in `packages/core/src/records/systems.ts`
+
+A fn the hub refused, by the name it was asked for, with what blocks it.
+
+```ts
+type FnRefusal = {
+  code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+  reason: string;
+  fn: string;
+  system?: SystemName | undefined;
+};
+```
+
+#### <a id="core-namerefusal"></a>`NameRefusal`
+
+const, type · declared in `packages/core/src/records/systems.ts`
+
+A name `hub/load` refused (a fn's or a context item's), with what blocks it; a name that is neither is `no-such-fn`.
+
+```ts
+type NameRefusal = {
+  code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+  reason: string;
+  name: string;
+  system?: SystemName | undefined;
+};
+```
+
 #### <a id="core-typedefinitions"></a>`TypeDefinitions`
 
 const, type · declared in `packages/core/src/records/systems.ts`
@@ -20447,7 +20448,7 @@ problems back to the agent and the chat shows the run softly as "Retried". A rea
 
 ```ts
 type InvalidInput = {
-  source: "json" | "result" | "unavailable" | "schema" | "validation";
+  source: "json" | "result" | "schema" | "unavailable" | "validation";
   problems: {
     path: string;
     message: string;
@@ -20490,7 +20491,7 @@ type OutcomeWire = {
 } | {
   status: "invalid-input";
   invalid: {
-    source: "json" | "result" | "unavailable" | "schema" | "validation";
+    source: "json" | "result" | "schema" | "unavailable" | "validation";
     problems: {
       path: string;
       message: string;

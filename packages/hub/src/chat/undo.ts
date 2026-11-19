@@ -1,9 +1,12 @@
 /**
  * Undoing a turn: every run of the turn that left an undo payload is undone through its system, newest first, and
- * the session state each run changed is put back. Runs that changed something but can't be undone are reported, and
- * the hub posts a note in the session saying what happened.
+ * the session state each run changed is put back. The session goes back to how the turn found it (`Turn.start`): its
+ * transcript is cut back to before the turn, and the fns, context and graph selection the agent had loaded are put
+ * back, so a retry starts again from before the turn and never reads it. Runs that changed something but can't be
+ * undone are reported, and the hub posts a note in the session saying what happened. Turns are undone newest first:
+ * a turn with a later one still standing is refused, since the later one was built on it.
  */
-import { mintId, READ_TAG, type ActorId, type ChatMessage, type Run, type TurnId, type UndoReport } from '@harness/core';
+import { mintId, READ_TAG, TurnStatus, type ActorId, type ChatMessage, type QualifiedName, type Run, type Session, type Turn, type TurnId, type UndoReport } from '@harness/core';
 import type { ChatDeps } from './deps.ts';
 import { ChatError, messageOf } from './errors.ts';
 import { AGENT_KIND } from '../execution/index.ts';
@@ -14,11 +17,24 @@ import { someRows } from '../store/rows.ts';
 /** The tag of fns that only read, so a turn that ran them has nothing to undo there. */
 export { READ_TAG };
 
+/** Every turn status but undone: the turns still standing. */
+const STANDING = TurnStatus.options.filter((status) => status !== 'undone');
+
+/** How many of something, in words. */
+function count(n: number, one: string, many: string): string {
+  return n === 1 ? `one ${one}` : `${n} ${many}`;
+}
+
 /** The note the hub posts after undoing a turn. */
 export function undoNote(report: UndoReport): string {
   const lines: string[] = [];
-  if (report.undone.length === 0 && report.failed.length === 0 && report.notUndoable.length === 0) { lines.push('Undid the turn. It had changed nothing.'); }
-  if (report.undone.length > 0) { lines.push(`Undid ${report.undone.length === 1 ? 'one change' : `${report.undone.length} changes`}:`, ...report.undone.map((u) => `- ${u.fn}: ${u.summary}`)); }
+  const session = report.session;
+  const rewound = session !== undefined && (session.messages > 0 || session.unloaded.length > 0 || session.reloaded.length > 0);
+  if (report.undone.length === 0 && report.failed.length === 0 && report.notUndoable.length === 0 && !rewound) { lines.push('Undid the turn. It had changed nothing.'); }
+  if (session !== undefined && session.messages > 0) { lines.push(`Took the turn's ${count(session.messages, 'message', 'messages')} out of the conversation, so the agent starts again from before it.`); }
+  if (session !== undefined && session.unloaded.length > 0) { lines.push(`Unloaded what the turn loaded: ${session.unloaded.join(', ')}.`); }
+  if (session !== undefined && session.reloaded.length > 0) { lines.push(`Loaded again what the turn dropped: ${session.reloaded.join(', ')}.`); }
+  if (report.undone.length > 0) { lines.push(`Undid ${count(report.undone.length, 'change', 'changes')}:`, ...report.undone.map((u) => `- ${u.fn}: ${u.summary}`)); }
   if (report.failed.length > 0) { lines.push('Could not undo:', ...report.failed.map((f) => `- ${f.fn}: ${f.error.message}`)); }
   if (report.notUndoable.length > 0) { lines.push('These have no undo and were left as they are:', ...report.notUndoable.map((n) => `- ${n.fn}`)); }
   return lines.join('\n');
@@ -46,13 +62,20 @@ export class RunUndoService implements UndoService {
     }
     if (turn.status === 'running' || turn.status === 'paused') { throw new ChatError('conflict', 'Stop the turn before undoing it.'); }
     if (turn.status === 'undone') { throw new ChatError('conflict', 'This turn was already undone.'); }
+    if (turn.session !== undefined && await this.#deps.store.table('turns').count({ session: turn.session, createdAt: { gt: turn.createdAt }, status: { in: STANDING } }) > 0) {
+      throw new ChatError('conflict', 'A later turn was built on this one. Undo the later turns first.');
+    }
     const runs = await someRows(this.#deps.store.table('runs'), { where: { turn: id }, order: [['createdAt', 'desc']] }, this.#deps.settings.chat.HARNESS_UNDO_RUNS);
     // A run still going in the background could change things after its undo, so the turn waits until all have ended.
     if (runs.some(isActiveRun)) { throw new ChatError('conflict', 'Some runs of this turn are still going. Undo it once they finish.'); }
     const report: UndoReport = { turn: id, undone: [], failed: [], notUndoable: [] };
     for (const run of runs) { await this.#undoRun(run, by, report); }
+    const rewound = await this.#rewind(turn);
+    if (rewound !== undefined) { report.session = rewound; } else if (turn.session !== undefined) { await this.#sessions.save(turn.session, {}); }
     await this.#deps.store.table('turns').update(id, { status: 'undone' });
-    this.#deps.log.info('chat.turn.undone', { turn: id, by, undone: report.undone.length, failed: report.failed.length, notUndoable: report.notUndoable.length });
+    this.#deps.log.info('chat.turn.undone', {
+      turn: id, by, undone: report.undone.length, failed: report.failed.length, notUndoable: report.notUndoable.length, messages: report.session?.messages ?? null,
+    });
     if (turn.session !== undefined) {
       const note: ChatMessage = {
         id: mintId('message', this.#deps.random), session: turn.session, turn: id, author: this.#deps.hubActor, role: 'note', parts: [{ type: 'text', text: undoNote(report) }],
@@ -60,10 +83,38 @@ export class RunUndoService implements UndoService {
       };
       await this.#deps.store.table('messages').insert(note);
       this.#deps.bus.publish('message', { message: note });
-      await this.#sessions.save(turn.session, {});
       this.#deps.bus.publish('session.controls', { session: turn.session, controls: await this.#sessions.controls(turn.session) });
     }
     return report;
+  }
+
+  /**
+   * Put the session back the way the turn found it: the transcript cut to its length then, the loaded fns, context and
+   * graph selection as they were. What changed, for the report; undefined for a turn that kept no start.
+   */
+  async #rewind(turn: Turn): Promise<UndoReport['session']> {
+    const start = turn.start;
+    const id = turn.session;
+    if (id === undefined || start === undefined) { return undefined; }
+    // in one transaction with the read, so a background result landing now isn't lost or doubled
+    const rewound = await this.#deps.store.tx(async (tx): Promise<{ session: Session; report: NonNullable<UndoReport['session']> } | undefined> => {
+      const session = await tx.table('sessions').get(id);
+      if (session === undefined) { return undefined; }
+      const loaded = [...session.tools, ...session.context];
+      const before = [...start.tools, ...start.context];
+      const { selection: _selection, ...rest } = session;
+      const restored = await tx.table('sessions').put({
+        ...rest, transcript: session.transcript.slice(0, start.transcript), tools: [...start.tools], context: [...start.context],
+        ...(start.selection === undefined ? {} : { selection: start.selection }), updatedAt: this.#deps.clock(),
+      });
+      return {
+        session: restored,
+        report: { messages: Math.max(0, session.transcript.length - start.transcript), unloaded: missingFrom(loaded, before), reloaded: missingFrom(before, loaded) },
+      };
+    });
+    if (rewound === undefined) { return undefined; }
+    this.#sessions.changed(rewound.session);
+    return rewound.report;
   }
 
   async #undoRun(run: Run, by: ActorId, report: UndoReport): Promise<void> {
@@ -94,4 +145,10 @@ export class RunUndoService implements UndoService {
   async #readOnly(run: Run): Promise<boolean> {
     return (await this.#deps.catalog.fn(run.fn))?.decl.tags.includes(READ_TAG) ?? false;
   }
+}
+
+/** The names of `names` that `others` lacks, once each, in order. */
+function missingFrom(names: readonly QualifiedName[], others: readonly QualifiedName[]): QualifiedName[] {
+  const known = new Set(others);
+  return [...new Set(names)].filter((name) => !known.has(name));
 }

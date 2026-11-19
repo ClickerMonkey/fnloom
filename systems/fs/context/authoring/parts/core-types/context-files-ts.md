@@ -98,12 +98,19 @@ type ContextFileProblemCode = "header" | "duplicate-key" | "broken-link" | "cycl
 const, type · declared in `packages/core/src/context-files.ts`
 
 What `hub/load_context` did: the context it loaded (with what each loads with it, every time), the fns that context
-brings that went into the session's tools, and what it refused, each with the closest names it knows.
+brings that went into the session's tools, the fns it brings that could not (`fnsRefused`, each with what blocks it), and
+what it refused, each with the closest names it knows.
 
 ```ts
 type LoadContextResult = {
   loaded: `${string}/${string}`[];
   fns: `${string}/${string}`[];
+  fnsRefused: {
+    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+    reason: string;
+    fn: string;
+    system?: SystemName | undefined;
+  }[];
   refused: {
     context: string;
     reason: string;

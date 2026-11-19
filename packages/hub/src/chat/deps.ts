@@ -34,7 +34,7 @@ export interface ChatDeps {
   readonly catalog: Catalog;
   readonly link: Pick<LinkService, 'connection' | 'connected' | 'onChange'>;
   readonly runs: RunService;
-  readonly agents: Pick<AgentLoop, 'start' | 'interrupt'>;
+  readonly agents: Pick<AgentLoop, 'start' | 'interrupt' | 'continue'>;
   readonly limits: LimitResolver;
   readonly search: Search;
   readonly suggest: Suggester;

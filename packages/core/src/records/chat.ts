@@ -164,6 +164,11 @@ export const SessionControls = z.object({
   /** Runs that won't stop on cancel. */
   uncancellable: z.array(RunId),
   undoLastTurn: z.boolean(),
+  /**
+   * Whether the last turn can carry on where it stopped (Continue): its agent hit its step limit or was cancelled.
+   * Absent reads as no.
+   */
+  continueLastTurn: z.boolean().optional(),
   /** Each run of the session a person can control, so the chat can stop, pause or resume one, some or all. */
   runs: z.array(ControllableRun).optional(),
 });

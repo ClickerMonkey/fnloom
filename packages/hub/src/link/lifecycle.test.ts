@@ -101,7 +101,7 @@ describe('installed vs live', () => {
   it('offers nothing while installed, then goes live with the reviewed hash and the items kept off', async () => {
     const { hash } = await installed();
     expect((await rig.store.table('systems').get(NOTES))?.stage).toBe('installed');
-    expect(await rig.catalog.availability(q('notes/read'))).toEqual({ unavailable: 'disabled', detail: 'notes is installed and waits for an admin to review it and go live' });
+    expect(await rig.catalog.availability(q('notes/read'))).toEqual({ unavailable: 'held', detail: 'notes is installed and waits for an admin to review it and go live' });
     expect((await rig.store.table('context').get(q('notes/guide')))?.systemOff).toBe(true);
 
     expect(await refusal(rig.lifecycle.goLive({ system: NOTES, hash: 'stale', off: [] }, ADMIN))).toEqual({ status: 409, code: 'CONTRACT_MOVED' });
@@ -165,8 +165,8 @@ describe('installed vs live', () => {
     expect(pending).toMatchObject({ version: '1.1.0', hash: await storedHash(), by: 'contract' });
     expect(pending?.changes.map((c) => c.name)).toEqual(['notes/write', 'notes/tag']);
     expect(await rig.catalog.availability(q('notes/read'))).toBe(true);
-    expect(await rig.catalog.availability(q('notes/tag'))).toMatchObject({ unavailable: 'disabled', detail: 'notes/tag changed and waits for an admin to approve it' });
-    expect(await rig.catalog.availability(q('notes/write'))).toMatchObject({ unavailable: 'disabled' });
+    expect(await rig.catalog.availability(q('notes/tag'))).toMatchObject({ unavailable: 'held', detail: 'notes/tag changed and waits for an admin to approve it' });
+    expect(await rig.catalog.availability(q('notes/write'))).toMatchObject({ unavailable: 'held' });
 
     expect(await refusal(rig.lifecycle.approve({ system: NOTES, hash, off: [] }, ADMIN))).toEqual({ status: 409, code: 'CONTRACT_MOVED' });
     expect(await refusal(rig.lifecycle.approve({ system: NOTES, hash: next.hash, off: [] }, ADMIN))).toEqual({ status: 409, code: 'CONTRACT_MOVED' });
@@ -198,7 +198,7 @@ describe('installed vs live', () => {
     const sneak: Manifest = { ...manifest, fns: [...manifest.fns, { ...declOf(manifest, 'write'), name: 'sneak', description: 'Delete every note.', effects: { mode: 'delete' } }] };
     await fake.sdk.call('manifest', sneak);
     expect((await rig.lifecycle.review(NOTES))?.pending?.changes.map((c) => [c.name, c.change])).toEqual([['notes/sneak', 'added']]);
-    expect(await rig.catalog.availability(q('notes/sneak'))).toMatchObject({ unavailable: 'disabled' });
+    expect(await rig.catalog.availability(q('notes/sneak'))).toMatchObject({ unavailable: 'held' });
     expect(await pendingHash()).toBe(await storedHash());
   });
 
@@ -208,7 +208,7 @@ describe('installed vs live', () => {
     const evil = { ...declOf(manifest, 'write'), name: 'evil', description: 'Make anything.', effects: { mode: 'delete' as const, registry: [{ thing: 'fns' as const, action: 'create' as const }, { thing: 'context' as const, action: 'create' as const }] } };
     await fake.sdk.call('patch', { hash: 'anything', upsert: { fns: [evil] }, remove: {} });
     expect((await rig.lifecycle.review(NOTES))?.pending).toMatchObject({ by: 'runtime', changes: [{ name: 'notes/evil', change: 'added', origin: 'runtime' }] });
-    expect(await rig.catalog.availability(q('notes/evil'))).toMatchObject({ unavailable: 'disabled' });
+    expect(await rig.catalog.availability(q('notes/evil'))).toMatchObject({ unavailable: 'held' });
     // a fn still waiting covers nothing either
     await fake.sdk.call('patch', { hash: 'more', upsert: { fns: [{ ...evil, name: 'evil2' }] }, remove: {} });
     expect((await rig.lifecycle.review(NOTES))?.pending?.changes.map((c) => c.name)).toEqual(['notes/evil', 'notes/evil2']);

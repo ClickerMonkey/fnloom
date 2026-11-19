@@ -378,7 +378,7 @@ describe('refusing runs', () => {
     r.connect('fs');
     const turn = await r.turn();
     await r.store.table('systems').put({ ...systemRow('fs', 'connected'), stage: 'installed' });
-    r.catalog.set('fs/read', { available: { unavailable: 'disabled', detail: 'fs is installed and waits for an admin to review it and go live' } });
+    r.catalog.set('fs/read', { available: { unavailable: 'held', detail: 'fs is installed and waits for an admin to review it and go live' } });
     await expect(r.module.runs.start(input(turn, 'fs/read', { path: 'a' }))).rejects.toMatchObject({ error: { code: 'unavailable' } });
     const { run } = await r.module.runs.start({ ...input(turn, 'fs/read', { path: 'a' }), test: true });
     expect((await r.store.table('runs').get(run))?.test).toBe(true);

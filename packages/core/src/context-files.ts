@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import { ContextDecl } from './manifest.ts';
 import { Audience, LocalName, QualifiedName } from './primitives.ts';
+import { FnRefusal } from './records/systems.ts';
 
 /**
  * The YAML header of a context file: `ContextDecl` without its content (the body is the content), with `key` for its
@@ -55,11 +56,13 @@ export type ContextFileProblem = z.infer<typeof ContextFileProblem>;
 
 /**
  * What `hub/load_context` did: the context it loaded (with what each loads with it, every time), the fns that context
- * brings that went into the session's tools, and what it refused, each with the closest names it knows.
+ * brings that went into the session's tools, the fns it brings that could not (`fnsRefused`, each with what blocks it), and
+ * what it refused, each with the closest names it knows.
  */
 export const LoadContextResult = z.object({
   loaded: z.array(QualifiedName),
   fns: z.array(QualifiedName),
+  fnsRefused: z.array(FnRefusal),
   refused: z.array(z.object({ context: z.string(), reason: z.string().min(1), closest: z.array(QualifiedName) })),
 });
 export type LoadContextResult = z.infer<typeof LoadContextResult>;

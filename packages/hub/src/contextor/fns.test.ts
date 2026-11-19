@@ -73,7 +73,7 @@ describe('the contextor\'s hub fns', () => {
     const notAName = await call('hub/inspect', { name: 'not a name' });
     expect(notAName).toMatchObject({ error: { code: INVALID_INPUT_CODE } });
     expect(notAName.status === 'failed' ? notAName.error.message : '').toContain('is not a name');
-    expect(await call('hub/inspect', { name: 'fs/off' })).toMatchObject({ error: { code: INVALID_INPUT_CODE, message: "name: fs/off can't be used here" } });
+    expect(await call('hub/inspect', { name: 'fs/off' })).toMatchObject({ error: { code: INVALID_INPUT_CODE, message: "name: fs/off can't be used now: fs/off is switched off" } });
   });
 
   it('load and unload change the session\'s loaded fns and context, refusing what can\'t be loaded', async () => {
@@ -81,7 +81,11 @@ describe('the contextor\'s hub fns', () => {
     expect(await call('hub/load', { names: ['fs/guide', 'fs/off', 'nope', 'fs/missing'] })).toEqual({
       status: 'done', result: {
         loaded: ['fs/guide'],
-        refused: [{ name: 'fs/off', reason: 'switched off' }, { name: 'nope', reason: 'not a name (system/name)' }, { name: 'fs/missing', reason: 'no fn or context has that name' }],
+        refused: [
+          { name: 'fs/off', code: 'disabled', reason: 'fs/off is switched off', system: 'fs' },
+          { name: 'nope', code: 'not-a-name', reason: 'not a name (system/name)' },
+          { name: 'fs/missing', code: 'no-such-fn', reason: 'no fn or context has that name' },
+        ],
       },
     });
     expect((await r.store.table('sessions').get(SESSION))?.context).toEqual(['fs/guide']);
@@ -92,12 +96,24 @@ describe('the contextor\'s hub fns', () => {
     expect([session?.tools, session?.context]).toEqual([[], []]);
   });
 
+  it('load refuses a held fn, named or brought by context, with the hub\'s reason (regression: "You there?")', async () => {
+    const { r, call } = await started();
+    const held = { unavailable: 'held' as const, detail: 'fs/make changed and waits for an admin to approve it' };
+    r.catalog.add('fs', 'make', fn({ description: 'Make a file.', args: g.obj({}), returns: g.text() }), { available: held });
+    r.catalog.contexts.set('fs/making', 'How to make files.');
+    r.catalog.contextDecls.set(QualifiedName.parse('fs/making'), { fns: [QualifiedName.parse('fs/make'), QualifiedName.parse('fs/read')] });
+    const refusal = { name: 'fs/make', code: 'held', reason: held.detail, system: 'fs' };
+    expect(await call('hub/load', { names: ['fs/make'] })).toEqual({ status: 'done', result: { loaded: [], refused: [refusal] } });
+    expect(await call('hub/load', { names: ['fs/making'] })).toEqual({ status: 'done', result: { loaded: ['fs/read', 'fs/making'], refused: [refusal] } });
+    expect(await call('hub/inspect', { name: 'fs/make' })).toMatchObject({ error: { message: `name: fs/make can't be used now: ${held.detail}` } });
+  });
+
   it('inspect and load show memory only in its scope, as every reader of context does', async () => {
     const { r, call } = await started();
     expect(await call('hub/inspect', { name: 'memory/mine' })).toMatchObject({ status: 'done', result: { kind: 'context', text: 'Alice likes tea.' } });
     for (const name of ['memory/bobs', 'memory/elsewhere']) expect(await call('hub/inspect', { name })).toMatchObject({ status: 'failed', error: { code: INVALID_INPUT_CODE } });
     expect(await call('hub/load', { names: ['memory/mine', 'memory/bobs'] })).toEqual({
-      status: 'done', result: { loaded: ['memory/mine'], refused: [{ name: 'memory/bobs', reason: 'no fn or context has that name' }] },
+      status: 'done', result: { loaded: ['memory/mine'], refused: [{ name: 'memory/bobs', code: 'no-such-fn', reason: 'no fn or context has that name' }] },
     });
     expect((await r.store.table('sessions').get(SESSION))?.context).toEqual(['memory/mine']);
   });

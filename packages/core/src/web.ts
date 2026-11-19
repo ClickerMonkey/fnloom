@@ -229,6 +229,8 @@ export const chatSlice = spec({
     invoke: { body: z.object({ session: SessionId, fn: QualifiedName, args: Json, on: InstanceName.optional(), client: ClientInfo }), response: z.object({ turn: TurnId, run: RunId }), ws: 'invoke' },
     /** Pause, resume or cancel the session's work: every run it applies to, or only `runs`. */
     control: { body: z.object({ session: SessionId, action: SessionControlAction, runs: z.array(RunId).min(1).optional() }), response: SessionControls, ws: 'control' },
+    /** What the session's controls can do now (a chat opening reads them; changes come as `controls` events). */
+    controls: { body: z.object({ session: SessionId }), response: SessionControls, ws: 'controls' },
     presence: { body: Presence.omit({ user: true, lastActiveAt: true }), ws: 'presence' },
   }),
 });
@@ -239,6 +241,8 @@ export const runsSlice = spec({
     /** Move a run to the background so the agent stops waiting for it. */
     background: { body: z.object({ run: RunId }), response: z.object({ accepted: z.boolean() }), ws: 'background' },
     undoTurn: { body: z.object({ turn: TurnId }), response: UndoReport, ws: 'undoTurn' },
+    /** Carry on a turn whose agent hit its step limit or was cancelled: the same run, its transcript kept, its step count fresh. */
+    continueTurn: { body: z.object({ turn: TurnId }), response: z.object({ turn: TurnId, run: RunId }), ws: 'continueTurn' },
     tree: { body: z.object({ turn: TurnId }), response: TreeNode, ws: 'tree' },
     run: { body: z.object({ run: RunId }), response: Run, ws: 'run' },
     llmCall: { body: z.object({ id: LlmInteractionId }), response: LlmInteraction, ws: 'llmCall' },

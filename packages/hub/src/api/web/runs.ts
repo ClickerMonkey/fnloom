@@ -9,7 +9,7 @@ import { plugin } from '@ayepi/plugin';
 import { runsSlice, compact, RunSummary, type LlmInteraction, type Run, type RunId, type TreeNode, type Turn } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { personOperations } from '../person-ops.ts';
-import { visibleRun, visibleSession, type FullHandlers } from './access.ts';
+import { visibleRun, visibleSession, visibleTurn, type FullHandlers } from './access.ts';
 import { allRows } from '../../store/rows.ts';
 import type { authPlugin } from './auth.ts';
 import type { HubReads } from '../reads.ts';
@@ -40,6 +40,10 @@ export function runsPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>
     .handlers((): FullHandlers<typeof runsSlice> => ({
       background: ({ data, user }) => person.run_background(data, user),
       undoTurn: ({ data, user }) => person.turn_undo(data, user),
+      continueTurn: async ({ data, user }) => {
+        await visibleTurn(hub, data.turn, user);
+        return chat.turns.continueTurn(data.turn, user.id);
+      },
       tree: ({ data, user }) => reads.run_tree(data, user),
       run: ({ data, user }) => reads.run_get(data, user),
       llmCall: ({ data, user }) => reads.llm_call(data, user),

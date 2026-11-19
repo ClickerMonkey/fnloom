@@ -106,6 +106,14 @@ describe('vector index', () => {
     expect(await store.vectors.nearest(TEST_EMBEDDER, [1, 0, 0], 10, kinds, [{ kind: 'fn', key: 'nothing' }])).toEqual([]);
   });
 
+  // regression: sqlite-vec applies an id list after the KNN's k, so items past the k nearest of the whole table vanished
+  it('finds the items of a `within` list however far they are from the nearest of the whole table', async () => {
+    const far = await store.vectors.nearest(TEST_EMBEDDER, [1, 0.1, 0], 1, kinds, [{ kind: 'context', key: 'y' }, { kind: 'fn', key: 'minus-x' }]);
+    expect(far.map((h) => h.key)).toEqual(['y']);
+    expect(far[0]?.score).toBeCloseTo(0.1 / Math.hypot(1, 0.1), 5);
+    expect((await store.vectors.nearest(TEST_EMBEDDER, [1, 0.1, 0], 2, ['fn'], [{ kind: 'context', key: 'y' }, { kind: 'fn', key: 'minus-x' }])).map((h) => h.key)).toEqual(['minus-x']);
+  });
+
   it('keeps to keys with a prefix inside the search, so other keys never use up the limit', async () => {
     const crowd = Array.from({ length: 30 }, (_, i) => ({ kind: 'fn' as const, key: `x-other-${i}`, vector: [1, 0.01 * (i + 1), 0] }));
     await store.vectors.upsert(TEST_EMBEDDER, [...crowd, { kind: 'fn', key: 'mine-1', vector: [0, 1, 1] }]);
@@ -267,10 +275,16 @@ describe('hybrid search', () => {
     expect(hits[0]).toMatchObject({ key: 'fs/grep', ranks: { vector: 1 } });
     expect(hits[0]?.ranks.text).toBeGreaterThan(0);
     expect(hits.map((h) => h.key).sort()).toEqual(['fs/glob', 'fs/grep', 'fs/read']);
-    // words alone while no embedder is connected
+    // each scores its similarity of meaning; fs/read has no vector, so nothing vouches for it
+    expect(hits.find((h) => h.key === 'fs/grep')).toMatchObject({ score: 1, similarity: 1 });
+    expect(hits.find((h) => h.key === 'fs/glob')?.similarity).toBeCloseTo(0.994, 3);
+    expect(hits.find((h) => h.key === 'fs/read')).toMatchObject({ score: 0 });
+    expect(hits.find((h) => h.key === 'fs/read')?.similarity).toBeUndefined();
+    // words alone while no embedder is connected: the share of the best rank, with no similarity
     const words = await store.search.search({ text: 'read', kinds: ['fn'], limit: 3 });
     expect(words.map((h) => h.key)).toEqual(['fs/read']);
     expect(words[0]?.score).toBe(1);
+    expect(words[0]?.similarity).toBeUndefined();
     expect(await store.search.search({ text: 'read', kinds: [], limit: 3 })).toEqual([]);
     expect(await store.search.search({ text: 'read', kinds: ['fn'], limit: 0 })).toEqual([]);
   });
@@ -289,6 +303,40 @@ describe('hybrid search', () => {
     const hits = await search.search({ text: 'q', kinds: ['fn'], limit: 1, vector: { embedder: 'e/x', values: [1] } });
     expect(asked).toEqual([5, 5]);
     expect(hits).toHaveLength(1);
-    expect(hits[0]?.score).toBe(0.5);
+    expect(hits[0]).toMatchObject({ key: 'v', score: 1, similarity: 1 });
+  });
+
+  // regression: the "You there?" chat (2026-11-17) offered the web fns at 0.94 to 1 for every message; the score was
+  // the fused rank, so the first of any search scored 1 however far it was from what was asked
+  it('scores by similarity of meaning, not by rank: the best of an unrelated search scores low', async () => {
+    await store.text.upsert([
+      { kind: 'fn', key: 'web/search', text: 'Search the web for anything you don’t know, when there is an answer' },
+      { kind: 'context', key: 'web/guide', text: 'How you read the pages you find there' },
+      { kind: 'fn', key: 'database/tables', text: 'The tables of a database' },
+    ]);
+    // the web, small talk and databases, as three directions
+    await store.vectors.upsert(TEST_EMBEDDER, [
+      { kind: 'fn', key: 'web/search', vector: [1, 0.2, 0] },
+      { kind: 'context', key: 'web/guide', vector: [1, 0.3, 0] },
+      { kind: 'fn', key: 'database/tables', vector: [0, 0, 1] },
+    ]);
+    const smallTalk = { embedder: TEST_EMBEDDER, values: [0.05, 1, 0.05] } as const;
+    const hits = await store.search.search({ text: 'You there?', kinds: ['fn', 'context'], limit: 3, vector: smallTalk });
+    // both lists rank the web first, and fusion still orders by them...
+    expect(hits[0]?.key).toMatch(/^web\//);
+    expect(hits[0]?.ranks).toMatchObject({ vector: 1, text: 1 });
+    // ...but no hit scores near 1: each is as close as its meaning is
+    expect(Math.max(...hits.map((h) => h.score))).toBeLessThan(0.35);
+    for (const hit of hits) expect(hit.score).toBe(hit.similarity);
+    // a hit only the words found (past the vectors' depth) gets its similarity from the database too
+    const shallow = new HybridSearch({ vectors: store.vectors, text: store.text }, { HARNESS_SEARCH_DEPTH: 1, HARNESS_SEARCH_RRF_K: 60 });
+    const near = await shallow.search({ text: 'tables', kinds: ['fn', 'context'], limit: 2, vector: { embedder: TEST_EMBEDDER, values: [1, 0.3, 0.3] } });
+    expect(near.map((h) => h.key)).toEqual(['web/guide', 'database/tables']);
+    expect(near[1]?.ranks).toEqual({ text: 1 });
+    expect(near[1]?.similarity).toBeCloseTo(0.3 / Math.hypot(1, 0.3, 0.3), 5);
+    expect(near[1]?.score).toBe(near[1]?.similarity);
+    // semantic alone scores the same way
+    const semantic = await store.search.search({ text: 'x', kinds: ['fn'], limit: 1, vector: smallTalk, match: 'semantic' });
+    expect(semantic[0]?.score).toBeLessThan(0.35);
   });
 });

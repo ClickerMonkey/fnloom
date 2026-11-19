@@ -4,7 +4,7 @@
  * with the same renderers the prompt uses; `load` and `unload` change the session's loaded fns and context, which the
  * contextors keep in front of the model. `set_model_limits` is an admin operation (`api/admin-ops.ts`).
  */
-import { QualifiedName, splitName, type ActorId, type ContextRecord, type Session, type SessionId } from '@harness/core';
+import { QualifiedName, splitName, type ActorId, type ContextRecord, type NameRefusal, type Session, type SessionId } from '@harness/core';
 import { hub, HUB_READ_ENDPOINTS } from '@harness/sdk';
 import type { Catalog } from '../catalog/index.ts';
 import type { SessionService } from '../chat/index.ts';
@@ -17,8 +17,8 @@ import type { ContextorServices, FnViewSource } from './index.ts';
 import { limitsFor } from './limits.ts';
 import type { McpScope } from '../mcp/index.ts';
 import type { AccessScope } from '../access/index.ts';
-import { fnCard, listedLine } from './render.ts';
-import { fnRefusal, modelMayUse } from './views.ts';
+import { blockedLine, fnCard, listedLine } from './render.ts';
+import { fnRefusal, readsAsMissing } from './views.ts';
 import { broughtFns, withImports } from './brought.ts';
 
 /** What a hub MCP exposes, as `fns_search` and `inspect` keep to it when they run for one of its clients. */
@@ -64,7 +64,8 @@ export function registerContextorFns(fns: HubFns, deps: ContextorFnDeps): void {
     const access = await deps.access(ctx.request.run.user.id);
     const view = await deps.views().view(name.data);
     if (view !== undefined) {
-      if (!modelMayUse(view.record, session, access)) throw new InvalidArgs([{ path: 'name', message: `${name.data} can't be used here` }]);
+      const blocked = fnRefusal(view.record, session, access);
+      if (blocked !== undefined) throw new InvalidArgs([{ path: 'name', message: blockedLine(name.data, blocked) }]);
       return { name: name.data, kind: 'fn' as const, detail, text: fnCard(view, detail, 'native') };
     }
     const found = await deps.catalog().context(name.data);
@@ -84,23 +85,24 @@ export function registerContextorFns(fns: HubFns, deps: ContextorFnDeps): void {
   fns.register(hub.fns.load, async (args, ctx) => {
     const session = await requireSession(deps, ctx);
     const access = await deps.access(ctx.request.run.user.id);
-    const refused: Array<{ name: string; reason: string }> = [];
+    const refused: NameRefusal[] = [];
     const tools: QualifiedName[] = [];
     const context: QualifiedName[] = [];
     for (const given of args.names) {
       const name = QualifiedName.safeParse(given);
-      if (!name.success) { refused.push({ name: given, reason: 'not a name (system/name)' }); continue; }
-      if (!allowsSystem(session, splitName(name.data).system)) { refused.push({ name: given, reason: 'this session does not use that system' }); continue; }
+      if (!name.success) { refused.push({ name: given, code: 'not-a-name', reason: 'not a name (system/name)' }); continue; }
+      const { system } = splitName(name.data);
+      if (!allowsSystem(session, system)) { refused.push({ name: given, code: 'other-system', reason: `this session does not use ${system}` }); continue; }
       const fn = await deps.catalog().fn(name.data);
       if (fn !== undefined) {
-        const reason = fnRefusal(fn, session, access);
-        if (reason === undefined) tools.push(name.data);
-        else refused.push({ name: given, reason });
+        const blocked = fnRefusal(fn, session, access);
+        if (blocked === undefined) tools.push(name.data);
+        else refused.push({ name: given, ...blocked });
         continue;
       }
       const item = await deps.catalog().context(name.data);
       if (item !== undefined && visible(item, { session, user: ctx.request.run.user.id, access })) context.push(name.data);
-      else refused.push({ name: given, reason: 'no fn or context has that name' });
+      else refused.push({ name: given, code: 'no-such-fn', reason: 'no fn or context has that name' });
     }
     // context loads with what it imports, and brings its fns (`broughtFns`), as hub/load_context does
     const user = ctx.request.run.user.id;
@@ -110,7 +112,12 @@ export function registerContextorFns(fns: HubFns, deps: ContextorFnDeps): void {
       const item = parsed.success ? await deps.catalog().context(parsed.data) : undefined;
       if (item !== undefined && visible(item, { session, user, access })) records.push(item);
     }
-    for (const name of broughtFns(records)) if (fnRefusal(await deps.catalog().fn(name), session, access) === undefined) tools.push(name);
+    // a brought fn that can't be added is refused with what blocks it, as hub/load_context reports it; one that reads as missing is left out
+    for (const name of broughtFns(records)) {
+      const blocked = fnRefusal(await deps.catalog().fn(name), session, access);
+      if (blocked === undefined) tools.push(name);
+      else if (!readsAsMissing(blocked)) refused.push({ name, ...blocked });
+    }
     const loadedContext = records.map((r) => r.name);
     if (tools.length > 0 || loadedContext.length > 0) {
       await deps.sessions().load(session.id, { tools: unique([...session.tools, ...tools]), context: unique([...session.context, ...loadedContext]) });

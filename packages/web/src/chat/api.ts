@@ -41,8 +41,10 @@ export function chatApi(hub: Hub) {
     send: hub.caller('send', { invalidates: [SESSIONS_TAG] }),
     invoke: hub.caller('invoke'),
     control: hub.caller('control'),
+    controls: hub.caller('controls', { dedupe: true }),
     background: hub.caller('background'),
     undoTurn: hub.caller('undoTurn'),
+    continueTurn: hub.caller('continueTurn'),
     tree: hub.caller('tree', { dedupe: true }),
     /** A live turn's tree asked again as its runs change: once changes pause, only the latest answer counts. */
     treeRefresh: hub.caller('tree', { debounce: TREE_REFRESH, lastOnly: true }),

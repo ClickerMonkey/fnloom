@@ -5,7 +5,8 @@
  * answer's details, a resource, the chat's settings), as a side column on wide screens and a sheet otherwise. It
  * loads what each panel needs when the URL asks for it, and owns the chat's keyboard shortcuts. The list's search
  * (`?q=`) and its active or archived view (`?chats=archived`) are in the URL too, and kept moving between chats. A
- * side panel takes the list's column unless the screen is very wide, so the thread keeps a readable width.
+ * side panel takes the list's column unless the screen is very wide, so the thread keeps a readable width. Each kind
+ * of panel keeps the width its left edge was dragged to (`LayoutStore.panelWidth`), within a share of the window.
  */
 import { isSettled, ResourceUri, type LlmInteraction, type MessageId, type QualifiedName, type SessionId } from '@harness/core';
 import { useRouter } from 'vue-router';
@@ -13,7 +14,7 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vu
 import { useStores } from '../../state/stores.ts';
 import { UiButton, UiEmpty, UiModal, useMediaQuery } from '../../ui/index.ts';
 import { useTicker } from '../clock.ts';
-import { COMPACT_QUERY } from '../../state/layout.ts';
+import { COMPACT_QUERY, PANEL_WIDTH, panelWidthIn, panelWidthMax } from '../../state/layout.ts';
 import ConfirmDialog from '../../admin/components/ConfirmDialog.vue';
 import LlmCallDetails from '../components/LlmCallDetails.vue';
 import PanelFrame from '../components/PanelFrame.vue';
@@ -157,6 +158,17 @@ const panelOpen = computed({ get: () => url.top.value !== undefined, set: (open)
 /** The list has its own column: wide screens, unless a side panel needs that room. */
 const listColumn = computed(() => wide.value && !phone.value && (!(roomy.value && panelOpen.value) || spacious.value));
 const compact = computed(() => !listColumn.value);
+/** The window's width, which caps how wide a panel may be. */
+const viewport = shallowRef(typeof window === 'undefined' ? 1440 : window.innerWidth);
+const measureViewport = (): void => { viewport.value = window.innerWidth; };
+const panelMax = computed(() => panelWidthMax(viewport.value));
+/** The open panel's kind, whose width it keeps: its key, and for `?panel=` which one (settings, people, model). */
+const panelKind = computed(() => (url.top.value === 'panel' && url.panel.value !== undefined ? `panel:${url.panel.value}` : url.top.value));
+/** The open panel's width: each kind of panel its own, saved; shown within the window's limits. */
+const panelWidth = computed({
+  get: () => panelWidthIn(panelKind.value === undefined ? PANEL_WIDTH.reset : layout.panelWidth(panelKind.value), viewport.value),
+  set: (width: number) => { if (panelKind.value !== undefined) { layout.setPanelWidth(panelKind.value, width); } },
+});
 const runView = computed(() => {
   const id = url.run.value;
   if (id === undefined) { return undefined; }
@@ -263,15 +275,17 @@ onMounted(() => {
   if (!sessions.loaded.value) { void sessions.load(); }
   if (url.session.value === undefined) { void chat.capabilities.load(undefined); }
   window.addEventListener('keydown', onKey);
+  window.addEventListener('resize', measureViewport);
 });
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey);
+  window.removeEventListener('resize', measureViewport);
   chat.leave();
 });
 </script>
 
 <template>
-  <div class="chat" :class="{ compact, roomy: roomy && panelOpen }" data-testid="chat">
+  <div class="chat" :class="{ compact, roomy: roomy && panelOpen }" :style="{ '--panel': `${panelWidth}px` }" data-testid="chat">
     <aside v-if="listColumn" class="list">
       <SessionList ref="list" v-bind="listBind" :current="url.session.value" :home-shown="url.session.value === undefined && !phone" v-on="listOn" />
     </aside>
@@ -297,7 +311,7 @@ onBeforeUnmount(() => {
       </div>
     </main>
 
-    <PanelHost v-if="url.session.value !== undefined" v-model:open="panelOpen" :inline="roomy && !phone" :phone="phone" :label="panelTitle" :data-panel="url.top.value">
+    <PanelHost v-if="url.session.value !== undefined" v-model:open="panelOpen" v-model:width="panelWidth" :max="panelMax" :inline="roomy && !phone" :phone="phone" :label="panelTitle" :data-panel="url.top.value">
       <PanelFrame :title="panelTitle" :subtitle="panelSubtitle" @close="url.close()">
         <RunDetails
           v-if="url.top.value === 'run'" v-model:tab="runTab" :run="runView" :record="chat.inspector.run.value.value" :loading="chat.inspector.run.loading.value"
@@ -352,8 +366,8 @@ onBeforeUnmount(() => {
 /* exactly the page's height, and never a scroll container itself (clip, not hidden: bringing a field into view can't scroll it), so only the thread and a panel's body scroll */
 .chat { display: grid; grid-template-columns: 300px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: 100%; min-height: 0; overflow: clip; }
 .chat.compact { grid-template-columns: minmax(0, 1fr); }
-.chat.roomy { grid-template-columns: 300px minmax(0, 1fr) 440px; }
-.chat.compact.roomy { grid-template-columns: minmax(0, 1fr) 440px; }
+.chat.roomy { grid-template-columns: 300px minmax(0, 1fr) var(--panel); }
+.chat.compact.roomy { grid-template-columns: minmax(0, 1fr) var(--panel); }
 .list { min-height: 0; border-right: 1px solid var(--border); background: var(--surface); }
 .main { position: relative; min-width: 0; min-height: 0; }
 .home { height: 100%; align-content: center; }

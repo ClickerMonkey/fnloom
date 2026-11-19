@@ -4,7 +4,10 @@
  * the query fails or takes longer than `embedWait` (the embedder is busy, say indexing), or when the vectors can't be
  * searched with it (no vectors stored yet, or the query is another size), it is words alone, so a person or agent
  * waiting never waits on the embedder for long. Results can be limited to some systems and to what a `keep` check lets
- * through (what the person asking may see); a key `prefix` is applied by the database itself.
+ * through (what the person asking may see); a key `prefix` is applied by the database itself. A hit's score is its
+ * similarity of meaning to the query whenever the vectors were searched, and only a share of the best rank with words
+ * alone (`store/hybrid.ts`); a search asking for `meaning` (suggestions) gets no hits at all rather than ones words
+ * alone ranked, since those scores say nothing about fit.
  */
 import type { Logger } from '@ayepi/log';
 import { type QualifiedName, type SearchHit } from '@harness/core';
@@ -42,17 +45,20 @@ export class IndexSearch implements Search {
     const bySystem = query.systems !== undefined && query.systems !== 'all';
     const filtered = bySystem || query.keep !== undefined;
     const vector = query.match === 'text' ? undefined : await this.#vector(query.text);
+    if (query.meaning === true && vector === undefined) { return []; }
     const words: HybridQuery = {
       text: query.text, kinds: query.kinds, limit: filtered ? query.limit * overfetch : query.limit,
       ...(query.within === undefined ? {} : { within: query.within }), ...(query.prefix === undefined ? {} : { prefix: query.prefix }),
       ...(query.match === undefined ? {} : { match: query.match }),
     };
-    const hits = vector === undefined ? await hybrid.search(words) : await this.#hybrid({ ...words, vector: { embedder: document, values: vector } }, words);
+    const hits = vector === undefined ? await hybrid.search(words) : await this.#hybrid({ ...words, vector: { embedder: document, values: vector } }, query.meaning === true ? undefined : words);
     const allowed = bySystem ? new Set<string>(query.systems) : undefined;
     const out: SearchHit[] = [];
     for (const hit of hits) {
       const row = await store.table('index').get({ embedder: document, kind: hit.kind, key: hit.key });
       if (row === undefined || (allowed !== undefined && (row.system === undefined || !allowed.has(row.system)))) { continue; }
+      // an item with no vector yet has no measured meaning
+      if (query.meaning === true && hit.similarity === undefined) { continue; }
       const found: SearchHit = { kind: hit.kind, key: hit.key, score: hit.score, text: row.text };
       if (query.keep !== undefined && !(await query.keep(found))) { continue; }
       out.push(found);
@@ -61,13 +67,13 @@ export class IndexSearch implements Search {
     return out;
   }
 
-  /** Search with the query's vector, or by words alone when the vectors can't be searched with it. */
-  async #hybrid(withVector: HybridQuery, words: HybridQuery): Promise<FusedHit[]> {
+  /** Search with the query's vector, or by words alone (when given) when the vectors can't be searched with it. */
+  async #hybrid(withVector: HybridQuery, words: HybridQuery | undefined): Promise<FusedHit[]> {
     try {
       return await this.#options.hybrid.search(withVector);
     } catch (error) {
       this.#options.log.warn('index.search.vectors.failed', { embedder: this.#options.document, error: messageOf(error) });
-      return this.#options.hybrid.search(words);
+      return words === undefined ? [] : this.#options.hybrid.search(words);
     }
   }
 

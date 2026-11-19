@@ -1,4 +1,4 @@
-import { IDS, type Run } from '@harness/core';
+import { IDS, type LlmMessage, type Run, type TurnId } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { fieldType } from './state.ts';
 import { CLIENT, chatWorld, gin, makeRun, settle } from './testing.ts';
@@ -41,6 +41,7 @@ describe('undoing a turn', () => {
       ],
       failed: [],
       notUndoable: [],
+      session: { messages: 0, unloaded: [], reloaded: [] },
     });
     expect((await w.chat.state.get({ run: cd.id })).values).toEqual({});
     expect((await w.store.table('turns').get(w.turn))?.status).toBe('undone');
@@ -104,6 +105,83 @@ describe('undoing a turn', () => {
   });
 });
 
+describe('undoing a turn as a true redo', () => {
+  /** A session that already had an exchange and loaded things, then a turn that ran long, loaded more and dropped one. */
+  async function grown() {
+    const w = await chatWorld();
+    const before: LlmMessage[] = [{ role: 'user', content: 'earlier' }, { role: 'assistant', content: 'earlier answer' }];
+    const selection = { turn: IDS.turn.parse('trn_old'), items: [], at: 1 };
+    await w.store.table('sessions').update(w.session.id, { transcript: before, tools: ['fs/read', 'fs/old'], context: ['fs/guide'], selection });
+    const sent = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, parts: [{ type: 'text', text: 'Create a place to track tasks' }] });
+    // what 24 failed iterations left: a long transcript, fns and context the agent loaded, and one it dropped
+    const tries: LlmMessage[] = Array.from({ length: 24 }, (_, i) => ({ role: 'assistant', content: `try ${i}` }));
+    await w.store.table('sessions').update(w.session.id, {
+      transcript: [...before, { role: 'user', content: 'Create a place to track tasks' }, ...tries], tools: ['fs/read', 'database/create_table', 'database/insert'],
+      context: ['fs/guide', 'database/schema'], selection: { turn: sent.turn, items: [], at: 2 },
+    });
+    await endTurn(w, sent.turn, 'failed');
+    return { ...w, turn: sent.turn, before, selection };
+  }
+
+  it('cuts the transcript back to before the turn and puts the loaded fns, context and selection back', async () => {
+    const w = await grown();
+    expect((await w.store.table('turns').get(w.turn))?.start).toEqual({ transcript: 2, tools: ['fs/read', 'fs/old'], context: ['fs/guide'], selection: w.selection });
+    const report = await w.chat.undo.undoTurn(w.turn, w.admin.id);
+    expect(report.session).toEqual({ messages: 25, unloaded: ['database/create_table', 'database/insert', 'database/schema'], reloaded: ['fs/old'] });
+    expect(await w.store.table('sessions').get(w.session.id)).toMatchObject({ transcript: w.before, tools: ['fs/read', 'fs/old'], context: ['fs/guide'], selection: w.selection });
+    const note = (await w.chat.sessions.messages(w.session.id, w.admin.id, { limit: 1 })).items[0];
+    // truthful: the turn changed the conversation and what was loaded, so the note never says it changed nothing
+    expect(note?.parts).toEqual([{ type: 'text', text: [
+      'Took the turn\'s 25 messages out of the conversation, so the agent starts again from before it.',
+      'Unloaded what the turn loaded: database/create_table, database/insert, database/schema.',
+      'Loaded again what the turn dropped: fs/old.',
+    ].join('\n') }]);
+    await settle();
+    expect(w.bus.of('session.changed').at(-1)?.session.id).toBe(w.session.id);
+  });
+
+  it('clears a graph selection the session had none of before the turn', async () => {
+    const w = await chatWorld();
+    const sent = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, parts: [{ type: 'text', text: 'hi' }] });
+    await w.store.table('sessions').update(w.session.id, { selection: { turn: sent.turn, items: [], at: 2 }, transcript: [{ role: 'user', content: 'hi' }] });
+    await endTurn(w, sent.turn, 'done');
+    expect((await w.chat.undo.undoTurn(sent.turn, w.admin.id)).session).toEqual({ messages: 1, unloaded: [], reloaded: [] });
+    expect((await w.store.table('sessions').get(w.session.id))?.selection).toBeUndefined();
+  });
+
+  it('starts a turn that took over from a busy agent after what that agent answered on its way out', async () => {
+    const w = await chatWorld();
+    const first = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, parts: [{ type: 'text', text: 'first' }] });
+    await w.store.table('sessions').update(w.session.id, { transcript: [{ role: 'user', content: 'first' }, { role: 'assistant', content: '', toolCalls: [{ id: 'c1', name: 'fs__read', arguments: '{}' }] }] });
+    // the interrupted agent answers its open call into the transcript before the new turn's message goes in
+    w.agents.interrupt = async () => {
+      const session = await w.store.table('sessions').get(w.session.id);
+      await w.store.table('sessions').update(w.session.id, { transcript: [...(session?.transcript ?? []), { role: 'tool', toolCallId: 'c1', content: 'Running in the background' }] });
+    };
+    const second = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, parts: [{ type: 'text', text: 'second' }] });
+    expect((await w.store.table('turns').get(first.turn))?.start?.transcript).toBe(0);
+    expect((await w.store.table('turns').get(second.turn))?.start?.transcript).toBe(3);
+  });
+
+  it('refuses a turn a later standing turn was built on, and takes it once the later one is undone', async () => {
+    const w = await grown();
+    const later = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, parts: [{ type: 'text', text: 'and then?' }] });
+    await endTurn(w, later.turn, 'done');
+    const laterStands: unknown = expect.stringContaining('later turn');
+    await expect(w.chat.undo.undoTurn(w.turn, w.admin.id)).rejects.toMatchObject({ code: 'conflict', message: laterStands });
+    await w.chat.undo.undoTurn(later.turn, w.admin.id);
+    expect((await w.chat.undo.undoTurn(w.turn, w.admin.id)).session?.messages).toBe(25);
+    expect((await w.store.table('sessions').get(w.session.id))?.transcript).toEqual(w.before);
+  });
+});
+
+/** End a sent turn the way its agent run would: the run settles, then the turn. */
+async function endTurn(w: Awaited<ReturnType<typeof chatWorld>>, turn: TurnId, status: 'done' | 'failed'): Promise<void> {
+  const root = (await w.store.table('turns').get(turn))?.root;
+  if (root !== undefined) { await w.store.table('runs').update(root, { status }); }
+  await w.chat.turns.settle(turn, status);
+}
+
 describe('the undo note', () => {
   it('says what was undone, what failed and what was left', () => {
     const run = IDS.run.parse('run_1');
@@ -114,5 +192,9 @@ describe('the undo note', () => {
       failed: [{ run, fn: 'fs/rm', error: { class: 'fatal', message: 'gone' } }],
       notUndoable: [{ run, fn: 'fs/mail' }],
     })).toBe('Undid 2 changes:\n- fs/write: Removed a.md.\n- fs/cd: Put back one state field.\nCould not undo:\n- fs/rm: gone\nThese have no undo and were left as they are:\n- fs/mail');
+    // a turn that only rewound the session says so, and nothing about changing nothing
+    const rewound = (messages: number) => undoNote({ turn: IDS.turn.parse('trn_1'), undone: [], failed: [], notUndoable: [], session: { messages, unloaded: [], reloaded: [] } });
+    expect(rewound(1)).toBe('Took the turn\'s one message out of the conversation, so the agent starts again from before it.');
+    expect(rewound(0)).toBe('Undid the turn. It had changed nothing.');
   });
 });

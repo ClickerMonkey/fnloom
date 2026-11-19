@@ -774,6 +774,22 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     this.#enqueue(queued);
   }
 
+  /**
+   * Run a stopped run again from the loop state given (`resume`): a failed or cancelled run goes back to the queue as
+   * a resume, its outcome and end cleared. False when it hasn't stopped that way. The agent loop's Continue uses it.
+   */
+  async reopen(id: RunId, resume: Json, by: ActorId): Promise<boolean> {
+    const run = await this.get(id);
+    if (run === undefined || (run.status !== 'failed' && run.status !== 'cancelled')) return false;
+    const { outcome: _outcome, endedAt: _endedAt, ...kept } = run;
+    const reopened = await this.#deps.store.table('runs').put({ ...kept, resume });
+    this.#resumes.set(id, 'resumed');
+    const queued = await this.#moveTo(reopened, { status: 'queued' });
+    this.#deps.log.info('run.reopen', { run: id, by, was: run.status });
+    this.#enqueue(queued);
+    return true;
+  }
+
   async background(id: RunId): Promise<boolean> {
     const run = await this.get(id);
     if (run === undefined || isSettled(run.status) || !run.allowed.background) return false;

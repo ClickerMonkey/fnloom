@@ -1,28 +1,40 @@
 <script setup lang="ts">
 /**
  * At the foot of the thread when the last turn went wrong: an amber notice with the reason clamped to a few lines
- * behind Show more, and Retry. From the second failure in a row it also suggests a new chat. A fatal stop reads as a
- * terminal banner instead.
+ * behind Show more, and Retry. A turn whose agent stopped at its step limit or was cancelled can carry on instead:
+ * Continue is the primary action there, and Retry (which undoes the turn and starts again; the thread asks first) the
+ * secondary. From the second failure in a row it also suggests a new chat. A fatal stop reads as a terminal banner.
  */
 import { ref } from 'vue';
 import { UiButton, UiIcon } from '../../ui/index.ts';
 
-withDefaults(defineProps<{ reason: string; failures: number; fatal?: boolean }>(), { fatal: false });
-const emit = defineEmits<{ retry: []; fresh: [] }>();
+withDefaults(defineProps<{ reason: string; failures: number; fatal?: boolean; continuable?: boolean }>(), { fatal: false, continuable: false });
+const emit = defineEmits<{ retry: []; continue: []; fresh: [] }>();
 const open = ref(false);
 </script>
 
 <template>
-  <div class="notice" :class="{ fatal }" role="alert" data-testid="turn-failed">
-    <UiIcon :name="fatal ? 'error' : 'warning'" :size="18" />
+  <div class="notice" :class="{ fatal: fatal && !continuable }" role="alert" data-testid="turn-failed">
+    <UiIcon :name="fatal && !continuable ? 'error' : 'warning'" :size="18" />
     <div class="text">
-      <p class="title">{{ fatal ? 'This turn stopped' : 'The agent couldn\'t finish that' }}</p>
+      <p class="title">{{ continuable ? 'The agent stopped before it finished' : fatal ? 'This turn stopped' : 'The agent couldn\'t finish that' }}</p>
       <p v-if="reason !== ''" class="reason" :class="{ open }">{{ reason }}</p>
       <button v-if="reason.length > 160" type="button" class="more" @click="open = !open">{{ open ? 'Show less' : 'Show more' }}</button>
     </div>
     <div class="actions">
       <UiButton v-if="failures >= 2" size="sm" variant="ghost" @click="emit('fresh')">New chat</UiButton>
-      <UiButton size="sm" variant="secondary" icon="refresh" data-testid="retry" @click="emit('retry')">Retry</UiButton>
+      <UiButton
+        size="sm" :variant="continuable ? 'ghost' : 'secondary'" icon="refresh" data-testid="retry"
+        :title="continuable ? 'Undo this turn and send the message again' : undefined" @click="emit('retry')"
+      >
+        Retry
+      </UiButton>
+      <UiButton
+        v-if="continuable" size="sm" variant="primary" icon="play" data-testid="continue"
+        title="Carry on from where the agent stopped, with a fresh step budget" @click="emit('continue')"
+      >
+        Continue
+      </UiButton>
     </div>
   </div>
 </template>
@@ -37,5 +49,5 @@ const open = ref(false);
 .reason { margin: 0; color: var(--text-dim); font-size: var(--text-sm); display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .reason.open { display: block; }
 .more { justify-self: start; padding: 0; border: 0; background: transparent; color: var(--text); font-size: var(--text-sm); text-decoration: underline; }
-.actions { display: flex; gap: var(--space-2); margin-left: auto; }
+.actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-left: auto; }
 </style>

@@ -202,11 +202,25 @@ async function act(action: MessageAction, messages: readonly ChatMessage[]): Pro
       composer.startEdit(first.id, messageText(first.parts), mentions);
       return;
     }
-    case 'retry': if (!(await thread.retry(first.turn))) { toasts.error("Couldn't retry", thread.problem.value); } return;
+    case 'retry': retrying.value = first.turn; return;
     case 'undo': await undo(first.turn); return;
     case 'details': emit('details', first.turn); return;
     case 'tree': emit('tree', first.turn); return;
   }
+}
+
+/** A Retry waiting for the person to confirm it: it undoes the turn, so it always asks first. */
+const retrying = ref<TurnId | undefined>(undefined);
+const confirmingRetry = computed({ get: () => retrying.value !== undefined, set: (open: boolean) => { if (!open) { retrying.value = undefined; } } });
+
+async function retry(): Promise<void> {
+  const turn = retrying.value;
+  retrying.value = undefined;
+  if (turn !== undefined && !(await thread.retry(turn))) { toasts.error("Couldn't retry", thread.problem.value); }
+}
+
+async function continueLast(): Promise<void> {
+  if (!(await thread.continueLast())) { toasts.error("Couldn't continue", thread.problem.value); }
 }
 
 async function undo(turn: TurnId): Promise<void> {
@@ -454,8 +468,7 @@ const failedReason = computed(() => {
 });
 
 function retryLast(): void {
-  const turn = lastAnswerTurn.value;
-  if (turn !== undefined) { void act('retry', thread.messages.value.filter((m) => m.turn === turn && m.role === 'assistant')); }
+  retrying.value = lastAnswerTurn.value;
 }
 
 // ── lifecycle ─────────────────────────────────────────────────────────────────
@@ -523,7 +536,7 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
           :runs-of="(m: ChatMessage) => thread.runsOf(m)" :live-of="(m: ChatMessage) => thread.liveOf(m)" :collapsed="(run: RunView) => chat.collapse.isCollapsed(run)"
           :view-of="viewOf" :display-of="displayOf" :attachment-view="attachmentView" :actions="answerActions(item.turn)" :flash="item.messages.some((m) => m.id === flash)"
           :status-line="item.turn === liveTurn ? liveLine : undefined" :navigate="navigate" :grouped="layout.groupRuns"
-          @action="act($event, item.messages)" @run-open="emit('run', $event)" @run-toggle="(id, collapsed) => chat.collapse.set(id, collapsed)"
+          :can-review="auth.user.value?.role === 'admin'" @action="act($event, item.messages)" @run-open="emit('run', $event)" @run-toggle="(id, collapsed) => chat.collapse.set(id, collapsed)"
           @collapse-all="(collapsed) => chat.collapse.setAll(item.messages.flatMap((m) => m.runs), collapsed)" @background="thread.toBackground($event)"
           @tree="emit('tree', item.turn)" @link="openLink"
         />
@@ -532,7 +545,10 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
       <template #foot>
         <PendingMessage v-if="thread.pending.value" :parts="thread.pending.value.parts" :command-name="commandName" :queued="connection.state.value === 'offline'" />
         <PendingAnswer v-if="liveTurn !== undefined && !hasAnswer && liveLine" :author-name="agent" :line="liveLine" @tree="liveTurn && emit('tree', liveTurn)" />
-        <TurnNotice v-if="thread.failures.value > 0 && !thread.running.value" :reason="failedReason" :failures="thread.failures.value" @retry="retryLast" @fresh="emit('newChat')" />
+        <TurnNotice
+          v-if="thread.failures.value > 0 && !thread.running.value" :reason="failedReason" :failures="thread.failures.value" :continuable="thread.canContinue.value"
+          @retry="retryLast" @continue="continueLast" @fresh="emit('newChat')"
+        />
         <p v-if="thread.typing.value.length > 0" class="typing-others" data-testid="others-typing">{{ thread.typing.value.length === 1 ? `${nameOf(thread.typing.value[0]?.user ?? '')} is typing…` : 'Several people are typing…' }}</p>
       </template>
     </ChatScroller>
@@ -576,6 +592,12 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
       v-model:open="confirmingEdit" title="Send your edit?" confirm="Undo and send" :danger="false" data-testid="confirm-edit"
       :body="`This undoes ${editTurns === 1 ? 'the turn' : `${editTurns} turns`} from that message on, then sends your edit. Changes a fn made can't always be undone; the note after says what stayed.`"
       @confirm="send(true)"
+    />
+
+    <ConfirmDialog
+      v-model:open="confirmingRetry" title="Retry this turn?" confirm="Undo and retry" data-testid="confirm-retry"
+      body="Retry undoes this turn and starts it again: what its fns changed is undone where they can, the agent forgets the turn, and your message is sent again. The note after says anything that stayed."
+      @confirm="retry"
     />
 
     <UiPopover v-model:open="hoverOpen" :anchor="hoverAnchor" side="top" align="start" label="Mention" :take-focus="false">

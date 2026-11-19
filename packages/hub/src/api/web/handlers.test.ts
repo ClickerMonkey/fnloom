@@ -56,6 +56,7 @@ describe('chat handlers', () => {
           update: (id, patch, by) => { push('update', id, patch, by); return Promise.resolve(session(by)); },
           messages: (id, viewer, query) => { push('messages', id, viewer, query); return Promise.resolve({ items: [message(viewer)], cursor: 'next' }); },
           control: (id, action, by) => { push('control', id, action, by); return Promise.resolve({ pause: false, cancel: true, uncancellable: [], undoLastTurn: true }); },
+          controls: (id) => { push('controls', id); return Promise.resolve({ pause: false, cancel: false, uncancellable: [], undoLastTurn: true, continueLastTurn: true }); },
           presence: (presence) => { push('presence', presence); return Promise.resolve(); },
         },
         turns: { invoke: (input) => { push('invoke', input); return Promise.resolve({ turn: TurnId.parse('trn_2'), run: runId }); } },
@@ -66,6 +67,7 @@ describe('chat handlers', () => {
     await expect(web.client.call('messages', { session: sessionId, limit: 10 }, as)).resolves.toMatchObject({ cursor: 'next' });
     await web.client.call('invoke', { session: sessionId, fn: QualifiedName.parse('fs/read'), args: { path: 'a' }, client }, as);
     await web.client.call('control', { session: sessionId, action: 'cancel' }, as);
+    await expect(web.client.call('controls', { session: sessionId }, as)).resolves.toMatchObject({ continueLastTurn: true });
     await web.client.call('presence', { session: sessionId, focused: true, typing: false }, as);
     expect(calls).toEqual([
       ['list', me, { limit: 5 }],
@@ -73,6 +75,7 @@ describe('chat handlers', () => {
       ['messages', sessionId, me, { limit: 10 }],
       ['invoke', { session: sessionId, fn: 'fs/read', args: { path: 'a' }, client, author: me }],
       ['control', sessionId, 'cancel', me],
+      ['controls', sessionId],
       ['presence', { session: sessionId, focused: true, typing: false, user: me }],
     ]);
   });
@@ -85,6 +88,7 @@ describe('runs handlers', () => {
     const { r, web, as, me } = await recorded({
       chat: {
         undo: { undoTurn: (turn, by) => { push('undo', turn, by); return Promise.resolve({ turn, undone: [], failed: [], notUndoable: [] }); } },
+        turns: { continueTurn: (turn, by) => { push('continue', turn, by); return Promise.resolve({ turn, run: runId }); } },
         deliveries: {
           act: (input) => { push('act', input); return Promise.resolve(mintId('delivery')); },
           submit: (input) => { push('submit', input); return Promise.resolve(mintId('delivery')); },
@@ -110,6 +114,8 @@ describe('runs handlers', () => {
       id: call, turn, run: runId, iteration: 0, provider: 'openrouter', model: 'm', request: { messages: [] }, cost: 0, status: 'done', priority: 'interactive', queuedAt: 1,
     });
     await web.client.call('undoTurn', { turn }, as);
+    await expect(web.client.call('continueTurn', { turn }, as)).resolves.toEqual({ turn, run: runId });
+    await expect(web.client.call('continueTurn', { turn: TurnId.parse('trn_none') }, as)).rejects.toMatchObject({ status: 404 });
     await expect(web.client.call('run', { run: runId }, as)).resolves.toMatchObject({ id: runId });
     await expect(web.client.call('llmCall', { id: call }, as)).resolves.toMatchObject({ model: 'm' });
     await expect(web.client.call('llmCall', { id: mintId('llmInteraction') }, as)).rejects.toMatchObject({ status: 404 });
@@ -120,6 +126,7 @@ describe('runs handlers', () => {
     await web.client.call('submit', { run: runId, value: { name: 'x' } }, as);
     expect(calls).toEqual([
       ['undo', turn, me],
+      ['continue', turn, me],
       ['approve', approval, { approve: true, remember: 'session', reason: 'fine', by: me }],
       ['act', { session: sessionId, system: 'fs', action: 'open', input: { path: 'a' }, client, actor: me }],
       ['submit', { run: runId, value: { name: 'x' }, actor: me }],

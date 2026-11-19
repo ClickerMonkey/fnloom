@@ -258,10 +258,13 @@ export class FakeRuns implements RunService {
   background = refuse; progress = refuse; allow = refuse; undoWith = refuse; resend = refuse;
 }
 
-/** Records agent starts (writing their runs) and interrupts. */
-export class FakeAgents implements Pick<AgentLoop, 'start' | 'interrupt'> {
+/** Records agent starts (writing their runs), interrupts and continues (putting the run back to running). */
+export class FakeAgents implements Pick<AgentLoop, 'start' | 'interrupt' | 'continue'> {
   readonly started: RunInput[] = [];
   readonly interrupted: RunId[] = [];
+  readonly continued: RunId[] = [];
+  /** When set, the next continue is refused with this error. */
+  refuseContinue: Error | undefined;
   failWith: Error | undefined;
   readonly #store: HubStore;
   readonly #ids: () => RunId;
@@ -284,6 +287,13 @@ export class FakeAgents implements Pick<AgentLoop, 'start' | 'interrupt'> {
   async interrupt(run: RunId): Promise<void> {
     this.interrupted.push(run);
     return Promise.resolve();
+  }
+
+  async continue(run: RunId): Promise<void> {
+    const refused = this.refuseContinue;
+    if (refused !== undefined) { this.refuseContinue = undefined; throw refused; }
+    this.continued.push(run);
+    await this.#store.table('runs').update(run, { status: 'running' });
   }
 }
 
