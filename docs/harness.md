@@ -1289,3 +1289,16 @@ Already checked: type-checking all of the types and examples takes about two sec
 - **No data types beside field names** (2026-11-14): "Hmm let's remove data type from the table columns or anywhere
   else, not particularly useful for user but you could add that info to tooltip". Full note in
   `docs/plans/build-9-feedback.md`.
+- **To-do batch decisions** (2026-11-18): Phil answered 60 questions in hitloop set `todo-2026-11-18`. Highlights:
+  - unavailable fns always carry their reason to the model
+  - Retry is a true redo, and Continue resumes the same run
+  - loops are handled by a system prompt rule only
+  - systems own their pages (`/s/<system>/<page>`, Claude and widgets now)
+  - api is single instance
+  - one XML card format for fns and context, and never suggest the same fn or context twice
+  - the suggestions setting is a decision model, an LLM, or none
+  - `ModelInfo.maxQuestions` is respected by callers
+  - context_crawl returns content or metadata only by a flag, with its threshold on the decide role
+  - SSO is generic OIDC, configured by env vars, with first sign-in set by the admin
+
+  Full list in `docs/plans/todo-2026-11-18.md` § Phil's decisions.
