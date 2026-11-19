@@ -21,7 +21,9 @@
  * nothing denies `process.binding`, the way around the guard: the guard holds honest code, not a determined one.
  */
 import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { reject as refuse } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import {
@@ -42,6 +44,14 @@ import type { InstallInput, LinkService, PairingService, Supervisor } from './in
 import { KEY_FILE, makeKeyPair, randomToken } from './keys.ts';
 import type { Installer, SystemPackage } from './process.ts';
 import type { InstanceKeeper } from './status.ts';
+
+/**
+ * The `tsx` ESM loader, by absolute URL: a system's `server/main.ts` runs under it, so its TypeScript imports resolve
+ * the way they do in the dev stack. Absolute, because the system runs from its own folder.
+ */
+const TSX_LOADER = pathToFileURL(createRequire(import.meta.url).resolve('tsx/esm')).href;
+/** The socket guard, as a URL: an ESM module, so it loads with `--import` (a `--require` of it fails under the loader). */
+const NETWORK_GUARD_LOADER = pathToFileURL(NETWORK_GUARD).href;
 
 /** Supervisor tunables (from the link env slice). */
 export interface SupervisorSettings {
@@ -434,8 +444,7 @@ export class ProcessSupervisor implements Supervisor {
         if (target !== undefined) { this.#refusedHost(ref, target.replace(/:\d+$/, ''), target); }
       }
     };
-    const args = command.run === process.execPath ? ['--require', NETWORK_GUARD, ...command.args] : command.args;
-    return { ...command, args, env: { ...command.env, ...guardedEnv(url, [this.#hub]) }, onOutput };
+    return { ...command, env: { ...command.env, ...guardedEnv(url, [this.#hub]) }, onOutput };
   }
 
   /** Keep that the instance tried to reach `host` (`attempt` is what it asked for), which its grant doesn't name. */
@@ -485,7 +494,7 @@ export class ProcessSupervisor implements Supervisor {
   #command(pkg: SystemPackage, ref: InstanceRef, dirs: InstanceDirs): InstalledSystem['command'] {
     return {
       run: process.execPath,
-      args: [pkg.entry],
+      args: ['--import', TSX_LOADER, '--import', NETWORK_GUARD_LOADER, pkg.entry],
       env: {
         [SYSTEM_ENV.hub]: this.#options.settings.hubLink, [SYSTEM_ENV.name]: ref.system, [SYSTEM_ENV.instance]: ref.instance,
         [SYSTEM_ENV.state]: dirs.state, [SYSTEM_ENV.data]: dirs.data, [SYSTEM_ENV.cache]: dirs.cache,

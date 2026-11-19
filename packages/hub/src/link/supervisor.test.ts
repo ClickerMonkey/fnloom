@@ -10,7 +10,7 @@ import { settle } from '../testing.ts';
 import { StoredKeyPair } from './keys.ts';
 import { NodeInstaller, readManifest, type Installer, type SystemPackage } from './process.ts';
 import { FakeLauncher, FakeNetwork, FakeSystem, RIG_SETTINGS, linkRig, systemJson, type LinkRig } from './rig.ts';
-import { NETWORK_GUARD, RESTART_CODE, SYSTEM_ENV } from '@harness/sdk/server';
+import { RESTART_CODE, SYSTEM_ENV } from '@harness/sdk/server';
 import { ProcessSupervisor } from './supervisor.ts';
 import { addSource } from '../api/admin-ops.ts';
 
@@ -74,7 +74,7 @@ describe('installing', () => {
     expect(installed).toMatchObject({ name: 'shop', instance: 'main', version: '1.0.0', status: 'starting', autoStart: true, pid: 100, dir: join(dir, 'shop') });
     expect(launcher.last.command).toMatchObject({
       run: process.execPath,
-      args: ['--require', NETWORK_GUARD, join(dir, 'shop', 'versions', '1.0.0', 'server', 'main.ts')],
+      args: ['--import', expect.stringContaining('tsx'), '--import', expect.stringContaining('hosted-network-guard'), join(dir, 'shop', 'versions', '1.0.0', 'server', 'main.ts')],
       env: {
         [SYSTEM_ENV.hub]: 'ws://hub:4300/link', [SYSTEM_ENV.name]: 'shop', [SYSTEM_ENV.instance]: 'main',
         [SYSTEM_ENV.state]: join(dir, 'shop', 'instances', 'main', 'state'), [SYSTEM_ENV.data]: join(dir, 'shop', 'instances', 'main', 'data'),
@@ -112,7 +112,7 @@ describe('installing', () => {
     await writeFile(join(folder, 'system.json'), JSON.stringify(systemJson('shop', '0.1.0', { server: { entry: 'main.ts', external: {} } })));
     const sup = supervisor();
     const installed = await sup.install({ source: { path: folder }, autoStart: false, by: ADMIN });
-    expect(installed.command).toMatchObject({ args: [join(folder, 'main.ts')], cwd: folder });
+    expect(installed.command).toMatchObject({ args: ['--import', expect.stringContaining('tsx'), '--import', expect.stringContaining('hosted-network-guard'), join(folder, 'main.ts')], cwd: folder });
     expect(installed.status).toBe('stopped');
   });
 });

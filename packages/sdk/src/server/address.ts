@@ -9,7 +9,7 @@
  * changes between the two (DNS rebinding) is not caught here. Pinning the checked address for the connection belongs
  * in `@aeye/resources`' url loader (a recorded library ask).
  */
-import { lookup } from 'node:dns/promises';
+import dns from 'node:dns/promises';
 import { BlockList, isIP } from 'node:net';
 import type { FetchFn } from '@aeye/resources';
 
@@ -17,7 +17,7 @@ import type { FetchFn } from '@aeye/resources';
 export type HostLookup = (hostname: string, signal?: AbortSignal) => Promise<readonly string[]>;
 
 /** The machine's resolver: every address, in the order DNS gave them. */
-export const systemLookup: HostLookup = async (hostname) => (await lookup(hostname, { all: true, order: 'verbatim' })).map((found) => found.address);
+export const systemLookup: HostLookup = async (hostname) => (await dns.lookup(hostname, { all: true, order: 'verbatim' })).map((found) => found.address);
 
 /** IPv4 ranges no public fetch may reach. */
 const BLOCKED_V4 = [

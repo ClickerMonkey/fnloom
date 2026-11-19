@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { InstanceName, MAIN_INSTANCE, SystemName, type ContentRef, type InstanceRef, type SystemPackageManifest } from '@harness/core';
-import { NETWORK_GUARD, SYSTEM_ENV } from '@harness/sdk/server';
+import { SYSTEM_ENV } from '@harness/sdk/server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ADMIN, manifestFor, vectors } from '../catalog/fixtures.ts';
 import { settle } from '../testing.ts';
@@ -64,7 +64,7 @@ describe('installing a package zip', () => {
     expect(ref).toEqual({ system: NAME, instance: MAIN_INSTANCE });
     const dirs = supervisor.dirsOf(ref);
     expect(launcher.last.command).toMatchObject({
-      args: ['--require', NETWORK_GUARD, join(dir, 'vectors', 'versions', '1.0.0', 'server', 'main.js')],
+      args: ['--import', expect.stringContaining('tsx'), '--import', expect.stringContaining('hosted-network-guard'), join(dir, 'vectors', 'versions', '1.0.0', 'server', 'main.js')],
       env: { [SYSTEM_ENV.data]: dirs.data, [SYSTEM_ENV.cache]: dirs.cache, [SYSTEM_ENV.state]: dirs.state, [SYSTEM_ENV.instance]: 'main' },
     });
     expect(await readFile(join(dir, 'vectors', 'versions', '1.0.0', 'server', 'main.js'), 'utf8')).toBe('// 1.0.0');
