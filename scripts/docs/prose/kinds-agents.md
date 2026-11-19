@@ -15,7 +15,7 @@ The server implements each kind with three functions, and fns of the kind are **
   sentences; `[]` when it is fine.
 - `describe(payload, ctx)`: everything else about a fn with this payload, as a `KindDescription`: its `args` and
   `returns` (gin definitions, made with `wireType(type)`), the fns it calls (`deps`), the named types and resources it
-  refers to, its operations, and optionally handlers, progress, status words, limits and display. `ctx.type(name)` and
+  refers to, its operations, at least one `examples` entry (`sampleArgs(def)` fills one from the args type), and optionally handlers, progress, status words, limits and display. `ctx.type(name)` and
   `ctx.fn(name)` look up other declarations while describing.
 - `run(payload, args, ctx)`: run one fn of the kind. The args arrive as JSON the hub checked against `describe`'s args;
   read them with the same gin type (`parseValue`). The result is JSON (`encodeValue`). `ctx.call(name, args)` calls the

@@ -58,7 +58,7 @@ async function start(hub: FakeHub): Promise<void> {
     kinds: {
       macro: {
         async check() { return []; },
-        async describe() { return { args: { name: 'obj' }, returns: { name: 'any' }, deps: [], operations: { cancel: true, pause: false, undo: true, background: true } }; },
+        async describe() { return { args: { name: 'obj' }, returns: { name: 'any' }, deps: [], operations: { cancel: true, pause: false, undo: true, background: true }, examples: [{ args: {} }] }; },
         async run(payload, _args, ctx) { return ctx.done(payload.steps.length, { undo: { count: payload.steps.length } }); },
         async undo(payload, undo) { undone.push(`${payload.steps.join(',')}:${JSON.stringify(undo)}`); return { status: 'undone', summary: 'reverted' }; },
       },

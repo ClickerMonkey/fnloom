@@ -3,13 +3,13 @@
  * The composer's one stop / pause / resume control. It reads "Stop" while work runs and "Resume" while it is paused,
  * and opens a small panel: when two or more fns run, a list of them with checkboxes ("All" by default), then Pause,
  * Resume and Cancel, each pressable only when the choice allows it. Paused with nothing to choose between, it resumes
- * at once. It reports `control` with the runs to name (`undefined`: all of them).
+ * at once. Each listed fn is a `FnPill`. It reports `control` with the runs to name (`undefined`: all of them).
  */
 import { RUN_STATUS_WORDS, type RunId, type SessionControls } from '@harness/core';
 import { computed, ref } from 'vue';
+import FnPill from '../../fns/components/FnPill.vue';
 import { UiButton, UiPopover } from '../../ui/index.ts';
 import { choosableRuns, controlPlan, toggleRun, type ControlVerb, type RunChoice } from '../logic/controls.ts';
-import { fnLabel } from '../logic/labels.ts';
 
 const props = defineProps<{ controls: SessionControls | undefined; running: boolean; paused: boolean; stopping: boolean }>();
 const emit = defineEmits<{ control: [verb: ControlVerb, runs: readonly RunId[] | undefined] }>();
@@ -56,9 +56,9 @@ function act(verb: ControlVerb, targets: readonly RunId[] | undefined): void {
             <label class="row all"><input type="checkbox" :checked="choice === 'all'" data-testid="control-all" @change="choice = 'all'" /> All</label>
           </li>
           <li v-for="run in runs" :key="run.run">
-            <label class="row" :title="run.fn">
+            <label class="row">
               <input type="checkbox" :checked="chosen(run.run)" :data-run="run.run" @change="choice = toggleRun(choice, run.run, runs)" />
-              <span class="fn">{{ fnLabel(run.fn) }}</span>
+              <FnPill class="fn" :name="run.fn" />
               <span class="status">{{ RUN_STATUS_WORDS[run.status] }}</span>
             </label>
           </li>
@@ -84,7 +84,7 @@ function act(verb: ControlVerb, targets: readonly RunId[] | undefined): void {
 .row { display: flex; align-items: center; gap: var(--space-2); min-height: 32px; padding: 0 var(--space-2); border-radius: var(--radius); font-size: var(--text-sm); }
 .row:hover { background: var(--surface-2); }
 .all { font-weight: var(--weight-medium); }
-.fn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fn { min-width: 0; }
 .status { margin-left: auto; color: var(--text-faint); font-size: var(--text-xs); }
 .verbs { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 .note { margin: 0; color: var(--text-faint); font-size: var(--text-xs); }

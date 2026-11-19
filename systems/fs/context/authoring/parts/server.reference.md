@@ -18,7 +18,7 @@ function · `import { serve } from '@harness/sdk/server'`
 Run a system: connect to the hub (pairing the first time), send the contract, and serve the implementation.
 The implementation is checked against the contract at compile time; its `system.json`, when it has one, is checked
 against the contract and this process's instance here (a mismatch throws `PackageManifestError` before anything
-connects).
+connects). A static fn with no example is refused too (`MissingExamplesError`, from the host), so every fn has one.
 
 ```ts
 function serve<N extends string, C extends ContractShape>(contract: SystemContract<N, C>, impl: SystemImpl<C>, options: ServeOptions, host?: SystemHost): Promise<RunningSystem<N>>;
@@ -41,6 +41,8 @@ interface ServeOptions {
    * `package.json`.
    */
   version?: string;
+  /** Whether it runs one instance or a fleet, said in its hello. Defaults to its `system.json`'s; absent without one. */
+  instances?: InstanceMode;
   /**
    * The folder holding the system's `system.json` (default: the current folder). When there is one, `serve` checks it
    * against the contract (the same name, a protocol this SDK speaks) before connecting, and takes its version.
@@ -67,7 +69,7 @@ interface ServeOptions {
 }
 ```
 
-Refers to: [`Duration`](context:fs/authoring.core-types.primitives-ts#core-duration).
+Refers to: [`Duration`](context:fs/authoring.core-types.primitives-ts#core-duration), [`InstanceMode`](context:fs/authoring.core-types.records-systems-ts#core-instancemode).
 
 #### `McpServe`
 
@@ -210,7 +212,7 @@ type FnImpl<T extends FnTypes, Cfg = unknown> =
 ([T['undo']] extends [never] ? { undo?: never } : { undo(payload: T['undo'], ctx: UndoCtx<Cfg>): Promise<UndoOutcome> });
 ```
 
-Refers to: [`PreviewAnswer`](context:fs/authoring.core-types.approvals-ts#core-previewanswer), [`SensitivityFlag`](context:fs/authoring.core-types.sensitivity-ts#core-sensitivityflag), [`UndoOutcome`](context:fs/authoring.core-types.run-ts#core-undooutcome).
+Refers to: [`PreviewAnswer`](context:fs/authoring.core-types.lifecycle-ts#core-previewanswer), [`SensitivityFlag`](context:fs/authoring.core-types.sensitivity-ts#core-sensitivityflag), [`UndoOutcome`](context:fs/authoring.core-types.run-ts#core-undooutcome).
 
 #### `ConnectImpl`
 
@@ -411,6 +413,8 @@ interface LinkHostDeps {
   readonly pairing?: PairingDisplay;
   /** Makes the instance's data and cache folders before the system starts. Default: `mkdir -p` each. */
   readonly folders?: (dirs: readonly string[]) => Promise<void>;
+  /** Refuse a contract with a static fn that has no example (`checkExamples`). Default true; a test hub's fixtures may skip it. */
+  readonly requireExamples?: boolean;
 }
 ```
 

@@ -3,12 +3,14 @@
  * At the foot of the thread when the last turn went wrong: an amber notice with the reason clamped to a few lines
  * behind Show more, and Retry. A turn whose agent stopped at its step limit or was cancelled can carry on instead:
  * Continue is the primary action there, and Retry (which undoes the turn and starts again; the thread asks first) the
- * secondary. From the second failure in a row it also suggests a new chat. A fatal stop reads as a terminal banner.
+ * secondary, offered only while the turn can be undone. A turn cancelled before its agent wrote anything shows it
+ * with no reason. From the second failure in a row it also suggests a new chat. A fatal stop reads as a terminal
+ * banner.
  */
 import { ref } from 'vue';
 import { UiButton, UiIcon } from '../../ui/index.ts';
 
-withDefaults(defineProps<{ reason: string; failures: number; fatal?: boolean; continuable?: boolean }>(), { fatal: false, continuable: false });
+withDefaults(defineProps<{ reason: string; failures: number; fatal?: boolean; continuable?: boolean; /** The turn can be undone and asked again (only the latest standing turn can). */ retryable?: boolean }>(), { fatal: false, continuable: false, retryable: true });
 const emit = defineEmits<{ retry: []; continue: []; fresh: [] }>();
 const open = ref(false);
 </script>
@@ -24,7 +26,7 @@ const open = ref(false);
     <div class="actions">
       <UiButton v-if="failures >= 2" size="sm" variant="ghost" @click="emit('fresh')">New chat</UiButton>
       <UiButton
-        size="sm" :variant="continuable ? 'ghost' : 'secondary'" icon="refresh" data-testid="retry"
+        v-if="retryable" size="sm" :variant="continuable ? 'ghost' : 'secondary'" icon="refresh" data-testid="retry"
         :title="continuable ? 'Undo this turn and send the message again' : undefined" @click="emit('retry')"
       >
         Retry

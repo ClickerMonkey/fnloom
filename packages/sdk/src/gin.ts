@@ -95,3 +95,96 @@ export function loadTypes(definitions: TypeDefinitions): LoadedTypes {
   }
   return { get: (name) => loaded.get(name), missing: definitions.missing };
 }
+
+/** A wire type's generic parameter (`T` of optional and nullable, `V` of list), when it has one. */
+function genericOf(def: GinTypeDef, key: string): GinTypeDef | undefined {
+  return def.generic?.[key];
+}
+
+/** A wire type's options as a plain record, so each case reads only the options it knows. */
+function optionsOf(def: GinTypeDef): Record<string, unknown> {
+  const options: unknown = def.options;
+  return typeof options === 'object' && options !== null ? { ...options } : {};
+}
+
+/** A number option, when the type sets it. */
+function numOption(options: Record<string, unknown>, key: string): number | undefined {
+  const value = options[key];
+  return typeof value === 'number' ? value : undefined;
+}
+
+/** gin's own zero value of a type (`create`), as JSON, for a shape `sampleOf` doesn't fill itself; `null` when it can't. */
+function ginZero(def: GinTypeDef): Json {
+  try {
+    const type = g.parse(def);
+    return encodeValue(type, type.create());
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A sample value of a wire type, for an example call a kind works out from a payload's args (`KindDescription.examples`):
+ * every required field filled (text with its field's name, a number in range, the first enum value or union option, one
+ * list item), optional fields left out. A shape it can't fill by itself (a named type) gets gin's own zero value
+ * (`create`), which its type accepts. A patterned text is best effort, as in gin: no value is synthesized from a pattern.
+ */
+export function sampleOf(def: GinTypeDef, hint = 'example'): Json {
+  const options = optionsOf(def);
+  switch (def.name) {
+    case 'optional':
+    case 'nullable': {
+      const inner = genericOf(def, 'T');
+      return inner === undefined ? null : sampleOf(inner, hint);
+    }
+    case 'obj': {
+      const out: Record<string, Json> = {};
+      for (const [name, prop] of Object.entries(def.props ?? {})) {
+        if (prop.type.name !== 'optional') { out[name] = sampleOf(prop.type, name); }
+      }
+      return out;
+    }
+    case 'list': {
+      const item = genericOf(def, 'V');
+      return item === undefined ? [] : [sampleOf(item, hint)];
+    }
+    case 'text': {
+      const min = numOption(options, 'minLength') ?? 0;
+      const max = numOption(options, 'maxLength');
+      const text = hint.padEnd(min, 'a');
+      return max === undefined ? text : text.slice(0, max);
+    }
+    case 'num': {
+      const min = numOption(options, 'min');
+      const max = numOption(options, 'max');
+      const n = Math.min(Math.max(1, min ?? 1), max ?? Number.POSITIVE_INFINITY);
+      return options['whole'] === true ? Math.ceil(n) : n;
+    }
+    case 'bool': return true;
+    case 'any': return hint;
+    case 'date': return '2026-01-31';
+    case 'timestamp': return '2026-01-31T09:00:00Z';
+    case 'literal': {
+      const value = Json.safeParse(options['value']);
+      return value.success ? value.data : ginZero(def);
+    }
+    case 'enum': {
+      const values = options['values'];
+      const first = Json.safeParse(typeof values === 'object' && values !== null ? Object.values(values)[0] : undefined);
+      return first.success ? first.data : ginZero(def);
+    }
+    case 'or': {
+      const types = GinTypeDef.array().safeParse(options['types']);
+      const first = types.success ? types.data[0] : undefined;
+      return first === undefined ? ginZero(def) : sampleOf(first, hint);
+    }
+    default: return ginZero(def);
+  }
+}
+
+/** Sample args for a fn's args type (an `obj`, filled by `sampleOf`); open args (`any`) or any other shape give `{}`. */
+export function sampleArgs(args: GinTypeDef): Record<string, Json> {
+  if (args.name !== 'obj') { return {}; }
+  const value = sampleOf(args);
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value : {};
+}

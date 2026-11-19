@@ -6,7 +6,7 @@ import { DURATION_BUCKETS, HubMcpId, InstanceName, ModelCallId, PairingId, Quali
 import { describe, expect, it } from 'vitest';
 import { fakeCaller } from '../test/fakes.ts';
 import { limitsView, mcpView, modelCall, roleView } from './test/build2.ts';
-import { fakeAdmin, model, pairing, T0 } from './test/fakes.ts';
+import { fakeAdmin, model, pairing, systemView, T0 } from './test/fakes.ts';
 import { addEntry, connectSnippets, entryText, readFnMatch, readResourceSelector, removeEntry, selectorSize, slugOf } from './logic/mcps.ts';
 import { dayBars, figures, niceMax, percentile } from './logic/metrics.ts';
 import { callPurpose, callTook, sizeText, unitsText } from './logic/model-calls.ts';
@@ -247,6 +247,18 @@ describe('instances and packages', () => {
     expect(exported).toEqual({ ok: true, value: { url: '/_files/export.zip', size: 2_048 } });
     expect(api.exportSystemData.calls[0]?.[0]).toEqual({ ...key, withSecrets: true });
     expect(await admin.instance.remove()).toBe(true);
+  });
+
+  it('knows whether its system runs one instance, and exports a named instance from the system’s page', async () => {
+    const { admin, api } = fakeAdmin();
+    api.system = fakeCaller<'system'>(() => Promise.resolve(systemView({ instanceMode: 'one' })));
+    await admin.instance.open({ system: SystemName.parse('fs'), instance: InstanceName.parse('main') });
+    expect(admin.instance.configForm.value.value?.instanceMode).toBe('one');
+    admin.instance.close();
+    const main = { system: SystemName.parse('code'), instance: InstanceName.parse('main') };
+    expect(await admin.instance.exportData(false, main)).toEqual({ ok: true, value: { url: '/_files/export.zip', size: 2_048 } });
+    expect(api.exportSystemData.calls.at(-1)?.[0]).toEqual(main);
+    expect(await admin.instance.exportData(false)).toEqual({ ok: false, problem: 'No instance is open.' });
   });
 
   it('uploads a package zip with progress and installs it as an instance', async () => {

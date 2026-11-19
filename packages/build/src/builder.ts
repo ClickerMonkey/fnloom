@@ -99,10 +99,12 @@ function readerSource(module: string, sdk: string): string {
   return [
     "import { readFileSync } from 'node:fs';",
     `import * as loaded from ${specifier(module)};`,
-    `import { isSystemContract, manifestOf } from ${specifier(sdk)};`,
+    `import { checkExamples, isSystemContract, manifestOf } from ${specifier(sdk)};`,
     'const [version, clientFile] = process.argv.slice(2);',
     "const client = clientFile === undefined ? undefined : JSON.parse(readFileSync(clientFile, 'utf8'));",
     'const contracts = Object.values(loaded).filter(isSystemContract);',
+    // a static fn with no example fails the build, naming it
+    'for (const contract of contracts) checkExamples(contract);',
     'const manifests = await Promise.all(contracts.map((contract) => manifestOf(contract, client === undefined ? { version } : { version, client })));',
     'process.stdout.write(JSON.stringify(manifests));',
     '',

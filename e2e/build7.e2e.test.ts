@@ -97,7 +97,7 @@ describe('the graph', () => {
     const ids = new Set(page.nodes.map((node) => node.id));
     expect(page.edges.every((edge) => ids.has(edge.from) && ids.has(edge.to))).toBe(true);
 
-    const fnsOnly = await me.hub.call('graph', { systems: [database], nodeKinds: ['fn'], external: false });
+    const fnsOnly = await me.hub.call('graph', { systems: [database], filters: [{ field: 'nodeKind', op: 'is', value: 'fn' }], external: false });
     expect(fnsOnly.nodes.length).toBeGreaterThan(0);
     expect(fnsOnly.nodes.every((node) => node.kind === 'fn' && !node.external)).toBe(true);
     const focused = await me.hub.call('graph', { focus: { node: 'fn:database/get_query', hops: 1 } });

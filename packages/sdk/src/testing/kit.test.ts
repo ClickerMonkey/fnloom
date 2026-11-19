@@ -44,7 +44,7 @@ const impl: SystemImpl<Defs> = {
   kinds: {
     template: {
       async check(payload) { return payload.template.includes('{{') ? [] : ['A template needs a placeholder.']; },
-      async describe() { return { args: { name: 'obj' }, returns: { name: 'text' }, deps: [], operations: { cancel: true, pause: false, undo: false, background: true } }; },
+      async describe() { return { args: { name: 'obj' }, returns: { name: 'text' }, deps: [], operations: { cancel: true, pause: false, undo: false, background: true }, examples: [{ args: {} }] }; },
       async run(payload, _args, ctx) { return ctx.done(payload.template); },
     },
   },

@@ -5,7 +5,7 @@
  * words), its describe (the fns it calls are its deps) and a run that calls another fn through the hub.
  */
 import { CODE_KIND, Json, QualifiedName, mintId, type CodeFnSpec, type LlmForward, type RunSettled } from '@harness/core';
-import { encodeValue, hub } from '@harness/sdk';
+import { encodeValue, hub, sampleArgs } from '@harness/sdk';
 import { mockModel, testHub, toolCall, type ScriptStep, type TestSystem } from '@harness/sdk/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { code, CodePayload } from '../shared/index.ts';
@@ -142,6 +142,7 @@ describe('the program kind', () => {
     const props = await running.kindProps('program', CALLS);
     expect(props.problems).toEqual([]);
     expect(props.description).toMatchObject({ deps: ['weather/forecast', hub.fns.fn_get.name], args: CALLS.args, returns: CALLS.returns, readable: { language: 'ts' }, effects: { mode: 'read' } });
+    expect(props.description?.examples).toEqual([{ args: sampleArgs(CALLS.args), note: 'Runs the program with sample values: use real ones.' }]);
     const loop: CodeFnSpec = { ...CALLS, program: { kind: 'loop', over: { kind: 'new', type: { name: 'bool' }, value: true }, body: { kind: 'get', path: [{ prop: 'args' }] } } };
     expect((await running.kindProps('program', loop)).problems.join('\n')).toContain('while-loop');
   });

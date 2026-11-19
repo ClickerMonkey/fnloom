@@ -1,9 +1,12 @@
-import { ActorId, QualifiedName, SystemName, type GraphPage } from '@harness/core';
+import { ActorId, QualifiedName, SystemName, type Filter, type GraphPage } from '@harness/core';
 import { context, fn, g, kind, system, type } from '@harness/sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openScope } from '../access/index.ts';
 import { manifestFor } from '../catalog/fixtures.ts';
 import { FakeSystem, linkRig, pairDirectly, type LinkRig } from '../link/rig.ts';
+import { queryEnv } from '../query/env.ts';
+import { HubQuery } from '../query/service.ts';
+import { listSources } from '../query/sources.ts';
 import { HubGraph } from './graph.ts';
 
 const q = (name: string): QualifiedName => QualifiedName.parse(name);
@@ -64,12 +67,47 @@ describe('the system graph', () => {
 });
 
 describe('filters', () => {
-  it('keeps node and edge kinds, fn modes and text', async () => {
-    const fnsOnly = await graph.query({ nodeKinds: ['fn'], edgeKinds: ['calls'] }, access);
-    expect(ids(fnsOnly)).toEqual(['fn:notes/keep', 'fn:notes/read', 'fn:tasks/add']);
-    expect(edges(fnsOnly)).toEqual(['tasks/add calls notes/read']);
-    expect(ids(await graph.query({ modes: ['write'], nodeKinds: ['fn'] }, access))).toEqual(['fn:notes/keep', 'fn:tasks/add']);
-    expect(ids(await graph.query({ text: 'search', nodeKinds: ['fn', 'kind'] }, access))).toEqual(['fn:notes/keep', 'kind:notes/saved']);
+  const fnsOnly: Filter = { field: 'nodeKind', op: 'is', value: 'fn' };
+
+  it('keeps node and edge kinds, fn modes and text, by the query standard\'s filters', async () => {
+    const calls = await graph.query({ filters: [fnsOnly, { field: 'edgeKind', op: 'in', values: ['calls'] }] }, access);
+    expect(ids(calls)).toEqual(['fn:notes/keep', 'fn:notes/read', 'fn:tasks/add']);
+    expect(edges(calls)).toEqual(['tasks/add calls notes/read']);
+    expect(ids(await graph.query({ filters: [fnsOnly, { field: 'mode', op: 'is', value: 'write' }] }, access))).toEqual(['fn:notes/keep', 'fn:tasks/add']);
+    expect(ids(await graph.query({ text: 'search', filters: [{ field: 'nodeKind', op: 'in', values: ['fn', 'kind'] }] }, access))).toEqual(['fn:notes/keep', 'kind:notes/saved']);
+    // a negation and a contains, as any list takes them
+    expect(ids(await graph.query({ filters: [fnsOnly, { field: 'system', op: 'isNot', value: 'notes' }] }, access))).toEqual(['fn:tasks/add']);
+    expect(ids(await graph.query({ filters: [fnsOnly, { field: 'name', op: 'contains', value: 'kee' }] }, access))).toEqual(['fn:notes/keep']);
+  });
+
+  it('keeps what fns belong to under a fn-fact filter, and reads only the systems a system filter names', async () => {
+    const effects = await graph.query({ filters: [{ field: 'effect', op: 'is', value: 'fns' }] }, access);
+    expect(ids(effects)).toContain('fn:notes/keep');
+    expect(ids(effects)).not.toContain('fn:notes/read');
+    expect(ids(effects)).toEqual(expect.arrayContaining(['system:notes', 'kind:notes/saved']));
+    expect(effects.nodes.every((n) => ['fn', 'system', 'kind', 'type'].includes(n.kind))).toBe(true);
+    const notes = await graph.query({ filters: [{ field: 'system', op: 'is', value: 'notes' }], external: false }, access);
+    expect(notes.nodes.length).toBeGreaterThan(0);
+    expect(notes.nodes.every((n) => n.system === 'notes')).toBe(true);
+    const live = await graph.query({ filters: [fnsOnly, { field: 'stage', op: 'is', value: 'live' }, { field: 'on', op: 'is', value: true }] }, access);
+    expect(ids(live)).toEqual(['fn:notes/keep', 'fn:notes/read', 'fn:tasks/add']);
+  });
+
+  it('refuses a filter the graph list does not take, with the problem in words', async () => {
+    await expect(graph.query({ filters: [{ field: 'cost', op: 'gt', value: 1 }] }, access)).rejects.toThrow(/no filterable field "cost"/);
+    await expect(graph.query({ filters: [{ field: 'on', op: 'contains', value: 'x' }] }, access)).rejects.toThrow(/does not take/);
+  });
+
+  it('serves the graph list through the query service: hub/query pages its nodes, listValues offers its systems', async () => {
+    const lists = new HubQuery(listSources({ store: rig.store, catalog: rig.catalog, access: { scope: () => Promise.resolve(access) } }, queryEnv.parse()));
+    const viewer = { id: ActorId.parse('act_admin'), role: 'admin' as const };
+    const page = await lists.query({ list: 'graph', query: { filters: [fnsOnly], limit: 2 } }, viewer);
+    expect(page.items).toHaveLength(2);
+    expect(page.total).toBe(3);
+    expect(page.cursor).toBe('2');
+    const systems = await lists.values({ list: 'graph', field: 'system' }, viewer);
+    expect(systems.map((option) => option.value)).toEqual(expect.arrayContaining(['notes', 'tasks']));
+    await expect(lists.query({ list: 'graph', query: { filters: [{ field: 'cost', op: 'gt', value: 1 }] } }, viewer)).rejects.toThrow(/no filterable field/);
   });
 
   it('focuses on a node and its neighbourhood, reaching into other systems', async () => {

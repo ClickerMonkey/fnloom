@@ -94,7 +94,9 @@ describe('hub MCPs', () => {
 
   it('McpPreview lists what rules expose and warns', () => {
     const preview = mount(McpPreview, { props: { preview: scopePreview(), loading: false } });
-    expect(preview.get('[data-group=fns]').text()).toContain('fs/read');
+    // its fns are pills: the friendly label, the qualified name on hover
+    expect(preview.get('[data-group=fns] [data-testid=fn-pill]').attributes('data-fn')).toBe('fs/read');
+    expect(preview.get('[data-group=fns]').text()).toContain('Read');
     expect(preview.get('[data-group=closure]').text()).toContain('fs/Match');
     expect(preview.findAll('[data-testid=mcp-warning]')).toHaveLength(1);
   });

@@ -3,13 +3,15 @@
  * A system’s overview: switching its functions, renderers and context on and off (separately, so old messages keep drawing),
  * the facts about it, its process when the hub runs it (start, stop, restart, upgrade, and how it last exited), who
  * hosts it when another system runs it ("hosted by fs/main at systems/random", with start, restart and stop through
- * that host), and reimporting or removing it.
+ * that host), and reimporting or removing it. Its facts are its default instance's (`InstanceFacts`, as on an
+ * instance's page), so a system that runs one instance shows that instance here.
  */
 import AccessControl from '../../components/access/AccessControl.vue';
 import type { SystemEnabled, SystemView } from '@harness/core';
 import { computed, ref } from 'vue';
 import { copyText, UiBadge, UiButton, UiCard, UiCodeBlock, UiIconButton, UiInput, UiSwitch, fullTime, relativeTime, shortHash } from '../../ui/index.ts';
 import { hostText, INSTALLED_STATUS_LOOK, systemActions, type SystemAction } from '../logic/systems.ts';
+import InstanceFacts from './InstanceFacts.vue';
 import StatusBadge from './StatusBadge.vue';
 
 const props = withDefaults(defineProps<{
@@ -31,20 +33,6 @@ const source = computed(() => {
   if ('git' in from) { return `${from.git}#${from.ref}`; }
   if ('zip' in from) { return `${from.file} (uploaded package)`; }
   return from.path;
-});
-
-interface Fact { readonly label: string; readonly value: string; readonly title?: string }
-const facts = computed<readonly Fact[]>(() => {
-  const s = props.system;
-  const list: Fact[] = [{ label: 'Version', value: s.version }];
-  // a hosted system's card already says where it runs
-  if (s.address !== undefined && s.host === undefined) { list.push({ label: 'Address', value: s.address }); }
-  list.push({ label: 'Key', value: s.keyFingerprint });
-  if (s.pairedAt !== undefined) { list.push({ label: 'Paired', value: `${relativeTime(s.pairedAt, props.now)}${s.pairedBy === undefined ? '' : ` by ${props.nameOf(s.pairedBy)}`}`, title: fullTime(s.pairedAt) }); }
-  if (s.lastSeenAt !== undefined) { list.push({ label: 'Last seen', value: s.status === 'connected' ? 'Online now' : relativeTime(s.lastSeenAt, props.now), title: fullTime(s.lastSeenAt) }); }
-  if (s.config !== undefined) { list.push({ label: 'Config', value: `Version ${s.config.version}, ${relativeTime(s.config.setAt, props.now)}`, title: fullTime(s.config.setAt) }); }
-  list.push({ label: 'Manifest', value: s.manifestHash });
-  return list;
 });
 
 /** Copy the hosted bundle's whole hash (the card shows it shortened). */
@@ -139,9 +127,8 @@ const blocked = computed(() => props.acting !== undefined);
     </div>
     <div class="col">
       <UiCard title="Details">
-        <dl class="facts">
-          <div v-for="fact in facts" :key="fact.label"><dt>{{ fact.label }}</dt><dd :title="fact.title">{{ fact.value }}</dd></div>
-        </dl>
+        <!-- a hosted system's card already says where it runs -->
+        <InstanceFacts :source="system" :now="now" :name-of="nameOf" :hosted="system.host !== undefined" testid="system-facts" />
       </UiCard>
     </div>
   </div>

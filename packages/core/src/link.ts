@@ -15,9 +15,9 @@ import { FnShare, FnUsable } from './access.ts';
 import { ConnectFinish, ConnectResult, ConnectStart, ConnectionUpdate, InstanceConnect, RunConnection } from './connections.ts';
 import { ProviderChat, ProviderChunk, ProviderEmbed, ProviderEmbedResult } from './system-providers.ts';
 import { ValidateAnswer, ValidateRequest } from './validation.ts';
-import { ApprovedRun, PairingGrant, PairingGrantRequest, PreviewAnswer, PreviewRequest, ProposeRun, ProposedRun } from './approvals.ts';
+import { ApprovedRun, PairingGrant, PairingGrantRequest, PreviewRequest, ProposeRun, ProposedRun } from './approvals.ts';
 import { HubModelInfo } from './admin.ts';
-import { HostRefusal } from './lifecycle.ts';
+import { HostRefusal, PreviewAnswer } from './lifecycle.ts';
 import { DecideAnswer, DecideRequest } from './decisions.ts';
 import { DataRecord, RecordGet, RecordPage, RecordQuery, RecordRemove, RecordSave, RecordTableQuery } from './data.ts';
 import { MentionRequestId, MentionResourceHits, MentionResourceSearch } from './mention-search.ts';
@@ -28,7 +28,7 @@ import { HookBlock, HookInput, ImportReport, KindDescription, KindFnShape, Manif
 import {
   ActorId, DeliveryId, Duration, FnKindName, HandlerCallId, InstanceName, Json, LocalName, MAIN_INSTANCE, JsonObject, PairingId, QualifiedName, RunId, SessionId, SystemName, Timestamp, Usd, page,
 } from './primitives.ts';
-import { TypeDefinitions } from './records/systems.ts';
+import { InstanceMode, TypeDefinitions } from './records/systems.ts';
 import { SystemEvent } from './system-events.ts';
 import { ContentRef, Link, ReadWant, ResourceChange, ResourceRead, ResourceRoot, ResourceStat, ResourceUri, Section, SectionKey } from './resources.ts';
 import {
@@ -47,6 +47,8 @@ export const Hello = z.object({
   version: z.string(),
   /** Which copy of the system this is (`HARNESS_INSTANCE`); a system that runs one copy is `main`. */
   instance: InstanceName.default(MAIN_INSTANCE),
+  /** Whether the system runs one instance or a fleet (`system.json`'s `instances`); absent for a system without one. */
+  instances: InstanceMode.optional(),
   /** New per process start, to tell a restart from a reconnect. */
   boot: z.string(),
   /** The system's public key (Ed25519, SPKI DER as base64). */

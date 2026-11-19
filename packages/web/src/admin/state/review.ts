@@ -1,17 +1,20 @@
 /**
  * One system's review (build 7), shared by its review page and its system page: what it declares, its stage, its
  * install checks, what is live and what waits, the items switched off, and the refusals the hub logged, a page at a
- * time. Switching an item shows at once and is put back if the hub refuses. Going live and approving a pending review
- * send the hash that was reviewed, so the hub refuses when the contract moved since. A test call runs a fn as the admin
+ * time. Switching an item shows at once and is put back if the hub refuses. Going live, and approving or declining a
+ * pending review (all of it, or one change at a time), send the hash that was reviewed, so the hub refuses when the
+ * contract moved since. A test call runs a fn as the admin
  * while the system is installed.
  */
-import { QualifiedName, type GoLiveRequest, type ItemRef, type Json, type RefusalRecord, type RefusalRule, type RunId, type SystemName, type SystemReview, type SystemStage } from '@harness/core';
-import { computed } from 'vue';
+import {
+  QualifiedName, type ChangeRef, type GoLiveRequest, type ItemRef, type Json, type RefusalRecord, type RefusalRule, type ReviewDecided, type RunId, type SystemName, type SystemReview, type SystemStage,
+} from '@harness/core';
+import { computed, ref } from 'vue';
 import { Loaded, Paged, Task, type Outcome } from '../../state/loaded.ts';
 import type { AdminApi } from '../api.ts';
-import { offKeys, itemKey, withSwitch } from '../logic/review.ts';
+import { changeKey, changeRef, offKeys, itemKey, withSwitch } from '../logic/review.ts';
 
-type ReviewApi = Pick<AdminApi, 'systemReview' | 'goLive' | 'approveReview' | 'rejectReview' | 'testCall' | 'refusals' | 'switchItem' | 'switchPart'>;
+type ReviewApi = Pick<AdminApi, 'systemReview' | 'goLive' | 'approveReview' | 'rejectReview' | 'decideReview' | 'testCall' | 'refusals' | 'switchItem' | 'switchPart'>;
 
 /** Which refusals the list shows: one system's, of one rule or all. */
 export interface RefusalFilter {
@@ -31,6 +34,8 @@ export class ReviewStore {
   readonly switching = new Task();
   /** Going live, approving or rejecting. */
   readonly deciding = new Task();
+  /** The key (`changeKey`) of the one pending change being approved or declined now. */
+  readonly decidingChange = ref<string | undefined>(undefined);
   readonly testing = new Task();
   /** The keys of the items switched off now. */
   readonly off = computed(() => offKeys(this.review.value.value?.off ?? []));
@@ -114,6 +119,26 @@ export class ReviewStore {
     const result = await this.deciding.run(() => this.#api.approveReview.call(request), "Couldn't approve the changes.");
     void this.open(review.system);
     return result.ok ? { ok: true, value: result.value.hash } : result;
+  }
+
+  /**
+   * Approve or decline one pending change (by the hash reviewed): approved, it goes live; declined, it stays off and
+   * is recorded; the rest keep waiting. `deciding` names the change while the hub answers. Read again after.
+   */
+  async decide(change: ChangeRef, verdict: 'approve' | 'decline'): Promise<Outcome<ReviewDecided>> {
+    const review = this.review.value.value;
+    const pending = review?.pending;
+    if (review === undefined || pending === undefined) { return { ok: false, problem: 'Nothing waits for review.' }; }
+    this.decidingChange.value = changeKey(change);
+    const ref = changeRef(change);
+    const decision = { system: review.system, hash: pending.hash, approve: verdict === 'approve' ? [ref] : [], decline: verdict === 'decline' ? [ref] : [], off: [] };
+    try {
+      const result = await this.deciding.run(() => this.#api.decideReview.call(decision), verdict === 'approve' ? "Couldn't approve that change." : "Couldn't decline that change.");
+      await this.open(review.system);
+      return result;
+    } finally {
+      this.decidingChange.value = undefined;
+    }
   }
 
   /** Drop the pending changes: the live version stays, and the changes stay off. */

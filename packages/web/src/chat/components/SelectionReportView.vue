@@ -7,6 +7,7 @@
  */
 import type { SelectionReport } from '@harness/core';
 import { computed } from 'vue';
+import FnPill from '../../fns/components/FnPill.vue';
 import { UiBadge } from '../../ui/index.ts';
 import { formatTokens } from '../logic/format.ts';
 import {
@@ -70,7 +71,8 @@ const itemTitle = (item: RankedItem): string => `${item.name}: ${DETAIL_WORDS[it
       <h4 class="heading">{{ group.title }} <span class="dim">{{ group.items.length }}</span></h4>
       <ul v-if="group.items.length > 0" class="list">
         <li v-for="item in group.items" :key="item.name" class="item" :title="itemTitle(item)">
-          <code class="name">{{ item.name }}</code>
+          <FnPill v-if="group.key === 'fns'" class="name" :name="item.name" />
+          <code v-else class="name">{{ item.name }}</code>
           <UiBadge :tone="item.detail === 'full' ? 'accent' : 'neutral'">{{ DETAIL_WORDS[item.detail] }}</UiBadge>
           <span class="weight" aria-hidden="true"><span class="weight-fill" :style="{ width: `${Math.max(4, item.weight * 100)}%` }" /></span>
           <span class="num dim">{{ item.activation.toFixed(2) }}</span>

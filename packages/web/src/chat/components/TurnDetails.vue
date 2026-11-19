@@ -1,14 +1,19 @@
 <script setup lang="ts">
-/** An answer's details: models, tokens in and out, cost, time to first token, duration and iterations, with each LLM call one click away. */
+/**
+ * An answer's details: models, tokens in and out, cost, time to first token, duration and iterations, the fns its LLM
+ * calls called (`FnPill`s, opening the fn modal), with each LLM call one click away.
+ */
 import type { LlmInteraction, LlmInteractionId } from '@harness/core';
 import { computed } from 'vue';
+import FnPill from '../../fns/components/FnPill.vue';
 import { UiBanner, UiSkeleton } from '../../ui/index.ts';
 import { formatCost, formatDuration, formatTokens } from '../logic/format.ts';
-import { turnUsage } from '../logic/inspect.ts';
+import { turnFns, turnUsage } from '../logic/inspect.ts';
 
 const props = withDefaults(defineProps<{ calls: readonly LlmInteraction[]; loading: boolean; problem?: string }>(), { problem: '' });
 const emit = defineEmits<{ llm: [id: LlmInteractionId] }>();
 const usage = computed(() => turnUsage(props.calls));
+const fns = computed(() => turnFns(props.calls));
 </script>
 
 <template>
@@ -23,6 +28,7 @@ const usage = computed(() => turnUsage(props.calls));
         <template v-if="usage.firstToken !== undefined"><dt>First token</dt><dd>{{ formatDuration(usage.firstToken) }}</dd></template>
         <template v-if="usage.duration !== undefined"><dt>Took</dt><dd>{{ formatDuration(usage.duration) }}</dd></template>
         <dt>Iterations</dt><dd>{{ usage.calls }}</dd>
+        <template v-if="fns.length > 0"><dt>Fns called</dt><dd class="pills" data-testid="turn-fns"><FnPill v-for="fn in fns" :key="fn" :name="fn" /></dd></template>
       </dl>
       <h3 class="heading">LLM calls</h3>
       <ol class="calls">
@@ -44,6 +50,7 @@ const usage = computed(() => turnUsage(props.calls));
 dt { color: var(--text-faint); }
 dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .dim { color: var(--text-faint); }
+.pills { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 .heading { margin: 0; font-size: var(--text-sm); font-weight: var(--weight-strong); }
 .calls { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .call { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); width: 100%; min-height: 40px; padding: 0 var(--space-3); border: 0; border-radius: var(--radius); background: transparent; color: var(--text); text-align: left; }

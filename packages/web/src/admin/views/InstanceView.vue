@@ -5,7 +5,8 @@
  * removing it), its own config (checked against the system's config type; secret fields as password inputs), the types
  * and fns it owns (a database's tables and saved queries) with the changes its system proposed waiting above the
  * types, each with its diff to approve or decline, and its data (the folders the hub gives it and an export of its data
- * folder as a zip, its config's secrets only when asked).
+ * folder as a zip, its config's secrets only when asked). A system that runs one instance shows it on its own page, so
+ * this page sends there, to the same tab.
  */
 import { InstanceName, SystemName, type Approval, type Json } from '@harness/core';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
@@ -13,13 +14,14 @@ import { useRoute, useRouter } from 'vue-router';
 import AppPage from '../../app/AppPage.vue';
 import { links } from '../../app/routes.ts';
 import { useParamChoice } from '../../app/url.ts';
-import { formatBytes } from '../../chat/logic/format.ts';
 import { useStores } from '../../state/stores.ts';
-import { UiBanner, UiButton, UiCard, UiIcon, UiSwitch, UiTabs, fullTime, relativeTime, type TabItem } from '../../ui/index.ts';
+import { UiBanner, UiButton, UiCard, UiIcon, UiTabs, type TabItem } from '../../ui/index.ts';
 import { useNow } from '../../ui/now.ts';
 import InboxApprovals from '../../components/inbox/InboxApprovals.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import FnList from '../components/FnList.vue';
+import InstanceData from '../components/InstanceData.vue';
+import InstanceFacts from '../components/InstanceFacts.vue';
 import InstanceTypes from '../components/InstanceTypes.vue';
 import LoadState from '../components/LoadState.vue';
 import StatusBadge from '../components/StatusBadge.vue';
@@ -43,7 +45,6 @@ const key = computed(() => {
 const view = computed(() => store.view.value);
 const problems = ref<readonly string[]>([]);
 const removing = ref(false);
-const withSecrets = ref(false);
 const exported = ref<{ readonly url: string; readonly size: number } | undefined>(undefined);
 const title = computed(() => (key.value === undefined ? 'Instance' : `${key.value.system}@${key.value.instance}`));
 
@@ -55,24 +56,16 @@ const tabs = computed<readonly TabItem<InstanceTab>[]>(() => [
   { value: 'data', label: 'Data' },
 ]);
 
-interface Fact { readonly label: string; readonly value: string; readonly title?: string }
-const facts = computed<readonly Fact[]>(() => {
-  const v = view.value;
-  if (v === undefined) { return []; }
-  const list: Fact[] = [{ label: 'Version', value: v.version }, { label: 'Key', value: v.keyFingerprint }];
-  if (v.address !== undefined) { list.push({ label: 'Address', value: v.address }); }
-  if (v.pairedAt !== undefined) { list.push({ label: 'Paired', value: `${relativeTime(v.pairedAt, now.value)}${v.pairedBy === undefined ? '' : ` by ${admin.actors.nameOf(v.pairedBy)}`}`, title: fullTime(v.pairedAt) }); }
-  if (v.lastSeenAt !== undefined) { list.push({ label: 'Last seen', value: v.status === 'connected' ? 'Online now' : relativeTime(v.lastSeenAt, now.value), title: fullTime(v.lastSeenAt) }); }
-  if (v.config !== undefined) { list.push({ label: 'Config', value: `Version ${v.config.version}, ${relativeTime(v.config.setAt, now.value)}`, title: fullTime(v.config.setAt) }); }
-  list.push({ label: 'Manifest', value: v.manifestHash });
-  return list;
-});
 
 const secrets = computed(() => secretFields(store.configForm.value.value?.secrets, view.value?.config?.value));
 const proposals = computed(() => parts.proposals.value);
 
 watch(key, (k) => { if (k !== undefined) { void store.open(k); void parts.open(k); void admin.actors.load(); } }, { immediate: true });
 watch(tab, () => { problems.value = []; });
+// a single-instance system's one instance lives on the system's page: the same tab there (each of these tabs is one of the system's)
+watch([key, () => store.configForm.value.value?.instanceMode, tab], ([k, mode, current]) => {
+  if (k !== undefined && mode === 'one') { void router.replace(links.system(k.system, current)); }
+}, { immediate: true });
 onBeforeUnmount(() => { store.close(); parts.close(); });
 
 async function decide(approval: Approval, approve: boolean, reason: string): Promise<void> {
@@ -86,9 +79,9 @@ async function save(config: Json): Promise<void> {
   if (result.ok) { toasts.ok('Config saved', `Version ${result.version}`); }
 }
 
-async function exportData(): Promise<void> {
-  const result = await store.exportData(withSecrets.value);
-  if (result.ok) { exported.value = result.value; toasts.ok('Data exported', `${formatBytes(result.value.size)} zip ready to download.`); } else { toasts.error(result.problem); }
+async function exportData(withSecrets: boolean): Promise<void> {
+  const result = await store.exportData(withSecrets);
+  if (result.ok) { exported.value = result.value; toasts.ok('Data exported', 'The zip is ready to download.'); } else { toasts.error(result.problem); }
 }
 
 async function remove(): Promise<void> {
@@ -122,9 +115,7 @@ async function remove(): Promise<void> {
         </UiBanner>
         <div v-if="tab === 'overview'" class="overview" data-testid="instance-overview">
           <UiCard title="Details">
-            <dl class="facts">
-              <div v-for="fact in facts" :key="fact.label"><dt>{{ fact.label }}</dt><dd :title="fact.title">{{ fact.value }}</dd></div>
-            </dl>
+            <InstanceFacts :source="view" :now="now" :name-of="admin.actors.nameOf" />
           </UiCard>
           <UiCard v-if="view.installed" title="Process" :subtitle="`Run by the hub from ${view.installed.dir}`">
             <template #actions><StatusBadge :look="INSTALLED_STATUS_LOOK[view.installed.status]" /></template>
@@ -161,26 +152,7 @@ async function remove(): Promise<void> {
         >
           <FnList :fns="parts.fns.value.value ?? []" :now="now" :runs-of="links.fnRuns" />
         </LoadState>
-        <div v-else class="overview" data-testid="instance-data">
-          <UiCard title="Folders" subtitle="The hub keeps these outside the package, so upgrades and rollbacks keep them.">
-            <dl v-if="view.dirs" class="facts">
-              <div><dt>Data</dt><dd><code>{{ view.dirs.data }}</code></dd></div>
-              <div><dt>State</dt><dd><code>{{ view.dirs.state }}</code></dd></div>
-              <div><dt>Cache</dt><dd><code>{{ view.dirs.cache }}</code> <span class="dim">(never exported)</span></dd></div>
-            </dl>
-            <p v-else class="dim">This instance runs elsewhere, so it keeps its own folders on its machine.</p>
-          </UiCard>
-          <UiCard title="Export its data" subtitle="A zip of its data folder and config, which harness system install --data restores.">
-            <div class="export">
-              <UiSwitch v-model="withSecrets" label="Include the config's secrets" description="Anyone with the zip can read them." data-testid="export-secrets" />
-              <UiBanner v-if="withSecrets" tone="warn">The zip will hold this instance's secrets in plain text.</UiBanner>
-              <div class="row">
-                <UiButton icon="download" :loading="store.exporting.busy.value" data-testid="export-data" @click="exportData">Export</UiButton>
-                <a v-if="exported" class="download" :href="exported.url" download data-testid="export-download"><UiIcon name="download" :size="14" />Download ({{ formatBytes(exported.size) }})</a>
-              </div>
-            </div>
-          </UiCard>
-        </div>
+        <InstanceData v-else :dirs="view.dirs" :busy="store.exporting.busy.value" :exported="exported" @export="exportData" />
       </template>
     </LoadState>
     <ConfirmDialog v-model:open="removing" :title="`Remove ${title}?`" :busy="store.removing.busy.value" confirm="Remove" body="Its key, config and folders go. It must pair again to come back." @confirm="remove" />
@@ -196,10 +168,8 @@ dt { color: var(--text-dim); font-size: var(--text-sm); }
 dd { margin: 0; overflow-wrap: anywhere; font-size: var(--text-sm); }
 .dim { margin: 0; color: var(--text-dim); font-size: var(--text-sm); }
 .row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
-.export { display: grid; gap: var(--space-3); }
 .stack { display: grid; gap: var(--space-4); min-width: 0; }
 .more { justify-self: start; }
-.download { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); }
 .crumb { display: inline-flex; align-items: center; gap: 2px; margin-left: -2px; color: var(--text-dim); font-weight: var(--weight-medium); text-decoration: none; }
 .crumb:hover { color: var(--accent); }
 </style>

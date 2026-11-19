@@ -1,6 +1,6 @@
-import { QualifiedName, SystemName, type Json } from '@harness/core';
+import { FnBlock, QualifiedName, SystemName, type Json } from '@harness/core';
 import { describe, expect, it } from 'vitest';
-import { heldDetail, heldLine, heldSystems, runBlocks } from './held.ts';
+import { heldLine, heldSystems, heldTail, listJoin, runBlocks } from './held.ts';
 import type { RunView } from './runs.ts';
 
 type Shown = Pick<RunView, 'fn' | 'outcome'>;
@@ -23,6 +23,17 @@ describe('heldSystems', () => {
       { system: 'shop', fns: ['shop/order'] },
       { system: 'mail', fns: ['mail/send'] },
     ]);
+  });
+
+  it('finds a held system in a direct call the hub refused, and in hub/fn_get, with no other contact (regression)', () => {
+    const called: Shown = { fn: QualifiedName.parse('database/create_table'), outcome: { status: 'invalid-input', invalid: {
+      source: 'schema', problems: [{ path: 'fn', message: 'database/create_table is off' }], blocked: FnBlock.parse(held('database/create_table')),
+    } } };
+    const looked = done('hub/fn_get', { fn: 'notes/tag', kind: 'native', description: 'Tag.', version: 1, available: false, blocked: held('notes/tag') });
+    expect(heldSystems([called, looked])).toEqual([{ system: 'database', fns: ['database/create_table'] }, { system: 'notes', fns: ['notes/tag'] }]);
+    // refused args (nothing blocks the fn) and a usable fn_get are no banner
+    const badArgs: Shown = { fn: QualifiedName.parse('database/create_table'), outcome: { status: 'invalid-input', invalid: { source: 'validation', problems: [{ path: 'name', message: 'required' }] } } };
+    expect(heldSystems([badArgs, done('hub/fn_get', { fn: 'fs/read', available: true })])).toEqual([]);
   });
 
   it('gives one entry per system for the whole turn, each fn once, in the order the runs met them', () => {
@@ -68,8 +79,10 @@ describe('heldSystems', () => {
 describe('held words', () => {
   it('names the system and the fns it held', () => {
     expect(heldLine({ system: SystemName.parse('database') })).toBe('database has changes waiting for review');
-    expect(heldDetail({ fns: ['database/create_table'] })).toBe('database/create_table is off until then.');
-    expect(heldDetail({ fns: ['database/create_table', 'database/insert_rows', 'database/drop'] })).toBe('database/create_table, database/insert_rows and database/drop are off until then.');
-    expect(heldDetail({ fns: [] })).toBe('');
+    expect(heldTail({ fns: ['database/create_table'] })).toBe('is off until then.');
+    expect(heldTail({ fns: ['database/create_table', 'database/insert_rows'] })).toBe('are off until then.');
+    // the banner reads its pills out as a list: "a, b and c"
+    expect([0, 1, 2].map((index) => listJoin(index, 3))).toEqual(['', ', ', ' and ']);
+    expect(listJoin(1, 2)).toBe(' and ');
   });
 });

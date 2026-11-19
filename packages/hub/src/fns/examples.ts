@@ -119,7 +119,7 @@ export class StoreFnExamples implements FnExamples {
     });
     return hits.flatMap((hit) => {
       const row = found.get(hit.key);
-      return row === undefined ? [] : [view(row, hit.score)];
+      return row === undefined ? [] : [view(row, hit.rank)];
     });
   }
 

@@ -1,11 +1,12 @@
 /**
  * The systems a turn found held for review: every place the hub refuses a fn to the model says what blocks it as a
  * structured `FnBlock` (`hub/load_fns` and `hub/load` in `refused`, `hub/load_context` in `fnsRefused`, `hub/fns_search`
- * on each hit as `blocked`), and a block with code `held` means the fn's system has changes (or a whole install) waiting
- * for an admin's review. The chat shows one banner per held system on that turn, from these runs' results alone. Pure,
- * so it is tested alone.
+ * on each hit and `hub/fn_get` as `blocked`), and a direct call of a blocked fn (a tool, a static `run`) is kept as a
+ * run settled invalid-input with that same block (`InvalidInput.blocked`). A block with code `held` means the fn's
+ * system has changes (or a whole install) waiting for an admin's review. The chat shows one banner per held system on
+ * that turn, from these runs alone. Pure, so it is tested alone.
  */
-import { englishList, FnRefusal, FnSearchHit, LoadContextResult, NameRefusal, type FnBlock, type Json, type SystemName } from '@harness/core';
+import { FnBlock, FnRefusal, FnSearchHit, LoadContextResult, NameRefusal, type Json, type SystemName } from '@harness/core';
 import { hub } from '@harness/sdk';
 import { z } from 'zod';
 import type { RunView } from './runs.ts';
@@ -32,13 +33,19 @@ const BLOCKS_BY_FN: ReadonlyMap<string, (result: Json) => readonly Blocked[]> = 
   [hub.fns.load_fns.name, reader(z.object({ refused: z.array(FnRefusal) }), (r) => r.refused.map(({ fn, ...block }) => ({ ...block, name: fn })))],
   [hub.fns.load.name, reader(z.object({ refused: z.array(NameRefusal) }), (r) => r.refused)],
   [hub.fns.load_context.name, reader(LoadContextResult.pick({ fnsRefused: true }), (r) => r.fnsRefused.map(({ fn, ...block }) => ({ ...block, name: fn })))],
+  [hub.fns.fn_get.name, reader(z.object({ fn: z.string(), blocked: FnBlock.optional() }), (r) => (r.blocked === undefined ? [] : [{ ...r.blocked, name: r.fn }]))],
   [hub.fns.fns_search.name, reader(z.object({ items: z.array(FnSearchHit.pick({ name: true, blocked: true })) }), (r) => r.items.flatMap((hit) => (hit.blocked === undefined ? [] : [{ ...hit.blocked, name: hit.name }])))],
 ]);
 
-/** The blocks one run's result says, when it is a hub fn that refuses and it finished. */
+/**
+ * The blocks one run says: a hub fn that refuses and finished, by its result; a call the hub refused because its fn is
+ * blocked, by its refused input's block (the fn is the run's own).
+ */
 export function runBlocks(run: Pick<RunView, 'fn' | 'outcome'>): readonly Blocked[] {
+  const { outcome } = run;
+  if (outcome?.status === 'invalid-input') return outcome.invalid.blocked === undefined ? [] : [{ ...outcome.invalid.blocked, name: run.fn }];
   const read = BLOCKS_BY_FN.get(run.fn);
-  return read === undefined || run.outcome?.status !== 'done' ? [] : read(run.outcome.result);
+  return read === undefined || outcome?.status !== 'done' ? [] : read(outcome.result);
 }
 
 /** The systems a turn's runs found held for review, one entry each, in the order the runs met them. */
@@ -57,7 +64,12 @@ export function heldLine(held: Pick<HeldSystem, 'system'>): string {
   return `${held.system} has changes waiting for review`;
 }
 
-/** What the turn was refused because of it: "database/create_table and database/insert_rows are off until then." */
-export function heldDetail(held: Pick<HeldSystem, 'fns'>): string {
-  return held.fns.length === 0 ? '' : `${englishList(held.fns)} ${held.fns.length === 1 ? 'is' : 'are'} off until then.`;
+/** The words after the fns the turn was refused (the banner names them as pills): "is off until then.", "are …". */
+export function heldTail(held: Pick<HeldSystem, 'fns'>): string {
+  return `${held.fns.length === 1 ? 'is' : 'are'} off until then.`;
+}
+
+/** The words before the fn at `index` of `count` in a list read out: '', ', ' or ' and '. */
+export function listJoin(index: number, count: number): string {
+  return index === 0 ? '' : index === count - 1 ? ' and ' : ', ';
 }

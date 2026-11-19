@@ -6,7 +6,7 @@ import { SYSTEM_PART_SECTIONS } from '@harness/core';
 import { z } from 'zod';
 
 /** The admin sections, in the order the admin nav lists them. */
-export const AdminSection = z.enum(['systems', 'fns', 'models', 'limits', 'policies', 'actor-settings', 'runs', 'model-calls', 'mcps', 'mcp-servers', 'api-services']);
+export const AdminSection = z.enum(['systems', 'fns', 'graph', 'models', 'limits', 'policies', 'actor-settings', 'runs', 'model-calls', 'mcps', 'mcp-servers', 'api-services']);
 export type AdminSection = z.infer<typeof AdminSection>;
 
 /** Build 9: one MCP server's tabs. */
@@ -17,8 +17,11 @@ export type McpServerTab = z.infer<typeof McpServerTab>;
 export const ApiServiceTab = z.enum(['overview', 'settings']);
 export type ApiServiceTab = z.infer<typeof ApiServiceTab>;
 
-/** A system's tabs. */
-export const SystemTab = z.enum(['overview', 'instances', 'config', 'fns', 'context', 'types', 'parts', 'graph', 'refusals', 'logs']);
+/**
+ * A system's tabs. A fleet has `instances`, each instance its own page; a system that runs one instance has its
+ * instance's `data` on its own page instead.
+ */
+export const SystemTab = z.enum(['overview', 'instances', 'config', 'fns', 'context', 'types', 'parts', 'graph', 'refusals', 'logs', 'data']);
 export type SystemTab = z.infer<typeof SystemTab>;
 
 /** The parts a system's Parts tab shows, one at a time (`?part=` in the URL): its resource roots and every other section. */

@@ -8,7 +8,7 @@ import { client, implement, reject, server, spec, type ApiClient, type ClientWs,
 import { createPluginHost } from '@ayepi/plugin';
 import {
   EXPORT_NOT_READY, LINK_PROTOCOL, MAIN_INSTANCE, SystemName, systemLinkSpec,
-  type ContentRef, type InstanceName, type SystemPackageManifest,
+  type ContentRef, type InstanceMode, type InstanceName, type SystemPackageManifest,
   type AutoPairProof, type ConfigValue, type HelloReply, type KindDescription, type Manifest, type ResourceChange, type ResourceRead, type ResourceRoot, type Section,
   type StopReason, type SystemEvent, type Welcome,
 } from '@harness/core';
@@ -101,6 +101,8 @@ export class FakeSystem {
   readonly paired: string[] = [];
   /** An auto-pair secret it brings in every hello. */
   autoPair: AutoPairProof | undefined;
+  /** How many instances it says it runs (its `system.json`), in every hello; absent says nothing. */
+  instances: InstanceMode | undefined;
   readonly configured: Array<ConfigValue & { previous?: unknown }> = [];
   readonly events: SystemEvent[] = [];
   readonly stops: StopReason[] = [];
@@ -181,6 +183,7 @@ export class FakeSystem {
     return this.sdk.call('hello', {
       protocol: LINK_PROTOCOL, name: this.name, version: this.version, instance: this.instance, boot: this.boot, publicKey: this.keys.publicKey,
       manifestHash: this.manifest.hash, contractHash: this.manifest.hash, ...(pairingToken === undefined ? {} : { pairingToken }), ...(this.autoPair === undefined ? {} : { autoPair: this.autoPair }),
+      ...(this.instances === undefined ? {} : { instances: this.instances }),
     });
   }
 

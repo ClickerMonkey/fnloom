@@ -7,7 +7,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AutoPairId, mintId, qualify, type Json, type OutcomeWire, type RunSettled } from '@harness/core';
+import { AutoPairId, LINK_PROTOCOL, mintId, qualify, type Json, type OutcomeWire, type RunSettled } from '@harness/core';
 import { action, attachment, context, embedder, hook, kind, mention, sectioner, sectionKeys, setting, type } from '../declare.ts';
 import { fn, handler, linear, steps } from '../fn.ts';
 import { g } from '../gin.ts';
@@ -125,7 +125,7 @@ function impl(overrides: { onPauseCopy?: boolean } = {}): Parameters<typeof serv
     kinds: {
       template: {
         async check(payload) { return payload.template.includes('{{') ? [] : ['A template needs a placeholder.']; },
-        async describe() { return { args: { name: 'obj' }, returns: { name: 'text' }, deps: [], operations: { cancel: true, pause: false, undo: false, background: true } }; },
+        async describe() { return { args: { name: 'obj' }, returns: { name: 'text' }, deps: [], operations: { cancel: true, pause: false, undo: false, background: true }, examples: [{ args: {} }] }; },
         async run(payload, args, ctx) { return ctx.done(`${payload.template}:${JSON.stringify(args)}`); },
       },
     },
@@ -245,6 +245,26 @@ describe('connecting', () => {
     await vi.waitFor(() => { expect(system.status).toBe('connected'); });
     expect(hub.manifests).toHaveLength(1);
     expect(hub.hellos).toHaveLength(2);
+  });
+
+  it('says in its hello how many instances its system.json runs, and nothing without one', async () => {
+    const folder = await mkdtemp(join(tmpdir(), 'harness-package-'));
+    try {
+      await writeFile(join(folder, 'system.json'), JSON.stringify({
+        format: 1, name: 'notes', version: '2.0.0', description: 'Notes.', protocol: LINK_PROTOCOL, server: { entry: 'server/main.ts' }, instances: 'one',
+      }));
+      const hub = new FakeHub({ config: { folder: '/n' } });
+      running = await serve(notes, impl(), { hub: 'ws://hub.test/link', state: 'unused', package: folder }, hub.host());
+      await running.ready();
+      expect(hub.hellos[0]).toMatchObject({ name: 'notes', version: '2.0.0', instances: 'one' });
+      await running.stop();
+      const bare = new FakeHub({ config: { folder: '/n' } });
+      running = await serve(notes, impl(), { hub: 'ws://hub.test/link', state: 'unused', version: '1', package: join(folder, 'none') }, bare.host());
+      await running.ready();
+      expect(bare.hellos[0]).not.toHaveProperty('instances');
+    } finally {
+      await rm(folder, { recursive: true, force: true });
+    }
   });
 
   it('uploads its client renderers with its manifest, and not again when the hub already has them', async () => {

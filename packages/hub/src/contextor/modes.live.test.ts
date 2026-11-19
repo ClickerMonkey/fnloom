@@ -34,7 +34,7 @@ describe('the static toolset on a free OpenRouter model (live)', () => {
     const tried: string[] = [];
     for (const model of liveModels()) {
       const search = new FixedSearch();
-      search.hits = [{ kind: 'fn', key: 'vault/open', score: 1, text: 'Open the vault.' }];
+      search.hits = [{ kind: 'fn', key: 'vault/open', rank: 1, similarity: 1, text: 'Open the vault.' }];
       const r = await executionRig({ settings: testSettings({ HARNESS_TURN_COST: 0.05 }, {}, model), llm: { providers: openRouterProviders(key) }, search });
       rig = r;
       r.catalog.add('vault', 'open', fn({ description: 'Open the vault and read the secret word inside it.', args: g.obj({ vault: g.text() }), returns: g.text(), tags: ['read'] }));

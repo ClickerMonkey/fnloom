@@ -9,7 +9,7 @@
  * the `query` kind runs them, and previews the writes among them for their approval.
  */
 import { InstanceName, Json, QualifiedName, ShareRule, qualify, splitName, type ApprovalPreview, type FnEffects, type PreviewAnswer, type RunInfo } from '@harness/core';
-import { CallFailed, ginAs, wireType, type FnCtx, type Fleets, type SystemCtx, type SystemImpl, type TypesOf } from '@harness/sdk';
+import { CallFailed, ginAs, sampleArgs, wireType, type FnCtx, type Fleets, type SystemCtx, type SystemImpl, type TypesOf } from '@harness/sdk';
 import { AuthoringError } from '@harness/sdk/server';
 import { z } from 'zod';
 import { QUERY_KIND, ResultData, database, type DatabaseContract } from '../shared/index.ts';
@@ -630,8 +630,11 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
           const compiled = here.compile(parsed);
           // check refused a payload that doesn't fit the tables; one that stopped fitting since keeps its last description
           if (!('query' in compiled)) { throw new Error(`The saved query no longer fits the tables: ${compiled.problems.join(' ')}`); }
+          const args = argsTypeOf(compiled, parsed.sorters, limits, parsed.optional);
           return {
-            args: argsTypeOf(compiled, parsed.sorters, limits, parsed.optional),
+            args,
+            // its params given sample values, so a saved query always shows how it is called
+            examples: [{ args: sampleArgs(args), note: `${parsed.description} Sample values for its params: use real ones.` }],
             // a read gives its rows as a table: the person sees them drawn, the model a summary and the first rows, and a
             // widget can use it as its source (widget pass)
             returns: wireType(compiled.writes ? ginAs(WriteResult) : ResultData),

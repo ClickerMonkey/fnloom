@@ -16,7 +16,7 @@ import { sdkEnv } from './env.ts';
 const PORT = 4386;
 
 const echo = system('echo', { description: 'Echo.' }).with({
-  fns: { say: fn({ description: 'Say it back.', args: g.obj({ text: g.text() }), returns: g.text() }) },
+  fns: { say: fn({ description: 'Say it back.', args: g.obj({ text: g.text() }), returns: g.text(), examples: [{ args: { text: 'hi' }, note: 'Says "you said hi".' }] }) },
 });
 
 let running: RunningSystem<'echo'> | undefined;

@@ -2,8 +2,8 @@
 /**
  * The Data page (build 8): the stored types the person sees (`/data`), grouped by system, each with how it keeps its
  * records and how many there are, searched by words in the URL (`q`) and opening its records; and the saved widgets
- * (`/data/widgets`), each opened in a new chat, where it runs and its controls and row actions work, and (for an admin)
- * on its fn page. Both read the hub's queries a page at a time.
+ * (`/data/widgets`), each opened in a new chat, where it runs and its controls and row actions work, and its fn (a
+ * `FnPill`) opened in the fn modal. Both read the hub's queries a page at a time.
  */
 import { SystemName } from '@harness/core';
 import { computed, watch } from 'vue';
@@ -12,8 +12,8 @@ import AppPage from '../app/AppPage.vue';
 import { links, ROUTES } from '../app/routes.ts';
 import { useRouteQuery } from '../app/url.ts';
 import LoadState from '../admin/components/LoadState.vue';
-import { fnLabel } from '../chat/logic/labels.ts';
 import { bySystem, recordCount, storageWords } from '../data/logic/data.ts';
+import FnPill from '../fns/components/FnPill.vue';
 import { useWidgetOpener } from '../data/state/open-widget.ts';
 import { useStores } from '../state/stores.ts';
 import { UiButton, UiIcon, UiInput, UiSegmented, relativeTime, type SegmentOption } from '../ui/index.ts';
@@ -21,7 +21,7 @@ import { useNow } from '../ui/now.ts';
 
 type View = 'stored' | 'widgets';
 
-const { data, session } = useStores();
+const { data } = useStores();
 const route = useRoute();
 const router = useRouter();
 const now = useNow();
@@ -48,7 +48,6 @@ const groups = computed(() => bySystem(data.sets.items.value));
 
 /** A widget opens in a new chat, which runs it; an admin can open its fn page too. */
 const { opening, open: openWidget } = useWidgetOpener();
-const isAdmin = computed(() => session.user.value?.role === 'admin');
 </script>
 
 <template>
@@ -90,8 +89,7 @@ const isAdmin = computed(() => session.user.value?.role === 'admin');
         <li v-for="widget in data.widgets.items.value" :key="widget.name" class="widget" data-testid="data-widget" :data-widget="widget.name">
           <UiIcon name="grid" :size="16" class="lead" />
           <span class="main">
-            <RouterLink v-if="isAdmin" class="name link" :to="links.fn(widget.name)" data-testid="data-widget-page">{{ fnLabel(widget.name) }}</RouterLink>
-            <span v-else class="name">{{ fnLabel(widget.name) }}</span>
+            <span class="name"><FnPill :name="widget.name" :blocked="widget.blocked" /></span>
             <span v-if="widget.description !== ''" class="about">{{ widget.description }}</span>
             <span v-if="widget.blocked !== undefined" class="how">{{ widget.blocked.reason }}</span>
           </span>

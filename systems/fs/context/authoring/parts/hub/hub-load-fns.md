@@ -47,7 +47,7 @@ tags: ["authoring"]
   ```text
   (obj{
     /* The qualified fn name. */ fn: text{minLength=1}
-  }) => obj{ fn, kind, description, instructions?, payload?, version, owner?, routing?, available, args?, returns?, live? … }
+  }) => obj{ fn, kind, description, instructions?, payload?, version, owner?, routing?, available, blocked?, args?, returns?, live? … }
   ```
 - `hub/save_fn`: Keep a fn of one of the calling system's kinds in the hub (a saved form, a saved query), owned by the run's person and shared as asked. Saving a name again keeps the old version in its history. Tags: `own`.
 
@@ -284,12 +284,12 @@ tags: ["authoring"]
 - `hub/systems_list`: Every system: whether it is connected, its version, instances and what it offers. Tags: `read`.
 
   ```text
-  (obj{ query? … }) => list<obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, stage?, keyFingerprint, config?, installed?, host?, pairedAt?, pairedBy?, lastSeenAt?, address?, fns, needsConfig, configType?, configSecrets?, instances … }>
+  (obj{ query? … }) => list<obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, stage?, keyFingerprint, config?, installed?, host?, pairedAt?, pairedBy?, lastSeenAt?, address?, counts, instanceMode, needsConfig, configType?, configSecrets?, instances … }>
   ```
 - `hub/system_get`: One system: its status, version, instances, config state and what it offers. Tags: `read`.
 
   ```text
-  (obj{system: text}) => obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, stage?, keyFingerprint, config?, installed?, host?, pairedAt?, pairedBy?, lastSeenAt?, address?, fns, needsConfig, configType?, configSecrets?, instances … }
+  (obj{system: text}) => obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, stage?, keyFingerprint, config?, installed?, host?, pairedAt?, pairedBy?, lastSeenAt?, address?, counts, instanceMode, needsConfig, configType?, configSecrets?, instances … }
   ```
 - `hub/system_fns`: A system's fns, with whether each can be used now and its running numbers. Tags: `read`.
 
@@ -318,7 +318,7 @@ tags: ["authoring"]
   ```text
   (obj{model?: text}) => list<obj{ model, limits, sources, ratio … }>
   ```
-- `hub/query`: Any list (resources, fns, runs, modelCalls, llmCalls, sessions, contexts, notifications, systems, types) by the query standard: free text, filters on the list's fields (is, in, >, <, between, empty, contains, ...), a sort and paging. Tags: `read`.
+- `hub/query`: Any list (resources, fns, runs, modelCalls, llmCalls, sessions, contexts, notifications, systems, types, graph) by the query standard: free text, filters on the list's fields (is, in, >, <, between, empty, contains, ...), a sort and paging. Tags: `read`.
 
   ```text
   (obj{ list, query? … }) => obj{
@@ -332,7 +332,7 @@ tags: ["authoring"]
 - `hub/graph`: The graph of what systems add (fns, context, types, kinds, commands, components, providers) and how they connect: what brings, calls, reads, writes, creates or refers to what. Tags: `read`.
 
   ```text
-  (obj{ systems?, external?, focus?, text?, nodeKinds?, edgeKinds?, fnKinds?, modes?, effects?, visibility?, stages?, on?, collapse?, limit? … }) => obj{ nodes, edges, more, total … }
+  (obj{ text?, filters?, systems?, external?, focus?, collapse?, limit? … }) => obj{ nodes, edges, more, total … }
   ```
 - `hub/item_versions`: The version history of one item a system declared or added while running (a fn, type, context item, kind, command, component, provider, ...): each version's declaration, how it changed, and who saved it, newest first. Tags: `read`.
 

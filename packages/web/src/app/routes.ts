@@ -129,7 +129,7 @@ export const QUERIES = {
   [ROUTES.explore]: z.object({ open: z.string().min(1) }).partial(),
   [ROUTES.context]: ContextBrowseQuery,
   [ROUTES.contextItem]: ContextItemQuery,
-  /** The graph's filters, search, focus and collapsed systems. */
+  /** The graph's search and filters (`q`), focus and hops, collapsed systems and references outside. */
   [ROUTES.graph]: GraphUrl,
   /** The Claude fleet's words and filters, and the new-session dialog open (build 9). */
   [ROUTES.claude]: FleetUrl,
@@ -233,7 +233,7 @@ export const links = {
     name: ROUTES.explore, params: { system, instance, path: [...path] }, ...queryOf(ROUTES.explore, { open }),
   }),
   context: (query: RouteQuery<typeof ROUTES.context> = {}): RouteLocationRaw => ({ name: ROUTES.context, ...queryOf(ROUTES.context, query) }),
-  /** The graph of every system's items and how they connect, with its filters (build 7). */
+  /** The graph of every system's items and how they connect, with its search, filters and controls (`/admin/graph`). */
   graph: (query: RouteQuery<typeof ROUTES.graph> = {}): RouteLocationRaw => ({ name: ROUTES.graph, ...queryOf(ROUTES.graph, query) }),
   /** The stored types the person sees, by system (build 8). */
   data: (query: RouteQuery<typeof ROUTES.data> = {}): RouteLocationRaw => ({ name: ROUTES.data, ...queryOf(ROUTES.data, query) }),
@@ -305,7 +305,8 @@ export const routes: RouteRecordRaw[] = [
   // a system's pairing QR code opens this (admins; a signed-out visitor signs in first and comes back)
   { path: '/explore/:system/:instance/:path(.*)*', name: ROUTES.explore, component: () => import('../pages/ExplorePage.vue'), meta: { title: 'Files' } },
   { path: '/context', name: ROUTES.context, component: () => import('../pages/ContextPage.vue'), meta: { title: 'Context' } },
-  { path: '/graph', name: ROUTES.graph, component: () => import('../pages/GraphPage.vue'), meta: { title: 'Graph' } },
+  // the graph moved into the admin area; old links keep their filters
+  { path: '/graph', redirect: (to) => ({ name: ROUTES.graph, query: to.query, hash: to.hash }) },
   { path: '/claude', name: ROUTES.claude, component: () => import('../pages/ClaudePage.vue'), meta: { title: 'Claude' } },
   { path: '/claude/:instance/:session', name: ROUTES.claudeSession, component: () => import('../pages/ClaudeSessionPage.vue'), meta: { title: 'Claude session' } },
   { path: '/data', name: ROUTES.data, component: () => import('../pages/DataPage.vue'), meta: { title: 'Data' } },
@@ -324,6 +325,7 @@ export const routes: RouteRecordRaw[] = [
       { path: `systems/:name/:tab(${tabs(SystemTab)})?`, name: ROUTES.system, component: () => import('../admin/views/SystemView.vue'), meta: { title: 'System' } },
       { path: `systems/:name/instances/:instance/:tab(${tabs(InstanceTab)})?`, name: ROUTES.instance, component: () => import('../admin/views/InstanceView.vue'), meta: { title: 'Instance' } },
       { path: 'fns', name: ROUTES.fns, component: () => import('../admin/views/FnsView.vue'), meta: { title: 'Fns' } },
+      { path: 'graph', name: ROUTES.graph, component: () => import('../pages/GraphPage.vue'), meta: { title: 'Graph' } },
       { path: 'systems/:name/fns/:fn', name: ROUTES.fn, component: () => import('../admin/views/FnView.vue'), meta: { title: 'Fn' } },
       { path: `models/:tab(${tabs(ModelsTab)})?`, name: ROUTES.models, component: () => import('../admin/views/ModelsView.vue'), meta: { title: 'Models' } },
       { path: `limits/:tab(${tabs(LimitsTab)})?`, name: ROUTES.limits, component: () => import('../admin/views/LimitsView.vue'), meta: { title: 'Budgets' } },

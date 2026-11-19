@@ -39,9 +39,11 @@ export class IndexSuggester implements Suggester {
     const hits = await this.#search.search({ text: input.text, kinds: ['fn', 'context'], limit: input.pool, meaning: true });
     for (const hit of hits) {
       const name = QualifiedName.safeParse(hit.key);
-      if (!name.success || (hit.kind !== 'fn' && hit.kind !== 'context')) { continue; }
-      const suggestion = !allowed(name.data) ? undefined : hit.kind === 'fn' ? await this.#fn(name.data, hit.score) : await this.#context(name.data, hit.score);
-      if (suggestion === undefined) { out.hidden.push({ kind: hit.kind, name: name.data, score: hit.score }); }
+      // a suggestion's score is its similarity of meaning, never its rank (`meaning` asks for hits with one only)
+      const score = hit.similarity;
+      if (!name.success || score === undefined || (hit.kind !== 'fn' && hit.kind !== 'context')) { continue; }
+      const suggestion = !allowed(name.data) ? undefined : hit.kind === 'fn' ? await this.#fn(name.data, score) : await this.#context(name.data, score);
+      if (suggestion === undefined) { out.hidden.push({ kind: hit.kind, name: name.data, score }); }
       else { out.offered.push(suggestion); }
     }
     return out;

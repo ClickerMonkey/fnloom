@@ -35,7 +35,9 @@ export const contextorEnv = env({
   // each graph metric's weight, target and steepness (`score.ts`), the defaults a session's overrides sit on
   HARNESS_METRIC_EMBEDDING_WEIGHT: weight('embedding similarity', 1),
   HARNESS_METRIC_EMBEDDING_TARGET: target('embedding similarity', 1),
-  HARNESS_METRIC_EMBEDDING_K: steepness('embedding similarity', 4),
+  // the signal is a cosine similarity: at 6 an item known by meaning alone crosses the graph threshold (0.15) at the
+  // suggestion threshold (0.45), and unrelated text (0.2 to 0.4) stays under it (`thresholds.test.ts`)
+  HARNESS_METRIC_EMBEDDING_K: steepness('embedding similarity', 6),
   HARNESS_METRIC_WORDS_WEIGHT: weight('shared words', 0.3),
   HARNESS_METRIC_WORDS_TARGET: target('shared words', 1),
   HARNESS_METRIC_WORDS_K: steepness('shared words', 2),

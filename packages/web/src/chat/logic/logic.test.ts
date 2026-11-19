@@ -14,7 +14,7 @@ import {
 } from './runs.ts';
 import { abilities, contextText, findModels, isFree, priceText, type ModelQuery } from './models.ts';
 import { agentOptions, budgetMeter, messageSuggestions, modelChoiceOf, modelLabel, modelPick, scopeLabel, scoreText, skipText, whoAnswers } from './session.ts';
-import { choosableRuns, controlPlan, toggleRun } from './controls.ts';
+import { choosableRuns, controlPlan, toggleRun, turnVerbs } from './controls.ts';
 import {
   addSegment, answerPieces, appendToken, dayLabel, invocationCarriers, messageText, prependPage, resendParts, settleSegments, splitParts, storedSegments, threadItems, undoneTurns, upsertMessage,
 } from './thread.ts';
@@ -524,6 +524,25 @@ describe('invocation carriers', () => {
     expect(items.filter((i) => i.kind !== 'day').map((i) => i.kind)).toEqual(['user', 'answer']);
     const user = items.find((i) => i.kind === 'user');
     expect(user?.kind === 'user' ? user.carried : []).toEqual([carrier]);
+  });
+});
+
+describe('turn controls', () => {
+  const latest = { last: true, undoable: true, continuable: false, asked: true };
+
+  it('offers nothing on an older turn, which the hub would refuse to undo while a later turn stands (regression)', () => {
+    expect(turnVerbs({ ...latest, last: false })).toEqual([]);
+    expect(turnVerbs({ ...latest, last: false, continuable: true })).toEqual([]);
+  });
+
+  it('offers Retry and Undo on the latest turn only while the hub lets it be undone, and Retry only with a question to resend', () => {
+    expect(turnVerbs(latest)).toEqual(['retry', 'undo']);
+    expect(turnVerbs({ ...latest, undoable: false })).toEqual([]);
+    expect(turnVerbs({ ...latest, asked: false })).toEqual(['undo']);
+  });
+
+  it('offers Continue first when the latest turn\'s run can carry on', () => {
+    expect(turnVerbs({ ...latest, continuable: true })).toEqual(['continue', 'retry', 'undo']);
   });
 });
 

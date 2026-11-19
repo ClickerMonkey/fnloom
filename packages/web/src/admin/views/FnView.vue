@@ -52,7 +52,7 @@ const back = computed(() => {
     </template>
     <FnDetails
       v-if="name" v-model:days="period" v-model:form="form" :name="name" :describe="false"
-      @fn="router.push(links.fn($event))" @run="router.push(links.runs({ run: $event }))" @runs="router.push(links.fnRuns($event))"
+      @run="router.push(links.runs({ run: $event }))" @runs="router.push(links.fnRuns($event))"
     />
   </AppPage>
 </template>

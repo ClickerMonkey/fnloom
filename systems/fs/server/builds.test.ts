@@ -55,6 +55,8 @@ describe('HarnessBuilds', () => {
     expect(JSON.parse(await readFile(join(out, 'package.json'), 'utf8'))).toEqual({ name: 'fs', version: '0.2.0', private: true, type: 'module' });
     expect(built.bundleHash).toBe(await builds.bundleHash(built.entry));
     expect(built.manifestHash).toMatch(/\S/);
+    // the contract goes with the card, hashed as the subject binds it
+    expect(built.contract).toMatchObject({ name: 'fs', hash: built.manifestHash });
     expect(built.fns.some((line) => line.startsWith('fs/read'))).toBe(true);
     expect(built.adds.some((line) => line.startsWith('Types: '))).toBe(true);
     expect(built.scan.builtins).toEqual(['child_process']);

@@ -104,7 +104,7 @@ describe('the suggest contextor\'s auto-injected context', () => {
     catalog.addContext(contextRecord('fs/people', { description: 'For people.', content: 'Only people read this.', suggest: 'user' }));
     catalog.addContext(contextRecord('fs/quiet', { description: 'Never suggested.', content: 'Quiet.', suggest: 'none' }));
     catalog.addContext(contextRecord('fs/tree', { description: 'The tree, written when used.' }));
-    search.hits = ['fs/people', 'fs/quiet', 'fs/tree', 'fs/git', 'fs/style'].map((key, i) => ({ kind: 'context', key, score: 1 - i / 10, text: key }));
+    search.hits = ['fs/people', 'fs/quiet', 'fs/tree', 'fs/git', 'fs/style'].map((key, i) => ({ kind: 'context', key, rank: 1 - i / 10, similarity: 1 - i / 10, text: key }));
     return p;
   }
 
@@ -133,7 +133,7 @@ describe('the suggest contextor\'s auto-injected context', () => {
     const { plan, r } = await rig({ items: 3, tokens: 100_000 });
     expect((await plan([{ role: 'user', content: '   ' }])).report.context).toEqual([]);
     r.catalog.addContext(contextRecord('fs/huge', { description: 'Huge.', content: 'big '.repeat(10_000) }));
-    r.search.hits = [{ kind: 'context', key: 'fs/huge', score: 1, text: 'huge' }, { kind: 'context', key: 'fs/git', score: 0.5, text: 'git' }];
+    r.search.hits = [{ kind: 'context', key: 'fs/huge', rank: 1, similarity: 1, text: 'huge' }, { kind: 'context', key: 'fs/git', rank: 0.5, similarity: 0.5, text: 'git' }];
     const planned = await plan([{ role: 'user', content: 'tell me' }]);
     expect(planned.report.context.map((c) => c.name)).toEqual(['fs/git']);
     expect(planned.estimate).toBeLessThanOrEqual(available(planned.report.budget));

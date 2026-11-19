@@ -50,7 +50,7 @@ export default feature({
   async run(ctx) {
     const { page } = ctx;
     await inEachScheme(ctx, async (shot) => {
-      await open(ctx, '/graph', tid('graph-canvas'));
+      await open(ctx, '/admin/graph', tid('graph-canvas'));
       const nodes = await drawn(page);
       check(nodes.some((node) => node.classes.includes('cluster')), 'the global graph draws a cluster per system');
       const fn = nodes.find((node) => node.id === 'fn:fs/write' && node.inView) ?? nodes.find((node) => node.id.startsWith('fn:') && node.inView && !node.classes.includes('external'));
@@ -80,12 +80,14 @@ export default feature({
     await settle(page);
     await ctx.shot('details');
 
-    await open(ctx, '/graph?nodes=fn,type,context,system&collapse=database&q=&hops=2&focus=context:fs/authoring', tid('graph-canvas'));
+    // the old address still comes here, its query kept: the search and filters in q, the controls in their own keys
+    await open(ctx, '/graph?q=nodeKind%3Afn%2Ctype%2Ccontext%2Csystem&collapse=database&hops=2&focus=context:fs/authoring', tid('graph-canvas'));
     const focused = await drawn(page);
     check(focused.every((node) => !node.id.startsWith('fn:database/')), 'a collapsed system draws no items of its own');
     check(await page.$(tid('graph-focus-chip')) !== null, 'the focus shows with its hops');
-    await page.click(tid('graph-filters-toggle'));
-    await page.waitForSelector(tid('graph-filter-panel'));
+    check(await page.$(tid('list-search')) !== null, 'the graph searches with the search bar every list has');
+    await page.click(tid('graph-collapse'));
+    await page.waitForSelector('[role="menuitem"]');
     await settle(page);
     await ctx.shot('filters');
 

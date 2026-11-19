@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * One run waiting for approval, wherever it is answered (above the chat's composer, in the inbox): what it is — the
- * preview's one line, or "Allow <fn>?" — and what it will do (the system's preview: SQL, the rows it touches, a type
+ * preview's one line (its fn a `FnPill` beside it), or "Allow <fn>?" with the fn a `FnPill` — and what it will do (the system's preview: SQL, the rows it touches, a type
  * change; without one, its args in readable form), then Approve or Deny. Deny can carry a reason, which goes back to
  * whoever called it. How long to remember the answer is offered only where it may be remembered.
  *
@@ -18,6 +18,7 @@ import type { ApprovalPreview as Preview, Json, ProposalAsk, QualifiedName, Reme
 import { computed, ref, shallowRef, watch } from 'vue';
 import ArgList from '../../chat/components/ArgList.vue';
 import { fnLabel } from '../../chat/logic/labels.ts';
+import FnPill from '../../fns/components/FnPill.vue';
 import { UiDialog, UiIcon, useClipped } from '../../ui/index.ts';
 import ApprovalAnswer from './ApprovalAnswer.vue';
 import ApprovalAsk from './ApprovalAsk.vue';
@@ -85,7 +86,9 @@ function decide(approve: boolean, remembered: Remember, reason: string): void {
     <header class="head">
       <span class="icon" :class="{ danger: irreversible }"><UiIcon name="shield" :size="16" /></span>
       <div class="titles">
-        <h3 class="title">{{ title }}</h3>
+        <h3 v-if="preview?.title" class="title">{{ title }}</h3>
+        <h3 v-else class="title">Allow <FnPill :name="fn" class="title-fn" />?</h3>
+        <p v-if="preview?.title" class="fn-line"><FnPill :name="fn" /></p>
         <p v-if="subtitle !== ''" class="description">{{ subtitle }}</p>
         <p v-if="notice !== ''" class="notice" data-testid="approval-notice"><UiIcon name="clock" :size="13" /><span>{{ notice }}</span></p>
       </div>
@@ -131,5 +134,7 @@ function decide(approve: boolean, remembered: Remember, reason: string): void {
 .titles { display: grid; gap: 2px; flex: 1; min-width: 0; }
 .title { margin: 0; font-size: var(--text-md); font-weight: var(--weight-strong); overflow-wrap: anywhere; }
 .description { margin: 0; color: var(--text-dim); font-size: var(--text-sm); }
+.title-fn { font-size: var(--text-sm); vertical-align: 1px; }
+.fn-line { margin: 0; }
 .notice { display: flex; align-items: center; gap: var(--space-1); margin: 0; color: var(--text-dim); font-size: var(--text-xs); }
 </style>

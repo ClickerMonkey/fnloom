@@ -1,16 +1,17 @@
 /**
  * The graph pages' rules, kept apart from the drawing so they are tested without a canvas: the graph query read from
- * and written to the URL (one comma-separated key per filter), what hovering a node or an edge says, where opening a
+ * and written to the URL (its search and filters in `q` as every list writes them, a key per drawing control), what hovering a node or an edge says, where opening a
  * node goes, and the elements handed to the graph library (a cluster per system, external references greyed, "+N
  * more" stubs that expand the neighbourhood they stand for).
  */
 import {
-  Audience, FnKindName, FnMode, GRAPH_EDGE_KINDS, GRAPH_NODE_KINDS, GraphEdgeKind, GraphNodeId, GraphNodeKind, GraphQuery, InstanceName, QualifiedName, RegistryThing, SystemName,
-  SystemStage, type GraphEdge, type GraphMore, type GraphNode, type GraphPage,
+  GraphNodeId, GraphQuery, InstanceName, QualifiedName, SystemName,
+  type Audience, type GraphEdge, type GraphEdgeKind, type GraphMore, type GraphNode, type GraphNodeKind, type GraphPage, type GraphStage,
 } from '@harness/core';
 import type { RouteLocationRaw } from 'vue-router';
-import type { z } from 'zod';
 import { links } from '../../app/routes.ts';
+import { hubListQuery, queryParam, readListQuery } from '../../state/query.ts';
+import type { SearchQuery } from '../../ui/search.ts';
 import { GRAPH_URL_KEYS, GraphUrl } from '../url.ts';
 
 export { GRAPH_URL_KEYS, GraphUrl, type GraphUrlKey } from '../url.ts';
@@ -39,7 +40,7 @@ export const EDGE_KIND_LABELS = {
 } as const satisfies Record<GraphEdgeKind, string>;
 
 /** Each stage filter as a person reads it. */
-export const STAGE_LABELS = { live: 'Live', installed: 'Installed, not live', pending: 'Waiting for review' } as const;
+export const STAGE_LABELS = { live: 'Live', installed: 'Installed, not live', pending: 'Waiting for review' } as const satisfies Record<GraphStage, string>;
 
 /** Each node kind's colour, light and dark, from one categorical palette (the graph library needs plain colours). */
 export const NODE_KIND_COLORS = {
@@ -66,53 +67,27 @@ export function readGraphUrl(query: Readonly<Record<string, unknown>>): GraphUrl
   return GraphUrl.parse(Object.fromEntries(Object.entries(raw).filter(([key]) => !bad.has(key))));
 }
 
-/** The values of a comma-separated list that `item` accepts, in order and once each; undefined when none are. */
-function listOf<T extends z.ZodType>(text: string | undefined, item: T): Array<z.output<T>> | undefined {
-  if (text === undefined || text === '') { return undefined; }
-  const kept = new Set<z.output<T>>();
-  for (const part of text.split(',')) {
-    const parsed = item.safeParse(part.trim());
-    if (parsed.success) { kept.add(parsed.data); }
-  }
-  return kept.size === 0 ? undefined : [...kept];
-}
-
-/** The URL keys that hold a comma-separated list. */
-type ListKey = 'systems' | 'nodes' | 'edges' | 'fnKinds' | 'modes' | 'effects' | 'visibility' | 'stages' | 'collapse';
-
-/** The stage filter's values (a system stage, or waiting in a pending review), as the graph query declares them. */
-const StageFilter = GraphQuery.shape.stages.unwrap().element;
-/** Every stage filter value, in the order the filters offer them. */
-const STAGE_CHOICES = [...SystemStage.options, 'pending'] as const satisfies ReadonlyArray<z.output<typeof StageFilter>>;
-
 /** How many hops out a focus reaches, as the URL writes it. */
 const HopsText = GraphUrl.shape.hops.unwrap();
 
+/** A graph query's search and filters, as the search box holds them. */
+export function searchOf(query: GraphQuery): SearchQuery {
+  return { ...(query.text === undefined ? {} : { text: query.text }), ...(query.filters === undefined ? {} : { filters: query.filters }) };
+}
+
+/** A graph query with its search and filters replaced (blanks dropped, a sort ignored: the graph is drawn), its controls kept. */
+export function withSearch(query: GraphQuery, search: SearchQuery): GraphQuery {
+  const { text: _text, filters: _filters, ...controls } = query;
+  const { sort: _sort, ...found } = hubListQuery(search);
+  return { ...controls, ...found };
+}
+
 /** The graph query the page's URL describes; values it can't read are left out. */
 export function graphQueryOf(url: GraphUrl): GraphQuery {
-  const query: GraphQuery = {};
-  const systems = listOf(url.systems, SystemName);
-  if (systems !== undefined) { query.systems = systems; }
+  const query: GraphQuery = withSearch({}, readListQuery('graph', url.q ?? ''));
   if (url.external === '0') { query.external = false; }
-  const nodeKinds = listOf(url.nodes, GraphNodeKind);
-  if (nodeKinds !== undefined) { query.nodeKinds = nodeKinds; }
-  const edgeKinds = listOf(url.edges, GraphEdgeKind);
-  if (edgeKinds !== undefined) { query.edgeKinds = edgeKinds; }
-  const fnKinds = listOf(url.fnKinds, FnKindName);
-  if (fnKinds !== undefined) { query.fnKinds = fnKinds; }
-  const modes = listOf(url.modes, FnMode);
-  if (modes !== undefined) { query.modes = modes; }
-  const effects = listOf(url.effects, RegistryThing);
-  if (effects !== undefined) { query.effects = effects; }
-  const visibility = listOf(url.visibility, Audience);
-  if (visibility !== undefined) { query.visibility = visibility; }
-  const stages = listOf(url.stages, StageFilter);
-  if (stages !== undefined) { query.stages = stages; }
-  if (url.on !== undefined) { query.on = url.on === '1'; }
-  const collapse = listOf(url.collapse, SystemName);
-  if (collapse !== undefined) { query.collapse = collapse; }
-  const text = url.q?.trim() ?? '';
-  if (text !== '') { query.text = text.slice(0, 200); }
+  const collapse = [...new Set((url.collapse ?? '').split(',').flatMap((part) => SystemName.safeParse(part.trim()).data ?? []))];
+  if (collapse.length > 0) { query.collapse = collapse; }
   const focus = GraphNodeId.safeParse(url.focus);
   if (focus.success) { query.focus = url.hops === undefined ? { node: focus.data } : { node: focus.data, hops: Number(url.hops) }; }
   return GraphQuery.parse(query);
@@ -121,30 +96,16 @@ export function graphQueryOf(url: GraphUrl): GraphQuery {
 /** The URL query that describes a graph query (the inverse of `graphQueryOf`); empty keys are left out. */
 export function graphUrlOf(query: GraphQuery): GraphUrl {
   const url: GraphUrl = {};
-  const join = (values: readonly string[] | undefined): string | undefined => (values === undefined || values.length === 0 ? undefined : values.join(','));
-  const lists: ReadonlyArray<readonly [ListKey, readonly string[] | undefined]> = [
-    ['systems', query.systems], ['nodes', query.nodeKinds], ['edges', query.edgeKinds], ['fnKinds', query.fnKinds], ['modes', query.modes],
-    ['effects', query.effects], ['visibility', query.visibility], ['stages', query.stages], ['collapse', query.collapse],
-  ];
-  for (const [key, values] of lists) {
-    const joined = join(values);
-    if (joined !== undefined) { url[key] = joined; }
-  }
+  const written = queryParam('graph', searchOf(query));
+  if (written !== '') { url.q = written; }
+  if (query.collapse !== undefined && query.collapse.length > 0) { url.collapse = query.collapse.join(','); }
   if (query.external === false) { url.external = '0'; }
-  if (query.on !== undefined) { url.on = query.on ? '1' : '0'; }
-  if (query.text !== undefined) { url.q = query.text; }
   if (query.focus !== undefined) {
     url.focus = query.focus.node;
     const hops = HopsText.safeParse(String(query.focus.hops ?? 1));
     if (hops.success && hops.data !== '1') { url.hops = hops.data; }
   }
   return url;
-}
-
-/** How many filters a query sets (the system scope, search and focus not counted). */
-export function filterCount(query: GraphQuery): number {
-  const lists = [query.nodeKinds, query.edgeKinds, query.fnKinds, query.modes, query.effects, query.visibility, query.stages, query.collapse];
-  return lists.filter((list) => list !== undefined && list.length > 0).length + (query.on === undefined ? 0 : 1) + (query.external === false ? 1 : 0);
 }
 
 /** A query with one part changed, or removed when `value` is undefined or an empty list. */
@@ -189,9 +150,6 @@ export function nodeFacts(node: GraphNode): FactLine[] {
 /** A fn kind as filters and details name it: the built-in `native` reads "Native", the rest by their own name. */
 export const fnKindLabel = (kind: string): string => (kind === 'native' ? 'Native' : kind);
 
-/** A registry thing as the effects filter names it ("Context"). */
-export const effectLabel = (thing: string): string => `${thing.charAt(0).toUpperCase()}${thing.slice(1)}`;
-
 /** A node's kind as its heading names it. */
 export const kindLabel = (kind: GraphNodeKind): string => NODE_KIND_LABELS[kind][0];
 
@@ -222,6 +180,15 @@ export function openTarget(node: GraphNode): OpenTarget {
     case 'fn': case 'kind': case 'resource': case 'root': case 'component': case 'registry': case 'command': case 'provider':
       return { type: 'page', to: links.system(system, 'parts') };
   }
+}
+
+/** A count with its noun ("1 node", "12 edges"). */
+const counted = (count: number, noun: string): string => `${count.toLocaleString()} ${noun}${count === 1 ? '' : 's'}`;
+
+/** What a page holds, over the search bar: "12 nodes / 30 edges", and how many the cap left out. */
+export function totalsText(page: GraphPage): string {
+  const cut = page.total.nodes - page.nodes.length;
+  return `${counted(page.nodes.length, 'node')} / ${counted(page.edges.length, 'edge')}${cut > 0 ? `, ${cut.toLocaleString()} more not drawn (open a "+N" to see them)` : ''}`;
 }
 
 /** The systems a page draws, own first, in name order. */
@@ -323,16 +290,6 @@ export function pickOf(page: GraphPage, id: string): GraphPick | undefined {
 
 /** The query that expands a "+N more" stub: the same filters, focused on the node it hangs off. */
 export const expandQuery = (query: GraphQuery, more: GraphMore): GraphQuery => ({ ...query, focus: { node: more.node, hops: query.focus?.hops ?? 1 } });
-
-/** Every node kind, edge kind, mode, visibility and stage the filters offer. */
-export const FILTER_CHOICES = {
-  nodeKinds: GRAPH_NODE_KINDS,
-  edgeKinds: GRAPH_EDGE_KINDS,
-  modes: FnMode.options,
-  visibility: Audience.options,
-  stages: STAGE_CHOICES,
-  effects: RegistryThing.options,
-} as const;
 
 /** A laid-out group's size (a system's cluster, or the nodes outside any), in graph units. */
 export interface GroupSize {

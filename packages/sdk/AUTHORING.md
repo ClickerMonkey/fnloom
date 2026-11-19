@@ -279,6 +279,7 @@ export function createImpl(_deps: TemplateDeps): SystemImpl<(typeof template)['d
     // TODO: implement every declared method, or delete this comment.
 
     // kinds: per kind, `{ async check(payload, ctx), async describe(payload, ctx), async run(payload, args, ctx) }`.
+    // `describe` returns at least one example worked out from the payload (`examples: [{ args: sampleArgs(args), note }]`).
     // TODO: implement every declared kind, or delete this comment.
 
     // context: per dynamic context (declared without `content`), `async (args, ctx) => text`.
@@ -460,8 +461,9 @@ export const template = system('template', {
     // must implement: `undo` (an undo implementation), `resume` (it can pause), `progress` (`linear` or `steps`),
     // `handlers` (`handler({ ... })`), `deps` (fn refs it may call), `state`, `form`, `status`, `display`, `tags`,
     // `group` (one of the system's `groups`).
-    // Every fn needs `instructions` written for the model (when to use it, how, what it returns, pitfalls), `examples`
-    // (`{ args, result?, note? }`, checked against its types) and `effects` (`{ mode, reads, writes, free }`).
+    // Every fn needs `instructions` written for the model (when to use it, how, what it returns, pitfalls), at least one
+    // example in `examples` (`{ args, result?, note? }`, checked against its types; a fn or agent with none fails the
+    // build and `serve`) and `effects` (`{ mode, reads, writes, free }`).
     // TODO: declare fns, or delete this comment.
 
     // hooks: user-message hooks that add information before the LLM sees a message, each made with
@@ -1197,6 +1199,33 @@ A union of objects as one object: every member's fields, each one optional (the 
 type FlatArgs<U> = { [K in KeysOf<U>]?: FieldOf<U, K> };
 ```
 
+#### `sampleOf`
+
+function · `import { sampleOf } from '@harness/sdk'`
+
+A sample value of a wire type, for an example call a kind works out from a payload's args (`KindDescription.examples`):
+every required field filled (text with its field's name, a number in range, the first enum value or union option, one
+list item), optional fields left out. A shape it can't fill by itself (a named type) gets gin's own zero value
+(`create`), which its type accepts. A patterned text is best effort, as in gin: no value is synthesized from a pattern.
+
+```ts
+function sampleOf(def: GinTypeDef, hint?: string): Json;
+```
+
+Refers to: [`GinTypeDef`](#core-gintypedef), [`Json`](#core-json).
+
+#### `sampleArgs`
+
+function · `import { sampleArgs } from '@harness/sdk'`
+
+Sample args for a fn's args type (an `obj`, filled by `sampleOf`); open args (`any`) or any other shape give `{}`.
+
+```ts
+function sampleArgs(args: GinTypeDef): Record<string, Json>;
+```
+
+Refers to: [`GinTypeDef`](#core-gintypedef), [`Json`](#core-json).
+
 #### `TypeBuilder`
 
 interface · `import { TypeBuilder } from '@aeye/gin'`
@@ -1885,7 +1914,7 @@ A **fn** is something people, agents and code can run: a name, a description, ty
 | `description` | one sentence: what it does, for people and the LLM | |
 | `instructions` | extra guidance the LLM sees when the fn is in its toolset | |
 | `args`, `returns` | gin types of the args (an object) and the result | `run(args, ctx)` gets typed args; `ctx.done(result)` checks the result |
-| `examples` | example calls (`{ args, note? }`) agents see on its card and when they get its args wrong | a wrong example doesn't compile |
+| `examples` | example calls (`{ args, note? }`) agents see on its card and when they get its args wrong; **every native fn and agent needs at least one** | a wrong example doesn't compile; `harness system build` and `serve` refuse a fn with none (`checkExamples`) |
 | `status` | the words its runs show, per phase (below) | tokens are checked against args and result |
 | `tags` | free labels; `read` marks a fn that changes nothing, so policies may run it without asking | |
 | `deps` | fns its implementation may call, as refs: `{ read: fs.fns.read }` | `ctx.fns.read(args)` exists, typed; nothing else can be called |
@@ -1958,8 +1987,9 @@ and in the present (`Reading {args.path}…`) and past (`Read {args.path}`) tens
 
 **Writing fns an LLM uses well.** The description says what it does in one sentence. Args are few, named for what
 they are, with `g.field(…, { docs })` where a value needs explaining; prefer enums and bounded numbers to free text.
-Return what the caller needs next (ids, counts, whether it was truncated), not a wall of text. Use `examples` for any
-fn whose args are easy to get wrong. Tag read-only fns `read`.
+Return what the caller needs next (ids, counts, whether it was truncated), not a wall of text. Every native fn and agent
+needs at least one example (`checkExamples` throws `MissingExamplesError` naming each fn without one); give more
+for any fn whose args are easy to get wrong. A fn of another kind gets its examples from the kind's `describe`. Tag read-only fns `read`.
 
 **Implementing a fn.** Each native fn is `{ async run(args, ctx) { … } }` under `fns` in the implementation, returning an
 outcome built with the ctx helpers (**Outcomes**):
@@ -2495,6 +2525,43 @@ The token names a template uses: `'{fn} read {args.path|a file}'` → `'fn' | 'a
 type TokensOf<S extends string> = S extends `${string}{${infer Token}}${infer Rest}`
 ? (Token extends `${infer Name}|${string}` ? Name : Token) | TokensOf<Rest>
 : never;
+```
+
+#### `fnsMissingExamples`
+
+function · `import { fnsMissingExamples } from '@harness/sdk'`
+
+The fns among these whose author must write an example and wrote none (`owesExamples`), by their local names.
+
+```ts
+function fnsMissingExamples(fns: readonly Pick<FnDecl, "name" | "kind" | "examples">[]): string[];
+```
+
+Refers to: [`FnDecl`](#core-fndecl).
+
+#### `checkExamples`
+
+function · `import { checkExamples } from '@harness/sdk'`
+
+Refuse a contract whose static fns (native fns, type methods and agents) include one with no example.
+
+```ts
+function checkExamples(contract: AnyContract): void;
+```
+
+#### `MissingExamplesError`
+
+class · `import { MissingExamplesError } from '@harness/sdk'`
+
+A contract with static fns that declare no example: the build and `serve` refuse it, naming each.
+
+```ts
+class MissingExamplesError extends Error {
+  readonly name: "MissingExamplesError";
+  readonly system: string;
+  readonly fns: readonly string[];
+  constructor(system: string, fns: readonly string[]);
+}
 ```
 
 ## 8. Handlers and progress
@@ -3277,7 +3344,7 @@ The server implements each kind with three functions, and fns of the kind are **
   sentences; `[]` when it is fine.
 - `describe(payload, ctx)`: everything else about a fn with this payload, as a `KindDescription`: its `args` and
   `returns` (gin definitions, made with `wireType(type)`), the fns it calls (`deps`), the named types and resources it
-  refers to, its operations, and optionally handlers, progress, status words, limits and display. `ctx.type(name)` and
+  refers to, its operations, at least one `examples` entry (`sampleArgs(def)` fills one from the args type), and optionally handlers, progress, status words, limits and display. `ctx.type(name)` and
   `ctx.fn(name)` look up other declarations while describing.
 - `run(payload, args, ctx)`: run one fn of the kind. The args arrive as JSON the hub checked against `describe`'s args;
   read them with the same gin type (`parseValue`). The result is JSON (`encodeValue`). `ctx.call(name, args)` calls the
@@ -3292,11 +3359,13 @@ kinds: {
     // problems beyond the payload's type
     check: (payload) => Promise.resolve(payload.tags.filter((tag) => tag !== tag.toLowerCase()).map((tag) => `Tag "${tag}" must be lowercase.`)),
     // everything else about a stamp fn, worked out from its payload
-    describe: () => Promise.resolve({
+    describe: (payload) => Promise.resolve({
       args: wireType(StampArgs),
       returns: wireType(NoteEntry.shape),
       deps: [],
       operations: { cancel: true, pause: false, undo: false, background: true },
+      // every fn needs an example; a kind works its fns' examples out from the payload
+      examples: [{ args: { text: 'Shipped the release' }, note: `Saves a note titled "${payload.title}: Shipped the release".` }],
     }),
     async run(payload, args, ctx) {
       // a kind's args arrive as JSON the hub checked against `describe`; read them with the same gin type
@@ -5384,7 +5453,7 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{
     /* The qualified fn name. */ fn: text{minLength=1}
-  }) => obj{ fn, kind, description, instructions?, payload?, version, owner?, routing?, available, args?, returns?, live? … }
+  }) => obj{ fn, kind, description, instructions?, payload?, version, owner?, routing?, available, blocked?, args?, returns?, live? … }
   ```
 - `hub/save_fn`: Keep a fn of one of the calling system's kinds in the hub (a saved form, a saved query), owned by the run's person and shared as asked. Saving a name again keeps the old version in its history. Tags: `own`.
 
@@ -5621,12 +5690,12 @@ This is the hub contract as the SDK declares it now:
 - `hub/systems_list`: Every system: whether it is connected, its version, instances and what it offers. Tags: `read`.
 
   ```text
-  (obj{ query? … }) => list<obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, stage?, keyFingerprint, config?, installed?, host?, pairedAt?, pairedBy?, lastSeenAt?, address?, fns, needsConfig, configType?, configSecrets?, instances … }>
+  (obj{ query? … }) => list<obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, stage?, keyFingerprint, config?, installed?, host?, pairedAt?, pairedBy?, lastSeenAt?, address?, counts, instanceMode, needsConfig, configType?, configSecrets?, instances … }>
   ```
 - `hub/system_get`: One system: its status, version, instances, config state and what it offers. Tags: `read`.
 
   ```text
-  (obj{system: text}) => obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, stage?, keyFingerprint, config?, installed?, host?, pairedAt?, pairedBy?, lastSeenAt?, address?, fns, needsConfig, configType?, configSecrets?, instances … }
+  (obj{system: text}) => obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, stage?, keyFingerprint, config?, installed?, host?, pairedAt?, pairedBy?, lastSeenAt?, address?, counts, instanceMode, needsConfig, configType?, configSecrets?, instances … }
   ```
 - `hub/system_fns`: A system's fns, with whether each can be used now and its running numbers. Tags: `read`.
 
@@ -5655,7 +5724,7 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{model?: text}) => list<obj{ model, limits, sources, ratio … }>
   ```
-- `hub/query`: Any list (resources, fns, runs, modelCalls, llmCalls, sessions, contexts, notifications, systems, types) by the query standard: free text, filters on the list's fields (is, in, >, <, between, empty, contains, ...), a sort and paging. Tags: `read`.
+- `hub/query`: Any list (resources, fns, runs, modelCalls, llmCalls, sessions, contexts, notifications, systems, types, graph) by the query standard: free text, filters on the list's fields (is, in, >, <, between, empty, contains, ...), a sort and paging. Tags: `read`.
 
   ```text
   (obj{ list, query? … }) => obj{
@@ -5669,7 +5738,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/graph`: The graph of what systems add (fns, context, types, kinds, commands, components, providers) and how they connect: what brings, calls, reads, writes, creates or refers to what. Tags: `read`.
 
   ```text
-  (obj{ systems?, external?, focus?, text?, nodeKinds?, edgeKinds?, fnKinds?, modes?, effects?, visibility?, stages?, on?, collapse?, limit? … }) => obj{ nodes, edges, more, total … }
+  (obj{ text?, filters?, systems?, external?, focus?, collapse?, limit? … }) => obj{ nodes, edges, more, total … }
   ```
 - `hub/item_versions`: The version history of one item a system declared or added while running (a fn, type, context item, kind, command, component, provider, ...): each version's declaration, how it changed, and who saved it, newest first. Tags: `read`.
 
@@ -6855,7 +6924,9 @@ const StoredFn = g.obj({
   /** Who owns it (a saved fn's person); absent for a system's own fns. */
   owner: g.optional(g.text()),
   routing: g.optional(ginAs(FnRouting)),
+  /** Whether the run's person can use it now (as `hub/fns_search`'s hits say it); what blocks it when false, in the hub's words. */
   available: g.bool(),
+  blocked: g.optional(ginAs(FnBlock)),
   /** Its args type, as the hub describes it (a fn of a kind: as its kind works it out), so a widget plans each arg. */
   args: g.optional(ginAs(GinTypeDef)),
   /** Its declared return type, so a widget checks that it is a table. */
@@ -6865,7 +6936,7 @@ const StoredFn = g.obj({
 });
 ```
 
-Refers to: [`FnLive`](#core-fnlive), [`FnRouting`](#core-fnrouting), [`GinTypeDef`](#core-gintypedef).
+Refers to: [`FnBlock`](#core-fnblock), [`FnLive`](#core-fnlive), [`FnRouting`](#core-fnrouting), [`GinTypeDef`](#core-gintypedef).
 
 #### `SaveFnArgs`
 
@@ -7010,7 +7081,7 @@ function · `import { serve } from '@harness/sdk/server'`
 Run a system: connect to the hub (pairing the first time), send the contract, and serve the implementation.
 The implementation is checked against the contract at compile time; its `system.json`, when it has one, is checked
 against the contract and this process's instance here (a mismatch throws `PackageManifestError` before anything
-connects).
+connects). A static fn with no example is refused too (`MissingExamplesError`, from the host), so every fn has one.
 
 ```ts
 function serve<N extends string, C extends ContractShape>(contract: SystemContract<N, C>, impl: SystemImpl<C>, options: ServeOptions, host?: SystemHost): Promise<RunningSystem<N>>;
@@ -7033,6 +7104,8 @@ interface ServeOptions {
    * `package.json`.
    */
   version?: string;
+  /** Whether it runs one instance or a fleet, said in its hello. Defaults to its `system.json`'s; absent without one. */
+  instances?: InstanceMode;
   /**
    * The folder holding the system's `system.json` (default: the current folder). When there is one, `serve` checks it
    * against the contract (the same name, a protocol this SDK speaks) before connecting, and takes its version.
@@ -7059,7 +7132,7 @@ interface ServeOptions {
 }
 ```
 
-Refers to: [`Duration`](#core-duration).
+Refers to: [`Duration`](#core-duration), [`InstanceMode`](#core-instancemode).
 
 #### `McpServe`
 
@@ -7403,6 +7476,8 @@ interface LinkHostDeps {
   readonly pairing?: PairingDisplay;
   /** Makes the instance's data and cache folders before the system starts. Default: `mkdir -p` each. */
   readonly folders?: (dirs: readonly string[]) => Promise<void>;
+  /** Refuse a contract with a static fn that has no example (`checkExamples`). Default true; a test hub's fixtures may skip it. */
+  readonly requireExamples?: boolean;
 }
 ```
 
@@ -10690,7 +10765,7 @@ Every command, read from the CLI itself:
 
 | Command | What it does |
 |---|---|
-| `harness system new <name> [--dir <parent folder>] [--from <template folder>]` | Make a system folder from the template, with its name filled in. |
+| `harness system new <name> [--dir <parent folder>] [--from <template folder>] [--instances one\|many]` | Make a system folder from the template, with its name filled in. |
 | `harness system build [dir] [--skip-typecheck] [--hub <url>] [--token <token>]` | Typecheck a system, check its name and context, and bundle its server and client into dist/. |
 | `harness test [dir] [--previews] [--json] [--filter <text>]` | Run a system's own tests (the SDK test kit); --previews also shoots its components into a gallery. |
 | `harness system pack [dir] [--out <file>] [--skip-typecheck]` | Build if needed, then zip dist/ with every file hashed into a package the hub installs. |
@@ -11038,7 +11113,8 @@ class FakeHub {
   readonly systems: Peers<SystemLinkSpec>;
   readonly app: Server<HubLinkSpec>;
   readonly process: FakeProcess;
-  readonly hellos: Array<{ name: string; instance: InstanceName; boot: string; manifestHash: string; pairingToken?: string | undefined; autoPair?: AutoPairProof | undefined }>;
+  /** Every hello it was sent, as sent. */
+  readonly hellos: Hello[];
   readonly manifests: Manifest[];
   readonly patches: ManifestPatch[];
   readonly calls: Array<HubBody<'call'>>;
@@ -11197,7 +11273,7 @@ class FakeHub {
 }
 ```
 
-Refers to: [`ActorId`](#core-actorid), [`AdminNotice`](#core-adminnotice), [`AutoPairProof`](#core-autopairproof), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FlagsAnswer`](#core-flagsanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`HubLinkSpec`](#core-hublinkspec), [`HubModelInfo`](#core-hubmodelinfo), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`KindEstimateAnswer`](#core-kindestimateanswer), [`KindFnShape`](#core-kindfnshape), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`MentionResourceSearch`](#core-mentionresourcesearch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceHit`](#core-resourcehit), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`Section`](#core-section), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
+Refers to: [`ActorId`](#core-actorid), [`AdminNotice`](#core-adminnotice), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FlagsAnswer`](#core-flagsanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`Hello`](#core-hello), [`HubLinkSpec`](#core-hublinkspec), [`HubModelInfo`](#core-hubmodelinfo), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`KindEstimateAnswer`](#core-kindestimateanswer), [`KindFnShape`](#core-kindfnshape), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`MentionResourceSearch`](#core-mentionresourcesearch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceHit`](#core-resourcehit), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`Section`](#core-section), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
 
 #### `FakeHubOptions`
 
@@ -13212,11 +13288,13 @@ export function createNotesImpl(deps: NotesDeps): SystemImpl<(typeof notes)['def
         // problems beyond the payload's type
         check: (payload) => Promise.resolve(payload.tags.filter((tag) => tag !== tag.toLowerCase()).map((tag) => `Tag "${tag}" must be lowercase.`)),
         // everything else about a stamp fn, worked out from its payload
-        describe: () => Promise.resolve({
+        describe: (payload) => Promise.resolve({
           args: wireType(StampArgs),
           returns: wireType(NoteEntry.shape),
           deps: [],
           operations: { cancel: true, pause: false, undo: false, background: true },
+          // every fn needs an example; a kind works its fns' examples out from the payload
+          examples: [{ args: { text: 'Shipped the release' }, note: `Saves a note titled "${payload.title}: Shipped the release".` }],
         }),
         async run(payload, args, ctx) {
           // a kind's args arrive as JSON the hub checked against `describe`; read them with the same gin type
@@ -14304,6 +14382,8 @@ A fn declaration on the wire. `name` is local (`read`, `Entry.reveal`).
 ```ts
 function fnDecl(name: string, def: AnyFnDef): FnDecl;
 ```
+
+Refers to: [`FnDecl`](#core-fndecl).
 
 #### `validationOf`
 
@@ -15934,6 +16014,22 @@ type ApprovalPreview = {
       }[] | undefined;
     } | undefined;
   } | undefined;
+  summary?: {
+    line: string;
+    counts: {
+      section: string;
+      added: number;
+      changed: number;
+      removed: number;
+    }[];
+    flags: {
+      flag: "models" | "capabilities" | "secrets" | "effects" | "files" | "calls" | "hosts" | "delete-fns" | "write-fns";
+      line: string;
+      items: string[];
+    }[];
+    grants?: "added" | "changed" | "widened" | "narrowed" | undefined;
+    config?: "removed" | "added" | "changed" | undefined;
+  } | undefined;
 };
 ```
 
@@ -16093,6 +16189,22 @@ type ApprovedRun = {
         }[] | undefined;
       } | undefined;
     } | undefined;
+    summary?: {
+      line: string;
+      counts: {
+        section: string;
+        added: number;
+        changed: number;
+        removed: number;
+      }[];
+      flags: {
+        flag: "models" | "capabilities" | "secrets" | "effects" | "files" | "calls" | "hosts" | "delete-fns" | "write-fns";
+        line: string;
+        items: string[];
+      }[];
+      grants?: "added" | "changed" | "widened" | "narrowed" | undefined;
+      config?: "removed" | "added" | "changed" | undefined;
+    } | undefined;
   };
 };
 ```
@@ -16171,167 +16283,6 @@ type PairingGrantRequest = {
 };
 ```
 
-#### <a id="core-previewanswer"></a>`PreviewAnswer`
-
-const, type · declared in `packages/core/src/approvals.ts`
-
-The system's answer: the preview, or why the run can't go ahead at all (it then fails as invalid input).
-
-```ts
-type PreviewAnswer = {
-  preview: {
-    title: string;
-    parts: ({
-      type: "text";
-      text: string;
-    } | {
-      type: "code";
-      language: string;
-      code: string;
-      title?: string | undefined;
-    } | {
-      type: "table";
-      title: string;
-      table: {
-        columns: {
-          name: string;
-          kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
-          nullable: boolean;
-          label?: string | undefined;
-          type?: TypeDef<any> | undefined;
-          ref?: `${string}/${string}` | undefined;
-          role?: "group" | "measure" | "attribute" | undefined;
-          key?: boolean | undefined;
-          editable?: boolean | undefined;
-        }[];
-        rows: z.core.util.JSONType[][];
-        offset: number;
-        truncated: boolean;
-        sort: {
-          column: string;
-          dir: "asc" | "desc";
-        }[];
-        limit?: number | undefined;
-        total?: number | undefined;
-        write?: {
-          affected: number;
-        } | undefined;
-        records?: {
-          type: `${string}/${string}`;
-          id: string;
-        } | undefined;
-        drill?: {
-          fn: `${string}/${string}`;
-          args: Record<string, z.core.util.JSONType>;
-          keys: string[];
-        } | undefined;
-      };
-    } | {
-      type: "type-diff";
-      name: string;
-      changes: string[];
-      breaks: {
-        fn: string;
-        why: string;
-      }[];
-      before?: TypeDef<any> | undefined;
-      after?: TypeDef<any> | undefined;
-    } | {
-      type: "flags";
-      flags: {
-        path: string;
-        kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
-        rule: string;
-        access: "write" | "read";
-        action: "ask" | "refuse" | "allow";
-        why: string;
-        certain: boolean;
-      }[];
-    })[];
-    irreversible: boolean;
-    subject?: {
-      kind: "system-install";
-      system: SystemName;
-      instance: InstanceName;
-      version: string;
-      manifestHash: string;
-      bundleHash: string;
-      sourceHash: string;
-      host: {
-        system: SystemName;
-        instance: InstanceName;
-      };
-      source?: string | undefined;
-      grants?: {
-        hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
-        models?: {
-          roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
-          models?: string[] | undefined;
-          perRun?: number | undefined;
-          perDay?: number | undefined;
-        } | undefined;
-        secrets?: string[] | undefined;
-        calls?: (`${string}/${string}` | SystemName)[] | undefined;
-        network?: string[] | undefined;
-        files?: {
-          read: string[];
-          write: string[];
-        } | undefined;
-      } | undefined;
-      replaces?: {
-        version: string;
-        manifestHash: string;
-      } | undefined;
-    } | undefined;
-    checks?: {
-      scan: {
-        size: number;
-        builtins: string[];
-        concerns: {
-          kind: "builtin" | "dynamic-import" | "dynamic-require" | "eval" | "new-function";
-          line: number;
-          detail: string;
-          code: string;
-        }[];
-        urls: string[];
-        hosts: string[];
-      };
-      tests?: {
-        system: SystemName;
-        version: string;
-        ranAt: number;
-        duration: number;
-        passed: number;
-        failed: number;
-        skipped: number;
-        cases: {
-          file: string;
-          name: string;
-          status: "failed" | "skipped" | "passed";
-          duration: number;
-          real?: boolean | undefined;
-          error?: string | undefined;
-        }[];
-        more?: number | undefined;
-        previews?: {
-          component: string;
-          state: string;
-          viewport: "phone" | "desktop";
-          theme: "light" | "dark";
-          image: {
-            hash: string;
-            size: number;
-            mime: string;
-          };
-        }[] | undefined;
-      } | undefined;
-    } | undefined;
-  };
-} | {
-  refused: string;
-};
-```
-
 #### <a id="core-proposalapprover"></a>`ProposalApprover`
 
 const, type · declared in `packages/core/src/approvals.ts`
@@ -16381,19 +16332,6 @@ type AutoPairGrant = {
   id: string;
   secret: string;
   expiresAt?: number | undefined;
-};
-```
-
-#### <a id="core-autopairproof"></a>`AutoPairProof`
-
-const, type · declared in `packages/core/src/auto-pair.ts`
-
-What the system brings in `hello` to re-pair without a token or code.
-
-```ts
-type AutoPairProof = {
-  secret: string;
-  id: string;
 };
 ```
 
@@ -16968,6 +16906,55 @@ type DecideCandidate = {
 };
 ```
 
+### From `packages/core/src/fn-block.ts`
+
+#### <a id="core-fnblock"></a>`FnBlock`
+
+const, type · declared in `packages/core/src/fn-block.ts`
+
+What blocks a fn, as every place that refuses one says it (`hub/load_fns`, `hub/load`, the static `run`,
+`hub/load_context`'s brought fns, `hub/fns_search`'s unavailable hits, the prompt's context blocks): its code, the
+hub's reason in words (the availability's `detail` when it is unavailable, "database/create_table changed and waits
+for an admin to approve it"), and the fn's system when the name has one, so the web can point at what holds it.
+
+```ts
+type FnBlock = {
+  code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+  reason: string;
+  system?: SystemName | undefined;
+};
+```
+
+#### <a id="core-fnrefusal"></a>`FnRefusal`
+
+const, type · declared in `packages/core/src/fn-block.ts`
+
+A fn the hub refused, by the name it was asked for, with what blocks it.
+
+```ts
+type FnRefusal = {
+  code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+  reason: string;
+  fn: string;
+  system?: SystemName | undefined;
+};
+```
+
+#### <a id="core-namerefusal"></a>`NameRefusal`
+
+const, type · declared in `packages/core/src/fn-block.ts`
+
+A name `hub/load` refused (a fn's or a context item's), with what blocks it; a name that is neither is `no-such-fn`.
+
+```ts
+type NameRefusal = {
+  code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+  reason: string;
+  name: string;
+  system?: SystemName | undefined;
+};
+```
+
 ### From `packages/core/src/fn-facts.ts`
 
 #### <a id="core-costestimate"></a>`CostEstimate`
@@ -17064,6 +17051,7 @@ type FnSearchPage = {
     effects?: string | undefined;
     instance?: InstanceName | undefined;
     score?: number | undefined;
+    similarity?: number | undefined;
     blocked?: {
       code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
       reason: string;
@@ -17205,6 +17193,589 @@ type HostRefusal = {
 };
 ```
 
+#### <a id="core-previewanswer"></a>`PreviewAnswer`
+
+const, type · declared in `packages/core/src/lifecycle.ts`
+
+A system's answer to a preview (`preview` on the system link): the preview, or why the run can't go ahead at all
+(it then fails as invalid input). An install host sends the contract the card would install (`contract`): the hub
+checks it against the subject's hash, works out the card's `summary` from it, and never stores it.
+
+```ts
+type PreviewAnswer = {
+  preview: {
+    title: string;
+    parts: ({
+      type: "text";
+      text: string;
+    } | {
+      type: "code";
+      language: string;
+      code: string;
+      title?: string | undefined;
+    } | {
+      type: "table";
+      title: string;
+      table: {
+        columns: {
+          name: string;
+          kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
+          nullable: boolean;
+          label?: string | undefined;
+          type?: TypeDef<any> | undefined;
+          ref?: `${string}/${string}` | undefined;
+          role?: "group" | "measure" | "attribute" | undefined;
+          key?: boolean | undefined;
+          editable?: boolean | undefined;
+        }[];
+        rows: z.core.util.JSONType[][];
+        offset: number;
+        truncated: boolean;
+        sort: {
+          column: string;
+          dir: "asc" | "desc";
+        }[];
+        limit?: number | undefined;
+        total?: number | undefined;
+        write?: {
+          affected: number;
+        } | undefined;
+        records?: {
+          type: `${string}/${string}`;
+          id: string;
+        } | undefined;
+        drill?: {
+          fn: `${string}/${string}`;
+          args: Record<string, z.core.util.JSONType>;
+          keys: string[];
+        } | undefined;
+      };
+    } | {
+      type: "type-diff";
+      name: string;
+      changes: string[];
+      breaks: {
+        fn: string;
+        why: string;
+      }[];
+      before?: TypeDef<any> | undefined;
+      after?: TypeDef<any> | undefined;
+    } | {
+      type: "flags";
+      flags: {
+        path: string;
+        kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
+        rule: string;
+        access: "write" | "read";
+        action: "ask" | "refuse" | "allow";
+        why: string;
+        certain: boolean;
+      }[];
+    })[];
+    irreversible: boolean;
+    subject?: {
+      kind: "system-install";
+      system: SystemName;
+      instance: InstanceName;
+      version: string;
+      manifestHash: string;
+      bundleHash: string;
+      sourceHash: string;
+      host: {
+        system: SystemName;
+        instance: InstanceName;
+      };
+      source?: string | undefined;
+      grants?: {
+        hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
+        models?: {
+          roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+          models?: string[] | undefined;
+          perRun?: number | undefined;
+          perDay?: number | undefined;
+        } | undefined;
+        secrets?: string[] | undefined;
+        calls?: (`${string}/${string}` | SystemName)[] | undefined;
+        network?: string[] | undefined;
+        files?: {
+          read: string[];
+          write: string[];
+        } | undefined;
+      } | undefined;
+      replaces?: {
+        version: string;
+        manifestHash: string;
+      } | undefined;
+    } | undefined;
+    checks?: {
+      scan: {
+        size: number;
+        builtins: string[];
+        concerns: {
+          kind: "builtin" | "dynamic-import" | "dynamic-require" | "eval" | "new-function";
+          line: number;
+          detail: string;
+          code: string;
+        }[];
+        urls: string[];
+        hosts: string[];
+      };
+      tests?: {
+        system: SystemName;
+        version: string;
+        ranAt: number;
+        duration: number;
+        passed: number;
+        failed: number;
+        skipped: number;
+        cases: {
+          file: string;
+          name: string;
+          status: "failed" | "skipped" | "passed";
+          duration: number;
+          real?: boolean | undefined;
+          error?: string | undefined;
+        }[];
+        more?: number | undefined;
+        previews?: {
+          component: string;
+          state: string;
+          viewport: "phone" | "desktop";
+          theme: "light" | "dark";
+          image: {
+            hash: string;
+            size: number;
+            mime: string;
+          };
+        }[] | undefined;
+      } | undefined;
+    } | undefined;
+    summary?: {
+      line: string;
+      counts: {
+        section: string;
+        added: number;
+        changed: number;
+        removed: number;
+      }[];
+      flags: {
+        flag: "models" | "capabilities" | "secrets" | "effects" | "files" | "calls" | "hosts" | "delete-fns" | "write-fns";
+        line: string;
+        items: string[];
+      }[];
+      grants?: "added" | "changed" | "widened" | "narrowed" | undefined;
+      config?: "removed" | "added" | "changed" | undefined;
+    } | undefined;
+  };
+  contract?: {
+    events: ("message" | "run" | "system" | "fns" | "resources")[];
+    resources: boolean;
+    config: TypeDef<any>;
+    requires: SystemName[];
+    types: {
+      name: string;
+      description: string;
+      def: TypeDef<any>;
+      display: {
+        label: string;
+        plural?: string | undefined;
+        icon?: string | undefined;
+        color?: string | undefined;
+        title?: string | undefined;
+        subtitle?: string | undefined;
+      };
+      methods: string[];
+      instance?: InstanceName | undefined;
+      audience?: {
+        visibility: "private" | "shared" | "public";
+        with: string[];
+      } | undefined;
+      meta?: Record<string, z.core.util.JSONType> | undefined;
+      records?: {
+        shape: "table" | "value";
+        owner: "shared" | "person";
+        search: {
+          text: string[];
+          embed: boolean;
+        };
+      } | undefined;
+    }[];
+    settings: {
+      name: string;
+      description: string;
+      type: TypeDef<any>;
+      appliesTo: ("mcp" | "system" | "user" | "group" | "agent")[];
+      merge: "union" | "user-wins" | "intersect" | "most-restrictive";
+      editableBy: ("self" | "fns")[];
+    }[];
+    attachments: {
+      name: string;
+      description: string;
+      data: TypeDef<any>;
+    }[];
+    kinds: {
+      name: string;
+      description: string;
+      applicability: string;
+      payload: TypeDef<any>;
+      approveChanges: boolean;
+      status?: {
+        active: {
+          one: string;
+          many: string;
+        };
+        retry: {
+          one: string;
+          many: string;
+        };
+        done: {
+          one: string;
+          many: string;
+        };
+        failed: {
+          one: string;
+          many: string;
+        };
+      } | undefined;
+      estimates?: boolean | undefined;
+      approval?: {
+        preview: boolean;
+        remember: boolean;
+        approver?: "person" | "admins" | undefined;
+      } | undefined;
+    }[];
+    fns: {
+      name: string;
+      description: string;
+      kind: `${string}/${string}` | "native";
+      args: TypeDef<any>;
+      returns: TypeDef<any>;
+      deps: `${string}/${string}`[];
+      handlers: Record<string, {
+        description: string;
+        args: TypeDef<any>;
+        returns: TypeDef<any>;
+        required: boolean;
+      }>;
+      progress: {
+        type: "none";
+      } | {
+        type: "linear";
+      } | {
+        type: "steps";
+        steps: Record<string, string>;
+      };
+      operations: {
+        cancel: boolean;
+        pause: boolean;
+        undo: boolean;
+        background: boolean;
+      };
+      display: "message" | "card" | "hidden";
+      limits: {
+        timeout?: number | undefined;
+        retries?: number | undefined;
+        cost?: number | undefined;
+      };
+      visibility: "llm" | "none" | "user" | "both";
+      tags: string[];
+      instructions?: string | undefined;
+      payload?: z.core.util.JSONType | undefined;
+      readable?: {
+        language: string;
+        code: string;
+      } | undefined;
+      status?: {
+        active: {
+          one: string;
+          many: string;
+        };
+        retry: {
+          one: string;
+          many: string;
+        };
+        done: {
+          one: string;
+          many: string;
+        };
+        failed: {
+          one: string;
+          many: string;
+        };
+      } | undefined;
+      undo?: TypeDef<any> | undefined;
+      resume?: TypeDef<any> | undefined;
+      state?: TypeDef<any> | undefined;
+      form?: TypeDef<any> | undefined;
+      examples?: {
+        args: z.core.util.JSONType;
+        result?: z.core.util.JSONType | undefined;
+        note?: string | undefined;
+      }[] | undefined;
+      validate?: {
+        input: boolean;
+        output: boolean;
+      } | undefined;
+      approval?: {
+        preview: boolean;
+        remember: boolean;
+        approver?: "person" | "admins" | undefined;
+      } | undefined;
+      routing?: {
+        to: "instance";
+        instance: InstanceName;
+      } | {
+        to: "any";
+      } | undefined;
+      effects?: {
+        mode?: "write" | "read" | "delete" | undefined;
+        reads?: `${string}/${string}`[] | undefined;
+        writes?: `${string}/${string}`[] | undefined;
+        free?: boolean | undefined;
+        registry?: {
+          thing: "types" | "records" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+          action: "create" | "update" | "remove";
+          kind?: `${string}/${string}` | "native" | undefined;
+        }[] | undefined;
+      } | undefined;
+      promptExamples?: number | undefined;
+      group?: string | undefined;
+      flags?: boolean | undefined;
+      live?: {
+        every: number;
+      } | undefined;
+    }[];
+    context: {
+      name: string;
+      description: string;
+      imports: `${string}/${string}`[];
+      fns: `${string}/${string}`[];
+      suggestFns: `${string}/${string}`[];
+      suggest: "llm" | "none" | "user" | "both";
+      visible: "llm" | "none" | "user" | "both";
+      alwaysFor: `${string}/${string}`[];
+      tags: string[];
+      title?: string | undefined;
+      content?: string | undefined;
+      command?: {
+        name: string;
+        args: {
+          name: string;
+          hint: string;
+          required: boolean;
+        }[];
+      } | undefined;
+      weight?: number | undefined;
+      summary?: string | undefined;
+      parent?: `${string}/${string}` | undefined;
+      next?: `${string}/${string}` | undefined;
+      choices?: {
+        to: `${string}/${string}`;
+        when: string;
+      }[] | undefined;
+      links?: {
+        to: {
+          kind: "context";
+          name: `${string}/${string}`;
+        } | {
+          kind: "fn";
+          name: `${string}/${string}`;
+        } | {
+          kind: "type";
+          name: `${string}/${string}`;
+        } | {
+          kind: "resource";
+          uri: `${string}://${string}`;
+          section?: SectionKey | undefined;
+        };
+        relation: "next" | "about" | "parent" | "imports" | "brings" | "suggests" | "related";
+        weight: number;
+      }[] | undefined;
+    }[];
+    hooks: {
+      name: string;
+      description: string;
+      order: number;
+      timeout: number;
+    }[];
+    mentions: {
+      name: string;
+      title: string;
+      description: string;
+      target: TypeDef<any>;
+      of?: `${string}/${string}` | undefined;
+    }[];
+    embedders: {
+      name: string;
+      dimensions: number;
+      maxInput: number;
+      pricePerMillionTokens: number;
+    }[];
+    sectioners: {
+      name: string;
+      description: string;
+      match: {
+        format?: string | undefined;
+        mime?: string | undefined;
+        glob?: string | undefined;
+        form?: "description" | "table" | "text" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
+      };
+    }[];
+    actions: {
+      name: string;
+      description: string;
+      input: TypeDef<any>;
+      returns: TypeDef<any>;
+      state?: TypeDef<any> | undefined;
+      expires?: number | undefined;
+    }[];
+    name: SystemName;
+    version: string;
+    description: string;
+    hash: string;
+    client?: {
+      entry: string;
+      hash: string;
+      files: {
+        path: string;
+        size: number;
+        hash: string;
+      }[];
+    } | undefined;
+    providers?: {
+      name: string;
+      description: string;
+      models: {
+        id: string;
+        capabilities: string[];
+        contextWindow: number;
+        pricing: {
+          input: number;
+          output: number;
+          cached?: number | undefined;
+          cacheWrite?: number | undefined;
+        };
+        caching: boolean;
+        name?: string | undefined;
+        maxOutput?: number | undefined;
+      }[];
+    }[] | undefined;
+    connect?: {
+      title: string;
+      description: string;
+      how: {
+        flow: "oauth";
+      } | {
+        flow: "form";
+        form: TypeDef<any>;
+      };
+      settings: TypeDef<any>;
+      fns: Record<string, {
+        on: boolean;
+        ask: boolean;
+      }>;
+      icon?: string | undefined;
+      scope?: "instance" | "system" | undefined;
+      defaults?: {
+        on: boolean;
+        ask: boolean;
+      } | undefined;
+    } | undefined;
+    registries?: {
+      name: string;
+      description: string;
+      data: TypeDef<any>;
+    }[] | undefined;
+    contributes?: {
+      registry: `${string}/${string}`;
+      name: string;
+      label: string;
+      description?: string | undefined;
+      icon?: string | undefined;
+      shape?: {
+        channels: {
+          name: string;
+          label: string;
+          accepts: ("number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary")[];
+          required: boolean;
+          many: boolean;
+          min?: number | undefined;
+          role?: "group" | "measure" | undefined;
+        }[];
+        rows: {
+          min: number;
+          max?: number | undefined;
+        };
+        whole: boolean;
+        rules: ({
+          rule: "distinct";
+          channel: string;
+          max: number;
+        } | {
+          rule: "non-negative";
+          channel: string;
+        } | {
+          rule: "bounded";
+          channel: string;
+        } | {
+          rule: "distinct-columns";
+          channels: string[];
+        } | {
+          rule: "links";
+          from: string;
+          to: string;
+        })[];
+        styles: {
+          name: string;
+          label: string;
+          whole?: true | undefined;
+          needs?: string[] | undefined;
+        }[];
+        claims: {
+          claim: "range";
+          channel: string;
+        }[];
+        priority: {
+          band: "floor" | "structural" | "encoded" | "time-encoded";
+          terms: ("temporal-key" | "low-cardinality" | "enum-key" | "high-null" | "many-categories")[];
+        };
+        size?: "window" | "top-n" | "partition" | "aggregate" | undefined;
+        pageSize?: number | undefined;
+      } | undefined;
+    }[] | undefined;
+    configSecrets?: string[] | undefined;
+    runtime?: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "embedders" | "sectioners" | "actions", string[]>> | undefined;
+    grants?: {
+      hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
+      models?: {
+        roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+        models?: string[] | undefined;
+        perRun?: number | undefined;
+        perDay?: number | undefined;
+      } | undefined;
+      secrets?: string[] | undefined;
+      calls?: (`${string}/${string}` | SystemName)[] | undefined;
+      network?: string[] | undefined;
+      files?: {
+        read: string[];
+        write: string[];
+      } | undefined;
+    } | undefined;
+    configComponent?: {
+      component: string;
+      mode: "replace" | "beside";
+    } | undefined;
+    groups?: {
+      name: string;
+      title: string;
+      description: string;
+    }[] | undefined;
+  } | undefined;
+} | {
+  refused: string;
+};
+```
+
 ### From `packages/core/src/link.ts`
 
 #### <a id="core-adminnotice"></a>`AdminNotice`
@@ -17230,6 +17801,31 @@ A system's config value as the hub holds it.
 type ConfigValue = {
   value: z.core.util.JSONType;
   version: number;
+};
+```
+
+#### <a id="core-hello"></a>`Hello`
+
+const, type · declared in `packages/core/src/link.ts`
+
+The first call from a system. A new name starts pairing; a known name gets a challenge.
+
+```ts
+type Hello = {
+  protocol: 1;
+  name: SystemName;
+  version: string;
+  instance: InstanceName;
+  boot: string;
+  publicKey: string;
+  manifestHash: string;
+  instances?: "one" | "many" | undefined;
+  contractHash?: string | undefined;
+  pairingToken?: string | undefined;
+  autoPair?: {
+    secret: string;
+    id: string;
+  } | undefined;
 };
 ```
 
@@ -17522,6 +18118,22 @@ type RunRequest = {
           }[] | undefined;
         } | undefined;
       } | undefined;
+      summary?: {
+        line: string;
+        counts: {
+          section: string;
+          added: number;
+          changed: number;
+          removed: number;
+        }[];
+        flags: {
+          flag: "models" | "capabilities" | "secrets" | "effects" | "files" | "calls" | "hosts" | "delete-fns" | "write-fns";
+          line: string;
+          items: string[];
+        }[];
+        grants?: "added" | "changed" | "widened" | "narrowed" | undefined;
+        config?: "removed" | "added" | "changed" | undefined;
+      } | undefined;
     };
   } | undefined;
 };
@@ -17803,6 +18415,117 @@ type ContextDecl = {
 };
 ```
 
+#### <a id="core-fndecl"></a>`FnDecl`
+
+const, type · declared in `packages/core/src/manifest.ts`
+
+A fn. Native fns carry their signature, deps and handlers as declared. Fns of other kinds carry a payload; the hub
+asks the kind's system to describe it and checks the result against the declared signature.
+
+```ts
+type FnDecl = {
+  name: string;
+  description: string;
+  kind: `${string}/${string}` | "native";
+  args: TypeDef<any>;
+  returns: TypeDef<any>;
+  deps: `${string}/${string}`[];
+  handlers: Record<string, {
+    description: string;
+    args: TypeDef<any>;
+    returns: TypeDef<any>;
+    required: boolean;
+  }>;
+  progress: {
+    type: "none";
+  } | {
+    type: "linear";
+  } | {
+    type: "steps";
+    steps: Record<string, string>;
+  };
+  operations: {
+    cancel: boolean;
+    pause: boolean;
+    undo: boolean;
+    background: boolean;
+  };
+  display: "message" | "card" | "hidden";
+  limits: {
+    timeout?: number | undefined;
+    retries?: number | undefined;
+    cost?: number | undefined;
+  };
+  visibility: "llm" | "none" | "user" | "both";
+  tags: string[];
+  instructions?: string | undefined;
+  payload?: z.core.util.JSONType | undefined;
+  readable?: {
+    language: string;
+    code: string;
+  } | undefined;
+  status?: {
+    active: {
+      one: string;
+      many: string;
+    };
+    retry: {
+      one: string;
+      many: string;
+    };
+    done: {
+      one: string;
+      many: string;
+    };
+    failed: {
+      one: string;
+      many: string;
+    };
+  } | undefined;
+  undo?: TypeDef<any> | undefined;
+  resume?: TypeDef<any> | undefined;
+  state?: TypeDef<any> | undefined;
+  form?: TypeDef<any> | undefined;
+  examples?: {
+    args: z.core.util.JSONType;
+    result?: z.core.util.JSONType | undefined;
+    note?: string | undefined;
+  }[] | undefined;
+  validate?: {
+    input: boolean;
+    output: boolean;
+  } | undefined;
+  approval?: {
+    preview: boolean;
+    remember: boolean;
+    approver?: "person" | "admins" | undefined;
+  } | undefined;
+  routing?: {
+    to: "instance";
+    instance: InstanceName;
+  } | {
+    to: "any";
+  } | undefined;
+  effects?: {
+    mode?: "write" | "read" | "delete" | undefined;
+    reads?: `${string}/${string}`[] | undefined;
+    writes?: `${string}/${string}`[] | undefined;
+    free?: boolean | undefined;
+    registry?: {
+      thing: "types" | "records" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+      action: "create" | "update" | "remove";
+      kind?: `${string}/${string}` | "native" | undefined;
+    }[] | undefined;
+  } | undefined;
+  promptExamples?: number | undefined;
+  group?: string | undefined;
+  flags?: boolean | undefined;
+  live?: {
+    every: number;
+  } | undefined;
+};
+```
+
 #### <a id="core-fneffects"></a>`FnEffects`
 
 const, type · declared in `packages/core/src/manifest.ts`
@@ -17978,6 +18701,11 @@ type KindDescription = {
     undo: boolean;
     background: boolean;
   };
+  examples: {
+    args: z.core.util.JSONType;
+    result?: z.core.util.JSONType | undefined;
+    note?: string | undefined;
+  }[];
   types?: `${string}/${string}`[] | undefined;
   refs?: string[] | undefined;
   handlers?: Record<string, {
@@ -19590,34 +20318,14 @@ type DeliveryStatus = "queued" | "done" | "failed" | "expired" | "delivered";
 
 ### From `packages/core/src/records/systems.ts`
 
-#### <a id="core-fnrefusal"></a>`FnRefusal`
+#### <a id="core-instancemode"></a>`InstanceMode`
 
 const, type · declared in `packages/core/src/records/systems.ts`
 
-A fn the hub refused, by the name it was asked for, with what blocks it.
+How many copies a system runs (`system.json`'s `instances`): `one`, a single instance named `main`; `many`, a fleet.
 
 ```ts
-type FnRefusal = {
-  code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
-  reason: string;
-  fn: string;
-  system?: SystemName | undefined;
-};
-```
-
-#### <a id="core-namerefusal"></a>`NameRefusal`
-
-const, type · declared in `packages/core/src/records/systems.ts`
-
-A name `hub/load` refused (a fn's or a context item's), with what blocks it; a name that is neither is `no-such-fn`.
-
-```ts
-type NameRefusal = {
-  code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
-  reason: string;
-  name: string;
-  system?: SystemName | undefined;
-};
+type InstanceMode = "one" | "many";
 ```
 
 #### <a id="core-typedefinitions"></a>`TypeDefinitions`
@@ -20454,6 +21162,11 @@ type InvalidInput = {
     message: string;
   }[];
   raw?: string | undefined;
+  blocked?: {
+    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+    reason: string;
+    system?: SystemName | undefined;
+  } | undefined;
 };
 ```
 
@@ -20497,6 +21210,11 @@ type OutcomeWire = {
       message: string;
     }[];
     raw?: string | undefined;
+    blocked?: {
+      code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+      reason: string;
+      system?: SystemName | undefined;
+    } | undefined;
   };
   undo?: z.core.util.JSONType | undefined;
   cost?: number | undefined;

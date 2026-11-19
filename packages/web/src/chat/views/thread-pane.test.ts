@@ -106,6 +106,40 @@ describe('message actions', () => {
     expect(api.send.calls.at(-1)?.[0]).toMatchObject({ session: 'ses_1', parts: [{ type: 'text', text: 'Read the README' }] });
   });
 
+  it('offers Retry and Undo only on the latest turn, never on an older answer undo would refuse (regression)', async () => {
+    // a page comes newest first
+    const later = message({ id: 'msg_ask2', turn: 'trn_2', parts: [{ type: 'text', text: '!fs/read README.md' }] });
+    const { app } = await start((a) => { a.messages = fakeCaller<'messages'>(() => Promise.resolve({ items: [later, ...conversation()] })); });
+    // trn_2 has no answer yet stands after trn_1: trn_1 can't be undone, so its answer offers neither
+    expect(app.find('[data-testid=assistant-answer] [data-action=retry]').exists()).toBe(false);
+    expect(app.find('[data-testid=assistant-answer] [data-action=undo]').exists()).toBe(false);
+    expect(app.find('[data-testid=turn-failed]').exists()).toBe(false);
+  });
+
+  it('offers no Retry or Undo while the thread runs, even when the hub\'s controls lag behind (regression)', async () => {
+    const { app } = await start((a) => {
+      a.session = fakeCaller<'session'>(({ session: id }) => Promise.resolve(session({ id, status: 'running' })));
+      a.messages = fakeCaller<'messages'>(() => Promise.resolve({ items: conversation() }));
+      a.controls = fakeCaller<'controls'>(() => Promise.resolve({ pause: false, cancel: false, uncancellable: [], undoLastTurn: true, continueLastTurn: false }));
+    });
+    expect(app.find('[data-testid=assistant-answer]').exists()).toBe(true);
+    expect(app.find('[data-testid=assistant-answer] [data-action=retry]').exists()).toBe(false);
+    expect(app.find('[data-testid=assistant-answer] [data-action=undo]').exists()).toBe(false);
+  });
+
+  it('offers Continue on a turn cancelled before its agent wrote anything, and continues that turn', async () => {
+    const asked = message({ id: 'msg_ask', turn: 'trn_1', parts: [{ type: 'text', text: 'Read the README' }] });
+    const { app, api } = await start((a) => {
+      a.messages = fakeCaller<'messages'>(() => Promise.resolve({ items: [asked] }));
+      a.controls = fakeCaller<'controls'>(() => Promise.resolve({ pause: false, cancel: false, uncancellable: [], undoLastTurn: true, continueLastTurn: true }));
+    });
+    const notice = app.get('[data-testid=turn-failed]');
+    expect(notice.find('[data-testid=retry]').exists()).toBe(true);
+    await notice.get('[data-testid=continue]').trigger('click');
+    await flushPromises();
+    expect(api.continueTurn.calls.at(-1)?.[0]).toEqual({ turn: 'trn_1' });
+  });
+
   it('says when undo is refused', async () => {
     const { app, toasts } = await start((a) => {
       a.messages = fakeCaller<'messages'>(() => Promise.resolve({ items: conversation() }));

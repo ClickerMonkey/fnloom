@@ -1,16 +1,19 @@
 /**
  * The graphs (build 7): the URL query both ways, hover facts, where opening goes, the drawn elements (clusters, greyed
- * references, "+N more" stubs), the store on the fake caller, the sample graph's filters, and the details and filter
- * components alone. Drawing and hovering are checked rendered, in `ui-tests/features/build7-graph.ts`.
+ * references, "+N more" stubs), the store on the fake caller, the sample graph's filters, the details and the graph's
+ * own controls alone, and the search bar every list shares, on the graph list. Drawing and hovering are checked rendered, in `ui-tests/features/build7-graph.ts`.
  */
-import { SystemName, type GraphNode, type GraphQuery } from '@harness/core';
+import { GraphQuery, SystemName, type Filter, type GraphNode } from '@harness/core';
 import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
+import { nextTick } from 'vue';
+import ListSearch from '../components/query/ListSearch.vue';
+import { fieldsOf, queryParam } from '../state/query.ts';
 import { fakeGraphApi } from './test/fakes.ts';
+import GraphControls from './components/GraphControls.vue';
 import GraphDetails from './components/GraphDetails.vue';
-import GraphChips from './components/GraphChips.vue';
 import {
-  clusterId, expandQuery, filterCount, graphElements, graphQueryOf, graphUrlOf, moreId, nodeFacts, openTarget, pickOf, readGraphUrl, shortName, withPart,
+  clusterId, expandQuery, graphElements, graphQueryOf, graphUrlOf, moreId, nodeFacts, openTarget, pickOf, readGraphUrl, searchOf, shortName, totalsText, withPart, withSearch,
   packGroups,
 } from './logic/graph.ts';
 import { GraphStore } from './state/graph.ts';
@@ -24,28 +27,41 @@ const nodeOf = (id: string): GraphNode => {
 };
 
 describe('the graph URL', () => {
-  it('reads every filter and writes it back the same', () => {
-    const url = { systems: 'fs,database', nodes: 'fn,type', edges: 'reads', modes: 'write', stages: 'pending', on: '0', collapse: 'database', q: 'file', focus: 'fn:fs/read', hops: '2', external: '0' } as const;
-    const query = graphQueryOf(url);
-    expect(query).toEqual({
-      systems: ['fs', 'database'], external: false, nodeKinds: ['fn', 'type'], edgeKinds: ['reads'], modes: ['write'], stages: ['pending'], on: false,
-      collapse: [sys('database')], text: 'file', focus: { node: 'fn:fs/read', hops: 2 },
-    });
-    expect(graphUrlOf(query)).toEqual(url);
-    expect(filterCount(query)).toBe(7);
+  it('keeps its search and filters in q as every list writes them, its controls in their own keys, both ways', () => {
+    const query: GraphQuery = {
+      text: 'file',
+      filters: [{ field: 'nodeKind', op: 'in', values: ['fn', 'type'] }, { field: 'edgeKind', op: 'is', value: 'reads' }, { field: 'mode', op: 'is', value: 'write' }, { field: 'on', op: 'is', value: false }],
+      external: false, collapse: [sys('database')], focus: { node: 'fn:fs/read', hops: 2 },
+    };
+    const url = graphUrlOf(query);
+    expect(url.q).toBe(queryParam('graph', searchOf(query)));
+    expect(url).toMatchObject({ collapse: 'database', focus: 'fn:fs/read', hops: '2', external: '0' });
+    expect(graphQueryOf(url)).toEqual(query);
+    expect(graphQueryOf({ q: 'nodeKind:fn read' })).toEqual({ text: 'read', filters: [{ field: 'nodeKind', op: 'is', value: 'fn' }] });
   });
 
   it('drops values it cannot read, and keys whose values are wrong', () => {
-    expect(graphQueryOf({ nodes: 'fn,bogus,fn', modes: 'nope' })).toEqual({ nodeKinds: ['fn'] });
-    expect(readGraphUrl({ hops: '9', q: 'x', part: 'roots', on: ['1'] })).toEqual({ q: 'x' });
+    expect(graphQueryOf({ collapse: 'database,Not A System,database' })).toEqual({ collapse: ['database'] });
+    expect(readGraphUrl({ hops: '9', q: 'x', part: 'roots', external: ['0'] })).toEqual({ q: 'x' });
     expect(graphUrlOf({ focus: { node: 'fn:fs/read', hops: 1 } })).toEqual({ focus: 'fn:fs/read' });
   });
 
-  it('changes one part, and removes it when empty', () => {
-    const query: GraphQuery = { nodeKinds: ['fn'] };
-    expect(withPart(query, 'modes', ['read'])).toEqual({ nodeKinds: ['fn'], modes: ['read'] });
-    expect(withPart(query, 'nodeKinds', [])).toEqual({});
-    expect(expandQuery(query, { node: 'fn:fs/read', kind: 'type', count: 3 })).toEqual({ nodeKinds: ['fn'], focus: { node: 'fn:fs/read', hops: 1 } });
+  it('swaps the search and filters keeping the controls, and changes one control', () => {
+    const query: GraphQuery = { text: 'old', collapse: [sys('fs')], focus: { node: 'fn:fs/read' } };
+    expect(searchOf(query)).toEqual({ text: 'old' });
+    const filters: Filter[] = [{ field: 'system', op: 'is', value: 'fs' }];
+    // the graph is drawn, not sorted: a sort from the box is dropped
+    expect(withSearch(query, { filters, sort: [{ field: 'name', dir: 'asc' }] })).toEqual({ filters, collapse: ['fs'], focus: { node: 'fn:fs/read' } });
+    expect(withSearch(query, { text: '', filters: [] })).toEqual({ collapse: ['fs'], focus: { node: 'fn:fs/read' } });
+    expect(withPart(query, 'external', false)).toEqual({ ...query, external: false });
+    expect(withPart(query, 'collapse', [])).toEqual({ text: 'old', focus: { node: 'fn:fs/read' } });
+    expect(expandQuery({ filters }, { node: 'fn:fs/read', kind: 'type', count: 3 })).toEqual({ filters, focus: { node: 'fn:fs/read', hops: 1 } });
+  });
+
+  it('says what a page holds: nodes / edges, and what the cap left out', () => {
+    expect(totalsText({ nodes: [nodeOf('fn:fs/read')], edges: [], more: [], total: { nodes: 1, edges: 0 } })).toBe('1 node / 0 edges');
+    const page = graphOf({ limit: 3 });
+    expect(totalsText(page)).toMatch(/^3 nodes \/ \d+ edges?, \d+ more not drawn/);
   });
 });
 
@@ -128,10 +144,12 @@ describe('the drawn elements', () => {
   });
 
   it('filters by kind, focus and text as the hub does', () => {
-    expect(graphOf({ nodeKinds: ['type'] }).nodes.every((node) => node.kind === 'type')).toBe(true);
+    expect(graphOf({ filters: [{ field: 'nodeKind', op: 'is', value: 'type' }] }).nodes.every((node) => node.kind === 'type')).toBe(true);
     const near = graphOf({ focus: { node: 'type:fs/file', hops: 1 } }).nodes.map((node) => node.id).sort();
     expect(near).toEqual(['fn:fs/read', 'fn:fs/write', 'system:fs', 'type:fs/file']);
-    expect(graphOf({ text: 'note', modes: ['write'] }).nodes.map((node) => node.id)).toEqual(['system:notes', 'fn:notes/add', 'type:notes/note']);
+    expect(graphOf({ text: 'note', filters: [{ field: 'mode', op: 'is', value: 'write' }] }).nodes.map((node) => node.id)).toEqual(['system:notes', 'fn:notes/add', 'type:notes/note']);
+    // several words each must match, split on whitespace (regression: the sample once split on the letter "s")
+    expect(graphOf({ text: 'notes add', filters: [{ field: 'nodeKind', op: 'is', value: 'fn' }] }).nodes.map((node) => node.id)).toEqual(['fn:notes/add']);
   });
 });
 
@@ -155,10 +173,41 @@ describe('the components', () => {
     expect(wrapper.emitted('focus')?.[0]?.[0]).toMatchObject({ id: 'fn:fs/read' });
   });
 
-  it('toggles chips in the order offered', async () => {
-    const options = [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }] as const;
-    const wrapper = mount(GraphChips, { props: { label: 'Kinds', options, modelValue: ['b'] } });
-    await wrapper.findAll('button')[0]?.trigger('click');
-    expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual(['a', 'b']);
+  it('the controls change the hops, collapse a system, hide references outside and go back to everything', async () => {
+    const focused: GraphQuery = { filters: [{ field: 'nodeKind', op: 'is', value: 'fn' }], focus: { node: 'fn:fs/read' } };
+    const wrapper = mount(GraphControls, { props: { modelValue: focused, systems: [sys('database'), sys('fs')], focusName: 'fs/read' }, attachTo: document.body });
+    const last = (): GraphQuery | undefined => {
+      const all = wrapper.emitted('update:modelValue') ?? [];
+      const args = all.at(-1);
+      return args === undefined ? undefined : GraphQuery.parse(args[0]);
+    };
+    expect(wrapper.get('[data-testid=graph-focus-chip]').text()).toContain('Around fs/read');
+    await wrapper.findAll('[role=radio]')[1]?.trigger('click');
+    expect(last()).toEqual({ ...focused, focus: { node: 'fn:fs/read', hops: 2 } });
+    await wrapper.findAll('button').find((button) => button.text() === 'Everything')?.trigger('click');
+    expect(last()).toEqual({ filters: focused.filters });
+    await wrapper.get('[data-testid=graph-collapse]').trigger('click');
+    const item = [...document.querySelectorAll<HTMLElement>('[role=menuitem]')].find((el) => el.textContent.trim() === 'fs');
+    expect(item).toBeDefined();
+    item?.click();
+    await nextTick();
+    // the model holds each change: unfocused now, so the next ones build on that
+    expect(last()).toEqual({ filters: focused.filters, collapse: ['fs'] });
+    await wrapper.get('[data-testid=graph-external] [role=switch]').trigger('click');
+    expect(last()).toEqual({ filters: focused.filters, collapse: ['fs'], external: false });
+    wrapper.unmount();
+    // a system's own graph has no collapse menu
+    expect(mount(GraphControls, { props: { modelValue: {}, systems: [sys('fs')], scoped: true } }).find('[data-testid=graph-collapse]').exists()).toBe(false);
+  });
+
+  it('the graph list searches with the box every list has: its fields, filter only, the controls in its slot', () => {
+    const fields = fieldsOf('graph');
+    expect(Object.keys(fields)).toEqual(['name', 'system', 'nodeKind', 'edgeKind', 'fnKind', 'mode', 'effect', 'visibility', 'stage', 'on']);
+    expect(fields['nodeKind']?.values).toContain('fn');
+    expect(fields['stage']?.values).toEqual(['installed', 'live', 'pending']);
+    expect(Object.values(fields).every((decl) => decl.filterable && !decl.sortable)).toBe(true);
+    const search = mount(ListSearch, { props: { list: 'graph', label: 'graph items', modelValue: { text: 'read' }, noSort: true }, slots: { default: '<span class="extra-control">focus</span>' } });
+    expect(search.find('.extra-control').exists()).toBe(true);
+    expect(search.findComponent({ name: 'UiSort' }).exists()).toBe(false);
   });
 });

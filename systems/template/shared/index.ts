@@ -47,8 +47,9 @@ export const template = system('template', {
     // must implement: `undo` (an undo implementation), `resume` (it can pause), `progress` (`linear` or `steps`),
     // `handlers` (`handler({ ... })`), `deps` (fn refs it may call), `state`, `form`, `status`, `display`, `tags`,
     // `group` (one of the system's `groups`).
-    // Every fn needs `instructions` written for the model (when to use it, how, what it returns, pitfalls), `examples`
-    // (`{ args, result?, note? }`, checked against its types) and `effects` (`{ mode, reads, writes, free }`).
+    // Every fn needs `instructions` written for the model (when to use it, how, what it returns, pitfalls), at least one
+    // example in `examples` (`{ args, result?, note? }`, checked against its types; a fn or agent with none fails the
+    // build and `serve`) and `effects` (`{ mode, reads, writes, free }`).
     // TODO: declare fns, or delete this comment.
 
     // hooks: user-message hooks that add information before the LLM sees a message, each made with

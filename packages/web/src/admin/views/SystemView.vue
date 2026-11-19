@@ -1,9 +1,10 @@
 <script setup lang="ts">
 /**
  * One system's page, its tab in the URL: the overview (switches, facts, process and maintenance), its instances (a
- * fleet's copies, each with its own page; another copy can be installed from a package zip), its config form, what it
- * added to the hub (its fns and its context items, each switched on or off by itself and with its own page; its named
- * types; everything else it added: resource roots, kinds, commands, providers, components, examples, …, one kind at a
+ * fleet's copies, each with its own page; another copy can be installed from a package zip), or, for a system that runs
+ * one instance, that instance's data (its facts are already the overview's, and its old page sends here), its config
+ * form, what it added to the hub (its fns and its context items, each switched on or off by itself and all at once
+ * with a master switch, each with its own page; its named types; everything else it added: resource roots, kinds, commands, providers, components, examples, …, one kind at a
  * time and each with its own switch), the calls the hub refused, and its live output. While it is only installed (or
  * changes wait), a banner says so with the link to its review; a live system has a Review link beside its status.
  * Removing asks first.
@@ -18,7 +19,9 @@ import { useParamChoice, useRouteQuery } from '../../app/url.ts';
 import { useStores } from '../../state/stores.ts';
 import { UiBanner, UiButton, UiEmpty, UiIcon, UiSwitch, UiTabs, type TabItem } from '../../ui/index.ts';
 import { useNow } from '../../ui/now.ts';
+import AllSwitch from '../components/AllSwitch.vue';
 import FnList from '../components/FnList.vue';
+import InstanceData from '../components/InstanceData.vue';
 import InstallDialog from '../components/InstallDialog.vue';
 import AutoPairList from '../components/AutoPairList.vue';
 import ContextRow from '../../context/components/ContextRow.vue';
@@ -38,7 +41,6 @@ import SystemOverview from '../components/SystemOverview.vue';
 import { partGroups, SYSTEM_STATUS_LOOK, type SystemAction } from '../logic/systems.ts';
 import { contextLabel } from '../../context/logic/context.ts';
 import { secretFields } from '../logic/instances.ts';
-import { declaredItems } from '../logic/review.ts';
 import { PartTab, SystemTab } from '../sections.ts';
 import { configComponentsOf, configTarget } from '../state/config-component.ts';
 
@@ -55,6 +57,16 @@ const tab = useParamChoice('tab', SystemTab, 'overview');
 const part = useRouteQuery(ROUTES.system).choice('part', PartTab, 'roots');
 const name = computed(() => { const parsed = SystemName.safeParse(route.params['name']); return parsed.success ? parsed.data : undefined; });
 const view = computed(() => store.view.value.value);
+/** A system that runs one instance shows it here: no Instances tab, its `main` instance's data on a tab of its own. */
+const single = computed(() => view.value?.instanceMode === 'one');
+const main = computed(() => view.value?.instances.find((i) => i.instance === MAIN_INSTANCE));
+const exported = ref<{ readonly url: string; readonly size: number } | undefined>(undefined);
+// a tab this system doesn't have (a single instance's Instances, a fleet's Data) reads as its overview
+// (keyed on the loaded mode, so a fleet opened straight at its Data tab is sent on once its view arrives)
+watch([() => view.value?.instanceMode, tab, name], ([mode, current, system]) => {
+  if (system === undefined || mode === undefined) { return; }
+  if ((mode === 'one' && current === 'instances') || (mode === 'many' && current === 'data')) { void router.replace(links.system(system)); }
+}, { immediate: true });
 const problems = ref<readonly string[]>([]);
 const removing = ref(false);
 const installOpen = ref(false);
@@ -96,25 +108,31 @@ async function switchPart(item: ItemRef, on: boolean): Promise<void> {
   if (name.value !== undefined) { void parts.loadOthers(name.value); }
 }
 
-/** A tab's count: what its list loaded, else what the review declares, else none yet. */
-function countOf(loaded: number | undefined, section: 'context' | 'types'): { count?: number } {
-  if (loaded !== undefined) { return { count: loaded }; }
-  return review.value === undefined ? {} : { count: declaredItems(review.value, section).length };
-}
+/** Its counts: the hub's, with the system; a tab's own once its list has read it afresh. */
+const counts = computed(() => view.value?.counts);
 
 const tabs = computed<readonly TabItem<SystemTab>[]>(() => [
   { value: 'overview', label: 'Overview' },
-  { value: 'instances', label: 'Instances', count: view.value?.instances.length ?? 0 },
+  ...(single.value ? [] : [{ value: 'instances' as const, label: 'Instances', count: counts.value?.instances ?? 0 }]),
   { value: 'config', label: 'Config' },
-  { value: 'fns', label: 'Fns', count: view.value?.fns ?? 0 },
-  { value: 'context', label: 'Context', ...countOf(parts.contextCount.value, 'context') },
-  { value: 'types', label: 'Types', ...countOf(parts.typeCount.value, 'types') },
-  { value: 'parts', label: 'Other parts', ...(others.value === undefined ? {} : { count: otherCount.value }) },
+  { value: 'fns', label: 'Fns', count: store.fns.value.value?.length ?? counts.value?.fns ?? 0 },
+  { value: 'context', label: 'Context', count: parts.contextCount.value ?? counts.value?.context ?? 0 },
+  { value: 'types', label: 'Types', count: parts.typeCount.value ?? counts.value?.types ?? 0 },
+  // its resource roots are live from its instance, so they count once read
+  { value: 'parts', label: 'Other parts', count: others.value === undefined ? counts.value?.parts ?? 0 : otherCount.value },
   { value: 'graph', label: 'Graph' },
-  { value: 'refusals', label: 'Refusals', count: review.value?.refusals.total ?? 0 },
+  { value: 'refusals', label: 'Refusals', count: review.value?.refusals.total ?? counts.value?.refusals ?? 0 },
   // every system's output reaches the hub (an installed one's process, a paired one's log lines), so the tab is always there
   { value: 'logs', label: 'Output' },
+  ...(single.value ? [{ value: 'data' as const, label: 'Data' }] : []),
 ]);
+
+/** Export its one instance's data. */
+async function exportData(withSecrets: boolean): Promise<void> {
+  if (name.value === undefined) { return; }
+  const result = await admin.instance.exportData(withSecrets, { system: name.value, instance: MAIN_INSTANCE });
+  if (result.ok) { exported.value = result.value; toasts.ok('Data exported', 'The zip is ready to download.'); } else { toasts.error(result.problem); }
+}
 
 watch(name, (system) => {
   if (system !== undefined) { void store.open(system); void reviews.open(system); void admin.actors.load(); }
@@ -159,8 +177,6 @@ const otherCount = computed(() => groups.value.reduce((sum, group) => sum + grou
 const rootPage = (root: ResourceRoot): RouteLocationRaw => (name.value === undefined ? links.systems() : links.explore(name.value, MAIN_INSTANCE, [root.name]));
 /** An example's fn page, or a `/command`'s context item page. */
 const ownerPage = (section: SystemPartSection, owner: QualifiedName): RouteLocationRaw => (section === 'examples' ? links.fn(owner) : links.contextItem(owner));
-/** Whether all of its context is switched off (each item keeps its own switch underneath). */
-const contextOff = computed(() => view.value?.enabled.context === false);
 
 async function switchFn(fn: QualifiedName, on: boolean): Promise<void> {
   if (!await store.switchFn(fn, on)) { toasts.error(store.switching.problem.value); }
@@ -245,6 +261,11 @@ async function act(action: SystemAction, version?: string): Promise<void> {
           :empty="(store.fns.value.value?.length ?? 0) === 0" empty-icon="fn" empty-title="No fns" empty-body="This system doesn't add any fns." @retry="store.loadFns()"
         >
           <RouterLink v-if="name !== undefined" :to="links.systemFns(name)" class="search-fns" data-testid="search-system-fns"><UiIcon name="search" :size="14" />Search and sort in Fns</RouterLink>
+          <AllSwitch
+            :on="view.enabled.functions" label="Use its fns" testid="system-fns-all" on-text="Its fns, mentions and hooks can be used, unless a fn is switched off by itself."
+            off-text="All of its fns are off, and its mentions and hooks with them; each fn keeps its own switch for when they are back on."
+            @switch="enable('functions', $event)"
+          />
           <FnList :fns="store.fns.value.value ?? []" :now="now" :runs-of="links.fnRuns" switchable @switch="switchFn" @switched="(fn, on) => store.fnSwitched(fn, on)" />
         </LoadState>
         <LoadState
@@ -252,13 +273,11 @@ async function act(action: SystemAction, version?: string): Promise<void> {
           :empty="parts.context.items.value.length === 0" empty-icon="layers" empty-title="No context" empty-body="This system doesn't add any context." @retry="name && parts.loadContext(name)"
         >
           <RouterLink v-if="name !== undefined" :to="links.systemContext(name)" class="search-fns" data-testid="search-system-context"><UiIcon name="search" :size="14" />Search and sort in Context</RouterLink>
-          <div class="all-context">
-            <UiSwitch
-              :model-value="!contextOff" label="Use its context"
-              :description="contextOff ? 'All of it is off; each item keeps its own switch for when it is back on.' : 'Every item below can be selected, searched and loaded, unless switched off by itself.'"
-              data-testid="system-context-all" @update:model-value="enable('context', $event)"
-            />
-          </div>
+          <AllSwitch
+            :on="view.enabled.context !== false" label="Use its context" testid="system-context-all" on-text="Every item below can be selected, searched and loaded, unless switched off by itself."
+            off-text="All of it is off; each item keeps its own switch for when it is back on."
+            @switch="enable('context', $event)"
+          />
           <div class="list" data-testid="system-context">
             <div v-for="item in parts.context.items.value" :key="item.name" class="switch-row">
               <UiSwitch :model-value="item.disabled !== true" :label="`Use ${contextLabel(item.decl)}`" hide-label data-testid="context-switch" @update:model-value="switchContext(item.name, $event)" />
@@ -284,6 +303,7 @@ async function act(action: SystemAction, version?: string): Promise<void> {
           />
         </LoadState>
         <SystemGraph v-else-if="tab === 'graph' && name" :system="name" />
+        <InstanceData v-else-if="tab === 'data'" :dirs="main?.dirs" :busy="admin.instance.exporting.busy.value" :exported="exported" @export="exportData" />
         <LoadState
           v-else-if="tab === 'refusals'" :loading="reviews.refusals.loading.value" :problem="reviews.refusals.problem.value" :ready="reviews.refusals.loaded.value" :empty="false"
           @retry="reviews.refusals.load()"
@@ -303,7 +323,7 @@ async function act(action: SystemAction, version?: string): Promise<void> {
     />
     <ConfirmDialog
       v-model:open="removing" :title="`Remove ${name ?? 'this system'}?`" :busy="store.acting.value === 'remove'" confirm="Remove"
-      :body="`Its ${view?.fns ?? 0} fns stop working until it pairs again. Its runs and messages stay.`" @confirm="act('remove')"
+      :body="`Its ${view?.counts.fns ?? 0} fns stop working until it pairs again. Its runs and messages stay.`" @confirm="act('remove')"
     />
     <ConfirmDialog
       v-model:open="revokeOpen" title="Revoke this auto pair secret?" :busy="autoPairs.revoking.busy.value" confirm="Revoke"
@@ -319,7 +339,6 @@ async function act(action: SystemAction, version?: string): Promise<void> {
 .switch-row { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; padding-left: var(--space-4); }
 .more { justify-self: start; margin-top: var(--space-2); }
 .config-tab { display: grid; gap: var(--space-4); }
-.all-context { margin-bottom: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
 .search-fns { display: inline-flex; align-items: center; gap: var(--space-1); margin-bottom: var(--space-2); font-size: var(--text-sm); }
 .waiting { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); white-space: nowrap; }
 @media (max-width: 759.98px) {

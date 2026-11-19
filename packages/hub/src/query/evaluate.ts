@@ -4,6 +4,7 @@
  * sort and page to this, so every list behaves the same.
  */
 import { fieldOf, LIST_FIELDS, sortOf, type FieldDecl, type FieldValueOption, type Filter, type FilterValue, type ListField, type ListName, type ListQuery, type Page, type Sort } from '@harness/core';
+import type { z } from 'zod';
 import type { FieldAccessors } from './index.ts';
 
 /** What an accessor reads off a row. */
@@ -14,6 +15,21 @@ export function readerOf<L extends ListName, Row>(fields: FieldAccessors<L, Row>
   if (fieldOf(list, field) === undefined) { return undefined; }
   const readers: Readonly<Record<string, (row: Row) => FieldReading>> = fields;
   return readers[field];
+}
+
+/**
+ * The values an `is` or `in` filter on a field allows, read through the column's schema (undefined when the query
+ * has no such filter, or one whose values the column can't hold, which the evaluator then settles).
+ */
+export function allowed<S extends z.ZodType>(filters: readonly Filter[] | undefined, field: string, schema: S): Array<z.output<S>> | undefined {
+  for (const filter of filters ?? []) {
+    if (filter.field !== field) { continue; }
+    const values = filter.op === 'is' ? [filter.value] : filter.op === 'in' ? filter.values : undefined;
+    if (values === undefined) { continue; }
+    const parsed = schema.array().safeParse(values);
+    if (parsed.success) { return parsed.data; }
+  }
+  return undefined;
 }
 
 /** A filter value as a number: numbers as they are, dates and numbers written as text parsed. */

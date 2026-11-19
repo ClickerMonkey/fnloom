@@ -5,41 +5,13 @@
  * N hops out, systems collapsed into one node) and the hub fn `hub/graph` the chat calls.
  */
 import { z } from 'zod';
-import { FnMode, RegistryEffect, RegistryThing } from './manifest.ts';
+import { FnMode, RegistryEffect } from './manifest.ts';
 import { Audience, FnKindName, QualifiedName, SystemName } from './primitives.ts';
 import { SystemStage } from './grants.ts';
+import { GraphEdgeKind, GraphNodeKind } from './graph-kinds.ts';
+import { ListQuery } from './query.ts';
 
-/** What a node is. Examples are not nodes: they are counted on their fn (`GraphNodeFacts.examples`). */
-export const GRAPH_NODE_KINDS = ['system', 'instance', 'fn', 'context', 'type', 'kind', 'resource', 'root', 'component', 'registry', 'command', 'provider'] as const;
-export const GraphNodeKind = z.enum(GRAPH_NODE_KINDS);
-export type GraphNodeKind = z.infer<typeof GraphNodeKind>;
-
-/** What an edge means, read from its source to its target. */
-export const GRAPH_EDGE_KINDS = [
-  'brings', 'names', 'loads', 'next', 'reads', 'writes', 'calls', 'uses', 'kind', 'creates', 'updates', 'removes', 'refers', 'renders', 'contributes', 'belongs',
-] as const;
-export const GraphEdgeKind = z.enum(GRAPH_EDGE_KINDS);
-export type GraphEdgeKind = z.infer<typeof GraphEdgeKind>;
-
-/** Each edge kind in plain words, as "<source> <verb> <target>" ("fs.authoring.kinds brings fs/write"). */
-export const GRAPH_EDGE_VERBS = {
-  brings: 'brings',
-  names: 'mentions',
-  loads: 'loads',
-  next: 'offers next',
-  reads: 'reads',
-  writes: 'writes',
-  calls: 'calls',
-  uses: 'depends on',
-  kind: 'is a fn of kind',
-  creates: 'creates',
-  updates: 'updates',
-  removes: 'removes',
-  refers: 'refers to',
-  renders: 'renders',
-  contributes: 'contributes to',
-  belongs: 'belongs to',
-} as const satisfies Record<GraphEdgeKind, string>;
+export * from './graph-kinds.ts';
 
 /** A node's id: its kind and name, `fn:fs/read`, `type:database/main.projects`, `system:fs`. */
 export const GraphNodeId = z.string().regex(/^[a-z]+:.+$/);
@@ -95,25 +67,17 @@ export type GraphEdge = z.infer<typeof GraphEdge>;
 export const GraphMore = z.object({ node: GraphNodeId, kind: GraphNodeKind, count: z.number().int().min(1) });
 export type GraphMore = z.infer<typeof GraphMore>;
 
-/** The graph query: every part optional; nothing set is the global graph, capped. */
-export const GraphQuery = z.object({
+/**
+ * The graph query. Its search and filters are the query standard's (`ListQuery` text and filters over the `graph` list
+ * of `LIST_FIELDS`: name, system, nodeKind, edgeKind, fnKind, mode, effect, visibility, stage, on), the same a person
+ * builds in the search box; the rest shapes the drawing. Nothing set is the global graph, capped.
+ */
+export const GraphQuery = ListQuery.pick({ text: true, filters: true }).extend({
   /** Only these systems' own nodes, plus what they reference (as `external`, unless `external` is false). */
   systems: z.array(SystemName).min(1).optional(),
   external: z.boolean().optional(),
   /** Centre on a node and its neighbourhood, `hops` out (default 1). */
   focus: z.object({ node: GraphNodeId, hops: z.number().int().min(1).max(4).optional() }).optional(),
-  /** Text matched against names and descriptions; matching nodes and their edges among themselves. */
-  text: z.string().min(1).max(200).optional(),
-  nodeKinds: z.array(GraphNodeKind).min(1).optional(),
-  edgeKinds: z.array(GraphEdgeKind).min(1).optional(),
-  fnKinds: z.array(FnKindName).min(1).optional(),
-  modes: z.array(FnMode).min(1).optional(),
-  /** Fns with an effect on one of these things. */
-  effects: z.array(RegistryThing).min(1).optional(),
-  visibility: z.array(Audience).min(1).optional(),
-  /** `live`, `installed`, or `pending` (in a pending review). */
-  stages: z.array(z.union([SystemStage, z.literal('pending')])).min(1).optional(),
-  on: z.boolean().optional(),
   /** Draw each of these systems as one node. */
   collapse: z.array(SystemName).min(1).optional(),
   /** The most nodes returned (default 200); past it, neighbours become `more` stubs. */

@@ -254,9 +254,9 @@ describe('hybrid search', () => {
     expect(fused.map((h) => h.key)).toEqual(['b', 'c', 'a', 'd']);
     // b is listed twice in text: it counts once, at its best rank
     expect(fused[0]?.ranks).toEqual({ vector: 2, text: 1 });
-    // as a share of the best possible score, first in both lists (2 / 61)
-    expect(fused[0]?.score).toBeCloseTo((1 / 62 + 1 / 61) / (2 / 61), 10);
-    expect(fuseRanks({ only: [{ kind: 'fn', key: 'top' }] }, 60)[0]?.score).toBe(1);
+    // as a share of the best possible rank, first in both lists (2 / 61)
+    expect(fused[0]?.rank).toBeCloseTo((1 / 62 + 1 / 61) / (2 / 61), 10);
+    expect(fuseRanks({ only: [{ kind: 'fn', key: 'top' }] }, 60)[0]?.rank).toBe(1);
     expect(fused.find((h) => h.key === 'd')?.ranks).toEqual({ text: 4 });
     expect(fuseRanks({ a: [] }, 60)).toEqual([]);
   });
@@ -275,15 +275,15 @@ describe('hybrid search', () => {
     expect(hits[0]).toMatchObject({ key: 'fs/grep', ranks: { vector: 1 } });
     expect(hits[0]?.ranks.text).toBeGreaterThan(0);
     expect(hits.map((h) => h.key).sort()).toEqual(['fs/glob', 'fs/grep', 'fs/read']);
-    // each scores its similarity of meaning; fs/read has no vector, so nothing vouches for it
-    expect(hits.find((h) => h.key === 'fs/grep')).toMatchObject({ score: 1, similarity: 1 });
+    // each has its similarity of meaning beside its rank; fs/read has no vector, so nothing vouches for its fit
+    expect(hits.find((h) => h.key === 'fs/grep')).toMatchObject({ similarity: 1 });
     expect(hits.find((h) => h.key === 'fs/glob')?.similarity).toBeCloseTo(0.994, 3);
-    expect(hits.find((h) => h.key === 'fs/read')).toMatchObject({ score: 0 });
+    expect(hits.find((h) => h.key === 'fs/read')?.rank).toBeGreaterThan(0);
     expect(hits.find((h) => h.key === 'fs/read')?.similarity).toBeUndefined();
     // words alone while no embedder is connected: the share of the best rank, with no similarity
     const words = await store.search.search({ text: 'read', kinds: ['fn'], limit: 3 });
     expect(words.map((h) => h.key)).toEqual(['fs/read']);
-    expect(words[0]?.score).toBe(1);
+    expect(words[0]?.rank).toBe(1);
     expect(words[0]?.similarity).toBeUndefined();
     expect(await store.search.search({ text: 'read', kinds: [], limit: 3 })).toEqual([]);
     expect(await store.search.search({ text: 'read', kinds: ['fn'], limit: 0 })).toEqual([]);
@@ -303,7 +303,7 @@ describe('hybrid search', () => {
     const hits = await search.search({ text: 'q', kinds: ['fn'], limit: 1, vector: { embedder: 'e/x', values: [1] } });
     expect(asked).toEqual([5, 5]);
     expect(hits).toHaveLength(1);
-    expect(hits[0]).toMatchObject({ key: 'v', score: 1, similarity: 1 });
+    expect(hits[0]).toMatchObject({ key: 'v', similarity: 1 });
   });
 
   // regression: the "You there?" chat (2026-11-17) offered the web fns at 0.94 to 1 for every message; the score was
@@ -325,18 +325,19 @@ describe('hybrid search', () => {
     // both lists rank the web first, and fusion still orders by them...
     expect(hits[0]?.key).toMatch(/^web\//);
     expect(hits[0]?.ranks).toMatchObject({ vector: 1, text: 1 });
-    // ...but no hit scores near 1: each is as close as its meaning is
-    expect(Math.max(...hits.map((h) => h.score))).toBeLessThan(0.35);
-    for (const hit of hits) expect(hit.score).toBe(hit.similarity);
+    // ...and the first ranks 1, as the first of any search does, but none is near 1 in meaning: the rank and the
+    // similarity are separate fields, and only the similarity says how close it is
+    expect(hits[0]?.rank).toBe(1);
+    expect(Math.max(...hits.map((h) => h.similarity ?? 1))).toBeLessThan(0.35);
     // a hit only the words found (past the vectors' depth) gets its similarity from the database too
     const shallow = new HybridSearch({ vectors: store.vectors, text: store.text }, { HARNESS_SEARCH_DEPTH: 1, HARNESS_SEARCH_RRF_K: 60 });
     const near = await shallow.search({ text: 'tables', kinds: ['fn', 'context'], limit: 2, vector: { embedder: TEST_EMBEDDER, values: [1, 0.3, 0.3] } });
     expect(near.map((h) => h.key)).toEqual(['web/guide', 'database/tables']);
     expect(near[1]?.ranks).toEqual({ text: 1 });
     expect(near[1]?.similarity).toBeCloseTo(0.3 / Math.hypot(1, 0.3, 0.3), 5);
-    expect(near[1]?.score).toBe(near[1]?.similarity);
+    expect(near[1]?.rank).toBeLessThan(1);
     // semantic alone scores the same way
     const semantic = await store.search.search({ text: 'x', kinds: ['fn'], limit: 1, vector: smallTalk, match: 'semantic' });
-    expect(semantic[0]?.score).toBeLessThan(0.35);
+    expect(semantic[0]?.similarity).toBeLessThan(0.35);
   });
 });

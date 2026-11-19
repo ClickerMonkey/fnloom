@@ -238,7 +238,8 @@ export class LinkHandshake {
     const session: LinkSession = { ...ref, boot: hello.boot };
     links.establish(conn, session);
     await instances.sync(ref, { version: hello.version, lastSeenAt: clock(), address: addressOf(conn) });
-    const system = await instances.syncSystem(ref.system);
+    // a system that says how many copies it runs (`system.json`) keeps it on its row, for the admin pages
+    const system = await instances.syncSystem(ref.system, hello.instances === undefined ? {} : { instances: hello.instances });
     const current = sendManifest ? await config.current(ref.system, ref.instance) : await config.applyPending(ref, system.actor);
     return {
       instance: ref.instance,

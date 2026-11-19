@@ -28,6 +28,8 @@ export function adminApi(hub: Hub) {
     goLive: hub.caller('goLive'),
     approveReview: hub.caller('approveReview'),
     rejectReview: hub.caller('rejectReview'),
+    /** Approve some pending changes and decline others; the rest keep waiting. */
+    decideReview: hub.caller('decideReview'),
     testCall: hub.caller('testCall'),
     refusals: hub.caller('refusals', { lastOnly: true }),
     removeSystem: hub.caller('removeSystem'),

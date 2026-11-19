@@ -46,7 +46,7 @@ The server implements each kind with three functions, and fns of the kind are **
   sentences; `[]` when it is fine.
 - `describe(payload, ctx)`: everything else about a fn with this payload, as a `KindDescription`: its `args` and
   `returns` (gin definitions, made with `wireType(type)`), the fns it calls (`deps`), the named types and resources it
-  refers to, its operations, and optionally handlers, progress, status words, limits and display. `ctx.type(name)` and
+  refers to, its operations, at least one `examples` entry (`sampleArgs(def)` fills one from the args type), and optionally handlers, progress, status words, limits and display. `ctx.type(name)` and
   `ctx.fn(name)` look up other declarations while describing.
 - `run(payload, args, ctx)`: run one fn of the kind. The args arrive as JSON the hub checked against `describe`'s args;
   read them with the same gin type (`parseValue`). The result is JSON (`encodeValue`). `ctx.call(name, args)` calls the
@@ -61,11 +61,13 @@ kinds: {
     // problems beyond the payload's type
     check: (payload) => Promise.resolve(payload.tags.filter((tag) => tag !== tag.toLowerCase()).map((tag) => `Tag "${tag}" must be lowercase.`)),
     // everything else about a stamp fn, worked out from its payload
-    describe: () => Promise.resolve({
+    describe: (payload) => Promise.resolve({
       args: wireType(StampArgs),
       returns: wireType(NoteEntry.shape),
       deps: [],
       operations: { cancel: true, pause: false, undo: false, background: true },
+      // every fn needs an example; a kind works its fns' examples out from the payload
+      examples: [{ args: { text: 'Shipped the release' }, note: `Saves a note titled "${payload.title}: Shipped the release".` }],
     }),
     async run(payload, args, ctx) {
       // a kind's args arrive as JSON the hub checked against `describe`; read them with the same gin type

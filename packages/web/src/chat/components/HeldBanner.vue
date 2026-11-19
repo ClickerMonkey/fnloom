@@ -1,13 +1,14 @@
 <script setup lang="ts">
 /**
  * On a turn that hit a system held for review (`heldSystems`): a warning banner, "database has changes waiting for
- * review", with the fns the turn was refused because of it. Someone who can review (an admin) gets a link to that
+ * review", with the fns the turn was refused because of it (`FnPill`s, opening the fn modal). Someone who can review (an admin) gets a link to that
  * system's pending review; anyone else sees the words alone.
  */
 import { RouterLink } from 'vue-router';
 import { links } from '../../app/routes.ts';
+import FnPill from '../../fns/components/FnPill.vue';
 import { UiBanner, UiIcon } from '../../ui/index.ts';
-import { heldDetail, heldLine, type HeldSystem } from '../logic/held.ts';
+import { heldLine, heldTail, listJoin, type HeldSystem } from '../logic/held.ts';
 
 defineProps<{ held: HeldSystem; canReview: boolean }>();
 </script>
@@ -15,7 +16,7 @@ defineProps<{ held: HeldSystem; canReview: boolean }>();
 <template>
   <UiBanner tone="warn" icon="shield" class="held" data-testid="held-banner" :data-system="held.system">
     <span class="line">{{ heldLine(held) }}</span>
-    <span v-if="held.fns.length > 0" class="detail"> · {{ heldDetail(held) }}</span>
+    <span v-if="held.fns.length > 0" class="detail" data-testid="held-fns"> · <template v-for="(fn, index) in held.fns" :key="fn">{{ listJoin(index, held.fns.length) }}<FnPill :name="fn" off /></template> {{ heldTail(held) }}</span>
     <template v-if="canReview" #actions>
       <RouterLink class="review" :to="links.review(held.system, 'pending')" data-testid="held-review">
         Review changes<UiIcon name="chevron-right" :size="14" />

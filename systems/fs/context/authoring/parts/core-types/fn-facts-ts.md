@@ -106,6 +106,7 @@ type FnSearchPage = {
     effects?: string | undefined;
     instance?: InstanceName | undefined;
     score?: number | undefined;
+    similarity?: number | undefined;
     blocked?: {
       code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
       reason: string;

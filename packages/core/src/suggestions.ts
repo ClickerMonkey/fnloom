@@ -62,7 +62,13 @@ export const SuggestDecision = z.object({
   messages: z.number().int().min(1).max(20).default(3),
   candidates: z.number().int().min(1).max(50).default(20),
   cap: z.number().int().min(0).max(20).default(6),
-  floor: z.number().min(0).max(1).default(0.2),
+  /**
+   * The least similarity of meaning (cosine, 0 to 1, the same scale as the hub's suggestion threshold, 0.45) a
+   * candidate needs to reach the model. Below the threshold, so the model can take a near miss the score alone would
+   * drop (0.35 to 0.45), and above most unrelated text (0.2 to 0.4 with EmbeddingGemma), which the old 0.2, set on the
+   * fused-rank scale where every hit scored near 1, let through whole. A test keeps it under the threshold.
+   */
+  floor: z.number().min(0).max(1).default(0.35),
 }).refine((value) => !value.enabled || value.model !== undefined, { message: 'Pick a model to turn the decision model on.', path: ['model'] });
 export type SuggestDecision = z.infer<typeof SuggestDecision>;
 

@@ -491,8 +491,27 @@ export const KindDescription = z.object({
   effects: FnEffects.optional(),
   /** The payload as a person reads it (a query's SQL), shown on the fn's page over the stored JSON. */
   readable: ReadablePayload.optional(),
+  /**
+   * At least one example call, worked out from the payload (a query from its params, a form from a filled sample, an
+   * API or MCP tool from its schema), so every fn of a kind has one. The author's own examples, when the fn declares
+   * any, win over these.
+   */
+  examples: z.array(FnExample).min(1),
 });
 export type KindDescription = z.infer<typeof KindDescription>;
+
+/**
+ * Whether a fn's examples must come from its author: a native fn, or a fn of one of the hub's kinds (an agent,
+ * `hub/llm`), which no system describes. A fn of any other kind gets its kind's (`KindDescription.examples`).
+ */
+export function authorWritesExamples(kind: string): boolean {
+  return kind === 'native' || kind.startsWith('hub/');
+}
+
+/** Whether a fn as declared (before its kind describes it) has no example its author owes (`authorWritesExamples`). */
+export function owesExamples(decl: Pick<FnDecl, 'kind' | 'examples'>): boolean {
+  return authorWritesExamples(decl.kind) && (decl.examples ?? []).length === 0;
+}
 
 // ─── Hooks, mentions and events ───────────────────────────────────────────────
 

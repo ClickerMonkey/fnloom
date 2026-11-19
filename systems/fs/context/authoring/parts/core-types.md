@@ -32,6 +32,8 @@ choices:
     when: "Pick this for From packages/core/src/data.ts."
   - to: "fs/authoring.core-types.decisions-ts"
     when: "Pick this for From packages/core/src/decisions.ts."
+  - to: "fs/authoring.core-types.fn-block-ts"
+    when: "Pick this for From packages/core/src/fn-block.ts."
   - to: "fs/authoring.core-types.fn-facts-ts"
     when: "Pick this for From packages/core/src/fn-facts.ts."
   - to: "fs/authoring.core-types.gin-ts"
@@ -45,7 +47,9 @@ choices:
   - to: "fs/authoring.core-types.llm-ts"
     when: "Pick this for From packages/core/src/llm.ts."
   - to: "fs/authoring.core-types.contextdecl"
-    when: "Pick this for ContextDecl, FnEffects, FnExample, FnLive, FnMode, FnRouting, HookBlock, HookInput, ImportReport, KindDescription, KindFnShape, Manifest."
+    when: "Pick this for ContextDecl, FnDecl, FnEffects, FnExample, FnLive, FnMode, FnRouting, HookBlock, HookInput, ImportReport, KindDescription, KindFnShape."
+  - to: "fs/authoring.core-types.manifest"
+    when: "Pick this for Manifest."
   - to: "fs/authoring.core-types.manifestpatch"
     when: "Pick this for ManifestPatch, ManifestSection, MentionHover, SectionDecl, SettingEditor, SettingMerge, TypeDecl, TypeDisplay."
   - to: "fs/authoring.core-types.mention-search-ts"
@@ -97,7 +101,7 @@ choices:
 The wire shapes from `@harness/core` that the SDK's declarations refer to, each resolved to plain TypeScript. Each is a
 zod schema in core with its type inferred from it; import the type (and the schema, to parse) from `@harness/core`.
 
-This part is in 41 pieces; load the one you need:
+This part is in 43 pieces; load the one you need:
 
 - [From packages/core/src/access.ts](context:fs/authoring.core-types.access-ts)
 - [From packages/core/src/admin.ts](context:fs/authoring.core-types.admin-ts)
@@ -111,13 +115,15 @@ This part is in 41 pieces; load the one you need:
 - [From packages/core/src/context-graph.ts](context:fs/authoring.core-types.context-graph-ts)
 - [From packages/core/src/data.ts](context:fs/authoring.core-types.data-ts)
 - [From packages/core/src/decisions.ts](context:fs/authoring.core-types.decisions-ts)
+- [From packages/core/src/fn-block.ts](context:fs/authoring.core-types.fn-block-ts)
 - [From packages/core/src/fn-facts.ts](context:fs/authoring.core-types.fn-facts-ts)
 - [From packages/core/src/gin.ts](context:fs/authoring.core-types.gin-ts)
 - [From packages/core/src/grants.ts](context:fs/authoring.core-types.grants-ts)
 - [From packages/core/src/lifecycle.ts](context:fs/authoring.core-types.lifecycle-ts)
 - [From packages/core/src/link.ts](context:fs/authoring.core-types.link-ts)
 - [From packages/core/src/llm.ts](context:fs/authoring.core-types.llm-ts)
-- [ContextDecl … Manifest](context:fs/authoring.core-types.contextdecl)
+- [ContextDecl … KindFnShape](context:fs/authoring.core-types.contextdecl)
+- [Manifest](context:fs/authoring.core-types.manifest)
 - [ManifestPatch … TypeDisplay](context:fs/authoring.core-types.manifestpatch)
 - [From packages/core/src/mention-search.ts](context:fs/authoring.core-types.mention-search-ts)
 - [From packages/core/src/model-calls.ts](context:fs/authoring.core-types.model-calls-ts)

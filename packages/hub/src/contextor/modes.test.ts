@@ -87,6 +87,8 @@ describe('fleet choices in the chat modes', () => {
     // by its tool name, and by the qualified name weak models send
     expect(await said('database__create_table')).toMatchObject({ type: 'invalid', fn: 'database/create_table', reply });
     expect(await said('database/create_table')).toMatchObject({ type: 'invalid', fn: 'database/create_table', reply });
+    // the refusal keeps the hub's block, so the run it is kept as tells the chat what holds it
+    expect(await said('database__create_table')).toMatchObject({ invalid: { blocked: { code: 'held', reason: held.detail, system: 'database' } } });
     // a usable fn that just isn't loaded, and a name that is no fn, stay "no tool"
     expect(await said('fs__write')).toMatchObject({ type: 'invalid', reply: 'There is no tool named fs__write.' });
     expect(await said('nonsense')).toMatchObject({ type: 'invalid', reply: 'There is no tool named nonsense.' });

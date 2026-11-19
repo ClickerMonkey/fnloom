@@ -276,10 +276,15 @@ export function createClaudeImpl(deps: ClaudeDeps): { readonly impl: SystemImpl<
     kinds: {
       agent: {
         check: (payload) => Promise.resolve(AgentPayload.safeParse(payload).success ? [] : ['not an agent payload']),
-        describe: () => Promise.resolve(KindDescription.parse({
-          args: wireType(ginAs(AgentArgs)), returns: wireType(ginAs(ClaudeTurn)), deps: [],
-          operations: { cancel: true, pause: false, undo: false, background: true }, progress: { type: 'linear' }, display: 'card', effects: { mode: 'write' },
-        })),
+        describe: (payload) => {
+          const agent = AgentPayload.parse(payload);
+          return Promise.resolve(KindDescription.parse({
+            args: wireType(ginAs(AgentArgs)), returns: wireType(ginAs(ClaudeTurn)), deps: [],
+            operations: { cancel: true, pause: false, undo: false, background: true }, progress: { type: 'linear' }, display: 'card', effects: { mode: 'write' },
+            // a task in the agent's own words, in its own folder
+            examples: [{ args: { prompt: agent.description === '' ? `Do what the ${agent.agent} agent is for.` : agent.description }, note: `A task for Claude's ${agent.agent} agent, in ${agent.folder}.` }],
+          }));
+        },
         async run(payload, args, ctx) {
           const agent = AgentPayload.parse(payload);
           const given = AgentArgs.safeParse(args);

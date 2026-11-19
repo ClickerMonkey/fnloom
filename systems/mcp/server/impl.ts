@@ -12,7 +12,7 @@ import { ToolOutputType, type McpContract } from '../shared/index.ts';
 import type { DialerFactory } from './dial.ts';
 import type { McpSettings } from './env.ts';
 import { answerText, downFailure, McpInstance, readConfig } from './instance.ts';
-import { toolFacts, toolResult } from './mirror.ts';
+import { toolExamples, toolFacts, toolResult } from './mirror.ts';
 
 /** Everything the implementation is built from. */
 export interface McpDeps {
@@ -77,6 +77,7 @@ export function createMcpImpl(deps: McpDeps): McpServer {
             deps: [],
             operations: { cancel: true, pause: false, undo: false, background: true },
             limits: { timeout: configNow().timeout },
+            examples: toolExamples(spec),
             ...toolFacts(spec, configNow()),
           });
         },

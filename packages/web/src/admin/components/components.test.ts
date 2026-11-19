@@ -4,15 +4,21 @@ import { flushPromises, mount, RouterLinkStub } from '@vue/test-utils';
 import { afterEach, describe, expect, it } from 'vitest';
 import { nextTick, ref } from 'vue';
 import UiSelect from '../../ui/UiSelect.vue';
-import { budget, category, fnRecord, installed, logLine, model, pairing, settingValue, settingView, systemView, T0 } from '../test/fakes.ts';
+import { budget, category, fnRecord, installed, logLine, model, pairing, settingValue, settingView, systemCounts, systemView, T0 } from '../test/fakes.ts';
 import { adminNavGroups } from '../logic/nav.ts';
 import AdminNav from './AdminNav.vue';
+import AllSwitch from './AllSwitch.vue';
 import BrowserRow from './BrowserRow.vue';
 import BudgetDialog from './BudgetDialog.vue';
 import CategoryDialog from './CategoryDialog.vue';
 import ConfirmDialog from './ConfirmDialog.vue';
 import FnList from './FnList.vue';
+import ReviewFnList from './ReviewFnList.vue';
+import { fnReviews } from '../logic/review.ts';
+import { review } from '../test/review.ts';
 import InstallDialog from './InstallDialog.vue';
+import InstanceData from './InstanceData.vue';
+import InstanceFacts from './InstanceFacts.vue';
 import LoadState from './LoadState.vue';
 import LogView from './LogView.vue';
 import ModelTable from './ModelTable.vue';
@@ -31,6 +37,7 @@ import SystemOverview from './SystemOverview.vue';
 import SystemPartList from './SystemPartList.vue';
 import { partGroups } from '../logic/systems.ts';
 import TokenDialog from './TokenDialog.vue';
+import { FN_MODAL } from '../../fns/state/fn-modal.ts';
 
 afterEach(() => { document.body.innerHTML = ''; });
 
@@ -101,6 +108,55 @@ describe('lists and cards', () => {
     expect(installedOnly.getComponent<typeof RouterLinkStub>('[data-testid=system-card-installed]').props('to')).toBe('/x/review');
   });
 
+  it('SystemCard shows its counts as chips, each opening its tab, zero counts and a single instance left out, waits and refusals as warnings', () => {
+    const props = (counts: Parameters<typeof systemCounts>[0]) => ({ system: systemView({ counts: systemCounts(counts) }), now: T0, to: '/x', review: '/x/review' });
+    const card = mount(SystemCard, { props: props({ fns: 12, context: 1, types: 0, instances: 1, pending: 2, refusals: 3 }), global: { stubs } });
+    const chips = card.findAllComponents(RouterLinkStub).filter((link) => link.attributes('data-testid')?.startsWith('system-count-') === true);
+    expect(chips.map((chip) => chip.text())).toEqual(['12 fns', '1 context', '2 changes wait', '3 refusals']);
+    expect(chips.map((chip) => chip.props('to'))).toEqual([
+      { name: 'system', params: { name: 'fs', tab: 'fns' } }, { name: 'system', params: { name: 'fs', tab: 'context' } },
+      { name: 'review', params: { name: 'fs', tab: 'pending' } }, { name: 'system', params: { name: 'fs', tab: 'refusals' } },
+    ]);
+    expect(card.findAll('.count.warn').map((chip) => chip.text())).toEqual(['2 changes wait', '3 refusals']);
+    const fleet = mount(SystemCard, { props: props({ fns: 1, instances: 2 }), global: { stubs } });
+    expect(fleet.find('[data-testid=system-counts]').text()).toBe('1 fn2 instances');
+    const empty = mount(SystemCard, { props: props({}), global: { stubs } });
+    expect(empty.find('[data-testid=system-counts]').exists()).toBe(false);
+  });
+
+  it('AllSwitch says what on and off mean and asks for the other', async () => {
+    const all = mount(AllSwitch, { props: { on: true, label: 'Use its fns', onText: 'They can be used.', offText: 'All are off.', testid: 'all' } });
+    expect(all.text()).toContain('They can be used.');
+    await all.get('[data-testid=all] button').trigger('click');
+    expect(all.emitted('switch')).toEqual([[false]]);
+    await all.setProps({ on: false });
+    expect(all.text()).toContain('All are off.');
+    expect(all.classes()).toContain('off');
+  });
+
+  it('InstanceFacts lists an instance’s facts, without the address of a hosted one', () => {
+    const source = { version: '1.0.0', keyFingerprint: 'SHA256:ab', manifestHash: 'h1', status: 'connected' as const, address: '10.0.0.2', pairedAt: T0 - 60_000, pairedBy: ActorId.parse('act_ada'), lastSeenAt: T0 };
+    const facts = mount(InstanceFacts, { props: { source, now: T0, nameOf: () => 'Ada' } });
+    expect(facts.findAll('dt').map((dt) => dt.text())).toEqual(['Version', 'Address', 'Key', 'Paired', 'Last seen', 'Manifest']);
+    expect(facts.text()).toContain('by Ada');
+    expect(facts.text()).toContain('Online now');
+    const hosted = mount(InstanceFacts, { props: { source, now: T0, nameOf: () => 'Ada', hosted: true } });
+    expect(hosted.findAll('dt').map((dt) => dt.text())).not.toContain('Address');
+  });
+
+  it('InstanceData shows its folders or says it keeps its own, and exports with or without secrets', async () => {
+    const data = mount(InstanceData, { props: { dirs: { data: '/d', state: '/s', cache: '/c' }, busy: false, exported: undefined } });
+    expect(data.text()).toContain('/d');
+    await data.get('[data-testid=export-data]').trigger('click');
+    await data.get('[data-testid=export-secrets] button').trigger('click');
+    expect(data.text()).toContain('plain text');
+    await data.get('[data-testid=export-data]').trigger('click');
+    expect(data.emitted('export')).toEqual([[false], [true]]);
+    await data.setProps({ dirs: undefined, exported: { url: '/zip', size: 2048 } });
+    expect(data.text()).toContain('keeps its own folders');
+    expect(data.get('[data-testid=export-download]').attributes('href')).toBe('/zip');
+  });
+
   it('PairingCard shows the code to compare and answers', async () => {
     const card = mount(PairingCard, { props: { pairing: pairing({ replaces: 'notes' }), now: T0 } });
     expect(card.get('[data-testid=pairing-code]').text()).toBe('483 912');
@@ -116,7 +172,9 @@ describe('lists and cards', () => {
   });
 
   it('FnList says why a fn is off, opens a fn in the fn modal and links to its runs', async () => {
-    const list = mount(FnList, { props: { fns: [fnRecord(), fnRecord({ name: 'fs/write_file', available: { unavailable: 'disabled', detail: '' }, paused: true })], now: T0, runsOf: (fn: string) => `/runs?fn=${fn}` }, global: { stubs: { ...stubs, FnModal: true } } });
+    const opened: string[] = [];
+    const modal = { open: (name: string) => { opened.push(name); }, within: () => undefined };
+    const list = mount(FnList, { props: { fns: [fnRecord(), fnRecord({ name: 'fs/write_file', available: { unavailable: 'disabled', detail: '' }, paused: true })], now: T0, runsOf: (fn: string) => `/runs?fn=${fn}` }, global: { stubs, provide: { [FN_MODAL]: modal } } });
     expect(list.text()).toContain('Read file');
     expect(list.text()).toContain('Turned off');
     expect(list.text()).toContain('Paused');
@@ -124,9 +182,22 @@ describe('lists and cards', () => {
     expect(list.text()).toContain('2% failed');
     // its numbers link to its runs; its name opens it in the fn modal, with its switch and numbers, over the list
     expect(list.findAllComponents(RouterLinkStub)[1]?.props('to')).toBe('/runs?fn=fs/write_file');
-    expect(list.find('fn-modal-stub').exists()).toBe(false);
     await list.findAll('[data-testid=fn-page]')[1]?.trigger('click');
-    expect(list.get('fn-modal-stub').attributes()).toMatchObject({ fn: 'fs/write_file', manage: 'true', canopenpage: 'true' });
+    expect(opened).toEqual(['fs/write_file']);
+  });
+
+  it('FnList flags a fn with no examples, and only that one', () => {
+    const shown = fnRecord().decl;
+    const list = mount(FnList, { props: { fns: [fnRecord({ decl: { ...shown, examples: [{ args: { path: 'a.md' } }] } }), fnRecord({ name: 'fs/write_file' })], now: T0, runsOf: (fn: string) => `/runs?fn=${fn}` }, global: { stubs } });
+    const flags = list.findAll('[data-testid=fn-no-examples]');
+    expect(flags).toHaveLength(1);
+    expect(list.findAll('.fn')[1]?.find('[data-testid=fn-no-examples]').text()).toBe('No examples');
+  });
+
+  it('ReviewFnList flags a native fn its author gave no example, and not one with', () => {
+    const list = mount(ReviewFnList, { props: { fns: fnReviews(review()) }, global: { stubs } });
+    expect(list.find('[data-fn="notes/save"] [data-testid="review-fn-no-examples"]').exists()).toBe(true);
+    expect(list.find('[data-fn="notes/find"] [data-testid="review-fn-no-examples"]').exists()).toBe(false);
   });
 
   it('FnList switches each fn by itself on a system’s page', async () => {

@@ -22,7 +22,7 @@ A contract's manifest, hashed and checked against core's `Manifest` schema.
 function manifestOf(contract: AnyContract, options: ManifestOptions): Promise<Manifest>;
 ```
 
-Refers to: [`Manifest`](context:fs/authoring.core-types.contextdecl#core-manifest).
+Refers to: [`Manifest`](context:fs/authoring.core-types.manifest#core-manifest).
 
 #### `manifestBody`
 
@@ -34,7 +34,7 @@ The body of a manifest: everything but its hash.
 function manifestBody(contract: AnyContract, options: ManifestOptions): Omit<Manifest, "hash">;
 ```
 
-Refers to: [`Manifest`](context:fs/authoring.core-types.contextdecl#core-manifest).
+Refers to: [`Manifest`](context:fs/authoring.core-types.manifest#core-manifest).
 
 #### `fnDecl`
 
@@ -45,6 +45,8 @@ A fn declaration on the wire. `name` is local (`read`, `Entry.reveal`).
 ```ts
 function fnDecl(name: string, def: AnyFnDef): FnDecl;
 ```
+
+Refers to: [`FnDecl`](context:fs/authoring.core-types.contextdecl#core-fndecl).
 
 #### `validationOf`
 
@@ -91,7 +93,7 @@ its context, which may come from its context folder (all inside the approved bun
 function contractHash(manifest: Manifest): Promise<string>;
 ```
 
-Refers to: [`Manifest`](context:fs/authoring.core-types.contextdecl#core-manifest).
+Refers to: [`Manifest`](context:fs/authoring.core-types.manifest#core-manifest).
 
 #### `sha256`
 

@@ -44,7 +44,9 @@ describe('the fn modal on a system page', () => {
     expect(dialog()).toBeNull();
     find('[data-testid="fn-page"]').click();
     await flushPromises();
-    expect(router.currentRoute.value.fullPath).toBe('/admin/systems/fs/fns');
+    // the page stays; the fn is in its URL (`?fn=`), so the open modal is a link to share
+    expect(router.currentRoute.value.path).toBe('/admin/systems/fs/fns');
+    expect(router.currentRoute.value.query['fn']).toBe('fs/read_file');
     const open = dialog();
     expect(open).not.toBeNull();
     if (open === null) { return; }

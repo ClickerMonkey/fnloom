@@ -1,15 +1,17 @@
 /**
  * How a system's review reads (build 7): its stage, the items an admin switched off, each fn joined with the facts the
- * hub worked out, its grants as plain rows, its pending changes as line diffs, its refusals in words, and its checks'
- * counts. Pure, so it is tested alone.
+ * hub worked out, its grants as plain rows, its refusals in words, its checks' counts, and its pending changes: grouped
+ * by section, each drawn with its tab's view (a fn's facts before and after, a type, a context item's prose as a word
+ * diff, the grants as a delta), with a line diff of the raw declaration behind a toggle. Pure, so it is tested alone.
  */
 import {
-  effectsLine, qualify, type ClientAssets, type ContractChange, type FnDecl, type FnFacts, type HubCapability, type InstallChecks, type ItemRef, type ItemSection,
-  type Json, type QualifiedName, type RefusalRecord, type RefusalRule, type SystemGrants, type SystemName, type SystemReview, type SystemStage,
+  effectsLine, GinTypeDef, ITEM_SECTIONS, qualify, SystemGrants, type ChangeRef, type ClientAssets, type ContractChange, type DeclaredFnFacts, type FnChangeFacts, type FnDecl, type FnFacts,
+  type FnMode, type GrantsMove, type HubCapability, type InstallChecks, type ItemRef, type ItemSection, type Json, type PreviewPart, type QualifiedName, type RefusalRecord,
+  type RefusalRule, type ReviewFlagKind, type SystemName, type SystemReview, type SystemStage,
 } from '@harness/core';
 import { formatDuration } from '../../chat/logic/format.ts';
-import type { Tone } from '../../ui/index.ts';
-import type { StatusLook } from './systems.ts';
+import type { IconName, Tone } from '../../ui/index.ts';
+import { PART_SECTION_WORDS, type StatusLook } from './systems.ts';
 
 /** Every stage's look. */
 export const STAGE_LOOK = {
@@ -155,26 +157,31 @@ export const CHANGE_LOOK = {
   removed: { tone: 'danger', word: 'Removed' },
 } as const satisfies Record<ContractChange['change'], { tone: Tone; word: string }>;
 
+/** Which side of a diff a piece is on: kept, added or removed. */
+export type DiffKind = 'same' | 'add' | 'remove';
+
+/** One piece of a diff: a line, a word or a block. */
+export interface DiffPiece<T> {
+  readonly kind: DiffKind;
+  readonly value: T;
+}
+
 /** One line of a diff: kept, added or removed. */
 export interface DiffLine {
-  readonly kind: 'same' | 'add' | 'remove';
+  readonly kind: DiffKind;
   readonly text: string;
 }
 
-/** The most lines a diff compares line by line; longer sides are shown removed then added. */
+/** The most pieces a diff compares one by one; longer sides are shown removed then added. */
 export const DIFF_LINES = 400;
 
-/** A JSON value as the lines a diff compares. */
-function linesOf(value: Json | undefined): string[] {
-  return value === undefined ? [] : JSON.stringify(value, null, 2).split('\n');
-}
-
-/** The line diff of a change's before and after (a longest common subsequence of their pretty JSON lines). */
-export function lineDiff(before: Json | undefined, after: Json | undefined): readonly DiffLine[] {
-  const a = linesOf(before);
-  const b = linesOf(after);
-  if (a.length > DIFF_LINES || b.length > DIFF_LINES) {
-    return [...a.map((text): DiffLine => ({ kind: 'remove', text })), ...b.map((text): DiffLine => ({ kind: 'add', text }))];
+/**
+ * The diff of two sequences: a longest common subsequence of `a` and `b`, the rest marked removed or added (removals
+ * first where both happen at one place). Sides longer than `limit` are shown all removed, then all added.
+ */
+export function sequenceDiff<T>(a: readonly T[], b: readonly T[], limit = DIFF_LINES): DiffPiece<T>[] {
+  if (a.length > limit || b.length > limit) {
+    return [...a.map((value): DiffPiece<T> => ({ kind: 'remove', value })), ...b.map((value): DiffPiece<T> => ({ kind: 'add', value }))];
   }
   // the longest common run of a[i..] and b[j..], row by row in one flat table
   const width = b.length + 1;
@@ -185,15 +192,93 @@ export function lineDiff(before: Json | undefined, after: Json | undefined): rea
       lengths[i * width + j] = a[i] === b[j] ? run(i + 1, j + 1) + 1 : Math.max(run(i + 1, j), run(i, j + 1));
     }
   }
-  const out: DiffLine[] = [];
+  const out: DiffPiece<T>[] = [];
   let i = 0;
   let j = 0;
   while (i < a.length || j < b.length) {
     const left = a[i];
     const right = b[j];
-    if (left !== undefined && left === right) { out.push({ kind: 'same', text: left }); i++; j++; }
-    else if (left !== undefined && (right === undefined || run(i + 1, j) >= run(i, j + 1))) { out.push({ kind: 'remove', text: left }); i++; }
-    else if (right !== undefined) { out.push({ kind: 'add', text: right }); j++; }
+    if (left !== undefined && right !== undefined && left === right) { out.push({ kind: 'same', value: left }); i++; j++; }
+    else if (left !== undefined && (right === undefined || run(i + 1, j) >= run(i, j + 1))) { out.push({ kind: 'remove', value: left }); i++; }
+    else if (right !== undefined) { out.push({ kind: 'add', value: right }); j++; }
+  }
+  return out;
+}
+
+/** A JSON value as the lines a diff compares. */
+function linesOf(value: Json | undefined): string[] {
+  return value === undefined ? [] : JSON.stringify(value, null, 2).split('\n');
+}
+
+/** The line diff of a change's before and after (their pretty JSON lines). */
+export function lineDiff(before: Json | undefined, after: Json | undefined): readonly DiffLine[] {
+  return sequenceDiff(linesOf(before), linesOf(after)).map((piece) => ({ kind: piece.kind, text: piece.value }));
+}
+
+/** The most words a prose diff compares one by one. */
+export const DIFF_WORDS = 1_500;
+
+/** The word diff of two texts: words and the spaces between them, runs of one kind joined. */
+export function wordDiff(before: string, after: string): readonly DiffLine[] {
+  const words = (text: string): string[] => text.split(/(\s+)/).filter((word) => word !== '');
+  const out: DiffLine[] = [];
+  for (const piece of sequenceDiff(words(before), words(after), DIFF_WORDS)) {
+    const last = out.at(-1);
+    // a space between two changed words stays with them, so a replaced phrase reads as one
+    if (last !== undefined && last.kind === piece.kind) { out[out.length - 1] = { kind: last.kind, text: last.text + piece.value }; }
+    else { out.push({ kind: piece.kind, text: piece.value }); }
+  }
+  return out;
+}
+
+/** A markdown text's blocks: runs of lines split at blank lines, a fenced code block kept whole. */
+export function markdownBlocks(text: string): string[] {
+  const blocks: string[] = [];
+  let block: string[] = [];
+  let fenced = false;
+  const close = (): void => { if (block.length > 0) { blocks.push(block.join('\n')); block = []; } };
+  for (const line of text.split(/\r?\n/)) {
+    if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; }
+    if (!fenced && line.trim() === '') { close(); continue; }
+    block.push(line);
+  }
+  close();
+  return blocks;
+}
+
+/** One block of a markdown diff: kept, added, removed, or changed (with its word diff). */
+export interface BlockDiff {
+  readonly kind: DiffKind | 'change';
+  /** The block's markdown (the new one, for a changed block). */
+  readonly text: string;
+  /** A changed block's words. */
+  readonly words?: readonly DiffLine[];
+}
+
+/** The diff of two markdown texts block by block; a block removed right where one is added is one changed block. */
+export function blockDiff(before: string, after: string): readonly BlockDiff[] {
+  const pieces = sequenceDiff(markdownBlocks(before), markdownBlocks(after));
+  const out: BlockDiff[] = [];
+  for (let at = 0; at < pieces.length; at++) {
+    const piece = pieces[at];
+    if (piece === undefined) { continue; }
+    // removed blocks followed by as many added ones pair up as changes
+    if (piece.kind === 'remove') {
+      let removed = at;
+      while (pieces[removed]?.kind === 'remove') { removed++; }
+      let added = removed;
+      while (pieces[added]?.kind === 'add') { added++; }
+      const pairs = Math.min(removed - at, added - removed);
+      for (let k = 0; k < removed - at; k++) {
+        const old = pieces[at + k]?.value ?? '';
+        const next = k < pairs ? pieces[removed + k]?.value : undefined;
+        out.push(next === undefined ? { kind: 'remove', text: old } : { kind: 'change', text: next, words: wordDiff(old, next) });
+      }
+      for (let k = pairs; k < added - removed; k++) { out.push({ kind: 'add', text: pieces[removed + k]?.value ?? '' }); }
+      at = added - 1;
+      continue;
+    }
+    out.push({ kind: piece.kind, text: piece.value });
   }
   return out;
 }
@@ -245,3 +330,168 @@ export function refusalLine(refusal: Pick<RefusalRecord, 'attempt' | 'detail'>):
   const why = refusal.detail.trim().replace(/\.$/, '');
   return `Tried ${refusal.attempt}: ${why}.`;
 }
+
+// ─── The Pending tab ────────────────────────────────────────────────────────────
+
+/** How a pending change is drawn: with its tab's own view, or only as a raw diff. */
+export type ChangeView = 'fn' | 'type' | 'config-type' | 'context' | 'grants' | 'raw';
+
+/** The sections drawn with their tab's own view; every other section shows a raw diff. */
+const SECTION_VIEWS: Partial<Record<ContractChange['section'], ChangeView>> = { fns: 'fn', types: 'type', context: 'context', grants: 'grants' };
+
+/** Which view draws a change: fns as a facts card, types and the config type as types, context as prose, grants as a delta. */
+export function changeView(change: Pick<ContractChange, 'section' | 'name'>): ChangeView {
+  // the config type is listed by the system's name; its other items (`notes connect`) have a word after it
+  if (change.section === 'config') { return change.name.includes(' ') ? 'raw' : 'config-type'; }
+  return SECTION_VIEWS[change.section] ?? 'raw';
+}
+
+/** A change's key within its review. */
+export const changeKey = (change: Pick<ContractChange, 'section' | 'name'>): string => `${change.section}:${change.name}`;
+/** The reference a decision names a change by. */
+export const changeRef = (change: Pick<ContractChange, 'section' | 'name'>): ChangeRef => ({ section: change.section, name: change.name });
+
+/** Each section's heading on the Pending tab. */
+export const CHANGE_SECTION_WORDS = {
+  fns: 'Fns', context: 'Context', types: 'Types', roots: 'Resource roots', grants: 'Grants', config: 'Config', ...PART_SECTION_WORDS,
+} as const satisfies Record<ContractChange['section'], string>;
+
+/** A section's heading, or the section's own name for one the page has no words for. */
+export function sectionWords(section: string): string {
+  const words: Readonly<Record<string, string>> = CHANGE_SECTION_WORDS;
+  return words[section] ?? section;
+}
+
+/** A group of pending changes: one section of the contract's, or everything added while running. */
+export interface ChangeGroup {
+  readonly key: string;
+  readonly label: string;
+  readonly changes: readonly ContractChange[];
+  /** Added while running: there can be many, so the tab shows them a page at a time. */
+  readonly runtime: boolean;
+}
+
+/** The order sections are listed in: what the system may do first, then what it offers. */
+const GROUP_ORDER: readonly ContractChange['section'][] = ['grants', 'config', ...ITEM_SECTIONS];
+
+/** Pending changes grouped by section in the order above, then the ones added while running together. */
+export function changeGroups(changes: readonly ContractChange[]): readonly ChangeGroup[] {
+  const contract = changes.filter((change) => change.origin === 'contract');
+  const runtime = changes.filter((change) => change.origin === 'runtime');
+  const groups: ChangeGroup[] = GROUP_ORDER.flatMap((section) => {
+    const of = contract.filter((change) => change.section === section);
+    return of.length === 0 ? [] : [{ key: section, label: CHANGE_SECTION_WORDS[section], changes: of, runtime: false }];
+  });
+  if (runtime.length > 0) { groups.push({ key: 'runtime', label: 'Added while running', changes: runtime, runtime: true }); }
+  return groups;
+}
+
+/** How many runtime changes the tab shows at first, and how many more each "Show more" adds. */
+export const RUNTIME_PAGE = 20;
+
+/** One fact of a fn before and after a change. */
+export interface FactRow {
+  readonly key: 'mode' | 'effects' | 'reads' | 'writes' | 'deps' | 'cost';
+  readonly label: string;
+  readonly before: string | undefined;
+  readonly after: string | undefined;
+  readonly changed: boolean;
+}
+
+/** Each fn mode in words. */
+export const MODE_WORDS = { read: 'Reads only', write: 'Writes', delete: 'Deletes' } as const satisfies Record<FnMode, string>;
+
+/** Each fact's label, in the order the card lists them. */
+/** The fact rows, in order. */
+const FACT_KEYS: readonly FactRow['key'][] = ['mode', 'effects', 'reads', 'writes', 'deps', 'cost'];
+const FACT_LABELS = { mode: 'Mode', effects: 'Changes in the hub', reads: 'Types read', writes: 'Types written', deps: 'Uses', cost: 'Cost' } as const satisfies Record<FactRow['key'], string>;
+
+/** A changed fn's facts as rows, before and after; a side the fn doesn't exist on is absent. */
+export function factRows(facts: FnChangeFacts, money: (usd: number) => string): readonly FactRow[] {
+  const list = (names: readonly string[] | undefined): string | undefined => (names === undefined ? undefined : names.length === 0 ? 'None' : names.join(', '));
+  const cost = (side: DeclaredFnFacts | undefined): string | undefined => (side === undefined ? undefined : side.free === true ? 'Free' : side.cost === undefined ? 'Not estimated' : `About ${money(side.cost)} a run`);
+  const of = (side: DeclaredFnFacts | undefined): Record<FactRow['key'], string | undefined> => ({
+    mode: side === undefined ? undefined : MODE_WORDS[side.mode],
+    effects: side === undefined ? undefined : side.effects ?? 'None',
+    reads: list(side?.reads), writes: list(side?.writes), deps: list(side?.deps), cost: cost(side),
+  });
+  const before = of(facts.before);
+  const after = of(facts.after);
+  return FACT_KEYS.map((key) => ({
+    key, label: FACT_LABELS[key], before: before[key], after: after[key], changed: facts.before !== undefined && facts.after !== undefined && before[key] !== after[key],
+  }));
+}
+
+/** A field of a declaration, when it is a string (`description`, a context item's `content`). */
+export function textOf(value: Json | undefined, field: 'description' | 'content'): string | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) { return undefined; }
+  const text = value[field];
+  return typeof text === 'string' ? text : undefined;
+}
+
+/** A type change as the type-diff part its view draws: a named type's `def`, or the config type itself. */
+export function typeDiffPart(change: ContractChange): Extract<PreviewPart, { type: 'type-diff' }> {
+  const defOf = (value: Json | undefined): GinTypeDef | undefined => {
+    const def = change.section === 'types' && typeof value === 'object' && value !== null && !Array.isArray(value) ? value['def'] : value;
+    const parsed = GinTypeDef.safeParse(def);
+    return parsed.success ? parsed.data : undefined;
+  };
+  const before = defOf(change.before);
+  const after = defOf(change.after);
+  return { type: 'type-diff', name: change.section === 'config' ? `${change.name} config` : change.name, ...(before === undefined ? {} : { before }), ...(after === undefined ? {} : { after }), changes: [], breaks: [] };
+}
+
+/** Grants as the delta view reads them, from a change's side. */
+export function grantsOf(value: Json | undefined): SystemGrants | undefined {
+  const parsed = SystemGrants.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+/** One value of a grant row in a delta: kept, newly granted, or no longer granted. */
+export interface GrantValue {
+  readonly value: string;
+  readonly kind: DiffKind;
+}
+
+/** A grant row with each value marked against the grants before. */
+export interface GrantDeltaRow extends Omit<GrantRow, 'values'> {
+  readonly values: readonly GrantValue[];
+}
+
+/** Grants as rows with each value marked against `before` (all kept when there is no before): granted now, kept, or gone. */
+export function grantDeltaRows(before: SystemGrants | undefined, after: SystemGrants | undefined, money: (usd: number) => string): readonly GrantDeltaRow[] {
+  const was = new Map(before === undefined ? [] : grantRows(before, money).map((row) => [row.key, row]));
+  const now = grantRows(after ?? { hub: [] }, money);
+  const rows: GrantDeltaRow[] = now.map((row) => {
+    const old = was.get(row.key)?.values ?? [];
+    const values = row.values.map((value): GrantValue => ({ value, kind: before === undefined || old.includes(value) ? 'same' : 'add' }));
+    const gone = old.filter((value) => !row.values.includes(value)).map((value): GrantValue => ({ value, kind: 'remove' }));
+    return { key: row.key, label: row.label, values: [...values, ...gone] };
+  });
+  // rows granted before and not at all now
+  for (const [key, row] of was) {
+    if (!now.some((other) => other.key === key) && row.values.length > 0) { rows.push({ key, label: row.label, values: row.values.map((value): GrantValue => ({ value, kind: 'remove' })) }); }
+  }
+  return rows;
+}
+
+/** How each risk flag looks on the strip. */
+export const FLAG_LOOK = {
+  'delete-fns': { tone: 'danger', icon: 'trash' },
+  'write-fns': { tone: 'warn', icon: 'edit' },
+  effects: { tone: 'warn', icon: 'layers' },
+  capabilities: { tone: 'warn', icon: 'shield' },
+  secrets: { tone: 'danger', icon: 'key' },
+  hosts: { tone: 'warn', icon: 'globe' },
+  files: { tone: 'warn', icon: 'folder' },
+  calls: { tone: 'accent', icon: 'fn' },
+  models: { tone: 'accent', icon: 'cpu' },
+} as const satisfies Record<ReviewFlagKind, { tone: Tone; icon: IconName }>;
+
+/** What happened to the grants, for the strip's chip. */
+export const GRANTS_MOVE_LOOK = {
+  widened: { tone: 'warn', word: 'Grants widened' },
+  narrowed: { tone: 'ok', word: 'Grants narrowed' },
+  changed: { tone: 'warn', word: 'Grants changed' },
+  added: { tone: 'accent', word: 'Grants declared' },
+} as const satisfies Record<GrantsMove, { tone: Tone; word: string }>;

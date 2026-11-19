@@ -21,7 +21,7 @@ export const OUTLINE: readonly Topic[] = [
   {
     id: 'gin',
     title: 'Types with gin',
-    exports: ['g', 'GinType', 'Infer', 'json', 'parseValue', 'encodeValue', 'wireType', 'referencesOf', 'loadTypes', 'LoadedTypes', 'ginOf', 'ginAs', 'toolArgsOf', 'ToolArgs', 'FlatArgs'],
+    exports: ['g', 'GinType', 'Infer', 'json', 'parseValue', 'encodeValue', 'wireType', 'referencesOf', 'loadTypes', 'LoadedTypes', 'ginOf', 'ginAs', 'toolArgsOf', 'ToolArgs', 'FlatArgs', 'sampleOf', 'sampleArgs'],
     external: GIN_EXTERNALS,
   },
   {
@@ -36,6 +36,7 @@ export const OUTLINE: readonly Topic[] = [
     exports: [
       'fn', 'FnInput', 'FnExampleOf', 'FnDef', 'AnyFnDef', 'FnTypes', 'NativeFnTypes', 'TypesOf', 'Deps', 'FnRef', 'AnyFnRef', 'FnValidators', 'ValidateCtx', 'PreviewCtx',
       'DEFAULT_STATUS', 'StatusTemplates', 'StatusForms', 'RunPhase', 'StatusInput', 'CheckedStatus', 'CheckedTemplate', 'OneTokens', 'ManyTokens', 'PathsOf', 'TokensOf',
+      'fnsMissingExamples', 'checkExamples', 'MissingExamplesError',
     ],
   },
   {

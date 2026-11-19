@@ -7,7 +7,7 @@ A **fn** is something people, agents and code can run: a name, a description, ty
 | `description` | one sentence: what it does, for people and the LLM | |
 | `instructions` | extra guidance the LLM sees when the fn is in its toolset | |
 | `args`, `returns` | gin types of the args (an object) and the result | `run(args, ctx)` gets typed args; `ctx.done(result)` checks the result |
-| `examples` | example calls (`{ args, note? }`) agents see on its card and when they get its args wrong | a wrong example doesn't compile |
+| `examples` | example calls (`{ args, note? }`) agents see on its card and when they get its args wrong; **every native fn and agent needs at least one** | a wrong example doesn't compile; `harness system build` and `serve` refuse a fn with none (`checkExamples`) |
 | `status` | the words its runs show, per phase (below) | tokens are checked against args and result |
 | `tags` | free labels; `read` marks a fn that changes nothing, so policies may run it without asking | |
 | `deps` | fns its implementation may call, as refs: `{ read: fs.fns.read }` | `ctx.fns.read(args)` exists, typed; nothing else can be called |
@@ -37,8 +37,9 @@ and in the present (`Reading {args.path}…`) and past (`Read {args.path}`) tens
 
 **Writing fns an LLM uses well.** The description says what it does in one sentence. Args are few, named for what
 they are, with `g.field(…, { docs })` where a value needs explaining; prefer enums and bounded numbers to free text.
-Return what the caller needs next (ids, counts, whether it was truncated), not a wall of text. Use `examples` for any
-fn whose args are easy to get wrong. Tag read-only fns `read`.
+Return what the caller needs next (ids, counts, whether it was truncated), not a wall of text. Every native fn and agent
+needs at least one example (`checkExamples` throws `MissingExamplesError` naming each fn without one); give more
+for any fn whose args are easy to get wrong. A fn of another kind gets its examples from the kind's `describe`. Tag read-only fns `read`.
 
 **Implementing a fn.** Each native fn is `{ async run(args, ctx) { … } }` under `fns` in the implementation, returning an
 outcome built with the ctx helpers (**Outcomes**):

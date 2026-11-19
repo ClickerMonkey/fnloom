@@ -6,7 +6,7 @@
  * The runtime sits behind `SystemHost`; `LinkHost` is the real one (the WebSocket link, pairing keys, the outcome
  * journal, the forwarding aeye provider, the MCP face). Its seams (`LinkHostDeps`) let tests run all of it in memory.
  */
-import type { AutoPairGrant, Duration, FnExamplesPatch, HostRefusal, ImportReport, PairingGrant, PairingGrantRequest, QualifiedName, TypeDecl } from '@harness/core';
+import type { AutoPairGrant, Duration, FnExamplesPatch, HostRefusal, ImportReport, InstanceMode, PairingGrant, PairingGrantRequest, QualifiedName, TypeDecl } from '@harness/core';
 import type { Fleets, FnSearch, InstanceConnects } from '../ctx.ts';
 import type { FnDef, FnTypes } from '../fn.ts';
 import type { FnImpl } from '../impl.ts';
@@ -33,6 +33,8 @@ export interface ServeOptions {
    * `package.json`.
    */
   version?: string;
+  /** Whether it runs one instance or a fleet, said in its hello. Defaults to its `system.json`'s; absent without one. */
+  instances?: InstanceMode;
   /**
    * The folder holding the system's `system.json` (default: the current folder). When there is one, `serve` checks it
    * against the contract (the same name, a protocol this SDK speaks) before connecting, and takes its version.
@@ -131,14 +133,14 @@ export interface KeyStore {
  * Run a system: connect to the hub (pairing the first time), send the contract, and serve the implementation.
  * The implementation is checked against the contract at compile time; its `system.json`, when it has one, is checked
  * against the contract and this process's instance here (a mismatch throws `PackageManifestError` before anything
- * connects).
+ * connects). A static fn with no example is refused too (`MissingExamplesError`, from the host), so every fn has one.
  */
 export async function serve<N extends string, C extends ContractShape>(contract: SystemContract<N, C>, impl: SystemImpl<C>, options: ServeOptions, host: SystemHost = new LinkHost()): Promise<RunningSystem<N>> {
   const manifest = await findPackageManifest(options.package ?? process.cwd());
   if (manifest === undefined) { return host.start(contract, impl, options); }
   checkPackage(contract, manifest, sdkEnv.parse()[SYSTEM_ENV.instance]);
   return host.start(contract, impl, {
-    ...options, version: options.version ?? manifest.version, context: options.context ?? join(options.package ?? process.cwd(), CONTEXT_FOLDER),
+    ...options, version: options.version ?? manifest.version, instances: options.instances ?? manifest.instances, context: options.context ?? join(options.package ?? process.cwd(), CONTEXT_FOLDER),
   });
 }
 

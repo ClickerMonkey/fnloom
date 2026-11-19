@@ -1,8 +1,10 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { InstanceName, SystemName, type InstallSubject, type PreviewPart, type SystemGrants, type SystemTestReport } from '@harness/core';
+import { InstanceName, SystemName, type InstallSubject, type Manifest, type PreviewPart, type SystemGrants, type SystemTestReport } from '@harness/core';
+import { manifestOf } from '@harness/sdk';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
+import { fs } from '../shared/index.ts';
 import type { ProcessProbe } from './stale.ts';
 import { Hosting, InstallRefused, capped, renameRetrying, grantsReview, fnsDiff, type BuiltSystem, type HostedLaunch, type HostedRunner, type RunnerStatus, type StartOutcome, type SystemBuilds, type SystemTests } from './hosting.ts';
 
@@ -33,6 +35,8 @@ class FakeBuilds implements SystemBuilds {
   source = 'source-1';
   builds = 0;
   grants: SystemGrants = { hub: [], network: ['api.example.com'], files: { read: ['shared'], write: [] } };
+  /** The contract the build declares, when the test gives one. */
+  contract: Manifest | undefined;
 
   sourceHash(): Promise<string> {
     return Promise.resolve(this.source);
@@ -55,6 +59,7 @@ class FakeBuilds implements SystemBuilds {
         manifestHash: `m-${this.fns.join(',')}`, bundleHash: `b-${this.source}`, entry: join(outDir, 'server', 'main.js'),
         fns: this.fns, adds: [], scan: { size: 2048, builtins: [], concerns: [], urls: [], hosts: [] },
         grants: this.grants,
+        ...(this.contract === undefined ? {} : { contract: this.contract }),
       },
     });
   }
@@ -116,6 +121,16 @@ describe('hosting systems written here', () => {
     const grant = (subject: InstallSubject) => { grants.push(subject); return Promise.resolve({ token: 'tok_1', expiresAt: 1 }); };
     return { builds, runner, probe, hosting, grants, grant, data };
   }
+
+  it('sends the contract it would install with the card, so the hub can say what it changes', async () => {
+    const { builds, hosting } = setup();
+    expect(await hosting.card(folder(), {}, signal)).not.toHaveProperty('contract');
+    const contract = await manifestOf(fs, { version: '0.0.0' });
+    builds.contract = contract;
+    const card = await hosting.card(folder(), {}, signal);
+    expect(card.contract).toBe(contract);
+    expect(card.preview.subject).toMatchObject({ manifestHash: 'm-random/random (read)' });
+  });
 
   it('refuses a folder that does not build with its file:line:col lines, before any card', async () => {
     const { builds, hosting } = setup();

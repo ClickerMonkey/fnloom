@@ -7,7 +7,7 @@
  * may be overridden per session. Every shape here is a zod schema; the agent payload's gin fields are made from them.
  */
 import { z } from 'zod';
-import { ActorId, QualifiedName, Timestamp, TurnId } from './primitives.ts';
+import { ActorId, InstanceName, QualifiedName, Timestamp, TurnId } from './primitives.ts';
 
 // ─── Detail ───────────────────────────────────────────────────────────────────
 
@@ -67,6 +67,14 @@ export const STATIC_TOOLS = ['find', 'inspect', 'load', 'unload', 'run'] as cons
 export const StaticTool = z.enum(STATIC_TOOLS);
 export type StaticTool = z.infer<typeof StaticTool>;
 
+/** The static `run` tool's args (the MCP server's run tool takes the same); the web reads a call's fn from them. */
+export const RunArgs = z.object({
+  fn: z.string().min(1).describe('The fn to run, by its qualified name (fs/read).'),
+  args: z.record(z.string(), z.json()).default({}).describe('Its args, as its card shows them.'),
+  on: InstanceName.optional().describe('For a system with several machines connected, which one runs it (laptop).'),
+});
+export type RunArgs = z.infer<typeof RunArgs>;
+
 // ─── Contextors ───────────────────────────────────────────────────────────────
 
 /** The whole transcript and the loaded context, trimmed oldest-first only when it would not fit the model. */
@@ -124,7 +132,14 @@ export const GraphContextor = z.object({
   /** Exchanges always kept in the linear history (the current message always is). */
   floorExchanges: z.number().int().min(0).default(1),
   shares: BudgetShares.default({ history: 0.45, context: 0.35, fns: 0.2 }),
-  /** Below this activation an item is not offered even as a name. */
+  /**
+   * Below this activation an item is not offered even as a name. Activation is not a similarity: it is a weighted
+   * mean of each signal's `rbf(x, target, k)`, one scale for every unit (history exchanges too, which have no
+   * embedding). What maps it onto similarity is the embedding metric's steepness: the embedding signal is a cosine
+   * similarity (no longer a fused rank, which put every hit near 1), and with its defaults (target 1, k 6) an item known
+   * by meaning alone crosses 0.15 at the hub's suggestion threshold (similarity 0.45: `e^(−6 · 0.55²) ≈ 0.16`), while
+   * unrelated text (0.2 to 0.4) lands at 0.02 to 0.11 and stays out. A test keeps them in step.
+   */
   threshold: z.number().min(0).default(0.15),
   evaluate: GraphEvaluation.default('perMessage'),
 });

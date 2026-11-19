@@ -18,7 +18,7 @@
 import { z } from 'zod';
 import { FnDecl, FnExample, FnMode, REGISTRY_ACTIONS, RegistryAction, RegistryEffect, RegistryThing, TypeDecl } from './manifest.ts';
 import { RoleModel } from './model-calls.ts';
-import { FnBlock } from './records/systems.ts';
+import { FnBlock } from './fn-block.ts';
 import { ActorId, Duration, FnKindName, IDS, InstanceName, Json, LocalName, QualifiedName, SystemName, Timestamp, Usd } from './primitives.ts';
 import { ResourceUri } from './resources.ts';
 
@@ -66,7 +66,10 @@ export const FnExamplesQuery = z.object({
 });
 export type FnExamplesQuery = z.infer<typeof FnExamplesQuery>;
 
-/** One example as a reader sees it, with how well it matched the query. */
+/**
+ * One example as a reader sees it, with its `score` when found by a query: its place in that search's order as a share
+ * of the best (1 = first, `SearchHit.rank`), for ordering only.
+ */
 export const FnExampleView = FnExample.extend({ id: FnExampleId, score: z.number().optional() });
 export type FnExampleView = z.infer<typeof FnExampleView>;
 
@@ -137,7 +140,10 @@ export const FnSearchHit = z.object({
   /** What a fn changes in the hub, in one line (`effectsLine`): "Creates fns (database/query)." */
   effects: z.string().optional(),
   instance: InstanceName.optional(),
+  /** Searched by text: its place in the order as a share of the best (1 = first); for ordering, not a measure of fit. */
   score: z.number().optional(),
+  /** Searched by meaning: how close it is to the text (cosine, 0 to 1), the one measure of fit; absent with words alone. */
+  similarity: z.number().optional(),
   /** Whether the asker can use it now; what blocks it when false. */
   available: z.boolean(),
   blocked: FnBlock.optional(),

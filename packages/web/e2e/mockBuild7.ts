@@ -4,7 +4,7 @@
  * rejecting, switching items and test calls change what is kept, so the review page can be used end to end.
  */
 import {
-  mintId, RefusalPage, SystemReview, type GoLiveRequest, type PreviewShot, type ItemRef, type RefusalQuery, type RunId, type SystemName, type SystemStage,
+  mintId, RefusalPage, SystemReview, type GoLiveRequest, type ReviewDecided, type ReviewDecision, type PreviewShot, type ItemRef, type RefusalQuery, type RunId, type SystemName, type SystemStage,
 } from '@harness/core';
 import { notesManifest, refusal, review } from '../src/admin/test/review.ts';
 
@@ -51,6 +51,20 @@ export class MockReviews {
     const live = { version: pending.version, hash: pending.hash, grants: current.manifest.grants ?? {}, runtime: [], by: ADMIN, at: this.#now() };
     this.#reviews.set(request.system, SystemReview.parse({ ...rest, live, off: request.off }));
     return { hash: pending.hash };
+  }
+
+  /** Approve some pending changes and decline others; the rest keep waiting (the summary stays as the hub sent it). */
+  decide(decision: ReviewDecision): ReviewDecided {
+    const current = this.review(decision.system);
+    const { pending, ...rest } = current;
+    if (pending?.hash !== decision.hash) { throw new Error('Those changes are no longer waiting.'); }
+    const decided = new Set([...decision.approve, ...decision.decline].map((ref) => `${ref.section}:${ref.name}`));
+    const changes = pending.changes.filter((change) => !decided.has(`${change.section}:${change.name}`));
+    const declined = pending.changes.filter((change) => decision.decline.some((ref) => ref.section === change.section && ref.name === change.name))
+      .map((change) => ({ section: change.section, name: change.name, change: change.change, origin: change.origin, version: pending.version, by: ADMIN, at: this.#now() }));
+    const live = changes.length > 0 ? current.live : { version: pending.version, hash: pending.hash, grants: current.manifest.grants ?? {}, runtime: [], by: ADMIN, at: this.#now() };
+    this.#reviews.set(decision.system, SystemReview.parse({ ...rest, live, declined: [...declined, ...current.declined], ...(changes.length === 0 ? {} : { pending: { ...pending, changes } }) }));
+    return { hash: live?.hash ?? pending.hash, waiting: changes.length };
   }
 
   /** Drop the pending changes; the live version stays. */
@@ -121,10 +135,18 @@ export class MockReviews {
     const live = { version: manifest.version, hash: manifest.hash, grants: manifest.grants ?? {}, runtime: [], by: ADMIN, at: at - 2 * 86_400_000 };
     const pending = system !== 'fs' ? undefined : {
       version: '1.1.0', hash: 'hash-fs-2', by: 'contract', since: at - 20 * 60_000,
+      summary: {
+        line: '+1 fn, 1 changed, grants widened', counts: [{ section: 'fns', added: 1, changed: 1, removed: 0 }, { section: 'grants', added: 0, changed: 1, removed: 0 }], grants: 'widened',
+        flags: [{ flag: 'write-fns', line: 'Can write: fs/archive', items: ['fs/archive'] }, { flag: 'hosts', line: 'New hosts: cdn.example.com', items: ['cdn.example.com'] }],
+      },
+      fns: [
+        { name: 'fs/archive', after: { mode: 'write', reads: [], writes: [], deps: [] } },
+        { name: 'fs/find', before: { mode: 'read', reads: [], writes: [], deps: [] }, after: { mode: 'read', reads: [], writes: [], deps: [], free: true } },
+      ],
       changes: [
         { section: 'fns', name: 'fs/archive', change: 'added', origin: 'contract', after: { description: 'Archive old notes.', mode: 'write' } },
         { section: 'fns', name: 'fs/find', change: 'changed', origin: 'contract', before: { description: 'Find notes.', tags: ['read'] }, after: { description: 'Find notes by words or tags.', tags: ['read', 'search'] } },
-        { section: 'grants', name: 'grants', change: 'changed', origin: 'contract', before: { network: ['api.example.com'] }, after: { network: ['api.example.com', 'cdn.example.com'] } },
+        { section: 'grants', name: 'grants', change: 'changed', origin: 'contract', before: { hub: ['ai'], network: ['api.example.com'] }, after: { hub: ['ai'], network: ['api.example.com', 'cdn.example.com'] } },
       ],
     };
     return SystemReview.parse({

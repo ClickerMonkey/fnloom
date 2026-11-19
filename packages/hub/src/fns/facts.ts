@@ -7,7 +7,7 @@
  * a removal a delete), and free only when all of them are. The stored part (`fnFacts`, `fnTypes`) is what search filters on;
  * `fnUses` lists what each fn uses so a changed fn refreshes the fns that use it. The cost estimate (from its kind's `CostEstimator`) and run times (from `fnMetrics`) are read when asked.
  */
-import { READ_TAG, QualifiedName, registryMode, uniqueEffects, type FnFacts, type RegistryEffect, type FnFactsRecord, type FnMetricsDay, type FnMode, type FnRecord, type FnTypeUse, type Json, type RunTimes } from '@harness/core';
+import { READ_TAG, QualifiedName, registryMode, uniqueEffects, type FnDecl, type FnFacts, type RegistryEffect, type FnFactsRecord, type FnMetricsDay, type FnMode, type FnRecord, type FnTypeUse, type Json, type RunTimes } from '@harness/core';
 import { parseValue, LlmPayloadType } from '@harness/sdk';
 import type { Catalog } from '../catalog/index.ts';
 import { GinScopes } from '../catalog/scope.ts';
@@ -19,6 +19,11 @@ import type { HubStore } from '../store/index.ts';
 import { estimateCost } from './costs.ts';
 import type { FnsTuning } from './env.ts';
 import { strongerMode, type CostEstimator, type FnFactsService } from './index.ts';
+
+/** The mode a fn declares: its `effects.mode`, else read when it is tagged `read` or is an agent (until its tools say otherwise), else write. */
+export function declaredMode(decl: Pick<FnDecl, 'kind' | 'tags' | 'effects'>): FnMode {
+  return decl.effects?.mode ?? (decl.kind === AGENT_KIND || decl.tags.includes(READ_TAG) ? 'read' : 'write');
+}
 
 /** What facts read. */
 export interface FnFactsDeps {
@@ -175,7 +180,7 @@ export class StoreFnFacts implements FnFactsService {
     const { decl } = fn;
     const agent = decl.kind === AGENT_KIND;
     const tools = agent ? parseValue(LlmPayloadType, decl.payload).tools.flatMap((tool) => { const name = QualifiedName.safeParse(tool); return name.success ? [name.data] : []; }) : [];
-    const mode = decl.effects?.mode ?? (agent || decl.tags.includes(READ_TAG) ? 'read' : 'write');
+    const mode = declaredMode(decl);
     const reads = decl.effects?.reads ?? await this.#named(this.#scopes.mentions(decl.returns));
     const writes = decl.effects?.writes ?? (mode === 'read' ? [] : await this.#named(this.#scopes.mentions(decl.args)));
     // an agent always spends on its model; anything else spends only if it says so or its history shows it

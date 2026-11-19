@@ -7,7 +7,7 @@ export { ACTIVE_RUN_STATUSES, SETTLED_RUN_STATUSES, isSettled, isUnsettled, type
 /** Status words: core's templates, typed against a fn's args and result. */
 export { DEFAULT_STATUS, type StatusTemplates, type StatusForms, type RunPhase } from '@harness/core';
 export type { StatusInput, CheckedStatus, CheckedTemplate, OneTokens, ManyTokens, PathsOf, TokensOf } from './status.ts';
-export { g, json, wireType, parseValue, encodeValue, referencesOf, loadTypes, type GinType, type Infer, type LoadedTypes } from './gin.ts';
+export { g, json, wireType, parseValue, encodeValue, referencesOf, loadTypes, sampleOf, sampleArgs, type GinType, type Infer, type LoadedTypes } from './gin.ts';
 export { ginOf, ginAs, toolArgsOf, type FlatArgs, type ToolArgs } from './zod-gin.ts';
 export {
   accountLabel, connectForm, credentialHeaders, credentialsFromForm, instanceConnectOf, maskHeaders, readCredentials, secretHeaderNames, sharedHeaders, usesConnections,
@@ -52,7 +52,9 @@ export {
   type AdminFnName, type AdminReadFnName, type HubReadFnName, type HubWriteFnName, type HubPersonFnName, type HubExploreFnName, type HubContract,
 } from './hub.ts';
 export { agent, type AgentInput, type AgentFnTypes, type LlmPayload, type LlmKind } from './agent.ts';
-export { manifestOf, manifestBody, fnDecl, canonicalJson, contractHash, sha256, type ManifestOptions } from './manifest.ts';
+export {
+  manifestOf, manifestBody, fnDecl, canonicalJson, contractHash, sha256, fnsMissingExamples, checkExamples, MissingExamplesError, type ManifestOptions,
+} from './manifest.ts';
 export {
   client, RESOURCE_VIEWER, RESOURCE_VIEWER_MODES, INPUT_ANSWERS, VALUE_EDITOR, ACCESS_INFO, SHARE_EDITOR, VISUALS,
   type InputAnswer, type InputAnswers, type ValueEditorProps, type ShareEditorProps,

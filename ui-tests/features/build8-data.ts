@@ -27,8 +27,9 @@ export default feature({
     await settle(page);
     await ctx.shot('widgets');
 
-    // a saved widget's fn page: its latest run drawn as the widget, Open in chat beside it
-    await page.click(tid('data-widget-page'));
+    // a saved widget's fn (a pill) opens the fn modal; Open page goes to its fn page: its latest run drawn as the widget
+    await page.click(`${tid('data-widget')} ${tid('fn-pill')}`);
+    await page.click(tid('fn-open-page'));
     await page.waitForSelector(tid('fn-widget'));
     await settle(page);
     check(!await scrollsSideways(page), 'the fn page with its widget fits the screen');

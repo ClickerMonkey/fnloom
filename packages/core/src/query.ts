@@ -1,6 +1,6 @@
 /**
  * The query standard: one filter and sort model for every list the hub serves (resources, fns, runs, model
- * calls, LLM calls, sessions, context, notifications, systems). Each list declares its fields once here, in
+ * calls, LLM calls, sessions, context, notifications, systems, types, the graph's nodes). Each list declares its fields once here, in
  * `LIST_FIELDS`; the hub filters, sorts and pages server side by that declaration (and refuses a query that breaks it,
  * with `queryProblems`); the web app's search box builds its filter menu and pills from it; and the hub fn
  * `hub/query` takes the same `ListQuery`, so the chat LLM sees exactly what a person does.
@@ -13,6 +13,8 @@ import { RESOURCE_SOURCES, FORMAT_FAMILIES } from './resource-forms.ts';
 import { MODALITIES, ModelCallStatus } from './model-calls.ts';
 import { LlmStatus } from './records/runs.ts';
 import { FormKind } from './resources.ts';
+import { Audience } from './primitives.ts';
+import { GRAPH_EDGE_KINDS, GRAPH_NODE_KINDS, GRAPH_STAGES } from './graph-kinds.ts';
 
 // ─── Fields and operators ─────────────────────────────────────────────────────
 
@@ -103,9 +105,11 @@ const dynamic = (label: string): FieldDecl => ({ label, type: 'enum', sortable: 
 const num = (label: string, unit: FieldUnit): FieldDecl => ({ label, type: 'number', sortable: true, filterable: true, unit });
 const date = (label: string): FieldDecl => ({ label, type: 'date', sortable: true, filterable: true });
 const flag = (label: string): FieldDecl => ({ label, type: 'boolean', sortable: false, filterable: true });
+/** A field that filters only: its list has one fixed order (the graph is drawn, not sorted). */
+const unsorted = (decl: FieldDecl): FieldDecl => ({ ...decl, sortable: false });
 
 /** The queryable lists. */
-export const LIST_NAMES = ['resources', 'fns', 'runs', 'modelCalls', 'llmCalls', 'sessions', 'contexts', 'notifications', 'systems', 'types'] as const;
+export const LIST_NAMES = ['resources', 'fns', 'runs', 'modelCalls', 'llmCalls', 'sessions', 'contexts', 'notifications', 'systems', 'types', 'graph'] as const;
 export const ListName = z.enum(LIST_NAMES);
 export type ListName = z.infer<typeof ListName>;
 
@@ -167,13 +171,29 @@ export const LIST_FIELDS = {
     defaultSort: [{ field: 'createdAt', dir: 'desc' }],
   },
   systems: {
-    fields: { name: text('Name'), status: dynamic('Status'), version: text('Version'), instances: num('Instances', 'count'), fns: num('Fns', 'count'), lastSeenAt: date('Last seen') },
+    fields: {
+      name: text('Name'), status: dynamic('Status'), version: text('Version'), instances: num('Instances', 'count'), fns: num('Fns', 'count'), context: num('Context', 'count'),
+      types: num('Types', 'count'), parts: num('Other parts', 'count'), pending: num('Pending changes', 'count'), refusals: num('Refusals', 'count'), lastSeenAt: date('Last seen'),
+    },
     defaultSort: [{ field: 'name', dir: 'asc' }],
   },
   /** Named types: every system's, and the ones a fleet instance defines for itself (a database's tables). */
   types: {
     fields: { name: text('Name'), system: dynamic('System'), instance: dynamic('Instance'), references: num('Refers to', 'count'), updatedAt: date('Updated') },
     defaultSort: [{ field: 'name', dir: 'asc' }],
+  },
+  /**
+   * The graph's nodes (`hub/graph`, the graph pages): node filters keep the nodes they hold for, `edgeKind` keeps the
+   * edges of those kinds. The fn facts (fnKind, mode, effect) test fns and keep what fns belong to (systems, kinds,
+   * types); visibility tests the nodes that have one. Drawn, never sorted.
+   */
+  graph: {
+    fields: {
+      name: unsorted(text('Name')), system: unsorted(dynamic('System')), nodeKind: unsorted(choice('Item', GRAPH_NODE_KINDS)),
+      edgeKind: unsorted(choice('Link', GRAPH_EDGE_KINDS)), fnKind: unsorted(dynamic('Fn kind')), mode: unsorted(dynamic('Mode')),
+      effect: unsorted(dynamic('Effect on')), visibility: unsorted(choice('Visible to', Audience.options)), stage: unsorted(choice('Stage', GRAPH_STAGES)), on: flag('On'),
+    },
+    defaultSort: [],
   },
 } as const satisfies Record<ListName, { fields: Record<string, FieldDecl>; defaultSort: readonly Sort[] }>;
 

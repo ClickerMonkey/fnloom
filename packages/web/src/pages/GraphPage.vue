@@ -1,9 +1,10 @@
 <script setup lang="ts">
 /**
- * The graph of every system's items and how they connect (`/graph`), as the signed-in person may see it: a cluster
- * per system, filters by system, item and link kind, fn kind, mode, effects, visibility, stage and on or off, search,
- * a focus N hops out, and systems collapsed into one node, all in the URL. Its line says "hover" with a mouse and
- * "tap" on a touch screen.
+ * The graph of every system's items and how they connect (`/admin/graph`, in the admin area's Systems group), as the
+ * signed-in admin may see it: a cluster per system, the search bar every list has (words and filters by system, item
+ * and link kind, fn kind, mode, effect, visibility, stage and on or off, run by the hub), a focus N hops out, systems
+ * collapsed into one node and references outside, all in the URL. Its line says "hover" with a mouse and "tap" on a
+ * touch screen. The old `/graph` address comes here with its query.
  */
 import { computed } from 'vue';
 import AppPage from '../app/AppPage.vue';
@@ -18,6 +19,6 @@ const description = computed(() => `Every system's fns, context, types and parts
 
 <template>
   <AppPage title="Graph" :description="description" width="full">
-    <GraphPanel v-model="query" height="max(420px, calc(100dvh - 260px))" />
+    <GraphPanel v-model="query" height="max(420px, calc(100dvh - 300px))" />
   </AppPage>
 </template>

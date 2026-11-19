@@ -8,7 +8,7 @@ import {
   type GinTypeDef, type RunInfo,
 } from '@harness/core';
 import {
-  CallFailed, SAVE_FN_TAKEN, argsOf, encodeValue, ginAs, hub, pagingOf, parseValue, returnsTable, sourceCompatible, widgetArgs, wireType,
+  CallFailed, SAVE_FN_TAKEN, argsOf, encodeValue, ginAs, hub, pagingOf, parseValue, returnsTable, sampleArgs, sourceCompatible, widgetArgs, wireType,
   type FnCtx, type Infer, type KindCheckCtx, type StoredFn, type SystemImpl, type TypesOf,
 } from '@harness/sdk';
 import { AuthoringError } from '@harness/sdk/server';
@@ -224,6 +224,8 @@ export function createWidgetsImpl(deps: WidgetsDeps): SystemImpl<WidgetsContract
             operations: { cancel: true, pause: false, undo: false, background: false },
             display: 'card',
             effects: { mode: 'read' },
+            // its open args filled with sample values (none: every arg is planned)
+            examples: [{ args: sampleArgs(args), note: `Draws "${spec.title}" from ${spec.source}.` }],
           });
         },
         async run(payload, args, ctx) {

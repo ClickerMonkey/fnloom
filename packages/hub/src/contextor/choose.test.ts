@@ -41,7 +41,7 @@ describe('scores', () => {
     const defaults = metricDefaults({ ...contextorEnv.parse(), HARNESS_METRIC_TURNS_AGO_WEIGHT: 0.9, HARNESS_METRIC_USED_K: 3 });
     expect(defaults.turnsAgo).toEqual({ weight: 0.9, target: 0, k: 0.15 });
     expect(defaults.used.k).toBe(3);
-    expect(DEFAULTS.embedding).toEqual({ weight: 1, target: 1, k: 4 });
+    expect(DEFAULTS.embedding).toEqual({ weight: 1, target: 1, k: 6 });
   });
 
   it('spreading with no damping is the base score, and reaches items only linked', () => {

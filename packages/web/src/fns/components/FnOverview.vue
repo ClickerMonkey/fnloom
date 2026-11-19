@@ -2,14 +2,15 @@
 /**
  * One fn at a glance, the same in the chat's fn modal and on the fn page: what it does (description, kind, what it
  * does to data, whether it is free, its signature), a notice when it usually runs long, what a call costs and how long
- * it takes, the types it reads and writes and the fns it uses (each opens in its place), and its examples a page at a
+ * it takes, the types it reads and writes and the fns it uses (each a `FnPill`, opening in the fn modal), and its examples a page at a
  * time. Its runs come in the `runs` slot, since each place has its own (the chat's, or all of them); the page adds its
  * own badges (paused, tags) in the `badges` slot.
  */
-import type { FnExampleView, FnFacts, FnSearchHit, QualifiedName } from '@harness/core';
+import { authorWritesExamples, type FnExampleView, type FnFacts, type FnSearchHit, type QualifiedName } from '@harness/core';
 import { computed } from 'vue';
-import { fnLabel, localName } from '../../chat/logic/labels.ts';
+import { localName } from '../../chat/logic/labels.ts';
 import { UiBadge, UiBanner, UiButton, UiSkeleton } from '../../ui/index.ts';
+import FnPill from './FnPill.vue';
 import { exampleCall, factFigures, jsonText, MODE_TONE, MODE_WORDS } from '../logic/facts.ts';
 
 const props = withDefaults(defineProps<{
@@ -27,13 +28,20 @@ const props = withDefaults(defineProps<{
   /** Show its description (off where the page's header already does). */
   describe?: boolean;
 }>(), { problem: '', examplesProblem: '', describe: true });
-const emit = defineEmits<{ fn: [fn: QualifiedName]; more: []; retry: [] }>();
+const emit = defineEmits<{ more: []; retry: [] }>();
 defineSlots<{ runs?: () => unknown; badges?: () => unknown }>();
 
 const local = computed(() => localName(props.name));
 const figures = computed(() => (props.facts === undefined ? [] : factFigures(props.facts)));
 const mode = computed(() => props.facts?.mode ?? props.about?.mode);
 const uses = computed(() => (props.facts?.uses ?? []).filter((fn) => fn !== props.name));
+/** Who gives a fn its examples: a system's kind works them out (`KindDescription.examples`); a native fn's or agent's author writes them. */
+const whoAddsExamples = computed(() => {
+  const kind = props.facts?.kind;
+  return kind !== undefined && !authorWritesExamples(kind)
+    ? `its kind (${kind}) works one out when the hub describes it.`
+    : 'its author adds them to its declaration (`examples`).';
+});
 </script>
 
 <template>
@@ -80,7 +88,7 @@ const uses = computed(() => (props.facts?.uses ?? []).filter((fn) => fn !== prop
       <template v-if="uses.length > 0">
         <dt>Uses</dt>
         <dd>
-          <button v-for="fn in uses" :key="fn" type="button" class="chip link" :title="fn" @click="emit('fn', fn)">{{ fnLabel(fn) }}</button>
+          <FnPill v-for="fn in uses" :key="fn" :name="fn" />
         </dd>
       </template>
     </dl>
@@ -88,7 +96,11 @@ const uses = computed(() => (props.facts?.uses ?? []).filter((fn) => fn !== prop
     <section class="examples" data-testid="fn-examples">
       <h3 class="heading">Examples<span v-if="examplesTotal > 0" class="dim"> · {{ examplesTotal }}</span></h3>
       <p v-if="examplesProblem !== ''" class="bad" role="alert">{{ examplesProblem }}</p>
-      <p v-else-if="examples.length === 0" class="dim">{{ examplesLoading ? 'Loading…' : 'No examples yet.' }}</p>
+      <p v-else-if="examples.length === 0 && examplesLoading" class="dim">Loading…</p>
+      <!-- every fn should have one: a fn without is flagged, saying who adds it -->
+      <UiBanner v-else-if="examples.length === 0" tone="warn" data-testid="fn-no-examples">
+        No examples. Every fn needs at least one: {{ whoAddsExamples }}
+      </UiBanner>
       <ol v-else class="example-list">
         <li v-for="example in examples" :key="example.id" class="example">
           <p v-if="example.note" class="note">{{ example.note }}</p>
@@ -130,9 +142,6 @@ const uses = computed(() => (props.facts?.uses ?? []).filter((fn) => fn !== prop
   background: var(--surface-2); color: var(--text); font-size: var(--text-xs); overflow-wrap: anywhere;
 }
 .chip.write { border-color: var(--warn); }
-.chip.link { font-family: inherit; cursor: pointer; }
-.chip.link:hover { border-color: var(--accent); color: var(--accent); }
-.chip.link:focus-visible { outline: none; box-shadow: var(--ring); }
 .examples { display: grid; gap: var(--space-2); min-width: 0; }
 .heading { margin: 0; font-size: var(--text-sm); font-weight: var(--weight-strong); }
 .example-list { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }

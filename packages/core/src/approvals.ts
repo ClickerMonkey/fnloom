@@ -16,6 +16,7 @@ import { ActorId, ApprovalId, FnKindName, IDS, InstanceName, InstanceRef, Json, 
 import { InstallChecks } from './checks.ts';
 import { SystemGrants } from './grants.ts';
 import { ResultTable } from './registries.ts';
+import { ReviewSummary } from './review-summary.ts';
 import { UserInfo } from './run.ts';
 import { SensitivityFlag } from './sensitivity.ts';
 
@@ -93,6 +94,11 @@ export const ApprovalPreview = z.object({
   subject: ApprovalSubject.optional(),
   /** An install's bundle scan and test results, shown on its card (not part of what the approval binds). */
   checks: InstallChecks.optional(),
+  /**
+   * An install's contract changes in one strip (what it adds over the version the hub has, its risk flags), worked out
+   * by the hub from the contract the host sent with the card (`PreviewAnswer.contract`), as a pending review's is.
+   */
+  summary: ReviewSummary.optional(),
 });
 export type ApprovalPreview = z.infer<typeof ApprovalPreview>;
 
@@ -124,13 +130,6 @@ export const PreviewRequest = z.object({
   payload: Json.optional(),
 });
 export type PreviewRequest = z.infer<typeof PreviewRequest>;
-
-/** The system's answer: the preview, or why the run can't go ahead at all (it then fails as invalid input). */
-export const PreviewAnswer = z.union([
-  z.object({ preview: ApprovalPreview }),
-  z.object({ refused: z.string().min(1) }),
-]);
-export type PreviewAnswer = z.infer<typeof PreviewAnswer>;
 
 /** Build 9: a form an approver fills before approving; its value, checked against `type`, becomes `args[into]`. */
 export const ProposalAsk = z.object({ type: GinTypeDef, into: LocalName });

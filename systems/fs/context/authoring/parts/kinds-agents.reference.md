@@ -67,7 +67,7 @@ interface KindImpl<P, Cfg = unknown> {
 }
 ```
 
-Refers to: [`CostEstimate`](context:fs/authoring.core-types.fn-facts-ts#core-costestimate), [`Json`](context:fs/authoring.core-types.primitives-ts#core-json), [`KindDescription`](context:fs/authoring.core-types.contextdecl#core-kinddescription), [`PreviewAnswer`](context:fs/authoring.core-types.approvals-ts#core-previewanswer), [`UndoOutcome`](context:fs/authoring.core-types.run-ts#core-undooutcome).
+Refers to: [`CostEstimate`](context:fs/authoring.core-types.fn-facts-ts#core-costestimate), [`Json`](context:fs/authoring.core-types.primitives-ts#core-json), [`KindDescription`](context:fs/authoring.core-types.contextdecl#core-kinddescription), [`PreviewAnswer`](context:fs/authoring.core-types.lifecycle-ts#core-previewanswer), [`UndoOutcome`](context:fs/authoring.core-types.run-ts#core-undooutcome).
 
 #### `KindEstimateInput`
 

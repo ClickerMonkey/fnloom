@@ -228,7 +228,7 @@ export class SuggestContextorImpl extends PlainContextorImpl {
       const cost = contextCost(record, 'full', input);
       if (cost > left) continue;
       left -= cost;
-      out.push({ record, detail: 'full', activation: hits.find((h) => h.key === record.name)?.score ?? 0, text: contextText(record, 'full'), choices: await sizedChoices(this.deps.catalog, record, (text) => input.ctx.estimator.text(text)) });
+      out.push({ record, detail: 'full', activation: hits.find((h) => h.key === record.name)?.similarity ?? 0, text: contextText(record, 'full'), choices: await sizedChoices(this.deps.catalog, record, (text) => input.ctx.estimator.text(text)) });
     }
     return out;
   }
@@ -271,7 +271,8 @@ export class GraphContextorImpl implements Contextor {
 
     // 1. the pool
     const hits = await safeSearch(this.#deps, input, ['context', 'fn'], K);
-    const hitScore = new Map(hits.map((hit) => [hit.key, hit.score]));
+    // the embedding signal is a hit's similarity of meaning, never its rank: a hit words alone found has no such signal
+    const hitScore = new Map(hits.flatMap((hit) => (hit.similarity === undefined ? [] : [[hit.key, hit.similarity] as const])));
     const seeds = unique([
       ...input.always.context, ...input.always.fns, ...input.loaded.context, ...input.loaded.fns, ...input.asked.context, ...input.asked.fns, ...last.keys(), ...hits.map((h) => h.key),
     ]);

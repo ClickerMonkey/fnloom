@@ -832,6 +832,8 @@ export class StoreCatalog implements Catalog {
       ...(description.effects === undefined ? {} : { effects: { ...decl.effects, ...description.effects } }),
       // and how a person reads its payload (a query's SQL)
       ...(description.readable === undefined ? {} : { readable: description.readable }),
+      // the author's examples win; a fn declared without any gets its kind's, so every fn of a kind has one
+      examples: decl.examples !== undefined && decl.examples.length > 0 ? decl.examples : description.examples,
       // the fn's own status words win over what its kind says for the payload
       ...(decl.status === undefined && description.status !== undefined ? { status: description.status } : {}),
     });

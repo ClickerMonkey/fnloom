@@ -4,7 +4,7 @@
  * returned link) and removing it. Its status follows the user channel: a change of its system reads the instances
  * again.
  */
-import type { InstanceName, InstanceView, Json, SystemName, UserEvent } from '@harness/core';
+import type { InstanceMode, InstanceName, InstanceView, Json, SystemName, UserEvent } from '@harness/core';
 import { computed, shallowRef } from 'vue';
 import type { UserEvents } from '../../api/notifications.ts';
 import { Loaded, Task, type Outcome } from '../../state/loaded.ts';
@@ -27,8 +27,11 @@ export class InstanceStore {
   readonly key = shallowRef<InstanceKey | undefined>(undefined);
   /** Every instance of its system (the page lists the others beside it). */
   readonly instances = new Loaded<readonly InstanceView[]>();
-  /** Its system's config type and secret fields, for the config form. */
-  readonly configForm = new Loaded<{ readonly type: Json | undefined; readonly secrets: readonly string[] }>();
+  /**
+   * Its system's config type and secret fields, for the config form, and whether the system runs one instance (whose
+   * page is the system's own).
+   */
+  readonly configForm = new Loaded<{ readonly type: Json | undefined; readonly secrets: readonly string[]; readonly instanceMode: InstanceMode }>();
   readonly config = new Task();
   readonly exporting = new Task();
   readonly removing = new Task();
@@ -49,7 +52,7 @@ export class InstanceStore {
       this.#loadInstances(key.system, same),
       this.configForm.load(async () => {
         const system = await this.#api.system.call({ system: key.system });
-        return { type: system.configType, secrets: system.configSecrets ?? [] };
+        return { type: system.configType, secrets: system.configSecrets ?? [], instanceMode: system.instanceMode };
       }, "Couldn't load this system.", same),
     ]);
   }
@@ -73,9 +76,11 @@ export class InstanceStore {
     return { ok: true, version: result.value.version };
   }
 
-  /** Zip this instance's data folder (its config's secrets only when asked); answers the download link. */
-  async exportData(withSecrets: boolean): Promise<Outcome<{ readonly url: string; readonly size: number }>> {
-    const key = this.key.value;
+  /**
+   * Zip an instance's data folder (its config's secrets only when asked): this one, or the one named (a single-instance
+   * system's `main`, from its system's page). Answers the download link.
+   */
+  async exportData(withSecrets: boolean, key: InstanceKey | undefined = this.key.value): Promise<Outcome<{ readonly url: string; readonly size: number }>> {
     if (key === undefined) { return { ok: false, problem: 'No instance is open.' }; }
     return this.exporting.run(async () => {
       const made = await this.#api.exportSystemData.call({ ...key, ...(withSecrets ? { withSecrets } : {}) });

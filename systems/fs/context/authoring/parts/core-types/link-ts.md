@@ -38,6 +38,31 @@ type ConfigValue = {
 };
 ```
 
+#### <a id="core-hello"></a>`Hello`
+
+const, type · declared in `packages/core/src/link.ts`
+
+The first call from a system. A new name starts pairing; a known name gets a challenge.
+
+```ts
+type Hello = {
+  protocol: 1;
+  name: SystemName;
+  version: string;
+  instance: InstanceName;
+  boot: string;
+  publicKey: string;
+  manifestHash: string;
+  instances?: "one" | "many" | undefined;
+  contractHash?: string | undefined;
+  pairingToken?: string | undefined;
+  autoPair?: {
+    secret: string;
+    id: string;
+  } | undefined;
+};
+```
+
 #### <a id="core-hublinkspec"></a>`HubLinkSpec`
 
 type · declared in `packages/core/src/link.ts`
@@ -326,6 +351,22 @@ type RunRequest = {
             };
           }[] | undefined;
         } | undefined;
+      } | undefined;
+      summary?: {
+        line: string;
+        counts: {
+          section: string;
+          added: number;
+          changed: number;
+          removed: number;
+        }[];
+        flags: {
+          flag: "models" | "capabilities" | "secrets" | "effects" | "files" | "calls" | "hosts" | "delete-fns" | "write-fns";
+          line: string;
+          items: string[];
+        }[];
+        grants?: "added" | "changed" | "widened" | "narrowed" | undefined;
+        config?: "removed" | "added" | "changed" | undefined;
       } | undefined;
     };
   } | undefined;

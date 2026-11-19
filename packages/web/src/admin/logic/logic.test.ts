@@ -173,12 +173,15 @@ describe('browsers and nav', () => {
 
   it('lists every admin section and marks the current one', () => {
     const entries = adminNav({ name: 'system' }, { systems: 2 });
-    expect(entries.map((e) => e.id)).toEqual(['systems', 'fns', 'models', 'limits', 'policies', 'actor-settings', 'runs', 'model-calls', 'mcps', 'mcp-servers', 'api-services']);
+    expect(entries.map((e) => e.id)).toEqual(['systems', 'fns', 'graph', 'models', 'limits', 'policies', 'actor-settings', 'runs', 'model-calls', 'mcps', 'mcp-servers', 'api-services']);
     // the resource browser is a top-level page; the admin nav has no entry that only redirects there
     expect(entries.find((e) => e.label === 'Budgets')?.id).toBe('limits');
     // the LLM calls browser and a fn's page sit under their sections
     expect(adminNav({ name: 'llm-calls' }).find((e) => e.active)?.id).toBe('model-calls');
     expect(adminNav({ name: 'fn' }).find((e) => e.active)?.id).toBe('fns');
+    // the graph is an admin section of its own, in the Systems group
+    expect(adminNav({ name: 'graph' }).find((e) => e.active)?.id).toBe('graph');
+    expect(adminNavGroups({ name: 'graph' }).find((g) => g.active)?.entries.map((e) => e.id)).toEqual(['systems', 'graph', 'mcp-servers', 'api-services']);
     expect(entries.find((e) => e.active)?.id).toBe('systems');
     expect(entries[0]?.count).toBe(2);
     expect(adminNav({ name: undefined }).some((e) => e.active)).toBe(false);
@@ -203,7 +206,7 @@ describe('build 3 admin forms', () => {
     const on = decisionOf({ ...off, enabled: true, model: 'gpt-4o-mini' });
     if (!on.ok) { throw new Error(on.problem); }
     expect(decisionDraft({ value: on.value }).model).toBe('gpt-4o-mini');
-    expect(decisionModelText({ value: on.value })).toBe('gpt-4o-mini · last 3 messages · up to 6 of 20 above 0.2');
+    expect(decisionModelText({ value: on.value })).toBe('gpt-4o-mini · last 3 messages · up to 6 of 20 above 0.35');
     expect(decisionModelText(undefined)).toBe('Off: the score threshold decides');
     const parts = previewParts({ by: 'decision', items: [
       { used: true, kind: 'fn', name: QualifiedName.parse('fs/read') },

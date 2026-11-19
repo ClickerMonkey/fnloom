@@ -4,15 +4,15 @@
  * shows as an approval card (what it will do, then Approve or Deny with how long to remember the answer where that
  * is allowed); its buttons stay in sight, and a body too tall for the room is cut and shown whole on Review. With several waiting, the rest are listed under
  * it, and Deny all answers every one while Approve all answers only those with no preview: a write or schema change is
- * approved from its own card, once the person has seen what it does.
+ * approved from its own card, once the person has seen what it does. Each listed one names its fn as a `FnPill`.
  */
 import type { ApprovalId, Json, Remember } from '@harness/core';
 import { computed } from 'vue';
 import ApprovalCard from '../../components/approvals/ApprovalCard.vue';
 import { approvableTogether } from '../../components/approvals/rules.ts';
+import FnPill from '../../fns/components/FnPill.vue';
 import { UiButton, UiIcon } from '../../ui/index.ts';
 import { useFnNotice } from '../../fns/state/fn-notices.ts';
-import { fnLabel } from '../logic/labels.ts';
 import type { ApprovalView } from './types.ts';
 
 const props = defineProps<{ items: readonly ApprovalView[] }>();
@@ -42,7 +42,7 @@ function decide(approve: boolean, remember: Remember, reason: string, answer: Js
         <span class="lead">{{ others.length === 1 ? 'Also waiting' : `${others.length} more waiting` }}</span>
         <ul>
           <li v-for="item in others.slice(0, LISTED)" :key="item.id">
-            <span class="name">{{ item.preview?.title ?? fnLabel(item.fn) }}</span>
+            <FnPill class="name" :name="item.fn" :label="item.preview?.title" />
             <span v-if="item.preview" class="own" title="It has a preview, so it is approved from its own card"><UiIcon name="shield" :size="12" />own answer</span>
           </li>
           <li v-if="others.length > LISTED" class="rest">and {{ others.length - LISTED }} more</li>
@@ -67,7 +67,7 @@ function decide(approve: boolean, remember: Remember, reason: string, answer: Js
 .lead { font-weight: var(--weight-strong); }
 ul { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); min-width: 0; margin: 0; padding: 0; list-style: none; }
 li { display: inline-flex; align-items: center; gap: var(--space-1); min-width: 0; }
-.name { overflow-wrap: anywhere; color: var(--text); }
+.name { min-width: 0; }
 .own { display: inline-flex; align-items: center; gap: 2px; color: var(--warn); }
 .rest { color: var(--text-faint); }
 </style>

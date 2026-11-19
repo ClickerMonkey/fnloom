@@ -41,7 +41,7 @@ async function start(hub: FakeHub): Promise<RunningSystem<'notes'>> {
     kinds: {
       query: {
         async check() { return []; },
-        async describe() { return { args: { name: 'obj' }, returns: { name: 'num' }, deps: [], operations: { cancel: true, pause: false, undo: false, background: true } }; },
+        async describe() { return { args: { name: 'obj' }, returns: { name: 'num' }, deps: [], operations: { cancel: true, pause: false, undo: false, background: true }, examples: [{ args: {} }] }; },
         async run(_payload, _args, ctx) { return ctx.done(1); },
         async estimate(payload, input) {
           return { min: 0, typical: payload.sql.length / 1000, max: 1, basis: 'payload', runs: input.history?.runs ?? 0 };

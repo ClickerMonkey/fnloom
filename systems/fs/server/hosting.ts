@@ -24,7 +24,7 @@ import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } fr
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { InstanceName, MAIN_INSTANCE, PACKAGE_MANIFEST_FILE, ScanReport, SystemGrants, SystemName, SystemPackageManifest, type ApprovalPreview, type FileGrant, type InstallChecks, type SystemTestReport, type InstallSubject, type InstanceRef, type PairingGrant, type PreviewPart } from '@harness/core';
+import { InstanceName, MAIN_INSTANCE, Manifest, PACKAGE_MANIFEST_FILE, ScanReport, SystemGrants, SystemName, SystemPackageManifest, type ApprovalPreview, type FileGrant, type InstallChecks, type SystemTestReport, type InstallSubject, type InstanceRef, type PairingGrant, type PreviewPart } from '@harness/core';
 import { z } from 'zod';
 import type { HostedStatusValue, HostedStateValue, InstallResultValue } from '../shared/hosting.ts';
 import { HostedProcess, killStale, type ProcessProbe } from './stale.ts';
@@ -40,6 +40,11 @@ export const BuiltSystem = z.object({
   manifestHash: z.string().min(1),
   /** What the contract declares it may do (`Manifest.grants`): its files and network are enforced on this machine. */
   grants: SystemGrants.optional(),
+  /**
+   * The contract it declares (with its built client, hashed as `manifestHash`), sent with the install card so the hub
+   * says what it changes over the version it has. Absent from builds kept before it was.
+   */
+  contract: Manifest.optional(),
   /** sha-256 of the self-contained server bundle. */
   bundleHash: z.string().min(1),
   /** The bundle's server file, under the build folder. */
@@ -312,6 +317,11 @@ export class Hosting {
    * here, so the run starts exactly what the admin saw.
    */
   async preview(folder: string, options: { instance?: string | undefined }, signal: AbortSignal): Promise<ApprovalPreview> {
+    return (await this.card(folder, options, signal)).preview;
+  }
+
+  /** The card (`preview`) with the contract it would install, which the hub reads to say what it changes (`PreviewAnswer.contract`). */
+  async card(folder: string, options: { instance?: string | undefined }, signal: AbortSignal): Promise<{ preview: ApprovalPreview; contract?: Manifest }> {
     const manifest = await this.#systemJson(folder);
     const instance = this.#instance(options.instance);
     const hosted = await this.record(manifest.name, instance);
@@ -362,7 +372,7 @@ export class Hosting {
       { type: 'text', text: ['Scan (a report, not a guarantee):', ...scanLines(built.scan).map((line) => `- ${line}`)].join('\n') },
       ...built.scan.concerns.map((concern) => ({ type: 'code' as const, language: 'js', code: `${concern.code}  // ${concern.detail}`, title: `Bundle line ${String(concern.line)}` })),
     ];
-    return { title, parts, irreversible: false, subject, checks };
+    return { preview: { title, parts, irreversible: false, subject, checks }, ...(built.contract === undefined ? {} : { contract: built.contract }) };
   }
 
   /** Start what an admin approved; see the file's docs. Installs of one system wait for each other. */

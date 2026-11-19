@@ -81,7 +81,7 @@ async function start(hub: FakeHub): Promise<void> {
     kinds: {
       relay: {
         async check() { return []; },
-        async describe() { return { args: { name: 'any' }, returns: { name: 'any' }, deps: [...DEPS], operations: { cancel: true, pause: false, undo: false, background: false } }; },
+        async describe() { return { args: { name: 'any' }, returns: { name: 'any' }, deps: [...DEPS], operations: { cancel: true, pause: false, undo: false, background: false }, examples: [{ args: {} }] }; },
         async run(payload, args, ctx) {
           ctx.progress({ fraction: 0.25, message: 'starting' });
           ctx.progress({ step: 'call', status: 'active', detail: 'calling' });

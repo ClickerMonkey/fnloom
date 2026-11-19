@@ -15,7 +15,7 @@ import { implement, peers, reject, server, type Peer, type Peers, type Server, t
 import {
   ContentRef, Json, MAIN_INSTANCE, hubLinkSpec, proposalSubjectOf, splitName, linkSession, linkTel, mintId, qualify, systemLinkSpec,
   type ConnectResult, type DecideAnswer, type KindEstimateAnswer, type FleetInstance, type HubModelInfo, type PreviewAnswer, type ProposedRun, type InstanceName, type ModelForward, type ModelForwardResult, type PairingInfo, type AdminNotice,
-  type AutoPairGrant, type AutoPairProof, type ConfigValue, type HandlerAnswer, type HubLinkSpec, type ImportReport, type JsonObject, type KindFnShape, type LinkSession, type LlmForward,
+  type AutoPairGrant, type ConfigValue, type Hello, type HandlerAnswer, type HubLinkSpec, type ImportReport, type JsonObject, type KindFnShape, type LinkSession, type LlmForward,
   type LlmForwardChunk, type LogLine, type Manifest, type ManifestPatch, type OutcomeWire, type PairingId, type QualifiedName,
   type PairingGrant, type PairingGrantRequest, type ResourceRead, type ResourceHit, type MentionResourceSearch, type FlagsAnswer, type MentionOption as WireMentionOption, type RunControl, type Section, type RunInfo, type RunRequest, type RunSettled, type StateOwner, type SystemLinkSpec, type TypeDefinitions, type UserInfo, ActorId, SystemName,
 } from '@harness/core';
@@ -211,7 +211,8 @@ export class FakeHub {
   readonly process = new FakeProcess();
 
   // ─── What systems sent ──────────────────────────────────────────────────────
-  readonly hellos: Array<{ name: string; instance: InstanceName; boot: string; manifestHash: string; pairingToken?: string | undefined; autoPair?: AutoPairProof | undefined }> = [];
+  /** Every hello it was sent, as sent. */
+  readonly hellos: Hello[] = [];
   readonly manifests: Manifest[] = [];
   readonly patches: ManifestPatch[] = [];
   readonly calls: Array<HubBody<'call'>> = [];
@@ -359,6 +360,8 @@ export class FakeHub {
       logger: (sink) => systemLogger({ level: 'debug', json: false, sink, console: 'none' }),
       // the place's folders are named but never made: a test that writes data makes its own
       folders: () => Promise.resolve(),
+      // a test's contracts are fixtures: the real ones are checked for examples by their own tests
+      requireExamples: false,
       ...deps,
     });
   }
@@ -623,7 +626,7 @@ export class FakeHub {
       .handlers({
         hello: ({ data, conn }) => {
           if (conn === undefined) { throw reject(400, 'WS_ONLY', 'The link is WebSocket only.'); }
-          this.hellos.push({ name: data.name, instance: data.instance, boot: data.boot, manifestHash: data.manifestHash, pairingToken: data.pairingToken, autoPair: data.autoPair });
+          this.hellos.push(data);
           if (data.autoPair !== undefined && this.#options.refuseAutoPair === true) {
             throw reject(401, 'AUTO_PAIR_REFUSED', 'the auto-pair secret is unknown, expired or revoked');
           }

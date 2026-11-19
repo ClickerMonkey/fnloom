@@ -71,6 +71,7 @@ export function fakeReviewApi() {
     goLive: fakeCaller<'goLive'>(({ hash }) => Promise.resolve({ stage: 'live' as const, hash })),
     approveReview: fakeCaller<'approveReview'>(({ hash }) => Promise.resolve({ hash })),
     rejectReview: fakeCaller<'rejectReview'>(() => Promise.resolve({ ok: true })),
+    decideReview: fakeCaller<'decideReview'>(({ hash }) => Promise.resolve({ hash, waiting: 0 })),
     testCall: fakeCaller<'testCall'>(() => Promise.resolve({ run: 'run_test' })),
     refusals: fakeCaller<'refusals'>(() => Promise.resolve({ items: [refusal()] })),
   };

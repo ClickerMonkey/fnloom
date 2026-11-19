@@ -289,6 +289,10 @@ describe('the database system over the link', () => {
     await hub.configure(shopConfig({ label: 'Shop (renamed)' }));
     for (let wait = 0; described.length === 0 && wait < 200; wait += 1) { await new Promise((resolve) => setTimeout(resolve, 10)); }
     expect(described[0]).toMatchObject({ problems: [], description: { args: { name: 'obj', props: { status: {} } }, effects: { mode: 'read' } } });
+    // its example gives the param a sample value: every saved query shows how it is called
+    const sample: unknown = expect.anything();
+    const note: unknown = expect.stringContaining('Sample values for its params');
+    expect(described[0]).toMatchObject({ description: { examples: [{ args: { status: sample }, note }] } });
   });
 
   it('previews and makes a table from a type, and refuses one that exists', async () => {

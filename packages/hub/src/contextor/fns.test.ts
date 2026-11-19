@@ -143,12 +143,12 @@ describe('the contextor\'s hub fns', () => {
     };
     const { search, call } = await started({ scope });
     search.hits = [
-      { kind: 'fn', key: 'fs/off', score: 1, text: '' },
-      { kind: 'fn', key: 'fs/read', score: 0.9, text: '' },
-      { kind: 'context', key: 'memory/mine', score: 0.8, text: '' },
-      { kind: 'context', key: 'fs/guide', score: 0.7, text: '' },
-      { kind: 'section', key: 'file:///a.md#Usage', score: 0.6, text: 'Usage' },
-      { kind: 'section', key: 'file:///docs/b.md#Intro', score: 0.5, text: 'Intro' },
+      { kind: 'fn', key: 'fs/off', rank: 1, similarity: 1, text: '' },
+      { kind: 'fn', key: 'fs/read', rank: 0.9, similarity: 0.9, text: '' },
+      { kind: 'context', key: 'memory/mine', rank: 0.8, similarity: 0.8, text: '' },
+      { kind: 'context', key: 'fs/guide', rank: 0.7, similarity: 0.7, text: '' },
+      { kind: 'section', key: 'file:///a.md#Usage', rank: 0.6, similarity: 0.6, text: 'Usage' },
+      { kind: 'section', key: 'file:///docs/b.md#Intro', rank: 0.5, similarity: 0.5, text: 'Intro' },
     ];
     expect(await call('hub/inspect', { name: 'fs/read', detail: 'listed' }, MCP_CALLER)).toMatchObject({ status: 'done' });
     // what the MCP leaves out is not there for its client, even what the chat can see

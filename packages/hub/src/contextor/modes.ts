@@ -8,7 +8,7 @@
  */
 import { hub, type AnyFnRef } from '@harness/sdk';
 import {
-  InstanceName, Json, JsonObject, messageOf, problemLine, QualifiedName, STATIC_TOOLS, SystemName, type Detail, type FnExample, type InputProblem, type InvalidInput, type StaticMode, type StaticTool,
+  fnOfToolName, InstanceName, Json, RunArgs, JsonObject, messageOf, problemLine, QualifiedName, STATIC_TOOLS, SystemName, type Detail, type FnBlock, type FnExample, type InputProblem, type InvalidInput, type StaticMode, type StaticTool,
 } from '@harness/core';
 import { z } from 'zod';
 import { executingSystem } from '../execution/runs.ts';
@@ -34,12 +34,8 @@ export const REPLACED_BY_STATIC: ReadonlySet<string> = new Set<string>([
   hub.fns.fns_search.name, hub.fns.load_fns.name, hub.fns.drop_fns.name, hub.fns.load_context.name,
 ]);
 
-/** The `run` tool's args. */
-export const RunArgs = z.object({
-  fn: z.string().min(1).describe('The fn to run, by its qualified name (fs/read).'),
-  args: z.record(z.string(), z.json()).default({}).describe('Its args, as its card shows them.'),
-  on: InstanceName.optional().describe('For a system with several machines connected, which one runs it (laptop).'),
-});
+/** The `run` tool's args (core's, so the web reads a call's fn the same way). */
+export { RunArgs } from '@harness/core';
 
 /** How many near names an unknown fn's reply offers. */
 const NEAR_NAMES = 3;
@@ -105,11 +101,12 @@ export function problemsOf(error: z.ZodError): InputProblem[] {
 }
 
 /** An invalid-input plan. */
-function invalid(fn: QualifiedName | undefined, source: InvalidInput['source'], problems: readonly InputProblem[], reply: string, given?: { raw?: string; args?: Json }): CallPlan {
+function invalid(fn: QualifiedName | undefined, source: InvalidInput['source'], problems: readonly InputProblem[], reply: string, given?: { raw?: string; args?: Json; blocked?: FnBlock }): CallPlan {
   const [first, ...rest] = problems;
   const listed: InvalidInput['problems'] = first === undefined ? [{ path: '', message: reply }] : [first, ...rest];
-  const raw = given?.raw;
-  return { type: 'invalid', fn, invalid: { source, problems: listed, ...(raw === undefined ? {} : { raw }) }, reply, ...(given?.args === undefined ? {} : { args: given.args }) };
+  const { raw, blocked } = given ?? {};
+  const refused: InvalidInput = { source, problems: listed, ...(raw === undefined ? {} : { raw }), ...(blocked === undefined ? {} : { blocked }) };
+  return { type: 'invalid', fn, invalid: refused, reply, ...(given?.args === undefined ? {} : { args: given.args }) };
 }
 
 
@@ -122,18 +119,7 @@ function blockedCall(view: FnView | undefined, scope: CallScope): CallPlan | und
   const blocked = view === undefined ? undefined : fnRefusal(view.record, scope.session, scope.access);
   if (view === undefined || blocked === undefined || readsAsMissing(blocked)) return undefined;
   const line = blockedLine(view.record.name, blocked);
-  return invalid(view.record.name, 'schema', [{ path: 'fn', message: line }], `${line}. Don't call it again; tell the person what blocks it.`);
-}
-
-/**
- * The fn a native tool name not in this step's tools may mean, for a better refusal: the model's own `system/name`,
- * else `toolName` undone, kept only when it encodes back to the same tool name (a lossy name means none).
- */
-function fnOfToolName(name: string): QualifiedName | undefined {
-  const given = QualifiedName.safeParse(name);
-  if (given.success) return given.data;
-  const guess = QualifiedName.safeParse(name.replaceAll('__', '/').replaceAll('--', '.'));
-  return guess.success && toolName(guess.data) === name ? guess.data : undefined;
+  return invalid(view.record.name, 'schema', [{ path: 'fn', message: line }], `${line}. Don't call it again; tell the person what blocks it.`, { blocked });
 }
 
 /** Strict tools: one native tool per selected fn. */

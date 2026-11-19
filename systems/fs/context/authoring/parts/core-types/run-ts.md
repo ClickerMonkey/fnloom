@@ -123,6 +123,11 @@ type InvalidInput = {
     message: string;
   }[];
   raw?: string | undefined;
+  blocked?: {
+    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+    reason: string;
+    system?: SystemName | undefined;
+  } | undefined;
 };
 ```
 
@@ -166,6 +171,11 @@ type OutcomeWire = {
       message: string;
     }[];
     raw?: string | undefined;
+    blocked?: {
+      code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+      reason: string;
+      system?: SystemName | undefined;
+    } | undefined;
   };
   undo?: z.core.util.JSONType | undefined;
   cost?: number | undefined;

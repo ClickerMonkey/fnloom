@@ -3,14 +3,16 @@
  * One LLM call, whole: model and provider, tokens, cost, time to first token and duration; what the model saw (the
  * system prompt, each message with the hub's tagged additions picked out, and the tools offered); what the contextor
  * chose for it and how the window was split (the context inspector); what it answered
- * (text, reasoning, tool calls); and the raw JSON. Read-only and copyable.
+ * (text, reasoning, tool calls); and the raw JSON. Read-only and copyable. A tool that is a fn (`hub__fns_search` read
+ * back to `hub/fns_search`), offered or called, and the fn a static `run` call names, is a `FnPill` that opens the fn modal.
  */
-import type { LlmInteraction } from '@harness/core';
+import { fnOfToolName, type LlmInteraction } from '@harness/core';
 import { computed } from 'vue';
 import { UiBadge, UiCodeBlock, UiTabs, fullTime, type TabItem } from '../../ui/index.ts';
 import { formatCost, formatDuration, formatTokens } from '../logic/format.ts';
 import { humanize } from '../logic/labels.ts';
-import { messageContent, taggedBlocks, type LlmCallTab as Tab } from '../logic/inspect.ts';
+import { messageContent, taggedBlocks, toolCallFn, type LlmCallTab as Tab } from '../logic/inspect.ts';
+import FnPill from '../../fns/components/FnPill.vue';
 import SelectionReportView from './SelectionReportView.vue';
 
 const props = defineProps<{ call: LlmInteraction }>();
@@ -55,13 +57,13 @@ const json = computed(() => JSON.stringify(props.call, null, 2));
               <div v-for="(tag, i) in m.tags" :key="i" class="tag"><span class="tag-name">&lt;{{ tag.tag }}&gt;</span> {{ tag.text }}</div>
             </div>
             <pre class="text">{{ m.text }}</pre>
-            <pre v-for="tool in m.toolCalls" :key="tool.id" class="tool-call">{{ tool.name }}({{ tool.arguments }})</pre>
+            <div v-for="tool in m.toolCalls" :key="tool.id" class="tool-call" data-testid="llm-tool-call"><code v-if="fnOfToolName(tool.name) === undefined" class="tool-name">{{ tool.name }}</code><FnPill v-if="toolCallFn(tool)" :name="toolCallFn(tool) ?? ''" /><pre class="args">{{ tool.arguments }}</pre></div>
           </li>
         </ol>
         <div v-else-if="value === 'context' && call.selection" class="pane"><SelectionReportView :report="call.selection" /></div>
         <ul v-else-if="value === 'tools'" class="tools">
           <li v-for="tool in call.request.tools ?? []" :key="tool.name">
-            <strong>{{ tool.name }}</strong>
+            <p class="tool-head" data-testid="llm-tool"><template v-if="fnOfToolName(tool.name) === undefined"><strong>{{ tool.name }}</strong></template><template v-else><FnPill :name="fnOfToolName(tool.name) ?? ''" /><code class="tool-name">{{ tool.name }}</code></template></p>
             <p v-if="tool.description" class="dim">{{ tool.description }}</p>
           </li>
           <li v-if="(call.request.tools ?? []).length === 0" class="dim">No tools were offered.</li>
@@ -70,7 +72,7 @@ const json = computed(() => JSON.stringify(props.call, null, 2));
           <template v-if="call.response">
             <p v-if="call.response.reasoning" class="reasoning">{{ call.response.reasoning }}</p>
             <pre class="text">{{ call.response.content }}</pre>
-            <pre v-for="tool in call.response.toolCalls ?? []" :key="tool.id" class="tool-call">{{ tool.name }}({{ tool.arguments }})</pre>
+            <div v-for="tool in call.response.toolCalls ?? []" :key="tool.id" class="tool-call" data-testid="llm-tool-call"><code v-if="fnOfToolName(tool.name) === undefined" class="tool-name">{{ tool.name }}</code><FnPill v-if="toolCallFn(tool)" :name="toolCallFn(tool) ?? ''" /><pre class="args">{{ tool.arguments }}</pre></div>
             <p class="dim">Stopped: {{ call.response.finishReason }}</p>
           </template>
           <p v-else class="dim">No answer yet.</p>
@@ -96,8 +98,11 @@ dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .tags { display: grid; gap: 2px; }
 .tag { font-size: var(--text-xs); color: var(--text-dim); overflow-wrap: anywhere; }
 .tag-name { font-family: var(--mono); color: var(--accent); }
-.text, .tool-call { margin: 0; font-family: var(--mono); font-size: var(--text-xs); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow-y: auto; }
-.tool-call { color: var(--warn); }
+.text, .args { margin: 0; font-family: var(--mono); font-size: var(--text-xs); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow-y: auto; }
+.tool-call { display: grid; justify-items: start; gap: 4px; }
+.args { justify-self: stretch; color: var(--warn); }
+.tool-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0; }
+.tool-name { color: var(--text-faint); font-size: var(--text-xs); }
 .reasoning { margin: 0; color: var(--text-dim); font-size: var(--text-sm); white-space: pre-wrap; }
 .pane { padding-top: var(--space-3); }
 .answer { display: grid; gap: var(--space-2); padding-top: var(--space-3); }

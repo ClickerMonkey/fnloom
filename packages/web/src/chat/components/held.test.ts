@@ -31,7 +31,9 @@ describe('held-system banner on a turn', () => {
     const banners = wrapper.findAll('[data-testid=held-banner]');
     expect(banners.map((b) => b.attributes('data-system'))).toEqual(['database']);
     expect(banners[0]?.text()).toContain('database has changes waiting for review');
-    expect(banners[0]?.text()).toContain('database/create_table and database/insert_rows are off until then.');
+    expect(banners[0]?.text()).toContain('Create table and Insert rows are off until then.');
+    // each held fn is a pill with its qualified name on hover
+    expect(banners[0]?.findAll('[data-testid=fn-pill]').map((pill) => pill.attributes('title'))).toEqual(['database/create_table', 'database/insert_rows']);
     expect(wrapper.findComponent(RouterLinkStub).props('to')).toEqual(links.review(SystemName.parse('database'), 'pending'));
   });
 

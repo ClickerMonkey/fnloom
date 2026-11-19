@@ -2,7 +2,8 @@
 /**
  * What a run would do, as its system worked it out before approval: a warning when it can't be undone, then each part
  * in order — words (markdown), code to run (highlighted SQL or DDL), the rows it would touch, a type's change. An
- * install (`subject`) also shows what the approval binds (the system, its host and the hashes) after its words, then
+ * install (`subject`) opens with what its contract changes and its risk flags (`summary`, the hub's, as on the review
+ * page's Pending tab), and also shows what the approval binds (the system, its host and the hashes) after its words, then
  * its own tests (the counts and any failures) and its component previews, before the code the scan flagged. Code and
  * rows show at full height wherever it sits (a page, a dialog), so nothing scrolls inside a scroll.
  */
@@ -13,6 +14,7 @@ import PreviewGallery from '../checks/PreviewGallery.vue';
 import TestResults from '../checks/TestResults.vue';
 import InstallSubjectView from './InstallSubjectView.vue';
 import PreviewParts from './PreviewParts.vue';
+import ReviewSummaryStrip from './ReviewSummaryStrip.vue';
 
 const props = defineProps<{ preview: ApprovalPreview }>();
 
@@ -26,6 +28,7 @@ const after = computed(() => (props.preview.subject === undefined ? [] : props.p
 <template>
   <div class="preview" data-testid="approval-preview">
     <UiBanner v-if="preview.irreversible" tone="danger">This can't be undone once it runs.</UiBanner>
+    <ReviewSummaryStrip v-if="preview.summary" :summary="preview.summary" compact />
     <PreviewParts :parts="before" />
     <InstallSubjectView v-if="preview.subject" :subject="preview.subject" />
     <section v-if="tests" class="checks" data-testid="approval-checks">

@@ -5,13 +5,14 @@
  */
 import { reject } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
-import { systemsSlice, adminOnly, SystemView, type InstanceRecord, type SystemRecord } from '@harness/core';
+import { systemsSlice, adminOnly, SystemView, type InstanceRecord, type SystemCounts, type SystemRecord } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
 import { type AdminOperations } from '../admin-ops.ts';
 import { type FullHandlers } from './access.ts';
 import { allRows } from '../../store/rows.ts';
 import { defaultInstanceOf } from '../../link/status.ts';
 import { maskSecrets } from '../../link/config-secrets.ts';
+import { partCount } from '../system-parts.ts';
 
 /** An instance as the admin pages see it: its config's secret fields as `SECRET_KEPT`. */
 export function maskedInstance(record: InstanceRecord): InstanceRecord {
@@ -24,20 +25,29 @@ import type { authPlugin } from './auth.ts';
 import type { HubReads } from '../reads.ts';
 
 /**
- * A system as the admin pages show it: without keys, with its fn count, config type and instances, and its default
- * instance's key, config, process and last sighting for the pages that show one copy.
+ * A system as the admin pages show it: without keys, with its counts (each a `count()` in the database), config type,
+ * instance mode and instances, and its default instance's key, config, process and last sighting for the pages that
+ * show one copy.
  */
-export async function systemView(hub: Pick<HubServices, 'catalog' | 'store'>, record: SystemRecord): Promise<SystemView> {
-  const [fns, manifest, rows] = await Promise.all([
-    hub.catalog.fns({ system: record.name }), hub.catalog.manifest(record.name), allRows(hub.store.table('instances'), { where: { system: record.name } }),
+export async function systemView(hub: Pick<HubServices, 'store'> & { readonly catalog: Pick<HubServices['catalog'], 'manifest'> }, record: SystemRecord): Promise<SystemView> {
+  const system = record.name;
+  const { store } = hub;
+  const [manifest, rows, review, fns, context, types, refusals] = await Promise.all([
+    hub.catalog.manifest(system), allRows(store.table('instances'), { where: { system } }), store.table('systemReviews').get(system),
+    store.table('fns').count({ system }), store.table('context').count({ system }), store.table('types').count({ system }), store.table('refusals').count({ system }),
   ]);
   // a sealed secret field reads as SECRET_KEPT; sending that back keeps it
   const instances = rows.sort((a, b) => a.instance.localeCompare(b.instance)).map(maskedInstance);
   const main = instances.find((i) => i.instance === defaultInstanceOf(record, instances));
+  const counts: SystemCounts = {
+    fns, context, types, parts: await partCount(hub, system, manifest), instances: instances.filter((i) => i.status !== 'removed').length,
+    pending: review?.pending?.changes.length ?? 0, refusals,
+  };
   return SystemView.parse({
     ...record, keyFingerprint: main?.keyFingerprint ?? '', config: main?.config, installed: main?.installed, pairedAt: main?.pairedAt, pairedBy: main?.pairedBy,
     lastSeenAt: main?.lastSeenAt, address: main?.address,
-    fns: fns.length, needsConfig: record.status === 'needs-config', configType: manifest?.config, ...(manifest?.configSecrets === undefined ? {} : { configSecrets: manifest.configSecrets }), instances,
+    counts, instanceMode: record.instances ?? 'many', needsConfig: record.status === 'needs-config', configType: manifest?.config,
+    ...(manifest?.configSecrets === undefined ? {} : { configSecrets: manifest.configSecrets }), instances,
   });
 }
 

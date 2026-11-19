@@ -2,10 +2,12 @@
 /**
  * What an MCP's rules expose now: its fns, types (and those pulled in only because an exposed fn needs them), context,
  * resource roots, the fns its fns may call under the same grant, and warnings (an excluded type a fn needs, context
- * that brings a fn that isn't exposed). Live while the rules are edited.
+ * that brings a fn that isn't exposed). Live while the rules are edited. Fns (exposed, and those they may call) are
+ * `FnPill`s that open the fn modal.
  */
 import type { McpScopePreview } from '@harness/core';
 import { computed } from 'vue';
+import FnPill from '../../fns/components/FnPill.vue';
 import { UiBadge, UiBanner, UiSkeleton, UiSpinner } from '../../ui/index.ts';
 
 const props = withDefaults(defineProps<{ preview: McpScopePreview | undefined; loading: boolean; problem?: string }>(), { problem: '' });
@@ -14,12 +16,12 @@ const groups = computed(() => {
   const p = props.preview;
   if (p === undefined) { return []; }
   return [
-    { key: 'fns', title: 'Fns', items: p.fns, about: 'Tools an MCP client can call.' },
+    { key: 'fns', title: 'Fns', items: p.fns, about: 'Tools an MCP client can call.', fns: true },
     { key: 'types', title: 'Types', items: p.types, about: '' },
     { key: 'closure', title: 'Types the fns need', items: p.closure, about: 'Exposed because an exposed fn takes or returns them.' },
     { key: 'context', title: 'Context', items: p.context, about: '' },
     { key: 'resources', title: 'Resources', items: p.resources.map((r) => (r.system === undefined ? r.uri : `${r.uri} on ${r.system}${r.instance === undefined ? '' : `@${r.instance}`}`)), about: '' },
-    { key: 'reach', title: 'Fns they may call', items: p.reach, about: 'Run under the same grant when an exposed fn calls them.' },
+    { key: 'reach', title: 'Fns they may call', items: p.reach, about: 'Run under the same grant when an exposed fn calls them.', fns: true },
   ];
 });
 </script>
@@ -37,7 +39,8 @@ const groups = computed(() => {
       <div v-for="group in groups" :key="group.key" class="group" :data-group="group.key">
         <p class="group-title">{{ group.title }} <span class="count">{{ group.items.length }}</span></p>
         <p v-if="group.about !== '' && group.items.length > 0" class="about">{{ group.about }}</p>
-        <p v-if="group.items.length > 0" class="items"><UiBadge v-for="item in group.items" :key="item"><code>{{ item }}</code></UiBadge></p>
+        <p v-if="group.items.length > 0 && group.fns" class="items"><FnPill v-for="item in group.items" :key="item" :name="item" /></p>
+        <p v-else-if="group.items.length > 0" class="items"><UiBadge v-for="item in group.items" :key="item"><code>{{ item }}</code></UiBadge></p>
         <p v-else class="about">None.</p>
       </div>
       <p class="note">Fns tagged admin are never exposed, whatever the rules say.</p>

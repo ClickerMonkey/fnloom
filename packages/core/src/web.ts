@@ -21,7 +21,7 @@ import { ChatCapabilities, ChatMessage, NotifyChoice, OutgoingPart, Presence, Se
 import { Notification, PushSubscription, ResourceRecord } from './records/content.ts';
 import { DeliveryView, HandlerCall, LlmInteraction, Run, StateFieldValue, TreeNode, UndoReport } from './records/runs.ts';
 import { BudgetRule, ModelCategory, PriorityRule, ProviderKind, providerVariants, ResolvedLimits } from './records/spend.ts';
-import { ContextRecord, FnRecord, FnStats, InstallSource, PairingRequest, SystemEnabled, SystemRecord, SystemStatus, TypeDefinitions } from './records/systems.ts';
+import { ContextRecord, FnRecord, FnStats, InstallSource, InstanceMode, PairingRequest, SystemEnabled, SystemRecord, SystemStatus, TypeDefinitions } from './records/systems.ts';
 import { Policy } from './records/actors.ts';
 import { ContextFromResourceArgs, ContextFromResourceResult, ContextLink, DeclarableRelation, LinkTarget, RememberArgs, UpdateMemoryArgs } from './context-graph.ts';
 import { FnMetrics, FnMetricsDay, FnMetricsQuery } from './metrics.ts';
@@ -41,7 +41,7 @@ import { PickOption, PickQuery } from './pickers.ts';
 import { AutoClassifier, AutoClassifierView, ClientLogBatch, ClientLogReceipt, FnExamplesPage, FnExamplesQuery, FnFacts, FnSearchPage, FnSearchQuery } from './fn-facts.ts';
 import { ContributionView } from './registries.ts';
 import { SystemParts, SystemPartsQuery } from './system-parts.ts';
-import { GoLiveRequest, ItemSection, RefusalPage, RefusalQuery, SystemReview, TestCallRequest } from './lifecycle.ts';
+import { GoLiveRequest, ItemSection, RefusalPage, RefusalQuery, ReviewDecided, ReviewDecision, SystemReview, TestCallRequest } from './lifecycle.ts';
 import { SystemStage } from './grants.ts';
 import { GraphPage, GraphQuery } from './graph.ts';
 import { HubIdentity, SetHubName } from './identity.ts';
@@ -92,13 +92,31 @@ export const InstanceView = InstanceRecord.omit({ publicKey: true });
 export type InstanceView = z.infer<typeof InstanceView>;
 
 /**
+ * How much a system has, each counted in the hub's database: its fns, context items, named types (its instances' too),
+ * other parts (kinds, `/commands`, providers, examples, …: `SystemParts` without its live resource roots), instances
+ * (not removed), the changes waiting in its review, and the calls the hub refused it.
+ */
+export const SystemCounts = z.object({
+  fns: z.number().int().min(0),
+  context: z.number().int().min(0),
+  types: z.number().int().min(0),
+  parts: z.number().int().min(0),
+  instances: z.number().int().min(0),
+  pending: z.number().int().min(0),
+  refusals: z.number().int().min(0),
+});
+export type SystemCounts = z.infer<typeof SystemCounts>;
+
+/**
  * A system as the admin pages show it: the system, every instance, and for pages that show one copy, its default
  * instance's key, config, process and last sighting (`keyFingerprint` is blank for a system with no instance).
  */
-export const SystemView = SystemRecord.omit({ keyFingerprint: true, publicKey: true, config: true, pairedAt: true, pairedBy: true, lastSeenAt: true, address: true })
+export const SystemView = SystemRecord.omit({ keyFingerprint: true, publicKey: true, config: true, pairedAt: true, pairedBy: true, lastSeenAt: true, address: true, instances: true })
   .extend(InstanceRecord.pick({ keyFingerprint: true, config: true, installed: true, host: true, pairedAt: true, pairedBy: true, lastSeenAt: true, address: true }).shape)
   .extend({
-    fns: z.number().int(),
+    counts: SystemCounts,
+    /** One instance (`main`, shown on the system's own page) or a fleet; a system none of whose instances said is a fleet. */
+    instanceMode: InstanceMode,
     needsConfig: z.boolean(),
     configType: Json.optional(),
     /** Its config's secret fields (`Manifest.configSecrets`): drawn as password inputs. */
@@ -686,6 +704,8 @@ export const reviewSlice = spec({
     /** Approve the pending review (same body as going live), or drop it: the live version stays and the changes stay off. */
     approveReview: { body: GoLiveRequest, response: z.object({ hash: z.string() }), ws: 'approveReview' },
     rejectReview: { body: z.object({ system: SystemName, hash: z.string().min(1) }), response: z.object({ ok: z.boolean() }), ws: 'rejectReview' },
+    /** Approve some pending changes and decline others (the rest keep waiting); refused (409) when they moved since `hash`. */
+    decideReview: { body: ReviewDecision, response: ReviewDecided, ws: 'decideReview' },
     /** Run a fn of an installed system (or a pending item) as the admin, marked as a test. */
     testCall: { body: TestCallRequest, response: z.object({ run: RunId }), ws: 'testCall' },
     refusals: { body: RefusalQuery, response: RefusalPage, ws: 'refusals' },

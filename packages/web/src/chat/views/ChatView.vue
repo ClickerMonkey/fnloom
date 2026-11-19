@@ -36,7 +36,7 @@ import { agentName, fnLabel } from '../logic/labels.ts';
 import { drawerRun, recordIsBehind } from '../logic/runs.ts';
 import { useChatUrl } from '../url.ts';
 import ThreadPane from './ThreadPane.vue';
-import FnModal from '../../fns/components/FnModal.vue';
+import { useFnModal } from '../../fns/state/fn-modal.ts';
 import ModelPicker from '../components/ModelPicker.vue';
 import SessionPeople from '../components/SessionPeople.vue';
 import { modelChoiceOf, modelPick, type ModelPick } from '../logic/session.ts';
@@ -80,9 +80,10 @@ function showArchived(archived: boolean): void {
 }
 
 const thread = computed(() => (url.session.value === undefined ? undefined : chat.thread(url.session.value)));
-/** The fn looked into from a run (its modal), and the thread's runs in call order for its runs here. */
-const fnOpen = ref<QualifiedName | undefined>(undefined);
+/** The app's fn modal lists the thread's runs of the fn it shows (in call order), and opens a run in the chat's run panel. */
+const fnModal = useFnModal();
 const threadRuns = computed(() => [...(thread.value?.runs.value.values() ?? [])]);
+fnModal?.within({ runs: () => threadRuns.value, run: (id) => ({ query: { ...router.currentRoute.value.query, run: id }, hash: router.currentRoute.value.hash }) });
 const record = computed(() => thread.value?.session.value);
 /** The open chat's dry run of its contextor, for its settings. */
 const preview = computed(() => (url.session.value === undefined ? undefined : chat.preview(url.session.value)));
@@ -318,7 +319,7 @@ onBeforeUnmount(() => {
           :problem="chat.inspector.run.problem.value" :now="now" :args-type="runView && chat.capabilities.invocation(runView.fn)?.args" :can-see-calls="auth.user.value?.role === 'admin'" @background="backgroundRun"
           @tree="runView?.turn && url.openTree(runView.turn)" @undo="undoRunTurn" @llm="url.open('llm', $event)"
           @run="url.open('run', $event)" @retry="url.run.value && chat.inspector.openRun(url.run.value)" @calls="router.push(links.modelCalls({ run: $event }))"
-          @fn="fnOpen = $event"
+          @fn="fnModal?.open($event)"
         />
         <TurnTree
           v-else-if="url.top.value === 'tree'" :tree="chat.inspector.tree.value.value" :loading="chat.inspector.tree.loading.value" :problem="chat.inspector.tree.problem.value"
@@ -350,10 +351,6 @@ onBeforeUnmount(() => {
     </PanelHost>
 
     <ShortcutsDialog v-model:open="shortcutsOpen" />
-    <FnModal
-      v-if="fnOpen" v-model:fn="fnOpen" :runs="threadRuns" :can-open-page="auth.user.value?.role === 'admin'" :manage="auth.user.value?.role === 'admin'"
-      @run="(id) => { fnOpen = undefined; url.open('run', id); }" @page="router.push(links.fn($event))"
-    />
     <ConfirmDialog
       v-model:open="deletingOpen" :title="`Delete “${deletingTitle}”?`" confirm="Delete chat" :busy="removing" data-testid="confirm-delete"
       body="Its messages and what its fns kept in this chat go for good. Work still running in it is stopped. Changes fns already made stay."

@@ -4,7 +4,7 @@
  * versions are the hub's.
  */
 import { CODE_KIND, CodeFnSpec, KindDescription, QualifiedName, splitName, type Json } from '@harness/core';
-import { CallFailed, hub, type FnCtx, type KindCheckCtx, type SystemImpl, type TypesOf } from '@harness/sdk';
+import { CallFailed, hub, sampleArgs, type FnCtx, type KindCheckCtx, type SystemImpl, type TypesOf } from '@harness/sdk';
 import {
   ProgramError, calleesMode, checkProgram, hubProgramHost, kindCheckLookups, kindRunLookups, runProgram, storedProgramScope, type ProgramCheck, type ProgramLookups,
 } from '@harness/sdk/program';
@@ -100,6 +100,8 @@ export function createCodeImpl(_deps: CodeDeps): SystemImpl<CodeContract['defs']
             operations: { cancel: true, pause: false, undo: false, background: false },
             // its own work is free and only reads; calling fns, it does what the strongest of them does
             effects: check.calls.length === 0 ? { mode: 'read', free: true } : { mode: await calleesMode(check.calls, lookups) },
+            // its args filled with sample values read off its schema
+            examples: [{ args: sampleArgs(spec.args), note: 'Runs the program with sample values: use real ones.' }],
             ...(check.code === undefined ? {} : { readable: { language: 'ts', code: check.code } }),
           });
         },

@@ -31,6 +31,21 @@ function originIn(manifest: Manifest, section: ManifestSection): (local: string)
   return (local) => (runtime.has(local) ? 'runtime' : 'contract');
 }
 
+/** The `fnExamples` rows that are a system's parts: the ones its contract declared or it added while running. */
+const exampleRows = (system: SystemName) => ({ system, source: { in: ['decl', 'runtime'] as const } });
+
+/**
+ * How many parts `systemParts` lists for a system, without its examples' cut: the manifest's sections (one stored row)
+ * and its examples counted in the database.
+ */
+export async function partCount(hub: Pick<HubServices, 'store'>, system: SystemName, manifest: Manifest | undefined): Promise<number> {
+  if (manifest === undefined) { return 0; }
+  const listed = LISTED.reduce((sum, [from]) => sum + manifest[from].length, 0);
+  const commands = manifest.context.filter((decl) => decl.command !== undefined).length;
+  const declared = (manifest.providers?.length ?? 0) + (manifest.registries?.length ?? 0) + (manifest.contributes?.length ?? 0);
+  return listed + commands + declared + await hub.store.table('fnExamples').count(exampleRows(system));
+}
+
 /** Everything a system added beyond its fns, context and types; empty for a system the catalog has no manifest of. */
 export async function systemParts(hub: Pick<HubServices, 'catalog' | 'store'> & { readonly link: Pick<HubServices['link'], 'lifecycle'> }, system: SystemName): Promise<SystemParts> {
   const manifest = await hub.catalog.manifest(system);
@@ -52,13 +67,13 @@ export async function systemParts(hub: Pick<HubServices, 'catalog' | 'store'> & 
   for (const decl of manifest.registries ?? []) { parts.push(await part('registries', qualify(system, decl.name), decl.description, 'contract', decl)); }
   for (const decl of manifest.contributes ?? []) { parts.push(await part('components', `${decl.registry}: ${decl.label}`, decl.description ?? decl.label, 'contract', decl)); }
   const examples = hub.store.table('fnExamples');
-  const page = await examples.find({ where: { system, source: { in: ['decl', 'runtime'] } }, order: [['fn', 'asc'], ['order', 'asc']], limit: SYSTEM_PART_EXAMPLES });
+  const page = await examples.find({ where: exampleRows(system), order: [['fn', 'asc'], ['order', 'asc']], limit: SYSTEM_PART_EXAMPLES });
   for (const example of page.items) {
     const name = examplePartName(example);
     const { id: _id, createdAt: _createdAt, ...decl } = example;
     parts.push(await part('examples', name, example.text.split('\n')[0] ?? '', example.source === 'runtime' ? 'runtime' : 'contract', decl, { owner: example.fn }));
   }
-  const more = page.cursor === undefined ? {} : { examples: await examples.count({ system, source: { in: ['decl', 'runtime'] } }) };
+  const more = page.cursor === undefined ? {} : { examples: await examples.count(exampleRows(system)) };
   // build 7: each part says whether it is on (switched by `switchPart`, or held while a review waits)
   const off = new Set((await hub.link.lifecycle.offItems(system)).map((item) => itemKey(item)));
   return { parts: parts.map((p) => ({ ...p, on: !off.has(itemKey(p)) })), more };

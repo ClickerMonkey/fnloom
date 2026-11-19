@@ -1,11 +1,11 @@
 /**
  * How systems read on the admin pages: each status's tone and words, which lifecycle actions apply to a system now,
  * why a fn can't be used in plain words, the order systems are listed in (what needs the admin first), and a system's
- * other parts under their headings.
+ * other parts under their headings, and the counts its card shows.
  */
-import { SYSTEM_PART_SECTIONS, type AutoPairView, type Availability, type FnUnavailable, type InstalledStatus, type PairingRequest, type QueryFnArgs, type SystemName, type SystemPart, type SystemPartSection, type SystemParts, type SystemStatus, type SystemView } from '@harness/core';
+import { SYSTEM_PART_SECTIONS, type AutoPairView, type Availability, type FnDecl, type FnUnavailable, type InstalledStatus, type PairingRequest, type QueryFnArgs, type SystemName, type SystemPart, type SystemPartSection, type SystemCounts, type SystemParts, type SystemStatus, type SystemView } from '@harness/core';
 import type { Tone } from '../../ui/index.ts';
-import type { PartTab } from '../sections.ts';
+import type { PartTab, SystemTab } from '../sections.ts';
 
 /** How a status looks: its tone, its word, and whether it is in motion. */
 export interface StatusLook {
@@ -141,6 +141,14 @@ export function systemContextQuery(system: SystemName, cursor: string | undefine
   };
 }
 
+/** Why a fn with no examples is flagged, on a system's fn rows and in its review. */
+export const NO_EXAMPLES_WHY = 'Every fn needs at least one example, so a model sees how to call it: a native fn\'s or agent\'s author adds them; a fn of a kind gets its kind\'s.';
+
+/** Whether a fn's declaration has no example: a fn of a kind has its kind's once described, so a listed fn without any is flagged. */
+export function lacksExamples(decl: Pick<FnDecl, 'examples'>): boolean {
+  return (decl.examples ?? []).length === 0;
+}
+
 /** The first characters of a version hash, enough to tell two versions apart on a row. */
 export function shortVersion(version: string): string {
   return version.length > 8 ? version.slice(0, 8) : version;
@@ -185,4 +193,33 @@ export function partChoices(groups: readonly PartGroup[], roots: number): readon
 /** The choice shown: the one asked for when it holds something, else the first. */
 export function shownPart(choices: readonly PartChoice[], asked: PartTab): PartTab | undefined {
   return choices.some((choice) => choice.value === asked) ? asked : choices[0]?.value;
+}
+
+/** One count a system's card shows: how many, in words, where it leads (a tab of the system's page, or its review), and whether it wants the admin. */
+export interface CountChip {
+  readonly key: 'fns' | 'context' | 'types' | 'instances' | 'pending' | 'refusals';
+  readonly count: number;
+  readonly text: string;
+  readonly warn: boolean;
+  /** The system page's tab it opens; absent for pending changes, which open the review. */
+  readonly tab?: SystemTab;
+}
+
+/** A count in words: `1 fn`, `3 fns`. */
+const counted = (count: number, one: string, many: string): string => `${String(count)} ${count === 1 ? one : many}`;
+
+/**
+ * The counts a system's card shows, each leading to its tab: its fns, context and types, its instances when it has two
+ * or more, and, as warnings, the changes waiting for review and the calls the hub refused it. Zero counts are left out.
+ */
+export function countChips(counts: SystemCounts): readonly CountChip[] {
+  const chips: CountChip[] = [
+    { key: 'fns', count: counts.fns, text: counted(counts.fns, 'fn', 'fns'), warn: false, tab: 'fns' },
+    { key: 'context', count: counts.context, text: `${String(counts.context)} context`, warn: false, tab: 'context' },
+    { key: 'types', count: counts.types, text: counted(counts.types, 'type', 'types'), warn: false, tab: 'types' },
+    { key: 'instances', count: counts.instances < 2 ? 0 : counts.instances, text: counted(counts.instances, 'instance', 'instances'), warn: false, tab: 'instances' },
+    { key: 'pending', count: counts.pending, text: counted(counts.pending, 'change waits', 'changes wait'), warn: true },
+    { key: 'refusals', count: counts.refusals, text: counted(counts.refusals, 'refusal', 'refusals'), warn: true, tab: 'refusals' },
+  ];
+  return chips.filter((chip) => chip.count > 0);
 }

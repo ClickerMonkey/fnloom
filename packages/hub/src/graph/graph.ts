@@ -10,18 +10,25 @@
  * A focus is built outwards from its node, hop by hop, each node's neighbours read on their own. What the asked-for
  * systems reference elsewhere comes back as `external` nodes (drawn greyed). Rows past the cap, and nodes the final cap
  * cuts, become "+N more" stubs; filters and collapsing a system into one node are applied to what was read.
+ *
+ * Its search and filters are the query standard's (the `graph` list of `LIST_FIELDS`, checked with `queryProblems`),
+ * evaluated by the shared evaluator over the nodes read (`GRAPH_FIELDS`); the `nodeKind` and `system` filters go
+ * down to the reads, so a table whose nodes would all be filtered out, or a system not asked for, is never read.
  */
+import { reject } from '@ayepi/core';
 import {
-  GRAPH_EDGE_VERBS, QualifiedName, splitName, SystemName,
-  linkTargetKey,
+  fieldOf, GRAPH_EDGE_VERBS, GraphNodeKind, LIST_FIELDS, QualifiedName, queryProblems, splitName, SystemName,
+  linkTargetKey, type Filter,
   type Audience, type ContextLink, type ContextRecord, type FnFactsRecord, type FnRecord, type FnTypeUse, type FnUse, type GraphEdge, type GraphEdgeKind, type GraphMore, type GraphNode, type GraphNodeId,
-  type GraphNodeKind, type GraphPage, type GraphQuery, type InstanceRecord, type KindRecord, type LinkRelation, type Manifest, type SystemRecord, type TypeRecord,
+  type GraphPage, type GraphQuery, type InstanceRecord, type KindRecord, type LinkRelation, type Manifest, type SystemRecord, type TypeRecord,
 } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
 import type { Catalog } from '../catalog/index.ts';
 import { allRows, cappedRows } from '../store/rows.ts';
 import type { HubStore } from '../store/index.ts';
+import { allowed, filterRows, passes as passesFilter, readerOf, type Evaluation } from '../query/evaluate.ts';
+import type { FieldAccessors } from '../query/index.ts';
 
 /** What the graph reads. */
 export interface GraphDeps {
@@ -78,11 +85,35 @@ function stubs(node: GraphNodeId, counts: ReadonlyArray<readonly [GraphNodeKind,
 /** The fewest rows of each kind read for one system of a global graph, however many systems share the cap. */
 const MIN_PER_SYSTEM = 10;
 
+/**
+ * How each field of the `graph` list reads off a node. An edge's kind is no node's: the `edgeKind` filter keeps edges
+ * (`filter`), so it reads nothing here. A node's stage is its system's, and `pending` while in a pending review.
+ */
+export const GRAPH_FIELDS: FieldAccessors<'graph', GraphNode> = {
+  name: (node) => node.name,
+  system: (node) => node.system,
+  nodeKind: (node) => node.kind,
+  edgeKind: () => undefined,
+  fnKind: (node) => node.facts.fnKind,
+  mode: (node) => node.facts.mode,
+  effect: (node) => node.facts.effects?.map((effect) => effect.thing),
+  visibility: (node) => node.facts.visibility,
+  stage: (node) => [...(node.facts.stage === undefined ? [] : [node.facts.stage]), ...(node.facts.pending === true ? ['pending'] : [])],
+  on: (node) => node.facts.on,
+};
+
+/** The graph list for the shared evaluator: free text also matches a node's description. */
+export const GRAPH_EVALUATION: Evaluation<'graph', GraphNode> = { list: 'graph', fields: GRAPH_FIELDS, search: (node) => node.about };
+
+/** The fields that test a fn's facts: they test fns, and keep what fns belong to (`FN_FACT_KEEPS`). */
+const FN_FACT_FIELDS: ReadonlySet<string> = new Set(['fnKind', 'mode', 'effect']);
+const FN_FACT_KEEPS: ReadonlySet<GraphNodeKind> = new Set(['system', 'kind', 'type']);
+
 /** The node kinds a query can keep: a table whose nodes would all be filtered out is not read. */
 function wanted(query: GraphQuery): (kind: GraphNodeKind) => boolean {
-  const byFnFacts = query.fnKinds !== undefined || query.modes !== undefined || query.effects !== undefined;
-  return (kind) => (query.nodeKinds === undefined || query.nodeKinds.includes(kind))
-    && (!byFnFacts || kind === 'fn' || kind === 'system' || kind === 'kind' || kind === 'type');
+  const kinds = allowed(query.filters, 'nodeKind', GraphNodeKind);
+  const byFnFacts = (query.filters ?? []).some((filter) => FN_FACT_FIELDS.has(filter.field));
+  return (kind) => (kinds === undefined || kinds.includes(kind)) && (!byFnFacts || kind === 'fn' || FN_FACT_KEEPS.has(kind));
 }
 
 /** A system's rows the graph reads beside its parts: its record, contract, review and switches, and its node. */
@@ -116,6 +147,8 @@ export class HubGraph {
    * graph) is read up to its share of the cap, the rest left as "+N more" stubs. No table is read whole.
    */
   async query(query: GraphQuery, access: AccessScope): Promise<GraphPage> {
+    const problems = queryProblems('graph', query);
+    if (problems.length > 0) { throw reject(422, 'BAD_QUERY', problems.join(' ')); }
     const limit = query.limit ?? this.#deps.limit;
     const states = new Map<SystemName, Promise<SystemState>>();
     const stateOf: StateOf = (system) => {
@@ -264,6 +297,12 @@ export class HubGraph {
   /** The systems asked for (each one the asker may see), or every system for the global graph. */
   async #systems(query: GraphQuery, access: AccessScope): Promise<SystemName[]> {
     if (query.systems !== undefined) { return query.systems.filter((system) => access.seesSystem(system)); }
+    // a `system` filter names the systems to read, each looked up on its own
+    const named = allowed(query.filters, 'system', SystemName);
+    if (named !== undefined) {
+      const records = await Promise.all(named.map((system) => this.#deps.store.table('systems').get(system)));
+      return records.flatMap((row) => (row === undefined || row.status === 'removed' || !access.seesSystem(row.name) ? [] : [row.name]));
+    }
     // the system directory: one row per system, each drawn as a node in the global graph
     const rows = await allRows(this.#deps.store.table('systems'));
     return rows.filter((row) => row.status !== 'removed' && access.seesSystem(row.name)).map((row) => row.name);
@@ -524,37 +563,30 @@ export function reach(start: GraphNodeId, edges: readonly GraphEdge[], hops: num
   return seen;
 }
 
-/** Whether a node passes the query's node filters (fn filters apply to fns only). */
-function passes(node: GraphNode, query: GraphQuery): boolean {
-  if (query.nodeKinds !== undefined && !query.nodeKinds.includes(node.kind)) { return false; }
-  const { facts } = node;
-  if (node.kind === 'fn') {
-    if (query.fnKinds !== undefined && (facts.fnKind === undefined || !query.fnKinds.includes(facts.fnKind))) { return false; }
-    if (query.modes !== undefined && (facts.mode === undefined || !query.modes.includes(facts.mode))) { return false; }
-    if (query.effects !== undefined && !(facts.effects ?? []).some((effect) => query.effects?.includes(effect.thing) === true)) { return false; }
-  } else if (query.fnKinds !== undefined || query.modes !== undefined || query.effects !== undefined) {
-    // filtering by fn facts keeps the fns and what they belong to
-    if (node.kind !== 'system' && node.kind !== 'kind' && node.kind !== 'type') { return false; }
-  }
-  if (query.visibility !== undefined && facts.visibility !== undefined && !query.visibility.includes(facts.visibility)) { return false; }
-  if (query.stages !== undefined) {
-    const stages: string[] = [...(facts.stage === undefined ? [] : [facts.stage]), ...(facts.pending === true ? ['pending'] : [])];
-    if (!query.stages.some((stage) => stages.includes(stage))) { return false; }
-  }
-  if (query.on !== undefined && facts.on !== query.on) { return false; }
-  if (query.text !== undefined) {
-    const text = query.text.toLowerCase();
-    if (!node.name.toLowerCase().includes(text) && !node.about.toLowerCase().includes(text)) { return false; }
-  }
-  return true;
+/** Whether a node passes one of the query's filters: fn facts test fns only, and visibility the nodes that have one. */
+function keeps(node: GraphNode, filter: Filter): boolean {
+  const decl = fieldOf('graph', filter.field);
+  const read = readerOf(GRAPH_FIELDS, 'graph', filter.field);
+  if (decl === undefined || read === undefined || filter.field === 'edgeKind') { return true; }
+  if (FN_FACT_FIELDS.has(filter.field) && node.kind !== 'fn') { return FN_FACT_KEEPS.has(node.kind); }
+  const reading = read(node);
+  if (filter.field === 'visibility' && reading === undefined) { return true; }
+  return passesFilter(reading, filter, decl);
+}
+
+/** Whether an edge passes the query's `edgeKind` filters. */
+function keepsEdge(edge: GraphEdge, filters: readonly Filter[]): boolean {
+  return filters.every((filter) => filter.field !== 'edgeKind' || passesFilter(edge.kind, filter, LIST_FIELDS.graph.fields.edgeKind));
 }
 
 /** The nodes and edges left after the query's filters and its focus, edges only among nodes kept. */
 function filter(all: ReadonlyMap<GraphNodeId, GraphNode>, allEdges: readonly GraphEdge[], query: GraphQuery): Pick<Part, 'nodes' | 'edges'> {
-  const nodes = new Map([...all].filter(([, node]) => passes(node, query)));
+  const filters = query.filters ?? [];
+  const passing = [...all.values()].filter((node) => filters.every((filter) => keeps(node, filter)));
+  const nodes = new Map(filterRows(passing, query.text === undefined ? {} : { text: query.text }, GRAPH_EVALUATION).map((node) => [node.id, node]));
   const unique = new Map<string, GraphEdge>();
   for (const e of allEdges) {
-    if (query.edgeKinds !== undefined && !query.edgeKinds.includes(e.kind)) { continue; }
+    if (!keepsEdge(e, filters)) { continue; }
     if (nodes.has(e.from) && nodes.has(e.to) && e.from !== e.to) { unique.set(`${e.from}\u0000${e.kind}\u0000${e.to}`, e); }
   }
   let edges = [...unique.values()];

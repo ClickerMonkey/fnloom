@@ -60,7 +60,7 @@ async function start(hub: FakeHub, started?: (propose: () => Promise<void>) => v
     kinds: {
       write: {
         async check() { return []; },
-        async describe() { return { args: { name: 'obj' }, returns: { name: 'num' }, deps: [], operations: { cancel: true, pause: false, undo: false, background: true }, approval: { preview: true, remember: false } }; },
+        async describe() { return { args: { name: 'obj' }, returns: { name: 'num' }, deps: [], operations: { cancel: true, pause: false, undo: false, background: true }, approval: { preview: true, remember: false }, examples: [{ args: {} }] }; },
         async run(_payload, _args, ctx) { return ctx.done(1); },
         async preview(payload, args) { return { preview: { ...PREVIEW, title: `Write ${payload.table} ${JSON.stringify(args)}` } }; },
       },

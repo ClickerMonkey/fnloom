@@ -10,8 +10,7 @@
  */
 import { TableFnError, tableFnQuery, tableFns, tableSchemaHash, type TableFn, type TableFnOp, type TableFnOptions, type TableSpec } from '@aeye/query';
 import { Json, qualify, type FnExample } from '@harness/core';
-import { canonicalJson } from '@harness/sdk';
-import type { TypeDef as GinDef } from '@aeye/gin';
+import { canonicalJson, sampleArgs } from '@harness/sdk';
 import { QUERY_KIND, database } from '../shared/index.ts';
 import { QueryPayload, type GeneratedTableFn, type TableFnEntry, type TableFnGroup, type TableFnOpValue, type TableFnState, type TableFnsList } from '../shared/shapes.ts';
 import { argsTypeOf, signatureOf } from './compile.ts';
@@ -54,37 +53,6 @@ export function toTableFnOp(op: TableFnOpValue): TableFnOp {
     ...(op.bucket === undefined ? {} : { bucket: op.bucket }),
     ...(op.derived === undefined ? {} : { derived: op.derived }),
   };
-}
-
-/** A sample value for an arg of this gin type, for a generated fn's examples. */
-function sampleOf(type: GinDef): Json | undefined {
-  switch (type.name) {
-    case 'optional': return undefined;
-    case 'nullable': return null;
-    case 'enum': {
-      const options: unknown = type.options;
-      const values = typeof options === 'object' && options !== null && 'values' in options ? options.values : undefined;
-      const first: unknown = typeof values === 'object' && values !== null ? Object.values(values)[0] : undefined;
-      return Json.safeParse(first).success ? Json.parse(first) : null;
-    }
-    case 'num': return 1;
-    case 'bool': return true;
-    case 'date': return '2026-01-31';
-    case 'timestamp': return '2026-01-31T09:00:00Z';
-    case 'list': return [];
-    case 'text': return 'example';
-    default: return null;
-  }
-}
-
-/** The args of a call that gives every required arg a sample value. */
-function sampleArgs(args: GinDef): Record<string, Json> {
-  const out: Record<string, Json> = {};
-  for (const [name, prop] of Object.entries(args.props ?? {})) {
-    const value = sampleOf(prop.type);
-    if (value !== undefined) { out[name] = value; }
-  }
-  return out;
 }
 
 /** A generated fn's examples: its required args with sample values, and for a list, the next page. */

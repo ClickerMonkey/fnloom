@@ -1,19 +1,23 @@
 <script setup lang="ts">
 /**
  * The root: the shell, which draws the current page, with what every page shares: the browser's named gin types for
- * every form, the systems' components for their named types, and the resource viewer for systems' renderers.
+ * every form, the systems' components for their named types, the resource viewer for systems' renderers, and the one
+ * fn modal (`?fn=` on any page), which every `FnPill` opens.
  */
 import { RESOURCE_VIEWER } from '@harness/sdk';
 import { provide } from 'vue';
+import { useRouter } from 'vue-router';
 import { GIN_INPUTS } from '../gin/registry.ts';
 import { GIN_TYPES } from '../gin/types.ts';
 import { ITEM_VERSIONS } from '../components/versions/versions.ts';
+import FnModal from '../fns/components/FnModal.vue';
+import { provideFnModal } from '../fns/state/fn-modal.ts';
 import ResourceViewer from '../resources/ResourceViewer.vue';
 import { useStores } from '../state/stores.ts';
 import AppShell from './AppShell.vue';
 import { useLeaveWhenSignedOut } from './signOut.ts';
 
-const { chat, itemVersions } = useStores();
+const { chat, itemVersions, session } = useStores();
 provide(GIN_TYPES, chat.types);
 // every item's version history (a fn, type, context item or part) reads from the hub
 provide(ITEM_VERSIONS, itemVersions);
@@ -23,8 +27,11 @@ provide(GIN_INPUTS, (type) => chat.renderers.inputView(type));
 // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- typescript-eslint cannot see the types of .vue modules; vue-tsc checks this against ResourceViewerProps
 provide(RESOURCE_VIEWER, ResourceViewer);
 useLeaveWhenSignedOut();
+// one fn modal for the whole app, bound to the URL (it reads the hub, so only once signed in)
+const fnModal = provideFnModal(useRouter());
 </script>
 
 <template>
   <AppShell />
+  <FnModal v-if="fnModal.name.value && session.signedIn.value" :modal="fnModal" :fn="fnModal.name.value" />
 </template>

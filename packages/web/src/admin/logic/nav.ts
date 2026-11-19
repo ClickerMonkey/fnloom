@@ -21,6 +21,7 @@ export interface AdminNavEntry {
 const SECTIONS = {
   systems: { label: 'Systems', icon: 'server', to: links.systems(), routes: [ROUTES.systems, ROUTES.system, ROUTES.review, ROUTES.instance] },
   fns: { label: 'Fns', icon: 'fn', to: links.fns(), routes: [ROUTES.fns, ROUTES.fn] },
+  graph: { label: 'Graph', icon: 'tree', to: links.graph(), routes: [ROUTES.graph] },
   models: { label: 'Models', icon: 'sparkles', to: links.models(), routes: [ROUTES.models] },
   limits: { label: 'Budgets', icon: 'coins', to: links.limits(), routes: [ROUTES.limits] },
   policies: { label: 'Policies', icon: 'shield', to: links.policies(), routes: [ROUTES.policies] },
@@ -59,7 +60,7 @@ export interface AdminNavGroup {
 
 /** The groups, each naming its sections; together they hold every section once, in `AdminSection` order. */
 const GROUPS = [
-  { id: 'systems', label: 'Systems', icon: 'server', sections: ['systems', 'mcp-servers', 'api-services'] },
+  { id: 'systems', label: 'Systems', icon: 'server', sections: ['systems', 'graph', 'mcp-servers', 'api-services'] },
   { id: 'fns', label: 'Fns', icon: 'fn', sections: ['fns'] },
   { id: 'models', label: 'Models', icon: 'sparkles', sections: ['models', 'limits'] },
   { id: 'rules', label: 'Rules', icon: 'shield', sections: ['policies', 'actor-settings'] },

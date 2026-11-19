@@ -6,6 +6,7 @@
  */
 import { SessionId, type ModelInfo, type SessionSummary, type SuggestDecision, type SuggestDecisionView, type SuggestionRecord } from '@harness/core';
 import { computed, ref, watch } from 'vue';
+import FnPill from '../../fns/components/FnPill.vue';
 import ModelPicker from '../../chat/components/ModelPicker.vue';
 import type { ModelPick } from '../../chat/logic/session.ts';
 import { UiBanner, UiButton, UiDialog, UiField, UiInput, UiSelect, UiSwitch, type SelectOption } from '../../ui/index.ts';
@@ -81,8 +82,8 @@ function tryIt(): void {
         </div>
         <p v-if="previewProblem !== ''" class="bad" role="alert">{{ previewProblem }}</p>
         <ul v-if="parts" class="outcomes" data-testid="decision-preview">
-          <li v-for="item in parts.used" :key="`u${item.name}`" class="used"><code>{{ item.name }}</code><span class="dim">{{ item.kind }}{{ item.score === undefined ? '' : ` · ${item.score.toFixed(2)}` }}</span></li>
-          <li v-for="{ item, why } in parts.left" :key="`l${item.name}`" class="left"><code>{{ item.name }}</code><span class="dim">{{ why }}</span></li>
+          <li v-for="item in parts.used" :key="`u${item.name}`" class="used"><FnPill v-if="item.kind === 'fn'" :name="item.name" /><code v-else>{{ item.name }}</code><span class="dim">{{ item.kind }}{{ item.score === undefined ? '' : ` · ${item.score.toFixed(2)}` }}</span></li>
+          <li v-for="{ item, why } in parts.left" :key="`l${item.name}`" class="left"><FnPill v-if="item.kind === 'fn'" :name="item.name" /><code v-else>{{ item.name }}</code><span class="dim">{{ why }}</span></li>
           <li v-if="parts.used.length + parts.left.length === 0" class="dim">Nothing to suggest for that.</li>
         </ul>
       </fieldset>

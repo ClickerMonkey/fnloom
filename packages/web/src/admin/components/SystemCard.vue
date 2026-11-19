@@ -1,19 +1,24 @@
 <script setup lang="ts">
 /**
  * A system in the list: its name and what it does, where it is (its process when the hub runs it, its host when
- * another system runs it), how many fns
- * it adds, whether it is still only installed (not live until reviewed: the badge opens its review), what needs the
- * admin (config, a crash), what is switched off, and when it was last heard from while it is away (its status badge
- * is the one sign of presence). The whole card opens the system.
+ * another system runs it), whether it is still only installed (not live until reviewed: the badge opens its review),
+ * what needs the admin (config, a crash), what is switched off, and when it was last heard from while it is away (its
+ * status badge is the one sign of presence). A row of counts (its fns, context, types, a fleet's instances; changes
+ * waiting and refusals as warnings) each opens that tab; zero counts are left out. The whole card opens the system.
  */
 import type { SystemView } from '@harness/core';
+import { computed } from 'vue';
 import type { RouteLocationRaw } from 'vue-router';
+import { links } from '../../app/routes.ts';
 import { UiBadge, UiIcon, fullTime, relativeTime } from '../../ui/index.ts';
 import { STAGE_LOOK } from '../logic/review.ts';
-import { hostText, INSTALLED_STATUS_LOOK, SYSTEM_STATUS_LOOK } from '../logic/systems.ts';
+import { countChips, hostText, INSTALLED_STATUS_LOOK, SYSTEM_STATUS_LOOK, type CountChip } from '../logic/systems.ts';
 import StatusBadge from './StatusBadge.vue';
 
-defineProps<{ system: SystemView; now: number; to: RouteLocationRaw; review: RouteLocationRaw }>();
+const props = defineProps<{ system: SystemView; now: number; to: RouteLocationRaw; review: RouteLocationRaw }>();
+const chips = computed(() => countChips(props.system.counts));
+/** Where a count leads: its tab, or the review's pending changes. */
+const chipTo = (chip: CountChip): RouteLocationRaw => (chip.tab === undefined ? links.review(props.system.name, 'pending') : links.system(props.system.name, chip.tab));
 </script>
 
 <template>
@@ -39,7 +44,14 @@ defineProps<{ system: SystemView; now: number; to: RouteLocationRaw; review: Rou
       </span>
     </span>
     <span class="side">
-      <span class="fns">{{ system.fns }} {{ system.fns === 1 ? 'fn' : 'fns' }}</span>
+      <span v-if="chips.length > 0" class="counts" data-testid="system-counts">
+        <RouterLink
+          v-for="chip in chips" :key="chip.key" :to="chipTo(chip)" class="count" :class="{ warn: chip.warn }" :title="chip.warn ? `${chip.text}: look at them` : `Open its ${chip.key}`"
+          :data-testid="`system-count-${chip.key}`"
+        >
+          <UiIcon v-if="chip.warn" name="warning" :size="12" />{{ chip.text }}
+        </RouterLink>
+      </span>
       <time v-if="system.lastSeenAt !== undefined && system.status !== 'connected'" class="seen" :datetime="new Date(system.lastSeenAt).toISOString()" :title="fullTime(system.lastSeenAt)">
         Seen {{ relativeTime(system.lastSeenAt, now) }}
       </time>
@@ -70,13 +82,23 @@ defineProps<{ system: SystemView; now: number; to: RouteLocationRaw; review: Rou
 .version { color: var(--text-faint); font-size: var(--text-xs); white-space: nowrap; }
 .description { display: -webkit-box; overflow: hidden; color: var(--text-dim); font-size: var(--text-sm); -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .chips { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-1); }
-.side { display: grid; justify-items: end; gap: 2px; font-size: var(--text-sm); white-space: nowrap; }
-.fns { font-weight: var(--weight-medium); }
+.side { display: grid; justify-items: end; gap: var(--space-1); font-size: var(--text-sm); white-space: nowrap; }
+.counts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-1); max-width: 320px; }
+.count {
+  position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 4px; padding: 2px var(--space-2); border: 1px solid var(--border);
+  border-radius: var(--radius-full); background: var(--surface-2); color: var(--text-dim); font-size: var(--text-xs); font-weight: var(--weight-medium); text-decoration: none;
+  transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+.count:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+.count:focus-visible { outline: none; box-shadow: var(--ring); }
+.count.warn { border-color: transparent; background: var(--warn-soft); color: var(--warn); }
+.count.warn:hover { border-color: var(--warn); }
 .seen { color: var(--text-faint); font-size: var(--text-xs); }
 .chevron { color: var(--text-faint); }
 @media (max-width: 559.98px) {
   .system-card { grid-template-columns: auto minmax(0, 1fr) auto; }
-  .side { grid-column: 2; grid-auto-flow: column; justify-content: start; gap: var(--space-2); }
+  .side { grid-column: 2; grid-auto-flow: row; justify-items: start; gap: var(--space-2); }
+  .counts { justify-content: flex-start; max-width: none; }
   .chevron { grid-row: 1; grid-column: 3; }
 }
 </style>

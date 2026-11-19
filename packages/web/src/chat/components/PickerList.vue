@@ -3,9 +3,11 @@
  * The composer's picker: `@` results grouped by provider (label, hint, icon), `/` commands with their descriptions,
  * or `!` fns with theirs. It is an ARIA listbox the composer's textarea controls (`aria-activedescendant`), so arrow
  * keys and Enter work from the textarea while it is open, and only then. A command that can't run now is shown greyed,
- * with the reason in place of its description, and can't be picked.
+ * with the reason in place of its description, and can't be picked. A fn row's qualified name is a `FnPill`: clicking it
+ * opens the fn modal without picking the row.
  */
 import { computed } from 'vue';
+import FnPill from '../../fns/components/FnPill.vue';
 import { ICONS, UiIcon, UiSpinner, type IconName } from '../../ui/index.ts';
 import { fnLabel } from '../logic/labels.ts';
 import type { PickerItem } from '../state/composer.ts';
@@ -52,7 +54,7 @@ const title = computed(() => (props.kind === 'mention' ? 'Mention' : props.kind 
             <span class="name">{{ row.title }}</span>
             <span v-if="row.hint !== ''" class="hint">{{ row.hint }}</span>
           </span>
-          <span v-if="row.item.kind === 'invoke'" class="qualified">{{ row.item.invocation.fn }}</span>
+          <span v-if="row.item.kind === 'invoke'" class="qualified" @mousedown.stop.prevent><FnPill :name="row.item.invocation.fn" :label="row.item.invocation.fn" /></span>
         </li>
       </template>
       <li v-if="!loading && rows.length === 0" class="none" role="presentation">{{ empty }}</li>
@@ -76,7 +78,8 @@ const title = computed(() => (props.kind === 'mention' ? 'Mention' : props.kind 
 .text { display: grid; flex: 1; min-width: 0; }
 .name { font-weight: var(--weight-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hint { color: var(--text-faint); font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.qualified { flex: none; color: var(--text-faint); font-family: var(--mono); font-size: var(--text-xs); }
+.qualified { flex: none; max-width: 40%; font-family: var(--mono); font-size: var(--text-xs); }
+.qualified :deep(.fn-pill) { font-size: var(--text-xs); }
 .none { padding: var(--space-3); color: var(--text-faint); font-size: var(--text-sm); }
 @media (max-width: 480px) { .qualified { display: none; } }
 </style>

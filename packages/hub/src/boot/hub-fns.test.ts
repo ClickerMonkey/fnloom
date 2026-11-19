@@ -116,6 +116,19 @@ describe('finding and loading fns', () => {
     } });
   });
 
+  it('gives a held fn from hub/fn_get with what blocks it, as fns_search hits say it, not a bare available: false', async () => {
+    const { r, turn } = await started();
+    addHubFn(r, hub.fns.fn_get);
+    const held = { unavailable: 'held' as const, detail: 'database/create_table changed and waits for an admin to approve it' };
+    r.catalog.add('database', 'create_table', fn({ description: 'Create a table.', args: g.obj({}), returns: g.text() }), { available: held });
+    expect(await call(r, turn, 'fn_get', { fn: 'database/create_table' })).toMatchObject({ status: 'done', result: {
+      fn: 'database/create_table', available: false, blocked: { code: 'held', reason: held.detail, system: 'database' },
+    } });
+    const usable = await call(r, turn, 'fn_get', { fn: 'fs/read' });
+    expect(usable).toMatchObject({ status: 'done', result: { fn: 'fs/read', available: true } });
+    expect(usable.status === 'done' ? usable.result : undefined).not.toHaveProperty('blocked');
+  });
+
   it('searches unavailable fns too for the model, unless it asks for usable ones only', async () => {
     const { r, turn, fnSearches } = await started();
     await call(r, turn, 'fns_search', { text: 'buy' });
@@ -176,8 +189,8 @@ describe('context and resources', () => {
 
   it('searches sections and gives each hit its resource, section, title and preview, narrowed to roots', async () => {
     const { r, turn } = await started([
-      { kind: 'section', key: 'file:///repo/README.md#Intro', score: 0.8, text: 'README.md > Intro\n\nA harness.' },
-      { kind: 'section', key: 'file:///other/notes.md#Top', score: 0.4, text: 'notes.md\n\nElsewhere.' },
+      { kind: 'section', key: 'file:///repo/README.md#Intro', rank: 0.8, similarity: 0.8, text: 'README.md > Intro\n\nA harness.' },
+      { kind: 'section', key: 'file:///other/notes.md#Top', rank: 0.4, similarity: 0.4, text: 'notes.md\n\nElsewhere.' },
     ]);
     expect(await call(r, turn, 'search_resources', { query: 'harness', roots: ['file:///repo'] })).toEqual({ status: 'done', result: [
       { uri: 'file:///repo/README.md', section: 'Intro', title: 'README.md > Intro', preview: 'README.md > Intro\n\nA harness.', score: 0.8 },
@@ -197,8 +210,8 @@ describe('keeping to what the person may see', () => {
 
   it('leaves hidden fns, context and sections out of searches, and refuses to load them', async () => {
     const { r, turn } = await started([
-      { kind: 'section', key: 'file:///repo/README.md#Intro', score: 0.5, text: 'README.md\n\nOpen.' },
-      { kind: 'section', key: 'file:///private/crawl.md#Top', score: 0.9, text: 'crawl.md\n\nPrivate.' },
+      { kind: 'section', key: 'file:///repo/README.md#Intro', rank: 0.5, similarity: 0.5, text: 'README.md\n\nOpen.' },
+      { kind: 'section', key: 'file:///private/crawl.md#Top', rank: 0.9, similarity: 0.9, text: 'crawl.md\n\nPrivate.' },
     ], {}, member);
     r.catalog.add('fs', 'secret', fn({ description: 'Secret.', args: g.obj({}), returns: g.text() }));
     r.catalog.contexts.set(QualifiedName.parse('fs/guide'), 'How to work with files.');
@@ -250,7 +263,7 @@ function sent(r: ExecutionRig, index: number): { tools: string[]; system: string
 
 describe('the chat agent reaching system fns', () => {
   it('searches, loads a fn and context, then calls the loaded fn in the next iteration', async () => {
-    const { r, turn } = await started([{ kind: 'fn', key: 'fs/read', score: 0.9, text: 'read' }], { systems: [SystemName.parse('fs')] });
+    const { r, turn } = await started([{ kind: 'fn', key: 'fs/read', rank: 0.9, similarity: 0.9, text: 'read' }], { systems: [SystemName.parse('fs')] });
     r.catalog.add('tools', 'chat', chatAgent());
     r.catalog.contexts.set(QualifiedName.parse('fs/guide'), 'How to work with files.');
     const files = r.connect('fs');

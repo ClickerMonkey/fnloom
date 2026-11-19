@@ -45,3 +45,32 @@ export function toggleRun(choice: RunChoice, run: RunId, every: readonly Control
   if (next.has(run)) { next.delete(run); } else { next.add(run); }
   return next.size === every.length ? 'all' : next;
 }
+
+/** What a turn's own controls can do to it: carry it on, undo it and send its question again, or undo it. */
+export type TurnVerb = 'continue' | 'retry' | 'undo';
+
+/** Where a turn stands in its thread, as the turn controls need it. */
+export interface TurnStanding {
+  /** It is the latest turn that still stands (`ThreadState.lastTurn`). */
+  readonly last: boolean;
+  /** The hub lets the latest turn be undone now (`SessionControls.undoLastTurn`). */
+  readonly undoable: boolean;
+  /** The hub says the latest turn's agent can carry on (`SessionControls.continueLastTurn`). */
+  readonly continuable: boolean;
+  /** It began with a person's message, which Retry sends again. */
+  readonly asked: boolean;
+}
+
+/**
+ * The turn controls that can work on a turn, in the order a menu shows them. The hub undoes only the latest turn that
+ * stands (a turn can't be undone while a later one stands), so Retry and Undo, and Continue, which carries the
+ * latest turn's run on, are offered there alone; Retry also needs the question it sends again.
+ */
+export function turnVerbs(turn: TurnStanding): TurnVerb[] {
+  if (!turn.last) return [];
+  return [
+    ...(turn.continuable ? ['continue' as const] : []),
+    ...(turn.undoable && turn.asked ? ['retry' as const] : []),
+    ...(turn.undoable ? ['undo' as const] : []),
+  ];
+}

@@ -471,3 +471,40 @@ type TokensOf<S extends string> = S extends `${string}{${infer Token}}${infer Re
 ? (Token extends `${infer Name}|${string}` ? Name : Token) | TokensOf<Rest>
 : never;
 ```
+
+#### `fnsMissingExamples`
+
+function · `import { fnsMissingExamples } from '@harness/sdk'`
+
+The fns among these whose author must write an example and wrote none (`owesExamples`), by their local names.
+
+```ts
+function fnsMissingExamples(fns: readonly Pick<FnDecl, "name" | "kind" | "examples">[]): string[];
+```
+
+Refers to: [`FnDecl`](context:fs/authoring.core-types.contextdecl#core-fndecl).
+
+#### `checkExamples`
+
+function · `import { checkExamples } from '@harness/sdk'`
+
+Refuse a contract whose static fns (native fns, type methods and agents) include one with no example.
+
+```ts
+function checkExamples(contract: AnyContract): void;
+```
+
+#### `MissingExamplesError`
+
+class · `import { MissingExamplesError } from '@harness/sdk'`
+
+A contract with static fns that declare no example: the build and `serve` refuse it, naming each.
+
+```ts
+class MissingExamplesError extends Error {
+  readonly name: "MissingExamplesError";
+  readonly system: string;
+  readonly fns: readonly string[];
+  constructor(system: string, fns: readonly string[]);
+}
+```

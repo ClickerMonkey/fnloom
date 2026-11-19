@@ -1,14 +1,15 @@
 /**
- * `harness system new <name> [--dir <parent>] [--from <template>]`: copy the template system (placeholders and
- * comments, no example code) into `<parent>/<name>` and give it the name: `'template'` and paths become the name,
+ * `harness system new <name> [--dir <parent>] [--from <template>] [--instances one|many]`: copy the template system
+ * (placeholders and comments, no example code) into `<parent>/<name>` and give it the name: `'template'` and paths become the name,
  * identifiers become its camel and Pascal case (`templateEnv` → `notesDbEnv`, `TemplateConfig` → `NotesDbConfig`).
  * Relative paths in `tsconfig.json` and `package.json` that lead out of the template (the base config, the project
  * references, the build info, `file:` packages) are rewritten to reach the same places from the new folder, so a
- * system made anywhere with `--dir` builds as one made under `systems/`.
+ * system made anywhere with `--dir` builds as one made under `systems/`. Its `system.json` always says how many
+ * instances it runs (`--instances`, else the template's, else `one`), so the hub and the admin pages know.
  */
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SystemName } from '@harness/core';
+import { InstanceMode, PACKAGE_MANIFEST_FILE, SystemName } from '@harness/core';
 import { z } from 'zod';
 import { command } from '../command.ts';
 import { NOT_SOURCE } from '@harness/build';
@@ -96,16 +97,25 @@ export function relocate(path: string, text: string, from: string, to: string): 
   return text;
 }
 
+/** The part of a `system.json` this command writes: how many instances it runs; everything else is kept as it is. */
+const PackageInstances = z.looseObject({ instances: InstanceMode.optional() });
+
+/** A `system.json`'s text with `instances` written out: the one asked for, else the template's, else `one`. */
+export function withInstances(text: string, asked: InstanceMode | undefined): string {
+  const manifest = PackageInstances.parse(JSON.parse(text));
+  return jsonText({ ...manifest, instances: asked ?? manifest.instances ?? 'one' });
+}
+
 /** Files read as text and renamed; anything else is copied as it is. */
 const TEXT = /\.(?:ts|vue|json|md|txt|css|html|js|mjs|cjs)$/;
 
 export const newCommand = command({
   path: ['system', 'new'],
   summary: 'Make a system folder from the template, with its name filled in.',
-  usage: '<name> [--dir <parent folder>] [--from <template folder>]',
+  usage: '<name> [--dir <parent folder>] [--from <template folder>] [--instances one|many]',
   args: z.object({
     positionals: z.tuple([SystemName]),
-    values: z.object({ dir: z.string().default('systems'), from: z.string().optional() }),
+    values: z.object({ dir: z.string().default('systems'), from: z.string().optional(), instances: InstanceMode.optional() }),
   }),
   async run({ positionals: [name], values }, io) {
     if (name === TEMPLATE) { io.out.warn('pick a name of your own: "template" is the template'); return 1; }
@@ -117,7 +127,8 @@ export const newCommand = command({
     for (const source of sources) {
       const path = relative(from, source);
       const bytes = await io.files.read(source);
-      await io.files.write(join(target, path), TEXT.test(path) ? relocate(path, rename(new TextDecoder().decode(bytes), name), from, target) : bytes);
+      const text = TEXT.test(path) ? relocate(path, rename(new TextDecoder().decode(bytes), name), from, target) : undefined;
+      await io.files.write(join(target, path), text === undefined ? bytes : path === PACKAGE_MANIFEST_FILE ? withInstances(text, values.instances) : text);
     }
     io.out.line(`made ${relative(io.cwd, target) || target} (${sources.length} files) from ${relative(io.cwd, from) || from}`);
     io.out.line('next: fill in each TODO, add the folder to the root package.json workspaces and tsconfig.json references, run npm install,');

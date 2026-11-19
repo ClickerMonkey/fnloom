@@ -228,7 +228,7 @@ const complete = {
   kinds: {
     macro: {
       async check() { return []; },
-      async describe() { return { args: { name: 'obj' }, returns: { name: 'text' }, deps: [], operations: { cancel: true, pause: false, undo: false, background: true } }; },
+      async describe() { return { args: { name: 'obj' }, returns: { name: 'text' }, deps: [], operations: { cancel: true, pause: false, undo: false, background: true }, examples: [{ args: {} }] }; },
       async run(_payload, _args, ctx) { return ctx.done(null); },
     },
   },
@@ -349,7 +349,7 @@ void serve(web, {
   kinds: {
     api: {
       async check(payload) { return payload.url.startsWith('https://') ? [] : ['Only https URLs.']; },
-      async describe() { return { args: { name: 'obj' }, returns: { name: 'any' }, deps: [], operations: { cancel: true, pause: false, undo: false, background: true } }; },
+      async describe() { return { args: { name: 'obj' }, returns: { name: 'any' }, deps: [], operations: { cancel: true, pause: false, undo: false, background: true }, examples: [{ args: {} }] }; },
       async run(payload, _args, ctx) { return ctx.done({ requested: payload.url }); },
     },
   },

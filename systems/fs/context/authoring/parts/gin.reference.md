@@ -192,6 +192,33 @@ A union of objects as one object: every member's fields, each one optional (the 
 type FlatArgs<U> = { [K in KeysOf<U>]?: FieldOf<U, K> };
 ```
 
+#### `sampleOf`
+
+function · `import { sampleOf } from '@harness/sdk'`
+
+A sample value of a wire type, for an example call a kind works out from a payload's args (`KindDescription.examples`):
+every required field filled (text with its field's name, a number in range, the first enum value or union option, one
+list item), optional fields left out. A shape it can't fill by itself (a named type) gets gin's own zero value
+(`create`), which its type accepts. A patterned text is best effort, as in gin: no value is synthesized from a pattern.
+
+```ts
+function sampleOf(def: GinTypeDef, hint?: string): Json;
+```
+
+Refers to: [`GinTypeDef`](context:fs/authoring.core-types.gin-ts#core-gintypedef), [`Json`](context:fs/authoring.core-types.primitives-ts#core-json).
+
+#### `sampleArgs`
+
+function · `import { sampleArgs } from '@harness/sdk'`
+
+Sample args for a fn's args type (an `obj`, filled by `sampleOf`); open args (`any`) or any other shape give `{}`.
+
+```ts
+function sampleArgs(args: GinTypeDef): Record<string, Json>;
+```
+
+Refers to: [`GinTypeDef`](context:fs/authoring.core-types.gin-ts#core-gintypedef), [`Json`](context:fs/authoring.core-types.primitives-ts#core-json).
+
 #### `TypeBuilder`
 
 interface · `import { TypeBuilder } from '@aeye/gin'`

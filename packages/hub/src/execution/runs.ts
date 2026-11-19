@@ -13,12 +13,12 @@
 import {
   compact, FN_MODES, INVALID_INPUT_CODE, isSettled, isUnsettled, MAIN_INSTANCE, mintId, problemLine, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
   type ProgressWire, type ResumeWire, type Run, type RunId, type RunInfo, type RunRequest, type RunSettled, type RunStatus, type RunText, type RunUpdate,
-  type Turn, type UndoOutcome, type Usd, type RunControlAction, type FnError, type InputProblem, type InvalidInput,
+  type Turn, type UndoOutcome, type Usd, type RunControlAction, type FnError, type InputProblem, type InvalidInput, type Compact,
   flagsVerdict, proposalSubjectOf, type SessionId, type ApprovalPreview, type Approver, type PreviewPart, type SensitivityFlag, type InstanceName, type ProposedRun, type ProposeRun, type UserInfo, type QualifiedName, qualify,
 } from '@harness/core';
 import { z } from 'zod';
 import { HUB_SYSTEM, systemAvailability } from '../catalog/availability.ts';
-import { checkedInstall } from '../link/install.ts';
+import { installCard } from '../link/install.ts';
 import { DeadlineTimers, deadlineError, runDeadline, type RunDeadline } from './deadlines.ts';
 import { fnError, HubStopping, messageOf, RunRefused, RunStopped, RunTimedOut } from './errors.ts';
 import { rows } from '../store/rows.ts';
@@ -67,13 +67,19 @@ function statusUpdate(status: RunStatus, text: RunText | undefined): RunUpdate {
   return { type: 'status', status, ...(text === undefined ? {} : { text }) };
 }
 
+/** Refused input as an error's JSON data: compacted, its block too. */
+function invalidData(invalid: InvalidInput): Compact<Omit<InvalidInput, 'blocked'>> & { blocked?: Compact<NonNullable<InvalidInput['blocked']>> } {
+  const { blocked, ...rest } = invalid;
+  return { ...compact(rest), ...(blocked === undefined ? {} : { blocked: compact(blocked) }) };
+}
+
 /** How a caller hears about a settled run. */
 export function settledOf(outcome: OutcomeWire | undefined, run: RunId): RunSettled {
   if (outcome === undefined) return { status: 'background', run };
   switch (outcome.status) {
     case 'done': return { status: 'done', result: outcome.result };
     // a code caller hears refused input as a caller error carrying the problems; agents read the run's own status
-    case 'invalid-input': return { status: 'failed', error: { class: 'caller', code: INVALID_INPUT_CODE, message: outcome.invalid.problems.map(problemLine).join('; '), data: compact(outcome.invalid) } };
+    case 'invalid-input': return { status: 'failed', error: { class: 'caller', code: INVALID_INPUT_CODE, message: outcome.invalid.problems.map(problemLine).join('; '), data: invalidData(outcome.invalid) } };
     case 'failed': return { status: 'failed', error: outcome.error };
     case 'cancelled': return outcome.error === undefined ? { status: 'cancelled' } : { status: 'cancelled', error: outcome.error };
     case 'paused': return { status: 'background', run };
@@ -208,17 +214,20 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const { catalog, store, clock } = this.#deps;
     const fn = await catalog.fn(input.fn);
     if (fn === undefined) throw new RunRefused(fnError('caller', `There is no fn ${input.fn}.`, 'not-found'));
-    if (fn.disabled) throw new RunRefused(fnError('caller', `${input.fn} is turned off.`, 'disabled'));
+    // a call its caller already refused because the fn is blocked (held, off, offline, an account to connect) is still
+    // kept, settled invalid-input at once and never run, so the chat sees what blocked it (`InvalidInput.blocked`)
+    const blockedCall = input.invalid?.blocked !== undefined;
+    if (fn.disabled && !blockedCall) throw new RunRefused(fnError('caller', `${input.fn} is turned off.`, 'disabled'));
     // an admin's test call (and what it calls) runs on an installed system, which offers nothing else yet
     const test = input.test === true || (input.parent !== undefined && (await store.table('runs').get(input.parent))?.test === true);
-    if (fn.available !== true && !(test && await this.#testable(fn))) throw new RunRefused(fnError('retry', `${input.fn} is unavailable: ${fn.available.detail}`, 'unavailable'));
+    if (fn.available !== true && !blockedCall && !(test && await this.#testable(fn))) throw new RunRefused(fnError('retry', `${input.fn} is unavailable: ${fn.available.detail}`, 'unavailable'));
     const turn = await store.table('turns').get(input.turn);
     if (turn === undefined) throw new RunRefused(fnError('fatal', `There is no turn ${input.turn}.`, 'not-found'));
     // a fn the turn's person may not see is as good as missing to them; a per-person fn needs a connection to act as
     const access = await this.#deps.access.scope(turn.user.id);
     if (!access.seesFn(fn)) throw new RunRefused(fnError('caller', `There is no fn ${input.fn}.`, 'not-found'));
     const connection = access.connection(fn);
-    if (connection?.state === 'missing') throw new RunRefused(fnError('retry', `${input.fn} acts as you: connect your account on the ${connection.page} page first.`, 'unavailable'));
+    if (connection?.state === 'missing' && !blockedCall) throw new RunRefused(fnError('retry', `${input.fn} acts as you: connect your account on the ${connection.page} page first.`, 'unavailable'));
     const parent = input.parent === undefined ? undefined : await store.table('runs').get(input.parent);
     if (input.parent !== undefined && parent === undefined) throw new RunRefused(fnError('fatal', `There is no parent run ${input.parent}.`, 'not-found'));
     if (parent !== undefined) {
@@ -229,8 +238,8 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const handlers = suppliedHandlers(fn, parent, input.handlers);
     const missing = Object.entries(fn.decl.handlers).filter(([name, decl]) => decl.required && !handlers.includes(name)).map(([name]) => name);
     if (missing.length > 0) throw new RunRefused(fnError('fatal', `${fn.name} needs its caller to answer ${missing.join(', ')}, which this caller can't.`, 'needs-handlers'));
-    const signature = await catalog.signature(fn.name);
-    const checked = input.invalid ?? invalidArgs(signature.argsSchema.safeParse(input.args));
+    // input already refused is not checked again (a blocked fn's signature may not even resolve, its kind gone)
+    const checked = input.invalid ?? invalidArgs((await catalog.signature(fn.name)).argsSchema.safeParse(input.args));
     const system = SystemName.parse(executingSystem(fn));
     // the one place a system's run is given its instance: a fleet with no clear pick is refused input the caller can fix
     const routed = checked === undefined && executorKind(fn) === 'system'
@@ -367,7 +376,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
   /**
    * What a run of a fn that always asks would do, from its system (`preview` on the system link), before anyone is
    * asked; or how the run settles instead: invalid input with the system's reason, or a retryable failure when the
-   * system can't be reached. An install card is checked against the hub's instances (`checkedInstall`).
+   * system can't be reached. An install card is checked against the hub's instances and gets its summary (`installCard`).
    */
   async #preview(run: Run, fn: FnRecord, user: UserInfo): Promise<{ preview: ApprovalPreview } | { refused: OutcomeWire }> {
     // a kind fn's preview comes from its kind's system, which works it out from the payload
@@ -382,7 +391,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
         ...(fn.decl.payload === undefined ? {} : { payload: fn.decl.payload }),
       }, { signal: connection.signal });
       // an install card is checked against the hub's own instances, which the system can't see
-      const checked = 'preview' in answer ? await checkedInstall(answer.preview, run.args, (ref) => this.#deps.store.table('instances').get(ref)) : answer;
+      const checked = await installCard(answer, run.args, { instance: (ref) => this.#deps.store.table('instances').get(ref), manifest: (name) => this.#deps.catalog.manifest(name) });
       if ('preview' in checked) return checked;
       return { refused: { status: 'invalid-input', invalid: { source: 'validation', problems: [{ path: '', message: checked.refused }] } } };
     } catch (error) {

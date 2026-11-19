@@ -5,7 +5,7 @@
  */
 import {
   Actor, ActorSetting, AutoClassifier, FnRecord, ImportReport, ModelCategory, PairingRequest, Policy, PriorityRule, ResourceRecord, SystemView,
-  InstanceName, SystemName, type LlmInteraction, type UserEvent,
+  InstanceName, SystemName, type LlmInteraction, type SystemCounts, type UserEvent,
 } from '@harness/core';
 import { g, wireType } from '@harness/sdk';
 import { fakeCaller } from '../../test/fakes.ts';
@@ -29,13 +29,18 @@ export const FS_CONFIG = wireType(g.obj({
 /** A setting's type: which tables a group may read. */
 export const ROW_RULES = wireType(g.obj({ tables: g.list(g.text({ minLength: 1 })), readOnly: g.bool() }));
 
+/** A system's counts: none of anything but what is given. */
+export function systemCounts(overrides: Partial<SystemCounts> = {}): SystemCounts {
+  return { fns: 0, context: 0, types: 0, parts: 0, instances: 0, pending: 0, refusals: 0, ...overrides };
+}
+
 /** A system as the admin pages get it. */
 export function systemView(overrides: Loose<SystemView> = {}): SystemView {
   return SystemView.parse({
     name: 'fs', description: 'Files, folders and a shell on this computer.', status: 'connected', enabled: { functions: true, renderers: true },
     config: { value: { roots: [{ path: '/work', name: 'work', writable: true }] }, version: 2, setBy: 'act_ada', setAt: T0 - 3_600_000 },
     keyFingerprint: 'SHA256:9f2c41a0b7', version: '0.4.0', manifestHash: 'a1b2c3d4', pairedAt: T0 - 86_400_000, pairedBy: 'act_ada', lastSeenAt: T0 - 5_000,
-    address: '127.0.0.1', actor: 'act_fs', fns: 12, needsConfig: false, configType: FS_CONFIG, instances: [], ...overrides,
+    address: '127.0.0.1', actor: 'act_fs', counts: systemCounts({ fns: 12 }), instanceMode: 'many', needsConfig: false, configType: FS_CONFIG, instances: [], ...overrides,
   });
 }
 

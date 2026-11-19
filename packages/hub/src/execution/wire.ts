@@ -4,20 +4,15 @@
  * text of a tool reply, token totals, and the lenient mapping it saves transcripts and interactions with.
  */
 import type { Message, Request } from '@aeye/core';
-import { ChangeSet, ResultTable, rowsLine, tableModelView, WidgetProposal, WidgetResult, type Json, type LlmMessage, type TableModelView, type TableReading, type LlmRequest, type LlmUsage, type QualifiedName } from '@harness/core';
+import { ChangeSet, ResultTable, rowsLine, tableModelView, WidgetProposal, WidgetResult, type Json, type LlmMessage, type TableModelView, type TableReading, type LlmRequest, type LlmUsage } from '@harness/core';
 import { LlmWire } from '@harness/sdk/server';
 
 export {
   chunkFromWire, chunkToWire, descriptorsOf, isObjectSchema, messageFromWire, requestFromWire, responseToWire, usageToWire,
 } from '@harness/sdk/server';
 
-/**
- * A fn's name as an LLM tool name. Providers allow only letters, digits, `_` and `-` (at most 64), so `/` becomes
- * `__` and `.` (methods) becomes `--`. The prompt keeps a map back to the fn, so the encoding never needs reversing.
- */
-export function toolName(fn: QualifiedName): string {
-  return fn.replaceAll('/', '__').replaceAll('.', '--').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64);
-}
+/** A fn's name as an LLM tool name (core's, so the web reads one back the same way). */
+export { toolName } from '@harness/core';
 
 /**
  * What the hub saves: a record never fails over something the wire can't carry; the part is kept as a placeholder

@@ -25,16 +25,3 @@ type AutoPairGrant = {
   expiresAt?: number | undefined;
 };
 ```
-
-#### <a id="core-autopairproof"></a>`AutoPairProof`
-
-const, type · declared in `packages/core/src/auto-pair.ts`
-
-What the system brings in `hello` to re-pair without a token or code.
-
-```ts
-type AutoPairProof = {
-  secret: string;
-  id: string;
-};
-```

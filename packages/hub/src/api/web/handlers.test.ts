@@ -220,8 +220,8 @@ describe('finding as a member', () => {
     const secret = QualifiedName.parse('fs/secret');
     const read = QualifiedName.parse('fs/read');
     const hits: SearchHit[] = [
-      { kind: 'fn', key: 'fs/read', score: 0.9, text: 'read' }, { kind: 'fn', key: secret, score: 1, text: 'secret' },
-      { kind: 'section', key: 'fs://private/crawl.md#Top', score: 1, text: 'private' }, { kind: 'message', key: 'msg_1', score: 1, text: 'hi' },
+      { kind: 'fn', key: 'fs/read', rank: 0.9, similarity: 0.9, text: 'read' }, { kind: 'fn', key: secret, rank: 1, similarity: 1, text: 'secret' },
+      { kind: 'section', key: 'fs://private/crawl.md#Top', rank: 1, similarity: 1, text: 'private' }, { kind: 'message', key: 'msg_1', rank: 1, similarity: 1, text: 'hi' },
     ];
     let reads = 0;
     const { web, as } = await recorded({

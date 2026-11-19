@@ -92,8 +92,9 @@ async function onOllama(model: string = MODEL, transcript: LlmMessage[] = pastTa
   search.hits = (text) => {
     const query = words(text);
     return [...r.catalog.contexts.entries()]
-      .map(([key, content]) => ({ kind: 'context' as const, key, score: wordShare(query, `${key.replace(/[/-]/g, ' ')} ${content.slice(0, 200)}`) ?? 0, text: content.slice(0, 200) }))
-      .filter((hit) => hit.score > 0).sort((a, b) => b.score - a.score).slice(0, 12);
+      .map(([key, content]) => ({ kind: 'context' as const, key, similarity: wordShare(query, `${key.replace(/[/-]/g, ' ')} ${content.slice(0, 200)}`) ?? 0, text: content.slice(0, 200) }))
+      .filter((hit) => hit.similarity > 0).sort((a, b) => b.similarity - a.similarity).slice(0, 12)
+      .map((hit) => ({ ...hit, rank: hit.similarity }));
   };
   r.catalog.add('fs', 'read', fn({ description: 'Read a text file and give its lines.', args: g.obj({ path: g.text() }), returns: g.text(), tags: ['read'] }));
   r.catalog.add('tools', 'small', small);

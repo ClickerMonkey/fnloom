@@ -325,7 +325,7 @@ export function createFsImpl(deps: FsDeps): FsServer {
           try {
             const at = guard(ctx.config).resolve(args.path, { write: false });
             // `replace` is the hub's to check: only it sees which instances are paired (`checkedInstall`)
-            return { preview: await hosting.preview(at.path, { instance: args.instance }, ctx.signal) };
+            return await hosting.card(at.path, { instance: args.instance }, ctx.signal);
           } catch (error) {
             if (error instanceof InstallRefused || error instanceof FsProblem) { return { refused: error.message }; }
             throw error;

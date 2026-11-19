@@ -8,7 +8,7 @@ import { command, optionsOf, parseCommand, UsageError } from './command.ts';
 import { builtManifest, isExternal, isStale, readSystemJson } from '@harness/build';
 import { npmSpec } from './commands/install.ts';
 import { reportLines } from './commands/test.ts';
-import { cases, rename } from './commands/new.ts';
+import { cases, rename, withInstances } from './commands/new.ts';
 import { instanceLine, systemLines } from './commands/manage.ts';
 import { hubTarget } from './hub.ts';
 import { FakeHub, putFolder, testIo } from './testing.ts';
@@ -96,7 +96,8 @@ describe('system new', () => {
       'system.json': '{ "name": "template" }', 'shared/index.ts': "system('template', {})", 'node_modules/x/index.js': 'x', 'dist/server/main.js': 'x', 'logo.png': 'binary-template',
     });
     expect(await runCli(['system', 'new', 'notes', '--from', 'tpl', '--dir', '.'], io)).toBe(0);
-    expect(io.memory.text(join(NOTES, 'system.json'))).toBe('{ "name": "notes" }');
+    // its system.json says how many instances it runs, even when the template didn't
+    expect(JSON.parse(io.memory.text(join(NOTES, 'system.json')))).toEqual({ name: 'notes', instances: 'one' });
     expect(io.memory.text(join(NOTES, 'shared', 'index.ts'))).toBe("system('notes', {})");
     expect(io.memory.text(join(NOTES, 'logo.png'))).toBe('binary-template');
     expect([...io.memory.files.keys()].some((p) => p.includes(`notes${sep}node_modules`) || p.includes(`notes${sep}dist`))).toBe(false);
@@ -104,6 +105,17 @@ describe('system new', () => {
     expect(await runCli(['system', 'new', 'template', '--from', 'tpl'], io)).toBe(1);
     expect(await runCli(['system', 'new', 'other', '--from', 'nowhere'], io)).toBe(1);
     expect(await runCli(['system', 'new', 'Bad Name'], io)).toBe(2);
+  });
+
+  it('writes instances into system.json: the one asked for, else the template’s', async () => {
+    const io = testIo();
+    putFolder(io.memory, join(WORK, 'tpl'), { 'system.json': '{ "name": "template", "instances": "many", "protocol": 1 }' });
+    expect(await runCli(['system', 'new', 'notes', '--from', 'tpl', '--dir', '.'], io)).toBe(0);
+    expect(JSON.parse(io.memory.text(join(NOTES, 'system.json')))).toEqual({ name: 'notes', instances: 'many', protocol: 1 });
+    expect(await runCli(['system', 'new', 'solo', '--from', 'tpl', '--dir', '.', '--instances', 'one'], io)).toBe(0);
+    expect(JSON.parse(io.memory.text(join(WORK, 'solo', 'system.json')))).toMatchObject({ name: 'solo', instances: 'one' });
+    expect(await runCli(['system', 'new', 'odd', '--from', 'tpl', '--dir', '.', '--instances', 'some'], io)).toBe(2);
+    expect(JSON.parse(withInstances('{ "name": "x" }', undefined))).toEqual({ name: 'x', instances: 'one' });
   });
 
   it('rebases the paths that lead out of the template, so a system made anywhere builds', async () => {
@@ -405,7 +417,7 @@ function systemView() {
   });
   return {
     name: SystemName.parse('notes'), description: 'Notes.', status: 'connected' as const, enabled: { functions: true, renderers: true }, version: '1.2.0', manifestHash: 'h',
-    actor: 'act_notes', keyFingerprint: 'fp', fns: 2, needsConfig: false, instances: [instance('laptop', 'connected', true), instance('desk', 'disconnected', false)],
+    actor: 'act_notes', keyFingerprint: 'fp', counts: { fns: 2, context: 0, types: 0, parts: 0, instances: 2, pending: 0, refusals: 0 }, instanceMode: 'many' as const, needsConfig: false, instances: [instance('laptop', 'connected', true), instance('desk', 'disconnected', false)],
   };
 }
 

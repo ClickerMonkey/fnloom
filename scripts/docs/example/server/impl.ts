@@ -212,11 +212,13 @@ export function createNotesImpl(deps: NotesDeps): SystemImpl<(typeof notes)['def
         // problems beyond the payload's type
         check: (payload) => Promise.resolve(payload.tags.filter((tag) => tag !== tag.toLowerCase()).map((tag) => `Tag "${tag}" must be lowercase.`)),
         // everything else about a stamp fn, worked out from its payload
-        describe: () => Promise.resolve({
+        describe: (payload) => Promise.resolve({
           args: wireType(StampArgs),
           returns: wireType(NoteEntry.shape),
           deps: [],
           operations: { cancel: true, pause: false, undo: false, background: true },
+          // every fn needs an example; a kind works its fns' examples out from the payload
+          examples: [{ args: { text: 'Shipped the release' }, note: `Saves a note titled "${payload.title}: Shipped the release".` }],
         }),
         async run(payload, args, ctx) {
           // a kind's args arrive as JSON the hub checked against `describe`; read them with the same gin type

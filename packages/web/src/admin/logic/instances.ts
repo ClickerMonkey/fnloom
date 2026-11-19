@@ -1,12 +1,15 @@
 /**
  * What an instance's admin page works out from its system's records: the fns and types that belong to the instance
  * (a database's saved queries and table types), the hub query for its types, the changes its
- * system proposed (a rescan's breaking type changes), and the secret fields of a config as the hub sends it.
+ * system proposed (a rescan's breaking type changes), the secret fields of a config as the hub sends it, and the facts
+ * its overview lists.
  */
 import {
-  isJsonObject, QualifiedName, SECRET_KEPT, type Approval, type FnRecord, type InstanceName, type Json, type Run, type SystemName,
+  isJsonObject, QualifiedName, SECRET_KEPT, type ActorId, type Approval, type FnRecord, type InstanceName, type InstanceView, type Json, type Run, type SystemName,
   type QueryFnArgs,
 } from '@harness/core';
+import { fullTime, relativeTime } from '../../ui/format.ts';
+import type { Fact } from './service-views.ts';
 
 /** The fns a fleet instance owns: those routed to it alone. */
 export function instanceFns(fns: readonly FnRecord[], instance: InstanceName): FnRecord[] {
@@ -69,4 +72,27 @@ export function keptSecrets(value: Json | undefined, path = ''): string[] {
   if (value === SECRET_KEPT) { return path === '' ? [] : [path]; }
   if (!isJsonObject(value)) { return []; }
   return Object.entries(value).flatMap(([key, inner]) => keptSecrets(inner, path === '' ? key : `${path}.${key}`));
+}
+
+/** What an instance's facts are read from: its own record, or a system's view (its default instance's facts). */
+export type InstanceFactsSource = Pick<InstanceView, 'version' | 'keyFingerprint' | 'manifestHash' | 'status' | 'address' | 'pairedAt' | 'pairedBy' | 'lastSeenAt' | 'config'>;
+
+/**
+ * An instance's facts, in the order its pages show them: version, address (unless `hosted` already says where it
+ * runs), key, pairing, last sighting, config and manifest. The system page (its default instance) and the instance page
+ * both show these.
+ */
+export function instanceFacts(source: InstanceFactsSource, now: number, nameOf: (actor: ActorId) => string, hosted = false): Fact[] {
+  const list: Fact[] = [{ label: 'Version', value: source.version }];
+  if (source.address !== undefined && !hosted) { list.push({ label: 'Address', value: source.address }); }
+  list.push({ label: 'Key', value: source.keyFingerprint });
+  if (source.pairedAt !== undefined) {
+    list.push({ label: 'Paired', value: `${relativeTime(source.pairedAt, now)}${source.pairedBy === undefined ? '' : ` by ${nameOf(source.pairedBy)}`}`, title: fullTime(source.pairedAt) });
+  }
+  if (source.lastSeenAt !== undefined) {
+    list.push({ label: 'Last seen', value: source.status === 'connected' ? 'Online now' : relativeTime(source.lastSeenAt, now), title: fullTime(source.lastSeenAt) });
+  }
+  if (source.config !== undefined) { list.push({ label: 'Config', value: `Version ${source.config.version}, ${relativeTime(source.config.setAt, now)}`, title: fullTime(source.config.setAt) }); }
+  list.push({ label: 'Manifest', value: source.manifestHash, code: true });
+  return list;
 }

@@ -84,6 +84,7 @@ export class HarnessBuilds implements SystemBuilds {
       built: {
         manifest: result.manifest,
         manifestHash: result.contract.hash,
+        contract: { ...manifest, hash: result.contract.hash },
         ...(manifest.grants === undefined ? {} : { grants: manifest.grants }),
         bundleHash,
         entry,

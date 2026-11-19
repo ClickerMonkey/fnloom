@@ -59,8 +59,21 @@ export const IndexEntry = z.object({
 });
 export type IndexEntry = z.infer<typeof IndexEntry>;
 
-/** One search hit, from vectors, words, or both. */
-export const SearchHit = z.object({ kind: IndexedKind, key: z.string(), score: z.number(), text: z.string() });
+/**
+ * One search hit, from vectors, words, or both, with one field per meaning of its score (the fused rank and the
+ * similarity are on different scales, so neither stands in for the other):
+ * - `rank`: its place in this search's order as a share of the best (1 = first, falling with each place); always set,
+ *   for ordering only, since the first hit of any search ranks 1 however poorly it fits.
+ * - `similarity`: how close its meaning is to the query (cosine, 0 to 1), when the query's vector was searched and the
+ *   item has a vector; the only measure of fit, so every threshold (suggestions, the graph contextor) reads it.
+ */
+export const SearchHit = z.object({
+  kind: IndexedKind,
+  key: z.string(),
+  rank: z.number().min(0).max(1),
+  similarity: z.number().min(-1).max(1).optional(),
+  text: z.string(),
+});
 export type SearchHit = z.infer<typeof SearchHit>;
 
 // ─── Notifications ────────────────────────────────────────────────────────────

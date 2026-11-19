@@ -1,6 +1,7 @@
 /**
  * Build 7, the review slice (admins): what a system declares and adds, its install checks, what is live and what
- * waits; going live or approving a pending review by the hash the admin reviewed; test calls while it is installed;
+ * waits (with what its changes amount to, `reviewSummary`); going live, or approving or declining a pending review
+ * (all of it or change by change) by the hash the admin reviewed; test calls while it is installed;
  * and the refusals the hub logged when a system went past what it declared. The systems plugin binds `adminOnly`.
  */
 import { reject } from '@ayepi/core';
@@ -9,6 +10,7 @@ import { mintId, reviewSlice, type ActorId, type FnFacts, type PreviewShot, type
 import type { HubServices } from '../../boot/index.ts';
 import type { ContentStore } from '../index.ts';
 import { messageOf } from '../../catalog/scope.ts';
+import { fnChangeFacts, reviewSummary } from '../../link/review-summary.ts';
 import { timeInfo } from '../../execution/time.ts';
 import type { Where } from '../../store/index.ts';
 import { userInfo, type FullHandlers } from './access.ts';
@@ -45,7 +47,8 @@ export async function systemReview(
     ...(Object.keys(previewUrls).length === 0 ? {} : { previewUrls }),
     ...(review?.checks === undefined ? {} : { checks: review.checks }),
     ...(review?.live === undefined ? {} : { live: review.live }),
-    ...(review?.pending === undefined ? {} : { pending: review.pending }),
+    ...(review?.pending === undefined ? {} : { pending: { ...review.pending, summary: reviewSummary(review.pending.changes), fns: fnChangeFacts(review.pending.changes) } }),
+    declined: review?.declined ?? [],
   };
 }
 
@@ -100,6 +103,7 @@ export function reviewPlugin(hub: HubServices, systems: ReturnType<typeof system
       goLive: ({ data, user }) => lifecycle.goLive(data, user.id),
       approveReview: ({ data, user }) => lifecycle.approve(data, user.id),
       rejectReview: ({ data, user }) => lifecycle.reject(data.system, data.hash, user.id),
+      decideReview: ({ data, user }) => lifecycle.decide(data, user.id),
       testCall: ({ data, user }) => testCall(hub, data, user.id),
       refusals: ({ data }) => refusalPage(hub, data),
     }));

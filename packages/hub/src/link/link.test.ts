@@ -59,6 +59,22 @@ describe('pairing with a code', () => {
     expect('config' in welcome).toBe(false);
   });
 
+  it('keeps how many instances a system says it runs on its row, and a system that says nothing stays unsaid', async () => {
+    const system = new FakeSystem(rig.app, 'shop', shopManifest);
+    await pairDirectly(rig, system);
+    await system.start();
+    expect((await rig.store.table('systems').get(SHOP))?.instances).toBeUndefined();
+    system.drop();
+    system.instances = 'one';
+    await system.start();
+    expect((await rig.store.table('systems').get(SHOP))?.instances).toBe('one');
+    system.drop();
+    system.instances = undefined;
+    await system.start();
+    // a hello that doesn't say keeps what an earlier one said
+    expect((await rig.store.table('systems').get(SHOP))?.instances).toBe('one');
+  });
+
   it('refuses, and expires, requests', async () => {
     const system = new FakeSystem(rig.app, 'shop', shopManifest);
     const reply = await system.connect();
@@ -248,7 +264,7 @@ describe('kinds over the link', () => {
   it('has the kind’s system describe fns of its kinds', async () => {
     const shopSystem = new FakeSystem(rig.app, 'shop', shopManifest);
     const description: KindDescription = {
-      args: wireType(g.obj({})), returns: wireType(g.num()), deps: [], operations: { cancel: true, pause: false, undo: false, background: true },
+      args: wireType(g.obj({})), returns: wireType(g.num()), deps: [], operations: { cancel: true, pause: false, undo: false, background: true }, examples: [{ args: {} }],
     };
     shopSystem.behaviour.describe = (kind) => (kind === 'report' ? { problems: [], description } : { problems: ['unknown kind'] });
     await pairDirectly(rig, shopSystem);

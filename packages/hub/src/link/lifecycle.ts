@@ -3,15 +3,17 @@
  * (`systemAvailability` refuses its contributions) until an admin reviews it and goes live, which saves the reviewed
  * contract's hash and grants (`LiveContract`). After that, every manifest or patch is compared with the one before it:
  * runtime additions its fns declared (`FnEffects.registry`) are approved at once, anything else waits as a
- * `PendingReview` with its changes, which stay off (`held`) while the live version keeps serving. Items an admin
+ * `PendingReview` with its changes, which stay off (`held`) while the live version keeps serving. An admin approves
+ * or declines it all at once, or change by change (`decide`): approved changes go live, declined ones stay off and are
+ * recorded on the review row (`declined`), and the rest keep waiting. Items an admin
  * switches off one by one are `itemSwitches` rows (fns and context keep their own `disabled`).
  */
 import { reject as refuse } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import { canonicalJson } from '@harness/sdk';
 import {
-  effectCovered, FnDecl, FnKindName, Json, MANIFEST_SECTION_NAMES, qualify, QualifiedName, runtimeNames,
-  type ActorId, type ContractChange, type DeclaredBy, type GoLiveRequest, type ItemRef, type ItemSection, type LiveContract, type Manifest, type PendingReview,
+  DECLINED_KEPT, effectCovered, FnDecl, FnKindName, Json, MANIFEST_SECTION_NAMES, qualify, QualifiedName, runtimeNames,
+  type ActorId, type ChangeRef, type ContractChange, type DeclaredBy, type DeclinedChange, type GoLiveRequest, type ReviewDecided, type ReviewDecision, type ItemRef, type ItemSection, type LiveContract, type Manifest, type PendingReview,
   type RegistryEffect, type RegistryThing, type SwitchPart, type SystemName, type SystemReviewRecord, type SystemStage,
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
@@ -157,6 +159,12 @@ export function reviewedEffects(before: Manifest, review: Pick<SystemReviewRecor
     const live = change === undefined ? decl : FnDecl.safeParse(change.before).data;
     return live?.effects?.registry ?? [];
   });
+}
+
+/** The declined changes a review row keeps: these, newest first, before the ones declined earlier (at most `DECLINED_KEPT`). */
+export function declinedRecords(earlier: readonly DeclinedChange[] | undefined, changes: readonly ContractChange[], version: string, by: ActorId, at: number): DeclinedChange[] {
+  const now = changes.map((change): DeclinedChange => ({ section: change.section, name: change.name, change: change.change, origin: change.origin, version, by, at }));
+  return [...now, ...(earlier ?? [])].slice(0, DECLINED_KEPT);
 }
 
 /** Installed vs live, reviews and per-item switches, on the hub's store. */
@@ -322,6 +330,56 @@ export class SystemLifecycle {
     return { hash: manifest.hash };
   }
 
+  /**
+   * Approve some of a pending review's changes and decline others, by the hash reviewed. Approved ones go live (the
+   * items in `off` stay switched off; approved grants become the live grants), declined ones stay off and are
+   * recorded, and the rest keep waiting. When nothing waits after it, the reviewed version is the live one.
+   */
+  decide(decision: ReviewDecision, by: ActorId): Promise<ReviewDecided> {
+    return this.#reviews.run(() => this.#decide(decision, by));
+  }
+
+  async #decide(decision: ReviewDecision, by: ActorId): Promise<ReviewDecided> {
+    const { store, catalog, clock, log, bus } = this.#options;
+    const review = await this.review(decision.system);
+    if (review?.pending === undefined) { throw refuse(409, 'NOTHING_PENDING', `${decision.system} has no changes waiting`); }
+    const pending = review.pending;
+    if (pending.hash !== decision.hash) { throw refuse(409, 'CONTRACT_MOVED', `${decision.system}'s changes moved since you reviewed them: review them again`); }
+    const manifest = await this.#reviewed(decision.system, decision.hash);
+    const waiting = new Map(pending.changes.map((change) => [itemKey(change), change]));
+    const pick = (refs: readonly ChangeRef[]): ContractChange[] => refs.map((ref) => {
+      const change = waiting.get(itemKey(ref));
+      if (change === undefined) { throw refuse(409, 'NOT_PENDING', `${ref.name} (${ref.section}) isn't waiting for review: review the changes again`); }
+      return change;
+    });
+    const approved = pick(decision.approve);
+    const declined = pick(decision.decline);
+    const decided = new Set([...approved, ...declined].map(itemKey));
+    if (decided.size < approved.length + declined.length) { throw refuse(400, 'DECIDED_TWICE', 'a change can be approved or declined, not both'); }
+    const items = (changes: readonly ContractChange[], kept: (change: ContractChange) => boolean): ItemRef[] => changes.filter(kept).flatMap((change) => { const item = itemOf(change); return item === undefined ? [] : [item]; });
+    // approved items come on unless kept off; declined ones (still declared) go off
+    const among = new Set(items(approved, () => true).map(itemKey));
+    await this.#applyOff(decision.system, decision.off.filter((item) => among.has(itemKey(item))), by, among);
+    const declinedOff = items(declined, (change) => change.change !== 'removed');
+    await this.#applyOff(decision.system, declinedOff, by, new Set(declinedOff.map(itemKey)));
+    const rest = pending.changes.filter((change) => !decided.has(itemKey(change)));
+    const live: LiveContract = review.live ?? { version: manifest.version, hash: manifest.hash, grants: manifest.grants ?? { hub: [] }, runtime: [], by, at: clock() };
+    const grants = approved.some((change) => change.section === 'grants') ? manifest.grants ?? { hub: [] } : live.grants;
+    const nextLive: LiveContract = {
+      ...live, grants, runtime: foldRuntime(live.runtime, approved), by, at: clock(),
+      ...(rest.length === 0 ? { hash: pending.hash, version: pending.version } : {}),
+    };
+    const { pending: _decided, ...row } = review;
+    const nextPending: PendingReview | undefined = rest.length === 0 ? undefined : { ...pending, changes: rest, by: rest.every((change) => change.origin === 'runtime') ? 'runtime' : 'contract' };
+    await store.table('systemReviews').put({
+      ...row, live: nextLive, declined: declinedRecords(review.declined, declined, pending.version, by, clock()), updatedAt: clock(), ...(nextPending === undefined ? {} : { pending: nextPending }),
+    });
+    await catalog.refreshAvailability(decision.system);
+    bus.publish('capabilities.changed', {});
+    log.info('system.review.decided', { system: decision.system, hash: decision.hash, approved: approved.length, declined: declined.length, waiting: rest.length, by });
+    return { hash: nextLive.hash, waiting: rest.length };
+  }
+
   /** Drop a pending review: the live version stays, and what waited stays off (switched off by the admin). */
   reject(system: SystemName, hash: string, by: ActorId): Promise<{ ok: boolean }> {
     return this.#reviews.run(() => this.#reject(system, hash, by));
@@ -335,7 +393,10 @@ export class SystemLifecycle {
     const off = review.pending.changes.filter((change) => change.change !== 'removed').flatMap((change) => { const item = itemOf(change); return item === undefined ? [] : [item]; });
     const kept = await this.offItems(system);
     const { pending: _dropped, ...rest } = review;
-    await store.table('systemReviews').put({ ...rest, ...(review.live === undefined ? {} : { live: { ...review.live, hash: review.pending.hash } }), updatedAt: clock() });
+    await store.table('systemReviews').put({
+      ...rest, ...(review.live === undefined ? {} : { live: { ...review.live, hash: review.pending.hash } }),
+      declined: declinedRecords(review.declined, review.pending.changes, review.pending.version, by, clock()), updatedAt: clock(),
+    });
     await this.#applyOff(system, [...kept, ...off], by);
     await catalog.refreshAvailability(system);
     bus.publish('capabilities.changed', {});

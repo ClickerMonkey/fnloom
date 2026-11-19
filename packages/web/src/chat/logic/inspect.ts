@@ -3,7 +3,7 @@
  * the parts of a request "what the model saw" shows, and the tabs the inspectors open on (kept in the URL). Pure, so
  * it is tested alone.
  */
-import type { LlmInteraction, LlmInteractionId, LlmMessage, RunId, TreeNode } from '@harness/core';
+import { fnOfToolName, QualifiedName, RunArgs, type LlmInteraction, type LlmInteractionId, type LlmMessage, type LlmToolCall, type RunId, type StaticTool, type TreeNode } from '@harness/core';
 import { z } from 'zod';
 
 /** The tabs of an LLM call's details. */
@@ -66,6 +66,29 @@ export function turnUsage(calls: readonly LlmInteraction[]): TurnUsage {
     models: [...new Set(calls.map((c) => c.model))],
     providers: [...new Set(calls.map((c) => c.provider))],
   };
+}
+
+/** The static toolset's tool that runs a fn named in its args (`{ fn, args }`). */
+const RUN_TOOL: StaticTool = 'run';
+
+/**
+ * The fn a tool call runs: a fn's own tool (`hub__fns_search` read back to `hub/fns_search`), or the fn the static
+ * `run` tool names in its args. Other static tools (find, load, …) and args that don't parse run no fn.
+ */
+export function toolCallFn(tool: Pick<LlmToolCall, 'name' | 'arguments'>): QualifiedName | undefined {
+  const own = fnOfToolName(tool.name);
+  if (own !== undefined || tool.name !== RUN_TOOL) { return own; }
+  try {
+    return QualifiedName.safeParse(RunArgs.safeParse(JSON.parse(tool.arguments)).data?.fn).data;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The fns a turn's LLM calls called, each once, in the order first called (a fn's tool, or the static `run` naming it). */
+export function turnFns(calls: readonly LlmInteraction[]): readonly QualifiedName[] {
+  const sorted = [...calls].sort((a, b) => a.queuedAt - b.queuedAt);
+  return [...new Set(sorted.flatMap((call) => (call.response?.toolCalls ?? []).flatMap((tool) => toolCallFn(tool) ?? [])))];
 }
 
 /** A message's content as text, for reading a request: parts joined, media named. */

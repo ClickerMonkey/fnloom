@@ -46,7 +46,7 @@ import { contextFolderSamples, FS_CLIENT, HOSTED_RANDOM, MOCK_CLIENTS, MockExplo
 import { DATABASE_CONFIG_TYPE, SHOP_CONFIG, shopFns, shopTypes } from './mockDatabase.ts';
 import { drillRead } from './mockDrill.ts';
 import { withOpenable } from './mockOpenable.ts';
-import { systemView } from '../src/admin/test/fakes.ts';
+import { systemCounts, systemView } from '../src/admin/test/fakes.ts';
 import { instanceView } from '../src/admin/test/build2.ts';
 import { MOCK_FILES, MOCK_UPLOADS, MockResources } from './mockResources.ts';
 import { ContextGraphDouble } from '../src/context/test/graph.ts';
@@ -146,13 +146,13 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
   const DATABASE = SystemName.parse('database');
   admin.systems.set(DATABASE, systemView({
     name: 'database', description: 'Query and change SQL databases: every table is a type, every query asked for is kept as a fn.', status: 'connected', version: '0.1.0',
-    fns: 5, configType: DATABASE_CONFIG_TYPE, config: shopConfig, defaultInstance: 'shop',
+    counts: systemCounts({ fns: 5 }), configType: DATABASE_CONFIG_TYPE, config: shopConfig, defaultInstance: 'shop',
   }));
   build2.instances.set(DATABASE, [instanceView({ system: 'database', instance: 'shop', description: 'Shop orders (Postgres)', version: '0.1.0', config: shopConfig })]);
   // build 6: a system fs hosts, and fs's files for the explorer
   const explorer = new MockExplorer();
   const RANDOM = SystemName.parse('random');
-  admin.systems.set(RANDOM, systemView({ name: 'random', description: 'Rolls dice; written and installed from the chat.', status: 'connected', version: '0.2.0', fns: 1, configType: undefined, config: undefined, host: HOSTED_RANDOM }));
+  admin.systems.set(RANDOM, systemView({ name: 'random', description: 'Rolls dice; written and installed from the chat.', status: 'connected', version: '0.2.0', counts: systemCounts({ fns: 1 }), configType: undefined, config: undefined, host: HOSTED_RANDOM }));
   /** A system as the admin pages get it, with its instances. */
   const reviews = new MockReviews(() => NOW);
   const withInstances = (view: ReturnType<MockAdmin['system']>): ReturnType<MockAdmin['system']> => ({ ...view, instances: build2.instancesOf(view.name), stage: reviews.stage(view.name) });
@@ -282,6 +282,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
       goLive: ({ data }) => reviews.goLive(data),
       approveReview: ({ data }) => reviews.approve(data),
       rejectReview: ({ data }) => reviews.reject(data.system),
+      decideReview: ({ data }) => reviews.decide(data),
       testCall: () => reviews.testCall(),
       refusals: ({ data }) => reviews.refusals(data),
       // build 7: the graph of every system's items, from the sample graph
@@ -413,7 +414,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
     'capabilities', 'types', 'sessions', 'session', 'createSession', 'updateSession', 'limits', 'messages', 'send', 'invoke', 'control', 'background', 'undoTurn',
     'tree', 'run', 'llmCall', 'suggest', 'mentions', 'mentionHover', 'waiting', 'approve', 'approvals', 'contributions', 'presence',
     'searchFns', 'fnFacts', 'fnExamples', 'autoClassifier', 'setAutoClassifier', 'clientLogs', 'query', 'exploreRoots', 'exploreList', 'exploreRead',
-    'systems', 'system', 'pairings', 'approvePairing', 'createPairingToken', 'configureSystem', 'enableSystem', 'switchItem', 'switchPart', 'systemReview', 'goLive', 'approveReview', 'rejectReview', 'testCall', 'refusals', 'graph', 'systemParts', 'removeSystem', 'installSystem', 'startSystem',
+    'systems', 'system', 'pairings', 'approvePairing', 'createPairingToken', 'configureSystem', 'enableSystem', 'switchItem', 'switchPart', 'systemReview', 'goLive', 'approveReview', 'rejectReview', 'decideReview', 'testCall', 'refusals', 'graph', 'systemParts', 'removeSystem', 'installSystem', 'startSystem',
     'stopSystem', 'upgradeSystem', 'reimport', 'systemFns', 'systemLogs', 'providers', 'configureProvider', 'models', 'modelCategories', 'setModelCategory',
     'budgets', 'setBudget', 'priorityRules', 'setPriority', 'resolveLimits', 'policies', 'setPolicy', 'removeRule', 'actors', 'actorSettings', 'setActorSetting',
     'runs', 'llmCalls', 'resources', 'resource',

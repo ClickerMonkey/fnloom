@@ -214,6 +214,12 @@ describe('claude system', () => {
     expect(listed.result.items[3]).toMatchObject({ server: { transport: 'stdio', where: 'npx', secrets: ['GITHUB_PERSONAL_ACCESS_TOKEN'] } });
     expect(JSON.stringify(listed.result)).not.toContain('ghp_');
   });
+
+  it('describes an imported agent with an example: a task in its own words', async () => {
+    const { kit } = await setup();
+    const props = await kit.kindProps('agent', { instance: 'main', agent: 'code-reviewer', folder: FOLDER, description: 'Review the staged changes.' });
+    expect(props.description?.examples).toEqual([{ args: { prompt: 'Review the staged changes.' }, note: `A task for Claude's code-reviewer agent, in ${FOLDER}.` }]);
+  });
 });
 
 /** The mcp system as hub/system_get shows it, with these instances. */
@@ -221,7 +227,7 @@ function mcpSystem(instances: readonly string[]): SystemView {
   const instance = { system: 'mcp', description: '', status: 'connected', keyFingerprint: '', version: '0.1.0', manifestHash: 'h' };
   return SystemView.parse({
     name: 'mcp', description: 'MCP servers.', status: 'connected', enabled: { functions: true, renderers: true }, keyFingerprint: '', version: '0.1.0', manifestHash: 'h',
-    actor: 'act_mcp', fns: 0, needsConfig: false, instances: instances.map((name) => ({ ...instance, instance: name })),
+    actor: 'act_mcp', counts: { fns: 0, context: 0, types: 0, parts: 0, instances: instances.length, pending: 0, refusals: 0 }, instanceMode: 'many', needsConfig: false, instances: instances.map((name) => ({ ...instance, instance: name })),
   });
 }
 

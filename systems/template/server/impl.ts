@@ -24,6 +24,7 @@ export function createImpl(_deps: TemplateDeps): SystemImpl<(typeof template)['d
     // TODO: implement every declared method, or delete this comment.
 
     // kinds: per kind, `{ async check(payload, ctx), async describe(payload, ctx), async run(payload, args, ctx) }`.
+    // `describe` returns at least one example worked out from the payload (`examples: [{ args: sampleArgs(args), note }]`).
     // TODO: implement every declared kind, or delete this comment.
 
     // context: per dynamic context (declared without `content`), `async (args, ctx) => text`.

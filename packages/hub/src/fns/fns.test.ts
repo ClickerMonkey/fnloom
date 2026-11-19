@@ -25,6 +25,7 @@ import type { HubStore } from '../store/index.ts';
 import { LlmAutoClassifier } from './auto.ts';
 import { ResourceClientLogs, logFileName } from './client-logs.ts';
 import { AgentCostEstimator, DeclaredCostEstimator, FreeCostEstimator, HistoryCostEstimator, KindCostEstimator, UnknownCostEstimator } from './costs.ts';
+import { catchUp } from './create.ts';
 import { StoreFnExamples } from './examples.ts';
 import { aboutDuration, StoreFnFacts } from './facts.ts';
 import { SessionModeGate } from './gate.ts';
@@ -143,7 +144,7 @@ async function setup(options: { status?: SystemStatus } = {}) {
 }
 
 /** How the hub's `llm` kind describes an agent here (its own system is the hub). */
-const AGENT_DESCRIPTION = { args: { name: 'any' }, returns: { name: 'text' }, deps: [], operations: { cancel: true, pause: false, undo: false, background: false } };
+const AGENT_DESCRIPTION = { args: { name: 'any' }, returns: { name: 'text' }, deps: [], operations: { cancel: true, pause: false, undo: false, background: false }, examples: [{ args: {} }] };
 
 /** The test model's limits. */
 const LIMITS = { contextWindow: 32_000, maxOutputTokens: 4_000, reasoningTokens: 0, charsPerToken: 4 };
@@ -257,6 +258,17 @@ describe('fn examples', () => {
     expect((await examples.page({ fn: q('books/overdue') }, asker)).total).toBe(3);
     await expect(examples.patch(SystemName.parse('other'), { fn: 'overdue', upsert: [], remove: [] })).rejects.toThrow(/has no fn/);
   }, 20_000);
+
+  it('catches up on a fn whose facts are stored but whose declared examples never were (stored before the examples table)', async () => {
+    const { examples, facts, asker, store } = await setup();
+    const stored = (await store.table('fnExamples').find({ where: { fn: q('books/overdue') }, limit: 10 })).items;
+    for (const row of stored) await store.table('fnExamples').remove(row.id);
+    expect(await store.table('fnFacts').get(q('books/overdue'))).toBeDefined();
+    // only it: every other fn with declared examples has them, and a fn that declares none has nothing to store
+    expect(await catchUp({ store }, { examples, facts })).toBe(1);
+    expect((await examples.page({ fn: q('books/overdue') }, asker)).items.map((e) => e.args)).toEqual([{ days: 30 }, { days: 90 }]);
+    expect(await catchUp({ store }, { examples, facts })).toBe(0);
+  });
 });
 
 describe('fn facts', () => {

@@ -99,7 +99,7 @@ export class InstanceKeeper {
    * Change a system's own row (its switches, its default instance) and recompute its status. Throws when the system
    * is unknown.
    */
-  async syncSystem(system: SystemName, change: Partial<Pick<SystemRecord, 'enabled' | 'defaultInstance' | 'description' | 'version' | 'manifestHash'>> = {}): Promise<SystemRecord> {
+  async syncSystem(system: SystemName, change: Partial<Pick<SystemRecord, 'enabled' | 'defaultInstance' | 'description' | 'version' | 'manifestHash' | 'instances'>> = {}): Promise<SystemRecord> {
     const result = await this.#writes.run(async () => {
       const changed = await this.#syncSystem(system, change);
       if (changed === undefined) { throw new Error(`no system ${system}`); }

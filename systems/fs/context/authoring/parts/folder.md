@@ -201,6 +201,7 @@ export function createImpl(_deps: TemplateDeps): SystemImpl<(typeof template)['d
     // TODO: implement every declared method, or delete this comment.
 
     // kinds: per kind, `{ async check(payload, ctx), async describe(payload, ctx), async run(payload, args, ctx) }`.
+    // `describe` returns at least one example worked out from the payload (`examples: [{ args: sampleArgs(args), note }]`).
     // TODO: implement every declared kind, or delete this comment.
 
     // context: per dynamic context (declared without `content`), `async (args, ctx) => text`.
@@ -382,8 +383,9 @@ export const template = system('template', {
     // must implement: `undo` (an undo implementation), `resume` (it can pause), `progress` (`linear` or `steps`),
     // `handlers` (`handler({ ... })`), `deps` (fn refs it may call), `state`, `form`, `status`, `display`, `tags`,
     // `group` (one of the system's `groups`).
-    // Every fn needs `instructions` written for the model (when to use it, how, what it returns, pitfalls), `examples`
-    // (`{ args, result?, note? }`, checked against its types) and `effects` (`{ mode, reads, writes, free }`).
+    // Every fn needs `instructions` written for the model (when to use it, how, what it returns, pitfalls), at least one
+    // example in `examples` (`{ args, result?, note? }`, checked against its types; a fn or agent with none fails the
+    // build and `serve`) and `effects` (`{ mode, reads, writes, free }`).
     // TODO: declare fns, or delete this comment.
 
     // hooks: user-message hooks that add information before the LLM sees a message, each made with

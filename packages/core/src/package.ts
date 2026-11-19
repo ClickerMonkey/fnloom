@@ -10,7 +10,7 @@ import { InstanceConnect } from './connections.ts';
 import { GinTypeDef } from './gin.ts';
 import { ActorId, ApprovalId, InstanceName, InstanceRef, Json, PairingId, QualifiedName, SystemName, Timestamp } from './primitives.ts';
 import { CONTENT_HASH } from './resources.ts';
-import { InstalledSystem, InstanceConfig, SystemStatus } from './records/systems.ts';
+import { InstalledSystem, InstanceConfig, InstanceMode, SystemStatus } from './records/systems.ts';
 
 /** The package format this hub reads. */
 export const PACKAGE_FORMAT = 1;
@@ -60,7 +60,7 @@ export const SystemPackageManifest = z.object({
   }),
   client: z.object({ entry: PackagePath }).optional(),
   /** `one`: a single instance named `main`. `many`: a fleet; each attached copy is an instance. */
-  instances: z.enum(['one', 'many']).default('one'),
+  instances: InstanceMode.default('one'),
   /** sha-256 of every packed file, written by `pack` and checked by install (corruption, not malice). */
   files: z.record(PackagePath, z.string().regex(CONTENT_HASH)).optional(),
   /**

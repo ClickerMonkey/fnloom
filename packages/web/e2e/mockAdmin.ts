@@ -15,7 +15,7 @@ import {
 import type { BudgetView, OutputLine, ModelInfo, RuleRef } from '@harness/core';
 import type { LlmFilter, ResourceFilter, RunFilter } from './mockQuery.ts';
 import {
-  actor, budget, category, fnRecord, installed, logLine, model, pairing, policy, priorityRule, resourceRecord, settingValue, settingView, systemView,
+  actor, budget, category, fnRecord, installed, logLine, model, pairing, policy, priorityRule, resourceRecord, settingValue, settingView, systemCounts, systemView,
 } from '../src/admin/test/fakes.ts';
 import type { MockChat } from './mockChat.ts';
 
@@ -74,11 +74,11 @@ export class MockAdmin {
     const at = now();
     const fs = systemView({ installed: installed(), lastSeenAt: at - 2_000 });
     const notes = systemView({
-      name: 'notes', description: 'Meeting notes and their summaries.', status: 'needs-config', needsConfig: true, config: undefined, fns: 4, version: '0.3.1',
+      name: 'notes', description: 'Meeting notes and their summaries.', status: 'needs-config', needsConfig: true, config: undefined, counts: systemCounts({ fns: 4 }), version: '0.3.1',
       configType: { name: 'obj', props: { folder: { type: { name: 'text', options: { minLength: 1 } }, docs: 'Where the notes live.' }, summarize: { type: { name: 'bool' } } } },
     });
     const embedder = systemView({
-      name: 'embedder', description: 'Turns text into vectors for search (EmbeddingGemma).', status: 'disconnected', fns: 1, lastSeenAt: at - 42 * MINUTE,
+      name: 'embedder', description: 'Turns text into vectors for search (EmbeddingGemma).', status: 'disconnected', counts: systemCounts({ fns: 1 }), lastSeenAt: at - 42 * MINUTE,
       configType: undefined, config: undefined, enabled: { functions: true, renderers: false },
     });
     for (const s of [fs, notes, embedder]) { this.systems.set(s.name, s); }
@@ -154,7 +154,7 @@ export class MockAdmin {
     // another system asks soon after, so the page has something live to show (and each e2e run one to approve)
     if (this.pairingsWith('pending').length === 0) { setTimeout(() => { this.#askToPair(); }, 1_500); }
     if (!approve) { return {}; }
-    const made = systemView({ name: request.name, description: 'A newly paired system.', version: request.version, status: 'connected', fns: 3, configType: undefined, config: undefined });
+    const made = systemView({ name: request.name, description: 'A newly paired system.', version: request.version, status: 'connected', counts: systemCounts({ fns: 3 }), configType: undefined, config: undefined });
     this.systems.set(made.name, made);
     this.#emit.user({ type: 'system', system: made.name, status: 'connected' });
     return { system: made.name };
@@ -199,14 +199,14 @@ export class MockAdmin {
   remove(name: SystemName): { fnsUnavailable: number } {
     const current = this.system(name);
     this.systems.delete(name);
-    return { fnsUnavailable: current.fns };
+    return { fnsUnavailable: current.counts.fns };
   }
 
   install(source: InstallSource, autoStart: boolean): { name: SystemName } {
     const raw = 'package' in source ? source.package.split('/').pop() ?? 'system' : 'git' in source ? source.git.split('/').pop()?.replace(/\.git$/, '') ?? 'system'
       : 'zip' in source ? source.file.replace(/(-\d[\w.]*)?\.zip$/, '') : source.path.split(/[\\/]/).pop() ?? 'system';
     const made = systemView({
-      name: raw.replace(/^system-/, '').toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^[^a-z]+/, '') || 'system', description: 'Installed by the hub.', status: 'pairing', fns: 0,
+      name: raw.replace(/^system-/, '').toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^[^a-z]+/, '') || 'system', description: 'Installed by the hub.', status: 'pairing',
       installed: installed({ source, status: 'installing', autoStart }), configType: undefined, config: undefined,
     });
     this.systems.set(made.name, made);
@@ -221,7 +221,7 @@ export class MockAdmin {
 
   fns(name: SystemName) {
     const system = this.system(name);
-    const names = ['read_file', 'write_file', 'list', 'search', 'shell', 'move'].slice(0, Math.max(1, Math.min(6, system.fns)));
+    const names = ['read_file', 'write_file', 'list', 'search', 'shell', 'move'].slice(0, Math.max(1, Math.min(6, system.counts.fns)));
     return names.map((local, i) => fnRecord({
       name: `${name}/${local}`, system: name,
       disabled: this.#off.has(QualifiedName.parse(`${name}/${local}`)),

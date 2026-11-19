@@ -1,7 +1,11 @@
 <script setup lang="ts">
-/** One node of a turn's fn tree and, nested under it, the fns it called; LLM calls are its leaves. Live statuses win over the tree's snapshot. */
+/**
+ * One node of a turn's fn tree and, nested under it, the fns it called; LLM calls are its leaves. Live statuses win over
+ * the tree's snapshot. The fn is a `FnPill` (it opens the fn modal); the rest of the row opens the run.
+ */
 import type { LlmInteractionId, RunId, RunStatus, TreeNode } from '@harness/core';
 import { computed, ref } from 'vue';
+import FnPill from '../../fns/components/FnPill.vue';
 import { UiIcon } from '../../ui/index.ts';
 import { formatCost, formatDuration } from '../logic/format.ts';
 import { fnLabel } from '../logic/labels.ts';
@@ -23,15 +27,15 @@ const hasChildren = computed(() => props.node.children.length > 0 || props.node.
         <UiIcon :name="open ? 'chevron-down' : 'chevron-right'" :size="14" />
       </button>
       <span v-else class="fold-space" />
-      <button type="button" class="run" @click="emit('run', node.run.id)">
-        <RunDot :status="status" />
-        <span class="label">{{ fnLabel(node.run.fn) }}</span>
-        <code class="name">{{ node.run.fn }}</code>
+      <RunDot :status="status" class="dot" />
+      <FnPill :name="node.run.fn" class="fn" />
+      <button type="button" class="run" :aria-label="`Open the run of ${fnLabel(node.run.fn)}`" data-testid="tree-run" @click="emit('run', node.run.id)">
+        <span class="stats">
+          <span v-if="took !== ''">{{ took }}</span>
+          <span>{{ formatCost(node.run.totalCost) }}</span>
+        </span>
+        <UiIcon name="chevron-right" :size="13" class="go" />
       </button>
-      <span class="stats">
-        <span v-if="took !== ''">{{ took }}</span>
-        <span>{{ formatCost(node.run.totalCost) }}</span>
-      </span>
     </div>
     <ul v-if="open && hasChildren" class="children">
       <li v-for="call in node.llmCalls" :key="call.id" class="llm">
@@ -58,7 +62,11 @@ const hasChildren = computed(() => props.node.children.length > 0 || props.node.
 .run:hover, .llm-button:hover { background: var(--surface-2); }
 .run:focus-visible, .llm-button:focus-visible { outline: none; box-shadow: var(--ring); }
 .label { flex: none; font-weight: var(--weight-medium); }
-.name { min-width: 0; color: var(--text-faint); font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dot { flex: none; margin-left: var(--space-1); }
+.fn { flex: 0 1 auto; min-width: 0; }
+.run { justify-content: flex-end; }
+.go { flex: none; color: var(--text-faint); opacity: 0; transition: opacity var(--fast) var(--ease); }
+.run:hover .go, .run:focus-visible .go { opacity: 1; }
 .stats { display: flex; gap: var(--space-2); flex: none; color: var(--text-faint); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .children { display: grid; gap: 2px; margin: 0 0 0 11px; padding: 0 0 0 var(--space-3); border-left: 1px solid var(--border); }
 .llm { list-style: none; }

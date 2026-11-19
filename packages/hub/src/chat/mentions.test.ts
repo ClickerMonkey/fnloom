@@ -45,7 +45,7 @@ describe('the hub\'s own mentions', () => {
     const off = w.catalog.addFn('fs', { name: 'off' });
     w.catalog.fnRecords.set(off.name, { ...off, available: { unavailable: 'disabled', detail: 'off' } });
     expect((await w.chat.mentions.search(w.ask('hub/fns'), ' ')).map((o) => o.label)).toEqual(['fs/read', 'hub/chat']);
-    w.index.hits = [{ kind: 'fn', key: 'fs/read', score: 1, text: 'Read a file.' }, { kind: 'context', key: 'fs/guide', score: 1, text: 'Guide.' }];
+    w.index.hits = [{ kind: 'fn', key: 'fs/read', rank: 1, similarity: 1, text: 'Read a file.' }, { kind: 'context', key: 'fs/guide', rank: 1, similarity: 1, text: 'Guide.' }];
     expect(await w.chat.mentions.search(w.ask('hub/fns'), 'read')).toEqual([{ label: 'fs/read', hint: 'Read a file.', target: { fn: 'fs/read' } }]);
     expect(w.index.searched.at(-1)).toEqual({ text: 'read', kinds: ['fn'], limit: 10, systems: ['hub', 'fs'] });
     expect(await w.chat.mentions.search(w.ask('hub/context'), 'guide')).toEqual([{ label: 'fs/guide', hint: 'Guide.', target: { context: 'fs/guide' } }]);
@@ -53,7 +53,7 @@ describe('the hub\'s own mentions', () => {
 
   it('find resources and their sections', async () => {
     const w = await world();
-    w.index.hits = [{ kind: 'section', key: 'fs://repo/docs/a%20b.md#Intro', score: 1, text: 'Intro text' }, { kind: 'section', key: 'fs://repo/', score: 1, text: 'Root' }, { kind: 'section', key: 'fs://repo/100%.md', score: 1, text: 'Odd' }];
+    w.index.hits = [{ kind: 'section', key: 'fs://repo/docs/a%20b.md#Intro', rank: 1, similarity: 1, text: 'Intro text' }, { kind: 'section', key: 'fs://repo/', rank: 1, similarity: 1, text: 'Root' }, { kind: 'section', key: 'fs://repo/100%.md', rank: 1, similarity: 1, text: 'Odd' }];
     expect(await w.chat.mentions.search(w.ask('hub/resources'), 'intro')).toEqual([
       { label: 'a b.md', hint: 'Intro text', target: { uri: 'fs://repo/docs/a%20b.md', section: 'Intro' } },
       { label: 'repo', hint: 'Root', target: { uri: 'fs://repo/' } },

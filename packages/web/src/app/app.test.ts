@@ -134,20 +134,30 @@ describe('router guard', () => {
     await router.push('/settings/nonsense');
     expect(router.currentRoute.value.name).toBe(ROUTES.notFound);
   });
+
+  it('sends the old graph address to the admin graph, keeping its query', async () => {
+    const fakes = fakeStores({ signedIn: true });
+    const graph = createAppRouter(fakes.stores.session, createMemoryHistory());
+    await graph.push('/graph?q=nodeKind%3Afn&focus=fn%3Afs%2Fread&hops=2');
+    expect(graph.currentRoute.value.name).toBe(ROUTES.graph);
+    expect(graph.currentRoute.value.path).toBe('/admin/graph');
+    expect(graph.currentRoute.value.query).toEqual({ q: 'nodeKind:fn', focus: 'fn:fs/read', hops: '2' });
+    expect(navEntries({ name: ROUTES.graph }, fakes.stores.session.user.value, { inbox: 0, admin: 0 }).find((e) => e.active)?.id).toBe('admin');
+  });
 });
 
 describe('nav', () => {
   it('lists the entries for the user, marks the current one and counts the inbox', () => {
     const admin = fakeStores({ signedIn: true }).stores.session.user.value;
     const entries = navEntries({ name: ROUTES.session }, admin, { inbox: 4, admin: 2 });
-    expect(entries.map((e) => e.id)).toEqual(['chat', 'inbox', 'resources', 'context', 'data', 'graph', 'claude', 'admin', 'settings']);
+    expect(entries.map((e) => e.id)).toEqual(['chat', 'inbox', 'resources', 'context', 'data', 'claude', 'admin', 'settings']);
     expect(entries.find((e) => e.id === 'admin')?.count).toBe(2);
     expect(navEntries({ name: ROUTES.llmCalls }, admin, { inbox: 0, admin: 0 }).find((e) => e.active)?.id).toBe('admin');
     expect(navEntries({ name: ROUTES.resources }, admin, { inbox: 0, admin: 0 }).find((e) => e.active)?.id).toBe('resources');
     expect(entries.find((e) => e.active)?.id).toBe('chat');
     expect(entries.find((e) => e.id === 'inbox')?.count).toBe(4);
     const member = admin === undefined ? undefined : { ...admin, role: 'member' as const };
-    expect(navEntries({ name: 'nowhere' }, member, { inbox: 0, admin: 3 }).map((e) => e.id)).toEqual(['chat', 'inbox', 'resources', 'context', 'data', 'graph', 'claude', 'settings']);
+    expect(navEntries({ name: 'nowhere' }, member, { inbox: 0, admin: 3 }).map((e) => e.id)).toEqual(['chat', 'inbox', 'resources', 'context', 'data', 'claude', 'settings']);
   });
 });
 

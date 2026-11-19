@@ -1,11 +1,12 @@
 <script setup lang="ts">
 /**
  * A type before and after a change (a table-backed type, or a table's type after a rescan): the change list first,
- * the saved fns it would break, then the two types side by side (stacked when narrow) behind a toggle, so the card
+ * the saved fns it would break (each a `FnPill`), then the two types side by side (stacked when narrow) behind a toggle, so the card
  * stays short until someone wants the detail.
  */
 import type { PreviewPart } from '@harness/core';
 import { computed, ref } from 'vue';
+import FnPill from '../../fns/components/FnPill.vue';
 import GinTypeView from '../../gin/GinTypeView.vue';
 import { UiBadge, UiIcon } from '../../ui/index.ts';
 
@@ -30,7 +31,7 @@ const tone = computed(() => (change.value === 'Removed' ? 'danger' : change.valu
     <div v-if="part.breaks.length > 0" class="breaks" data-testid="type-diff-breaks">
       <strong>Breaks {{ part.breaks.length === 1 ? 'a saved fn' : `${part.breaks.length} saved fns` }}</strong>
       <ul>
-        <li v-for="item in part.breaks" :key="item.fn"><code>{{ item.fn }}</code> — {{ item.why }}</li>
+        <li v-for="item in part.breaks" :key="item.fn"><FnPill :name="item.fn" /> — {{ item.why }}</li>
       </ul>
     </div>
     <button type="button" class="toggle" :aria-expanded="open" @click="open = !open">{{ open ? 'Hide the types' : 'Compare the types' }}</button>
@@ -55,7 +56,6 @@ const tone = computed(() => (change.value === 'Removed' ? 'danger' : change.valu
 .name { flex: 1; min-width: 0; color: var(--text); font-family: var(--mono); font-size: var(--text-sm); overflow-wrap: anywhere; }
 .changes, .breaks ul { display: grid; gap: 2px; margin: 0; padding-left: var(--space-4); font-size: var(--text-sm); }
 .breaks { display: grid; gap: 2px; padding: var(--space-2); border-radius: var(--radius-sm); background: var(--warn-soft); font-size: var(--text-sm); }
-.breaks code { font-family: var(--mono); font-size: var(--text-xs); }
 .toggle { justify-self: start; padding: 0; border: 0; background: transparent; color: var(--accent); font-size: var(--text-sm); }
 .sides { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
 @container (min-width: 620px) { .sides { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

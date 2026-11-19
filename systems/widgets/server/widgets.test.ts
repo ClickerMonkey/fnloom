@@ -112,6 +112,8 @@ describe('the widget kind', () => {
     expect(props.problems).toEqual([]);
     expect(props.description?.deps).toEqual([SOURCE, 'hub/fn_get', 'hub/read_table', 'hub/visuals', 'hub/row_actions']);
     expect(props.description?.effects).toEqual({ mode: 'read' });
+    const args: unknown = expect.any(Object);
+    expect(props.description?.examples).toEqual([{ args, note: `Draws "${SPEC.title}" from ${SOURCE}.` }]);
   });
 });
 

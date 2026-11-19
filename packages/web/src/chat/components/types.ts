@@ -18,7 +18,7 @@ export interface RenderView<K extends RenderKind = RenderKind> {
 }
 
 /** What a message's action bar can offer. */
-export type MessageAction = 'copy' | 'reply' | 'edit' | 'retry' | 'undo' | 'details' | 'tree' | 'link';
+export type MessageAction = 'copy' | 'reply' | 'edit' | 'continue' | 'retry' | 'undo' | 'details' | 'tree' | 'link';
 
 /** What the chat header's tools and overflow menu offer. */
 export type HeaderAction = 'rename' | 'tree' | 'undo' | 'settings' | 'people' | 'archive' | 'delete' | 'shortcuts' | 'debug';

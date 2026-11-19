@@ -1,10 +1,11 @@
 <script setup lang="ts">
 /**
  * The calls the hub refused because a system went past what it declared, newest first: the rule it broke, what it
- * tried, one line of why, the fn and run it came from, and when. The rule filter narrows the list.
+ * tried, one line of why, the fn (a `FnPill`) and run it came from, and when. The rule filter narrows the list.
  */
 import { REFUSAL_RULES, type RefusalRecord, type RefusalRule, type RunId } from '@harness/core';
 import type { RouteLocationRaw } from 'vue-router';
+import FnPill from '../../fns/components/FnPill.vue';
 import { relativeTime, fullTime, UiBadge, UiSelect, type SelectOption } from '../../ui/index.ts';
 import { refusalLine, RULE_WORDS } from '../logic/review.ts';
 
@@ -28,7 +29,7 @@ const RULES: readonly SelectOption<RefusalRule | 'all'>[] = [{ value: 'all', lab
         <span class="main">
           <span class="detail">{{ refusalLine(refusal) }}</span>
           <span class="meta">
-            <span v-if="refusal.fn">From <code>{{ refusal.fn }}</code> · </span>
+            <span v-if="refusal.fn">From <FnPill :name="refusal.fn" /> · </span>
             <span>on {{ refusal.instance }}</span>
             <RouterLink v-if="refusal.run" :to="runPage(refusal.run)"> · open the run</RouterLink>
           </span>

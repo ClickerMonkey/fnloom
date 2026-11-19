@@ -54,3 +54,17 @@ describe('get_input', () => {
     }
   });
 });
+
+describe('the form kind', () => {
+  it('describes a saved form with an example: called with nothing, its answers filled like a sample', async () => {
+    const kit = await testHub(input, createInputImpl({ settings: inputEnv.parse() }), { config: {} });
+    try {
+      const props = await kit.kindProps('form', TRIP);
+      expect(props.problems).toEqual([]);
+      // the required question filled by its name, the optional one left out
+      expect(props.description?.examples).toEqual([{ args: {}, note: 'Shows the form "Trip details". The person\'s answers come in their next message, filled like {"city":"city"}.' }]);
+    } finally {
+      await kit.stop();
+    }
+  });
+});

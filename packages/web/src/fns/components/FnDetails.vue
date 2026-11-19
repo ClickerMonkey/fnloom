@@ -5,8 +5,8 @@
  * its signature, facts, the fns it uses and its examples) with its on/off switch, paused mark and tags, its numbers over
  * a period (`v-model:days`), what a kind fn runs (`v-model:form`), who may use it, its version history and its latest
  * runs. It loads the fn itself (its record, numbers and runs from the admin fn store, its overview from the fn info
- * store) and lets them go when it goes. Where it sits decides where things open: another fn (`fn`), a run (`run`),
- * all its runs (`runs`); `switched` says it was turned on or off. The `runs` slot adds the opener's own runs of it
+ * store) and lets them go when it goes. A fn it uses opens in the app's fn modal (a `FnPill`); where it sits decides
+ * where the rest opens: a run (`run`), all its runs (`runs`); `switched` says it was turned on or off. The `runs` slot adds the opener's own runs of it
  * (the chat's) under the overview. `compact` (a modal) stacks the charts and keeps the code short.
  */
 import { WIDGET_KIND, type QualifiedName, type RunId } from '@harness/core';
@@ -37,7 +37,7 @@ const props = withDefaults(defineProps<{
 }>(), { describe: true, compact: false });
 const days = defineModel<FnPeriod>('days', { required: true });
 const form = defineModel<PayloadForm>('form', { default: 'readable' });
-const emit = defineEmits<{ fn: [fn: QualifiedName]; run: [run: RunId]; runs: [fn: QualifiedName]; switched: [fn: QualifiedName, on: boolean] }>();
+const emit = defineEmits<{ run: [run: RunId]; runs: [fn: QualifiedName]; switched: [fn: QualifiedName, on: boolean] }>();
 const slots = defineSlots<{ runs?: () => unknown }>();
 
 const { admin, fns, toasts } = useStores();
@@ -85,7 +85,7 @@ onBeforeUnmount(() => { store.close(); fns.close(); });
       <FnOverview
         :name="name" :about="fns.about.value.value" :facts="fns.facts.value.value" :loading="fns.facts.loading.value" :problem="fns.facts.problem.value" :describe="describe"
         :examples="fns.examples.value" :examples-total="fns.examplesTotal.value" :more-examples="fns.examplesNext.value !== undefined" :examples-loading="fns.examplesLoading.value"
-        :examples-problem="fns.examplesProblem.value" @fn="emit('fn', $event)" @more="fns.moreExamples()" @retry="fns.open(name)"
+        :examples-problem="fns.examplesProblem.value" @more="fns.moreExamples()" @retry="fns.open(name)"
       >
         <template #badges>
           <UiSwitch :model-value="!record.disabled" label="In use" :disabled="store.switching.busy.value" data-testid="fn-on" @update:model-value="switchOn" />

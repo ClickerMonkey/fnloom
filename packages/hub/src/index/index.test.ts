@@ -419,7 +419,7 @@ describe('search and suggestions', () => {
     const hits = await ctx.search.search({ text: 'product sku', kinds: ['fn'], limit: 3 });
     expect(hits.map((h) => h.key)).toContain('shop/get');
     expect(embedders.query.calls).toBe(1);
-    expect(hits.every((h) => h.score === 0)).toBe(true);
+    expect(hits.every((h) => h.similarity === undefined && h.rank > 0)).toBe(true);
     // nothing has a vector yet, so nothing's meaning is measured: no suggestion rides on where the words ranked it
     await store.table('sessions').put(sessionRow([SystemName.parse('shop')]));
     expect(await ctx.suggester.suggest({ session: SESSION, text: 'get a product by its sku', limit: 4 })).toEqual([]);
@@ -454,21 +454,21 @@ describe('search and suggestions', () => {
 
     const chat = await ctx.search.search({ text: 'You there?', kinds, limit: 4 });
     expect(chat.map((h) => h.key)).toContain('web/search');
-    expect(Math.max(...chat.map((h) => h.score))).toBeLessThan(threshold);
-    expect(chat[0]?.score).toBeLessThan(0.5);
+    expect(Math.max(...chat.map((h) => h.similarity ?? 1))).toBeLessThan(threshold);
+    expect(chat[0]?.similarity).toBeLessThan(0.5);
 
     const types = await ctx.search.search({ text: 'What types are in my database?', kinds, limit: 4 });
     expect(types[0]).toMatchObject({ key: 'database/tables' });
-    expect(types[0]?.score).toBeGreaterThan(threshold);
-    expect(types.filter((h) => h.key.startsWith('web/')).every((h) => h.score < threshold)).toBe(true);
+    expect(types[0]?.similarity).toBeGreaterThan(threshold);
+    expect(types.filter((h) => h.key.startsWith('web/')).every((h) => (h.similarity ?? 1) < threshold)).toBe(true);
 
     const tasks = await ctx.search.search({ text: 'Can you create a place for me to keep track of tasks?', kinds, limit: 4 });
     expect(tasks[0]).toMatchObject({ key: 'database/create_table' });
-    expect(tasks.filter((h) => h.key.startsWith('web/')).every((h) => h.score < threshold)).toBe(true);
+    expect(tasks.filter((h) => h.key.startsWith('web/')).every((h) => (h.similarity ?? 1) < threshold)).toBe(true);
 
     const web = await ctx.search.search({ text: 'search the web for news', kinds, limit: 4 });
     expect(web[0]?.key).toMatch(/^web\//);
-    expect(web[0]?.score).toBeGreaterThan(threshold);
+    expect(web[0]?.similarity).toBeGreaterThan(threshold);
   });
 
   it('suggests nothing while the message can’t be embedded in time, where search still answers by words', async () => {

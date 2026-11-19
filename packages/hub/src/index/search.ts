@@ -4,10 +4,10 @@
  * the query fails or takes longer than `embedWait` (the embedder is busy, say indexing), or when the vectors can't be
  * searched with it (no vectors stored yet, or the query is another size), it is words alone, so a person or agent
  * waiting never waits on the embedder for long. Results can be limited to some systems and to what a `keep` check lets
- * through (what the person asking may see); a key `prefix` is applied by the database itself. A hit's score is its
- * similarity of meaning to the query whenever the vectors were searched, and only a share of the best rank with words
- * alone (`store/hybrid.ts`); a search asking for `meaning` (suggestions) gets no hits at all rather than ones words
- * alone ranked, since those scores say nothing about fit.
+ * through (what the person asking may see); a key `prefix` is applied by the database itself. Each hit says its place
+ * in the order (`rank`, a share of the best) and, whenever the vectors were searched and it has one, its similarity of
+ * meaning to the query (`similarity`, `store/hybrid.ts`); a search asking for `meaning` (suggestions) gets only hits
+ * with a similarity, and none at all rather than ones words alone ranked, since a rank says nothing about fit.
  */
 import type { Logger } from '@ayepi/log';
 import { type QualifiedName, type SearchHit } from '@harness/core';
@@ -59,7 +59,7 @@ export class IndexSearch implements Search {
       if (row === undefined || (allowed !== undefined && (row.system === undefined || !allowed.has(row.system)))) { continue; }
       // an item with no vector yet has no measured meaning
       if (query.meaning === true && hit.similarity === undefined) { continue; }
-      const found: SearchHit = { kind: hit.kind, key: hit.key, score: hit.score, text: row.text };
+      const found: SearchHit = { kind: hit.kind, key: hit.key, rank: hit.rank, ...(hit.similarity === undefined ? {} : { similarity: hit.similarity }), text: row.text };
       if (query.keep !== undefined && !(await query.keep(found))) { continue; }
       out.push(found);
       if (out.length >= query.limit) { break; }

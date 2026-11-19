@@ -8,14 +8,15 @@
 import { reject } from '@ayepi/core';
 import {
   familyOf, QualifiedName, RunStatus, SessionId, SessionSummary, SystemName, seesOrigin, runCount, sortOf, type ContextRecord, type FieldValueOption, type Filter, type FnRecord,
-  type ListField, type ListName, type ListQuery, type LlmInteraction, type LlmSummary, type ModelCall, type Notification, type Page, type ResourceRecord, type Run, type SystemView, type TypeRecord,
+  type GraphNode, type ListField, type ListName, type ListQuery, type LlmInteraction, type LlmSummary, type ModelCall, type Notification, type Page, type ResourceRecord, type Run, type SystemView, type TypeRecord,
 } from '@harness/core';
-import type { z } from 'zod';
 import type { AccessScope, AccessService } from '../access/index.ts';
 import type { HubServices } from '../boot/index.ts';
 import { systemView } from '../api/web/systems.ts';
+import { HubGraph } from '../graph/graph.ts';
+import { GraphSource } from '../graph/source.ts';
 import type { ColumnFilter, Order, ScalarKey, Table, Where } from '../store/index.ts';
-import { evaluate, numberOf, valuesOf, type Evaluation } from './evaluate.ts';
+import { allowed, evaluate, numberOf, valuesOf, type Evaluation } from './evaluate.ts';
 import type { FieldAccessors, ListSource, QueryViewer } from './index.ts';
 import type { QueryEnv } from './env.ts';
 
@@ -31,6 +32,7 @@ export interface ListRows {
   notifications: Notification;
   systems: SystemView;
   types: TypeRecord;
+  graph: GraphNode;
 }
 
 /** Every list's source by name. */
@@ -74,21 +76,6 @@ export class RowsSource<L extends ListName, Row> implements ListSource<L, Row> {
 /** Refuse a viewer who isn't an admin. */
 function adminOnly(viewer: QueryViewer, what: string): void {
   if (viewer.role !== 'admin') { throw reject(403, 'ADMIN_ONLY', `only an admin can list ${what}`); }
-}
-
-/**
- * The values an `is` or `in` filter on a field allows, read through the column's schema (undefined when the query
- * has no such filter, or one whose values the column can't hold, which the evaluator then settles).
- */
-export function allowed<S extends z.ZodType>(filters: readonly Filter[] | undefined, field: string, schema: S): Array<z.output<S>> | undefined {
-  for (const filter of filters ?? []) {
-    if (filter.field !== field) { continue; }
-    const values = filter.op === 'is' ? [filter.value] : filter.op === 'in' ? filter.values : undefined;
-    if (values === undefined) { continue; }
-    const parsed = schema.array().safeParse(values);
-    if (parsed.success) { return parsed.data; }
-  }
-  return undefined;
 }
 
 /** A column filter from allowed values: one value as itself, several as `in`. */
@@ -326,7 +313,8 @@ export function listSources(hub: Pick<HubServices, 'store' | 'catalog'> & { read
         return mapped(newest(store.table('systems'), {}, [['name', 'asc']], max), (records) => Promise.all(records.filter((r) => r.status !== 'removed').map((r) => systemView(hub, r))));
       },
       fields: {
-        name: (s) => s.name, status: (s) => s.status, version: (s) => s.version, instances: (s) => s.instances.length, fns: (s) => s.fns,
+        name: (s) => s.name, status: (s) => s.status, version: (s) => s.version, instances: (s) => s.counts.instances, fns: (s) => s.counts.fns,
+        context: (s) => s.counts.context, types: (s) => s.counts.types, parts: (s) => s.counts.parts, pending: (s) => s.counts.pending, refusals: (s) => s.counts.refusals,
         lastSeenAt: (s) => s.lastSeenAt,
       },
     }),
@@ -339,5 +327,7 @@ export function listSources(hub: Pick<HubServices, 'store' | 'catalog'> & { read
         name: (t) => t.name, system: (t) => t.system, instance: (t) => t.instance, references: (t) => t.references.length, updatedAt: (t) => t.updatedAt,
       },
     }),
+    // the graph's nodes, as the viewer may see them: the graph builds them for the query's text and filters
+    graph: new GraphSource({ graph: new HubGraph({ store, catalog: hub.catalog, limit: settings.HARNESS_GRAPH_LIMIT }), access: hub.access, page }),
   };
 }

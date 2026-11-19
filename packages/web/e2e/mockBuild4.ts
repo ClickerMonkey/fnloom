@@ -8,7 +8,7 @@ import {
   AccessTarget, accessKey, ActorId, ConnectDecl, ConnectionId, SystemName, type AccessView, type ConnectionChange, type ConnectionView, type ConnectPage, type PickOption, type PickQuery,
   type PickSource, type ShareRule,
 } from '@harness/core';
-import { systemView } from '../src/admin/test/fakes.ts';
+import { systemCounts, systemView } from '../src/admin/test/fakes.ts';
 import { listSource } from '../src/ui/picker.ts';
 import type { MockAdmin } from './mockAdmin.ts';
 
@@ -56,7 +56,7 @@ export class MockBuild4 {
     this.#admin = admin;
     this.#owner = owner;
     admin.systems.set(CALENDAR, systemView({
-      name: 'google-calendar', description: 'Your Google Calendar: see, add and change events as you.', fns: 6, version: '0.1.0',
+      name: 'google-calendar', description: 'Your Google Calendar: see, add and change events as you.', counts: systemCounts({ fns: 6 }), version: '0.1.0',
       configType: { name: 'obj', props: {
         clientId: { type: { name: 'text', options: { minLength: 1 } }, docs: 'The OAuth client id (Google Cloud console, Credentials).' },
         clientSecret: { type: { name: 'text', options: { minLength: 1 } }, docs: 'The OAuth client secret.' },

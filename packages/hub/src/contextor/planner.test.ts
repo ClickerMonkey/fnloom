@@ -70,7 +70,7 @@ describe('the graph contextor', () => {
     r.catalog.addContext(contextRecord('fs/git-skill', { description: 'How to use git.', content: 'Use fs/git_status first.', fns: ['fs/git_status'] }));
     r.catalog.addFn('fs/git_status', fn({ description: 'Show the working tree status.', args: g.obj({}), returns: g.text() }));
     r.catalog.addFn('fs/unrelated');
-    r.search.hits = [{ kind: 'context', key: 'fs/git-skill', score: 1, text: 'git' }];
+    r.search.hits = [{ kind: 'context', key: 'fs/git-skill', rank: 1, similarity: 1, text: 'git' }];
     await r.graph.derive(contextRecord('fs/git-skill', { fns: ['fs/git_status'] }));
     const planned = await plan('how do I commit with git?');
     expect(planned.report.context.map((c) => [c.name, c.detail])).toEqual([['fs/git-skill', 'full']]);
@@ -103,7 +103,7 @@ describe('the graph contextor', () => {
   it('takes a large item in a short form when only that fits, and never goes over the budget', async () => {
     const { r, plan } = await planning();
     r.catalog.addContext(contextRecord('fs/manual', { description: 'The fs manual.', summary: 'fs reads, writes and runs commands.', content: 'm'.repeat(8_000) }));
-    r.search.hits = [{ kind: 'context', key: 'fs/manual', score: 1, text: '' }];
+    r.search.hits = [{ kind: 'context', key: 'fs/manual', rank: 1, similarity: 1, text: '' }];
     const planned = await plan('what does the fs manual say?');
     expect(planned.report.context).toEqual([expect.objectContaining({ name: 'fs/manual', detail: 'signature' })]);
     expect(planned.estimate).toBeLessThanOrEqual(2_048 - 512 - Math.ceil(0.06 * 2_048));
@@ -120,7 +120,7 @@ describe('the graph contextor', () => {
     const { r, plan } = await planning(transcript, { tools: ['fs/write'] });
     r.catalog.addFn('fs/grep');
     r.catalog.addFn('fs/write');
-    r.search.hits = [{ kind: 'fn', key: 'fs/grep', score: 0.3, text: '' }];
+    r.search.hits = [{ kind: 'fn', key: 'fs/grep', rank: 0.3, similarity: 0.3, text: '' }];
     const planned = await plan('and now in docs?');
     const names = planned.report.fns.map((f) => f.name);
     expect(names).toContain('fs/grep');
@@ -153,7 +153,7 @@ describe('the graph contextor', () => {
   it('chooses the same for a retried job, and keeps its choice on the session', async () => {
     const { r, plan, session } = await planning(talk(10));
     r.catalog.addContext(contextRecord('fs/guide', { content: 'g'.repeat(400) }));
-    r.search.hits = [{ kind: 'context', key: 'fs/guide', score: 0.9, text: '' }];
+    r.search.hits = [{ kind: 'context', key: 'fs/guide', rank: 0.9, similarity: 0.9, text: '' }];
     const first = await plan('guide me');
     const again = await plan('guide me', { cached: first.report });
     expect(again.context).toBe(first.context);
@@ -188,7 +188,7 @@ describe('the graph contextor', () => {
     try {
       const { r, plan } = await planning(talk(20));
       for (let i = 0; i < 12; i++) r.catalog.addContext(contextRecord(`fs/item-${i}`, { content: 'c'.repeat(600) }));
-      r.search.hits = Array.from({ length: 12 }, (_, i) => ({ kind: 'context' as const, key: `fs/item-${i}`, score: 1 - i / 20, text: '' }));
+      r.search.hits = Array.from({ length: 12 }, (_, i) => ({ kind: 'context' as const, key: `fs/item-${i}`, rank: 1 - i / 20, similarity: 1 - i / 20, text: '' }));
       const planned = await plan('item details please');
       expect(planned.estimate).toBeLessThanOrEqual(2_048 - 512 - Math.ceil(0.06 * 2_048));
       expect(planned.report.context.length).toBeGreaterThan(0);
@@ -206,7 +206,7 @@ describe('the graph contextor', () => {
         r.catalog.addContext(contextRecord(name, { content: 'c'.repeat(Math.floor(random() * 3_000)), imports: i > 0 && random() < 0.3 ? [`fs/item-${i - 1}`] : [], fns: random() < 0.3 ? [`fs/fn-${i}`] : [] }));
         r.catalog.addFn(`fs/fn-${i}`);
       }
-      r.search.hits = Array.from({ length: 10 }, (_, i) => ({ kind: random() < 0.5 ? 'context' as const : 'fn' as const, key: random() < 0.5 ? `fs/item-${i}` : `fs/fn-${i}`, score: random(), text: '' }));
+      r.search.hits = Array.from({ length: 10 }, (_, i) => ({ kind: random() < 0.5 ? 'context' as const : 'fn' as const, key: random() < 0.5 ? `fs/item-${i}` : `fs/fn-${i}`, rank: random(), similarity: random(), text: '' }));
       const planned = await plan('item details please');
       expect(planned.estimate).toBeLessThanOrEqual(2_048 - 512 - Math.ceil(0.06 * 2_048));
     }
@@ -217,7 +217,7 @@ describe('static mode calls', () => {
   it('offers the nearest names for an unknown fn, and refuses args that do not fit', async () => {
     const { r, plan } = await planning();
     r.catalog.addFn('fs/read');
-    r.search.hits = [{ kind: 'fn', key: 'fs/read', score: 1, text: '' }];
+    r.search.hits = [{ kind: 'fn', key: 'fs/read', rank: 1, similarity: 1, text: '' }];
     const planned = await plan('read it');
     const unknown = await r.planner.interpret({ type: 'tool', id: '1', name: 'run', args: { fn: 'fs/raed', args: { path: 'a' } } }, planned);
     expect(unknown).toMatchObject({ type: 'invalid', reply: 'There is no fn fs/raed you can run here. The nearest: fs/read.' });

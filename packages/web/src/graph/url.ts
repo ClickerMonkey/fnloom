@@ -1,13 +1,14 @@
 /**
- * The graph page's URL query (`/graph`): one key per filter, each a comma-separated list or one value, so the
- * route table can declare it without reaching the graph's rules (which link to pages through the route table).
+ * The graph page's URL query (`/admin/graph`): its search and filters in `q`, written as the search box writes every
+ * list's query (`nodeKind:fn system:fs read`), and one key per drawing control: systems collapsed into one node, the
+ * focus and its hops, and whether references outside show. Declared here so the route table can name it without
+ * reaching the graph's rules (which link to pages through the route table).
  */
 import { z } from 'zod';
 
-/** The graph page's query keys, one per filter, each a comma-separated list (or one value). */
+/** The graph page's query keys. */
 export const GraphUrl = z.object({
-  systems: z.string(), external: z.literal('0'), nodes: z.string(), edges: z.string(), fnKinds: z.string(), modes: z.string(), effects: z.string(),
-  visibility: z.string(), stages: z.string(), on: z.enum(['1', '0']), collapse: z.string(), q: z.string(), focus: z.string(), hops: z.enum(['1', '2', '3', '4']),
+  q: z.string(), external: z.literal('0'), collapse: z.string(), focus: z.string(), hops: z.enum(['1', '2', '3', '4']),
 }).partial();
 export type GraphUrl = z.infer<typeof GraphUrl>;
 /** One of the graph page's query keys. */

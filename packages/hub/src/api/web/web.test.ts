@@ -443,7 +443,7 @@ describe('admin', () => {
     await r.store.table('systems').insert(systemRow('gone', { status: 'removed' }));
     const systems = await web.client.call('systems', {}, as);
     expect(systems).toHaveLength(1);
-    expect(systems[0]).toMatchObject({ name: 'fs', fns: 0, needsConfig: true });
+    expect(systems[0]).toMatchObject({ name: 'fs', counts: { fns: 0 }, needsConfig: true });
     expect(systems[0]).not.toHaveProperty('publicKey');
     await expect(web.client.call('system', { system: SystemName.parse('nope') }, as)).rejects.toMatchObject({ status: 404 });
   });
@@ -610,6 +610,7 @@ describe('admin reads', () => {
       goLive: (request, by) => { decided.push(`live ${request.hash} ${by}`); return Promise.resolve({ stage: 'live', hash: request.hash }); },
       approve: (request) => { decided.push(`approve ${request.hash}`); return Promise.resolve({ hash: request.hash }); },
       reject: (_system, hash) => { decided.push(`reject ${hash}`); return Promise.resolve({ ok: true }); },
+      decide: (decision, by) => { decided.push(`decide ${decision.hash} +${decision.approve.length} -${decision.decline.length} ${by}`); return Promise.resolve({ hash: 'h0', waiting: 1 }); },
     } }, catalog: { fn: () => Promise.resolve(undefined), manifest: () => Promise.resolve(undefined), fns: () => Promise.resolve([]) } });
     const ghost = SystemName.parse('ghost');
     const status = (promise: Promise<unknown>) => promise.then(() => 'answered', (error: unknown) => (error instanceof ApiError ? error.status : 'thrown'));
@@ -617,7 +618,10 @@ describe('admin reads', () => {
     expect(await web.client.call('goLive', { system: ghost, hash: 'h1', off: [] }, as)).toEqual({ stage: 'live', hash: 'h1' });
     expect(await web.client.call('approveReview', { system: ghost, hash: 'h2', off: [] }, as)).toEqual({ hash: 'h2' });
     expect(await web.client.call('rejectReview', { system: ghost, hash: 'h3' }, as)).toEqual({ ok: true });
-    expect(decided).toEqual([`live h1 ${me}`, 'approve h2', 'reject h3']);
+    expect(await web.client.call('decideReview', { system: ghost, hash: 'h4', approve: [{ section: 'fns', name: 'ghost/a' }], decline: [], off: [] }, as)).toEqual({ hash: 'h0', waiting: 1 });
+    // nothing to decide is refused before the hub is asked
+    expect(await status(web.client.call('decideReview', { system: ghost, hash: 'h5', approve: [], decline: [], off: [] }, as))).toBe(400);
+    expect(decided).toEqual([`live h1 ${me}`, 'approve h2', 'reject h3', `decide h4 +1 -0 ${me}`]);
     expect(await status(web.client.call('testCall', { fn: QualifiedName.parse('ghost/nothing'), args: {} }, as))).toBe(404);
     expect(await web.client.call('refusals', { system: ghost }, as)).toMatchObject({ items: [] });
   });
@@ -678,6 +682,10 @@ describe('admin reads', () => {
     const page = await web.client.call('graph', {}, as);
     expect(page.nodes.map((node) => node.system)).toEqual(['notes']);
     expect(page.edges).toEqual([]);
+    // the endpoint takes the query standard's filters, and refuses one the graph list doesn't have (422)
+    const systems = await web.client.call('graph', { filters: [{ field: 'nodeKind', op: 'is', value: 'system' }] }, as);
+    expect(systems.nodes.map((node) => node.id)).toEqual(['system:notes']);
+    await expect(web.client.call('graph', { filters: [{ field: 'cost', op: 'gt', value: 1 }] }, as)).rejects.toMatchObject({ status: 422 });
   });
 
   it('shows a system\'s output and its fns', async () => {

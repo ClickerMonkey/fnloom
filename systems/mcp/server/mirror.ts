@@ -6,9 +6,10 @@
  */
 import type { McpPrompt, McpPromptResult, McpTool, McpToolResult } from '@ayepi/mcp';
 import {
-  Json, mcpRootOf, ResourceUri, mcpToolFnName, type ContextDecl, type FnApproval, type FnDecl, type FnEffects, type FnMode, type InstanceName, type McpServerConfig, type McpToolSpec,
+  Json, mcpRootOf, ResourceUri, mcpToolFnName, type ContextDecl, type FnApproval, type FnDecl, type FnExample, type FnEffects, type FnMode, type InstanceName, type McpServerConfig, type McpToolSpec,
 } from '@harness/core';
-import { fnDecl, type GinType } from '@harness/sdk';
+import { fnDecl, sampleArgs, type GinType } from '@harness/sdk';
+import { z } from 'zod';
 import { mcp, ToolOutputType, type ToolOutput } from '../shared/index.ts';
 import { ginOfJsonSchema } from './schema.ts';
 
@@ -73,6 +74,19 @@ export function toolFacts(spec: Pick<McpToolSpec, 'annotations'>, config: Pick<M
   const asks = config.approval === 'always' || (config.approval === 'writes' && mode !== 'read');
   // "don't ask again" only for reads: a write or a delete asks every time
   return asks ? { effects: { mode }, approval: { preview: true, remember: mode === 'read', approver: 'person' } } : { effects: { mode } };
+}
+
+/** A JSON Schema's own `examples` of whole args objects, when it gives any. */
+const SchemaExamples = z.object({ examples: z.array(z.record(z.string(), Json)).min(1) });
+
+/**
+ * A tool's examples (`KindDescription.examples`): the ones its input schema gives (JSON Schema `examples`), else its
+ * args filled with sample values read off the schema.
+ */
+export function toolExamples(spec: Pick<McpToolSpec, 'tool' | 'inputSchema' | 'args'>): FnExample[] {
+  const given = SchemaExamples.safeParse(spec.inputSchema);
+  if (given.success) { return given.data.examples.map((args) => ({ args, note: `An example from the ${spec.tool} tool's input schema.` })); }
+  return [{ args: sampleArgs(spec.args), note: `Sample args read off the ${spec.tool} tool's input schema: use real values.` }];
 }
 
 /** The `{{name}}` placeholders a prompt's text is fetched with, so the hub fills them when the command is used. */

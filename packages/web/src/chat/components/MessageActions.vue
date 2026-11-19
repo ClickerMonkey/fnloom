@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * A message's action bar: copy (the icon turns into a check), reply, and whichever of edit, retry, undo, details,
+ * A message's action bar: copy (the icon turns into a check), reply, and whichever of edit, continue, retry, undo, details,
  * the turn's tree and copy link the message offers. It shows on hover and keyboard focus on desktop, and on touch
  * through the message's "more" tap; it sits in the message's margin row so it never covers the text.
  */
@@ -12,6 +12,7 @@ const ACTIONS = {
   copy: { icon: 'copy', label: 'Copy' },
   reply: { icon: 'reply', label: 'Reply' },
   edit: { icon: 'edit', label: 'Edit and resend' },
+  continue: { icon: 'play', label: 'Continue where the agent stopped' },
   retry: { icon: 'refresh', label: 'Retry' },
   undo: { icon: 'undo', label: 'Undo this turn' },
   details: { icon: 'info', label: 'Details' },

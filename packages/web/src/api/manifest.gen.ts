@@ -3306,6 +3306,30 @@ export const manifest = {
       "multi": false,
       "bodyEnc": "json"
     },
+    "decideReview": {
+      "method": "POST",
+      "path": "/decideReview",
+      "ws": "decideReview",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "system",
+        "hash",
+        "approve",
+        "decline",
+        "off"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
     "testCall": {
       "method": "POST",
       "path": "/testCall",
@@ -3363,18 +3387,11 @@ export const manifest = {
       "p": [],
       "q": [],
       "b": [
+        "text",
+        "filters",
         "systems",
         "external",
         "focus",
-        "text",
-        "nodeKinds",
-        "edgeKinds",
-        "fnKinds",
-        "modes",
-        "effects",
-        "visibility",
-        "stages",
-        "on",
         "collapse",
         "limit"
       ],

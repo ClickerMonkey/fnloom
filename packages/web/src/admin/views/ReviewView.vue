@@ -3,10 +3,11 @@
  * A system's review (build 7), its tab in the URL: everything it declares (its fns with their instructions, signature,
  * examples, facts and effects, each with a test call; its context, types and other parts), each with its own switch;
  * its grants; its config (its own config component too, when it has one); its install checks; the changes waiting
- * since it went live, as diffs; and the calls the hub refused. An installed system goes live from here with what was
- * reviewed; a live one's pending changes are approved or rejected here.
+ * since it went live (the hub's summary and risk flags, then each change drawn as its tab draws it); and the calls the
+ * hub refused. An installed system goes live from here with what was reviewed; a live one's pending changes are
+ * approved or declined here, one by one or all at once.
  */
-import { MAIN_INSTANCE, SystemName, type ItemRef, type Json, type QualifiedName, type RefusalRule, type ResourceRoot, type RunId, type SystemPartSection } from '@harness/core';
+import { MAIN_INSTANCE, SystemName, type ContractChange, type ItemRef, type Json, type QualifiedName, type RefusalRule, type ResourceRoot, type RunId, type SystemPartSection } from '@harness/core';
 import type { RouteLocationRaw } from 'vue-router';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
@@ -16,7 +17,6 @@ import { useParamChoice, useRouteQuery } from '../../app/url.ts';
 import { useStores } from '../../state/stores.ts';
 import { UiBanner, UiButton, UiEmpty, UiIcon, UiTabs, type TabItem } from '../../ui/index.ts';
 import { useNow } from '../../ui/now.ts';
-import ChangeList from '../components/ChangeList.vue';
 import ChecksView from '../components/ChecksView.vue';
 import ConfigWithCustom from '../components/ConfigWithCustom.vue';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
@@ -24,6 +24,7 @@ import DeclaredList from '../components/DeclaredList.vue';
 import GrantsView from '../components/GrantsView.vue';
 import LoadState from '../components/LoadState.vue';
 import PartsByKind from '../components/PartsByKind.vue';
+import PendingTab from '../components/pending/PendingTab.vue';
 import SystemGraph from '../../graph/components/SystemGraph.vue';
 import RefusalList from '../components/RefusalList.vue';
 import ReviewFnList from '../components/ReviewFnList.vue';
@@ -117,7 +118,14 @@ async function approve(): Promise<void> {
 }
 async function reject(): Promise<void> {
   const result = await store.reject();
-  if (result.ok) { toasts.ok('Changes rejected', 'The live version stays; the changes stay off.'); } else { toasts.error(result.problem); }
+  if (result.ok) { toasts.ok('Changes declined', 'The live version stays; the changes stay off.'); } else { toasts.error(result.problem); }
+}
+/** Approve or decline one pending change; the rest keep waiting. */
+async function decide(change: ContractChange, verdict: 'approve' | 'decline'): Promise<void> {
+  const result = await store.decide(change, verdict);
+  if (!result.ok) { toasts.error(result.problem); return; }
+  const left = result.value.waiting;
+  toasts.ok(verdict === 'approve' ? `${change.name} approved` : `${change.name} declined`, left === 0 ? 'Nothing else waits.' : `${left} ${left === 1 ? 'change still waits' : 'changes still wait'}.`);
 }
 async function save(config: Json): Promise<void> {
   const result = await system.configure(config);
@@ -135,14 +143,15 @@ async function save(config: Json): Promise<void> {
       <StatusBadge :look="STAGE_LOOK[review.stage]" />
       <UiButton v-if="review.stage === 'installed'" :variant="concerns === undefined ? 'primary' : 'danger'" :icon="concerns === undefined ? 'play' : 'warning'" :loading="store.deciding.busy.value" data-testid="go-live" @click="confirming = true">Go live</UiButton>
       <template v-else-if="review.pending">
-        <UiButton variant="ghost" :disabled="store.deciding.busy.value" data-testid="reject-review" @click="reject">Reject</UiButton>
-        <UiButton variant="primary" icon="check" :loading="store.deciding.busy.value" data-testid="approve-review" @click="approve">Approve changes</UiButton>
+        <UiButton variant="ghost" :disabled="store.deciding.busy.value" data-testid="reject-review" @click="reject">Decline all</UiButton>
+        <UiButton variant="primary" icon="check" :loading="store.deciding.busy.value && store.decidingChange.value === undefined" :disabled="store.deciding.busy.value" data-testid="approve-review" @click="approve">Approve all</UiButton>
       </template>
     </template>
     <LoadState :loading="store.review.loading.value" :problem="store.review.problem.value" :ready="review !== undefined" :empty="false" :lines="8" @retry="name && store.open(name)">
       <template v-if="review">
         <UiBanner v-if="review.pending" tone="warn" data-testid="review-pending">
-          {{ changes.length }} {{ changes.length === 1 ? 'change waits' : 'changes wait' }} ({{ review.pending.by === 'contract' ? `version ${review.pending.version}` : 'added while running' }}). The live version keeps working; the changes stay off until approved.
+          {{ changes.length }} {{ changes.length === 1 ? 'change waits' : 'changes wait' }}: {{ review.pending.summary.line }}. The live version keeps working; the changes stay off until approved.
+          <template v-if="tab !== 'pending'" #actions><UiButton variant="ghost" size="sm" data-testid="review-see-pending" @click="tab = 'pending'">Review them</UiButton></template>
         </UiBanner>
         <UiBanner v-if="concerns !== undefined" tone="danger" data-testid="review-concerns">
           {{ concerns }}.
@@ -170,10 +179,10 @@ async function save(config: Json): Promise<void> {
           />
         </LoadState>
         <ChecksView v-else-if="tab === 'checks'" :checks="review.checks" :preview-urls="review.previewUrls ?? {}" />
-        <template v-else-if="tab === 'pending'">
-          <UiEmpty v-if="changes.length === 0" icon="check" title="Nothing waits" :body="review.stage === 'installed' ? 'It isn’t live yet: everything is under review.' : 'What is live is what was reviewed.'" />
-          <ChangeList v-else :changes="changes" />
-        </template>
+        <PendingTab
+          v-else-if="tab === 'pending'" :review="review" :now="now" :deciding="store.decidingChange.value" :busy="store.deciding.busy.value"
+          @approve="(change) => decide(change, 'approve')" @decline="(change) => decide(change, 'decline')" @approve-all="approve" @decline-all="reject"
+        />
         <LoadState
           v-else :loading="store.refusals.loading.value" :problem="store.refusals.problem.value" :ready="store.refusals.loaded.value" :empty="false" @retry="store.refusals.load()"
         >

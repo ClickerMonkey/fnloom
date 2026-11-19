@@ -6,7 +6,7 @@
  * `operations` paged from the OpenAPI document; and connecting with a typed token.
  */
 import { API_KIND, InstanceName, QualifiedName, mintId, type ApiFnSpec, type ApiServiceConfig, type Json, type LlmForward } from '@harness/core';
-import { encodeValue } from '@harness/sdk';
+import { encodeValue, sampleArgs } from '@harness/sdk';
 import { mockModel, testHub, toolCall, type ScriptStep, type TestSystem } from '@harness/sdk/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { api, ApiPayload, HttpRequest } from '../shared/index.ts';
@@ -106,6 +106,8 @@ describe('the request kind', () => {
     const running = await start([], []);
     expect((await running.kindProps('request', ISSUES)).description).toMatchObject({ effects: { mode: 'read' }, deps: [], args: ISSUES.args });
     expect((await running.kindProps('request', CREATE)).description).toMatchObject({ effects: { mode: 'write' } });
+    // its example: its args filled with sample values read off its schema
+    expect((await running.kindProps('request', ISSUES)).description?.examples).toEqual([{ args: sampleArgs(ISSUES.args), note: `A GET request to the ${ISSUES.service} service, with sample values: use real ones.` }]);
     // its page reads the method, the service and both programs
     const readable = (await running.kindProps('request', ISSUES)).description?.readable;
     expect(readable?.code).toContain(`// Sends GET to the ${ISSUES.service} service:`);

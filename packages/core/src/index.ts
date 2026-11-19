@@ -34,7 +34,7 @@
  * - `system-parts`: what a system added beyond its fns, context and types, for its admin page.
  * - `checks`: the bundle scan, a system's test report and component previews.
  * - `grants`: what a system may do through the hub, its config component and its stage.
- * - `lifecycle`: installed vs live, reviews, item switches and refusals.
+ * - `lifecycle`: installed vs live, reviews, item switches and refusals; `review-summary`: what a set of contract changes amounts to.
  * - `graph`: the graph of systems' items and their relations.
  * - build 8: `sensitivity` (sensitive files and their rules), `changes` (what a command changed), `identity` (the hub's
  *   display name), `versions` (every item's version history), `data` (the data system's records), widget pass: `visuals` (column facts,
@@ -60,6 +60,7 @@ export * from './manifest.ts';
 export * from './context-files.ts';
 export * from './system-parts.ts';
 export * from './link.ts';
+export * from './fn-block.ts';
 export * from './records/systems.ts';
 export * from './records/actors.ts';
 export * from './records/spend.ts';
@@ -88,6 +89,7 @@ export * from './fn-facts.ts';
 export * from './checks.ts';
 export * from './grants.ts';
 export * from './lifecycle.ts';
+export * from './review-summary.ts';
 export * from './graph.ts';
 export * from './sensitivity.ts';
 export * from './changes.ts';

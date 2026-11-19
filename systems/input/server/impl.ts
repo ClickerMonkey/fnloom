@@ -6,7 +6,7 @@
  * draws; nothing here waits for the answers.
  */
 import type { ActorId, Json, RunInfo, ShareRule } from '@harness/core';
-import { CallFailed, SAVE_FN_TAKEN, encodeValue, g, parseValue, wireType, type FnCtx, type SystemImpl, type TypesOf } from '@harness/sdk';
+import { CallFailed, SAVE_FN_TAKEN, encodeValue, g, parseValue, sampleOf, wireType, type FnCtx, type SystemImpl, type TypesOf } from '@harness/sdk';
 import { AuthoringError } from '@harness/sdk/server';
 import { Asked, FORM_KIND, WAIT_FOR_ANSWERS, input, nextAfterAsking, type AskedValue, type InputContract, type InputFormValue } from '../shared/index.ts';
 import { fieldsOf, formProblems, quickForms } from '../shared/forms.ts';
@@ -162,11 +162,13 @@ export function createInputImpl(deps: InputDeps): SystemImpl<InputContract['defs
         // showing a form calls no model: free, whatever the payload
         estimate: (_payload, input) => Promise.resolve({ min: 0, typical: 0, max: 0, basis: 'free', runs: input.history?.runs ?? 0 }),
         check: (payload) => Promise.resolve(formProblems(payload.type)),
-        describe: () => Promise.resolve({
+        describe: (payload) => Promise.resolve({
           args: wireType(g.obj({})),
           returns: wireType(Asked),
           deps: [],
           operations: { cancel: true, pause: false, undo: false, background: false },
+          // called with nothing: the example shows what a filled form answers
+          examples: [{ args: {}, note: `Shows the form "${payload.title}". The person's answers come in their next message, filled like ${JSON.stringify(sampleOf(payload.type))}.` }],
         }),
         run: (payload, _args, ctx) => Promise.resolve(ctx.done(encodeValue(Asked, asked(ctx, parseValue(input.kinds.form.payload, payload), ctx.run.fn)))),
       },

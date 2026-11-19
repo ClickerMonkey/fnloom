@@ -5,14 +5,16 @@
  * (args and result types), the types it reads and writes, the fns it uses, its cost estimate and its examples, a link
  * to its own page (where its visibility is set) and a test call.
  */
-import type { QualifiedName } from '@harness/core';
+import { owesExamples, type QualifiedName } from '@harness/core';
 import type { RouteLocationRaw } from 'vue-router';
 import { ref } from 'vue';
 import { localName } from '../../chat/logic/labels.ts';
+import FnPill from '../../fns/components/FnPill.vue';
 import GinTypeView from '../../gin/GinTypeView.vue';
 import { UiBadge, UiButton, UiIcon, UiSwitch } from '../../ui/index.ts';
 import { costText, exampleCall, MODE_TONE, MODE_WORDS } from '../../fns/logic/facts.ts';
 import { timeText, type FnReview } from '../logic/review.ts';
+import { NO_EXAMPLES_WHY } from '../logic/systems.ts';
 
 withDefaults(defineProps<{
   fns: readonly FnReview[];
@@ -45,6 +47,7 @@ const toggle = (name: QualifiedName): void => { open.value = open.value === name
             <UiBadge v-if="item.facts?.free" tone="ok">Free</UiBadge>
             <UiBadge v-if="item.decl.kind !== 'native'">{{ item.decl.kind }}</UiBadge>
             <UiBadge v-if="item.decl.approval" tone="warn">Asks first</UiBadge>
+            <UiBadge v-if="owesExamples(item.decl)" tone="warn" :title="NO_EXAMPLES_WHY" data-testid="review-fn-no-examples">No examples</UiBadge>
           </span>
           <UiIcon :name="open === item.name ? 'chevron-down' : 'chevron-right'" :size="14" class="chev" />
         </button>
@@ -66,7 +69,7 @@ const toggle = (name: QualifiedName): void => { open.value = open.value === name
             <div><dt>Time</dt><dd>{{ timeText(item.facts) }}</dd></div>
             <div><dt>Reads</dt><dd><code v-for="type in item.facts.reads" :key="type">{{ type }}</code><span v-if="item.facts.reads.length === 0" class="none">No types</span></dd></div>
             <div><dt>Writes</dt><dd><code v-for="type in item.facts.writes" :key="type">{{ type }}</code><span v-if="item.facts.writes.length === 0" class="none">No types</span></dd></div>
-            <div v-if="item.facts.uses.some((fn) => fn !== item.name)"><dt>Uses</dt><dd><code v-for="fn in item.facts.uses.filter((used) => used !== item.name)" :key="fn">{{ fn }}</code></dd></div>
+            <div v-if="item.facts.uses.some((fn) => fn !== item.name)"><dt>Uses</dt><dd><FnPill v-for="fn in item.facts.uses.filter((used) => used !== item.name)" :key="fn" :name="fn" /></dd></div>
           </template>
           <div><dt>Changes in the hub</dt><dd>{{ item.effects ?? 'Nothing' }}</dd></div>
         </dl>

@@ -102,9 +102,9 @@ export interface SearchQuery {
   /** Words, meaning, or both (the default). */
   readonly match?: 'text' | 'semantic' | 'hybrid';
   /**
-   * Only hits whose score is their similarity of meaning: none at all when the query can't be embedded in time or its
-   * vector searched, and none without a vector, instead of hits ranked by words alone (whose score only says where
-   * they came, so the first always reads 1). For what must judge fit by score, like suggestions.
+   * Only hits with a `similarity` of meaning: none at all when the query can't be embedded in time or its vector
+   * searched, and none without a vector, instead of hits ranked by words alone (whose `rank` only says where they
+   * came, so the first always reads 1). For what must judge fit, like suggestions.
    */
   readonly meaning?: boolean;
 }

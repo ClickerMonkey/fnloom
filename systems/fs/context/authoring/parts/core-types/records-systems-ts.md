@@ -12,34 +12,14 @@ tags: ["authoring", "reference"]
 
 ### From `packages/core/src/records/systems.ts`
 
-#### <a id="core-fnrefusal"></a>`FnRefusal`
+#### <a id="core-instancemode"></a>`InstanceMode`
 
 const, type · declared in `packages/core/src/records/systems.ts`
 
-A fn the hub refused, by the name it was asked for, with what blocks it.
+How many copies a system runs (`system.json`'s `instances`): `one`, a single instance named `main`; `many`, a fleet.
 
 ```ts
-type FnRefusal = {
-  code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
-  reason: string;
-  fn: string;
-  system?: SystemName | undefined;
-};
-```
-
-#### <a id="core-namerefusal"></a>`NameRefusal`
-
-const, type · declared in `packages/core/src/records/systems.ts`
-
-A name `hub/load` refused (a fn's or a context item's), with what blocks it; a name that is neither is `no-such-fn`.
-
-```ts
-type NameRefusal = {
-  code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
-  reason: string;
-  name: string;
-  system?: SystemName | undefined;
-};
+type InstanceMode = "one" | "many";
 ```
 
 #### <a id="core-typedefinitions"></a>`TypeDefinitions`

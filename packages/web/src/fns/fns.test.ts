@@ -97,12 +97,21 @@ describe('a fn view', () => {
     expect(view.get('[data-testid=fn-mode]').text()).toBe('Deletes');
     expect(view.get('[data-testid=fn-signature]').text()).toContain('bash(command: text');
     expect(view.get('[data-testid=fn-uses]').text()).not.toContain('Bash');
-    await view.get('.chip.link').trigger('click');
-    expect(view.emitted('fn')?.[0]).toEqual(['fs/read']);
+    // a fn it uses is a pill (it opens the fn modal in the app)
+    expect(view.get('[data-testid=fn-uses] [data-testid=fn-pill]').attributes('data-fn')).toBe('fs/read');
     expect(view.get('[data-testid=fn-examples]').text()).toContain('List a folder.');
     await view.get('[data-testid=fn-more-examples]').trigger('click');
     expect(view.get('[data-testid=fn-more-examples]').text()).toContain('2 left');
     expect(view.emitted('more')).toHaveLength(1);
+  });
+
+  it('flags a fn with no examples, saying who adds them: its author, or its kind', () => {
+    const shown = (kind: string) => mount(FnOverview, {
+      props: { name: SAMPLE_FN, about: SAMPLE_HIT, facts: { ...SAMPLE_FACTS, kind }, loading: false, examples: [], examplesTotal: 0, moreExamples: false, examplesLoading: false },
+    }).get('[data-testid=fn-no-examples]').text();
+    expect(shown('native')).toContain('its author adds them');
+    expect(shown('hub/llm')).toContain('its author adds them');
+    expect(shown('database/query')).toContain('its kind (database/query) works one out');
   });
 });
 

@@ -12,6 +12,7 @@ import {
   type McpResourceSource, type McpServer,
 } from '@ayepi/mcp';
 import { ActorId, MCP_TOOL_KIND, McpToolSpec, SystemPackageManifest, type FnDecl, type Json, mintId, type ContextDecl, type OutcomeWire, type RunConnection } from '@harness/core';
+import { sampleArgs } from '@harness/sdk';
 import { testHub, TEST_USER, type TestSystem } from '@harness/sdk/testing';
 import type { RunningSystem, SystemPatch } from '@harness/sdk/server';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -211,6 +212,9 @@ describe('the mcp system', () => {
     const described = await test.kindProps('tool', McpToolSpec.parse(add.payload));
     expect(described.description?.effects).toEqual({ mode: 'write' });
     expect(described.description?.approval).toEqual({ preview: true, remember: false, approver: 'person' });
+    // with no examples in its schema, its args filled with sample values read off it
+    const note: unknown = expect.stringContaining('Sample args read off the add tool');
+    expect(described.description?.examples).toEqual([{ args: sampleArgs(McpToolSpec.parse(add.payload).args), note }]);
 
     // resources: the instance's root, its listing and a read through the server
     const provider = system?.impl.resources;

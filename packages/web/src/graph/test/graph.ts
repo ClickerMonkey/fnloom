@@ -1,11 +1,12 @@
 /**
  * A sample graph of three systems and the hub's own memory, answering the graph query the way the hub does in small:
- * the systems asked for with what they reference elsewhere greyed (`external`), the node and fn filters, text, a focus
+ * the systems asked for with what they reference elsewhere greyed (`external`), the query standard's filters and words, a focus
  * N hops out, collapsing a system into one node, and the cap with "+N more" stubs. The web tests' fake callers and the
  * mock hub both answer from it. Nodes and edges are written as their schemas' inputs, so a schema change breaks them.
  */
 import {
   GRAPH_EDGE_VERBS, GraphEdge, GraphNode, GraphPage, type GraphEdgeKind, type GraphMore, type GraphNodeFacts, type GraphNodeId, type GraphNodeKind, type GraphQuery,
+  type Filter,
 } from '@harness/core';
 import type { z } from 'zod';
 
@@ -79,25 +80,54 @@ export const SAMPLE_EDGES: readonly GraphEdge[] = [
   edge('context:memory/likes-short-answers', 'names', 'context:notes/howto', 0.3),
 ];
 
-/** Whether a node passes the query's node filters (fn filters keep fns and what they hang off). */
-function passes(n: GraphNode, query: GraphQuery): boolean {
-  if (query.nodeKinds !== undefined && !query.nodeKinds.includes(n.kind)) { return false; }
+/** What a graph field reads off a node, for the sample's filters (the hub's `GRAPH_FIELDS`, in small). */
+function reading(n: GraphNode, field: string): ReadonlyArray<string | boolean> {
   const { facts } = n;
-  const fnFilter = query.fnKinds !== undefined || query.modes !== undefined || query.effects !== undefined;
-  if (n.kind === 'fn') {
-    if (query.fnKinds !== undefined && (facts.fnKind === undefined || !query.fnKinds.includes(facts.fnKind))) { return false; }
-    if (query.modes !== undefined && (facts.mode === undefined || !query.modes.includes(facts.mode))) { return false; }
-    if (query.effects !== undefined && !(facts.effects ?? []).some((effect) => query.effects?.includes(effect.thing) === true)) { return false; }
-  } else if (fnFilter && n.kind !== 'system' && n.kind !== 'kind' && n.kind !== 'type') { return false; }
-  if (query.visibility !== undefined && facts.visibility !== undefined && !query.visibility.includes(facts.visibility)) { return false; }
-  if (query.stages !== undefined && !query.stages.some((stage) => stage === facts.stage || (stage === 'pending' && facts.pending === true))) { return false; }
-  if (query.on !== undefined && facts.on !== query.on) { return false; }
-  if (query.text !== undefined) {
-    const text = query.text.toLowerCase();
-    if (!n.name.toLowerCase().includes(text) && !n.about.toLowerCase().includes(text)) { return false; }
+  switch (field) {
+    case 'name': return [n.name];
+    case 'system': return n.system === undefined ? [] : [n.system];
+    case 'nodeKind': return [n.kind];
+    case 'fnKind': return facts.fnKind === undefined ? [] : [facts.fnKind];
+    case 'mode': return facts.mode === undefined ? [] : [facts.mode];
+    case 'effect': return (facts.effects ?? []).map((effect) => effect.thing);
+    case 'visibility': return facts.visibility === undefined ? [] : [facts.visibility];
+    case 'stage': return [...(facts.stage === undefined ? [] : [facts.stage]), ...(facts.pending === true ? ['pending'] : [])];
+    case 'on': return [facts.on];
+    default: return [];
   }
-  return true;
 }
+
+/** Whether readings pass a filter (the ops the graph's fields take). */
+function holds(values: ReadonlyArray<string | boolean>, filter: Filter): boolean {
+  switch (filter.op) {
+    case 'is': return values.some((value) => value === filter.value);
+    case 'isNot': return !values.some((value) => value === filter.value);
+    case 'in': return values.some((value) => filter.values.includes(value));
+    case 'notIn': return !values.some((value) => filter.values.includes(value));
+    case 'contains': return values.some((value) => String(value).toLowerCase().includes(String(filter.value).toLowerCase()));
+    case 'empty': return values.length === 0;
+    case 'notEmpty': return values.length > 0;
+    case 'gt': case 'gte': case 'lt': case 'lte': case 'between': return true;
+  }
+}
+
+const FN_FACTS = new Set(['fnKind', 'mode', 'effect']);
+
+/** Whether a node passes the query's filters and words (fn facts test fns and keep what they hang off), as the hub does. */
+function passes(n: GraphNode, query: GraphQuery): boolean {
+  for (const filter of query.filters ?? []) {
+    if (filter.field === 'edgeKind') { continue; }
+    if (FN_FACTS.has(filter.field) && n.kind !== 'fn') { if (n.kind === 'system' || n.kind === 'kind' || n.kind === 'type') { continue; } return false; }
+    if (filter.field === 'visibility' && n.facts.visibility === undefined) { continue; }
+    if (!holds(reading(n, filter.field), filter)) { return false; }
+  }
+  const words = query.text?.toLowerCase().split(/\s+/).filter((word) => word !== '') ?? [];
+  const text = `${n.name} ${n.about} ${n.kind} ${n.system ?? ''}`.toLowerCase();
+  return words.every((word) => text.includes(word));
+}
+
+/** Whether an edge passes the query's `edgeKind` filters. */
+const edgePasses = (e: GraphEdge, query: GraphQuery): boolean => (query.filters ?? []).every((filter) => filter.field !== 'edgeKind' || holds([e.kind], filter));
 
 /** The nodes within `hops` of a node, over edges either way. */
 function reach(start: GraphNodeId, edges: readonly GraphEdge[], hops: number): Set<GraphNodeId> {
@@ -126,7 +156,7 @@ export function graphOf(query: GraphQuery, nodes: readonly GraphNode[] = SAMPLE_
     }
   }
   kept = new Map([...kept].filter(([, n]) => passes(n, query)));
-  let edges = allEdges.filter((e) => kept.has(e.from) && kept.has(e.to) && (query.edgeKinds === undefined || query.edgeKinds.includes(e.kind)));
+  let edges = allEdges.filter((e) => kept.has(e.from) && kept.has(e.to) && edgePasses(e, query));
   if (query.focus !== undefined) {
     const near = reach(query.focus.node, edges, query.focus.hops ?? 1);
     kept = new Map([...kept].filter(([id]) => near.has(id)));

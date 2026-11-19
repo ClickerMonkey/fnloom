@@ -3,7 +3,7 @@
  * disagree, and checked against core's `Manifest` schema before it leaves.
  */
 import {
-  DeclaredLink, GENERAL_GROUP, Json, LinkTarget, Manifest, SystemName, splitName, SYSTEM_EVENT_TYPES,
+  owesExamples, DeclaredLink, GENERAL_GROUP, Json, LinkTarget, Manifest, SystemName, splitName, SYSTEM_EVENT_TYPES,
   type ActionDecl, type ClientAssets, type ConnectDecl, type ContextDecl, type FnDecl, type HandlerDecl, type QualifiedName, type SystemEventType,
   type TypeDecl, type ApiGroupDecl, GinTypeDef,
 } from '@harness/core';
@@ -293,4 +293,28 @@ export async function manifestOf(contract: AnyContract, options: ManifestOptions
   const body = manifestBody(contract, options);
   const hash = await sha256(canonicalJson(Json.parse(body)));
   return Manifest.parse({ ...body, hash });
+}
+
+/** The fns among these whose author must write an example and wrote none (`owesExamples`), by their local names. */
+export function fnsMissingExamples(fns: readonly Pick<FnDecl, 'name' | 'kind' | 'examples'>[]): string[] {
+  return fns.filter(owesExamples).map((decl) => decl.name);
+}
+
+/** A contract with static fns that declare no example: the build and `serve` refuse it, naming each. */
+export class MissingExamplesError extends Error {
+  override readonly name = 'MissingExamplesError';
+  readonly system: string;
+  readonly fns: readonly string[];
+
+  constructor(system: string, fns: readonly string[]) {
+    super(`system ${system}: every fn needs at least one example, and ${fns.join(', ')} ${fns.length === 1 ? 'has' : 'have'} none. Add \`examples: [{ args: {...}, note: '...' }]\` to ${fns.length === 1 ? 'it' : 'each'} (the args of its own args type, a note saying what it shows).`);
+    this.system = system;
+    this.fns = fns;
+  }
+}
+
+/** Refuse a contract whose static fns (native fns, type methods and agents) include one with no example. */
+export function checkExamples(contract: AnyContract): void {
+  const missing = fnsMissingExamples(manifestBody(contract, { version: '0.0.0' }).fns);
+  if (missing.length > 0) { throw new MissingExamplesError(contract.name, missing); }
 }

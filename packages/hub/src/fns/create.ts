@@ -1,7 +1,7 @@
 /**
  * Builds the fns module: search, examples, facts, the chat mode gate with its auto classifier, and browser logs. As
  * the hub starts it gives the run service the gate, keeps examples and facts in step with the catalog (every
- * `catalog.changed`), and catches up on fns stored before (those with no facts yet). It serves `searchFns` and
+ * `catalog.changed`), and catches up on fns stored before (those with no facts or no stored examples yet). It serves `searchFns` and
  * `fnExamples` on the system link; the web slice is served by `api/web/build5.ts`.
  */
 import { reject, spec } from '@ayepi/core';
@@ -63,17 +63,26 @@ export function fnsServices(hub: HubServices): FnsServices {
 }
 
 /** Keep examples and facts in step with what changed in the catalog. */
-async function follow(services: FnsServices, changed: readonly FnRecord[], removed: readonly QualifiedName[]): Promise<void> {
+async function follow(services: Pick<FnsServices, 'examples' | 'facts'>, changed: readonly FnRecord[], removed: readonly QualifiedName[]): Promise<void> {
   await services.examples.sync(changed, removed);
   await services.facts.refresh(changed, removed);
 }
 
-/** Work out the facts and store the examples of every fn that has no facts yet (stored before this build). */
-async function catchUp(hub: HubServices, services: FnsServices): Promise<number> {
+/**
+ * Catch up on fns stored before this build: work out the facts and store the examples of every fn with no facts yet,
+ * and store the examples of every fn that declares some but has none stored (its facts came before the examples
+ * table did, so keying on facts alone never backfilled them). Both are asked of the database, one fn at a time.
+ */
+export async function catchUp(hub: Pick<HubServices, 'store'>, services: Pick<FnsServices, 'examples' | 'facts'>): Promise<number> {
   let done = 0;
   for await (const fn of rows(hub.store.table('fns'), { order: [['name', 'asc']] })) {
-    if ((await hub.store.table('fnFacts').get(fn.name)) !== undefined) continue;
-    await follow(services, [fn], []);
+    if ((await hub.store.table('fnFacts').get(fn.name)) === undefined) {
+      await follow(services, [fn], []);
+    } else if ((fn.decl.examples ?? []).length > 0 && (await hub.store.table('fnExamples').count({ fn: fn.name })) === 0) {
+      await services.examples.sync([fn], []);
+    } else {
+      continue;
+    }
     done++;
   }
   return done;

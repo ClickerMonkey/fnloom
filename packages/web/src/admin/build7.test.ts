@@ -118,7 +118,7 @@ describe('ReviewStore', () => {
     expect(api.goLive.calls[0]?.[0]).toEqual({ system: 'notes', hash: 'hash-1', off: [{ section: 'types', name: 'notes/Note' }] });
 
     expect(await store.approve()).toEqual({ ok: false, problem: 'Nothing waits for review.' });
-    api.systemReview = fakeCaller<'systemReview'>(() => Promise.resolve(review({ stage: 'live', pending: { version: '1.1.0', hash: 'hash-2', by: 'contract', changes: [], since: 1 } })));
+    api.systemReview = fakeCaller<'systemReview'>(() => Promise.resolve(review({ stage: 'live', pending: { version: '1.1.0', hash: 'hash-2', by: 'contract', changes: [], since: 1, summary: { line: 'No changes', counts: [], flags: [] }, fns: [] } })));
     const live = fakeAdmin({ api }).admin.review;
     await live.open(review().system);
     expect(await live.approve()).toEqual({ ok: true, value: 'hash-2' });
@@ -153,10 +153,11 @@ describe('review components', () => {
     expect(wrapper.emitted('test')?.[0]?.[0]).toMatchObject({ name: 'notes/find' });
   });
 
-  it('shows a change as a line diff when opened', async () => {
+  it('shows a change’s raw line diff behind its toggle', async () => {
     const wrapper = mount(ChangeList, { props: { changes: [{ section: 'fns', name: 'notes/find', change: 'changed', origin: 'contract', before: { a: 1 }, after: { a: 2 } }] } });
     expect(wrapper.text()).toContain('Changed');
-    await wrapper.find('[data-testid="review-change"]').trigger('click');
+    expect(wrapper.find('[data-testid="review-diff"]').exists()).toBe(false);
+    await wrapper.find('[data-testid="toggle-raw-diff"]').trigger('click');
     expect(wrapper.findAll('.line.add').map((line) => line.text())).toEqual(['+   "a": 2']);
     expect(wrapper.findAll('.line.remove').map((line) => line.text())).toEqual(['−   "a": 1']);
   });

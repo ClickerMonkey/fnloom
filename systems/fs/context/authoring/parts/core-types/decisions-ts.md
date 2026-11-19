@@ -5,7 +5,7 @@ title: "Core types: From packages/core/src/decisions.ts"
 description: "Core types, the part on From packages/core/src/decisions.ts."
 summary: "Core types: From packages/core/src/decisions.ts."
 parent: "fs/authoring.core-types"
-next: "fs/authoring.core-types.fn-facts-ts"
+next: "fs/authoring.core-types.fn-block-ts"
 suggest: "none"
 tags: ["authoring", "reference"]
 ---

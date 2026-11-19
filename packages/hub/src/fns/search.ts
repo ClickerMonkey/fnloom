@@ -7,7 +7,7 @@
  * What the asker may not see is never counted; `visibility` and `available` are checked on each hit as it comes, and a
  * hit that can't be used now (kept with `available: false`) carries what blocks it (`FnSearchHit.blocked`).
  */
-import { contextOff, effectsLine, QualifiedName, type ContextRecord, type RegistryEffect, type FnRecord, type FnSearchHit, type FnSearchPage, type FnSearchQuery, type RowOf, type SearchItemKind } from '@harness/core';
+import { contextOff, effectsLine, QualifiedName, type ContextRecord, type RegistryEffect, type FnRecord, type FnSearchHit, type FnSearchPage, type FnSearchQuery, type RowOf, type SearchHit, type SearchItemKind } from '@harness/core';
 import type { Catalog } from '../catalog/index.ts';
 import type { AccessService } from '../access/index.ts';
 import type { FnViewSource } from '../contextor/index.ts';
@@ -134,7 +134,7 @@ export class StoreFnSearch implements FnSearch {
       keep: async (hit) => {
         const name = QualifiedName.safeParse(hit.key);
         if (!name.success || (hit.kind !== 'fn' && hit.kind !== 'context')) return false;
-        const shown = await this.#hit(query, { kind: hit.kind, key: name.data }, asker, hit.score);
+        const shown = await this.#hit(query, { kind: hit.kind, key: name.data }, asker, hit);
         if (shown !== undefined) out.push(shown);
         return shown !== undefined;
       },
@@ -165,13 +165,13 @@ export class StoreFnSearch implements FnSearch {
   }
 
   /** A candidate as a hit, or undefined when the asker may not have it (or a per-hit filter leaves it out). */
-  async #hit(query: FnSearchQuery, candidate: Candidate, asker: Asker, score: number | undefined): Promise<FnSearchHit | undefined> {
+  async #hit(query: FnSearchQuery, candidate: Candidate, asker: Asker, found: Scored | undefined): Promise<FnSearchHit | undefined> {
     if (asker.keep !== undefined && !asker.keep(candidate.kind, candidate.key)) return undefined;
     const catalog = this.#deps.catalog();
     if (candidate.kind === 'context') {
       const record = await catalog.context(candidate.key);
       if (record === undefined || contextOff(record) || !asker.access.seesContext(record)) return undefined;
-      return contextHit(record, score);
+      return contextHit(record, found);
     }
     const record = await catalog.fn(candidate.key);
     if (record === undefined || record.disabled || !asker.access.seesFn(record)) return undefined;
@@ -190,7 +190,7 @@ export class StoreFnSearch implements FnSearch {
       ...(view === undefined ? {} : { signature: `${record.name}(${view.args}) → ${view.returns}` }),
       ...(effects === undefined ? {} : { effects }),
       ...(facts?.instance === undefined ? {} : { instance: facts.instance }),
-      ...(score === undefined ? {} : { score }),
+      ...scoresOf(found),
       available: blocked === undefined,
       ...(blocked === undefined ? {} : { blocked }),
     };
@@ -208,6 +208,15 @@ export class StoreFnSearch implements FnSearch {
 }
 
 /** A context item as a hit. */
-function contextHit(record: ContextRecord, score: number | undefined): FnSearchHit {
-  return { item: 'context', name: record.name, system: record.system, description: record.decl.description, ...(score === undefined ? {} : { score }), available: true };
+function contextHit(record: ContextRecord, found: Scored | undefined): FnSearchHit {
+  return { item: 'context', name: record.name, system: record.system, description: record.decl.description, ...scoresOf(found), available: true };
+}
+
+/** How a text search scored a hit, when it was one. */
+type Scored = Pick<SearchHit, 'rank' | 'similarity'>;
+
+/** A hit's `score` (its rank, for ordering) and `similarity` (its measured fit, when there is one), each its own field. */
+function scoresOf(found: Scored | undefined): Pick<FnSearchHit, 'score' | 'similarity'> {
+  if (found === undefined) return {};
+  return { score: found.rank, ...(found.similarity === undefined ? {} : { similarity: found.similarity }) };
 }

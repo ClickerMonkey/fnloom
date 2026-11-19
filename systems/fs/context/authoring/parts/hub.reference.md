@@ -21,7 +21,7 @@ The hub's contract.
 const hub: typeof hub; // too large to print: see its section
 ```
 
-Refers to: [`ContributionView`](context:fs/authoring.core-types.registries-ts#core-contributionview), [`FnExamplesPage`](context:fs/authoring.core-types.fn-facts-ts#core-fnexamplespage), [`FnExamplesQuery`](context:fs/authoring.core-types.fn-facts-ts#core-fnexamplesquery), [`FnRefusal`](context:fs/authoring.core-types.records-systems-ts#core-fnrefusal), [`FnSearchPage`](context:fs/authoring.core-types.fn-facts-ts#core-fnsearchpage), [`FnSearchQuery`](context:fs/authoring.core-types.fn-facts-ts#core-fnsearchquery), [`LoadContextResult`](context:fs/authoring.core-types.context-files-ts#core-loadcontextresult), [`MintMcpTokenArgs`](context:fs/authoring.core-types.records-mcps-ts#core-mintmcptokenargs), [`NameRefusal`](context:fs/authoring.core-types.records-systems-ts#core-namerefusal), [`ReadTableArgs`](context:fs/authoring.core-types.widgets-ts#core-readtableargs), [`ResourceOutlineArgs`](context:fs/authoring.core-types.resource-forms-ts#core-resourceoutlineargs), [`ResourceSendArgs`](context:fs/authoring.core-types.resource-forms-ts#core-resourcesendargs), [`ResultTable`](context:fs/authoring.core-types.registries-ts#core-resulttable), [`RowActionsQuery`](context:fs/authoring.core-types.widgets-ts#core-rowactionsquery), [`Section`](context:fs/authoring.core-types.resources-ts#core-section), [`WidgetActionOption`](context:fs/authoring.core-types.widgets-ts#core-widgetactionoption).
+Refers to: [`ContributionView`](context:fs/authoring.core-types.registries-ts#core-contributionview), [`FnExamplesPage`](context:fs/authoring.core-types.fn-facts-ts#core-fnexamplespage), [`FnExamplesQuery`](context:fs/authoring.core-types.fn-facts-ts#core-fnexamplesquery), [`FnRefusal`](context:fs/authoring.core-types.fn-block-ts#core-fnrefusal), [`FnSearchPage`](context:fs/authoring.core-types.fn-facts-ts#core-fnsearchpage), [`FnSearchQuery`](context:fs/authoring.core-types.fn-facts-ts#core-fnsearchquery), [`LoadContextResult`](context:fs/authoring.core-types.context-files-ts#core-loadcontextresult), [`MintMcpTokenArgs`](context:fs/authoring.core-types.records-mcps-ts#core-mintmcptokenargs), [`NameRefusal`](context:fs/authoring.core-types.fn-block-ts#core-namerefusal), [`ReadTableArgs`](context:fs/authoring.core-types.widgets-ts#core-readtableargs), [`ResourceOutlineArgs`](context:fs/authoring.core-types.resource-forms-ts#core-resourceoutlineargs), [`ResourceSendArgs`](context:fs/authoring.core-types.resource-forms-ts#core-resourcesendargs), [`ResultTable`](context:fs/authoring.core-types.registries-ts#core-resulttable), [`RowActionsQuery`](context:fs/authoring.core-types.widgets-ts#core-rowactionsquery), [`Section`](context:fs/authoring.core-types.resources-ts#core-section), [`WidgetActionOption`](context:fs/authoring.core-types.widgets-ts#core-widgetactionoption).
 
 #### `HubContract`
 
@@ -389,7 +389,9 @@ const StoredFn = g.obj({
   /** Who owns it (a saved fn's person); absent for a system's own fns. */
   owner: g.optional(g.text()),
   routing: g.optional(ginAs(FnRouting)),
+  /** Whether the run's person can use it now (as `hub/fns_search`'s hits say it); what blocks it when false, in the hub's words. */
   available: g.bool(),
+  blocked: g.optional(ginAs(FnBlock)),
   /** Its args type, as the hub describes it (a fn of a kind: as its kind works it out), so a widget plans each arg. */
   args: g.optional(ginAs(GinTypeDef)),
   /** Its declared return type, so a widget checks that it is a table. */
@@ -399,7 +401,7 @@ const StoredFn = g.obj({
 });
 ```
 
-Refers to: [`FnLive`](context:fs/authoring.core-types.contextdecl#core-fnlive), [`FnRouting`](context:fs/authoring.core-types.contextdecl#core-fnrouting), [`GinTypeDef`](context:fs/authoring.core-types.gin-ts#core-gintypedef).
+Refers to: [`FnBlock`](context:fs/authoring.core-types.fn-block-ts#core-fnblock), [`FnLive`](context:fs/authoring.core-types.contextdecl#core-fnlive), [`FnRouting`](context:fs/authoring.core-types.contextdecl#core-fnrouting), [`GinTypeDef`](context:fs/authoring.core-types.gin-ts#core-gintypedef).
 
 #### `SaveFnArgs`
 

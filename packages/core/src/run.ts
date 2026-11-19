@@ -5,6 +5,7 @@ import {
 } from './primitives.ts';
 import { RunText } from './status.ts';
 import { Exposure } from './modes.ts';
+import { FnBlock } from './fn-block.ts';
 
 // ─── Who and when ─────────────────────────────────────────────────────────────
 
@@ -178,6 +179,11 @@ export const InvalidInput = z.object({
   problems: z.array(InputProblem).min(1),
   /** The text the model wrote, when it wasn't JSON. */
   raw: z.string().optional(),
+  /**
+   * The model called a fn that exists but is blocked now (held for review, switched off, offline, an account to
+   * connect): what blocks it, as every refusal of a fn says it, so the chat can point at what holds it.
+   */
+  blocked: FnBlock.optional(),
 });
 export type InvalidInput = z.infer<typeof InvalidInput>;
 

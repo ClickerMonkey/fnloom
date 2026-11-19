@@ -21,7 +21,7 @@ function reportDescriber(): KindDescriber & { calls: Array<{ kind: string; paylo
       calls.push({ kind, payload });
       const description: KindDescription = {
         args: wireType(g.obj({})), returns: wireType(g.num()), deps: [q('shop/list')],
-        operations: { cancel: true, pause: false, undo: false, background: true },
+        operations: { cancel: true, pause: false, undo: false, background: true }, examples: [{ args: {}, note: 'This week.' }],
       };
       return Promise.resolve({ problems: [], description });
     },
@@ -164,6 +164,17 @@ describe('fns of a kind', () => {
     expect(sales?.decl.deps).toEqual(['shop/list']);
     expect(sales?.decl.returns).toEqual(wireType(g.num()));
     expect(describer).toMatchObject({ calls: [{ kind: 'shop/report', payload: { query: 'week' } }] });
+  });
+
+  it('gives a fn declared without examples its kind\'s, and keeps an author\'s own', async () => {
+    const { catalog } = await setup();
+    await catalog.importManifest(await manifestFor(shop));
+    const manifest = await manifestFor(orders);
+    await catalog.importManifest(manifest);
+    expect((await catalog.fn(q('orders/sales')))?.decl.examples).toEqual([{ args: {}, note: 'This week.' }]);
+    const own = [{ args: {}, note: 'The sales so far.' }];
+    await catalog.importManifest({ ...manifest, hash: 'own-examples', fns: manifest.fns.map((decl) => (decl.name === 'sales' ? { ...decl, examples: own } : decl)) });
+    expect((await catalog.fn(q('orders/sales')))?.decl.examples).toEqual(own);
   });
 
   it('refuses a payload the kind’s payload type does not accept', async () => {

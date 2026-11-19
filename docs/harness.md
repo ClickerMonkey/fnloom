@@ -279,6 +279,15 @@ explicit `on` (offered to the LLM only when more than one instance is connected)
 belongs to (`file://laptop/…`), else the session's pinned one, the default, or the only one; otherwise the call is
 refused as invalid input that names the choices.
 
+A system says in `system.json` whether it runs one copy or many (`"instances": "one"` or `"many"`, written by
+`harness system new --instances`), and a paired system sends the same in its hello, which the hub keeps on the
+system's record (a later hello that says nothing keeps it). A `one` system's page has no Instances tab and no
+"Install another": its instance's facts are on the overview and its data and export are on a Data tab, and old
+instance links go to the same tab on the system page. A `many` system keeps the fleet pages even with one
+instance. claude, database, fs and mcp are `many`. The owner decided api is `one`, but api is still `many` for now,
+because it keeps one service per instance (its config, fn routing and per-person connections are all per
+instance); making it `one` means reworking it into one instance that holds a list of services.
+
 ### Changing itself
 
 Harness must be able to modify itself, or let Claude Code do it. The **fs system** (the first one
@@ -391,6 +400,14 @@ A kind decides what a fn's definition looks like and how it runs.
 A native fn is typed end to end. A fn of another kind is typed as far as its payload and the args and
 result its author expects. What the payload really produces is only known at runtime, so the hub checks it
 against those expectations when the fn is declared.
+
+**Every fn has at least one example.** The author writes the examples of a native fn or an agent, and a static one
+without any stops the build and `serve` before the system connects, with an error naming each such fn. A fn of any
+other kind gets its examples from its kind: a kind's `describe` must return at least one, worked out from the payload
+(a query's sample params, a form's sample answers, an MCP tool's own schema examples, sample args for api, code and
+widget fns, a task prompt for a Claude agent). Examples the author wrote win over the kind's. When the hub starts, it
+stores the declared examples of any fn that has none stored yet. The system page and the review flag a fn with no
+examples, and say who owes them.
 
 ## The system SDK
 
@@ -757,6 +774,34 @@ Reasoning pieces that sit next to each other in an answer (with nothing shown be
 Side panels (a run, an LLM call, details, settings, people, the model) can be dragged wider or narrower from their
 left edge, between 360px and 60% of the window; each kind of panel remembers its own width, and a double-click
 puts it back. Tab strips scroll sideways with the mouse wheel and show an arrow on a side with more tabs beyond it.
+
+**Fn pills.** Wherever the web names a fn (grants, review lists, refusals, approvals, the chat's run tree, LLM call
+details, turn details, banners, pickers, the Data page) it shows a pill: the fn's friendly label tinted by its
+system, its qualified name on hover, and an off look with a short word ("held", "off") when the hub says it is
+blocked. Clicking one opens the one fn modal the whole app shares, bound to `?fn=` on whatever page is open, so the
+link can be shared and Back closes it. Admins see the fn's full details there, others its overview. A glob
+(`hub/search_*`) or a whole system is a link to the admin's fns list filtered to match, for admins only.
+
+**Admin.**
+- **The graph is an admin page** (`/admin/graph`, in the Systems group beside Fns; the old `/graph` link goes
+  there). It searches with the same search bar as every other list (`list="graph"`): text, and filters on system,
+  node kind, edge kind, fn kind, mode, effect, visibility, stage and machine, all applied by the hub. The graph's
+  own controls (focus and how many hops, collapse, references outside) sit in the bar, every one is in the URL,
+  and a line under it says how many nodes and edges are shown. The hub's graph endpoint and the `hub/graph` fn take
+  the same `text` and `filters` and refuse a bad filter.
+- **System counts.** Each system card shows chips for its fns, context, types and instances (only when 2 or more),
+  and warning badges for pending changes and refusals; zero counts are hidden and each chip opens its tab. The hub
+  counts them in the database, and the systems list can sort and filter by each count.
+- **Toggle all.** The Fns tab has one switch for all of the system's fns, as the Context tab has for its context.
+  Turning it off also turns off the system's mentions and hooks; each fn keeps its own switch.
+- **The Pending tab** starts with a summary the hub works out: what was added, changed and removed, how the grants
+  moved, whether the config type changed, and risk flags (new delete or write fns, new effects, hub calls,
+  secrets, hosts, file paths, fns it may call, models). The chat's install card shows the same summary, for the
+  contract whose hash the install binds. Each change is a card drawn the way its tab draws it (fn facts before
+  and after, `TypeDiff` for types and the config type, context as a word diff, grants as a delta), with the raw
+  diff behind a toggle. An admin approves or declines each change on its own, or all at once: approved changes go
+  live, declined ones are switched off and listed under "Declined", and the rest keep waiting. When nothing
+  waits, the reviewed version becomes the live one.
 
 ### Configuring by asking
 
@@ -1131,7 +1176,8 @@ Already checked: type-checking all of the types and examples takes about two sec
     - **Going live:** an admin reviews everything it declares (fns with facts and effects, context, types, resources,
       components, capabilities, tests, scan), configures it, turns items off and presses "Go live". That saves the
       reviewed contract.
-    - **Later changes:** anything outside what was reviewed waits for review with a diff.
+    - **Later changes:** anything outside what was reviewed waits for review with a diff, and each change can be
+      approved or declined on its own (2026-11-18).
     - **Enforcement:** the hub enforces every declaration over the link (effects, mode, types, hub capabilities,
       models and spend, secrets, fns it calls, network and files for supervised systems) and logs every refusal.
     - **Configuration:** systems can ship their own Vue configuration component. The hub still validates with the gin
@@ -1141,6 +1187,7 @@ Already checked: type-checking all of the types and examples takes about two sec
       components and the rest, with the relations between them. References into other systems are greyed.
     - Hovering a node or an edge explains it.
     - A global graph shows all systems, with filters on node and edge kinds. One hub endpoint and one hub fn serve both.
+      (2026-11-18: the global graph is an admin page searched like every other list; see **What the UI offers**.)
   - **Generated table fns:** for any table type, one fn lists every fn that could be generated (CRUD: create,
     update, updateWhere, remove, removeWhere, selectOne, selectPage; and helpers from its columns and foreign keys:
     aggregates, group-bys, date buckets, lookups, parent/child, and relation-derived fields with normalized ranks and

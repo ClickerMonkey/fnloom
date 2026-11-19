@@ -24,7 +24,7 @@ import type { HandlerRelay } from '../execution/handlers.ts';
 import { parseSectionIndexKey } from '../index/indexer.ts';
 import { broughtFns, withImports } from '../contextor/brought.ts';
 import type { FnScope } from '../contextor/fns.ts';
-import { fnRefusal, readsAsMissing, refusalOf } from '../contextor/views.ts';
+import { fnRefusal, readsAsMissing, refusalOf, unavailableBlock } from '../contextor/views.ts';
 import { itemVersionCount } from '../catalog/versions.ts';
 
 /** How many results a search returns when the agent doesn't say. */
@@ -180,7 +180,7 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
       .filter(({ at }) => roots === undefined || roots.some((root) => at.uri.startsWith(root)))
       .map(({ hit, at }) => ({
         uri: at.uri, ...('section' in at ? { section: at.section } : {}),
-        title: hit.text.split('\n', 1)[0]?.slice(0, 120) ?? at.uri, preview: hit.text.slice(0, PREVIEW), score: hit.score,
+        title: hit.text.split('\n', 1)[0]?.slice(0, 120) ?? at.uri, preview: hit.text.slice(0, PREVIEW), score: hit.rank,
       }));
   });
 
@@ -212,6 +212,8 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
     if (fn === undefined || !access.seesFn(fn)) throw new InvalidArgs(`no such fn: ${args.fn}`);
     const versions = await itemVersionCount(deps.store(), fn.system, 'fns', fn.name);
     const owner = fn.origin === 'runtime' ? (await deps.sharing().sharing({ kind: 'fn', fn: fn.name })).owner : undefined;
+    // what blocks it, as fns_search's hits say it: the availability's own words, else an account to connect
+    const blocked = unavailableBlock(fn, access);
     return {
       fn: fn.name, kind: fn.decl.kind, description: fn.decl.description,
       ...(fn.decl.instructions === undefined ? {} : { instructions: fn.decl.instructions }),
@@ -219,7 +221,7 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
       version: Math.max(1, versions), ...(owner === undefined ? {} : { owner }),
       ...(fn.decl.routing === undefined ? {} : { routing: fn.decl.routing }),
       args: fn.decl.args, returns: fn.decl.returns, ...(fn.decl.live === undefined ? {} : { live: fn.decl.live }),
-      available: access.mayUse(fn) && (await deps.catalog().availability(fn.name)) === true,
+      available: blocked === undefined, ...(blocked === undefined ? {} : { blocked }),
     };
   });
 

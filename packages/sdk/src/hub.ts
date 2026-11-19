@@ -12,7 +12,7 @@ import {
   ADMIN_TAG, adminSlice, chatSlice, CONTENT_HASH_PATTERN, ChatModeConfig, contextorSlice, contextSlice, ContextorConfig, DETAIL_LEVELS, ERROR_CLASSES,
   graphSlice, versionsSlice, dataSlice, ContributionView, ReadTableArgs, ResultTable, RowActionsQuery, WidgetActionOption, mcpsSlice, metricsSlice, accessSlice, autoPairSlice, connectionsSlice, explorerSlice, suggestionsSlice, MintMcpTokenArgs, modelsSlice, OWN_TAG, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, RUN_STATUSES, runsSlice,
   FnLive, GinTypeDef, LIST_NAMES, querySlice, Section, settingsSlice, systemsSlice, LlmContentPart, ModelLimits, LINK_TARGET_KINDS, type Display,
-  FnExample, FnExamplesPage, FnExamplesQuery, FnRouting, FnSearchPage, FnSearchQuery, FnRefusal, LoadContextResult, NameRefusal, ShareRule, type RegistryEffect,
+  FnBlock, FnExample, FnExamplesPage, FnExamplesQuery, FnRouting, FnSearchPage, FnSearchQuery, FnRefusal, LoadContextResult, NameRefusal, ShareRule, type RegistryEffect,
 } from '@harness/core';
 import { z } from 'zod';
 import { fn, type FnExampleOf } from './fn.ts';
@@ -280,12 +280,12 @@ const readFns = {
   query: readFn(`Any list (${LIST_NAMES.join(', ')}) by the query standard: free text, filters on the list's fields (is, in, >, <, between, empty, contains, ...), a sort and paging.`, 'Use it for any list question with conditions (runs that failed this week, the biggest resources, fns of one system): name the list, add filters on its fields, a sort and a small page size, and page on. Never ask for everything.', HUB_READ_ENDPOINTS.query, [{ args: { list: 'runs', query: { text: 'install', limit: 10 } }, note: 'Runs whose words match.' }, { args: { list: 'contexts', query: { limit: 20 } }, note: 'A page of context items.' }]),
   graph: readFn(
     'The graph of what systems add (fns, context, types, kinds, commands, components, providers) and how they connect: what brings, calls, reads, writes, creates or refers to what.',
-    'Use it to explain how things connect ("how does the fs authoring context reach the database fns?"): give `systems` for one system graph (what it references elsewhere comes back as `external`), or `focus` on one node (`fn:database/run_query`, `context:fs/authoring`, `type:database/main.projects`) with `hops` for its neighbourhood. Narrow with `nodeKinds`, `edgeKinds`, `fnKinds`, `modes` or `effects`, and keep `limit` small; `more` says what was left out, so focus on that node to see it. The `label` of each edge says the relation in plain words.',
+    'Use it to explain how things connect ("how does the fs authoring context reach the database fns?"): give `systems` for one system graph (what it references elsewhere comes back as `external`), or `focus` on one node (`fn:database/run_query`, `context:fs/authoring`, `type:database/main.projects`) with `hops` for its neighbourhood. Narrow with `text` and `filters`, the query standard over the `graph` list (the same as hub/query: fields name, system, nodeKind, edgeKind, fnKind, mode, effect, visibility, stage, on; ops is, in, notIn, contains, ...), and keep `limit` small; `more` says what was left out, so focus on that node to see it. The `label` of each edge says the relation in plain words.',
     HUB_READ_ENDPOINTS.graph,
     [
       { args: { focus: { node: 'context:fs/authoring', hops: 2 }, limit: 40 }, note: 'What a context item brings and what those reach, two hops out.' },
-      { args: { systems: ['database'], nodeKinds: ['fn', 'type'], edgeKinds: ['reads', 'writes'] }, note: 'Which database fns read and write which types.' },
-      { args: { effects: ['fns'], nodeKinds: ['fn', 'kind'] }, note: 'Every fn that creates or changes fns, and the kinds it makes.' },
+      { args: { systems: ['database'], filters: [{ field: 'nodeKind', op: 'in', values: ['fn', 'type'] }, { field: 'edgeKind', op: 'in', values: ['reads', 'writes'] }] }, note: 'Which database fns read and write which types.' },
+      { args: { filters: [{ field: 'effect', op: 'is', value: 'fns' }, { field: 'nodeKind', op: 'in', values: ['fn', 'kind'] }] }, note: 'Every fn that creates or changes fns, and the kinds it makes.' },
     ],
   ),
   item_versions: readFn(
@@ -522,7 +522,9 @@ export const StoredFn = g.obj({
   /** Who owns it (a saved fn's person); absent for a system's own fns. */
   owner: g.optional(g.text()),
   routing: g.optional(ginAs(FnRouting)),
+  /** Whether the run's person can use it now (as `hub/fns_search`'s hits say it); what blocks it when false, in the hub's words. */
   available: g.bool(),
+  blocked: g.optional(ginAs(FnBlock)),
   /** Its args type, as the hub describes it (a fn of a kind: as its kind works it out), so a widget plans each arg. */
   args: g.optional(ginAs(GinTypeDef)),
   /** Its declared return type, so a widget checks that it is a table. */
@@ -552,7 +554,8 @@ export const SAVE_FN_TAKEN = 'fn-taken';
 const FNS_SEARCH_GUIDE = [
   'Use it to find a fn before writing one: describe what it should do in plain words as `text`, and narrow with filters when you know them',
   '(`kinds: ["database/query"], instance: "main"` for the saved queries of one database; `kinds: ["input/form"]` for saved forms).',
-  'Each hit has a score: the higher, the closer; compare a hit\'s description with what you need before reusing it. Without `text` it lists alphabetically.',
+  'With `text`, hits come best first: `score` is a hit\'s place in that order (1 = first, whatever it is), and `similarity`, when given, is how close its meaning is (0 to 1; under about 0.45 is likely unrelated);',
+  'compare a hit\'s description with what you need before reusing it. Without `text` it lists alphabetically.',
   'Page with `offset` set to `next`. Call a hit by its name with the args its `signature` shows, or load it with hub/load_fns first.',
   'A hit with `available: false` can\'t be used now: `blocked.reason` says why, in the hub\'s words. Don\'t load or call it; if you need it, tell the person what blocks it.',
 ].join(' ');

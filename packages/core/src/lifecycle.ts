@@ -6,12 +6,14 @@
  * working. Every call the hub refuses because a system went past what it declared is a `RefusalRecord`.
  */
 import { z } from 'zod';
+import { ApprovalPreview } from './approvals.ts';
 import { InstallChecks } from './checks.ts';
 import { FnFacts } from './fn-facts.ts';
 import { SystemGrants, SystemStage } from './grants.ts';
-import { Manifest } from './manifest.ts';
-import { ActorId, IDS, InstanceName, InstanceRef, Json, QualifiedName, RunId, SystemName, Timestamp } from './primitives.ts';
+import { FnMode, Manifest } from './manifest.ts';
+import { ActorId, IDS, InstanceName, InstanceRef, Json, QualifiedName, RunId, SystemName, Timestamp, Usd } from './primitives.ts';
 import { DeclaredBy } from './records/systems.ts';
+import { ReviewSummary } from './review-summary.ts';
 import { SYSTEM_PART_SECTIONS } from './system-parts.ts';
 
 export const RefusalId = IDS.refusal;
@@ -61,6 +63,17 @@ export const ContractChange = z.object({
 });
 export type ContractChange = z.infer<typeof ContractChange>;
 
+/** Which change of a pending review a decision is about: its section and name (`ContractChange`'s key). */
+export const ChangeRef = ContractChange.pick({ section: true, name: true });
+export type ChangeRef = z.infer<typeof ChangeRef>;
+
+/** A change an admin declined: it never went live (a declined item stays off), kept so the review page can say so. */
+export const DeclinedChange = ChangeRef.extend({ change: ContractChange.shape.change, origin: DeclaredBy, version: z.string(), by: ActorId, at: Timestamp });
+export type DeclinedChange = z.infer<typeof DeclinedChange>;
+
+/** How many declined changes a review row keeps, newest first. */
+export const DECLINED_KEPT = 50;
+
 /** A new contract version, or runtime additions outside what was reviewed, waiting for an admin. Changed items stay off. */
 export const PendingReview = z.object({
   version: z.string(),
@@ -79,9 +92,37 @@ export const SystemReviewRecord = z.object({
   pending: PendingReview.optional(),
   /** Copied from the install run's approval preview (`ApprovalPreview.checks`) when it pairs. */
   checks: InstallChecks.optional(),
+  /** The changes admins declined, newest first (at most `DECLINED_KEPT`). */
+  declined: z.array(DeclinedChange).optional(),
   updatedAt: Timestamp,
 });
 export type SystemReviewRecord = z.infer<typeof SystemReviewRecord>;
+
+/** What a fn's declaration says about it, for the before and after of a change (the hub's `fnMode` for its mode). */
+export const DeclaredFnFacts = z.object({
+  mode: FnMode,
+  /** What it changes in the hub, in one line (`effectsLine`). */
+  effects: z.string().optional(),
+  reads: z.array(QualifiedName),
+  writes: z.array(QualifiedName),
+  deps: z.array(QualifiedName),
+  /** Its rough cost per run (`FnLimits.cost`). */
+  cost: Usd.optional(),
+  /** Its own work spends nothing (`FnEffects.free`). */
+  free: z.boolean().optional(),
+});
+export type DeclaredFnFacts = z.infer<typeof DeclaredFnFacts>;
+
+/** A changed fn's facts before and after (absent on the side where it doesn't exist). */
+export const FnChangeFacts = z.object({ name: z.string().min(1), before: DeclaredFnFacts.optional(), after: DeclaredFnFacts.optional() });
+export type FnChangeFacts = z.infer<typeof FnChangeFacts>;
+
+/**
+ * A pending review as the review page reads it, with what the hub works out on each read: what its changes amount to
+ * (`summary`) and each changed fn's facts before and after.
+ */
+export const PendingReviewView = PendingReview.extend({ summary: ReviewSummary, fns: z.array(FnChangeFacts) });
+export type PendingReviewView = z.infer<typeof PendingReviewView>;
 
 /** The rule a refused call broke. */
 export const REFUSAL_RULES = ['stage', 'effects', 'mode', 'types', 'capability', 'models', 'budget', 'secrets', 'calls', 'network', 'files', 'visibility'] as const;
@@ -139,7 +180,9 @@ export const SystemReview = z.object({
   facts: z.array(FnFacts),
   checks: InstallChecks.optional(),
   live: LiveContract.optional(),
-  pending: PendingReview.optional(),
+  pending: PendingReviewView.optional(),
+  /** The changes admins declined, newest first. */
+  declined: z.array(DeclinedChange).default([]),
   off: z.array(ItemRef),
   refusals: z.object({ total: z.number().int().min(0), last: z.array(RefusalRecord).max(10) }),
   /** Short-lived links to the checks' preview images, by content hash, so the gallery can show them (made per read, never stored). */
@@ -150,6 +193,35 @@ export type SystemReview = z.infer<typeof SystemReview>;
 /** Go live, or approve a pending review: the hash the admin reviewed (refused if it moved since) and the items to keep off. */
 export const GoLiveRequest = z.object({ system: SystemName, hash: z.string().min(1), off: z.array(ItemRef).default([]) });
 export type GoLiveRequest = z.infer<typeof GoLiveRequest>;
+
+/**
+ * Approve some of a pending review's changes and decline others, by the hash reviewed: approved ones go live (except
+ * the items in `off`), declined ones stay off and are recorded, and the rest keep waiting.
+ */
+export const ReviewDecision = z.object({
+  system: SystemName,
+  hash: z.string().min(1),
+  approve: z.array(ChangeRef).default([]),
+  decline: z.array(ChangeRef).default([]),
+  /** Approved items to keep switched off. */
+  off: z.array(ItemRef).default([]),
+}).refine((decision) => decision.approve.length + decision.decline.length > 0, { message: 'approve or decline at least one change', path: ['approve'] });
+export type ReviewDecision = z.infer<typeof ReviewDecision>;
+
+/** What a decision left: the hash now live, and how many changes still wait. */
+export const ReviewDecided = z.object({ hash: z.string(), waiting: z.number().int().min(0) });
+export type ReviewDecided = z.infer<typeof ReviewDecided>;
+
+/**
+ * A system's answer to a preview (`preview` on the system link): the preview, or why the run can't go ahead at all
+ * (it then fails as invalid input). An install host sends the contract the card would install (`contract`): the hub
+ * checks it against the subject's hash, works out the card's `summary` from it, and never stores it.
+ */
+export const PreviewAnswer = z.union([
+  z.object({ preview: ApprovalPreview, contract: Manifest.optional() }),
+  z.object({ refused: z.string().min(1) }),
+]);
+export type PreviewAnswer = z.infer<typeof PreviewAnswer>;
 
 /** An admin's test call while the system is installed (or a pending item): a real run, marked as a test. */
 export const TestCallRequest = z.object({ fn: QualifiedName, args: Json, instance: InstanceName.optional() });

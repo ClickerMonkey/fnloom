@@ -262,6 +262,10 @@ describe('what static `run` may run', () => {
     // nothing ran: a refusal is at most a run settled invalid-input, shown softly as retried
     const children = (await r.store.table('runs').find({ where: { parent: run }, limit: 10 })).items;
     expect(children.every((child) => child.status === 'invalid-input' && child.startedAt === undefined)).toBe(true);
+    // a fn that exists but is blocked is kept as such a run, with what blocks it, so the chat can say so (regression:
+    // a switched-off or offline fn left no run at all); one that reads as missing has none
+    const blocks = new Map(children.map((child) => [child.fn, child.outcome?.status === 'invalid-input' ? child.outcome.invalid.blocked?.code : undefined]));
+    expect(Object.fromEntries(blocks)).toEqual({ 'fs/off': 'disabled', 'fs/gone': 'system-disconnected', 'git/status': 'other-system', 'web/fetch_raw': undefined, 'fs/mine': undefined });
     const replies = ((await r.store.table('sessions').get(SESSION))?.transcript ?? []).filter((m) => m.role === 'tool').map((m) => say(m));
     expect(replies).toHaveLength(names.length);
     // one that exists says what blocks it, in the hub's words (regression: "You there?"); one not for the model reads as missing

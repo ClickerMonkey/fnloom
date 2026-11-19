@@ -6,10 +6,10 @@
  * The order is the fusion's; the score is not. A fused rank only says where an item came, never how well it fits: the
  * first of any search would score 1 and the twelfth still 0.85 (k = 60), whatever was asked, so no threshold could
  * ever tell a fit from noise (the "You there?" chat, 2026-11-17, offered the web fns at 0.94 to 1 for every message).
- * So when the query's vector was searched, a hit's score is its similarity of meaning to the query (cosine, 0 to 1,
- * read from the database for every hit returned, including those only the words found) and `similarity` says so; an
- * item with no vector yet scores 0 and has none. With words alone there is no measure of fit: the score is then the
- * fused rank as a share of the best possible (first in the list), for ordering only, and no hit has a `similarity`.
+ * So a hit carries one field per meaning: `rank`, the fused rank as a share of the best possible (first in the list),
+ * for ordering only, always; and `similarity`, its similarity of meaning to the query (cosine, 0 to 1, read from the
+ * database for every hit returned, including those only the words found), when the query's vector was searched and the
+ * item has a vector. With words alone, or for an item with no vector yet, there is no measure of fit and no `similarity`.
  * Works on any `VectorIndex` and `TextIndex`, so a Postgres store gets it too.
  */
 import type { IndexedKind, QualifiedName } from '@harness/core';
@@ -23,10 +23,10 @@ export interface Ranked {
   readonly key: string;
 }
 
-/** A merged hit: its score and similarity (see the file's notes), and its rank in each list it came from (1 = best). */
+/** A merged hit: its fused rank and similarity (see the file's notes), and its rank in each list it came from (1 = best). */
 export interface FusedHit extends Ranked {
-  /** Its similarity of meaning when the query's vector was searched; its share of the best fused rank with words alone. */
-  readonly score: number;
+  /** Its fused rank as a share of the best possible (1 = first): for ordering only, never a measure of fit. */
+  readonly rank: number;
   /** Its similarity of meaning to the query (0 to 1), when the query's vector was searched and the item has a vector. */
   readonly similarity?: number;
   readonly ranks: { readonly vector?: number; readonly text?: number };
@@ -49,28 +49,28 @@ export interface HybridQuery {
 
 /**
  * Merge ranked lists by reciprocal rank, `Σ 1 / (k + rank)` divided by the best possible (`lists / (k + 1)`), best
- * first; ties keep first-seen order. The score is a share of the best rank, not a measure of fit.
+ * first; ties keep first-seen order. `rank` is a share of the best rank, not a measure of fit.
  */
 export function fuseRanks<L extends string>(
   lists: Readonly<Record<L, readonly Ranked[]>>,
   k: number,
-): Array<Ranked & { score: number; ranks: Partial<Record<L, number>> }> {
-  type Hit = Ranked & { score: number; ranks: Partial<Record<L, number>> };
+): Array<Ranked & { rank: number; ranks: Partial<Record<L, number>> }> {
+  type Hit = Ranked & { rank: number; ranks: Partial<Record<L, number>> };
   const merged = new Map<string, Hit>();
   for (const [name, list] of entries(lists)) {
     list.forEach((item, index) => {
       const id = compositeKey(item.kind, item.key);
-      const fresh: Hit = { kind: item.kind, key: item.key, score: 0, ranks: {} };
+      const fresh: Hit = { kind: item.kind, key: item.key, rank: 0, ranks: {} };
       const hit = merged.get(id) ?? fresh;
       // an item listed twice in one list counts at its best rank only
       if (hit.ranks[name] !== undefined) return;
       hit.ranks[name] = index + 1;
-      hit.score += 1 / (k + index + 1);
+      hit.rank += 1 / (k + index + 1);
       merged.set(id, hit);
     });
   }
   const best = entries(lists).length / (k + 1);
-  return [...merged.values()].map((hit) => ({ ...hit, score: hit.score / best })).sort((a, b) => b.score - a.score);
+  return [...merged.values()].map((hit) => ({ ...hit, rank: hit.rank / best })).sort((a, b) => b.rank - a.rank);
 }
 
 function entries<L extends string, V>(record: Readonly<Record<L, V>>): Array<[L, V]> {
@@ -108,7 +108,7 @@ export class HybridSearch {
     const similar = await this.#similarities(vector, near, fused, query.kinds);
     return fused.map((hit) => {
       const similarity = similar.get(compositeKey(hit.kind, hit.key));
-      return similarity === undefined ? { kind: hit.kind, key: hit.key, score: 0, ranks: hit.ranks } : { kind: hit.kind, key: hit.key, score: similarity, similarity, ranks: hit.ranks };
+      return { kind: hit.kind, key: hit.key, rank: hit.rank, ...(similarity === undefined ? {} : { similarity }), ranks: hit.ranks };
     });
   }
 

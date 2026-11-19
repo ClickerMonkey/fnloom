@@ -26,7 +26,7 @@ import type { z } from 'zod';
 import type { Log, SystemPlace } from '../ctx.ts';
 import { fleets, fnSearch } from './asks.ts';
 import { wireType } from '../gin.ts';
-import { contractHash } from '../manifest.ts';
+import { checkExamples, contractHash } from '../manifest.ts';
 import type { FnDef, FnTypes } from '../fn.ts';
 import type { FnImpl } from '../impl.ts';
 import type { AnyFnRef, FnRef } from '../refs.ts';
@@ -82,6 +82,8 @@ export interface LinkHostDeps {
   readonly pairing?: PairingDisplay;
   /** Makes the instance's data and cache folders before the system starts. Default: `mkdir -p` each. */
   readonly folders?: (dirs: readonly string[]) => Promise<void>;
+  /** Refuse a contract with a static fn that has no example (`checkExamples`). Default true; a test hub's fixtures may skip it. */
+  readonly requireExamples?: boolean;
 }
 
 /** A link host and the process log it serves with. */
@@ -113,6 +115,7 @@ export class LinkHost implements SystemHost {
   }
 
   async start<N extends string, C extends ContractShape>(contract: SystemContract<N, C>, impl: SystemImpl<C>, options: ServeOptions): Promise<RunningSystem<N>> {
+    if (this.#deps.requireExamples ?? true) { checkExamples(contract); }
     const system = new LinkedSystem<N, C>(contract, impl, options, this.#deps);
     await system.start();
     return system;
@@ -456,6 +459,7 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
         name: this.#contract.name,
         version: this.#version,
         instance: this.#instance,
+        ...(this.#options.instances === undefined ? {} : { instances: this.#options.instances }),
         boot: this.#boot,
         publicKey: await this.#keys.publicKey(),
         manifestHash: await this.#manifestState().hash(),

@@ -5,7 +5,7 @@
  * Nothing is stored here: api fns are the hub's, and a person's credentials are the hub's secrets, sent with each run.
  */
 import { API_KIND, ApiFnSpec, ApiServiceConfig, Json, KindDescription, strongerMode, type QualifiedName, type ResourceUri } from '@harness/core';
-import { accountLabel, CallFailed, credentialsFromForm, hub, instanceConnectOf, type Files, type KindCheckCtx, type ConfigOf, type SystemCtx, type SystemImpl } from '@harness/sdk';
+import { accountLabel, CallFailed, credentialsFromForm, hub, sampleArgs, instanceConnectOf, type Files, type KindCheckCtx, type ConfigOf, type SystemCtx, type SystemImpl } from '@harness/sdk';
 import { calleesMode, hubProgramHost, kindCheckLookups, kindRunLookups, ProgramError, storedProgramScope, type ProgramLookups } from '@harness/sdk/program';
 import { AuthoringError } from '@harness/sdk/server';
 import { HttpRequest, type ApiContract } from '../shared/index.ts';
@@ -134,6 +134,8 @@ export function createApiImpl(deps: ApiDeps): SystemImpl<ApiContract['defs']> {
             operations: { cancel: true, pause: false, undo: false, background: false },
             // a mode past read makes the hub's policies ask before it runs
             effects: { mode },
+            // its args filled with sample values read off its schema
+            examples: [{ args: sampleArgs(spec.args), note: `A ${check.method} request to the ${spec.service} service, with sample values: use real ones.` }],
             ...(readable === undefined ? {} : { readable: { language: 'ts', code: readable } }),
           });
         },

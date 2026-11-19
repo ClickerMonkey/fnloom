@@ -30,8 +30,8 @@ describe('a system\'s resource search for a mention', () => {
     const w = await chatWorld();
     const requests = new StoreMentionRequests({ keys: () => w.store.ports.work.store, ttl: 60_000 });
     const hits: SearchHit[] = [
-      { kind: 'section', key: 'https://example.com/a#intro', score: 0.9, text: 'Example A\nabout a' },
-      { kind: 'section', key: 'file:///repo/notes.md', score: 0.8, text: 'Notes' },
+      { kind: 'section', key: 'https://example.com/a#intro', rank: 0.9, similarity: 0.9, text: 'Example A\nabout a' },
+      { kind: 'section', key: 'file:///repo/notes.md', rank: 0.8, similarity: 0.8, text: 'Notes' },
     ];
     const asked: SearchQuery[] = [];
     const scopes: string[] = [];

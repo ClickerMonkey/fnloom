@@ -7,7 +7,7 @@
 import { z } from 'zod';
 import { ContextDecl } from './manifest.ts';
 import { Audience, LocalName, QualifiedName } from './primitives.ts';
-import { FnRefusal } from './records/systems.ts';
+import { FnRefusal } from './fn-block.ts';
 
 /**
  * The YAML header of a context file: `ContextDecl` without its content (the body is the content), with `key` for its

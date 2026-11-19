@@ -166,6 +166,22 @@ type ApprovalPreview = {
       }[] | undefined;
     } | undefined;
   } | undefined;
+  summary?: {
+    line: string;
+    counts: {
+      section: string;
+      added: number;
+      changed: number;
+      removed: number;
+    }[];
+    flags: {
+      flag: "models" | "capabilities" | "secrets" | "effects" | "files" | "calls" | "hosts" | "delete-fns" | "write-fns";
+      line: string;
+      items: string[];
+    }[];
+    grants?: "added" | "changed" | "widened" | "narrowed" | undefined;
+    config?: "removed" | "added" | "changed" | undefined;
+  } | undefined;
 };
 ```
 
@@ -325,6 +341,22 @@ type ApprovedRun = {
         }[] | undefined;
       } | undefined;
     } | undefined;
+    summary?: {
+      line: string;
+      counts: {
+        section: string;
+        added: number;
+        changed: number;
+        removed: number;
+      }[];
+      flags: {
+        flag: "models" | "capabilities" | "secrets" | "effects" | "files" | "calls" | "hosts" | "delete-fns" | "write-fns";
+        line: string;
+        items: string[];
+      }[];
+      grants?: "added" | "changed" | "widened" | "narrowed" | undefined;
+      config?: "removed" | "added" | "changed" | undefined;
+    } | undefined;
   };
 };
 ```
@@ -400,167 +432,6 @@ type PairingGrantRequest = {
       manifestHash: string;
     } | undefined;
   };
-};
-```
-
-#### <a id="core-previewanswer"></a>`PreviewAnswer`
-
-const, type · declared in `packages/core/src/approvals.ts`
-
-The system's answer: the preview, or why the run can't go ahead at all (it then fails as invalid input).
-
-```ts
-type PreviewAnswer = {
-  preview: {
-    title: string;
-    parts: ({
-      type: "text";
-      text: string;
-    } | {
-      type: "code";
-      language: string;
-      code: string;
-      title?: string | undefined;
-    } | {
-      type: "table";
-      title: string;
-      table: {
-        columns: {
-          name: string;
-          kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
-          nullable: boolean;
-          label?: string | undefined;
-          type?: TypeDef<any> | undefined;
-          ref?: `${string}/${string}` | undefined;
-          role?: "group" | "measure" | "attribute" | undefined;
-          key?: boolean | undefined;
-          editable?: boolean | undefined;
-        }[];
-        rows: z.core.util.JSONType[][];
-        offset: number;
-        truncated: boolean;
-        sort: {
-          column: string;
-          dir: "asc" | "desc";
-        }[];
-        limit?: number | undefined;
-        total?: number | undefined;
-        write?: {
-          affected: number;
-        } | undefined;
-        records?: {
-          type: `${string}/${string}`;
-          id: string;
-        } | undefined;
-        drill?: {
-          fn: `${string}/${string}`;
-          args: Record<string, z.core.util.JSONType>;
-          keys: string[];
-        } | undefined;
-      };
-    } | {
-      type: "type-diff";
-      name: string;
-      changes: string[];
-      breaks: {
-        fn: string;
-        why: string;
-      }[];
-      before?: TypeDef<any> | undefined;
-      after?: TypeDef<any> | undefined;
-    } | {
-      type: "flags";
-      flags: {
-        path: string;
-        kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
-        rule: string;
-        access: "write" | "read";
-        action: "ask" | "refuse" | "allow";
-        why: string;
-        certain: boolean;
-      }[];
-    })[];
-    irreversible: boolean;
-    subject?: {
-      kind: "system-install";
-      system: SystemName;
-      instance: InstanceName;
-      version: string;
-      manifestHash: string;
-      bundleHash: string;
-      sourceHash: string;
-      host: {
-        system: SystemName;
-        instance: InstanceName;
-      };
-      source?: string | undefined;
-      grants?: {
-        hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
-        models?: {
-          roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
-          models?: string[] | undefined;
-          perRun?: number | undefined;
-          perDay?: number | undefined;
-        } | undefined;
-        secrets?: string[] | undefined;
-        calls?: (`${string}/${string}` | SystemName)[] | undefined;
-        network?: string[] | undefined;
-        files?: {
-          read: string[];
-          write: string[];
-        } | undefined;
-      } | undefined;
-      replaces?: {
-        version: string;
-        manifestHash: string;
-      } | undefined;
-    } | undefined;
-    checks?: {
-      scan: {
-        size: number;
-        builtins: string[];
-        concerns: {
-          kind: "builtin" | "dynamic-import" | "dynamic-require" | "eval" | "new-function";
-          line: number;
-          detail: string;
-          code: string;
-        }[];
-        urls: string[];
-        hosts: string[];
-      };
-      tests?: {
-        system: SystemName;
-        version: string;
-        ranAt: number;
-        duration: number;
-        passed: number;
-        failed: number;
-        skipped: number;
-        cases: {
-          file: string;
-          name: string;
-          status: "failed" | "skipped" | "passed";
-          duration: number;
-          real?: boolean | undefined;
-          error?: string | undefined;
-        }[];
-        more?: number | undefined;
-        previews?: {
-          component: string;
-          state: string;
-          viewport: "phone" | "desktop";
-          theme: "light" | "dark";
-          image: {
-            hash: string;
-            size: number;
-            mime: string;
-          };
-        }[] | undefined;
-      } | undefined;
-    } | undefined;
-  };
-} | {
-  refused: string;
 };
 ```
 

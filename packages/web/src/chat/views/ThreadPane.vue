@@ -57,7 +57,7 @@ import { agentOptions, budgetMeter, messageSuggestions, modelLabel, whoAnswers, 
 import { messageText, threadItems, type MentionPart } from '../logic/thread.ts';
 import { sendDraft } from '../state/send.ts';
 import type { BudgetAsk } from '../state/thread.ts';
-import type { ControlVerb } from '../logic/controls.ts';
+import { turnVerbs, type ControlVerb, type TurnVerb } from '../logic/controls.ts';
 import type { ChatPanel } from '../url.ts';
 
 const props = withDefaults(defineProps<{
@@ -164,16 +164,21 @@ async function raiseBudget(ask: BudgetAsk, by: number): Promise<void> {
 
 // ── messages ──────────────────────────────────────────────────────────────────
 
-const lastAnswerTurn = computed(() => [...thread.messages.value].reverse().find((m) => m.role === 'assistant')?.turn);
 const commandName = (context: QualifiedName): string => caps.commandFor(context)?.name ?? localName(context);
 
 function userActions(mine: boolean): MessageAction[] {
   return ['copy', 'reply', ...(mine ? ['edit' as const] : []), 'link'];
 }
 
+/** The turn controls that can work on a turn: only the latest standing turn can be continued, retried or undone. */
+function verbsOf(turn: TurnId | undefined): TurnVerb[] {
+  if (turn === undefined) { return []; }
+  // the hub's controls can lag a run that just started: nothing is undone while the thread runs
+  return turnVerbs({ last: turn === thread.lastTurn.value, undoable: thread.canUndo.value && !thread.running.value, continuable: thread.canContinue.value, asked: thread.turnMessage(turn) !== undefined });
+}
+
 function answerActions(turn: TurnId): MessageAction[] {
-  const last = turn === lastAnswerTurn.value;
-  return ['copy', 'reply', ...(last && !thread.running.value ? ['retry' as const] : []), ...(turn === thread.lastTurn.value && thread.canUndo.value ? ['undo' as const] : []), 'details', 'tree', 'link'];
+  return ['copy', 'reply', ...verbsOf(turn), 'details', 'tree', 'link'];
 }
 
 function quoteOf(message: ChatMessage): { author: string; excerpt: string } | undefined {
@@ -202,6 +207,7 @@ async function act(action: MessageAction, messages: readonly ChatMessage[]): Pro
       composer.startEdit(first.id, messageText(first.parts), mentions);
       return;
     }
+    case 'continue': await continueTurn(first.turn); return;
     case 'retry': retrying.value = first.turn; return;
     case 'undo': await undo(first.turn); return;
     case 'details': emit('details', first.turn); return;
@@ -217,6 +223,10 @@ async function retry(): Promise<void> {
   const turn = retrying.value;
   retrying.value = undefined;
   if (turn !== undefined && !(await thread.retry(turn))) { toasts.error("Couldn't retry", thread.problem.value); }
+}
+
+async function continueTurn(turn: TurnId): Promise<void> {
+  if (!(await thread.continueTurn(turn))) { toasts.error("Couldn't continue", thread.problem.value); }
 }
 
 async function continueLast(): Promise<void> {
@@ -463,12 +473,16 @@ async function archive(): Promise<void> {
 }
 
 const failedReason = computed(() => {
-  const last = [...thread.messages.value].reverse().find((m) => m.role === 'assistant');
+  // the latest standing turn's own answer: a turn cancelled before its agent wrote has none, and no older reason is its
+  const last = [...thread.messages.value].reverse().find((m) => m.role === 'assistant' && m.turn === thread.lastTurn.value);
   return last?.status === 'failed' ? messageText(last.parts) : '';
 });
 
+/** What the foot-of-thread notice's turn, the latest that stands, can do. */
+const lastVerbs = computed(() => verbsOf(thread.lastTurn.value));
+
 function retryLast(): void {
-  retrying.value = lastAnswerTurn.value;
+  retrying.value = thread.lastTurn.value;
 }
 
 // ── lifecycle ─────────────────────────────────────────────────────────────────
@@ -546,7 +560,8 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
         <PendingMessage v-if="thread.pending.value" :parts="thread.pending.value.parts" :command-name="commandName" :queued="connection.state.value === 'offline'" />
         <PendingAnswer v-if="liveTurn !== undefined && !hasAnswer && liveLine" :author-name="agent" :line="liveLine" @tree="liveTurn && emit('tree', liveTurn)" />
         <TurnNotice
-          v-if="thread.failures.value > 0 && !thread.running.value" :reason="failedReason" :failures="thread.failures.value" :continuable="thread.canContinue.value"
+          v-if="(thread.failures.value > 0 || lastVerbs.includes('continue')) && !thread.running.value" :reason="failedReason" :failures="thread.failures.value"
+          :continuable="lastVerbs.includes('continue')" :retryable="lastVerbs.includes('retry')"
           @retry="retryLast" @continue="continueLast" @fresh="emit('newChat')"
         />
         <p v-if="thread.typing.value.length > 0" class="typing-others" data-testid="others-typing">{{ thread.typing.value.length === 1 ? `${nameOf(thread.typing.value[0]?.user ?? '')} is typing…` : 'Several people are typing…' }}</p>
