@@ -2,8 +2,8 @@
 /**
  * Setting one model role: for dictation, the engine (the browser's speech recognition, or a model); otherwise, and for
  * a model engine, the model from the chat's searchable model picker over the models able to do the job (every model
- * on request, for one aeye doesn't label), optionally pinned to one configured provider, and a language hint. Reset
- * goes back to the hub's default.
+ * on request, for one aeye doesn't label), optionally pinned to one configured provider, and a language hint; for the
+ * decide role, the threshold a yes/no answer must reach instead. Reset goes back to the hub's default.
  */
 import type { ModelInfo, ModelRoleView, ProviderId, RoleChoice } from '@harness/core';
 import { computed, ref, watch } from 'vue';
@@ -11,7 +11,7 @@ import ModelPicker from '../../chat/components/ModelPicker.vue';
 import type { ModelPick } from '../../chat/logic/session.ts';
 import { UiBanner, UiButton, UiDialog, UiField, UiInput, UiSegmented, UiSelect, UiSwitch, type SegmentOption, type SelectOption } from '../../ui/index.ts';
 import { PROVIDER_NAME } from '../logic/forms.ts';
-import { modelsFor, resolvedText, ROLE_WORDS, roleChoiceOf, roleDraft, type RoleDraft } from '../logic/roles.ts';
+import { hasLanguage, modelsFor, resolvedText, ROLE_WORDS, roleChoiceOf, roleDraft, type RoleDraft } from '../logic/roles.ts';
 import type { ProviderRow } from '../state/models.ts';
 
 const props = withDefaults(defineProps<{
@@ -24,7 +24,7 @@ const props = withDefaults(defineProps<{
 const open = defineModel<boolean>('open', { required: true });
 const emit = defineEmits<{ save: [choice: RoleChoice]; reset: [] }>();
 
-const draft = ref<RoleDraft>({ engine: 'model', model: '', provider: '', language: '' });
+const draft = ref<RoleDraft>({ engine: 'model', model: '', provider: '', language: '', threshold: '' });
 const tried = ref(false);
 watch([open, () => props.role], ([isOpen, role]) => { if (isOpen && role !== undefined) { draft.value = roleDraft(role); tried.value = false; } }, { immediate: true });
 
@@ -83,7 +83,11 @@ function save(): void {
         </UiField>
         <UiSelect v-model="draft.provider" :options="providerOptions" label="Provider" hint="Pin one when several providers serve the same model." data-testid="role-provider" />
       </template>
-      <UiInput v-model="draft.language" label="Language" placeholder="en-US" hint="A BCP 47 tag; empty lets the model tell." data-testid="role-language" />
+      <UiInput v-if="hasLanguage(role.role)" v-model="draft.language" label="Language" placeholder="en-US" hint="A BCP 47 tag; empty lets the model tell." data-testid="role-language" />
+      <UiInput
+        v-else v-model="draft.threshold" type="number" label="Threshold" placeholder="0.5" data-testid="role-threshold"
+        hint="How likely a yes/no answer must be to count as yes, 0 to 1. Context crawls, systems’ reuse questions and suggestions by a decision model use it."
+      />
       <UiBanner v-if="problem !== ''" tone="danger">{{ problem }}</UiBanner>
     </form>
     <template #footer>

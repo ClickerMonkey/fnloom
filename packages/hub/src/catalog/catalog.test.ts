@@ -1,9 +1,10 @@
 import { ConnectKey, ContextDecl, GinTypeDef, QualifiedName, SystemName, type FnDecl, type KindDescription, type Manifest } from '@harness/core';
-import { g, wireType } from '@harness/sdk';
+import { embedder, g, system, wireType } from '@harness/sdk';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { manifestHashOf, StoreCatalog } from './catalog.ts';
-import { ADMIN, declOf, manifestFor, orders, shop, systemRow, vectors } from './fixtures.ts';
+import { ADMIN, declOf, manifestFor, orders, shop, systemRow } from './fixtures.ts';
 import type { KindDescriber } from './index.ts';
+import { roleUnsetDetail } from './availability.ts';
 import { RecordingBus, memoryLog, testStore } from '../testing.ts';
 
 const q = (name: string) => QualifiedName.parse(name);
@@ -329,6 +330,37 @@ describe('availability', () => {
     const { catalog } = await setup();
     expect(await catalog.availability(q('hub/search_fns'))).toBe(true);
   });
+
+  it('keeps a fn that needs a model role off while the role has no model, and follows the role as it is set and cleared (plan item 7)', async () => {
+    let decideSet = false;
+    const store = await testStore();
+    const bus = new RecordingBus();
+    const { log } = memoryLog();
+    const catalog = new StoreCatalog({ store, bus, log, clock: () => 1_000, describer: reportDescriber(), roleSet: (role) => Promise.resolve(role === 'decide' && decideSet) });
+    await store.table('systems').put(systemRow('shop', 'connected'));
+    const base = await manifestFor(shop);
+    const get = base.fns.find((decl) => decl.name === 'get');
+    if (get === undefined) throw new Error('shop has no get');
+    const body = { ...base, fns: [...base.fns, { ...get, name: 'crawl', roles: ['decide' as const] }] };
+    expect((await catalog.importManifest({ ...body, hash: await manifestHashOf(body) })).refused).toEqual([]);
+    const off = { unavailable: 'role-unset', detail: roleUnsetDetail(q('shop/crawl'), 'decide') };
+    expect(await catalog.availability(q('shop/crawl'))).toEqual(off);
+    expect(off.detail).toBe('shop/crawl needs a model for the decide role, and none is set: an admin sets it under Models, Roles');
+    // a fn that needs no role is untouched
+    expect(await catalog.availability(q('shop/get'))).toBe(true);
+
+    decideSet = true;
+    await catalog.refreshRoles(['decide']);
+    expect(await catalog.availability(q('shop/crawl'))).toBe(true);
+    expect(bus.of('catalog.changed').at(-1)?.fns.map((fn) => fn.name)).toEqual(['shop/crawl']);
+
+    // another role changing leaves it alone; clearing decide turns it off again
+    decideSet = false;
+    await catalog.refreshRoles(['ocr']);
+    expect(await catalog.availability(q('shop/crawl'))).toBe(true);
+    await catalog.refreshRoles(['decide']);
+    expect(await catalog.availability(q('shop/crawl'))).toEqual(off);
+  });
 });
 
 describe('patches, runtime fns and re-imports', () => {
@@ -458,6 +490,10 @@ describe('types and values', () => {
 
   it('lists fns by name and availability', async () => {
     const { catalog } = await setup();
+    // a manifest's embedders section is still catalogued (the index now takes embedders from providers' embedding models)
+    const vectors = system('vectors', { description: 'Embeddings.' }).with({
+      embedders: { document: embedder({ dimensions: 3, maxInput: 100, pricePerMillionTokens: 0 }), query: embedder({ dimensions: 3, maxInput: 100, pricePerMillionTokens: 0 }) },
+    });
     await catalog.importManifest(await manifestFor(shop));
     await catalog.importManifest(await manifestFor(vectors));
     expect((await catalog.fns({ names: [q('shop/get'), q('shop/none')] })).map((f) => f.name)).toEqual(['shop/get']);

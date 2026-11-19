@@ -1,21 +1,21 @@
 /**
  * The model providers the hub AI calls, built from the stored `ProviderRecord`s with their keys revealed from the
  * secret vault: `@aeye/openai` for OpenAI (and OpenAI-compatible base URLs), `@aeye/openrouter` for OpenRouter,
- * `@aeye/aws` for Amazon Bedrock (an access key pair or a Bedrock API key), and a local Ollama through `@aeye/openai`
- * with its native API for abilities and served windows (`contextor/ollama.ts`). The bootstrap OpenRouter key in the
+ * `@aeye/aws` for Amazon Bedrock (an access key pair or a Bedrock API key), and a local Ollama through `@aeye/ollama`
+ * (chat, embeddings and System One decisions; abilities and served windows from its native API). The bootstrap OpenRouter key in the
  * model env slice only seeds the first record, when none is stored yet; after that the records are the one source.
  * The hub AI is rebuilt whenever a record changes, and whenever a system that brings providers connects or leaves
  * (`reload`); those come from `SystemProviderSource` (`models/remote.ts`).
  */
 import type { Provider, Providers } from '@aeye/ai';
 import { AWSBedrockProvider } from '@aeye/aws';
+import { OllamaProvider } from '@aeye/ollama';
 import { OpenAIProvider } from '@aeye/openai';
 import { OpenRouterProvider } from '@aeye/openrouter';
 import type { Logger } from '@ayepi/log';
 import { mintId, type ActorId, type ProviderConfig, type SecretId } from '@harness/core';
 import type { SecretVault } from '../api/index.ts';
 import { allRows } from '../store/rows.ts';
-import { OllamaProvider } from '../contextor/ollama.ts';
 import { messageOf } from '../catalog/scope.ts';
 import type { HubStore } from '../store/index.ts';
 
@@ -27,7 +27,11 @@ export async function buildProvider(config: ProviderConfig, key: (id: SecretId) 
   switch (config.provider) {
     case 'openai': return new OpenAIProvider({ apiKey: await key(config.apiKey), ...(config.baseURL === undefined ? {} : { baseURL: config.baseURL }) });
     case 'openrouter': return new OpenRouterProvider({ apiKey: await key(config.apiKey), defaultParams: { appName: APP_NAME } });
-    case 'ollama': return new OllamaProvider({ ...config, cap: ollamaCap });
+    case 'ollama': return new OllamaProvider({
+      baseURL: config.baseURL, maxContextWindow: ollamaCap,
+      ...(config.contextWindow === undefined ? {} : { contextWindow: config.contextWindow }),
+      ...(config.decisionModels === undefined ? {} : { decisionModels: config.decisionModels }),
+    });
     case 'aws': {
       const { auth } = config;
       const credentials = auth.kind === 'apiKey'

@@ -6,7 +6,7 @@
  */
 import type { ModelInfo, Providers } from '@aeye/ai';
 import { plugin } from '@ayepi/plugin';
-import { hubLinkSpec, qualify, type ActorId } from '@harness/core';
+import { hubLinkSpec, type ActorId } from '@harness/core';
 import { spec } from '@ayepi/core';
 import type { HubServices, ModuleFactory } from '../boot/index.ts';
 import { AeyeLlm, createHubAi, HubAiHooks, modelLimiter, SwitchingLlm } from './ai.ts';
@@ -23,7 +23,7 @@ import { ModelResolver } from './models.ts';
 import { RunDeciders } from './deciders.ts';
 import { HubPolicyEngine } from './policies.ts';
 import { StoredProviders, type ProviderSource } from './providers.ts';
-import { JoinedProviderSource, SystemProviderSource } from '../models/remote.ts';
+import { JoinedProviderSource, offeredBy, SystemProviderSource } from '../models/remote.ts';
 import type { ProviderService } from './index.ts';
 import type { ExecutionDeps, LlmEngine } from './ports.ts';
 import { ExecutionQueues, type QueuePorts } from './queues.ts';
@@ -155,11 +155,7 @@ export const EXECUTION_LINK_SPEC = spec({
 
 /** The providers connected systems bring, over their links. */
 function systemProviders(hub: HubServices): SystemProviderSource {
-  const { lifecycle } = hub.link;
-  return new SystemProviderSource({
-    link: hub.link.connections, catalog: hub.catalog, bus: hub.bus, log: hub.log,
-    offered: async (system, provider) => await lifecycle.stage(system) === 'live' && !(await lifecycle.off('providers', { system })).has(qualify(system, provider)),
-  });
+  return new SystemProviderSource({ link: hub.link.connections, catalog: hub.catalog, bus: hub.bus, log: hub.log, offered: offeredBy(hub.link.lifecycle) });
 }
 
 /**

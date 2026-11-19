@@ -36,9 +36,9 @@ grants gets the base only. The hub refuses (and logs as a `RefusalRecord`) anyth
 
 ```ts
 type SystemGrants = {
-  hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
+  hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
   models?: {
-    roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+    roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
     models?: string[] | undefined;
     perRun?: number | undefined;
     perDay?: number | undefined;

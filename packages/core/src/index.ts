@@ -24,6 +24,7 @@
  * - `records/mcps`: hub MCPs.
  * - `query`: the filter and sort standard every list shares, and each list's fields.
  * - `suggestions`: what a message was suggested and not, with reasons; the decision model setting.
+ * - `image-embeddings`: where the index embeds images (a second vector space, or the text one).
  * - `auto-pair`: auto-pair secrets.
  * - `access`, `connections`, `system-providers`, `validation`, `pickers`: build 4.
  * - `registries`: registries, contributions, visual fits and result tables.
@@ -75,6 +76,7 @@ export * from './system-events.ts';
 export * from './admin.ts';
 export * from './query.ts';
 export * from './suggestions.ts';
+export * from './image-embeddings.ts';
 export * from './auto-pair.ts';
 export * from './web.ts';
 export * from './access.ts';

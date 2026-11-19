@@ -119,7 +119,7 @@ const ADMIN_EXAMPLES: { readonly [N in AdminFnName]: ArgsOf<(typeof hub.fns)[N]>
   start_system: { system: 'fs' },
   stop_system: { system: 'fs' },
   restart_system: { system: 'fs', reason: 'stuck' },
-  suggest_decision_set: { enabled: false },
+  suggest_decision_set: { by: 'none' },
   auto_pair_revoke: { id: 'apk_1' },
   system_reimport: { system: 'fs' },
   upgrade_system: { system: 'fs' },

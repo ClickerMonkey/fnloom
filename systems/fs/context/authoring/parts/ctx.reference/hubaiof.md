@@ -67,7 +67,7 @@ What a forwarding provider sends model calls over: the hub link (`HubModelLink`)
 interface ModelLink {
   /** Stream one chat request through the hub. */
   llm(forward: LlmForward, signal?: AbortSignal): AsyncIterable<LlmForwardChunk>;
-  /** One non-chat call (embeddings, images, transcription, speech). */
+  /** One non-chat call (embeddings, images, transcription, speech, decisions). */
   model(forward: ModelForward, signal?: AbortSignal): Promise<ModelForwardResult>;
   /** The models (and the roles they fill) this system may use. */
   models(signal?: AbortSignal): Promise<HubModelInfo[]>;
@@ -156,6 +156,11 @@ class HarnessProvider implements Provider<HarnessProviderConfig> {
   createStreamer(): <C, M>(request: Request, _context: C, metadata?: M, signal?: AbortSignal) => AsyncGenerator<Chunk, Response>;
   createExecutor(): <C, M>(request: Request, _context: C, metadata?: M, signal?: AbortSignal) => Promise<Response>;
   embed(request: EmbeddingRequest, ctx?: AIContextAny): Promise<EmbeddingResponse>;
+  /**
+  * Typed answers from a decision model, through the hub (the `decide` role's model unless the call names one). Images
+  * don't cross the link yet, so a request with images is refused rather than answered without them.
+  */
+  decide(request: DecisionRequest, ctx?: AIContextAny): Promise<DecisionResponse>;
   generateImage(request: ImageGenerationRequest, ctx: AIContextAny): Promise<ImageGenerationResponse>;
   transcribe(request: TranscriptionRequest, ctx: AIContextAny): Promise<TranscriptionResponse>;
   speech(request: SpeechRequest, ctx: AIContextAny): Promise<SpeechResponse>;
@@ -241,8 +246,8 @@ Refers to: [`LlmForwardChunk`](context:fs/authoring.core-types.llm-ts#core-llmfo
 
 class · `import { HubModels } from '@harness/sdk/server'`
 
-Non-chat model calls over the link's `model` endpoint, on the run's budget: embeddings, images, transcription and
-speech. The hub records each as one `ModelCall` and answers with its id and cost; large outputs come by content ref.
+Non-chat model calls over the link's `model` endpoint, on the run's budget: embeddings, images, transcription,
+speech and decisions. The hub records each as one `ModelCall` and answers with its id and cost; large outputs come by content ref.
 
 ```ts
 class HubModels {
@@ -251,6 +256,7 @@ class HubModels {
   image(input: ModelInput<"image">, signal?: AbortSignal): Promise<ModelOutput<"image">>;
   transcribe(input: ModelInput<"transcribe">, signal?: AbortSignal): Promise<ModelOutput<"transcribe">>;
   speak(input: ModelInput<"speech">, signal?: AbortSignal): Promise<ModelOutput<"speech">>;
+  decide(input: ModelInput<"decide">, signal?: AbortSignal): Promise<ModelOutput<"decide">>;
 }
 ```
 

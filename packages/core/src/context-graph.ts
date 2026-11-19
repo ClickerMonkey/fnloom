@@ -197,3 +197,60 @@ export const ContextFromResourceResult = z.object({
   links: z.number().int().min(0),
 });
 export type ContextFromResourceResult = z.infer<typeof ContextFromResourceResult>;
+
+// ─── Crawling context by decision (`hub/context_crawl`, plan item 7) ───────────
+
+/**
+ * How a crawl walks the graph, level by level: what a level loads brings what it imports, always (transitively, cycles
+ * cut); its `choices` links are the only conditional step. Each link not yet loaded becomes one yes/no question to the
+ * decision model ("Load X when: …?"), all of a level's questions asked together in calls of at most `CRAWL_BATCH_MAX`
+ * (fewer when the model's `maxQuestions` says so). The links answered at or above the decide role's threshold load,
+ * most likely first, while they fit the token budget; what they load is the next level. It stops at `maxDepth`,
+ * `maxDecisions` or `maxTokens`, or when no link is left to follow.
+ */
+export const CRAWL_DEFAULTS = { maxDepth: 3, maxDecisions: 256, maxTokens: 8000 } as const;
+
+/** Phil: at most 256 link questions go to the decision model in one call; fewer when the model takes fewer. */
+export const CRAWL_BATCH_MAX = 256;
+
+/** How many questions one decide call of a crawl asks: `CRAWL_BATCH_MAX`, or the model's own cap (`maxQuestions`) when lower. */
+export function crawlBatchSize(maxQuestions: number | undefined): number {
+  return maxQuestions === undefined || maxQuestions < 1 ? CRAWL_BATCH_MAX : Math.min(CRAWL_BATCH_MAX, Math.floor(maxQuestions));
+}
+
+/** What every decide call of a crawl reads: the caller's guidance, once per call rather than in every question. */
+export function crawlInput(guidance: string): string {
+  return `Guidance: ${guidance.trim()}`;
+}
+
+/** The item a `choices` link leads to, as its question names it. */
+export interface CrawlTarget {
+  readonly name: string;
+  readonly title?: string | undefined;
+  readonly description: string;
+}
+
+/** The yes/no question for one `choices` link: the item it leads to (its title and first line) and the link's condition. */
+export function crawlQuestion(to: CrawlTarget, when: string): string {
+  const about = to.description.split('\n', 1)[0]?.trim() ?? '';
+  const label = to.title === undefined || to.title === '' ? to.name : `${to.title} [${to.name}]`;
+  return `Load ${label}${about === '' ? '' : ` (${about})`} when: ${when.trim()}?`;
+}
+
+/** One link's answer: how likely the model said yes. */
+export interface CrawlAnswer<T> {
+  readonly link: T;
+  readonly probability: number;
+}
+
+/**
+ * A level's answers split by the threshold: the links answered yes (at or above it), most likely first (ties keep their
+ * order), and the rest in their order.
+ */
+export function rankCrawlAnswers<T>(answers: readonly CrawlAnswer<T>[], threshold: number): { readonly yes: CrawlAnswer<T>[]; readonly no: CrawlAnswer<T>[] } {
+  const yes = answers.filter((answer) => answer.probability >= threshold);
+  return {
+    yes: yes.map((answer, index) => ({ answer, index })).sort((a, b) => b.answer.probability - a.answer.probability || a.index - b.index).map(({ answer }) => answer),
+    no: answers.filter((answer) => answer.probability < threshold),
+  };
+}

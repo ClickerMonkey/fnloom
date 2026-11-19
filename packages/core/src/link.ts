@@ -13,7 +13,7 @@ import { FleetInstance, PairingInfo } from './package.ts';
 import { AutoPairGrant, AutoPairProof } from './auto-pair.ts';
 import { FnShare, FnUsable } from './access.ts';
 import { ConnectFinish, ConnectResult, ConnectStart, ConnectionUpdate, InstanceConnect, RunConnection } from './connections.ts';
-import { ProviderChat, ProviderChunk, ProviderEmbed, ProviderEmbedResult } from './system-providers.ts';
+import { ProviderChat, ProviderChunk, ProviderDecide, ProviderDecideResult, ProviderEmbed, ProviderEmbedResult, ProviderModels, ProviderModelsResult } from './system-providers.ts';
 import { ValidateAnswer, ValidateRequest } from './validation.ts';
 import { ApprovedRun, PairingGrant, PairingGrantRequest, PreviewRequest, ProposeRun, ProposedRun } from './approvals.ts';
 import { HubModelInfo } from './admin.ts';
@@ -442,6 +442,10 @@ export const systemLinkSpec = spec({
     /** A chat call for one of the system's providers (manifest `providers`). */
     providerChat: endpoint({ body: ProviderChat, streamOut: ProviderChunk, ws: 'pc' }),
     providerEmbed: endpoint({ body: ProviderEmbed, response: ProviderEmbedResult, ws: 'pe' }),
+    /** A decision call for one of the system's providers' decision models (aeye's `decide`). */
+    providerDecide: endpoint({ body: ProviderDecide, response: ProviderDecideResult, ws: 'pdc' }),
+    /** Which of a provider's models it serves now (its aeye `listModels`); the hub offers only the declared ones. */
+    providerModels: endpoint({ body: ProviderModels, response: ProviderModelsResult, ws: 'pml' }),
     /** Per-person systems (`connect`): where to send the person to connect (OAuth), then finish with what came back. */
     connectStart: endpoint({ body: ConnectStart, response: z.object({ url: z.url() }), ws: 'cs' }),
     connectFinish: endpoint({ body: ConnectFinish, response: ConnectResult, ws: 'cn' }),

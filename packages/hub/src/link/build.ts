@@ -10,10 +10,12 @@ import type { Peers } from '@ayepi/core';
 import { QualifiedName, type SystemLinkSpec } from '@harness/core';
 import type { HubSettings } from '../boot/env.ts';
 import type { EventBus } from '../bus.ts';
-import { StoreCatalog } from '../catalog/catalog.ts';
+import { StoreCatalog, type CatalogOptions } from '../catalog/catalog.ts';
 import type { Catalog, KindDescriber } from '../catalog/index.ts';
 import { EmbedBatcher } from '../index/batch.ts';
 import { SystemEmbedders } from '../index/embedders.ts';
+import { ImageEmbeddingSettings } from '../index/image-setting.ts';
+import { OfferedProviders, offeredBy } from '../models/remote.ts';
 import type { IndexTuning } from '../index/env.ts';
 import type { ModelCallLog } from '../metrics/index.ts';
 import { StoreIndexer } from '../index/indexer.ts';
@@ -78,8 +80,10 @@ export interface SystemsOptions {
   readonly peers?: Peers<SystemLinkSpec>;
   /** Replace the catalog (tests); default the store catalog with kinds described over the link. */
   readonly catalog?: (describer: KindDescriber) => Catalog;
-  /** Where embed calls to system embedders are recorded (the metrics module's log, looked up when used). */
+  /** Where embed calls to systems' embedding models are recorded (the metrics module's log, looked up when used). */
   readonly calls?: () => Pick<ModelCallLog, 'begin'>;
+  /** Plan item 7: whether a hub model role has a model set, for fns that need one (`CatalogOptions.roleSet`). */
+  readonly roleSet?: CatalogOptions['roleSet'];
 }
 
 /** The link URL systems connect to, from the hub's public URL. */
@@ -98,7 +102,7 @@ export function buildSystems(options: SystemsOptions) {
   const connections = new PeerLinkService({ log, clock, ...(options.peers === undefined ? {} : { peers: options.peers }) });
   // every kind is described by its system over the link (the hub's own kinds need no description)
   const describer = new LinkKindDescriber(connections);
-  const catalog: Catalog = options.catalog?.(describer) ?? new StoreCatalog({ store, bus, log, clock, describer });
+  const catalog: Catalog = options.catalog?.(describer) ?? new StoreCatalog({ store, bus, log, clock, describer, ...(options.roleSet === undefined ? {} : { roleSet: options.roleSet }) });
   const instances = new InstanceKeeper({ store, bus, catalog, links: connections });
   const configSecrets = new ConfigSecretKeeper(options.secrets);
   const autoPairs = new StoreAutoPairs({
@@ -132,8 +136,13 @@ export function buildSystems(options: SystemsOptions) {
     },
   });
 
-  const embedders = new SystemEmbedders({
-    catalog, links: connections, bus, log, clock, document, query, batch: settings.model.HARNESS_EMBED_BATCH, ...(options.calls === undefined ? {} : { calls: options.calls }),
+  // the index embeds with the embedding models of the providers systems offer, by the same rule as the hub AI's providers
+  const offered = new OfferedProviders({ link: connections, catalog, bus, log, offered: offeredBy(lifecycle) });
+  // where images are embedded: the admin's setting, which the embedders read at each refresh
+  const images: ImageEmbeddingSettings = new ImageEmbeddingSettings({ store, clock, document, embedders: () => embedders });
+  const embedders: SystemEmbedders = new SystemEmbedders({
+    offered, connections, bus, log, clock, document, query, batch: settings.model.HARNESS_EMBED_BATCH, ...(options.calls === undefined ? {} : { calls: options.calls }),
+    imageSetting: () => images.value(),
   });
   const batcher = new EmbedBatcher({
     embedders, log, size: settings.model.HARNESS_EMBED_BATCH, wait: settings.index.HARNESS_EMBED_WAIT, poll: settings.index.HARNESS_EMBED_POLL,
@@ -142,7 +151,7 @@ export function buildSystems(options: SystemsOptions) {
   const sectioning = new Sectioning({ store, catalog, router: resources });
   const indexer = new StoreIndexer({ store, bus, log, clock, catalog, embedders, batcher, router: resources, sectioning, document, maxText: settings.index.HARNESS_INDEX_MAX_TEXT, maxCrawl: settings.index.HARNESS_INDEX_CRAWL_MAX,
     chunk: settings.index.HARNESS_INDEX_EMBED_BATCH,
-    retry: { first: settings.index.HARNESS_INDEX_RETRY, most: settings.index.HARNESS_INDEX_RETRY_MOST },
+    retry: { first: settings.index.HARNESS_INDEX_RETRY, most: settings.index.HARNESS_INDEX_RETRY_MOST }, maxPicture: settings.index.HARNESS_INDEX_IMAGE_MAX,
   });
   const hybrid = new HybridSearch({ vectors: store.vectors, text: store.text }, settings.search);
   const search = new IndexSearch({ store, hybrid, embedders, batcher, log, document, overfetch: settings.index.HARNESS_SEARCH_OVERFETCH, embedWait: settings.index.HARNESS_SEARCH_EMBED_WAIT });
@@ -162,7 +171,7 @@ export function buildSystems(options: SystemsOptions) {
   let stopOutput: (() => void) | undefined;
   return {
     catalog, connections, pairing, autoPairs, config, instances, resources, admin, relay, supervisor, packages, router, handshake, output, lifecycle, grants,
-    index: { embedders, indexer, search, suggest, sectioning, batcher },
+    index: { embedders, indexer, search, suggest, sectioning, batcher, images },
     /** The link plugin to install on the hub link server. */
     plugin: linkPlugin(handshake, { log, clock }),
     /**

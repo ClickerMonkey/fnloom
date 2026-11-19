@@ -22,6 +22,7 @@ import { SystemPages } from './system-pages.ts';
 import { RecordStorage } from './data.ts';
 import { ApiGroupDecl } from './api-index.ts';
 import { ChatModeType } from './modes.ts';
+import { ModelRole } from './model-calls.ts';
 
 
 /** How values of a named type are shown: in mention chips, hover cards and inputs. */
@@ -260,6 +261,11 @@ export const FnDecl = z.object({
    * link, `sensitivity.ts`), and refuses, asks or goes ahead by the answer.
    */
   flags: z.boolean().optional(),
+  /**
+   * Plan item 7: the hub model roles it needs set (`hub/context_crawl` needs `decide`). While one has no model, the fn
+   * is unavailable (`role-unset`) with the role named, so it is never offered until an admin sets it.
+   */
+  roles: z.array(ModelRole).optional(),
   /** Widget pass: its rows change on their own, so widgets over it may refresh while shown. */
   live: FnLive.optional(),
 });

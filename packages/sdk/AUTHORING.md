@@ -2166,10 +2166,15 @@ interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDe
    * Requires `flags` in the implementation.
    */
   flags?: true;
+  /**
+   * The hub model roles it needs set (`decide` for a fn that asks the decision model): while one has no model, the hub
+   * keeps it unavailable (`role-unset`) and says which role an admin must set.
+   */
+  roles?: ModelRole[];
 }
 ```
 
-Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnConnectKey`](#core-fnconnectkey), [`FnEffects`](#core-fneffects), [`FnLimits`](#core-fnlimits), [`FnRouting`](#core-fnrouting), [`Operations`](#core-operations), [`ProposalApprover`](#core-proposalapprover).
+Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnConnectKey`](#core-fnconnectkey), [`FnEffects`](#core-fneffects), [`FnLimits`](#core-fnlimits), [`FnRouting`](#core-fnrouting), [`ModelRole`](#core-modelrole), [`Operations`](#core-operations), [`ProposalApprover`](#core-proposalapprover).
 
 #### `FnExampleOf`
 
@@ -2235,12 +2240,14 @@ interface FnDef<T extends FnTypes> {
   readonly group: string | undefined;
   /** Whether the hub asks its implementation's `flags(args, ctx)` which sensitive files a run would touch first. */
   readonly flags: boolean;
+  /** The hub model roles it needs set (`FnDecl.roles`); it is unavailable (`role-unset`) while one has no model. */
+  readonly roles: readonly ModelRole[] | undefined;
   /** Phantom: lets the SDK read T back out of a def. Never set at runtime. */
   readonly types?: T;
 }
 ```
 
-Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnApproval`](#core-fnapproval), [`FnConnectKey`](#core-fnconnectkey), [`FnEffects`](#core-fneffects), [`FnLimits`](#core-fnlimits), [`FnRouting`](#core-fnrouting), [`Operations`](#core-operations).
+Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnApproval`](#core-fnapproval), [`FnConnectKey`](#core-fnconnectkey), [`FnEffects`](#core-fneffects), [`FnLimits`](#core-fnlimits), [`FnRouting`](#core-fnrouting), [`ModelRole`](#core-modelrole), [`Operations`](#core-operations).
 
 #### `AnyFnDef`
 
@@ -5481,6 +5488,18 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{context: list<text>{minLength=1}}) => obj{ loaded, fns, fnsRefused, refused, cards … }
   ```
+- `hub/context_crawl`: Gather the context a task needs by following context links from starting keys, a level at a time, with the decision model choosing which links to follow. Tags: `read`.
+
+  ```text
+  (obj{
+    context: list<text{minLength=1}>,
+    guidance: text{minLength=1, maxLength=4000},
+    maxDepth?: num{whole=true, min=0, max=10},
+    maxDecisions?: num{whole=true, min=1, max=4096},
+    maxTokens?: num{whole=true, min=1, max=1000000},
+    metadataOnly?: bool
+  }) => obj{ loaded, fns, fnsRefused, refused, cards, crawled, skipped, stop, depth, decisions, tokens, calls, metadataOnly … }
+  ```
 - `hub/search_resources`: Search files and other resources by meaning and words. Tags: `read`.
 
   ```text
@@ -6122,7 +6141,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/configure_provider`: Add a model provider (OpenAI, OpenRouter, Ollama) with its API key, or replace its key. The key is stored encrypted. Tags: `admin`.
 
   ```text
-  (obj{ provider, apiKey?, baseURL?, contextWindow?, region?, auth?, profilePrefix? … }) => obj{models: num{whole=true}}
+  (obj{ provider, apiKey?, baseURL?, contextWindow?, decisionModels?, region?, auth?, profilePrefix? … }) => obj{models: num{whole=true}}
   ```
 - `hub/set_model_category`: Add a model category (a named, ordered list of models), or change the one with this id. Tags: `admin`.
 
@@ -6253,13 +6272,13 @@ This is the hub contract as the SDK declares it now:
 - `hub/set_model_role`: Choose the model (and provider) for a job: chat, transcription, dictation (or the browser's own), speech, describing images, reading text in them. Tags: `admin`.
 
   ```text
-  (obj{ role, engine?, language?, model?, provider? … }) => obj{ role, choice?, from, resolved? … }
+  (obj{ role, engine?, language?, model?, provider?, threshold? … }) => obj{ role, choice?, from, resolved? … }
   ```
 - `hub/clear_model_role`: Clear a job's model choice, so it falls back to the hub's default (or is off). Tags: `admin`.
 
   ```text
   (obj{
-    role: enum<text>{chat, transcribe, dictate, speak, describe, ocr}
+    role: enum<text>{chat, transcribe, dictate, speak, describe, ocr, decide}
   }) => obj{ role, choice?, from, resolved? … }
   ```
 - `hub/set_model_limits`: Set a model's context window, output limit, reasoning reserve or characters per token; with every field absent, clear them. Tags: `admin`.
@@ -6329,10 +6348,10 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{system: text, instance: text}) => obj{ok: bool}
   ```
-- `hub/suggest_decision_set`: Turn the suggestion decision model on or off, and set how many candidates it sees and picks. Tags: `admin`.
+- `hub/suggest_decision_set`: Choose who picks what each message is offered: no model (the score threshold), a decision model (one yes/no question per candidate, the decide role's threshold), or an LLM; and how many candidates it sees and picks. Tags: `admin`.
 
   ```text
-  (obj{ enabled?, model?, messages?, candidates?, cap?, floor? … }) => obj{ value, setBy?, updatedAt? … }
+  (obj{ by, messages?, candidates?, cap?, floor?, model? … }) => obj{ value, setBy?, updatedAt? … }
   ```
 - `hub/auto_pair_revoke`: Revoke an auto-pair secret, so its instance must pair again by code or token. Tags: `admin`.
 
@@ -6476,7 +6495,7 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{system: text}) => list<obj{ system, instance, description, status, keyFingerprint, version, manifestHash, config?, installed?, host?, dirs?, pairedAt?, pairedBy?, lastSeenAt?, address?, connect? … }>
   ```
-- `hub/suggest_decision_get`: The suggestion decision model setting: whether a model picks the suggestions, and its limits. Tags: `admin`, `read`.
+- `hub/suggest_decision_get`: The suggestions setting: who picks what each message is offered (no model, a decision model or an LLM), and its limits. Tags: `admin`, `read`.
 
   ```text
   (obj) => obj{ value, setBy?, updatedAt? … }
@@ -6572,7 +6591,7 @@ The hub's contract.
 const hub: typeof hub; // too large to print: see its section
 ```
 
-Refers to: [`ContributionView`](#core-contributionview), [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnSearchArgs`](#core-fnsearchargs), [`FnSearchPage`](#core-fnsearchpage), [`LoadContextResult`](#core-loadcontextresult), [`LoadFnsResult`](#core-loadfnsresult), [`MintMcpTokenArgs`](#core-mintmcptokenargs), [`NameRefusal`](#core-namerefusal), [`ReadTableArgs`](#core-readtableargs), [`ResourceOutlineArgs`](#core-resourceoutlineargs), [`ResourceSendArgs`](#core-resourcesendargs), [`ResultTable`](#core-resulttable), [`RowActionsQuery`](#core-rowactionsquery), [`Section`](#core-section), [`WidgetActionOption`](#core-widgetactionoption).
+Refers to: [`ContextCrawlArgs`](#core-contextcrawlargs), [`ContextCrawlResult`](#core-contextcrawlresult), [`ContributionView`](#core-contributionview), [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnSearchArgs`](#core-fnsearchargs), [`FnSearchPage`](#core-fnsearchpage), [`LoadContextResult`](#core-loadcontextresult), [`LoadFnsResult`](#core-loadfnsresult), [`MintMcpTokenArgs`](#core-mintmcptokenargs), [`NameRefusal`](#core-namerefusal), [`ReadTableArgs`](#core-readtableargs), [`ResourceOutlineArgs`](#core-resourceoutlineargs), [`ResourceSendArgs`](#core-resourcesendargs), [`ResultTable`](#core-resulttable), [`RowActionsQuery`](#core-rowactionsquery), [`Section`](#core-section), [`WidgetActionOption`](#core-widgetactionoption).
 
 #### `HubContract`
 
@@ -8291,7 +8310,7 @@ What a forwarding provider sends model calls over: the hub link (`HubModelLink`)
 interface ModelLink {
   /** Stream one chat request through the hub. */
   llm(forward: LlmForward, signal?: AbortSignal): AsyncIterable<LlmForwardChunk>;
-  /** One non-chat call (embeddings, images, transcription, speech). */
+  /** One non-chat call (embeddings, images, transcription, speech, decisions). */
   model(forward: ModelForward, signal?: AbortSignal): Promise<ModelForwardResult>;
   /** The models (and the roles they fill) this system may use. */
   models(signal?: AbortSignal): Promise<HubModelInfo[]>;
@@ -8380,6 +8399,11 @@ class HarnessProvider implements Provider<HarnessProviderConfig> {
   createStreamer(): <C, M>(request: Request, _context: C, metadata?: M, signal?: AbortSignal) => AsyncGenerator<Chunk, Response>;
   createExecutor(): <C, M>(request: Request, _context: C, metadata?: M, signal?: AbortSignal) => Promise<Response>;
   embed(request: EmbeddingRequest, ctx?: AIContextAny): Promise<EmbeddingResponse>;
+  /**
+  * Typed answers from a decision model, through the hub (the `decide` role's model unless the call names one). Images
+  * don't cross the link yet, so a request with images is refused rather than answered without them.
+  */
+  decide(request: DecisionRequest, ctx?: AIContextAny): Promise<DecisionResponse>;
   generateImage(request: ImageGenerationRequest, ctx: AIContextAny): Promise<ImageGenerationResponse>;
   transcribe(request: TranscriptionRequest, ctx: AIContextAny): Promise<TranscriptionResponse>;
   speech(request: SpeechRequest, ctx: AIContextAny): Promise<SpeechResponse>;
@@ -8465,8 +8489,8 @@ Refers to: [`LlmForwardChunk`](#core-llmforwardchunk).
 
 class · `import { HubModels } from '@harness/sdk/server'`
 
-Non-chat model calls over the link's `model` endpoint, on the run's budget: embeddings, images, transcription and
-speech. The hub records each as one `ModelCall` and answers with its id and cost; large outputs come by content ref.
+Non-chat model calls over the link's `model` endpoint, on the run's budget: embeddings, images, transcription,
+speech and decisions. The hub records each as one `ModelCall` and answers with its id and cost; large outputs come by content ref.
 
 ```ts
 class HubModels {
@@ -8475,6 +8499,7 @@ class HubModels {
   image(input: ModelInput<"image">, signal?: AbortSignal): Promise<ModelOutput<"image">>;
   transcribe(input: ModelInput<"transcribe">, signal?: AbortSignal): Promise<ModelOutput<"transcribe">>;
   speak(input: ModelInput<"speech">, signal?: AbortSignal): Promise<ModelOutput<"speech">>;
+  decide(input: ModelInput<"decide">, signal?: AbortSignal): Promise<ModelOutput<"decide">>;
 }
 ```
 
@@ -15412,15 +15437,26 @@ interface ManifestOptions {
 
 class · `import { ProviderServer } from '@harness/sdk/server'`
 
-Serves `providerChat` and `providerEmbed` with the system's own aeye providers.
+Serves `providerChat`, `providerEmbed`, `providerDecide` and `providerModels` with the system's own aeye providers.
 
 ```ts
 class ProviderServer {
   constructor(parts: ProviderServerParts);
   /** Stream a chat call: the provider's chunks, then the usage it reported. */
   chat(data: ProviderChat, signal: AbortSignal): AsyncGenerator<ProviderChunk>;
-  /** Embed texts with an embedding model of a provider. */
+  /**
+  * Embed inputs with an embedding model of a provider: aeye's one `inputs` list when it has images, else its `texts`
+  * shorthand (so a text-only provider reading `texts` keeps working). An image is an http(s) or data URL, which every
+  * aeye provider reads as an `EmbeddingImage`.
+  */
   embed(data: ProviderEmbed, signal: AbortSignal): Promise<ProviderEmbedResult>;
+  /** Answer questions about an input with a decision model of a provider (aeye's `decide`). */
+  decide(data: ProviderDecide, signal: AbortSignal): Promise<ProviderDecideResult>;
+  /**
+  * The declared models a provider serves now, from its aeye `listModels`, with the limits it serves them with; a
+  * provider that can't list says so (`listed: false`), and the hub then offers every declared model.
+  */
+  models(data: ProviderModels): Promise<ProviderModelsResult>;
 }
 ```
 
@@ -16576,6 +16612,27 @@ A whole response as it is saved with its interaction. An unfinished response is 
 function responseToWire(response: Response, finished: boolean): LlmResponse;
 ```
 
+#### `decisionInputToWire`
+
+function · `import { decisionInputToWire } from '@harness/sdk/server'`
+
+A decision call's input as it crosses the wire (`model` and `providerDecide`): text as it is, a conversation as wire
+messages (refused when a part can't cross).
+
+```ts
+function decisionInputToWire(input: string | Message[]): DecisionInput;
+```
+
+#### `decisionInputFromWire`
+
+function · `import { decisionInputFromWire } from '@harness/sdk/server'`
+
+A decision call's input from the wire, as aeye's `DecisionRequest.input`.
+
+```ts
+function decisionInputFromWire(input: DecisionInput): string | Message[];
+```
+
 #### `addressVerdict`
 
 function · `import { addressVerdict } from '@harness/sdk/server'`
@@ -16780,12 +16837,13 @@ type HubModelInfo = {
   name: string;
   capabilities: string[];
   tier: "flagship" | "efficient" | "legacy" | "experimental";
-  roles: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[];
+  roles: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[];
   contextWindow?: number | undefined;
   pricing?: {
     input: number;
     output: number;
   } | undefined;
+  maxQuestions?: number | undefined;
   maxOutputTokens?: number | undefined;
 };
 ```
@@ -16899,9 +16957,9 @@ type ApprovalPreview = {
     };
     source?: string | undefined;
     grants?: {
-      hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
+      hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
       models?: {
-        roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+        roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
         models?: string[] | undefined;
         perRun?: number | undefined;
         perDay?: number | undefined;
@@ -16971,7 +17029,7 @@ type ApprovalPreview = {
       removed: number;
     }[];
     flags: {
-      flag: "models" | "capabilities" | "secrets" | "effects" | "files" | "calls" | "hosts" | "delete-fns" | "write-fns";
+      flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns";
       line: string;
       items: string[];
       lead?: string | undefined;
@@ -17076,9 +17134,9 @@ type ApprovedRun = {
       };
       source?: string | undefined;
       grants?: {
-        hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
+        hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
         models?: {
-          roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+          roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
           models?: string[] | undefined;
           perRun?: number | undefined;
           perDay?: number | undefined;
@@ -17148,7 +17206,7 @@ type ApprovedRun = {
         removed: number;
       }[];
       flags: {
-        flag: "models" | "capabilities" | "secrets" | "effects" | "files" | "calls" | "hosts" | "delete-fns" | "write-fns";
+        flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns";
         line: string;
         items: string[];
         lead?: string | undefined;
@@ -17212,9 +17270,9 @@ type PairingGrantRequest = {
     };
     source?: string | undefined;
     grants?: {
-      hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
+      hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
       models?: {
-        roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+        roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
         models?: string[] | undefined;
         perRun?: number | undefined;
         perDay?: number | undefined;
@@ -17497,6 +17555,78 @@ type RunConnection = {
 
 ### From `packages/core/src/context-files.ts`
 
+#### <a id="core-contextcrawlargs"></a>`ContextCrawlArgs`
+
+const, type · declared in `packages/core/src/context-files.ts`
+
+`hub/context_crawl`'s args (see `CRAWL_DEFAULTS` for how a crawl walks the graph).
+
+```ts
+type ContextCrawlArgs = {
+  context: string[];
+  guidance: string;
+  maxDepth: number;
+  maxDecisions: number;
+  maxTokens: number;
+  metadataOnly: boolean;
+};
+```
+
+#### <a id="core-contextcrawlresult"></a>`ContextCrawlResult`
+
+const, type · declared in `packages/core/src/context-files.ts`
+
+What `hub/context_crawl` did: the items it took (`crawled`, in the order taken), those loaded into the session as
+`hub/load_context` loads them (none when metadata only) with the fns they brought, the starting names it refused,
+the links it skipped, why it stopped, and what it spent: the decide calls (`calls`, each a model call), the questions
+asked and the tokens gathered. The model reads only its `cards` (`LoadCards`).
+
+```ts
+type ContextCrawlResult = {
+  loaded: `${string}/${string}`[];
+  fns: `${string}/${string}`[];
+  fnsRefused: {
+    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+    reason: string;
+    fn: string;
+    system?: SystemName | undefined;
+  }[];
+  refused: {
+    context: string;
+    reason: string;
+    closest: `${string}/${string}`[];
+  }[];
+  cards: string;
+  crawled: {
+    name: `${string}/${string}`;
+    description: string;
+    depth: number;
+    via: "start" | "import" | "choice";
+    tokens: number;
+    title?: string | undefined;
+    from?: `${string}/${string}` | undefined;
+    probability?: number | undefined;
+    content?: string | undefined;
+  }[];
+  skipped: {
+    context: string;
+    depth: number;
+    reason: "failed" | "declined" | "max-tokens" | "max-decisions" | "max-depth" | "unavailable";
+    from?: `${string}/${string}` | undefined;
+    probability?: number | undefined;
+  }[];
+  stop: {
+    reason: "failed" | "max-tokens" | "max-decisions" | "max-depth" | "complete";
+    detail?: string | undefined;
+  };
+  depth: number;
+  decisions: number;
+  tokens: number;
+  calls: string[];
+  metadataOnly: boolean;
+};
+```
+
 #### <a id="core-contextfileheader"></a>`ContextFileHeader`
 
 const, type · declared in `packages/core/src/context-files.ts`
@@ -17591,7 +17721,7 @@ type LoadContextResult = {
   loaded: `${string}/${string}`[];
   fns: `${string}/${string}`[];
   fnsRefused: {
-    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
     reason: string;
     fn: string;
     system?: SystemName | undefined;
@@ -17616,7 +17746,7 @@ it. The model reads only its `cards` (`LoadCards`).
 type LoadFnsResult = {
   loaded: `${string}/${string}`[];
   refused: {
-    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
     reason: string;
     fn: string;
     system?: SystemName | undefined;
@@ -17910,7 +18040,7 @@ for an admin to approve it"), and the fn's system when the name has one, so the 
 
 ```ts
 type FnBlock = {
-  code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+  code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
   reason: string;
   system?: SystemName | undefined;
 };
@@ -17924,7 +18054,7 @@ A name `hub/load` refused (a fn's or a context item's), with what blocks it; a n
 
 ```ts
 type NameRefusal = {
-  code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+  code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
   reason: string;
   name: string;
   system?: SystemName | undefined;
@@ -18069,7 +18199,7 @@ type FnSearchPage = {
       title: string;
     } | undefined;
     blocked?: {
-      code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+      code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
       reason: string;
       system?: SystemName | undefined;
     } | undefined;
@@ -18192,9 +18322,9 @@ grants gets the base only. The hub refuses (and logs as a `RefusalRecord`) anyth
 
 ```ts
 type SystemGrants = {
-  hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
+  hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
   models?: {
-    roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+    roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
     models?: string[] | undefined;
     perRun?: number | undefined;
     perDay?: number | undefined;
@@ -18324,9 +18454,9 @@ type PreviewAnswer = {
       };
       source?: string | undefined;
       grants?: {
-        hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
+        hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
         models?: {
-          roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+          roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
           models?: string[] | undefined;
           perRun?: number | undefined;
           perDay?: number | undefined;
@@ -18396,7 +18526,7 @@ type PreviewAnswer = {
         removed: number;
       }[];
       flags: {
-        flag: "models" | "capabilities" | "secrets" | "effects" | "files" | "calls" | "hosts" | "delete-fns" | "write-fns";
+        flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns";
         line: string;
         items: string[];
         lead?: string | undefined;
@@ -18583,6 +18713,7 @@ type PreviewAnswer = {
       promptExamples?: number | undefined;
       group?: string | undefined;
       flags?: boolean | undefined;
+      roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
       live?: {
         every: number;
       } | undefined;
@@ -18700,6 +18831,9 @@ type PreviewAnswer = {
         caching: boolean;
         name?: string | undefined;
         maxOutput?: number | undefined;
+        dimensions?: number | undefined;
+        maxInput?: number | undefined;
+        maxQuestions?: number | undefined;
       }[];
     }[] | undefined;
     connect?: {
@@ -18791,9 +18925,9 @@ type PreviewAnswer = {
     configSecrets?: string[] | undefined;
     runtime?: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "embedders" | "sectioners" | "actions", string[]>> | undefined;
     grants?: {
-      hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
+      hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
       models?: {
-        roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+        roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
         models?: string[] | undefined;
         perRun?: number | undefined;
         perDay?: number | undefined;
@@ -19109,9 +19243,9 @@ type RunRequest = {
         };
         source?: string | undefined;
         grants?: {
-          hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
+          hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
           models?: {
-            roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+            roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
             models?: string[] | undefined;
             perRun?: number | undefined;
             perDay?: number | undefined;
@@ -19181,7 +19315,7 @@ type RunRequest = {
           removed: number;
         }[];
         flags: {
-          flag: "models" | "capabilities" | "secrets" | "effects" | "files" | "calls" | "hosts" | "delete-fns" | "write-fns";
+          flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns";
           line: string;
           items: string[];
           lead?: string | undefined;
@@ -19579,6 +19713,7 @@ type FnDecl = {
   promptExamples?: number | undefined;
   group?: string | undefined;
   flags?: boolean | undefined;
+  roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
   live?: {
     every: number;
   } | undefined;
@@ -20043,6 +20178,7 @@ type Manifest = {
     promptExamples?: number | undefined;
     group?: string | undefined;
     flags?: boolean | undefined;
+    roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
     live?: {
       every: number;
     } | undefined;
@@ -20160,6 +20296,9 @@ type Manifest = {
       caching: boolean;
       name?: string | undefined;
       maxOutput?: number | undefined;
+      dimensions?: number | undefined;
+      maxInput?: number | undefined;
+      maxQuestions?: number | undefined;
     }[];
   }[] | undefined;
   connect?: {
@@ -20251,9 +20390,9 @@ type Manifest = {
   configSecrets?: string[] | undefined;
   runtime?: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "embedders" | "sectioners" | "actions", string[]>> | undefined;
   grants?: {
-    hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
+    hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
     models?: {
-      roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+      roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
       models?: string[] | undefined;
       perRun?: number | undefined;
       perDay?: number | undefined;
@@ -20469,6 +20608,7 @@ type ManifestPatch = {
       promptExamples?: number | undefined;
       group?: string | undefined;
       flags?: boolean | undefined;
+      roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
       live?: {
         every: number;
       } | undefined;
@@ -20576,6 +20716,9 @@ type ManifestPatch = {
         caching: boolean;
         name?: string | undefined;
         maxOutput?: number | undefined;
+        dimensions?: number | undefined;
+        maxInput?: number | undefined;
+        maxQuestions?: number | undefined;
       }[];
     }[] | undefined;
     registries?: {
@@ -20865,6 +21008,49 @@ type ModelForward = ({
   } | undefined;
   voice?: string | undefined;
   format?: "mp3" | "wav" | "ogg" | undefined;
+} | {
+  modality: "decide";
+  input: string | {
+    role: "system" | "user" | "assistant" | "tool";
+    content: string | {
+      type: "file" | "text" | "image" | "audio" | "video";
+      content: string;
+      format?: string | undefined;
+      name?: string | undefined;
+    }[];
+    name?: string | undefined;
+    toolCallId?: string | undefined;
+    toolCalls?: {
+      id: string;
+      name: string;
+      arguments: string;
+    }[] | undefined;
+    refusal?: string | undefined;
+    tokens?: number | undefined;
+  }[];
+  questions: Record<string, {
+    type: "predicate";
+    instructions: string;
+  } | {
+    type: "choice";
+    instructions: string;
+    choices: Record<string, string>;
+  } | {
+    type: "score";
+    instructions: string;
+    levels: string[];
+  }>;
+  model?: {
+    model: string;
+  } | {
+    category: string;
+  } | {
+    auto: {
+      cost?: number | undefined;
+      speed?: number | undefined;
+      accuracy?: number | undefined;
+    };
+  } | undefined;
 }) & {
   run?: string | undefined;
 };
@@ -20902,11 +21088,37 @@ type ModelForwardResult = ({
     size: number;
     mime: string;
   };
+} | {
+  modality: "decide";
+  answers: Record<string, {
+    type: "predicate";
+    probability: number;
+  } | {
+    type: "choice";
+    choice: string;
+    probabilities: Record<string, number>;
+    confidence: number;
+  } | {
+    type: "score";
+    score: number;
+    probabilities: number[];
+    confidence: number;
+  } | {
+    type: "refusal";
+  }>;
 }) & {
   call: string;
   cost: number;
   model: string;
 };
+```
+
+#### <a id="core-modelrole"></a>`ModelRole`
+
+const, type · declared in `packages/core/src/model-calls.ts`
+
+```ts
+type ModelRole = "ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide";
 ```
 
 ### From `packages/core/src/modes.ts`
@@ -21377,9 +21589,9 @@ type Approval = {
       };
       source?: string | undefined;
       grants?: {
-        hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
+        hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
         models?: {
-          roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+          roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
           models?: string[] | undefined;
           perRun?: number | undefined;
           perDay?: number | undefined;
@@ -21449,7 +21661,7 @@ type Approval = {
         removed: number;
       }[];
       flags: {
-        flag: "models" | "capabilities" | "secrets" | "effects" | "files" | "calls" | "hosts" | "delete-fns" | "write-fns";
+        flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns";
         line: string;
         items: string[];
         lead?: string | undefined;
@@ -22294,7 +22506,7 @@ A link between resources: a folder's child, a code import, a page link.
 ```ts
 type ResourceLink = {
   raw: string;
-  kind: "embed" | "external" | "link" | "child" | "import";
+  kind: "embed" | "external" | "link" | "import" | "child";
   uri?: `${string}://${string}` | undefined;
   title?: string | undefined;
 };
@@ -22320,7 +22532,7 @@ type ResourceRead = {
   };
   links?: {
     raw: string;
-    kind: "embed" | "external" | "link" | "child" | "import";
+    kind: "embed" | "external" | "link" | "import" | "child";
     uri?: `${string}://${string}` | undefined;
     title?: string | undefined;
   }[] | undefined;
@@ -22544,7 +22756,7 @@ type InvalidInput = {
   }[];
   raw?: string | undefined;
   blocked?: {
-    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
     reason: string;
     system?: SystemName | undefined;
   } | undefined;
@@ -22592,7 +22804,7 @@ type OutcomeWire = {
     }[];
     raw?: string | undefined;
     blocked?: {
-      code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+      code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
       reason: string;
       system?: SystemName | undefined;
     } | undefined;
@@ -22753,7 +22965,7 @@ type RunUpdate = {
     message?: string | undefined;
   } | {
     steps: Record<string, {
-      status: "done" | "failed" | "active" | "pending" | "skipped";
+      status: "done" | "failed" | "active" | "skipped" | "pending";
       detail?: string | undefined;
     }>;
   };
@@ -22780,7 +22992,7 @@ const, type · declared in `packages/core/src/run.ts`
 The status of one progress step.
 
 ```ts
-type StepStatus = "done" | "failed" | "active" | "pending" | "skipped";
+type StepStatus = "done" | "failed" | "active" | "skipped" | "pending";
 ```
 
 #### <a id="core-timeinfo"></a>`TimeInfo`
@@ -22921,7 +23133,7 @@ type SystemEvent = {
       message?: string | undefined;
     } | {
       steps: Record<string, {
-        status: "done" | "failed" | "active" | "pending" | "skipped";
+        status: "done" | "failed" | "active" | "skipped" | "pending";
         detail?: string | undefined;
       }>;
     };
@@ -23002,7 +23214,10 @@ type SystemPageInput = {
 const, type · declared in `packages/core/src/system-providers.ts`
 
 One model a system's provider serves. `capabilities` are aeye `ModelCapability` names (`chat`, `tools`, `vision`,
-`json`, `embedding`, ...); the hub keeps only those aeye knows. `caching`: whether the model reads a prompt cache.
+`json`, `embedding`, `imageEmbedding`, `crossModalEmbedding`, `decision`, ...); the hub keeps only those aeye knows.
+`caching`: whether the model reads a prompt cache. An embedding model (of text or images) gives its vectors'
+`dimensions` and the most characters it reads (`maxInput`); a
+decision model the most questions it answers in one call (`maxQuestions`), which every caller splits by.
 
 ```ts
 type ProviderModelDecl = {
@@ -23018,6 +23233,9 @@ type ProviderModelDecl = {
   caching: boolean;
   name?: string | undefined;
   maxOutput?: number | undefined;
+  dimensions?: number | undefined;
+  maxInput?: number | undefined;
+  maxQuestions?: number | undefined;
 };
 ```
 

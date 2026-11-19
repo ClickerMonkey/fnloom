@@ -1,6 +1,6 @@
 /**
  * The hub's one aeye `AI`, the only caller of real providers, for every modality (chat, embeddings, images,
- * transcription, speech). Its hooks do what the hub promises about every model call: a `ModelCall` record of what it
+ * transcription, speech, decisions). Its hooks do what the hub promises about every model call: a `ModelCall` record of what it
  * used, cost and took; for a run's calls, a per-model rate check and a budget reservation before it (refused or
  * delayed when a limit is reached) and after it the real cost settled into the ledger and added to the run; for a
  * run's chat calls, the whole interaction saved.
@@ -9,7 +9,7 @@
  * `onError`, so the hooks pair a reservation with its settlement through a `WeakMap` keyed by that context.
  */
 import type { BaseRequest, BaseResponse, Request, Response, Streamer, Usage } from '@aeye/core';
-import { AI, type EmbeddingRequest, type ImageGenerationRequest, type ModelInfo, type Providers, type SpeechRequest, type TranscriptionRequest } from '@aeye/ai';
+import { AI, type DecisionRequest, type DecisionResponse, type EmbeddingRequest, type ImageGenerationRequest, type ModelInfo, type Providers, type SpeechRequest, type TranscriptionRequest } from '@aeye/ai';
 import { models as knownModels, strictSupport } from '@aeye/models';
 import { compact, ModelProvider, type CacheSupport, type LlmInteractionId, type ReservationId, type Usd } from '@harness/core';
 import { limiter, type Limiter } from '@ayepi/rate';
@@ -18,7 +18,7 @@ import { BudgetRefused, LlmRateLimited, messageOf } from './errors.ts';
 import type { CallSite, Ledger } from './index.ts';
 import type { InteractionRecorder } from './interactions.ts';
 import {
-  audioFile, audioMime, sizesOf, unitsOf, type EmbedCall, type MediaRequest, type Heard, type ImageCall, type MadeImage, type SpeechCall, type Spoken, type TranscribeCall,
+  audioFile, audioMime, sizesOf, unitsOf, type DecideCall, type EmbedCall, type MediaRequest, type Heard, type ImageCall, type MadeImage, type SpeechCall, type Spoken, type TranscribeCall,
 } from './media.ts';
 import type { EngineModel as ModelView, ExecutionBase, LlmEngine, RunCosts } from './ports.ts';
 import type { CallReceipts, HubCallContext, HubCallMetadata, LlmCallScope } from './scope.ts';
@@ -168,7 +168,7 @@ export class HubAiHooks {
     const measured = unitsOf(media, end.response, end.usage);
     const units = measured.modality === 'chat' ? { ...measured, caching: call.model.caching ?? 'unknown' } : measured;
     const wire = usageToWire(end.usage);
-    const tokens = units.modality === 'chat' ? tokensOf(wire) : units.modality === 'embed' ? units.tokens ?? 0 : 0;
+    const tokens = units.modality === 'chat' ? tokensOf(wire) : units.modality === 'embed' || units.modality === 'decide' ? units.tokens ?? 0 : 0;
     if (scope !== undefined && call.held !== undefined) {
       await this.#deps.ledger.settle(call.held.reservation, {
         cost: end.cost, tokens, actor: scope.actor, run: scope.run, modelCall: record.id, ...call.held.site,
@@ -275,6 +275,10 @@ export class SwitchingLlm implements LlmEngine {
     return this.#current.speech(input, ctx, signal);
   }
 
+  decide(input: DecideCall, ctx: HubCallContext, signal?: AbortSignal): Promise<DecisionResponse> {
+    return this.#current.decide(input, ctx, signal);
+  }
+
   models(): ModelView[] {
     return this.#current.models();
   }
@@ -321,7 +325,7 @@ export class AeyeLlm implements RefreshableEngine {
   }
 
   async embed(input: EmbedCall, ctx: HubCallContext, signal?: AbortSignal): Promise<number[][]> {
-    const request: EmbeddingRequest = { texts: [...input.texts], ...modelOf(input.metadata) };
+    const request: EmbeddingRequest = { inputs: [...input.inputs], ...modelOf(input.metadata) };
     const response = await this.#ai.embed.get(request, contextOf(ctx, { modality: 'embed', request }, input.metadata, signal));
     return [...response.embeddings].sort((a, b) => a.index - b.index).map((e) => e.embedding);
   }
@@ -360,6 +364,12 @@ export class AeyeLlm implements RefreshableEngine {
     return { audio: new Uint8Array(await new Response(response.audio).arrayBuffer()), mime: audioMime(response.responseFormat ?? format) };
   }
 
+  /** One decision call; aeye refuses one over the model's `maxQuestions` (callers split, `models/decide.ts`). */
+  decide(input: DecideCall, ctx: HubCallContext, signal?: AbortSignal): Promise<DecisionResponse> {
+    const request: DecisionRequest = { input: input.input, questions: input.questions, ...modelOf(input.metadata) };
+    return this.#ai.decide.get(request, contextOf(ctx, { modality: 'decide', request }, input.metadata, signal));
+  }
+
   /**
    * The models of the providers this AI was built with, each once (the model list also knows models of providers it
    * lacks, and can hold a model both from the given list and from its provider): configured providers by kind, and
@@ -377,6 +387,7 @@ export class AeyeLlm implements RefreshableEngine {
         id: model.id, provider: kind.data, name: model.name, contextWindow: model.contextWindow, capabilities: [...model.capabilities], tier: model.tier,
         // a provider that doesn't know the cap says 0: no cap is known then
         ...(model.maxOutputTokens === undefined || model.maxOutputTokens < 1 ? {} : { maxOutputTokens: Math.floor(model.maxOutputTokens) }),
+        ...(model.maxQuestions === undefined ? {} : { maxQuestions: model.maxQuestions }),
         ...(text?.input === undefined && text?.output === undefined ? {} : { pricing: { input: text.input ?? 0, output: text.output ?? 0 } }),
       }];
     });

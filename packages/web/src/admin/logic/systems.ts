@@ -68,6 +68,7 @@ export const UNAVAILABLE_TEXT = {
   disabled: 'Turned off',
   held: 'Waits for review',
   paused: 'Paused',
+  'role-unset': 'Needs a model role set',
 } as const satisfies Record<FnUnavailable, string>;
 
 /** '' when it can be used, else why not. */

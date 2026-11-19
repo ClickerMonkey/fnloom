@@ -4,7 +4,7 @@
  * branded types and a schema change breaks the fixtures), and the mock hub's data is made from the same builders.
  */
 import {
-  DURATION_BUCKETS, FnMetrics, InstanceRef, FnMetricsDay, HubMcpView, InstanceView, McpScopePreview, McpSessionView, ModelCall, ModelLimitsView, ModelRoleView, type ModelRole,
+  DURATION_BUCKETS, FnMetrics, InstanceRef, FnMetricsDay, HubMcpView, InstanceView, McpScopePreview, McpSessionView, MODEL_ROLES, ModelCall, ModelLimitsView, ModelRoleView, type ModelRole,
 } from '@harness/core';
 import { fakeCaller } from '../../test/fakes.ts';
 import { T0 } from '../../chat/test/fakes.ts';
@@ -27,7 +27,7 @@ export function roleView(role: ModelRole, overrides: Loose<ModelRoleView> = {}):
 
 /** Every role, as a fresh hub lists them. */
 export function roleViews(): ModelRoleView[] {
-  return (['chat', 'transcribe', 'dictate', 'speak', 'describe', 'ocr'] as const).map((role) => roleView(role));
+  return MODEL_ROLES.map((role) => roleView(role));
 }
 
 /** A model's resolved limits. */

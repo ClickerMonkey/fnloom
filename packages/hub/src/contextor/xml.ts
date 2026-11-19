@@ -121,9 +121,11 @@ export interface ContextCardParts {
   readonly text: string;
   /** Its parts after the text: the fns it brings, where to go next. */
   readonly parts?: readonly XmlChild[];
+  /** More about how it got here, after its own attributes (a crawl's level, how it was reached, its size). */
+  readonly about?: XmlAttributes;
 }
 
 /** A context item's card. */
 export function contextElement(card: ContextCardParts): Markup {
-  return element('context', { key: card.key, title: card.title, detail: card.detail }, [card.text, ...(card.parts ?? [])]);
+  return element('context', { key: card.key, title: card.title, detail: card.detail, ...card.about }, [card.text, ...(card.parts ?? [])]);
 }

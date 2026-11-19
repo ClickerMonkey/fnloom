@@ -6,6 +6,7 @@
  * question must be chosen. Then the static toolset runs a fn the model names through `run`. Skipped when Ollama or
  * the model isn't there. Run with `npm run test:live`.
  */
+import { OllamaProvider } from '@aeye/ollama';
 import { openScope } from '../access/index.ts';
 import { agent, fn, g, hub } from '@harness/sdk';
 import { OLLAMA_BASE_URL, type ActorId, type LlmMessage, type RunSettled } from '@harness/core';
@@ -19,7 +20,6 @@ import { budgetPlan } from './budget.ts';
 import { createContextor } from './create.ts';
 import { contextorEnv } from './env.ts';
 import { registerContextorFns } from './fns.ts';
-import { OllamaProvider } from './ollama.ts';
 import { wordShare, words } from './score.ts';
 import { FixedSearch, sessionLoader } from './testing.ts';
 import { CatalogFnViews } from './views.ts';
@@ -82,7 +82,7 @@ afterEach(async () => { await rig?.module.stop(); rig = undefined; });
 
 /** The rig on Ollama, with the items, the session, the contextor's hub fns and a connected fs. */
 async function onOllama(model: string = MODEL, transcript: LlmMessage[] = pastTalk(), agentName: 'tools/small' | 'tools/textual' = 'tools/small') {
-  const provider = new OllamaProvider({ baseURL: BASE_URL, cap: contextorEnv.parse().HARNESS_OLLAMA_DEFAULT_CTX });
+  const provider = new OllamaProvider({ baseURL: BASE_URL, maxContextWindow: contextorEnv.parse().HARNESS_OLLAMA_DEFAULT_CTX });
   const models = await provider.listModels();
   const search = new FixedSearch();
   const r = await executionRig({ settings: testSettings({ HARNESS_TOOL_TIMEOUT: 120_000 }, {}, model), llm: { providers: { ollama: provider }, models }, search });
@@ -115,6 +115,7 @@ async function onOllama(model: string = MODEL, transcript: LlmMessage[] = pastTa
     sharing: () => ({ sharing: noSharing, own: noSharing }),
     facts: () => ({ registry: (names) => Promise.resolve(new Map(names.map((name) => [name, []]))) }),
     fns: () => ({ search: fnSearch, examples: { sync: () => Promise.resolve(), page: noSharing, patch: noSharing, forPrompt: () => Promise.resolve([]) } }),
+    decider: () => ({ model: () => Promise.resolve({ problem: 'no decision model in this suite' }), ask: noSharing }),
   });
   registerContextorFns(r.module.hubFns, {
     store: () => r.store, catalog: () => r.catalog, search: () => search, sessions: () => sessionLoader(r.store),

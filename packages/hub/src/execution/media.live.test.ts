@@ -23,7 +23,7 @@ describe('non-chat model calls (live)', () => {
     const signal = new AbortController().signal;
     const site = { purpose: 'live-test' };
 
-    const embedded = await rig.module.llm.embed({ texts: ['hello world'], metadata: { model: 'text-embedding-3-small' } }, site, signal);
+    const embedded = await rig.module.llm.embed({ inputs: ['hello world'], metadata: { model: 'text-embedding-3-small' } }, site, signal);
     expect(embedded.value[0]?.length).toBe(1_536);
 
     const spoken = await rig.module.llm.speech({ text: 'Hello there, general.', metadata: { model: 'tts-1' }, format: 'mp3' }, site, signal);

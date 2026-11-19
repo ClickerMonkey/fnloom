@@ -34,6 +34,7 @@ import { HubMcpInput, HubMcpView, McpRules, McpScopePreview, McpSessionView } fr
 import { FormKind } from './resources.ts';
 import { FieldValueOption, ListQuery, ListValuesQuery, QueryFnArgs, QueryFnResult } from './query.ts';
 import { SuggestDecision, SuggestDecisionView, SuggestionRecord } from './suggestions.ts';
+import { ImageEmbedding, ImageEmbeddingView } from './image-embeddings.ts';
 import { AutoPairChoice, AutoPairView } from './auto-pair.ts';
 import { AccessInfo, AccessTarget, AccessView, Sharing } from './access.ts';
 import { ConnectionChange, ConnectionView, ConnectKey, ConnectPage } from './connections.ts';
@@ -595,6 +596,14 @@ export const suggestionsSlice = spec({
   }),
 });
 
+/** Where the index embeds images (admins): the setting with the image-able embedders and the space in use, and setting it. */
+export const imageEmbeddingSlice = spec({
+  endpoints: use(tel, hubAuth, adminOnly).group({
+    imageEmbedding: { body: z.object({}), response: ImageEmbeddingView, ws: 'imageEmbedding' },
+    setImageEmbedding: { body: ImageEmbedding, response: ImageEmbeddingView, ws: 'setImageEmbedding' },
+  }),
+});
+
 /** Auto-pair secrets (admins): list them (no secret is ever shown) and revoke one. */
 export const autoPairSlice = spec({
   endpoints: use(tel, hubAuth, adminOnly).group({
@@ -785,7 +794,7 @@ export const exportSlice = spec({
 export const hubWebSpec = mergeSpecs(
   authSlice, chatSlice, runsSlice, findSlice, inboxSlice, contentSlice, systemsSlice, settingsSlice, adminSlice, eventsSlice,
   resourcesSlice, contextSlice, contextorSlice, modelsSlice, metricsSlice, mcpsSlice, packagingSlice,
-  querySlice, suggestionsSlice, autoPairSlice,
+  querySlice, suggestionsSlice, autoPairSlice, imageEmbeddingSlice,
   accessSlice, connectionsSlice, pickerSlice,
   approvalsSlice, registriesSlice, fnsSlice,
   explorerSlice,

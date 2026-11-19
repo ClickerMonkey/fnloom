@@ -1,27 +1,39 @@
 /**
- * What a sent message is offered (fns and context), and the record of what it was not and why. By default the score
- * decides: the best candidates at or over `HARNESS_SUGGEST_THRESHOLD`, up to `HARNESS_SUGGESTIONS`. With the admin's
- * decision model on (`hubOptions['suggestDecision']`), the candidates scoring at least its floor and the last few
- * user messages go to that model, which picks; its call is a `ModelCall` (purpose `suggestions`) linked in the
- * record. If it fails or answers nonsense, the score decides and the items it left out say so (`failed`). A score is a
- * candidate's similarity of meaning to the message (`index/suggester.ts`), never its rank, so the threshold and the
- * floor tell a fit from noise.
+ * What a sent message is offered (fns and context), and the record of what it was not and why. The admin's suggestions
+ * setting (`hubOptions['suggestDecision']`, `SuggestDecision`) says who picks:
+ *
+ * - `none`: the score decides: the best candidates at or over `HARNESS_SUGGEST_THRESHOLD`, up to `HARNESS_SUGGESTIONS`.
+ * - `decision`: a decision model (its own choice, else the `decide` role's) answers one yes/no question per candidate
+ *   scoring at least the floor; those at or over the decide role's threshold are picked, most likely first, up to the
+ *   cap. The questions go through the models module's `Decider`, split by the model's `maxQuestions`.
+ * - `llm`: a chat model reads the candidates and the last few user messages and answers with its picks as JSON.
+ *
+ * Every model call is a `ModelCall` (purpose `suggestions`) linked in the record. If it fails or answers nonsense, the
+ * score decides and the items it left out say so (`failed`). A score is a candidate's similarity of meaning to the
+ * message (`index/suggester.ts`), never its rank, so the threshold and the floor tell a fit from noise.
+ *
+ * The same chooser answers a system's `decide` (reuse something it has, or make something new), unless it is `none`.
  */
 import {
-  messageOf, SuggestDecision, type ActorId, type DecideAnswer, type DecideRequest, type LlmMessage, type ModelCallId, type ModelChoice, type SessionId, type SkipReason, type Suggestion, type SuggestDecisionView,
-  type SuggestionOutcome, type SuggestionRecord,
+  messageOf, StoredSuggestDecision, SUGGEST_DECISION_DEFAULT, yesProbability, type ActorId, type DecideAnswer, type DecideRequest, type DecisionAnswer,
+  type DecisionQuestions, type LlmMessage, type ModelCallId, type ModelChoice, type RoleModel, type SessionId, type SkipReason, type Suggestion,
+  type SuggestDecision, type SuggestDecisionView, type SuggestionOutcome, type SuggestionRecord,
 } from '@harness/core';
 import { z } from 'zod';
 import type { AccessScope } from '../access/index.ts';
 import { mayOffer } from '../access/hits.ts';
+import type { DecisionModel } from '../models/index.ts';
 import { pinnedModel } from '../models/pinned.ts';
 import { structuredAnswer } from '../models/structured.ts';
 import type { ChatDeps } from './deps.ts';
 import type { DecidedSuggestions, SuggestionDecider } from './index.ts';
 import { plainText } from './turns.ts';
 
-/** The purpose the decision model's calls are recorded under. */
+/** The purpose the suggestion choosers' calls are recorded under. */
 export const SUGGESTION_PURPOSE = 'suggestions';
+
+/** A setting with a model that picks (an LLM or a decision model). */
+type ModelPicking = Exclude<SuggestDecision, { by: 'none' }>;
 
 /** A pick or a decline, by the candidate's key, with why. */
 const DecisionItem = z.object({
@@ -29,8 +41,8 @@ const DecisionItem = z.object({
   reason: z.string().optional().describe('Why, in under 12 words.'),
 });
 
-/** What the decision model answers: the names it picks and those it declines, each with a reason. */
-const DecisionAnswer = structuredAnswer(z.object({
+/** What the LLM answers: the names it picks and those it declines, each with a reason. */
+const DecisionAnswerJson = structuredAnswer(z.object({
   picks: z.array(DecisionItem).describe('The candidates that clearly help with the latest message.'),
   declined: z.array(DecisionItem).optional().describe('Candidates left out, when there is a reason worth keeping.'),
 }));
@@ -45,11 +57,23 @@ function used(item: Suggestion, note?: string): SuggestionOutcome {
   return { used: true, kind: item.kind, name: item.name, score: item.score, ...(note === undefined ? {} : { note }) };
 }
 
-/** The suggestions decider over the index's candidates, the hub options table and the LLM gateway. */
-export class HubSuggestions implements SuggestionDecider {
-  readonly #deps: Pick<ChatDeps, 'store' | 'suggest' | 'llm' | 'settings' | 'log' | 'clock' | 'access' | 'catalog'>;
+/** What a model chose among the pool: the picks and the declines, each with its note, and the first call it made. */
+interface ModelChoices {
+  readonly picked: ReadonlyMap<Suggestion, string | undefined>;
+  readonly declined: ReadonlyMap<Suggestion, string | undefined>;
+  readonly call?: ModelCallId | undefined;
+}
 
-  constructor(deps: Pick<ChatDeps, 'store' | 'suggest' | 'llm' | 'settings' | 'log' | 'clock' | 'access' | 'catalog'>) {
+/** A probability in words, for a decision model's note: "82% likely". */
+export function likelihood(probability: number): string {
+  return `${Math.round(probability * 100)}% likely`;
+}
+
+/** The suggestions decider over the index's candidates, the hub options table, the LLM gateway and the decider. */
+export class HubSuggestions implements SuggestionDecider {
+  readonly #deps: Pick<ChatDeps, 'store' | 'suggest' | 'llm' | 'decider' | 'settings' | 'log' | 'clock' | 'access' | 'catalog'>;
+
+  constructor(deps: Pick<ChatDeps, 'store' | 'suggest' | 'llm' | 'decider' | 'settings' | 'log' | 'clock' | 'access' | 'catalog'>) {
     this.#deps = deps;
   }
 
@@ -64,13 +88,14 @@ export class HubSuggestions implements SuggestionDecider {
 
   async setting(): Promise<SuggestDecisionView> {
     const row = await this.#deps.store.table('hubOptions').get('suggestDecision');
-    return row?.key !== 'suggestDecision' ? { value: SuggestDecision.parse({}) } : { value: row.value, setBy: row.setBy, updatedAt: row.updatedAt };
+    // a setting stored before the chooser became one choice reads as today's (`StoredSuggestDecision`)
+    return row?.key !== 'suggestDecision' ? { value: SUGGEST_DECISION_DEFAULT } : { value: StoredSuggestDecision.parse(row.value), setBy: row.setBy, updatedAt: row.updatedAt };
   }
 
   async set(value: SuggestDecision, by: ActorId): Promise<SuggestDecisionView> {
     const row = { key: 'suggestDecision' as const, value, setBy: by, updatedAt: this.#deps.clock() };
     await this.#deps.store.table('hubOptions').put(row);
-    this.#deps.log.info('suggestions.decision.set', { enabled: value.enabled, by });
+    this.#deps.log.info('suggestions.decision.set', { by: value.by, setBy: by });
     return { value: row.value, setBy: row.setBy, updatedAt: row.updatedAt };
   }
 
@@ -108,16 +133,16 @@ export class HubSuggestions implements SuggestionDecider {
   async #decide(input: { session: SessionId; text: string; actor: ActorId }): Promise<DecidedSuggestions> {
     const limit = this.#deps.settings.model.HARNESS_SUGGESTIONS;
     if (limit === 0 || input.text.trim() === '') { return { suggestions: [] }; }
-    const decision = (await this.setting()).value;
-    const on = decision.enabled && decision.model !== undefined;
-    const found = await this.#deps.suggest.consider({ session: input.session, text: input.text, pool: (on ? Math.max(decision.candidates, limit) : limit) * 2 });
+    const setting = (await this.setting()).value;
+    const picking = setting.by === 'none' ? undefined : setting;
+    const found = await this.#deps.suggest.consider({ session: input.session, text: input.text, pool: Math.max(picking?.candidates ?? limit, limit) * 2 });
     // what the person may not see is never suggested, nor named among what was left out
     const access = await this.#deps.access.scope(input.actor);
     const sees = await this.#seen(access, [...found.offered, ...found.hidden], input.session);
     const hidden = found.hidden.filter((item) => sees.has(item.name)).map((item) => skipped(item, 'rule'));
     const offered = found.offered.filter((item) => sees.has(item.name)).sort((a, b) => b.score - a.score);
-    if (!on) { return this.#byScore(offered, limit, hidden); }
-    return this.#byModel(input, decision, offered, hidden);
+    if (picking === undefined) { return this.#byScore(offered, limit, hidden); }
+    return this.#byModel(input, picking, offered, hidden);
   }
 
   /** The score decides: the best at or over the threshold, up to the count. */
@@ -128,58 +153,112 @@ export class HubSuggestions implements SuggestionDecider {
     return finish(chosen, { by: 'score', threshold, items: [...items, ...hidden] });
   }
 
-  /** The decision model picks among the candidates over its floor; on failure the score decides. */
-  async #byModel(input: { session: SessionId; text: string }, decision: SuggestDecision, offered: readonly Suggestion[], hidden: readonly SuggestionOutcome[]): Promise<DecidedSuggestions> {
-    const pool = offered.filter((item) => item.score >= decision.floor).slice(0, decision.candidates);
-    const rest = offered.filter((item) => !pool.includes(item)).map((item) => skipped(item, item.score < decision.floor ? 'below-threshold' : 'top-n'));
-    const base = { by: 'decision' as const, threshold: decision.floor };
+  /** A model picks among the candidates over its floor; on failure the score decides. */
+  async #byModel(input: { session: SessionId; text: string }, setting: ModelPicking, offered: readonly Suggestion[], hidden: readonly SuggestionOutcome[]): Promise<DecidedSuggestions> {
+    const pool = offered.filter((item) => item.score >= setting.floor).slice(0, setting.candidates);
+    const rest = offered.filter((item) => !pool.includes(item)).map((item) => skipped(item, item.score < setting.floor ? 'below-threshold' : 'top-n'));
+    const base = { by: 'decision' as const, threshold: setting.floor };
     if (pool.length === 0) { return finish([], { ...base, items: [...rest, ...hidden] }); }
-    let call: ModelCallId | undefined;
+    const calls: ModelCallId[] = [];
     try {
-      const recent = await this.#recent(input.session, decision.messages - 1);
-      const answer = await this.#deps.llm.chat(
-        { request: { messages: prompt([...recent, input.text], pool, decision.cap), temperature: 0, responseFormat: DecisionAnswer.responseFormat }, ...(await this.#model(decision)), priority: 'interactive' },
-        { purpose: SUGGESTION_PURPOSE }, AbortSignal.timeout(this.#deps.settings.chat.HARNESS_SUGGEST_DECISION_TIMEOUT),
-      );
-      call = answer.call;
-      const parsed = DecisionAnswer.read(answer.value);
-      if (parsed === undefined) { throw new Error('the decision model did not answer the JSON asked for'); }
-      const reasons = new Map<Suggestion, string | undefined>();
-      for (const declined of parsed.declined ?? []) { const item = candidateFor(pool, declined.name); if (item !== undefined) { reasons.set(item, declined.reason); } }
-      const picked = new Map<Suggestion, string | undefined>();
-      for (const pick of parsed.picks) { const item = candidateFor(pool, pick.name); if (item !== undefined && picked.size < decision.cap) { picked.set(item, pick.reason); } }
-      const chosen = pool.filter((item) => picked.has(item));
-      const items = pool.map((item) => (picked.has(item) ? used(item, picked.get(item)) : skipped(item, 'declined', reasons.get(item))));
-      this.#deps.log.info('suggestions.decided', { session: input.session, candidates: pool.length, picked: chosen.length, call });
-      return finish(chosen, { ...base, call, items: [...items, ...rest, ...hidden] });
+      const messages = [...await this.#recent(input.session, setting.messages - 1), input.text];
+      const signal = AbortSignal.timeout(this.#deps.settings.chat.HARNESS_SUGGEST_DECISION_TIMEOUT);
+      const choices = setting.by === 'llm'
+        ? await this.#llmChoices(messages, pool, setting, signal, calls)
+        : await this.#decisionChoices(messages, pool, setting, signal, calls);
+      const chosen = pool.filter((item) => choices.picked.has(item));
+      const items = pool.map((item) => (choices.picked.has(item) ? used(item, choices.picked.get(item)) : skipped(item, 'declined', choices.declined.get(item))));
+      this.#deps.log.info('suggestions.decided', { session: input.session, by: setting.by, candidates: pool.length, picked: chosen.length, call: calls[0] });
+      return finish(chosen, { ...base, ...(calls[0] === undefined ? {} : { call: calls[0] }), items: [...items, ...rest, ...hidden] });
     } catch (error) {
-      this.#deps.log.warn('suggestions.decision.failed', { session: input.session, error: messageOf(error) });
-      const chosen = pool.slice(0, decision.cap);
+      this.#deps.log.warn('suggestions.decision.failed', { session: input.session, by: setting.by, error: messageOf(error) });
+      const chosen = pool.slice(0, setting.cap);
       const items = pool.map((item) => (chosen.includes(item) ? used(item) : skipped(item, 'failed')));
-      return finish(chosen, { ...base, ...(call === undefined ? {} : { call }), items: [...items, ...rest, ...hidden] });
+      return finish(chosen, { ...base, ...(calls[0] === undefined ? {} : { call: calls[0] }), items: [...items, ...rest, ...hidden] });
     }
   }
 
+  /** The LLM's picks among the pool, as JSON with its reasons. */
+  async #llmChoices(messages: readonly string[], pool: readonly Suggestion[], setting: Extract<SuggestDecision, { by: 'llm' }>, signal: AbortSignal, calls: ModelCallId[]): Promise<ModelChoices> {
+    const answer = await this.#deps.llm.chat(
+      { request: { messages: prompt(messages, pool, setting.cap), temperature: 0, responseFormat: DecisionAnswerJson.responseFormat }, ...(await this.#model(setting.model)), priority: 'interactive' },
+      { purpose: SUGGESTION_PURPOSE }, signal,
+    );
+    calls.push(answer.call);
+    const parsed = DecisionAnswerJson.read(answer.value);
+    if (parsed === undefined) { throw new Error('the model did not answer the JSON asked for'); }
+    const declined = new Map<Suggestion, string | undefined>();
+    for (const item of parsed.declined ?? []) { const found = candidateFor(pool, item.name); if (found !== undefined) { declined.set(found, item.reason); } }
+    const picked = new Map<Suggestion, string | undefined>();
+    for (const pick of parsed.picks) { const found = candidateFor(pool, pick.name); if (found !== undefined && picked.size < setting.cap) { picked.set(found, pick.reason); } }
+    return { picked, declined };
+  }
+
+  /**
+   * The decision model's picks: one yes/no question per candidate ("does it help with the latest message?"); those at
+   * or over the decide role's threshold, most likely first, up to the cap. Each note says how likely it was.
+   */
+  async #decisionChoices(messages: readonly string[], pool: readonly Suggestion[], setting: Extract<SuggestDecision, { by: 'decision' }>, signal: AbortSignal, calls: ModelCallId[]): Promise<ModelChoices> {
+    const model = await this.#decisionModel(setting.model);
+    const questions = suggestionQuestions(pool);
+    const decided = await this.#deps.decider.ask({ input: conversationText(messages), questions, model, site: { purpose: SUGGESTION_PURPOSE }, signal });
+    calls.push(...decided.calls);
+    const ranked = rankedYes(pool, decided.answers, model.threshold);
+    const picked = new Map(ranked.slice(0, setting.cap).map(({ item, probability }) => [item, likelihood(probability)] as const));
+    const declined = new Map(pool.flatMap((item, i) => (picked.has(item) ? [] : [[item, likelihood(yesProbability(decided.answers[questionKey(i)]))] as const])));
+    return { picked, declined };
+  }
+
   async forSystem(request: DecideRequest): Promise<DecideAnswer> {
-    const decision = (await this.setting()).value;
-    if (!decision.enabled || decision.model === undefined) { return { by: 'off' }; }
+    const setting = (await this.setting()).value;
+    if (setting.by === 'none') { return { by: 'off' }; }
+    const signal = AbortSignal.timeout(this.#deps.settings.chat.HARNESS_SUGGEST_DECISION_TIMEOUT);
     try {
-      const answer = await this.#deps.llm.chat(
-        { request: { messages: systemDecisionPrompt(request), temperature: 0, responseFormat: SystemDecisionAnswer.responseFormat }, ...(await this.#model(decision)), priority: 'interactive' },
-        { purpose: SYSTEM_DECISION_PURPOSE, run: request.run }, AbortSignal.timeout(this.#deps.settings.chat.HARNESS_SUGGEST_DECISION_TIMEOUT),
-      );
-      const decided = systemDecision(request, answer.value);
-      this.#deps.log.info('decide.decided', { run: request.run, candidates: request.candidates.length, picked: decided.picked.length, call: answer.call });
-      return { ...decided, call: answer.call };
+      const decided = setting.by === 'llm' ? await this.#systemByLlm(request, setting.model, signal) : await this.#systemByDecision(request, setting.model, signal);
+      this.#deps.log.info('decide.decided', { run: request.run, by: setting.by, candidates: request.candidates.length, picked: decided.picked.length, call: decided.call });
+      return decided;
     } catch (error) {
-      this.#deps.log.warn('decide.failed', { run: request.run, error: messageOf(error) });
+      this.#deps.log.warn('decide.failed', { run: request.run, by: setting.by, error: messageOf(error) });
       return { by: 'failed', message: messageOf(error) };
     }
   }
 
-  /** The decision model, and the kind of provider it is pinned to (the gateway's name for it), as the gateway takes them. */
-  #model(decision: SuggestDecision): Promise<{ model?: ModelChoice; provider?: string }> {
-    return pinnedModel(this.#deps.store, decision.model);
+  /** A system's question to the LLM: its picks among the candidates, as JSON. */
+  async #systemByLlm(request: DecideRequest, model: RoleModel, signal: AbortSignal): Promise<Extract<DecideAnswer, { by: 'decision' }>> {
+    const answer = await this.#deps.llm.chat(
+      { request: { messages: systemDecisionPrompt(request), temperature: 0, responseFormat: SystemDecisionAnswer.responseFormat }, ...(await this.#model(model)), priority: 'interactive' },
+      { purpose: SYSTEM_DECISION_PURPOSE, run: request.run }, signal,
+    );
+    return { ...systemDecision(request, answer.value), call: answer.call };
+  }
+
+  /**
+   * A system's question to the decision model: one yes/no question per candidate ("does it fully answer what is
+   * wanted?"); those at or over the decide role's threshold, most likely first, up to \`max\`.
+   */
+  async #systemByDecision(request: DecideRequest, choice: RoleModel | undefined, signal: AbortSignal): Promise<Extract<DecideAnswer, { by: 'decision' }>> {
+    const model = await this.#decisionModel(choice);
+    const decided = await this.#deps.decider.ask({
+      input: `Wanted: ${request.question}`, questions: systemQuestions(request), model, site: { purpose: SYSTEM_DECISION_PURPOSE, run: request.run }, signal,
+    });
+    const picked = rankedYes(request.candidates, decided.answers, model.threshold).slice(0, request.max).map(({ item, probability }) => ({ id: item.id, why: likelihood(probability) }));
+    const call = decided.calls[0];
+    return {
+      by: 'decision', picked, ...(call === undefined ? {} : { call }),
+      ...(picked.length > 0 ? {} : { note: `No candidate was at least ${likelihood(model.threshold)} to answer it.` }),
+    };
+  }
+
+  /** The decision model to ask, or a failure saying why there is none. */
+  async #decisionModel(choice: RoleModel | undefined): Promise<DecisionModel> {
+    const model = await this.#deps.decider.model(choice);
+    if ('problem' in model) { throw new Error(model.problem); }
+    return model;
+  }
+
+  /** The LLM, and the kind of provider it is pinned to (the gateway's name for it), as the gateway takes them. */
+  #model(setting: RoleModel): Promise<{ model?: ModelChoice; provider?: string }> {
+    return pinnedModel(this.#deps.store, setting);
   }
 
   /** The session's last user messages before this one, oldest first, as plain text. */
@@ -195,8 +274,7 @@ function finish(chosen: Suggestion[], record: SuggestionRecord): DecidedSuggesti
   return record.items.length === 0 ? { suggestions: chosen } : { suggestions: chosen, record };
 }
 
-
-/** How a candidate is named to the decision model: its kind and name, so a fn and a context item of one name differ. */
+/** How a candidate is named to the LLM: its kind and name, so a fn and a context item of one name differ. */
 export const candidateKey = (item: Pick<Suggestion, 'kind' | 'name'>): string => `${item.kind}:${item.name}`;
 
 /** The candidate an answered name means: by its key, or by a bare name when exactly one candidate has it. */
@@ -207,25 +285,55 @@ export function candidateFor(pool: readonly Suggestion[], answered: string): Sug
   return named.length === 1 ? named[0] : undefined;
 }
 
-/** The decision model's prompt: the person's recent messages, the candidates, and the JSON to answer with. */
+/** The person's recent messages as one text, oldest first, the latest marked. */
+export function conversationText(messages: readonly string[]): string {
+  return messages.map((text, i) => `${i === messages.length - 1 ? 'Latest' : 'Earlier'}: ${text}`).join('\n');
+}
+
+/** The LLM's prompt: the person's recent messages, the candidates, and the JSON to answer with. */
 export function prompt(messages: readonly string[], pool: readonly Suggestion[], cap: number): LlmMessage[] {
   const system = [
     'You choose which tools (fns) and context items to offer an assistant for the latest user message.',
     `Pick at most ${cap} that clearly help with what the user is asking now; pick none when none fit.`,
     'Name each candidate by its key (kind:name) exactly as given. For example, for a question about the weather with a candidate fn:weather/today, pick { "name": "fn:weather/today", "reason": "Answers today\'s weather." }.',
   ].join('\n');
-  const recent = messages.map((text, i) => `${i === messages.length - 1 ? 'Latest' : 'Earlier'}: ${text}`).join('\n');
   const candidates = pool.map((item) => `- ${candidateKey(item)} (score ${item.score.toFixed(2)}): ${item.description}`).join('\n');
   return [
     { role: 'system', content: system },
-    { role: 'user', content: `User messages:\n${recent}\n\nCandidates:\n${candidates}` },
+    { role: 'user', content: `User messages:\n${conversationText(messages)}\n\nCandidates:\n${candidates}` },
   ];
+}
+
+/** The decision question's name for the candidate at a position: short and safe for every decision model. */
+const questionKey = (index: number): string => `c${index}`;
+
+/** One yes/no question per suggestion candidate, by position. */
+export function suggestionQuestions(pool: readonly Suggestion[]): DecisionQuestions {
+  return Object.fromEntries(pool.map((item, i) => [questionKey(i), {
+    type: 'predicate' as const,
+    instructions: `Would offering this ${item.kind === 'fn' ? 'tool' : 'context item'} help the assistant answer the latest user message? ${item.name}: ${item.description}`,
+  }]));
+}
+
+/** One yes/no question per candidate a system asks about, by position. */
+export function systemQuestions(request: DecideRequest): DecisionQuestions {
+  return Object.fromEntries(request.candidates.map((item, i) => [questionKey(i), {
+    type: 'predicate' as const,
+    instructions: `Does this existing item fully answer what is wanted, so it can be reused instead of made again? ${item.text}`,
+  }]));
+}
+
+/** The items whose question was answered yes at or over the threshold, most likely first (ties keep their order). */
+export function rankedYes<T>(items: readonly T[], answers: Readonly<Record<string, DecisionAnswer>>, threshold: number): Array<{ item: T; probability: number }> {
+  return items.map((item, i) => ({ item, probability: yesProbability(answers[questionKey(i)]) }))
+    .filter((entry) => entry.probability >= threshold)
+    .sort((a, b) => b.probability - a.probability);
 }
 
 /** The purpose a system's decision calls are recorded under. */
 export const SYSTEM_DECISION_PURPOSE = 'decide';
 
-/** What the decision model answers a system: the ids it picks, best first, and why it picked none. */
+/** What the LLM answers a system: the ids it picks, best first, and why it picked none. */
 const SystemDecisionAnswer = structuredAnswer(z.object({
   picked: z.array(z.object({
     id: z.string().describe('The candidate\'s id, exactly as given.'),
@@ -234,7 +342,7 @@ const SystemDecisionAnswer = structuredAnswer(z.object({
   note: z.string().optional().describe('When none is picked, why.'),
 }));
 
-/** The decision model's prompt for a system's question: the candidates by id with their scores, and the JSON to answer with. */
+/** The LLM's prompt for a system's question: the candidates by id with their scores, and the JSON to answer with. */
 export function systemDecisionPrompt(request: DecideRequest): LlmMessage[] {
   const system = [
     'You decide whether something that already exists answers what is wanted, so it is reused instead of made again.',
@@ -248,7 +356,7 @@ export function systemDecisionPrompt(request: DecideRequest): LlmMessage[] {
   ];
 }
 
-/** Read the decision model's answer to a system: only ids among the candidates, each once, at most `max`. */
+/** Read the LLM's answer to a system: only ids among the candidates, each once, at most `max`. */
 export function systemDecision(request: DecideRequest, text: string): Extract<DecideAnswer, { by: 'decision' }> {
   const parsed = SystemDecisionAnswer.read(text);
   if (parsed === undefined) { throw new Error('the decision model did not answer the JSON asked for'); }

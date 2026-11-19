@@ -84,6 +84,49 @@ type ModelForward = ({
   } | undefined;
   voice?: string | undefined;
   format?: "mp3" | "wav" | "ogg" | undefined;
+} | {
+  modality: "decide";
+  input: string | {
+    role: "system" | "user" | "assistant" | "tool";
+    content: string | {
+      type: "file" | "text" | "image" | "audio" | "video";
+      content: string;
+      format?: string | undefined;
+      name?: string | undefined;
+    }[];
+    name?: string | undefined;
+    toolCallId?: string | undefined;
+    toolCalls?: {
+      id: string;
+      name: string;
+      arguments: string;
+    }[] | undefined;
+    refusal?: string | undefined;
+    tokens?: number | undefined;
+  }[];
+  questions: Record<string, {
+    type: "predicate";
+    instructions: string;
+  } | {
+    type: "choice";
+    instructions: string;
+    choices: Record<string, string>;
+  } | {
+    type: "score";
+    instructions: string;
+    levels: string[];
+  }>;
+  model?: {
+    model: string;
+  } | {
+    category: string;
+  } | {
+    auto: {
+      cost?: number | undefined;
+      speed?: number | undefined;
+      accuracy?: number | undefined;
+    };
+  } | undefined;
 }) & {
   run?: string | undefined;
 };
@@ -121,9 +164,35 @@ type ModelForwardResult = ({
     size: number;
     mime: string;
   };
+} | {
+  modality: "decide";
+  answers: Record<string, {
+    type: "predicate";
+    probability: number;
+  } | {
+    type: "choice";
+    choice: string;
+    probabilities: Record<string, number>;
+    confidence: number;
+  } | {
+    type: "score";
+    score: number;
+    probabilities: number[];
+    confidence: number;
+  } | {
+    type: "refusal";
+  }>;
 }) & {
   call: string;
   cost: number;
   model: string;
 };
+```
+
+#### <a id="core-modelrole"></a>`ModelRole`
+
+const, type · declared in `packages/core/src/model-calls.ts`
+
+```ts
+type ModelRole = "ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide";
 ```

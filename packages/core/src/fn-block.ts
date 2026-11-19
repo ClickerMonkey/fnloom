@@ -11,6 +11,8 @@ import { SystemName } from './primitives.ts';
  */
 export const FnUnavailable = z.enum([
   'system-needs-config', 'system-disconnected', 'system-removed', 'kind-missing', 'kind-system-disconnected', 'dep-unavailable', 'disabled', 'held', 'paused',
+  // a hub model role the fn needs (`FnDecl.roles`) has no model set, so an admin must set it first
+  'role-unset',
 ]);
 export type FnUnavailable = z.infer<typeof FnUnavailable>;
 

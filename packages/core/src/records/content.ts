@@ -42,9 +42,11 @@ export type SectionDiff = z.infer<typeof SectionDiff>;
 /**
  * What the hub indexes. A `contextSection` is one heading section of a context item's text, keyed
  * `<context name>#<section key>` (`IndexEntry.parent` names the item), so search covers content past the item's own
- * indexed text and says which section matched.
+ * indexed text and says which section matched. An `image` is a picture: an image resource (keyed by its URI) or one a
+ * context item shows (`<context name>#image:<hash>`, its `parent` the item). Its vector is in the image vector space,
+ * and it is indexed only while one is set up (`IndexEntry.image` says where its picture is).
  */
-export const INDEXED_KINDS = ['fn', 'context', 'section', 'message', 'type', 'example', 'record', 'contextSection'] as const;
+export const INDEXED_KINDS = ['fn', 'context', 'section', 'message', 'type', 'example', 'record', 'contextSection', 'image'] as const;
 export const IndexedKind = z.enum(INDEXED_KINDS);
 export type IndexedKind = z.infer<typeof IndexedKind>;
 
@@ -62,6 +64,11 @@ export const IndexEntry = z.object({
   updatedAt: Timestamp,
   /** The item a part belongs to (a `contextSection`'s context item), so its parts are found and dropped with it. */
   parent: z.string().optional(),
+  /**
+   * An `image` item's picture: the resource URI whose bytes are read when it is embedded, or the http(s) URL a context
+   * item shows. Its `text` (a caption: names, alt text) is what words find.
+   */
+  image: z.string().optional(),
 });
 export type IndexEntry = z.infer<typeof IndexEntry>;
 

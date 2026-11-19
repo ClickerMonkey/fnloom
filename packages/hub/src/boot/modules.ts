@@ -89,6 +89,8 @@ function systemsModules(seams: ModuleSeams): Pick<HubModules, 'catalog' | 'link'
       content: () => hub.api.content,
       secrets: () => hub.api.secrets,
       calls: () => hub.metrics.calls,
+      // plan item 7: fns that need a model role (`hub/context_crawl` needs `decide`) are off while it has no model
+      roleSet: (role) => hub.models.roles.isSet(role),
     });
     builds.set(context, built);
     return built;
@@ -104,6 +106,10 @@ function systemsModules(seams: ModuleSeams): Pick<HubModules, 'catalog' | 'link'
         await migrateWidgets(context.hub.store, context.hub.log);
         await catalog.indexStoredFns();
         await importHubContract(catalog, context.hub.log);
+        // a role set or cleared turns the fns that need it on or off
+        context.hub.bus.subscribe('model.role.changed', ({ role }) => {
+          catalog.refreshRoles([role]).catch((error: unknown) => { context.hub.log.error('catalog.roles.refresh.failed', { role }, error); });
+        });
       };
       return { services: catalog, hooks: { work: { up } } };
     },
@@ -128,8 +134,8 @@ function systemsModules(seams: ModuleSeams): Pick<HubModules, 'catalog' | 'link'
       };
     },
     index: (context) => {
-      const { embedders, indexer, search, suggest } = systemsOf(context).index;
-      return { services: { embedders, indexer, search, suggest } };
+      const { embedders, indexer, search, suggest, images } = systemsOf(context).index;
+      return { services: { embedders, indexer, search, suggest, images } };
     },
   };
 }
@@ -145,6 +151,8 @@ const chatModule: ModuleFactory<'chat'> = ({ hub, hubActor }) => {
     log: hub.log, clock: hub.clock, bus: hub.bus, store: hub.store, catalog: hub.catalog, link: hub.link.connections,
     runs: hub.execution.runs, agents: hub.execution.agents, limits: hub.execution.limits,
     search: hub.index.search, suggest: hub.index.suggest, llm: hub.execution.llm, push: hub.api.push, hubActor, access: { scope: (actor) => hub.access.scope(actor) },
+    // the models module is read when a decision is made, never while chat is built
+    decider: { model: (choice) => hub.models.decider.model(choice), ask: (request) => hub.models.decider.ask(request) },
   });
   let stop: (() => void) | undefined;
   return {
@@ -178,7 +186,7 @@ export function registerHubContract(
   };
   registerHubFns(module.hubFns, {
     store: () => hub.store, catalog: () => hub.catalog, search: () => hub.index.search, sessions: () => hub.chat.sessions, handlers: () => module.handlers,
-    access: (actor) => hub.access.scope(actor), sharing: () => hub.access, fns: () => hub.fns, facts: () => hub.fns.facts, views: () => hub.contextor.views, mcpScope,
+    access: (actor) => hub.access.scope(actor), sharing: () => hub.access, fns: () => hub.fns, facts: () => hub.fns.facts, views: () => hub.contextor.views, mcpScope, decider: () => hub.models.decider,
   });
   let ops: AdminOperations | undefined;
   registerAdminFns(module.hubFns, () => (ops ??= adminOperations(hub)));

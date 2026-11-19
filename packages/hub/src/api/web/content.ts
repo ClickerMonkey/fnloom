@@ -30,7 +30,7 @@ export function contentPlugin(hub: HubServices, auth: ReturnType<typeof authPlug
         const resolved = role.resolved !== undefined && 'model' in role.resolved ? role.resolved : undefined;
         if (resolved === undefined) { throw reject(501, 'NO_TRANSCRIPTION', 'dictation has no transcription model (an admin chooses one under model roles)'); }
         if (!data.audio.mime.startsWith('audio/')) { throw reject(422, 'NOT_AUDIO', `a recording is audio, not ${data.audio.mime}`); }
-        const language = role.choice?.language;
+        const language = role.choice?.role === 'dictate' ? role.choice.language : undefined;
         const heard = await hub.models.gateway.forward({
           modality: 'transcribe', audio: data.audio, ...(language === undefined ? {} : { language }),
         }, { purpose: DICTATION_PURPOSE }, signal, 'dictate');

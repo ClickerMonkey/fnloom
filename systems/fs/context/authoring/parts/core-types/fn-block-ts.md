@@ -23,7 +23,7 @@ for an admin to approve it"), and the fn's system when the name has one, so the 
 
 ```ts
 type FnBlock = {
-  code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+  code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
   reason: string;
   system?: SystemName | undefined;
 };
@@ -37,7 +37,7 @@ A name `hub/load` refused (a fn's or a context item's), with what blocks it; a n
 
 ```ts
 type NameRefusal = {
-  code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+  code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
   reason: string;
   name: string;
   system?: SystemName | undefined;

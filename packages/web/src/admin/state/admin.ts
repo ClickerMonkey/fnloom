@@ -6,6 +6,7 @@
 import { AutoPairStore } from './auto-pair.ts';
 import { SuggestionsStore } from './suggestions.ts';
 import { ClassifierStore } from './classifier.ts';
+import { ImageEmbeddingStore } from './images.ts';
 import type { UserEvents } from '../../api/notifications.ts';
 import type { ChatApi, FileSender } from '../../chat/api.ts';
 import type { McpProbe } from '../probe.ts';
@@ -86,6 +87,8 @@ export class AdminStore {
   readonly suggestions: SuggestionsStore;
   /** The model a chat in auto mode asks about calls that write or delete. */
   readonly classifier: ClassifierStore;
+  /** Where the index embeds pictures. */
+  readonly images: ImageEmbeddingStore;
   /** A system's auto pair secrets. */
   readonly autoPairs: AutoPairStore;
 
@@ -117,6 +120,7 @@ export class AdminStore {
     this.resources = resourcesBrowser(api, deps.chat);
     this.suggestions = new SuggestionsStore(api);
     this.classifier = new ClassifierStore(api);
+    this.images = new ImageEmbeddingStore(api);
     this.autoPairs = new AutoPairStore(api);
     this.fns = new Paged({
       fetch: (query, cursor, limit) => api.fns.call({ ...query, limit, ...(cursor === undefined ? {} : { cursor }) }),

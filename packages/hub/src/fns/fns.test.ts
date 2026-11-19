@@ -57,6 +57,7 @@ class WordEmbedders implements Embedders {
   readonly #pair = { document: new WordEmbedder(DOCUMENT), query: new WordEmbedder(QUERY) };
   get(name: QualifiedName): Embedder | undefined { return name === DOCUMENT ? this.#pair.document : name === QUERY ? this.#pair.query : undefined; }
   active(): { document: Embedder; query: Embedder } { return this.#pair; }
+  images(): undefined { return undefined; }
   onChange(): () => void { return () => undefined; }
 }
 

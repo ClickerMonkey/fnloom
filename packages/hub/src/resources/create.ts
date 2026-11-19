@@ -8,6 +8,7 @@ import { ApiError } from '@ayepi/core';
 import type { ResourceUri } from '@harness/core';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
 import type { IndexReader } from '../index/index.ts';
+import { isPicture } from '../index/images.ts';
 import type { ModuleFactory } from '../boot/index.ts';
 import { StoreContextLibrary } from './context.ts';
 import { FormMessageContent } from './content.ts';
@@ -61,6 +62,12 @@ export const resourcesModule: ModuleFactory<'resources'> = ({ hub, hubActor }) =
       }
     },
     sectioned: async (diff) => { await context.sectionsChanged(diff.uri, [...diff.changed, ...diff.removed]); },
+    // a picture's raw bytes for the image space, from its snapshot in the content store
+    picture: async (uri) => {
+      const snapshot = await forms.snapshot(uri, { actor: hubActor });
+      if (!isPicture(snapshot.stat)) { return undefined; }
+      return { bytes: await content.read(snapshot.raw, 0, snapshot.raw.size), mime: snapshot.raw.mime };
+    },
   };
   let stop: (() => void) | undefined;
   return {

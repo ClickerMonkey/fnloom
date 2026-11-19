@@ -5,7 +5,7 @@
 import {
   ActorId, MAIN_INSTANCE, SystemName, type FnDecl, type InstanceRecord, type Manifest, type SystemRecord, type SystemStatus,
 } from '@harness/core';
-import { context, embedder, fn, g, kind, manifestOf, mention, sectioner, system, type, type AnyContract } from '@harness/sdk';
+import { context, fn, g, kind, manifestOf, mention, provider, sectioner, system, type, type AnyContract } from '@harness/sdk';
 
 /** The admin actor tests act as. */
 export const ADMIN = ActorId.parse('act_admin');
@@ -39,12 +39,12 @@ export const orders = system('orders', { description: 'Orders.' }).with({
   },
 });
 
-/** The embedder system's shape, small. */
+/** An embedding model of the small embedder system: 3 dimensions, up to 100 characters. */
+const vectorModel = (id: string) => ({ id, capabilities: ['embedding'], contextWindow: 64, dimensions: 3, maxInput: 100, pricing: { input: 0, output: 0 }, caching: false });
+
+/** The embedder system's shape, small: a provider with a document and a query embedding model. */
 export const vectors = system('vectors', { description: 'Embeddings.' }).with({
-  embedders: {
-    document: embedder({ dimensions: 3, maxInput: 100, pricePerMillionTokens: 0 }),
-    query: embedder({ dimensions: 3, maxInput: 100, pricePerMillionTokens: 0 }),
-  },
+  providers: { local: provider({ description: 'Embeddings in one 3-number space.', models: [vectorModel('document'), vectorModel('query')] }) },
 });
 
 /** A contract's manifest. */

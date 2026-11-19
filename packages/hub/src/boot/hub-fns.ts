@@ -5,7 +5,7 @@
  * typed and checked by the contract's gin types. Services are read when a fn runs, never while registering. Every one
  * keeps to what the run's person may see and use (their `AccessScope`): search hits, loads and results alike.
  */
-import { contextOff, effectCovered, effectsLine, FnExamplesQuery, FnRouting, FnSearchArgs, QualifiedName, qualify, splitName, SystemName, type FnRefusal, type LoadContextResult, type LoadFnsResult, type SearchItemKind, type ActorId, type FnDecl, type FnExample, type Json, type IndexedKind, type RegistryEffect, type Run, type Session, type SessionId } from '@harness/core';
+import { ContextCrawlArgs, contextOff, effectCovered, effectsLine, FnExamplesQuery, FnRouting, FnSearchArgs, QualifiedName, qualify, splitName, SystemName, type FnRefusal, type ContextCrawlResult, type ContextRecord, type CrawledContext, type LoadContextResult, type LoadFnsResult, type SearchItemKind, type ActorId, type FnDecl, type FnExample, type Json, type IndexedKind, type RegistryEffect, type Run, type Session, type SessionId } from '@harness/core';
 import { hub, parseValue, SAVE_FN_TAKEN, wireType } from '@harness/sdk';
 import type { AccessService } from '../access/index.ts';
 import type { FnFactsService, FnsServices } from '../fns/index.ts';
@@ -25,7 +25,9 @@ import { parseSectionIndexKey } from '../index/indexer.ts';
 import { broughtFns, withImports } from '../contextor/brought.ts';
 import type { FnScope } from '../contextor/fns.ts';
 import type { FnView, FnViewSource } from '../contextor/index.ts';
-import { loadedContextCards, loadedFnsCards } from '../contextor/render.ts';
+import { crawledContextCards, loadedContextCards, loadedFnsCards } from '../contextor/render.ts';
+import { ContextCrawler } from '../contextor/crawl.ts';
+import type { Decider } from '../models/index.ts';
 import { fnRefusal, readsAsMissing, refusalOf, unavailableBlock } from '../contextor/views.ts';
 import { itemVersionCount } from '../catalog/versions.ts';
 
@@ -58,6 +60,8 @@ export interface HubFnDeps {
   readonly views: () => Pick<FnViewSource, 'view'>;
   /** What fns declare they change in the hub (build 6), so a change a run's fn did not declare is refused. */
   readonly facts: () => Pick<FnFactsService, 'registry'>;
+  /** Plan item 7: the hub's decisions (the `decide` role's model), for `hub/context_crawl`. */
+  readonly decider: () => Pick<Decider, 'model' | 'ask'>;
   /** The scope of the hub MCP a run's caller is, so `fns_search` keeps to it (none: no MCP). */
   readonly mcpScope?: (caller: ActorId) => Promise<Pick<FnScope, 'fns' | 'context'> | undefined>;
 }
@@ -117,6 +121,67 @@ function names(given: readonly string[]): { valid: QualifiedName[]; invalid: str
   return { valid, invalid };
 }
 
+/** The error code of a crawl refused because no decision model can be used now. */
+export const NO_DECISION_MODEL = 'no-decision-model';
+
+/** What a crawl's decide calls are recorded as (`ModelSite.purpose`), on the crawl's run. */
+export const CONTEXT_CRAWL_PURPOSE = 'context_crawl';
+
+/** Whether the asker may load a context item by name now: switched on, of a system the session uses, and visible to them. */
+async function mayLoad(deps: Pick<HubFnDeps, 'catalog'>, { session, access }: Asker, record: ContextRecord): Promise<boolean> {
+  return !contextOff(record) && allowsSystem(session, record.system) && seesContextNamed(access, (name) => deps.catalog().context(name), record.name, session.id);
+}
+
+/**
+ * The context names an agent gave that it may load (`name: description`, as a listed line or a choice reads, means
+ * the name), and the rest refused with the closest names it knows.
+ */
+async function askedContext(deps: HubFnDeps, asker: Asker, ctx: HubFnCtx, given: readonly string[]): Promise<{ asked: QualifiedName[]; refused: LoadContextResult['refused'] }> {
+  const refused: LoadContextResult['refused'] = [];
+  const asked: QualifiedName[] = [];
+  for (const line of given) {
+    const name = QualifiedName.safeParse(line.split(/:\s/, 1)[0]?.trim() ?? line);
+    const record = name.success ? await deps.catalog().context(name.data) : undefined;
+    if (record !== undefined && await mayLoad(deps, asker, record)) { asked.push(record.name); continue; }
+    refused.push({ context: line, reason: name.success ? 'no context you can load has that name' : 'not a qualified name (system/name)', closest: await closestContext(deps, asker, ctx, line) });
+  }
+  return { asked, refused };
+}
+
+/**
+ * Load context into the asker's session as `hub/load_context` does: each name with what it imports (a switched-off or
+ * unseen item left out), and the fns they bring into its tools; a brought fn that can't be added is reported with what
+ * blocks it, one that reads as missing (unseen, not for the model) left out.
+ */
+async function loadIntoSession(deps: HubFnDeps, asker: Asker, names: readonly QualifiedName[]): Promise<{ loaded: QualifiedName[]; records: ContextRecord[]; brought: QualifiedName[]; fnsRefused: FnRefusal[] }> {
+  const { session, access } = asker;
+  const lookup = (name: QualifiedName) => deps.catalog().context(name);
+  const loaded: QualifiedName[] = [];
+  const records: ContextRecord[] = [];
+  for (const name of await withImports(deps.catalog(), names)) {
+    const parsed = QualifiedName.safeParse(name);
+    const record = parsed.success ? await lookup(parsed.data) : undefined;
+    if (parsed.success && record !== undefined && !contextOff(record) && allowsSystem(session, splitName(parsed.data).system) && await seesContextNamed(access, lookup, parsed.data, session.id)) {
+      loaded.push(parsed.data);
+      records.push(record);
+    }
+  }
+  const brought: QualifiedName[] = [];
+  const fnsRefused: FnRefusal[] = [];
+  for (const name of broughtFns(records)) {
+    const blocked = fnRefusal(await deps.catalog().fn(name), session, access);
+    if (blocked === undefined) { brought.push(name); } else if (!readsAsMissing(blocked)) { fnsRefused.push(refusalOf(name, blocked)); }
+  }
+  if (loaded.length > 0) {
+    // read again: a load_fns in the same step may have changed the tools meanwhile
+    const now = (await deps.store().table('sessions').get(session.id)) ?? session;
+    await deps.sessions().load(session.id, {
+      context: [...new Set([...now.context, ...loaded])], ...(brought.length === 0 ? {} : { tools: [...new Set([...now.tools, ...brought])] }),
+    });
+  }
+  return { loaded, records, brought, fnsRefused };
+}
+
 /** Register the hub fns. */
 export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
 
@@ -144,41 +209,35 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
 
   fns.register(hub.fns.load_context, async (args, ctx): Promise<LoadContextResult> => {
     const asker = await askerOf(deps, ctx);
-    const { session, access } = asker;
-    const lookup = (name: QualifiedName) => deps.catalog().context(name);
-    // a switched-off item (forgotten, or its system's context off) is never loaded, by name or as an import
-    const usable = async (name: QualifiedName): Promise<boolean> => { const record = await lookup(name); return record !== undefined && !contextOff(record); };
-    const refused: LoadContextResult['refused'] = [];
-    const asked: QualifiedName[] = [];
-    for (const given of args.context) {
-      // `name: description`, as a listed line or a choice reads, means the name
-      const name = QualifiedName.safeParse(given.split(/:\s/, 1)[0]?.trim() ?? given);
-      const record = name.success ? await lookup(name.data) : undefined;
-      if (name.success && record !== undefined && !contextOff(record) && allowsSystem(session, record.system) && await seesContextNamed(access, lookup, name.data, session.id)) { asked.push(name.data); continue; }
-      refused.push({ context: given, reason: name.success ? 'no context you can load has that name' : 'not a qualified name (system/name)', closest: await closestContext(deps, asker, ctx, given) });
-    }
-    // each loads with what it imports, and brings its fns, every time
-    const loaded: QualifiedName[] = [];
-    for (const name of await withImports(deps.catalog(), asked)) {
-      const parsed = QualifiedName.safeParse(name);
-      if (parsed.success && await usable(parsed.data) && allowsSystem(session, splitName(parsed.data).system) && await seesContextNamed(access, lookup, parsed.data, session.id)) { loaded.push(parsed.data); }
-    }
-    const records = (await Promise.all(loaded.map(lookup))).flatMap((r) => (r === undefined ? [] : [r]));
-    const brought: QualifiedName[] = [];
-    // a brought fn that can't be added is reported with what blocks it; one that reads as missing (unseen, not for the model) is left out
-    const fnsRefused: FnRefusal[] = [];
-    for (const name of broughtFns(records)) {
-      const blocked = fnRefusal(await deps.catalog().fn(name), session, access);
-      if (blocked === undefined) { brought.push(name); } else if (!readsAsMissing(blocked)) { fnsRefused.push(refusalOf(name, blocked)); }
-    }
-    if (loaded.length > 0) {
-      // read again: a load_fns in the same step may have changed the tools meanwhile
-      const now = (await deps.store().table('sessions').get(session.id)) ?? session;
-      await deps.sessions().load(session.id, {
-        context: [...new Set([...now.context, ...loaded])], ...(brought.length === 0 ? {} : { tools: [...new Set([...now.tools, ...brought])] }),
-      });
-    }
+    const { asked, refused } = await askedContext(deps, asker, ctx, args.context);
+    const { loaded, records, brought, fnsRefused } = await loadIntoSession(deps, asker, asked);
     return { loaded, fns: brought, fnsRefused, refused, cards: loadedContextCards(records, { added: brought, blocked: fnsRefused }, refused) };
+  });
+
+  fns.register(hub.fns.context_crawl, async (args, ctx): Promise<ContextCrawlResult> => {
+    const asker = await askerOf(deps, ctx);
+    const plan = ContextCrawlArgs.parse(args);
+    // the catalog keeps it unavailable while the decide role has no model; one that can't be used now fails here
+    const model = await deps.decider().model();
+    if ('problem' in model) throw new RunRefused(fnError('caller', model.problem, NO_DECISION_MODEL));
+    const { asked, refused } = await askedContext(deps, asker, ctx, plan.context);
+    const outcome = await new ContextCrawler({ catalog: deps.catalog(), decider: deps.decider(), usable: (record) => mayLoad(deps, asker, record) }).crawl({
+      start: asked, guidance: plan.guidance, maxDepth: plan.maxDepth, maxDecisions: plan.maxDecisions, maxTokens: plan.maxTokens,
+      model, site: { purpose: CONTEXT_CRAWL_PURPOSE, run: ctx.request.run.id }, signal: ctx.signal,
+    });
+    // what it took loads as hub/load_context loads it, unless only its metadata was asked for
+    const load = plan.metadataOnly ? undefined : await loadIntoSession(deps, asker, outcome.taken.map((item) => item.name));
+    const brought = load?.brought ?? [];
+    const fnsRefused = load?.fnsRefused ?? [];
+    const crawled = outcome.taken.map(({ record, ...item }): CrawledContext => (plan.metadataOnly || record.decl.content === undefined ? item : { ...item, content: record.decl.content }));
+    return {
+      loaded: load?.loaded ?? [], fns: brought, fnsRefused, refused, crawled, skipped: [...outcome.skipped], stop: outcome.stop,
+      depth: outcome.depth, decisions: outcome.decisions, tokens: outcome.tokens, calls: [...outcome.calls], metadataOnly: plan.metadataOnly,
+      cards: crawledContextCards({
+        taken: outcome.taken, skipped: outcome.skipped, stop: outcome.stop, decisions: outcome.decisions, tokens: outcome.tokens,
+        loaded: load !== undefined, brought: { added: brought, blocked: fnsRefused }, refused,
+      }),
+    };
   });
 
   fns.register(hub.fns.search_resources, async (args, ctx) => {

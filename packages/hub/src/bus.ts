@@ -8,7 +8,7 @@
 import type {
   ActorId, Approval, BudgetRule, ChatMessage, DeliveryView, FnRecord, FnStats, HandlerCall, HubMcpId, MessageId, PairingRequest, Presence, QualifiedName, ResourceChange,
   FormKind, OutputLine, ResourceRoot, ResourceUri, RunId, RunUpdate, SessionControls, SessionId, SessionSummary, StateFieldValue, SystemName, SystemStatus, Notification,
-  HubIdentity,
+  HubIdentity, ModelRole,
 } from '@harness/core';
 
 /** Every internal event, by name. */
@@ -49,6 +49,8 @@ export interface HubEvents {
   /** A context item was written, linked or forgotten. */
   'context.changed': { name: QualifiedName };
   'capabilities.changed': Record<string, never>;
+  /** Plan item 7: an admin set or cleared a model role, so the fns that need it (`FnDecl.roles`) are worked out again. */
+  'model.role.changed': { role: ModelRole };
   /** A hub MCP was made, changed, given a new secret or removed: its endpoint is rebuilt (or taken down). */
   'mcp.changed': { mcp: HubMcpId; removed: boolean };
   /** A budget whose rule says `ask` is used up: a call is waiting for someone to raise it. */

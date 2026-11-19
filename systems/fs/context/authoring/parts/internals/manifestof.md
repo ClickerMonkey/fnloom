@@ -127,15 +127,26 @@ interface ManifestOptions {
 
 class · `import { ProviderServer } from '@harness/sdk/server'`
 
-Serves `providerChat` and `providerEmbed` with the system's own aeye providers.
+Serves `providerChat`, `providerEmbed`, `providerDecide` and `providerModels` with the system's own aeye providers.
 
 ```ts
 class ProviderServer {
   constructor(parts: ProviderServerParts);
   /** Stream a chat call: the provider's chunks, then the usage it reported. */
   chat(data: ProviderChat, signal: AbortSignal): AsyncGenerator<ProviderChunk>;
-  /** Embed texts with an embedding model of a provider. */
+  /**
+  * Embed inputs with an embedding model of a provider: aeye's one `inputs` list when it has images, else its `texts`
+  * shorthand (so a text-only provider reading `texts` keeps working). An image is an http(s) or data URL, which every
+  * aeye provider reads as an `EmbeddingImage`.
+  */
   embed(data: ProviderEmbed, signal: AbortSignal): Promise<ProviderEmbedResult>;
+  /** Answer questions about an input with a decision model of a provider (aeye's `decide`). */
+  decide(data: ProviderDecide, signal: AbortSignal): Promise<ProviderDecideResult>;
+  /**
+  * The declared models a provider serves now, from its aeye `listModels`, with the limits it serves them with; a
+  * provider that can't list says so (`listed: false`), and the hub then offers every declared model.
+  */
+  models(data: ProviderModels): Promise<ProviderModelsResult>;
 }
 ```
 

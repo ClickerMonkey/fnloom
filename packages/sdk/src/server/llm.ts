@@ -7,7 +7,7 @@
  * streams chunks back, with the schema descriptors it chose (so strict tool arguments and outputs decode here) and the
  * real cost. `hub/auto` (`HUB_MODEL`) leaves the choice to the hub.
  *
- * Every other modality (embeddings, images, transcription, speech) goes over the link's `model` endpoint through
+ * Every other modality (embeddings, images, transcription, speech, decisions) goes over the link's `model` endpoint through
  * `HubModels`, which the provider's aeye methods and `ctx.llm` share: the hub records each call as one `ModelCall`
  * attributed to the run, so nothing a system does reaches a provider any other way.
  *
@@ -16,7 +16,7 @@
  * speech in aeye's shapes use `ctx.ai()` (in any context) or `hubAi(system)` (anywhere in the process).
  */
 import {
-  AI, type AIContextAny, type EmbeddingRequest, type EmbeddingResponse, type ImageGenerationRequest, type ImageGenerationResponse, type ModelCapability,
+  AI, embeddingTexts, type AIContextAny, type DecisionRequest, type DecisionResponse, type EmbeddingRequest, type EmbeddingResponse, type ImageGenerationRequest, type ImageGenerationResponse, type ModelCapability,
   type ModelInfo, type Provider,
   type SpeechRequest, type SpeechResponse, type TranscriptionRequest, type TranscriptionResponse,
 } from '@aeye/ai';
@@ -27,7 +27,7 @@ import type { ForwardModality, Llm, ModelInput, ModelOutput } from '../ctx.ts';
 import type { GinType } from '../gin.ts';
 import { HubContent, type ContentTransfer } from './content.ts';
 import type { HubAccess } from './link.ts';
-import { applyDescriptors, chunkFromWire, LlmWire, usageFromWire } from './llm-wire.ts';
+import { applyDescriptors, chunkFromWire, decisionInputToWire, LlmWire, usageFromWire } from './llm-wire.ts';
 import { decodeOrThrow } from './wire.ts';
 import { expectType, type Equal } from '../util.ts';
 
@@ -44,7 +44,7 @@ export const HUB_MODEL: ModelInfo = {
   id: HUB_MODEL_ID,
   provider: HUB_PROVIDER,
   name: 'Chosen by the hub',
-  capabilities: new Set(['chat', 'streaming', 'tools', 'toolsStrict', 'structured', 'json', 'vision', 'files', 'reasoning', 'embedding', 'image', 'hearing', 'audio']),
+  capabilities: new Set(['chat', 'streaming', 'tools', 'toolsStrict', 'structured', 'json', 'vision', 'files', 'reasoning', 'embedding', 'image', 'hearing', 'audio', 'decision']),
   supportedParameters: new Set([
     'maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'responseFormat', 'structuredOutput', 'tools',
     'toolChoice', 'toolsStrict', 'reason', 'verbosity', 'imageMultiple',
@@ -56,7 +56,7 @@ export const HUB_MODEL: ModelInfo = {
 
 /** Every capability name aeye knows; the `expectType` below fails to compile when aeye adds one this list lacks. */
 const AEYE_CAPABILITIES = [
-  'chat', 'tools', 'vision', 'files', 'videoInput', 'json', 'structured', 'streaming', 'reasoning', 'image', 'audio', 'hearing', 'embedding', 'rerank',
+  'chat', 'tools', 'vision', 'files', 'videoInput', 'json', 'structured', 'streaming', 'reasoning', 'image', 'audio', 'hearing', 'embedding', 'imageEmbedding', 'crossModalEmbedding', 'rerank',
   'decision', 'zdr', 'toolsStrict',
 ] as const satisfies readonly ModelCapability[];
 expectType<Equal<(typeof AEYE_CAPABILITIES)[number], ModelCapability>>(true);
@@ -91,6 +91,8 @@ export function aeyeModelOf(model: HubModelInfo, id: string = hubModelId(model),
     pricing: model.pricing === undefined ? {} : { text: { input: model.pricing.input, output: model.pricing.output } },
     contextWindow: model.contextWindow ?? 0,
     ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
+    // aeye refuses a decision call over it, so a system splits its questions by it
+    ...(model.maxQuestions === undefined ? {} : { maxQuestions: model.maxQuestions }),
   };
 }
 
@@ -101,7 +103,7 @@ export function aeyeModelOf(model: HubModelInfo, id: string = hubModelId(model),
 export interface ModelLink {
   /** Stream one chat request through the hub. */
   llm(forward: LlmForward, signal?: AbortSignal): AsyncIterable<LlmForwardChunk>;
-  /** One non-chat call (embeddings, images, transcription, speech). */
+  /** One non-chat call (embeddings, images, transcription, speech, decisions). */
   model(forward: ModelForward, signal?: AbortSignal): Promise<ModelForwardResult>;
   /** The models (and the roles they fill) this system may use. */
   models(signal?: AbortSignal): Promise<HubModelInfo[]>;
@@ -316,8 +318,23 @@ export class HarnessProvider implements Provider<HarnessProviderConfig> {
 
   async embed(request: EmbeddingRequest, ctx?: AIContextAny): Promise<EmbeddingResponse> {
     const model = this.choiceFor(ctx?.metadata);
-    const { vectors, cost, model: served } = await this.#models.embed({ texts: request.texts, ...(model === undefined ? {} : { model }) }, ctx?.signal);
+    // images don't cross the system's `model` link endpoint yet: refused (aeye's ImageEmbeddingError) rather than dropped
+    const texts = embeddingTexts(request, 'the hub');
+    const { vectors, cost, model: served } = await this.#models.embed({ texts, ...(model === undefined ? {} : { model }) }, ctx?.signal);
     return { embeddings: vectors.map((embedding, index) => ({ embedding, index })), model: served, usage: { cost } };
+  }
+
+  /**
+   * Typed answers from a decision model, through the hub (the `decide` role's model unless the call names one). Images
+   * don't cross the link yet, so a request with images is refused rather than answered without them.
+   */
+  async decide(request: DecisionRequest, ctx?: AIContextAny): Promise<DecisionResponse> {
+    if (request.images !== undefined && request.images.length > 0) { throw new Error('Decision calls through the hub take no images yet.'); }
+    const model = this.choiceFor(ctx?.metadata);
+    const { answers, cost, model: served } = await this.#models.decide({
+      input: decisionInputToWire(request.input), questions: request.questions, ...(model === undefined ? {} : { model }),
+    }, ctx?.signal);
+    return { answers, model: served, usage: { cost } };
   }
 
   async generateImage(request: ImageGenerationRequest, ctx: AIContextAny): Promise<ImageGenerationResponse> {
@@ -381,8 +398,8 @@ function isModality<M extends ForwardModality>(result: ModelForwardResult, modal
 }
 
 /**
- * Non-chat model calls over the link's `model` endpoint, on the run's budget: embeddings, images, transcription and
- * speech. The hub records each as one `ModelCall` and answers with its id and cost; large outputs come by content ref.
+ * Non-chat model calls over the link's `model` endpoint, on the run's budget: embeddings, images, transcription,
+ * speech and decisions. The hub records each as one `ModelCall` and answers with its id and cost; large outputs come by content ref.
  */
 export class HubModels {
   readonly #link: ModelLink;
@@ -407,6 +424,10 @@ export class HubModels {
 
   speak(input: ModelInput<'speech'>, signal?: AbortSignal): Promise<ModelOutput<'speech'>> {
     return this.#send({ modality: 'speech', ...input }, signal);
+  }
+
+  decide(input: ModelInput<'decide'>, signal?: AbortSignal): Promise<ModelOutput<'decide'>> {
+    return this.#send({ modality: 'decide', ...input }, signal);
   }
 
   async #send<M extends ForwardModality>(body: Extract<ModelForward, { modality: M }>, signal: AbortSignal | undefined): Promise<Extract<ModelForwardResult, { modality: M }>> {

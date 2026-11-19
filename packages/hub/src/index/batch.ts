@@ -1,6 +1,6 @@
 /**
  * Embedding requests from everywhere (indexing, search, suggestions as people type, systems asking the hub) are
- * gathered into batches with `@ayepi/work`'s batch work: texts queued within a short wait go to their embedder in
+ * gathered into batches with `@ayepi/work`'s batch work: inputs (texts, and images for the image space) queued within a short wait go to their embedder in
  * one call. Requests come in two lanes, each its own batch type with its own in-memory queue and `priorityDoer`:
  * `interactive` (a person or an agent is waiting: search and suggestions) and `background` (indexing, systems
  * embedding their data). A reindex fills only the background lane, which runs a few batches at a time, so what a
@@ -9,17 +9,17 @@
  */
 import type { Logger } from '@ayepi/log';
 import { createWork, defineBatchWork, memoryQueue, priorityDoer } from '@ayepi/work';
-import type { QualifiedName } from '@harness/core';
+import type { EmbedInput, QualifiedName } from '@harness/core';
 import { messageOf } from '../catalog/scope.ts';
 import type { Embedders } from './index.ts';
 
 /** Who waits for an embedding: a person or agent now, or the index catching up. */
 export type EmbedLane = 'interactive' | 'background';
 
-/** One text to embed with one embedder. */
+/** One input (a text or an image) to embed with one embedder. */
 interface EmbedItem {
   readonly embedder: QualifiedName;
-  readonly text: string;
+  readonly input: EmbedInput;
 }
 
 /** How the batches are made and run. */
@@ -45,7 +45,7 @@ function embedAll(embedders: Embedders): (items: EmbedItem[]) => Promise<number[
     for (const [name, indexes] of byEmbedder) {
       const embedder = embedders.get(name);
       if (embedder === undefined) { throw new Error(`the embedder ${name} is not connected`); }
-      const vectors = await embedder.embed(indexes.map((i) => items[i]?.text ?? ''));
+      const vectors = await embedder.embed(indexes.map((i) => items[i]?.input ?? ''));
       indexes.forEach((at, i) => { out[at] = vectors[i] ?? []; });
     }
     return out;
@@ -83,10 +83,10 @@ export class EmbedBatcher {
     });
   }
 
-  /** One vector per text, in order, from the named embedder, batched in the caller's lane. */
-  embed(embedder: QualifiedName, texts: readonly string[], lane: EmbedLane): Promise<number[][]> {
+  /** One vector per input, in order, from the named embedder, batched in the caller's lane. */
+  embed(embedder: QualifiedName, inputs: readonly EmbedInput[], lane: EmbedLane): Promise<number[][]> {
     const work = this.#lanes[lane];
-    return Promise.all(texts.map((text) => this.#work.enqueue(work({ embedder, text })).result()));
+    return Promise.all(inputs.map((input) => this.#work.enqueue(work({ embedder, input })).result()));
   }
 
   /** Stop the batch queues. */

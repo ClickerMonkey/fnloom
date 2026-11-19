@@ -196,6 +196,7 @@ type Manifest = {
     promptExamples?: number | undefined;
     group?: string | undefined;
     flags?: boolean | undefined;
+    roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
     live?: {
       every: number;
     } | undefined;
@@ -313,6 +314,9 @@ type Manifest = {
       caching: boolean;
       name?: string | undefined;
       maxOutput?: number | undefined;
+      dimensions?: number | undefined;
+      maxInput?: number | undefined;
+      maxQuestions?: number | undefined;
     }[];
   }[] | undefined;
   connect?: {
@@ -404,9 +408,9 @@ type Manifest = {
   configSecrets?: string[] | undefined;
   runtime?: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "embedders" | "sectioners" | "actions", string[]>> | undefined;
   grants?: {
-    hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
+    hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
     models?: {
-      roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+      roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
       models?: string[] | undefined;
       perRun?: number | undefined;
       perDay?: number | undefined;

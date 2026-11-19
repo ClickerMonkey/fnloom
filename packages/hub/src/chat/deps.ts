@@ -12,6 +12,7 @@ import type { Catalog } from '../catalog/index.ts';
 import type { AgentLoop, LimitResolver, LlmGateway, RunService } from '../execution/index.ts';
 import type { Search, Suggester } from '../index/index.ts';
 import type { LinkService } from '../link/index.ts';
+import type { Decider } from '../models/index.ts';
 import type { HubStore } from '../store/index.ts';
 import type { ChatEnv } from './env.ts';
 
@@ -38,8 +39,10 @@ export interface ChatDeps {
   readonly limits: LimitResolver;
   readonly search: Search;
   readonly suggest: Suggester;
-  /** The hub's own chat calls (the suggestion decision model). */
+  /** The hub's own chat calls (suggestions picked by an LLM). */
   readonly llm: Pick<LlmGateway, 'chat'>;
+  /** The hub's own decision calls (suggestions picked by a decision model), split by the model's `maxQuestions`. */
+  readonly decider: Pick<Decider, 'model' | 'ask'>;
   readonly push: Pick<PushService, 'send'>;
   /** The hub's own actor: the author of notes the hub writes into a session. */
   readonly hubActor: ActorId;

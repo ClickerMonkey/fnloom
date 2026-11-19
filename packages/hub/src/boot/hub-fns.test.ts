@@ -1,21 +1,26 @@
-import { agent, fn, g, hub, type FnRef } from '@harness/sdk';
-import { ActorId, LinkSession, QualifiedName, SystemName, type FnSearchHit, type FnSearchQuery, type Json, type RegistryEffect, type SearchHit, type Session, type SessionId, type Turn } from '@harness/core';
+import { agent, fn, g, hub, manifestOf, type FnRef } from '@harness/sdk';
+import { ActorId, ContextCrawlResult, LinkSession, ModelCallId, QualifiedName, SystemName, type FnSearchHit, type FnSearchQuery, type Json, type RegistryEffect, type SearchHit, type Session, type SessionId, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AGENT_KIND, type RunInput } from '../execution/index.ts';
 import { AGENT, ALICE, calls, executionRig, says, SESSION, until, type ExecutionRig } from '../execution/testing.ts';
 import { openScope, type AccessScope } from '../access/index.ts';
-import { registerHubFns, UNDECLARED_CHANGE } from './hub-fns.ts';
+import { CONTEXT_CRAWL_PURPOSE, NO_DECISION_MODEL, registerHubFns, UNDECLARED_CHANGE } from './hub-fns.ts';
 import { writeItemVersions } from '../catalog/versions.ts';
 import { Json as JsonValue } from '@harness/core';
 import { linkPayload } from '../testing.ts';
 import { CatalogFnViews } from '../contextor/views.ts';
 import { replyText } from '../execution/wire.ts';
+import { HubDecider } from '../models/decide.ts';
+import type { Decider, ModelSite } from '../models/index.ts';
 
 /** What the model reads of a settled run's result. */
 const reads = (settled: { status: string; result?: Json }): string => (settled.status === 'done' && settled.result !== undefined ? replyText(settled.result, { rows: 5, watched: true }) : '');
 
 let rig: ExecutionRig | undefined;
-afterEach(async () => { await rig?.module.stop(); rig = undefined; });
+/** The decider `hub/context_crawl` asks (none set by default). */
+const NO_DECIDER: Pick<Decider, 'model' | 'ask'> = { model: () => Promise.resolve({ problem: 'No decision model is set (an admin sets the Decide role).' }), ask: () => Promise.reject(new Error('no decision model')) };
+let decider = NO_DECIDER;
+afterEach(async () => { await rig?.module.stop(); rig = undefined; decider = NO_DECIDER; });
 
 /** Put a hub fn in the rig's catalog with the contract's args and result. */
 function addHubFn<A, R>(r: ExecutionRig, ref: FnRef<QualifiedName, A, R>): void {
@@ -29,8 +34,8 @@ function addHubFn<A, R>(r: ExecutionRig, ref: FnRef<QualifiedName, A, R>): void 
 async function started(hits: SearchHit[] = [], session: Partial<Session> = {}, access: (actor: ActorId) => AccessScope = openScope) {
   const r = await executionRig();
   rig = r;
-  const { fns_search, load_fns, drop_fns, load_context, search_resources, ask_user } = hub.fns;
-  addHubFn(r, fns_search); addHubFn(r, load_fns); addHubFn(r, drop_fns); addHubFn(r, load_context);
+  const { fns_search, load_fns, drop_fns, load_context, context_crawl, search_resources, ask_user } = hub.fns;
+  addHubFn(r, fns_search); addHubFn(r, load_fns); addHubFn(r, drop_fns); addHubFn(r, load_context); addHubFn(r, context_crawl);
   addHubFn(r, search_resources); addHubFn(r, ask_user);
   r.catalog.add('fs', 'read', fn({ description: 'Read a file.', args: g.obj({ path: g.text() }), returns: g.text(), tags: ['read'] }));
   r.catalog.add('shop', 'buy', fn({ description: 'Buy.', args: g.obj({}), returns: g.text() }), { available: { unavailable: 'system-disconnected', detail: 'shop is offline' } });
@@ -46,6 +51,7 @@ async function started(hits: SearchHit[] = [], session: Partial<Session> = {}, a
   registerHubFns(r.module.hubFns, {
     store: () => r.store,
     catalog: () => r.catalog,
+    decider: () => decider,
     views: () => new CatalogFnViews(r.catalog),
     facts: () => ({ registry: (names) => Promise.resolve(new Map(names.map((name) => [name, []]))) }),
     search: () => ({
@@ -228,6 +234,93 @@ describe('context and resources', () => {
     expect(await r.store.table('sessions').get(SESSION)).toMatchObject({ context: ['fs/guide'], tools: [] });
   });
 
+  /**
+   * Plan item 7: a guide (importing its paths, bringing fs/read) that offers two choices, and the hub decider over a
+   * gateway that says yes to fs/kinds (0.9) and no to fs/tables (0.1); every item is 40 characters (10 tokens).
+   */
+  function crawlable(r: ExecutionRig): { sites: ModelSite[] } {
+    const text = 'x'.repeat(40);
+    for (const name of ['fs/guide', 'fs/guide.paths', 'fs/kinds', 'fs/tables']) r.catalog.contexts.set(QualifiedName.parse(name), text);
+    r.catalog.contextDecls.set(QualifiedName.parse('fs/guide'), {
+      imports: [QualifiedName.parse('fs/guide.paths')], fns: [QualifiedName.parse('fs/read')],
+      choices: [{ to: QualifiedName.parse('fs/kinds'), when: 'the task declares a kind' }, { to: QualifiedName.parse('fs/tables'), when: 'the task makes tables' }],
+    });
+    const yes: Record<string, number> = { 'fs/kinds': 0.9, 'fs/tables': 0.1 };
+    const sites: ModelSite[] = [];
+    decider = new HubDecider({
+      roles: {
+        get: () => Promise.resolve({ role: 'decide', from: 'setting', choice: { role: 'decide', model: { model: 'judge' }, threshold: 0.5 }, resolved: { model: 'judge', provider: 'ollama' } }),
+        resolveModel: () => Promise.resolve({ problem: 'not here' }),
+      },
+      llm: {
+        models: () => Promise.resolve([]),
+        decide: (input, site) => {
+          sites.push(site);
+          const answers = Object.fromEntries(Object.entries(input.questions).map(([key, question]) => [key, { type: 'predicate' as const, probability: yes[/^Load (\S+)/.exec(question.instructions)?.[1] ?? ''] ?? 0 }]));
+          return Promise.resolve({ value: { answers, model: 'judge' }, call: ModelCallId.parse(`mdl_${sites.length}`), cost: 0.01, model: 'judge' });
+        },
+      },
+    });
+    return { sites };
+  }
+
+  it('crawls from a guide by the decision model, loads what it took like load_context, and says what it skipped and why it stopped (plan item 7)', async () => {
+    const { r, turn } = await started();
+    const { sites } = crawlable(r);
+    const settled = await call(r, turn, 'context_crawl', { context: ['fs/guide: how to work with files', 'fs/missing'], guidance: 'Declare a new kind.' });
+    expect(reads(settled)).toBe([
+      '<crawled_context decisions="2" tokens="30">', 'Their text is in front of you from your next step:',
+      '<context key="fs/guide" depth="0" via="start" tokens="10">guide</context>',
+      '<context key="fs/guide.paths" depth="0" via="import" from="fs/guide" tokens="10">guide.paths</context>',
+      '<context key="fs/kinds" depth="1" via="choice" from="fs/guide" yes="0.90" tokens="10">kinds</context>', '</crawled_context>',
+      '<brought_fns in_tools="yes">In your tools from your next step: fs/read</brought_fns>',
+      '<skipped_context>', 'Not taken:', '<skipped key="fs/tables" from="fs/guide" depth="1" reason="declined" yes="0.10" />', '</skipped_context>',
+      '<refused_context>', 'Not loaded:', '<refused name="fs/missing" available="no">no context you can load has that name. The closest: fs/guide.</refused>', '</refused_context>',
+      '<crawl_stop reason="complete">It followed every choice there was.</crawl_stop>',
+    ].join('\n'));
+    expect(settled).toMatchObject({ status: 'done', result: {
+      loaded: ['fs/guide', 'fs/guide.paths', 'fs/kinds'], fns: ['fs/read'], fnsRefused: [],
+      refused: [{ context: 'fs/missing', reason: 'no context you can load has that name', closest: ['fs/guide'] }],
+      crawled: [
+        { name: 'fs/guide', depth: 0, via: 'start', tokens: 10, content: 'x'.repeat(40) },
+        { name: 'fs/guide.paths', depth: 0, via: 'import', from: 'fs/guide', tokens: 10 },
+        { name: 'fs/kinds', depth: 1, via: 'choice', from: 'fs/guide', probability: 0.9, tokens: 10 },
+      ],
+      skipped: [{ context: 'fs/tables', from: 'fs/guide', depth: 1, reason: 'declined', probability: 0.1 }],
+      stop: { reason: 'complete' }, depth: 1, decisions: 2, tokens: 30, calls: ['mdl_1'], metadataOnly: false,
+    } });
+    expect(await r.store.table('sessions').get(SESSION)).toMatchObject({ context: ['fs/guide', 'fs/guide.paths', 'fs/kinds'], tools: ['fs/read'] });
+    // the decide call is the crawl's: charged to its run, for its purpose
+    const run = (await r.store.table('runs').find({ where: { fn: hub.fns.context_crawl.name }, limit: 1 })).items[0];
+    expect(sites).toEqual([{ purpose: CONTEXT_CRAWL_PURPOSE, run: run?.id }]);
+  });
+
+  it('with metadataOnly, says what a crawl would take without loading it or giving its content (plan item 7)', async () => {
+    const { r, turn } = await started();
+    crawlable(r);
+    const settled = await call(r, turn, 'context_crawl', { context: ['fs/guide'], guidance: 'Declare a new kind.', metadataOnly: true });
+    expect(reads(settled)).toContain('<crawled_context decisions="2" tokens="30">\nNot loaded (metadata only): load what fits with hub/load_context.\n<context key="fs/guide"');
+    expect(reads(settled)).not.toContain('<brought_fns');
+    expect(settled).toMatchObject({ status: 'done', result: { loaded: [], fns: [], metadataOnly: true } });
+    const crawled = settled.status === 'done' ? ContextCrawlResult.parse(settled.result).crawled : [];
+    expect(crawled.map((item) => [item.name, item.content])).toEqual([['fs/guide', undefined], ['fs/guide.paths', undefined], ['fs/kinds', undefined]]);
+    expect(await r.store.table('sessions').get(SESSION)).toMatchObject({ context: [], tools: [] });
+  });
+
+  it('refuses a crawl while no decision model can be used, with the hub\'s reason (plan item 7)', async () => {
+    const { r, turn } = await started();
+    expect(await call(r, turn, 'context_crawl', { context: ['fs/guide'], guidance: 'Anything.' })).toMatchObject({
+      status: 'failed', error: { class: 'caller', code: NO_DECISION_MODEL, message: 'No decision model is set (an admin sets the Decide role).' },
+    });
+  });
+
+  it('declares that hub/context_crawl needs the decide role, so the catalog keeps it off until one is set (plan item 7)', async () => {
+    const decl = (await manifestOf(hub, { version: '0.0.0' })).fns.find((fn) => fn.name === 'context_crawl');
+    expect(decl?.roles).toEqual(['decide']);
+    expect(decl?.examples?.length).toBeGreaterThan(0);
+    expect(decl?.instructions).toContain('levels');
+  });
+
   it('searches sections and gives each hit its resource, section, title and preview, narrowed to roots', async () => {
     const { r, turn } = await started([
       { kind: 'section', key: 'file:///repo/README.md#Intro', rank: 0.8, similarity: 0.8, text: 'README.md > Intro\n\nA harness.' },
@@ -367,6 +460,7 @@ describe('saved fns (build 5)', () => {
         },
       }),
       views: () => new CatalogFnViews(r.catalog),
+      decider: () => decider,
       facts: () => ({ registry: (names) => Promise.resolve(new Map(names.map((name) => [name, r.catalog.records.get(name)?.decl.effects?.registry ?? []]))) }),
       search: () => ({ search: () => Promise.resolve([]) }),
       sessions: () => ({ load: () => Promise.reject(new Error('no loads here')) }),

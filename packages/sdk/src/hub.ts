@@ -12,7 +12,7 @@ import {
   ADMIN_TAG, adminSlice, chatSlice, CONTENT_HASH_PATTERN, ChatModeConfig, contextorSlice, contextSlice, ContextorConfig, DETAIL_LEVELS, ERROR_CLASSES,
   graphSlice, versionsSlice, dataSlice, ContributionView, ReadTableArgs, ResultTable, RowActionsQuery, WidgetActionOption, mcpsSlice, metricsSlice, accessSlice, autoPairSlice, connectionsSlice, explorerSlice, suggestionsSlice, MintMcpTokenArgs, modelsSlice, OWN_TAG, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, RUN_STATUSES, runsSlice,
   FnLive, GinTypeDef, LIST_NAMES, querySlice, Section, settingsSlice, systemsSlice, LlmContentPart, ModelLimits, LINK_TARGET_KINDS, type Display,
-  FnBlock, FnExample, FnExamplesPage, FnExamplesQuery, FnRouting, FnSearchArgs, FnSearchPage, LoadContextResult, LoadFnsResult, NameRefusal, ShareRule, type RegistryEffect,
+  FnBlock, FnExample, FnExamplesPage, FnExamplesQuery, FnRouting, FnSearchArgs, FnSearchPage, LoadContextResult, LoadFnsResult, ContextCrawlArgs, ContextCrawlResult, CRAWL_BATCH_MAX, NameRefusal, ShareRule, type RegistryEffect,
 } from '@harness/core';
 import { z } from 'zod';
 import { fn, type FnExampleOf } from './fn.ts';
@@ -407,7 +407,7 @@ const adminReadFns = {
   pairings_list: adminReadFn('Pairing requests, newest first, optionally of one status.', 'Use it to find a waiting pairing to approve with hub/approve_pairing.', ADMIN_READ_ENDPOINTS.pairings_list, [{ args: { status: 'pending' } }]),
   auto_pairs_list: adminReadFn('The auto-pair secrets granted, optionally for one system.', 'Use it before revoking one with hub/auto_pair_revoke.', ADMIN_READ_ENDPOINTS.auto_pairs_list, [{ args: { system: 'fs' } }]),
   instances_list: adminReadFn('One system\'s instances, with their status, version, config (secrets masked) and host.', 'Use it to see every copy of a system and who hosts each.', ADMIN_READ_ENDPOINTS.instances_list, [{ args: { system: 'database' } }]),
-  suggest_decision_get: adminReadFn('The suggestion decision model setting: whether a model picks the suggestions, and its limits.', 'Use it before changing it with hub/suggest_decision_set.', ADMIN_READ_ENDPOINTS.suggest_decision_get, [{ args: {} }]),
+  suggest_decision_get: adminReadFn('The suggestions setting: who picks what each message is offered (no model, a decision model or an LLM), and its limits.', 'Use it before changing it with hub/suggest_decision_set.', ADMIN_READ_ENDPOINTS.suggest_decision_get, [{ args: {} }]),
 };
 
 /** The hub's admin fns (`ADMIN_ENDPOINTS`), each described for the agent that offers them. */
@@ -443,7 +443,10 @@ const adminFns = {
   install_package: adminFn('Install a system package zip (made by `harness system pack`), pair it, configure it and start it.', 'Use it with a package zip made by `harness system pack`: it installs, pairs, configures and starts the system in one step.', ADMIN_ENDPOINTS.install_package, [{ args: { zip: { hash: '0000000000000000000000000000000000000000000000000000000000000000', size: 2048, mime: 'application/zip' } } }], changes('create', 'fns', 'types', 'context', 'kinds', 'components')),
   add_instance: adminFn('Add an instance of a bundled fleet system (an MCP server, an API service) with its config: installed, paired and started on the hub machine.', 'Use it when an admin asks to add an MCP server or an API service. Ask for the secret fields only when the server needs them, and never repeat them back.', ADMIN_ENDPOINTS.add_instance, [{ args: { system: 'mcp', instance: 'linear', description: 'Linear issues', config: { label: 'Linear', transport: { type: 'http', url: 'https://mcp.linear.app/mcp' }, auth: { kind: 'oauth', per: 'person' } } }, note: 'A remote MCP server people sign in to.' }], changes('create', 'fns', 'types', 'context')),
   remove_instance: adminFn('Remove one instance of a system.', 'Use it only when an admin asks to remove one instance of a system. Offer hub/export_system_data first so its data can be kept.', ADMIN_ENDPOINTS.remove_instance, [{ args: { system: 'database', instance: 'old' } }], changes('remove', 'fns', 'types')),
-  suggest_decision_set: adminFn('Turn the suggestion decision model on or off, and set how many candidates it sees and picks.', 'Use it when an admin wants a model, not the score alone, to pick what each message is offered. Turning it on needs a model.', ADMIN_ENDPOINTS.suggest_decision_set, [{ args: { enabled: false }, note: 'Let the score decide again.' }]),
+  suggest_decision_set: adminFn('Choose who picks what each message is offered: no model (the score threshold), a decision model (one yes/no question per candidate, the decide role\'s threshold), or an LLM; and how many candidates it sees and picks.', 'Use it when an admin wants a model, not the score alone, to pick what each message is offered. An LLM needs a model; a decision model uses the decide role\'s unless one is named.', ADMIN_ENDPOINTS.suggest_decision_set, [
+    { args: { by: 'none' }, note: 'Let the score decide again.' },
+    { args: { by: 'decision', messages: 3, candidates: 20, cap: 6, floor: 0.35 }, note: 'The decide role\'s decision model picks.' },
+  ]),
   auto_pair_revoke: adminFn('Revoke an auto-pair secret, so its instance must pair again by code or token.', 'Use it when a machine is lost or retired; find the secret with hub/auto_pairs_list.', ADMIN_ENDPOINTS.auto_pair_revoke, [{ args: { id: 'apk_01HZX3' } }]),
   system_reimport: adminFn('Import a system\'s stored contract again, re-checking every entry.', 'Use it after a hub upgrade or when a system\'s fns look stale; it reports what was added, updated, removed or refused.', ADMIN_ENDPOINTS.system_reimport, [{ args: { system: 'database' } }], changes('update', 'fns', 'types', 'context', 'kinds')),
   export_system_data: adminFn('Zip an instance\'s data folder with its config (secret fields only when asked) and return the content.', 'Use it to back up an instance before removing or moving it. Include secret fields only when the admin asks.', ADMIN_ENDPOINTS.export_system_data, [{ args: { system: 'database', instance: 'main' } }]),
@@ -565,6 +568,20 @@ const FNS_SEARCH_EXAMPLES = [
   { args: { text: 'ask for trip dates and travellers', kinds: ['input/form' as const] }, note: 'Saved forms that might already ask this.' },
   { args: { systems: ['fs'], modes: ['read' as const], order: 'name' as const }, note: 'Every fs fn that only reads, by name.' },
 ];
+
+/**
+ * How `hub/context_crawl` works, for the model (plan item 7): levels, the one conditional step, the limits, and what it
+ * answers.
+ */
+const CONTEXT_CRAWL_GUIDE = [
+  'Use it when a task needs several connected pieces of context and you know where to start (a guide\'s key from hub/fns_search or a choice), rather than loading choices one step at a time.',
+  'It works in levels. Level 0 is the context you name plus everything it imports (imports always come along, at every level).',
+  'Each level\'s items may list choices: links to more context, each with a condition ("load X when: …"). Every choice not loaded yet becomes one yes/no question about your `guidance`, and the decision model answers them all together',
+  `(in calls of up to ${CRAWL_BATCH_MAX} questions). The choices answered yes (at or above the admin's threshold) load, most likely first, with their imports, while they fit \`maxTokens\`; they are the next level.`,
+  'It stops when no choice is left, or at `maxDepth` levels, `maxDecisions` questions in all, or `maxTokens`. Write `guidance` as the task in one or two plain sentences: it is all the decision model reads.',
+  'It answers with what it took (`<crawled_context>`, each with how it was reached), the fns that context brings (`<brought_fns>`), the choices it skipped and why (`<skipped_context>`: declined, over the token budget, out of questions or past the last level), and why it stopped.',
+  'Without `metadataOnly` what it took is loaded into this session like hub/load_context, its text in front of you from your next step. With `metadataOnly: true` nothing is loaded: you get each item\'s key, title, description and size, and load what fits with hub/load_context.',
+].join(' ');
 
 /**
  * The chat agents' rule for being blocked (Phil, 2026-11-18: a prompt rule, no hub guard): stop and say what blocks
@@ -706,6 +723,21 @@ export const hub = system('hub', {
         returns: ginAs(LoadContextResult),
         tags: [READ_TAG],
         display: 'hidden',
+      }),
+      context_crawl: fn({
+        description: 'Gather the context a task needs by following context links from starting keys, a level at a time, with the decision model choosing which links to follow.',
+        instructions: CONTEXT_CRAWL_GUIDE,
+        examples: [
+          { args: { context: ['fs/authoring'], guidance: 'Declare a new kind with a payload type and examples.' }, note: 'From a guide\'s index: follow its choices up to 3 levels, loading what the decision model says this task needs.' },
+          { args: { context: ['database/guide'], guidance: 'Write a saved query that joins two tables.', maxDepth: 1, maxTokens: 3000 }, note: 'One level of choices, within 3000 tokens.' },
+          { args: { context: ['fs/authoring', 'database/guide'], guidance: 'Store uploaded files as records.', metadataOnly: true, maxDecisions: 64 }, note: 'See what a crawl would find (keys, sizes, why) without loading it; load what fits with hub/load_context.' },
+        ],
+        args: ginAs(ContextCrawlArgs),
+        returns: ginAs(ContextCrawlResult),
+        tags: [READ_TAG],
+        display: 'hidden',
+        // it asks the decision model which links to follow: off until an admin sets the decide role
+        roles: ['decide'],
       }),
       search_resources: fn({
         description: 'Search files and other resources by meaning and words.',

@@ -1,12 +1,14 @@
 /**
  * The model gateway (`ModelGateway`): every non-chat model call, for a system's run (the `model` link endpoint behind
  * the SDK's forwarding provider) or the hub's own work (dictation, forms). It picks the model (the call's choice, else
- * the role that does the job: `transcribe` for transcription, `speak` for speech; embeddings and images are chosen by
- * capability), reads audio from the content store, makes the call through the execution module's gateway (budgeted,
- * rate-limited and recorded as a `ModelCall`), and keeps images and speech in the content store, answering with refs.
+ * the role that does the job: `transcribe` for transcription, `speak` for speech, `decide` for decisions; embeddings
+ * and images are chosen by capability), reads audio from the content store, makes the call through the execution
+ * module's gateway (budgeted, rate-limited and recorded as a `ModelCall`), and keeps images and speech in the content
+ * store, answering with refs.
  */
 import type { Logger } from '@ayepi/log';
-import type { ContentRef, ModelChoice, ModelForward, ModelForwardResult, ModelRole } from '@harness/core';
+import { DecisionAnswers, type ContentRef, type ModelChoice, type ModelForward, type ModelForwardResult, type ModelRole } from '@harness/core';
+import { decisionInputFromWire } from '@harness/sdk/server';
 import type { ContentStore } from '../api/index.ts';
 import type { LlmGateway, Recorded } from '../execution/index.ts';
 import type { HubCallMetadata } from '../execution/scope.ts';
@@ -14,14 +16,14 @@ import type { HubStore } from '../store/index.ts';
 import type { ModelGateway, ModelRoles, ModelSite } from './index.ts';
 
 /** The role whose model a modality uses when the call names none. */
-export const ROLE_OF = { embed: undefined, image: undefined, transcribe: 'transcribe', speech: 'speak' } as const satisfies Record<ModelForward['modality'], ModelRole | undefined>;
+export const ROLE_OF = { embed: undefined, image: undefined, transcribe: 'transcribe', speech: 'speak', decide: 'decide' } as const satisfies Record<ModelForward['modality'], ModelRole | undefined>;
 
 /** What the gateway uses. */
 export interface ModelGatewayDeps {
   readonly store: HubStore;
   readonly log: Logger;
   readonly roles: Pick<ModelRoles, 'resolve'>;
-  readonly llm: Pick<LlmGateway, 'embed' | 'image' | 'transcribe' | 'speech'>;
+  readonly llm: Pick<LlmGateway, 'embed' | 'image' | 'transcribe' | 'speech' | 'decide'>;
   readonly content: Pick<ContentStore, 'put' | 'read'>;
 }
 
@@ -43,7 +45,7 @@ export class HubModelGateway implements ModelGateway {
     const { llm, content } = this.#deps;
     switch (request.modality) {
       case 'embed': {
-        const out = await llm.embed({ texts: request.texts, metadata }, site, signal);
+        const out = await llm.embed({ inputs: request.texts, metadata }, site, signal);
         return { modality: 'embed', vectors: out.value, ...receipt(out) };
       }
       case 'image': {
@@ -59,6 +61,10 @@ export class HubModelGateway implements ModelGateway {
       case 'speech': {
         const out = await llm.speech({ text: request.text, metadata, voice: request.voice, format: request.format }, site, signal);
         return { modality: 'speech', audio: await content.put(out.value.audio, out.value.mime), ...receipt(out) };
+      }
+      case 'decide': {
+        const out = await llm.decide({ input: decisionInputFromWire(request.input), questions: request.questions, metadata }, site, signal);
+        return { modality: 'decide', answers: DecisionAnswers.parse(out.value.answers), ...receipt(out) };
       }
     }
   }

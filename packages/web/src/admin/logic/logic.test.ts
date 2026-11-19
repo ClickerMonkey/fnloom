@@ -1,4 +1,4 @@
-import { ActorId, BudgetId, LlmInteractionId, QualifiedName } from '@harness/core';
+import { ActorId, BudgetId, LlmInteractionId, QualifiedName, type ModelInfo } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { budget, installed, pairing, policy, systemView, T0 } from '../test/fakes.ts';
 import { LLM_STATUS_LOOK, llmTimes } from './browsers.ts';
@@ -9,7 +9,7 @@ import { budgetAmount, budgetUse, periodText, resolvedText, scopeText } from './
 import { adminNav, adminNavGroups } from './nav.ts';
 import { decisionText, sortPolicies, subjectText, targetText } from './policies.ts';
 import { autoPairState, availabilityText, endsText, groupedCode, pendingPairings, sortSystems, systemActions, timeLeft } from './systems.ts';
-import { decisionDraft, decisionModelText, decisionOf, previewParts } from './suggestions.ts';
+import { chooserModels, decisionDraft, decisionModelText, decisionOf, previewParts } from './suggestions.ts';
 
 const names: Record<string, string> = { act_eng: 'Engineering', act_ada: 'Ada' };
 const nameOf = (id: ActorId): string => names[id] ?? id;
@@ -138,6 +138,15 @@ describe('forms', () => {
     expect(providerBody('openai', { apiKey: ' sk ', baseURL: '' })).toEqual({ ok: true, value: { provider: 'openai', apiKey: 'sk' } });
   });
 
+  it('reads an Ollama window as a number and its decision models as a list (the admin flag when /api/show lists no capabilities)', () => {
+    expect(providerFields('ollama').map((f) => f.name)).toEqual(['baseURL', 'contextWindow', 'decisionModels']);
+    expect(providerBody('ollama', { contextWindow: ' 8192 ', decisionModels: ' qwen3-systemone, judge ,\nother ' })).toEqual({
+      ok: true, value: { provider: 'ollama', baseURL: 'http://127.0.0.1:11434', contextWindow: 8_192, decisionModels: ['qwen3-systemone', 'judge', 'other'] },
+    });
+    expect(providerBody('ollama', { decisionModels: ' , ' })).toMatchObject({ ok: true, value: { provider: 'ollama' } });
+    expect(providerBody('ollama', { contextWindow: '12' })).toEqual({ ok: false, problems: { contextWindow: 'At least 256.' } });
+  });
+
   it('shows the AWS sign-in chosen and gathers its fields under auth', () => {
     expect(providerFields('aws', 'keys').map((f) => [f.name, f.secret, f.required])).toEqual([
       ['region', false, true], ['accessKeyId', false, true], ['secretAccessKey', true, true], ['sessionToken', true, false], ['profilePrefix', false, false],
@@ -198,16 +207,33 @@ describe('browsers and nav', () => {
 });
 
 describe('build 3 admin forms', () => {
-  it('reads the decision model form, says the setting in words and splits a try-out', () => {
-    const off = decisionDraft(undefined);
-    expect(decisionOf(off)).toMatchObject({ ok: true, value: { enabled: false, messages: 3, cap: 6 } });
-    expect(decisionOf({ ...off, enabled: true })).toMatchObject({ ok: false, at: 'model' });
-    expect(decisionOf({ ...off, cap: '99' })).toEqual({ ok: false, problem: 'Most it picks is out of range.', at: 'numbers' });
-    const on = decisionOf({ ...off, enabled: true, model: 'gpt-4o-mini' });
-    if (!on.ok) { throw new Error(on.problem); }
-    expect(decisionDraft({ value: on.value }).model).toBe('gpt-4o-mini');
-    expect(decisionModelText({ value: on.value })).toBe('gpt-4o-mini · last 3 messages · up to 6 of 20 above 0.35');
-    expect(decisionModelText(undefined)).toBe('Off: the score threshold decides');
+  it('reads the suggestions form (no model, a decision model or an LLM), says the setting in words and splits a try-out', () => {
+    const none = decisionDraft(undefined);
+    expect(none).toMatchObject({ by: 'none', messages: '3', cap: '6', floor: '0.35' });
+    expect(decisionOf(none)).toEqual({ ok: true, value: { by: 'none' } });
+    expect(decisionModelText(undefined)).toBe('No model: the score threshold decides');
+    // an LLM needs its model; a decision model falls back to the Decisions role's
+    expect(decisionOf({ ...none, by: 'llm' })).toMatchObject({ ok: false, at: 'model' });
+    expect(decisionOf({ ...none, by: 'decision', cap: '99' })).toEqual({ ok: false, problem: 'Most it picks is out of range.', at: 'numbers' });
+    const llm = decisionOf({ ...none, by: 'llm', llm: 'gpt-4o-mini', decision: 'judge' });
+    if (!llm.ok) { throw new Error(llm.problem); }
+    expect(llm.value).toEqual({ by: 'llm', model: { model: { model: 'gpt-4o-mini' } }, messages: 3, candidates: 20, cap: 6, floor: 0.35 });
+    expect(decisionDraft({ value: llm.value })).toMatchObject({ by: 'llm', llm: 'gpt-4o-mini', decision: '' });
+    expect(decisionModelText({ value: llm.value })).toBe('gpt-4o-mini picks · last 3 messages · up to 6 of 20 above 0.35');
+    const role = decisionOf({ ...none, by: 'decision' });
+    if (!role.ok) { throw new Error(role.problem); }
+    expect(role.value).toEqual({ by: 'decision', messages: 3, candidates: 20, cap: 6, floor: 0.35 });
+    expect(decisionModelText({ value: role.value })).toBe('The Decisions role’s model decides · last 3 messages · up to 6 of 20 above 0.35');
+    const own = decisionOf({ ...none, by: 'decision', decision: 'judge' });
+    expect(own.ok && own.value.by === 'decision' ? own.value.model : undefined).toEqual({ model: { model: 'judge' } });
+    // each chooser picks among the models able to: decision models, or chat models
+    const models = [
+      { id: 'judge', provider: 'ollama', name: 'Judge', capabilities: ['decision'] },
+      { id: 'gpt-4o-mini', provider: 'openrouter', name: 'Mini', capabilities: ['chat', 'tools'] },
+    ] satisfies ModelInfo[];
+    expect(chooserModels('decision', models).map((m) => m.id)).toEqual(['judge']);
+    expect(chooserModels('llm', models).map((m) => m.id)).toEqual(['gpt-4o-mini']);
+    expect(chooserModels('none', models)).toEqual([]);
     const parts = previewParts({ by: 'decision', items: [
       { used: true, kind: 'fn', name: QualifiedName.parse('fs/read') },
       { used: false, kind: 'fn', name: QualifiedName.parse('fs/write'), reason: 'declined', note: 'only reads' },

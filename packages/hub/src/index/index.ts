@@ -1,7 +1,9 @@
 /**
- * The index module: embeddings from embedder systems (the `embedder` system wraps product's EmbeddingGemma, 768
- * dimensions), batched through `@ayepi/work`; hybrid search (vectors + full text, merged by reciprocal rank); the
- * suggestions shown in the composer and added to messages; and sectioning resources by structure.
+ * The index module: embeddings from the embedding models of systems' providers (the `embedder` system's `gemma`
+ * provider wraps product's EmbeddingGemma, 768 dimensions), batched through `@ayepi/work`; hybrid search (vectors + full text, merged by reciprocal rank); the
+ * suggestions shown in the composer and added to messages; and sectioning resources by structure. Images (image
+ * resources, and pictures context items show) go in an image vector space while one is set up (`Embedders.images`):
+ * a second space with its own model, or the text space when its model shares it (`core/image-embeddings.ts`).
  *
  * Owner: the hub-systems lane. `SystemEmbedders` (`embedders.ts`), `StoreIndexer` (`indexer.ts`), `IndexSearch`
  * (`search.ts`) and `IndexSuggester` (`suggester.ts`) implement the interfaces below; `EmbedBatcher` (`batch.ts`)
@@ -9,19 +11,32 @@
  * Systems that need embeddings ask through the hub link's `model` (modality `embed`), recorded like any model call.
  */
 import type {
-  ConvertedVersion, FormKind, IndexedKind, QualifiedName, ResourceLink, ResourceRoot, ResourceStat, ResourceUri, SearchHit, SectionDiff, SessionId, SystemName,
+  ConvertedVersion, EmbedderAbilities, EmbedImage, EmbedInput, FormKind, IndexedKind, QualifiedName, ResourceLink, ResourceRoot, ResourceStat, ResourceUri, SearchHit, SectionDiff, SessionId, SystemName,
 } from '@harness/core';
 import type { Suggestion } from '@harness/core';
 
-/** An embed function: one vector per text, in order. */
+/** An embed function: one vector per input (a text, or an image for one that embeds images), in order. */
 export interface Embedder {
   readonly name: QualifiedName;
   readonly dimensions: number;
   readonly maxInput: number;
-  embed(texts: readonly string[], signal?: AbortSignal): Promise<number[][]>;
+  /** What it embeds; text only when absent. */
+  readonly abilities?: EmbedderAbilities;
+  embed(inputs: readonly EmbedInput[], signal?: AbortSignal): Promise<number[][]>;
 }
 
-/** The embedders systems provide, as they connect and go. */
+/**
+ * The image vector space in use: its embedder (whose name is its vector table), whether it is the text space
+ * (`shared`: the embedder is the document embedder, so text search finds images and an image finds text), and whether
+ * text can search it (`crossModal`: the embedder embeds a text query beside the images).
+ */
+export interface ImageSpace {
+  readonly embedder: Embedder;
+  readonly shared: boolean;
+  readonly crossModal: boolean;
+}
+
+/** The embedders systems' providers offer, as they connect and go. */
 export interface Embedders {
   get(name: QualifiedName): Embedder | undefined;
   /**
@@ -29,6 +44,8 @@ export interface Embedders {
    * different task prefix). Vectors live in the document embedder's table. Undefined until both are connected.
    */
   active(): { document: Embedder; query: Embedder } | undefined;
+  /** The image space, by the admin's setting (`resolveImageSpace`); undefined while images aren't indexed. */
+  images(): ImageSpace | undefined;
   onChange(listener: () => void): () => void;
 }
 
@@ -38,8 +55,13 @@ export interface IndexItem {
   readonly key: string;
   readonly text: string;
   readonly system?: SystemName;
-  /** The item this one is a part of (a `contextSection`'s context item). */
+  /** The item this one is a part of (a `contextSection`'s context item, an `image`'s context item). */
   readonly parent?: string;
+  /**
+   * An `image` item's picture: `source` the resource URI whose bytes are embedded, or the http(s) URL a context item
+   * shows; `version` the resource's, so a changed picture is embedded again.
+   */
+  readonly image?: { readonly source: string; readonly version?: string };
 }
 
 /**
@@ -81,6 +103,8 @@ export interface IndexReader {
   route(uri: ResourceUri): { system: SystemName; index: ResourceRoot['index'] } | undefined;
   /** A resource's text in its primary form. Never spends on a model unless the hub is set to (`HARNESS_DESCRIBE_ON_INDEX`). */
   primary(uri: ResourceUri, signal?: AbortSignal): Promise<PrimaryText>;
+  /** An image resource's bytes and type, for the image space (undefined when it isn't an image or can't be read). */
+  picture?(uri: ResourceUri, signal?: AbortSignal): Promise<{ readonly bytes: Uint8Array; readonly mime: string } | undefined>;
   /** A resource indexed before was cut again and some of its sections changed or went away. */
   sectioned(diff: SectionDiff): Promise<void>;
 }
@@ -105,6 +129,11 @@ export interface SearchQuery {
   readonly excludeKeys?: readonly string[];
   /** Words, meaning, or both (the default). */
   readonly match?: 'text' | 'semantic' | 'hybrid';
+  /**
+   * Search by a picture: it is embedded in the image space and compared with the images there (and with the text too
+   * when the space is shared). Nothing is found by meaning without an image space. `text` may still add words.
+   */
+  readonly image?: EmbedImage;
   /**
    * Only hits with a `similarity` of meaning: none at all when the query can't be embedded in time or its vector
    * searched, and none without a vector, instead of hits ranked by words alone (whose `rank` only says where they

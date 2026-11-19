@@ -24,7 +24,7 @@ import { Sectioning } from './sectioning.ts';
 export const TEST_DOCUMENT = QualifiedName.parse('vectors/document');
 
 /** No embedder connected. */
-export const NO_EMBEDDERS: Embedders = { get: () => undefined, active: () => undefined, onChange: () => () => undefined };
+export const NO_EMBEDDERS: Embedders = { get: () => undefined, active: () => undefined, images: () => undefined, onChange: () => () => undefined };
 
 /** For list sources in tests that never search context by text. */
 export const NO_FN_SEARCH: { readonly search: Pick<FnSearch, 'search'> } = { search: { search: () => Promise.reject(new Error('this test has no search')) } };

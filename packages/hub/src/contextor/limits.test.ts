@@ -1,8 +1,8 @@
+import { OllamaProvider, type OllamaShow } from '@aeye/ollama';
 import { ActorId, mintId } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { buildProvider } from '../execution/providers.ts';
-import { AUTO_MODEL, defaultProbes } from './limits.ts';
-import { numCtxOf, OllamaApi, OllamaProvider, reasons, servedDefault, servedWindow, unsetWindow, takesTools, trainedLengthOf, type OllamaShow } from './ollama.ts';
+import { AUTO_MODEL, defaultProbes, limitsOf } from './limits.ts';
 import { chatModel, contextorRig } from './testing.ts';
 import { CALIBRATION } from './tokens.ts';
 
@@ -33,45 +33,28 @@ const QWEN: OllamaShow = { parameters: 'num_ctx 8192\nstop "<|im_end|>"', templa
 const R1: OllamaShow = { parameters: 'stop "<｜User｜>"', template: '<｜User｜>{{ .Content }}', model_info: { 'qwen2.context_length': 131_072 }, details: { family: 'qwen2' } };
 
 describe('Ollama', () => {
-  it('reads the served window from num_ctx, else its default, never the trained length', () => {
-    expect(numCtxOf(QWEN)).toBe(8_192);
-    expect(numCtxOf(R1)).toBeUndefined();
-    expect(trainedLengthOf(R1)).toBe(131_072);
-    expect(servedDefault('0.5.7')).toBe(2_048);
-    expect(servedDefault('0.12.3')).toBe(4_096);
-    expect(unsetWindow('0.5.7', undefined, 4_096)).toBe(2_048);
-    expect(unsetWindow('0.12.3', undefined, 3_000)).toBe(3_000);
-    expect(unsetWindow('0.5.7', 8_192, 4_096)).toBe(8_192);
-    expect(servedWindow(R1, unsetWindow('0.5.7', undefined))).toBe(2_048);
-    expect(servedWindow(QWEN, 4_096)).toBe(8_192);
-    expect(servedWindow({ ...QWEN, model_info: { 'llama.context_length': 1_024 } }, 4_096)).toBe(1_024);
+  it('limits a model to its served window, with no thinking budget unless it thinks', () => {
+    expect(limitsOf('qwen2.5:3b', QWEN, 4_096)).toEqual({ contextWindow: 8_192, reasoningTokens: 0 });
+    expect(limitsOf('deepseek-r1:7b', R1, 2_048)).toEqual({ contextWindow: 2_048 });
   });
 
-  it('tells which models take tools and which think', () => {
-    expect(takesTools(QWEN)).toBe(true);
-    expect(takesTools(R1)).toBe(false);
-    expect(takesTools({ capabilities: ['completion', 'tools'] })).toBe(true);
-    expect(reasons('deepseek-r1:7b', R1)).toBe(true);
-    expect(reasons('qwen2.5:3b', QWEN)).toBe(false);
-    expect(reasons('x', { capabilities: ['thinking'] })).toBe(true);
-  });
-
-  it('lists its models with their abilities and served windows', async () => {
-    const { fetcher } = fakeOllama({ 'qwen2.5:3b': QWEN, 'deepseek-r1:7b': R1 });
-    const models = await new OllamaProvider({ baseURL: 'http://ollama.test:11434/', cap: 4_096 }, fetcher).listModels();
-    expect(models.map((m) => [m.id, m.provider, m.contextWindow, m.capabilities.has('tools'), m.capabilities.has('reasoning')])).toEqual([
-      ['qwen2.5:3b', 'ollama', 8_192, true, false],
-      ['deepseek-r1:7b', 'ollama', 2_048, false, true],
-    ]);
-    const provider = await buildProvider({ provider: 'ollama', baseURL: 'http://127.0.0.1:11434' }, () => Promise.reject(new Error('no key')), 4_096);
+  it('builds @aeye/ollama from a provider record, with the cap, window and decision models it names', async () => {
+    const { fetcher } = fakeOllama({ 'qwen2.5:3b': QWEN, 'deepseek-r1:7b': R1, nimble: { model_info: { 'nimble.context_length': 65_536 } } });
+    const provider = await buildProvider({ provider: 'ollama', baseURL: 'http://ollama.test:11434', contextWindow: 3_000, decisionModels: ['nimble'] }, () => Promise.reject(new Error('no key')), 4_096);
+    if (!(provider instanceof OllamaProvider)) { throw new Error('not an Ollama provider'); }
     expect(provider.name).toBe('ollama');
-    expect(new OllamaApi('http://x:1/').baseURL).toBe('http://x:1');
+    const models = await provider.listModels({ fetch: fetcher });
+    expect(models.map((m) => [m.id, m.contextWindow, m.capabilities.has('tools'), m.capabilities.has('reasoning'), m.capabilities.has('decision'), m.maxQuestions])).toEqual([
+      ['qwen2.5:3b', 8_192, true, false, false, undefined],
+      ['deepseek-r1:7b', 3_000, false, true, false, undefined],
+      ['nimble', 3_000, false, false, true, 64],
+    ]);
   });
 
   it('serves the same window through its model list as through the probe, whatever the cap', async () => {
     const { fetcher } = fakeOllama({ 'qwen2.5:3b': QWEN, 'deepseek-r1:7b': R1 });
     for (const cap of [1_024, 4_096]) {
-      const listed = await new OllamaProvider({ baseURL: 'http://ollama.test:11434/', cap }, fetcher).listModels();
+      const listed = await new OllamaProvider({ baseURL: 'http://ollama.test:11434/', maxContextWindow: cap, fetch: fetcher }).listModels();
       const probe = defaultProbes(cap, fetcher)({ provider: 'ollama', baseURL: 'http://ollama.test:11434' });
       for (const model of listed) expect((await probe?.probe(model.id))?.contextWindow, `${model.id} at ${cap}`).toBe(model.contextWindow);
     }

@@ -1,13 +1,14 @@
 /**
- * The models module's factory: model roles over the hub store and the model gateway over the execution module's
- * gateway and the content store, plus the `model` link endpoint systems forward non-chat calls to. Other modules are
- * read when a method runs, never while building.
+ * The models module's factory: model roles over the hub store, the model gateway over the execution module's gateway
+ * and the content store, the decider (the hub's own decision calls), and the `model` link endpoint systems forward
+ * non-chat calls to. Other modules are read when a method runs, never while building.
  */
 import { spec } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
 import { hubLinkSpec, type HubModelInfo, type ModelForwardResult, type ModelRole, type ModelRoleView } from '@harness/core';
 import type { EngineModel } from '../execution/ports.ts';
 import type { ModuleFactory } from '../boot/index.ts';
+import { HubDecider } from './decide.ts';
 import { HubModelGateway } from './gateway.ts';
 import { StoreModelRoles } from './roles.ts';
 
@@ -44,11 +45,16 @@ export const modelsModule: ModuleFactory<'models'> = ({ hub }) => {
       image: (input, site, signal) => hub.execution.llm.image(input, site, signal),
       transcribe: (input, site, signal) => hub.execution.llm.transcribe(input, site, signal),
       speech: (input, site, signal) => hub.execution.llm.speech(input, site, signal),
+      decide: (input, site, signal) => hub.execution.llm.decide(input, site, signal),
     },
     content: { put: (bytes, mime) => hub.api.content.put(bytes, mime), read: (ref, offset, length) => hub.api.content.read(ref, offset, length) },
   });
+  const decider = new HubDecider({
+    roles,
+    llm: { decide: (input, site, signal) => hub.execution.llm.decide(input, site, signal), models: () => hub.execution.llm.models() },
+  });
   return {
-    services: { roles, gateway },
+    services: { roles, gateway, decider },
     linkPlugins: [plugin({ name: 'models', spec: MODELS_LINK_SPEC }).handlers(() => ({
       // a system's call is paid by its own run; the gateway refuses a run that isn't the system's
       model: ({ data, link, signal }): Promise<ModelForwardResult> => gateway.forward(data, { system: link.system, instance: link.instance, ...(data.run === undefined ? {} : { run: data.run }) }, signal),

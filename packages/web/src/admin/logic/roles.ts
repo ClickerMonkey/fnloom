@@ -4,7 +4,7 @@
  * model's limits with where each came from. Pure, so it is tested alone.
  */
 import {
-  ModelLimits, ROLE_CAPABILITY, RoleChoice, type DictationEngine, type LimitSource, type ModelInfo, type ModelLimitsView, type ModelRole, type ModelRoleView, type ProviderId,
+  DEFAULT_DECIDE_THRESHOLD, ModelLimits, ROLE_CAPABILITY, RoleChoice, type DictationEngine, type LimitSource, type ModelInfo, type ModelLimitsView, type ModelRole, type ModelRoleView, type ProviderId,
 } from '@harness/core';
 import type { Outcome } from '../../ui/index.ts';
 
@@ -16,6 +16,10 @@ export const ROLE_WORDS = {
   speak: { label: 'Speech', about: 'Reads answers aloud.', can: 'speak' },
   describe: { label: 'Image descriptions', about: 'Describes images so agents can read them.', can: 'see images' },
   ocr: { label: 'Text in images', about: 'Reads the text in images and scanned pages.', can: 'see images' },
+  decide: {
+    label: 'Decisions', about: 'A decision model answering yes/no questions: context crawls, systems reusing what they have, and suggestions when set to it.',
+    can: 'decide',
+  },
 } as const satisfies Record<ModelRole, { label: string; about: string; can: string }>;
 
 /** Where a role's setting came from, in words. */
@@ -28,24 +32,34 @@ export function modelsFor(role: ModelRole, models: readonly ModelInfo[]): { read
   return { able: byName.filter((m) => m.capabilities.includes(capability)), other: byName.filter((m) => !m.capabilities.includes(capability)) };
 }
 
-/** A role's editor: dictation's engine, the model (an id) and its pinned provider, and a language. */
+/** A role's editor: dictation's engine, the model (an id) and its pinned provider, a language, and the decide threshold. */
 export interface RoleDraft {
   readonly engine: DictationEngine['engine'];
   readonly model: string;
   /** The pinned provider; '' for any that offers the model. */
   readonly provider: ProviderId;
   readonly language: string;
+  /** The decide role's threshold as typed, 0 to 1. */
+  readonly threshold: string;
+}
+
+/** Whether a role has a language hint (the decide role reads no audio or images). */
+export function hasLanguage(role: ModelRole): boolean {
+  return role !== 'decide';
 }
 
 /** The editor's fields for a role's current setting (empty when it has none, or chooses by category or automatically). */
 export function roleDraft(view: ModelRoleView): RoleDraft {
   const choice = view.choice;
-  const empty: RoleDraft = { engine: view.role === 'dictate' ? 'browser' : 'model', model: '', provider: '', language: '' };
+  const empty: RoleDraft = { engine: view.role === 'dictate' ? 'browser' : 'model', model: '', provider: '', language: '', threshold: String(DEFAULT_DECIDE_THRESHOLD) };
   if (choice === undefined) { return empty; }
+  if (choice.role === 'decide') {
+    return { ...empty, model: 'model' in choice.model ? choice.model.model : '', provider: choice.provider ?? '', threshold: String(choice.threshold) };
+  }
   const language = choice.language ?? '';
   if (choice.role === 'dictate') {
     if (choice.engine.engine === 'browser') { return { ...empty, engine: 'browser', language }; }
-    return { engine: 'model', model: 'model' in choice.engine.model ? choice.engine.model.model : '', provider: choice.engine.provider ?? '', language };
+    return { ...empty, engine: 'model', model: 'model' in choice.engine.model ? choice.engine.model.model : '', provider: choice.engine.provider ?? '', language };
   }
   return { ...empty, model: 'model' in choice.model ? choice.model.model : '', provider: choice.provider ?? '', language };
 }
@@ -57,17 +71,28 @@ export function roleChoiceOf(role: ModelRole, draft: RoleDraft): Outcome<RoleCho
   const extra = language === '' ? {} : { language };
   if (role === 'dictate' && draft.engine === 'browser') { return { ok: true, value: RoleChoice.parse({ role, engine: { engine: 'browser' }, ...extra }) }; }
   if (draft.model.trim() === '') { return { ok: false, problem: 'Choose a model.' }; }
+  if (role === 'decide') {
+    const threshold = Number(draft.threshold);
+    if (draft.threshold.trim() === '' || !Number.isFinite(threshold) || threshold < 0 || threshold > 1) { return { ok: false, problem: 'The threshold is a probability from 0 to 1.' }; }
+    return { ok: true, value: RoleChoice.parse({ role, ...pinned, threshold }) };
+  }
   const parsed = RoleChoice.safeParse(role === 'dictate' ? { role, engine: { engine: 'model', ...pinned }, ...extra } : { role, ...pinned, ...extra });
   return parsed.success ? { ok: true, value: parsed.data } : { ok: false, problem: parsed.error.issues[0]?.message ?? 'That setting isn’t valid.' };
 }
 
-/** What a role resolves to now, in words: the model and provider, or why it can't be used. */
+/** What a role resolves to now, in words: the model and provider (and the decide threshold), or why it can't be used. */
 export function resolvedText(view: ModelRoleView): string {
   if (view.choice?.role === 'dictate' && view.choice.engine.engine === 'browser') { return 'The browser’s own speech recognition (no model call).'; }
   const resolved = view.resolved;
   if (resolved === undefined) { return view.from === 'none' ? 'Not set: this job is off.' : 'Not checked yet.'; }
   if ('problem' in resolved) { return resolved.problem; }
-  return `${resolved.model} on ${resolved.provider}`;
+  const threshold = view.choice?.role === 'decide' ? ` · yes at ${Math.round(view.choice.threshold * 100)}% or more` : '';
+  return `${resolved.model} on ${resolved.provider}${threshold}`;
+}
+
+/** A role's language hint, when it has one. */
+export function roleLanguage(view: ModelRoleView): string | undefined {
+  return view.choice === undefined || view.choice.role === 'decide' ? undefined : view.choice.language;
 }
 
 /** Whether a role works now. */

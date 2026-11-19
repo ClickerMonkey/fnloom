@@ -71,6 +71,7 @@ export function fnDecl(name: string, def: AnyFnDef): FnDecl {
     ...(def.promptExamples === undefined ? {} : { promptExamples: def.promptExamples }),
     ...(def.group === undefined ? {} : { group: def.group }),
     ...(def.flags ? { flags: true } : {}),
+    ...(def.roles === undefined || def.roles.length === 0 ? {} : { roles: [...def.roles] }),
   };
 }
 

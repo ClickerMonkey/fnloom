@@ -10,7 +10,7 @@ import {
   EXPORT_NOT_READY, LINK_PROTOCOL, MAIN_INSTANCE, SystemName, systemLinkSpec,
   type ContentRef, type InstanceMode, type InstanceName, type SystemPackageManifest,
   type AutoPairProof, type ConfigValue, type HelloReply, type KindDescription, type Manifest, type ResourceChange, type ResourceRead, type ResourceRoot, type Section,
-  type StopReason, type SystemEvent, type Welcome,
+  type ProviderModelsResult, type StopReason, type SystemEvent, type Welcome,
 } from '@harness/core';
 import { ADMIN } from '../catalog/fixtures.ts';
 import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
@@ -33,7 +33,7 @@ export const RIG_SETTINGS: SystemsSettings = {
     HARNESS_RESTART_BACKOFF: 5, HARNESS_RESTARTS_PER_HOUR: 2, HARNESS_RESTART_BACKOFF_MAX: 300_000, HARNESS_PROCESS_OUTPUT_TAIL: 8_192,
   },
   model: { HARNESS_EMBEDDER_DOCUMENT: 'vectors/document', HARNESS_EMBEDDER_QUERY: 'vectors/query', HARNESS_EMBED_BATCH: 8 },
-  index: { HARNESS_EMBED_WAIT: 1, HARNESS_EMBED_POLL: 2, HARNESS_EMBED_INTERACTIVE: 2, HARNESS_EMBED_BACKGROUND: 1, HARNESS_INDEX_MAX_TEXT: 500, HARNESS_SEARCH_OVERFETCH: 3, HARNESS_SEARCH_EMBED_WAIT: 1_000, HARNESS_INDEX_CRAWL_MAX: 1_000, HARNESS_INDEX_EMBED_BATCH: 8, HARNESS_INDEX_RETRY: 50, HARNESS_INDEX_RETRY_MOST: 200 },
+  index: { HARNESS_EMBED_WAIT: 1, HARNESS_EMBED_POLL: 2, HARNESS_EMBED_INTERACTIVE: 2, HARNESS_EMBED_BACKGROUND: 1, HARNESS_INDEX_MAX_TEXT: 500, HARNESS_SEARCH_OVERFETCH: 3, HARNESS_SEARCH_EMBED_WAIT: 1_000, HARNESS_INDEX_CRAWL_MAX: 1_000, HARNESS_INDEX_EMBED_BATCH: 8, HARNESS_INDEX_RETRY: 50, HARNESS_INDEX_RETRY_MOST: 200, HARNESS_INDEX_IMAGE_MAX: 1_000_000 },
   search: { HARNESS_SEARCH_RRF_K: 60, HARNESS_SEARCH_DEPTH: 4 },
   review: { HARNESS_REVIEW_SYSTEMS: false, HARNESS_GRANTS: 'log', HARNESS_REFUSALS_PAUSE: 5, HARNESS_REFUSALS_WINDOW: 60_000 },
 };
@@ -73,7 +73,10 @@ export interface FakeBehaviour {
   read: (uri: string) => ResourceRead;
   content: (offset: number, length: number) => string;
   sections: Section[];
+  /** Embeddings, for the old `embed` endpoint and its providers' `providerEmbed` (an image comes as its URL). */
   embed: (texts: string[]) => number[][];
+  /** Which of a provider's models it serves now (`providerModels`). */
+  models: (provider: string) => ProviderModelsResult;
   /** Applying a pushed config (what a real system does in `configured`). */
   configure: (config: ConfigValue) => void;
 }
@@ -96,6 +99,7 @@ export class FakeSystem {
     content: () => '',
     sections: [],
     embed: (texts) => texts.map(() => [0, 1, 0]),
+    models: () => ({ listed: false }),
     configure: () => undefined,
   };
   readonly paired: string[] = [];
@@ -138,6 +142,8 @@ export class FakeSystem {
       content: ({ data }) => ({ chunk: b.content(data.offset, data.length) }),
       watch: ({ data }) => { this.watched.push(data.uris); },
       embed: ({ data }) => ({ vectors: b.embed(data.texts) }),
+      providerEmbed: ({ data }) => ({ vectors: b.embed(data.inputs.map((input) => (typeof input === 'string' ? input : input.image))) }),
+      providerModels: ({ data }) => b.models(data.provider),
       event: ({ data }) => { this.events.push(data); },
       configure: ({ data }) => { this.configured.push(data); b.configure(data); },
       stop: ({ data }) => { this.stops.push(data.reason); },
@@ -148,7 +154,7 @@ export class FakeSystem {
       },
       run: notHere, control: notHere, undo: notHere, handler: notHere, child: notHere, context: notHere, hook: notHere, mentions: notHere,
       mentionHover: notHere, mentionText: notHere, action: notHere, form: notHere, restart: notHere,
-      validate: notHere, preview: notHere, flags: notHere, estimate: notHere, providerChat: notHere, providerEmbed: notHere, connectStart: notHere, connectFinish: notHere, disconnect: notHere,
+      validate: notHere, preview: notHere, flags: notHere, estimate: notHere, providerChat: notHere, providerDecide: notHere, connectStart: notHere, connectFinish: notHere, disconnect: notHere,
     })]);
     const ws: ClientWs = {
       send: (frame) => { if (this.conn !== null) { void this.#app.ws.message(this.conn, frame); } },

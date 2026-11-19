@@ -194,6 +194,7 @@ type ManifestPatch = {
       promptExamples?: number | undefined;
       group?: string | undefined;
       flags?: boolean | undefined;
+      roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
       live?: {
         every: number;
       } | undefined;
@@ -301,6 +302,9 @@ type ManifestPatch = {
         caching: boolean;
         name?: string | undefined;
         maxOutput?: number | undefined;
+        dimensions?: number | undefined;
+        maxInput?: number | undefined;
+        maxQuestions?: number | undefined;
       }[];
     }[] | undefined;
     registries?: {

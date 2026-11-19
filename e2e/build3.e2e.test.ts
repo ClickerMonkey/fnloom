@@ -43,7 +43,7 @@ beforeAll(async () => {
 afterAll(async () => {
   watch.stop();
   if (bench !== undefined) { await halt(bench, 10_000); }
-  await me.hub.call('setSuggestDecision', { enabled: false, messages: 3, candidates: 20, cap: 6, floor: 0.2 }).catch(() => undefined);
+  await me.hub.call('setSuggestDecision', { by: 'none' }).catch(() => undefined);
   await me.hub.call('removeInstance', { system: FS, instance: BENCH }).catch(() => undefined);
   me.close();
 });
@@ -92,11 +92,11 @@ describe('suggestions and the decision model', () => {
     expect(runsOf(tree).map((node) => node.run.fn)).toContain('hub/query');
   });
 
-  it('with the decision model on, the model picks and the record links its call', async () => {
+  it('with an LLM picking, the model picks and the record links its call', async () => {
     const model = liveModels()[0];
     expect(model).toBeDefined();
     if (model === undefined) { return; }
-    await me.hub.call('setSuggestDecision', { enabled: true, model: { model: { model } }, messages: 3, candidates: 12, cap: 4, floor: 0.05 });
+    await me.hub.call('setSuggestDecision', { by: 'llm', model: { model: { model } }, messages: 3, candidates: 12, cap: 4, floor: 0.05 });
     const preview = await me.hub.call('previewSuggestions', { session, text: 'Read the README file and summarise it.' });
     expect(preview.by).toBe('decision');
     expect(preview.items.length).toBeGreaterThan(0);

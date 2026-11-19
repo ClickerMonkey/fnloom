@@ -2,6 +2,7 @@
  * The seams inside the execution module and what it needs from the rest of the hub. Each concrete piece (executors,
  * the LLM engine, the agent's conversation) is an interface here with classes beside it, so tests swap any of them.
  */
+import type { DecisionResponse } from '@aeye/ai';
 import type { Streamer } from '@aeye/core';
 import type { Logger } from '@ayepi/log';
 import type {
@@ -19,7 +20,7 @@ import type { ConnectionService } from '../connections/index.ts';
 import type { ExecutionEnv } from './env.ts';
 import type { FnMetricsService, ModelCallLog } from '../metrics/index.ts';
 import type { ModelRoles } from '../models/index.ts';
-import type { EmbedCall, Heard, ImageCall, MadeImage, SpeechCall, Spoken, TranscribeCall } from './media.ts';
+import type { DecideCall, EmbedCall, Heard, ImageCall, MadeImage, SpeechCall, Spoken, TranscribeCall } from './media.ts';
 import type { HubCallContext, HubCallMetadata } from './scope.ts';
 
 /** The settings execution reads: the shared queue slice, the default model, and its own. */
@@ -133,6 +134,7 @@ export interface LlmEngine {
   image(input: ImageCall, ctx: HubCallContext, signal?: AbortSignal): Promise<MadeImage[]>;
   transcribe(input: TranscribeCall, ctx: HubCallContext, signal?: AbortSignal): Promise<Heard>;
   speech(input: SpeechCall, ctx: HubCallContext, signal?: AbortSignal): Promise<Spoken>;
+  decide(input: DecideCall, ctx: HubCallContext, signal?: AbortSignal): Promise<DecisionResponse>;
   models(): EngineModel[];
 }
 

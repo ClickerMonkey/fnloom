@@ -4,7 +4,7 @@
  * floor in step with the hub's suggestion threshold, so a change to one shows in the others (regression: both were
  * set when every hit scored near 1).
  */
-import { ContextorConfig, SuggestDecision } from '@harness/core';
+import { ContextorConfig, SuggestPicking } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { chatEnv } from '../chat/env.ts';
 import { contextorEnv, metricDefaults } from './env.ts';
@@ -29,7 +29,7 @@ describe('score thresholds', () => {
   });
 
   it('gives the decision model near misses under the suggestion threshold, but not the bottom of unrelated text', () => {
-    const { floor } = SuggestDecision.parse({});
+    const { floor } = SuggestPicking.parse({});
     expect(floor).toBeLessThan(suggestAt);
     expect(floor).toBeGreaterThan(0.2);
   });

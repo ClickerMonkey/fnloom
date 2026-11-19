@@ -1,6 +1,6 @@
 /**
- * The embedder system's server: a `GemmaClient` over product's EmbeddingGemma HTTP service, served as the
- * `document` and `query` embedders. The parts are behind these interfaces so tests use fakes (a fake `fetch`, a fake
+ * The embedder system's server: a `GemmaClient` over product's EmbeddingGemma HTTP service, served as the `gemma`
+ * provider's `document` and `query` embedding models. The parts are behind these interfaces so tests use fakes (a fake `fetch`, a fake
  * sleep) and `createEmbedderImpl` wires them to the contract.
  */
 import type { ConfigOf } from '@harness/sdk';

@@ -253,6 +253,9 @@ describe('every other modality through the hub (`model`)', () => {
         case 'image': return { modality: 'image', images: Array.from({ length: forward.count ?? 1 }, () => imageRef ?? fail()), call, cost: 0.04, model: 'vendor/painter' };
         case 'transcribe': return { modality: 'transcribe', text: 'hello there', segments: [{ start: 0, end: 1.5, text: 'hello there' }], call, cost: 0.01, model: 'vendor/ears' };
         case 'speech': return { modality: 'speech', audio: speechRef ?? fail(), call, cost: 0.02, model: 'vendor/voice' };
+        case 'decide': return {
+          modality: 'decide', answers: Object.fromEntries(Object.keys(forward.questions).map((name) => [name, { type: 'predicate', probability: 0.75 }])), call, cost: 0.003, model: 'vendor/judge',
+        };
       }
     };
     return { answer, image, speech };
@@ -308,6 +311,25 @@ describe('every other modality through the hub (`model`)', () => {
 
     const embedded = await (await hubAiOf({ hub: access, content, run })).embed.get({ texts: ['four'] });
     expect(embedded.embeddings).toEqual([{ embedding: [4], index: 0 }]);
+  });
+
+  it('answers aeye decision calls through the hub (ctx.ai().decide), text or a conversation, and refuses images', async () => {
+    const content = new MemoryContent();
+    const { answer } = modalHub(content);
+    const { access, models } = scriptedHub([], answer);
+    const provider = new HarnessProvider({ hub: access, content, run });
+    const questions = { relevant: { type: 'predicate' as const, instructions: 'Is it about files?' } };
+
+    const decided = await provider.decide({ input: 'read the readme', questions }, { metadata: { harness: { model: { model: 'vendor/judge' } } } });
+    expect(decided).toEqual({ answers: { relevant: { type: 'predicate', probability: 0.75 } }, model: 'vendor/judge', usage: { cost: 0.003 } });
+    expect(models[0]).toEqual({ modality: 'decide', input: 'read the readme', questions, model: { model: 'vendor/judge' }, run });
+
+    // with no model named the hub's decide role answers; a conversation crosses as wire messages
+    const ai = await hubAiOf({ hub: access, content, run });
+    const viaAi = await ai.decide.get({ input: [{ role: 'user', content: 'hi' }], questions });
+    expect(viaAi.answers).toEqual({ relevant: { type: 'predicate', probability: 0.75 } });
+    expect(models[1]).toMatchObject({ modality: 'decide', input: [{ role: 'user', content: 'hi' }] });
+    await expect(provider.decide({ input: 'x', questions, images: ['data:image/png;base64,AA=='] }, {})).rejects.toThrow(/no images/);
   });
 
   it('refuses an answer of another modality', async () => {

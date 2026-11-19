@@ -30,6 +30,8 @@ export const ModelInfo = z.object({
   pricing: z.object({ input: Usd, output: Usd }).optional(),
   /** What it can do: `chat`, `tools`, `vision`, `reasoning`, `embedding`, … */
   capabilities: z.array(z.string()),
+  /** A decision model's most questions per call (aeye's `ModelInfo.maxQuestions`): callers split their questions by it. */
+  maxQuestions: z.number().int().min(1).optional(),
 });
 export type ModelInfo = z.infer<typeof ModelInfo>;
 

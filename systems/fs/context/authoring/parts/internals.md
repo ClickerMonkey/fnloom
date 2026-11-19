@@ -13,6 +13,8 @@ choices:
     when: "Pick this for manifestOf, manifestBody, fnDecl, validationOf, providerDecl, canonicalJson, contractHash, sha256, ManifestOptions, ProviderServer, ProviderServerParts, providerErrorKind, KeyStore,…"
   - to: "fs/authoring.internals.crashpolicy"
     when: "Pick this for CrashPolicy, CrashPolicyOptions, ExitDecision, STATUS_LOG, statusOfLine, AccessDeniedReader, AccessDenied, AllowlistProxy, AllowlistProxyOptions, ProxyRefusal, hostAllowed, proxyEnv,…"
+  - to: "fs/authoring.internals.redirectproblems"
+    when: "Pick this for RedirectProblems."
   - to: "fs/authoring.core-types"
     when: "Pick this to go on in order: Core types."
 ---
@@ -29,7 +31,8 @@ preloads `NETWORK_GUARD` (`--require`), the socket guard (`guardNetwork`, also `
 holds every socket to the proxy and the hub. A refused host prints a `networkRefusedLine`, which the supervisor reads
 back (`refusedOfLine`) and reports to the hub; `setAllowed` changes what a running proxy lets through.
 
-This part is in 2 pieces; load the one you need:
+This part is in 3 pieces; load the one you need:
 
 - [manifestOf … ProcessGrants](context:fs/authoring.internals.manifestof)
-- [CrashPolicy … RedirectProblems](context:fs/authoring.internals.crashpolicy)
+- [CrashPolicy … RedirectOptions](context:fs/authoring.internals.crashpolicy)
+- [RedirectProblems](context:fs/authoring.internals.redirectproblems)

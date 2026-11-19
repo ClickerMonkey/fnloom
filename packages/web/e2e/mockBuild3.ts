@@ -2,7 +2,7 @@
  * The mock hub's build 3 state: auto pair secrets (listed without secrets, revoked by an admin) and the decision-model
  * setting for suggestions with its try-out, so the admin screens show real-looking rows.
  */
-import { IDS, InstanceName, QualifiedName, SuggestDecision, SystemName, type ActorId, type AutoPairId, type AutoPairView, type SuggestDecisionView, type SuggestionRecord } from '@harness/core';
+import { IDS, InstanceName, QualifiedName, SUGGEST_DECISION_DEFAULT, type SuggestDecision, SystemName, type ActorId, type AutoPairId, type AutoPairView, type SuggestDecisionView, type SuggestionRecord } from '@harness/core';
 
 const DAY = 86_400_000;
 
@@ -11,7 +11,7 @@ export class MockBuild3 {
   readonly #now: () => number;
   readonly #owner: () => ActorId;
   #secrets: AutoPairView[];
-  #decision: SuggestDecisionView = { value: SuggestDecision.parse({}) };
+  #decision: SuggestDecisionView = { value: SUGGEST_DECISION_DEFAULT };
 
   constructor(now: () => number, owner: () => ActorId) {
     this.#now = now;
@@ -49,9 +49,10 @@ export class MockBuild3 {
 
   /** A try-out: the shape a decision model's answer takes, used and left out with reasons. */
   preview(): SuggestionRecord {
-    const by = this.#decision.value.enabled ? 'decision' : 'score';
+    const value = this.#decision.value;
+    const by = value.by === 'none' ? 'score' : 'decision';
     return {
-      by, threshold: this.#decision.value.floor,
+      by, threshold: value.by === 'none' ? 0.45 : value.floor,
       items: [
         { used: true, kind: 'fn', name: QualifiedName.parse('fs/read'), score: 0.82 },
         { used: true, kind: 'context', name: QualifiedName.parse('fs/guide'), score: 0.71 },

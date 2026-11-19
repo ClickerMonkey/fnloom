@@ -5,10 +5,11 @@
  * against the model the hub picks. What streams back is the schema descriptors the provider chose (so the system's
  * aeye decodes strict-mode output with its own schemas), the chunks, and the real cost.
  *
- * The other modalities (embeddings, images, transcription, speech) go through the same AI as calls, for a system's
+ * The other modalities (embeddings, images, transcription, speech, decisions) go through the same AI as calls, for a system's
  * run or the hub's own work, each answered with its `ModelCall` and cost (the models module's `ModelGateway` is the
  * one caller: it picks the model and turns bytes into content refs).
  */
+import type { DecisionResponse } from '@aeye/ai';
 import type { Request } from '@aeye/core';
 import { retry } from '@ayepi/core/retry';
 import { isSettled, MAIN_INSTANCE, SystemName, type InstanceName, type LlmForward, type LlmForwardChunk, type LlmRequest, type ModelChoice, type Priority, type RunId, type TurnId } from '@harness/core';
@@ -16,7 +17,7 @@ import type { ModelSite } from '../models/index.ts';
 import { Channel } from './channel.ts';
 import { BudgetRefused, causeOf, fnError, LlmRateLimited, messageOf } from './errors.ts';
 import type { LlmGateway, Recorded, RunService } from './index.ts';
-import type { EmbedCall, Heard, ImageCall, MadeImage, SpeechCall, Spoken, TranscribeCall } from './media.ts';
+import type { DecideCall, EmbedCall, Heard, ImageCall, MadeImage, SpeechCall, Spoken, TranscribeCall } from './media.ts';
 import type { ModelResolver } from './models.ts';
 import type { EngineModel, ExecutionDeps, LlmEngine } from './ports.ts';
 import { transientDelay, type ExecutionQueues } from './queues.ts';
@@ -123,6 +124,10 @@ export class HubLlmGateway implements LlmGateway {
 
   speech(input: SpeechCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<Spoken>> {
     return this.#call(site, signal, (ctx) => this.#deps.llm.speech(input, ctx, signal));
+  }
+
+  decide(input: DecideCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<DecisionResponse>> {
+    return this.#call(site, signal, (ctx) => this.#deps.llm.decide(input, ctx, signal));
   }
 
   async chat(input: { request: LlmRequest; model?: ModelChoice; provider?: string; priority?: Priority }, site: ModelSite, signal: AbortSignal): Promise<Recorded<string>> {

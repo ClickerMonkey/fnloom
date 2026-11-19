@@ -4,11 +4,13 @@ import { describe, expect, it } from 'vitest';
 import { GEMMA_DIMENSIONS, GemmaEmbedResponse, embedderSystem } from './index.ts';
 
 describe('the embedder contract', () => {
-  it('declares a document and a query embedder in one 768-dimension space', async () => {
+  it('declares a provider with a document and a query embedding model in one 768-dimension space', async () => {
     const manifest = await manifestOf(embedderSystem, { version: '0.0.0' });
     expect(Manifest.safeParse(manifest).success).toBe(true);
-    expect(manifest.embedders.map((e) => [e.name, e.dimensions])).toEqual([['document', GEMMA_DIMENSIONS], ['query', GEMMA_DIMENSIONS]]);
-    expect(embedderSystem.embedders.query.name).toBe('embedder/query');
+    expect(manifest.embedders).toEqual([]);
+    expect(manifest.providers?.map((p) => [p.name, p.models.map((m) => [m.id, m.capabilities, m.dimensions, m.pricing.input])])).toEqual([
+      ['gemma', [['document', ['embedding'], GEMMA_DIMENSIONS, 0], ['query', ['embedding'], GEMMA_DIMENSIONS, 0]]],
+    ]);
   });
 
   it('reads the service response, ignoring fields it does not use', () => {

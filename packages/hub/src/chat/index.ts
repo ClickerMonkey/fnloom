@@ -112,12 +112,12 @@ export interface DecidedSuggestions {
  */
 export interface SuggestionDecider {
   decide(input: { session: SessionId; text: string; actor: ActorId }): Promise<DecidedSuggestions>;
-  /** The decision model setting (off by default). */
+  /** The suggestions setting: who picks (no model by default). */
   setting(): Promise<SuggestDecisionView>;
   set(value: SuggestDecision, by: ActorId): Promise<SuggestDecisionView>;
   /**
-   * Build 5: the decision model chooses for a system (`decide` on the hub link) between reusing something it has and
-   * making something new. `off` when the model is off; `failed` when its call fails or answers nonsense. The call is
+   * Build 5: the suggestions chooser (a decision model or an LLM) chooses for a system (`decide` on the hub link) between
+   * reusing something it has and making something new. `off` when no model picks suggestions; `failed` when its call fails or answers nonsense. The call is
    * a model call of the asking run.
    */
   forSystem(request: DecideRequest): Promise<DecideAnswer>;

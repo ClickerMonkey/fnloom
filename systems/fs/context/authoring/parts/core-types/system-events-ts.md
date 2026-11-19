@@ -50,7 +50,7 @@ type SystemEvent = {
       message?: string | undefined;
     } | {
       steps: Record<string, {
-        status: "done" | "failed" | "active" | "pending" | "skipped";
+        status: "done" | "failed" | "active" | "skipped" | "pending";
         detail?: string | undefined;
       }>;
     };

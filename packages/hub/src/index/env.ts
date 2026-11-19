@@ -4,6 +4,7 @@
  */
 import { env } from '@ayepi/env';
 import { z } from 'zod';
+import { MAX_PICTURE_BYTES } from './indexer.ts';
 
 export const indexEnv = env({
   HARNESS_EMBED_WAIT: z.number().int().min(0).default(15).describe('How long an embed batch waits for more texts after its first before it is sent.'),
@@ -16,6 +17,7 @@ export const indexEnv = env({
   HARNESS_INDEX_EMBED_BATCH: z.number().int().min(1).default(64).describe('How many index rows are embedded and saved together in a catch-up; each chunk is saved as it lands, so a failure loses at most one.'),
   HARNESS_INDEX_RETRY: z.number().int().min(1).default(5_000).describe('How long after a failed embedding the index first tries again; the wait doubles after each failure.'),
   HARNESS_INDEX_RETRY_MOST: z.number().int().min(1).default(300_000).describe('The longest the index waits before trying a failed embedding again.'),
+  HARNESS_INDEX_IMAGE_MAX: z.number().int().min(1).default(MAX_PICTURE_BYTES).describe('The most bytes of a picture the image space embeds; a larger one is indexed by its caption alone.'),
   HARNESS_INDEX_CRAWL_MAX: z.number().int().min(1).default(20_000).describe('The most resources one crawl of a root (on connect, for roots that index everything) looks at.'),
 });
 

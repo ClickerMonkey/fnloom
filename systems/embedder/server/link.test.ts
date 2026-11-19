@@ -1,6 +1,7 @@
 /**
  * The embedder system end to end over the SDK's real link runtime: `serve` connects to an in-memory hub (`FakeHub`),
- * sends the manifest with both embedders, and the hub's `embed` calls cross the link. The service is a fake client.
+ * sends the manifest with its `gemma` provider, and the hub's `providerEmbed` and `providerModels` calls cross the link.
+ * The service is a fake client.
  */
 import { serve, type RunningSystem } from '@harness/sdk/server';
 import { FakeHub } from '@harness/sdk/server/testing';
@@ -29,7 +30,7 @@ describe('embedder over the link', () => {
     running = undefined;
   });
 
-  it('declares both embedders at 768 dimensions and embeds each with its task', async () => {
+  it('declares its provider’s two embedding models at 768 dimensions, lists them live, and embeds each with its task', async () => {
     const client = new FakeClient();
     const hub = new FakeHub({ config: {} });
     running = await serve(embedderSystem, createEmbedderImpl({ client, defaultUrl: 'http://gemma', queryCache: 10 }).impl, { hub: 'ws://hub.test/link', state: 'unused', version: '0.0.0' }, hub.host());
@@ -41,10 +42,13 @@ describe('embedder over the link', () => {
     expect(manifest).toContain(String(GEMMA_DIMENSIONS));
 
     const peer = hub.peer();
-    const documents = await peer.call('embed', { embedder: 'document', texts: ['ab', 'abc'] });
+    expect(await peer.call('providerModels', { provider: 'gemma' })).toEqual({ listed: true, models: [{ id: 'document', contextWindow: 2_048 }, { id: 'query', contextWindow: 2_048 }] });
+    const documents = await peer.call('providerEmbed', { provider: 'gemma', model: 'document', inputs: ['ab', 'abc'] });
     expect(documents.vectors.map((v) => [v.length, v[0], v[1]])).toEqual([[GEMMA_DIMENSIONS, 0, 2], [GEMMA_DIMENSIONS, 0, 3]]);
-    await peer.call('embed', { embedder: 'query', texts: ['q'] });
-    await peer.call('embed', { embedder: 'query', texts: ['q'] });
+    await peer.call('providerEmbed', { provider: 'gemma', model: 'query', inputs: ['q'] });
+    await peer.call('providerEmbed', { provider: 'gemma', model: 'query', inputs: ['q'] });
     expect(client.asked).toEqual([[['ab', 'abc'], 'document'], [['q'], 'query']]);
+    // a model the contract doesn't declare is refused
+    await expect(peer.call('providerEmbed', { provider: 'gemma', model: 'passage', inputs: ['x'] })).rejects.toThrow(/declares no model passage/);
   });
 });

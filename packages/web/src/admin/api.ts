@@ -109,6 +109,9 @@ export function adminApi(hub: Hub) {
     // the model a chat in auto mode asks about calls that write or delete
     autoClassifier: hub.caller('autoClassifier', { dedupe: true }),
     setAutoClassifier: hub.caller('setAutoClassifier'),
+    // where the index embeds pictures: off, the text model's space, or a model of their own
+    imageEmbedding: hub.caller('imageEmbedding', { dedupe: true }),
+    setImageEmbedding: hub.caller('setImageEmbedding'),
     upload: hub.caller('upload'),
     uploaded: hub.caller('uploaded'),
   };

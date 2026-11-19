@@ -17,7 +17,10 @@ tags: ["authoring", "reference"]
 const, type · declared in `packages/core/src/system-providers.ts`
 
 One model a system's provider serves. `capabilities` are aeye `ModelCapability` names (`chat`, `tools`, `vision`,
-`json`, `embedding`, ...); the hub keeps only those aeye knows. `caching`: whether the model reads a prompt cache.
+`json`, `embedding`, `imageEmbedding`, `crossModalEmbedding`, `decision`, ...); the hub keeps only those aeye knows.
+`caching`: whether the model reads a prompt cache. An embedding model (of text or images) gives its vectors'
+`dimensions` and the most characters it reads (`maxInput`); a
+decision model the most questions it answers in one call (`maxQuestions`), which every caller splits by.
 
 ```ts
 type ProviderModelDecl = {
@@ -33,5 +36,8 @@ type ProviderModelDecl = {
   caching: boolean;
   name?: string | undefined;
   maxOutput?: number | undefined;
+  dimensions?: number | undefined;
+  maxInput?: number | undefined;
+  maxQuestions?: number | undefined;
 };
 ```

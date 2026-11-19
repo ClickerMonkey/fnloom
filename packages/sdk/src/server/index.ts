@@ -171,7 +171,7 @@ export {
 } from './llm.ts';
 export {
   LlmWire, UNSENDABLE_CONTENT, messageFromWire, requestFromWire, isObjectSchema, descriptorsOf, applyDescriptors, usageToWire, usageFromWire, chunkToWire,
-  chunkFromWire, responseToWire, type LlmWireOptions, type LlmDescriptors,
+  chunkFromWire, responseToWire, decisionInputToWire, decisionInputFromWire, type LlmWireOptions, type LlmDescriptors,
 } from './llm-wire.ts';
 export { ProviderServer, providerErrorKind, type ProviderServerParts } from './providers.ts';
 export { NodeFiles, fileUri, uriInstance, mimeOf, type FilesFactory, type FilesScope } from './files.ts';

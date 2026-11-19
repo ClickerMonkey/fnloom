@@ -102,7 +102,8 @@ A system is a process with a unique **name**. The name namespaces everything it 
 - **Mention providers** for `@` in the chat: ways to point at things the system knows (a file, a database
   row, a ticket).
 - **Hooks** that add information to a user message before the LLM sees it.
-- **Embedders**: an embed function the hub can use for indexing.
+- **Providers**: an aeye provider whose models the hub can use like any configured provider's: chat, embeddings
+  (the index's embedders are a system's embedding models) and decisions. See **Providers from systems**.
 - **Actor settings**: typed per-actor controls an admin (or a fn) can set, such as a database system's
   row and field rules for a group.
 - **Event subscriptions**: hub events it wants to hear.
@@ -760,6 +761,12 @@ Before the LLM sees a user message, two things may add to it:
   was suggested is kept on the session in the hub database, and neither the hub nor a hook suggests it again, nor
   anything the session already has loaded. The search query itself leaves those keys out, in the word, meaning and
   combined searches alike, so a page of suggestions is still full. Undoing a turn gives its suggestions back.
+
+  **Who picks** is one admin setting (Models page, "Who picks"): **no model** (the default: the best candidates over
+  the threshold are suggested), a **decision model** (its own, or the decide role's), which answers one yes/no question
+  per candidate and picks those at or above the decide role's threshold, most likely first, or an **LLM** (a chat
+  model), which reads the candidates and answers which to pick, with reasons. If the model fails, the score decides.
+  A system's `decide` link call uses the same choice.
 - **Systems' hooks**: a system can declare a hook and add its own information (the git branch, the open
   ticket). A hook gets the message and the same who-and-when every run gets.
 
@@ -908,8 +915,32 @@ request and response. Model calls are not fns: fns are what agents choose to run
 
 Besides the model an agent uses, the hub picks a model for its own jobs: **transcribing** audio, **dictation** in
 the composer (or the browser's own speech recognition), **speaking** answers, **describing** images and **reading
-text** in them, and the default chat model. Each role is set in the admin's model settings (a model, optionally the
-provider that serves it, a language) or by asking in chat.
+text** in them, **deciding** (yes/no questions answered by a decision model), and the default chat model. Each role is
+set in the admin's model settings (a model, optionally the provider that serves it, a language) or by asking in chat.
+
+The **decide** role takes only models with the `decision` capability, and has a **threshold** (0 to 1, default 0.5)
+instead of a language: an answer counts as yes when its probability is at or above it. A decision model may cap how
+many questions one call takes (`maxQuestions` on the model, 64 for Ollama). aeye never splits a call; it refuses one
+over the cap before sending it. The hub's own callers (suggestions, systems' `decide`, `hub/context_crawl`) go through
+one decider that picks the model (the job's own or the role's) and sends the questions in batches of the model's cap,
+one call after another. Every decide call is a model call with modality `decide`, budgeted and priced like the others.
+
+### Providers from systems
+
+A system can provide a whole aeye provider: its contract declares the provider and its models (with prices and
+abilities, and for embedding models their `dimensions`), and the server answers chat, embed, decide and model-list
+calls over the link. The hub offers it like a configured provider while the system is live. Its model list is read
+live from the provider's `listModels`, but only ever includes the declared models, which an admin reviewed: the live
+list can drop a model the provider no longer serves and update its window, reply and question limits, never add one or
+change a price. A system that doesn't answer within 5 seconds is offered its declared models.
+
+Embedders are part of this. The index's embedders are the embedding models of offered providers, named
+`<system>/<model>`; the `embedder` system declares a `gemma` provider with `document` and `query` models (768
+dimensions), so `embedder/document` and `embedder/query` keep their names and stored vectors stay valid.
+
+The hub's own Ollama provider is aeye's `@aeye/ollama`. It reads a model's abilities from Ollama's `/api/show`; when
+that lists none, the provider's **Decision models** field (an admin's list) marks which models decide. Decisions go to
+Ollama's `/v1/systemone`.
 
 ### Fn metrics
 
@@ -987,8 +1018,19 @@ the tightest.
   marked stale.
 - **Context is content available to the LLM.** It is authored or taken from sections. Context can
   **mention or import** other context and fns, so loading it brings those along (a "skill").
-- **Indexing:** the hub embeds fns, context and sections with an embedder (from a provider or a system)
-  and searches them for suggestions, `get_fn`/`get_context`-style tools and `@` mentions.
+- **Indexing:** the hub embeds fns, context and sections with an embedder (an embedding model of an offered
+  provider, usually a system's) and searches them for suggestions, `get_fn`/`get_context`-style tools and `@` mentions.
+- **Pictures** are indexed too when an image space is in use: image resources (from their bytes) and the http(s)
+  images a context item's text shows (as children of the item). Images get a **second vector space** with its own model,
+  an embedding model with aeye's `imageEmbedding`. A model whose text and image vectors share one space
+  (`crossModalEmbedding`, like EmbeddingGemma v2) can serve both, and then there is one space and a text search finds
+  pictures. The admin's one setting (Models page, Roles, "Pictures") is **off**, **same as text** (the default: one
+  space when the text model is cross-modal, else no pictures) or **a model**. With no image space nothing about
+  pictures is indexed and they are found by their captions only. A picture can be the query; in a separate space,
+  pictures are searched by the query picture or, for a cross-modal model, by the query text, and merged with the text
+  results by rank. Changing the space re-embeds the pictures there; a model that goes away and comes back keeps its
+  vectors. Pictures over `HARNESS_INDEX_IMAGE_MAX` (5 MB) are skipped. Who may see a picture follows its resource or
+  its context item.
 - **Searching context** goes through the one hub search, the same one the model's `find` uses: by words and meaning
   when an embedder is up, by words alone when not. Each context item is indexed whole and by its heading sections, so
   a long item is found by the part that matches, and counts once at its best. The Context page's search uses it, with
@@ -1010,6 +1052,19 @@ fns, its parent, the next piece of a chain, related items and what it is about o
 finds edges in the text (mentions) and learns them from use (two things used in one turn), weaker than declared
 ones and fading when unused. A person can draw edges in the context view. The graph contextor walks the edges, so
 a skill's fns reach the prompt without the model asking.
+
+**Crawling context.** `hub/context_crawl(keys, guidance, maxDepth, maxDecisions, maxTokens, metadataOnly)` walks the
+graph level by level with a decision model. Level 0 is the starting keys and everything they import. At each later
+level, every `choices` link from what the last level took, to an item not taken yet, becomes one yes/no question
+("Load X when: <condition>?"), with the guidance as the input. Only choices are conditional: imports always come along,
+transitively, all or nothing with the item that imports them. A level's questions go out in calls of at most 256 (fewer
+when the model's `maxQuestions` says so), each a recorded model call charged to the crawl's run. Answers at or above the
+decide role's threshold are taken highest first while they fit `maxTokens`. The crawl stops when nothing is left
+(`complete`), at `max-depth`, `max-decisions` or `max-tokens`, or `failed` when a decide call fails (what was taken is
+kept); a cancelled run just ends. It loads what it took into the session as `load_context` does and returns it with its
+content, or with `metadataOnly` loads nothing and returns keys, titles, sizes and why each was taken; skipped items are
+listed with why. The model reads the result as XML cards. The fn is unavailable (`role-unset`) until the decide role
+has a model, and comes on when an admin sets one.
 
 ### Raw content and forms
 
@@ -1464,3 +1519,14 @@ Already checked: type-checking all of the types and examples takes about two sec
   - SSO is generic OIDC, configured by env vars, with first sign-in set by the admin
 
   Full list in `docs/plans/todo-2026-11-18.md` § Phil's decisions.
+- **Decisions, crawl and pictures** (to-do phase 5, 2026-11-19): built as Phil decided.
+  - Embedders fold into system-provided aeye providers. A system provider's models are its live `listModels`, limited
+    to the declared (reviewed) set.
+  - Ollama is aeye's `@aeye/ollama`, and harness's own copy is gone. Decide detection comes from `/api/show`, else
+    the provider's admin list.
+  - aeye refuses a decide call over `ModelInfo.maxQuestions` and never splits it; the hub's decider splits.
+  - The `decide` role has the yes threshold.
+  - Suggestions are picked by no model, a decision model or an LLM; the old on/off setting reads as LLM or none.
+  - `hub/context_crawl` stays unavailable until the decide role is set.
+  - aeye's `EmbeddingRequest.inputs` takes text and `{image}`, with `imageEmbedding` and `crossModalEmbedding`
+    capabilities. Pictures get a second vector space, or share the text space when one model serves both.

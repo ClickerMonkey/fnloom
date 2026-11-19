@@ -8,12 +8,18 @@ import { ApiError, type CallReturn, type Peer, type PeerCallArgs, type PeerKeys,
 import {
   GinTypeDef, IDS, MAIN_INSTANCE, noFnStats, SystemName, qualify, splitName, type ActorId, type Availability, type ContextDecl, type ContextRecord, type FnDecl, type FnRecord, type ManifestSection,
   type Notification, type QualifiedName, type ResolvedLimits, type Run, type RunId, type RunSettled, type SearchHit, type SectionDecl,
-  type Suggestion, type SystemLinkSpec, type TypeRecord, type UndoOutcome, type UserActor, type SessionControlAction,
+  type Suggestion, type SystemLinkSpec, type TypeRecord, type UndoOutcome, type UserActor, type SessionControlAction, type ModelRole, type ModelRoleView, type RoleModel,
+  type RoleResolution,
 } from '@harness/core';
+import type { DecisionResponse } from '@aeye/ai';
 import type { Catalog, CatalogEntry, FnFilter, FnSignature } from '../catalog/index.ts';
 import { AGENT_KIND, type AgentKind, type AgentLoop, type LimitResolver, type RunInput, type RunService } from '../execution/index.ts';
 import type { Considered, Search, Suggester } from '../index/index.ts';
 import type { LlmGateway, Recorded } from '../execution/index.ts';
+import type { DecideCall } from '../execution/media.ts';
+import type { EngineModel } from '../execution/ports.ts';
+import { HubDecider } from '../models/decide.ts';
+import type { ModelRoles } from '../models/index.ts';
 import type { ConnectionChange, LinkService, SystemConnection } from '../link/index.ts';
 import type { HubStore } from '../store/index.ts';
 import { FaultyStore, RecordingBus, memoryLog, settle, testStore } from '../testing.ts';
@@ -102,7 +108,7 @@ export class FixtureCatalog implements Catalog {
   async availability(name: QualifiedName): Promise<Availability> { return Promise.resolve(this.unavailable.get(name) ?? true); }
   async check(system: SystemName, type: GinTypeDef, value: unknown): Promise<string[]> { return Promise.resolve(this.checker(system, type, value)); }
 
-  importManifest = refuse; importPatch = refuse; forgetInstance = refuse; reimport = refuse; refreshAvailability = refuse; indexStoredFns = refuse; manifest = refuse; kind = refuse; typeClosure = refuse; declare = refuse;
+  importManifest = refuse; importPatch = refuse; forgetInstance = refuse; reimport = refuse; refreshAvailability = refuse; refreshRoles = refuse; indexStoredFns = refuse; manifest = refuse; kind = refuse; typeClosure = refuse; declare = refuse;
   signature = (): Promise<FnSignature> => refuse();
 }
 
@@ -349,6 +355,52 @@ export class FixtureLlm implements Pick<LlmGateway, 'chat'> {
   }
 }
 
+/**
+ * The decide role and the gateway's decision calls, for the real `HubDecider`: the role's model (none until `role` is
+ * set) with its threshold and question cap, and each predicate answered by `answer` from its instructions. Records
+ * every call's question names.
+ */
+export class FixtureDecisions implements Pick<ModelRoles, 'get' | 'resolveModel'>, Pick<LlmGateway, 'decide' | 'models'> {
+  /** The decide role's model and threshold; none until a test sets it. */
+  role: { model: string; threshold: number; maxQuestions?: number } | undefined;
+  /** The probability each predicate is answered with, from its instructions; a thrown error fails the call. */
+  answer: (instructions: string) => number = () => 0;
+  /** Each call's question names, in order. */
+  readonly asked: string[][] = [];
+
+  get(role: ModelRole): Promise<ModelRoleView> {
+    const set = this.role;
+    if (role !== 'decide' || set === undefined) { return Promise.resolve({ role, from: 'none' }); }
+    return Promise.resolve({
+      role, from: 'setting', choice: { role: 'decide', model: { model: set.model }, threshold: set.threshold }, resolved: { model: set.model, provider: 'fixture/decisions' },
+    });
+  }
+
+  resolveModel(_role: ModelRole, wanted: RoleModel): Promise<RoleResolution> {
+    return Promise.resolve('model' in wanted.model ? { model: wanted.model.model, provider: 'fixture/decisions' } : { problem: 'Pick a model by name.' });
+  }
+
+  models(): Promise<EngineModel[]> {
+    const set = this.role;
+    return Promise.resolve(set === undefined ? [] : [{
+      id: set.model, provider: 'fixture/decisions', name: set.model, contextWindow: 8_192, capabilities: ['decision'], ...(set.maxQuestions === undefined ? {} : { maxQuestions: set.maxQuestions }),
+    }]);
+  }
+
+  decide(input: DecideCall): Promise<Recorded<DecisionResponse>> {
+    const names = Object.keys(input.questions);
+    const max = this.role?.maxQuestions;
+    if (max !== undefined && names.length > max) { return Promise.reject(new Error(`${names.length} questions is over the model's ${max}`)); }
+    this.asked.push(names);
+    try {
+      const answers = Object.fromEntries(Object.entries(input.questions).map(([name, question]) => [name, { type: 'predicate' as const, probability: this.answer(question.instructions) }]));
+      return Promise.resolve({ value: { answers, model: input.metadata.model ?? 'fixture' }, call: IDS.modelCall.parse(`mdl_d${this.asked.length}`), cost: 0.00001, model: input.metadata.model ?? 'fixture' });
+    } catch (error) {
+      return Promise.reject(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+}
+
 /** Records pushes; users in `subscribed` have a browser that takes them. */
 export class FakePush {
   readonly sent: Array<{ user: ActorId; notification: Notification }> = [];
@@ -380,12 +432,15 @@ export async function chatRig() {
   const index = new FixtureIndex();
   const push = new FakePush();
   const llm = new FixtureLlm();
+  const decisions = new FixtureDecisions();
   const { log, records: logs } = memoryLog();
   catalog.addFn('hub', { name: 'chat', kind: AGENT_KIND, description: 'The chat agent.' });
   const deps: ChatDeps = {
     // notices go out at once here; the grace has its own test
     settings: { chat: { ...chatEnv.parse(), HARNESS_CONFIG_NOTICE_GRACE: 0 }, queue: { HARNESS_ACTIVE_WINDOW: 120_000 }, model: { HARNESS_SUGGESTIONS: 6 } },
     log, clock: () => now, random, bus, store, catalog, link, runs, agents, limits, search: index, suggest: index, llm, push, hubActor: actorId('act_hub'),
+    // the real decider (its batching by `maxQuestions`) over a fixture decide role and gateway
+    decider: new HubDecider({ roles: decisions, llm: decisions }),
     // the real visibility over the rig's store, with no per-person systems
     access: new StoreAccessService({
       store, bus, clock: () => now, catalog, hubActor: actorId('act_hub'), gate: () => Promise.resolve({ fn: () => undefined }), systemOf: () => undefined,
@@ -393,7 +448,7 @@ export async function chatRig() {
   };
   const admin: UserActor = { id: actorId('act_admin'), kind: 'user', name: 'Ada', email: 'ada@example.com', role: 'admin', about: '', createdAt: 0, disabled: false };
   return {
-    deps, store, bus, catalog, link, runs, agents, limits, index, llm, push, logs, admin,
+    deps, store, bus, catalog, link, runs, agents, limits, index, llm, decisions, push, logs, admin,
     /** Move the clock forward. */
     advance(ms: number): void { now += ms; },
     /** Add a user (a member unless given). */

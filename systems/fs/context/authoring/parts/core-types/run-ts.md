@@ -124,7 +124,7 @@ type InvalidInput = {
   }[];
   raw?: string | undefined;
   blocked?: {
-    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
     reason: string;
     system?: SystemName | undefined;
   } | undefined;
@@ -172,7 +172,7 @@ type OutcomeWire = {
     }[];
     raw?: string | undefined;
     blocked?: {
-      code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+      code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
       reason: string;
       system?: SystemName | undefined;
     } | undefined;
@@ -333,7 +333,7 @@ type RunUpdate = {
     message?: string | undefined;
   } | {
     steps: Record<string, {
-      status: "done" | "failed" | "active" | "pending" | "skipped";
+      status: "done" | "failed" | "active" | "skipped" | "pending";
       detail?: string | undefined;
     }>;
   };
@@ -360,7 +360,7 @@ const, type · declared in `packages/core/src/run.ts`
 The status of one progress step.
 
 ```ts
-type StepStatus = "done" | "failed" | "active" | "pending" | "skipped";
+type StepStatus = "done" | "failed" | "active" | "skipped" | "pending";
 ```
 
 #### <a id="core-timeinfo"></a>`TimeInfo`

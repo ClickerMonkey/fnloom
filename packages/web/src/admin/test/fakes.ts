@@ -12,7 +12,12 @@ import { fakeCaller } from '../../test/fakes.ts';
 import { approval, fakeSender, llmCall, run, T0 } from '../../chat/test/fakes.ts';
 import type { McpProbe, ProbeResult } from '../probe.ts';
 import type { SystemLogEvents } from '../api.ts';
-import { BudgetView, LlmSummary, OutputLine, ModelInfo, RecordId, SettingView, SuggestDecision, type DataRecord } from '@harness/core';
+import { BudgetView, LlmSummary, OutputLine, ModelInfo, RecordId, SettingView, SUGGEST_DECISION_DEFAULT, SuggestDecision, type DataRecord, type ImageEmbeddingView } from '@harness/core';
+
+/** Where pictures are embedded, as a hub with a text-only embedder and no image model reads it. */
+export const IMAGE_VIEW: ImageEmbeddingView = {
+  value: { use: 'text' }, text: 'embedder/document', options: [], state: { space: 'none', reason: 'embedder/document embeds text only: pick an image model.' },
+};
 import { AdminStore } from '../state/admin.ts';
 import { fakeBuild2Api } from './build2.ts';
 import { fakeReviewApi } from './review.ts';
@@ -187,10 +192,12 @@ export function fakeAdminApi() {
     fns: fakeCaller<'fns'>(() => Promise.resolve({ items: [] })),
     autoPairs: fakeCaller<'autoPairs'>(() => Promise.resolve([])),
     revokeAutoPair: fakeCaller<'revokeAutoPair'>(() => Promise.resolve({ ok: true })),
-    suggestDecision: fakeCaller<'suggestDecision'>(() => Promise.resolve({ value: SuggestDecision.parse({}) })),
+    suggestDecision: fakeCaller<'suggestDecision'>(() => Promise.resolve({ value: SUGGEST_DECISION_DEFAULT })),
     setSuggestDecision: fakeCaller<'setSuggestDecision'>((value) => Promise.resolve({ value: SuggestDecision.parse(value) })),
     autoClassifier: fakeCaller<'autoClassifier'>(() => Promise.resolve({ value: AutoClassifier.parse({}) })),
     setAutoClassifier: fakeCaller<'setAutoClassifier'>((value) => Promise.resolve({ value: AutoClassifier.parse(value) })),
+    imageEmbedding: fakeCaller<'imageEmbedding'>(() => Promise.resolve(IMAGE_VIEW)),
+    setImageEmbedding: fakeCaller<'setImageEmbedding'>((value) => Promise.resolve({ ...IMAGE_VIEW, value })),
     previewSuggestions: fakeCaller<'previewSuggestions'>(() => Promise.resolve({ by: 'score' as const, threshold: 0.5, items: [] })),
     runs: fakeCaller<'runs'>(() => Promise.resolve({ items: [run({ id: 'run_a' }), run({ id: 'run_b', status: 'failed' })] })),
     llmCalls: fakeCaller<'llmCalls'>(() => Promise.resolve({ items: [llmSummary({ id: 'llm_a' })] })),

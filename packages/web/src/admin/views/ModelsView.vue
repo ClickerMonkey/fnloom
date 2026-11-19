@@ -2,11 +2,11 @@
 /**
  * Providers and models, the tab in the URL: the configured providers (add or replace one, remove one), every model
  * they offer, the model categories agents choose from, the model roles (which model transcribes, dictates, speaks,
- * describes images and reads text in them; `?role=` opens one), the decision model that picks suggestions
- * (`?decision=1` opens it), the auto mode classifier that checks a chat's calls in auto mode (`?classifier=1` opens it)
- * and each model's limits (`?model=` opens one).
+ * describes images, reads text in them and makes decisions; `?role=` opens one), who picks suggestions (no model, a
+ * decision model or an LLM; `?decision=1` opens it), the auto mode classifier that checks a chat's calls in auto mode (`?classifier=1` opens it),
+ * where the index embeds pictures (off, the text model's space, or a model of their own; `?images=1` opens it) and each model's limits (`?model=` opens one).
  */
-import { ModelRole, type AutoClassifier, type ModelCategory, type SessionId, type SuggestDecision, type ModelLimits, type ProviderInput, type RoleChoice } from '@harness/core';
+import { ModelRole, type AutoClassifier, type ImageEmbedding, type ModelCategory, type SessionId, type SuggestDecision, type ModelLimits, type ProviderInput, type RoleChoice } from '@harness/core';
 import { computed, onMounted, ref, shallowRef, watch } from 'vue';
 import AppPage from '../../app/AppPage.vue';
 import { useParamChoice, useRouteQuery } from '../../app/url.ts';
@@ -16,6 +16,8 @@ import { UiBadge, UiButton, UiEmpty, UiTabs, type TabItem } from '../../ui/index
 import CategoryDialog from '../components/CategoryDialog.vue';
 import DecisionDialog from '../components/DecisionDialog.vue';
 import ClassifierDialog from '../components/ClassifierDialog.vue';
+import ImageEmbeddingDialog from '../components/ImageEmbeddingDialog.vue';
+import { IMAGE_USE_WORDS, imageSettingText, spaceText } from '../logic/images.ts';
 import { classifierText } from '../logic/classifier.ts';
 import ConfirmDialog from '../components/ConfirmDialog.vue';
 import LoadState from '../components/LoadState.vue';
@@ -27,8 +29,8 @@ import RuleList from '../components/RuleList.vue';
 import RuleRow from '../components/RuleRow.vue';
 import type { ModelInfo } from '@harness/core';
 import { modelProviderName, PROVIDER_NAME, type CategoryBody } from '../logic/forms.ts';
-import { decisionModelText } from '../logic/suggestions.ts';
-import { LIMIT_FIELDS, LIMIT_SOURCE_WORDS, LIMIT_WORDS, resolvedText, ROLE_FROM_WORDS, ROLE_WORDS, roleWorks, rolesByModel } from '../logic/roles.ts';
+import { CHOOSER_WORDS, decisionModelText } from '../logic/suggestions.ts';
+import { LIMIT_FIELDS, LIMIT_SOURCE_WORDS, LIMIT_WORDS, resolvedText, ROLE_FROM_WORDS, ROLE_WORDS, roleLanguage, roleWorks, rolesByModel } from '../logic/roles.ts';
 import type { IconName } from '../../ui/index.ts';
 import { ModelsTab } from '../sections.ts';
 import type { ProviderRow } from '../state/models.ts';
@@ -36,6 +38,7 @@ import type { ProviderRow } from '../state/models.ts';
 const { admin, toasts, chat } = useStores();
 const suggestions = admin.suggestions;
 const classifier = admin.classifier;
+const images = admin.images;
 const models = admin.models;
 const tab = useParamChoice('tab', ModelsTab, 'providers');
 /** The models search, kept in the URL (`?q=`) once typing pauses. */
@@ -51,10 +54,15 @@ const decisionParam = query.text('decision', { push: true });
 const decisionOpen = computed({ get: () => decisionParam.value === '1', set: (isOpen) => { decisionParam.value = isOpen ? '1' : ''; } });
 const classifierParam = query.text('classifier', { push: true });
 const classifierOpen = computed({ get: () => classifierParam.value === '1', set: (isOpen) => { classifierParam.value = isOpen ? '1' : ''; } });
+const imagesParam = query.text('images', { push: true });
+const imagesOpen = computed({ get: () => imagesParam.value === '1', set: (isOpen) => { imagesParam.value = isOpen ? '1' : ''; } });
+/** The pictures setting's choice, and whether a space is in use now. */
+const imageUse = computed(() => images.setting.value.value?.value.use ?? 'text');
+const imageWorks = computed(() => spaceText(images.setting.value.value?.state).works);
 const limitsOpen = computed({ get: () => openModel.value !== '', set: (isOpen) => { if (!isOpen) { openModel.value = ''; } } });
 const editingRole = computed(() => (openRole.value === undefined ? undefined : roles.role(openRole.value)));
 const editingLimits = computed(() => roles.limits.value.value?.find((l) => l.model === openModel.value));
-const ROLE_ICON = { chat: 'chat', transcribe: 'file', dictate: 'mic', speak: 'music', describe: 'image', ocr: 'eye' } as const satisfies Record<ModelRole, IconName>;
+const ROLE_ICON = { chat: 'chat', transcribe: 'file', dictate: 'mic', speak: 'music', describe: 'image', ocr: 'eye', decide: 'sparkles' } as const satisfies Record<ModelRole, IconName>;
 const providerOpen = ref(false);
 const categoryOpen = ref(false);
 const editing = shallowRef<ModelCategory | undefined>(undefined);
@@ -74,10 +82,12 @@ const ready = computed(() => models.providers.value.value !== undefined);
 const providerName = (model: ModelInfo): string => modelProviderName(model.provider);
 /** The roles each model fills, shown beside it: systems' `ctx.ai()` sees the same list with the same roles. */
 const modelRoles = computed(() => rolesByModel(roles.roles.value.value ?? []));
+/** Who picks suggestions now (no model until the setting is loaded or set). */
+const chooser = computed(() => suggestions.decision.value.value?.value.by ?? 'none');
 
 onMounted(() => { void models.load(ready.value); });
 watch(tab, (current) => {
-  if (current === 'roles') { void roles.loadRoles(roles.roles.value.value !== undefined); void suggestions.load(suggestions.decision.value.value !== undefined); void classifier.load(classifier.setting.value.value !== undefined); }
+  if (current === 'roles') { void roles.loadRoles(roles.roles.value.value !== undefined); void suggestions.load(suggestions.decision.value.value !== undefined); void classifier.load(classifier.setting.value.value !== undefined); void images.load(images.setting.value.value !== undefined); }
   if (current === 'models') { void roles.loadRoles(roles.roles.value.value !== undefined); }
   if (current === 'limits') { void roles.loadLimits(roles.limits.value.value !== undefined); }
 }, { immediate: true });
@@ -104,7 +114,7 @@ async function saveDecision(value: SuggestDecision): Promise<void> {
   const result = await suggestions.save(value);
   if (!result.ok) { return; }
   decisionOpen.value = false;
-  toasts.ok('Decision model saved', decisionModelText(result.value));
+  toasts.ok('Suggestions saved', decisionModelText(result.value));
 }
 
 async function saveClassifier(value: AutoClassifier): Promise<void> {
@@ -112,6 +122,16 @@ async function saveClassifier(value: AutoClassifier): Promise<void> {
   if (!result.ok) { return; }
   classifierOpen.value = false;
   toasts.ok('Auto mode classifier saved', classifierText(result.value));
+}
+
+// opened from a link on another tab, the setting is loaded too
+watch(imagesOpen, (isOpen) => { if (isOpen) { void images.load(images.setting.value.value !== undefined); } }, { immediate: true });
+
+async function saveImages(value: ImageEmbedding): Promise<void> {
+  const result = await images.save(value);
+  if (!result.ok) { return; }
+  imagesOpen.value = false;
+  toasts.ok('Pictures saved', imageSettingText(result.value));
 }
 
 function tryDecision(session: SessionId, text: string): void {
@@ -198,16 +218,27 @@ async function confirmRemove(): Promise<void> {
               <UiBadge :tone="row.from === 'setting' ? 'accent' : 'neutral'">{{ ROLE_FROM_WORDS[row.from] }}</UiBadge>
               <UiBadge v-if="row.from !== 'none'" :tone="roleWorks(row) ? 'ok' : 'warn'">{{ roleWorks(row) ? 'Works' : 'Needs attention' }}</UiBadge>
               <UiBadge v-if="row.choice?.role === 'dictate'">{{ row.choice.engine.engine === 'browser' ? 'In the browser' : 'By a model' }}</UiBadge>
-              <UiBadge v-if="row.choice?.language">{{ row.choice.language }}</UiBadge>
+              <UiBadge v-if="roleLanguage(row)">{{ roleLanguage(row) }}</UiBadge>
             </template>
           </RuleRow>
         </RuleList>
         <RuleList title="Suggestions" description="How the fns and context offered with a message are chosen." testid="suggestions">
           <RuleRow
-            icon="sparkles" title="Decision model" :detail="decisionModelText(suggestions.decision.value.value)" label="Decision model" :removable="false" data-testid="decision-row"
-            @edit="decisionOpen = true"
+            :icon="CHOOSER_WORDS[chooser].icon" title="Who picks" :detail="decisionModelText(suggestions.decision.value.value)" label="Who picks suggestions" :removable="false"
+            data-testid="decision-row" :data-by="chooser" @edit="decisionOpen = true"
           >
-            <template #badges><UiBadge :tone="suggestions.decision.value.value?.value.enabled === true ? 'accent' : 'neutral'">{{ suggestions.decision.value.value?.value.enabled === true ? 'On' : 'Off' }}</UiBadge></template>
+            <template #badges><UiBadge :tone="chooser === 'none' ? 'neutral' : 'accent'">{{ CHOOSER_WORDS[chooser].label }}</UiBadge></template>
+          </RuleRow>
+        </RuleList>
+        <RuleList title="Search" description="What the index embeds, so search finds it by meaning." testid="search-settings">
+          <RuleRow
+            :icon="IMAGE_USE_WORDS[imageUse].icon" title="Pictures" :detail="imageSettingText(images.setting.value.value)" label="Where pictures are embedded" :removable="false"
+            data-testid="images-row" :data-use="imageUse" @edit="imagesOpen = true"
+          >
+            <template #badges>
+              <UiBadge :tone="imageUse === 'off' ? 'neutral' : 'accent'">{{ IMAGE_USE_WORDS[imageUse].label }}</UiBadge>
+              <UiBadge v-if="imageUse !== 'off' && images.setting.value.value" :tone="imageWorks ? 'ok' : 'warn'">{{ imageWorks ? 'In use' : 'Not in use' }}</UiBadge>
+            </template>
           </RuleRow>
         </RuleList>
         <RuleList title="Chat modes" description="How a chat set to Auto decides whether a call that writes or deletes goes ahead." testid="chat-modes">
@@ -252,6 +283,9 @@ async function confirmRemove(): Promise<void> {
     <ClassifierDialog
       v-model:open="classifierOpen" :view="classifier.setting.value.value" :models="models.models.value.value ?? []" :busy="classifier.saving.busy.value"
       :problem="classifier.saving.problem.value" @save="saveClassifier"
+    />
+    <ImageEmbeddingDialog
+      v-model:open="imagesOpen" :view="images.setting.value.value" :busy="images.saving.busy.value" :problem="images.saving.problem.value" @save="saveImages"
     />
     <ModelLimitsDialog v-model:open="limitsOpen" :view="editingLimits" :busy="roles.save.busy.value" :problem="roles.save.problem.value" @save="saveLimits" />
     <ProviderDialog v-model:open="providerOpen" :busy="models.save.busy.value" :problem="models.save.problem.value" @save="saveProvider" />

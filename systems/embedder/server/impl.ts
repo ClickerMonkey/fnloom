@@ -1,10 +1,12 @@
 /**
- * The embedder system's implementation: `document` and `query` embedders over a `GemmaClient`, query vectors kept in
- * a small LRU (searches repeat as people type), and the service URL following the system's config.
+ * The embedder system's implementation: the `gemma` provider (its `document` and `query` embedding models) over a
+ * `GemmaClient`, query vectors kept in a small LRU (searches repeat as people type), and the service URL following the
+ * system's config.
  */
 import type { Log, SystemImpl } from '@harness/sdk';
 import type { EmbedderContract, GemmaTask } from '../shared/index.ts';
 import type { EmbedderConfig, GemmaClient } from './index.ts';
+import { GemmaProvider } from './provider.ts';
 
 /** The most recently used vectors by text, up to a count. */
 export class VectorCache {
@@ -87,12 +89,12 @@ export function createEmbedderImpl(deps: EmbedderDeps): EmbedderServer {
       log.warn('embedder.unavailable', { url, detail: error instanceof Error ? error.message : 'unknown error' });
     }
   };
-  const embed = (task: GemmaTask) => (texts: string[]) => deps.client.embed(texts, task);
+  // queries repeat as people type, so they come from the cache when they can; documents always go to the service
+  const embed = (texts: string[], task: GemmaTask): Promise<number[][]> => (task === 'query'
+    ? embedCached(cache, texts, (missing) => deps.client.embed(missing, 'query'))
+    : deps.client.embed(texts, task));
   const impl: SystemImpl<EmbedderContract['defs']> = {
-    embedders: {
-      document: embed('document'),
-      query: (texts) => embedCached(cache, texts, embed('query')),
-    },
+    providers: { gemma: () => new GemmaProvider(deps.client, embed) },
     lifecycle: {
       started: (ctx) => follow(ctx.config, ctx.log),
       configured: (ctx) => follow(ctx.config, ctx.log),

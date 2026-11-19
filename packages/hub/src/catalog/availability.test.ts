@@ -2,7 +2,7 @@ import { fn, g } from '@harness/sdk';
 import { ActorId, KindRecord, SystemName, type FnRecord, type QualifiedName, type SystemRecord } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { TestCatalog } from '../execution/testing.ts';
-import { AvailabilityRules, systemAvailability } from './availability.ts';
+import { AvailabilityRules, roleUnsetDetail, systemAvailability } from './availability.ts';
 
 const SHOP = SystemName.parse('shop');
 
@@ -45,6 +45,18 @@ describe('availability rules', () => {
     const rules = new AvailabilityRules({ systems: new Map([['shop', system()]]), kinds, fns: records, held: new Set(['shop/list']), kindsOff: new Set(['shop/report']) });
     expect(rules.fn('shop/list')).toEqual({ unavailable: 'held', detail: 'shop/list changed and waits for an admin to approve it' });
     expect(rules.fn('shop/order')).toEqual({ unavailable: 'disabled', detail: 'its kind shop/report is switched off' });
+  });
+
+  it('keeps a fn that needs an unset model role off, with the role named, and the fns that depend on it (plan item 7)', () => {
+    const records = fns({ crawl: [], plan: ['crawl'], read: [] });
+    const crawl = records.get('shop/crawl');
+    if (crawl === undefined) { throw new Error('no crawl'); }
+    records.set('shop/crawl', { ...crawl, decl: { ...crawl.decl, roles: ['decide'] } });
+    const unset = new AvailabilityRules({ systems: new Map([['shop', system()]]), kinds: new Map(), fns: records, rolesUnset: new Set(['decide']) });
+    expect(unset.fn('shop/crawl')).toEqual({ unavailable: 'role-unset', detail: roleUnsetDetail('shop/crawl', 'decide') });
+    expect(unset.fn('shop/plan')).toMatchObject({ unavailable: 'dep-unavailable' });
+    expect(unset.fn('shop/read')).toBe(true);
+    expect(new AvailabilityRules({ systems: new Map([['shop', system()]]), kinds: new Map(), fns: records, rolesUnset: new Set(['ocr']) }).fn('shop/crawl')).toBe(true);
   });
 
   it('makes a fn whose dep does not exist unavailable, naming the dep', () => {

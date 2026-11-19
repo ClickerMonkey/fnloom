@@ -175,7 +175,7 @@ function callTokens(call: ModelCall): number | undefined {
   const units = call.units;
   switch (units.modality) {
     case 'chat': return units.input + units.output;
-    case 'embed': return units.tokens;
+    case 'embed': case 'decide': return units.tokens;
     case 'image': case 'transcribe': case 'speech': return undefined;
   }
 }

@@ -94,7 +94,7 @@ export const modelEnv = env({
   OPENROUTER_API_KEY: z.string().optional().describe('An OpenRouter key; configures the openrouter provider on first start.'),
   HARNESS_TRANSCRIBE_MODEL: z.string().default('').describe('The model voice input is transcribed with: a model with hearing from a configured provider (for example whisper-1 on OpenAI). Empty turns voice input off.'),
   HARNESS_DEFAULT_MODEL: z.string().default('openrouter/auto').describe('The model the chat agent uses until an admin picks one.'),
-  HARNESS_EMBEDDER_DOCUMENT: z.string().default('embedder/document').describe('The embedder that embeds indexed text (documents): a qualified embedder name from a system.'),
+  HARNESS_EMBEDDER_DOCUMENT: z.string().default('embedder/document').describe('The embedder that embeds indexed text (documents): the embedding model of a system\'s provider, named <system>/<model>.'),
   HARNESS_EMBEDDER_QUERY: z.string().default('embedder/query').describe('The embedder that embeds search text (queries), in the same vector space as the document embedder.'),
   HARNESS_EMBED_BATCH: z.number().int().min(1).default(32).describe('Most texts in one embed batch.'),
   HARNESS_SUGGESTIONS: z.number().int().min(0).default(6).describe('How many fns and context the composer suggests.'),

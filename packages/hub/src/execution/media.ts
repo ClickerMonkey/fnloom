@@ -6,15 +6,17 @@
  * (`sizesOf`). A new modality fails to compile until it has its aeye shapes and its reader here.
  */
 import type {
-  EmbeddingRequest, EmbeddingResponse, ImageGenerationRequest, ImageGenerationResponse, SpeechRequest, SpeechResponse, TranscriptionRequest, TranscriptionResponse,
+  DecisionRequest, DecisionResponse, EmbeddingInput, EmbeddingRequest, EmbeddingResponse, ImageGenerationRequest, ImageGenerationResponse, SpeechRequest, SpeechResponse, TranscriptionRequest,
+  TranscriptionResponse,
 } from '@aeye/ai';
-import type { BaseResponse, Request, Resource, Response, Usage } from '@aeye/core';
-import type { Modality, ModelUnits, SpeechFormat } from '@harness/core';
+import { embeddingInputs, isEmbeddingImage } from '@aeye/ai';
+import type { BaseResponse, Message, Request, Resource, Response, Usage } from '@aeye/core';
+import type { DecisionQuestions, Modality, ModelUnits, SpeechFormat } from '@harness/core';
 import type { HubCallMetadata } from './scope.ts';
 
-/** Embeddings of some texts. */
+/** Embeddings of some inputs: texts and images (aeye's one `inputs` list), one vector each in order. */
 export interface EmbedCall {
-  readonly texts: readonly string[];
+  readonly inputs: readonly EmbeddingInput[];
   readonly metadata: HubCallMetadata;
 }
 
@@ -60,6 +62,13 @@ export interface Spoken {
   readonly mime: string;
 }
 
+/** Typed answers about an input from a decision model, within its `maxQuestions`. */
+export interface DecideCall {
+  readonly input: string | Message[];
+  readonly questions: DecisionQuestions;
+  readonly metadata: HubCallMetadata;
+}
+
 /** Each modality's aeye request and response. */
 export interface ModalityShapes {
   readonly chat: { readonly request: Request; readonly response: Response };
@@ -67,6 +76,7 @@ export interface ModalityShapes {
   readonly image: { readonly request: ImageGenerationRequest; readonly response: ImageGenerationResponse };
   readonly transcribe: { readonly request: TranscriptionRequest; readonly response: TranscriptionResponse };
   readonly speech: { readonly request: SpeechRequest; readonly response: SpeechResponse };
+  readonly decide: { readonly request: DecisionRequest; readonly response: DecisionResponse };
 }
 
 /** A call of one modality with its typed request. */
@@ -104,6 +114,26 @@ function characters(texts: readonly string[]): number {
   return texts.reduce((sum, text) => sum + text.length, 0);
 }
 
+/** An embedding request's texts and how many images it has (aeye's one `inputs` list, or its `texts`). */
+function embedParts(request: EmbeddingRequest): { texts: string[]; images: number } {
+  const inputs = embeddingInputs(request);
+  const texts = inputs.filter((input): input is string => !isEmbeddingImage(input));
+  return { texts, images: inputs.length - texts.length };
+}
+
+/** The characters a decision call reads: its text, or its conversation's text parts. */
+function inputCharacters(input: string | Message[]): number {
+  if (typeof input === 'string') return input.length;
+  return input.reduce((sum, message) => sum + (typeof message.content === 'string'
+    ? message.content.length
+    : message.content.reduce((part, content) => part + (typeof content.content === 'string' ? content.content.length : 0), 0)), 0);
+}
+
+/** The characters of a decision call's questions (their instructions, choices and levels). */
+function questionCharacters(request: DecisionRequest): number {
+  return JSON.stringify(request.questions).length;
+}
+
 /** The length of the first vector of an embedding response (at least 1, as `ModelUnits` asks). */
 function dimensionsOf(response: EmbeddingResponse | undefined): number {
   return Math.max(1, response?.embeddings[0]?.embedding.length ?? 0);
@@ -122,11 +152,14 @@ export const MODALITY_READERS: { readonly [M in Modality]: ModalityReader<M> } =
   },
   embed: {
     isResponse: (response): response is EmbeddingResponse => 'embeddings' in response && Array.isArray(response.embeddings),
-    units: (request, response, usage) => ({
-      modality: 'embed', texts: request.texts.length, characters: characters(request.texts), dimensions: dimensionsOf(response),
-      ...(usage.text?.input === undefined ? {} : { tokens: usage.text.input }),
-    }),
-    sizes: (request, response) => ({ sent: characters(request.texts), received: (response?.embeddings.length ?? 0) * dimensionsOf(response) * 8 }),
+    units: (request, response, usage) => {
+      const { texts, images } = embedParts(request);
+      return {
+        modality: 'embed', texts: texts.length, characters: characters(texts), ...(images === 0 ? {} : { images }), dimensions: dimensionsOf(response),
+        ...(usage.text?.input === undefined ? {} : { tokens: usage.text.input }),
+      };
+    },
+    sizes: (request, response) => ({ sent: characters(embedParts(request).texts), received: (response?.embeddings.length ?? 0) * dimensionsOf(response) * 8 }),
   },
   image: {
     isResponse: (response): response is ImageGenerationResponse => 'images' in response && Array.isArray(response.images),
@@ -144,6 +177,18 @@ export const MODALITY_READERS: { readonly [M in Modality]: ModalityReader<M> } =
     isResponse: (response): response is SpeechResponse => 'audio' in response && response.audio instanceof ReadableStream,
     units: (request, _response, usage) => ({ modality: 'speech', characters: request.text.length, ...(usage.audio?.seconds === undefined ? {} : { seconds: usage.audio.seconds }) }),
     sizes: (request) => ({ sent: request.text.length, received: 0 }),
+  },
+  decide: {
+    isResponse: (response): response is DecisionResponse => 'answers' in response && typeof response.answers === 'object' && response.answers !== null,
+    units: (request, _response, usage) => ({
+      modality: 'decide', questions: Object.keys(request.questions).length, characters: inputCharacters(request.input),
+      ...(request.images === undefined || request.images.length === 0 ? {} : { images: request.images.length }),
+      ...(usage.text?.input === undefined ? {} : { tokens: usage.text.input }),
+    }),
+    sizes: (request, response) => ({
+      sent: inputCharacters(request.input) + questionCharacters(request) + (request.images ?? []).reduce((sum, image) => sum + resourceBytes(image), 0),
+      received: response === undefined ? 0 : JSON.stringify(response.answers).length,
+    }),
   },
 };
 

@@ -15,6 +15,7 @@ export const MODALITY_WORDS = {
   image: { label: 'Images', icon: 'image' },
   transcribe: { label: 'Transcription', icon: 'mic' },
   speech: { label: 'Speech', icon: 'music' },
+  decide: { label: 'Decisions', icon: 'sparkles' },
 } as const satisfies Record<Modality, { label: string; icon: IconName }>;
 
 /** Each model call status's look. */
@@ -33,6 +34,7 @@ export function unitsText(units: ModelUnits): string {
     case 'image': return `${units.images} ${units.images === 1 ? 'image' : 'images'}${units.size === undefined ? '' : ` at ${units.size}`}`;
     case 'transcribe': return `${formatDuration(units.seconds * 1_000)} of audio`;
     case 'speech': return `${units.characters.toLocaleString()} characters${units.seconds === undefined ? '' : `, ${formatDuration(units.seconds * 1_000)} spoken`}`;
+    case 'decide': return `${units.questions} ${units.questions === 1 ? 'question' : 'questions'}${units.images === undefined ? '' : `, ${units.images} ${units.images === 1 ? 'image' : 'images'}`}, ${units.tokens === undefined ? `${units.characters.toLocaleString()} characters` : `${formatTokens(units.tokens)} tokens`} in`;
   }
 }
 

@@ -20,6 +20,7 @@ export function emptyUnits(modality: Modality): ModelUnits {
     case 'image': return { modality, images: 0 };
     case 'transcribe': return { modality, seconds: 0, bytes: 0 };
     case 'speech': return { modality, characters: 0 };
+    case 'decide': return { modality, questions: 0, characters: 0 };
   }
 }
 

@@ -8,7 +8,8 @@ import { FixtureCatalog } from '../chat/testing.ts';
 import { ADMIN, manifestFor, shop, systemRow, vectors as vectorsContract } from '../catalog/fixtures.ts';
 import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
 import type { ResourceRouter } from '../link/index.ts';
-import { FakeSystem, linkRig, pairDirectly } from '../link/rig.ts';
+import { FakeSystem, linkRig, pairDirectly, type LinkRig } from '../link/rig.ts';
+import { OfferedProviders, offeredBy } from '../models/remote.ts';
 import { HybridSearch } from '../store/hybrid.ts';
 import { chatEnv } from '../chat/env.ts';
 import { EmbedBatcher } from './batch.ts';
@@ -82,6 +83,7 @@ class FakeEmbedders implements Embedders {
     const query = this.#map.get(QUERY);
     return document === undefined || query === undefined ? undefined : { document, query };
   }
+  images(): undefined { return undefined; }
   onChange(listener: () => void): () => void { this.#listeners.add(listener); return () => void this.#listeners.delete(listener); }
   connect(): void { this.#map.set(DOCUMENT, this.document); this.#map.set(QUERY, this.query); for (const l of this.#listeners) { l(); } }
 }
@@ -600,11 +602,19 @@ describe('embed lanes', () => {
   });
 });
 
+/** The embedders of the providers a link rig's systems offer, by the hub's own rule (`offeredBy` its lifecycle). */
+function riggedEmbedders(rig: LinkRig, calls?: () => StoreModelCallLog): SystemEmbedders {
+  const offered = new OfferedProviders({ link: rig.links, catalog: rig.catalog, bus: rig.bus, log: rig.log, offered: offeredBy(rig.lifecycle) });
+  return new SystemEmbedders({
+    offered, connections: rig.links, bus: rig.bus, log: rig.log, clock: () => rig.time.now, document: DOCUMENT, query: QUERY, batch: 2, ...(calls === undefined ? {} : { calls }),
+  });
+}
+
 describe('embedders from systems', () => {
-  it('follows embedder systems as they connect, and embeds for systems that ask', async () => {
+  it('follows the embedding models of the providers connected systems offer, and embeds with them over the link', async () => {
     const rig = await linkRig();
     const calls = new StoreModelCallLog({ store: rig.store, clock: () => rig.time.now, log: rig.log });
-    const embedders = new SystemEmbedders({ catalog: rig.catalog, links: rig.links, bus: rig.bus, log: rig.log, clock: () => rig.time.now, document: DOCUMENT, query: QUERY, batch: 2, calls: () => calls });
+    const embedders = riggedEmbedders(rig, () => calls);
     let changes = 0;
     embedders.onChange(() => { changes += 1; });
     expect(embedders.active()).toBeUndefined();
@@ -616,9 +626,9 @@ describe('embedders from systems', () => {
     expect(embedders.active()?.document.name).toBe(DOCUMENT);
     expect(changes).toBeGreaterThan(0);
     expect(await embedders.get(DOCUMENT)?.embed(['a', 'bb', 'ccc'])).toEqual([[1, 0, 0], [2, 0, 0], [3, 0, 0]]);
-    // each embed call is a model call of the index's own work, in two batches but one record
+    // each embed call is a model call of the index's own work, in two batches but one record, under the system's provider
     expect((await calls.list({})).items.filter((c) => c.modality === 'embed')).toMatchObject([
-      { modality: 'embed', provider: 'vectors', model: DOCUMENT.split('/')[1], purpose: 'index', status: 'done', units: { modality: 'embed', texts: 3, characters: 6, dimensions: 3 } },
+      { modality: 'embed', provider: 'vectors/local', model: 'document', purpose: 'index', status: 'done', units: { modality: 'embed', texts: 3, characters: 6, dimensions: 3 } },
     ]);
 
     system.behaviour.embed = (texts) => texts.map(() => [1]);
@@ -634,7 +644,7 @@ describe('embedders from systems', () => {
 
   it('takes up an embedder system once an admin goes live with it, though going live changes no fn', async () => {
     const rig = await linkRig({ review: { HARNESS_REVIEW_SYSTEMS: true } });
-    const embedders = new SystemEmbedders({ catalog: rig.catalog, links: rig.links, bus: rig.bus, log: rig.log, clock: () => rig.time.now, document: DOCUMENT, query: QUERY, batch: 2 });
+    const embedders = riggedEmbedders(rig);
     const system = new FakeSystem(rig.app, 'vectors', await manifestFor(vectorsContract));
     await pairDirectly(rig, system);
     await system.start();

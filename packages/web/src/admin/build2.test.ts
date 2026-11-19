@@ -10,7 +10,7 @@ import { fakeAdmin, model, pairing, systemView, T0 } from './test/fakes.ts';
 import { addEntry, connectSnippets, entryText, readFnMatch, readResourceSelector, removeEntry, selectorSize, slugOf } from './logic/mcps.ts';
 import { dayBars, figures, niceMax, percentile } from './logic/metrics.ts';
 import { callPurpose, callTook, sizeText, unitsText } from './logic/model-calls.ts';
-import { limitsDraft, limitsOf, modelsFor, resolvedText, roleChoiceOf, roleDraft, roleWorks } from './logic/roles.ts';
+import { hasLanguage, limitsDraft, limitsOf, modelsFor, resolvedText, roleChoiceOf, roleDraft, roleLanguage, roleWorks } from './logic/roles.ts';
 import { answerJson, HttpMcpProbe } from './probe.ts';
 import { fnDays, fnMetrics } from './test/build2.ts';
 import { PairingPageStore } from './state/pairing.ts';
@@ -21,14 +21,30 @@ const flush = (): Promise<void> => new Promise((resolve) => { setTimeout(resolve
 describe('model roles', () => {
   it('reads a role into the editor and back, for every engine', () => {
     const browser = roleView('dictate');
-    expect(roleDraft(browser)).toEqual({ engine: 'browser', model: '', provider: '', language: '' });
+    expect(roleDraft(browser)).toEqual({ engine: 'browser', model: '', provider: '', language: '', threshold: '0.5' });
     expect(roleChoiceOf('dictate', roleDraft(browser))).toEqual({ ok: true, value: { role: 'dictate', engine: { engine: 'browser' } } });
-    const byModel = roleChoiceOf('dictate', { engine: 'model', model: 'openai/whisper-1', provider: '', language: 'en-GB' });
+    const byModel = roleChoiceOf('dictate', { engine: 'model', model: 'openai/whisper-1', provider: '', language: 'en-GB', threshold: '' });
     expect(byModel).toEqual({ ok: true, value: { role: 'dictate', engine: { engine: 'model', model: { model: 'openai/whisper-1' } }, language: 'en-GB' } });
     if (!byModel.ok) { throw new Error('expected a choice'); }
-    expect(roleDraft(roleView('dictate', { choice: byModel.value }))).toEqual({ engine: 'model', model: 'openai/whisper-1', provider: '', language: 'en-GB' });
-    expect(roleChoiceOf('transcribe', { engine: 'model', model: ' ', provider: '', language: '' })).toEqual({ ok: false, problem: 'Choose a model.' });
+    expect(roleDraft(roleView('dictate', { choice: byModel.value }))).toEqual({ engine: 'model', model: 'openai/whisper-1', provider: '', language: 'en-GB', threshold: '0.5' });
+    expect(roleChoiceOf('transcribe', { engine: 'model', model: ' ', provider: '', language: '', threshold: '' })).toEqual({ ok: false, problem: 'Choose a model.' });
     expect(roleDraft(roleView('transcribe')).model).toBe('openai/whisper-1');
+  });
+
+  it('reads the decide role with its threshold, and no language', () => {
+    const draft = { engine: 'model' as const, model: 'judge', provider: '', language: 'en', threshold: '0.7' };
+    const decide = roleChoiceOf('decide', draft);
+    expect(decide).toEqual({ ok: true, value: { role: 'decide', model: { model: 'judge' }, threshold: 0.7 } });
+    expect(roleChoiceOf('decide', { ...draft, threshold: '1.5' })).toEqual({ ok: false, problem: 'The threshold is a probability from 0 to 1.' });
+    expect(roleChoiceOf('decide', { ...draft, threshold: '' })).toEqual({ ok: false, problem: 'The threshold is a probability from 0 to 1.' });
+    if (!decide.ok) { throw new Error('expected a choice'); }
+    const view = roleView('decide', { from: 'setting', choice: decide.value, resolved: { model: 'judge', provider: 'ollama' } });
+    expect(roleDraft(view)).toEqual({ engine: 'model', model: 'judge', provider: '', language: '', threshold: '0.7' });
+    expect(resolvedText(view)).toBe('judge on ollama · yes at 70% or more');
+    expect(roleLanguage(view)).toBeUndefined();
+    expect(hasLanguage('decide')).toBe(false);
+    expect(hasLanguage('transcribe')).toBe(true);
+    expect(modelsFor('decide', [model(), model({ id: 'judge', name: 'Judge', capabilities: ['decision'] })]).able.map((m) => m.id)).toEqual(['judge']);
   });
 
   it('puts models that can do the job first, and says what a role resolves to', () => {
@@ -54,7 +70,7 @@ describe('model roles', () => {
     const result = await admin.roles.setRole({ role: 'dictate', engine: { engine: 'browser' }, language: 'fr-FR' });
     expect(result.ok).toBe(true);
     expect(admin.roles.role('dictate')?.from).toBe('setting');
-    expect(admin.roles.roles.value.value).toHaveLength(6);
+    expect(admin.roles.roles.value.value).toHaveLength(7);
     await admin.roles.clearRole('dictate');
     expect(api.clearModelRole.calls).toEqual([[{ role: 'dictate' }]]);
     await admin.roles.loadLimits();
@@ -216,6 +232,8 @@ describe('model calls', () => {
     expect(unitsText({ modality: 'chat', input: 1_840, output: 212 })).toBe('1.8k in, 212 out');
     expect(unitsText({ modality: 'transcribe', seconds: 14.2, bytes: 1 })).toBe('14s of audio');
     expect(unitsText({ modality: 'embed', texts: 1, characters: 400, dimensions: 768 })).toBe('1 text, 100 tokens, 768 dims');
+    expect(unitsText({ modality: 'decide', questions: 64, characters: 400, tokens: 1_200 })).toBe('64 questions, 1.2k tokens in');
+    expect(unitsText({ modality: 'decide', questions: 1, characters: 40, images: 2 })).toBe('1 question, 2 images, 40 characters in');
     expect(callPurpose({ fn: QualifiedName.parse('fs/x'), system: SystemName.parse('fs') })).toBe('for fs/x (fs)');
     expect(callPurpose({ purpose: 'index' })).toBe('hub: index');
     expect(sizeText({ sent: 2_048, received: 10 })).toBe('2.0 KB sent, 10 B received');

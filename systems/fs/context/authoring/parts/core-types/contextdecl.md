@@ -177,6 +177,7 @@ type FnDecl = {
   promptExamples?: number | undefined;
   group?: string | undefined;
   flags?: boolean | undefined;
+  roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
   live?: {
     every: number;
   } | undefined;

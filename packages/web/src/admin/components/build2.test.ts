@@ -1,5 +1,5 @@
 /**
- * Build 2's admin components: the role and limits dialogs, the MCP rule editor, preview, connect panel and secret
+ * Build 2's admin components: the role, suggestions and limits dialogs, the MCP rule editor, preview, connect panel and secret
  * dialog, the model call details, the day bars, the instance list and the package drop.
  */
 import { pickIn } from '../../test/pickers.ts';
@@ -11,6 +11,7 @@ import { T0 } from '../../chat/test/fakes.ts';
 import { model } from '../test/fakes.ts';
 import { dayBars } from '../logic/metrics.ts';
 import DayBars from './DayBars.vue';
+import DecisionDialog from './DecisionDialog.vue';
 import InstanceList from './InstanceList.vue';
 import McpConnect from './McpConnect.vue';
 import McpPreview from './McpPreview.vue';
@@ -64,6 +65,52 @@ describe('model roles and limits', () => {
     await set('[data-testid=role-language]', 'en-GB');
     await click('[data-testid=role-save]');
     expect(dialog.emitted('save')?.[0]).toEqual([{ role: 'dictate', engine: { engine: 'model', model: { model: 'openai/whisper-1' } }, language: 'en-GB' }]);
+    dialog.unmount();
+  });
+
+  it('ModelRoleDialog sets the decide role to a decision model with a threshold, and no language', async () => {
+    const judge = model({ id: 'judge', name: 'Judge', provider: 'ollama', capabilities: ['decision'] });
+    const dialog = mount(ModelRoleDialog, { ...inBody, props: { open: false, role: roleView('decide'), models: [model(), judge], providers: [] } });
+    await reveal(dialog);
+    expect(document.body.querySelector('[data-testid=role-language]')).toBeNull();
+    expect([...document.body.querySelectorAll('[data-testid=role-model] [data-model]')].map((o) => o.getAttribute('data-model'))).toEqual(['judge']);
+    await click('[data-testid=role-model] [data-model=judge]');
+    await set('[data-testid=role-threshold]', '2');
+    await click('[data-testid=role-save]');
+    expect(document.body.textContent).toContain('The threshold is a probability from 0 to 1.');
+    await set('[data-testid=role-threshold]', '0.65');
+    await click('[data-testid=role-save]');
+    expect(dialog.emitted('save')?.[0]).toEqual([{ role: 'decide', model: { model: 'judge' }, threshold: 0.65 }]);
+    dialog.unmount();
+  });
+
+  it('DecisionDialog chooses who picks suggestions: no model, a decision model (the role’s or its own), or an LLM', async () => {
+    const judge = model({ id: 'judge', name: 'Judge', provider: 'ollama', capabilities: ['decision'] });
+    const mini = model({ id: 'gpt-4o-mini', name: 'Mini', capabilities: ['chat'] });
+    const dialog = mount(DecisionDialog, { ...inBody, props: { open: false, view: undefined, models: [judge, mini], sessions: [] } });
+    await reveal(dialog);
+    const offered = (): (string | null)[] => [...document.body.querySelectorAll('[data-testid=decision-model] [data-model]')].map((o) => o.getAttribute('data-model'));
+    // no model: nothing to pick, and saving says so
+    expect(document.body.querySelector('[data-testid=decision-model]')).toBeNull();
+    await click('[data-testid=decision-save]');
+    expect(dialog.emitted('save')?.[0]).toEqual([{ by: 'none' }]);
+    // a decision model offers decision models, and falls back to the Decisions role's
+    await click('[data-testid=decision-by] [role=radio]:nth-child(2)');
+    expect(offered()).toEqual(['judge']);
+    expect(find('[data-testid=decision-model]').textContent).toContain('The Decisions role’s model');
+    await click('[data-testid=decision-save]');
+    expect(dialog.emitted('save')?.[1]).toEqual([{ by: 'decision', messages: 3, candidates: 20, cap: 6, floor: 0.35 }]);
+    await click('[data-testid=decision-model] [data-model=judge]');
+    await click('[data-testid=decision-save]');
+    expect(dialog.emitted('save')?.[2]).toEqual([{ by: 'decision', model: { model: { model: 'judge' } }, messages: 3, candidates: 20, cap: 6, floor: 0.35 }]);
+    // an LLM offers chat models and needs one
+    await click('[data-testid=decision-by] [role=radio]:nth-child(3)');
+    expect(offered()).toEqual(['gpt-4o-mini']);
+    await click('[data-testid=decision-save]');
+    expect(document.body.textContent).toContain('Pick the LLM that picks the suggestions.');
+    await click('[data-testid=decision-model] [data-model="gpt-4o-mini"]');
+    await click('[data-testid=decision-save]');
+    expect(dialog.emitted('save')?.[3]).toEqual([{ by: 'llm', model: { model: { model: 'gpt-4o-mini' } }, messages: 3, candidates: 20, cap: 6, floor: 0.35 }]);
     dialog.unmount();
   });
 

@@ -15,7 +15,8 @@ import {
   type ApprovalId, type RunId, type Approver, type ChatMessage, type ConfigValue, type FnRecord, type GinTypeDef, type HubLinkSpec, type Json, type MessagePart,
   type OutcomeWire, type ProviderKind, type QualifiedName, type ResolvedLimits, type RunRequest, type Session, type SessionId, type Turn,
   type TurnId, type TurnStatus, type UndoOutcome, type UserInfo, type RunControlAction, type SuggestionRecord,
-  type ProviderChat, type ProviderChunk, type ProviderEmbed, type ProviderEmbedResult, type ValidateAnswer, type ValidateRequest,
+  type ProviderChat, type ProviderChunk, type ProviderDecide, type ProviderDecideResult, type ProviderEmbed, type ProviderEmbedResult, type ProviderModels,
+  type ProviderModelsResult, type ValidateAnswer, type ValidateRequest,
   type ConnectFinish, type ContextDecl, type ConnectResult, type ConnectStart, type RunConnection, type PreviewAnswer, type PreviewRequest, type FlagsAnswer,
 } from '@harness/core';
 import { z } from 'zod';
@@ -204,6 +205,7 @@ export class TestCatalog implements Catalog {
   importPatch(): never { throw new Error('not in execution tests'); }
   forgetInstance(): never { throw new Error('not in execution tests'); }
   refreshAvailability(): never { throw new Error('not in execution tests'); }
+  refreshRoles(): never { throw new Error('not in execution tests'); }
   indexStoredFns(): never { throw new Error('not in execution tests'); }
   /** No kind records here: runs of kind fns are worded by their fn's status templates or the defaults. */
   kind(): ReturnType<Catalog['kind']> { return Promise.resolve(undefined); }
@@ -235,6 +237,10 @@ export interface SystemBehaviour {
   providerChat: (input: ProviderChat) => AsyncIterable<ProviderChunk>;
   /** Its providers' embedding calls (build 4). */
   providerEmbed: (input: ProviderEmbed) => ProviderEmbedResult;
+  /** Its providers' decision calls. */
+  providerDecide: (input: ProviderDecide) => ProviderDecideResult;
+  /** Which of a provider's models it serves now. */
+  providerModels: (input: ProviderModels) => ProviderModelsResult | Promise<ProviderModelsResult>;
   /** Per-person connections (build 4): where to send the person, what came back, and revoking. */
   connectStart: (input: ConnectStart) => { url: string };
   connectFinish: (input: ConnectFinish) => ConnectResult;
@@ -253,6 +259,7 @@ export class TestSystem {
   readonly previews: PreviewRequest[] = [];
   readonly flagged: PreviewRequest[] = [];
   readonly chats: ProviderChat[] = [];
+  readonly decisions: ProviderDecide[] = [];
   readonly children: Array<{ parent: string; key: string; run: string; update?: unknown }> = [];
   readonly behaviour: SystemBehaviour = {
     run: (request) => Promise.resolve({ status: 'done', result: { echo: request.args } }),
@@ -261,7 +268,9 @@ export class TestSystem {
     handler: (input) => ({ ok: true, value: `${input.handler}:yes` }),
     validate: () => ({ ok: true }),
     providerChat: () => noChunks(),
-    providerEmbed: (input) => ({ vectors: input.texts.map(() => [0]) }),
+    providerEmbed: (input) => ({ vectors: input.inputs.map(() => [0]) }),
+    providerDecide: (input) => ({ answers: Object.fromEntries(Object.keys(input.questions).map((name) => [name, { type: 'predicate', probability: 0.5 }])) }),
+    providerModels: () => ({ listed: false }),
     connectStart: (input) => ({ url: `https://accounts.example/auth?state=${encodeURIComponent(input.state)}` }),
     connectFinish: () => ({ account: { label: 'ada@example.com' }, credentials: { access: 'a1', refresh: 'r1' } }),
     disconnect: () => undefined,
@@ -288,6 +297,8 @@ export class TestSystem {
       validate: ({ data }) => { this.validations.push(data); return this.behaviour.validate(data); },
       providerChat: ({ data }) => { this.chats.push(data); return this.behaviour.providerChat(data); },
       providerEmbed: ({ data }) => this.behaviour.providerEmbed(data),
+      providerDecide: ({ data }) => { this.decisions.push(data); return this.behaviour.providerDecide(data); },
+      providerModels: ({ data }) => this.behaviour.providerModels(data),
       connectStart: ({ data }) => this.behaviour.connectStart(data),
       connectFinish: ({ data }) => this.behaviour.connectFinish(data),
       disconnect: ({ data }) => { this.behaviour.disconnect(data); },

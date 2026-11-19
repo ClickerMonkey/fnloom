@@ -112,7 +112,7 @@ A link between resources: a folder's child, a code import, a page link.
 ```ts
 type ResourceLink = {
   raw: string;
-  kind: "embed" | "external" | "link" | "child" | "import";
+  kind: "embed" | "external" | "link" | "import" | "child";
   uri?: `${string}://${string}` | undefined;
   title?: string | undefined;
 };
@@ -138,7 +138,7 @@ type ResourceRead = {
   };
   links?: {
     raw: string;
-    kind: "embed" | "external" | "link" | "child" | "import";
+    kind: "embed" | "external" | "link" | "import" | "child";
     uri?: `${string}://${string}` | undefined;
     title?: string | undefined;
   }[] | undefined;

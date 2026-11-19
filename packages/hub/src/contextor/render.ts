@@ -5,7 +5,7 @@
  * same. Fn and context cards are the one XML of `xml.ts`.
  */
 import {
-  fnLabel, problemLine, RESULT_TABLE_INSTRUCTION, type ChatModeType, type ContextRecord, type Detail, type FnBlock, type FnExample, type FnMode, type FnRefusal, type FnRecord, type InputProblem, type QualifiedName,
+  fnLabel, problemLine, RESULT_TABLE_INSTRUCTION, type ChatModeType, type ContextCrawlResult, type ContextRecord, type CrawledContext, type CrawlSkip, type CrawlStopReason, type Detail, type FnBlock, type FnExample, type FnMode, type FnRefusal, type FnRecord, type InputProblem, type QualifiedName,
 } from '@harness/core';
 import { fnMode } from '../link/review-summary.ts';
 import type { CallProtocol, ChosenContext, ExchangeSummary, FnView } from './index.ts';
@@ -251,6 +251,51 @@ export function loadedContextCards(loaded: readonly Pick<ContextRecord, 'name' |
     ...broughtParts({ ...brought, words: LOADED_BROUGHT }).map((part) => part.toString()),
     cardList('refused_context', 'Not loaded:', refused.map((r) => refusedElement(r.context, r.closest.length === 0 ? r.reason : `${r.reason}. The closest: ${r.closest.join(', ')}.`))),
   ].filter((part) => part !== '').join('\n') || '<loaded_context />';
+}
+
+/** Why a crawl stopped, as the model reads it. */
+const CRAWL_STOP_WORDS = {
+  complete: 'It followed every choice there was.',
+  'max-depth': 'It reached maxDepth: the choices past the last level are under <skipped_context>.',
+  'max-decisions': 'It ran out of questions (maxDecisions): the choices it could not ask about are under <skipped_context>.',
+  'max-tokens': 'It reached maxTokens: what did not fit is under <skipped_context>.',
+  failed: 'The decision model failed, so it stopped; what it took before is kept.',
+} as const satisfies Record<CrawlStopReason, string>;
+
+/** What a crawl's cards show: what it took, skipped and refused, how it stopped, and whether it loaded what it took. */
+export interface CrawlCards extends Pick<ContextCrawlResult, 'stop' | 'decisions' | 'tokens'> {
+  readonly taken: readonly Omit<CrawledContext, 'content'>[];
+  readonly skipped: readonly CrawlSkip[];
+  /** Loaded into the session (else metadata only: nothing loaded). */
+  readonly loaded: boolean;
+  readonly brought: Pick<BroughtFnLines, 'added' | 'blocked'>;
+  readonly refused: readonly RefusedContext[];
+}
+
+/** A probability as a card shows it: two decimals. */
+const chance = (probability: number | undefined): string | undefined => (probability === undefined ? undefined : probability.toFixed(2));
+
+/**
+ * What `hub/context_crawl` answers the model: what it took (`<crawled_context>`, each a listed context card with its
+ * level, how it was reached and its size; loaded, or metadata only), the fns that brought (`<brought_fns>`), the
+ * choices it skipped and why (`<skipped_context>`), the starting names it refused (`<refused_context>`), and why it
+ * stopped (`<crawl_stop>`).
+ */
+export function crawledContextCards(cards: CrawlCards): string {
+  const intro = cards.loaded
+    ? 'Their text is in front of you from your next step:'
+    : 'Not loaded (metadata only): load what fits with hub/load_context.';
+  const taken = cards.taken.map((item) => contextElement({
+    key: item.name, title: item.title, text: firstLine(item.description),
+    about: { depth: item.depth, via: item.via, from: item.from, yes: chance(item.probability), tokens: item.tokens },
+  }));
+  return [
+    element('crawled_context', { decisions: cards.decisions, tokens: cards.tokens }, taken.length === 0 ? ['Nothing was taken.'] : [intro, ...taken]).toString(),
+    ...broughtParts({ ...cards.brought, words: LOADED_BROUGHT }).map((part) => part.toString()),
+    cardList('skipped_context', 'Not taken:', cards.skipped.map((skip) => element('skipped', { key: skip.context, from: skip.from, depth: skip.depth, reason: skip.reason, yes: chance(skip.probability) }))),
+    cardList('refused_context', 'Not loaded:', cards.refused.map((r) => refusedElement(r.context, r.closest.length === 0 ? r.reason : `${r.reason}. The closest: ${r.closest.join(', ')}.`))),
+    element('crawl_stop', { reason: cards.stop.reason }, [cards.stop.detail === undefined ? CRAWL_STOP_WORDS[cards.stop.reason] : `${CRAWL_STOP_WORDS[cards.stop.reason]} ${cards.stop.detail}`]).toString(),
+  ].filter((part) => part !== '').join('\n');
 }
 
 /** Listed fns, loadable by name (tools mode, where only loaded fns are native tools). */

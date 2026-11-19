@@ -3,7 +3,7 @@
  * valid config. A fn also needs its functions switched on, not to be paused, its kind to exist on a usable system,
  * and every fn it depends on to be available. These rules are pure, so the catalog and its tests share them.
  */
-import { QualifiedName, SystemName, splitName, type Availability, type FnRecord, type FnUnavailable, type KindRecord, type SystemRecord, type SystemReviewRecord } from '@harness/core';
+import { QualifiedName, SystemName, splitName, type Availability, type FnRecord, type FnUnavailable, type KindRecord, type ModelRole, type SystemRecord, type SystemReviewRecord } from '@harness/core';
 import { hub } from '@harness/sdk';
 
 /**
@@ -56,6 +56,11 @@ export interface AvailabilityInputs {
   readonly held?: ReadonlySet<string>;
   /** Kinds an admin switched off (`itemSwitches`): their fns are off with them. */
   readonly kindsOff?: ReadonlySet<string>;
+  /**
+   * Plan item 7: the hub model roles that have no model set. A fn that needs one (`FnDecl.roles`) is unavailable
+   * (`role-unset`) until an admin sets it. Absent: roles are not checked.
+   */
+  readonly rolesUnset?: ReadonlySet<ModelRole>;
 }
 
 /**
@@ -171,6 +176,8 @@ export class AvailabilityRules {
     if (record.disabled || system?.enabled.functions === false) { return unavailable('disabled', `${record.name} is switched off`); }
     if (record.paused) { return unavailable('paused', `${record.name} is paused`); }
     if (this.inputs.held?.has(record.name) === true) { return unavailable('held', `${record.name} changed and waits for an admin to approve it`); }
+    const unset = record.decl.roles?.find((role) => this.inputs.rolesUnset?.has(role) === true);
+    if (unset !== undefined) { return unavailable('role-unset', roleUnsetDetail(record.name, unset)); }
     if (record.decl.kind !== 'native') {
       const kind = this.inputs.kinds.get(record.decl.kind);
       if (kind === undefined) { return unavailable('kind-missing', `its kind ${record.decl.kind} does not exist`); }
@@ -181,6 +188,11 @@ export class AvailabilityRules {
     }
     return true;
   }
+}
+
+/** Why a fn that needs a model role is off while the role has no model: the role named, and who sets it. */
+export function roleUnsetDetail(fn: QualifiedName, role: ModelRole): string {
+  return `${fn} needs a model for the ${role} role, and none is set: an admin sets it under Models, Roles`;
 }
 
 /** Whether two availabilities say the same thing. */

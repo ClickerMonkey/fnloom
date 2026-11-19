@@ -125,9 +125,9 @@ type PreviewAnswer = {
       };
       source?: string | undefined;
       grants?: {
-        hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
+        hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
         models?: {
-          roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+          roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
           models?: string[] | undefined;
           perRun?: number | undefined;
           perDay?: number | undefined;
@@ -197,7 +197,7 @@ type PreviewAnswer = {
         removed: number;
       }[];
       flags: {
-        flag: "models" | "capabilities" | "secrets" | "effects" | "files" | "calls" | "hosts" | "delete-fns" | "write-fns";
+        flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns";
         line: string;
         items: string[];
         lead?: string | undefined;
@@ -384,6 +384,7 @@ type PreviewAnswer = {
       promptExamples?: number | undefined;
       group?: string | undefined;
       flags?: boolean | undefined;
+      roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
       live?: {
         every: number;
       } | undefined;
@@ -501,6 +502,9 @@ type PreviewAnswer = {
         caching: boolean;
         name?: string | undefined;
         maxOutput?: number | undefined;
+        dimensions?: number | undefined;
+        maxInput?: number | undefined;
+        maxQuestions?: number | undefined;
       }[];
     }[] | undefined;
     connect?: {
@@ -592,9 +596,9 @@ type PreviewAnswer = {
     configSecrets?: string[] | undefined;
     runtime?: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "embedders" | "sectioners" | "actions", string[]>> | undefined;
     grants?: {
-      hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
+      hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
       models?: {
-        roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+        roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
         models?: string[] | undefined;
         perRun?: number | undefined;
         perDay?: number | undefined;

@@ -20,6 +20,7 @@ import type {
 } from '../chat/index.ts';
 import type { AgentLoop, Ledger, LimitResolver, LlmGateway, PolicyEngine, ProviderService, RunService } from '../execution/index.ts';
 import type { Embedders, Indexer, Search, Suggester } from '../index/index.ts';
+import type { ImageEmbeddingSettings } from '../index/image-setting.ts';
 import type {
   ConfigService, InstanceRouter, LinkService, Packages, PairingService, ResourceRouter, Supervisor, SystemAdmin, SystemOutput, SystemTokens,
 } from '../link/index.ts';
@@ -73,7 +74,11 @@ export interface HubServices {
     readonly presence: PresenceTracker; readonly notifications: NotificationService; readonly approvers: ApproverDirectory;
     readonly suggestions: SuggestionDecider;
   };
-  readonly index: { readonly embedders: Embedders; readonly indexer: Indexer; readonly search: Search; readonly suggest: Suggester };
+  readonly index: {
+    readonly embedders: Embedders; readonly indexer: Indexer; readonly search: Search; readonly suggest: Suggester;
+    /** Where images are embedded (admins). */
+    readonly images: ImageEmbeddingSettings;
+  };
   readonly api: { readonly auth: Authenticator; readonly content: ContentStore; readonly push: PushService; readonly relay: EventRelay; readonly secrets: SecretVault;
     /** Build 8: the hub's display name. */
     readonly identity: HubIdentityService;

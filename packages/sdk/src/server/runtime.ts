@@ -231,6 +231,8 @@ export class SystemRuntime<C extends ContractShape> {
       flags: ({ data, signal }) => this.#flags(data, signal),
       providerChat: ({ data, signal }) => this.#providers.chat(data, signal),
       providerEmbed: ({ data, signal }) => this.#providers.embed(data, signal),
+      providerDecide: ({ data, signal }) => this.#providers.decide(data, signal),
+      providerModels: ({ data }) => this.#providers.models(data),
       connectStart: ({ data, signal }) => this.#connect().start(data, this.systemCtx(signal)),
       connectFinish: ({ data, signal }) => this.#connect().finish(data, this.systemCtx(signal)),
       disconnect: ({ data, signal }) => this.#connect().disconnect(data, this.systemCtx(signal)),

@@ -6,11 +6,17 @@
  *   images and reading text in them. Set in the admin's model settings or by asking in chat (`hub/set_model_role`);
  *   without a setting a role falls back to its env default (`HARNESS_TRANSCRIBE_MODEL`, `HARNESS_DEFAULT_MODEL`) or
  *   is off. `ChatCapabilities.voiceInput` and `.dictation` follow it.
- * - `ModelGateway`: embeddings, images, transcription and speech for systems (the `model` link endpoint behind the
- *   SDK's forwarding provider) and for the hub's own work (forms, dictation), each budgeted, rate-limited and recorded
- *   as a `ModelCall`. Chat stays on the execution module's `LlmGateway`.
+ * - `ModelGateway`: embeddings, images, transcription, speech and decisions for systems (the `model` link endpoint
+ *   behind the SDK's forwarding provider) and for the hub's own work (forms, dictation), each budgeted, rate-limited and
+ *   recorded as a `ModelCall`. Chat stays on the execution module's `LlmGateway`.
+ * - `Decider`: the hub's own decisions by a decision model (the `decide` role's, or one a job chose), its questions split
+ *   by the model's `maxQuestions`, and the role's threshold for what counts as yes.
  */
-import type { ActorId, ModelForward, ModelForwardResult, ModelRole, ModelRoleView, ResolvedRole, RoleChoice, InstanceName, RunId, SystemName, TurnId } from '@harness/core';
+import type { DecisionAnswer } from '@aeye/ai';
+import type {
+  ActorId, DecisionInput, DecisionQuestions, InstanceName, ModelCallId, ModelForward, ModelForwardResult, ModelRole, ModelRoleView, ResolvedRole, RoleChoice, RoleModel,
+  RoleResolution, RunId, SystemName, TurnId, Usd,
+} from '@harness/core';
 
 /** Which model each role uses. */
 export interface ModelRoles {
@@ -18,8 +24,40 @@ export interface ModelRoles {
   get(role: ModelRole): Promise<ModelRoleView>;
   set(choice: RoleChoice, by: ActorId): Promise<ModelRoleView>;
   clear(role: ModelRole, by: ActorId): Promise<ModelRoleView>;
+  /** Whether a role has a choice (its setting, or its env default), without resolving it: what `FnDecl.roles` checks. */
+  isSet(role: ModelRole): Promise<boolean>;
   /** The model and provider a role resolves to now, or undefined when the role is off. */
   resolve(role: ModelRole): Promise<ResolvedRole | undefined>;
+  /** A model chosen for a role's job (not the role's own setting) against what providers offer now. */
+  resolveModel(role: ModelRole, wanted: RoleModel): Promise<RoleResolution>;
+}
+
+/** A decision model ready to ask: which model on which provider, the threshold a yes needs, and its question cap. */
+export interface DecisionModel {
+  readonly model: string;
+  readonly provider: string;
+  /** The decide role's threshold: the probability a yes/no answer needs to count as yes. */
+  readonly threshold: number;
+  /** The most questions it answers in one call (aeye's `ModelInfo.maxQuestions`); none when it has no cap. */
+  readonly maxQuestions?: number;
+}
+
+/** Every answer by question name, and the calls that gave them, with what they cost in all. */
+export interface DecidedAnswers {
+  readonly answers: Record<string, DecisionAnswer>;
+  readonly calls: readonly ModelCallId[];
+  readonly cost: Usd;
+}
+
+/** The hub's own decisions by a decision model. */
+export interface Decider {
+  /**
+   * The decision model a job uses: `choice` when it names one, else the `decide` role's; with the role's threshold.
+   * When there is none, or it can't be used now, why (`problem`), for the caller's record.
+   */
+  model(choice?: RoleModel): Promise<DecisionModel | { readonly problem: string }>;
+  /** Ask `questions` about `input`, in calls of at most the model's `maxQuestions`, one after another. */
+  ask(request: { input: DecisionInput; questions: DecisionQuestions; model: DecisionModel; site: ModelSite; signal: AbortSignal }): Promise<DecidedAnswers>;
 }
 
 /** Who a non-chat call is for: a system's run, or the hub's own work. */
@@ -38,4 +76,5 @@ export interface ModelGateway {
 export interface ModelServices {
   readonly roles: ModelRoles;
   readonly gateway: ModelGateway;
+  readonly decider: Decider;
 }

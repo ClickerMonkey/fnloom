@@ -18,7 +18,8 @@ import type {
 import { hub } from '@harness/sdk';
 import type { ModelSite } from '../models/index.ts';
 import type { FnModeGate } from '../fns/index.ts';
-import type { EmbedCall, Heard, ImageCall, MadeImage, SpeechCall, Spoken, TranscribeCall } from './media.ts';
+import type { DecisionResponse } from '@aeye/ai';
+import type { DecideCall, EmbedCall, Heard, ImageCall, MadeImage, SpeechCall, Spoken, TranscribeCall } from './media.ts';
 import type { SpendReader } from './spend.ts';
 import type { EngineModel } from './ports.ts';
 
@@ -181,6 +182,8 @@ export interface LlmGateway {
   image(input: ImageCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<MadeImage[]>>;
   transcribe(input: TranscribeCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<Heard>>;
   speech(input: SpeechCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<Spoken>>;
+  /** One decision call (within the model's `maxQuestions`: callers split, `models/decide.ts`). */
+  decide(input: DecideCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<DecisionResponse>>;
   /**
    * One chat call of the hub's own (no tools, the answer's text collected), recorded as a `ModelCall` with its site's
    * purpose and paid by its run when it names one; `provider` pins the model to one provider. `priority` places it on the LLM queue (the hub's work waits as

@@ -23,8 +23,10 @@ export interface HitLookups {
  */
 export async function seesHit(access: AccessScope, lookups: HitLookups, hit: Pick<SearchHit, 'kind' | 'key' | 'parent'>, session?: SessionId): Promise<boolean> {
   if (hit.kind === 'section') return access.seesUri(parseSectionIndexKey(hit.key).uri);
-  // a context section is seen with its context item
-  if (hit.kind === 'contextSection') {
+  // a picture is seen with the context item that shows it, or as the image resource it is
+  if (hit.kind === 'image' && hit.parent === undefined) return access.seesUri(hit.key);
+  // a context section (and a context item's picture) is seen with its context item
+  if (hit.kind === 'contextSection' || hit.kind === 'image') {
     const parent = QualifiedName.safeParse(hit.parent);
     return parent.success && seesContextNamed(access, lookups.context, parent.data, session);
   }

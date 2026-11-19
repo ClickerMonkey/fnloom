@@ -7,13 +7,13 @@
  * window as the output limit. The view carries the model's calibration ratio too.
  */
 import type { ModelInfo as AeyeModelInfo } from '@aeye/ai';
+import { OllamaApi, reasons, servedWindow, unsetWindow, type OllamaShow } from '@aeye/ollama';
 import type { Logger } from '@ayepi/log';
 import { messageOf, MODEL_LIMIT_FIELDS, namesModel, type ActorId, type LimitSource, type ModelInfo, type ModelLimitField, type ModelLimits, type ModelLimitsView, type ProviderConfig, type ResolvedModelLimits } from '@harness/core';
 import { allRows } from '../store/rows.ts';
 import type { HubStore } from '../store/index.ts';
 import type { ContextorEnv } from './env.ts';
 import type { ModelLimitsService } from './index.ts';
-import { limitsOf, OllamaApi, unsetWindowOf, type OllamaProviderConfig } from './ollama.ts';
 import { CALIBRATION, DEFAULT_CHARS_PER_TOKEN, TOKENIZER_CHARS } from './tokens.ts';
 
 
@@ -31,18 +31,34 @@ export type ProbeFactory = (config: ProviderConfig) => ModelProbe | undefined;
 /** Characters per token by Ollama model family. */
 const FAMILY_CHARS: Readonly<Record<string, number>> = { qwen2: 3.5, qwen3: 3.5, llama: 3.5, gemma: 3.8, gemma2: 3.8, gemma3: 3.8, mistral: 3.6, phi3: 3.8 };
 
+/** What a probe of one Ollama model found, given the window of a model with no `num_ctx`: its served window, and no thinking budget when it doesn't think. */
+export function limitsOf(model: string, show: OllamaShow, unset: number): ModelLimits {
+  return { contextWindow: servedWindow(show, unset), ...(reasons(model, show) ? {} : { reasoningTokens: 0 }) };
+}
+
+/**
+ * The window an Ollama provider record serves models with no `num_ctx` at, and the most assumed when it sets none
+ * (`HARNESS_OLLAMA_DEFAULT_CTX`): the provider (`@aeye/ollama`'s `contextWindow` and `maxContextWindow`) and the probe
+ * read the same two, so they agree.
+ */
+export interface OllamaWindow {
+  readonly contextWindow?: number | undefined;
+  readonly cap: number;
+}
+
 /** Probes Ollama models: the served window (`servedWindow`; Ollama's default held to `cap`), and whether the model thinks. */
 export class OllamaProbe implements ModelProbe {
   readonly #api: OllamaApi;
-  readonly #config: Pick<OllamaProviderConfig, 'contextWindow' | 'cap'>;
+  readonly #config: OllamaWindow;
 
-  constructor(api: OllamaApi, config: Pick<OllamaProviderConfig, 'contextWindow' | 'cap'>) {
+  constructor(api: OllamaApi, config: OllamaWindow) {
     this.#api = api;
     this.#config = config;
   }
 
   async probe(model: string): Promise<ModelLimits | undefined> {
-    const [show, unset] = await Promise.all([this.#api.show(model), unsetWindowOf(this.#api, this.#config)]);
+    const unsetOf = async (): Promise<number> => unsetWindow(await this.#api.version(), this.#config.contextWindow, this.#config.cap);
+    const [show, unset] = await Promise.all([this.#api.show(model), unsetOf()]);
     const family = show.details?.family;
     const chars = family === undefined ? undefined : FAMILY_CHARS[family];
     return { ...limitsOf(model, show, unset), ...(chars === undefined ? {} : { charsPerToken: chars }) };

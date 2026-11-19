@@ -6,7 +6,7 @@
 import type { Type } from '@aeye/gin';
 import type { Logger } from '@ayepi/log';
 import {
-  apiContextName, Json, MANIFEST_SECTION_NAMES, noFnStats, QualifiedName, qualify, runtimeNames, splitName,
+  apiContextName, Json, MANIFEST_SECTION_NAMES, noFnStats, QualifiedName, qualify, roleLinkTo, runtimeNames, splitName, type ModelRole,
   type ActorId, type Availability, type ContextDecl, type ContextRecord, type FnDecl, type FnRecord, type GinTypeDef, type ImportReport,
   type KindDecl, type KindRecord, type Manifest, type ManifestPatch, type ManifestSection, type SectionDecl, type SystemName,
   type InstanceName, type TypeDecl, type TypeRecord, type DeclaredBy, type FnLink, type ApiGroupDecl,
@@ -34,6 +34,11 @@ export interface CatalogOptions {
   /** Asks a kind's system to check and describe a fn's payload. */
   readonly describer: KindDescriber;
   readonly scopes?: GinScopes;
+  /**
+   * Plan item 7: whether a hub model role has a model set, for the fns that need one (`FnDecl.roles`); read when
+   * availability is worked out. Absent: roles are not checked.
+   */
+  readonly roleSet?: (role: ModelRole) => Promise<boolean>;
 }
 
 /** Every manifest section as a list of its declarations. `Manifest` is one of these. */
@@ -371,6 +376,18 @@ export class StoreCatalog implements Catalog {
     });
   }
 
+  async refreshRoles(roles: readonly ModelRole[]): Promise<void> {
+    await this.#serial.run(async () => {
+      // the fns that need these roles, found through their `role` links, and every fn that depends on them
+      const needing = roles.length === 0 ? [] : await allRows(this.options.store.table('fnLinks'), { where: { to: { in: roles.map(roleLinkTo) }, link: 'role' } });
+      const changed = await this.#refresh(needing.map((row) => row.fn));
+      if (changed.length > 0) {
+        this.options.bus.publish('catalog.changed', { added: [], removed: [], fns: changed });
+        this.options.bus.publish('capabilities.changed', {});
+      }
+    });
+  }
+
   /**
    * The fns whose availability a change to a system can change on their own: its fns, the fns of its kinds (the kinds
    * it has, and any it just removed), and fns it just removed (so the fns that depend on them follow). All read through
@@ -411,6 +428,7 @@ export class StoreCatalog implements Catalog {
       settled: new Map(settled.map((r) => [r.name, r.available])),
       held: heldFns(reviews.filter((r) => r !== undefined)),
       kindsOff: new Set(kindsOff.map((r) => r.name)),
+      ...await this.#rolesUnset(records),
     });
     const changed: FnRecord[] = [];
     for (const fn of records) {
@@ -419,6 +437,15 @@ export class StoreCatalog implements Catalog {
       changed.push(await store.table('fns').update(fn.name, { available, updatedAt: this.options.clock() }));
     }
     return changed;
+  }
+
+  /** The model roles the fns need (`FnDecl.roles`) that have no model set, when the catalog checks roles. */
+  async #rolesUnset(records: readonly FnRecord[]): Promise<{ readonly rolesUnset?: ReadonlySet<ModelRole> }> {
+    const { roleSet } = this.options;
+    if (roleSet === undefined) { return {}; }
+    const needed = [...new Set(records.flatMap((r) => r.decl.roles ?? []))];
+    const set = await Promise.all(needed.map((role) => roleSet(role)));
+    return { rolesUnset: new Set(needed.filter((_, i) => set[i] !== true)) };
   }
 
   /** Some fns and every fn that depends on them, at any depth, through the `fnLinks` index. */
@@ -449,6 +476,7 @@ export class StoreCatalog implements Catalog {
     const links: FnLink[] = [
       ...qualifiedOnly(fn.decl.deps).map((to): FnLink => ({ fn: fn.name, to, link: 'dep', system: fn.system })),
       ...(fn.decl.kind === 'native' ? [] : qualifiedOnly([fn.decl.kind]).map((to): FnLink => ({ fn: fn.name, to, link: 'kind', system: fn.system }))),
+      ...(fn.decl.roles ?? []).map((role): FnLink => ({ fn: fn.name, to: roleLinkTo(role), link: 'role', system: fn.system })),
     ];
     const keep = new Set(links.map((l) => `${l.link}:${l.to}`));
     for (const row of fresh ? [] : await allRows(table, { where: { fn: fn.name } })) {

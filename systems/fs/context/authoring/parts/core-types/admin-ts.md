@@ -27,12 +27,13 @@ type HubModelInfo = {
   name: string;
   capabilities: string[];
   tier: "flagship" | "efficient" | "legacy" | "experimental";
-  roles: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[];
+  roles: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[];
   contextWindow?: number | undefined;
   pricing?: {
     input: number;
     output: number;
   } | undefined;
+  maxQuestions?: number | undefined;
   maxOutputTokens?: number | undefined;
 };
 ```

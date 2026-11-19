@@ -5,7 +5,7 @@
 import {
   messageOf,
   type Audience, type Display, type FnError, type FnLimits, type FnValidation, type InputVerdict, type InvalidInput, type Json, type Operations, type OutputVerdict, type ProgressDecl, type ProgressWire,
-  type StatusTemplates, type StepStatus, type Usd, type FnApproval, type FnEffects, type FnRouting, type FnConnectKey, type ProposalApprover,
+  type StatusTemplates, type StepStatus, type Usd, type FnApproval, type FnEffects, type FnRouting, type FnConnectKey, type ProposalApprover, type ModelRole,
 } from '@harness/core';
 import { encodeValue, json, type GinType } from './gin.ts';
 import type { ValidateCtx } from './ctx.ts';
@@ -207,6 +207,8 @@ export interface FnDef<T extends FnTypes> {
   readonly group: string | undefined;
   /** Whether the hub asks its implementation's `flags(args, ctx)` which sensitive files a run would touch first. */
   readonly flags: boolean;
+  /** The hub model roles it needs set (`FnDecl.roles`); it is unavailable (`role-unset`) while one has no model. */
+  readonly roles: readonly ModelRole[] | undefined;
   /** Phantom: lets the SDK read T back out of a def. Never set at runtime. */
   readonly types?: T;
 }
@@ -291,6 +293,11 @@ export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends Pro
    * Requires `flags` in the implementation.
    */
   flags?: true;
+  /**
+   * The hub model roles it needs set (`decide` for a fn that asks the decision model): while one has no model, the hub
+   * keeps it unavailable (`role-unset`) and says which role an admin must set.
+   */
+  roles?: ModelRole[];
 }
 
 /** The types of a native fn. */
@@ -339,6 +346,7 @@ export function fn<
     promptExamples: def.promptExamples,
     group: def.group,
     flags: def.flags === true,
+    roles: def.roles,
   };
 }
 
@@ -419,6 +427,7 @@ export function kindFn<N extends `${string}/${string}`, P, A, R, const T extends
     promptExamples: def.promptExamples,
     group: def.group,
     flags: false,
+    roles: undefined,
   };
 }
 

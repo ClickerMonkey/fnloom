@@ -9,7 +9,7 @@
 import type { Type } from '@aeye/gin';
 import type {
   ActorId, Availability, InstanceName, ContextRecord, GinTypeDef, Json, FnDecl, FnRecord, ImportReport, KindDescription, KindRecord, Manifest, ManifestPatch, ManifestSection,
-  QualifiedName, SectionDecl, SystemName, TypeRecord,
+  ModelRole, QualifiedName, SectionDecl, SystemName, TypeRecord,
 } from '@harness/core';
 import type { z } from 'zod';
 
@@ -63,6 +63,8 @@ export interface Catalog {
   reimport(system: SystemName): Promise<ImportReport>;
   /** A system connected, disconnected, was configured or removed: recompute availability of everything it touches. */
   refreshAvailability(system: SystemName): Promise<void>;
+  /** Plan item 7: model roles were set or cleared: recompute the availability of the fns that need them (`FnDecl.roles`). */
+  refreshRoles(roles: readonly ModelRole[]): Promise<void>;
   /** Build 8: write the index rows of fns stored before the hub kept them (a migration at start); how many it indexed. */
   indexStoredFns(): Promise<number>;
 

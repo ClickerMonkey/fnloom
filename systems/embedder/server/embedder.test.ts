@@ -176,13 +176,26 @@ describe('the embedder implementation', () => {
   const unreachable: HubAccess = { ready: () => Promise.reject(new Error('unused')), now: () => undefined, limits: () => ({ maxFrame: 262_144, maxChunk: 131_072, heartbeat: 15_000 }) };
   const ctx = (config: EmbedderConfig, log: Log) => ({ ...TEST_PLACE, ...NO_ASKS, system: 'embedder', config, log, signal: new AbortController().signal, llm: new HubLlm({ hub: unreachable }), resources: { stat: () => Promise.reject(new Error('unused')), text: () => Promise.reject(new Error('unused')), bytes: () => Promise.reject(new Error('unused')), links: () => Promise.reject(new Error('unused')), sections: () => Promise.reject(new Error('unused')), search: () => Promise.reject(new Error('unused')) }, types: { definitions: () => Promise.reject(new Error('unused')) }, data: { find: () => Promise.reject(new Error('unused')), get: () => Promise.reject(new Error('unused')), table: () => Promise.reject(new Error('unused')), save: () => Promise.reject(new Error('unused')), remove: () => Promise.reject(new Error('unused')) } });
 
-  it('embeds documents and queries with their task, caching queries', async () => {
+  it('is a provider whose models are the tasks: embeds documents and queries with their task, caching queries', async () => {
     const fake = new FakeClient();
     const { impl } = createEmbedderImpl({ client: fake, defaultUrl: 'http://default', queryCache: 10 });
-    await impl.embedders.document(['d1']);
-    await impl.embedders.query(['q1']);
-    await impl.embedders.query(['q1']);
-    expect(fake.asked).toEqual([[['d1'], 'document'], [['q1'], 'query']]);
+    const gemma = impl.providers.gemma(ctx({}, memoryLog()));
+    const documents = await gemma.embed?.({ texts: ['d1', 'd2'], model: 'document' }, {});
+    expect(documents).toEqual({ embeddings: [{ embedding: vector(0), index: 0 }, { embedding: vector(1), index: 1 }], model: 'document' });
+    await gemma.embed?.({ texts: ['q1'], model: 'query' }, {});
+    await gemma.embed?.({ texts: ['q1'], model: { id: 'query' } }, {});
+    expect(fake.asked).toEqual([[['d1', 'd2'], 'document'], [['q1'], 'query']]);
+    await expect(gemma.embed?.({ texts: ['x'], model: 'passage' }, {})).rejects.toThrow(/no model passage/);
+  });
+
+  it('lists both models while the service answers with EmbeddingGemma’s size, and says when it is down', async () => {
+    const fake = new FakeClient();
+    const gemma = createEmbedderImpl({ client: fake, defaultUrl: 'http://default', queryCache: 10 }).impl.providers.gemma(ctx({}, memoryLog()));
+    expect((await gemma.listModels?.())?.map((m) => [m.id, [...m.capabilities], m.contextWindow])).toEqual([['document', ['embedding'], 2_048], ['query', ['embedding'], 2_048]]);
+    expect(await gemma.checkHealth()).toBe(true);
+    fake.healthy = false;
+    expect(await gemma.checkHealth()).toBe(false);
+    await expect(gemma.listModels?.()).rejects.toThrow('down');
   });
 
   it('follows the config\'s URL, falling back to the default, and starts even when the service is down', async () => {

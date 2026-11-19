@@ -228,19 +228,27 @@ export const AWS_AUTH = [{ value: 'keys', label: 'Access keys' }, { value: 'apiK
 /** Every field any provider takes, besides its kind: AWS's sign-in fields are flattened into the form. */
 export type ProviderField = Exclude<KeysOfUnion<ProviderInput>, 'provider' | 'auth'> | Exclude<KeysOfUnion<Extract<ProviderInput, { provider: 'aws' }>['auth']>, 'kind'>;
 
-/** One provider field: its label, whether it is a secret, and an optional hint. */
+/**
+ * One provider field: its label, whether it is a secret, an optional hint, and what its text is read as: a number, a
+ * list (comma or line separated), or text as typed.
+ */
 interface ProviderFieldInfo {
   readonly label: string;
   readonly secret: boolean;
   readonly hint?: string;
   readonly placeholder?: string;
+  readonly kind?: 'number' | 'list';
 }
 
 /** Every provider field's label, and whether it is a secret. Adding a field to `ProviderInput` breaks this until it is named. */
 export const PROVIDER_FIELDS = {
   apiKey: { label: 'API key', secret: true },
   baseURL: { label: 'Base URL', secret: false },
-  contextWindow: { label: 'Context window (tokens)', secret: false },
+  contextWindow: { label: 'Context window (tokens)', secret: false, kind: 'number' },
+  decisionModels: {
+    label: 'Decision models', secret: false, kind: 'list', placeholder: 'qwen3-systemone',
+    hint: 'System One models to treat as decision models, comma separated. Only needed when the server’s /api/show lists no capabilities; newer servers say so themselves.',
+  },
   region: { label: 'Region', secret: false, placeholder: 'us-east-1' },
   accessKeyId: { label: 'Access key ID', secret: false },
   secretAccessKey: { label: 'Secret access key', secret: true },
@@ -298,7 +306,7 @@ export function providerFields(kind: ProviderKindInput, auth: AwsAuthKind = 'key
 
 /** A provider's fields as typed, to the body `configureProvider` takes (AWS's sign-in fields gathered under `auth`). */
 export function providerBody(kind: ProviderKindInput, fields: Readonly<Partial<Record<ProviderField, string>>>, auth: AwsAuthKind = 'keys'): Checked<ProviderInput, ProviderField> {
-  const values = (from: readonly ProviderFormField[]): Record<string, unknown> => present(Object.fromEntries(from.map((f) => [f.name, fields[f.name]?.trim()])));
+  const values = (from: readonly ProviderFormField[]): Record<string, unknown> => present(Object.fromEntries(from.map((f) => [f.name, fieldValue(f, fields[f.name])])));
   const authFields = kind === 'aws' ? fieldsOf(awsAuthSchema(auth).shape) : [];
   const own = providerFields(kind, auth).filter((f) => !authFields.includes(f));
   const candidate = kind === 'aws' ? { provider: kind, ...values(own), auth: { kind: auth, ...values(authFields) } } : { provider: kind, ...values(own) };
@@ -308,6 +316,18 @@ export function providerBody(kind: ProviderKindInput, fields: Readonly<Partial<R
   const found = kind === 'aws' && 'auth' in checked.problems ? { ...checked.problems, ...authProblems(auth, candidate) } : checked.problems;
   for (const [key, message] of Object.entries(found)) { if (isProviderField(key)) { problems[key] = message; } }
   return { ok: false, problems };
+}
+
+/** A field's text as its schema takes it: a number, a list (empty when nothing is listed), or the text trimmed. */
+function fieldValue(field: ProviderFieldInfo, text: string | undefined): unknown {
+  const trimmed = text?.trim();
+  if (trimmed === undefined || trimmed === '') { return undefined; }
+  if (field.kind === 'number') { return Number(trimmed); }
+  if (field.kind === 'list') {
+    const items = trimmed.split(/[,\n]/).map((item) => item.trim()).filter((item) => item !== '');
+    return items.length === 0 ? undefined : items;
+  }
+  return trimmed;
 }
 
 /** The AWS sign-in's problems, one per field. */

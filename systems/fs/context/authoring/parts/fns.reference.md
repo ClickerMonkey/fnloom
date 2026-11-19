@@ -102,10 +102,15 @@ interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDe
    * Requires `flags` in the implementation.
    */
   flags?: true;
+  /**
+   * The hub model roles it needs set (`decide` for a fn that asks the decision model): while one has no model, the hub
+   * keeps it unavailable (`role-unset`) and says which role an admin must set.
+   */
+  roles?: ModelRole[];
 }
 ```
 
-Refers to: [`Audience`](context:fs/authoring.core-types.primitives-ts#core-audience), [`Display`](context:fs/authoring.core-types.run-ts#core-display), [`FnConnectKey`](context:fs/authoring.core-types.connections-ts#core-fnconnectkey), [`FnEffects`](context:fs/authoring.core-types.contextdecl#core-fneffects), [`FnLimits`](context:fs/authoring.core-types.run-ts#core-fnlimits), [`FnRouting`](context:fs/authoring.core-types.contextdecl#core-fnrouting), [`Operations`](context:fs/authoring.core-types.run-ts#core-operations), [`ProposalApprover`](context:fs/authoring.core-types.approvals-ts#core-proposalapprover).
+Refers to: [`Audience`](context:fs/authoring.core-types.primitives-ts#core-audience), [`Display`](context:fs/authoring.core-types.run-ts#core-display), [`FnConnectKey`](context:fs/authoring.core-types.connections-ts#core-fnconnectkey), [`FnEffects`](context:fs/authoring.core-types.contextdecl#core-fneffects), [`FnLimits`](context:fs/authoring.core-types.run-ts#core-fnlimits), [`FnRouting`](context:fs/authoring.core-types.contextdecl#core-fnrouting), [`ModelRole`](context:fs/authoring.core-types.model-calls-ts#core-modelrole), [`Operations`](context:fs/authoring.core-types.run-ts#core-operations), [`ProposalApprover`](context:fs/authoring.core-types.approvals-ts#core-proposalapprover).
 
 #### `FnExampleOf`
 
@@ -171,12 +176,14 @@ interface FnDef<T extends FnTypes> {
   readonly group: string | undefined;
   /** Whether the hub asks its implementation's `flags(args, ctx)` which sensitive files a run would touch first. */
   readonly flags: boolean;
+  /** The hub model roles it needs set (`FnDecl.roles`); it is unavailable (`role-unset`) while one has no model. */
+  readonly roles: readonly ModelRole[] | undefined;
   /** Phantom: lets the SDK read T back out of a def. Never set at runtime. */
   readonly types?: T;
 }
 ```
 
-Refers to: [`Audience`](context:fs/authoring.core-types.primitives-ts#core-audience), [`Display`](context:fs/authoring.core-types.run-ts#core-display), [`FnApproval`](context:fs/authoring.core-types.approvals-ts#core-fnapproval), [`FnConnectKey`](context:fs/authoring.core-types.connections-ts#core-fnconnectkey), [`FnEffects`](context:fs/authoring.core-types.contextdecl#core-fneffects), [`FnLimits`](context:fs/authoring.core-types.run-ts#core-fnlimits), [`FnRouting`](context:fs/authoring.core-types.contextdecl#core-fnrouting), [`Operations`](context:fs/authoring.core-types.run-ts#core-operations).
+Refers to: [`Audience`](context:fs/authoring.core-types.primitives-ts#core-audience), [`Display`](context:fs/authoring.core-types.run-ts#core-display), [`FnApproval`](context:fs/authoring.core-types.approvals-ts#core-fnapproval), [`FnConnectKey`](context:fs/authoring.core-types.connections-ts#core-fnconnectkey), [`FnEffects`](context:fs/authoring.core-types.contextdecl#core-fneffects), [`FnLimits`](context:fs/authoring.core-types.run-ts#core-fnlimits), [`FnRouting`](context:fs/authoring.core-types.contextdecl#core-fnrouting), [`ModelRole`](context:fs/authoring.core-types.model-calls-ts#core-modelrole), [`Operations`](context:fs/authoring.core-types.run-ts#core-operations).
 
 #### `AnyFnDef`
 

@@ -605,6 +605,11 @@ export class FakeHub {
       case 'image': return { modality: 'image', images: Array.from({ length: forward.count ?? 1 }, () => this.put(new Uint8Array([137, 80, 78, 71]), 'image/png')), ...record };
       case 'transcribe': return { modality: 'transcribe', text: `heard ${forward.audio.size} bytes`, ...record };
       case 'speech': return { modality: 'speech', audio: this.put(new TextEncoder().encode(forward.text), `audio/${forward.format ?? 'mp3'}`), ...record };
+      // every yes/no question is an even call; other questions are refused, so a test that needs them scripts its own hub
+      case 'decide': return {
+        modality: 'decide', ...record,
+        answers: Object.fromEntries(Object.entries(forward.questions).map(([name, question]) => [name, question.type === 'predicate' ? { type: 'predicate', probability: 0.5 } : { type: 'refusal' }])),
+      };
     }
   }
 

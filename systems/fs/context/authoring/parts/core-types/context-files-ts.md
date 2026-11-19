@@ -12,6 +12,78 @@ tags: ["authoring", "reference"]
 
 ### From `packages/core/src/context-files.ts`
 
+#### <a id="core-contextcrawlargs"></a>`ContextCrawlArgs`
+
+const, type · declared in `packages/core/src/context-files.ts`
+
+`hub/context_crawl`'s args (see `CRAWL_DEFAULTS` for how a crawl walks the graph).
+
+```ts
+type ContextCrawlArgs = {
+  context: string[];
+  guidance: string;
+  maxDepth: number;
+  maxDecisions: number;
+  maxTokens: number;
+  metadataOnly: boolean;
+};
+```
+
+#### <a id="core-contextcrawlresult"></a>`ContextCrawlResult`
+
+const, type · declared in `packages/core/src/context-files.ts`
+
+What `hub/context_crawl` did: the items it took (`crawled`, in the order taken), those loaded into the session as
+`hub/load_context` loads them (none when metadata only) with the fns they brought, the starting names it refused,
+the links it skipped, why it stopped, and what it spent: the decide calls (`calls`, each a model call), the questions
+asked and the tokens gathered. The model reads only its `cards` (`LoadCards`).
+
+```ts
+type ContextCrawlResult = {
+  loaded: `${string}/${string}`[];
+  fns: `${string}/${string}`[];
+  fnsRefused: {
+    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+    reason: string;
+    fn: string;
+    system?: SystemName | undefined;
+  }[];
+  refused: {
+    context: string;
+    reason: string;
+    closest: `${string}/${string}`[];
+  }[];
+  cards: string;
+  crawled: {
+    name: `${string}/${string}`;
+    description: string;
+    depth: number;
+    via: "start" | "import" | "choice";
+    tokens: number;
+    title?: string | undefined;
+    from?: `${string}/${string}` | undefined;
+    probability?: number | undefined;
+    content?: string | undefined;
+  }[];
+  skipped: {
+    context: string;
+    depth: number;
+    reason: "failed" | "declined" | "max-tokens" | "max-decisions" | "max-depth" | "unavailable";
+    from?: `${string}/${string}` | undefined;
+    probability?: number | undefined;
+  }[];
+  stop: {
+    reason: "failed" | "max-tokens" | "max-decisions" | "max-depth" | "complete";
+    detail?: string | undefined;
+  };
+  depth: number;
+  decisions: number;
+  tokens: number;
+  calls: string[];
+  metadataOnly: boolean;
+};
+```
+
 #### <a id="core-contextfileheader"></a>`ContextFileHeader`
 
 const, type · declared in `packages/core/src/context-files.ts`
@@ -106,7 +178,7 @@ type LoadContextResult = {
   loaded: `${string}/${string}`[];
   fns: `${string}/${string}`[];
   fnsRefused: {
-    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
     reason: string;
     fn: string;
     system?: SystemName | undefined;
@@ -131,7 +203,7 @@ it. The model reads only its `cards` (`LoadCards`).
 type LoadFnsResult = {
   loaded: `${string}/${string}`[];
   refused: {
-    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
     reason: string;
     fn: string;
     system?: SystemName | undefined;

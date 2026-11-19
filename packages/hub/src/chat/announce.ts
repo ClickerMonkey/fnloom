@@ -64,7 +64,7 @@ export function offReason(record: SystemRecord, session: Pick<Session, 'systems'
     case 'system-needs-config': return 'needs-config';
     case 'held': return 'held';
     case 'system-removed': return 'removed';
-    case 'disabled': case 'paused': return 'admin';
+    case 'disabled': case 'paused': case 'role-unset': return 'admin';
     // a system's own availability is never these fn-level codes; any of them reads as not reachable
     case 'system-disconnected': case 'kind-missing': case 'kind-system-disconnected': case 'dep-unavailable': return 'disconnected';
   }

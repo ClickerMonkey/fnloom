@@ -10,7 +10,7 @@
 import type { Chunk, Message, MessageContent, Request, Resource, Response, ToolCall, ToolChoice, ToolDefinition, Usage } from '@aeye/core';
 import {
   Json,
-  type FinishReason, type LlmChunk, type LlmContentPart, type LlmForwardChunk, type LlmMessage, type LlmRequest, type LlmResponse, type LlmToolCall,
+  type DecisionInput, type FinishReason, type LlmChunk, type LlmContentPart, type LlmForwardChunk, type LlmMessage, type LlmRequest, type LlmResponse, type LlmToolCall,
   type LlmToolSpec, type LlmUsage,
 } from '@harness/core';
 import { z } from 'zod';
@@ -154,6 +154,22 @@ export function messageFromWire(message: LlmMessage): Message {
     content: typeof message.content === 'string' ? message.content : message.content.map(partFromWire),
   };
 }
+
+/**
+ * A decision call's input as it crosses the wire (`model` and `providerDecide`): text as it is, a conversation as wire
+ * messages (refused when a part can't cross).
+ */
+export function decisionInputToWire(input: string | Message[]): DecisionInput {
+  return typeof input === 'string' ? input : input.map((message) => decisionWire.message(message));
+}
+
+/** A decision call's input from the wire, as aeye's `DecisionRequest.input`. */
+export function decisionInputFromWire(input: DecisionInput): string | Message[] {
+  return typeof input === 'string' ? input : input.map(messageFromWire);
+}
+
+/** What a decision input's conversation can't carry is refused, so the model never reads something else. */
+const decisionWire = new LlmWire({ unrepresentable: 'refuse' });
 
 /** The outer shape of a JSON schema object; zod's `fromJSONSchema` checks the rest. */
 const JsonSchemaObject = z.custom<z.core.JSONSchema.JSONSchema>((value) => typeof value === 'object' && value !== null && !Array.isArray(value), {

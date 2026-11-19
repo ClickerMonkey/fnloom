@@ -21,9 +21,14 @@ export function providerVariants<S extends z.ZodType<string>>(secret: S) {
     z.object({ provider: z.literal('openrouter'), apiKey: secret }),
     /**
      * A local Ollama, no key: chat through its OpenAI-compatible `/v1`, limits and abilities read from `/api/show`.
-     * `contextWindow` is the window its models are served with when their Modelfiles set no `num_ctx`.
+     * `contextWindow` is the window its models are served with when their Modelfiles set no `num_ctx`. `decisionModels` (the
+     * admin's flag) names the System One decision models of a server whose `/api/show` lists no capabilities; newer
+     * servers list `decision` themselves.
      */
-    z.object({ provider: z.literal('ollama'), baseURL: z.url().default(OLLAMA_BASE_URL), contextWindow: z.number().int().min(256).optional() }),
+    z.object({
+      provider: z.literal('ollama'), baseURL: z.url().default(OLLAMA_BASE_URL), contextWindow: z.number().int().min(256).optional(),
+      decisionModels: z.array(z.string().min(1)).optional(),
+    }),
     /** Amazon Bedrock (`@aeye/aws`): a region and an access key pair or a Bedrock API key. */
     awsProviderVariant(secret),
   ]);

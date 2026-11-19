@@ -1,4 +1,4 @@
-import { ActorId, ProviderId, SecretId, type ModelInfo } from '@harness/core';
+import { ActorId, ProviderId, RoleChoice, SecretId, type ModelInfo } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '../bus/memory.ts';
 import { memoryLog, testStore } from '../testing.ts';
@@ -9,7 +9,8 @@ const WHISPER: ModelInfo = { id: 'whisper-1', provider: 'openai', name: 'Whisper
 const GPT: ModelInfo = { id: 'gpt-4o', provider: 'openai', name: 'GPT-4o', capabilities: ['chat', 'vision', 'hearing'], pricing: { input: 2.5, output: 10 } };
 const CHEAP: ModelInfo = { id: 'openai/gpt-4o-mini', provider: 'openrouter', name: 'mini', capabilities: ['chat', 'vision'], pricing: { input: 0.15, output: 0.6 } };
 const TTS: ModelInfo = { id: 'tts-1', provider: 'openai', name: 'TTS', capabilities: ['audio'] };
-const OFFERED = [WHISPER, GPT, CHEAP, TTS];
+const JUDGE: ModelInfo = { id: 'judge', provider: 'ollama', name: 'Judge', capabilities: ['decision'], maxQuestions: 64 };
+const OFFERED = [WHISPER, GPT, CHEAP, TTS, JUDGE];
 const OPENAI = ProviderId.parse('prv_openai');
 const kinds = (id: ProviderId) => (id === OPENAI ? 'openai' : undefined);
 const NO_CATEGORIES = new Map<string, readonly string[]>();
@@ -19,9 +20,11 @@ async function roles(defaults = { HARNESS_DEFAULT_MODEL: 'openrouter/auto', HARN
   const bus = new MemoryEventBus(() => undefined);
   let changed = 0;
   bus.subscribe('capabilities.changed', () => { changed += 1; });
+  const roleChanges: string[] = [];
+  bus.subscribe('model.role.changed', ({ role }) => { roleChanges.push(role); });
   await store.table('providers').insert({ id: OPENAI, config: { provider: 'openai', apiKey: SecretId.parse('sec_1') }, createdAt: 0 });
   const service = new StoreModelRoles({ store, bus, clock: () => 5, log: memoryLog().log, defaults, models: () => Promise.resolve(offered) });
-  return { service, store, changed: () => changed };
+  return { service, store, changed: () => changed, roleChanges };
 }
 
 describe('role defaults', () => {
@@ -70,7 +73,32 @@ describe('model roles', () => {
     expect(await service.resolve('transcribe')).toEqual({ model: 'gpt-4o', provider: 'openai' });
     expect(await service.clear('transcribe', ADMIN)).toMatchObject({ from: 'env', resolved: { model: 'whisper-1' } });
     expect(changed()).toBe(2);
-    expect((await service.list()).map((r) => r.role)).toEqual(['chat', 'transcribe', 'dictate', 'speak', 'describe', 'ocr']);
+    expect((await service.list()).map((r) => r.role)).toEqual(['chat', 'transcribe', 'dictate', 'speak', 'describe', 'ocr', 'decide']);
+  });
+
+  it('keep the decide role to decision models, with its threshold, and resolve a job’s own choice the same way', async () => {
+    const { service } = await roles();
+    expect(await service.get('decide')).toEqual({ role: 'decide', from: 'none' });
+    const set = await service.set(RoleChoice.parse({ role: 'decide', model: { model: 'judge' } }), ADMIN);
+    expect(set).toEqual({ role: 'decide', from: 'setting', choice: { role: 'decide', model: { model: 'judge' }, threshold: 0.5 }, resolved: { model: 'judge', provider: 'ollama' } });
+    await service.set({ role: 'decide', model: { model: 'gpt-4o' }, threshold: 0.7 }, ADMIN);
+    expect((await service.get('decide')).resolved).toEqual({ problem: "gpt-4o can't do decision, which decide needs." });
+    expect(await service.resolveModel('decide', { model: { model: 'judge' } })).toEqual({ model: 'judge', provider: 'ollama' });
+    expect(await service.resolveModel('decide', { model: { auto: {} } })).toEqual({ model: 'judge', provider: 'ollama' });
+    expect(RoleChoice.safeParse({ role: 'decide', model: { model: 'judge' }, threshold: 1.5 }).success).toBe(false);
+  });
+
+  it('say whether a role is set without resolving it, and announce each set and clear so the fns that need it follow (plan item 7)', async () => {
+    const { service, roleChanges } = await roles();
+    expect(await service.isSet('decide')).toBe(false);
+    expect(await service.isSet('chat')).toBe(true);
+    await service.set(RoleChoice.parse({ role: 'decide', model: { model: 'judge' } }), ADMIN);
+    expect(await service.isSet('decide')).toBe(true);
+    await service.clear('decide', ADMIN);
+    expect(await service.isSet('decide')).toBe(false);
+    // clearing a role with nothing stored changes nothing, so it announces nothing
+    await service.clear('decide', ADMIN);
+    expect(roleChanges).toEqual(['decide', 'decide']);
   });
 
   it('resolve to nothing when the model can’t be used', async () => {

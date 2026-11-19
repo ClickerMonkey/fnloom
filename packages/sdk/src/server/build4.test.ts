@@ -1,10 +1,11 @@
 /**
  * Build 4 on the system side, against the in-memory hub: fn validation hooks (declared in the manifest, served by
  * `validate` with the args, result and declared state) and model providers a system brings (declared in the manifest,
- * chat streamed and embeddings served by its aeye provider, undeclared models refused).
+ * chat streamed, embeddings and decisions served by its aeye provider, its live models listed within the declared set,
+ * undeclared models refused).
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Provider } from '@aeye/ai';
+import type { EmbeddingRequest, Provider } from '@aeye/ai';
 import type { Chunk, Request, Response } from '@aeye/core';
 import type { ProviderChunk } from '@harness/core';
 import { fn } from '../fn.ts';
@@ -16,7 +17,8 @@ import { serve, type RunningSystem } from './index.ts';
 import { FakeHub } from './testing.ts';
 
 const MODEL = { id: 'tiny', capabilities: ['chat', 'tools', 'streaming'], contextWindow: 4096, pricing: { input: 1, output: 2, cached: 0.1 }, caching: true };
-const EMBEDDER = { id: 'vec', capabilities: ['embedding'], contextWindow: 512, pricing: { input: 0.01, output: 0 }, caching: false };
+const EMBEDDER = { id: 'vec', capabilities: ['embedding'], contextWindow: 512, dimensions: 1, pricing: { input: 0.01, output: 0 }, caching: false };
+const JUDGE = { id: 'judge', capabilities: ['decision'], contextWindow: 8192, maxQuestions: 64, pricing: { input: 0.02, output: 0 }, caching: false };
 
 const shop = system('shop', { description: 'A shop for tests.' }).with({
   config: g.obj({ greeting: g.text() }),
@@ -33,10 +35,13 @@ const shop = system('shop', { description: 'A shop for tests.' }).with({
     }),
     plain: fn({ description: 'No hooks.', args: g.obj({}), returns: g.text() }),
   },
-  providers: { local: provider({ description: 'Models on the shop box.', models: [MODEL, EMBEDDER] }) },
+  providers: { local: provider({ description: 'Models on the shop box.', models: [MODEL, EMBEDDER, JUDGE] }) },
 });
 
-/** A fake aeye provider: streams the greeting back word by word, embeds each text as its length. */
+/** The embedding requests the fake provider was given. */
+const embedded: EmbeddingRequest[] = [];
+
+/** A fake aeye provider: streams the greeting back word by word, embeds each text as its length (an image as 100). */
 function fakeProvider(greeting: string): Provider {
   return {
     name: 'fake',
@@ -48,7 +53,22 @@ function fakeProvider(greeting: string): Provider {
       yield { finishReason: 'stop', usage: { text: { input: 7, output: 2, cached: 5 } } };
       return { content: text, finishReason: 'stop', model: 'tiny', usage: { text: { input: 7, output: 2, cached: 5 } } };
     },
-    embed: (request) => Promise.resolve({ embeddings: request.texts.map((t, index) => ({ embedding: [t.length], index })), model: 'vec', usage: { text: { input: 3 } } }),
+    embed: (request) => {
+      embedded.push(request);
+      const inputs = request.inputs ?? request.texts ?? [];
+      return Promise.resolve({ embeddings: inputs.map((t, index) => ({ embedding: [typeof t === 'string' ? t.length : 100], index })), model: 'vec', usage: { text: { input: 3 } } });
+    },
+    // a yes to anything mentioning the greeting; the input's length as the tokens
+    decide: (request) => Promise.resolve({
+      answers: Object.fromEntries(Object.entries(request.questions).map(([name, q]) => [name, { type: 'predicate' as const, probability: q.instructions.includes(greeting) ? 0.9 : 0.1 }])),
+      model: 'judge', usage: { text: { input: typeof request.input === 'string' ? request.input.length : request.input.length * 100 } },
+    }),
+    // it serves tiny with a smaller window, judge, and a model nobody reviewed
+    listModels: () => Promise.resolve([
+      { id: 'tiny', provider: 'fake', name: 'Tiny', capabilities: new Set(['chat' as const]), tier: 'efficient' as const, contextWindow: 2048, pricing: {} },
+      { id: 'judge', provider: 'fake', name: 'Judge', capabilities: new Set(['decision' as const]), tier: 'efficient' as const, contextWindow: 8192, maxQuestions: 32, pricing: {} },
+      { id: 'shadow', provider: 'fake', name: 'Shadow', capabilities: new Set(['chat' as const]), tier: 'efficient' as const, contextWindow: 100, pricing: {} },
+    ]),
   };
 }
 
@@ -106,8 +126,10 @@ describe('fn validation hooks', () => {
 describe('model providers', () => {
   it('declares its providers and their models in the manifest', async () => {
     const manifest = await manifestOf(shop, { version: '1.0.0' });
-    expect(manifest.providers).toEqual([{ name: 'local', description: 'Models on the shop box.', models: [MODEL, EMBEDDER] }]);
+    expect(manifest.providers).toEqual([{ name: 'local', description: 'Models on the shop box.', models: [MODEL, EMBEDDER, JUDGE] }]);
     expect(() => provider({ description: 'Twice.', models: [MODEL, MODEL] })).toThrow(/declared twice/);
+    // an embedding model says its vectors' size, so the hub's index can store them
+    expect(() => provider({ description: 'Sizeless.', models: [{ ...EMBEDDER, dimensions: undefined }] })).toThrow(/dimensions/);
   });
 
   it('streams a chat call through its provider, then the usage', async () => {
@@ -130,9 +152,42 @@ describe('model providers', () => {
     expect(items[0]?.type === 'error' ? items[0].message : '').toContain('huge');
   });
 
-  it('embeds texts with its provider', async () => {
+  it("embeds texts with its provider, as aeye's texts shorthand", async () => {
     const hub = new FakeHub({ config: { greeting: 'hi' } });
     await start(hub);
-    expect(await hub.peer().call('providerEmbed', { provider: 'local', model: 'vec', texts: ['ab', 'abcd'] })).toEqual({ vectors: [[2], [4]], tokens: 3 });
+    embedded.length = 0;
+    expect(await hub.peer().call('providerEmbed', { provider: 'local', model: 'vec', inputs: ['ab', 'abcd'] })).toEqual({ vectors: [[2], [4]], tokens: 3 });
+    expect(embedded[0]).toMatchObject({ texts: ['ab', 'abcd'] });
+    expect(embedded[0]?.inputs).toBeUndefined();
+  });
+
+  it("embeds images with its provider, in aeye's one inputs list", async () => {
+    const hub = new FakeHub({ config: { greeting: 'hi' } });
+    await start(hub);
+    embedded.length = 0;
+    const image = { image: 'data:image/png;base64,AQID', mimeType: 'image/png' };
+    expect(await hub.peer().call('providerEmbed', { provider: 'local', model: 'vec', inputs: ['ab', image] })).toEqual({ vectors: [[2], [100]], tokens: 3 });
+    expect(embedded[0]).toMatchObject({ inputs: ['ab', image] });
+    expect(embedded[0]?.texts).toBeUndefined();
+    // an image the link can't carry (not an http(s) or data URL) is refused before the provider sees it
+    await expect(hub.peer().call('providerEmbed', { provider: 'local', model: 'vec', inputs: [{ image: 'file:///etc/passwd' }] })).rejects.toThrow();
+  });
+
+  it('answers decision calls with its provider, for text or a conversation, and refuses an undeclared model', async () => {
+    const hub = new FakeHub({ config: { greeting: 'hi' } });
+    await start(hub);
+    const questions = { greets: { type: 'predicate' as const, instructions: 'Does it say hi?' }, other: { type: 'predicate' as const, instructions: 'Is it long?' } };
+    expect(await hub.peer().call('providerDecide', { provider: 'local', model: 'judge', input: 'hello', questions })).toEqual({
+      answers: { greets: { type: 'predicate', probability: 0.9 }, other: { type: 'predicate', probability: 0.1 } }, tokens: 5,
+    });
+    expect(await hub.peer().call('providerDecide', { provider: 'local', model: 'judge', input: [{ role: 'user', content: 'hi' }], questions })).toMatchObject({ tokens: 100 });
+    await expect(hub.peer().call('providerDecide', { provider: 'local', model: 'oracle', input: 'x', questions })).rejects.toThrow(/declares no model oracle/);
+  });
+
+  it('lists the declared models it serves now, with their served limits, never one the manifest lacks', async () => {
+    const hub = new FakeHub({ config: { greeting: 'hi' } });
+    await start(hub);
+    expect(await hub.peer().call('providerModels', { provider: 'local' })).toEqual({ listed: true, models: [{ id: 'tiny', contextWindow: 2048 }, { id: 'judge', contextWindow: 8192, maxQuestions: 32 }] });
+    await expect(hub.peer().call('providerModels', { provider: 'nowhere' })).rejects.toThrow(/No provider nowhere/);
   });
 });

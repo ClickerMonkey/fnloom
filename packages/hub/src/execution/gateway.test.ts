@@ -59,10 +59,11 @@ async function gateway(limited: number, retryAfter = 40) {
     },
     llm: {
       streamer, models: () => [],
-      embed: (input, ctx) => answer(ctx, input.texts.map(() => [1, 0])),
+      embed: (input, ctx) => answer(ctx, input.inputs.map(() => [1, 0])),
       image: () => Promise.reject(new Error('no images here')),
       speech: () => Promise.reject(new Error('no speech here')),
       transcribe: (input, ctx) => { heard.push({ bytes: input.audio.length, ctx }); return answer(ctx, { text: 'hello there' }); },
+      decide: (input, ctx) => answer(ctx, { answers: Object.fromEntries(Object.keys(input.questions).map((name) => [name, { type: 'predicate' as const, probability: 1 }])), model: 'm' }),
     },
     models: { resolve: () => Promise.resolve({}) },
     sleep: (ms, signal) => { events.push(`sleep ${ms} holding ${held}`); return abortableSleep(ms, signal); },

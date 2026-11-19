@@ -19,11 +19,15 @@ async function rig(roles: Record<string, { model: string; provider: string }> = 
   });
   const asked: Array<{ modality: string; input: unknown; site: ModelSite }> = [];
   const recorded = <T>(value: T): Promise<Recorded<T>> => Promise.resolve({ value, call: ModelCallId.parse('mdl_1'), cost: 0.01, model: 'served' });
-  const llm: Pick<LlmGateway, 'embed' | 'image' | 'transcribe' | 'speech'> = {
-    embed: (input, site) => { asked.push({ modality: 'embed', input, site }); return recorded(input.texts.map((t) => [t.length])); },
+  const llm: Pick<LlmGateway, 'embed' | 'image' | 'transcribe' | 'speech' | 'decide'> = {
+    embed: (input, site) => { asked.push({ modality: 'embed', input, site }); return recorded(input.inputs.map((t) => [typeof t === 'string' ? t.length : 0])); },
     image: (input, site) => { asked.push({ modality: 'image', input, site }); return recorded([{ bytes: new Uint8Array([1, 2]), mime: 'image/png' }]); },
     transcribe: (input, site) => { asked.push({ modality: 'transcribe', input, site }); return recorded({ text: `heard ${input.audio.length}`, segments: [{ start: 0, end: 1, text: 'hi' }] }); },
     speech: (input, site) => { asked.push({ modality: 'speech', input, site }); return recorded({ audio: new Uint8Array([7, 7, 7]), mime: 'audio/mpeg' }); },
+    decide: (input, site) => {
+      asked.push({ modality: 'decide', input, site });
+      return recorded({ answers: Object.fromEntries(Object.keys(input.questions).map((name) => [name, { type: 'predicate' as const, probability: 0.6 }])), model: 'served' });
+    },
   };
   const gateway = new HubModelGateway({
     store, log: memoryLog().log, llm, content,
@@ -39,7 +43,7 @@ describe('the model gateway', () => {
     const { gateway, asked } = await rig();
     expect(await gateway.forward({ modality: 'embed', texts: ['ab', 'c'], model: { model: 'text-embedding-3-small' } }, SITE, live()))
       .toEqual({ modality: 'embed', vectors: [[2], [1]], call: 'mdl_1', cost: 0.01, model: 'served' });
-    expect(asked).toEqual([{ modality: 'embed', input: { texts: ['ab', 'c'], metadata: { model: 'text-embedding-3-small' } }, site: SITE }]);
+    expect(asked).toEqual([{ modality: 'embed', input: { inputs: ['ab', 'c'], metadata: { model: 'text-embedding-3-small' } }, site: SITE }]);
   });
 
   it('keeps made images and speech in the content store and answers with refs', async () => {
@@ -65,6 +69,22 @@ describe('the model gateway', () => {
     const audio = await content.put(new Uint8Array(4), 'audio/webm');
     await gateway.forward({ modality: 'transcribe', audio }, { purpose: 'dictation' }, live(), 'dictate');
     expect(asked[0]).toMatchObject({ input: { metadata: { model: 'gpt-4o-transcribe', provider: 'openrouter' } } });
+  });
+
+  it('decides with the decide role’s model, pinned to its provider, and answers in core’s decision shapes', async () => {
+    const { gateway, asked } = await rig({ decide: { model: 'judge', provider: 'ollama' } });
+    const questions = { files: { type: 'predicate' as const, instructions: 'Is it about files?' } };
+    expect(await gateway.forward({ modality: 'decide', input: 'read the readme', questions }, SITE, live()))
+      .toEqual({ modality: 'decide', answers: { files: { type: 'predicate', probability: 0.6 } }, call: 'mdl_1', cost: 0.01, model: 'served' });
+    expect(asked[0]).toEqual({ modality: 'decide', input: { input: 'read the readme', questions, metadata: { model: 'judge', provider: 'ollama' } }, site: SITE });
+    // a conversation crosses as aeye messages; a named model wins over the role
+    await gateway.forward({ modality: 'decide', input: [{ role: 'user', content: 'hi' }], questions, model: { model: 'other' } }, SITE, live());
+    expect(asked[1]).toMatchObject({ input: { input: [{ role: 'user', content: 'hi' }], metadata: { model: 'other' } } });
+  });
+
+  it('refuses a decision with no decide role set', async () => {
+    const { gateway } = await rig();
+    await expect(gateway.forward({ modality: 'decide', input: 'x', questions: { a: { type: 'predicate', instructions: 'A?' } } }, SITE, live())).rejects.toThrow(/No model is set for decide/);
   });
 
   it('refuses a job whose role has no model, and reads categories and weights', async () => {

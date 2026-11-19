@@ -118,7 +118,7 @@ export const QUERIES = {
   /** The section the Parts tab shows, and the Graph tab's filters. */
   [ROUTES.system]: GraphUrl.extend({ part: PartTab.optional() }),
   [ROUTES.review]: GraphUrl.extend({ part: PartTab.optional() }),
-  [ROUTES.models]: z.object({ q: z.string(), role: ModelRole, model: z.string(), decision: z.literal('1'), classifier: z.literal('1') }).partial(),
+  [ROUTES.models]: z.object({ q: z.string(), role: ModelRole, model: z.string(), decision: z.literal('1'), classifier: z.literal('1'), images: z.literal('1') }).partial(),
   [ROUTES.limits]: z.object({ user: z.string(), session: SessionId }).partial(),
   [ROUTES.runs]: z.object({ q: z.string(), run: RunId, [TAB_KEYS.run]: RunTab }).partial(),
   [ROUTES.llmCalls]: z.object({ q: z.string(), call: LlmInteractionId, [TAB_KEYS.llm]: LlmCallTab }).partial(),
@@ -191,7 +191,7 @@ export const links = {
   },
   /** Every fn of every system with its stats; `q` narrows and sorts it. */
   fns: (query: RouteQuery<typeof ROUTES.fns> = {}): RouteLocationRaw => ({ name: ROUTES.fns, ...queryOf(ROUTES.fns, query) }),
-  /** The providers and models page, on a tab; `query` opens a role (`role`), a model's limits (`model`), the decision model (`decision`) or the auto classifier (`classifier`). */
+  /** The providers and models page, on a tab; `query` opens a role (`role`), a model's limits (`model`), the decision model (`decision`), the auto classifier (`classifier`) or where pictures are embedded (`images`). */
   models: (tab: ModelsTab = 'providers', query: RouteQuery<typeof ROUTES.models> = {}): RouteLocationRaw => ({
     name: ROUTES.models, params: tab === 'providers' ? {} : { tab }, ...queryOf(ROUTES.models, query),
   }),

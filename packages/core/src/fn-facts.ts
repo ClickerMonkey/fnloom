@@ -17,7 +17,7 @@
  */
 import { z } from 'zod';
 import { FnDecl, FnExample, FnMode, REGISTRY_ACTIONS, RegistryAction, RegistryEffect, RegistryThing, TypeDecl } from './manifest.ts';
-import { RoleModel } from './model-calls.ts';
+import { RoleModel, type ModelRole } from './model-calls.ts';
 import { FnBlock } from './fn-block.ts';
 import { ActorId, Duration, FnKindName, IDS, InstanceName, Json, LocalName, QualifiedName, SystemName, Timestamp, Usd } from './primitives.ts';
 import { ResourceUri, SectionKey } from './resources.ts';
@@ -315,8 +315,16 @@ export type FnSignatureType = z.infer<typeof FnSignatureType>;
  * `fnLinks` table, written by the catalog in the fn's transaction, so the catalog finds a fn's dependents and a kind's
  * fns by querying, not by loading every fn (`fnUses`, the facts module's deep list, is worked out after the change).
  */
-export const FnLink = z.object({ fn: QualifiedName, to: QualifiedName, link: z.enum(['dep', 'kind']), system: SystemName });
+export const FnLink = z.object({ fn: QualifiedName, to: QualifiedName, link: z.enum(['dep', 'kind', 'role']), system: SystemName });
 export type FnLink = z.infer<typeof FnLink>;
+
+/**
+ * Plan item 7: the `to` of a fn's `role` link (`FnDecl.roles`): the hub model role it needs, so setting or clearing a
+ * role refreshes the availability of just the fns that need it, found by querying.
+ */
+export function roleLinkTo(role: ModelRole): QualifiedName {
+  return QualifiedName.parse(`hub/role.${role}`);
+}
 
 /** One fn another uses, deeply (the `fnUses` table), so a change to `uses` refreshes the facts of `fn` in the database. */
 export const FnUse = z.object({ fn: QualifiedName, uses: QualifiedName });

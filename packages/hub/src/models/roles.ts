@@ -41,7 +41,7 @@ export function defaultChoice(role: ModelRole, defaults: RoleDefaults): RoleChoi
     case 'chat': return defaults.HARNESS_DEFAULT_MODEL === '' ? undefined : { role, model: { model: defaults.HARNESS_DEFAULT_MODEL } };
     case 'transcribe': return transcribe === '' ? undefined : { role, model: { model: transcribe } };
     case 'dictate': return transcribe === '' ? undefined : { role, engine: { engine: 'model', model: { model: transcribe } } };
-    case 'speak': case 'describe': case 'ocr': return undefined;
+    case 'speak': case 'describe': case 'ocr': case 'decide': return undefined;
   }
 }
 
@@ -110,6 +110,7 @@ export class StoreModelRoles implements ModelRoles {
   async set(choice: RoleChoice, by: ActorId): Promise<ModelRoleView> {
     await this.#deps.store.table('modelRoles').put({ choice, setBy: by, updatedAt: this.#deps.clock() });
     this.#deps.log.info('model.role.set', { role: choice.role, by });
+    this.#deps.bus.publish('model.role.changed', { role: choice.role });
     this.#deps.bus.publish('capabilities.changed', {});
     return this.get(choice.role);
   }
@@ -118,14 +119,23 @@ export class StoreModelRoles implements ModelRoles {
     const removed = await this.#deps.store.table('modelRoles').remove(role);
     if (removed) {
       this.#deps.log.info('model.role.cleared', { role, by });
+      this.#deps.bus.publish('model.role.changed', { role });
       this.#deps.bus.publish('capabilities.changed', {});
     }
     return this.get(role);
   }
 
+  async isSet(role: ModelRole): Promise<boolean> {
+    return (await this.#deps.store.table('modelRoles').get(role)) !== undefined || defaultChoice(role, this.#deps.defaults) !== undefined;
+  }
+
   async resolve(role: ModelRole): Promise<ResolvedRole | undefined> {
     const view = await this.get(role);
     return view.resolved !== undefined && 'model' in view.resolved ? view.resolved : undefined;
+  }
+
+  resolveModel(role: ModelRole, wanted: RoleModel): Promise<RoleResolution> {
+    return this.#resolve(role, wanted);
   }
 
   /** A model choice against what configured providers offer now. */
