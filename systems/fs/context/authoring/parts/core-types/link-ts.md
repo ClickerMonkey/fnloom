@@ -268,7 +268,7 @@ type RunRequest = {
           path: string;
           kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
           rule: string;
-          access: "write" | "read";
+          access: "read" | "write";
           action: "ask" | "refuse" | "allow";
           why: string;
           certain: boolean;

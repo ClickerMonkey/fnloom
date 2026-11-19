@@ -117,7 +117,7 @@ problems back to the agent and the chat shows the run softly as "Retried". A rea
 
 ```ts
 type InvalidInput = {
-  source: "json" | "result" | "schema" | "unavailable" | "validation";
+  source: "result" | "json" | "schema" | "unavailable" | "validation";
   problems: {
     path: string;
     message: string;
@@ -160,12 +160,12 @@ type OutcomeWire = {
   cost?: number | undefined;
   expose?: {
     fn: `${string}/${string}`;
-    detail: "signature" | "listed" | "full";
+    detail: "listed" | "signature" | "full";
   }[] | undefined;
 } | {
   status: "invalid-input";
   invalid: {
-    source: "json" | "result" | "schema" | "unavailable" | "validation";
+    source: "result" | "json" | "schema" | "unavailable" | "validation";
     problems: {
       path: string;
       message: string;

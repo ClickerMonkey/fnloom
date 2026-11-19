@@ -17,7 +17,7 @@ import { searchSystems } from '../chat/support.ts';
 import type {
   CallPlan, CallProtocol, CallScope, ChatMode, ChatModeFactories, ChosenFn, ContextorDeps, FnView, ModeContext, ModelCallOut, ModeTool, RenderedIteration, Selection,
 } from './index.ts';
-import { blockedLine, cardsSection, describedWithEffects, exampleLines, fnCard, fnLine, moreFns, problemLines, summaryHint, tableInstruction, textProtocolInstructions } from './render.ts';
+import { blockedLine, cardsSection, describedWithEffects, exampleLines, fnCard, moreFns, problemLines, summaryHint, tableInstruction, textProtocolInstructions } from './render.ts';
 import { fnRefusal, readsAsMissing } from './views.ts';
 
 /** The static toolset's hub fns, by tool name, with their declarations. `run` is not among them: it runs the fn it names. */
@@ -147,7 +147,7 @@ export class ToolsChatMode implements ChatMode {
   }
 
   cost(fn: FnView, detail: ChosenFn['detail'], ctx: ModeContext): number {
-    if (detail === 'listed') return ctx.estimator.text(`- ${fnLine(fn)}\n`);
+    if (detail === 'listed') return ctx.estimator.text(`${fnCard(fn, 'listed')}\n`);
     const tool = fnModeTool(fn, machinesOf(fn, this.#deps.instances));
     return tool === undefined ? 0 : ctx.estimator.tool(tool.spec);
   }
@@ -156,9 +156,9 @@ export class ToolsChatMode implements ChatMode {
     const tools: ModeTool[] = [];
     const fns = new Map<string, QualifiedName>();
     const fleet = new Set<string>();
-    const listed: string[] = [];
+    const listed: FnView[] = [];
     for (const chosen of selection.fns) {
-      if (chosen.detail === 'listed') { listed.push(fnLine(chosen.view)); continue; }
+      if (chosen.detail === 'listed') { listed.push(chosen.view); continue; }
       const machines = machinesOf(chosen.view, this.#deps.instances);
       const tool = fnModeTool(chosen.view, machines, chosen.examples);
       if (tool === undefined || fns.has(tool.name)) continue;
@@ -186,7 +186,7 @@ export class ToolsChatMode implements ChatMode {
   }
 
   exposed(views: readonly ChosenFn[]): string {
-    return moreFns(views.map((chosen) => fnLine(chosen.view)));
+    return moreFns(views.map((chosen) => chosen.view));
   }
 }
 
@@ -232,12 +232,12 @@ export class StaticChatMode implements ChatMode {
   }
 
   cost(fn: FnView, detail: ChosenFn['detail'], ctx: ModeContext): number {
-    return ctx.estimator.text(`${fnCard(fn, detail, ctx.protocol)}\n\n`);
+    return ctx.estimator.text(`${fnCard(fn, detail)}\n\n`);
   }
 
   async render(selection: Selection, ctx: ModeContext): Promise<RenderedIteration> {
     const shown = new Set<QualifiedName>();
-    const cards = selection.fns.map((chosen) => fnCard(chosen.view, chosen.detail, ctx.protocol, shown, chosen.examples));
+    const cards = selection.fns.map((chosen) => fnCard(chosen.view, chosen.detail, shown, chosen.examples));
     const section = [cardsSection(cards, ctx.protocol), tableInstruction(selection.fns.map((chosen) => chosen.view))].filter((part) => part !== '').join('\n\n');
     const tools = await this.fixedTools(ctx);
     const fns = new Map<string, QualifiedName>(Object.entries(STATIC_HUB_FNS).map(([tool, { ref }]) => [tool, ref.name]));
@@ -269,9 +269,9 @@ export class StaticChatMode implements ChatMode {
     return this.#run(call.fn, args, rendered, scope, on.data);
   }
 
-  exposed(views: readonly ChosenFn[], ctx: ModeContext): string {
+  exposed(views: readonly ChosenFn[]): string {
     const shown = new Set<QualifiedName>();
-    return views.map((chosen) => fnCard(chosen.view, chosen.detail, ctx.protocol, shown, chosen.examples)).join('\n\n');
+    return views.map((chosen) => fnCard(chosen.view, chosen.detail, shown, chosen.examples)).join('\n\n');
   }
 
   /** A run of a fn by name: one of the toolset's own, or any fn the session may use, its args checked first. */
@@ -291,7 +291,7 @@ export class StaticChatMode implements ChatMode {
     const checked = view.signature.argsSchema.safeParse(args);
     if (!checked.success) {
       const problems = problemsOf(checked.error);
-      return invalid(view.record.name, 'schema', problems, `The args don't fit ${view.record.name}:\n${problemLines(problems)}\n\n${fnCard(view, 'full', rendered.protocol)}`, { args });
+      return invalid(view.record.name, 'schema', problems, `The args don't fit ${view.record.name}:\n${problemLines(problems)}\n\n${fnCard(view, 'full')}`, { args });
     }
     return { type: 'run', fn: view.record.name, args: Json.parse(checked.data), ...(on === undefined ? {} : { on }) };
   }

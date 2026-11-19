@@ -415,12 +415,12 @@ tags: ["authoring"]
     agent?: text,
     systems?: or<list<text>, literal<text>{value="all"}>,
     title?: text
-  }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, selection?, participants, systems, tools, context, status, transcript, createdAt, updatedAt, archived … }
+  }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, selection?, participants, systems, tools, context, suggested?, announcedSystems?, status, transcript, createdAt, updatedAt, archived … }
   ```
 - `hub/session_update`: Change a session: its title, systems, agent, priority, model, chat mode or contextor, or archive it.
 
   ```text
-  (obj{ title?, systems?, agent?, archived?, priority?, notify?, model?, mode?, contextor?, fnMode?, session … }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, selection?, participants, systems, tools, context, status, transcript, createdAt, updatedAt, archived … }
+  (obj{ title?, systems?, agent?, archived?, priority?, notify?, model?, mode?, contextor?, fnMode?, session … }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, selection?, participants, systems, tools, context, suggested?, announcedSystems?, status, transcript, createdAt, updatedAt, archived … }
   ```
 - `hub/session_delete`: Delete a session and its messages.
 

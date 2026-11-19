@@ -7,10 +7,12 @@
  * through (what the person asking may see); a key `prefix` is applied by the database itself. Each hit says its place
  * in the order (`rank`, a share of the best) and, whenever the vectors were searched and it has one, its similarity of
  * meaning to the query (`similarity`, `store/hybrid.ts`); a search asking for `meaning` (suggestions) gets only hits
- * with a similarity, and none at all rather than ones words alone ranked, since a rank says nothing about fit.
+ * with a similarity, and none at all rather than ones words alone ranked, since a rank says nothing about fit. Each hit
+ * also says which index found it (`matched`: words, meaning or both) and, for a part of an item (a context section),
+ * the item it belongs to (`parent`).
  */
 import type { Logger } from '@ayepi/log';
-import { type QualifiedName, type SearchHit } from '@harness/core';
+import { type QualifiedName, type SearchHit, type SearchMatchedBy } from '@harness/core';
 import { messageOf } from '../catalog/scope.ts';
 import type { FusedHit, HybridQuery, HybridSearch } from '../store/hybrid.ts';
 import type { HubStore } from '../store/index.ts';
@@ -30,6 +32,12 @@ export interface IndexSearchOptions {
   readonly overfetch: number;
   /** The longest the query's embedding is waited for, in ms (`HARNESS_SEARCH_EMBED_WAIT`). */
   readonly embedWait: number;
+}
+
+/** Which index found a hit: the one it ranks in, or both. */
+export function matchedBy(hit: Pick<FusedHit, 'ranks'>): SearchMatchedBy {
+  if (hit.ranks.vector === undefined) return 'words';
+  return hit.ranks.text === undefined ? 'meaning' : 'both';
 }
 
 /** Search over the store's vector and text indexes. */
@@ -59,7 +67,10 @@ export class IndexSearch implements Search {
       if (row === undefined || (allowed !== undefined && (row.system === undefined || !allowed.has(row.system)))) { continue; }
       // an item with no vector yet has no measured meaning
       if (query.meaning === true && hit.similarity === undefined) { continue; }
-      const found: SearchHit = { kind: hit.kind, key: hit.key, rank: hit.rank, ...(hit.similarity === undefined ? {} : { similarity: hit.similarity }), text: row.text };
+      const found: SearchHit = {
+        kind: hit.kind, key: hit.key, rank: hit.rank, ...(hit.similarity === undefined ? {} : { similarity: hit.similarity }),
+        matched: matchedBy(hit), ...(row.parent === undefined ? {} : { parent: row.parent }), text: row.text,
+      };
       if (query.keep !== undefined && !(await query.keep(found))) { continue; }
       out.push(found);
       if (out.length >= query.limit) { break; }

@@ -2,10 +2,14 @@
  * The text a prompt is made of: fn cards, context blocks, earlier-exchange summaries, and the static toolset's text
  * protocol (`<run fn="…">{…}</run>` blocks a model writes, `<result …>` replies the hub sends back). One renderer per
  * thing, used by every place that shows it (the prompt, `inspect`, an invalid-input reply), so they always read the
- * same.
+ * same. Fn and context cards are the one XML of `xml.ts`.
  */
-import { problemLine, RESULT_TABLE_INSTRUCTION, type Detail, type FnBlock, type FnExample, type FnRefusal, type FnRecord, type InputProblem, type QualifiedName } from '@harness/core';
+import {
+  fnLabel, problemLine, RESULT_TABLE_INSTRUCTION, type ContextRecord, type Detail, type FnBlock, type FnExample, type FnMode, type FnRefusal, type FnRecord, type InputProblem, type QualifiedName,
+} from '@harness/core';
+import { fnMode } from '../link/review-summary.ts';
 import type { CallProtocol, ChosenContext, ExchangeSummary, FnView } from './index.ts';
+import { AVAILABLE, cardList, contextElement, element, fnElement, type FnCardParts, type Markup } from './xml.ts';
 
 /** How calls come back in a prompt (`CallProtocol`, named for the renderers' signatures). */
 type Protocol = CallProtocol;
@@ -18,17 +22,16 @@ export const RESULT_TAG = 'result';
 /** The longest one-line description shown for a listed item. */
 const LINE_MAX = 160;
 
-/** An item's one line: `name — description`, the description's first line clipped. */
-export function listedLine(name: string, description: string): string {
+/** A description's first line, clipped to `LINE_MAX`. */
+export function firstLine(description: string): string {
   const first = description.split('\n', 1)[0]?.trim() ?? '';
-  const line = first.length > LINE_MAX ? `${first.slice(0, LINE_MAX - 1).trimEnd()}…` : first;
-  return line === '' ? name : `${name} — ${line}`;
+  return first.length > LINE_MAX ? `${first.slice(0, LINE_MAX - 1).trimEnd()}…` : first;
 }
 
-/** A fn's one line in a list: `listedLine`, then its routing clause when it returns a table. */
-export function fnLine(view: Pick<FnView, 'record' | 'routing'>): string {
-  const line = listedLine(view.record.name, view.record.decl.description);
-  return view.routing === undefined ? line : `${line} (${view.routing})`;
+/** An item's one line: `name — description`, the description's first line clipped. */
+export function listedLine(name: string, description: string): string {
+  const line = firstLine(description);
+  return line === '' ? name : `${name} — ${line}`;
 }
 
 /** The short instruction about table results, once, when any of the fns shown returns a table; else empty. */
@@ -42,51 +45,65 @@ export function callText(fn: string, args: string, protocol: Protocol): string {
 }
 
 /**
- * A fn's card at a detail: `listed` is its heading line; `signature` adds how to call it with its args and result
- * types (gin's `toCode()`); `full` adds its instructions, examples, and the definition of each named type it uses
- * that `shown` doesn't have yet (they are added to it, so a prompt prints each type once).
+ * The examples of a fn a prompt shows: those chosen for this turn (`ChosenFn.examples`), else its first declared ones
+ * up to its `promptExamples`; and how many more it has.
  */
-/**
- * A fn's example lines for a prompt: the examples chosen for this turn (`ChosenFn.examples`), else its first declared
- * ones up to its `promptExamples`, then where the rest are when it has more.
- */
-export function exampleLines(record: FnRecord, protocol: Protocol, chosen?: readonly FnExample[]): string[] {
+export function promptExamples(record: Pick<FnRecord, 'decl'>, chosen?: readonly FnExample[]): { readonly shown: readonly FnExample[]; readonly more: number } {
   const declared = record.decl.examples ?? [];
-  const examples = chosen ?? (record.decl.promptExamples === undefined ? declared : declared.slice(0, record.decl.promptExamples));
-  const lines = examples.map((example) => {
+  const shown = chosen ?? (record.decl.promptExamples === undefined ? declared : declared.slice(0, record.decl.promptExamples));
+  return { shown, more: Math.max(0, declared.length - shown.length) };
+}
+
+/** A fn's example lines for its native tool's instructions (`promptExamples`), then where the rest are when it has more. */
+export function exampleLines(record: FnRecord, protocol: Protocol, chosen?: readonly FnExample[]): string[] {
+  const { shown, more } = promptExamples(record, chosen);
+  const lines = shown.map((example) => {
     const result = example.result === undefined ? '' : ` → ${JSON.stringify(example.result)}`;
     return `Example: ${callText(record.name, JSON.stringify(example.args), protocol)}${result}${example.note === undefined ? '' : ` — ${example.note}`}`;
   });
-  if (declared.length > examples.length) lines.push(`More examples: ${callText('hub/fn_examples', JSON.stringify({ fn: record.name, query: 'what you are about to do' }), protocol)}`);
+  if (more > 0) lines.push(`More examples: ${callText('hub/fn_examples', JSON.stringify({ fn: record.name, query: 'what you are about to do' }), protocol)}`);
   return lines;
 }
 
 /** A fn's description with the lines saying what it changes in the hub (build 6) and how long it usually runs, as its native tool describes it. */
 export function describedWithEffects(view: Pick<FnView, 'record' | 'effects' | 'notice' | 'routing'>): string {
-  const routing = view.routing === undefined ? [] : [`It ${view.routing}.`];
-  return [view.record.decl.description, ...routing, ...besideLines(view)].join('\n');
+  return [view.record.decl.description, ...besideLines(view)].join('\n');
 }
 
-/** The lines beside a fn's description: what it changes in the hub, then its long-running warning. */
-function besideLines(view: Pick<FnView, 'effects' | 'notice'>): string[] {
-  return [view.effects, view.notice].filter((line) => line !== undefined);
+/** The lines beside a fn's description: its table routing, what it changes in the hub, then its long-running warning. */
+function besideLines(view: Pick<FnView, 'effects' | 'notice' | 'routing'>): string[] {
+  return [view.routing === undefined ? undefined : `It ${view.routing}.`, view.effects, view.notice].filter((line) => line !== undefined);
 }
 
-export function fnCard(view: FnView, detail: Detail, protocol: Protocol, shown: Set<QualifiedName> = new Set(), examples?: readonly FnExample[]): string {
-  const { decl, name } = view.record;
-  const lines = [`### ${fnLine(view)}`];
-  if (detail === 'listed') return lines[0] ?? '';
-  lines.push(...besideLines(view));
-  lines.push(`${callText(name, view.args, protocol)} → ${view.returns}`);
-  if (detail === 'signature') return lines.join('\n');
-  if (decl.instructions !== undefined && decl.instructions.trim() !== '') lines.push(decl.instructions.trim());
-  lines.push(...exampleLines(view.record, protocol, examples));
+/** The parts every card of a fn has, whatever its detail: its name, label, mode and whether it can be used. */
+export function fnHead(record: Pick<FnRecord, 'name' | 'decl'>, blocked?: string): Pick<FnCardParts, 'name' | 'label' | 'blocked'> & { readonly mode: FnMode } {
+  return { name: record.name, label: fnLabel(record.name), mode: fnMode(record.decl), ...(blocked === undefined ? {} : { blocked }) };
+}
+
+/**
+ * A fn's card (`fnElement`) at a detail: `listed` is its first line; `signature` adds its whole description with the
+ * lines beside it, and its args and result types (gin's `toCode()`); `full` adds its instructions, examples, and the
+ * definition of each named type it uses that `shown` doesn't have yet (they are added to it, so a prompt prints each
+ * type once). `blocked` says what blocks it, when something does.
+ */
+export function fnCardElement(view: FnView, detail: Detail, shown: Set<QualifiedName> = new Set(), examples?: readonly FnExample[], blocked?: string): Markup {
+  const head = fnHead(view.record, blocked);
+  if (detail === 'listed') return fnElement({ ...head, description: firstLine(view.record.decl.description), beside: view.routing === undefined ? [] : [`It ${view.routing}.`] });
+  const signature: FnCardParts = { ...head, description: view.record.decl.description, beside: besideLines(view), args: view.args, returns: view.returns };
+  if (detail === 'signature') return fnElement(signature);
+  const { shown: picked, more } = promptExamples(view.record, examples);
+  const types: Array<readonly [string, string]> = [];
   for (const [type, definition] of view.types) {
     if (shown.has(type)) continue;
     shown.add(type);
-    lines.push(definition);
+    types.push([type, definition]);
   }
-  return lines.join('\n');
+  return fnElement({ ...signature, instructions: view.record.decl.instructions, examples: picked, moreExamples: more, types });
+}
+
+/** A fn's card as text (`fnCardElement`). */
+export function fnCard(view: FnView, detail: Detail, shown: Set<QualifiedName> = new Set(), examples?: readonly FnExample[], blocked?: string): string {
+  return fnCardElement(view, detail, shown, examples, blocked).toString();
 }
 
 /** The heading of the fn cards in a prompt. */
@@ -130,36 +147,50 @@ export function blockedFnsLine(blocked: readonly FnRefusal[]): string {
   return [...groups].map(([reason, fns]) => `${fns.join(', ')} (${reason})`).join('; ');
 }
 
-/** A context block's lines about its brought fns: only the added ones as in the tools, the rest named for what they are. */
-function broughtLines(fns: BroughtFnLines | undefined): string[] {
+/** The tag a context card names its brought fns in. */
+const BROUGHT_TAG = 'brought_fns';
+
+/** A context card's parts about its brought fns: only the added ones as in the tools, the rest named for what they are. */
+function broughtParts(fns: BroughtFnLines | undefined): Markup[] {
   if (fns === undefined) return [];
   const { added, waiting = [], blocked = [] } = fns;
   return [
-    ...(added.length === 0 ? [] : [`Fns it brings (in your tools now): ${added.join(', ')}`]),
-    ...(waiting.length === 0 ? [] : [`Fns it brings, not in your tools this step: ${waiting.join(', ')}`]),
-    ...(blocked.length === 0 ? [] : [`Fns it brings that you can't use now, not in your tools: ${blockedFnsLine(blocked)}. If you need one, tell the person what blocks it.`]),
+    ...(added.length === 0 ? [] : [element(BROUGHT_TAG, { in_tools: 'yes' }, [`In your tools now: ${added.join(', ')}`])]),
+    ...(waiting.length === 0 ? [] : [element(BROUGHT_TAG, { in_tools: 'no' }, [`Not in your tools this step: ${waiting.join(', ')}`])]),
+    ...(blocked.length === 0 ? [] : [element(BROUGHT_TAG, { in_tools: 'no', available: AVAILABLE.no }, [`You can't use these now: ${blockedFnsLine(blocked)}. If you need one, tell the person what blocks it.`])]),
   ];
 }
 
-/** A chosen context item as the prompt shows it; `listed` items go in `moreContext` instead. */
-export function contextBlock(chosen: Pick<ChosenContext, 'detail' | 'text' | 'choices'> & { readonly name: string; readonly fns?: BroughtFnLines }): string {
-  const detail = chosen.detail === 'full' ? '' : ' detail="summary"';
-  const fns = broughtLines(chosen.fns);
-  const choices = chosen.choices === undefined || chosen.choices.length === 0 ? [] : [
-    'Where to go next: load the one that fits with hub/load_context, or none.',
-    ...chosen.choices.map((c) => `- ${c.to}${c.tokens === undefined ? '' : ` (~${c.tokens} tokens)`}: ${c.when}`),
-  ];
-  return [`<context name="${chosen.name}"${detail}>`, chosen.text, ...fns, ...choices, '</context>'].join('\n');
+/** A context card's choices of where to go next. */
+function choicesPart(choices: ChosenContext['choices']): Markup | undefined {
+  if (choices === undefined || choices.length === 0) return undefined;
+  return element('choices', {}, [
+    'Where to go next: load the one that fits by its key, or none.',
+    ...choices.map((c) => element('choice', { key: c.to, tokens: c.tokens }, [c.when])),
+  ]);
+}
+
+/** A chosen context item's card as the prompt shows it; `listed` items go in `moreContext` instead. */
+export function contextBlock(chosen: Pick<ChosenContext, 'detail' | 'text' | 'choices'> & { readonly name: string; readonly title?: string | undefined; readonly fns?: BroughtFnLines }): string {
+  return contextElement({
+    key: chosen.name, title: chosen.title, detail: chosen.detail === 'full' ? undefined : 'summary', text: chosen.text,
+    parts: [...broughtParts(chosen.fns), choicesPart(chosen.choices)],
+  }).toString();
+}
+
+/** A context item's listed card: its first line. */
+export function listedContextElement(record: Pick<ContextRecord, 'name' | 'decl'>): Markup {
+  return contextElement({ key: record.name, title: record.decl.title, text: firstLine(record.decl.description) });
 }
 
 /** Listed context items, loadable by name. */
-export function moreContext(lines: readonly string[]): string {
-  return lines.length === 0 ? '' : `<more_context>\nLoad any of these by name if it helps:\n${lines.map((line) => `- ${line}`).join('\n')}\n</more_context>`;
+export function moreContext(records: readonly Pick<ContextRecord, 'name' | 'decl'>[]): string {
+  return cardList('more_context', 'Load any of these by name if it helps:', records.map(listedContextElement));
 }
 
 /** Listed fns, loadable by name (tools mode, where only loaded fns are native tools). */
-export function moreFns(lines: readonly string[]): string {
-  return lines.length === 0 ? '' : `<more_fns>\nLoad any of these with hub/load_fns to use it:\n${lines.map((line) => `- ${line}`).join('\n')}\n</more_fns>`;
+export function moreFns(views: readonly FnView[]): string {
+  return cardList('more_fns', 'Load any of these with hub/load_fns to use it:', views.map((view) => fnCardElement(view, 'listed')));
 }
 
 /** An earlier exchange's summary. */

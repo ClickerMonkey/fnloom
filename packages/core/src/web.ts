@@ -38,7 +38,7 @@ import { AutoPairChoice, AutoPairView } from './auto-pair.ts';
 import { AccessInfo, AccessTarget, AccessView, Sharing } from './access.ts';
 import { ConnectionChange, ConnectionView, ConnectPage } from './connections.ts';
 import { PickOption, PickQuery } from './pickers.ts';
-import { AutoClassifier, AutoClassifierView, ClientLogBatch, ClientLogReceipt, FnExamplesPage, FnExamplesQuery, FnFacts, FnSearchPage, FnSearchQuery } from './fn-facts.ts';
+import { AutoClassifier, AutoClassifierView, ClientLogBatch, ClientLogReceipt, ContextListItem, FnExamplesPage, FnExamplesQuery, FnFacts, FnSearchPage, FnSearchQuery } from './fn-facts.ts';
 import { ContributionView } from './registries.ts';
 import { SystemParts, SystemPartsQuery } from './system-parts.ts';
 import { GoLiveRequest, ItemSection, RefusalPage, RefusalQuery, ReviewDecided, ReviewDecision, SystemReview, TestCallRequest } from './lifecycle.ts';
@@ -462,7 +462,7 @@ export type ContextItemView = z.infer<typeof ContextItemView>;
 /** Context: browse every item and its links, write and forget memory, draw and remove links. */
 export const contextSlice = spec({
   endpoints: use(tel, hubAuth).group({
-    contexts: { body: ContextQuery, response: page(ContextRecord), ws: 'contexts' },
+    contexts: { body: ContextQuery, response: page(ContextListItem), ws: 'contexts' },
     contextItem: { body: z.object({ name: QualifiedName }), response: ContextItemView, ws: 'contextItem' },
     remember: { body: RememberArgs, response: z.object({ name: QualifiedName }), ws: 'remember' },
     /** Edit a memory's text, title and options. */

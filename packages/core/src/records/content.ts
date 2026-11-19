@@ -39,8 +39,12 @@ export const SectionDiff = z.object({
 });
 export type SectionDiff = z.infer<typeof SectionDiff>;
 
-/** What the hub indexes. */
-export const INDEXED_KINDS = ['fn', 'context', 'section', 'message', 'type', 'example', 'record'] as const;
+/**
+ * What the hub indexes. A `contextSection` is one heading section of a context item's text, keyed
+ * `<context name>#<section key>` (`IndexEntry.parent` names the item), so search covers content past the item's own
+ * indexed text and says which section matched.
+ */
+export const INDEXED_KINDS = ['fn', 'context', 'section', 'message', 'type', 'example', 'record', 'contextSection'] as const;
 export const IndexedKind = z.enum(INDEXED_KINDS);
 export type IndexedKind = z.infer<typeof IndexedKind>;
 
@@ -56,8 +60,15 @@ export const IndexEntry = z.object({
   vectorHash: z.string().optional(),
   embedder: QualifiedName,
   updatedAt: Timestamp,
+  /** The item a part belongs to (a `contextSection`'s context item), so its parts are found and dropped with it. */
+  parent: z.string().optional(),
 });
 export type IndexEntry = z.infer<typeof IndexEntry>;
+
+/** Which index found a hit: its words (full text), its meaning (vectors), or both. */
+export const SEARCH_MATCHED_BY = ['words', 'meaning', 'both'] as const;
+export const SearchMatchedBy = z.enum(SEARCH_MATCHED_BY);
+export type SearchMatchedBy = z.infer<typeof SearchMatchedBy>;
 
 /**
  * One search hit, from vectors, words, or both, with one field per meaning of its score (the fused rank and the
@@ -72,6 +83,10 @@ export const SearchHit = z.object({
   key: z.string(),
   rank: z.number().min(0).max(1),
   similarity: z.number().min(-1).max(1).optional(),
+  /** Which index found it: the words, the meaning, or both. */
+  matched: SearchMatchedBy.optional(),
+  /** The item it is a part of (`IndexEntry.parent`), for a `contextSection`. */
+  parent: z.string().optional(),
   text: z.string(),
 });
 export type SearchHit = z.infer<typeof SearchHit>;

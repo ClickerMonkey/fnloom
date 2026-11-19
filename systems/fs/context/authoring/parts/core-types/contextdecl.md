@@ -161,12 +161,12 @@ type FnDecl = {
     to: "any";
   } | undefined;
   effects?: {
-    mode?: "write" | "read" | "delete" | undefined;
+    mode?: "read" | "write" | "delete" | undefined;
     reads?: `${string}/${string}`[] | undefined;
     writes?: `${string}/${string}`[] | undefined;
     free?: boolean | undefined;
     registry?: {
-      thing: "types" | "records" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+      thing: "types" | "records" | "fns" | "context" | "examples" | "kinds" | "resources" | "components" | "approvals" | "secrets" | "connections";
       action: "create" | "update" | "remove";
       kind?: `${string}/${string}` | "native" | undefined;
     }[] | undefined;
@@ -190,12 +190,12 @@ from its signature, and everything a fn uses (its deps, an agent's tools) is fol
 
 ```ts
 type FnEffects = {
-  mode?: "write" | "read" | "delete" | undefined;
+  mode?: "read" | "write" | "delete" | undefined;
   reads?: `${string}/${string}`[] | undefined;
   writes?: `${string}/${string}`[] | undefined;
   free?: boolean | undefined;
   registry?: {
-    thing: "types" | "records" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+    thing: "types" | "records" | "fns" | "context" | "examples" | "kinds" | "resources" | "components" | "approvals" | "secrets" | "connections";
     action: "create" | "update" | "remove";
     kind?: `${string}/${string}` | "native" | undefined;
   }[] | undefined;
@@ -234,7 +234,7 @@ type FnLive = {
 const, type · declared in `packages/core/src/manifest.ts`
 
 ```ts
-type FnMode = "write" | "read" | "delete";
+type FnMode = "read" | "write" | "delete";
 ```
 
 #### <a id="core-fnrouting"></a>`FnRouting`
@@ -259,28 +259,42 @@ type FnRouting = {
 
 const, type · declared in `packages/core/src/manifest.ts`
 
-What a hook adds. Each becomes a tagged block the LLM can tell apart from the user's words. A suggestion's system is
-its qualified name's; its kind is its block's. The hub lists its own suggestions best match first, with scores.
-
 ```ts
 type HookBlock = {
   type: "text";
   tag: string;
   text: string;
 } | {
-  type: "suggest-context";
   items: {
     context: `${string}/${string}`;
+    title?: string | undefined;
     why?: string | undefined;
     score?: number | undefined;
   }[];
+  type: "suggest-context";
+  toolset?: "tools" | "static" | undefined;
 } | {
-  type: "suggest-fns";
   items: {
     fn: `${string}/${string}`;
     why?: string | undefined;
     score?: number | undefined;
+    card?: {
+      label: string;
+      mode: "read" | "write" | "delete";
+      blocked?: string | undefined;
+      args?: string | undefined;
+      returns?: string | undefined;
+      instructions?: string | undefined;
+      examples?: {
+        args: z.core.util.JSONType;
+        result?: z.core.util.JSONType | undefined;
+        note?: string | undefined;
+      }[] | undefined;
+      moreExamples?: number | undefined;
+    } | undefined;
   }[];
+  type: "suggest-fns";
+  toolset?: "tools" | "static" | undefined;
 } | {
   type: "load";
   context?: `${string}/${string}`[] | undefined;
@@ -406,12 +420,12 @@ type KindDescription = {
     approver?: "person" | "admins" | undefined;
   } | undefined;
   effects?: {
-    mode?: "write" | "read" | "delete" | undefined;
+    mode?: "read" | "write" | "delete" | undefined;
     reads?: `${string}/${string}`[] | undefined;
     writes?: `${string}/${string}`[] | undefined;
     free?: boolean | undefined;
     registry?: {
-      thing: "types" | "records" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+      thing: "types" | "records" | "fns" | "context" | "examples" | "kinds" | "resources" | "components" | "approvals" | "secrets" | "connections";
       action: "create" | "update" | "remove";
       kind?: `${string}/${string}` | "native" | undefined;
     }[] | undefined;
@@ -435,6 +449,6 @@ type KindFnShape = {
   args: TypeDef<any>;
   returns: TypeDef<any>;
   description: string;
-  mode: "write" | "read" | "delete";
+  mode: "read" | "write" | "delete";
 };
 ```

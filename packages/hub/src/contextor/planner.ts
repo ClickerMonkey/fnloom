@@ -4,17 +4,19 @@
  * mode's guide, the mode's tools, the current exchange), trims the current exchange when even that doesn't fit (the
  * hub's blocks on the person's message first, then older tool results, then the newest one) or refuses with a plain
  * message, asks the contextor for a selection within what is left, renders it with the mode, and checks the request's
- * estimate against the budget. `maxTokens` and `contextWindow` go on every request.
+ * estimate against the budget. `maxTokens` and `contextWindow` go on every request. A session's system message lists,
+ * after the instructions, the systems its first turn found available (`fixedRegion`), the same every step so it caches.
  */
 import type { Logger } from '@ayepi/log';
 import {
-  ChatModeConfig, ContextorConfig, DEFAULT_CHAT_MODE, DEFAULT_CONTEXTOR, ModelChoice, namesModel, QualifiedName, type ActorId, type ContextViewer, type Exposure, type FnBlock, type FnRecord, type FnRefusal, type LlmMessage, type ModelInfo,
+  ChatModeConfig, ContextorConfig, DEFAULT_CHAT_MODE, DEFAULT_CONTEXTOR, ModelChoice, namesModel, QualifiedName, type ActorId, type AnnouncedSystem, type ContextViewer, type Exposure, type FnBlock, type FnRecord, type FnRefusal, type LlmMessage, type ModelInfo,
   type Session, type SessionId, type SelectionReport, type Turn, type TurnId,
 } from '@harness/core';
 import { LlmPayloadType, parseValue, type LlmPayload } from '@harness/sdk';
 import type { Catalog } from '../catalog/index.ts';
 import type { ModelResolver } from '../execution/models.ts';
 import { visibleMade } from '../resources/context.ts';
+import { systemsNow, systemsPrompt } from '../chat/announce.ts';
 import { MODE_RANK } from '../fns/index.ts';
 import type { HubStore } from '../store/index.ts';
 import { budgetPlan } from './budget.ts';
@@ -106,17 +108,26 @@ export function broughtLines(fns: readonly string[], inTools: ReadonlySet<string
 }
 
 /**
- * The system message's text after the instructions: the mode's guide, context, earlier summaries, fn cards. Each
- * context block names the fns it brings for what they are this step (`broughtLines`), from `held`.
+ * The system message's text after the instructions: its fixed part (`fixedRegion`), context, earlier summaries, fn
+ * cards. Each context block names the fns it brings for what they are this step (`broughtLines`), from `held`.
  */
-export function contextRegion(guide: string, selection: Pick<Selection, 'context' | 'earlier' | 'fns'>, systemEnd: string, held: BroughtBlocks = new Map()): string {
+export function contextRegion(fixed: string, selection: Pick<Selection, 'context' | 'earlier' | 'fns'>, systemEnd: string, held: BroughtBlocks = new Map()): string {
   const ordered = contextOrder(selection.context);
   const inTools = new Set<string>(selection.fns.filter((f) => f.detail !== 'listed').map((f) => f.view.record.name));
   const blocks = ordered.filter((c) => c.detail !== 'listed').map((c) => contextBlock({
-    name: c.record.name, detail: c.detail, text: c.text, fns: broughtLines(c.record.decl.fns, inTools, held), ...(c.choices === undefined ? {} : { choices: c.choices }),
+    name: c.record.name, title: c.record.decl.title, detail: c.detail, text: c.text, fns: broughtLines(c.record.decl.fns, inTools, held), ...(c.choices === undefined ? {} : { choices: c.choices }),
   }));
-  const listed = moreContext(ordered.filter((c) => c.detail === 'listed').map((c) => c.text));
-  return [guide, ...blocks, listed, ...selection.earlier.map(earlierBlock), systemEnd].filter((part) => part !== '').join('\n\n');
+  const listed = moreContext(ordered.filter((c) => c.detail === 'listed').map((c) => c.record));
+  return [fixed, ...blocks, listed, ...selection.earlier.map(earlierBlock), systemEnd].filter((part) => part !== '').join('\n\n');
+}
+
+/**
+ * What the system message always has after the instructions: the `<systems>` list, then the mode's guide. The list is
+ * the set snapshotted at the chat's first turn (`Session.announcedSystems.prompt`), in name order, never the set as it
+ * is now, so the prompt stays the same and caches; what changes later is told in the person's messages.
+ */
+export function fixedRegion(systems: readonly AnnouncedSystem[], guide: string): string {
+  return [systemsPrompt(systems), guide].filter((part) => part !== '').join('\n\n');
 }
 
 /** What the planner uses. */
@@ -213,7 +224,8 @@ export class HubPromptPlanner implements PromptPlanner {
     const all = exchanges(planning.transcript);
     const currentExchange = all.at(-1);
     const history = all.slice(0, -1);
-    const guide = mode.guide(ctx);
+    const access = await this.#deps.access(planning.user);
+    const guide = fixedRegion(await this.#systems(session, access), mode.guide(ctx));
     const tools = await mode.fixedTools(ctx);
     const head = estimator.text(planning.instructions) + MESSAGE_FRAMING + (guide === '' ? 0 : estimator.text(`\n\n${guide}`)) + tools.reduce((sum, t) => sum + estimator.tool(t.spec), 0);
     const reserve = budgetPlan(view.limits, 0, this.#deps.settings.HARNESS_PROMPT_MARGIN, payload.maxOutput);
@@ -224,7 +236,6 @@ export class HubPromptPlanner implements PromptPlanner {
     const shown = (names: readonly string[]): string[] => names.filter((name) => !mode.replaces.has(name));
     const asked = await this.#asked(planning.turn, currentExchange?.messages ?? []);
 
-    const access = await this.#deps.access(planning.user);
     const input = {
       session, user: planning.user, access, turn: planning.turn?.id, agent, payload, query, history, current: fitted.messages,
       always: { context: [...payload.context, ...(await this.#alwaysFor(agent.name, { actor: planning.user, session: session?.id }))], fns: shown(payload.tools) },
@@ -275,6 +286,15 @@ export class HubPromptPlanner implements PromptPlanner {
     }
     const withExamples = await Promise.all(chosen.map(async (fn): Promise<ChosenFn> => (fn.detail === 'listed' ? fn : { ...fn, examples: await fns.examples(fn.view.record, query) })));
     return { ...selection, fns: withExamples };
+  }
+
+  /**
+   * The systems a session's system prompt lists: its first turn's snapshot; before there is one (a preview), the set
+   * available now. An agent outside a chat gets none.
+   */
+  async #systems(session: Session | undefined, access: AccessScope): Promise<readonly AnnouncedSystem[]> {
+    if (session === undefined) return [];
+    return session.announcedSystems?.prompt ?? (await systemsNow(this.#deps.store, access, session)).on;
   }
 
   /** What blocks each fn the selection's shown context brings (`fnRefusal`), for its blocks to say only what is true. */

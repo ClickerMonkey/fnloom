@@ -4,12 +4,13 @@
  * `records` table's `value` column; each field is read with a bound JSON path, so a field name never becomes SQL.
  * The data service checks field names against the stored type before it asks; this only reads.
  */
-import { type DataRecord, type Filter, type FilterValue, type QualifiedName, type ActorId, type RecordId, type Sort, type Timestamp } from '@harness/core';
+import { type DataRecord, type Filter, type QualifiedName, type ActorId, type RecordId, type Sort, type Timestamp } from '@harness/core';
 import { type RawBuilder, type SqlBool, sql } from 'kysely';
 import { z } from 'zod';
 import { RowCodec } from './codec.ts';
 import { CellSchema, type Scope, type StoredRow } from './db.ts';
 import { StoreError } from './errors.ts';
+import { filterSql } from './lists.ts';
 import { TABLE_DEFS, tableLayout } from './schema.ts';
 
 /** One read of a stored type's records. */
@@ -55,26 +56,9 @@ function field(name: string): RawBuilder<unknown> {
   return sql`json_extract(${sql.ref('value')}, ${`$.${name}`})`;
 }
 
-/** A filter value as SQLite compares it (JSON booleans read back as 1 and 0). */
-const cell = (value: FilterValue): string | number => (typeof value === 'boolean' ? (value ? 1 : 0) : value);
-
-/** One filter as SQL. */
+/** One filter as SQL: the shared translation (`lists.ts`) on the field's value. */
 function condition(filter: Filter): RawBuilder<SqlBool> {
-  const at = field(filter.field);
-  switch (filter.op) {
-    case 'is': return sql<SqlBool>`${at} = ${cell(filter.value)}`;
-    case 'isNot': return sql<SqlBool>`(${at} is null or ${at} <> ${cell(filter.value)})`;
-    case 'gt': return sql<SqlBool>`${at} > ${cell(filter.value)}`;
-    case 'gte': return sql<SqlBool>`${at} >= ${cell(filter.value)}`;
-    case 'lt': return sql<SqlBool>`${at} < ${cell(filter.value)}`;
-    case 'lte': return sql<SqlBool>`${at} <= ${cell(filter.value)}`;
-    case 'contains': return sql<SqlBool>`instr(lower(cast(${at} as text)), ${String(filter.value).toLowerCase()}) > 0`;
-    case 'in': return sql<SqlBool>`${at} in (${sql.join(filter.values.map(cell))})`;
-    case 'notIn': return sql<SqlBool>`(${at} is null or ${at} not in (${sql.join(filter.values.map(cell))}))`;
-    case 'between': return sql<SqlBool>`${at} between ${cell(filter.from)} and ${cell(filter.to)}`;
-    case 'empty': return sql<SqlBool>`(${at} is null or ${at} = '')`;
-    case 'notEmpty': return sql<SqlBool>`(${at} is not null and ${at} <> '')`;
-  }
+  return filterSql(field(filter.field), filter);
 }
 
 /** The `where` of a read. */

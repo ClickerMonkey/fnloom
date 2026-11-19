@@ -12,6 +12,7 @@ import {
 import type { AccessScope } from '../access/index.ts';
 import { seesContextNamed } from '../access/scope.ts';
 import { cacheMissOf } from './cache.ts';
+import { suggestedAfter } from './enrich.ts';
 import { finishedParts } from './streams.ts';
 import type { ChatDeps } from './deps.ts';
 import { ChatError, messageOf } from './errors.ts';
@@ -38,7 +39,7 @@ export function plainText(parts: readonly MessagePart[]): string {
       case 'file': return part.name;
       case 'link': return part.link.title ?? '';
       case 'attachment': return part.title;
-      case 'reasoning': case 'extra': case 'hook': case 'input-answer': case 'call': return '';
+      case 'reasoning': case 'extra': case 'hook': case 'input-answer': case 'call': case 'systems-changed': return '';
     }
   }).join('').trim();
 }
@@ -49,8 +50,12 @@ export function hiddenMessage(message: Pick<ChatMessage, 'parts'>): boolean {
 }
 
 /** The session as a turn finds it, so undoing the turn can put it back. */
-export function startOf(session: Pick<Session, 'transcript' | 'tools' | 'context' | 'selection'>): TurnStart {
-  return { transcript: session.transcript.length, tools: [...session.tools], context: [...session.context], ...(session.selection === undefined ? {} : { selection: session.selection }) };
+export function startOf(session: Pick<Session, 'transcript' | 'tools' | 'context' | 'selection' | 'suggested' | 'announcedSystems'>): TurnStart {
+  return {
+    transcript: session.transcript.length, tools: [...session.tools], context: [...session.context], ...(session.selection === undefined ? {} : { selection: session.selection }),
+    ...(session.suggested === undefined ? {} : { suggested: [...session.suggested] }),
+    ...(session.announcedSystems === undefined ? {} : { announcedSystems: session.announcedSystems }),
+  };
 }
 
 /** How a settled run ends its turn. */
@@ -97,7 +102,7 @@ export class StoreTurnService implements TurnService {
       this.#deps.limits.resolve({ user, session: session.id, turn }),
       this.#parts.enricher.enrich({ session, turn, text, user }),
     ]);
-    const { parts: extraParts, suggestions } = extras;
+    const { parts: extraParts, suggestions, announcedSystems } = extras;
     const now = this.#deps.clock();
     const draft: ChatMessage = {
       id: mintId('message', this.#deps.random), session: session.id, turn, author: input.author, role: 'user', parts: [...parts, ...extraParts], runs: [], status: 'done',
@@ -113,7 +118,11 @@ export class StoreTurnService implements TurnService {
     });
     this.#deps.log.info('chat.turn.sent', { session: session.id, turn, message: message.id, answerers: answerers.length, parts: message.parts.length });
     this.#deps.bus.publish('message', { message });
-    await this.#parts.sessions.save(session.id, this.#sessionAfterSend(session, message, text, await this.#loads(session, extraParts, access), commanded));
+    await this.#parts.sessions.save(session.id, {
+      ...this.#sessionAfterSend(session, message, text, await this.#loads(session, extraParts, access), commanded),
+      // what the model now knows about the systems (`chat/announce.ts`)
+      ...(announcedSystems === undefined ? {} : { announcedSystems }),
+    });
     await this.#notifyMessage(session, message, repliedTo);
     await this.#wake(session, record, answerers);
     return { turn, message };
@@ -370,6 +379,8 @@ export class StoreTurnService implements TurnService {
       ...(session.title === UNTITLED && text !== '' ? { title: clip(text, this.#deps.settings.chat.HARNESS_TITLE_LENGTH) } : {}),
       ...(loads.tools.length > 0 ? { tools: [...new Set([...session.tools, ...loads.tools])] } : {}),
       ...(context.length > 0 ? { context: [...new Set([...session.context, ...context])] } : {}),
+      // each fn and context is suggested once in a chat (`HubMessageEnricher`)
+      ...suggestedAfter(session, message.parts),
       ...(message.answerers.length > 0 ? { status: 'running' as const } : {}),
     };
   }

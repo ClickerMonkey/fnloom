@@ -38,6 +38,8 @@ export interface IndexItem {
   readonly key: string;
   readonly text: string;
   readonly system?: SystemName;
+  /** The item this one is a part of (a `contextSection`'s context item). */
+  readonly parent?: string;
 }
 
 /**

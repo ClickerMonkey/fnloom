@@ -22,7 +22,7 @@ import { contiguousTail, shortenResults, summarise, type Exchange } from './hist
 import type {
   ChosenContext, ChosenFn, Contextor, ContextorDeps, ContextorFactories, ContextorInput, DynamicAsk, ExchangeSummary, FnView, Selection,
 } from './index.ts';
-import { contextBlock, earlierBlock, listedLine } from './render.ts';
+import { contextBlock, earlierBlock, listedContextElement, listedLine } from './render.ts';
 import { broughtFns, sizedChoices, withImports } from './brought.ts';
 import { baseScore, metricSettings, spread, wordShare, words, type Edge, type Signals } from './score.ts';
 import { metricDefaults } from './env.ts';
@@ -45,8 +45,8 @@ export function contextDetails(record: ContextRecord): readonly Detail[] {
 /** What a context item costs at a detail, as the prompt shows it. */
 export function contextCost(record: ContextRecord, detail: Detail, input: Pick<ContextorInput, 'ctx'>): number {
   const text = detail === 'listed'
-    ? `- ${contextText(record, 'listed')}\n`
-    : `${contextBlock({ name: record.name, detail, text: contextText(record, detail), fns: { added: record.decl.fns }, ...(record.decl.choices === undefined ? {} : { choices: record.decl.choices }) })}\n\n`;
+    ? `${listedContextElement(record).toString()}\n`
+    : `${contextBlock({ name: record.name, title: record.decl.title, detail, text: contextText(record, detail), fns: { added: record.decl.fns }, ...(record.decl.choices === undefined ? {} : { choices: record.decl.choices }) })}\n\n`;
   return input.ctx.estimator.text(text);
 }
 

@@ -14,6 +14,7 @@ import { listSources } from '../../query/sources.ts';
 import { memoryLog, RecordingBus, testStore } from '../../testing.ts';
 import { partCount } from '../system-parts.ts';
 import { systemView } from './systems.ts';
+import { NO_FN_SEARCH } from '../../index/testing.ts';
 
 const SHOP = SystemName.parse('shop');
 const OPEN_ACCESS = { scope: (actor: ActorId) => Promise.resolve(openScope(actor)) };
@@ -68,7 +69,7 @@ describe('systemView', () => {
   it('lists systems sorted and filtered by each count', async () => {
     const { store, catalog } = await world();
     await store.table('refusals').insert({ id: mintId('refusal'), system: SystemName.parse('fleet'), instance: MAIN_INSTANCE, rule: 'mode', attempt: 'x', detail: 'refused', at: 1 });
-    const lists = new HubQuery(listSources({ store, catalog, access: OPEN_ACCESS }, queryEnv.parse()));
+    const lists = new HubQuery(listSources({ store, catalog, access: OPEN_ACCESS, fns: NO_FN_SEARCH }, queryEnv.parse()));
     const names = async (query: ListQuery) => (await lists.page('systems', query, ADMIN)).items.map((s) => s.name);
     expect(await names({ filters: [{ field: 'context', op: 'gt', value: 0 }] })).toEqual(['shop']);
     expect(await names({ filters: [{ field: 'types', op: 'gte', value: 1 }] })).toEqual(['shop']);

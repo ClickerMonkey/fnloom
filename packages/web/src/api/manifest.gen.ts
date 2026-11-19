@@ -3043,6 +3043,8 @@ export const manifest = {
         "modes",
         "effects",
         "names",
+        "filters",
+        "off",
         "available",
         "order",
         "offset",

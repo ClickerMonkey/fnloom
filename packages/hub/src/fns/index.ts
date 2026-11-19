@@ -14,7 +14,7 @@
  */
 import type {
   ActorId, AutoClassifier, AutoClassifierView, ClientLogBatch, ClientLogReceipt, CostEstimate, FnExample, FnExamplesPage, FnExamplesQuery, FnFacts, FnMode,
-  FnRecord, FnSearchPage, FnSearchQuery, FnMetricsDay, FnExamplesPatch, Json, QualifiedName, RegistryEffect, RunId, SearchItemKind, SensitivityFlag, Session, SystemName,
+  FnRecord, FnSearchPage, FnSearchQuery, FnMetricsDay, FnExamplesPatch, Json, QualifiedName, RegistryEffect, RunId, SearchItemKind, SensitivityFlag, Session, SessionId, SystemName,
 } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
 
@@ -24,6 +24,8 @@ export interface Asker {
   readonly access: AccessScope;
   /** Build 6: a further per-hit rule (the session's systems, a hub MCP's scope); every hit when absent. */
   readonly keep?: (item: SearchItemKind, name: QualifiedName) => boolean;
+  /** The session asking from, if any: a memory scoped to it is seen there only (`seesOrigin`). */
+  readonly session?: SessionId;
 }
 
 /** Fns and context, searched in the hub's database. */

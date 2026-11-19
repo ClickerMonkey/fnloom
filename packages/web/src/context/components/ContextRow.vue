@@ -7,15 +7,18 @@
  * who sees it, on every row, and leaves its origin's mark (every row there is the system's) and saying it is off to the
  * switch beside it. What every row of the list shares (`shared`: all off with their system's context, all added while
  * running, one origin) is said once above the list, not on the row. The key is never shown. The whole row is a link to
- * the item's page.
+ * the item's page. A row the list's search found (`found`) says which index found it (a "matched by" badge: words,
+ * meaning or both), its score, and the heading section that matched.
  */
-import { contextOff, type ContextRecord } from '@harness/core';
+import { contextOff, type ContextRecord, type SearchFound } from '@harness/core';
 import { computed } from 'vue';
 import type { RouteLocationRaw } from 'vue-router';
 import { fullTime, relativeTime, UiBadge, UiIcon } from '../../ui/index.ts';
-import { AUDIENCE_WORDS, contextLabel, DECLARED_WORDS, NOTHING_SHARED, ORIGIN_WORDS, originOf, sizeText, type ContextShared } from '../logic/context.ts';
+import { AUDIENCE_WORDS, contextLabel, DECLARED_WORDS, foundView, NOTHING_SHARED, ORIGIN_WORDS, originOf, sizeText, type ContextShared } from '../logic/context.ts';
 
-const props = withDefaults(defineProps<{ record: ContextRecord; to: RouteLocationRaw; now: number; detailed?: boolean; shared?: ContextShared }>(), { detailed: false, shared: () => NOTHING_SHARED });
+const props = withDefaults(defineProps<{ record: ContextRecord; to: RouteLocationRaw; now: number; detailed?: boolean; shared?: ContextShared; found?: SearchFound | undefined }>(), { detailed: false, shared: () => NOTHING_SHARED, found: undefined });
+/** How the list's search found it, in words; nothing when the list wasn't searched. */
+const seen = computed(() => foundView(props.found));
 const label = computed(() => contextLabel(props.record.decl));
 /** The description, under a title; a row without a title already reads as its description. */
 const description = computed(() => (props.record.decl.title === undefined ? '' : props.record.decl.description));
@@ -44,13 +47,16 @@ const seenBy = computed(() => (props.detailed || props.record.decl.visible !== '
         <UiBadge v-if="!detailed && record.declaredBy === 'runtime' && !shared.runtime" tone="accent" :title="record.version === undefined ? undefined : `Version ${record.version.slice(0, 8)}`" data-testid="context-runtime">Added while running</UiBadge>
         <UiBadge v-if="record.stale" tone="warn">Stale</UiBadge>
         <UiBadge v-if="off && !detailed && !(shared.systemOff && record.disabled !== true)" data-testid="context-off">{{ offWord }}</UiBadge>
+        <UiBadge v-if="seen.matched !== undefined" :tone="seen.matched.tone" :title="seen.matched.title" data-testid="context-matched">{{ seen.matched.label }}</UiBadge>
       </span>
       <span v-if="description !== ''" class="description">{{ description }}</span>
+      <span v-if="seen.section !== undefined" class="section" data-testid="context-section"><UiIcon name="hash" :size="12" />{{ seen.section }}</span>
     </span>
     <span class="side">
       <span v-if="detailed" class="origin" data-testid="context-declared">{{ declared }}<code v-if="record.version !== undefined" class="version" :title="`Version ${record.version}`">{{ record.version.slice(0, 8) }}</code></span>
       <span v-else-if="shared.origin === undefined" class="origin">{{ origin.short }}</span>
       <span class="facts">
+        <span v-if="seen.score !== undefined" class="score" data-testid="context-score">{{ seen.score }}</span>
         <span v-if="sizeText(record) !== undefined" class="tokens">{{ sizeText(record) }}</span>
         <time class="when" :datetime="new Date(record.updatedAt).toISOString()" :title="fullTime(record.updatedAt)">{{ relativeTime(record.updatedAt, now) }}</time>
       </span>
@@ -74,6 +80,8 @@ const seenBy = computed(() => (props.detailed || props.record.decl.visible !== '
 .description { color: var(--text-dim); font-size: var(--text-sm); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .side { display: grid; justify-items: end; gap: 2px; color: var(--text-faint); font-size: var(--text-xs); white-space: nowrap; }
 .origin { color: var(--text-dim); }
+.section { display: inline-flex; align-items: center; gap: var(--space-1); min-width: 0; color: var(--accent); font-size: var(--text-xs); overflow-wrap: anywhere; }
+.score { color: var(--text-dim); font-variant-numeric: tabular-nums; }
 .version { margin-left: var(--space-2); color: var(--text-faint); font-size: var(--text-xs); }
 /* size and time share one line, so every row with a one-line title is the same height */
 .facts { display: flex; gap: var(--space-2); }

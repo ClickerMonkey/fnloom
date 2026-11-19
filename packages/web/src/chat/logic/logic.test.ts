@@ -1,4 +1,4 @@
-import { ActorId, HookBlock, ResolvedLimits, QualifiedName, RUN_STATUSES, RunId, type ChatCapabilities, type ModelInfo } from '@harness/core';
+import { ActorId, HookBlock, ResolvedLimits, QualifiedName, RUN_STATUSES, RunId, SystemName, type ChatCapabilities, type ModelInfo } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { capabilities, llmCall, message, run, session, T0, tree } from '../test/fakes.ts';
 import {
@@ -202,10 +202,12 @@ describe('thread', () => {
     const parts = message({ parts: [
       { type: 'text', text: 'Read' }, { ...mention, text: 'the file' }, { type: 'command', context: 'fs/tree', args: { root: 'src' } },
       { type: 'extra', extra: 'local-time', blocks: [{ type: 'text', tag: 'local-time', text: '9:30' }] },
+      // what changed in the systems goes to the model only: hidden, not read as words, never sent again
+      { type: 'systems-changed', on: [], off: [{ name: SystemName.parse('fs'), reason: 'disconnected' }] },
     ] }).parts;
     expect(messageText(parts)).toBe('Read @harness.md /fs/tree src');
     expect(resendParts(parts).map((p) => p.type)).toEqual(['text', 'mention', 'command']);
-    expect(splitParts(parts).added).toHaveLength(1);
+    expect(splitParts(parts).added.map((p) => p.type)).toEqual(['extra', 'systems-changed']);
   });
 
   it('streams tokens into the last text part, and merges pages and updates in order', () => {

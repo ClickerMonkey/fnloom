@@ -66,7 +66,7 @@ export function registerContextorFns(fns: HubFns, deps: ContextorFnDeps): void {
     if (view !== undefined) {
       const blocked = fnRefusal(view.record, session, access);
       if (blocked !== undefined) throw new InvalidArgs([{ path: 'name', message: blockedLine(name.data, blocked) }]);
-      return { name: name.data, kind: 'fn' as const, detail, text: fnCard(view, detail, 'native') };
+      return { name: name.data, kind: 'fn' as const, detail, text: fnCard(view, detail) };
     }
     const found = await deps.catalog().context(name.data);
     const user = ctx.request.run.user;

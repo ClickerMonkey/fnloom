@@ -4,6 +4,9 @@
  * connected; an item whose text hash hasn't changed is left alone. Items stored while no embedder was connected
  * (`vectorHash` behind `hash`) are embedded once one connects. The indexer follows the bus: a catalog change
  * re-indexes the systems it touched; a resource change re-sections that resource, by its root's index policy.
+ * A context item is indexed whole and by its heading sections too (`contextSection`, `context-sections.ts`): its
+ * sections follow it on every upsert (a section gone from its text is dropped) and are dropped with it; on start, an
+ * item indexed before it had sections indexed (an older hub) gets them.
  * Resources are read through the router (their raw text) until the resources module gives an `IndexReader`
  * (`readWith`): then the hub's own resources are indexed too, every resource is cut in its primary form (markdown for
  * a web page, tables for a spreadsheet), and the reader hears each section diff (snapshot context goes stale).
@@ -21,7 +24,7 @@ import {
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
-import { allRows } from '../store/rows.ts';
+import { allRows, rows as storedRows } from '../store/rows.ts';
 import { messageOf } from '../catalog/scope.ts';
 import { Serial } from '../catalog/serial.ts';
 import { sha256Hex } from '../link/keys.ts';
@@ -29,6 +32,7 @@ import type { ResourceRouter } from '../link/index.ts';
 import { underRoot } from '../link/resources.ts';
 import type { HubStore } from '../store/index.ts';
 import type { EmbedBatcher } from './batch.ts';
+import { contextSectionItems } from './context-sections.ts';
 import type { Embedders, IndexItem, IndexReader, Indexer, PrimaryText, VectorTiming } from './index.ts';
 import type { Sectioning } from './sectioning.ts';
 
@@ -64,6 +68,9 @@ async function breathe(index: number): Promise<void> {
 }
 
 /** The kinds a system's contract contributes. */
+/** Context items whose sections the start-up catch-up indexes together. */
+const SECTION_CATCH_UP = 50;
+
 const CONTRACT_KINDS = ['fn', 'context', 'type'] as const satisfies readonly IndexedKind[];
 
 /** A fn's indexed text: what it is called, what it does, and its tags. */
@@ -136,6 +143,7 @@ export class StoreIndexer implements Indexer {
     ];
     // embedders that connected before the indexer started are caught up too
     if (embedders.active() !== undefined) { this.#queue('index.backfill', () => this.backfill()); }
+    this.#queue('index.sections', () => this.catchUpSections());
     log.debug('index.started', {});
     return () => {
       for (const stop of stops) { stop(); }
@@ -168,8 +176,10 @@ export class StoreIndexer implements Indexer {
     return this.#serial.run(() => Promise.resolve());
   }
 
-  async upsert(items: readonly IndexItem[], options: { readonly vectors?: VectorTiming } = {}): Promise<void> {
+  async upsert(given: readonly IndexItem[], options: { readonly vectors?: VectorTiming } = {}): Promise<void> {
     const { store, clock, document, maxText } = this.#options;
+    const items = given.flatMap((item) => [item, ...contextSectionItems(item)]);
+    await this.#dropOldSections(items);
     const rows: IndexEntry[] = [];
     for (const [index, item] of items.entries()) {
       await breathe(index);
@@ -180,6 +190,7 @@ export class StoreIndexer implements Indexer {
       rows.push(await store.table('index').put({
         kind: item.kind, key: item.key, text, hash, embedder: document, updatedAt: clock(),
         ...(item.system === undefined ? {} : { system: item.system }),
+        ...(item.parent === undefined ? {} : { parent: item.parent }),
         ...(existing?.vectorHash === undefined ? {} : { vectorHash: existing.vectorHash }),
       }));
     }
@@ -194,12 +205,42 @@ export class StoreIndexer implements Indexer {
   async remove(kind: IndexedKind, keys: readonly string[]): Promise<void> {
     if (keys.length === 0) { return; }
     const { store, document } = this.#options;
+    if (kind === 'context') {
+      const parts = await allRows(store.table('index'), { where: { embedder: document, kind: 'contextSection', parent: { in: keys } } });
+      await this.remove('contextSection', parts.map((row) => row.key));
+    }
     for (const [index, key] of keys.entries()) {
       await breathe(index);
       await store.table('index').remove({ embedder: document, kind, key });
     }
     await store.text.remove(kind, keys);
     await store.vectors.remove(document, kind, keys);
+  }
+
+  /**
+   * Index the heading sections of every context item that has headings but none of its sections indexed yet (an item
+   * indexed before sections were), read a page at a time; each item is asked of the database by its first section.
+   */
+  async catchUpSections(): Promise<void> {
+    const { store, document } = this.#options;
+    const missing: IndexItem[] = [];
+    for await (const record of storedRows(store.table('context'))) {
+      const item: IndexItem = { kind: 'context', key: record.name, text: contextText(record.name, record.decl), system: record.system };
+      const first = contextSectionItems(item)[0];
+      if (first !== undefined && (await store.table('index').get({ embedder: document, kind: 'contextSection', key: first.key })) === undefined) { missing.push(item); }
+      if (missing.length >= SECTION_CATCH_UP) { await this.upsert(missing.splice(0), { vectors: 'background' }); }
+    }
+    if (missing.length > 0) { await this.upsert(missing, { vectors: 'background' }); }
+  }
+
+  /** Drop the sections a context item being upserted no longer has (found by their parent, in the database). */
+  async #dropOldSections(items: readonly IndexItem[]): Promise<void> {
+    const { store, document } = this.#options;
+    const contexts = items.filter((item) => item.kind === 'context').map((item) => item.key);
+    if (contexts.length === 0) { return; }
+    const kept = new Set(items.filter((item) => item.kind === 'contextSection').map((item) => item.key));
+    const parts = await allRows(store.table('index'), { where: { embedder: document, kind: 'contextSection', parent: { in: contexts } } });
+    await this.remove('contextSection', parts.filter((row) => !kept.has(row.key)).map((row) => row.key));
   }
 
   async reindexSystem(system: SystemName): Promise<void> {

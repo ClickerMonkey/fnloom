@@ -65,19 +65,36 @@ type MessagePart = {
     tag: string;
     text: string;
   } | {
-    type: "suggest-context";
     items: {
       context: `${string}/${string}`;
+      title?: string | undefined;
       why?: string | undefined;
       score?: number | undefined;
     }[];
+    type: "suggest-context";
+    toolset?: "tools" | "static" | undefined;
   } | {
-    type: "suggest-fns";
     items: {
       fn: `${string}/${string}`;
       why?: string | undefined;
       score?: number | undefined;
+      card?: {
+        label: string;
+        mode: "read" | "write" | "delete";
+        blocked?: string | undefined;
+        args?: string | undefined;
+        returns?: string | undefined;
+        instructions?: string | undefined;
+        examples?: {
+          args: z.core.util.JSONType;
+          result?: z.core.util.JSONType | undefined;
+          note?: string | undefined;
+        }[] | undefined;
+        moreExamples?: number | undefined;
+      } | undefined;
     }[];
+    type: "suggest-fns";
+    toolset?: "tools" | "static" | undefined;
   } | {
     type: "load";
     context?: `${string}/${string}`[] | undefined;
@@ -91,19 +108,36 @@ type MessagePart = {
     tag: string;
     text: string;
   } | {
-    type: "suggest-context";
     items: {
       context: `${string}/${string}`;
+      title?: string | undefined;
       why?: string | undefined;
       score?: number | undefined;
     }[];
+    type: "suggest-context";
+    toolset?: "tools" | "static" | undefined;
   } | {
-    type: "suggest-fns";
     items: {
       fn: `${string}/${string}`;
       why?: string | undefined;
       score?: number | undefined;
+      card?: {
+        label: string;
+        mode: "read" | "write" | "delete";
+        blocked?: string | undefined;
+        args?: string | undefined;
+        returns?: string | undefined;
+        instructions?: string | undefined;
+        examples?: {
+          args: z.core.util.JSONType;
+          result?: z.core.util.JSONType | undefined;
+          note?: string | undefined;
+        }[] | undefined;
+        moreExamples?: number | undefined;
+      } | undefined;
     }[];
+    type: "suggest-fns";
+    toolset?: "tools" | "static" | undefined;
   } | {
     type: "load";
     context?: `${string}/${string}`[] | undefined;
@@ -134,5 +168,19 @@ type MessagePart = {
     run: string;
     title: string;
   };
+} | {
+  type: "systems-changed";
+  on: {
+    name: SystemName;
+    reason: string;
+    label?: string | undefined;
+    description?: string | undefined;
+  }[];
+  off: {
+    name: SystemName;
+    reason: string;
+    label?: string | undefined;
+    description?: string | undefined;
+  }[];
 };
 ```

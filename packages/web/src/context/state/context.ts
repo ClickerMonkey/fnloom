@@ -4,7 +4,7 @@
  * memory, edit or forget one, draw a link, remove a link they drew, and make context from a resource. Each change
  * answers whether it worked and reloads what it touched; live `context` events reload the rest.
  */
-import type { ContextFromResourceArgs, ContextFromResourceResult, ContextItemView, ContextLink, ContextRecord, QualifiedName } from '@harness/core';
+import type { ContextFromResourceArgs, ContextFromResourceResult, ContextItemView, ContextLink, ContextListItem, ContextRecord, QualifiedName } from '@harness/core';
 import { getCurrentScope, onScopeDispose, ref } from 'vue';
 import { Loaded, Paged, Task, type Outcome } from '../../state/loaded.ts';
 import type { ContextApi, ContextEvents } from '../api/context.ts';
@@ -117,7 +117,7 @@ export class ContextItemStore {
 /** The context pages. */
 export class ContextStore {
   readonly #deps: ContextDeps;
-  readonly list: Paged<ContextRecord, ContextFilter>;
+  readonly list: Paged<ContextListItem, ContextFilter>;
   readonly item: ContextItemStore;
   readonly remembering = new Task();
   readonly making = new Task();
@@ -126,7 +126,7 @@ export class ContextStore {
 
   constructor(deps: ContextDeps) {
     this.#deps = deps;
-    this.list = new Paged<ContextRecord, ContextFilter>({
+    this.list = new Paged<ContextListItem, ContextFilter>({
       fetch: (filter, cursor, limit) => deps.api.list.call({ ...filter, limit, ...(cursor === undefined ? {} : { cursor }) }),
       key: (record) => record.name,
       failure: "Couldn't load the context.",

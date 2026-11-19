@@ -1,6 +1,6 @@
 import { ApiError } from '@ayepi/core';
 import { IDS, LIST_FIELDS, QualifiedName, ResourceUri, SystemName, TypeRecord, noFnStats, type ActorId, type FieldDecl, type Filter, type ListQuery, type ModelCall, type SessionId } from '@harness/core';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { chatWorld, FixtureCatalog, makeRun } from '../chat/testing.ts';
 import { instanceRow, systemRow } from '../catalog/fixtures.ts';
 import { memoryLog, RecordingBus, testStore } from '../testing.ts';
@@ -10,6 +10,10 @@ import { evaluate, passes } from './evaluate.ts';
 import { HubQuery } from './service.ts';
 import { listSources } from './sources.ts';
 import { openScope } from '../access/index.ts';
+import { NO_FN_SEARCH, contextItem, wordsFnSearch, wordsIndex } from '../index/testing.ts';
+
+const stops: Array<() => Promise<void>> = [];
+afterEach(async () => { for (const stop of stops.splice(0)) await stop(); });
 
 /** Everything visible to everyone. */
 const OPEN_ACCESS = { scope: (actor: ActorId) => Promise.resolve(openScope(actor)) };
@@ -61,7 +65,7 @@ describe('the lists', () => {
   async function rig() {
     const store = await testStore();
     const catalog = new FixtureCatalog();
-    const lists = new HubQuery(listSources({ store, catalog, access: OPEN_ACCESS }, queryEnv.parse()));
+    const lists = new HubQuery(listSources({ store, catalog, access: OPEN_ACCESS, fns: NO_FN_SEARCH }, queryEnv.parse()));
     const turn = IDS.turn.parse('trn_1');
     await store.table('runs').insert(makeRun({ id: IDS.run.parse('run_a'), fn: 'fs/read', turn, actor: admin.id, status: 'done', cost: 0.002, createdAt: 1 }));
     await store.table('runs').insert(makeRun({ id: IDS.run.parse('run_b'), fn: 'fs/write', turn, actor: member.id, status: 'failed', cost: 0.2, createdAt: 2 }));
@@ -86,7 +90,7 @@ describe('the lists', () => {
     const { store } = await rig();
     const turn = IDS.turn.parse('trn_1');
     for (let i = 0; i < 100; i++) { await store.table('runs').insert(makeRun({ id: IDS.run.parse(`run_n${i}`), fn: 'fs/read', turn, actor: admin.id, status: 'done', createdAt: 10 + i })); }
-    const lists = new HubQuery(listSources({ store, catalog: new FixtureCatalog(), access: OPEN_ACCESS }, { ...queryEnv.parse(), HARNESS_QUERY_SCAN: 100 }));
+    const lists = new HubQuery(listSources({ store, catalog: new FixtureCatalog(), access: OPEN_ACCESS, fns: NO_FN_SEARCH }, { ...queryEnv.parse(), HARNESS_QUERY_SCAN: 100 }));
     const result = await lists.query({ list: 'runs', query: { filters: [{ field: 'fn', op: 'is', value: 'fs/write' }] } }, admin);
     expect(result).toMatchObject({ total: 1, items: [{ id: 'run_b' }] });
   });
@@ -95,7 +99,7 @@ describe('the lists', () => {
     const { store } = await rig();
     const turn = IDS.turn.parse('trn_1');
     for (let i = 0; i < 100; i++) { await store.table('runs').insert(makeRun({ id: IDS.run.parse(`run_n${i}`), fn: 'fs/read', turn, actor: admin.id, status: 'done', cost: 0.01, createdAt: 10 + i })); }
-    const lists = new HubQuery(listSources({ store, catalog: new FixtureCatalog(), access: OPEN_ACCESS }, { ...queryEnv.parse(), HARNESS_QUERY_SCAN: 100 }));
+    const lists = new HubQuery(listSources({ store, catalog: new FixtureCatalog(), access: OPEN_ACCESS, fns: NO_FN_SEARCH }, { ...queryEnv.parse(), HARNESS_QUERY_SCAN: 100 }));
     const run = async (query: ListQuery) => lists.query({ list: 'runs', query }, admin);
     // the oldest runs, past the newest 100, by a date bound and by a cost sort
     expect(await run({ filters: [{ field: 'createdAt', op: 'lt', value: 3 }] })).toMatchObject({ total: 2, items: [{ id: 'run_b' }, { id: 'run_a' }] });
@@ -123,7 +127,7 @@ describe('the lists', () => {
 
   it('serves the fns catalogue with stats, and a member only the model calls of their own sessions', async () => {
     const w = await chatWorld();
-    const lists = new HubQuery(listSources({ ...w, access: w.deps.access }, queryEnv.parse()));
+    const lists = new HubQuery(listSources({ ...w, access: w.deps.access, fns: NO_FN_SEARCH }, queryEnv.parse()));
     for (const [name, failed] of [['read', 0], ['write', 2]] as const) {
       const record = w.catalog.addFn('fs', { name, description: `${name} things` });
       await w.store.table('fns').put({ ...record, stats: { ...noFnStats(), outcomes: { done: 3, failed, 'invalid-input': 0, cancelled: 0 } } });
@@ -167,7 +171,9 @@ describe('the lists', () => {
 
   it('finds rows of each list by their words, and lists the systems to admins, without removed ones, by every field', async () => {
     const w = await chatWorld();
-    const lists = new HubQuery(listSources({ ...w, access: w.deps.access }, queryEnv.parse()));
+    const words = wordsFnSearch(w.store, w.catalog);
+    stops.push(words.stop);
+    const lists = new HubQuery(listSources({ ...w, access: w.deps.access, fns: words }, queryEnv.parse()));
     const turn = IDS.turn.parse('trn_w');
     await w.store.table('runs').insert(makeRun({ id: IDS.run.parse('run_oslo'), fn: 'fs/read', turn, actor: admin.id, status: 'done', createdAt: 5 }));
     await w.store.table('runs').insert(makeRun({ id: IDS.run.parse('run_rome'), fn: 'fs/read', turn, actor: admin.id, status: 'done', createdAt: 6 }));
@@ -177,8 +183,9 @@ describe('the lists', () => {
     await w.store.table('notifications').insert({
       id: IDS.notification.parse('ntf_2'), user: admin.id, reason: 'message', title: 'Rent', body: 'Due soon', link: { session: w.session.id }, read: true, pushed: false, createdAt: 5,
     });
-    await w.store.table('context').put(w.catalog.addContext('fs', { name: 'guide', description: 'How fs reads files', tags: ['files'] }));
-    await w.store.table('context').put(w.catalog.addContext('fs', { name: 'style', description: 'House style for notes', tags: [] }));
+    const contexts = [w.catalog.addContext('fs', { name: 'guide', description: 'How fs reads files', tags: ['files'] }), w.catalog.addContext('fs', { name: 'style', description: 'House style for notes', tags: [] })];
+    for (const record of contexts) await w.store.table('context').put(record);
+    await wordsIndex(w.store, contexts.map(contextItem));
     for (const [name, description] of [['Entry', 'A file on disk.'], ['Folder', 'A directory of entries.']] as const) {
       await w.store.table('types').insert(TypeRecord.parse({ name: QualifiedName.parse(`fs/${name}`), system: SystemName.parse('fs'), description, def: { name: 'text' }, display: { label: name }, references: [], updatedAt: 1 }));
     }
@@ -203,7 +210,7 @@ describe('the lists', () => {
     await w.store.table('instances').put(instanceRow('fs', 'connected'));
     // a system's view counts its fns from the real catalog
     const catalog = new StoreCatalog({ store: w.store, bus: new RecordingBus(), log: memoryLog().log, clock: () => 1, describer: { describe: () => Promise.resolve({ problems: [] }) } });
-    const withSystems = new HubQuery(listSources({ store: w.store, catalog, access: OPEN_ACCESS }, queryEnv.parse()));
+    const withSystems = new HubQuery(listSources({ store: w.store, catalog, access: OPEN_ACCESS, fns: NO_FN_SEARCH }, queryEnv.parse()));
     const systems = async (query: ListQuery) => (await withSystems.page('systems', query, admin)).items.map((s) => s.name);
     expect(await systems({})).toEqual(['fs', 'web']);
     expect(await systems({ filters: [{ field: 'status', op: 'is', value: 'connected' }] })).toEqual(['fs']);

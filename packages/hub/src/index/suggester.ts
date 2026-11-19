@@ -36,7 +36,9 @@ export class IndexSuggester implements Suggester {
       const { system } = splitName(name);
       return system === HUB_SYSTEM || session.systems === 'all' || session.systems.some((s) => s === system);
     };
-    const hits = await this.#search.search({ text: input.text, kinds: ['fn', 'context'], limit: input.pool, meaning: true });
+    // what this chat was suggested before is never suggested again, so it doesn't take a place in the pool either
+    const suggested = new Set<string>(session.suggested ?? []);
+    const hits = await this.#search.search({ text: input.text, kinds: ['fn', 'context'], limit: input.pool, meaning: true, ...(suggested.size === 0 ? {} : { keep: (hit) => !suggested.has(hit.key) }) });
     for (const hit of hits) {
       const name = QualifiedName.safeParse(hit.key);
       // a suggestion's score is its similarity of meaning, never its rank (`meaning` asks for hits with one only)

@@ -9,7 +9,7 @@
  * manifest entries (`Catalog.entries`).
  */
 import type {
-  ActorId, Approver, Asker, ChatMessage, ClientInfo, DeliveryId, DeliveryRecord, HookBlock, InstanceName, Json, MentionHover, MentionOption,
+  ActorId, AnnouncedSystems, Approver, Asker, ChatMessage, ClientInfo, DeliveryId, DeliveryRecord, HookBlock, InstanceName, Json, MentionHover, MentionOption,
   MessageId, MessagePart, Notification, NotificationId, NotificationLink, NotificationReason, OutgoingPart, Page, Presence, QualifiedName, RunId,
   Session, SessionControls, SessionId, Suggestion, SuggestDecision, SuggestDecisionView, SuggestionRecord, SessionPatch, SessionSummary, StateFieldValue, StateOwner, SystemName, TurnId, TurnStatus, UndoReport, UserInfo,
   Compact, DecideAnswer, DecideRequest, SessionListQuery, MessageListQuery, NotificationListQuery, SessionControlAction,
@@ -123,10 +123,13 @@ export interface SuggestionDecider {
   forSystem(request: DecideRequest): Promise<DecideAnswer>;
 }
 
-/** What is added to a user message before the LLM sees it: local time and suggestions (the hub's), then system hooks. */
+/** What is added to a user message before the LLM sees it: what changed in its systems, local time and suggestions (the hub's), then system hooks. */
 export interface MessageEnricher {
-  /** The parts to add, and the record of what was suggested and what was not (none when nothing was a candidate). */
-  enrich(input: { session: Session; turn: TurnId; text: string; user: UserInfo }): Promise<{ parts: MessagePart[]; suggestions?: SuggestionRecord }>;
+  /**
+   * The parts to add, the record of what was suggested and what was not (none when nothing was a candidate), and what
+   * the model knows about the systems after this message (none when that stays as it was).
+   */
+  enrich(input: { session: Session; turn: TurnId; text: string; user: UserInfo }): Promise<{ parts: MessagePart[]; suggestions?: SuggestionRecord; announcedSystems?: AnnouncedSystems }>;
   /** The text the LLM gets for a message: mentions as `<mention …>` blocks, extras and hooks as tagged blocks. */
   render(message: ChatMessage): string;
   /** Hook blocks as the LLM text block they become. */

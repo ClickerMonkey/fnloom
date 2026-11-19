@@ -86,6 +86,40 @@ type FnExamplesQuery = {
 };
 ```
 
+#### <a id="core-fnsearchargs"></a>`FnSearchArgs`
+
+const, type · declared in `packages/core/src/fn-facts.ts`
+
+What the model may ask `hub/fns_search` (static mode's `find`): the query without the context page's own `filters`
+and `off`, which are the page's, so the tool's spec in every prompt stays small.
+
+```ts
+type FnSearchArgs = {
+  types?: {
+    reads?: `${string}/${string}`[] | undefined;
+    writes?: `${string}/${string}`[] | undefined;
+  } | undefined;
+  instance?: InstanceName | undefined;
+  visibility?: "shared" | "public" | "mine" | undefined;
+  text?: string | undefined;
+  names?: `${string}/${string}`[] | undefined;
+  items?: ("fn" | "context")[] | undefined;
+  offset?: number | undefined;
+  limit?: number | undefined;
+  kinds?: (`${string}/${string}` | "native")[] | undefined;
+  systems?: SystemName[] | undefined;
+  match?: "text" | "semantic" | "hybrid" | undefined;
+  modes?: ("read" | "write" | "delete")[] | undefined;
+  effects?: {
+    thing: "types" | "records" | "fns" | "context" | "examples" | "kinds" | "resources" | "components" | "approvals" | "secrets" | "connections";
+    action?: "create" | "update" | "remove" | undefined;
+    kind?: string | undefined;
+  }[] | undefined;
+  available?: boolean | undefined;
+  order?: "name" | "score" | undefined;
+};
+```
+
 #### <a id="core-fnsearchpage"></a>`FnSearchPage`
 
 const, type · declared in `packages/core/src/fn-facts.ts`
@@ -101,12 +135,18 @@ type FnSearchPage = {
     description: string;
     available: boolean;
     kind?: string | undefined;
-    mode?: "write" | "read" | "delete" | undefined;
+    mode?: "read" | "write" | "delete" | undefined;
     signature?: string | undefined;
     effects?: string | undefined;
     instance?: InstanceName | undefined;
     score?: number | undefined;
     similarity?: number | undefined;
+    matched?: "words" | "both" | "meaning" | undefined;
+    section?: {
+      key: SectionKey;
+      path: string[];
+      title: string;
+    } | undefined;
     blocked?: {
       code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
       reason: string;
@@ -125,7 +165,10 @@ A search over fns and context, done in the hub's database. Without `text` it lis
 by name. Every filter narrows: `kinds` (the fn kinds, such as `input/form` or `database/query`), `systems`,
 `instance` (a fleet instance's own fns), `visibility` (what the asker shares: `mine` they own, `shared` others gave
 them), `types` (fns that read or write any of these named types), `modes` (fns of these modes), and `names` (exactly
-these fns and context items, to look up their hits by name).
+these fns and context items, to look up their hits by name). `filters` are the context list's own filters
+(`LIST_FIELDS.contexts`: origin, tags, off, stale, tokens, updated…), run as SQL over the context table, so only
+context matches a query with them. Text matches a context item's own text and each of its heading sections; a hit
+found by a section says which (`FnSearchHit.section`).
 
 ```ts
 type FnSearchQuery = {
@@ -140,13 +183,31 @@ type FnSearchQuery = {
     reads?: `${string}/${string}`[] | undefined;
     writes?: `${string}/${string}`[] | undefined;
   } | undefined;
-  modes?: ("write" | "read" | "delete")[] | undefined;
+  modes?: ("read" | "write" | "delete")[] | undefined;
   effects?: {
-    thing: "types" | "records" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+    thing: "types" | "records" | "fns" | "context" | "examples" | "kinds" | "resources" | "components" | "approvals" | "secrets" | "connections";
     action?: "create" | "update" | "remove" | undefined;
     kind?: string | undefined;
   }[] | undefined;
   names?: `${string}/${string}`[] | undefined;
+  filters?: ({
+    field: string;
+    op: "is" | "isNot" | "gt" | "gte" | "lt" | "lte" | "contains";
+    value: string | number | boolean;
+  } | {
+    field: string;
+    op: "in" | "notIn";
+    values: (string | number | boolean)[];
+  } | {
+    field: string;
+    op: "between";
+    from: string | number | boolean;
+    to: string | number | boolean;
+  } | {
+    field: string;
+    op: "empty" | "notEmpty";
+  })[] | undefined;
+  off?: boolean | undefined;
   available?: boolean | undefined;
   order?: "name" | "score" | undefined;
   offset?: number | undefined;

@@ -15,8 +15,10 @@ import type { PubSub, PulledWork, PushOptions, Queue, Store } from '@ayepi/work'
 import type { StoreTuning } from './env.ts';
 import type { ScalarKey } from './schema.ts';
 import type { RecordQueries } from './records.ts';
+import type { ListQueries } from './lists.ts';
 
 export type { RecordCount, RecordFind, RecordFound, RecordQueries } from './records.ts';
+export type { ListColumn, ListFind, ListFound, ListQueries } from './lists.ts';
 
 export type { ScalarKey } from './schema.ts';
 
@@ -183,6 +185,8 @@ export interface HubStore {
   readonly text: TextIndex;
   /** Build 8: queries on the data system's records by the fields inside their values. */
   readonly recordQueries: RecordQueries;
+  /** A list's filters, sort and page run in SQL over one table (`lists.ts`). */
+  readonly lists: ListQueries;
   readonly ports: AyepiPorts;
   /** Create or upgrade tables. Safe to run on every start. */
   migrate(): Promise<void>;

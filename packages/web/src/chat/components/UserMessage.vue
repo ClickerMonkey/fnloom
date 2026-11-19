@@ -77,6 +77,9 @@ const onlyRuns = computed(() => split.value.shown.length > 0
 /** What else went to the model with the message; the suggestions are left out, as their chips beside the time list them. */
 const addedText = computed(() => split.value.added.flatMap((part: MessagePart): string[] => {
   if (part.type === 'input-answer') { return [inputAnswerText(part)]; }
+  if (part.type === 'systems-changed') {
+    return [...part.on.map((c) => `System on: ${c.name} (${c.reason})`), ...part.off.map((c) => `System off: ${c.name} (${c.reason})`)];
+  }
   if (part.type !== 'extra' && part.type !== 'hook') { return []; }
   return part.blocks.flatMap((block): string[] => {
     switch (block.type) {

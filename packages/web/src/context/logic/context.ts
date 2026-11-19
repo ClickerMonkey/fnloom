@@ -8,9 +8,10 @@
 import {
   ContextFromResourceArgs, ContextOptions, type ContextQuery, UpdateMemoryArgs, HUB_RESOURCE_ROOT, type DeclarableRelation, LinkTarget, QualifiedName, RememberArgs, ResourceUri, SectionKey, type ListQuery,
   type ContextCopy, type ContextLink, type DeclaredBy, type ContextOriginType, type ContextRecord, type LinkRelation, type LinkSource, type LinkTargetKind, type MemoryScope, type Audience, type ShareRule,
+  type SearchFound, type SearchMatchedBy,
 } from '@harness/core';
 import { z } from 'zod';
-import type { IconName, Outcome } from '../../ui/index.ts';
+import type { IconName, Outcome, Tone } from '../../ui/index.ts';
 
 /** The `/context` page's query: the list's written query (`origin:memory tabs`), and the dialogs open over it. */
 export const ContextBrowseQuery = z.object({
@@ -172,6 +173,34 @@ export function sizeText(record: Pick<ContextRecord, 'tokens' | 'decl'>): string
   if (record.tokens === undefined) { return undefined; }
   if (record.decl.content === undefined && record.tokens.full === 0) { return 'Written when loaded'; }
   return `${record.tokens.full.toLocaleString()} tokens`;
+}
+
+/** How a search found a row, in words: which index (its words, its meaning, or both), each with its badge tone. */
+export const MATCHED_WORDS = {
+  words: { label: 'Words', title: 'Found by its words', tone: 'neutral' },
+  meaning: { label: 'Meaning', title: 'Found by its meaning', tone: 'accent' },
+  both: { label: 'Words + meaning', title: 'Found by its words and its meaning', tone: 'ok' },
+} as const satisfies Record<SearchMatchedBy, { readonly label: string; readonly title: string; readonly tone: Tone }>;
+
+/** How a searched row reads: its "matched by" badge, its score in words, and the section that found it. */
+export interface FoundView {
+  readonly matched?: (typeof MATCHED_WORDS)[SearchMatchedBy];
+  /** Its fit when meaning was measured (`similarity`, "87% fit"), else its place in the order ("rank 92%"). */
+  readonly score?: string;
+  /** The heading path of the section that found it, `Reading › Encodings`. */
+  readonly section?: string;
+}
+
+/** A searched row's found facts in words; nothing for a row the list didn't search for. */
+export function foundView(found: SearchFound | undefined): FoundView {
+  if (found === undefined) { return {}; }
+  const percent = (value: number) => `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
+  const score = found.similarity !== undefined ? `${percent(found.similarity)} fit` : found.score === undefined ? undefined : `rank ${percent(found.score)}`;
+  return {
+    ...(found.matched === undefined ? {} : { matched: MATCHED_WORDS[found.matched] }),
+    ...(score === undefined ? {} : { score }),
+    ...(found.section === undefined ? {} : { section: found.section.path.join(' › ') }),
+  };
 }
 
 /** What the add-link form asks the hub for, or the one problem with it. */

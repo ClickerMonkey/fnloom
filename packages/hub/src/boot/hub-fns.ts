@@ -5,7 +5,7 @@
  * typed and checked by the contract's gin types. Services are read when a fn runs, never while registering. Every one
  * keeps to what the run's person may see and use (their `AccessScope`): search hits, loads and results alike.
  */
-import { contextOff, effectCovered, effectsLine, FnExamplesQuery, FnRouting, FnSearchQuery, QualifiedName, qualify, splitName, SystemName, type FnRefusal, type LoadContextResult, type SearchItemKind, type ActorId, type FnDecl, type FnExample, type Json, type IndexedKind, type RegistryEffect, type Run, type Session, type SessionId } from '@harness/core';
+import { contextOff, effectCovered, effectsLine, FnExamplesQuery, FnRouting, FnSearchArgs, QualifiedName, qualify, splitName, SystemName, type FnRefusal, type LoadContextResult, type SearchItemKind, type ActorId, type FnDecl, type FnExample, type Json, type IndexedKind, type RegistryEffect, type Run, type Session, type SessionId } from '@harness/core';
 import { hub, parseValue, SAVE_FN_TAKEN, wireType } from '@harness/sdk';
 import type { AccessService } from '../access/index.ts';
 import type { FnFactsService, FnsServices } from '../fns/index.ts';
@@ -196,7 +196,7 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
     const keep = (item: SearchItemKind, name: QualifiedName): boolean => (session === undefined || allowsSystem(session, splitName(name).system))
       && (scope === undefined || (item === 'fn' ? scope.fns.has(name) : scope.context.has(name)));
     // the model sees what it can't use too, each hit marked with what blocks it, unless it asks for usable ones only
-    const query = FnSearchQuery.parse(args);
+    const query = FnSearchArgs.parse(args);
     return deps.fns().search.search({ ...query, available: query.available ?? false }, { actor, access, keep });
   });
 

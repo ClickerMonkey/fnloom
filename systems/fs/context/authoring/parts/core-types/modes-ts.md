@@ -25,7 +25,7 @@ type ChatModeConfig = {
   type: "static";
   protocol: "text" | "auto" | "native";
   placement: "system-end" | "tail";
-  loadDetail: "signature" | "listed" | "full";
+  loadDetail: "listed" | "signature" | "full";
 };
 ```
 
@@ -68,7 +68,7 @@ type ContextorConfig = {
 const, type · declared in `packages/core/src/modes.ts`
 
 ```ts
-type Detail = "signature" | "listed" | "full";
+type Detail = "listed" | "signature" | "full";
 ```
 
 #### <a id="core-modellimits"></a>`ModelLimits`

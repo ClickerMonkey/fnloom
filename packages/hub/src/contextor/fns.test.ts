@@ -63,7 +63,8 @@ async function started(options: { scope?: FnScope } = {}) {
 describe('the contextor\'s hub fns', () => {
   it('inspect shows a fn\'s card and a context item\'s text at a detail, and refuses what isn\'t there', async () => {
     const { r, call } = await started();
-    expect(await call('hub/inspect', { name: 'fs/read', detail: 'listed' })).toEqual({ status: 'done', result: { name: 'fs/read', kind: 'fn', detail: 'listed', text: '### fs/read — Read a text file.' } });
+    const listedCard: unknown = expect.stringMatching(/^<fn name="fs\/read" label="Read" mode="\w+" available="yes">Read a text file\.<\/fn>$/);
+    expect(await call('hub/inspect', { name: 'fs/read', detail: 'listed' })).toEqual({ status: 'done', result: { name: 'fs/read', kind: 'fn', detail: 'listed', text: listedCard } });
     expect(await call('hub/inspect', { name: 'fs/guide' })).toEqual({ status: 'done', result: { name: 'fs/guide', kind: 'context', detail: 'full', text: 'Use fs/read for files.' } });
     // a bad name is the model's mistake, which it can retry: the run is invalid input (a code caller sees the code), not a failure
     const nothing = await call('hub/inspect', { name: 'fs/nothing' });

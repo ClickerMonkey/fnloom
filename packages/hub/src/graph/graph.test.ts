@@ -7,6 +7,7 @@ import { FakeSystem, linkRig, pairDirectly, type LinkRig } from '../link/rig.ts'
 import { queryEnv } from '../query/env.ts';
 import { HubQuery } from '../query/service.ts';
 import { listSources } from '../query/sources.ts';
+import { NO_FN_SEARCH } from '../index/testing.ts';
 import { HubGraph } from './graph.ts';
 
 const q = (name: string): QualifiedName => QualifiedName.parse(name);
@@ -99,7 +100,7 @@ describe('filters', () => {
   });
 
   it('serves the graph list through the query service: hub/query pages its nodes, listValues offers its systems', async () => {
-    const lists = new HubQuery(listSources({ store: rig.store, catalog: rig.catalog, access: { scope: () => Promise.resolve(access) } }, queryEnv.parse()));
+    const lists = new HubQuery(listSources({ store: rig.store, catalog: rig.catalog, access: { scope: () => Promise.resolve(access) }, fns: NO_FN_SEARCH }, queryEnv.parse()));
     const viewer = { id: ActorId.parse('act_admin'), role: 'admin' as const };
     const page = await lists.query({ list: 'graph', query: { filters: [fnsOnly], limit: 2 } }, viewer);
     expect(page.items).toHaveLength(2);

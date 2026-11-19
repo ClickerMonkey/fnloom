@@ -9,6 +9,7 @@ import { AllowedOperations, ClientInfo, FnError, OutcomeWire, ProgressWire, RunS
 import { RunText } from '../status.ts';
 import { GraphSelection, SelectionReport } from '../modes.ts';
 import { ResolvedLimits } from './spend.ts';
+import { AnnouncedSystems } from './announced.ts';
 
 /** A session state change a run made, with the value before, so undoing the turn can put it back. */
 export const StateChange = z.object({ field: z.string(), type: z.string(), before: Json.optional(), after: Json.optional() });
@@ -154,6 +155,10 @@ export const TurnStart = z.object({
   tools: z.array(QualifiedName),
   context: z.array(QualifiedName),
   selection: GraphSelection.optional(),
+  /** What the chat had been suggested (`Session.suggested`), so an undone turn's suggestions can be made again. */
+  suggested: z.array(QualifiedName).optional(),
+  /** What the model had been told about the systems (`Session.announcedSystems`), so an undone turn's changes are told again. */
+  announcedSystems: AnnouncedSystems.optional(),
 });
 export type TurnStart = z.infer<typeof TurnStart>;
 

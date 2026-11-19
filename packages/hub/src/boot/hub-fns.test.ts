@@ -129,6 +129,20 @@ describe('finding and loading fns', () => {
     expect(usable.status === 'done' ? usable.result : undefined).not.toHaveProperty('blocked');
   });
 
+  it('keeps the context page\'s own filters out of the model\'s search, so its tool spec stays small', async () => {
+    // regression: `filters` and `off` (the context page's) made static mode's `find` spec too big for a small window
+    const spec = JSON.stringify(hub.fns.fns_search.args);
+    expect(spec).toContain('"names"');
+    expect(spec).not.toContain('"filters"');
+    expect(spec).not.toContain('"off"');
+    const { r, turn, fnSearches } = await started();
+    await call(r, turn, 'fns_search', { text: 'buy', filters: [{ field: 'origin', op: 'eq', value: 'memory' }], off: true });
+    expect(fnSearches).toHaveLength(1);
+    expect(fnSearches[0]).toMatchObject({ text: 'buy' });
+    expect(fnSearches[0]).not.toHaveProperty('filters');
+    expect(fnSearches[0]).not.toHaveProperty('off');
+  });
+
   it('searches unavailable fns too for the model, unless it asks for usable ones only', async () => {
     const { r, turn, fnSearches } = await started();
     await call(r, turn, 'fns_search', { text: 'buy' });
@@ -280,7 +294,7 @@ describe('the chat agent reaching system fns', () => {
     expect(sent(r, 0).tools).toEqual(['hub__fns_search', 'hub__load_context', 'hub__load_fns']);
     expect(sent(r, 0).system).not.toContain('<context');
     expect(sent(r, 2).tools).toEqual(['fs__read', 'hub__fns_search', 'hub__load_context', 'hub__load_fns']);
-    expect(sent(r, 2).system).toContain('<context name="fs/guide">\nHow to work with files.\n</context>');
+    expect(sent(r, 2).system).toContain('<context key="fs/guide">How to work with files.</context>');
     expect(files.requests.map((q) => [q.fn, q.args])).toEqual([['read', { path: 'a.txt' }]]);
     expect(await r.store.table('sessions').get(SESSION)).toMatchObject({ tools: ['fs/read'], context: ['fs/guide'] });
   });

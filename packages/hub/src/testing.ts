@@ -8,7 +8,7 @@ import { createLogger, type Logger, type LogRecord } from '@ayepi/log';
 import type { LinkSession, Page, TableName } from '@harness/core';
 import type { HubEventName, HubEvents } from './bus.ts';
 import { MemoryEventBus } from './bus/memory.ts';
-import type { AyepiPorts, HubStore, RecordQueries, HubTable, StoreOptions, Table, TableQuery, TextIndex, VectorIndex, Where } from './store/index.ts';
+import type { AyepiPorts, HubStore, ListQueries, RecordQueries, HubTable, StoreOptions, Table, TableQuery, TextIndex, VectorIndex, Where } from './store/index.ts';
 import { SqliteStore } from './store/sqlite.ts';
 
 /** A logger at debug level that keeps every record it writes. */
@@ -75,6 +75,7 @@ export class FaultyStore implements HubStore {
   get vectors(): VectorIndex { return this.#store.vectors; }
   get text(): TextIndex { return this.#store.text; }
   get recordQueries(): RecordQueries { return this.#store.recordQueries; }
+  get lists(): ListQueries { return this.#store.lists; }
   get ports(): AyepiPorts { return this.#store.ports; }
 
   table<K extends TableName>(name: K): HubTable<K> {

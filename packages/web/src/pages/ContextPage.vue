@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * Every context item the person may see (`/context`), searched, filtered and sorted by the hub with the list's query in
- * the URL (`q`: words, origin, system, tags...), page by page. "Context" (`?remember=1`) writes a memory (every other
+ * the URL (`q`: words, origin, system, tags...), page by page. Text is the hub's one search (words, and meaning when an
+ * embedder is up, over each item and its heading sections), best first, each row saying how it was found. "Context" (`?remember=1`) writes a memory (every other
  * context option folded under Advanced) and "From a resource" (`?from=1`) makes context from one; each opens the item
  * it made. Live: a change to any item refreshes the list quietly.
  */
@@ -73,7 +74,7 @@ async function fromResource(args: ContextFromResourceArgs): Promise<void> {
       <UiButton icon="file" data-testid="context-from-resource" @click="making = true">From a resource</UiButton>
       <UiButton variant="primary" icon="plus" data-testid="context-remember" @click="remembering = true">Context</UiButton>
     </template>
-    <ListSearch v-model="search" list="contexts" label="context" placeholder="Search names and descriptions, or filter" :count="items.length" :more="context.list.hasMore.value" :partial="context.list.partial.value" data-testid="context-filters" />
+    <ListSearch v-model="search" list="contexts" label="context" placeholder="Search words and meaning, or filter" :count="items.length" :more="context.list.hasMore.value" :partial="context.list.partial.value" data-testid="context-filters" />
     <LoadState
       :loading="context.list.loading.value && !context.list.loaded.value" :problem="context.list.problem.value" :ready="context.list.loaded.value" :empty="items.length === 0"
       :empty-title="filtered ? 'Nothing matches' : 'No context yet'"
@@ -82,7 +83,7 @@ async function fromResource(args: ContextFromResourceArgs): Promise<void> {
     >
       <p v-if="sharedLine !== ''" class="shared" data-testid="context-shared">{{ sharedLine }}</p>
       <ul class="list" :class="{ refreshing: context.list.loading.value }" data-testid="context-list">
-        <li v-for="record in items" :key="record.name"><ContextRow :record="record" :to="links.contextItem(record.name)" :now="now" :shared="shared" /></li>
+        <li v-for="record in items" :key="record.name"><ContextRow :record="record" :to="links.contextItem(record.name)" :now="now" :shared="shared" :found="record.found" /></li>
       </ul>
       <div v-if="context.list.hasMore.value" class="more">
         <UiButton variant="ghost" :loading="context.list.loadingMore.value" data-testid="more" @click="context.list.more()">Show more</UiButton>

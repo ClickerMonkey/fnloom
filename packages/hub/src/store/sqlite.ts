@@ -23,6 +23,7 @@ import { SqliteTable } from './table.ts';
 import { SqliteTextIndex, createTextTables } from './text.ts';
 import { SqliteVectorIndex, createVectorTables } from './vectors.ts';
 import { SqliteRecordQueries, type RecordQueries } from './records.ts';
+import { SqliteListQueries, type ListQueries } from './lists.ts';
 
 /** What every scope of one store shares. */
 interface Shared {
@@ -45,6 +46,7 @@ export class SqliteStore implements HubStore {
   readonly vectors: VectorIndex;
   readonly text: TextIndex;
   readonly recordQueries: RecordQueries;
+  readonly lists: ListQueries;
   readonly ports: ScopedPorts;
   /** Hybrid (vector + text) search over this store's indexes. */
   readonly search: HybridSearch;
@@ -57,6 +59,7 @@ export class SqliteStore implements HubStore {
     this.vectors = new SqliteVectorIndex(scope, shared.dimensions, shared.log);
     this.text = new SqliteTextIndex(scope);
     this.recordQueries = new SqliteRecordQueries(scope);
+    this.lists = new SqliteListQueries(scope);
     this.ports = new ScopedPorts(shared.raw, scope, shared.named);
     this.search = new HybridSearch(this, shared.tuning);
   }

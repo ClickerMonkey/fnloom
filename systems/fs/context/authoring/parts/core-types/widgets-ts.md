@@ -130,7 +130,7 @@ An action as a row's menu offers it: derived from the fn, narrowed and labelled 
 type WidgetActionOption = {
   fn: `${string}/${string}`;
   label: string;
-  mode: "write" | "read" | "delete";
+  mode: "read" | "write" | "delete";
   confirm: boolean;
   bind: Record<string, string>;
   then: "status" | "open" | "refresh";

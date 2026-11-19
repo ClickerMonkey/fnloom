@@ -12,6 +12,9 @@ import { SystemStatus } from './systems.ts';
 import { SuggestionRecord } from '../suggestions.ts';
 import { RunStatus } from '../run.ts';
 import { Display } from '../run.ts';
+import { AnnouncedSystems, SystemChange } from './announced.ts';
+
+export * from './announced.ts';
 
 /** How a person wants to hear about a session's messages. */
 export const NotifyChoice = z.enum(['all', 'replies', 'none']);
@@ -50,6 +53,10 @@ export const Session = z.object({
   /** The agent's loaded fns and context so far. */
   tools: z.array(QualifiedName),
   context: z.array(QualifiedName),
+  /** The fns and context the hub has suggested in this chat so far: each is suggested once, never again. */
+  suggested: z.array(QualifiedName).optional(),
+  /** What the model has been told about the systems: absent until the first turn takes the snapshot. */
+  announcedSystems: AnnouncedSystems.optional(),
   status: SessionStatus,
   /** The conversation the next agent iteration continues. */
   transcript: z.array(LlmMessage),
@@ -102,11 +109,13 @@ export const MessagePart = z.discriminatedUnion('type', [
   z.object({ type: z.literal('hook'), hook: QualifiedName, blocks: z.array(HookBlock) }),
   z.object({ type: z.literal('attachment'), attachment: QualifiedName, data: Json, title: z.string() }),
   z.object({ type: z.literal('link'), link: Link }),
+  /** The systems that went on or off since the model was last told. The chat hides it; the LLM reads it before the message. */
+  z.object({ type: z.literal('systems-changed'), on: z.array(SystemChange), off: z.array(SystemChange) }),
 ]);
 export type MessagePart = z.infer<typeof MessagePart>;
 
-/** The parts the chat hides (they still go to the model): what the hub or a hook added, and a form's answers. */
-export const HIDDEN_PART_TYPES = ['extra', 'hook', 'input-answer'] as const satisfies readonly MessagePart['type'][];
+/** The parts the chat hides (they still go to the model): what the hub or a hook added, a form's answers, and system changes. */
+export const HIDDEN_PART_TYPES = ['extra', 'hook', 'input-answer', 'systems-changed'] as const satisfies readonly MessagePart['type'][];
 const HIDDEN_PARTS: ReadonlySet<string> = new Set(HIDDEN_PART_TYPES);
 
 /** Whether the chat hides a part (it shows in debug mode only). */

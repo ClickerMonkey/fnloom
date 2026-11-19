@@ -140,6 +140,17 @@ describe('undoing a turn as a true redo', () => {
     expect(w.bus.of('session.changed').at(-1)?.session.id).toBe(w.session.id);
   });
 
+  it('puts back what the chat had been suggested, so a retry of the undone message is suggested the same again', async () => {
+    const w = await chatWorld();
+    await w.store.table('sessions').update(w.session.id, { suggested: ['fs/old'] });
+    const sent = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, parts: [{ type: 'text', text: 'hi' }] });
+    expect((await w.store.table('turns').get(sent.turn))?.start?.suggested).toEqual(['fs/old']);
+    await w.store.table('sessions').update(w.session.id, { suggested: ['fs/old', 'fs/read', 'fs/guide'] });
+    await endTurn(w, sent.turn, 'done');
+    await w.chat.undo.undoTurn(sent.turn, w.admin.id);
+    expect((await w.store.table('sessions').get(w.session.id))?.suggested).toEqual(['fs/old']);
+  });
+
   it('clears a graph selection the session had none of before the turn', async () => {
     const w = await chatWorld();
     const sent = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, parts: [{ type: 'text', text: 'hi' }] });

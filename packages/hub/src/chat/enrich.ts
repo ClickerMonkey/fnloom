@@ -2,52 +2,128 @@
  * What is added to a user message before the LLM sees it, and the text the LLM gets for a message. The hub adds the
  * person's local time and the fns and context the message's embedding suggests; then each hook of the session's
  * systems adds its own blocks, in hook order. Every addition is a tagged block, so the model tells it from the
- * person's words.
+ * person's words. Suggestions are cards in the one XML of `contextor/xml.ts`, each fn's card snapshotted when the
+ * message is sent, and a fn or context is suggested once in a chat, never again (`Session.suggested`). Before all of
+ * that, a message after the first says which systems went on or off since the model was last told (`chat/announce.ts`).
  */
-import { INPUT_ANSWER_TAG, splitName, type ActorId, type ChatMessage, type HookBlock, type HookInput, type Link, type MessagePart, type Session, type SuggestionRecord, type TurnId, type UserInfo } from '@harness/core';
+import {
+  compact, DEFAULT_CHAT_MODE, type AnnouncedSystems, fnLabel, INPUT_ANSWER_TAG, splitName, type ActorId, type ChatMessage, type ChatModeType, type HookBlock, type HookInput, type Link, type MessagePart,
+  type QualifiedName, type Session, type SuggestedFnCard, type SuggestionRecord, type TurnId, type UserInfo,
+} from '@harness/core';
+import { announce, systemsChanged, systemsNow } from './announce.ts';
 import type { ChatDeps } from './deps.ts';
 import { messageOf } from './errors.ts';
 import type { CatalogEntry } from '../catalog/index.ts';
 import type { MessageEnricher, SuggestionDecider } from './index.ts';
 import { allowsSystem, callSystem, escapeAttribute, escapeBody } from './support.ts';
 import { timeInfo, weekday } from '../execution/time.ts';
+import type { AccessScope } from '../access/index.ts';
+import { seesContextAs } from '../access/scope.ts';
+import type { FnView, FnViewSource, ModeChoice } from '../contextor/index.ts';
 import { modeChoice } from '../contextor/planner.ts';
+import { fnHead, promptExamples } from '../contextor/render.ts';
+import { CatalogFnViews, fnRefusal, readsAsMissing } from '../contextor/views.ts';
+import { cardList, contextElement, fnElement } from '../contextor/xml.ts';
 import { LlmPayloadType, parseValue, type LlmPayload } from '@harness/sdk';
 
 /** The tags the hub's own extras carry for the LLM. */
 export const EXTRA_TAGS = { 'local-time': 'local_time', 'suggested-context': 'suggested_context', 'suggested-fns': 'suggested_fns' } as const;
 
-/** The instruction line at the top of `<suggested_context>`. */
-export const SUGGESTED_CONTEXT_LINE = 'Context that may help: load what fits with hub/load_context (the fns it brings come with it).';
-/** The instruction line at the top of `<suggested_fns>`. */
-export const SUGGESTED_FNS_LINE = 'Fns that may help: load the ones you will call with hub/load_fns, or call one by name.';
+/** The tag each kind of suggestion block is written in. */
+const SUGGESTION_TAGS = { 'suggest-context': EXTRA_TAGS['suggested-context'], 'suggest-fns': EXTRA_TAGS['suggested-fns'] } as const;
+
+/** What every suggestion block's first line ends with. */
+const ONCE = 'Nothing is suggested twice in a chat, so what was suggested earlier still stands.';
+
+/**
+ * The line at the top of `<suggested_context>`, by the toolset the message was sent in: the tools mode loads context
+ * with `hub/load_context`, the static toolset with its `load` tool.
+ */
+export const SUGGESTED_CONTEXT_LINES: Readonly<Record<ChatModeType, string>> = {
+  tools: `Context that may help: load what fits with hub/load_context (the fns it brings join your tools). ${ONCE}`,
+  static: `Context that may help: load what fits with load (the fns it brings come with it). ${ONCE}`,
+};
+
+/**
+ * The line at the top of `<suggested_fns>`, by the toolset the message was sent in. Only the static toolset can run a
+ * fn by name (its `run`); in the tools mode a fn must be loaded into the tools before it can be called.
+ */
+export const SUGGESTED_FNS_LINES: Readonly<Record<ChatModeType, string>> = {
+  tools: `Fns that may help. They are not in your tools yet: load the ones you will call with hub/load_fns, then call them. One marked available="no" can't be used now: tell the person what its reason says instead. ${ONCE}`,
+  static: `Fns that may help: run one by its name with the args its card shows. One marked available="no" can't be used now: tell the person what its reason says instead. ${ONCE}`,
+};
+
+/** The toolset a suggestion block written before blocks said theirs is read in (build 1's default). */
+const UNSTATED_TOOLSET: ChatModeType = DEFAULT_CHAT_MODE.type;
 
 /** A message with nothing suggested. */
 const NO_SUGGESTIONS: { parts: MessagePart[]; record?: SuggestionRecord } = { parts: [] };
 
+/** A suggestion block's card list, in the toolset's words. */
+function suggestionList(block: Extract<HookBlock, { type: 'suggest-context' | 'suggest-fns' }>): string {
+  const toolset = block.toolset ?? UNSTATED_TOOLSET;
+  if (block.type === 'suggest-context') {
+    return cardList(SUGGESTION_TAGS[block.type], SUGGESTED_CONTEXT_LINES[toolset], block.items.map((item) => contextElement({ key: item.context, title: item.title, text: item.why ?? '' })));
+  }
+  return cardList(SUGGESTION_TAGS[block.type], SUGGESTED_FNS_LINES[toolset], block.items.map((item) => fnElement({
+    name: item.fn, label: item.card?.label ?? fnLabel(item.fn), description: item.why ?? '', ...(item.card === undefined ? {} : item.card),
+  })));
+}
+
+/** The names a message's parts suggest (the hub's and its hooks'), in order. */
+export function suggestedIn(parts: readonly MessagePart[]): QualifiedName[] {
+  return parts.flatMap((part) => (part.type === 'extra' || part.type === 'hook' ? part.blocks : [])).flatMap((block) => {
+    switch (block.type) {
+      case 'suggest-context': return block.items.map((item) => item.context);
+      case 'suggest-fns': return block.items.map((item) => item.fn);
+      case 'text': case 'load': return [];
+    }
+  });
+}
+
+/** A session's suggested set after a message with these parts was sent (nothing to change when they suggest nothing). */
+export function suggestedAfter(session: Pick<Session, 'suggested'>, parts: readonly MessagePart[]): Pick<Session, 'suggested'> {
+  const added = suggestedIn(parts);
+  return added.length === 0 ? {} : { suggested: [...new Set([...(session.suggested ?? []), ...added])] };
+}
+
 /** Enriches and renders messages. */
 export class HubMessageEnricher implements MessageEnricher {
-  readonly #deps: Pick<ChatDeps, 'clock' | 'log' | 'settings' | 'catalog' | 'link'>;
+  readonly #deps: Pick<ChatDeps, 'clock' | 'log' | 'settings' | 'catalog' | 'link' | 'access' | 'store'>;
   readonly #decider: Pick<SuggestionDecider, 'decide'>;
+  readonly #views: FnViewSource;
 
-  constructor(deps: Pick<ChatDeps, 'clock' | 'log' | 'settings' | 'catalog' | 'link'>, decider: Pick<SuggestionDecider, 'decide'>) {
+  /** `views` shows suggested fns' signatures; by default straight from the catalog. */
+  constructor(deps: Pick<ChatDeps, 'clock' | 'log' | 'settings' | 'catalog' | 'link' | 'access' | 'store'>, decider: Pick<SuggestionDecider, 'decide'>, views: FnViewSource = new CatalogFnViews(deps.catalog)) {
     this.#deps = deps;
     this.#decider = decider;
+    this.#views = views;
   }
 
-  async enrich(input: { session: Session; turn: TurnId; text: string; user: UserInfo }): Promise<{ parts: MessagePart[]; suggestions?: SuggestionRecord }> {
+  async enrich(input: { session: Session; turn: TurnId; text: string; user: UserInfo }): Promise<{ parts: MessagePart[]; suggestions?: SuggestionRecord; announcedSystems?: AnnouncedSystems }> {
+    const choice = await this.#choice(input.session);
     // the graph contextor chooses context and fns for each prompt itself, so its sessions get no suggestion blocks
-    const suggest = !(await this.#graph(input.session));
-    const [suggested, hooks] = await Promise.all([suggest ? this.#suggestions(input.session, input.text, input.user.id) : NO_SUGGESTIONS, this.#hooks(input)]);
-    const parts = [this.#localTime(input.user), ...suggested.parts, ...hooks];
-    return suggested.record === undefined ? { parts } : { parts, suggestions: suggested.record };
+    const suggest = choice.contextor.type !== 'graph';
+    const [systems, suggested, hooks] = await Promise.all([
+      this.#systems(input.session, input.user.id), suggest ? this.#suggestions(input.session, input.text, input.user.id) : NO_SUGGESTIONS, this.#hooks(input),
+    ]);
+    const offered = await this.#offer([...suggested.parts, ...hooks], { session: input.session, actor: input.user.id, toolset: choice.mode.type });
+    const parts = [...(systems.changed === undefined ? [] : [systems.changed]), this.#localTime(input.user), ...offered];
+    return {
+      parts, ...(suggested.record === undefined ? {} : { suggestions: suggested.record }), ...(systems.announced === undefined ? {} : { announcedSystems: systems.announced }),
+    };
   }
 
-  /** Whether a session's prompts are chosen by the graph contextor (its own choice, else its agent's). */
-  async #graph(session: Session): Promise<boolean> {
-    // the agent's payload only matters when the session makes no choice of its own
-    const payload = session.contextor === undefined ? await this.#agentChoice(session) : {};
-    return modeChoice(session, payload).contextor.type === 'graph';
+  /** What changed in the session's systems for its person since the model was last told, and the snapshot after it. */
+  async #systems(session: Session, actor: ActorId): Promise<ReturnType<typeof announce>> {
+    return announce(session.announcedSystems, await systemsNow(this.#deps.store, await this.#deps.access.scope(actor), session));
+  }
+
+  /** A session's chat mode and contextor (its own choice, else its agent's). */
+  async #choice(session: Session): Promise<ModeChoice> {
+    // the agent's payload only matters when the session doesn't choose both itself
+    const payload = session.mode === undefined || session.contextor === undefined ? await this.#agentChoice(session) : {};
+    return modeChoice(session, payload);
   }
 
   /** The mode and contextor a session's agent fn asks for (none when it is gone or its payload doesn't parse, logged). */
@@ -63,10 +139,13 @@ export class HubMessageEnricher implements MessageEnricher {
   }
 
   render(message: ChatMessage): string {
+    // what changed in the systems is read first, before the person's words it may explain
+    const first: string[] = [];
     const inline: string[] = [];
     const blocks: string[] = [];
     for (const part of message.parts) {
       switch (part.type) {
+        case 'systems-changed': first.push(systemsChanged(part)); break;
         case 'text': inline.push(part.text); break;
         // the model reads its own reasoning and fn calls from the transcript, never from the message
         case 'reasoning': case 'call': break;
@@ -90,18 +169,20 @@ export class HubMessageEnricher implements MessageEnricher {
         case 'input-answer': blocks.push(`<${INPUT_ANSWER_TAG} title="${escapeAttribute(part.title)}">${escapeBody(part.text)}</${INPUT_ANSWER_TAG}>`); break;
       }
     }
-    return [inline.join(''), ...blocks].filter((s) => s !== '').join('\n\n');
+    return [...first, inline.join(''), ...blocks].filter((s) => s !== '').join('\n\n');
   }
 
   block(tag: string, blocks: readonly HookBlock[]): string {
     const lines = blocks.map((block) => {
       switch (block.type) {
         case 'text': return `<${hookTag(block.tag)}>${escapeBody(block.text)}</${hookTag(block.tag)}>`;
-        case 'suggest-context': return [SUGGESTED_CONTEXT_LINE, ...block.items.map((i) => `- context ${i.context}${i.why === undefined ? '' : `: ${escapeBody(i.why)}`}`)].join('\n');
-        case 'suggest-fns': return [SUGGESTED_FNS_LINE, ...block.items.map((i) => `- fn ${i.fn}${i.why === undefined ? '' : `: ${escapeBody(i.why)}`}`)].join('\n');
+        case 'suggest-context': case 'suggest-fns': return suggestionList(block);
         case 'load': return `Loaded: ${[...(block.context ?? []), ...(block.fns ?? [])].join(', ')}`;
       }
     });
+    // the hub's own suggestions are one block in an extra of the same name: that block is the extra, not wrapped twice
+    const [only] = blocks;
+    if (blocks.length === 1 && (only?.type === 'suggest-context' || only?.type === 'suggest-fns') && SUGGESTION_TAGS[only.type] === tag) return lines[0] ?? '';
     return `<${tag}>\n${lines.join('\n')}\n</${tag}>`;
   }
 
@@ -131,6 +212,85 @@ export class HubMessageEnricher implements MessageEnricher {
       parts.push({ type: 'extra', extra: 'suggested-fns', blocks: [{ type: 'suggest-fns', items: fns.map((s) => ({ fn: s.name, why: s.description, score: s.score })) }] });
     }
     return decided.record === undefined ? { parts } : { parts, record: decided.record };
+  }
+
+  /**
+   * The suggestions of a message's extras and hooks as they are sent: what this chat was suggested before (or this
+   * message already suggests) left out, and so is what the session has loaded (it is in the prompt already), each
+   * block stamped with the session's toolset, each fn's card snapshotted, a context's title added. A fn or context the
+   * person can't see, one that is gone, or a fn not for the model, is left out. A block left with nothing goes, and a
+   * part left with no blocks.
+   */
+  async #offer(parts: readonly MessagePart[], at: { session: Session; actor: ActorId; toolset: ChatModeType }): Promise<MessagePart[]> {
+    const seen = new Set<string>([...(at.session.suggested ?? []), ...at.session.tools, ...at.session.context]);
+    const out: MessagePart[] = [];
+    let access: AccessScope | undefined;
+    const scope = async (): Promise<AccessScope> => (access ??= await this.#deps.access.scope(at.actor));
+    for (const part of parts) {
+      if (part.type !== 'extra' && part.type !== 'hook') { out.push(part); continue; }
+      const blocks: HookBlock[] = [];
+      for (const block of part.blocks) {
+        const offered = await this.#offerBlock(block, seen, { ...at, scope });
+        if (offered !== undefined) blocks.push(offered);
+      }
+      if (blocks.length > 0) out.push({ ...part, blocks });
+    }
+    return out;
+  }
+
+  /** One block as `#offer` sends it; undefined when it suggests nothing new. */
+  async #offerBlock(block: HookBlock, seen: Set<string>, at: { session: Session; toolset: ChatModeType; scope: () => Promise<AccessScope> }): Promise<HookBlock | undefined> {
+    switch (block.type) {
+      case 'text': case 'load': return block;
+      case 'suggest-context': {
+        const items: typeof block.items = [];
+        for (const item of block.items) {
+          if (seen.has(item.context)) continue;
+          const record = await this.#deps.catalog.context(item.context);
+          if (record === undefined || !seesContextAs(await at.scope(), record, at.session.id)) continue;
+          seen.add(item.context);
+          const title = item.title ?? record.decl.title;
+          items.push(title === undefined ? item : { ...item, title });
+        }
+        return items.length === 0 ? undefined : { ...block, toolset: at.toolset, items };
+      }
+      case 'suggest-fns': {
+        const items: typeof block.items = [];
+        for (const item of block.items) {
+          if (seen.has(item.fn)) continue;
+          const card = item.card ?? await this.#card(item.fn, { session: at.session, access: await at.scope(), toolset: at.toolset });
+          if (card === undefined) continue;
+          seen.add(item.fn);
+          items.push({ ...item, card });
+        }
+        return items.length === 0 ? undefined : { ...block, toolset: at.toolset, items };
+      }
+    }
+  }
+
+  /**
+   * A suggested fn's card as of now: its label, mode, what blocks it (the Phase 1 refusal, in the hub's words) and
+   * signature; in the static toolset, which runs it by name, its instructions and examples too. Undefined for a fn
+   * that reads as missing (gone, unseen, not for the model). A signature that can't be read is left off, logged.
+   */
+  async #card(name: QualifiedName, at: { session: Session; access: AccessScope; toolset: ChatModeType }): Promise<SuggestedFnCard | undefined> {
+    const record = await this.#deps.catalog.fn(name);
+    const blocked = fnRefusal(record, at.session, at.access);
+    if (record === undefined || (blocked !== undefined && readsAsMissing(blocked))) return undefined;
+    let view: FnView | undefined;
+    try {
+      view = await this.#views.view(name);
+    } catch (error) {
+      this.#deps.log.warn('chat.suggest.signature-unreadable', { fn: name, error: messageOf(error) });
+    }
+    const head = fnHead(record, blocked?.reason);
+    const examples = at.toolset === 'static' ? promptExamples(record) : undefined;
+    return compact({
+      label: head.label, mode: head.mode, blocked: head.blocked, args: view?.args, returns: view?.returns,
+      instructions: at.toolset === 'static' ? record.decl.instructions : undefined,
+      examples: examples === undefined || examples.shown.length === 0 ? undefined : [...examples.shown],
+      moreExamples: examples === undefined || examples.more === 0 ? undefined : examples.more,
+    });
   }
 
   async #hooks(input: { session: Session; turn: TurnId; text: string; user: UserInfo }): Promise<MessagePart[]> {

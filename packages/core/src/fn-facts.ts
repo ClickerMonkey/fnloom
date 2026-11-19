@@ -20,7 +20,10 @@ import { FnDecl, FnExample, FnMode, REGISTRY_ACTIONS, RegistryAction, RegistryEf
 import { RoleModel } from './model-calls.ts';
 import { FnBlock } from './fn-block.ts';
 import { ActorId, Duration, FnKindName, IDS, InstanceName, Json, LocalName, QualifiedName, SystemName, Timestamp, Usd } from './primitives.ts';
-import { ResourceUri } from './resources.ts';
+import { ResourceUri, SectionKey } from './resources.ts';
+import { Filter } from './query.ts';
+import { ContextRecord } from './records/systems.ts';
+import { SearchMatchedBy } from './records/content.ts';
 
 /** A fn example's id. */
 export const FnExampleId = IDS.fnExample;
@@ -98,7 +101,10 @@ export type SearchItemKind = z.infer<typeof SearchItemKind>;
  * by name. Every filter narrows: `kinds` (the fn kinds, such as `input/form` or `database/query`), `systems`,
  * `instance` (a fleet instance's own fns), `visibility` (what the asker shares: `mine` they own, `shared` others gave
  * them), `types` (fns that read or write any of these named types), `modes` (fns of these modes), and `names` (exactly
- * these fns and context items, to look up their hits by name).
+ * these fns and context items, to look up their hits by name). `filters` are the context list's own filters
+ * (`LIST_FIELDS.contexts`: origin, tags, off, stale, tokens, updated…), run as SQL over the context table, so only
+ * context matches a query with them. Text matches a context item's own text and each of its heading sections; a hit
+ * found by a section says which (`FnSearchHit.section`).
  */
 export const FnSearchQuery = z.object({
   text: z.string().optional(),
@@ -117,6 +123,10 @@ export const FnSearchQuery = z.object({
   effects: z.array(z.object({ thing: RegistryThing, action: RegistryAction.optional(), kind: z.string().min(1).optional() })).min(1).optional(),
   /** Only these items, by qualified name. */
   names: z.array(QualifiedName).min(1).max(100).optional(),
+  /** Only context items these context list filters let through (`LIST_FIELDS.contexts`), run in the database. */
+  filters: z.array(Filter).max(20).optional(),
+  /** Context items switched off are hits too (the context page lists them, marked); left out by default. */
+  off: z.boolean().optional(),
   /** Only fns that can be used now (default true; `hub/fns_search` for the model defaults to false); false keeps the rest too, each marked with what blocks it (`FnSearchHit.blocked`). */
   available: z.boolean().optional(),
   /** `score` (the default with `text`) or `name` (the default without). */
@@ -125,6 +135,17 @@ export const FnSearchQuery = z.object({
   limit: z.number().int().min(1).max(100).optional(),
 });
 export type FnSearchQuery = z.infer<typeof FnSearchQuery>;
+
+/**
+ * What the model may ask `hub/fns_search` (static mode's `find`): the query without the context page's own `filters`
+ * and `off`, which are the page's, so the tool's spec in every prompt stays small.
+ */
+export const FnSearchArgs = FnSearchQuery.omit({ filters: true, off: true });
+export type FnSearchArgs = z.infer<typeof FnSearchArgs>;
+
+/** The heading section of a context item a search hit was found by. */
+export const SearchSection = z.object({ key: SectionKey, path: z.array(z.string()), title: z.string() });
+export type SearchSection = z.infer<typeof SearchSection>;
 
 /** One hit: a fn (with its kind, mode and signature line) or a context item, with its score when searched by text. */
 export const FnSearchHit = z.object({
@@ -144,11 +165,23 @@ export const FnSearchHit = z.object({
   score: z.number().optional(),
   /** Searched by meaning: how close it is to the text (cosine, 0 to 1), the one measure of fit; absent with words alone. */
   similarity: z.number().optional(),
+  /** Searched by text: which index found it, its words, its meaning, or both. */
+  matched: SearchMatchedBy.optional(),
+  /** A context item found by one of its heading sections: which (its key, heading path and title). */
+  section: SearchSection.optional(),
   /** Whether the asker can use it now; what blocks it when false. */
   available: z.boolean(),
   blocked: FnBlock.optional(),
 });
 export type FnSearchHit = z.infer<typeof FnSearchHit>;
+
+/** How a search found a listed item: its score (rank, for ordering), fit, which index found it, and the section. */
+export const SearchFound = FnSearchHit.pick({ score: true, similarity: true, matched: true, section: true });
+export type SearchFound = z.infer<typeof SearchFound>;
+
+/** A row of the context list (`contexts`): the item, and how the list's text search found it when it has text. */
+export const ContextListItem = ContextRecord.extend({ found: SearchFound.optional() });
+export type ContextListItem = z.infer<typeof ContextListItem>;
 
 /** A page of hits; `next` is the offset of the next page, absent on the last. */
 export const FnSearchPage = z.object({ items: z.array(FnSearchHit), next: z.number().int().min(0).optional() });

@@ -5821,12 +5821,12 @@ This is the hub contract as the SDK declares it now:
     agent?: text,
     systems?: or<list<text>, literal<text>{value="all"}>,
     title?: text
-  }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, selection?, participants, systems, tools, context, status, transcript, createdAt, updatedAt, archived … }
+  }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, selection?, participants, systems, tools, context, suggested?, announcedSystems?, status, transcript, createdAt, updatedAt, archived … }
   ```
 - `hub/session_update`: Change a session: its title, systems, agent, priority, model, chat mode or contextor, or archive it.
 
   ```text
-  (obj{ title?, systems?, agent?, archived?, priority?, notify?, model?, mode?, contextor?, fnMode?, session … }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, selection?, participants, systems, tools, context, status, transcript, createdAt, updatedAt, archived … }
+  (obj{ title?, systems?, agent?, archived?, priority?, notify?, model?, mode?, contextor?, fnMode?, session … }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, selection?, participants, systems, tools, context, suggested?, announcedSystems?, status, transcript, createdAt, updatedAt, archived … }
   ```
 - `hub/session_delete`: Delete a session and its messages.
 
@@ -6556,7 +6556,7 @@ The hub's contract.
 const hub: typeof hub; // too large to print: see its section
 ```
 
-Refers to: [`ContributionView`](#core-contributionview), [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnRefusal`](#core-fnrefusal), [`FnSearchPage`](#core-fnsearchpage), [`FnSearchQuery`](#core-fnsearchquery), [`LoadContextResult`](#core-loadcontextresult), [`MintMcpTokenArgs`](#core-mintmcptokenargs), [`NameRefusal`](#core-namerefusal), [`ReadTableArgs`](#core-readtableargs), [`ResourceOutlineArgs`](#core-resourceoutlineargs), [`ResourceSendArgs`](#core-resourcesendargs), [`ResultTable`](#core-resulttable), [`RowActionsQuery`](#core-rowactionsquery), [`Section`](#core-section), [`WidgetActionOption`](#core-widgetactionoption).
+Refers to: [`ContributionView`](#core-contributionview), [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnRefusal`](#core-fnrefusal), [`FnSearchArgs`](#core-fnsearchargs), [`FnSearchPage`](#core-fnsearchpage), [`LoadContextResult`](#core-loadcontextresult), [`MintMcpTokenArgs`](#core-mintmcptokenargs), [`NameRefusal`](#core-namerefusal), [`ReadTableArgs`](#core-readtableargs), [`ResourceOutlineArgs`](#core-resourceoutlineargs), [`ResourceSendArgs`](#core-resourcesendargs), [`ResultTable`](#core-resulttable), [`RowActionsQuery`](#core-rowactionsquery), [`Section`](#core-section), [`WidgetActionOption`](#core-widgetactionoption).
 
 #### `HubContract`
 
@@ -6879,7 +6879,7 @@ const · `import { ChatModeType } from '@harness/sdk'`
 A chat mode's settings, as a gin type: core's `ChatModeConfig` input (defaults may be left out).
 
 ```ts
-const ChatModeType: GinType<{ type: "tools"; } | { type: "static"; protocol?: "text" | "auto" | "native" | undefined; placement?: "system-end" | "tail" | undefined; loadDetail?: "signature" | "listed" | "full" | undefined; }>;
+const ChatModeType: GinType<{ type: "tools"; } | { type: "static"; protocol?: "text" | "auto" | "native" | undefined; placement?: "system-end" | "tail" | undefined; loadDetail?: "listed" | "signature" | "full" | undefined; }>;
 ```
 
 Refers to: [`ChatModeConfig`](#core-chatmodeconfig).
@@ -15930,7 +15930,7 @@ type ApprovalPreview = {
       path: string;
       kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
       rule: string;
-      access: "write" | "read";
+      access: "read" | "write";
       action: "ask" | "refuse" | "allow";
       why: string;
       certain: boolean;
@@ -16105,7 +16105,7 @@ type ApprovedRun = {
         path: string;
         kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
         rule: string;
-        access: "write" | "read";
+        access: "read" | "write";
         action: "ask" | "refuse" | "allow";
         why: string;
         certain: boolean;
@@ -17031,6 +17031,40 @@ type FnExamplesQuery = {
 };
 ```
 
+#### <a id="core-fnsearchargs"></a>`FnSearchArgs`
+
+const, type · declared in `packages/core/src/fn-facts.ts`
+
+What the model may ask `hub/fns_search` (static mode's `find`): the query without the context page's own `filters`
+and `off`, which are the page's, so the tool's spec in every prompt stays small.
+
+```ts
+type FnSearchArgs = {
+  types?: {
+    reads?: `${string}/${string}`[] | undefined;
+    writes?: `${string}/${string}`[] | undefined;
+  } | undefined;
+  instance?: InstanceName | undefined;
+  visibility?: "shared" | "public" | "mine" | undefined;
+  text?: string | undefined;
+  names?: `${string}/${string}`[] | undefined;
+  items?: ("fn" | "context")[] | undefined;
+  offset?: number | undefined;
+  limit?: number | undefined;
+  kinds?: (`${string}/${string}` | "native")[] | undefined;
+  systems?: SystemName[] | undefined;
+  match?: "text" | "semantic" | "hybrid" | undefined;
+  modes?: ("read" | "write" | "delete")[] | undefined;
+  effects?: {
+    thing: "types" | "records" | "fns" | "context" | "examples" | "kinds" | "resources" | "components" | "approvals" | "secrets" | "connections";
+    action?: "create" | "update" | "remove" | undefined;
+    kind?: string | undefined;
+  }[] | undefined;
+  available?: boolean | undefined;
+  order?: "name" | "score" | undefined;
+};
+```
+
 #### <a id="core-fnsearchpage"></a>`FnSearchPage`
 
 const, type · declared in `packages/core/src/fn-facts.ts`
@@ -17046,12 +17080,18 @@ type FnSearchPage = {
     description: string;
     available: boolean;
     kind?: string | undefined;
-    mode?: "write" | "read" | "delete" | undefined;
+    mode?: "read" | "write" | "delete" | undefined;
     signature?: string | undefined;
     effects?: string | undefined;
     instance?: InstanceName | undefined;
     score?: number | undefined;
     similarity?: number | undefined;
+    matched?: "words" | "both" | "meaning" | undefined;
+    section?: {
+      key: SectionKey;
+      path: string[];
+      title: string;
+    } | undefined;
     blocked?: {
       code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
       reason: string;
@@ -17070,7 +17110,10 @@ A search over fns and context, done in the hub's database. Without `text` it lis
 by name. Every filter narrows: `kinds` (the fn kinds, such as `input/form` or `database/query`), `systems`,
 `instance` (a fleet instance's own fns), `visibility` (what the asker shares: `mine` they own, `shared` others gave
 them), `types` (fns that read or write any of these named types), `modes` (fns of these modes), and `names` (exactly
-these fns and context items, to look up their hits by name).
+these fns and context items, to look up their hits by name). `filters` are the context list's own filters
+(`LIST_FIELDS.contexts`: origin, tags, off, stale, tokens, updated…), run as SQL over the context table, so only
+context matches a query with them. Text matches a context item's own text and each of its heading sections; a hit
+found by a section says which (`FnSearchHit.section`).
 
 ```ts
 type FnSearchQuery = {
@@ -17085,13 +17128,31 @@ type FnSearchQuery = {
     reads?: `${string}/${string}`[] | undefined;
     writes?: `${string}/${string}`[] | undefined;
   } | undefined;
-  modes?: ("write" | "read" | "delete")[] | undefined;
+  modes?: ("read" | "write" | "delete")[] | undefined;
   effects?: {
-    thing: "types" | "records" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+    thing: "types" | "records" | "fns" | "context" | "examples" | "kinds" | "resources" | "components" | "approvals" | "secrets" | "connections";
     action?: "create" | "update" | "remove" | undefined;
     kind?: string | undefined;
   }[] | undefined;
   names?: `${string}/${string}`[] | undefined;
+  filters?: ({
+    field: string;
+    op: "is" | "isNot" | "gt" | "gte" | "lt" | "lte" | "contains";
+    value: string | number | boolean;
+  } | {
+    field: string;
+    op: "in" | "notIn";
+    values: (string | number | boolean)[];
+  } | {
+    field: string;
+    op: "between";
+    from: string | number | boolean;
+    to: string | number | boolean;
+  } | {
+    field: string;
+    op: "empty" | "notEmpty";
+  })[] | undefined;
+  off?: boolean | undefined;
   available?: boolean | undefined;
   order?: "name" | "score" | undefined;
   offset?: number | undefined;
@@ -17266,7 +17327,7 @@ type PreviewAnswer = {
         path: string;
         kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
         rule: string;
-        access: "write" | "read";
+        access: "read" | "write";
         action: "ask" | "refuse" | "allow";
         why: string;
         certain: boolean;
@@ -17528,12 +17589,12 @@ type PreviewAnswer = {
         to: "any";
       } | undefined;
       effects?: {
-        mode?: "write" | "read" | "delete" | undefined;
+        mode?: "read" | "write" | "delete" | undefined;
         reads?: `${string}/${string}`[] | undefined;
         writes?: `${string}/${string}`[] | undefined;
         free?: boolean | undefined;
         registry?: {
-          thing: "types" | "records" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+          thing: "types" | "records" | "fns" | "context" | "examples" | "kinds" | "resources" | "components" | "approvals" | "secrets" | "connections";
           action: "create" | "update" | "remove";
           kind?: `${string}/${string}` | "native" | undefined;
         }[] | undefined;
@@ -18034,7 +18095,7 @@ type RunRequest = {
           path: string;
           kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
           rule: string;
-          access: "write" | "read";
+          access: "read" | "write";
           action: "ask" | "refuse" | "allow";
           why: string;
           certain: boolean;
@@ -18507,12 +18568,12 @@ type FnDecl = {
     to: "any";
   } | undefined;
   effects?: {
-    mode?: "write" | "read" | "delete" | undefined;
+    mode?: "read" | "write" | "delete" | undefined;
     reads?: `${string}/${string}`[] | undefined;
     writes?: `${string}/${string}`[] | undefined;
     free?: boolean | undefined;
     registry?: {
-      thing: "types" | "records" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+      thing: "types" | "records" | "fns" | "context" | "examples" | "kinds" | "resources" | "components" | "approvals" | "secrets" | "connections";
       action: "create" | "update" | "remove";
       kind?: `${string}/${string}` | "native" | undefined;
     }[] | undefined;
@@ -18536,12 +18597,12 @@ from its signature, and everything a fn uses (its deps, an agent's tools) is fol
 
 ```ts
 type FnEffects = {
-  mode?: "write" | "read" | "delete" | undefined;
+  mode?: "read" | "write" | "delete" | undefined;
   reads?: `${string}/${string}`[] | undefined;
   writes?: `${string}/${string}`[] | undefined;
   free?: boolean | undefined;
   registry?: {
-    thing: "types" | "records" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+    thing: "types" | "records" | "fns" | "context" | "examples" | "kinds" | "resources" | "components" | "approvals" | "secrets" | "connections";
     action: "create" | "update" | "remove";
     kind?: `${string}/${string}` | "native" | undefined;
   }[] | undefined;
@@ -18580,7 +18641,7 @@ type FnLive = {
 const, type · declared in `packages/core/src/manifest.ts`
 
 ```ts
-type FnMode = "write" | "read" | "delete";
+type FnMode = "read" | "write" | "delete";
 ```
 
 #### <a id="core-fnrouting"></a>`FnRouting`
@@ -18605,28 +18666,42 @@ type FnRouting = {
 
 const, type · declared in `packages/core/src/manifest.ts`
 
-What a hook adds. Each becomes a tagged block the LLM can tell apart from the user's words. A suggestion's system is
-its qualified name's; its kind is its block's. The hub lists its own suggestions best match first, with scores.
-
 ```ts
 type HookBlock = {
   type: "text";
   tag: string;
   text: string;
 } | {
-  type: "suggest-context";
   items: {
     context: `${string}/${string}`;
+    title?: string | undefined;
     why?: string | undefined;
     score?: number | undefined;
   }[];
+  type: "suggest-context";
+  toolset?: "tools" | "static" | undefined;
 } | {
-  type: "suggest-fns";
   items: {
     fn: `${string}/${string}`;
     why?: string | undefined;
     score?: number | undefined;
+    card?: {
+      label: string;
+      mode: "read" | "write" | "delete";
+      blocked?: string | undefined;
+      args?: string | undefined;
+      returns?: string | undefined;
+      instructions?: string | undefined;
+      examples?: {
+        args: z.core.util.JSONType;
+        result?: z.core.util.JSONType | undefined;
+        note?: string | undefined;
+      }[] | undefined;
+      moreExamples?: number | undefined;
+    } | undefined;
   }[];
+  type: "suggest-fns";
+  toolset?: "tools" | "static" | undefined;
 } | {
   type: "load";
   context?: `${string}/${string}`[] | undefined;
@@ -18752,12 +18827,12 @@ type KindDescription = {
     approver?: "person" | "admins" | undefined;
   } | undefined;
   effects?: {
-    mode?: "write" | "read" | "delete" | undefined;
+    mode?: "read" | "write" | "delete" | undefined;
     reads?: `${string}/${string}`[] | undefined;
     writes?: `${string}/${string}`[] | undefined;
     free?: boolean | undefined;
     registry?: {
-      thing: "types" | "records" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+      thing: "types" | "records" | "fns" | "context" | "examples" | "kinds" | "resources" | "components" | "approvals" | "secrets" | "connections";
       action: "create" | "update" | "remove";
       kind?: `${string}/${string}` | "native" | undefined;
     }[] | undefined;
@@ -18781,7 +18856,7 @@ type KindFnShape = {
   args: TypeDef<any>;
   returns: TypeDef<any>;
   description: string;
-  mode: "write" | "read" | "delete";
+  mode: "read" | "write" | "delete";
 };
 ```
 
@@ -18953,12 +19028,12 @@ type Manifest = {
       to: "any";
     } | undefined;
     effects?: {
-      mode?: "write" | "read" | "delete" | undefined;
+      mode?: "read" | "write" | "delete" | undefined;
       reads?: `${string}/${string}`[] | undefined;
       writes?: `${string}/${string}`[] | undefined;
       free?: boolean | undefined;
       registry?: {
-        thing: "types" | "records" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+        thing: "types" | "records" | "fns" | "context" | "examples" | "kinds" | "resources" | "components" | "approvals" | "secrets" | "connections";
         action: "create" | "update" | "remove";
         kind?: `${string}/${string}` | "native" | undefined;
       }[] | undefined;
@@ -19364,12 +19439,12 @@ type ManifestPatch = {
         to: "any";
       } | undefined;
       effects?: {
-        mode?: "write" | "read" | "delete" | undefined;
+        mode?: "read" | "write" | "delete" | undefined;
         reads?: `${string}/${string}`[] | undefined;
         writes?: `${string}/${string}`[] | undefined;
         free?: boolean | undefined;
         registry?: {
-          thing: "types" | "records" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+          thing: "types" | "records" | "fns" | "context" | "examples" | "kinds" | "resources" | "components" | "approvals" | "secrets" | "connections";
           action: "create" | "update" | "remove";
           kind?: `${string}/${string}` | "native" | undefined;
         }[] | undefined;
@@ -19832,7 +19907,7 @@ type ChatModeConfig = {
   type: "static";
   protocol: "text" | "auto" | "native";
   placement: "system-end" | "tail";
-  loadDetail: "signature" | "listed" | "full";
+  loadDetail: "listed" | "signature" | "full";
 };
 ```
 
@@ -19875,7 +19950,7 @@ type ContextorConfig = {
 const, type · declared in `packages/core/src/modes.ts`
 
 ```ts
-type Detail = "signature" | "listed" | "full";
+type Detail = "listed" | "signature" | "full";
 ```
 
 #### <a id="core-modellimits"></a>`ModelLimits`
@@ -20216,19 +20291,36 @@ type MessagePart = {
     tag: string;
     text: string;
   } | {
-    type: "suggest-context";
     items: {
       context: `${string}/${string}`;
+      title?: string | undefined;
       why?: string | undefined;
       score?: number | undefined;
     }[];
+    type: "suggest-context";
+    toolset?: "tools" | "static" | undefined;
   } | {
-    type: "suggest-fns";
     items: {
       fn: `${string}/${string}`;
       why?: string | undefined;
       score?: number | undefined;
+      card?: {
+        label: string;
+        mode: "read" | "write" | "delete";
+        blocked?: string | undefined;
+        args?: string | undefined;
+        returns?: string | undefined;
+        instructions?: string | undefined;
+        examples?: {
+          args: z.core.util.JSONType;
+          result?: z.core.util.JSONType | undefined;
+          note?: string | undefined;
+        }[] | undefined;
+        moreExamples?: number | undefined;
+      } | undefined;
     }[];
+    type: "suggest-fns";
+    toolset?: "tools" | "static" | undefined;
   } | {
     type: "load";
     context?: `${string}/${string}`[] | undefined;
@@ -20242,19 +20334,36 @@ type MessagePart = {
     tag: string;
     text: string;
   } | {
-    type: "suggest-context";
     items: {
       context: `${string}/${string}`;
+      title?: string | undefined;
       why?: string | undefined;
       score?: number | undefined;
     }[];
+    type: "suggest-context";
+    toolset?: "tools" | "static" | undefined;
   } | {
-    type: "suggest-fns";
     items: {
       fn: `${string}/${string}`;
       why?: string | undefined;
       score?: number | undefined;
+      card?: {
+        label: string;
+        mode: "read" | "write" | "delete";
+        blocked?: string | undefined;
+        args?: string | undefined;
+        returns?: string | undefined;
+        instructions?: string | undefined;
+        examples?: {
+          args: z.core.util.JSONType;
+          result?: z.core.util.JSONType | undefined;
+          note?: string | undefined;
+        }[] | undefined;
+        moreExamples?: number | undefined;
+      } | undefined;
     }[];
+    type: "suggest-fns";
+    toolset?: "tools" | "static" | undefined;
   } | {
     type: "load";
     context?: `${string}/${string}`[] | undefined;
@@ -20285,6 +20394,20 @@ type MessagePart = {
     run: string;
     title: string;
   };
+} | {
+  type: "systems-changed";
+  on: {
+    name: SystemName;
+    reason: string;
+    label?: string | undefined;
+    description?: string | undefined;
+  }[];
+  off: {
+    name: SystemName;
+    reason: string;
+    label?: string | undefined;
+    description?: string | undefined;
+  }[];
 };
 ```
 
@@ -21156,7 +21279,7 @@ problems back to the agent and the chat shows the run softly as "Retried". A rea
 
 ```ts
 type InvalidInput = {
-  source: "json" | "result" | "schema" | "unavailable" | "validation";
+  source: "result" | "json" | "schema" | "unavailable" | "validation";
   problems: {
     path: string;
     message: string;
@@ -21199,12 +21322,12 @@ type OutcomeWire = {
   cost?: number | undefined;
   expose?: {
     fn: `${string}/${string}`;
-    detail: "signature" | "listed" | "full";
+    detail: "listed" | "signature" | "full";
   }[] | undefined;
 } | {
   status: "invalid-input";
   invalid: {
-    source: "json" | "result" | "schema" | "unavailable" | "validation";
+    source: "result" | "json" | "schema" | "unavailable" | "validation";
     problems: {
       path: string;
       message: string;
@@ -21474,7 +21597,7 @@ type FlagsAnswer = {
     path: string;
     kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
     rule: string;
-    access: "write" | "read";
+    access: "read" | "write";
     action: "ask" | "refuse" | "allow";
     why: string;
     certain: boolean;
@@ -21493,7 +21616,7 @@ type SensitivityFlag = {
   path: string;
   kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
   rule: string;
-  access: "write" | "read";
+  access: "read" | "write";
   action: "ask" | "refuse" | "allow";
   why: string;
   certain: boolean;
@@ -21851,7 +21974,7 @@ An action as a row's menu offers it: derived from the fn, narrowed and labelled 
 type WidgetActionOption = {
   fn: `${string}/${string}`;
   label: string;
-  mode: "write" | "read" | "delete";
+  mode: "read" | "write" | "delete";
   confirm: boolean;
   bind: Record<string, string>;
   then: "status" | "open" | "refresh";

@@ -102,10 +102,13 @@ export class RunUndoService implements UndoService {
       if (session === undefined) { return undefined; }
       const loaded = [...session.tools, ...session.context];
       const before = [...start.tools, ...start.context];
-      const { selection: _selection, ...rest } = session;
+      const { selection: _selection, suggested: _suggested, announcedSystems: _announced, ...rest } = session;
+      // what the undone turn was suggested goes too: the model never read it, so a retry may be suggested it again;
+      // so do the system changes it was told, which a retry tells again
       const restored = await tx.table('sessions').put({
         ...rest, transcript: session.transcript.slice(0, start.transcript), tools: [...start.tools], context: [...start.context],
-        ...(start.selection === undefined ? {} : { selection: start.selection }), updatedAt: this.#deps.clock(),
+        ...(start.selection === undefined ? {} : { selection: start.selection }), ...(start.suggested === undefined ? {} : { suggested: [...start.suggested] }),
+        ...(start.announcedSystems === undefined ? {} : { announcedSystems: start.announcedSystems }), updatedAt: this.#deps.clock(),
       });
       return {
         session: restored,

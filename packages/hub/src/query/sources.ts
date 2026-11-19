@@ -3,11 +3,12 @@
  * through the list's own endpoint), and how each field reads off a row. What the store can answer is pushed down to
  * it (exact column filters, number and date bounds on columns, a sort on number columns), so the scan bound cuts the
  * right rows. The filtering, free text, sorting and paging are the shared evaluator's (`evaluate.ts`), which applies
- * every filter again; when the scan stopped at its bound, the page says `partial`.
+ * every filter again; when the scan stopped at its bound, the page says `partial`. The context list is the database's
+ * whole (`contexts.ts`): SQL filters, sort and page, and the one hybrid search for its text.
  */
 import { reject } from '@ayepi/core';
 import {
-  familyOf, QualifiedName, RunStatus, SessionId, SessionSummary, SystemName, seesOrigin, runCount, sortOf, type ContextRecord, type FieldValueOption, type Filter, type FnRecord,
+  familyOf, QualifiedName, RunStatus, SessionId, SessionSummary, SystemName, runCount, sortOf, type ContextListItem, type FieldValueOption, type Filter, type FnRecord,
   type GraphNode, type ListField, type ListName, type ListQuery, type LlmInteraction, type LlmSummary, type ModelCall, type Notification, type Page, type ResourceRecord, type Run, type SystemView, type TypeRecord,
 } from '@harness/core';
 import type { AccessScope, AccessService } from '../access/index.ts';
@@ -15,6 +16,10 @@ import type { HubServices } from '../boot/index.ts';
 import { systemView } from '../api/web/systems.ts';
 import { HubGraph } from '../graph/graph.ts';
 import { GraphSource } from '../graph/source.ts';
+import type { FnSearch } from '../fns/index.ts';
+import { ContextSource } from './contexts.ts';
+import { NOTIFICATION_COLUMNS, NOTIFICATION_TEXT } from './columns.ts';
+import { SqlSource } from './sql-source.ts';
 import type { ColumnFilter, Order, ScalarKey, Table, Where } from '../store/index.ts';
 import { allowed, evaluate, numberOf, valuesOf, type Evaluation } from './evaluate.ts';
 import type { FieldAccessors, ListSource, QueryViewer } from './index.ts';
@@ -28,7 +33,7 @@ export interface ListRows {
   modelCalls: ModelCall;
   llmCalls: LlmSummary;
   sessions: SessionSummary;
-  contexts: ContextRecord;
+  contexts: ContextListItem;
   notifications: Notification;
   systems: SystemView;
   types: TypeRecord;
@@ -176,7 +181,10 @@ function callTokens(call: ModelCall): number | undefined {
 }
 
 /** Every list's source over the hub's services. */
-export function listSources(hub: Pick<HubServices, 'store' | 'catalog'> & { readonly access: Pick<AccessService, 'scope'> }, settings: QueryEnv): ListSources {
+export function listSources(
+  hub: Pick<HubServices, 'store' | 'catalog'> & { readonly access: Pick<AccessService, 'scope'>; readonly fns: { readonly search: Pick<FnSearch, 'search'> } },
+  settings: QueryEnv,
+): ListSources {
   const { store } = hub;
   /** The rows of a scan the viewer may see, by the access scope made for them. */
   const seen = async <Row>(viewer: QueryViewer, scan: Promise<Scan<Row>>, sees: (access: AccessScope, row: Row) => boolean): Promise<Scan<Row>> => {
@@ -284,26 +292,12 @@ export function listSources(hub: Pick<HubServices, 'store' | 'catalog'> & { read
         title: (s) => s.title, agent: (s) => s.agent, status: (s) => s.status, archived: (s) => s.archived, createdAt: (s) => s.createdAt, updatedAt: (s) => s.updatedAt,
       },
     }),
-    contexts: new RowsSource({
-      list: 'contexts', page,
-      load: (viewer, query) => seen(viewer, newest(
-        store.table('context'),
-        { ...column('system', oneOf(allowed(query.filters, 'system', SystemName))), ...column('updatedAt', bound(query.filters, 'updatedAt')) },
-        scanOrder('contexts', query, { updatedAt: 'updatedAt' }, [['updatedAt', 'desc']]), max,
-      ), (access, record) => seesOrigin(record.origin, { actor: viewer.id }) && access.seesContext(record)),
-      search: (c) => c.decl.description,
-      fields: {
-        name: (c) => c.name, system: (c) => c.system, origin: (c) => c.origin?.type ?? 'system', tags: (c) => c.decl.tags, disabled: (c) => c.disabled === true,
-        stale: (c) => c.stale, tokens: (c) => c.tokens?.full, updatedAt: (c) => c.updatedAt,
-      },
-    }),
-    notifications: new RowsSource({
-      list: 'notifications', page,
-      load: (viewer, query) => newest(
-        store.table('notifications'), { user: viewer.id, ...column('createdAt', bound(query.filters, 'createdAt')) },
-        scanOrder('notifications', query, { createdAt: 'createdAt' }, [['createdAt', 'desc']]), max,
-      ),
-      search: (n) => `${n.title} ${n.body}`,
+    // the database's whole: SQL filters, sort and page, and the one hybrid search for text (`contexts.ts`)
+    contexts: new ContextSource({ store, access: hub.access, search: hub.fns.search, page, scan: max }),
+    // the database's whole: a person's own, filtered, matched by kind, title and body, sorted and paged in SQL
+    notifications: new SqlSource({
+      list: 'notifications', table: 'notifications', store, access: hub.access, columns: NOTIFICATION_COLUMNS, text: NOTIFICATION_TEXT, page, scan: max,
+      own: (viewer) => [{ field: 'user', op: 'is', value: viewer.id }],
       fields: { kind: (n) => n.reason, read: (n) => n.read, createdAt: (n) => n.createdAt },
     }),
     systems: new RowsSource({

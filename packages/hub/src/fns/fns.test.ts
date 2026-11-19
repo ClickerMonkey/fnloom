@@ -5,7 +5,7 @@
  */
 import {
   ActorId, compositeKey, ModelCallId, QualifiedName, ResourceUri, RunId, SessionId, SystemName, noFnStats, noOutcomes,
-  type FnMetricsDay, type FnRecord, type IndexedKind, type ModelInfo, type Session, type SystemStatus,
+  type ContextRecord, type FnMetricsDay, type FnRecord, type IndexedKind, type ModelInfo, type Session, type SystemStatus,
 } from '@harness/core';
 import { context, fn, g, hub, system, type as typeDecl } from '@harness/sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -17,6 +17,7 @@ import { manifestFor, systemRow } from '../catalog/fixtures.ts';
 import { HybridSearch } from '../store/hybrid.ts';
 import { EmbedBatcher } from '../index/batch.ts';
 import { contextText, fnText } from '../index/indexer.ts';
+import { contextSectionItems } from '../index/context-sections.ts';
 import { IndexSearch } from '../index/search.ts';
 import type { Embedder, Embedders, IndexItem, Indexer } from '../index/index.ts';
 import { emptyDurations, addDuration } from '../metrics/rollup.ts';
@@ -63,9 +64,14 @@ class WordEmbedders implements Embedders {
 class DirectIndexer implements Pick<Indexer, 'upsert' | 'remove'> {
   readonly #store: HubStore;
   constructor(store: HubStore) { this.#store = store; }
-  async upsert(items: readonly IndexItem[]): Promise<void> {
+  async upsert(given: readonly IndexItem[]): Promise<void> {
+    // a context item with its heading sections, as the real indexer does
+    const items = given.flatMap((item) => [item, ...contextSectionItems(item)]);
     for (const item of items) {
-      await this.#store.table('index').put({ embedder: DOCUMENT, kind: item.kind, key: item.key, text: item.text, hash: item.text, vectorHash: item.text, updatedAt: 1, ...(item.system === undefined ? {} : { system: item.system }) });
+      await this.#store.table('index').put({
+        embedder: DOCUMENT, kind: item.kind, key: item.key, text: item.text, hash: item.text, vectorHash: item.text, updatedAt: 1,
+        ...(item.system === undefined ? {} : { system: item.system }), ...(item.parent === undefined ? {} : { parent: item.parent }),
+      });
     }
     await this.#store.text.upsert(items.map((item) => ({ kind: item.kind, key: item.key, text: item.text })));
     await this.#store.vectors.upsert(DOCUMENT, items.map((item) => ({ kind: item.kind, key: item.key, vector: wordVector(item.text) })));
@@ -207,6 +213,52 @@ describe('fns search in the hub database', () => {
     expect((await search.search({ names: [q('books/overdue')], items: ['fn'], available: false }, unlinked)).items).toMatchObject([{
       name: 'books/overdue', available: false, blocked: { code: 'connect-account', reason: 'connect your account to use this fn', system: 'books' },
     }]);
+  });
+
+  it('searches context by its heading sections too, with the context list filters as SQL, and says which index found each hit', async () => {
+    const { store, catalog, indexer, search, asker } = await setup();
+    const travel = await catalog.context(q('notes/travel'));
+    if (travel === undefined) throw new Error('no travel context');
+    // a long guide whose expenses section sits past its own opening; tagged, so a list filter can find it
+    const expenses: ContextRecord = {
+      ...travel, name: q('notes/expenses'), decl: { ...travel.decl, name: 'expenses', description: 'Claiming money back.', tags: ['money'], content: 'Read this first.\n\n# Claims\nFile them monthly.\n\n## Receipts\nKeep every unpaid invoice from the trip.\n' },
+    };
+    await store.table('context').put(expenses);
+    await indexer.upsert([{ kind: 'context', key: expenses.name, text: contextText(expenses.name, expenses.decl), system: expenses.system }]);
+    const hits = await search.search({ text: 'receipts', items: ['context'] }, asker);
+    expect(hits.items[0]).toMatchObject({ name: 'notes/expenses', section: { title: 'Receipts', path: ['Claims', 'Receipts'] } });
+    // found by its words and, with an embedder up, by its meaning: one hit per item, at its best
+    const both = await search.search({ text: 'unpaid invoice trip', items: ['context'] }, asker);
+    expect(both.items.filter((h) => h.name === 'notes/expenses')).toHaveLength(1);
+    expect(both.items.every((h) => h.matched !== undefined)).toBe(true);
+    const anySimilarity: unknown = expect.any(Number);
+    expect(both.items.find((h) => h.name === 'notes/expenses')).toMatchObject({ matched: 'both', similarity: anySimilarity });
+    // by meaning alone: matched by meaning
+    expect((await search.search({ text: 'invoices', items: ['context'], match: 'semantic' }, asker)).items[0]).toMatchObject({ matched: 'meaning' });
+    // the context list's filters run in the database, in the same search; they leave fns out
+    const sql = vi.spyOn(store.lists, 'find');
+    const money = await search.search({ text: 'trip', filters: [{ field: 'tags', op: 'is', value: 'money' }] }, asker);
+    expect(money.items.map((h) => h.name)).toEqual(['notes/expenses']);
+    expect(sql).toHaveBeenCalledWith(expect.objectContaining({ table: 'context', filters: [{ field: 'tags', op: 'is', value: 'money' }] }));
+    expect((await search.search({ text: 'trip', filters: [{ field: 'origin', op: 'is', value: 'memory' }] }, asker)).items).toEqual([]);
+    // an item switched off is a hit only when asked for (the context page asks)
+    await store.table('context').put({ ...expenses, disabled: true });
+    expect((await search.search({ text: 'receipts', items: ['context'] }, asker)).items.map((h) => h.name)).not.toContain('notes/expenses');
+    expect((await search.search({ text: 'receipts', items: ['context'], off: true }, asker)).items.map((h) => h.name)).toContain('notes/expenses');
+  });
+
+  it('never shows another person\'s memory to a search (regression: the search checked sharing but not the memory\'s scope)', async () => {
+    const { store, catalog, indexer, search, asker } = await setup();
+    const travel = await catalog.context(q('notes/travel'));
+    if (travel === undefined) throw new Error('no travel context');
+    const theirs: ContextRecord = {
+      ...travel, name: q('hub/memory-theirs'), system: SystemName.parse('hub'), decl: { ...travel.decl, name: 'memory-theirs', description: 'Their secret trip plans.' },
+      origin: { type: 'memory', scope: { to: 'user', user: ActorId.parse('act_them') }, author: ActorId.parse('act_them') },
+    };
+    await store.table('context').put(theirs);
+    await indexer.upsert([{ kind: 'context', key: theirs.name, text: contextText(theirs.name, theirs.decl), system: theirs.system }]);
+    expect((await search.search({ text: 'secret trip plans', items: ['context'] }, asker)).items.map((h) => h.name)).not.toContain('hub/memory-theirs');
+    expect((await search.search({ text: 'secret trip plans', items: ['context'] }, { actor: ActorId.parse('act_them'), access: openScope(ActorId.parse('act_them')) })).items.map((h) => h.name)).toContain('hub/memory-theirs');
   });
 
   it('ranks inside the database: a `within` list reaches the vector and text indexes', async () => {

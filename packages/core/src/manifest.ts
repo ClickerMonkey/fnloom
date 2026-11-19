@@ -20,6 +20,7 @@ import { ShareRule } from './access.ts';
 import { ConfigComponentDecl, SystemGrants } from './grants.ts';
 import { RecordStorage } from './data.ts';
 import { ApiGroupDecl } from './api-index.ts';
+import { ChatModeType } from './modes.ts';
 
 
 /** How values of a named type are shown: in mention chips, hover cards and inputs. */
@@ -527,10 +528,31 @@ export type SuggestionScore = z.infer<typeof SuggestionScore>;
  * What a hook adds. Each becomes a tagged block the LLM can tell apart from the user's words. A suggestion's system is
  * its qualified name's; its kind is its block's. The hub lists its own suggestions best match first, with scores.
  */
+/**
+ * A suggested fn's card as the hub snapshotted it when the message was sent, so every later prompt shows the same
+ * card: its label, mode, what blocks it (absent when it can be used), and its signature. In the static toolset, where
+ * the model runs a suggested fn by name without loading it, its instructions and examples come with it.
+ */
+export const SuggestedFnCard = z.object({
+  label: z.string(),
+  mode: FnMode,
+  blocked: z.string().optional(),
+  args: z.string().optional(),
+  returns: z.string().optional(),
+  instructions: z.string().optional(),
+  examples: z.array(FnExample).optional(),
+  /** How many more examples it has than the card shows (a `hub/fn_examples` call away). */
+  moreExamples: z.number().int().positive().optional(),
+});
+export type SuggestedFnCard = z.infer<typeof SuggestedFnCard>;
+
+/** The toolset a suggestion block was written for (the session's chat mode when it was sent), which says how to load or call what it suggests. */
+const SuggestedFor = { toolset: ChatModeType.optional() };
+
 export const HookBlock = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), tag: z.string(), text: z.string() }),
-  z.object({ type: z.literal('suggest-context'), items: z.array(z.object({ context: QualifiedName, why: z.string().optional(), score: SuggestionScore.optional() })) }),
-  z.object({ type: z.literal('suggest-fns'), items: z.array(z.object({ fn: QualifiedName, why: z.string().optional(), score: SuggestionScore.optional() })) }),
+  z.object({ type: z.literal('suggest-context'), ...SuggestedFor, items: z.array(z.object({ context: QualifiedName, title: z.string().optional(), why: z.string().optional(), score: SuggestionScore.optional() })) }),
+  z.object({ type: z.literal('suggest-fns'), ...SuggestedFor, items: z.array(z.object({ fn: QualifiedName, why: z.string().optional(), score: SuggestionScore.optional(), card: SuggestedFnCard.optional() })) }),
   z.object({ type: z.literal('load'), context: z.array(QualifiedName).optional(), fns: z.array(QualifiedName).optional() }),
 ]);
 export type HookBlock = z.infer<typeof HookBlock>;

@@ -3,8 +3,8 @@ import { RESULT_TABLE_INSTRUCTION, RESULT_TABLE_ROUTING, ResultTable, SystemName
 import { describe, expect, it } from 'vitest';
 import { contiguousTail, exchanges, textOf, firstAndLast, isPersonMessage, namedIn, personWords, shorten, shortenResults, summarise } from './history.ts';
 import type { FnView } from './index.ts';
-import { blockedFnsLine, blockedLine, cardsSection, contextBlock, describedWithEffects, earlierBlock, fnCard, fnLine, listedLine, tableInstruction, moreContext, parseRunBlocks, resultText, RunBlockFilter, splitThinking, ThinkingFilter } from './render.ts';
-import { ContextCatalog } from './testing.ts';
+import { blockedFnsLine, blockedLine, cardsSection, contextBlock, describedWithEffects, earlierBlock, fnCard, listedLine, tableInstruction, moreContext, moreFns, parseRunBlocks, resultText, RunBlockFilter, splitThinking, ThinkingFilter } from './render.ts';
+import { ContextCatalog, contextRecord } from './testing.ts';
 import { CatalogFnViews } from './views.ts';
 
 /** A view of `fs/read` with instructions, an example and one named type. */
@@ -30,24 +30,39 @@ describe('fn cards', () => {
     if (orders === undefined || read === undefined) throw new Error('no view');
     expect(orders.routing).toBe(RESULT_TABLE_ROUTING);
     expect(read.routing).toBeUndefined();
-    expect(fnLine(orders)).toBe(`shop/orders — Orders as a table. (${RESULT_TABLE_ROUTING})`);
+    expect(fnCard(orders, 'listed')).toBe(`<fn name="shop/orders" label="Orders" mode="write" available="yes">\nOrders as a table.\nIt ${RESULT_TABLE_ROUTING}.\n</fn>`);
     expect(describedWithEffects(orders)).toBe(`Orders as a table.
 It ${RESULT_TABLE_ROUTING}.`);
-    expect(fnLine(read)).toBe('fs/read — Read a text file.');
+    expect(fnCard(read, 'listed')).toBe('<fn name="fs/read" label="Read" mode="write" available="yes">Read a text file.</fn>');
     expect(tableInstruction([read, orders])).toBe(RESULT_TABLE_INSTRUCTION);
     expect(tableInstruction([read])).toBe('');
   });
 
-  it('grow with the detail: a line, then how to call it, then instructions, examples and types', async () => {
+  it('grow with the detail: a line, then its args and result, then instructions, examples and types', async () => {
     const view = await readView();
-    expect(fnCard(view, 'listed', 'native')).toBe('### fs/read — Read a text file.');
-    const signature = fnCard(view, 'signature', 'native');
-    expect(signature).toBe(`### fs/read — Read a text file.\nrun({ fn: "fs/read", args: ${view.args} }) → ${view.returns}`);
-    const full = fnCard(view, 'full', 'native');
-    expect(full).toContain('Read whole files under 2000 lines');
-    expect(full).toContain('Example: run({ fn: "fs/read", args: {"path":"docs/harness.md","lines":{"from":1,"to":80}} }) — the first 80 lines');
-    expect(full).toContain('type fs/Entry = { path: text }');
-    expect(fnCard(view, 'signature', 'text')).toContain(`<run fn="fs/read">${view.args}</run>`);
+    const head = '<fn name="fs/read" label="Read" mode="write" available="yes">';
+    expect(fnCard(view, 'listed')).toBe(`${head}Read a text file.</fn>`);
+    expect(fnCard(view, 'signature')).toBe([head, 'Read a text file.', `<args>${view.args}</args>`, `<returns>${view.returns}</returns>`, '</fn>'].join('\n'));
+    expect(fnCard(view, 'full')).toBe([
+      head, 'Read a text file.', `<args>${view.args}</args>`, `<returns>${view.returns}</returns>`,
+      '<instructions>Read whole files under 2000 lines; use lines for longer ones.</instructions>',
+      '<example note="the first 80 lines">{"path":"docs/harness.md","lines":{"from":1,"to":80}}</example>',
+      '<type name="fs/Entry">type fs/Entry = { path: text }</type>',
+      '</fn>',
+    ].join('\n'));
+    // what blocks a fn is on its card, in the hub's words
+    expect(fnCard(view, 'listed', new Set(), undefined, 'changed & waits for an admin')).toBe('<fn name="fs/read" label="Read" mode="write" available="no" reason="changed &amp; waits for an admin">Read a text file.</fn>');
+  });
+
+  it('say where the rest of the examples are', async () => {
+    const catalog = new ContextCatalog();
+    catalog.addFn('fs/ls', fn({ description: 'List a folder.', args: g.obj({ path: g.text() }), returns: g.list(g.text()), promptExamples: 1, examples: [{ args: { path: '.' } }, { args: { path: 'src' } }] }));
+    const view = await new CatalogFnViews(catalog).view('fs/ls');
+    if (view === undefined) throw new Error('no view');
+    const full = fnCard(view, 'full');
+    expect(full).toContain('<example>{"path":"."}</example>');
+    expect(full).not.toContain('"src"');
+    expect(full).toContain('<more_examples count="1">Read them with hub/fn_examples {"fn":"fs/ls","query":"what you are about to do"}</more_examples>');
   });
 
   it('carry what a fn changes and its long-running warning beside its description', async () => {
@@ -60,7 +75,7 @@ It ${RESULT_TABLE_ROUTING}.`);
     const view = await views.view('fs/read');
     if (view === undefined) throw new Error('no view');
     expect(describedWithEffects(view)).toBe(`Read a text file.\n${view.effects ?? ''}\nfs/read usually takes about 3 minutes.`);
-    expect(fnCard(view, 'signature', 'native').split('\n').slice(1, 3)).toEqual([view.effects, 'fs/read usually takes about 3 minutes.']);
+    expect(fnCard(view, 'signature').split('\n').slice(2, 4)).toEqual([view.effects, 'fs/read usually takes about 3 minutes.']);
     // a quick fn has no warning
     expect(describedWithEffects(await readView())).toBe('Read a text file.');
   });
@@ -68,10 +83,16 @@ It ${RESULT_TABLE_ROUTING}.`);
   it('print a shared type once per prompt', async () => {
     const view = await readView();
     const shown = new Set<`${string}/${string}`>();
-    const both = [fnCard(view, 'full', 'native', shown), fnCard(view, 'full', 'native', shown)].join('\n');
+    const both = [fnCard(view, 'full', shown), fnCard(view, 'full', shown)].join('\n');
     expect(both.match(/type fs\/Entry/g)).toHaveLength(1);
     expect(cardsSection([], 'native')).toBe('');
     expect(cardsSection(['a'], 'text')).toContain('<run fn=');
+  });
+
+  it('list fns the model can load as listed cards', async () => {
+    const view = await readView();
+    expect(moreFns([])).toBe('');
+    expect(moreFns([view])).toBe('<more_fns>\nLoad any of these with hub/load_fns to use it:\n<fn name="fs/read" label="Read" mode="write" available="yes">Read a text file.</fn>\n</more_fns>');
   });
 });
 
@@ -79,26 +100,29 @@ describe('prompt text', () => {
   it('lists, blocks and summaries', () => {
     expect(listedLine('fs/guide', 'How to use fs.\nMore.')).toBe('fs/guide — How to use fs.');
     expect(listedLine('x/y', 'z'.repeat(400)).length).toBeLessThan(170);
-    expect(contextBlock({ name: 'fs/guide', detail: 'full', text: 'All of it.' })).toBe('<context name="fs/guide">\nAll of it.\n</context>');
-    expect(contextBlock({ name: 'fs/guide', detail: 'signature', text: 'Short.' })).toContain('detail="summary"');
+    expect(contextBlock({ name: 'fs/guide', detail: 'full', text: 'All of it.' })).toBe('<context key="fs/guide">All of it.</context>');
+    expect(contextBlock({ name: 'fs/guide', title: 'Files "guide"', detail: 'signature', text: 'Short.' })).toBe('<context key="fs/guide" title="Files &quot;guide&quot;" detail="summary">Short.</context>');
     // a context's brought fns, each for what it is: in the tools, not this step, or blocked with the hub's reason
     const held = (fn: string) => ({ fn, code: 'held' as const, reason: `${fn} changed and waits for an admin to approve it`, system: SystemName.parse('database') });
     expect(contextBlock({ name: 'database/guide', detail: 'full', text: 'Tables.', fns: {
       added: ['database/list_tables'], waiting: ['database/drop_table'],
       blocked: [held('database/create_table'), held('database/insert_rows'), { fn: 'fs/read', code: 'system-disconnected', reason: 'fs is not connected' }],
     } })).toBe([
-      '<context name="database/guide">', 'Tables.',
-      'Fns it brings (in your tools now): database/list_tables',
-      'Fns it brings, not in your tools this step: database/drop_table',
-      'Fns it brings that you can\'t use now, not in your tools: database/create_table, database/insert_rows (changed and waits for an admin to approve it); fs/read (fs is not connected). If you need one, tell the person what blocks it.',
+      '<context key="database/guide">', 'Tables.',
+      '<brought_fns in_tools="yes">In your tools now: database/list_tables</brought_fns>',
+      '<brought_fns in_tools="no">Not in your tools this step: database/drop_table</brought_fns>',
+      '<brought_fns in_tools="no" available="no">You can\'t use these now: database/create_table, database/insert_rows (changed and waits for an admin to approve it); fs/read (fs is not connected). If you need one, tell the person what blocks it.</brought_fns>',
       '</context>',
     ].join('\n'));
     // nothing added says nothing is in the tools
-    expect(contextBlock({ name: 'database/guide', detail: 'full', text: 'Tables.', fns: { added: [], blocked: [held('database/create_table')] } })).not.toContain('in your tools now');
+    expect(contextBlock({ name: 'database/guide', detail: 'full', text: 'Tables.', fns: { added: [], blocked: [held('database/create_table')] } })).not.toContain('in_tools="yes"');
+    expect(contextBlock({ name: 'fs/guide', detail: 'full', text: 'Start.', choices: [{ to: 'fs/git', when: 'for commits', tokens: 40 }] })).toBe([
+      '<context key="fs/guide">', 'Start.', '<choices>', 'Where to go next: load the one that fits by its key, or none.', '<choice key="fs/git" tokens="40">for commits</choice>', '</choices>', '</context>',
+    ].join('\n'));
     expect(blockedFnsLine([{ fn: 'x/a', code: 'paused', reason: 'x/a is paused' }])).toBe('x/a (is paused)');
     expect(blockedLine('fs/off', { reason: 'fs/off is switched off' })).toBe('fs/off can\'t be used now: fs/off is switched off');
     expect(moreContext([])).toBe('');
-    expect(moreContext(['a — b'])).toContain('- a — b');
+    expect(moreContext([contextRecord('fs/git', { title: 'Git', description: 'Commits.\nMore.' })])).toBe('<more_context>\nLoad any of these by name if it helps:\n<context key="fs/git" title="Git">Commits.</context>\n</more_context>');
     expect(earlierBlock({ turn: 3, user: 'q', answer: 'a', used: ['fs/read'] })).toBe('<earlier turn="3">\nUser: q\nAnswer: a\nUsed: fs/read\n</earlier>');
     expect(resultText('fs/read', 'done', '3 lines')).toBe('<result fn="fs/read" status="done">\n3 lines\n</result>');
   });

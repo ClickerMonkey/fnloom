@@ -76,7 +76,7 @@ export const TABLE_INDEXES: { readonly [K in TableName]?: IndexSpec<K> } = {
   llmInteractions: [['turn'], ['run'], ['session', 'queuedAt'], ['status']],
   resources: [['system']],
   sections: [['uri', 'version']],
-  index: [['kind'], ['system'], ['embedder']],
+  index: [['kind'], ['system'], ['embedder'], ['embedder', 'kind', 'parent']],
   notifications: [['user', 'createdAt'], ['user', 'read']],
   pushSubscriptions: [['user']],
   reservations: [['createdAt']],

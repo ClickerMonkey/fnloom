@@ -3,7 +3,7 @@
  * resource, live changes), the components alone, and both pages mounted in the app at a desktop and a phone width.
  */
 import { pickIn } from '../test/pickers.ts';
-import { QualifiedName, ResourceUri, type ContextRecord, type LinkTarget, type ShareRule } from '@harness/core';
+import { QualifiedName, ResourceUri, SectionKey, type ContextRecord, type LinkTarget, type ShareRule } from '@harness/core';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMemoryHistory, createRouter } from 'vue-router';
@@ -18,7 +18,7 @@ import LinkDialog from './components/LinkDialog.vue';
 import LinkGroups from './components/LinkGroups.vue';
 import MemoryDialog from './components/MemoryDialog.vue';
 import {
-  bodyText, emptyLinkDraft, filterOf, fromResourceRequest, groupLinks, isFiltered, linkKey, linkRequest, memoryDraft, memoryRequest, memoryUpdate, ONLY_ME, PLAIN_OPTIONS, changedOptions, originOf, readContextQuery, removable, scopeText, sharedFacts, sharedText, sizeText, targetText, weightPercent,
+  bodyText, emptyLinkDraft, filterOf, foundView, MATCHED_WORDS, fromResourceRequest, groupLinks, isFiltered, linkKey, linkRequest, memoryDraft, memoryRequest, memoryUpdate, ONLY_ME, PLAIN_OPTIONS, changedOptions, originOf, readContextQuery, removable, scopeText, sharedFacts, sharedText, sizeText, targetText, weightPercent,
 } from './logic/context.ts';
 import { targetRoute } from './logic/targets.ts';
 import { contextLink, contextRecord, fakeContext, fixtureGraph, T_CONTEXT } from './test/fakes.ts';
@@ -269,6 +269,28 @@ describe('the context components', () => {
     const alone = mount(ContextRow, { props: { record: off('fs/a'), to: links.contextItem(GUIDE), now: T_CONTEXT }, global: { plugins: [r] } });
     expect(alone.get('[data-testid="context-off"]').text()).toBe('System context off');
     expect(alone.get('.origin').text()).toBe('System');
+  });
+
+  it('a searched row says which index found it, its score and the section that matched; an unsearched row none of it', async () => {
+    // pure: the badge and score in words
+    expect(foundView(undefined)).toEqual({});
+    expect(foundView({ score: 0.5, matched: 'words' })).toEqual({ matched: MATCHED_WORDS.words, score: 'rank 50%' });
+    expect(foundView({ score: 1, similarity: 0.874, matched: 'both', section: { key: SectionKey.parse('reading/encodings'), path: ['Reading', 'Encodings'], title: 'Encodings' } }))
+      .toEqual({ matched: MATCHED_WORDS.both, score: '87% fit', section: 'Reading › Encodings' });
+    expect(foundView({ score: 0.9, similarity: 0.61, matched: 'meaning' }).matched?.label).toBe('Meaning');
+    const record = contextRecord('fs/guide', { description: 'How to use the file tools' });
+    const r = router();
+    const searched = mount(ContextRow, {
+      props: { record, to: links.contextItem(GUIDE), now: T_CONTEXT, found: { score: 1, similarity: 0.9, matched: 'both', section: { key: SectionKey.parse('reading'), path: ['Reading'], title: 'Reading' } } },
+      global: { plugins: [r] },
+    });
+    expect(searched.get('[data-testid="context-matched"]').text()).toBe('Words + meaning');
+    expect(searched.get('[data-testid="context-score"]').text()).toBe('90% fit');
+    expect(searched.get('[data-testid="context-section"]').text()).toBe('Reading');
+    const listed = mount(ContextRow, { props: { record, to: links.contextItem(GUIDE), now: T_CONTEXT }, global: { plugins: [r] } });
+    expect(listed.find('[data-testid="context-matched"]').exists()).toBe(false);
+    expect(listed.find('[data-testid="context-score"]').exists()).toBe(false);
+    expect(listed.find('[data-testid="context-section"]').exists()).toBe(false);
   });
 
   it('link groups show both directions, and only drawn links out can be removed', async () => {

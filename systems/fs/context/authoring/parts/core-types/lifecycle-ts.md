@@ -104,7 +104,7 @@ type PreviewAnswer = {
         path: string;
         kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
         rule: string;
-        access: "write" | "read";
+        access: "read" | "write";
         action: "ask" | "refuse" | "allow";
         why: string;
         certain: boolean;
@@ -366,12 +366,12 @@ type PreviewAnswer = {
         to: "any";
       } | undefined;
       effects?: {
-        mode?: "write" | "read" | "delete" | undefined;
+        mode?: "read" | "write" | "delete" | undefined;
         reads?: `${string}/${string}`[] | undefined;
         writes?: `${string}/${string}`[] | undefined;
         free?: boolean | undefined;
         registry?: {
-          thing: "types" | "records" | "fns" | "context" | "kinds" | "resources" | "components" | "examples" | "approvals" | "secrets" | "connections";
+          thing: "types" | "records" | "fns" | "context" | "examples" | "kinds" | "resources" | "components" | "approvals" | "secrets" | "connections";
           action: "create" | "update" | "remove";
           kind?: `${string}/${string}` | "native" | undefined;
         }[] | undefined;

@@ -2,8 +2,9 @@ import {
   ActorId, MAIN_INSTANCE, QualifiedName, ResourceUri, SectionKey, SectionRuleId, SessionId, SystemName,
   type Page, type ReadWant, type ResourceChange, type ResourceLink, type ResourceRead, type ResourceRoot, type ResourceStat, type Section, type SectionDiff, type Session,
 } from '@harness/core';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StoreCatalog } from '../catalog/catalog.ts';
+import { FixtureCatalog } from '../chat/testing.ts';
 import { ADMIN, manifestFor, shop, systemRow, vectors as vectorsContract } from '../catalog/fixtures.ts';
 import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
 import type { ResourceRouter } from '../link/index.ts';
@@ -231,6 +232,47 @@ describe('indexing', () => {
     expect(ticks).toBeGreaterThan(0);
   });
 
+  it('indexes a context item by its heading sections too, under the item, keeping them in step with its text', async () => {
+    const { indexer, store, search } = ctx;
+    const system = SystemName.parse('notes');
+    const sections = async () => (await store.table('index').find({ where: { embedder: DOCUMENT, kind: 'contextSection', parent: 'notes/guide' }, limit: 50 })).items.map((r) => r.key).sort();
+    await indexer.upsert([{ kind: 'context', key: 'notes/guide', system, text: 'notes/guide: The guide\nIntro.\n\n# Packing\nBring a passport.\n\n# Budget\nKeep receipts.' }]);
+    expect(await sections()).toHaveLength(2);
+    const packing = (await sections()).find((key) => key.startsWith('notes/guide#'));
+    expect(packing).toBeDefined();
+    // a hit on a section names its item, and says it was found by words
+    const [hit] = await search.search({ text: 'passport', kinds: ['contextSection'], limit: 5 });
+    expect(hit).toMatchObject({ kind: 'contextSection', parent: 'notes/guide', matched: 'words' });
+    expect(hit?.text).toContain('Packing');
+    // a heading gone from the text takes its section with it
+    await indexer.upsert([{ kind: 'context', key: 'notes/guide', system, text: 'notes/guide: The guide\nIntro.\n\n# Packing\nBring a passport.' }]);
+    expect(await sections()).toHaveLength(1);
+    expect(await search.search({ text: 'receipts', kinds: ['contextSection'], limit: 5 })).toEqual([]);
+    // and the item gone takes them all
+    await indexer.remove('context', ['notes/guide']);
+    expect(await sections()).toEqual([]);
+    expect(await search.search({ text: 'passport', kinds: ['context', 'contextSection'], limit: 5 })).toEqual([]);
+  });
+
+  it('on start, gives a context item indexed before sections were its sections, once', async () => {
+    const { indexer, store } = ctx;
+    const record = new FixtureCatalog().addContext('notes', { name: 'trip', description: 'The trip', content: 'Intro.\n\n# Packing\nBring a passport.\n\n# Budget\nKeep receipts.' });
+    await store.table('context').put(record);
+    // indexed as an older hub did: the item alone
+    await store.table('index').put({ embedder: DOCUMENT, kind: 'context', key: record.name, system: record.system, text: 'old', hash: 'old', updatedAt: 1 });
+    const sections = async () => (await store.table('index').find({ where: { embedder: DOCUMENT, kind: 'contextSection', parent: record.name }, limit: 50 })).items.map((r) => r.key).sort();
+    expect(await sections()).toEqual([]);
+    const stop = indexer.start();
+    await indexer.idle();
+    stop();
+    expect(await sections()).toHaveLength(2);
+    expect((await sections()).every((key) => key.startsWith(`${record.name}#`))).toBe(true);
+    // a second pass finds nothing missing and writes nothing
+    const put = vi.spyOn(store.table('index'), 'put');
+    await indexer.catchUpSections();
+    expect(put).not.toHaveBeenCalled();
+  });
+
   it('re-indexes what a system contributes when the catalog changes, dropping what is gone', async () => {
     const { indexer, catalog, store } = ctx;
     indexer.start();
@@ -238,7 +280,10 @@ describe('indexing', () => {
     await catalog.importManifest(manifest);
     await settle(5);
     await indexer.idle();
-    const keys = (await store.table('index').find({ limit: 50 })).items.map((r) => `${r.kind}:${r.key}`).sort();
+    const rows = (await store.table('index').find({ limit: 50 })).items;
+    const keys = rows.filter((r) => r.kind !== 'contextSection').map((r) => `${r.kind}:${r.key}`).sort();
+    // a context item's heading sections are indexed under it
+    expect(rows.filter((r) => r.kind === 'contextSection').every((r) => r.parent !== undefined && r.key.startsWith(`${r.parent}#`))).toBe(true);
     // the API index items the catalog writes for its fns are indexed too
     expect(keys).toEqual(['context:shop/api', 'context:shop/api.general', 'context:shop/guide', 'fn:shop/Product.discount', 'fn:shop/get', 'fn:shop/list', 'type:shop/Product']);
     expect((await store.table('index').get({ embedder: DOCUMENT, kind: 'fn', key: 'shop/get' }))?.text).toBe('shop/get: Get a product by its sku.\nTags: read');
@@ -507,6 +552,18 @@ describe('search and suggestions', () => {
     await ctx.store.table('systems').update(SystemName.parse('shop'), { status: 'disconnected' });
     await ctx.catalog.refreshAvailability(SystemName.parse('shop'));
     expect(await ctx.suggester.suggest({ session, text: 'find a product by its sku', limit: 4 })).toEqual([]);
+  });
+
+  it('never suggests again what the session was suggested before, and gives its place to the next', async () => {
+    await indexed();
+    await ctx.store.table('sessions').put(sessionRow([SystemName.parse('shop')]));
+    const first = await ctx.suggester.suggest({ session: SESSION, text: 'find a product by its sku', limit: 1 });
+    const [top] = first;
+    if (top === undefined) throw new Error('nothing suggested');
+    await ctx.store.table('sessions').update(SESSION, { suggested: [top.name] });
+    const again = await ctx.suggester.suggest({ session: SESSION, text: 'find a product by its sku', limit: 1 });
+    expect(again).toHaveLength(1);
+    expect(again.map((s) => s.name)).not.toContain(top.name);
   });
 });
 

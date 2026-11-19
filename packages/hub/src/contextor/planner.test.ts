@@ -1,13 +1,15 @@
 import { agent, fn, g, hub } from '@harness/sdk';
-import { mintId, type ChatModeConfig, type LlmMessage, type Session, type Turn } from '@harness/core';
+import { mintId, SystemName, type AnnouncedSystems, type ChatModeConfig, type LlmMessage, type Session, type Turn } from '@harness/core';
 import { describe, expect, it, vi } from 'vitest';
 import { ALICE, ALICE_INFO, OPEN_LIMITS } from '../execution/testing.ts';
 import type { ChatModeFactories, ContextorFactories } from './index.ts';
 import { CHAT_MODES } from './modes.ts';
 import { CONTEXTORS } from './contextors.ts';
-import { contextOrder, modeChoice, PromptTooLarge } from './planner.ts';
+import { contextOrder, fixedRegion, modeChoice, PromptTooLarge } from './planner.ts';
+import { systemRow } from '../catalog/fixtures.ts';
+import { systemsPrompt } from '../chat/announce.ts';
 import { exchanges, textOf } from './history.ts';
-import { contextorRig, contextRecord, seeded } from './testing.ts';
+import { chatModel, contextorRig, contextRecord, seeded } from './testing.ts';
 
 const SESSION = mintId('session', () => 'plan');
 const small = agent({ description: 'Small.', args: g.obj({}), returns: g.text(), instructions: 'Be brief.', tools: [], mode: { type: 'static' }, contextor: { type: 'graph' } });
@@ -76,8 +78,8 @@ describe('the graph contextor', () => {
     expect(planned.report.context.map((c) => [c.name, c.detail])).toEqual([['fs/git-skill', 'full']]);
     expect(planned.report.fns.map((f) => f.name)).toEqual(['fs/git_status']);
     expect(planned.report.fns[0]?.detail).not.toBe('listed');
-    expect(planned.context).toContain('<context name="fs/git-skill">');
-    expect(planned.context).toContain('### fs/git_status — Show the working tree status.');
+    expect(planned.context).toContain('<context key="fs/git-skill">');
+    expect(planned.context).toContain('<fn name="fs/git_status" label="Git status"');
     expect(planned.tools.map((t) => t.name)).toEqual(['find', 'inspect', 'load', 'unload', 'run']);
   });
 
@@ -237,9 +239,9 @@ describe('static mode calls', () => {
     const { r, plan } = await planning([], { mode: tail, tools: ['fs/read'] });
     r.catalog.addFn('fs/read');
     const planned = await plan('read');
-    expect(planned.context).not.toContain('### fs/read');
+    expect(planned.context).not.toContain('<fn name="fs/read"');
     expect(planned.messages.at(-1)).toMatchObject({ role: 'system' });
-    expect(textOf(planned.messages.at(-1) ?? { role: 'system', content: '' })).toContain('### fs/read');
+    expect(textOf(planned.messages.at(-1) ?? { role: 'system', content: '' })).toContain('<fn name="fs/read"');
   });
 });
 
@@ -274,8 +276,8 @@ describe('the plain contextor (build 6: a context brings its fns)', () => {
     expect(planned.report.context.map((c) => c.name)).toEqual(['fs/authoring', 'fs/authoring.layout']);
     expect(planned.tools.map((t) => t.name).sort()).toEqual(['fs__install_system', 'fs__read']);
     const system = planned.context;
-    expect(system).toContain('Fns it brings (in your tools now): fs/install_system');
-    expect(system).toMatch(/- fs\/authoring\.kinds \(~\d+ tokens\): pick this when the system declares a kind/);
+    expect(system).toContain('<brought_fns in_tools="yes">In your tools now: fs/install_system</brought_fns>');
+    expect(system).toMatch(/<choice key="fs\/authoring\.kinds" tokens="\d+">pick this when the system declares a kind/);
   });
 
   it('says only the fns actually added are in the tools, and names the held ones with why (regression: "You there?")', async () => {
@@ -291,8 +293,8 @@ describe('the plain contextor (build 6: a context brings its fns)', () => {
     r.catalog.addFn('database/list_tables', fn({ description: 'List tables.', args: g.obj({}), returns: g.text() }));
     const planned = await r.planner.plan({ session, turn, agent: chat, model: 'small', instructions: 'Be brief.', transcript: [{ role: 'user', content: 'track my tasks' }] });
     expect(planned.tools.map((t) => t.name)).toEqual(['database__list_tables']);
-    expect(planned.context).toContain('Fns it brings (in your tools now): database/list_tables\n');
-    expect(planned.context).toContain('Fns it brings that you can\'t use now, not in your tools: database/create_table, database/insert_rows (changed and waits for an admin to approve it).');
+    expect(planned.context).toContain('<brought_fns in_tools="yes">In your tools now: database/list_tables</brought_fns>\n');
+    expect(planned.context).toContain('<brought_fns in_tools="no" available="no">You can\'t use these now: database/create_table, database/insert_rows (changed and waits for an admin to approve it).');
     // a fn that doesn't exist (or that the person can't see) is not named
     expect(planned.context).not.toContain('database/gone');
   });
@@ -306,5 +308,49 @@ describe('the chat agents\' prompt', () => {
       expect(instructions).toContain('tell the person what blocks you and why, with the reason the hub gave');
       expect(instructions).toContain('instead of retrying, guessing or working around it.');
     }
+  });
+});
+
+describe('the systems in the system prompt (Phil: told about each system, just the initially available set)', () => {
+  const WIDE = { models: [chatModel('small', { contextWindow: 32_000 })] };
+  const fs = { name: SystemName.parse('fs'), label: 'Files', description: 'Files on the host.' };
+  const snapshot: AnnouncedSystems = {
+    prompt: [fs, { name: SystemName.parse('git'), label: 'Git', description: 'Git repositories.' }],
+    on: [SystemName.parse('fs'), SystemName.parse('git')], off: [],
+  };
+
+  it('lists the first turn\'s snapshot first after the instructions, in name order, the same on every step whatever changed since', async () => {
+    const { r, plan } = await planning(talk(1), { announcedSystems: snapshot }, WIDE);
+    const list = systemsPrompt(snapshot.prompt);
+    const before = await plan('hello');
+    expect(before.context.startsWith(`${list}\n\n`)).toBe(true);
+    expect(list.indexOf('name="fs"')).toBeLessThan(list.indexOf('name="git"'));
+    // the systems change in the database: the prompt still lists the snapshot, so it stays the same and caches
+    await r.store.table('systems').put(systemRow('crm', 'connected', { description: 'Tickets.' }));
+    await r.store.table('systems').put(systemRow('fs', 'disconnected'));
+    const after = await plan('hello');
+    expect(after.context).toBe(before.context);
+    expect(after.context).not.toContain('crm');
+  });
+
+  it('counts the list in the fixed part of the budget', async () => {
+    const withList = await (await planning(talk(1), { announcedSystems: snapshot }, WIDE)).plan('hello');
+    const without = await (await planning(talk(1), {}, WIDE)).plan('hello');
+    expect(without.context).not.toContain('<systems>');
+    expect(withList.report.budget.fixed).toBeGreaterThan(without.report.budget.fixed);
+  });
+
+  it('before a chat has a snapshot (a preview), lists the systems available now', async () => {
+    const { r, plan } = await planning(talk(1), {}, WIDE);
+    await r.store.table('systems').put(systemRow('fs', 'connected', { description: 'Files on the host.' }));
+    await r.store.table('systems').put(systemRow('web', 'disconnected'));
+    const live = await plan('hello');
+    expect(live.context.startsWith(`${systemsPrompt([{ ...fs, label: 'Fs' }])}\n\n`)).toBe(true);
+    expect(live.context).not.toContain('name="web"');
+  });
+
+  it('puts the list before the guide, and leaves the guide alone with no systems', () => {
+    expect(fixedRegion([fs], 'guide')).toBe(`${systemsPrompt([fs])}\n\nguide`);
+    expect(fixedRegion([], 'guide')).toBe('guide');
   });
 });

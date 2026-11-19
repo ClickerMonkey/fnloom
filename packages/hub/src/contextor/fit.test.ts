@@ -112,7 +112,7 @@ describe('the suggest contextor\'s auto-injected context', () => {
     const { plan } = await rig({ items: 3, tokens: 2_000 });
     const planned = await plan([{ role: 'user', content: 'how do I commit?' }]);
     expect(planned.report.context.map((c) => c.name)).toEqual(['fs/git', 'fs/style']);
-    expect(planned.context).toContain('<context name="fs/git">\nCommit with fs/git_commit.\n</context>');
+    expect(planned.context).toContain('<context key="fs/git">Commit with fs/git_commit.</context>');
   });
 
   it('keeps to its number of items and its tokens', async () => {
@@ -126,7 +126,7 @@ describe('the suggest contextor\'s auto-injected context', () => {
     const { plan } = await rig({ items: 3, tokens: 2_000 }, { context: ['fs/git'] });
     const planned = await plan([{ role: 'user', content: 'commit?' }]);
     expect(planned.report.context.map((c) => c.name)).toEqual(['fs/git', 'fs/style']);
-    expect(planned.context.split('<context name="fs/git">')).toHaveLength(2);
+    expect(planned.context.split('<context key="fs/git">')).toHaveLength(2);
   });
 
   it('injects nothing for an empty message, and keeps within what the budget leaves', async () => {

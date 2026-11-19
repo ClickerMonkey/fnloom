@@ -679,6 +679,22 @@ Static plus graph is the setup for small local models; `hub/chat_small` is the c
 When a context item in the prompt brings fns, it says which of them are in the model's tools this step, which are
 not in its tools this step, and which it can't use now, with the reason (fns sharing a reason are named together).
 
+**One card format.** Every fn and context the model reads about, in every mode and every place (static cards, the
+`more_fns` and `more_context` lists, `inspect`, a fn's exposed fns, a refused call, suggestions), is the same XML card,
+written by one renderer: `<fn name label mode available reason>` with its description, args, returns, instructions,
+examples and types as the room allows, and `<context key title>` with its text, the fns it brings and its choices.
+Every value is escaped, so text inside a card can never pass for a tag. A fn the person can't use now still gets its
+card, marked `available="no"` with the reason.
+
+**The systems in the prompt.** The chat agent's system prompt lists the systems available when the chat started, as
+`<systems>` with each one's name, label and description, first in the fixed part of the prompt. The list is kept on the
+session and never changes after the first turn, so prompt caching holds. When a system later goes on or off (the
+person turns it on or off in the chat, an admin switches it, it disconnects or reconnects, it needs config, it waits
+for approval, it is installed or removed), the next user message starts with a `<systems_changed>` block saying what
+went on and what went off, and why, once per change. A system the prompt lists that stays off for a new reason is
+told the new reason. The block is hidden in the chat and undone with the turn, so a retry announces it again. In a
+chat several people share, the change is worked out for the person sending.
+
 ### What gets added to a message
 
 Before the LLM sees a user message, two things may add to it:
@@ -690,6 +706,14 @@ Before the LLM sees a user message, two things may add to it:
   related items score about 0.7, unrelated text about 0.2 to 0.4, and an item needs `HARNESS_SUGGEST_THRESHOLD`
   (0.45) to be suggested. Searches still order hits by fusing the word and meaning ranks. Suggestions are found by
   meaning only: while the embedder can't answer in time, nothing is suggested rather than the best word matches.
+
+  Suggestions are cards in the one XML format, under a line written for the session's mode: in tools mode the model
+  loads them with `hub/load_fns` or `hub/load_context` and then calls them; in static mode it runs one by its name.
+  Each card is fixed when the message is sent (in static mode with its instructions and examples), so the message
+  reads the same later even if the fn changes. Fns the person can't see, or that aren't for the model, are left out;
+  fns they can't use now are shown with `available="no"` and the reason. **Nothing is suggested twice in a chat:** what
+  was suggested is kept on the session in the hub database, and neither the hub nor a hook suggests it again, nor
+  anything the session already has loaded. Undoing a turn gives its suggestions back.
 - **Systems' hooks**: a system can declare a hook and add its own information (the git branch, the open
   ticket). A hook gets the message and the same who-and-when every run gets.
 
@@ -919,6 +943,12 @@ the tightest.
   **mention or import** other context and fns, so loading it brings those along (a "skill").
 - **Indexing:** the hub embeds fns, context and sections with an embedder (from a provider or a system)
   and searches them for suggestions, `get_fn`/`get_context`-style tools and `@` mentions.
+- **Searching context** goes through the one hub search, the same one the model's `find` uses: by words and meaning
+  when an embedder is up, by words alone when not. Each context item is indexed whole and by its heading sections, so
+  a long item is found by the part that matches, and counts once at its best. The Context page's search uses it, with
+  the page's filters (origin, tags, switched off, size, updated…) run as SQL in the same query, and its sorting and
+  paging in the database. Each row found by text shows how well it fits, whether words, meaning or both found it, and
+  the section that matched. A person only ever finds context they may see, private memory included.
 
 ### Context as a graph
 
@@ -1376,7 +1406,7 @@ Already checked: type-checking all of the types and examples takes about two sec
   - Retry is a true redo, and Continue resumes the same run
   - loops are handled by a system prompt rule only
   - systems own their pages (`/s/<system>/<page>`, Claude and widgets now)
-  - api is single instance
+  - api is single instance. Phil (2026-11-19): "API system is like code in that it authors API fns which is code that calls an external service, etc. I hope that's clear, not sure why there was confusion in what the API system does". So api is one instance whose authored fns each call an external service; services are not instances.
   - one XML card format for fns and context, and never suggest the same fn or context twice
   - the suggestions setting is a decision model, an LLM, or none
   - `ModelInfo.maxQuestions` is respected by callers

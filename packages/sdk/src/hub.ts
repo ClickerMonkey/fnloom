@@ -12,7 +12,7 @@ import {
   ADMIN_TAG, adminSlice, chatSlice, CONTENT_HASH_PATTERN, ChatModeConfig, contextorSlice, contextSlice, ContextorConfig, DETAIL_LEVELS, ERROR_CLASSES,
   graphSlice, versionsSlice, dataSlice, ContributionView, ReadTableArgs, ResultTable, RowActionsQuery, WidgetActionOption, mcpsSlice, metricsSlice, accessSlice, autoPairSlice, connectionsSlice, explorerSlice, suggestionsSlice, MintMcpTokenArgs, modelsSlice, OWN_TAG, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, RUN_STATUSES, runsSlice,
   FnLive, GinTypeDef, LIST_NAMES, querySlice, Section, settingsSlice, systemsSlice, LlmContentPart, ModelLimits, LINK_TARGET_KINDS, type Display,
-  FnBlock, FnExample, FnExamplesPage, FnExamplesQuery, FnRouting, FnSearchPage, FnSearchQuery, FnRefusal, LoadContextResult, NameRefusal, ShareRule, type RegistryEffect,
+  FnBlock, FnExample, FnExamplesPage, FnExamplesQuery, FnRouting, FnSearchArgs, FnSearchPage, FnRefusal, LoadContextResult, NameRefusal, ShareRule, type RegistryEffect,
 } from '@harness/core';
 import { z } from 'zod';
 import { fn, type FnExampleOf } from './fn.ts';
@@ -650,7 +650,7 @@ export const hub = system('hub', {
       fns_search: fn({
         description: 'Search fns and context in the hub by words, meaning or both, best first or by name, filtered by kind, system, instance, who shares them, the types they read or write and their mode, a page at a time.',
         instructions: FNS_SEARCH_GUIDE,
-        args: ginAs(FnSearchQuery),
+        args: ginAs(FnSearchArgs),
         returns: ginAs(FnSearchPage),
         examples: FNS_SEARCH_EXAMPLES,
         tags: [READ_TAG],

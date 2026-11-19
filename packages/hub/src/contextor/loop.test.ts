@@ -128,7 +128,7 @@ describe('tools mode with the plain contextor (build 1)', () => {
     const [request] = requests;
     expect(request?.tools?.map((t) => t.name)).toEqual(['fs__read']);
     expect(request?.messages).toEqual([
-      { role: 'system', content: `${instructions}\n\n<context name="fs/guide">\nUse fs/read for files.\n</context>` },
+      { role: 'system', content: `${instructions}\n\n<context key="fs/guide">Use fs/read for files.</context>` },
       { role: 'user', content: 'Hello?' },
     ]);
     expect(request?.maxTokens).toBe(1_024);
@@ -157,8 +157,9 @@ describe('the static toolset', () => {
     expect(first?.tools?.map((t) => t.name)).toEqual(['find', 'inspect', 'load', 'unload', 'run']);
     const system = aeyeText(first?.messages[0]);
     expect(system).toContain('## Loaded fns');
-    expect(system).toContain('### fs/read — Read a text file.');
-    expect(system).toContain('run({ fn: "fs/read", args:');
+    expect(system).toContain('<fn name="fs/read" label="Read"');
+    expect(system).toContain('Read a text file.\n<args>');
+    expect(system).toContain('## Loaded fns — call one with run({ fn, args })');
     expect(fs.requests.map((q) => [q.fn, q.args])).toEqual([['read', { path: 'README.md' }]]);
     const child = (await r.store.table('runs').find({ where: { parent: run }, limit: 5 })).items[0];
     expect(child).toMatchObject({ fn: 'fs/read', status: 'done', toolCallId: 'call_1' });
@@ -182,7 +183,7 @@ describe('the static toolset', () => {
     const transcript = (await r.store.table('sessions').get(SESSION))?.transcript ?? [];
     const replies = transcript.filter((m) => m.role === 'tool').map((m) => say(m));
     expect(replies[0]).toContain('The args don\'t fit fs/read');
-    expect(replies[0]).toContain('Example: run({ fn: "fs/read", args: {"path":"README.md"} })');
+    expect(replies[0]).toContain('<example>{"path":"README.md"}</example>');
     expect(replies[1]).toContain('There is no fn fs/reed you can run here.');
     expect(r.records.filter((rec) => rec.msg === 'agent.invalid-input')).toHaveLength(2);
   });
@@ -192,8 +193,8 @@ describe('the static toolset', () => {
     await r.session({ agent: 'tools/small' });
     r.provider.script(calls([['load', { names: ['fs/grep'] }]]), says('Loaded.'));
     await answer(r, 'tools/small', 'Get grep ready');
-    expect(aeyeText(r.provider.requests[0]?.messages[0])).not.toContain('### fs/grep');
-    expect(aeyeText(r.provider.requests[1]?.messages[0])).toContain('### fs/grep — Search files for a pattern.');
+    expect(aeyeText(r.provider.requests[0]?.messages[0])).not.toContain('<fn name="fs/grep"');
+    expect(aeyeText(r.provider.requests[1]?.messages[0])).toContain('<fn name="fs/grep" label="Grep"');
     expect((await r.store.table('sessions').get(SESSION))?.tools).toEqual(['fs/grep']);
   });
 
@@ -204,7 +205,7 @@ describe('the static toolset', () => {
     r.provider.script(calls([['run', { fn: 'fs/grep', args: { pattern: 'x' } }]]), says('Found two.'));
     await answer(r, 'tools/small', 'grep for x');
     const reply = (await r.store.table('sessions').get(SESSION))?.transcript.find((m) => m.role === 'tool');
-    expect(say(reply)).toBe(`found 2\n\n### fs/read — Read a text file.\nrun({ fn: "fs/read", args: obj{path: text} }) → text`);
+    expect(say(reply)).toMatch(/^found 2\n\n<fn name="fs\/read" label="Read" mode="\w+" available="yes">\nRead a text file\.\n<args>obj\{path: text\}<\/args>\n<returns>text<\/returns>\n<\/fn>$/);
   });
 
   it('speaks the text protocol to a model without tools: blocks become runs, results come back as text, blocks never stream', async () => {
