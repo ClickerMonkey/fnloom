@@ -111,7 +111,7 @@ describe('ViteBuilder', () => {
     const sdk = pathToFileURL(fileURLToPath(new URL('../../sdk/src/index.ts', import.meta.url))).href;
     writeFileSync(module, [
       `import { context, fn, g, system } from '${sdk}';`,
-      "export const notes = system('notes', { description: 'Notes.' }).with({ fns: { add: fn({ description: 'Add.', args: g.obj({}), returns: g.text() }) }, context: { guide: context({ description: 'Guide.', content: 'x' }) } });",
+      "export const notes = system('notes', { description: 'Notes.' }).with({ fns: { add: fn({ description: 'Add.', args: g.obj({}), returns: g.text(), examples: [{ args: {}, note: 'Once.' }] }) }, context: { guide: context({ description: 'Guide.', content: 'x' }) } });",
       "export const lookalike = { name: 'x', defs: {}, with() {} };",
       'export const n = 1;',
     ].join('\n'));
@@ -123,14 +123,14 @@ describe('ViteBuilder', () => {
     const sdk = pathToFileURL(fileURLToPath(new URL('../../sdk/src/index.ts', import.meta.url))).href;
     const contract = (fns: string) => `export const notes = system('notes', { description: 'Notes.' }).with({ fns: { ${fns} } });`;
     const write = (body: string) => { writeFileSync(module, [`import { fn, g, system } from '${sdk}';`, "import { writeFileSync } from 'node:fs';", body].join('\n')); };
-    write(["writeFileSync(" + JSON.stringify(join(root, 'pwned.txt')) + ", 'x');", contract("add: fn({ description: 'Add.', args: g.obj({}), returns: g.text() })")].join('\n'));
+    write(["writeFileSync(" + JSON.stringify(join(root, 'pwned.txt')) + ", 'x');", contract("add: fn({ description: 'Add.', args: g.obj({}), returns: g.text(), examples: [{ args: {}, note: 'Once.' }] })")].join('\n'));
     await expect(builder.contracts(module)).rejects.toThrow(/ERR_ACCESS_DENIED/);
     expect(() => readFileSync(join(root, 'pwned.txt'))).toThrow();
-    write(["import { execSync } from 'node:child_process';", "execSync('echo hi');", contract("add: fn({ description: 'Add.', args: g.obj({}), returns: g.text() })")].join('\n'));
+    write(["import { execSync } from 'node:child_process';", "execSync('echo hi');", contract("add: fn({ description: 'Add.', args: g.obj({}), returns: g.text(), examples: [{ args: {}, note: 'Once.' }] })")].join('\n'));
     await expect(builder.contracts(module)).rejects.toThrow(/permission: 'ChildProcess'/);
-    write(contract("add: fn({ description: 'Add.', args: g.obj({}), returns: g.text() })"));
+    write(contract("add: fn({ description: 'Add.', args: g.obj({}), returns: g.text(), examples: [{ args: {}, note: 'Once.' }] })"));
     expect((await builder.contracts(module))[0]?.fns).toEqual(['notes/add']);
-    write(contract("add: fn({ description: 'Add.', args: g.obj({}), returns: g.text() }), remove: fn({ description: 'Remove.', args: g.obj({}), returns: g.text() })"));
+    write(contract("add: fn({ description: 'Add.', args: g.obj({}), returns: g.text(), examples: [{ args: {}, note: 'Once.' }] }), remove: fn({ description: 'Remove.', args: g.obj({}), returns: g.text(), examples: [{ args: {}, note: 'Once.' }] })"));
     expect((await builder.contracts(module))[0]?.fns).toEqual(['notes/add', 'notes/remove']);
   }, 60_000);
 

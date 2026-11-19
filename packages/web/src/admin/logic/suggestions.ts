@@ -1,5 +1,5 @@
 /**
- * The suggestions setting's form, pure: who picks (no model, a decision model or an LLM), each chooser's model as a
+ * The suggestions setting's form, pure: who picks (a decision model, an LLM, or none: no suggestions), each chooser's model as a
  * chosen id, and the numbers as typed, read into the hub's `SuggestDecision` with one plain problem; the setting in
  * words for its row; and a try-out's outcomes split into used and left out.
  */
@@ -12,7 +12,7 @@ import type { IconName } from '../../ui/index.ts';
 
 /** Each chooser in words, for the switch between them and the setting's row. */
 export const CHOOSER_WORDS = {
-  none: { label: 'No model', icon: 'filter', about: 'The best candidates over the score threshold are suggested.' },
+  none: { label: 'No suggestions', icon: 'eye-off', about: 'Nothing is suggested: no fns and no context are offered with a message.' },
   decision: { label: 'Decision model', icon: 'sparkles', about: 'A decision model answers one yes/no question per candidate; those at the Decisions role’s threshold or more are suggested.' },
   llm: { label: 'LLM', icon: 'chat', about: 'A chat model reads the candidates and the person’s last messages, and picks with reasons.' },
 } as const satisfies Record<SuggestionChooser, { label: string; icon: IconName; about: string }>;
@@ -35,7 +35,7 @@ function modelId(model: RoleModel | undefined): string {
   return model !== undefined && 'model' in model.model ? model.model.model : '';
 }
 
-/** The form filled from the stored setting (the numbers' defaults when no model picks). */
+/** The form filled from the stored setting (the numbers' defaults when suggestions are off). */
 export function decisionDraft(view: SuggestDecisionView | undefined): DecisionDraft {
   const value = view?.value ?? SUGGEST_DECISION_DEFAULT;
   const numbers = value.by === 'none' ? SuggestPicking.parse({}) : value;
@@ -76,12 +76,12 @@ export function chooserModels(by: SuggestionChooser, models: readonly ModelInfo[
 }
 
 /**
- * The setting in words, for its row: "No model: the score threshold decides", or "judge decides · last 3 messages ·
+ * The setting in words, for its row: "No suggestions", or "judge decides · last 3 messages ·
  * up to 6 of 20 above 0.35".
  */
 export function decisionModelText(view: SuggestDecisionView | undefined): string {
   const value = view?.value ?? SUGGEST_DECISION_DEFAULT;
-  if (value.by === 'none') { return 'No model: the score threshold decides'; }
+  if (value.by === 'none') { return 'No suggestions: nothing is offered with a message'; }
   const model = modelId(value.model) || (value.by === 'decision' ? 'The Decisions role’s model' : 'A model');
   return `${model} ${value.by === 'decision' ? 'decides' : 'picks'} · last ${value.messages} messages · up to ${value.cap} of ${value.candidates} above ${value.floor}`;
 }

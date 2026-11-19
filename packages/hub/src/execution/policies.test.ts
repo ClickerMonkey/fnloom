@@ -96,6 +96,24 @@ describe('the policy engine', () => {
     expect(await policies.decide({ ...ask, fn: 'fs/none' })).toMatchObject({ effect: 'deny' });
   });
 
+  it('asks about a compare variant\'s writes in each variant, whatever a policy or an earlier answer allowed', async () => {
+    const { policies, store } = await engine();
+    await store.table('runs').insert(runRow(write));
+    await store.table('policies').insert(policy({ subject: { everyone: true }, target: { fn: 'fs/write' }, decision: { effect: 'allow' } }));
+    expect(await policies.decide({ ...ask, fn: write.name })).toEqual({ effect: 'allow' });
+    const variant = { turn: TRN, variant: 1, label: 'Fast' };
+    const asked = await policies.decide({ ...ask, fn: write.name, variant });
+    expect(asked).toMatchObject({ effect: 'ask', approval: { fn: 'fs/write', approver: { by: 'turn-user' }, variant } });
+    if (asked.effect !== 'ask') throw new Error('expected ask');
+    // remembered for the session, a variant still asks again (each variant is approved on its own)
+    await policies.answer(asked.approval.id, { by: ALICE, approve: true, remember: 'session' });
+    expect(await policies.decide({ ...ask, fn: write.name, variant, caller: ALICE })).toMatchObject({ effect: 'ask' });
+    // reads go ahead, and a deny still wins
+    expect(await policies.decide({ ...ask, fn: read.name, variant })).toEqual({ effect: 'allow' });
+    await store.table('policies').insert(policy({ subject: { everyone: true }, target: { fn: 'fs/write' }, decision: { effect: 'deny', reason: 'no' }, priority: 9 }));
+    expect(await policies.decide({ ...ask, fn: write.name, variant })).toMatchObject({ effect: 'deny' });
+  });
+
   it('allows a system calling a hub fn that changes only what it owns, and asks anyone else', async () => {
     const { policies, store } = await engine();
     await store.table('actors').put({ id: SHOP_ACTOR, kind: 'system', name: 'shop', about: '', disabled: false, system: SystemName.parse('shop'), createdAt: 0 });

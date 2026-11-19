@@ -79,7 +79,7 @@ export const OUTLINE: readonly Topic[] = [
   {
     id: 'resources',
     title: 'Resources, embedders and sectioners',
-    exports: ['ResourceProvider', 'embedder', 'EmbedderDef', 'EmbedderImpl', 'EmbedderRef', 'sectioner', 'SectionerDef', 'SectionerImpl', 'SectionerRef', 'sectionKeys'],
+    exports: ['ResourceProvider', 'sectioner', 'SectionerDef', 'SectionerImpl', 'SectionerRef', 'sectionKeys'],
   },
   {
     id: 'hub',

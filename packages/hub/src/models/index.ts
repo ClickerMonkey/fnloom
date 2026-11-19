@@ -40,6 +40,8 @@ export interface DecisionModel {
   readonly threshold: number;
   /** The most questions it answers in one call (aeye's `ModelInfo.maxQuestions`); none when it has no cap. */
   readonly maxQuestions?: number;
+  /** The most bytes of input and questions it takes in one call (aeye's `ModelInfo.maxRequestBytes`); none when no cap is known. */
+  readonly maxRequestBytes?: number;
 }
 
 /** Every answer by question name, and the calls that gave them, with what they cost in all. */
@@ -56,7 +58,7 @@ export interface Decider {
    * When there is none, or it can't be used now, why (`problem`), for the caller's record.
    */
   model(choice?: RoleModel): Promise<DecisionModel | { readonly problem: string }>;
-  /** Ask `questions` about `input`, in calls of at most the model's `maxQuestions`, one after another. */
+  /** Ask `questions` about `input`, in calls within the model's `maxQuestions` and `maxRequestBytes`, one after another. */
   ask(request: { input: DecisionInput; questions: DecisionQuestions; model: DecisionModel; site: ModelSite; signal: AbortSignal }): Promise<DecidedAnswers>;
 }
 

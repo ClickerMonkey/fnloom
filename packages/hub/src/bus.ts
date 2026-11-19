@@ -8,7 +8,7 @@
 import type {
   ActorId, Approval, BudgetRule, ChatMessage, DeliveryView, FnRecord, FnStats, HandlerCall, HubMcpId, MessageId, PairingRequest, Presence, QualifiedName, ResourceChange,
   FormKind, OutputLine, ResourceRoot, ResourceUri, RunId, RunUpdate, SessionControls, SessionId, SessionSummary, StateFieldValue, SystemName, SystemStatus, Notification,
-  HubIdentity, ModelRole,
+  HubIdentity, ModelRole, TurnId,
 } from '@harness/core';
 
 /** Every internal event, by name. */
@@ -20,6 +20,8 @@ export interface HubEvents {
   /** A session was deleted for good. */
   'session.deleted': { session: SessionId; participants: readonly ActorId[] };
   'session.controls': { session: SessionId; controls: SessionControls };
+  /** A/B compare: a compared turn of a chat changed (a variant started or settled, or one was chosen). */
+  'turn.compare': { session: SessionId; turn: TurnId };
   'run.update': { run: RunId; fn: QualifiedName; session?: SessionId; update: RunUpdate };
   'state.changed': { session: SessionId; system: SystemName; fields: StateFieldValue[] };
   'delivery': { session: SessionId; delivery: DeliveryView };

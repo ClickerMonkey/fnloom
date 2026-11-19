@@ -14,7 +14,7 @@ import {
 import { computed, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useStores } from '../../state/stores.ts';
-import { copyText, UiButton, UiEmpty, UiPopover, UiSkeleton } from '../../ui/index.ts';
+import { copyText, UiButton, UiEmpty, UiIcon, UiPopover, UiSkeleton } from '../../ui/index.ts';
 import { useTicker } from '../clock.ts';
 import { isRememberable } from '../../components/approvals/rules.ts';
 import { RESULTS_HOST } from '../../components/results/builtin.ts';
@@ -41,6 +41,8 @@ import PendingAnswer from '../components/PendingAnswer.vue';
 import PendingMessage from '../components/PendingMessage.vue';
 import Starters from '../components/Starters.vue';
 import TurnNotice from '../components/TurnNotice.vue';
+import CompareDialog from '../components/CompareDialog.vue';
+import type { CompareVariantInput } from '@harness/core';
 import type { ApprovalView, ComposerHandle, HeaderAction, MessageAction, RenderView, ScrollerHandle, Starter } from '../components/types.ts';
 import UserMessage from '../components/UserMessage.vue';
 import ConfirmDialog from '../../admin/components/ConfirmDialog.vue';
@@ -75,6 +77,8 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   run: [id: RunId]; llm: [id: LlmInteractionId]; details: [turn: TurnId]; tree: [turn: TurnId]; resource: [uri: ResourceUri];
   panel: [panel: ChatPanel]; sessions: []; nav: []; newChat: []; message: [id: MessageId]; shortcuts: []; remove: []; debug: [on: boolean];
+  /** Open an A/B compare (a compared turn) over the chat. */
+  compare: [turn: TurnId];
 }>();
 
 const { chat, toasts, session: auth, connection, layout, data } = useStores();
@@ -366,6 +370,23 @@ function flashNote(text: string): void {
 const confirmingEdit = ref(false);
 const editTurns = computed(() => (composer.editing.value === undefined ? 0 : thread.turnsFrom(composer.editing.value).length));
 
+// ── A/B compare ──────────────────────────────────────────────────────────────
+
+/** The compare dialog, set up from the draft being written. */
+const comparing = ref(false);
+const startingCompare = ref(false);
+
+/** Send the draft answered by the variants, and open the compare. */
+async function startCompare(variants: CompareVariantInput[]): Promise<void> {
+  startingCompare.value = true;
+  const started = await chat.startCompare(props.session, variants);
+  startingCompare.value = false;
+  if (!started.ok) { toasts.error("Couldn't compare", started.problem); return; }
+  comparing.value = false;
+  scroller.value?.toBottom();
+  emit('compare', started.value);
+}
+
 async function send(confirmed = false): Promise<void> {
   if (!confirmed && editTurns.value > 0) { confirmingEdit.value = true; return; }
   confirmingEdit.value = false;
@@ -537,14 +558,22 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
       <template #item="{ item }">
         <div v-if="item.kind === 'day'" class="day" role="separator" data-testid="day-separator"><span>{{ item.label }}</span></div>
         <CacheMissRule v-else-if="item.kind === 'cache-miss'" :at="item.at" :now="now" />
-        <UserMessage
-          v-else-if="item.kind === 'user'" :message="item.message" :mine="item.mine" :author-name="nameOf(item.message.author)" :now="now" :command-name="commandName"
-          :suggestions="messageSuggestions(item.message, record)" :actions="userActions(item.mine)" :quote="quoteOf(item.message)" :flash="flash === item.message.id"
-          :runs="thread.runsOf(item.message)" :view-of="viewOf" :collapsed="(run: RunView) => chat.collapse.isCollapsed(run)" :carried="item.carried" :attachment-view="attachmentView"
-          :hidden="item.hidden"
-          @action="act($event, [item.message])" @quote="quote(item.message)" @mention-hover="showCard" @mention-leave="hideCard" @mention-open="showCard"
-          @suggestion="useSuggestion" @run="emit('run', $event)" @run-toggle="(id, collapsed) => chat.collapse.set(id, collapsed)" @background="thread.toBackground($event)" @link="openLink"
-        />
+        <template v-else-if="item.kind === 'user'">
+          <UserMessage
+            :message="item.message" :mine="item.mine" :author-name="nameOf(item.message.author)" :now="now" :command-name="commandName"
+            :suggestions="messageSuggestions(item.message, record)" :actions="userActions(item.mine)" :quote="quoteOf(item.message)" :flash="flash === item.message.id"
+            :runs="thread.runsOf(item.message)" :view-of="viewOf" :collapsed="(run: RunView) => chat.collapse.isCollapsed(run)" :carried="item.carried" :attachment-view="attachmentView"
+            :hidden="item.hidden"
+            @action="act($event, [item.message])" @quote="quote(item.message)" @mention-hover="showCard" @mention-leave="hideCard" @mention-open="showCard"
+            @suggestion="useSuggestion" @run="emit('run', $event)" @run-toggle="(id, collapsed) => chat.collapse.set(id, collapsed)" @background="thread.toBackground($event)" @link="openLink"
+          />
+          <button
+            v-if="item.message.compared" type="button" class="compared" :data-testid="`compared-${item.message.turn}`"
+            @click="emit('compare', item.message.turn)"
+          >
+            <UiIcon name="columns" :size="14" /><span>Compared answers</span><span class="open">Open</span>
+          </button>
+        </template>
         <AssistantAnswer
           v-else-if="item.kind === 'answer'" :messages="item.messages" :author-name="nameOf(item.author)" :now="now" :streaming="item.streaming" :failed="item.failed"
           :runs-of="(m: ChatMessage) => thread.runsOf(m)" :live-of="(m: ChatMessage) => thread.liveOf(m)" :collapsed="(run: RunView) => chat.collapse.isCollapsed(run)"
@@ -598,7 +627,7 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
         <ComposerMeta
           :agent="agent" :agents="agents" :model="modelLabel(record?.model, caps.value.value?.models ?? [])" :systems="systems" :background="thread.background.value.length" :spent="thread.spent.value" :meter="meter" :compact="compact || narrow"
           :fn-mode="record?.fnMode ?? DEFAULT_FN_MODE" @fn-mode="setFnMode"
-          @settings="emit('panel', 'settings')" @model="emit('panel', 'model')" @agent="switchAgent" @background="thread.background.value[0] && emit('run', thread.background.value[0].id)"
+          @compare="comparing = true" @settings="emit('panel', 'settings')" @model="emit('panel', 'model')" @agent="switchAgent" @background="thread.background.value[0] && emit('run', thread.background.value[0].id)"
         />
       </div>
     </div>
@@ -613,6 +642,11 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
       v-model:open="confirmingRetry" title="Retry this turn?" confirm="Undo and retry" data-testid="confirm-retry"
       body="Retry undoes this turn and starts it again: what its fns changed is undone where they can, the agent forgets the turn, and your message is sent again. The note after says anything that stayed."
       @confirm="retry"
+    />
+
+    <CompareDialog
+      v-if="record" v-model:open="comparing" :session="record" :models="caps.value.value?.models ?? []" :agents="caps.value.value?.agents ?? []" :systems="caps.value.value?.systems ?? []" :draft="composer.text.value"
+      :budget="thread.limits.value?.turn.cost" :busy="startingCompare" :phone="compact || narrow" @start="startCompare"
     />
 
     <UiPopover v-model:open="hoverOpen" :anchor="hoverAnchor" side="top" align="start" label="Mention" :take-focus="false">
@@ -641,6 +675,13 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
 .error { align-self: center; }
 .day { display: flex; align-items: center; gap: var(--space-3); color: var(--text-faint); font-size: var(--text-xs); font-weight: var(--weight-medium); }
 .day::before, .day::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.compared {
+  display: flex; width: fit-content; align-items: center; gap: var(--space-2); margin: var(--space-1) 0 0 auto; padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border); border-radius: var(--radius-full); background: var(--surface); color: var(--text-dim); font: inherit; font-size: var(--text-sm); cursor: pointer;
+  transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.compared:hover { border-color: var(--accent); color: var(--accent); }
+.compared .open { color: var(--accent); font-weight: var(--weight-medium); }
 .typing-others { margin: 0; padding: 0 var(--space-2); color: var(--text-faint); font-size: var(--text-sm); font-style: italic; }
 .dock { padding: 0 var(--space-5) max(var(--space-3), var(--safe-bottom)); background: linear-gradient(to bottom, transparent, var(--bg) var(--space-3)); }
 .dock-inner { display: grid; gap: var(--space-2); width: 100%; max-width: calc(var(--readable) + 120px - 2 * var(--space-5)); margin: 0 auto; }

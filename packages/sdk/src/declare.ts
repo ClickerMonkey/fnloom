@@ -1,12 +1,12 @@
 /**
  * Declaring everything else a contract holds: types, settings, attachments, kinds, context, hooks, mentions,
- * embedders, sectioners and actions. Each builder returns a plain declaration; `system().with()` turns them into
+ * sectioners and actions. Each builder returns a plain declaration; `system().with()` turns them into
  * typed refs.
  */
 import type {
   ActorKind, Audience, CostEstimate, DeclarableRelation, Duration, GinTypeDef, HookBlock, HookInput, Json, KindDescription, KindFnShape, MentionHover, QualifiedName, ResourceStat,
   ResourceUri, Section, SectionKey, PreviewAnswer,
-  SectionMatch, SettingEditor, SettingMerge, StatusTemplates, StepStatus, TypeDisplay, UndoOutcome, Usd,
+  SectionMatch, SettingEditor, SettingMerge, StatusTemplates, StepStatus, TypeDisplay, UndoOutcome,
 } from '@harness/core';
 import { sectionKeys as structuralKeys } from '@aeye/resources/section-keys';
 import { RecordStorage, SectionKey as SectionKeySchema } from '@harness/core';
@@ -364,23 +364,7 @@ export interface MentionImpl<T, V, Cfg = unknown> {
   llm(target: T, ctx: MentionCtx<Cfg>): Promise<string>;
 }
 
-// ─── Embedders and sectioners ─────────────────────────────────────────────────
-
-/** An embed function the hub can index with. */
-export interface EmbedderDef {
-  readonly dimensions: number;
-  /** Most characters per text. */
-  readonly maxInput: number;
-  readonly pricePerMillionTokens: Usd;
-}
-
-/** Declare an embedder. */
-export function embedder(def: EmbedderDef): EmbedderDef {
-  return { dimensions: def.dimensions, maxInput: def.maxInput, pricePerMillionTokens: def.pricePerMillionTokens };
-}
-
-/** An embedder's implementation: one vector per text, in order. */
-export type EmbedderImpl = (texts: string[]) => Promise<number[][]>;
+// ─── Sectioners ───────────────────────────────────────────────────────────────
 
 /** A way of cutting resources into sections, offered to users as a choice for matching resources. */
 export interface SectionerDef {

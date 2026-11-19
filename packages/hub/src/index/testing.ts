@@ -1,8 +1,11 @@
 /**
  * Test rigs for search over a real store with no embedder connected: words alone (FTS5), as the hub searches before an
  * embedder system is up. `wordsIndex` indexes items through the real indexer (`StoreIndexer.upsert`: a context item
- * with its heading sections), and `wordsFnSearch` is the one fns and context search over them.
+ * with its heading sections), and `wordsFnSearch` is the one fns and context search over them. `rigHubAi` is the hub's AI
+ * the index embeds through, over a link rig's systems' providers.
  */
+import type { Providers } from '@aeye/ai';
+import { limiter } from '@ayepi/rate';
 import { ActorId, QualifiedName, type ContextRecord } from '@harness/core';
 import { FixtureCatalog } from '../chat/testing.ts';
 import type { ResourceRouter } from '../link/index.ts';
@@ -14,7 +17,17 @@ import type { FnSearch } from '../fns/index.ts';
 import { StoreFnSearch } from '../fns/search.ts';
 import { HybridSearch } from '../store/hybrid.ts';
 import type { HubStore } from '../store/index.ts';
+import { AeyeLlm, createHubAi, HubAiHooks, SwitchingLlm } from '../execution/ai.ts';
+import { HubLlmGateway } from '../execution/gateway.ts';
+import { InteractionRecorder } from '../execution/interactions.ts';
+import { HubLedger } from '../execution/ledger.ts';
+import { LedgerSpend } from '../execution/spend.ts';
+import { testSettings } from '../execution/testing.ts';
+import type { LinkRig } from '../link/rig.ts';
+import { StoreModelCallLog } from '../metrics/calls.ts';
+import { OfferedProviders, offeredBy, RemoteProvider } from '../models/remote.ts';
 import { EmbedBatcher } from './batch.ts';
+import type { HubEmbeds } from './embedders.ts';
 import { contextText, StoreIndexer } from './indexer.ts';
 import type { Embedders, IndexItem } from './index.ts';
 import { IndexSearch } from './search.ts';
@@ -66,4 +79,35 @@ export function wordsFnSearch(store: HubStore, catalog: Pick<Catalog, 'fn' | 'co
     tuning: { HARNESS_FN_SEARCH_LIMIT: 20, HARNESS_FN_SEARCH_CANDIDATES: 100 },
   });
   return { search, stop: () => batcher.stop() };
+}
+
+/**
+ * The hub's AI over the providers a link rig's systems offer, as the index embeds through it (`HubEmbeds`): the real
+ * hub AI (its hooks price and record every call in the rig's store as a `ModelCall`) behind the real LLM gateway, with
+ * the offered providers swapped in before each call, as the execution module does when they change.
+ */
+export function rigHubAi(rig: LinkRig): HubEmbeds & { readonly calls: StoreModelCallLog } {
+  const offered = new OfferedProviders({ link: rig.links, catalog: rig.catalog, bus: rig.bus, log: rig.log, offered: offeredBy(rig.lifecycle) });
+  const clock = (): number => rig.time.now;
+  const settings = testSettings();
+  const base = { store: rig.store, bus: rig.bus, clock, settings, log: rig.log };
+  const calls = new StoreModelCallLog({ store: rig.store, clock, log: rig.log });
+  const hooks = new HubAiHooks({
+    ...base, ledger: new HubLedger(base, new LedgerSpend(rig.store)), recorder: new InteractionRecorder(base), calls,
+    costs: { addCost: () => Promise.resolve(), addTokens: () => Promise.resolve() }, modelLimit: limiter({ limit: 1_000, window: 60_000 }),
+  });
+  const engine = new SwitchingLlm((providers: Providers) => new AeyeLlm(createHubAi({ providers, hooks, log: rig.log })), {});
+  const gateway = new HubLlmGateway({
+    ...base, llm: engine, models: { resolve: () => Promise.resolve({}) }, queues: { llm: (_priority, task) => task() },
+    runs: { get: () => Promise.resolve(undefined), systemWork: () => Promise.reject(new Error('no system work here')), settle: () => Promise.resolve() },
+  });
+  return {
+    calls,
+    embed: async (input, site, signal, priority) => {
+      const providers: Record<string, RemoteProvider> = {};
+      for (const decl of await offered.list()) { providers[decl.key] = new RemoteProvider(decl.system, decl.provider, () => offered.link(decl.system)); }
+      await engine.use(providers);
+      return gateway.embed(input, site, signal, priority);
+    },
+  };
 }

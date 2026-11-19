@@ -114,7 +114,7 @@ type Approval = {
         kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
         rule: string;
         access: "read" | "write";
-        action: "ask" | "refuse" | "allow";
+        action: "ask" | "allow" | "refuse";
         why: string;
         certain: boolean;
       }[];
@@ -220,6 +220,11 @@ type Approval = {
   ask?: {
     type: TypeDef<any>;
     into: string;
+  } | undefined;
+  variant?: {
+    turn: string;
+    variant: number;
+    label: string;
   } | undefined;
 };
 ```

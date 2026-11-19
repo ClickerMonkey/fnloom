@@ -2,10 +2,25 @@
  * Gin types and expressions on the wire. A gin type travels as its JSON definition (gin's `TypeDef`) and an expression
  * as gin's `ExprDef`; the receiving side rebuilds the real thing with the registry (`registry.parse` for types, the
  * engine for expressions), which checks every key. These schemas only check the outer shape, because gin itself is the
- * full check.
+ * full check. In the API documents (and MCP tool inputs) each one is gin's own strict JSON Schema for it.
  */
-import type { ExprDef, TypeDef } from '@aeye/gin';
+import { buildSchemas, createRegistry, type ExprDef, type Registry, type SchemaOptions, type TypeDef } from '@aeye/gin';
+import { jsonSchema, withJsonSchema, type JsonSchemaObject } from '@ayepi/core';
 import { z } from 'zod';
+
+/** A registry of gin's built-in types and the strict TypeDef / ExprDef schemas over it, made on first use. */
+let ginSchemas: { readonly registry: Registry; readonly bag: SchemaOptions } | undefined;
+
+/** gin's JSON Schema for one of its zod schemas, built over the built-in registry (named types travel by name). */
+function ginJsonSchema(pick: (registry: Registry, bag: SchemaOptions) => z.ZodType): () => JsonSchemaObject {
+  return () => {
+    if (ginSchemas === undefined) {
+      const registry = createRegistry();
+      ginSchemas = { registry, bag: buildSchemas(registry, { namedRefs: true }) };
+    }
+    return jsonSchema(pick(ginSchemas.registry, ginSchemas.bag));
+  };
+}
 
 /** Whether a value is a JSON object (not null, not an array). */
 function isRecord(value: unknown): value is object {
@@ -18,7 +33,10 @@ export function isGinTypeDef(value: unknown): value is TypeDef {
 }
 
 /** A gin type in its JSON wire form. `registry.parse` turns it back into a gin type and checks it fully. */
-export const GinTypeDef = z.custom<TypeDef>(isGinTypeDef, { message: 'Expected a gin type definition ({ name, ... }).' });
+export const GinTypeDef = withJsonSchema(
+  z.custom<TypeDef>(isGinTypeDef, { message: 'Expected a gin type definition ({ name, ... }).' }),
+  ginJsonSchema((_registry, bag) => bag.Type),
+);
 export type GinTypeDef = z.infer<typeof GinTypeDef>;
 
 /** `isGinTypeDef` for an object type; its own function, so `GinObjTypeDef` is told apart from `GinTypeDef`. */
@@ -30,7 +48,10 @@ export function isGinObjTypeDef(value: unknown): value is TypeDef {
  * A gin object type in its JSON wire form (`{ name: 'obj', props }`, or a named type or extension of one): a row, a
  * form's answers. In a fn's args it is gin's `typ<obj>`, so a model is sent the strict obj TypeDef schema.
  */
-export const GinObjTypeDef = z.custom<TypeDef>(isGinObjTypeDef, { message: 'Expected a gin object type definition ({ name: "obj", props: { ... } }).' });
+export const GinObjTypeDef = withJsonSchema(
+  z.custom<TypeDef>(isGinObjTypeDef, { message: 'Expected a gin object type definition ({ name: "obj", props: { ... } }).' }),
+  ginJsonSchema((registry) => registry.typ(registry.obj({})).toValueSchema()),
+);
 
 /** True when `value` has the outer shape of a gin expression: an object with a string `kind`. */
 export function isGinExprDef(value: unknown): value is ExprDef {
@@ -41,5 +62,8 @@ export function isGinExprDef(value: unknown): value is ExprDef {
  * A gin expression in its JSON wire form (a constraint, a default, a program step). The engine parses and checks it;
  * the web's expression editor and viewer draw it.
  */
-export const GinExprDef = z.custom<ExprDef>(isGinExprDef, { message: 'Expected a gin expression ({ kind, ... }).' });
+export const GinExprDef = withJsonSchema(
+  z.custom<ExprDef>(isGinExprDef, { message: 'Expected a gin expression ({ kind, ... }).' }),
+  ginJsonSchema((_registry, bag) => bag.Expr),
+);
 export type GinExprDef = z.infer<typeof GinExprDef>;

@@ -384,7 +384,7 @@ describe('pages', () => {
   it('shows the admin form on a new hub, with the hub checks per field', async () => {
     screen(false);
     const fakes = fakeStores();
-    fakes.api.auth.setup.call = async () => ({ needsAdmin: true, name: 'New hub', version: '1' });
+    fakes.api.auth.setup.call = async () => ({ needsAdmin: true, name: 'New hub', version: '1', sso: [] });
     const router = createAppRouter(fakes.stores.session, createMemoryHistory());
     await router.push('/sign-in');
     const app = mount(App, { attachTo: document.body, global: { plugins: [router], provide: { [STORES]: fakes.stores } } });

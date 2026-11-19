@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AutoPairId, LINK_PROTOCOL, mintId, qualify, type Json, type OutcomeWire, type RunSettled } from '@harness/core';
-import { action, attachment, context, embedder, hook, kind, mention, sectioner, sectionKeys, setting, type } from '../declare.ts';
+import { action, attachment, context, hook, kind, mention, sectioner, sectionKeys, setting, type } from '../declare.ts';
 import { fn, handler, linear, steps } from '../fn.ts';
 import { g } from '../gin.ts';
 import { system } from '../system.ts';
@@ -46,7 +46,6 @@ const notes = system('notes', { description: 'Notes for tests.' })
       hang: fn({ description: 'Ignores its signal.', args: g.obj({}), returns: g.text() }),
     },
     hooks: { recent: hook({ description: 'Recent notes.' }) },
-    embedders: { tiny: embedder({ dimensions: 2, maxInput: 100, pricePerMillionTokens: 0 }) },
     sectioners: { lines: sectioner({ description: 'One section per line.', match: { format: 'text' } }) },
     actions: { rename: action({ description: 'Rename.', input: g.obj({ title: g.text() }), returns: g.text(), state: g.obj({ cwd: g.text() }) }) },
   })
@@ -138,7 +137,6 @@ function impl(overrides: { onPauseCopy?: boolean } = {}): Parameters<typeof serv
       },
     },
     context: { list: async (_args, ctx) => `notes in ${ctx.config.folder} for ${ctx.user.name}` },
-    embedders: { tiny: async (texts) => texts.map((t) => [t.length, 0]) },
     sectioners: { lines: async (text) => sectionKeys(text.split('\n').map((l) => [l])).map((key, i) => ({ key, path: [key], title: key, start: i, end: i + 1 })) },
     actions: { rename: async (input, ctx) => { const { cwd } = await ctx.state.get(); return `${input.title} in ${cwd ?? '-'}`; } },
     resources: {
@@ -512,7 +510,7 @@ describe('calling other fns', () => {
 });
 
 describe('everything else the hub asks', () => {
-  it('runs hooks, mentions, context, embedders, sectioners and actions with who is asking', async () => {
+  it('runs hooks, mentions, context, sectioners and actions with who is asking', async () => {
     const hub = new FakeHub({ config: { folder: '/n' } });
     await start(hub);
     const peer = hub.peer();
@@ -524,7 +522,6 @@ describe('everything else the hub asks', () => {
     expect(await peer.call('mentionText', { ...asker, provider: 'notes', target: { id: 'x' } })).toEqual({ text: 'Note x.' });
     expect(await peer.call('context', { ...asker, name: 'list', args: {} })).toEqual({ text: 'notes in /n for Tess Tester' });
     expect(await peer.call('context', { ...asker, name: 'guide', args: {} })).toEqual({ text: 'Write short notes.' });
-    expect(await peer.call('embed', { embedder: 'tiny', texts: ['ab', 'abc'] })).toEqual({ vectors: [[2, 0], [3, 0]] });
     hub.state.set('delivery:dlv_9', { values: { cwd: '/w' }, version: 1 });
     expect(await peer.call('action', { ...asker, delivery: 'dlv_9', action: 'rename', input: { title: 'T' } })).toEqual({ result: 'T in /w' });  
     await expect(peer.call('action', { ...asker, delivery: 'dlv_9', action: 'rename', input: { title: 3 } })).rejects.toThrow();  

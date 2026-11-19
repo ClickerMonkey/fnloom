@@ -181,11 +181,6 @@ export class SystemRuntime<C extends ContractShape> {
         if (chunk === undefined) { throw reject(404, 'NOT_FOUND', `Content ${data.ref.hash} is not held here.`); }
         return { chunk };
       },
-      embed: async ({ data }) => {
-        const embed = impl.embedders?.[data.embedder];
-        if (embed === undefined) { throw reject(404, 'NOT_FOUND', `No embedder ${data.embedder}.`); }
-        return { vectors: await embed(data.texts) };
-      },
       hook: async ({ data, signal }) => {
         const hook = impl.hooks?.[data.hook];
         if (hook === undefined) { throw reject(404, 'NOT_FOUND', `No hook ${data.hook}.`); }

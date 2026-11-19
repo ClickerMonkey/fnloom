@@ -6,8 +6,12 @@ import { SYSTEM_PART_SECTIONS } from '@harness/core';
 import { z } from 'zod';
 
 /** The admin sections, in the order the admin nav lists them. */
-export const AdminSection = z.enum(['systems', 'fns', 'graph', 'models', 'limits', 'policies', 'actor-settings', 'runs', 'model-calls', 'mcps', 'mcp-servers', 'api-services']);
+export const AdminSection = z.enum(['systems', 'fns', 'graph', 'models', 'limits', 'people', 'policies', 'actor-settings', 'runs', 'model-calls', 'mcps', 'mcp-servers', 'api-services']);
 export type AdminSection = z.infer<typeof AdminSection>;
+
+/** SSO: the People page's tabs (the users tab's URL has no tab). */
+export const PeopleTab = z.enum(['users', 'groups', 'sign-in']);
+export type PeopleTab = z.infer<typeof PeopleTab>;
 
 /** Build 9: one MCP server's tabs. */
 export const McpServerTab = z.enum(['overview', 'tools', 'prompts', 'settings']);

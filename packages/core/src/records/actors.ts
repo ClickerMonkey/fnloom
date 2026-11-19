@@ -4,6 +4,7 @@ import {
   ActorId, ActorKind, ApprovalId, AuthSessionId, FnKindName, HubMcpId, Json, PolicyId, QualifiedName, RunId, SystemName, Timestamp,
 } from '../primitives.ts';
 import { ApprovalPreview, ProposalAsk } from '../approvals.ts';
+import { CompareFork } from './compare.ts';
 import { GinExprDef } from '../gin.ts';
 
 const actorBase = {
@@ -40,7 +41,8 @@ export type Actor = z.infer<typeof Actor>;
 export const UserView = UserActor.pick({ id: true, kind: true, name: true, email: true, role: true, timeZone: true });
 export type UserView = z.infer<typeof UserView>;
 
-export const Membership = z.object({ group: ActorId, user: ActorId, addedBy: ActorId, addedAt: Timestamp });
+/** A user in a group. `provider` marks one an SSO sign-in synced from its claims (a later sign-in takes it away when they stop naming the group). */
+export const Membership = z.object({ group: ActorId, user: ActorId, addedBy: ActorId, addedAt: Timestamp, provider: z.string().optional() });
 export type Membership = z.infer<typeof Membership>;
 
 /** How a user signs in. Hashing is the hub's (`PasswordHasher`). */
@@ -160,5 +162,7 @@ export const Approval = z.object({
   proposed: z.boolean().optional(),
   /** Build 9: the form the approver fills (`ProposeRun.ask`); its value goes in the run's args at `into`. */
   ask: ProposalAsk.optional(),
+  /** A/B compare: the variant whose run asks, so the person sees which answer wants to do it. */
+  variant: CompareFork.optional(),
 });
 export type Approval = z.infer<typeof Approval>;

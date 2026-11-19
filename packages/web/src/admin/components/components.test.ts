@@ -294,8 +294,8 @@ describe('lists and cards', () => {
 
   it('AdminNav links a group each, opens the current group into its sections and marks the current one', () => {
     const nav = mount(AdminNav, { props: { groups: adminNavGroups({ name: 'runs' }, { systems: 3 }) }, global: { stubs } });
-    // six groups, the open one (Runs, Model calls) as two links
-    expect(nav.findAllComponents(RouterLinkStub)).toHaveLength(7);
+    // seven groups (People among them), the open one (Runs, Model calls) as two links
+    expect(nav.findAllComponents(RouterLinkStub)).toHaveLength(8);
     expect(nav.get('[aria-current=page]').text()).toContain('Runs');
     expect(nav.get('[data-testid=admin-nav-model-calls]').text()).toContain('Model calls');
     expect(nav.get('[data-testid=admin-nav-group-systems] .count').text()).toBe('3');

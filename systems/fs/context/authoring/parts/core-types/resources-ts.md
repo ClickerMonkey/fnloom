@@ -33,7 +33,7 @@ const, type · declared in `packages/core/src/resources.ts`
 Every kind of form made from a resource's raw content: the converted versions, then the made ones. See `resource-forms.ts`.
 
 ```ts
-type FormKind = "description" | "table" | "text" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail";
+type FormKind = "code" | "description" | "table" | "text" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail";
 ```
 
 #### <a id="core-link"></a>`Link`
@@ -112,7 +112,7 @@ A link between resources: a folder's child, a code import, a page link.
 ```ts
 type ResourceLink = {
   raw: string;
-  kind: "embed" | "external" | "link" | "import" | "child";
+  kind: "external" | "embed" | "link" | "import" | "child";
   uri?: `${string}://${string}` | undefined;
   title?: string | undefined;
 };
@@ -138,7 +138,7 @@ type ResourceRead = {
   };
   links?: {
     raw: string;
-    kind: "embed" | "external" | "link" | "import" | "child";
+    kind: "external" | "embed" | "link" | "import" | "child";
     uri?: `${string}://${string}` | undefined;
     title?: string | undefined;
   }[] | undefined;
@@ -219,7 +219,7 @@ type Section = {
   start: number;
   end: number;
   embedText?: string | undefined;
-  form?: "description" | "table" | "text" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
+  form?: "code" | "description" | "table" | "text" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
 };
 ```
 
@@ -244,6 +244,6 @@ type SectionMatch = {
   format?: string | undefined;
   mime?: string | undefined;
   glob?: string | undefined;
-  form?: "description" | "table" | "text" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
+  form?: "code" | "description" | "table" | "text" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
 };
 ```

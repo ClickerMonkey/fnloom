@@ -14,7 +14,7 @@ import {
   compact, FN_MODES, INVALID_INPUT_CODE, isSettled, isUnsettled, MAIN_INSTANCE, mintId, problemLine, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
   type ProgressWire, type ResumeWire, type Run, type RunId, type RunInfo, type RunRequest, type RunSettled, type RunStatus, type RunText, type RunUpdate,
   type Turn, type UndoOutcome, type Usd, type RunControlAction, type FnError, type InputProblem, type InvalidInput, type Compact,
-  flagsVerdict, proposalSubjectOf, type SessionId, type ApprovalPreview, type Approver, type PreviewPart, type SensitivityFlag, type InstanceName, type ProposedRun, type ProposeRun, type UserInfo, type QualifiedName, qualify,
+  flagsVerdict, proposalSubjectOf, type CompareFork, type SessionId, type ApprovalPreview, type Approver, type PreviewPart, type SensitivityFlag, type InstanceName, type ProposedRun, type ProposeRun, type UserInfo, type QualifiedName, qualify,
 } from '@harness/core';
 import { z } from 'zod';
 import { HUB_SYSTEM, systemAvailability } from '../catalog/availability.ts';
@@ -339,6 +339,8 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       ...(mode.effect === 'ask' ? { ask: { by: 'turn-user' } } : {}),
       ...(mode.effect === 'allow' ? { autoAllowed: true } : {}),
       ...(await this.#withinParent(fn, parent) ? { withinParent: true } : {}),
+      // an A/B compare's variant (its session is a fork): what would change something asks in each variant
+      ...(await this.#variantOf(input.session)),
       // a per-person fn its person keeps on 'ask first' waits for the connection's owner
       ...(connection?.state === 'ready' && connection.option.ask ? { ask: connection.connection.owner === turn.user.id ? { by: 'turn-user' } : { by: 'actor', actor: connection.connection.owner } } : {}),
     });
@@ -353,6 +355,12 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     }
     if (input.background) await this.background(id);
     return { run: id, settled };
+  }
+
+  /** The compare variant a session is the fork of, if it is one (`Session.fork`). */
+  async #variantOf(session: SessionId | undefined): Promise<{ variant?: CompareFork }> {
+    const fork = session === undefined ? undefined : (await this.#deps.store.table('sessions').get(session))?.fork;
+    return fork === undefined ? {} : { variant: fork };
   }
 
   /** Whether a run of the fn's own system calls it, and that run's fn declares at least the fn's mode (`withinParent`). */

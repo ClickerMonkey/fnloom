@@ -18,7 +18,7 @@ const connected = (system: SystemName): SystemConnection => new TestSystem(syste
 /** A manifest that only contributes visuals. */
 const contributing = (system: SystemName, names: readonly string[]): Manifest => ({
   name: system, description: '', version: '1.0.0', hash: 'h', config: { name: 'object', props: {} }, resources: false, events: [], requires: [],
-  types: [], settings: [], attachments: [], kinds: [], fns: [], context: [], hooks: [], mentions: [], embedders: [], sectioners: [], actions: [],
+  types: [], settings: [], attachments: [], kinds: [], fns: [], context: [], hooks: [], mentions: [], sectioners: [], actions: [],
   contributes: names.map((name) => ({ registry: 'hub/visuals', name, label: name })),
 });
 

@@ -1,4 +1,4 @@
-import { ChatModeConfig, IDS, READ_TAG, SystemName, type ChatMessage, type HookDecl, type Session, type UserInfo } from '@harness/core';
+import { ChatModeConfig, IDS, READ_TAG, SuggestDecision, SystemName, type ChatMessage, type HookDecl, type Session, type UserInfo } from '@harness/core';
 import { fn, g } from '@harness/sdk';
 import { describe, expect, it } from 'vitest';
 import { hookTag, HubMessageEnricher, SUGGESTED_CONTEXT_LINES, SUGGESTED_FNS_LINES, suggestedAfter, suggestedIn } from './enrich.ts';
@@ -13,6 +13,10 @@ const hookDecl = (name: string, order: number): HookDecl => ({ name, description
 async function world(systems: SystemName[] | 'all' = 'all') {
   const w = await chatWorld({ systems });
   const user: UserInfo = { id: w.admin.id, name: 'Ada', email: w.admin.email, role: 'admin', groups: [], timeZone: 'America/New_York', locale: 'en-US' };
+  // a decision model that takes every candidate, so the index's fixtures are what is suggested (no suggestions is the default)
+  w.decisions.role = { model: 'judge', threshold: 0.5 };
+  w.decisions.answer = () => 1;
+  await w.chat.suggestions.set(SuggestDecision.parse({ by: 'decision', floor: 0 }), w.admin.id);
   return { ...w, user };
 }
 

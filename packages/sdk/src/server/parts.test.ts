@@ -286,6 +286,14 @@ describe('client assets', () => {
 describe('the manifest as it is now', () => {
   const tools = system('tools', { description: 'Tools.' }).with({ fns: { a: fn({ description: 'A.', args: g.obj({}), returns: g.text() }) } });
 
+  // regression: the hub stopped calling a system's own embedders when embedders became providers, so one serving them
+  // the old way silently got nothing
+  it('refuses to serve an implementation with the old embedders section, pointing at providers', () => {
+    const old = { fns: { a: { run: () => Promise.resolve(undefined) } }, embedders: { tiny: (texts: string[]) => Promise.resolve(texts.map(() => [0])) } };
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- an old-style implementation the types no longer allow
+    expect(() => new SystemTable(tools, old as never)).toThrow(/system tools's implementation: `embedders` is no longer a section.*providers/s);
+  });
+
   it('includes fns added at runtime, and a change changes the hash', async () => {
     const table = new SystemTable(tools, implTable<typeof tools.defs>({ fns: { a: { async run(_x, ctx) { return ctx.done('a'); } } } }));
     const state = new ManifestState(table, { version: '1' });

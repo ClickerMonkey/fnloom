@@ -54,7 +54,7 @@ which ones do.
 
 | Endpoint (ws) | What it does | Body | Returns | Who | SDK |
 | --- | --- | --- | --- | --- | --- |
-| `manifest` (`mf`) | Sends the whole contract. The hub imports it into the catalog. | `Manifest`: `name`, `version`, `description`, `hash`, the 11 sections (`types`, `settings`, `attachments`, `kinds`, `fns`, `context`, `hooks`, `mentions`, `embedders`, `sectioners`, `actions`), `events`, `resources: boolean`, `client?`, `config: GinTypeDef`, `requires`, `providers?`, `connect?`, `registries?`, `contributes?`, `configSecrets?` | `ImportReport`: `added`, `updated`, `removed`, `refused: [{name, problems}]` | Refused unless `name` is the linked system | host.ts:453, after `Welcome.sendManifest` |
+| `manifest` (`mf`) | Sends the whole contract. The hub imports it into the catalog. | `Manifest`: `name`, `version`, `description`, `hash`, the 10 sections (`types`, `settings`, `attachments`, `kinds`, `fns`, `context`, `hooks`, `mentions`, `sectioners`, `actions`; embedders are `providers`' embedding models), `events`, `resources: boolean`, `client?`, `config: GinTypeDef`, `requires`, `providers?`, `connect?`, `registries?`, `contributes?`, `configSecrets?` | `ImportReport`: `added`, `updated`, `removed`, `refused: [{name, problems}]` | Refused unless `name` is the linked system | host.ts:453, after `Welcome.sendManifest` |
 | `patch` (`mp`) | A runtime change to the contract: entries to add or replace, and names to remove, in any of the 11 sections. The hub folds it into the stored manifest and re-imports. | `hash: string`, `upsert: {<section>?: Decl[]}`, `remove: {<section>?: LocalName[]}` | `ImportReport` | Linked system; refused if no manifest was imported yet | `RunningSystem.add(name, def, impl?)`, `.remove(fnRef)` (fns only), `.types(upsert, remove)` (`sdk/src/server/index.ts:64-73`) |
 
 `patch` cannot change the top-level manifest fields (`providers`, `registries`, `contributes`, `connect`, `events`,
@@ -150,7 +150,6 @@ Adding and removing types goes through `patch` ([1.2](#12-contract-manifest-runt
 | `context` (`cx`) | Text for dynamic context (a `/command` or a load). |
 | `roots` (`ro`), `list` (`ls`), `stat` (`sa`), `read` (`rd`), `sections` (`sc`), `watch` (`wa`) | The resource service. |
 | `content` (`ct`) | A slice of content the system holds. |
-| `embed` (`em`) | Run one of the system's embedders. |
 | `hook` (`hk`) | Run a message hook. |
 | `mentions` (`mn`), `mentionHover` (`mh`), `mentionText` (`mt`) | `@` mention search, hover card and LLM text. |
 | `event` (`ev`) | A hub event the system subscribed to. |
@@ -283,6 +282,9 @@ Each runs the same read as its web endpoint, as the run's person (`boot/read-fns
 | `hub/set_actor_setting` | Set a declared setting for a user, group or agent. | `setting`, `actor`, `value` |
 | `hub/add_user` | Add a person who can sign in. | `email`, `name`, `role`, `groups?` |
 | `hub/add_group` | Add a group. | `name`, `about`, `members?` |
+| `hub/update_user` | Change a person's name, role or sign-in (never the break-glass admin's role or sign-in, nor your own). | `user`, `name?`, `role?`, `disabled?` |
+| `hub/set_membership` | Put a person in a group or take them out. | `group`, `user`, `member` |
+| `hub/set_sign_in_policy` | Who may make an account at their first SSO sign-in. | `mode` (`invite`, `domains` with `domains`, `anyone`) |
 | `hub/remove_rule` | Remove a budget, priority rule, policy, category or provider. | `kind`, `id` |
 | `hub/approve_pairing` | Approve or refuse a pairing, optionally naming the instance and setting config. | `pairing`, `approve`, `instance?`, `config?`, `autoPair?` |
 | `hub/create_pairing_token` | Make a one-time pairing token. | `name?`, `expiresIn`, `autoPair?` |
@@ -342,14 +344,17 @@ slice (`hub/src/api/web/*.ts`). `[admin]` marks a slice behind `adminOnly`.
 - `/mcp/<slug>` (hub MCPs)
 - `/clients/*` (systems' client builds)
 - `/connect/callback` (OAuth return)
+- `/auth/sso/<provider>/start` and `/auth/sso/callback` (SSO sign-in through an OpenID provider)
 - `/link` (the system link socket)
 
 | Slice | Endpoint | Purpose |
 | --- | --- | --- |
-| auth | `setup` | Whether the admin account still needs making. |
-| | `createAdmin` | Make the single admin account. |
-| | `signIn`, `refresh`, `signOut` | Tokens. |
-| | `me` | The signed-in user. |
+| auth | `setup` | Whether the admin account still needs making, and the SSO providers to offer. |
+| | `createAdmin` | Make the admin account (the bootstrap, break-glass admin). |
+| | `signIn`, `refresh`, `signOut` | Tokens (a password sign-in is the break-glass admin's only, once SSO is on). |
+| | `me`, `account` | The signed-in user; their own account with how they sign in and their groups. |
+| people [admin] | `people`, `groups`, `groupMembers` | SSO: people and groups by the `users` and `groups` lists. |
+| | `signInSettings`, `checkSsoProvider`, `testSsoSignIn`, `ssoTestResult` | The env providers (read-only), their check and a test sign-in. |
 | chat | `capabilities` | What the composer may offer. |
 | | `types` | Type definitions for browser forms. |
 | | `sessions`, `session` | List and get sessions. |
@@ -385,7 +390,8 @@ slice (`hub/src/api/web/*.ts`). `[admin]` marks a slice behind `adminOnly`.
 | settings [admin] | `configureProvider`, `providers` | Model providers. |
 | | `setModelCategory`, `setBudget`, `setPriority`, `setPolicy` | Rules. |
 | | `setActorSetting` | Actor settings. |
-| | `addUser`, `addGroup` | People. |
+| | `addUser`, `addGroup`, `updateUser`, `setMembership` | People. |
+| | `setSignInPolicy` | SSO: who may make an account at their first sign-in. |
 | admin [admin] | `systemFns`, `systemLogs` (+ `systemLog` event) | A system's fns and output. |
 | | `models`, `modelCategories`, `budgets`, `priorityRules`, `policies`, `actors`, `actorSettings` | Reads for the admin pages. |
 | | `resolveLimits` | Limits a user would get. |

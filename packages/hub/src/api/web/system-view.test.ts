@@ -6,13 +6,13 @@
 import { ActorId, FnExampleRecord, InstanceName, MAIN_INSTANCE, mintId, QualifiedName, SystemName, type ListQuery } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { StoreCatalog } from '../../catalog/catalog.ts';
-import { instanceRow, manifestFor, shop, systemRow } from '../../catalog/fixtures.ts';
+import { instanceRow, manifestFor, shop, systemRow, vectors } from '../../catalog/fixtures.ts';
 import { openScope } from '../../access/index.ts';
 import { queryEnv } from '../../query/env.ts';
 import { HubQuery } from '../../query/service.ts';
 import { listSources } from '../../query/sources.ts';
 import { memoryLog, RecordingBus, testStore } from '../../testing.ts';
-import { partCount } from '../system-parts.ts';
+import { partCount, systemParts } from '../system-parts.ts';
 import { systemView } from './systems.ts';
 import { NO_FN_SEARCH } from '../../index/testing.ts';
 
@@ -32,6 +32,24 @@ async function world() {
   await store.table('instances').put(instanceRow('fleet', 'connected', { instance: InstanceName.parse('desk') }));
   return { store, catalog, manifest };
 }
+
+describe('a system’s embedders', () => {
+  // embedders are providers now: the parts list them from the providers' embedding models, not a manifest section
+  it('lists each embedding model of its providers as an embedder, beside the provider, and counts them', async () => {
+    const store = await testStore();
+    const catalog = new StoreCatalog({ store, bus: new RecordingBus(), log: memoryLog().log, clock: () => 1, describer: { describe: () => Promise.resolve({ problems: [] }) } });
+    const manifest = await manifestFor(vectors);
+    await catalog.importManifest(manifest);
+    const VECTORS = SystemName.parse('vectors');
+    const { parts } = await systemParts({ store, catalog, link: { lifecycle: { offItems: () => Promise.resolve([]) } } }, VECTORS);
+    expect(parts.filter((p) => p.section === 'providers').map((p) => p.name)).toEqual(['vectors/local']);
+    expect(parts.filter((p) => p.section === 'embedders').map((p) => [p.name, p.about, p.on])).toEqual([
+      ['vectors/document', 'Text, 3 dimensions', true], ['vectors/query', 'Text, 3 dimensions', true],
+    ]);
+    expect(parts.find((p) => p.name === 'vectors/document')?.decl).toMatchObject({ provider: 'local', id: 'document', dimensions: 3 });
+    expect(await partCount({ store }, VECTORS, manifest)).toBe(3);
+  });
+});
 
 describe('systemView', () => {
   it('counts what a system has in the database, and says whether it runs one instance', async () => {

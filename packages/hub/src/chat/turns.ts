@@ -6,7 +6,7 @@
  * `finish`; `settle` closes the turn and tells people who are away.
  */
 import {
-  ACTIVE_RUN_STATUSES, isHiddenPart, mintId, splitName, type ActorId, type AgentActor, type Asker, type ChatMessage, type ClientInfo, type InstanceName, type Json, type MessageId, type MessagePart, type OutgoingPart, type SuggestionRecord,
+  ACTIVE_RUN_STATUSES, isHiddenPart, mintId, splitName, type ActorId, type CompareVariantInput, type AgentActor, type Asker, type ChatMessage, type ClientInfo, type InstanceName, type Json, type MessageId, type MessagePart, type OutgoingPart, type SuggestionRecord,
   type QualifiedName, type ResolvedLimits, type Run, type RunId, type RunSettled, type Session, type SessionId, type SystemName, type Turn, type TurnId, type TurnStart, type UserInfo,
 } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
@@ -20,6 +20,7 @@ import { AGENT_KIND } from '../execution/index.ts';
 import { isAttached, type AttachedPart, type MentionService, type MessageEnricher, type NotificationService, type PresenceTracker, type ReplyRule, type TurnEnd, type TurnService } from './index.ts';
 import type { People } from './people.ts';
 import { continuableTurn, UNTITLED, type StoreSessionService } from './sessions.ts';
+import type { StoreCompareService } from './compare.ts';
 import type { StreamBuffer } from './streams.ts';
 import { allowsSystem, clip, participantOf, peopleOf, unmark } from './support.ts';
 import { allRows } from '../store/rows.ts';
@@ -77,6 +78,7 @@ export interface TurnParts {
   readonly notifications: NotificationService;
   readonly presence: PresenceTracker;
   readonly streams: StreamBuffer;
+  readonly compare: StoreCompareService;
 }
 
 /** Turns on the store. */
@@ -89,9 +91,14 @@ export class StoreTurnService implements TurnService {
     this.#parts = parts;
   }
 
-  async send(input: { session: SessionId; author: ActorId; parts: OutgoingPart[]; replyTo?: MessageId; replyAll?: boolean; client: ClientInfo }): Promise<{ turn: TurnId; message: ChatMessage }> {
+  async send(input: {
+    session: SessionId; author: ActorId; parts: OutgoingPart[]; replyTo?: MessageId; replyAll?: boolean; client: ClientInfo; variants?: readonly CompareVariantInput[] | undefined;
+  }): Promise<{ turn: TurnId; message: ChatMessage }> {
     if (!input.parts.some((part) => part.type !== 'text' || part.text.trim() !== '')) { throw new ChatError('invalid', 'A message needs something in it.'); }
     const { session, user, asker } = await this.#begin(input.session, input.author, input.client);
+    // an A/B compare: the variants answer, each in a fork of the chat, instead of its agents (`chat/compare.ts`)
+    const variants = input.variants;
+    if (variants !== undefined) { await this.#parts.compare.check(variants); }
     const repliedTo = input.replyTo === undefined ? undefined : await this.#repliedTo(session, input.replyTo);
     const access = await this.#deps.access.scope(input.author);
     const commanded = await this.#commands(session, input.parts, access);
@@ -108,23 +115,30 @@ export class StoreTurnService implements TurnService {
       id: mintId('message', this.#deps.random), session: session.id, turn, author: input.author, role: 'user', parts: [...parts, ...extraParts], runs: [], status: 'done',
       ...(input.replyTo === undefined ? {} : { replyTo: input.replyTo }), replyAll: input.replyAll ?? false, answerers: [], createdAt: now,
       ...(suggestions === undefined ? {} : { suggestions }),
+      ...(variants === undefined ? {} : { compared: true as const }),
     };
-    const answerers = this.#parts.reply.answerers({ session, message: draft, ...(repliedTo === undefined ? {} : { repliedTo }) });
+    const answerers = variants === undefined ? this.#parts.reply.answerers({ session, message: draft, ...(repliedTo === undefined ? {} : { repliedTo }) }) : [];
     const message: ChatMessage = { ...draft, answerers: [...answerers] };
-    const record = this.#turn({ id: turn, session, message: message.id, user, actor: asker.actor, client: input.client, limits, running: answerers.length > 0 });
+    const record = this.#turn({ id: turn, session, message: message.id, user, actor: asker.actor, client: input.client, limits, running: answerers.length > 0 || variants !== undefined });
     await this.#deps.store.tx(async (store) => {
       await store.table('turns').insert(record);
       await store.table('messages').insert(message);
     });
     this.#deps.log.info('chat.turn.sent', { session: session.id, turn, message: message.id, answerers: answerers.length, parts: message.parts.length });
     this.#deps.bus.publish('message', { message });
-    await this.#parts.sessions.save(session.id, {
+    const saved = await this.#parts.sessions.save(session.id, {
       ...this.#sessionAfterSend(session, message, text, await this.#loads(session, extraParts, access), commanded),
       // what the model now knows about the systems (`chat/announce.ts`)
       ...(announcedSystems === undefined ? {} : { announcedSystems }),
+      ...(variants === undefined ? {} : { status: 'running' as const }),
     });
     await this.#notifyMessage(session, message, repliedTo);
-    await this.#wake(session, record, answerers);
+    if (variants === undefined) {
+      await this.#wake(session, record, answerers);
+    } else {
+      const end = await this.#parts.compare.fork({ session: saved, turn: record, variants });
+      if (end !== undefined) { await this.settle(turn, end); }
+    }
     return { turn, message };
   }
 
@@ -273,6 +287,14 @@ export class StoreTurnService implements TurnService {
     await this.#deps.store.table('turns').update(id, { status, endedAt: this.#deps.clock() });
     this.#deps.log.info('chat.turn.settled', { turn: id, session: turn.session, status });
     if (turn.session === undefined) { return; }
+    // a compare variant's turn: its fork rests, and the compared turn ends once every variant has
+    const fork = (await this.#deps.store.table('sessions').get(turn.session))?.fork;
+    if (fork !== undefined) {
+      await this.#deps.store.table('sessions').update(turn.session, { status: 'idle' });
+      const end = await this.#parts.compare.settled(fork.turn);
+      if (end !== undefined) { await this.settle(fork.turn, end); }
+      return;
+    }
     const running = await this.#deps.store.table('turns').count({ session: turn.session, status: 'running' });
     const session = running === 0 ? await this.#parts.sessions.save(turn.session, { status: 'idle' }) : await this.#deps.store.table('sessions').get(turn.session);
     this.#deps.bus.publish('session.controls', { session: turn.session, controls: await this.#parts.sessions.controls(turn.session) });

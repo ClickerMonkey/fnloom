@@ -37,7 +37,7 @@ export interface EmbedBatcherOptions {
 }
 
 /** Embed a batch: the items grouped by embedder, one call each, the vectors put back in item order. */
-function embedAll(embedders: Embedders): (items: EmbedItem[]) => Promise<number[][]> {
+function embedAll(embedders: Embedders, lane: EmbedLane): (items: EmbedItem[]) => Promise<number[][]> {
   return async (items) => {
     const out: number[][] = new Array<number[]>(items.length);
     const byEmbedder = new Map<QualifiedName, number[]>();
@@ -45,7 +45,7 @@ function embedAll(embedders: Embedders): (items: EmbedItem[]) => Promise<number[
     for (const [name, indexes] of byEmbedder) {
       const embedder = embedders.get(name);
       if (embedder === undefined) { throw new Error(`the embedder ${name} is not connected`); }
-      const vectors = await embedder.embed(indexes.map((i) => items[i]?.input ?? ''));
+      const vectors = await embedder.embed(indexes.map((i) => items[i]?.input ?? ''), lane);
       indexes.forEach((at, i) => { out[at] = vectors[i] ?? []; });
     }
     return out;
@@ -58,7 +58,7 @@ function laneWork<L extends EmbedLane>(lane: L, options: EmbedBatcherOptions) {
     size: options.size,
     maxWait: options.wait,
     retry: { attempts: 1 },
-    run: embedAll(options.embedders),
+    run: embedAll(options.embedders, lane),
     queue: memoryQueue(),
     doer: priorityDoer({ max: options.concurrency[lane] }),
     logContext: (item: EmbedItem) => ({ embedder: item.embedder, lane }),

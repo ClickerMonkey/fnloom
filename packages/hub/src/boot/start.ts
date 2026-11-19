@@ -21,6 +21,7 @@ import { FILES_PATH, HttpFront } from '../api/http.ts';
 import { generateVapidKeys, webPushSender, type PushSender } from '../api/push.ts';
 import { ClientBuildRoute, WebAppRoute } from '../api/serve.ts';
 import { ConnectCallbackRoute } from '../api/connect.ts';
+import { SsoRoute } from '../api/sso-route.ts';
 import { NamedContentFiles } from '../api/files.ts';
 import { openContentFiles } from '../resources/storage.ts';
 import { firstRow } from '../store/rows.ts';
@@ -141,7 +142,7 @@ export async function startHub(options: StartOptions & StartSeams): Promise<Runn
     const front = new HttpFront({
       web, link, mcp: { fetch: (request) => hub.mcp.endpoints.handle(request) }, health: { live: () => lc.isLive(), ready: () => lc.isReady() }, heartbeat: settings.httpEnv.HARNESS_WS_HEARTBEAT,
       tokenMargin: settings.httpEnv.HARNESS_WS_TOKEN_MARGIN, clock, log,
-      files: [new ConnectCallbackRoute(() => hub.connections), new ClientBuildRoute({ catalog: hub.catalog, content: api.content, lifecycle: () => hub.link.lifecycle }), new WebAppRoute(webDist(settings), api.identity)],
+      files: [new ConnectCallbackRoute(() => hub.connections), new SsoRoute(() => api.sso), new ClientBuildRoute({ catalog: hub.catalog, content: api.content, lifecycle: () => hub.link.lifecycle }), new WebAppRoute(webDist(settings), api.identity)],
       tokenExpiry: (token) => accessTokenExpiry(token, keys.jwtSecret),
     });
     const onError = (error: unknown, phase: string, plugin: string): void => { log.warn('plugin.teardown.failed', { phase, plugin }, error); };

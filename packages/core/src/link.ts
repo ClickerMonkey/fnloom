@@ -403,7 +403,6 @@ export const systemLinkSpec = spec({
     sections: endpoint({ body: z.object({ sectioner: z.string(), uri: ResourceUri, version: z.string() }), response: z.array(Section), ws: 'sc' }),
     watch: endpoint({ body: z.object({ uris: z.array(ResourceUri), on: z.boolean() }), ws: 'wa' }),
     content: endpoint({ body: z.object({ ref: ContentRef, offset: z.number().int().min(0), length: z.number().int().min(1) }), response: z.object({ chunk: z.string() }), ws: 'ct' }),
-    embed: endpoint({ body: z.object({ embedder: z.string(), texts: z.array(z.string()) }), response: z.object({ vectors: z.array(z.array(z.number())) }), ws: 'em' }),
     hook: endpoint({ body: z.object({ hook: z.string(), message: HookInput }), response: z.array(HookBlock), ws: 'hk' }),
     /** `@` search. */
     mentions: endpoint({

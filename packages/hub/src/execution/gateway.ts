@@ -110,8 +110,8 @@ export class HubLlmGateway implements LlmGateway {
     await task;
   }
 
-  embed(input: EmbedCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<number[][]>> {
-    return this.#call(site, signal, (ctx) => this.#deps.llm.embed(input, ctx, signal));
+  embed(input: EmbedCall, site: ModelSite, signal: AbortSignal, priority?: Priority): Promise<Recorded<number[][]>> {
+    return this.#call(site, signal, (ctx) => this.#deps.llm.embed(input, ctx, signal), priority);
   }
 
   image(input: ImageCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<MadeImage[]>> {

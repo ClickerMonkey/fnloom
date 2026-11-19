@@ -1,5 +1,5 @@
 import { ConnectKey, ContextDecl, GinTypeDef, QualifiedName, SystemName, type FnDecl, type KindDescription, type Manifest } from '@harness/core';
-import { embedder, g, system, wireType } from '@harness/sdk';
+import { g, wireType } from '@harness/sdk';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { manifestHashOf, StoreCatalog } from './catalog.ts';
 import { ADMIN, declOf, manifestFor, orders, shop, systemRow } from './fixtures.ts';
@@ -490,15 +490,9 @@ describe('types and values', () => {
 
   it('lists fns by name and availability', async () => {
     const { catalog } = await setup();
-    // a manifest's embedders section is still catalogued (the index now takes embedders from providers' embedding models)
-    const vectors = system('vectors', { description: 'Embeddings.' }).with({
-      embedders: { document: embedder({ dimensions: 3, maxInput: 100, pricePerMillionTokens: 0 }), query: embedder({ dimensions: 3, maxInput: 100, pricePerMillionTokens: 0 }) },
-    });
     await catalog.importManifest(await manifestFor(shop));
-    await catalog.importManifest(await manifestFor(vectors));
     expect((await catalog.fns({ names: [q('shop/get'), q('shop/none')] })).map((f) => f.name)).toEqual(['shop/get']);
     expect((await catalog.fns({ system: SHOP })).length).toBe(3);
-    expect((await catalog.entries('embedders')).map((e) => e.name)).toEqual(['vectors/document', 'vectors/query']);
   });
 
   it('imports one system at a time', async () => {

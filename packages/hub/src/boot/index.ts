@@ -12,11 +12,12 @@ import type { AnyPlugin } from '@ayepi/plugin';
 import type { ActorId, HandlerCallId, Json, SystemLinkSpec } from '@harness/core';
 import type { Authenticator, ContentStore, EventRelay, PushService, SecretVault } from '../api/index.ts';
 import type { HubIdentityService } from './identity.ts';
+import type { SsoService } from '../api/sso.ts';
 import type { DataService } from '../data/index.ts';
 import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
 import type {
-  ApproverDirectory, DeliveryService, MentionService, MessageEnricher, NotificationService, PresenceTracker, ReplyRule, SessionService, StateService, SuggestionDecider, TurnService, UndoService,
+  ApproverDirectory, CompareService, DeliveryService, MentionService, MessageEnricher, NotificationService, PresenceTracker, ReplyRule, SessionService, StateService, SuggestionDecider, TurnService, UndoService,
 } from '../chat/index.ts';
 import type { AgentLoop, Ledger, LimitResolver, LlmGateway, PolicyEngine, ProviderService, RunService } from '../execution/index.ts';
 import type { Embedders, Indexer, Search, Suggester } from '../index/index.ts';
@@ -73,6 +74,8 @@ export interface HubServices {
     readonly state: StateService; readonly deliveries: DeliveryService; readonly undo: UndoService; readonly mentions: MentionService;
     readonly presence: PresenceTracker; readonly notifications: NotificationService; readonly approvers: ApproverDirectory;
     readonly suggestions: SuggestionDecider;
+    /** A/B compare: a message answered by several variants of the chat's settings, one chosen. */
+    readonly compare: CompareService;
   };
   readonly index: {
     readonly embedders: Embedders; readonly indexer: Indexer; readonly search: Search; readonly suggest: Suggester;
@@ -82,6 +85,8 @@ export interface HubServices {
   readonly api: { readonly auth: Authenticator; readonly content: ContentStore; readonly push: PushService; readonly relay: EventRelay; readonly secrets: SecretVault;
     /** Build 8: the hub's display name. */
     readonly identity: HubIdentityService;
+    /** SSO: sign-in through OpenID Connect providers. */
+    readonly sso: SsoService;
   };
   // build 2
   readonly contextor: ContextorServices;

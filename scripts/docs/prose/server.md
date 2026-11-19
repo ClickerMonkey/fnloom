@@ -14,8 +14,8 @@ The implementation's type is `SystemImpl<(typeof contract)['defs']>`, computed f
 | `context` | dynamic context (no `content`) | `async (args, ctx) => string` |
 | `hooks` | hook | `async (input, ctx) => HookContribution[]` |
 | `mentions` | mention provider | `{ search, hover, llm }` |
-| `embedders` | embedder | `async (texts) => number[][]` |
 | `sectioners` | sectioner | `async (text, stat) => Section[]` |
+| `providers` | model provider | `(ctx) => Provider` (an aeye provider) |
 | `actions` | action | `async (input, ctx) => result` |
 | `resources` | (optional) | a `ResourceProvider` |
 | `events` | (optional) hub event type it handles | `async (event, ctx) => void` |

@@ -10,8 +10,9 @@ import {
 } from '@harness/core';
 import type { RouteLocationRaw, RouteRecordRaw } from 'vue-router';
 import { z } from 'zod';
-import { ApiServiceTab, InstanceTab, LimitsTab, McpServerTab, McpTab, ModelsTab, PartTab, ReviewTab, SystemTab } from '../admin/sections.ts';
+import { ApiServiceTab, InstanceTab, LimitsTab, McpServerTab, McpTab, ModelsTab, PartTab, PeopleTab, ReviewTab, SystemTab } from '../admin/sections.ts';
 import { LlmCallTab, RunTab, TAB_KEYS } from '../chat/logic/inspect.ts';
+import { VariantParam } from '../chat/logic/compare.ts';
 import { BrowserQuery } from '../resources/logic/browse.ts';
 import { ContextBrowseQuery, ContextItemQuery } from '../context/logic/context.ts';
 import { GraphUrl } from '../graph/url.ts';
@@ -55,6 +56,8 @@ export const ROUTES = {
   limits: 'limits',
   policies: 'policies',
   actorSettings: 'actor-settings',
+  /** SSO: people, groups and how people sign in (`/admin/people/<tab>`). */
+  people: 'people',
   runs: 'runs',
   llmCalls: 'llm-calls',
   modelCalls: 'model-calls',
@@ -102,6 +105,8 @@ const CHAT_QUERY = z.object({
   /** Debug mode: the thread shows the messages and parts it hides. */
   debug: z.literal('1'),
   run: RunId, llm: LlmInteractionId, details: TurnId, resource: ResourceUri, panel: ChatPanel,
+  /** A/B compare: the compared turn open over the chat, and the variant shown first (on a phone, the one tab shown). */
+  compare: TurnId, v: VariantParam,
   [TAB_KEYS.run]: RunTab, [TAB_KEYS.llm]: LlmCallTab,
   /** A widget's drill levels (`WidgetLevels` as JSON: whose, and each step's fn, crumb and args). */
   level: z.string(),
@@ -109,7 +114,8 @@ const CHAT_QUERY = z.object({
 
 /** Each page's query keys and the values they take; a page without an entry takes no query. */
 export const QUERIES = {
-  [ROUTES.signIn]: z.object({ next: z.string() }).partial(),
+  /** Where to go after, and why a provider sign-in failed (the hub's redirect back says). */
+  [ROUTES.signIn]: z.object({ next: z.string(), problem: z.string() }).partial(),
   [ROUTES.chat]: CHAT_QUERY,
   [ROUTES.session]: CHAT_QUERY,
   [ROUTES.turnTree]: CHAT_QUERY,
@@ -120,6 +126,8 @@ export const QUERIES = {
   [ROUTES.review]: GraphUrl.extend({ part: PartTab.optional() }),
   [ROUTES.models]: z.object({ q: z.string(), role: ModelRole, model: z.string(), decision: z.literal('1'), classifier: z.literal('1'), images: z.literal('1') }).partial(),
   [ROUTES.limits]: z.object({ user: z.string(), session: SessionId }).partial(),
+  /** The list's words and filters, the person or group open beside it, the add dialog, and a test sign-in's result. */
+  [ROUTES.people]: z.object({ q: z.string(), user: z.string(), group: z.string(), add: z.literal('1'), test: z.string() }).partial(),
   [ROUTES.runs]: z.object({ q: z.string(), run: RunId, [TAB_KEYS.run]: RunTab }).partial(),
   [ROUTES.llmCalls]: z.object({ q: z.string(), call: LlmInteractionId, [TAB_KEYS.llm]: LlmCallTab }).partial(),
   [ROUTES.resources]: BrowserQuery,
@@ -198,6 +206,10 @@ export const links = {
   limits: (tab: LimitsTab = 'budgets'): RouteLocationRaw => ({ name: ROUTES.limits, params: tab === 'budgets' ? {} : { tab } }),
   policies: (): RouteLocationRaw => ({ name: ROUTES.policies }),
   actorSettings: (): RouteLocationRaw => ({ name: ROUTES.actorSettings }),
+  /** SSO: people, groups or how people sign in; `query` narrows the list, opens one, or opens the add dialog. */
+  people: (tab: PeopleTab = 'users', query: RouteQuery<typeof ROUTES.people> = {}): RouteLocationRaw => ({
+    name: ROUTES.people, params: tab === 'users' ? {} : { tab }, ...queryOf(ROUTES.people, query),
+  }),
   /** The runs browser; `query` narrows it (`q`, a written query: `queryParam('runs', ...)`) or opens one (`run`). */
   runs: (query: RouteQuery<typeof ROUTES.runs> = {}): RouteLocationRaw => ({ name: ROUTES.runs, ...queryOf(ROUTES.runs, query) }),
   /** The runs of one fn. */
@@ -327,6 +339,7 @@ export const routes: RouteRecordRaw[] = [
       { path: `models/:tab(${tabs(ModelsTab)})?`, name: ROUTES.models, component: () => import('../admin/views/ModelsView.vue'), meta: { title: 'Models' } },
       { path: `limits/:tab(${tabs(LimitsTab)})?`, name: ROUTES.limits, component: () => import('../admin/views/LimitsView.vue'), meta: { title: 'Budgets' } },
       { path: 'policies', name: ROUTES.policies, component: () => import('../admin/views/PoliciesView.vue'), meta: { title: 'Policies' } },
+      { path: `people/:tab(${tabs(PeopleTab)})?`, name: ROUTES.people, component: () => import('../admin/views/PeopleView.vue'), meta: { title: 'People' } },
       { path: 'actor-settings', name: ROUTES.actorSettings, component: () => import('../admin/views/ActorSettingsView.vue'), meta: { title: 'Actor settings' } },
       { path: 'runs', name: ROUTES.runs, component: () => import('../admin/views/RunsView.vue'), meta: { title: 'Runs' } },
       { path: 'llm', name: ROUTES.llmCalls, component: () => import('../admin/views/LlmCallsView.vue'), meta: { title: 'LLM calls' } },

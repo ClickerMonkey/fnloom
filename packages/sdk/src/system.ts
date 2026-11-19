@@ -6,14 +6,14 @@
 import { ApiGroupDecl, ConfigComponentDecl, ConfigPath, ConnectDecl, ContributionDecl, SystemGrants, SystemName, SystemPageDecl, qualify, systemPageProblems, type SystemPageInput, type ConnectFinish, type ConnectResult, type ConnectStart, type Duration, type RunConnection, type QualifiedName, type SystemEvent, type StopReason } from '@harness/core';
 import type { SystemCtx } from './ctx.ts';
 import type {
-  ActionDef, ActionImpl, AnyContextDef, AnyTypeDef, AttachmentDef, ContextDef, ContextImpl, EmbedderDef, EmbedderImpl, HookDef, HookImpl,
+  ActionDef, ActionImpl, AnyContextDef, AnyTypeDef, AttachmentDef, ContextDef, ContextImpl, HookDef, HookImpl,
   KindDef, KindImpl, MentionDef, MentionImpl, MethodImpl, SectionerDef, SectionerImpl, SettingDef, TypeDef,
 } from './declare.ts';
 import { kindFn, type AnyFnDef, type FnDef, type FnTypes, type TypesOf } from './fn.ts';
 import type { FnImpl } from './impl.ts';
 import { g, type GinType, type Infer } from './gin.ts';
 import type {
-  ActionRef, AttachmentRef, ContextRef, EmbedderRef, FnRef, HookRef, KindRef, MentionRef, Methods, MethodRefs, ProviderRef, SectionerRef, SettingRef, TypeRef,
+  ActionRef, AttachmentRef, ContextRef, FnRef, HookRef, KindRef, MentionRef, Methods, MethodRefs, ProviderRef, SectionerRef, SettingRef, TypeRef,
 } from './refs.ts';
 import { entriesOf, mapValues, type Simplify } from './util.ts';
 import type { ResourceProvider } from './resources.ts';
@@ -31,7 +31,6 @@ export interface ContractShape {
   context: Record<string, AnyContextDef>;
   hooks: Record<string, HookDef>;
   mentions: Record<string, MentionDef<unknown, unknown>>;
-  embedders: Record<string, EmbedderDef>;
   sectioners: Record<string, SectionerDef>;
   actions: Record<string, ActionDef<unknown, unknown, object>>;
   /** Model providers it brings (`provider()`), served by its implementation. */
@@ -47,12 +46,12 @@ export interface ContractShape {
 export type ContractSection = Exclude<keyof ContractShape, 'config' | 'connect'>;
 
 /** The contract sections, in the order the manifest lists them. */
-export const CONTRACT_SECTIONS = ['types', 'settings', 'attachments', 'kinds', 'fns', 'context', 'hooks', 'mentions', 'embedders', 'sectioners', 'actions', 'providers'] as const satisfies readonly ContractSection[];
+export const CONTRACT_SECTIONS = ['types', 'settings', 'attachments', 'kinds', 'fns', 'context', 'hooks', 'mentions', 'sectioners', 'actions', 'providers'] as const satisfies readonly ContractSection[];
 
 /** A contract with nothing in it yet. Its config is the empty object. */
 export interface EmptyContract {
   config: GinType<{}>;
-  types: {}; settings: {}; attachments: {}; kinds: {}; fns: {}; context: {}; hooks: {}; mentions: {}; embedders: {}; sectioners: {}; actions: {}; providers: {};
+  types: {}; settings: {}; attachments: {}; kinds: {}; fns: {}; context: {}; hooks: {}; mentions: {}; sectioners: {}; actions: {}; providers: {};
   connect: undefined;
 }
 
@@ -78,7 +77,6 @@ export interface SystemRefs<N extends string, C extends ContractShape> {
   readonly context: { readonly [K in keyof C['context']]: C['context'][K] extends ContextDef<infer A, boolean> ? ContextRef<Q<N, K>, A> : never };
   readonly hooks: { readonly [K in keyof C['hooks']]: HookRef<Q<N, K>> };
   readonly mentions: { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T, unknown> ? MentionRef<Q<N, K>, T> : never };
-  readonly embedders: { readonly [K in keyof C['embedders']]: EmbedderRef<Q<N, K>> };
   readonly sectioners: { readonly [K in keyof C['sectioners']]: SectionerRef<Q<N, K>> };
   readonly actions: { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, object> ? ActionRef<Q<N, K>, I, R> : never };
   readonly providers: { readonly [K in keyof C['providers']]: ProviderRef<Q<N, K>> };
@@ -126,7 +124,7 @@ export type ConfigOf<C extends ContractShape> = Infer<C['config']>;
 type AnyRefs = { -readonly [K in ContractSection]: Record<string, unknown> };
 
 const EMPTY_SECTIONS = (): { [K in ContractSection]: {} } => ({
-  types: {}, settings: {}, attachments: {}, kinds: {}, fns: {}, context: {}, hooks: {}, mentions: {}, embedders: {}, sectioners: {}, actions: {}, providers: {},
+  types: {}, settings: {}, attachments: {}, kinds: {}, fns: {}, context: {}, hooks: {}, mentions: {}, sectioners: {}, actions: {}, providers: {},
 });
 
 /** A registry a system hosts: what it is for and the data each entry is drawn with (a `ResultTable` for query visuals). */
@@ -220,11 +218,23 @@ function refsOf(system: string, part: Partial<ContractShape>): AnyRefs {
     context: part.context === undefined ? out.context : mapValues(part.context, (_def, key) => ({ ref: 'context', name: q(key) })),
     hooks: part.hooks === undefined ? out.hooks : mapValues(part.hooks, (_def, key) => ({ ref: 'hook', name: q(key) })),
     mentions: part.mentions === undefined ? out.mentions : mapValues(part.mentions, (def, key) => ({ ref: 'mention', name: q(key), target: def.target })),
-    embedders: part.embedders === undefined ? out.embedders : mapValues(part.embedders, (def, key) => ({ ref: 'embedder', name: q(key), dimensions: def.dimensions })),
     sectioners: part.sectioners === undefined ? out.sectioners : mapValues(part.sectioners, (_def, key) => ({ ref: 'sectioner', name: q(key) })),
     actions: part.actions === undefined ? out.actions : mapValues(part.actions, (def, key) => ({ ref: 'action', name: q(key), input: def.input, returns: def.returns })),
     providers: part.providers === undefined ? out.providers : mapValues(part.providers, (_def, key) => ({ ref: 'provider', name: q(key) })),
   };
+}
+
+/**
+ * Embedders are model providers now. A contract part or an implementation that still holds the old `embedders` section
+ * is refused, since the hub would never call it; the message says what to write instead.
+ */
+export function refuseOldEmbedders(where: string, part: object): void {
+  if (!('embedders' in part)) { return; }
+  throw new Error(
+    `${where}: \`embedders\` is no longer a section, so the hub would never call these. An embedder is a model provider now: `
+    + 'declare it under `providers` with provider({ description, models: [{ id, capabilities: [\'embedding\'], dimensions, maxInput, contextWindow, pricing, caching }] }) '
+    + 'and implement it as a function giving an aeye Provider whose `embed` answers (AUTHORING.md, "Model providers").',
+  );
 }
 
 /** Problems with one part of a contract: names declared twice, in this part or before it. */
@@ -248,6 +258,7 @@ function assemble<N extends string, C extends ContractShape>(name: N, extras: Co
     ...refs,
     with<const P extends Partial<ContractShape>>(part: P | ((self: SystemRefs<N, C>) => P)): SystemContract<N, Merge<C, P>> {
       const added = typeof part === 'function' ? part(self) : part;
+      refuseOldEmbedders(`system ${name}`, added);
       const problems = clashes(defs, added);
       if (problems.length > 0) { throw new Error(`system ${name}: ${problems.join('; ')}`); }
       const more = refsOf(name, added);
@@ -349,8 +360,8 @@ export interface Lifecycle<Cfg> {
 
 /**
  * A system's implementation, computed from its contract. It must implement exactly what the contract declares: every
- * native fn, every method of its types, every kind, every dynamic context, hook, mention provider, embedder,
- * sectioner and action.
+ * native fn, every method of its types, every kind, every dynamic context, hook, mention provider,
+ * sectioner, action and model provider.
  */
 export type SystemImpl<C extends ContractShape> =
   Needs<'fns', { readonly [K in NativeFnKeys<C['fns']>]: FnImpl<TypesOf<C['fns'][K]>, ConfigOf<C>> }> &
@@ -359,7 +370,6 @@ export type SystemImpl<C extends ContractShape> =
   Needs<'hooks', { readonly [K in keyof C['hooks']]: HookImpl<ConfigOf<C>> }> &
   Needs<'mentions', { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T, infer V> ? MentionImpl<T, V, ConfigOf<C>> : never }> &
   Needs<'types', { readonly [K in TypesWithMethods<C['types']>]: C['types'][K] extends TypeDef<infer V, infer M extends Methods> ? { readonly [J in keyof M]: MethodImpl<V, TypesOf<M[J]>, ConfigOf<C>> } : never }> &
-  Needs<'embedders', { readonly [K in keyof C['embedders']]: EmbedderImpl }> &
   Needs<'sectioners', { readonly [K in keyof C['sectioners']]: SectionerImpl }> &
   Needs<'actions', { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, infer St> ? ActionImpl<I, R, St, ConfigOf<C>> : never }> &
   Needs<'providers', { readonly [K in keyof C['providers']]: ProviderImpl<ConfigOf<C>> }> &

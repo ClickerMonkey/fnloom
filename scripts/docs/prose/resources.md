@@ -21,9 +21,10 @@ reference provider (`systems/fs/server/resources.ts`).
 
 ### Embedders
 
-An **embedder** is an embed function the hub can index with. Declare it with `embedder({ dimensions, maxInput,
-pricePerMillionTokens })` and implement it as `async (texts) => vectors`, one vector of `dimensions` numbers per text,
-in order. The embedder system (`systems/embedder`) is the reference.
+An **embedder** is a model provider's embedding model (**Model providers**): a model with `capabilities:
+['embedding']` (text) or `['imageEmbedding']` (images) and its vectors' `dimensions`, whose vectors come from the aeye
+provider's `embed`. There is no `embedders` section: a contract or implementation that still has one is refused when
+it is built or served. The embedder system (`systems/embedder`) is the reference.
 
 ### Sectioners
 

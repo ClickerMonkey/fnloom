@@ -13,6 +13,8 @@ export function authApi(hub: Hub) {
     refresh: hub.caller('refresh'),
     signOut: hub.caller('signOut'),
     me: hub.caller('me', { dedupe: true }),
+    /** Your own account: how you sign in and your groups. */
+    account: hub.caller('account', { dedupe: true }),
   };
 }
 

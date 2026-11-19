@@ -105,7 +105,7 @@ type PreviewAnswer = {
         kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
         rule: string;
         access: "read" | "write";
-        action: "ask" | "refuse" | "allow";
+        action: "ask" | "allow" | "refuse";
         why: string;
         certain: boolean;
       }[];
@@ -449,12 +449,6 @@ type PreviewAnswer = {
       target: TypeDef<any>;
       of?: `${string}/${string}` | undefined;
     }[];
-    embedders: {
-      name: string;
-      dimensions: number;
-      maxInput: number;
-      pricePerMillionTokens: number;
-    }[];
     sectioners: {
       name: string;
       description: string;
@@ -462,7 +456,7 @@ type PreviewAnswer = {
         format?: string | undefined;
         mime?: string | undefined;
         glob?: string | undefined;
-        form?: "description" | "table" | "text" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
+        form?: "code" | "description" | "table" | "text" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
       };
     }[];
     actions: {
@@ -505,6 +499,7 @@ type PreviewAnswer = {
         dimensions?: number | undefined;
         maxInput?: number | undefined;
         maxQuestions?: number | undefined;
+        maxRequestBytes?: number | undefined;
       }[];
     }[] | undefined;
     connect?: {
@@ -594,7 +589,7 @@ type PreviewAnswer = {
       } | undefined;
     }[] | undefined;
     configSecrets?: string[] | undefined;
-    runtime?: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "embedders" | "sectioners" | "actions", string[]>> | undefined;
+    runtime?: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "sectioners" | "actions", string[]>> | undefined;
     grants?: {
       hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
       models?: {

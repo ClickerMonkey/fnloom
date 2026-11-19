@@ -97,13 +97,6 @@ export interface MentionRef<N extends QualifiedName, T> {
   readonly target: GinType<T>;
 }
 
-/** A handle to an embedder. */
-export interface EmbedderRef<N extends QualifiedName> {
-  readonly ref: 'embedder';
-  readonly name: N;
-  readonly dimensions: number;
-}
-
 /** A handle to a model provider a system brings; the hub registers it under this name. */
 export interface ProviderRef<N extends QualifiedName> {
   readonly ref: 'provider';

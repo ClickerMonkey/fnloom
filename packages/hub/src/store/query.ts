@@ -27,6 +27,7 @@ const Operator = z.union([
   z.strictObject({ lt: z.unknown() }),
   z.strictObject({ lte: z.unknown() }),
   z.strictObject({ exists: z.boolean() }),
+  z.strictObject({ differsFrom: z.string(), prefix: z.string().optional() }),
 ]);
 
 /** A filter object seen as plain fields. */
@@ -56,6 +57,20 @@ function scalarKind(table: string, layout: Layout, column: string): ColumnKind {
   return kind;
 }
 
+/**
+ * A column that differs from another column of the row (`ColumnCompare`), null-safe (`is distinct from`, on SQLite and
+ * Postgres alike); with a prefix, a constant text is put before the other column's value (`||`), so both must be text.
+ */
+function differs(table: string, layout: Layout, column: string, kind: ColumnKind, other: string, prefix: string | undefined): Condition {
+  const otherKind = scalarKind(table, layout, other);
+  if (prefix === undefined) {
+    if (otherKind !== kind) throw new StoreError('bad-query', `table ${table}: ${column} and ${other} are stored differently and can't be compared`);
+    return sql<SqlBool>`${ref(column)} is distinct from ${ref(other)}`;
+  }
+  if (kind !== 'text' || otherKind !== 'text') throw new StoreError('bad-query', `table ${table}: a prefix compares text columns only, not ${column} with ${other}`);
+  return sql<SqlBool>`${ref(column)} is distinct from (${prefix} || ${ref(other)})`;
+}
+
 /** The condition of a `Where`: every given column must match. */
 export function whereCondition(table: string, layout: Layout, where: unknown): Condition {
   if (where === undefined) return TRUE;
@@ -76,6 +91,7 @@ export function whereCondition(table: string, layout: Layout, where: unknown): C
     else if ('gte' in f) conditions.push(sql<SqlBool>`${ref(column)} >= ${value(f.gte)}`);
     else if ('lt' in f) conditions.push(sql<SqlBool>`${ref(column)} < ${value(f.lt)}`);
     else if ('lte' in f) conditions.push(sql<SqlBool>`${ref(column)} <= ${value(f.lte)}`);
+    else if ('differsFrom' in f) conditions.push(differs(table, layout, column, kind, f.differsFrom, f.prefix));
     else conditions.push(f.exists ? sql<SqlBool>`${ref(column)} is not null` : sql<SqlBool>`${ref(column)} is null`);
   }
   return all(conditions);

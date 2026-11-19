@@ -99,6 +99,19 @@ describe('a session agent', () => {
     expect(stateOf(row)).toMatchObject({ iteration: 1, pending: [], seeded: true });
   });
 
+  it('answers with the chat’s own system prompt when it has one (a compare variant’s, say), instead of its fn’s', async () => {
+    const r = await started();
+    await r.session();
+    await r.store.table('sessions').update(SESSION, { instructions: 'Answer like a pirate.' });
+    const turn = await r.turn({ session: SESSION, text: 'Hi' });
+    r.provider.script(says('Arr.'));
+    const { run } = await r.module.agents.start(agentInput(turn));
+    await runTo(r, run);
+    const system = JSON.stringify(r.provider.requests[0]?.messages[0]);
+    expect(system).toContain('Answer like a pirate.');
+    expect(system).not.toContain('Be helpful.');
+  });
+
   it('answers a tool call it could not start with the reason, and the model can recover', async () => {
     const r = await started();
     r.connect('fs');

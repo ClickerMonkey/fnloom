@@ -106,7 +106,7 @@ describe('SignInForm', () => {
 
   it('makes the admin account on a new hub, checked by the endpoint schema first', async () => {
     const api = fakeApi();
-    api.auth.setup = fakeCaller<'setup'>(async () => ({ needsAdmin: true, name: 'New hub', version: '1' }));
+    api.auth.setup = fakeCaller<'setup'>(async () => ({ needsAdmin: true, name: 'New hub', version: '1', sso: [] }));
     const form = new SignInForm(api.auth, new SessionStore(memoryStore()));
     await form.load();
     expect(form.needsAdmin).toBe(true);

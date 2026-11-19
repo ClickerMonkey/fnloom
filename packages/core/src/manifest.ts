@@ -6,7 +6,7 @@
 import { z } from 'zod';
 import { DeclaredLink } from './context-graph.ts';
 import { GinTypeDef } from './gin.ts';
-import { ActorKind, Audience, LocalName, Duration, FnKindName, InstanceName, Json, QualifiedName, SessionId, SystemName, TurnId, Usd } from './primitives.ts';
+import { ActorKind, Audience, LocalName, Duration, FnKindName, InstanceName, Json, QualifiedName, SessionId, SystemName, TurnId } from './primitives.ts';
 import { SectionMatch, Link } from './resources.ts';
 import { Display, FnLimits, Operations, ProgressDecl, TimeInfo, UserInfo } from './run.ts';
 import { StatusTemplates } from './status.ts';
@@ -140,14 +140,6 @@ export const MODE_RANK: Readonly<Record<FnMode, number>> = { read: 0, write: 1, 
 export function strongerMode(a: FnMode, b: FnMode): FnMode {
   return MODE_RANK[a] >= MODE_RANK[b] ? a : b;
 }
-
-/**
- * How far a chat lets its agent go: `none` offers no fns, `read` / `write` / `delete` allow fns up to that mode, and
- * `auto` asks the hub's classifier model (`AutoClassifier`) about each call above `read`, as Claude Code's auto mode does.
- */
-export const CHAT_FN_MODES = ['none', 'read', 'write', 'delete', 'auto'] as const;
-export const ChatFnMode = z.enum(CHAT_FN_MODES);
-export type ChatFnMode = z.infer<typeof ChatFnMode>;
 
 /** The things in the hub a fn can create, update or remove (`RegistryEffect`). `approvals` are runs awaiting approval. */
 export const REGISTRY_THINGS = ['fns', 'types', 'context', 'resources', 'kinds', 'components', 'examples', 'approvals', 'secrets', 'connections', 'records'] as const;
@@ -328,15 +320,6 @@ export const MentionDecl = z.object({
 });
 export type MentionDecl = z.infer<typeof MentionDecl>;
 
-export const EmbedderDecl = z.object({
-  name: LocalName,
-  dimensions: z.number().int().min(1),
-  /** Most characters per text. */
-  maxInput: z.number().int().min(1),
-  pricePerMillionTokens: Usd,
-});
-export type EmbedderDecl = z.infer<typeof EmbedderDecl>;
-
 export const SectionerDecl = z.object({ name: LocalName, description: z.string(), match: SectionMatch });
 export type SectionerDecl = z.infer<typeof SectionerDecl>;
 
@@ -364,7 +347,7 @@ export const ClientAssets = z.object({
 export type ClientAssets = z.infer<typeof ClientAssets>;
 
 /** The sections of a manifest that a patch can change. */
-export const MANIFEST_SECTION_NAMES = ['types', 'settings', 'attachments', 'kinds', 'fns', 'context', 'hooks', 'mentions', 'embedders', 'sectioners', 'actions'] as const;
+export const MANIFEST_SECTION_NAMES = ['types', 'settings', 'attachments', 'kinds', 'fns', 'context', 'hooks', 'mentions', 'sectioners', 'actions'] as const;
 export const ManifestSection = z.enum(MANIFEST_SECTION_NAMES);
 export type ManifestSection = z.infer<typeof ManifestSection>;
 
@@ -378,7 +361,6 @@ export const MANIFEST_SECTIONS = {
   context: ContextDecl,
   hooks: HookDecl,
   mentions: MentionDecl,
-  embedders: EmbedderDecl,
   sectioners: SectionerDecl,
   actions: ActionDecl,
 } as const satisfies Record<ManifestSection, z.ZodType>;
@@ -395,7 +377,6 @@ const sections = {
   context: z.array(ContextDecl),
   hooks: z.array(HookDecl),
   mentions: z.array(MentionDecl),
-  embedders: z.array(EmbedderDecl),
   sectioners: z.array(SectionerDecl),
   actions: z.array(ActionDecl),
 } as const satisfies { readonly [S in ManifestSection]: z.ZodArray<(typeof MANIFEST_SECTIONS)[S]> };

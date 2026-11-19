@@ -188,7 +188,6 @@ export function manifestBody(contract: AnyContract, options: ManifestOptions): O
     mentions: entriesOf(defs.mentions).map(([name, def]) => ({
       name, title: def.title, description: def.description, target: wireType(def.target), ...(def.of === undefined ? {} : { of: def.of.name }),
     })),
-    embedders: entriesOf(defs.embedders).map(([name, def]) => ({ name, dimensions: def.dimensions, maxInput: def.maxInput, pricePerMillionTokens: def.pricePerMillionTokens })),
     sectioners: entriesOf(defs.sectioners).map(([name, def]) => ({ name, description: def.description, match: { ...def.match } })),
     actions,
     events: SYSTEM_EVENT_TYPES.filter((e) => options.events?.includes(e) ?? false),

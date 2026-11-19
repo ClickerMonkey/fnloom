@@ -3,7 +3,7 @@
  * Settings, one URL per section: how the app looks on this device, notifications on this device (web push), and the
  * signed-in account. Each section says where its settings apply.
  */
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, watch } from 'vue';
 import AppPage from '../app/AppPage.vue';
 import { SettingsSection } from '../app/routes.ts';
 import { useSignOut } from '../app/signOut.ts';
@@ -12,9 +12,10 @@ import { useStores } from '../state/stores.ts';
 import type { PushState } from '../state/push.ts';
 import HubNameCard from '../components/HubNameCard.vue';
 import ThemePicker from '../components/ThemePicker.vue';
-import { UiAvatar, UiBadge, UiBanner, UiButton, UiCard, UiSwitch, UiTabs, type TabItem } from '../ui/index.ts';
+import { UiAvatar, UiBadge, UiBanner, UiButton, UiCard, UiSwitch, UiTabs, relativeTime, type TabItem } from '../ui/index.ts';
+import { useNow } from '../ui/now.ts';
 
-const { theme, layout, session, push, toasts, identity } = useStores();
+const { theme, layout, session, push, toasts, identity, account } = useStores();
 const signOut = useSignOut();
 const section = useParamChoice('section', SettingsSection, 'appearance');
 
@@ -51,7 +52,12 @@ const pushOn = computed({
   set: (on: boolean) => { void (on ? push.enable().then((ok) => { if (ok) { toasts.ok('Notifications on'); } }) : push.disable()); },
 });
 
+const now = useNow(60_000);
+/** How you sign in and your groups, from the hub. */
+const mine = computed(() => account.view.value.value);
+
 onMounted(() => { void push.check(); });
+watch(section, (current) => { if (current === 'account') void account.load(); }, { immediate: true });
 
 async function rename(name: string | null): Promise<void> {
   const outcome = await identity.rename(name);
@@ -101,6 +107,22 @@ async function rename(name: string | null): Promise<void> {
               </div>
               <UiBadge :tone="user.role === 'admin' ? 'accent' : 'neutral'">{{ user.role === 'admin' ? 'Admin' : 'Member' }}</UiBadge>
             </div>
+            <dl v-if="mine" class="facts" data-testid="account-facts">
+              <dt>Signs in with</dt>
+              <dd>
+                <span v-if="mine.identities.length === 0 && !mine.password" class="dim">Nothing yet</span>
+                <span v-for="way in mine.identities" :key="way.provider" class="way">
+                  {{ way.label }}<span class="dim"> · last {{ relativeTime(way.lastSignInAt, now) }}</span>
+                </span>
+                <span v-if="mine.password" class="way">{{ mine.breakGlass ? 'Break-glass password' : 'Password' }}</span>
+              </dd>
+              <dt>Groups</dt>
+              <dd>
+                <span v-if="mine.groups.length === 0" class="dim">None</span>
+                <UiBadge v-for="group in mine.groups" :key="group.id" :title="group.synced ? 'From your sign-in provider' : 'Set by an admin'">{{ group.name }}</UiBadge>
+              </dd>
+            </dl>
+            <p v-if="mine && mine.groups.some((g) => g.synced)" class="dim note">Groups from your sign-in provider update each time you sign in.</p>
             <template #footer>
               <UiButton icon="log-out" variant="danger" data-testid="sign-out" @click="signOut">Sign out</UiButton>
             </template>
@@ -117,4 +139,11 @@ async function rename(name: string | null): Promise<void> {
 .who { flex: 1; min-width: 0; }
 .name { margin: 0; font-weight: var(--weight-strong); }
 .email { margin: 0; color: var(--text-dim); overflow-wrap: anywhere; }
+.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-2) var(--space-4); margin: var(--space-4) 0 0; font-size: var(--text-sm); }
+.facts dt { color: var(--text-dim); }
+.facts dd { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); min-width: 0; margin: 0; }
+.way { overflow-wrap: anywhere; }
+.dim { color: var(--text-dim); }
+.note { margin: var(--space-2) 0 0; font-size: var(--text-xs); }
+@media (max-width: 420px) { .facts { grid-template-columns: minmax(0, 1fr); } .facts dt { margin-top: var(--space-1); } }
 </style>

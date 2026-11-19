@@ -21,6 +21,7 @@ import type { SystemPagesStore } from '../system-pages/store.ts';
 import type { ItemVersionsSource } from '../components/versions/versions.ts';
 import type { ClientLogs } from './client-logs.ts';
 import type { SessionStore } from './session.ts';
+import type { AccountStore } from './account.ts';
 import type { ThemeStore } from './theme.ts';
 import type { Toasts } from './toasts.ts';
 
@@ -41,6 +42,8 @@ export interface Stores {
   readonly admin: AdminStore;
   /** A fresh sign-in form for the sign-in page. */
   readonly signInForm: () => SignInForm;
+  /** Your own account, for Settings › Account. */
+  readonly account: AccountStore;
   /** Web push on this device. */
   readonly push: PushStore;
   /** The resource browser and the resource viewers. */

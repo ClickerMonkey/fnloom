@@ -83,7 +83,7 @@ export class ContextCatalog implements Pick<Catalog, 'fn' | 'fns' | 'context' | 
   /** The context entries (the only section these tests declare). */
   entries<S extends ManifestSection>(section: S): Promise<Array<CatalogEntry<S>>> {
     const sections: { [K in ManifestSection]: Array<CatalogEntry<K>> } = {
-      types: [], settings: [], attachments: [], kinds: [], fns: [], hooks: [], mentions: [], embedders: [], sectioners: [], actions: [],
+      types: [], settings: [], attachments: [], kinds: [], fns: [], hooks: [], mentions: [], sectioners: [], actions: [],
       context: [...this.contexts.values()].map((c) => ({ name: c.name, system: c.system, decl: c.decl })),
     };
     return Promise.resolve(sections[section]);

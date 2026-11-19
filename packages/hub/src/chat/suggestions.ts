@@ -2,14 +2,15 @@
  * What a sent message is offered (fns and context), and the record of what it was not and why. The admin's suggestions
  * setting (`hubOptions['suggestDecision']`, `SuggestDecision`) says who picks:
  *
- * - `none`: the score decides: the best candidates at or over `HARNESS_SUGGEST_THRESHOLD`, up to `HARNESS_SUGGESTIONS`.
+ * - `none`: no suggestions: nothing is offered (no fns, no context), and the index is not even asked.
  * - `decision`: a decision model (its own choice, else the `decide` role's) answers one yes/no question per candidate
  *   scoring at least the floor; those at or over the decide role's threshold are picked, most likely first, up to the
  *   cap. The questions go through the models module's `Decider`, split by the model's `maxQuestions`.
  * - `llm`: a chat model reads the candidates and the last few user messages and answers with its picks as JSON.
  *
  * Every model call is a `ModelCall` (purpose `suggestions`) linked in the record. If it fails or answers nonsense, the
- * score decides and the items it left out say so (`failed`). A score is a candidate's similarity of meaning to the
+ * score decides (the best at or over `HARNESS_SUGGEST_THRESHOLD`, up to the cap) and the items it left out say so
+ * (`failed`). A score is a candidate's similarity of meaning to the
  * message (`index/suggester.ts`), never its rank, so the threshold and the floor tell a fit from noise.
  *
  * The same chooser answers a system's `decide` (reuse something it has, or make something new), unless it is `none`.
@@ -134,23 +135,15 @@ export class HubSuggestions implements SuggestionDecider {
     const limit = this.#deps.settings.model.HARNESS_SUGGESTIONS;
     if (limit === 0 || input.text.trim() === '') { return { suggestions: [] }; }
     const setting = (await this.setting()).value;
-    const picking = setting.by === 'none' ? undefined : setting;
-    const found = await this.#deps.suggest.consider({ session: input.session, text: input.text, pool: Math.max(picking?.candidates ?? limit, limit) * 2 });
+    // no suggestions: nothing is offered, so nothing is looked for or recorded
+    if (setting.by === 'none') { return { suggestions: [] }; }
+    const found = await this.#deps.suggest.consider({ session: input.session, text: input.text, pool: Math.max(setting.candidates, limit) * 2 });
     // what the person may not see is never suggested, nor named among what was left out
     const access = await this.#deps.access.scope(input.actor);
     const sees = await this.#seen(access, [...found.offered, ...found.hidden], input.session);
     const hidden = found.hidden.filter((item) => sees.has(item.name)).map((item) => skipped(item, 'rule'));
     const offered = found.offered.filter((item) => sees.has(item.name)).sort((a, b) => b.score - a.score);
-    if (picking === undefined) { return this.#byScore(offered, limit, hidden); }
-    return this.#byModel(input, picking, offered, hidden);
-  }
-
-  /** The score decides: the best at or over the threshold, up to the count. */
-  #byScore(offered: readonly Suggestion[], limit: number, hidden: readonly SuggestionOutcome[]): DecidedSuggestions {
-    const threshold = this.#deps.settings.chat.HARNESS_SUGGEST_THRESHOLD;
-    const chosen = offered.filter((item) => item.score >= threshold).slice(0, limit);
-    const items = offered.map((item) => (chosen.includes(item) ? used(item) : skipped(item, item.score < threshold ? 'below-threshold' : 'top-n')));
-    return finish(chosen, { by: 'score', threshold, items: [...items, ...hidden] });
+    return this.#byModel(input, setting, offered, hidden);
   }
 
   /** A model picks among the candidates over its floor; on failure the score decides. */
@@ -168,13 +161,15 @@ export class HubSuggestions implements SuggestionDecider {
         : await this.#decisionChoices(messages, pool, setting, signal, calls);
       const chosen = pool.filter((item) => choices.picked.has(item));
       const items = pool.map((item) => (choices.picked.has(item) ? used(item, choices.picked.get(item)) : skipped(item, 'declined', choices.declined.get(item))));
-      this.#deps.log.info('suggestions.decided', { session: input.session, by: setting.by, candidates: pool.length, picked: chosen.length, call: calls[0] });
-      return finish(chosen, { ...base, ...(calls[0] === undefined ? {} : { call: calls[0] }), items: [...items, ...rest, ...hidden] });
+      this.#deps.log.info('suggestions.decided', { session: input.session, by: setting.by, candidates: pool.length, picked: chosen.length, calls });
+      return finish(chosen, { ...base, ...(calls.length === 0 ? {} : { calls }), items: [...items, ...rest, ...hidden] });
     } catch (error) {
       this.#deps.log.warn('suggestions.decision.failed', { session: input.session, by: setting.by, error: messageOf(error) });
-      const chosen = pool.slice(0, setting.cap);
+      // the score decides: the best at or over the threshold, up to the cap
+      const threshold = this.#deps.settings.chat.HARNESS_SUGGEST_THRESHOLD;
+      const chosen = pool.filter((item) => item.score >= threshold).slice(0, setting.cap);
       const items = pool.map((item) => (chosen.includes(item) ? used(item) : skipped(item, 'failed')));
-      return finish(chosen, { ...base, ...(calls[0] === undefined ? {} : { call: calls[0] }), items: [...items, ...rest, ...hidden] });
+      return finish(chosen, { ...base, ...(calls.length === 0 ? {} : { calls }), items: [...items, ...rest, ...hidden] });
     }
   }
 

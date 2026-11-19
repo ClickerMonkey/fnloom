@@ -10,6 +10,7 @@ import { RunText } from '../status.ts';
 import { GraphSelection, SelectionReport } from '../modes.ts';
 import { ResolvedLimits } from './spend.ts';
 import { AnnouncedSystems } from './announced.ts';
+import { TurnCompare } from './compare.ts';
 
 /** A session state change a run made, with the value before, so undoing the turn can put it back. */
 export const StateChange = z.object({ field: z.string(), type: z.string(), before: Json.optional(), after: Json.optional() });
@@ -179,6 +180,8 @@ export const Turn = z.object({
   errors: z.union([z.object({ max: z.number().int().min(1) }), z.literal('feed-back')]),
   /** The session as the turn found it (a session turn; absent on turns from before it was kept). */
   start: TurnStart.optional(),
+  /** A/B compare: the variants answering this turn's message, each in a fork of the session, and which was chosen. */
+  compare: TurnCompare.optional(),
   createdAt: Timestamp,
   /** When a person last continued the turn after it stopped: its time budget counts from here. */
   continuedAt: Timestamp.optional(),

@@ -15,7 +15,7 @@ export const chatEnv = env({
   HARNESS_SESSION_PAGE: z.number().int().min(1).max(200).default(30).describe('Sessions per page when a request gives no limit.'),
   HARNESS_TITLE_LENGTH: z.number().int().min(8).default(60).describe('A session titled by its first message keeps this many characters of it.'),
   HARNESS_TURN_ERRORS: z.number().int().min(0).default(3).describe('A turn stops after this many failed runs; 0 keeps feeding errors back to the agent.'),
-  HARNESS_SUGGEST_THRESHOLD: z.number().min(0).max(1).default(0.45).describe('The least score (its similarity of meaning to the message, 0 to 1; unrelated text scores about 0.2 to 0.4 with EmbeddingGemma) a fn or context item needs to be suggested with a message when the decision model is off.'),
+  HARNESS_SUGGEST_THRESHOLD: z.number().min(0).max(1).default(0.45).describe('The least score (its similarity of meaning to the message, 0 to 1; unrelated text scores about 0.2 to 0.4 with EmbeddingGemma) a fn or context item needs to be suggested with a message when the model that picks suggestions fails.'),
   HARNESS_SUGGEST_DECISION_TIMEOUT: z.number().int().min(500).default(4_000).describe('How long the suggestion decision model has to choose before the score decides; a sent message waits this long at most before it shows.'),
   HARNESS_CACHE_LOOKBACK: z.number().int().min(1).max(500).default(50).describe('How many of a session\'s model calls are looked through to tell whether a reply missed the prompt cache.'),
   HARNESS_CONFIG_NOTICE_GRACE: z.number().int().min(0).default(30_000).describe('How long a system may sit in "needs config" before the admins get an inbox notice; a system that connects configured within it gets none (as a fresh hub\'s systems usually do).'),

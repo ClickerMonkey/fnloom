@@ -176,7 +176,7 @@ export type PairingToken = z.infer<typeof PairingToken>;
 /**
  * The last manifest the hub accepted from a system, without the entries it refused. The hub keeps it so a system
  * whose manifest hash matches need not send it again, and so the sections without a table of their own (hooks,
- * mentions, embedders, sectioners, actions, settings, attachments, the config type) are known while it is offline.
+ * mentions, sectioners, actions, settings, attachments, the config type) are known while it is offline.
  */
 export const SystemManifest = z.object({ system: SystemName, manifest: Manifest, importedAt: Timestamp });
 export type SystemManifest = z.infer<typeof SystemManifest>;

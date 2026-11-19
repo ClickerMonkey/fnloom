@@ -13,11 +13,10 @@ import type { EventBus } from '../bus.ts';
 import { StoreCatalog, type CatalogOptions } from '../catalog/catalog.ts';
 import type { Catalog, KindDescriber } from '../catalog/index.ts';
 import { EmbedBatcher } from '../index/batch.ts';
-import { SystemEmbedders } from '../index/embedders.ts';
+import { SystemEmbedders, type HubEmbeds } from '../index/embedders.ts';
 import { ImageEmbeddingSettings } from '../index/image-setting.ts';
 import { OfferedProviders, offeredBy } from '../models/remote.ts';
 import type { IndexTuning } from '../index/env.ts';
-import type { ModelCallLog } from '../metrics/index.ts';
 import { StoreIndexer } from '../index/indexer.ts';
 import { IndexSearch } from '../index/search.ts';
 import { Sectioning } from '../index/sectioning.ts';
@@ -80,8 +79,8 @@ export interface SystemsOptions {
   readonly peers?: Peers<SystemLinkSpec>;
   /** Replace the catalog (tests); default the store catalog with kinds described over the link. */
   readonly catalog?: (describer: KindDescriber) => Catalog;
-  /** Where embed calls to systems' embedding models are recorded (the metrics module's log, looked up when used). */
-  readonly calls?: () => Pick<ModelCallLog, 'begin'>;
+  /** The hub's AI the index embeds through (the execution module's LLM gateway, looked up when used). */
+  readonly ai?: () => HubEmbeds | undefined;
   /** Plan item 7: whether a hub model role has a model set, for fns that need one (`CatalogOptions.roleSet`). */
   readonly roleSet?: CatalogOptions['roleSet'];
 }
@@ -141,7 +140,7 @@ export function buildSystems(options: SystemsOptions) {
   // where images are embedded: the admin's setting, which the embedders read at each refresh
   const images: ImageEmbeddingSettings = new ImageEmbeddingSettings({ store, clock, document, embedders: () => embedders });
   const embedders: SystemEmbedders = new SystemEmbedders({
-    offered, connections, bus, log, clock, document, query, batch: settings.model.HARNESS_EMBED_BATCH, ...(options.calls === undefined ? {} : { calls: options.calls }),
+    offered, connections, bus, log, document, query, batch: settings.model.HARNESS_EMBED_BATCH, ai: () => options.ai?.(),
     imageSetting: () => images.value(),
   });
   const batcher = new EmbedBatcher({

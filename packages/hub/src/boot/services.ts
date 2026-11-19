@@ -6,7 +6,8 @@
  */
 import type { Presigner, FileStore } from '@ayepi/files';
 import type { Logger } from '@ayepi/log';
-import { ACCESS_TOKEN, AdminAuthenticator } from '../api/auth.ts';
+import { ACCESS_TOKEN, HubAuthenticator } from '../api/auth.ts';
+import { OidcSignIns } from '../api/sso.ts';
 import { BusEventRelay } from '../api/events.ts';
 import { FileContentStore } from '../api/files.ts';
 import { ScryptHasher } from '../api/hash.ts';
@@ -38,20 +39,28 @@ export interface ApiParts {
   /** Presigns URLs for the files mounted on the web API's server. */
   readonly presign: Presigner;
   readonly pushSender: PushSender;
+  /** How SSO providers are reached (tests give a fake issuer); the global fetch when not given. */
+  readonly oidcFetch?: typeof fetch;
 }
 
 /** The api module's services, with the concrete classes boot also drives (making the admin, sweeping uploads). */
-export type ApiServices = HubServices['api'] & { readonly auth: AdminAuthenticator; readonly content: FileContentStore };
+export type ApiServices = HubServices['api'] & { readonly auth: HubAuthenticator; readonly content: FileContentStore };
 
 /** Make the api module's services. */
 export function apiServices(base: BaseServices, parts: ApiParts): ApiServices {
   const { settings, store, clock, log, bus } = base;
   const identity = new StoreHubIdentity({ store, bus, clock, envName: settings.hubEnv.HARNESS_NAME, version: HUB_INFO.version, hub: HUB_SYSTEM });
+  const providers = settings.authEnv.HARNESS_SSO_PROVIDERS;
+  const auth = new HubAuthenticator({
+    store, clock, identity, secret: parts.keys.jwtSecret, hasher: new ScryptHasher(settings.authEnv.HARNESS_PASSWORD_COST),
+    accessTtl: settings.authEnv.HARNESS_ACCESS_TTL, refreshTtl: settings.authEnv.HARNESS_REFRESH_TTL, providers,
+  });
   return {
     identity,
-    auth: new AdminAuthenticator({
-      store, clock, identity, secret: parts.keys.jwtSecret, hasher: new ScryptHasher(settings.authEnv.HARNESS_PASSWORD_COST),
-      accessTtl: settings.authEnv.HARNESS_ACCESS_TTL, refreshTtl: settings.authEnv.HARNESS_REFRESH_TTL,
+    auth,
+    sso: new OidcSignIns({
+      providers, auth, store, log, clock, hubUrl: settings.hubEnv.HARNESS_URL, window: settings.authEnv.HARNESS_SSO_WINDOW,
+      ...(parts.oidcFetch === undefined ? {} : { fetch: parts.oidcFetch }),
     }),
     content: new FileContentStore({
       files: parts.files, presign: parts.presign, maxUpload: settings.httpEnv.HARNESS_MAX_UPLOAD, presignTtl: settings.httpEnv.HARNESS_PRESIGN_TTL, clock,

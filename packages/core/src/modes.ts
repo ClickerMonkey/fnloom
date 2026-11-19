@@ -253,3 +253,11 @@ export type SelectionReport = z.infer<typeof SelectionReport>;
  */
 export const GraphSelection = z.object({ turn: TurnId, items: z.array(SelectedItem), at: Timestamp });
 export type GraphSelection = z.infer<typeof GraphSelection>;
+
+/**
+ * How far a chat lets its agent go: `none` offers no fns, `read` / `write` / `delete` allow fns up to that mode, and
+ * `auto` asks the hub's classifier model (`AutoClassifier`) about each call above `read`, as Claude Code's auto mode does.
+ */
+export const CHAT_FN_MODES = ['none', 'read', 'write', 'delete', 'auto'] as const;
+export const ChatFnMode = z.enum(CHAT_FN_MODES);
+export type ChatFnMode = z.infer<typeof ChatFnMode>;

@@ -2,8 +2,8 @@
 /**
  * Providers and models, the tab in the URL: the configured providers (add or replace one, remove one), every model
  * they offer, the model categories agents choose from, the model roles (which model transcribes, dictates, speaks,
- * describes images, reads text in them and makes decisions; `?role=` opens one), who picks suggestions (no model, a
- * decision model or an LLM; `?decision=1` opens it), the auto mode classifier that checks a chat's calls in auto mode (`?classifier=1` opens it),
+ * describes images, reads text in them and makes decisions; `?role=` opens one), who picks suggestions (a decision
+ * model, an LLM, or none for no suggestions; `?decision=1` opens it), the auto mode classifier that checks a chat's calls in auto mode (`?classifier=1` opens it),
  * where the index embeds pictures (off, the text model's space, or a model of their own; `?images=1` opens it) and each model's limits (`?model=` opens one).
  */
 import { ModelRole, type AutoClassifier, type ImageEmbedding, type ModelCategory, type SessionId, type SuggestDecision, type ModelLimits, type ProviderInput, type RoleChoice } from '@harness/core';
@@ -82,7 +82,7 @@ const ready = computed(() => models.providers.value.value !== undefined);
 const providerName = (model: ModelInfo): string => modelProviderName(model.provider);
 /** The roles each model fills, shown beside it: systems' `ctx.ai()` sees the same list with the same roles. */
 const modelRoles = computed(() => rolesByModel(roles.roles.value.value ?? []));
-/** Who picks suggestions now (no model until the setting is loaded or set). */
+/** Who picks suggestions now (none, so no suggestions, until the setting is loaded or set). */
 const chooser = computed(() => suggestions.decision.value.value?.value.by ?? 'none');
 
 onMounted(() => { void models.load(ready.value); });

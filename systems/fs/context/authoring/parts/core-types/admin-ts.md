@@ -34,6 +34,7 @@ type HubModelInfo = {
     output: number;
   } | undefined;
   maxQuestions?: number | undefined;
+  maxRequestBytes?: number | undefined;
   maxOutputTokens?: number | undefined;
 };
 ```

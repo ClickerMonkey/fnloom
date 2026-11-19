@@ -15,7 +15,7 @@ import { fixture } from './fixture.ts';
 import { existsSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { implement, server } from '@ayepi/core';
+import { implement, server, type Server } from '@ayepi/core';
 import { bearerAuth, signJwt } from '@ayepi/auth/server';
 import { env } from '@ayepi/env';
 import { mockHandlers } from '@ayepi/mock';
@@ -120,8 +120,16 @@ const LIVE: readonly { reason: NotificationReason; title: string; body: string }
   { reason: 'replied', title: 'New reply', body: 'The agent answered your question about the router.' },
 ];
 
+/** The mock hub: its app, a push of a sample notification, a tick of its admin data, and its resource library. */
+export interface MockHub {
+  readonly app: Server<typeof hubWebSpec>;
+  readonly notify: () => void;
+  readonly tick: () => void;
+  readonly library: MockResources;
+}
+
 /** Build the mock hub app. */
-export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
+export function mockHub(options: { needsAdmin: boolean; logger?: Logger }): MockHub {
   const state = new MockState(options.needsAdmin);
   const owner = (): ActorId => state.account?.user.id ?? IDS.actor.parse('act_admin');
   const build3 = new MockBuild3(() => NOW, owner);
@@ -170,7 +178,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }) {
     }))
     .middleware(adminOnly, async (io) => io.next())
     .handlers({
-      setup: () => ({ needsAdmin: state.account === undefined, name: identity().name, version: identity().version }),
+      setup: () => ({ needsAdmin: state.account === undefined, name: identity().name, version: identity().version, sso: [] }),
       identity: () => identity(),
       setHubName: ({ data }) => {
         hubName = data.name ?? undefined;

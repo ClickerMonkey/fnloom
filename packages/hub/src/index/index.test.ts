@@ -1,6 +1,6 @@
 import {
-  ActorId, MAIN_INSTANCE, QualifiedName, ResourceUri, SectionKey, SectionRuleId, SessionId, SystemName,
-  type Page, type ReadWant, type ResourceChange, type ResourceLink, type ResourceRead, type ResourceRoot, type ResourceStat, type Section, type SectionDiff, type Session,
+  ActorId, INDEXED_KINDS, MAIN_INSTANCE, QualifiedName, ResourceUri, SectionKey, SectionRuleId, SessionId, SystemName,
+  type Page, type ReadWant, type ResourceChange, type ResourceLink, type ResourceRead, type ResourceRoot, type ResourceStat, type Section, type SectionDiff, type Session, type TableName,
 } from '@harness/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StoreCatalog } from '../catalog/catalog.ts';
@@ -13,13 +13,13 @@ import { OfferedProviders, offeredBy } from '../models/remote.ts';
 import { HybridSearch } from '../store/hybrid.ts';
 import { chatEnv } from '../chat/env.ts';
 import { EmbedBatcher } from './batch.ts';
-import { StoreModelCallLog } from '../metrics/calls.ts';
-import { SystemEmbedders } from './embedders.ts';
+import { SystemEmbedders, type HubEmbeds } from './embedders.ts';
 import type { Embedder, Embedders } from './index.ts';
 import { StoreIndexer, sectionIndexKey } from './indexer.ts';
 import { IndexSearch } from './search.ts';
 import { Sectioning } from './sectioning.ts';
 import { IndexSuggester } from './suggester.ts';
+import { rigHubAi } from './testing.ts';
 
 const q = (name: string) => QualifiedName.parse(name);
 const DOCUMENT = q('vectors/document');
@@ -209,6 +209,35 @@ describe('indexing', () => {
     embedders.document.failing = false;
     await indexer.backfill();
     expect(await vectorKeys()).toEqual(['fn:shop/list']);
+  });
+
+  // regression: backfill read every index row and kept the waiting ones in memory
+  it('asks the database for only the rows a backfill embeds', async () => {
+    const { indexer, store, embedders } = ctx;
+    embedders.connect();
+    await indexer.upsert([{ kind: 'fn', key: 'shop/get', text: 'Get a product' }]);
+    embedders.document.failing = true;
+    await indexer.upsert([{ kind: 'fn', key: 'shop/list', text: 'List products' }, { kind: 'context', key: 'shop/guide', text: 'All about the shop' }]);
+    embedders.document.failing = false;
+    // every page the backfill reads from the index table, with the filter it asked the database for
+    const pages: Array<{ where: unknown; keys: string[] }> = [];
+    const table = store.table.bind(store);
+    // every table as is; only the index table's reads are recorded
+    const spy = vi.spyOn(store, 'table').mockImplementation((name: TableName) => {
+      if (name !== 'index') { return table(name); }
+      const real = table('index');
+      const find = real.find.bind(real);
+      real.find = async (query) => { const page = await find(query); pages.push({ where: query.where, keys: page.items.map((r) => r.key) }); return page; };
+      return real;
+    });
+    try {
+      await indexer.backfill();
+    } finally {
+      spy.mockRestore();
+    }
+    // one query, filtered in the database: text rows whose vector isn't of their hash, and only those came back
+    expect(pages).toEqual([{ where: { embedder: DOCUMENT, kind: { in: INDEXED_KINDS.filter((k) => k !== 'image') }, vectorHash: { differsFrom: 'hash' } }, keys: ['shop/guide', 'shop/list'] }]);
+    expect(await vectorKeys()).toEqual(['context:shop/guide', 'fn:shop/get', 'fn:shop/list']);
   });
 
   it('saves each chunk of a backfill as it is embedded, keeps them when a later chunk fails, and tries again on its own', async () => {
@@ -602,19 +631,25 @@ describe('embed lanes', () => {
   });
 });
 
-/** The embedders of the providers a link rig's systems offer, by the hub's own rule (`offeredBy` its lifecycle). */
-function riggedEmbedders(rig: LinkRig, calls?: () => StoreModelCallLog): SystemEmbedders {
+/**
+ * The embedders of the providers a link rig's systems offer, by the hub's own rule (`offeredBy` its lifecycle), embedding
+ * through the hub's AI (`ai`, default one over the rig).
+ */
+function riggedEmbedders(rig: LinkRig, ai: HubEmbeds = rigHubAi(rig)): SystemEmbedders {
   const offered = new OfferedProviders({ link: rig.links, catalog: rig.catalog, bus: rig.bus, log: rig.log, offered: offeredBy(rig.lifecycle) });
-  return new SystemEmbedders({
-    offered, connections: rig.links, bus: rig.bus, log: rig.log, clock: () => rig.time.now, document: DOCUMENT, query: QUERY, batch: 2, ...(calls === undefined ? {} : { calls }),
-  });
+  return new SystemEmbedders({ offered, connections: rig.links, bus: rig.bus, log: rig.log, document: DOCUMENT, query: QUERY, batch: 2, ai: () => ai });
 }
 
 describe('embedders from systems', () => {
-  it('follows the embedding models of the providers connected systems offer, and embeds with them over the link', async () => {
+  // regression: the index called providerEmbed itself and priced the call by hand, apart from the hub AI's pricing and live listing
+  it('follows the embedding models of the providers connected systems offer, and embeds with them through the hub AI', async () => {
     const rig = await linkRig();
-    const calls = new StoreModelCallLog({ store: rig.store, clock: () => rig.time.now, log: rig.log });
-    const embedders = riggedEmbedders(rig, () => calls);
+    const ai = rigHubAi(rig);
+    const asked: Array<{ model?: string | undefined; provider?: string | undefined; site: unknown; priority: unknown; inputs: number }> = [];
+    const embedders = riggedEmbedders(rig, {
+      embed: (input, site, signal, priority) => { asked.push({ ...input.metadata, site, priority, inputs: input.inputs.length }); return ai.embed(input, site, signal, priority); },
+    });
+    const { calls } = ai;
     let changes = 0;
     embedders.onChange(() => { changes += 1; });
     expect(embedders.active()).toBeUndefined();
@@ -626,14 +661,23 @@ describe('embedders from systems', () => {
     expect(embedders.active()?.document.name).toBe(DOCUMENT);
     expect(changes).toBeGreaterThan(0);
     expect(await embedders.get(DOCUMENT)?.embed(['a', 'bb', 'ccc'])).toEqual([[1, 0, 0], [2, 0, 0], [3, 0, 0]]);
-    // each embed call is a model call of the index's own work, in two batches but one record, under the system's provider
-    expect((await calls.list({})).items.filter((c) => c.modality === 'embed')).toMatchObject([
-      { modality: 'embed', provider: 'vectors/local', model: 'document', purpose: 'index', status: 'done', units: { modality: 'embed', texts: 3, characters: 6, dimensions: 3 } },
+    // each batch is one call through the hub AI, pinned to the model on the system's provider: a model call of the
+    // index's own work, priced and recorded by the hub AI like every other embed
+    expect(asked).toEqual([
+      { model: 'document', provider: 'vectors/local', site: { purpose: 'index' }, priority: 'background', inputs: 2 },
+      { model: 'document', provider: 'vectors/local', site: { purpose: 'index' }, priority: 'background', inputs: 1 },
     ]);
+    const recorded = (await calls.list({})).items.filter((c) => c.modality === 'embed').sort((a, b) => (a.units.modality === 'embed' ? a.units.texts : 0) - (b.units.modality === 'embed' ? b.units.texts : 0));
+    expect(recorded).toMatchObject([
+      { modality: 'embed', provider: 'vectors/local', model: 'document', purpose: 'index', status: 'done', units: { modality: 'embed', texts: 1, characters: 3, dimensions: 3 } },
+      { modality: 'embed', provider: 'vectors/local', model: 'document', purpose: 'index', status: 'done', units: { modality: 'embed', texts: 2, characters: 3, dimensions: 3 } },
+    ]);
+    // a search waits as interactive
+    expect(await embedders.get(DOCUMENT)?.embed(['q'], 'interactive')).toEqual([[1, 0, 0]]);
+    expect(asked.at(-1)).toMatchObject({ priority: 'interactive' });
 
     system.behaviour.embed = (texts) => texts.map(() => [1]);
     await expect(embedders.get(DOCUMENT)?.embed(['x'])).rejects.toThrow('returned a vector of 1 numbers, not 3');
-    expect((await calls.list({})).items.filter((c) => c.modality === 'embed' && c.status === 'failed')).toHaveLength(1);
 
     system.drop();
     await settle(5);

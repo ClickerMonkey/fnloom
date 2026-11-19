@@ -122,6 +122,7 @@ export class ProviderServer {
       ...(model.contextWindow > 0 ? { contextWindow: Math.floor(model.contextWindow) } : {}),
       ...(model.maxOutputTokens === undefined || model.maxOutputTokens < 1 ? {} : { maxOutput: Math.floor(model.maxOutputTokens) }),
       ...(model.maxQuestions === undefined || model.maxQuestions < 1 ? {} : { maxQuestions: Math.floor(model.maxQuestions) }),
+      ...(model.maxRequestBytes === undefined || model.maxRequestBytes < 1 ? {} : { maxRequestBytes: Math.floor(model.maxRequestBytes) }),
     }));
     return { listed: true, models };
   }

@@ -8,7 +8,7 @@
  */
 import { reject } from '@ayepi/core';
 import {
-  familyOf, QualifiedName, RunStatus, SessionId, SessionSummary, SystemName, runCount, sortOf, type ContextListItem, type FieldValueOption, type Filter, type FnRecord,
+  familyOf, QualifiedName, type Actor, RunStatus, SessionId, SessionSummary, SystemName, runCount, sortOf, type ContextListItem, type FieldValueOption, type Filter, type FnRecord,
   type GraphNode, type ListField, type ListName, type ListQuery, type LlmInteraction, type LlmSummary, type ModelCall, type Notification, type Page, type ResourceRecord, type Run, type SystemView, type TypeRecord,
 } from '@harness/core';
 import type { AccessScope, AccessService } from '../access/index.ts';
@@ -18,7 +18,7 @@ import { HubGraph } from '../graph/graph.ts';
 import { GraphSource } from '../graph/source.ts';
 import type { FnSearch } from '../fns/index.ts';
 import { ContextSource } from './contexts.ts';
-import { NOTIFICATION_COLUMNS, NOTIFICATION_TEXT } from './columns.ts';
+import { GROUP_COLUMNS, GROUP_TEXT, NOTIFICATION_COLUMNS, NOTIFICATION_TEXT, USER_COLUMNS, USER_TEXT } from './columns.ts';
 import { SqlSource } from './sql-source.ts';
 import type { ColumnFilter, Order, ScalarKey, Table, Where } from '../store/index.ts';
 import { allowed, evaluate, numberOf, valuesOf, type Evaluation } from './evaluate.ts';
@@ -38,6 +38,8 @@ export interface ListRows {
   systems: SystemView;
   types: TypeRecord;
   graph: GraphNode;
+  users: Actor;
+  groups: Actor;
 }
 
 /** Every list's source by name. */
@@ -285,7 +287,8 @@ export function listSources(
       list: 'sessions', page,
       load: (viewer, query) => mapped(newest(
         store.table('sessions'),
-        { owner: viewer.id, ...column('createdAt', bound(query.filters, 'createdAt')), ...column('updatedAt', bound(query.filters, 'updatedAt')) },
+        // an A/B compare's forks are never listed (`Session.forkOf`)
+        { owner: viewer.id, forkOf: { exists: false }, ...column('createdAt', bound(query.filters, 'createdAt')), ...column('updatedAt', bound(query.filters, 'updatedAt')) },
         scanOrder('sessions', query, { createdAt: 'createdAt', updatedAt: 'updatedAt' }, [['updatedAt', 'desc']]), max,
       ), (rows) => rows.map((s) => SessionSummary.parse(s))),
       fields: {
@@ -323,5 +326,19 @@ export function listSources(
     }),
     // the graph's nodes, as the viewer may see them: the graph builds them for the query's text and filters
     graph: new GraphSource({ graph: new HubGraph({ store, catalog: hub.catalog, limit: settings.HARNESS_GRAPH_LIMIT }), access: hub.access, page }),
+    // SSO: people and groups (admins), the actors table's rows of that kind, all in SQL
+    users: new SqlSource({
+      list: 'users', table: 'actors', store, access: hub.access, columns: USER_COLUMNS, text: USER_TEXT, page, scan: max,
+      allow: (viewer) => { adminOnly(viewer, 'people'); }, own: () => [{ field: 'kind', op: 'is', value: 'user' }],
+      fields: {
+        name: (a) => a.name, email: (a) => (a.kind === 'user' ? a.email : undefined), role: (a) => (a.kind === 'user' ? a.role : undefined),
+        disabled: (a) => a.disabled, createdAt: (a) => a.createdAt,
+      },
+    }),
+    groups: new SqlSource({
+      list: 'groups', table: 'actors', store, access: hub.access, columns: GROUP_COLUMNS, text: GROUP_TEXT, page, scan: max,
+      allow: (viewer) => { adminOnly(viewer, 'groups'); }, own: () => [{ field: 'kind', op: 'is', value: 'group' }],
+      fields: { name: (a) => a.name, createdAt: (a) => a.createdAt },
+    }),
   };
 }

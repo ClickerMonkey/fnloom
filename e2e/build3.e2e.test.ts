@@ -105,7 +105,7 @@ describe('suggestions and the decision model', () => {
     expect(record?.by).toBe('decision');
     expect((record?.items ?? []).flatMap((item) => (item.used ? [] : [item.reason])).every((reason) => reason.length > 0)).toBe(true);
     // the model answered (picked or declined) or failed and the score decided: either way it is recorded
-    if (!(record?.items.some((item) => !item.used && item.reason === 'failed') ?? false)) { expect(record?.call).toBeDefined(); }
+    if (!(record?.items.some((item) => !item.used && item.reason === 'failed') ?? false)) { expect(record?.calls?.length).toBeGreaterThan(0); }
   });
 });
 

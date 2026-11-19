@@ -1,6 +1,6 @@
 /**
  * Suggestions: what the hub offered a user message (fns and context), what it left out and why, and the admin's
- * choice of who picks them: no model (the score threshold), a decision model, or an LLM. The record rides on the user message, so the
+ * choice of who picks them: a decision model, an LLM, or nobody (no suggestions). The record rides on the user message, so the
  * chat shows a compact icon row with counts and, opened, the used and the not-used items with their reasons.
  */
 import { z } from 'zod';
@@ -8,9 +8,10 @@ import { AutoClassifier } from './fn-facts.ts';
 import { HUB_NAME_OPTION, HubDisplayName } from './identity.ts';
 import { ImageEmbedding } from './image-embeddings.ts';
 import { RoleModel } from './model-calls.ts';
+import { SIGN_IN_POLICY_OPTION, SignInPolicy } from './sso.ts';
 import { ActorId, ModelCallId, QualifiedName, Timestamp } from './primitives.ts';
 
-/** Who chose: the score threshold, the decision model, or the graph contextor's selection. */
+/** Who chose: the score threshold (records from before 2026-11-19, when no model picked), the decision model, or the graph contextor's selection. */
 export const SUGGESTION_DECIDERS = ['score', 'decision', 'graph'] as const;
 export const SuggestionDecider = z.enum(SUGGESTION_DECIDERS);
 export type SuggestionDecider = z.infer<typeof SuggestionDecider>;
@@ -41,13 +42,16 @@ export const SuggestionOutcome = z.discriminatedUnion('used', [
 ]);
 export type SuggestionOutcome = z.infer<typeof SuggestionOutcome>;
 
-/** What the hub suggested for one user message, and what it did not. Absent on messages with no candidates at all. */
+/**
+ * What the hub suggested for one user message, and what it did not. Absent on messages with no candidates at all. (A
+ * record stored before 2026-11-19 named only its first call, `call`, which nothing reads; it is dropped when read.)
+ */
 export const SuggestionRecord = z.object({
   by: SuggestionDecider,
   /** The score threshold that applied (the decision model's floor when `by` is `decision`). */
   threshold: z.number().optional(),
-  /** The decision model's call, for the model calls page. */
-  call: ModelCallId.optional(),
+  /** The model's calls, in order, for the model calls page: more than one when its questions were split across calls. */
+  calls: z.array(ModelCallId).min(1).optional(),
   items: z.array(SuggestionOutcome),
 });
 export type SuggestionRecord = z.infer<typeof SuggestionRecord>;
@@ -70,18 +74,19 @@ export const SuggestPicking = z.object({
 });
 export type SuggestPicking = z.infer<typeof SuggestPicking>;
 
-/** Who picks the suggestions: `none` (no model; the score threshold decides), a decision model, or an LLM. */
-export const SUGGESTION_CHOOSERS = ['none', 'decision', 'llm'] as const;
+/** Who picks the suggestions: `none` (nothing is suggested), a decision model, or an LLM. */
+export const SUGGESTION_CHOOSERS = ['decision', 'llm', 'none'] as const;
 export const SuggestionChooser = z.enum(SUGGESTION_CHOOSERS);
 export type SuggestionChooser = z.infer<typeof SuggestionChooser>;
 
 /**
  * The suggestions setting (admins), one choice:
- * - `none`: no model; the best candidates over the score threshold are suggested (the default).
+ * - `none`: no suggestions at all: no fns and no context are offered with a message (the default, until an admin
+ *   chooses a model).
  * - `decision`: a decision model (`model`, else the `decide` role's) answers one yes/no question per candidate; those
  *   at or over the decide role's threshold are picked, most likely first. Calls are split by the model's `maxQuestions`.
  * - `llm`: a chat model (`model`) reads the candidates and answers which to pick, as JSON, with reasons.
- * The picks and refusals become the message's `SuggestionRecord`. If the model fails, the score decides.
+ * The picks and refusals become the message's `SuggestionRecord`. If the model fails, the score threshold decides.
  */
 export const SuggestDecision = z.discriminatedUnion('by', [
   z.object({ by: z.literal('none') }),
@@ -90,7 +95,7 @@ export const SuggestDecision = z.discriminatedUnion('by', [
 ]);
 export type SuggestDecision = z.infer<typeof SuggestDecision>;
 
-/** The setting before any admin chose: no model. */
+/** The setting before any admin chose: no suggestions. */
 export const SUGGEST_DECISION_DEFAULT: SuggestDecision = { by: 'none' };
 
 /** The setting as it was stored before 2026-11-19: a chat model, on or off. */
@@ -120,5 +125,7 @@ export const HubOption = z.discriminatedUnion('key', [
   z.object({ key: z.literal(HUB_NAME_OPTION), value: HubDisplayName, setBy: ActorId, updatedAt: Timestamp }),
   /** Where the index embeds images (`image-embeddings.ts`). */
   z.object({ key: z.literal('imageEmbedding'), value: ImageEmbedding, setBy: ActorId, updatedAt: Timestamp }),
+  /** SSO: who may make an account by signing in through a provider for the first time (`sso.ts`). */
+  z.object({ key: z.literal(SIGN_IN_POLICY_OPTION), value: SignInPolicy, setBy: ActorId, updatedAt: Timestamp }),
 ]);
 export type HubOption = z.infer<typeof HubOption>;

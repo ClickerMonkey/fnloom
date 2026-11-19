@@ -26,7 +26,7 @@
 import { setImmediate as nextTurn } from 'node:timers/promises';
 import type { Logger } from '@ayepi/log';
 import {
-  ResourceUri, SystemName, compositeKey, splitName, type ContextDecl, type EmbedInput, type FnDecl, type IndexEntry, type IndexedKind, type QualifiedName,
+  INDEXED_KINDS, ResourceUri, SystemName, compositeKey, splitName, type ContextDecl, type EmbedInput, type FnDecl, type IndexEntry, type IndexedKind, type QualifiedName,
   type SectionDiff, type SectionKey, type SectionRow, type TypeRecord,
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
@@ -75,9 +75,20 @@ export const MAX_PICTURE_BYTES = 5_000_000;
 /** The kinds that are parts of a context item (`IndexEntry.parent`): found, kept current and dropped with it. */
 const CONTEXT_PARTS = ['contextSection', 'image'] as const satisfies readonly IndexedKind[];
 
+/** The kinds of index rows embedded as text, in the text space (every kind but pictures). */
+const TEXT_KINDS = INDEXED_KINDS.filter((kind) => kind !== 'image');
+
+/**
+ * What comes before an image row's hash in its `vectorHash` once embedded in a space: the space's name. So another
+ * space embeds it again, and the database tells which pictures wait (`vectorHash` differs from this and the `hash`).
+ */
+export function imageVectorPrefix(space: QualifiedName): string {
+  return `${space}\n`;
+}
+
 /** The `vectorHash` of an image row once embedded in a space: its hash there, so another space embeds it again. */
 export function imageVectorHash(hash: string, space: QualifiedName): string {
-  return sha256Hex(`${hash}\n${space}`);
+  return `${imageVectorPrefix(space)}${hash}`;
 }
 
 /** An item's hash: its text's, and for a picture its source and version too (a new picture is embedded again). */
@@ -420,8 +431,14 @@ export class StoreIndexer implements Indexer {
     const active = embedders.active();
     if (active === undefined && embedders.images() === undefined) { return; }
     if (active !== undefined) { await this.#sized(active.document.dimensions); }
-    const waiting = (await allRows(store.table('index'), { where: { embedder: document } })).filter((r) => this.#waiting(r));
-    await this.#embed(waiting);
+    // the database finds what waits: text whose vector isn't of its hash, and pictures not embedded in the space in use
+    const index = store.table('index');
+    const space = embedders.images();
+    const texts = active === undefined ? [] : await allRows(index, { where: { embedder: document, kind: { in: TEXT_KINDS }, vectorHash: { differsFrom: 'hash' } } });
+    const pictures = space === undefined ? [] : await allRows(index, {
+      where: { embedder: document, kind: 'image', vectorHash: { differsFrom: 'hash', prefix: imageVectorPrefix(space.embedder.name) } },
+    });
+    await this.#embed([...texts, ...pictures]);
   }
 
   /**

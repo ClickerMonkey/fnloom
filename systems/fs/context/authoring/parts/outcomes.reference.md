@@ -21,8 +21,8 @@ The result block: everything the model needs to talk about rows the person is sh
 type ResultBlock = {
   shown: string;
   columns: {
-    name: string;
     nullable: boolean;
+    name: string;
     kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
   }[];
   rowCount: number;
@@ -66,8 +66,8 @@ A result column as the model reads it.
 
 ```ts
 type ResultColumnInfo = {
-  name: string;
   nullable: boolean;
+  name: string;
   kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
 };
 ```

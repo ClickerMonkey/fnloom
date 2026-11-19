@@ -73,7 +73,7 @@ export interface FakeBehaviour {
   read: (uri: string) => ResourceRead;
   content: (offset: number, length: number) => string;
   sections: Section[];
-  /** Embeddings, for the old `embed` endpoint and its providers' `providerEmbed` (an image comes as its URL). */
+  /** Embeddings, for its providers' `providerEmbed` (an image comes as its URL). */
   embed: (texts: string[]) => number[][];
   /** Which of a provider's models it serves now (`providerModels`). */
   models: (provider: string) => ProviderModelsResult;
@@ -141,7 +141,6 @@ export class FakeSystem {
       sections: () => b.sections,
       content: ({ data }) => ({ chunk: b.content(data.offset, data.length) }),
       watch: ({ data }) => { this.watched.push(data.uris); },
-      embed: ({ data }) => ({ vectors: b.embed(data.texts) }),
       providerEmbed: ({ data }) => ({ vectors: b.embed(data.inputs.map((input) => (typeof input === 'string' ? input : input.image))) }),
       providerModels: ({ data }) => b.models(data.provider),
       event: ({ data }) => { this.events.push(data); },

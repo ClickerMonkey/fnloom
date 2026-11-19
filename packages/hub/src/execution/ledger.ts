@@ -110,7 +110,9 @@ export class HubLedger implements Ledger {
 
   async record(entry: Omit<LedgerEntry, 'id' | 'at'>): Promise<void> {
     const { store, clock } = this.#deps;
-    await store.table('ledger').insert({ ...entry, id: mintId('ledger', this.#deps.random), at: clock() });
+    // an A/B compare variant's spend is its chat's, so the chat's budget counts every variant
+    const chat = entry.session === undefined ? undefined : (await store.table('sessions').get(entry.session))?.forkOf;
+    await store.table('ledger').insert({ ...entry, ...(chat === undefined ? {} : { session: chat }), id: mintId('ledger', this.#deps.random), at: clock() });
     if (entry.cost === 0) return;
     const run = await store.table('runs').get(entry.run);
     if (run === undefined) return;

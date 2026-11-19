@@ -93,8 +93,8 @@ The sections, all optional:
 | `context` | text for the LLM, static or made by the server, optionally a `/command` | `context()` |
 | `hooks` | additions to each user message before the LLM sees it | `hook()` |
 | `mentions` | `@` mention providers | `mention()` |
-| `embedders` | embed functions the hub can index with | `embedder()` |
 | `sectioners` | ways of cutting resources into sections | `sectioner()` |
+| `providers` | model providers whose calls run in the system; their embedding models are the hub's embedders | `provider()` |
 | `actions` | typed messages the system's renderers send it | `action()` |
 
 The contract is a value with typed refs for everything in it: `notes.fns.add` is a `FnRef<'notes/add', Args, Result,

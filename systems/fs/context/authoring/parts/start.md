@@ -17,7 +17,8 @@ choices:
 
 A **system** is a Node process with a unique name that connects to the harness **hub** over one WebSocket and adds
 things to it: fns (functions people, agents and other systems run), named types, context for the LLM, `@` mentions,
-hooks on user messages, settings, resources, embedders, sectioners, actions and Vue renderers. The hub owns every
+hooks on user messages, settings, resources, sectioners, actions, model providers (embedders among them) and Vue
+renderers. The hub owns every
 LLM call, user, permission, budget and record; a system only declares what it offers and implements it.
 
 Everything a system contributes is namespaced by its name: the `notes` system's fn `add` is `notes/add`, its type

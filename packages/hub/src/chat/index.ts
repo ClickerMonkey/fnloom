@@ -12,7 +12,7 @@ import type {
   ActorId, AnnouncedSystems, Approver, Asker, ChatMessage, ClientInfo, DeliveryId, DeliveryRecord, HookBlock, InstanceName, Json, MentionHover, MentionOption,
   MessageId, MessagePart, Notification, NotificationId, NotificationLink, NotificationReason, OutgoingPart, Page, Presence, QualifiedName, RunId,
   Session, SessionControls, SessionId, Suggestion, SuggestDecision, SuggestDecisionView, SuggestionRecord, SessionPatch, SessionSummary, StateFieldValue, StateOwner, SystemName, TurnId, TurnStatus, UndoReport, UserInfo,
-  Compact, DecideAnswer, DecideRequest, SessionListQuery, MessageListQuery, NotificationListQuery, SessionControlAction,
+  Compact, DecideAnswer, DecideRequest, SessionListQuery, MessageListQuery, NotificationListQuery, SessionControlAction, CompareVariantInput, CompareView, VariantIndex,
 } from '@harness/core';
 
 /** Sessions. */
@@ -58,7 +58,13 @@ export type TurnEnd = Exclude<TurnStatus, 'running' | 'paused' | 'undone'>;
 
 /** Turns: a user message (or `!` invocation) and everything it caused. */
 export interface TurnService {
-  send(input: { session: SessionId; author: ActorId; parts: OutgoingPart[]; replyTo?: MessageId; replyAll?: boolean; client: ClientInfo }): Promise<{ turn: TurnId; message: ChatMessage }>;
+  /**
+   * Send a message. With `variants` (A/B compare) the chat's agents don't answer it: each variant answers in a fork of
+   * the chat (`chat/compare.ts`), and nothing joins the chat until the person chooses one.
+   */
+  send(input: {
+    session: SessionId; author: ActorId; parts: OutgoingPart[]; replyTo?: MessageId; replyAll?: boolean; client: ClientInfo; variants?: readonly CompareVariantInput[] | undefined;
+  }): Promise<{ turn: TurnId; message: ChatMessage }>;
   invoke(input: { session: SessionId; author: ActorId; fn: QualifiedName; args: Json; on?: InstanceName | undefined; client: ClientInfo }): Promise<{ turn: TurnId; run: RunId }>;
   /** Open an assistant message for an agent's answer (from the agent loop); it streams until `finish`. */
   begin(input: { turn: TurnId; author: ActorId; replyTo?: MessageId }): Promise<ChatMessage>;
@@ -95,6 +101,18 @@ export interface TurnService {
   continueTurn(turn: TurnId, by: ActorId): Promise<{ turn: TurnId; run: RunId }>;
 }
 
+/**
+ * A/B compare: a message answered by 2 to 4 variants of the chat's settings, each in a fork of the chat with an even
+ * share of the turn's budget, until the person chooses one (`chat/compare.ts`). Starting one is `TurnService.send`
+ * with `variants`.
+ */
+export interface CompareService {
+  /** A compared turn: each variant's answer, spend, tokens, time and the approvals it waits on. */
+  view(turn: TurnId, viewer: ActorId): Promise<CompareView>;
+  /** Choose a variant: it joins the chat (transcript, loaded fns and context, state, messages, runs); the others are discarded. */
+  choose(input: { turn: TurnId; variant: VariantIndex; adopt?: boolean | undefined; by: ActorId }): Promise<CompareView>;
+}
+
 /** Who answers a message: with one person, the session's agent; with more, only agents replied to, or every agent on reply-all. */
 export interface ReplyRule {
   answerers(input: { session: Session; message: ChatMessage; repliedTo?: ChatMessage }): readonly ActorId[];
@@ -107,12 +125,12 @@ export interface DecidedSuggestions {
 }
 
 /**
- * Which fns and context a sent message is offered: by score over a threshold, or by the admin's decision model
- * (`hubOptions['suggestDecision']`) when it is on. Its picks and refusals, with reasons, become the message's record.
+ * Which fns and context a sent message is offered: by the admin's choice (`hubOptions['suggestDecision']`): a decision
+ * model, an LLM, or none (nothing is suggested). Its picks and refusals, with reasons, become the message's record.
  */
 export interface SuggestionDecider {
   decide(input: { session: SessionId; text: string; actor: ActorId }): Promise<DecidedSuggestions>;
-  /** The suggestions setting: who picks (no model by default). */
+  /** The suggestions setting: who picks (none by default: no suggestions). */
   setting(): Promise<SuggestDecisionView>;
   set(value: SuggestDecision, by: ActorId): Promise<SuggestDecisionView>;
   /**

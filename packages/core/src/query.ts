@@ -109,7 +109,7 @@ const flag = (label: string): FieldDecl => ({ label, type: 'boolean', sortable: 
 const unsorted = (decl: FieldDecl): FieldDecl => ({ ...decl, sortable: false });
 
 /** The queryable lists. */
-export const LIST_NAMES = ['resources', 'fns', 'runs', 'modelCalls', 'llmCalls', 'sessions', 'contexts', 'notifications', 'systems', 'types', 'graph'] as const;
+export const LIST_NAMES = ['resources', 'fns', 'runs', 'modelCalls', 'llmCalls', 'sessions', 'contexts', 'notifications', 'systems', 'types', 'graph', 'users', 'groups'] as const;
 export const ListName = z.enum(LIST_NAMES);
 export type ListName = z.infer<typeof ListName>;
 
@@ -194,6 +194,16 @@ export const LIST_FIELDS = {
       effect: unsorted(dynamic('Effect on')), visibility: unsorted(choice('Visible to', Audience.options)), stage: unsorted(choice('Stage', GRAPH_STAGES)), on: flag('On'),
     },
     defaultSort: [],
+  },
+  /** SSO: the people who can sign in (admins). */
+  users: {
+    fields: { name: text('Name'), email: text('Email'), role: choice('Role', ['admin', 'member']), disabled: flag('Disabled'), createdAt: date('Added') },
+    defaultSort: [{ field: 'name', dir: 'asc' }],
+  },
+  /** SSO: the groups people are in (admins). */
+  groups: {
+    fields: { name: text('Name'), createdAt: date('Added') },
+    defaultSort: [{ field: 'name', dir: 'asc' }],
   },
 } as const satisfies Record<ListName, { fields: Record<string, FieldDecl>; defaultSort: readonly Sort[] }>;
 

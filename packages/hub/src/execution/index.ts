@@ -13,7 +13,7 @@
 import type {
   ActorId, Approval, FnError, Json, LlmForward, LlmForwardChunk, LlmInteractionId, Priority, QualifiedName, ResolvedLimits, Run, RunId, RunSettled,
   SessionId, TurnId, UndoOutcome, UserInfo, Usd, ApprovalId, Remember, ProgressReport, AllowedOperations, LedgerEntry, BudgetId, ReservationId,
-  ModelCallId, InvalidInput, InstanceName, LlmRequest, ModelChoice, Approver, ApprovalPreview, ProposalAsk, ProposedRun, ProposeRun, SystemName, OutcomeWire,
+  ModelCallId, InvalidInput, InstanceName, LlmRequest, ModelChoice, Approver, ApprovalPreview, ProposalAsk, ProposedRun, ProposeRun, SystemName, OutcomeWire, CompareFork,
 } from '@harness/core';
 import { hub } from '@harness/sdk';
 import type { ModelSite } from '../models/index.ts';
@@ -122,6 +122,12 @@ export interface PolicyEngine {
      * person every time. No policy, auto mode, remembered answer or the person's own call lets it through; a deny still wins.
      */
     sensitive?: boolean;
+    /**
+     * A/B compare: the call is made by one variant of a compared message (its session is a fork). A fn that writes or
+     * deletes waits for the turn's person in every variant, each on its own: no policy, auto mode or remembered answer
+     * lets it through, and the approval says which variant asks. A deny still wins.
+     */
+    variant?: CompareFork;
   }): Promise<RunDecision>;
   /** Make the approval of a run a system proposed (`propose` on the hub link), with its preview, and tell its approvers. */
   propose(input: { run: RunId; fn: QualifiedName; approver: Approver; preview: ApprovalPreview; turnUser: ActorId; session?: SessionId; ask?: ProposalAsk }): Promise<Approval>;
@@ -178,7 +184,8 @@ export interface Recorded<T> {
 export interface LlmGateway {
   /** A forwarded request from a system (`HubLink.llm`), streamed back. */
   forward(input: LlmForward & { system: string; turn?: TurnId; instance?: InstanceName }, signal: AbortSignal): AsyncIterable<LlmForwardChunk>;
-  embed(input: EmbedCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<number[][]>>;
+  /** Embeddings; the hub's own work may say how soon it is needed (`priority`, default background: the index's search lane is interactive). */
+  embed(input: EmbedCall, site: ModelSite, signal: AbortSignal, priority?: Priority): Promise<Recorded<number[][]>>;
   image(input: ImageCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<MadeImage[]>>;
   transcribe(input: TranscribeCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<Heard>>;
   speech(input: SpeechCall, site: ModelSite, signal: AbortSignal): Promise<Recorded<Spoken>>;

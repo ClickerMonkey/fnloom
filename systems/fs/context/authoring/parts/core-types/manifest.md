@@ -261,12 +261,6 @@ type Manifest = {
     target: TypeDef<any>;
     of?: `${string}/${string}` | undefined;
   }[];
-  embedders: {
-    name: string;
-    dimensions: number;
-    maxInput: number;
-    pricePerMillionTokens: number;
-  }[];
   sectioners: {
     name: string;
     description: string;
@@ -274,7 +268,7 @@ type Manifest = {
       format?: string | undefined;
       mime?: string | undefined;
       glob?: string | undefined;
-      form?: "description" | "table" | "text" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
+      form?: "code" | "description" | "table" | "text" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
     };
   }[];
   actions: {
@@ -317,6 +311,7 @@ type Manifest = {
       dimensions?: number | undefined;
       maxInput?: number | undefined;
       maxQuestions?: number | undefined;
+      maxRequestBytes?: number | undefined;
     }[];
   }[] | undefined;
   connect?: {
@@ -406,7 +401,7 @@ type Manifest = {
     } | undefined;
   }[] | undefined;
   configSecrets?: string[] | undefined;
-  runtime?: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "embedders" | "sectioners" | "actions", string[]>> | undefined;
+  runtime?: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "sectioners" | "actions", string[]>> | undefined;
   grants?: {
     hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
     models?: {

@@ -30,7 +30,7 @@ describe('the suggestions setting', () => {
     expect(SuggestDecision.parse({ by: 'llm', model: { model: { model: 'tiny' } } })).toMatchObject({ by: 'llm', model: { model: { model: 'tiny' } } });
   });
 
-  it('reads a setting stored before as today\'s: on with a model is an LLM, anything else no model', () => {
+  it('reads a setting stored before as today\'s: on with a model is an LLM, anything else none (no suggestions)', () => {
     const legacy = { enabled: true, model: { model: { model: 'tiny' } }, messages: 2, candidates: 10, cap: 3, floor: 0.4 };
     expect(StoredSuggestDecision.parse(legacy)).toEqual({ by: 'llm', model: { model: { model: 'tiny' } }, messages: 2, candidates: 10, cap: 3, floor: 0.4 });
     expect(StoredSuggestDecision.parse({ ...legacy, enabled: false })).toEqual({ by: 'none' });

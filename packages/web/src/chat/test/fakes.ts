@@ -4,7 +4,7 @@
  * event channel a test pushes into, a file sender, a recorder, and the chat store built on them.
  */
 import {
-  ActorId, Approval, ChatCapabilities, SelectionReport, ChatMessage, DeliveryId, HandlerCall, LlmInteraction, Run, RunId, Session, SessionSummary, SystemName, TreeNode, TurnId, UndoReport,
+  ActorId, Approval, ChatCapabilities, CompareView, SelectionReport, ChatMessage, DeliveryId, HandlerCall, LlmInteraction, Run, RunId, Session, SessionSummary, SystemName, TreeNode, TurnId, UndoReport,
   type SessionEvent, type SessionId,
 } from '@harness/core';
 import { fakeCaller, memoryStore } from '../../test/fakes.ts';
@@ -14,9 +14,10 @@ import type { FileSender, SessionEvents } from '../api.ts';
 import { ChatStore, type ChatDeps } from '../state/chat.ts';
 import type { Previews } from '../state/uploads.ts';
 import type { Recorder } from '../state/voice.ts';
+import { T0 } from '../../test/clock.ts';
 
-/** The clock every fixture is stamped from: 7 Nov 2026, noon UTC. */
-export const T0 = Date.UTC(2026, 10, 7, 12, 0, 0);
+/** The clock every fixture is stamped from (7 Nov 2026, noon UTC). */
+export { T0 };
 /** The signed-in person in chat tests. */
 export const ME = 'act_ada';
 export const AGENT = 'act_agent';
@@ -136,6 +137,15 @@ export function tree(overrides: Partial<TreeNode> = {}): TreeNode {
   return TreeNode.parse({ run: { id: 'run_1', fn: 'hub/chat', status: 'done', cost: 0.01, totalCost: 0.02 }, llmCalls: [{ id: 'llm_1', model: 'meta/llama-free', cost: 0.002, status: 'done' }], children: [], ...overrides });
 }
 
+/** A compared turn of `ses_1` with two variants, each answering in its fork. */
+export function compareView(overrides: Loose<CompareView> = {}): CompareView {
+  const variant = (at: number) => ({
+    variant: at, label: at === 0 ? 'Fast' : 'Variant B', settings: at === 0 ? { model: { model: 'meta/llama-free' } } : {}, session: `ses_fork${at}`, turn: `trn_v${at}`,
+    status: 'running', spent: 0.01, tokens: 120, startedAt: T0, time: 1_500, messages: [], approvals: [],
+  });
+  return CompareView.parse({ turn: 'trn_cmp', session: 'ses_1', message: 'msg_cmp', status: 'running', reserved: 0.25, discarded: [], variants: [variant(0), variant(1)], ...overrides });
+}
+
 /** The chat callers, answering from one session. */
 export function fakeChatApi() {
   const current = session();
@@ -154,6 +164,12 @@ export function fakeChatApi() {
       const sent = message({ session: id, parts: parts.map((p) => (p.type === 'mention' ? { ...p, text: p.label } : p)) });
       return Promise.resolve({ turn: sent.turn, message: sent });
     }),
+    compare: fakeCaller<'compare'>(({ session: id, parts }) => {
+      const sent = message({ session: id, turn: 'trn_cmp', compared: true, parts: parts.map((p) => (p.type === 'mention' ? { ...p, text: p.label } : p)) });
+      return Promise.resolve({ turn: sent.turn, message: sent });
+    }),
+    compareView: fakeCaller<'compareView'>(({ turn }) => Promise.resolve(compareView({ turn }))),
+    chooseVariant: fakeCaller<'chooseVariant'>(({ turn, variant }) => Promise.resolve(compareView({ turn, chosen: variant, status: 'done' }))),
     invoke: fakeCaller<'invoke'>(() => Promise.resolve(({ turn: TurnId.parse('trn_inv'), run: RunId.parse('run_inv') }))),
     control: fakeCaller<'control'>(() => Promise.resolve(({ pause: false, cancel: false, uncancellable: [], undoLastTurn: true }))),
     controls: fakeCaller<'controls'>(() => Promise.resolve(({ pause: false, cancel: false, uncancellable: [], undoLastTurn: true }))),

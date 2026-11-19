@@ -337,7 +337,11 @@ export class FixtureIndex implements Search, Suggester {
     return this.suggestions instanceof Error ? Promise.reject(this.suggestions) : Promise.resolve(this.suggestions);
   }
 
-  async consider(): Promise<Considered> {
+  /** What `consider` was asked, in order. */
+  readonly considered: Array<Parameters<Suggester['consider']>[0]> = [];
+
+  async consider(query: Parameters<Suggester['consider']>[0]): Promise<Considered> {
+    this.considered.push(query);
     return this.suggestions instanceof Error ? Promise.reject(this.suggestions) : Promise.resolve({ offered: this.suggestions, hidden: this.hidden });
   }
 }

@@ -31,6 +31,7 @@ import { explorerPlugin } from './explorer.ts';
 import { graphPlugin } from './graph.ts';
 import { reviewPlugin } from './review.ts';
 import { identityPlugin } from './identity.ts';
+import { peoplePlugin } from './people.ts';
 import { imageEmbeddingPlugin } from './images.ts';
 import { versionsPlugin } from './versions.ts';
 import { dataPlugin } from './data.ts';
@@ -78,6 +79,7 @@ export function webPlugins(hub: HubServices, options: AuthPluginOptions): readon
     reviewPlugin(hub, systems),
     graphPlugin(auth, reads),
     identityPlugin(hub, systems),
+    peoplePlugin(hub, systems, reads),
     imageEmbeddingPlugin(hub, systems),
     versionsPlugin(auth, reads),
     dataPlugin(hub, auth),

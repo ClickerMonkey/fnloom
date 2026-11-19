@@ -10,14 +10,14 @@ import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { reject } from '@ayepi/core';
 import {
-  compact, dataExportFileName, MAIN_INSTANCE, mintId, qualify, splitName, SystemName, type ActorId, type HostedBy, type InstanceName, type Json, type GroupActor, type ModelInfo, type ProviderConfig, type ProviderInput, type ProviderKind,
+  compact, dataExportFileName, SIGN_IN_POLICY_OPTION, MAIN_INSTANCE, mintId, qualify, splitName, SystemName, type ActorId, type HostedBy, type InstanceName, type Json, type GroupActor, type ModelInfo, type ProviderConfig, type ProviderInput, type ProviderKind,
   type InstallSource, type ProviderRecord, type SecretId, type SystemRecord, type UserActor,
 } from '@harness/core';
 import type { ADMIN_ENDPOINTS, AdminFnName } from '@harness/sdk';
 import type { z } from 'zod';
 import type { HubServices } from '../boot/index.ts';
 import type { LimitResolver, RunService } from '../execution/index.ts';
-import { findUserByEmail, normalEmail } from './auth.ts';
+import { breakGlassAdmin, findUserByEmail, normalEmail } from './identities.ts';
 import { allRows, firstRow } from '../store/rows.ts';
 import { userInfo } from './web/access.ts';
 import { timeInfo } from '../execution/time.ts';
@@ -232,6 +232,31 @@ export function adminOperations(hub: HubServices): AdminOperations {
       for (const member of members) { await membership(group.id, member, by); }
       hub.log.info('group.added', { actor: group.id, members: members.length, by });
       return { id: group.id };
+    },
+    update_user: async (data, by) => {
+      const actor = await store.table('actors').get(data.user);
+      if (actor?.kind !== 'user') { throw reject(404, 'USER_NOT_FOUND', `no person ${data.user}`); }
+      const demotes = data.role === 'member' || data.disabled === true;
+      if (demotes && (await breakGlassAdmin(store))?.id === actor.id) {
+        throw reject(409, 'BREAK_GLASS', `${actor.name} is the break-glass admin, who always stays an admin and can always sign in.`);
+      }
+      if (demotes && actor.id === by) { throw reject(409, 'NOT_YOURSELF', 'You can\x27t take away your own admin role or turn off your own sign-in.'); }
+      await store.table('actors').update(actor.id, compact({ name: data.name, role: data.role, disabled: data.disabled }));
+      hub.log.info('user.updated', { actor: actor.id, role: data.role, disabled: data.disabled, by });
+      return { id: actor.id };
+    },
+    set_membership: async (data, by) => {
+      await requireActors(hub, [data.group], 'group');
+      await requireActors(hub, [data.user], 'user');
+      // an admin's membership is theirs to keep: a sign-in sync never takes it away
+      const changed = data.member ? (await membership(data.group, data.user, by), true) : await store.table('memberships').remove({ group: data.group, user: data.user });
+      hub.log.info('membership.set', { group: data.group, user: data.user, member: data.member, by });
+      return { ok: changed };
+    },
+    set_sign_in_policy: async (data, by) => {
+      await store.table('hubOptions').put({ key: SIGN_IN_POLICY_OPTION, value: data, setBy: by, updatedAt: hub.clock() });
+      hub.log.info('sign-in.policy.set', { mode: data.mode, by });
+      return data;
     },
     remove_rule: async (data, by) => {
       const removed = await (() => {

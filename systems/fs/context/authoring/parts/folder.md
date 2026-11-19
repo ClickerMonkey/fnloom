@@ -177,8 +177,8 @@ export type TemplateSettings = ReturnType<typeof templateEnv.parse>;
 ```ts
 /**
  * The template system's implementation: everything its contract declares, and nothing else. Its type is computed from
- * the contract (`SystemImpl`), so a declared fn, method, kind, dynamic context, hook, mention, embedder, sectioner or
- * action left out does not compile, and neither does one the contract doesn't declare.
+ * the contract (`SystemImpl`), so a declared fn, method, kind, dynamic context, hook, mention, sectioner, action
+ * or model provider left out does not compile, and neither does one the contract doesn't declare.
  */
 import type { SystemImpl } from '@harness/sdk';
 import type { template } from '../shared/index.ts';
@@ -213,8 +213,9 @@ export function createImpl(_deps: TemplateDeps): SystemImpl<(typeof template)['d
     // mentions: per mention provider, `{ async search(query, ctx), async hover(target, ctx), async llm(target, ctx) }`.
     // TODO: implement every declared mention provider, or delete this comment.
 
-    // embedders: per embedder, `async (texts) => vectors`, one vector per text, in order.
-    // TODO: implement every declared embedder, or delete this comment.
+    // providers: per model provider, `(ctx) => provider`, an aeye `Provider` for the current config (made again when it
+    // changes); an embedding model's vectors come from its `embed`.
+    // TODO: implement every declared provider, or delete this comment.
 
     // sectioners: per sectioner, `async (text, stat) => sections`, keys made with `sectionKeys(paths)`.
     // TODO: implement every declared sectioner, or delete this comment.
@@ -392,8 +393,10 @@ export const template = system('template', {
     // `hook({ description, order, timeout })`.
     // TODO: declare hooks, or delete this comment.
 
-    // embedders: embed functions the hub can index with, each made with `embedder({ dimensions, maxInput, pricePerMillionTokens })`.
-    // TODO: declare embedders, or delete this comment.
+    // providers: model providers whose calls run in this system, each made with `provider({ description, models })`.
+    // An embedder is one: a model with `capabilities: ['embedding']` (or `imageEmbedding`) and its `dimensions` is an
+    // embedder the hub's index can use.
+    // TODO: declare providers, or delete this comment.
 
     // sectioners: ways of cutting resources into sections, each made with `sectioner({ description, match })`.
     // TODO: declare sectioners, or delete this comment.

@@ -75,7 +75,7 @@ class FakeHub {
   /** Content by hash. */
   readonly content: Map<string, Uint8Array<ArrayBufferLike>>;
   /** A resource's outline by URI (`resourceSections`); a URI not here has no sections. */
-  readonly sections: Map<string, { key: SectionKey; path: string[]; title: string; start: number; end: number; embedText?: string | undefined; form?: "description" | "table" | "text" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined; }[]>;
+  readonly sections: Map<string, { key: SectionKey; path: string[]; title: string; start: number; end: number; embedText?: string | undefined; form?: "code" | "description" | "table" | "text" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined; }[]>;
   /** The hub's kept fns (`hub/save_fn`, `hub/fn_get`, `searchFns`, `fnExamples`), in memory. */
   readonly fns: FakeHubFns;
   /**

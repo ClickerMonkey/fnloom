@@ -98,7 +98,7 @@ export class StoreSessionService implements SessionService {
   async list(viewer: ActorId, query: Compact<SessionListQuery>): Promise<Page<SessionSummary>> {
     const page = await filteredPage(
       this.#deps.store.table('sessions'),
-      { where: { owner: viewer, archived: false }, order: [['updatedAt', 'desc']], limit: query.limit ?? this.#deps.settings.chat.HARNESS_SESSION_PAGE, cursor: query.cursor },
+      { where: { owner: viewer, archived: false, forkOf: { exists: false } }, order: [['updatedAt', 'desc']], limit: query.limit ?? this.#deps.settings.chat.HARNESS_SESSION_PAGE, cursor: query.cursor },
       () => true,
     );
     return { items: page.items.map((s) => SessionSummary.parse(s)), ...(page.cursor === undefined ? {} : { cursor: page.cursor }) };
@@ -110,8 +110,8 @@ export class StoreSessionService implements SessionService {
     by: ActorId,
   ): Promise<Session> {
     const session = await this.require(id, by);
-    const { notify, priority, model, mode, contextor, fnMode, ...owned } = patch;
-    const choices = model !== undefined || mode !== undefined || contextor !== undefined || fnMode !== undefined;
+    const { notify, priority, model, mode, contextor, fnMode, instructions, ...owned } = patch;
+    const choices = model !== undefined || mode !== undefined || contextor !== undefined || fnMode !== undefined || instructions !== undefined;
     if ((Object.keys(owned).length > 0 || priority !== undefined || choices) && session.owner !== by) { throw new ChatError('forbidden', 'Only the owner can change this session.'); }
     let participants = session.participants;
     if (notify !== undefined) { participants = participants.map((p) => (p.actor === by ? { ...p, notify } : p)); }
@@ -132,9 +132,10 @@ export class StoreSessionService implements SessionService {
       ...(contextor === undefined || contextor === null ? {} : { contextor }),
       // the chat mode picker's choice (build 6 feedback: it was dropped here, so the picker never saved it)
       ...(fnMode === undefined || fnMode === null ? {} : { fnMode }),
+      ...(instructions === undefined || instructions === null ? {} : { instructions }),
       participants,
     });
-    const result = await this.#clear(updated, { model: model === null, mode: mode === null, contextor: contextor === null, fnMode: fnMode === null });
+    const result = await this.#clear(updated, { model: model === null, mode: mode === null, contextor: contextor === null, fnMode: fnMode === null, instructions: instructions === null });
     this.#deps.log.info('chat.session.updated', { session: id, by, fields: Object.keys(patch) });
     return result;
   }
@@ -148,13 +149,17 @@ export class StoreSessionService implements SessionService {
     }
     const removed = await store.tx(async (tx) => {
       let count = 0;
-      for (const message of await allRows(tx.table('messages'), { where: { session: id } })) { if (await tx.table('messages').remove(message.id)) { count++; } }
-      for (const delivery of await allRows(tx.table('deliveries'), { where: { session: id } })) { await tx.table('deliveries').remove(delivery.id); }
-      for (const field of await allRows(tx.table('stateFields'), { where: { session: id } })) {
-        await tx.table('stateFields').remove(field);
+      // its A/B compares' forks go with it (`Session.forkOf`)
+      const forks = (await allRows(tx.table('sessions'), { where: { forkOf: id } })).map((fork) => fork.id);
+      for (const gone of [id, ...forks]) {
+        for (const message of await allRows(tx.table('messages'), { where: { session: gone } })) { if (await tx.table('messages').remove(message.id) && gone === id) { count++; } }
+        for (const delivery of await allRows(tx.table('deliveries'), { where: { session: gone } })) { await tx.table('deliveries').remove(delivery.id); }
+        for (const field of await allRows(tx.table('stateFields'), { where: { session: gone } })) {
+          await tx.table('stateFields').remove(field);
+        }
+        await tx.table('sessions').remove(gone);
       }
       await tx.table('priorityRules').remove(sessionPriorityRule(id));
-      await tx.table('sessions').remove(id);
       return count;
     });
     bus.publish('session.deleted', { session: id, participants: audienceOf(session) });
@@ -270,10 +275,11 @@ export class StoreSessionService implements SessionService {
     await rules.put({ ...(existing ?? {}), id, target: { scope: 'session', session }, default: priority, setBy: by });
   }
 
-  /** Take the session's own model, mode, contextor or fn mode away (each `true` one), so its agent fn's choice applies again. */
-  async #clear(session: Session, clear: { readonly model: boolean; readonly mode: boolean; readonly contextor: boolean; readonly fnMode: boolean }): Promise<Session> {
-    const { model, mode, contextor, fnMode, ...rest } = session;
-    const gone = (clear.model && model !== undefined) || (clear.mode && mode !== undefined) || (clear.contextor && contextor !== undefined) || (clear.fnMode && fnMode !== undefined);
+  /** Take the session's own model, mode, contextor, fn mode or system prompt away (each `true` one), so its agent fn's choice applies again. */
+  async #clear(session: Session, clear: { readonly model: boolean; readonly mode: boolean; readonly contextor: boolean; readonly fnMode: boolean; readonly instructions: boolean }): Promise<Session> {
+    const { model, mode, contextor, fnMode, instructions, ...rest } = session;
+    const gone = (clear.model && model !== undefined) || (clear.mode && mode !== undefined) || (clear.contextor && contextor !== undefined) || (clear.fnMode && fnMode !== undefined)
+      || (clear.instructions && instructions !== undefined);
     if (!gone) { return session; }
     const cleared = await this.#deps.store.table('sessions').put({
       ...rest,
@@ -281,6 +287,7 @@ export class StoreSessionService implements SessionService {
       ...(clear.mode || mode === undefined ? {} : { mode }),
       ...(clear.contextor || contextor === undefined ? {} : { contextor }),
       ...(clear.fnMode || fnMode === undefined ? {} : { fnMode }),
+      ...(clear.instructions || instructions === undefined ? {} : { instructions }),
     });
     this.changed(cleared);
     return cleared;

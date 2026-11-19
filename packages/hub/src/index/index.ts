@@ -14,6 +14,7 @@ import type {
   ConvertedVersion, EmbedderAbilities, EmbedImage, EmbedInput, FormKind, IndexedKind, QualifiedName, ResourceLink, ResourceRoot, ResourceStat, ResourceUri, SearchHit, SectionDiff, SessionId, SystemName,
 } from '@harness/core';
 import type { Suggestion } from '@harness/core';
+import type { EmbedLane } from './batch.ts';
 
 /** An embed function: one vector per input (a text, or an image for one that embeds images), in order. */
 export interface Embedder {
@@ -22,7 +23,8 @@ export interface Embedder {
   readonly maxInput: number;
   /** What it embeds; text only when absent. */
   readonly abilities?: EmbedderAbilities;
-  embed(inputs: readonly EmbedInput[], signal?: AbortSignal): Promise<number[][]>;
+  /** One vector per input, in order; `lane` says who waits (a search is interactive, indexing background). */
+  embed(inputs: readonly EmbedInput[], lane?: EmbedLane): Promise<number[][]>;
 }
 
 /**

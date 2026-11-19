@@ -26,5 +26,8 @@ export function settingsPlugin(hub: HubServices, systems: ReturnType<typeof syst
       setActorSetting: ({ data, user }) => ops.set_actor_setting(data, user.id),
       addUser: ({ data, user }) => ops.add_user(data, user.id),
       addGroup: ({ data, user }) => ops.add_group(data, user.id),
+      updateUser: ({ data, user }) => ops.update_user(data, user.id),
+      setMembership: ({ data, user }) => ops.set_membership(data, user.id),
+      setSignInPolicy: ({ data, user }) => ops.set_sign_in_policy(data, user.id),
     }));
 }

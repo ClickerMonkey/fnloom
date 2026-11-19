@@ -28,6 +28,7 @@ import { PairingPageStore } from './pairing.ts';
 import { LimitsStore } from './limits.ts';
 import { ModelsStore } from './models.ts';
 import { PoliciesStore } from './policies.ts';
+import { PeopleStore } from './people.ts';
 import { ModelRolesStore } from './roles.ts';
 import { ActorSettingsStore } from './settings.ts';
 import { ReviewStore } from './review.ts';
@@ -91,6 +92,8 @@ export class AdminStore {
   readonly images: ImageEmbeddingStore;
   /** A system's auto pair secrets. */
   readonly autoPairs: AutoPairStore;
+  /** SSO: people, groups and how people sign in. */
+  readonly people: PeopleStore;
 
   constructor(deps: AdminDeps) {
     const { api } = deps;
@@ -122,6 +125,7 @@ export class AdminStore {
     this.classifier = new ClassifierStore(api);
     this.images = new ImageEmbeddingStore(api);
     this.autoPairs = new AutoPairStore(api);
+    this.people = new PeopleStore(api);
     this.fns = new Paged({
       fetch: (query, cursor, limit) => api.fns.call({ ...query, limit, ...(cursor === undefined ? {} : { cursor }) }),
       key: (fn) => fn.name,

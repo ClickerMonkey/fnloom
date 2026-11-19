@@ -1,5 +1,5 @@
 /**
- * Splitting decision questions by the model's `maxQuestions`, through aeye and `@aeye/ollama` against a fake Ollama
+ * Splitting decision questions by the model's `maxQuestions` and `maxRequestBytes`, through aeye and `@aeye/ollama` against a fake Ollama
  * that lists a System One model: aeye refuses an over-cap call, and `decideInBatches` asks it in calls the model takes.
  */
 import { AI, DecisionLimitError, type DecisionQuestion } from '@aeye/ai';
@@ -7,7 +7,7 @@ import { OllamaProvider } from '@aeye/ollama';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { ModelCallId, type ModelRoleView } from '@harness/core';
-import { decideInBatches, HubDecider, questionBatches } from './decide.ts';
+import { decideInBatches, decisionInputBytes, HubDecider, questionBatches } from './decide.ts';
 import type { ModelSite } from './index.ts';
 
 /** A fake Ollama with one System One model (`nimble`) that answers every predicate with 0.5 + its index / 1000. */
@@ -40,9 +40,26 @@ function questions(count: number): Record<string, DecisionQuestion> {
 
 describe('decision batches', () => {
   it('splits questions in order by the cap, and keeps them whole without one', () => {
-    expect(questionBatches(questions(5), 2).map((batch) => Object.keys(batch))).toEqual([['q0', 'q1'], ['q2', 'q3'], ['q4']]);
-    expect(questionBatches(questions(5), undefined).map((batch) => Object.keys(batch))).toEqual([['q0', 'q1', 'q2', 'q3', 'q4']]);
-    expect(questionBatches({}, 64)).toEqual([]);
+    expect(questionBatches(questions(5), { maxQuestions: 2 }).map((batch) => Object.keys(batch))).toEqual([['q0', 'q1'], ['q2', 'q3'], ['q4']]);
+    expect(questionBatches(questions(5), {}).map((batch) => Object.keys(batch))).toEqual([['q0', 'q1', 'q2', 'q3', 'q4']]);
+    expect(questionBatches({}, { maxQuestions: 64 })).toEqual([]);
+  });
+
+  it('splits by bytes of input and questions too, each batch within the cap, and refuses a question that never fits', () => {
+    const all = questions(5);
+    // each question is {"qN":{"type":"predicate","instructions":"Load context N?"}}, 56 bytes with its comma
+    const one = JSON.stringify({ q0: all['q0'] }).length - 1;
+    const input = 'x'.repeat(100);
+    const limits = { maxRequestBytes: 100 + 2 + one * 2 };
+    const batches = questionBatches(all, limits, decisionInputBytes(input));
+    expect(batches.map((batch) => Object.keys(batch))).toEqual([['q0', 'q1'], ['q2', 'q3'], ['q4']]);
+    for (const batch of batches) { expect(decisionInputBytes(input) + JSON.stringify(batch).length).toBeLessThanOrEqual(limits.maxRequestBytes); }
+    // both caps: the tighter one wins
+    expect(questionBatches(all, { ...limits, maxQuestions: 1 }, decisionInputBytes(input)).map((batch) => Object.keys(batch))).toEqual([['q0'], ['q1'], ['q2'], ['q3'], ['q4']]);
+    // a conversation counts as its JSON, and text by its UTF-8 bytes
+    expect(decisionInputBytes([{ role: 'user', content: 'hi' }])).toBe(JSON.stringify([{ role: 'user', content: 'hi' }]).length);
+    expect(decisionInputBytes('é')).toBe(2);
+    expect(() => questionBatches(all, { maxRequestBytes: 100 + one }, decisionInputBytes(input), 'nimble')).toThrow(DecisionLimitError);
   });
 
   it('asks an Ollama System One model 150 questions in calls of 64, which aeye refuses as one call', async () => {
@@ -56,7 +73,7 @@ describe('decision batches', () => {
     await expect(ai.decide.get({ input: 'the user asked about invoices', questions: all })).rejects.toBeInstanceOf(DecisionLimitError);
     expect(asked).toHaveLength(0);
 
-    const decided = await decideInBatches(all, model?.maxQuestions, (batch) => ai.decide.get({ input: 'the user asked about invoices', questions: batch }));
+    const decided = await decideInBatches(all, { input: 'the user asked about invoices', ...(model?.maxQuestions === undefined ? {} : { maxQuestions: model.maxQuestions }) }, (batch) => ai.decide.get({ input: 'the user asked about invoices', questions: batch }));
     expect(asked.map((names) => names.length)).toEqual([64, 64, 22]);
     expect(asked.flat()).toEqual(Object.keys(all));
     expect(Object.keys(decided.answers)).toHaveLength(150);
@@ -76,7 +93,7 @@ describe('the hub decider', () => {
       },
       llm: {
         models: () => Promise.resolve([
-          { id: 'judge', provider: 'ollama', name: 'Judge', capabilities: ['decision'], maxQuestions: 2 },
+          { id: 'judge', provider: 'ollama', name: 'Judge', capabilities: ['decision'], maxQuestions: 2, maxRequestBytes: 4_096 },
           { id: 'other', provider: 'openrouter', name: 'Other', capabilities: ['decision'] },
         ]),
         decide: (input, site) => {
@@ -91,7 +108,7 @@ describe('the hub decider', () => {
 
   it('uses the decide role\u2019s model with its threshold and question cap, or a job\u2019s own choice', async () => {
     const { hub } = decider();
-    expect(await hub.model()).toEqual({ model: 'judge', provider: 'ollama', threshold: 0.7, maxQuestions: 2 });
+    expect(await hub.model()).toEqual({ model: 'judge', provider: 'ollama', threshold: 0.7, maxQuestions: 2, maxRequestBytes: 4_096 });
     expect(await hub.model({ model: { model: 'other' } })).toEqual({ model: 'other', provider: 'openrouter', threshold: 0.7 });
     expect(await hub.model({ model: { category: 'x' } })).toEqual({ problem: 'no such model' });
     expect(await decider({ role: 'decide', from: 'none' }).hub.model()).toEqual({ problem: 'No decision model is set (an admin sets the Decide role).' });
@@ -108,5 +125,16 @@ describe('the hub decider', () => {
     expect(calls.every((c) => JSON.stringify(c.metadata) === JSON.stringify({ model: 'judge', provider: 'ollama' }) && c.site === site)).toBe(true);
     expect(Object.keys(decided.answers)).toEqual(['q0', 'q1', 'q2', 'q3', 'q4']);
     expect(decided).toMatchObject({ calls: ['mdl_1', 'mdl_2', 'mdl_3'], cost: 1.5 });
+  });
+
+  it('asks in calls within the model’s bytes too, keeping every call', async () => {
+    const { hub, calls } = decider();
+    const model = await hub.model();
+    if ('problem' in model) throw new Error(model.problem);
+    // a long input leaves room for one question per call under the model's 4 KiB
+    const input = 'x'.repeat(4_096 - 2 - 60);
+    const decided = await hub.ask({ input, questions: questions(3), model, site: { purpose: 'test' }, signal: new AbortController().signal });
+    expect(calls.map((c) => c.names)).toEqual([['q0'], ['q1'], ['q2']]);
+    expect(decided.calls).toEqual(['mdl_1', 'mdl_2', 'mdl_3']);
   });
 });

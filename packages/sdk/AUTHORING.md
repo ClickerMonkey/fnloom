@@ -46,7 +46,8 @@ _Every code sample is a compiled file of the repository, so it is correct for th
 
 A **system** is a Node process with a unique name that connects to the harness **hub** over one WebSocket and adds
 things to it: fns (functions people, agents and other systems run), named types, context for the LLM, `@` mentions,
-hooks on user messages, settings, resources, embedders, sectioners, actions and Vue renderers. The hub owns every
+hooks on user messages, settings, resources, sectioners, actions, model providers (embedders among them) and Vue
+renderers. The hub owns every
 LLM call, user, permission, budget and record; a system only declares what it offers and implements it.
 
 Everything a system contributes is namespaced by its name: the `notes` system's fn `add` is `notes/add`, its type
@@ -255,8 +256,8 @@ export type TemplateSettings = ReturnType<typeof templateEnv.parse>;
 ```ts
 /**
  * The template system's implementation: everything its contract declares, and nothing else. Its type is computed from
- * the contract (`SystemImpl`), so a declared fn, method, kind, dynamic context, hook, mention, embedder, sectioner or
- * action left out does not compile, and neither does one the contract doesn't declare.
+ * the contract (`SystemImpl`), so a declared fn, method, kind, dynamic context, hook, mention, sectioner, action
+ * or model provider left out does not compile, and neither does one the contract doesn't declare.
  */
 import type { SystemImpl } from '@harness/sdk';
 import type { template } from '../shared/index.ts';
@@ -291,8 +292,9 @@ export function createImpl(_deps: TemplateDeps): SystemImpl<(typeof template)['d
     // mentions: per mention provider, `{ async search(query, ctx), async hover(target, ctx), async llm(target, ctx) }`.
     // TODO: implement every declared mention provider, or delete this comment.
 
-    // embedders: per embedder, `async (texts) => vectors`, one vector per text, in order.
-    // TODO: implement every declared embedder, or delete this comment.
+    // providers: per model provider, `(ctx) => provider`, an aeye `Provider` for the current config (made again when it
+    // changes); an embedding model's vectors come from its `embed`.
+    // TODO: implement every declared provider, or delete this comment.
 
     // sectioners: per sectioner, `async (text, stat) => sections`, keys made with `sectionKeys(paths)`.
     // TODO: implement every declared sectioner, or delete this comment.
@@ -470,8 +472,10 @@ export const template = system('template', {
     // `hook({ description, order, timeout })`.
     // TODO: declare hooks, or delete this comment.
 
-    // embedders: embed functions the hub can index with, each made with `embedder({ dimensions, maxInput, pricePerMillionTokens })`.
-    // TODO: declare embedders, or delete this comment.
+    // providers: model providers whose calls run in this system, each made with `provider({ description, models })`.
+    // An embedder is one: a model with `capabilities: ['embedding']` (or `imageEmbedding`) and its `dimensions` is an
+    // embedder the hub's index can use.
+    // TODO: declare providers, or delete this comment.
 
     // sectioners: ways of cutting resources into sections, each made with `sectioner({ description, match })`.
     // TODO: declare sectioners, or delete this comment.
@@ -599,8 +603,8 @@ The sections, all optional:
 | `context` | text for the LLM, static or made by the server, optionally a `/command` | `context()` |
 | `hooks` | additions to each user message before the LLM sees it | `hook()` |
 | `mentions` | `@` mention providers | `mention()` |
-| `embedders` | embed functions the hub can index with | `embedder()` |
 | `sectioners` | ways of cutting resources into sections | `sectioner()` |
+| `providers` | model providers whose calls run in the system; their embedding models are the hub's embedders | `provider()` |
 | `actions` | typed messages the system's renderers send it | `action()` |
 
 The contract is a value with typed refs for everything in it: `notes.fns.add` is a `FnRef<'notes/add', Args, Result,
@@ -737,7 +741,6 @@ interface SystemRefs<N extends string, C extends ContractShape> {
   readonly context: { readonly [K in keyof C['context']]: C['context'][K] extends ContextDef<infer A, boolean> ? ContextRef<Q<N, K>, A> : never };
   readonly hooks: { readonly [K in keyof C['hooks']]: HookRef<Q<N, K>> };
   readonly mentions: { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T, unknown> ? MentionRef<Q<N, K>, T> : never };
-  readonly embedders: { readonly [K in keyof C['embedders']]: EmbedderRef<Q<N, K>> };
   readonly sectioners: { readonly [K in keyof C['sectioners']]: SectionerRef<Q<N, K>> };
   readonly actions: { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, object> ? ActionRef<Q<N, K>, I, R> : never };
   readonly providers: { readonly [K in keyof C['providers']]: ProviderRef<Q<N, K>> };
@@ -762,7 +765,6 @@ interface ContractShape {
   context: Record<string, AnyContextDef>;
   hooks: Record<string, HookDef>;
   mentions: Record<string, MentionDef<unknown, unknown>>;
-  embedders: Record<string, EmbedderDef>;
   sectioners: Record<string, SectionerDef>;
   actions: Record<string, ActionDef<unknown, unknown, object>>;
   /** Model providers it brings (`provider()`), served by its implementation. */
@@ -794,7 +796,7 @@ const · `import { CONTRACT_SECTIONS } from '@harness/sdk'`
 The contract sections, in the order the manifest lists them.
 
 ```ts
-const CONTRACT_SECTIONS: readonly ["types", "settings", "attachments", "kinds", "fns", "context", "hooks", "mentions", "embedders", "sectioners", "actions", "providers"];
+const CONTRACT_SECTIONS: readonly ["types", "settings", "attachments", "kinds", "fns", "context", "hooks", "mentions", "sectioners", "actions", "providers"];
 ```
 
 #### `isSystemContract`
@@ -816,7 +818,7 @@ A contract with nothing in it yet. Its config is the empty object.
 ```ts
 interface EmptyContract {
   config: GinType<{}>;
-  types: {}; settings: {}; attachments: {}; kinds: {}; fns: {}; context: {}; hooks: {}; mentions: {}; embedders: {}; sectioners: {}; actions: {}; providers: {};
+  types: {}; settings: {}; attachments: {}; kinds: {}; fns: {}; context: {}; hooks: {}; mentions: {}; sectioners: {}; actions: {}; providers: {};
   connect: undefined;
 }
 ```
@@ -3072,8 +3074,8 @@ The result block: everything the model needs to talk about rows the person is sh
 type ResultBlock = {
   shown: string;
   columns: {
-    name: string;
     nullable: boolean;
+    name: string;
     kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
   }[];
   rowCount: number;
@@ -3117,8 +3119,8 @@ A result column as the model reads it.
 
 ```ts
 type ResultColumnInfo = {
-  name: string;
   nullable: boolean;
+  name: string;
   kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
 };
 ```
@@ -5176,6 +5178,12 @@ can be picked like any other; chat calls stream over the link and embeddings are
 call for a model the contract doesn't declare is refused. The hub prices and records every call from the declared
 prices, as it does for its own providers.
 
+This is also how a system brings an **embedder**: a model with `capabilities: ['embedding']` (or `imageEmbedding` for
+pictures; `crossModalEmbedding` when text and pictures share one space), its vectors' `dimensions` and the most
+characters it reads (`maxInput`) is an embedder the hub's index can use, named `<system>/<model id>`. The old
+`embedders` section and `embedder()` builder are gone: a contract or implementation that still has `embedders` is
+refused when built or served, with a message pointing here.
+
 ### Reference: model providers
 
 #### `provider`
@@ -5272,9 +5280,10 @@ reference provider (`systems/fs/server/resources.ts`).
 
 ### Embedders
 
-An **embedder** is an embed function the hub can index with. Declare it with `embedder({ dimensions, maxInput,
-pricePerMillionTokens })` and implement it as `async (texts) => vectors`, one vector of `dimensions` numbers per text,
-in order. The embedder system (`systems/embedder`) is the reference.
+An **embedder** is a model provider's embedding model (**Model providers**): a model with `capabilities:
+['embedding']` (text) or `['imageEmbedding']` (images) and its vectors' `dimensions`, whose vectors come from the aeye
+provider's `embed`. There is no `embedders` section: a contract or implementation that still has one is refused when
+it is built or served. The embedder system (`systems/embedder`) is the reference.
 
 ### Sectioners
 
@@ -5306,59 +5315,6 @@ interface ResourceProvider {
 ```
 
 Refers to: [`Page`](#core-page), [`ReadWant`](#core-readwant), [`ResourceChange`](#core-resourcechange), [`ResourceRead`](#core-resourceread), [`ResourceRoot`](#core-resourceroot), [`ResourceStat`](#core-resourcestat), [`ResourceUri`](#core-resourceuri).
-
-#### `embedder`
-
-function · `import { embedder } from '@harness/sdk'`
-
-Declare an embedder.
-
-```ts
-function embedder(def: EmbedderDef): EmbedderDef;
-```
-
-#### `EmbedderDef`
-
-interface · `import { EmbedderDef } from '@harness/sdk'`
-
-An embed function the hub can index with.
-
-```ts
-interface EmbedderDef {
-  readonly dimensions: number;
-  /** Most characters per text. */
-  readonly maxInput: number;
-  readonly pricePerMillionTokens: Usd;
-}
-```
-
-Refers to: [`Usd`](#core-usd).
-
-#### `EmbedderImpl`
-
-type · `import { EmbedderImpl } from '@harness/sdk'`
-
-An embedder's implementation: one vector per text, in order.
-
-```ts
-type EmbedderImpl = (texts: string[]) => Promise<number[][]>;
-```
-
-#### `EmbedderRef`
-
-interface · `import { EmbedderRef } from '@harness/sdk'`
-
-A handle to an embedder.
-
-```ts
-interface EmbedderRef<N extends QualifiedName> {
-  readonly ref: 'embedder';
-  readonly name: N;
-  readonly dimensions: number;
-}
-```
-
-Refers to: [`QualifiedName`](#core-qualifiedname).
 
 #### `sectioner`
 
@@ -5759,7 +5715,7 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{model?: text}) => list<obj{ model, limits, sources, ratio … }>
   ```
-- `hub/query`: Any list (resources, fns, runs, modelCalls, llmCalls, sessions, contexts, notifications, systems, types, graph) by the query standard: free text, filters on the list's fields (is, in, >, <, between, empty, contains, ...), a sort and paging. Tags: `read`.
+- `hub/query`: Any list (resources, fns, runs, modelCalls, llmCalls, sessions, contexts, notifications, systems, types, graph, users, groups) by the query standard: free text, filters on the list's fields (is, in, >, <, between, empty, contains, ...), a sort and paging. Tags: `read`.
 
   ```text
   (obj{ list, query? … }) => obj{
@@ -5856,12 +5812,12 @@ This is the hub contract as the SDK declares it now:
     agent?: text,
     systems?: or<list<text>, literal<text>{value="all"}>,
     title?: text
-  }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, selection?, participants, systems, tools, context, suggested?, announcedSystems?, status, transcript, createdAt, updatedAt, archived … }
+  }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, systems, instructions?, selection?, participants, forkOf?, fork?, tools, context, suggested?, announcedSystems?, status, transcript, createdAt, updatedAt, archived … }
   ```
 - `hub/session_update`: Change a session: its title, systems, agent, priority, model, chat mode or contextor, or archive it.
 
   ```text
-  (obj{ title?, systems?, agent?, archived?, priority?, notify?, model?, mode?, contextor?, fnMode?, session … }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, selection?, participants, systems, tools, context, suggested?, announcedSystems?, status, transcript, createdAt, updatedAt, archived … }
+  (obj{ title?, systems?, agent?, archived?, priority?, notify?, model?, mode?, contextor?, fnMode?, instructions?, session … }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, systems, instructions?, selection?, participants, forkOf?, fork?, tools, context, suggested?, announcedSystems?, status, transcript, createdAt, updatedAt, archived … }
   ```
 - `hub/session_delete`: Delete a session and its messages.
 
@@ -6178,6 +6134,36 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{name: text, about: text, members?: list<text>}) => obj{/* actor id */ id: text}
   ```
+- `hub/update_user`: Change a person: their name, their role (admin or member), or whether they can sign in. Tags: `admin`.
+
+  ```text
+  (obj{
+    /* actor id */ user: text,
+    name?: text{minLength=1, maxLength=120},
+    role?: enum<text>{admin, member},
+    disabled?: bool
+  }) => obj{/* actor id */ id: text}
+  ```
+- `hub/set_membership`: Put a person in a group, or take them out. Tags: `admin`.
+
+  ```text
+  (obj{/* actor id */ group: text, /* actor id */ user: text, member: bool}) => obj{ok: bool}
+  ```
+- `hub/set_sign_in_policy`: Set who may make an account by signing in through a sign-in provider for the first time: only invited people, people at some email domains, or anyone. Tags: `admin`.
+
+  ```text
+  (obj{
+    mode: or<literal<text>{value="invite"}, literal<text>{value="domains"}, literal<text>{value="anyone"}>,
+    domains?: list<text>
+  }) => or<obj{
+    mode: literal<text>{value="invite"}
+  }, obj{
+    mode: literal<text>{value="domains"},
+    domains: list<text>
+  }, obj{
+    mode: literal<text>{value="anyone"}
+  }>
+  ```
 - `hub/remove_rule`: Remove a budget, priority rule, policy, model category or provider. Tags: `admin`.
 
   ```text
@@ -6348,7 +6334,7 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{system: text, instance: text}) => obj{ok: bool}
   ```
-- `hub/suggest_decision_set`: Choose who picks what each message is offered: no model (the score threshold), a decision model (one yes/no question per candidate, the decide role's threshold), or an LLM; and how many candidates it sees and picks. Tags: `admin`.
+- `hub/suggest_decision_set`: Choose who picks what each message is offered: none (no suggestions at all), a decision model (one yes/no question per candidate, the decide role's threshold), or an LLM; and how many candidates it sees and picks. Tags: `admin`.
 
   ```text
   (obj{ by, messages?, candidates?, cap?, floor?, model? … }) => obj{ value, setBy?, updatedAt? … }
@@ -6495,7 +6481,7 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{system: text}) => list<obj{ system, instance, description, status, keyFingerprint, version, manifestHash, config?, installed?, host?, dirs?, pairedAt?, pairedBy?, lastSeenAt?, address?, connect? … }>
   ```
-- `hub/suggest_decision_get`: The suggestions setting: who picks what each message is offered (no model, a decision model or an LLM), and its limits. Tags: `admin`, `read`.
+- `hub/suggest_decision_get`: The suggestions setting: who picks what each message is offered (a decision model, an LLM, or none for no suggestions), and its limits. Tags: `admin`, `read`.
 
   ```text
   (obj) => obj{ value, setBy?, updatedAt? … }
@@ -6622,6 +6608,9 @@ const ADMIN_ENDPOINTS = {
   set_actor_setting: settingsSlice.endpoints.setActorSetting,
   add_user: settingsSlice.endpoints.addUser,
   add_group: settingsSlice.endpoints.addGroup,
+  update_user: settingsSlice.endpoints.updateUser,
+  set_membership: settingsSlice.endpoints.setMembership,
+  set_sign_in_policy: settingsSlice.endpoints.setSignInPolicy,
   remove_rule: adminSlice.endpoints.removeRule,
   approve_pairing: systemsSlice.endpoints.approvePairing,
   create_pairing_token: systemsSlice.endpoints.createPairingToken,
@@ -7024,8 +7013,8 @@ The implementation's type is `SystemImpl<(typeof contract)['defs']>`, computed f
 | `context` | dynamic context (no `content`) | `async (args, ctx) => string` |
 | `hooks` | hook | `async (input, ctx) => HookContribution[]` |
 | `mentions` | mention provider | `{ search, hover, llm }` |
-| `embedders` | embedder | `async (texts) => number[][]` |
 | `sectioners` | sectioner | `async (text, stat) => Section[]` |
+| `providers` | model provider | `(ctx) => Provider` (an aeye provider) |
 | `actions` | action | `async (input, ctx) => result` |
 | `resources` | (optional) | a `ResourceProvider` |
 | `events` | (optional) hub event type it handles | `async (event, ctx) => void` |
@@ -7264,8 +7253,8 @@ type RunningStatus = "pairing" | "needs-config" | "connected" | "disconnected" |
 type · `import { SystemImpl } from '@harness/sdk'`
 
 A system's implementation, computed from its contract. It must implement exactly what the contract declares: every
-native fn, every method of its types, every kind, every dynamic context, hook, mention provider, embedder,
-sectioner and action.
+native fn, every method of its types, every kind, every dynamic context, hook, mention provider,
+sectioner, action and model provider.
 
 ```ts
 type SystemImpl<C extends ContractShape> =
@@ -7275,7 +7264,6 @@ Needs<'context', { readonly [K in DynamicContextKeys<C['context']>]: C['context'
 Needs<'hooks', { readonly [K in keyof C['hooks']]: HookImpl<ConfigOf<C>> }> &
 Needs<'mentions', { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T, infer V> ? MentionImpl<T, V, ConfigOf<C>> : never }> &
 Needs<'types', { readonly [K in TypesWithMethods<C['types']>]: C['types'][K] extends TypeDef<infer V, infer M extends Methods> ? { readonly [J in keyof M]: MethodImpl<V, TypesOf<M[J]>, ConfigOf<C>> } : never }> &
-Needs<'embedders', { readonly [K in keyof C['embedders']]: EmbedderImpl }> &
 Needs<'sectioners', { readonly [K in keyof C['sectioners']]: SectionerImpl }> &
 Needs<'actions', { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, infer St> ? ActionImpl<I, R, St, ConfigOf<C>> : never }> &
 Needs<'providers', { readonly [K in keyof C['providers']]: ProviderImpl<ConfigOf<C>> }> &
@@ -12065,7 +12053,7 @@ class FakeHub {
   /** Content by hash. */
   readonly content: Map<string, Uint8Array<ArrayBufferLike>>;
   /** A resource's outline by URI (`resourceSections`); a URI not here has no sections. */
-  readonly sections: Map<string, { key: SectionKey; path: string[]; title: string; start: number; end: number; embedText?: string | undefined; form?: "description" | "table" | "text" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined; }[]>;
+  readonly sections: Map<string, { key: SectionKey; path: string[]; title: string; start: number; end: number; embedText?: string | undefined; form?: "code" | "description" | "table" | "text" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined; }[]>;
   /** The hub's kept fns (`hub/save_fn`, `hub/fn_get`, `searchFns`, `fnExamples`), in memory. */
   readonly fns: FakeHubFns;
   /**
@@ -16844,6 +16832,7 @@ type HubModelInfo = {
     output: number;
   } | undefined;
   maxQuestions?: number | undefined;
+  maxRequestBytes?: number | undefined;
   maxOutputTokens?: number | undefined;
 };
 ```
@@ -16937,7 +16926,7 @@ type ApprovalPreview = {
       kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
       rule: string;
       access: "read" | "write";
-      action: "ask" | "refuse" | "allow";
+      action: "ask" | "allow" | "refuse";
       why: string;
       certain: boolean;
     }[];
@@ -17114,7 +17103,7 @@ type ApprovedRun = {
         kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
         rule: string;
         access: "read" | "write";
-        action: "ask" | "refuse" | "allow";
+        action: "ask" | "allow" | "refuse";
         why: string;
         certain: boolean;
       }[];
@@ -18434,7 +18423,7 @@ type PreviewAnswer = {
         kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
         rule: string;
         access: "read" | "write";
-        action: "ask" | "refuse" | "allow";
+        action: "ask" | "allow" | "refuse";
         why: string;
         certain: boolean;
       }[];
@@ -18778,12 +18767,6 @@ type PreviewAnswer = {
       target: TypeDef<any>;
       of?: `${string}/${string}` | undefined;
     }[];
-    embedders: {
-      name: string;
-      dimensions: number;
-      maxInput: number;
-      pricePerMillionTokens: number;
-    }[];
     sectioners: {
       name: string;
       description: string;
@@ -18791,7 +18774,7 @@ type PreviewAnswer = {
         format?: string | undefined;
         mime?: string | undefined;
         glob?: string | undefined;
-        form?: "description" | "table" | "text" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
+        form?: "code" | "description" | "table" | "text" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
       };
     }[];
     actions: {
@@ -18834,6 +18817,7 @@ type PreviewAnswer = {
         dimensions?: number | undefined;
         maxInput?: number | undefined;
         maxQuestions?: number | undefined;
+        maxRequestBytes?: number | undefined;
       }[];
     }[] | undefined;
     connect?: {
@@ -18923,7 +18907,7 @@ type PreviewAnswer = {
       } | undefined;
     }[] | undefined;
     configSecrets?: string[] | undefined;
-    runtime?: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "embedders" | "sectioners" | "actions", string[]>> | undefined;
+    runtime?: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "sectioners" | "actions", string[]>> | undefined;
     grants?: {
       hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
       models?: {
@@ -19223,7 +19207,7 @@ type RunRequest = {
           kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
           rule: string;
           access: "read" | "write";
-          action: "ask" | "refuse" | "allow";
+          action: "ask" | "allow" | "refuse";
           why: string;
           certain: boolean;
         }[];
@@ -20243,12 +20227,6 @@ type Manifest = {
     target: TypeDef<any>;
     of?: `${string}/${string}` | undefined;
   }[];
-  embedders: {
-    name: string;
-    dimensions: number;
-    maxInput: number;
-    pricePerMillionTokens: number;
-  }[];
   sectioners: {
     name: string;
     description: string;
@@ -20256,7 +20234,7 @@ type Manifest = {
       format?: string | undefined;
       mime?: string | undefined;
       glob?: string | undefined;
-      form?: "description" | "table" | "text" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
+      form?: "code" | "description" | "table" | "text" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
     };
   }[];
   actions: {
@@ -20299,6 +20277,7 @@ type Manifest = {
       dimensions?: number | undefined;
       maxInput?: number | undefined;
       maxQuestions?: number | undefined;
+      maxRequestBytes?: number | undefined;
     }[];
   }[] | undefined;
   connect?: {
@@ -20388,7 +20367,7 @@ type Manifest = {
     } | undefined;
   }[] | undefined;
   configSecrets?: string[] | undefined;
-  runtime?: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "embedders" | "sectioners" | "actions", string[]>> | undefined;
+  runtime?: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "sectioners" | "actions", string[]>> | undefined;
   grants?: {
     hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
     models?: {
@@ -20673,12 +20652,6 @@ type ManifestPatch = {
       target: TypeDef<any>;
       of?: `${string}/${string}` | undefined;
     }[] | undefined;
-    embedders?: {
-      name: string;
-      dimensions: number;
-      maxInput: number;
-      pricePerMillionTokens: number;
-    }[] | undefined;
     sectioners?: {
       name: string;
       description: string;
@@ -20686,7 +20659,7 @@ type ManifestPatch = {
         format?: string | undefined;
         mime?: string | undefined;
         glob?: string | undefined;
-        form?: "description" | "table" | "text" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
+        form?: "code" | "description" | "table" | "text" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
       };
     }[] | undefined;
     actions?: {
@@ -20698,7 +20671,7 @@ type ManifestPatch = {
       expires?: number | undefined;
     }[] | undefined;
   };
-  remove: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "embedders" | "sectioners" | "actions", string[]>>;
+  remove: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "sectioners" | "actions", string[]>>;
   lists?: {
     providers?: {
       name: string;
@@ -20719,6 +20692,7 @@ type ManifestPatch = {
         dimensions?: number | undefined;
         maxInput?: number | undefined;
         maxQuestions?: number | undefined;
+        maxRequestBytes?: number | undefined;
       }[];
     }[] | undefined;
     registries?: {
@@ -20793,7 +20767,7 @@ type ManifestPatch = {
 const, type · declared in `packages/core/src/manifest.ts`
 
 ```ts
-type ManifestSection = "types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "embedders" | "sectioners" | "actions";
+type ManifestSection = "types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "sectioners" | "actions";
 ```
 
 #### <a id="core-mentionhover"></a>`MentionHover`
@@ -21569,7 +21543,7 @@ type Approval = {
         kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
         rule: string;
         access: "read" | "write";
-        action: "ask" | "refuse" | "allow";
+        action: "ask" | "allow" | "refuse";
         why: string;
         certain: boolean;
       }[];
@@ -21675,6 +21649,11 @@ type Approval = {
   ask?: {
     type: TypeDef<any>;
     into: string;
+  } | undefined;
+  variant?: {
+    turn: string;
+    variant: number;
+    label: string;
   } | undefined;
 };
 ```
@@ -22427,7 +22406,7 @@ const, type · declared in `packages/core/src/resources.ts`
 Every kind of form made from a resource's raw content: the converted versions, then the made ones. See `resource-forms.ts`.
 
 ```ts
-type FormKind = "description" | "table" | "text" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail";
+type FormKind = "code" | "description" | "table" | "text" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail";
 ```
 
 #### <a id="core-link"></a>`Link`
@@ -22506,7 +22485,7 @@ A link between resources: a folder's child, a code import, a page link.
 ```ts
 type ResourceLink = {
   raw: string;
-  kind: "embed" | "external" | "link" | "import" | "child";
+  kind: "external" | "embed" | "link" | "import" | "child";
   uri?: `${string}://${string}` | undefined;
   title?: string | undefined;
 };
@@ -22532,7 +22511,7 @@ type ResourceRead = {
   };
   links?: {
     raw: string;
-    kind: "embed" | "external" | "link" | "import" | "child";
+    kind: "external" | "embed" | "link" | "import" | "child";
     uri?: `${string}://${string}` | undefined;
     title?: string | undefined;
   }[] | undefined;
@@ -22613,7 +22592,7 @@ type Section = {
   start: number;
   end: number;
   embedText?: string | undefined;
-  form?: "description" | "table" | "text" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
+  form?: "code" | "description" | "table" | "text" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
 };
 ```
 
@@ -22638,7 +22617,7 @@ type SectionMatch = {
   format?: string | undefined;
   mime?: string | undefined;
   glob?: string | undefined;
-  form?: "description" | "table" | "text" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
+  form?: "code" | "description" | "table" | "text" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
 };
 ```
 
@@ -22749,7 +22728,7 @@ problems back to the agent and the chat shows the run softly as "Retried". A rea
 
 ```ts
 type InvalidInput = {
-  source: "result" | "json" | "schema" | "unavailable" | "validation";
+  source: "schema" | "result" | "json" | "unavailable" | "validation";
   problems: {
     path: string;
     message: string;
@@ -22797,7 +22776,7 @@ type OutcomeWire = {
 } | {
   status: "invalid-input";
   invalid: {
-    source: "result" | "json" | "schema" | "unavailable" | "validation";
+    source: "schema" | "result" | "json" | "unavailable" | "validation";
     problems: {
       path: string;
       message: string;
@@ -23068,7 +23047,7 @@ type FlagsAnswer = {
     kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
     rule: string;
     access: "read" | "write";
-    action: "ask" | "refuse" | "allow";
+    action: "ask" | "allow" | "refuse";
     why: string;
     certain: boolean;
   }[];
@@ -23087,7 +23066,7 @@ type SensitivityFlag = {
   kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
   rule: string;
   access: "read" | "write";
-  action: "ask" | "refuse" | "allow";
+  action: "ask" | "allow" | "refuse";
   why: string;
   certain: boolean;
 };
@@ -23217,7 +23196,8 @@ One model a system's provider serves. `capabilities` are aeye `ModelCapability` 
 `json`, `embedding`, `imageEmbedding`, `crossModalEmbedding`, `decision`, ...); the hub keeps only those aeye knows.
 `caching`: whether the model reads a prompt cache. An embedding model (of text or images) gives its vectors'
 `dimensions` and the most characters it reads (`maxInput`); a
-decision model the most questions it answers in one call (`maxQuestions`), which every caller splits by.
+decision model the most questions it answers in one call (`maxQuestions`) and the most bytes of input and questions
+(`maxRequestBytes`), which every caller splits by.
 
 ```ts
 type ProviderModelDecl = {
@@ -23236,6 +23216,7 @@ type ProviderModelDecl = {
   dimensions?: number | undefined;
   maxInput?: number | undefined;
   maxQuestions?: number | undefined;
+  maxRequestBytes?: number | undefined;
 };
 ```
 

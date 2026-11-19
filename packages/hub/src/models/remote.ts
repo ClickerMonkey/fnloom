@@ -63,6 +63,7 @@ export function remoteModelInfo(key: string, model: ProviderModelDecl, live?: Li
   const { pricing } = model;
   const maxOutput = live?.maxOutput ?? model.maxOutput;
   const maxQuestions = live?.maxQuestions ?? model.maxQuestions;
+  const maxRequestBytes = live?.maxRequestBytes ?? model.maxRequestBytes;
   return {
     id: model.id,
     provider: key,
@@ -72,6 +73,7 @@ export function remoteModelInfo(key: string, model: ProviderModelDecl, live?: Li
     contextWindow: live?.contextWindow ?? model.contextWindow,
     ...(maxOutput === undefined ? {} : { maxOutputTokens: maxOutput }),
     ...(maxQuestions === undefined ? {} : { maxQuestions }),
+    ...(maxRequestBytes === undefined ? {} : { maxRequestBytes }),
     pricing: {
       text: {
         input: pricing.input,

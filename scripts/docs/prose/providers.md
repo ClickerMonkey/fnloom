@@ -17,3 +17,9 @@ While the system is connected the hub registers each provider as `<system>/<prov
 can be picked like any other; chat calls stream over the link and embeddings are answered by the provider's `embed`. A
 call for a model the contract doesn't declare is refused. The hub prices and records every call from the declared
 prices, as it does for its own providers.
+
+This is also how a system brings an **embedder**: a model with `capabilities: ['embedding']` (or `imageEmbedding` for
+pictures; `crossModalEmbedding` when text and pictures share one space), its vectors' `dimensions` and the most
+characters it reads (`maxInput`) is an embedder the hub's index can use, named `<system>/<model id>`. The old
+`embedders` section and `embedder()` builder are gone: a contract or implementation that still has `embedders` is
+refused when built or served, with a message pointing here.

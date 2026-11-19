@@ -7,7 +7,7 @@ describe('the embedder contract', () => {
   it('declares a provider with a document and a query embedding model in one 768-dimension space', async () => {
     const manifest = await manifestOf(embedderSystem, { version: '0.0.0' });
     expect(Manifest.safeParse(manifest).success).toBe(true);
-    expect(manifest.embedders).toEqual([]);
+    expect('embedders' in manifest).toBe(false);
     expect(manifest.providers?.map((p) => [p.name, p.models.map((m) => [m.id, m.capabilities, m.dimensions, m.pricing.input])])).toEqual([
       ['gemma', [['document', ['embedding'], GEMMA_DIMENSIONS, 0], ['query', ['embedding'], GEMMA_DIMENSIONS, 0]]],
     ]);

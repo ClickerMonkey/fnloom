@@ -28,5 +28,28 @@ export const NOTIFICATION_COLUMNS = {
   user: { column: 'user' },
 } as const satisfies { readonly [F in ListField<'notifications'>]: ListColumn } & Readonly<Record<string, ListColumn>>;
 
+/** SSO: the people list's fields in the `actors` table, and the kind that makes a row a person. */
+export const USER_COLUMNS = {
+  name: { column: 'name' },
+  email: { column: 'email' },
+  role: { column: 'role' },
+  disabled: { column: 'disabled', absent: false },
+  createdAt: { column: 'createdAt' },
+  kind: { column: 'kind' },
+} as const satisfies { readonly [F in ListField<'users'>]: ListColumn } & Readonly<Record<string, ListColumn>>;
+
+/** What a person's free text matches: their name and email. */
+export const USER_TEXT: readonly ListColumn[] = [USER_COLUMNS.name, USER_COLUMNS.email];
+
+/** SSO: the groups list's fields in the `actors` table, and the kind that makes a row a group. */
+export const GROUP_COLUMNS = {
+  name: { column: 'name' },
+  createdAt: { column: 'createdAt' },
+  kind: { column: 'kind' },
+} as const satisfies { readonly [F in ListField<'groups'>]: ListColumn } & Readonly<Record<string, ListColumn>>;
+
+/** What a group's free text matches: its name and what it is about. */
+export const GROUP_TEXT: readonly ListColumn[] = [GROUP_COLUMNS.name, { column: 'about' }];
+
 /** What a notification's free text matches: its kind, title and body. */
 export const NOTIFICATION_TEXT: readonly ListColumn[] = [NOTIFICATION_COLUMNS.kind, { column: 'title' }, { column: 'body' }];

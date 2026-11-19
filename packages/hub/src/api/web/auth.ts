@@ -10,8 +10,10 @@ import { plugin } from '@ayepi/plugin';
 import { limiter } from '@ayepi/rate';
 import { authSlice, AccessClaims, hubAuth, tel } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
-import { ACCESS_TOKEN, normalEmail } from '../auth.ts';
+import { ACCESS_TOKEN } from '../auth.ts';
+import { normalEmail } from '../identities.ts';
 import { deviceOf, type FullHandlers } from './access.ts';
+import { personViews } from './people.ts';
 
 /** What the sign-in plugin needs besides the services. */
 export interface AuthPluginOptions {
@@ -66,5 +68,11 @@ export function authPlugin(hub: HubServices, options: AuthPluginOptions) {
         hub.log.info('auth.signed-out', { user: user.id });
       },
       me: ({ user }) => user,
+      account: async ({ user }) => {
+        const actor = await hub.store.table('actors').get(user.id);
+        const [view] = actor === undefined ? [] : await personViews(hub, [actor]);
+        if (view === undefined) throw reject(404, 'NOT_FOUND', 'no such person');
+        return view;
+      },
     }));
 }

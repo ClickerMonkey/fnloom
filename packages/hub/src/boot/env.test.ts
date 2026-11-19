@@ -33,6 +33,21 @@ describe('hub settings', () => {
     expect(parseHubSettings().logEnv.HARNESS_LOG_LEVEL).toBe('info');
   });
 
+  it('reads SSO providers from the env var as a JSON list, with the schema defaults', () => {
+    const json = JSON.stringify([{ id: 'acme', label: 'Acme', issuer: 'https://id.example.com', clientId: 'harness', claims: { admin: ['admins'] } }]);
+    HUB_SETTINGS.set({ HARNESS_SSO_PROVIDERS: json });
+    try {
+      const [provider, ...rest] = parseHubSettings().authEnv.HARNESS_SSO_PROVIDERS;
+      expect(rest).toEqual([]);
+      expect(provider).toMatchObject({ id: 'acme', scope: 'openid email profile', userinfo: true, claims: { role: 'groups', admin: ['admins'] } });
+      HUB_SETTINGS.set({ HARNESS_SSO_PROVIDERS: JSON.stringify([{ id: 'a', label: 'A', issuer: 'https://a.example', clientId: 'x' }, { id: 'a', label: 'B', issuer: 'https://b.example', clientId: 'y' }]) });
+      expect(() => parseHubSettings()).toThrow(EnvError);
+    } finally {
+      HUB_SETTINGS.set({ HARNESS_SSO_PROVIDERS: '[]' });
+    }
+    expect(parseHubSettings().authEnv.HARNESS_SSO_PROVIDERS).toEqual([]);
+  });
+
   it('describes every tunable of every slice, each once', () => {
     const keys = HUB_SETTINGS.describe().map((field) => field.key);
     expect(new Set(keys).size).toBe(keys.length);

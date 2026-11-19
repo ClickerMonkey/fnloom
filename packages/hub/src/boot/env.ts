@@ -4,7 +4,7 @@
  * so a bad value fails start-up with one aggregated error.
  */
 import { env, mergeEnvs } from '@ayepi/env';
-import { HUB_PORT, PRIORITIES } from '@harness/core';
+import { HUB_PORT, IdentityProviderConfigs, PRIORITIES } from '@harness/core';
 import { z } from 'zod';
 import { chatEnv } from '../chat/env.ts';
 import { connectionsEnv } from '../connections/env.ts';
@@ -61,6 +61,14 @@ export const authEnv = env({
   HARNESS_SIGN_IN_WINDOW: z.number().int().min(1_000).default(60_000).describe('The window sign-in attempts are counted over.'),
   HARNESS_PASSWORD_COST: z.number().int().min(10).max(20).default(15).describe('scrypt\'s cost as a power of two (15: 32 768 rounds).'),
   HARNESS_FILES_SECRET: z.string().min(32).optional().describe('Signs presigned file URLs.'),
+  HARNESS_SSO_PROVIDERS: IdentityProviderConfigs.default([]).describe(
+    'Single sign-on: the OpenID Connect providers people can sign in with, as a JSON list. Each is '
+    + '{"id":"okta","label":"Okta","issuer":"https://example.okta.com","clientId":"...","clientSecret":"...","claims":{"role":"groups","admin":["harness-admins"],"groups":"groups"}}: '
+    + 'issuer is the issuer or its discovery URL; register <HARNESS_URL>/auth/sso/callback as the redirect URI. '
+    + 'Optional: scope (default "openid email profile"), userinfo (default true), claims.member (role values one of which is needed to sign in). '
+    + 'Once one is set, only the first admin keeps a password, as a break-glass sign-in.',
+  ),
+  HARNESS_SSO_WINDOW: z.number().int().min(10_000).default(600_000).describe('How long a person has to come back from a sign-in provider before the sign-in stops working.'),
 });
 
 /** Queues and timing. */

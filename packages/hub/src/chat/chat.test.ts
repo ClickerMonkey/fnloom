@@ -10,7 +10,7 @@ describe('the chat module', () => {
     await rig.init();
     const chat = createChat(rig.deps);
     const services: HubServices['chat'] = chat;
-    expect(Object.keys(services).sort()).toEqual(['approvers', 'deliveries', 'enrich', 'mentionRequests', 'mentions', 'notifications', 'presence', 'reply', 'sessions', 'start', 'state', 'suggestions', 'turns', 'undo']);
+    expect(Object.keys(services).sort()).toEqual(['approvers', 'compare', 'deliveries', 'enrich', 'mentionRequests', 'mentions', 'notifications', 'presence', 'reply', 'sessions', 'start', 'state', 'suggestions', 'turns', 'undo']);
   });
 
   it('flushes deliveries for systems already connected when it starts, and stops listening when stopped', async () => {

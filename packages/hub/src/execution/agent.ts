@@ -292,6 +292,8 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     // a chat's own model choice wins over the one its agent fn makes
     const metadata = await this.#deps.models.resolve(session?.model ?? ModelChoice.optional().parse(payload.model));
     const model = metadata.model ?? AUTO_MODEL;
+    // a chat's own system prompt (`Session.instructions`, a compare variant's too) wins over its agent fn's
+    const instructions = session?.instructions ?? payload.instructions;
     if (state.pending.length > 0) {
       // Answered and saved at once, so a job that runs again (after a rate limit) never answers twice.
       const replies = await this.#replies(state.pending, { session, agent: fn, model, access: await this.#deps.access.scope(turn.user.id) });
@@ -309,7 +311,7 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       }
     }
     const planned = await this.#deps.planner.plan({
-      session, turn, agent: fn, model, instructions: payload.instructions, transcript: await conversation.messages(), cached: state.selection,
+      session, turn, agent: fn, model, instructions, transcript: await conversation.messages(), cached: state.selection,
     });
     if (state.selection === undefined) {
       if (planned.considered !== undefined && session !== undefined && turn.message !== undefined) await this.#deps.turns.suggested(turn.message, planned.considered);
@@ -334,7 +336,7 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     const prompt = new AgentPrompt({
       name: 'agent',
       description: fn.decl.description,
-      content: `${payload.instructions}{{#if context}}\n\n{{{context}}}{{/if}}`,
+      content: `${instructions}{{#if context}}\n\n{{{context}}}{{/if}}`,
       input: (input) => ({ args: input?.args ?? null, context: input?.context ?? '' }),
       schema: output.schema,
       // with tools, the answer's schema goes in the prompt: a wire schema makes many models answer at once instead of calling them

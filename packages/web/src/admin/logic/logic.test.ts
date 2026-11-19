@@ -182,7 +182,7 @@ describe('browsers and nav', () => {
 
   it('lists every admin section and marks the current one', () => {
     const entries = adminNav({ name: 'system' }, { systems: 2 });
-    expect(entries.map((e) => e.id)).toEqual(['systems', 'fns', 'graph', 'models', 'limits', 'policies', 'actor-settings', 'runs', 'model-calls', 'mcps', 'mcp-servers', 'api-services']);
+    expect(entries.map((e) => e.id)).toEqual(['systems', 'fns', 'graph', 'models', 'limits', 'people', 'policies', 'actor-settings', 'runs', 'model-calls', 'mcps', 'mcp-servers', 'api-services']);
     // the resource browser is a top-level page; the admin nav has no entry that only redirects there
     expect(entries.find((e) => e.label === 'Budgets')?.id).toBe('limits');
     // the LLM calls browser and a fn's page sit under their sections
@@ -211,7 +211,7 @@ describe('build 3 admin forms', () => {
     const none = decisionDraft(undefined);
     expect(none).toMatchObject({ by: 'none', messages: '3', cap: '6', floor: '0.35' });
     expect(decisionOf(none)).toEqual({ ok: true, value: { by: 'none' } });
-    expect(decisionModelText(undefined)).toBe('No model: the score threshold decides');
+    expect(decisionModelText(undefined)).toBe('No suggestions: nothing is offered with a message');
     // an LLM needs its model; a decision model falls back to the Decisions role's
     expect(decisionOf({ ...none, by: 'llm' })).toMatchObject({ ok: false, at: 'model' });
     expect(decisionOf({ ...none, by: 'decision', cap: '99' })).toEqual({ ok: false, problem: 'Most it picks is out of range.', at: 'numbers' });

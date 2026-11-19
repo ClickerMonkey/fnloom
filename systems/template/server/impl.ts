@@ -1,7 +1,7 @@
 /**
  * The template system's implementation: everything its contract declares, and nothing else. Its type is computed from
- * the contract (`SystemImpl`), so a declared fn, method, kind, dynamic context, hook, mention, embedder, sectioner or
- * action left out does not compile, and neither does one the contract doesn't declare.
+ * the contract (`SystemImpl`), so a declared fn, method, kind, dynamic context, hook, mention, sectioner, action
+ * or model provider left out does not compile, and neither does one the contract doesn't declare.
  */
 import type { SystemImpl } from '@harness/sdk';
 import type { template } from '../shared/index.ts';
@@ -36,8 +36,9 @@ export function createImpl(_deps: TemplateDeps): SystemImpl<(typeof template)['d
     // mentions: per mention provider, `{ async search(query, ctx), async hover(target, ctx), async llm(target, ctx) }`.
     // TODO: implement every declared mention provider, or delete this comment.
 
-    // embedders: per embedder, `async (texts) => vectors`, one vector per text, in order.
-    // TODO: implement every declared embedder, or delete this comment.
+    // providers: per model provider, `(ctx) => provider`, an aeye `Provider` for the current config (made again when it
+    // changes); an embedding model's vectors come from its `embed`.
+    // TODO: implement every declared provider, or delete this comment.
 
     // sectioners: per sectioner, `async (text, stat) => sections`, keys made with `sectionKeys(paths)`.
     // TODO: implement every declared sectioner, or delete this comment.

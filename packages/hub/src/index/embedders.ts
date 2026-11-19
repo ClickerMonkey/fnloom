@@ -1,17 +1,19 @@
 /**
  * Embedders come from the model providers systems bring: every declared model with the `embedding` capability (text) or
  * `imageEmbedding` (images), and its `dimensions`, of a provider a connected system offers now (`OfferedProviders`:
- * live, not switched off) is an `Embedder`, named by its system and model id (`embedder/document`). It calls the
- * provider over the link (`providerEmbed`), a batch at a time. The index uses the pair named in `modelEnv` (`document`
- * for what is stored, `query` for what is searched), once both are there and share their dimensions. Each embed is a
- * `ModelCall` of the hub's own work (modality `embed`, provider the system's provider, model its model id, purpose
- * `index` for documents or `search` for queries), priced from the model's declared input price, like every model call.
+ * live, not switched off) is an `Embedder`, named by its system and model id (`embedder/document`). It embeds through
+ * the hub's AI (the LLM gateway), pinned to its model on its provider, a batch at a time, so pricing and the live model
+ * listing are the hub AI's, in one place. The index uses the pair named in `modelEnv` (`document` for what is stored,
+ * `query` for what is searched), once both are there and share their dimensions. Each embed is a `ModelCall` of the
+ * hub's own work (modality `embed`, provider the system's provider, model its model id, purpose `index` for documents
+ * or `search` for queries), like every other embed.
  *
  * Images go in the image space the admin's setting gives (`hubOptions['imageEmbedding']`, read through `imageSetting`
  * and turned into a space by core's `resolveImageSpace`): the text space when the document embedder shares it, else a
  * second space with its own embedder, or none (a text-only setup is as before). An image crosses the link as an
  * http(s) or data URL (`EmbedImage`).
  */
+import type { EmbeddingInput } from '@aeye/ai';
 import type { Logger } from '@ayepi/log';
 import {
   EMBEDDING_CAPABILITIES, IMAGE_EMBEDDING_DEFAULT, isEmbedImage, qualify, resolveImageSpace, type EmbedderAbilities, type EmbedInput, type ImageEmbedderOption,
@@ -19,15 +21,13 @@ import {
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import { messageOf } from '../catalog/scope.ts';
-import type { ModelCallLog } from '../metrics/index.ts';
+import type { LlmGateway } from '../execution/index.ts';
 import type { OfferedProvider, OfferedProviders } from '../models/remote.ts';
+import type { EmbedLane } from './batch.ts';
 import type { Embedder, Embedders, ImageSpace } from './index.ts';
 
-/** Bytes a vector number takes on the wire, as JSON text, roughly (for a call's received size). */
-const VECTOR_NUMBER_BYTES = 10;
-
-/** Tokens per million, the unit model prices are given in. */
-const PER_MILLION = 1_000_000;
+/** The hub's AI as the embedders use it: its LLM gateway's embed. */
+export type HubEmbeds = Pick<LlmGateway, 'embed'>;
 
 /** The embedder name of a system's embedding model: its system and model id. */
 export function embedderName(system: SystemName, model: string): QualifiedName {
@@ -58,7 +58,7 @@ function candidate(embedder: Embedder | undefined): ImageSpaceCandidate | undefi
   return embedder === undefined ? undefined : { name: embedder.name, ...abilities(embedder) };
 }
 
-/** An embedding model of a system's provider, called over the link. */
+/** An embedding model of a system's provider, called through the hub's AI (priced, recorded and listed there). */
 export class ProviderEmbedder implements Embedder {
   readonly name: QualifiedName;
   /** The model's name for people (its declared name, else its id). */
@@ -66,34 +66,29 @@ export class ProviderEmbedder implements Embedder {
   readonly dimensions: number;
   readonly maxInput: number;
   readonly abilities: EmbedderAbilities;
-  readonly #offered: Pick<OfferedProviders, 'link'>;
   readonly #provider: OfferedProvider;
   readonly #model: EmbeddingModel;
   readonly #batch: number;
-  readonly #calls: () => Pick<ModelCallLog, 'begin'> | undefined;
+  readonly #ai: () => HubEmbeds | undefined;
   readonly #purpose: string;
-  readonly #clock: () => number;
 
   constructor(options: {
-    provider: OfferedProvider; model: EmbeddingModel; offered: Pick<OfferedProviders, 'link'>; batch: number;
-    /** Where each call is recorded (none in tests that don't care). */
-    calls: () => Pick<ModelCallLog, 'begin'> | undefined;
+    provider: OfferedProvider; model: EmbeddingModel; batch: number;
+    /** The hub's AI, looked up when used: every call goes through it, so it is priced and recorded as a `ModelCall`. */
+    ai: () => HubEmbeds | undefined;
     /** What the index embeds with it: `index` (documents) or `search` (queries). */
     purpose: string;
-    clock: () => number;
   }) {
     this.name = embedderName(options.provider.system, options.model.id);
     this.title = options.model.name ?? options.model.id;
     this.dimensions = options.model.dimensions;
     this.maxInput = options.model.maxInput ?? Number.MAX_SAFE_INTEGER;
     this.abilities = abilitiesOf(options.model);
-    this.#offered = options.offered;
     this.#provider = options.provider;
     this.#model = options.model;
     this.#batch = options.batch;
-    this.#calls = options.calls;
+    this.#ai = options.ai;
     this.#purpose = options.purpose;
-    this.#clock = options.clock;
   }
 
   /** Whether this embedder stands for the same model, served the same way, as another declaration would. */
@@ -103,42 +98,28 @@ export class ProviderEmbedder implements Embedder {
       && this.#model.capabilities.join() === model.capabilities.join();
   }
 
-  /** Embed texts (cut to `maxInput`) and images (http(s) or data URLs), a batch per `providerEmbed` call. */
-  async embed(inputs: readonly EmbedInput[], signal?: AbortSignal): Promise<number[][]> {
-    const { system, key, provider } = this.#provider;
-    const connection = this.#offered.link(system);
-    if (connection === undefined) { throw new Error(`${this.name}: ${system} is not connected`); }
-    const call = await this.#calls()?.begin({ modality: 'embed', provider: key, model: this.#model.id, purpose: this.#purpose }, this.#clock());
+  /**
+   * Embed texts (cut to `maxInput`) and images (http(s) or data URLs), a batch per call through the hub's AI, pinned to
+   * this model on its provider: each call is a `ModelCall` of the hub's own work (purpose `index` or `search`), at the
+   * lane's priority (a search waits as interactive, indexing as background).
+   */
+  async embed(inputs: readonly EmbedInput[], lane: EmbedLane = 'background'): Promise<number[][]> {
+    const ai = this.#ai();
+    if (ai === undefined) { throw new Error(`${this.name}: the hub's AI is not ready`); }
+    const metadata = { model: this.#model.id, provider: this.#provider.key };
     const out: number[][] = [];
-    let characters = 0;
-    let images = 0;
-    let sent = 0;
-    let tokens: number | undefined;
-    try {
-      for (let at = 0; at < inputs.length; at += this.#batch) {
-        const chunk = inputs.slice(at, at + this.#batch).map((input) => (isEmbedImage(input) ? input : input.slice(0, this.maxInput)));
-        for (const input of chunk) {
-          if (isEmbedImage(input)) { images += 1; sent += input.image.length; } else { characters += input.length; sent += input.length; }
-        }
-        const result = await connection.peer.call('providerEmbed', { provider: provider.name, model: this.#model.id, inputs: chunk }, signal === undefined ? {} : { signal });
-        call?.firstByte();
-        if (result.tokens !== undefined) { tokens = (tokens ?? 0) + result.tokens; }
-        if (result.vectors.length !== chunk.length) { throw new Error(`${this.name} returned ${result.vectors.length} vectors for ${chunk.length} inputs`); }
-        for (const vector of result.vectors) {
-          if (vector.length !== this.dimensions) { throw new Error(`${this.name} returned a vector of ${vector.length} numbers, not ${this.dimensions}`); }
-          out.push(vector);
-        }
+    for (let at = 0; at < inputs.length; at += this.#batch) {
+      const chunk = inputs.slice(at, at + this.#batch).map((input): EmbeddingInput => {
+        if (!isEmbedImage(input)) { return input.slice(0, this.maxInput); }
+        return input.mimeType === undefined ? { image: input.image } : { image: input.image, mimeType: input.mimeType };
+      });
+      const { value: vectors } = await ai.embed({ inputs: chunk, metadata }, { purpose: this.#purpose }, new AbortController().signal, lane);
+      if (vectors.length !== chunk.length) { throw new Error(`${this.name} returned ${vectors.length} vectors for ${chunk.length} inputs`); }
+      for (const vector of vectors) {
+        if (vector.length !== this.dimensions) { throw new Error(`${this.name} returned a vector of ${vector.length} numbers, not ${this.dimensions}`); }
+        out.push(vector);
       }
-    } catch (error) {
-      await call?.failed(messageOf(error), signal?.aborted === true);
-      throw error;
     }
-    await call?.done({
-      units: {
-        modality: 'embed', texts: inputs.length - images, characters, ...(images === 0 ? {} : { images }), dimensions: this.dimensions, ...(tokens === undefined ? {} : { tokens }),
-      },
-      cost: ((tokens ?? 0) * this.#model.pricing.input) / PER_MILLION, sent, received: out.length * this.dimensions * VECTOR_NUMBER_BYTES,
-    });
     return out;
   }
 }
@@ -146,18 +127,17 @@ export class ProviderEmbedder implements Embedder {
 /** What the embedders follow. */
 export interface SystemEmbeddersOptions {
   /** The providers connected systems offer now. */
-  readonly offered: Pick<OfferedProviders, 'list' | 'link' | 'watch'>;
+  readonly offered: Pick<OfferedProviders, 'list' | 'watch'>;
   readonly bus: Pick<EventBus, 'publish'>;
   readonly log: Logger;
-  readonly clock: () => number;
   /** The embedder that embeds what is stored (`modelEnv.HARNESS_EMBEDDER_DOCUMENT`). */
   readonly document: QualifiedName;
   /** The embedder that embeds what is searched for (`modelEnv.HARNESS_EMBEDDER_QUERY`). */
   readonly query: QualifiedName;
-  /** Inputs per `providerEmbed` call (`modelEnv.HARNESS_EMBED_BATCH`). */
+  /** Inputs per embed call (`modelEnv.HARNESS_EMBED_BATCH`). */
   readonly batch: number;
-  /** Where each embed call is recorded, looked up when it is made (absent: not recorded). */
-  readonly calls?: () => Pick<ModelCallLog, 'begin'>;
+  /** The hub's AI, looked up when an embed is made (the execution module's LLM gateway; undefined until it is built). */
+  readonly ai: () => HubEmbeds | undefined;
   /** Whether connections came or went (the link's `onChange`), so the embedders are worked out again. */
   readonly connections: { onChange(listener: () => void): () => void };
   /** The admin's image embedding setting, read at each refresh (absent: the default, same as text). */
@@ -223,8 +203,7 @@ export class SystemEmbedders implements Embedders {
   }
 
   async #refresh(): Promise<void> {
-    const { offered, batch, log, clock, document, query } = this.#options;
-    const calls = (): Pick<ModelCallLog, 'begin'> | undefined => this.#options.calls?.();
+    const { offered, batch, log, document, query, ai } = this.#options;
     const usable = new Map<QualifiedName, ProviderEmbedder>();
     for (const provider of await offered.list()) {
       for (const model of embeddingModels(provider)) {
@@ -236,7 +215,7 @@ export class SystemEmbedders implements Embedders {
         }
         const known = this.#embedders.get(name);
         const purpose = name === document ? 'index' : name === query ? 'search' : 'embed';
-        usable.set(name, known?.same(provider, model) === true ? known : new ProviderEmbedder({ provider, model, offered, batch, calls, purpose, clock }));
+        usable.set(name, known?.same(provider, model) === true ? known : new ProviderEmbedder({ provider, model, batch, ai, purpose }));
       }
     }
     const setting = await this.#options.imageSetting?.() ?? IMAGE_EMBEDDING_DEFAULT;

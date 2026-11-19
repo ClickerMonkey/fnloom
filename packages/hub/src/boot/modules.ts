@@ -88,7 +88,8 @@ function systemsModules(seams: ModuleSeams): Pick<HubModules, 'catalog' | 'link'
       ...(seams.installer === undefined ? {} : { installer: seams.installer }),
       content: () => hub.api.content,
       secrets: () => hub.api.secrets,
-      calls: () => hub.metrics.calls,
+      // the index embeds through the hub's AI, so its calls are priced and recorded with every other embed
+      ai: () => hub.execution.llm,
       // plan item 7: fns that need a model role (`hub/context_crawl` needs `decide`) are off while it has no model
       roleSet: (role) => hub.models.roles.isSet(role),
     });

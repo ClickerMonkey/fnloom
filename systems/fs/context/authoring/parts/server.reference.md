@@ -166,8 +166,8 @@ type RunningStatus = "pairing" | "needs-config" | "connected" | "disconnected" |
 type · `import { SystemImpl } from '@harness/sdk'`
 
 A system's implementation, computed from its contract. It must implement exactly what the contract declares: every
-native fn, every method of its types, every kind, every dynamic context, hook, mention provider, embedder,
-sectioner and action.
+native fn, every method of its types, every kind, every dynamic context, hook, mention provider,
+sectioner, action and model provider.
 
 ```ts
 type SystemImpl<C extends ContractShape> =
@@ -177,7 +177,6 @@ Needs<'context', { readonly [K in DynamicContextKeys<C['context']>]: C['context'
 Needs<'hooks', { readonly [K in keyof C['hooks']]: HookImpl<ConfigOf<C>> }> &
 Needs<'mentions', { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T, infer V> ? MentionImpl<T, V, ConfigOf<C>> : never }> &
 Needs<'types', { readonly [K in TypesWithMethods<C['types']>]: C['types'][K] extends TypeDef<infer V, infer M extends Methods> ? { readonly [J in keyof M]: MethodImpl<V, TypesOf<M[J]>, ConfigOf<C>> } : never }> &
-Needs<'embedders', { readonly [K in keyof C['embedders']]: EmbedderImpl }> &
 Needs<'sectioners', { readonly [K in keyof C['sectioners']]: SectionerImpl }> &
 Needs<'actions', { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, infer St> ? ActionImpl<I, R, St, ConfigOf<C>> : never }> &
 Needs<'providers', { readonly [K in keyof C['providers']]: ProviderImpl<ConfigOf<C>> }> &

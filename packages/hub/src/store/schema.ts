@@ -53,7 +53,7 @@ export type IndexSpec<K extends TableName> = ReadonlyArray<readonly [ScalarKey<R
  * a user's notifications). Keys are primary keys already.
  */
 export const TABLE_INDEXES: { readonly [K in TableName]?: IndexSpec<K> } = {
-  memberships: [['user']],
+  memberships: [['user'], ['group']],
   credentials: [['user']],
   authSessions: [['user']],
   actorSettings: [['actor']],
@@ -94,6 +94,8 @@ export const TABLE_INDEXES: { readonly [K in TableName]?: IndexSpec<K> } = {
   itemVersions: [['system', 'section', 'name', 'number']],
   records: [['type', 'updatedAt'], ['owner']],
   recordVersions: [['record', 'number']],
+  // SSO
+  externalIdentities: [['user']],
 };
 
 /** The columns of one table: field name → how it is stored. */

@@ -151,7 +151,7 @@ export interface Rig {
 }
 
 /** Make a rig. */
-export async function rig(fakes: Fakes = {}, settings: HubSettings = testSettings()): Promise<Rig> {
+export async function rig(fakes: Fakes = {}, settings: HubSettings = testSettings(), parts: { readonly oidcFetch?: typeof fetch } = {}): Promise<Rig> {
   const { log, records } = memoryLog();
   const store = await testStore({ log });
   const bus = new MemoryEventBus((event, error) => { log.error('bus.listener.failed', { event }, error); });
@@ -161,7 +161,7 @@ export async function rig(fakes: Fakes = {}, settings: HubSettings = testSetting
   const clock = (): number => state.now;
   const base = { settings, log, clock, bus, store };
   const api = apiServices(base, {
-    keys: TEST_KEYS, files, pushSender: push,
+    keys: TEST_KEYS, files, pushSender: push, ...parts,
     presign: { presignUpload: (key) => Promise.resolve(`/_files?put=${key}`), presignDownload: (key) => Promise.resolve(`/_files?get=${key}`) },
   });
   const hub: HubServices = {
@@ -211,7 +211,7 @@ export function fakeServices(fakes: Fakes = {}): Pick<HubServices, ModuleKey> {
     }),
     execution: group('execution', keysOf<HubServices['execution']>({ runs: true, agents: true, llm: true, limits: true, ledger: true, policies: true, handlers: true, providers: true }), fakes.execution),
     chat: group('chat', keysOf<HubServices['chat']>({
-      sessions: true, turns: true, reply: true, enrich: true, state: true, deliveries: true, undo: true, mentions: true, presence: true, notifications: true, approvers: true, suggestions: true,
+      sessions: true, turns: true, reply: true, enrich: true, state: true, deliveries: true, undo: true, mentions: true, presence: true, notifications: true, approvers: true, suggestions: true, compare: true,
     }), fakes.chat),
     index: group('index', keysOf<HubServices['index']>({ embedders: true, indexer: true, search: true, suggest: true, images: true }), fakes.index),
     contextor: group('contextor', keysOf<HubServices['contextor']>({ planner: true, limits: true, tokens: true, graph: true, views: true, dynamic: true }), fakes.contextor),
@@ -253,7 +253,7 @@ export function fakeModules(fakes: Fakes = {}): HubModules {
 export function testManifest(name: SystemName, part: Partial<Manifest> = {}): Manifest {
   return {
     name, version: '1', description: '', hash: 'h', types: [], settings: [], attachments: [], kinds: [], fns: [], context: [], hooks: [],
-    mentions: [], embedders: [], sectioners: [], actions: [], events: [], resources: false, config: { name: 'object', props: {} }, requires: [], ...part,
+    mentions: [], sectioners: [], actions: [], events: [], resources: false, config: { name: 'object', props: {} }, requires: [], ...part,
   };
 }
 

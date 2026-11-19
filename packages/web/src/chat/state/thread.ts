@@ -835,6 +835,8 @@ export class ThreadStore {
         return;
       }
       case 'presence': this.#onPresence(event.presence); return;
+      // an A/B compare follows itself (`CompareStore`); its user message says it is compared, and a chosen answer comes as messages
+      case 'compare': return;
       case 'state': this.#applyState(event.system, event.fields); return;
       case 'session': {
         const current = this.session.value;

@@ -114,6 +114,19 @@ export function adminApi(hub: Hub) {
     setImageEmbedding: hub.caller('setImageEmbedding'),
     upload: hub.caller('upload'),
     uploaded: hub.caller('uploaded'),
+    // SSO: people, groups and how people sign in
+    people: hub.caller('people', { lastOnly: true }),
+    groups: hub.caller('groups', { lastOnly: true }),
+    groupMembers: hub.caller('groupMembers', { lastOnly: true }),
+    addUser: hub.caller('addUser'),
+    addGroup: hub.caller('addGroup'),
+    updateUser: hub.caller('updateUser'),
+    setMembership: hub.caller('setMembership'),
+    signInSettings: hub.caller('signInSettings', { dedupe: true }),
+    setSignInPolicy: hub.caller('setSignInPolicy'),
+    checkSsoProvider: hub.caller('checkSsoProvider'),
+    testSsoSignIn: hub.caller('testSsoSignIn'),
+    ssoTestResult: hub.caller('ssoTestResult', { lastOnly: true }),
   };
 }
 

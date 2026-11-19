@@ -290,7 +290,7 @@ export class TestSystem {
       handler: ({ data }) => this.behaviour.handler(data),
       child: ({ data }) => { this.children.push(data); },
       paired: notHere, check: notHere, context: notHere, roots: notHere, list: notHere, stat: notHere, read: notHere, sections: notHere, watch: notHere,
-      content: notHere, embed: notHere, hook: notHere, mentions: notHere, mentionHover: notHere, mentionText: notHere, event: notHere, action: notHere,
+      content: notHere, hook: notHere, mentions: notHere, mentionHover: notHere, mentionText: notHere, event: notHere, action: notHere,
       form: notHere, restart: notHere, stop: notHere, configure: notHere, export: notHere, estimate: notHere,
       preview: ({ data }) => { this.previews.push(data); return this.behaviour.preview(data); },
       flags: ({ data }) => { this.flagged.push(data); return this.behaviour.flags(data); },

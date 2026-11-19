@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * The quiet row under the composer: the agent answering (a menu switches it), how far it may go with fns (a menu of
- * the chat's fn modes: none, read, write, delete, auto), the model it answers with (opening the model picker to change it), how many systems the chat uses (and how many are offline), background work, and the
+ * the chat's fn modes: none, read, write, delete, auto), the model it answers with (opening the model picker to change it), how many systems the chat uses (and how many are offline), background work, Compare (an A/B compare of the draft), and the
  * cost and budget meter. On a phone it keeps to one line, dropping words before numbers.
  */
 import type { ChatFnMode, QualifiedName } from '@harness/core';
@@ -26,7 +26,7 @@ const props = withDefaults(defineProps<{
   compact: boolean;
 }>(), { agents: () => [], model: '', meter: undefined });
 
-const emit = defineEmits<{ settings: []; model: []; background: []; agent: [fn: QualifiedName]; fnMode: [mode: ChatFnMode] }>();
+const emit = defineEmits<{ settings: []; model: []; background: []; agent: [fn: QualifiedName]; fnMode: [mode: ChatFnMode]; compare: [] }>();
 
 /** The fn mode menu: every mode with what it allows, the current one checked. */
 const modeItems = computed<MenuItem<ChatFnMode>[]>(() => FN_MODE_CHOICES.map((mode) => ({
@@ -84,6 +84,10 @@ function chooseAgent(value: QualifiedName | 'settings'): void {
     <button v-if="background > 0" type="button" class="item" data-testid="background-count" @click="emit('background')">
       <UiIcon name="clock" :size="14" />
       <span class="text">{{ background }}<span v-if="!compact"> in background</span></span>
+    </button>
+    <button type="button" class="item" title="Compare answers: send this message to 2 to 4 variants of the chat’s settings and choose one" data-testid="compare-open" @click="emit('compare')">
+      <UiIcon name="columns" :size="14" />
+      <span v-if="!compact" class="text">Compare</span>
     </button>
     <span class="spacer" />
     <BudgetMeter :spent="spent" :meter="meter" :compact="compact" />

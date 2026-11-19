@@ -20,15 +20,15 @@ export {
   type ProgressDef, type NoProgress, type LinearProgress, type StepsProgress, type ProgressReporter, type ProgressState, type Outcome,
 } from './fn.ts';
 export {
-  type, setting, attachment, kind, arg, context, hook, hookBlock, mention, embedder, sectioner, sectionKeys, action,
+  type, setting, attachment, kind, arg, context, hook, hookBlock, mention, sectioner, sectionKeys, action,
   type TypeDef, type AnyTypeDef, type ValueOf, type NamingKeys, type TextKeys, type RecordsInput, type ContextLinkDef, type ContextLinkTarget, type MethodImpl, type SettingDef, type AttachmentDef, type KindDef, type KindImpl, type KindEstimateInput,
   type KindCheckCtx, type KindRunCtx, type ArgDef, type ArgsOf, type ContextDef, type AnyContextDef, type ContextInput, type ContextImpl,
   type HookDef, type HookContribution, type HookImpl, type MentionDef, type MentionOption, type MentionCtx, type MentionImpl,
-  type EmbedderDef, type EmbedderImpl, type SectionerDef, type SectionerImpl, type ActionDef, type ActionImpl,
+  type SectionerDef, type SectionerImpl, type ActionDef, type ActionImpl,
 } from './declare.ts';
 export type {
   FnRef, AnyFnRef, TypeRef, AnyTypeRef, Methods, MethodName, MethodArgs, MethodRefs, KindRef, AnyKindRef, ContextRef, AnyContextRef,
-  SettingRef, AttachmentRef, HookRef, AnyHookRef, MentionRef, EmbedderRef, SectionerRef, ActionRef, ProviderRef,
+  SettingRef, AttachmentRef, HookRef, AnyHookRef, MentionRef, SectionerRef, ActionRef, ProviderRef,
 } from './refs.ts';
 export {
   Suspended, CallFailed, HandlerFailed,

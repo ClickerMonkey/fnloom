@@ -1,7 +1,8 @@
 /**
  * The chat's place in the URL, so a refresh (or a shared link) returns to the same view: the session
  * (`/chat/:session`), a turn's tree (`/chat/:session/turn/:turn/tree`), the panel open over it (`?run=`, `?llm=`,
- * `?details=` for an answer's turn, `?resource=`, `?panel=settings|people|model`) and a message (`#m-:id`). Every value is
+ * `?details=` for an answer's turn, `?resource=`, `?panel=settings|people|model`), an A/B compare open over it (`?compare=` the
+ * compared turn, `&v=` the variant shown first, from 1) and a message (`#m-:id`). Every value is
  * read through its schema, so a bad URL reads as nothing open. Opening a panel adds a history entry, so Back closes
  * it before it leaves the session; closing one goes back when that is where it came from. The list of chats keeps its
  * search (`?q=`) and view (`?chats=archived`) in the URL as well, and debug mode (`?debug=1`, the hidden messages
@@ -13,6 +14,7 @@ import { useRoute, useRouter, type LocationQuery } from 'vue-router';
 import type { z } from 'zod';
 import { ChatPanel, ChatsView, links, QUERIES, ROUTES, type QueryKey } from '../app/routes.ts';
 import { TAB_KEYS } from './logic/inspect.ts';
+import type { VariantParam } from './logic/compare.ts';
 
 export { ChatPanel, ChatsView };
 
@@ -27,6 +29,9 @@ export type PanelValue<K extends PanelKey> = z.output<(typeof PANEL_KEYS)[K]>;
 
 /** The query keys that belong to the list of chats, kept when moving between chats. */
 export const LIST_KEYS = { search: 'q', view: 'chats' } as const satisfies Record<string, QueryKey<typeof ROUTES.session>>;
+
+/** The query keys of an A/B compare open over the chat: the compared turn, and the variant shown (from 1). */
+export const COMPARE_KEYS = { turn: 'compare', variant: 'v' } as const satisfies Record<string, QueryKey<typeof ROUTES.session>>;
 
 /** The query key of debug mode, kept when moving between chats too. */
 export const DEBUG_KEY = 'debug' satisfies QueryKey<typeof ROUTES.session>;
@@ -78,6 +83,8 @@ export function useChatUrl() {
   const search = computed(() => one(route.query[LIST_KEYS.search]) ?? '');
   const archived = computed(() => read(ChatsView, route.query[LIST_KEYS.view]) === 'archived');
   const debug = computed(() => read(CHAT.debug.unwrap(), route.query[DEBUG_KEY]) === '1');
+  const compare = computed(() => read(CHAT.compare.unwrap(), route.query[COMPARE_KEYS.turn]));
+  const variant = computed(() => read(CHAT.v.unwrap(), route.query[COMPARE_KEYS.variant]));
   /** The list's part of the query and debug mode, to carry from chat to chat. */
   const listQuery = (): LocationQuery => Object.fromEntries([...Object.values(LIST_KEYS), DEBUG_KEY].flatMap((key) => {
     const value = one(route.query[key]);
@@ -132,12 +139,32 @@ export function useChatUrl() {
     void router.replace({ query, hash: route.hash });
   }
 
+  /** Open a compared turn over the chat (a new history entry, so Back closes it), at a variant when given. */
+  function openCompare(turn: TurnId, at?: VariantParam): void {
+    void router.push({ query: { ...route.query, [COMPARE_KEYS.turn]: turn, ...(at === undefined ? {} : { [COMPARE_KEYS.variant]: at }) }, hash: route.hash });
+  }
+
+  /** Show another variant of the open compare (replacing the entry: a tab isn't a place to go back to). */
+  function showVariant(at: VariantParam): void {
+    void router.replace({ query: { ...route.query, [COMPARE_KEYS.variant]: at }, hash: route.hash });
+  }
+
+  /** Close the compare: back when the entry before is the chat without it, otherwise replace. */
+  function closeCompare(): void {
+    const target = router.resolve({ query: Object.fromEntries(Object.entries(route.query).filter(([k]) => k !== COMPARE_KEYS.turn && k !== COMPARE_KEYS.variant)), hash: route.hash }).fullPath;
+    const back: unknown = window.history.state === null ? undefined : Reflect.get(window.history.state, 'back');
+    if (back === target) { router.back(); } else { void router.replace(target); }
+  }
+
   /** Point the URL at a message (Copy link and quotes use the same form). */
   function showMessage(id: MessageId): void {
     void router.replace({ query: route.query, hash: `#m-${id}` });
   }
 
-  return { session, treeTurn, run, llm, details, resource, panel, message, search, archived, debug, top, open, close, openTree, go, setList, setDebug, showMessage };
+  return {
+    session, treeTurn, run, llm, details, resource, panel, message, search, archived, debug, compare, variant, top, open, close, openTree, go, setList, setDebug, showMessage,
+    openCompare, showVariant, closeCompare,
+  };
 }
 
 /** The chat's URL state. */

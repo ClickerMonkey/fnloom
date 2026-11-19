@@ -688,6 +688,27 @@ right viewer: `<ResourceViewer :uri="uri" compact />`.
   it needs is unavailable or refused, or the same call keeps failing or returning nothing, it should tell the person
   what blocks it, with the reason the hub gave, instead of retrying or working around it. There is no hub guard for
   this; the prompt rule is all.
+- **A/B compare.** Compare (beside the fn mode under the composer) sends the draft to 2 to 4 variants of the chat's
+  settings at once: any setting can vary (the agent, model, chat mode, contextor, fn mode, systems, and the system prompt,
+  `Session.instructions`). Each variant answers in a **fork** of the chat: a hidden copy of the session (its transcript,
+  loaded fns and context, suggestions, what the model was told about the systems, and its session state) with the
+  variant's settings over it, and a turn of its own. Nothing a variant does reaches the chat, and forks are never listed.
+  The compared turn keeps the variants (`Turn.compare`); its user message is marked `compared`. Each variant is reserved
+  an even share of the message's budget up front (its turn's cost cap is the turn's divided by the number of variants), so
+  together they never spend more than one answer may; the ledger counts their spend as the chat's, so the chat's budgets
+  see it. A variant's call that would change something (anything but reads and agents) waits for the person in that
+  variant, whatever a policy, auto mode or an earlier "this chat" answer allowed (a deny still wins), and its approval
+  names the variant (`Approval.variant`); an answer there is never remembered, so "always" in a variant never reaches
+  the chat. The compare opens over the chat (`?compare=<turn>&v=<variant>`, the variant from 1): columns side by side on wide screens, one tab per variant on a phone, each with its answer as it streams, the
+  approvals it waits on, its cost of its share, tokens and time. **Use this** (once that variant has finished) appends it
+  to the chat: the transcript it added, the fns and context it loaded, the state it changed, and its messages, runs and
+  LLM calls move to the compared turn, so the turn's tree, details and undo work as for any turn. "Keep its settings"
+  makes its settings the chat's own too. The others are cancelled if still going and discarded; what they already did
+  stays done and is listed on the turn (`TurnCompare.discarded`). A compare can't be chosen once a later message was
+  sent or once it was undone. The chat's own system prompt is in its settings (System prompt), so a kept variant's
+  prompt can be seen, changed or given back to the agent. The variant dialog is built from the chat's own pickers
+  (model, mode, agent, fn mode, systems, system prompt), warns when two variants are the same, and shows each one's
+  share of the budget.
 - **A held system shows a banner.** When a turn's runs show a fn refused because its system waits for a review, the
   answer shows one warning per held system, naming its fns. Admins get a link to the system's pending review.
 
@@ -746,11 +767,12 @@ chat several people share, the change is worked out for the person sending.
 Before the LLM sees a user message, two things may add to it:
 
 - **The hub itself**, whenever it can, with no system involved: the person's local time and time zone, and
-  suggested context and fns (from the index).
+  suggested context and fns (from the index), unless the admin's suggestions setting is none.
 
   A suggestion's score is its similarity of meaning to the message (cosine, measured in the database), not its rank:
-  related items score about 0.7, unrelated text about 0.2 to 0.4, and an item needs `HARNESS_SUGGEST_THRESHOLD`
-  (0.45) to be suggested. Searches still order hits by fusing the word and meaning ranks. Suggestions are found by
+  related items score about 0.7, unrelated text about 0.2 to 0.4. The admin's chooser (a decision model or an LLM)
+  picks among the candidates over its floor; when it fails, an item needs `HARNESS_SUGGEST_THRESHOLD` (0.45) to be
+  suggested. Searches still order hits by fusing the word and meaning ranks. Suggestions are found by
   meaning only: while the embedder can't answer in time, nothing is suggested rather than the best word matches.
 
   Suggestions are cards in the one XML format, under a line written for the session's mode: in tools mode the model
@@ -922,8 +944,9 @@ The **decide** role takes only models with the `decision` capability, and has a 
 instead of a language: an answer counts as yes when its probability is at or above it. A decision model may cap how
 many questions one call takes (`maxQuestions` on the model, 64 for Ollama). aeye never splits a call; it refuses one
 over the cap before sending it. The hub's own callers (suggestions, systems' `decide`, `hub/context_crawl`) go through
-one decider that picks the model (the job's own or the role's) and sends the questions in batches of the model's cap,
-one call after another. Every decide call is a model call with modality `decide`, budgeted and priced like the others.
+one decider that picks the model (the job's own or the role's) and sends the questions in batches that fit both the
+model's question cap and its request size (`maxRequestBytes`), one call after another. A question too large to fit
+alone is refused before anything is sent. Every decide call is a model call with modality `decide`, budgeted and priced like the others.
 
 ### Providers from systems
 
@@ -998,6 +1021,26 @@ the tightest.
 
 - **Actors** are a core table: users, groups, agents and systems (the hub is one). A user is in zero or more
   groups.
+- **Signing in** (SSO, to-do item 2): generic OpenID Connect providers from `HARNESS_SSO_PROVIDERS` (env only), run
+  by `@ayepi/auth/oauth`'s `OidcClient`. A provider button starts at `/auth/sso/<provider>/start`; what finishing
+  needs rides in a signed, httpOnly cookie on `/auth/sso/callback` (the same signed-payload helper as the connections'
+  `state`), and the callback hands the sign-in page the new session's refresh token in the URL fragment. An
+  `ExternalIdentity` (issuer, subject) links a provider account to a person; otherwise a matching email links only when
+  `email_verified` is true. A first sign-in with nobody to link makes an account only as the admin's policy allows
+  (invite only, email domains, anyone). Claims set the role (admin, member, or not allowed) and the groups of the same
+  names, again at every sign-in; memberships a sign-in made are marked with the provider, so it takes away only its own.
+  Once a provider is configured, only the bootstrap admin keeps a password. That admin is the break-glass login: the
+  first account given a password, always an admin, never turned off, and the only password sign-in the page offers
+  (folded under "Admin? Sign in with a password"). A provider sends people back to `HARNESS_URL`, and the sign-in is
+  bound to the browser that started it, so the hub has to be opened at that address for SSO to finish.
+- **Admin › People** (`/admin/people/<tab>`) has three tabs. **People** lists everyone (searched, filtered and counted
+  in the database), and a person's panel sets their role, whether they can sign in and their groups, and shows how they
+  sign in; an admin can add a person ahead of their first sign-in. **Groups** lists the groups with their member
+  counts and members. **Sign-in** shows each provider read-only with the redirect address to register and what its
+  claims map to, with **Check** (discovery and key set reachable) and **Test sign-in** (a real provider sign-in that
+  signs nobody in and shows the claims and what a sign-in would do), then the "Who can join" policy and the
+  break-glass card. Every tab, search and open panel is in the URL. A member sees how they sign in and their groups in
+  Settings › Account.
 - **Policies** decide whether an actor may run a fn: allow, deny or ask. "Ask" names who decides: the
   user who started the turn, a specific actor, a group, an LLM judge (an `llm` fn), or the hub itself.
   Policies match fns by name, system, kind or tag.
@@ -1020,6 +1063,9 @@ the tightest.
   **mention or import** other context and fns, so loading it brings those along (a "skill").
 - **Indexing:** the hub embeds fns, context and sections with an embedder (an embedding model of an offered
   provider, usually a system's) and searches them for suggestions, `get_fn`/`get_context`-style tools and `@` mentions.
+  Each embed goes through the hub's AI pinned to that model, so it is priced and recorded like any model call, and a
+  search's embed waits as interactive work. Catching up after an embedder comes back asks the database for just the
+  rows whose vector is out of date.
 - **Pictures** are indexed too when an image space is in use: image resources (from their bytes) and the http(s)
   images a context item's text shows (as children of the item). Images get a **second vector space** with its own model,
   an embedding model with aeye's `imageEmbedding`. A model whose text and image vectors share one space
@@ -1158,12 +1204,22 @@ Done for build 2: **ayepi mcp** caller info, tool annotations, a router for many
 **ayepi push** (VAPID web push); **aeye resources** converted versions, converters, a url loader with pluggable page
 renderers, the folder resolver and sections of a converted version.
 
+Done for the 2026-11-18 to-do batch: **ayepi auth** an OAuth 2 / OpenID Connect client (`@ayepi/auth/oauth`:
+discovery, PKCE, JWKS id-token checks, userinfo), which MCP's sign-in shares; **ayepi core** `withJsonSchema` and
+merged schema helpers; **aeye** `@aeye/ollama` with System One decisions, decision images and limits, multimodal
+embeddings; **aeye resources** markdown image links typed as images.
+
 Still open:
 
 - **ayepi core: binary frames** (MessagePack or CBOR) for the ws protocol.
 - **ayepi sqlite: a `FileStore` over SQLite**, for keeping raw content in the database (the hub has its own until then).
 - **ayepi mcp: server progress notifications.**
 - **aeye core:** `forget` counting tool definitions; a provider hook for the served context window.
+- **aeye ai: one count of a decision request's bytes** (say `decisionRequestBytes(request)`), so the hub splits by
+  the same count the provider checks. The hub estimates it today.
+- **ayepi auth: an authorization request without PKCE.** `authorizationUrl` and `exchangeCode` always use PKCE, and
+  google-calendar's connect start and finish have nowhere to keep a verifier between them, so its connection stays on
+  its own OAuth calls until the library has the option (or the system gets a pending store).
 
 ## Later
 
@@ -1367,7 +1423,8 @@ Already checked: type-checking all of the types and examples takes about two sec
   defaults, generics, docs. gin reports the named types a type references, so a system can load them from the hub.
   Fns receive plain values gin has checked (dates and timestamps as `Date`).
 - **Look:** calm and modern, light and dark following the device, one accent color, subtle motion.
-- **Auth:** a single admin account for now; SSO later.
+- **Auth:** generic OpenID Connect sign-in, with the bootstrap admin's password as the break-glass login (see
+  **Actors and permissions**).
 - **System config:** a system declares a config type and can't be used until a valid value is set. The value is
   in every context as `ctx.config`, and the `configured` event announces changes.
 - **Installed systems:** the hub can install systems, keep them on disk and in its database, start them with the
@@ -1414,6 +1471,7 @@ Already checked: type-checking all of the types and examples takes about two sec
   the machines.
 - **Every embedding is a model call** (build 2 integration): the index's calls to an embedder system are `ModelCall`
   records (provider the system, model the embedder, purpose `index` or `search`), like calls through a provider.
+  Since 2026-11-19 they go through the hub's AI like every other embed, so its pricing and live model listing apply.
 - **Common formats out of the box** (build 2 integration): the hub and fs install `@aeye/resources`' optional parsers
   (`xlsx`, `pdf-parse`, `mammoth`, `jszip`, `js-yaml`), so workbooks become tables, pdfs pages and docx markdown.
 - **Reading a web page asks first** (build 2 integration): `web/read` imports through `hub/resource_import`, which is
@@ -1524,9 +1582,35 @@ Already checked: type-checking all of the types and examples takes about two sec
     to the declared (reviewed) set.
   - Ollama is aeye's `@aeye/ollama`, and harness's own copy is gone. Decide detection comes from `/api/show`, else
     the provider's admin list.
-  - aeye refuses a decide call over `ModelInfo.maxQuestions` and never splits it; the hub's decider splits.
+  - aeye refuses a decide call over `ModelInfo.maxQuestions` or `maxRequestBytes` and never splits it; the hub's
+    decider splits by both, and a suggestion record keeps every call.
   - The `decide` role has the yes threshold.
-  - Suggestions are picked by no model, a decision model or an LLM; the old on/off setting reads as LLM or none.
+  - Suggestions are picked by a decision model or an LLM, or there are none (nothing is suggested: no fns, no
+    context); the old on/off setting reads as LLM or none.
+  - A system declares embedders only as providers' embedding models: the old `embedders` section, `embedder()` and
+    the link's `embed` are gone, and the SDK refuses a contract or implementation that still has them.
   - `hub/context_crawl` stays unavailable until the decide role is set.
   - aeye's `EmbeddingRequest.inputs` takes text and `{image}`, with `imageEmbedding` and `crossModalEmbedding`
     capabilities. Pictures get a second vector space, or share the text space when one model serves both.
+- **SSO** (to-do phase 6, 2026-11-19): built as Phil decided.
+  - Generic OIDC only, providers from `HARNESS_SSO_PROVIDERS` (a JSON list in the env; `.env.example` documents it),
+    shown read-only in Admin › People › Sign-in with Check (discovery and key set reachable) and Test sign-in (a real
+    provider sign-in that signs nobody in and shows the claims and what a sign-in would do).
+  - First sign-in is the admin's `SignInPolicy` (default invite only); new accounts need a verified email.
+  - Linking: an `ExternalIdentity` (issuer, sub), else a matching email only when `email_verified` is true; an
+    unverified email someone here already has is refused, never joined.
+  - Roles and groups from claims (`SsoClaimMap`: role claim with admin and member values, groups claim), re-synced at
+    every sign-in; the break-glass admin always stays an admin.
+  - Passwords: once a provider is configured, only the bootstrap admin (the first account with a password) keeps one.
+  - All of OpenID Connect is `@ayepi/auth/oauth`; harness keeps only the linking, policy, routes and pages.
+  - Member-facing pass: Settings › Account shows how a person signs in and their groups.
+- **A/B compare** (to-do phase 6, 2026-11-19): built as Phil decided. Up to 4 variants, any session setting (system
+  prompt included), each variant in a hidden fork with an even share of the turn's budget reserved up front, and every
+  write in a variant approved by the person for that variant (never remembered as a policy).
+- **Phase 5 follow-ups** (2026-11-19): "No suggestions" means nothing is suggested (no score-only fallback); embedders
+  exist only as providers' embedding models, and the index embeds through the hub's AI; `backfill()` filters in the
+  database; decide calls split by `maxRequestBytes` as well as `maxQuestions`; markdown image links come from
+  `@aeye/resources` as `targetType: "image"`.
+- **ayepi follow-ups** (2026-11-19): gin's wire schemas are gin's own JSON Schema, supplied through `@ayepi/core`'s
+  `withJsonSchema`; identical schema helpers merge into one component; MCP tool inputs use core's conversion; Ajv
+  2020 strict checks run in ayepi's tests.

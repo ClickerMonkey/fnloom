@@ -74,6 +74,24 @@ describe('types', () => {
   });
 });
 
+describe('filters in the database', () => {
+  it('finds and counts rows whose column differs from another column of theirs, absent counting as different', async () => {
+    const index = store.table('index');
+    const embedder = 'vectors/document' as never; // eslint-disable-line @typescript-eslint/consistent-type-assertions -- a test embedder name
+    const row = (key: string, hash: string, vectorHash?: string) => ({ kind: 'fn' as const, key, text: key, hash, embedder, updatedAt: 1, ...(vectorHash === undefined ? {} : { vectorHash }) });
+    await index.putAll([row('same', 'h1', 'h1'), row('stale', 'h2', 'h1'), row('never', 'h3'), row('spaced', 'h4', 'clip\nh4')]);
+    const keys = async (where: Where<RowOf<'index'>>): Promise<string[]> => (await index.find({ where, limit: 10 })).items.map((r) => r.key).sort();
+    expect(await keys({ vectorHash: { differsFrom: 'hash' } })).toEqual(['never', 'spaced', 'stale']);
+    expect(await index.count({ vectorHash: { differsFrom: 'hash' } })).toBe(3);
+    // a prefix: equal to the prefix and then the other column
+    expect(await keys({ vectorHash: { differsFrom: 'hash', prefix: 'clip\n' } })).toEqual(['never', 'same', 'stale']);
+    // typed: only another scalar column of the row
+    // @ts-expect-error `nope` is no column of the index
+    const unknown: Where<RowOf<'index'>> = { vectorHash: { differsFrom: 'nope' } };
+    expect(unknown).toBeDefined();
+  });
+});
+
 describe('rows', () => {
   it('inserts, reads, replaces and removes a row', async () => {
     const actors = store.table('actors');

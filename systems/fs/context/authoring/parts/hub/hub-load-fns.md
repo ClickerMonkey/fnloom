@@ -330,7 +330,7 @@ tags: ["authoring"]
   ```text
   (obj{model?: text}) => list<obj{ model, limits, sources, ratio … }>
   ```
-- `hub/query`: Any list (resources, fns, runs, modelCalls, llmCalls, sessions, contexts, notifications, systems, types, graph) by the query standard: free text, filters on the list's fields (is, in, >, <, between, empty, contains, ...), a sort and paging. Tags: `read`.
+- `hub/query`: Any list (resources, fns, runs, modelCalls, llmCalls, sessions, contexts, notifications, systems, types, graph, users, groups) by the query standard: free text, filters on the list's fields (is, in, >, <, between, empty, contains, ...), a sort and paging. Tags: `read`.
 
   ```text
   (obj{ list, query? … }) => obj{
@@ -427,12 +427,12 @@ tags: ["authoring"]
     agent?: text,
     systems?: or<list<text>, literal<text>{value="all"}>,
     title?: text
-  }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, selection?, participants, systems, tools, context, suggested?, announcedSystems?, status, transcript, createdAt, updatedAt, archived … }
+  }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, systems, instructions?, selection?, participants, forkOf?, fork?, tools, context, suggested?, announcedSystems?, status, transcript, createdAt, updatedAt, archived … }
   ```
 - `hub/session_update`: Change a session: its title, systems, agent, priority, model, chat mode or contextor, or archive it.
 
   ```text
-  (obj{ title?, systems?, agent?, archived?, priority?, notify?, model?, mode?, contextor?, fnMode?, session … }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, selection?, participants, systems, tools, context, suggested?, announcedSystems?, status, transcript, createdAt, updatedAt, archived … }
+  (obj{ title?, systems?, agent?, archived?, priority?, notify?, model?, mode?, contextor?, fnMode?, instructions?, session … }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, systems, instructions?, selection?, participants, forkOf?, fork?, tools, context, suggested?, announcedSystems?, status, transcript, createdAt, updatedAt, archived … }
   ```
 - `hub/session_delete`: Delete a session and its messages.
 

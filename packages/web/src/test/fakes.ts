@@ -3,10 +3,11 @@
  * a connection whose status a test sets, and a full set of stores built on them.
  */
 import type { CallArgs, CallReturn } from '@ayepi/core';
-import { Notification, Tokens, type SystemPageView, type UserEvent } from '@harness/core';
+import { ActorId, Notification, Tokens, type SystemPageView, type UserEvent } from '@harness/core';
 import type { HubWebSpec } from '@harness/core';
 import { createHub, type CallerOf, type Connection, type Endpoint } from '../api/client.ts';
 import { SessionKeeper, SignInForm } from '../state/auth.ts';
+import { AccountStore } from '../state/account.ts';
 import { ConnectionStore } from '../state/connection.ts';
 import { PushStore, type PushKeys, type PushPlatform } from '../state/push.ts';
 import { InboxStore } from '../state/inbox.ts';
@@ -134,12 +135,16 @@ export function notification(overrides: Partial<Record<keyof Notification, unkno
 export function fakeApi() {
   return {
     auth: {
-      setup: fakeCaller<'setup'>(() => Promise.resolve({ needsAdmin: false, name: 'Test hub', version: '1.0.0' })),
+      setup: fakeCaller<'setup'>(() => Promise.resolve({ needsAdmin: false, name: 'Test hub', version: '1.0.0', sso: [] })),
       createAdmin: fakeCaller<'createAdmin'>(() => Promise.resolve(tokens())),
       signIn: fakeCaller<'signIn'>(() => Promise.resolve(tokens())),
       refresh: fakeCaller<'refresh'>(() => Promise.resolve(tokens({ access: 'access.fresh' }))),
       signOut: fakeCaller<'signOut'>(() => Promise.resolve()),
       me: fakeCaller<'me'>(() => Promise.resolve(tokens().user)),
+      account: fakeCaller<'account'>(() => Promise.resolve({
+        ...tokens().user, disabled: false, createdAt: 0, breakGlass: false, password: false,
+        identities: [{ provider: 'acme', label: 'Acme', email: tokens().user.email, lastSignInAt: 0 }], groups: [{ id: ActorId.parse('act_team'), name: 'Team', synced: true }],
+      })),
     },
     identity: {
       identity: fakeCaller<'identity'>(() => Promise.resolve({ name: 'Test hub', source: 'setting' as const, version: '1.0.0' })),
@@ -220,6 +225,7 @@ export function fakeStores(options: { signedIn?: boolean; api?: ReturnType<typeo
     chat: chat.chat,
     admin: admin.admin,
     signInForm: () => new SignInForm(api.auth, session),
+    account: new AccountStore(api.auth),
     resources: resources.resources,
     context: context.context,
     fns: new FnInfoStore(fns, events.subscribe),

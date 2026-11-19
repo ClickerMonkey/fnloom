@@ -1,19 +1,33 @@
 /**
  * `systemParts`: what one system added beyond its fns, context and types, read from the manifest the catalog accepted
- * (its contract, with `runtime` naming what the running system added) and, for its fns' examples, one bounded page of
+ * (its contract, with `runtime` naming what the running system added). Its embedders are its providers' embedding
+ * models (text or images), the ones the index can use, and for its fns' examples, one bounded page of
  * the `fnExamples` table. Each part's version is the hash of its declaration, the way fn, type and context versions are.
  */
 import { canonicalJson, sha256 } from '@harness/sdk';
 import {
-  Json, qualify, runtimeNames, SYSTEM_PART_EXAMPLES,
-  type DeclaredBy, type Manifest, type ManifestSection, type SystemName, type SystemPart, type SystemPartSection, type SystemParts,
+  EMBEDDING_CAPABILITIES, Json, qualify, runtimeNames, SYSTEM_PART_EXAMPLES,
+  type DeclaredBy, type ProviderModelDecl, type QualifiedName, type Manifest, type ManifestSection, type SystemName, type SystemPart, type SystemPartSection, type SystemParts,
 } from '@harness/core';
 import type { HubServices } from '../boot/index.ts';
 import { examplePartName } from '../fns/examples.ts';
 import { itemKey } from '../link/lifecycle.ts';
 
 /** The manifest sections listed as they are, each under its part section. */
-const LISTED = [['kinds', 'kinds'], ['mentions', 'mentions'], ['hooks', 'hooks'], ['actions', 'actions'], ['settings', 'settings'], ['attachments', 'attachments'], ['embedders', 'embedders'], ['sectioners', 'sectioners']] as const satisfies ReadonlyArray<readonly [ManifestSection & SystemPartSection, SystemPartSection]>;
+const LISTED = [['kinds', 'kinds'], ['mentions', 'mentions'], ['hooks', 'hooks'], ['actions', 'actions'], ['settings', 'settings'], ['attachments', 'attachments'], ['sectioners', 'sectioners']] as const satisfies ReadonlyArray<readonly [ManifestSection & SystemPartSection, SystemPartSection]>;
+
+/** A system's embedders: each of its providers' models that embeds text or images, named `<system>/<model>` as the index names it. */
+function embedderModels(manifest: Manifest): Array<{ name: QualifiedName; model: ProviderModelDecl; provider: string }> {
+  return (manifest.providers ?? []).flatMap((provider) => provider.models
+    .filter((model) => EMBEDDING_CAPABILITIES.some((capability) => model.capabilities.includes(capability)))
+    .map((model) => ({ name: qualify(manifest.name, model.id), model, provider: provider.name })));
+}
+
+/** How an embedding model reads in one line: what it embeds and its vectors' size. */
+function embedderAbout(model: ProviderModelDecl): string {
+  const what = model.capabilities.includes('crossModalEmbedding') ? 'Text and images in one space' : model.capabilities.includes('imageEmbedding') ? (model.capabilities.includes('embedding') ? 'Text and images' : 'Images') : 'Text';
+  return `${what}, ${String(model.dimensions)} dimensions`;
+}
 
 /** The hash of a declaration, so equal content gives equal versions. */
 async function versionOf(decl: unknown): Promise<string> {
@@ -43,18 +57,20 @@ export async function partCount(hub: Pick<HubServices, 'store'>, system: SystemN
   const listed = LISTED.reduce((sum, [from]) => sum + manifest[from].length, 0);
   const commands = manifest.context.filter((decl) => decl.command !== undefined).length;
   const declared = (manifest.providers?.length ?? 0) + (manifest.registries?.length ?? 0) + (manifest.contributes?.length ?? 0);
-  return listed + commands + declared + await hub.store.table('fnExamples').count(exampleRows(system));
+  return listed + commands + declared + embedderModels(manifest).length + await hub.store.table('fnExamples').count(exampleRows(system));
 }
 
 /** Everything a system added beyond its fns, context and types; empty for a system the catalog has no manifest of. */
-export async function systemParts(hub: Pick<HubServices, 'catalog' | 'store'> & { readonly link: Pick<HubServices['link'], 'lifecycle'> }, system: SystemName): Promise<SystemParts> {
+export async function systemParts(
+  hub: Pick<HubServices, 'catalog' | 'store'> & { readonly link: { readonly lifecycle: Pick<HubServices['link']['lifecycle'], 'offItems'> } }, system: SystemName,
+): Promise<SystemParts> {
   const manifest = await hub.catalog.manifest(system);
   if (manifest === undefined) { return { parts: [], more: {} }; }
   const parts: SystemPart[] = [];
   for (const [from, section] of LISTED) {
     const origin = originIn(manifest, from);
     for (const decl of manifest[from]) {
-      parts.push(await part(section, qualify(system, decl.name), 'description' in decl ? decl.description : `${String(decl.dimensions)} dimensions`, origin(decl.name), decl));
+      parts.push(await part(section, qualify(system, decl.name), decl.description, origin(decl.name), decl));
     }
   }
   const contextOrigin = originIn(manifest, 'context');
@@ -64,6 +80,7 @@ export async function systemParts(hub: Pick<HubServices, 'catalog' | 'store'> & 
   }
   // the manifest's lists are replaced whole while running and say nothing of where each entry came from: the contract's
   for (const decl of manifest.providers ?? []) { parts.push(await part('providers', qualify(system, decl.name), decl.description, 'contract', decl)); }
+  for (const { name, model, provider } of embedderModels(manifest)) { parts.push(await part('embedders', name, embedderAbout(model), 'contract', { provider, ...model })); }
   for (const decl of manifest.registries ?? []) { parts.push(await part('registries', qualify(system, decl.name), decl.description, 'contract', decl)); }
   for (const decl of manifest.contributes ?? []) { parts.push(await part('components', `${decl.registry}: ${decl.label}`, decl.description ?? decl.label, 'contract', decl)); }
   const examples = hub.store.table('fnExamples');

@@ -36,10 +36,20 @@ export type ColumnFilter<V> =
   | { exists: boolean };
 
 /**
+ * A filter comparing a column with another column of the same row, in the database: true where the column differs from
+ * `differsFrom`'s value (absent differs from a value; two absent values don't), with `prefix`, a constant text, put
+ * before that value first (a text column only). For "is this row's derived field out of date", without reading rows.
+ */
+export interface ColumnCompare<Row> {
+  readonly differsFrom: ScalarKey<Row>;
+  readonly prefix?: string;
+}
+
+/**
  * A filter on columns. All given columns must match. Only scalar fields (strings, numbers, booleans, enums) are
  * columns that can be filtered; objects, arrays and JSON fields can't, and naming one doesn't compile.
  */
-export type Where<Row> = { [K in ScalarKey<Row>]?: ColumnFilter<Exclude<Row[K], undefined>> };
+export type Where<Row> = { [K in ScalarKey<Row>]?: ColumnFilter<Exclude<Row[K], undefined>> | ColumnCompare<Row> };
 
 /** An order: scalar fields, each ascending or descending. Absent fields sort first ascending, last descending. */
 export type Order<Row> = ReadonlyArray<readonly [ScalarKey<Row>, 'asc' | 'desc']>;

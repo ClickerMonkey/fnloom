@@ -40,6 +40,23 @@ describe('whereCondition', () => {
   });
 });
 
+describe('a column compared with another column', () => {
+  it('builds a null-safe compare, with a constant text put before the other column', () => {
+    const plain = compile(whereCondition('notifications', layout, { title: { differsFrom: 'body' } }));
+    expect(plain.sql).toBe('select 1 where ("title" is distinct from "body")');
+    const prefixed = compile(whereCondition('notifications', layout, { title: { differsFrom: 'body', prefix: 'a\n' } }));
+    expect(prefixed.sql).toBe('select 1 where ("title" is distinct from (? || "body"))');
+    expect(prefixed.parameters).toEqual(['a\n']);
+  });
+
+  it('refuses an unknown or JSON column, columns stored differently, and a prefix on a column that is not text', () => {
+    expect(codeOf(() => whereCondition('notifications', layout, { title: { differsFrom: 'nope' } }))).toBe('bad-query');
+    expect(codeOf(() => whereCondition('notifications', layout, { title: { differsFrom: 'link' } }))).toBe('bad-query');
+    expect(codeOf(() => whereCondition('notifications', layout, { title: { differsFrom: 'createdAt' } }))).toBe('bad-query');
+    expect(codeOf(() => whereCondition('notifications', layout, { createdAt: { differsFrom: 'createdAt', prefix: 'x' } }))).toBe('bad-query');
+  });
+});
+
 describe('cursors', () => {
   const columns = orderColumns('notifications', layout, [['createdAt', 'desc']]);
 

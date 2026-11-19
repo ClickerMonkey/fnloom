@@ -62,7 +62,6 @@ export class ManifestState {
       context: table.overlay('context', body.context),
       hooks: table.overlay('hooks', body.hooks),
       mentions: table.overlay('mentions', body.mentions),
-      embedders: table.overlay('embedders', body.embedders),
       sectioners: table.overlay('sectioners', body.sectioners),
       actions: table.overlay('actions', body.actions),
       requires: [...requires].sort().map((system) => SystemName.parse(system)),

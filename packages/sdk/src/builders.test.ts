@@ -118,6 +118,14 @@ describe('system().with()', () => {
     expect(() => contract.with({ fns: { get: fn({ description: 'again', args: g.obj({}), returns: g.text() }) } })).toThrow(/fns\.get is declared twice/);
   });
 
+  // regression: the hub stopped reading the manifest's embedders when embedders became providers, so a system declaring
+  // one the old way silently got nothing
+  it('refuses the old embedders section, pointing at providers', () => {
+    const old = { embedders: { tiny: { dimensions: 2, maxInput: 100, pricePerMillionTokens: 0 } } };
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- an old-style declaration the types no longer allow
+    expect(() => contract.with(old as never)).toThrow(/`embedders` is no longer a section.*providers.*capabilities: \['embedding'\]/s);
+  });
+
   it('refuses a bad system name', () => {
     expect(() => system('Bad Name', { description: 'x' })).toThrow();
   });

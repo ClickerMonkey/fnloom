@@ -16,6 +16,7 @@ import {
 } from './primitives.ts';
 import { ReadWant, ResourceRead, ResourceRoot, ResourceStat, ResourceUri, ContentRef } from './resources.ts';
 import { ClientInfo, RunUpdate } from './run.ts';
+import { CompareChoose, CompareStart, CompareView } from './compare.ts';
 import { Actor, ActorSetting, Approval, Remember, UserRole, UserView, type AccessClaims } from './records/actors.ts';
 import { ChatCapabilities, ChatMessage, NotifyChoice, OutgoingPart, Presence, Session, SessionControlAction, SessionControls, SessionSummary } from './records/chat.ts';
 import { Notification, PushSubscription, ResourceRecord } from './records/content.ts';
@@ -47,6 +48,7 @@ import { GoLiveRequest, ItemSection, RefusalPage, RefusalQuery, ReviewDecided, R
 import { SystemStage } from './grants.ts';
 import { GraphPage, GraphQuery } from './graph.ts';
 import { HubIdentity, SetHubName } from './identity.ts';
+import { GroupView, PersonView, SetMembership, SignInPolicy, SignInSettings, SsoButton, SsoCheck, SsoProviderId, SsoTestResult, UpdateUser } from './sso.ts';
 import { ItemVersionsPage, ItemVersionsQuery } from './versions.ts';
 import { DataRecord, DataSetPage, DataSetQuery, RecordGet, RecordPage, RecordQuery, RecordRemove, RecordSave, RecordTableQuery, RecordUpdate, RecordVersionsPage, RecordVersionsQuery } from './data.ts';
 import { ExportQuery, ReadTableArgs, RowActionsQuery, WidgetActionOption } from './widgets.ts';
@@ -68,7 +70,11 @@ export const Tokens = z.object({ access: z.string(), refresh: z.string(), expire
 export type Tokens = z.infer<typeof Tokens>;
 
 /** Whether the hub still needs its admin account made. */
-export const SetupState = HubIdentity.pick({ name: true, version: true }).extend({ needsAdmin: z.boolean() });
+export const SetupState = HubIdentity.pick({ name: true, version: true }).extend({
+  needsAdmin: z.boolean(),
+  /** The SSO providers the sign-in page offers a button for, in the order they are configured. */
+  sso: z.array(SsoButton),
+});
 export type SetupState = z.infer<typeof SetupState>;
 
 /** A suggestion for the message being written: fns and context that match it by meaning. */
@@ -150,6 +156,8 @@ export const SessionEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('budget'), run: RunId, budget: BudgetRule, reason: z.string() }),
   z.object({ type: z.literal('presence'), presence: Presence }),
   z.object({ type: z.literal('session'), session: SessionSummary }),
+  /** A/B compare: a compared turn of this chat changed (a variant moved on, settled, or one was chosen). */
+  z.object({ type: z.literal('compare'), turn: TurnId }),
 ]);
 export type SessionEvent = z.infer<typeof SessionEvent>;
 
@@ -194,6 +202,8 @@ export const authSlice = mergeSpecs(
     endpoints: use(tel, hubAuth).group({
       signOut: { ws: 'signOut' },
       me: { method: 'GET', response: UserView, ws: 'me' },
+      /** Your own account as the People list shows it: how you sign in and the groups you are in. */
+      account: { method: 'GET', response: PersonView, ws: 'account' },
     }),
   }),
 );
@@ -222,6 +232,8 @@ export const SessionPatch = Session.pick({ title: true, systems: true, agent: tr
   mode: Session.shape.mode.unwrap().nullable().optional(),
   contextor: Session.shape.contextor.unwrap().nullable().optional(),
   fnMode: Session.shape.fnMode.unwrap().nullable().optional(),
+  /** The system prompt here, instead of the agent fn's instructions. */
+  instructions: Session.shape.instructions.unwrap().nullable().optional(),
 });
 export type SessionPatch = z.infer<typeof SessionPatch>;
 
@@ -245,6 +257,15 @@ export const chatSlice = spec({
       response: z.object({ turn: TurnId, message: ChatMessage }),
       ws: 'send',
     },
+    /**
+     * A/B compare: send a message answered by 2 to 4 variants of the chat's settings, each in a fork of the chat, each
+     * reserved its share of the turn's budget up front. Nothing joins the chat until one is chosen.
+     */
+    compare: { body: CompareStart, response: z.object({ turn: TurnId, message: ChatMessage }), ws: 'compare' },
+    /** A compared turn: each variant's answer, spend, tokens, time and the approvals it waits on. */
+    compareView: { body: z.object({ turn: TurnId }), response: CompareView, ws: 'compareView' },
+    /** Choose a variant: its answer and what it changed join the chat; the others are discarded, with what they did listed. */
+    chooseVariant: { body: CompareChoose, response: CompareView, ws: 'chooseVariant' },
     /** Run a fn by hand (`!fn`); `on` names the instance of a fleet system it runs on (a claude machine). */
     invoke: { body: z.object({ session: SessionId, fn: QualifiedName, args: Json, on: InstanceName.optional(), client: ClientInfo }), response: z.object({ turn: TurnId, run: RunId }), ws: 'invoke' },
     /** Pause, resume or cancel the session's work: every run it applies to, or only `runs`. */
@@ -376,6 +397,12 @@ export const settingsSlice = spec({
     setActorSetting: { body: z.object({ setting: QualifiedName, actor: ActorId, value: Json }), response: z.object({ ok: z.boolean() }), ws: 'setActorSetting' },
     addUser: { body: z.object({ email: z.email(), name: z.string(), role: UserRole, groups: z.array(ActorId).optional() }), response: z.object({ id: ActorId }), ws: 'addUser' },
     addGroup: { body: z.object({ name: z.string(), about: z.string(), members: z.array(ActorId).optional() }), response: z.object({ id: ActorId }), ws: 'addGroup' },
+    /** SSO: change a person (name, role, signed out and kept out). The break-glass admin stays an enabled admin. */
+    updateUser: { body: UpdateUser, response: z.object({ id: ActorId }), ws: 'updateUser' },
+    /** SSO: put a person in a group or take them out. */
+    setMembership: { body: SetMembership, response: z.object({ ok: z.boolean() }), ws: 'setMembership' },
+    /** SSO: who may make an account by signing in through a provider for the first time. */
+    setSignInPolicy: { body: SignInPolicy, response: SignInPolicy, ws: 'setSignInPolicy' },
   }),
 });
 
@@ -747,6 +774,29 @@ export const identitySlice = mergeSpecs(
   }),
 );
 
+/**
+ * SSO and the People pages (admins): people and groups by the `users` and `groups` lists, a group's members, the
+ * sign-in settings (env providers read-only, the first-sign-in policy), a provider check, and a test sign-in whose
+ * result only the admin who ran it reads.
+ */
+export const peopleSlice = spec({
+  endpoints: use(tel, hubAuth, adminOnly).group({
+    people: { body: ListQuery, response: page(PersonView), ws: 'people' },
+    groups: { body: ListQuery, response: page(GroupView), ws: 'groups' },
+    /** A group, and a page of its members. */
+    groupMembers: { body: PageRequest.extend({ group: ActorId }), response: page(UserView).extend({ group: GroupView }), ws: 'groupMembers' },
+    signInSettings: { body: z.object({}), response: SignInSettings, ws: 'signInSettings' },
+    /** Fetch a provider's discovery document and key set now. */
+    checkSsoProvider: { body: z.object({ provider: SsoProviderId }), response: SsoCheck, ws: 'checkSsoProvider' },
+    /**
+     * Start a test sign-in: the provider's URL to open; the callback keeps the result for `ssoTestResult` instead of
+     * signing in. Over HTTP only: it sets the cookie that binds the sign-in to this browser.
+     */
+    testSsoSignIn: { body: z.object({ provider: SsoProviderId }), response: z.object({ url: z.string(), test: z.string() }), ws: 'testSsoSignIn', httpOnly: true },
+    ssoTestResult: { body: z.object({ test: z.string() }), response: SsoTestResult, ws: 'ssoTestResult' },
+  }),
+});
+
 /** Any item's version history (fns, types, context, kinds, commands, components, examples, providers, ...). */
 export const versionsSlice = spec({
   endpoints: use(tel, hubAuth).group({
@@ -799,6 +849,6 @@ export const hubWebSpec = mergeSpecs(
   approvalsSlice, registriesSlice, fnsSlice,
   explorerSlice,
   reviewSlice, graphSlice,
-  identitySlice, versionsSlice, dataSlice, rowActionsSlice, exportSlice,
+  identitySlice, versionsSlice, dataSlice, rowActionsSlice, exportSlice, peopleSlice,
 );
 export type HubWebSpec = typeof hubWebSpec;

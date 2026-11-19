@@ -32,6 +32,8 @@ export const ModelInfo = z.object({
   capabilities: z.array(z.string()),
   /** A decision model's most questions per call (aeye's `ModelInfo.maxQuestions`): callers split their questions by it. */
   maxQuestions: z.number().int().min(1).optional(),
+  /** A decision model's most bytes of input and questions per call (aeye's `ModelInfo.maxRequestBytes`): callers split by it too. */
+  maxRequestBytes: z.number().int().min(1).optional(),
 });
 export type ModelInfo = z.infer<typeof ModelInfo>;
 

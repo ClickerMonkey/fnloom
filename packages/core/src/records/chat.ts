@@ -2,10 +2,10 @@
 import { z } from 'zod';
 import { ModelInfo } from '../admin.ts';
 import { GinTypeDef } from '../gin.ts';
-import { LlmMessage, ModelChoice } from '../llm.ts';
+import { LlmMessage } from '../llm.ts';
 import { DICTATION_ENGINES } from '../model-calls.ts';
-import { ChatModeConfig, ContextorConfig, GraphSelection } from '../modes.ts';
-import { ChatFnMode, CommandArg, HookBlock } from '../manifest.ts';
+import { GraphSelection } from '../modes.ts';
+import { CommandArg, HookBlock } from '../manifest.ts';
 import { ActorId, Json, MessageId, ModelCallId, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId } from '../primitives.ts';
 import { ContentRef, Link } from '../resources.ts';
 import { SystemStatus } from './systems.ts';
@@ -13,8 +13,10 @@ import { SuggestionRecord } from '../suggestions.ts';
 import { RunStatus } from '../run.ts';
 import { Display } from '../run.ts';
 import { AnnouncedSystems, SystemChange } from './announced.ts';
+import { CompareFork, SessionSettings } from './compare.ts';
 
 export * from './announced.ts';
+export * from './compare.ts';
 
 /** How a person wants to hear about a session's messages. */
 export const NotifyChoice = z.enum(['all', 'replies', 'none']);
@@ -36,20 +38,17 @@ export const Session = z.object({
   id: SessionId,
   title: z.string(),
   owner: ActorId,
-  /** The agent fn that answers. Default `hub/chat`. */
-  agent: QualifiedName,
-  /** The model the agent answers with in this chat, instead of the one its fn chooses. */
-  model: ModelChoice.optional(),
-  /** The chat mode and contextor here, instead of the agent fn's. */
-  mode: ChatModeConfig.optional(),
-  contextor: ContextorConfig.optional(),
-  /** How far the agent may go with fns here (absent: as far as the policies allow, like `delete`). */
-  fnMode: ChatFnMode.optional(),
+  /** Who answers and how: the agent, its model, chat mode, contextor, fn mode, systems and system prompt here. */
+  ...SessionSettings.shape,
   /** What the graph contextor chose last, rewritten every cycle. */
   selection: GraphSelection.optional(),
   participants: z.array(Participant),
-  /** Only these systems' fns, context, mentions and hooks apply. The hub's own message extras always do. */
-  systems: z.union([z.array(SystemName), z.literal('all')]),
+  /**
+   * A/B compare: the chat this session is a fork of, for one variant of a compared message (`fork` says which). A fork
+   * is never listed; its answer joins its chat only when the person chooses it.
+   */
+  forkOf: SessionId.optional(),
+  fork: CompareFork.optional(),
   /** The agent's loaded fns and context so far. */
   tools: z.array(QualifiedName),
   context: z.array(QualifiedName),
@@ -149,6 +148,8 @@ export const ChatMessage = z.object({
   answerers: z.array(ActorId),
   /** User messages: the fns and context suggested for it, and those left out with their reasons. */
   suggestions: SuggestionRecord.optional(),
+  /** User messages: A/B compare, answered by variants of the chat's settings (its turn's `compare`) instead of the chat's agents. */
+  compared: z.literal(true).optional(),
   /**
    * Assistant messages: the model call behind it read no prompt cache although an earlier call of the session
    * did, in full-history mode with a model that caches; the chat draws a wavy rule above it with `at`.

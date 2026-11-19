@@ -172,7 +172,6 @@ describe('serving the hub', () => {
     const hub = new FakeHub();
     await start(hub);
     const peer = hub.peer();
-    await expect(peer.call('embed', { embedder: 'none', texts: [] })).rejects.toThrow();
     await expect(peer.call('check', { kind: 'none', payload: {} })).rejects.toThrow();
     expect(await peer.call('check', { kind: 'macro', payload: { steps: 3 } })).toMatchObject({ problems: [expect.any(String)] });
     expect(await peer.call('control', { run: 'run_none', action: 'cancel' })).toMatchObject({ accepted: false });  

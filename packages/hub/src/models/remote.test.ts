@@ -250,6 +250,6 @@ describe('remote providers', () => {
 
 /** A manifest with nothing in it, for the fake catalog. */
 const EMPTY_MANIFEST: Manifest = {
-  name: SHOP, version: '1', description: '', hash: 'h', types: [], settings: [], attachments: [], kinds: [], fns: [], context: [], hooks: [], mentions: [], embedders: [],
+  name: SHOP, version: '1', description: '', hash: 'h', types: [], settings: [], attachments: [], kinds: [], fns: [], context: [], hooks: [], mentions: [],
   sectioners: [], actions: [], events: [], resources: false, config: { name: 'obj' }, requires: [],
 };

@@ -98,7 +98,7 @@ export class FakeBuilder implements SystemBuilder {
     this.calls.push(`contract ${module}`);
     return Promise.resolve(this.names.map((name) => Manifest.parse({
       name, version: '0.0.0', description: '', hash: 'h', types: [], settings: [], attachments: [], kinds: [], fns: [], context: [], hooks: [],
-      mentions: [], embedders: [], sectioners: [], actions: [], events: [], resources: false, config: { name: 'object', props: {} }, requires: [],
+      mentions: [], sectioners: [], actions: [], events: [], resources: false, config: { name: 'object', props: {} }, requires: [],
     })));
   }
 

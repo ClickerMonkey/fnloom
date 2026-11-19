@@ -27,6 +27,7 @@ import { FnExampleRecord, FnFactsRecord, FnLink, FnSignatureType, FnTypeUse, FnU
 import { DataRecord, RecordVersion } from '../data.ts';
 import { ItemVersionRecord } from '../versions.ts';
 import { ResourceUri } from '../resources.ts';
+import { ExternalIdentity } from '../sso.ts';
 
 /** A stored section: a resource's section at one version, with the hash of its text. */
 export const SectionRow = Section.extend({ uri: ResourceUri, version: z.string(), hash: z.string() });
@@ -141,6 +142,8 @@ export const HUB_TABLES = {
   itemVersions: byField(ItemVersionRecord, 'id'),
   records: byField(DataRecord, 'id'),
   recordVersions: byField(RecordVersion, 'id'),
+  // SSO: a person's account at an outside provider
+  externalIdentities: byFields(ExternalIdentity, 'issuer', 'sub'),
 } as const;
 
 /** The table names. */

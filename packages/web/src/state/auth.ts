@@ -9,7 +9,7 @@
  * sign-in). So a refresh runs under a lock shared by the app's tabs (`TabLock`): one tab refreshes while the others
  * wait, and each reads the stored session again once it holds the lock, taking the tokens another tab already got.
  */
-import { hubWebSpec, type SetupState } from '@harness/core';
+import { hubWebSpec, type SetupState, type SsoButton } from '@harness/core';
 import { ref, shallowRef, watch, type WatchStopHandle } from 'vue';
 import { z } from 'zod';
 import { BEFORE_SIGN_IN, type AuthApi } from '../api/auth.ts';
@@ -39,9 +39,14 @@ export type RememberedSignIn = z.infer<typeof RememberedSignIn>;
 /** The fields that can have a problem. */
 export type SignInField = Exclude<keyof SignInInput, 'remember'>;
 
-/** The sign-in page's state. */
+/**
+ * The sign-in page's state. Besides the password form, it offers the hub's SSO providers (`setup.sso`): a provider's
+ * button is a plain link to the hub's start route, and the hub's callback comes back to the sign-in page with the new
+ * session's refresh token in the URL fragment (`#sso=`), which `finishSso` swaps for tokens at once (it rotates on use,
+ * so the one in the address bar is spent), or with `?problem=` when the sign-in was refused.
+ */
 export class SignInForm {
-  readonly #api: Pick<AuthApi, 'setup' | 'createAdmin' | 'signIn'>;
+  readonly #api: Pick<AuthApi, 'setup' | 'createAdmin' | 'signIn' | 'refresh'>;
   readonly #session: SessionStore;
   readonly #store: KeyValueStore | undefined;
 
@@ -57,7 +62,7 @@ export class SignInForm {
   readonly fields = shallowRef<FieldProblems<SignInField>>({});
 
   /** `store` keeps the last sign-in's choice; without it the form starts with "Remember me" ticked and no email. */
-  constructor(api: Pick<AuthApi, 'setup' | 'createAdmin' | 'signIn'>, session: SessionStore, store?: KeyValueStore) {
+  constructor(api: Pick<AuthApi, 'setup' | 'createAdmin' | 'signIn' | 'refresh'>, session: SessionStore, store?: KeyValueStore) {
     this.#api = api;
     this.#session = session;
     this.#store = store;
@@ -67,6 +72,29 @@ export class SignInForm {
   /** Whether this hub still needs its admin account made. */
   get needsAdmin(): boolean {
     return this.setup.value?.needsAdmin === true;
+  }
+
+  /** The SSO providers to offer, in the hub's order. */
+  get providers(): readonly SsoButton[] {
+    return this.setup.value?.sso ?? [];
+  }
+
+  /**
+   * Finish an SSO sign-in: swap the hand-over refresh token the hub's callback put in the fragment for tokens, kept
+   * as "Remember me" was last left. Resolves whether the person is now signed in.
+   */
+  async finishSso(refresh: string): Promise<boolean> {
+    this.busy.value = true;
+    this.problem.value = '';
+    try {
+      this.#session.keep(await this.#api.refresh.call({ refresh }, BEFORE_SIGN_IN), this.remembered.remember);
+      return true;
+    } catch (error) {
+      this.problem.value = problemText(error, 'That sign-in didn’t finish. Sign in again.');
+      return false;
+    } finally {
+      this.busy.value = false;
+    }
   }
 
   /** Ask the hub whether it needs its admin account. */

@@ -15,9 +15,9 @@ import { seesHit } from '../access/hits.ts';
 import { FixtureCatalog } from '../chat/testing.ts';
 import { manifestFor, vectors as vectorsContract } from '../catalog/fixtures.ts';
 import { FakeSystem, linkRig, pairDirectly } from '../link/rig.ts';
-import { StoreModelCallLog } from '../metrics/calls.ts';
 import { OfferedProviders, offeredBy } from '../models/remote.ts';
 import { SystemEmbedders } from './embedders.ts';
+import { rigHubAi } from './testing.ts';
 import { HybridSearch } from '../store/hybrid.ts';
 import { RecordingBus, memoryLog, settle, testStore } from '../testing.ts';
 import { EmbedBatcher } from './batch.ts';
@@ -157,6 +157,12 @@ describe('the pictures the index embeds', () => {
       { kind: 'image', key: contextImageKey('shop/album', 'https://pics.test/cat.jpg'), parent: 'shop/album', text: 'shop/album: the cat', image: { source: 'https://pics.test/cat.jpg' }, system: SHOP },
     ]);
     expect(contextImageItems({ ...ALBUM, kind: 'fn' })).toEqual([]);
+  });
+
+  // regression: images were guessed from the URL's extension, so a CDN picture was missed and a link to a .png was taken
+  it('takes what the markdown shows as an image, whatever its URL, and not a plain link to a picture', () => {
+    const text = 'shop/cdn: ![the logo](https://cdn.test/img?id=7)\n[download the poster](https://shop.test/poster.png)';
+    expect(contextImageItems({ kind: 'context', key: 'shop/cdn', system: SHOP, text }).map((item) => item.image?.source)).toEqual(['https://cdn.test/img?id=7']);
   });
 
   it('takes images but not text drawn as one', () => {
@@ -406,11 +412,11 @@ describe('the image embedding setting', () => {
 describe('embedders that embed pictures, from systems', () => {
   it('works out the image space from the setting and the providers offered, and embeds pictures over the link', async () => {
     const rig = await linkRig();
-    const calls = new StoreModelCallLog({ store: rig.store, clock: () => rig.time.now, log: rig.log });
+    const ai = rigHubAi(rig);
     let setting: ImageEmbedding = IMAGE_EMBEDDING_DEFAULT;
     const offered = new OfferedProviders({ link: rig.links, catalog: rig.catalog, bus: rig.bus, log: rig.log, offered: offeredBy(rig.lifecycle) });
     const embedders = new SystemEmbedders({
-      offered, connections: rig.links, bus: rig.bus, log: rig.log, clock: () => rig.time.now, document: DOCUMENT, query: QUERY, batch: 2, calls: () => calls,
+      offered, connections: rig.links, bus: rig.bus, log: rig.log, document: DOCUMENT, query: QUERY, batch: 2, ai: () => ai,
       imageSetting: () => Promise.resolve(setting),
     });
     const text = new FakeSystem(rig.app, 'vectors', await manifestFor(vectorsContract));
@@ -429,7 +435,7 @@ describe('embedders that embed pictures, from systems', () => {
     expect(embedders.images()).toMatchObject({ shared: false, crossModal: true, embedder: { name: CLIP, dimensions: 4 } });
     expect(await embedders.images()?.embedder.embed(['a car', { image: 'https://pics.test/car.png' }])).toEqual([[1, 0, 0, 0], [1, 0, 0, 0]]);
     expect(seen).toEqual([['a car', 'https://pics.test/car.png']]);
-    expect((await calls.list({})).items.filter((c) => c.modality === 'embed')).toMatchObject([
+    expect((await ai.calls.list({})).items.filter((c) => c.modality === 'embed')).toMatchObject([
       { provider: 'pics/local', model: 'clip', status: 'done', units: { modality: 'embed', texts: 1, characters: 5, images: 1, dimensions: 4 } },
     ]);
     // off: none again

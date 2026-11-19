@@ -364,7 +364,7 @@ export class AeyeLlm implements RefreshableEngine {
     return { audio: new Uint8Array(await new Response(response.audio).arrayBuffer()), mime: audioMime(response.responseFormat ?? format) };
   }
 
-  /** One decision call; aeye refuses one over the model's `maxQuestions` (callers split, `models/decide.ts`). */
+  /** One decision call; aeye refuses one over the model's `maxQuestions` or `maxRequestBytes` (callers split, `models/decide.ts`). */
   decide(input: DecideCall, ctx: HubCallContext, signal?: AbortSignal): Promise<DecisionResponse> {
     const request: DecisionRequest = { input: input.input, questions: input.questions, ...modelOf(input.metadata) };
     return this.#ai.decide.get(request, contextOf(ctx, { modality: 'decide', request }, input.metadata, signal));
@@ -388,6 +388,7 @@ export class AeyeLlm implements RefreshableEngine {
         // a provider that doesn't know the cap says 0: no cap is known then
         ...(model.maxOutputTokens === undefined || model.maxOutputTokens < 1 ? {} : { maxOutputTokens: Math.floor(model.maxOutputTokens) }),
         ...(model.maxQuestions === undefined ? {} : { maxQuestions: model.maxQuestions }),
+        ...(model.maxRequestBytes === undefined ? {} : { maxRequestBytes: model.maxRequestBytes }),
         ...(text?.input === undefined && text?.output === undefined ? {} : { pricing: { input: text.input ?? 0, output: text.output ?? 0 } }),
       }];
     });

@@ -56,8 +56,10 @@ export const template = system('template', {
     // `hook({ description, order, timeout })`.
     // TODO: declare hooks, or delete this comment.
 
-    // embedders: embed functions the hub can index with, each made with `embedder({ dimensions, maxInput, pricePerMillionTokens })`.
-    // TODO: declare embedders, or delete this comment.
+    // providers: model providers whose calls run in this system, each made with `provider({ description, models })`.
+    // An embedder is one: a model with `capabilities: ['embedding']` (or `imageEmbedding`) and its `dimensions` is an
+    // embedder the hub's index can use.
+    // TODO: declare providers, or delete this comment.
 
     // sectioners: ways of cutting resources into sections, each made with `sectioner({ description, match })`.
     // TODO: declare sectioners, or delete this comment.

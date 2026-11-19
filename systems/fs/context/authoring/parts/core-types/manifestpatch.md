@@ -259,12 +259,6 @@ type ManifestPatch = {
       target: TypeDef<any>;
       of?: `${string}/${string}` | undefined;
     }[] | undefined;
-    embedders?: {
-      name: string;
-      dimensions: number;
-      maxInput: number;
-      pricePerMillionTokens: number;
-    }[] | undefined;
     sectioners?: {
       name: string;
       description: string;
@@ -272,7 +266,7 @@ type ManifestPatch = {
         format?: string | undefined;
         mime?: string | undefined;
         glob?: string | undefined;
-        form?: "description" | "table" | "text" | "code" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
+        form?: "code" | "description" | "table" | "text" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined;
       };
     }[] | undefined;
     actions?: {
@@ -284,7 +278,7 @@ type ManifestPatch = {
       expires?: number | undefined;
     }[] | undefined;
   };
-  remove: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "embedders" | "sectioners" | "actions", string[]>>;
+  remove: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "sectioners" | "actions", string[]>>;
   lists?: {
     providers?: {
       name: string;
@@ -305,6 +299,7 @@ type ManifestPatch = {
         dimensions?: number | undefined;
         maxInput?: number | undefined;
         maxQuestions?: number | undefined;
+        maxRequestBytes?: number | undefined;
       }[];
     }[] | undefined;
     registries?: {
@@ -379,7 +374,7 @@ type ManifestPatch = {
 const, type · declared in `packages/core/src/manifest.ts`
 
 ```ts
-type ManifestSection = "types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "embedders" | "sectioners" | "actions";
+type ManifestSection = "types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "sectioners" | "actions";
 ```
 
 #### <a id="core-mentionhover"></a>`MentionHover`

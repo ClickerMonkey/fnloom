@@ -10,7 +10,7 @@ import type {
 import { MANIFEST_SECTIONS, MANIFEST_SECTION_NAMES } from '@harness/core';
 import type { ActionCtx, AskerCtx, BudgetInfo, CallOptions, Decisions, FnCall, Fleets, FnCtx, FnSearch, PreviewCtx, Proposals, Resume, Services, SessionState, SystemCtx, UndoCtx } from '../ctx.ts';
 import type {
-  ActionImpl, AnyTypeDef, ContextImpl, EmbedderImpl, HookContribution, HookImpl, KindCheckCtx, KindDef, KindEstimateInput, KindImpl, KindRunCtx, MentionCtx, MentionImpl,
+  ActionImpl, AnyTypeDef, ContextImpl, HookContribution, HookImpl, KindCheckCtx, KindDef, KindEstimateInput, KindImpl, KindRunCtx, MentionCtx, MentionImpl,
   MentionOption, MethodImpl, SectionerImpl,
 } from '../declare.ts';
 import type { AnyFnDef, FnTypes, Handlers, Outcome, ProgressDef, UntypedFn } from '../fn.ts';
@@ -19,7 +19,7 @@ import type { AnyFnRef } from '../refs.ts';
 import type { ResourceProvider } from '../resources.ts';
 import type { ProviderImpl } from '../providers.ts';
 import type { Provider } from '@aeye/ai';
-import type { AnyContract, ConnectImpl, ContractShape, EventHandlers, Lifecycle, SystemImpl } from '../system.ts';
+import { refuseOldEmbedders, type AnyContract, type ConnectImpl, type ContractShape, type EventHandlers, type Lifecycle, type SystemImpl } from '../system.ts';
 import { expectType, type Equal } from '../util.ts';
 
 /** Any outcome, as the runtime handles it before encoding it for the wire. */
@@ -133,7 +133,6 @@ export interface ImplTable {
   readonly context?: Readonly<Record<string, (args: Record<string, string>, ctx: RuntimeContextCtx) => Promise<string>>>;
   readonly hooks?: Readonly<Record<string, (input: HookInput, ctx: SystemCtx) => Promise<HookContribution[]>>>;
   readonly mentions?: Readonly<Record<string, RuntimeMentionImpl>>;
-  readonly embedders?: Readonly<Record<string, EmbedderImpl>>;
   readonly sectioners?: Readonly<Record<string, SectionerImpl>>;
   readonly actions?: Readonly<Record<string, (input: unknown, ctx: ActionCtx<Record<string, unknown>>) => Promise<unknown>>>;
   readonly resources?: ResourceProvider;
@@ -166,7 +165,6 @@ expectType<Equal<RuntimeSection<'kinds'>, AuthorSection<KindImpl<unknown, object
 expectType<Equal<RuntimeSection<'context'>, AuthorSection<ContextImpl<Record<string, string>, object>>>>(true);
 expectType<Equal<RuntimeSection<'hooks'>, AuthorSection<HookImpl<object>>>>(true);
 expectType<Equal<RuntimeSection<'mentions'>, AuthorSection<MentionImpl<unknown, unknown, object>>>>(true);
-expectType<Equal<RuntimeSection<'embedders'>, AuthorSection<EmbedderImpl>>>(true);
 expectType<Equal<RuntimeSection<'sectioners'>, AuthorSection<SectionerImpl>>>(true);
 expectType<Equal<RuntimeSection<'actions'>, AuthorSection<ActionImpl<unknown, unknown, Record<string, unknown>, object>>>>(true);
 expectType<Equal<RuntimeSection<'resources'>, Erased<ResourceProvider>>>(true);
@@ -213,7 +211,6 @@ const IMPLEMENTED: { readonly [S in ManifestSection]?: (impl: ImplTable, name: s
   kinds: (impl, name) => impl.kinds?.[name] !== undefined,
   hooks: (impl, name) => impl.hooks?.[name] !== undefined,
   mentions: (impl, name) => impl.mentions?.[name] !== undefined,
-  embedders: (impl, name) => impl.embedders?.[name] !== undefined,
   sectioners: (impl, name) => impl.sectioners?.[name] !== undefined,
   actions: (impl, name) => impl.actions?.[name] !== undefined,
 };
@@ -227,7 +224,7 @@ export class SystemTable {
   /** Entries a runtime patch added or replaced, by section and name. */
   readonly #patched: { readonly [S in ManifestSection]: Map<string, SectionDecl<S>> } = {
     types: new Map(), settings: new Map(), attachments: new Map(), kinds: new Map(), fns: new Map(), context: new Map(), hooks: new Map(), mentions: new Map(),
-    embedders: new Map(), sectioners: new Map(), actions: new Map(),
+    sectioners: new Map(), actions: new Map(),
   };
   /** Contract entries a runtime patch removed, by section. */
   readonly #hidden = new Map<ManifestSection, Set<string>>();
@@ -235,6 +232,7 @@ export class SystemTable {
   readonly #listeners = new Set<() => void>();
 
   constructor(contract: AnyContract, impl: ImplTable) {
+    refuseOldEmbedders(`system ${contract.name}'s implementation`, impl);
     this.contract = contract;
     this.impl = impl;
     for (const [local, def] of Object.entries(contract.defs.fns)) { checkHooks(contract.name, local, def, impl.fns?.[local]); }
@@ -282,7 +280,7 @@ export class SystemTable {
   /**
    * Apply a runtime patch's declarations, checked first (nothing changes when one is wrong): upserts replace by name or
    * add, removes drop runtime entries and hide contract ones (a removed contract fn no longer runs). A native fn is
-   * added with `add` (it brings its code); a new kind, hook, mention, embedder, sectioner or action needs its
+   * added with `add` (it brings its code); a new kind, hook, mention, sectioner or action needs its
    * implementation already in the system.
    */
   patch(change: SystemPatch): void {

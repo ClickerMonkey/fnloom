@@ -8,7 +8,8 @@ import { AccessStore } from '../../state/access.ts';
 import { ConnectionsStore } from '../../connect/store.ts';
 import { PickerStore } from '../../state/pickers.ts';
 import type { ListValuesCaller } from '../../state/query.ts';
-import { SessionId, type ActorId, type ClientInfo, type ContentRef, type RunId } from '@harness/core';
+import { SessionId, type ActorId, type ClientInfo, type CompareVariantInput, type ContentRef, type RunId, type TurnId } from '@harness/core';
+import type { Outcome } from '../../state/loaded.ts';
 import { ref, shallowRef } from 'vue';
 import type { UserEvents } from '../../api/notifications.ts';
 import type { KeyValueStore } from '../../state/persisted.ts';
@@ -17,6 +18,7 @@ import { ApprovalDesk } from './approvals.ts';
 import { CapabilitiesStore } from './capabilities.ts';
 import { TypeLibrary } from '../../gin/types.ts';
 import { CollapseStore } from './collapse.ts';
+import { CompareStore, sendCompare } from './compare.ts';
 import { ComposerStore } from './composer.ts';
 import { Inspector } from './inspect.ts';
 import { MentionCards } from './mentions.ts';
@@ -204,6 +206,16 @@ export class ChatStore {
     const made = new SelectionPreview(this.#deps.api, id);
     this.#previews.set(id, made);
     return made;
+  }
+
+  /** A/B compare: send a session's draft answered by `variants`; the compared turn, to open. */
+  startCompare(id: SessionId, variants: readonly CompareVariantInput[]): Promise<Outcome<TurnId>> {
+    return sendCompare(this.#deps.api, this.thread(id), this.composer(id), variants, this.#deps.client());
+  }
+
+  /** A compared turn of a session, to open and follow while it is shown. */
+  compare(session: SessionId, turn: TurnId): CompareStore {
+    return new CompareStore({ api: this.#deps.api, events: this.#deps.sessionEvents }, session, turn);
   }
 
   /** Dictation, when this browser can record or recognise speech. */

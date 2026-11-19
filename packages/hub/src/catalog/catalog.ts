@@ -48,7 +48,7 @@ type SectionLists = { [S in ManifestSection]: Array<SectionDecl<S>> };
 function eachSection(make: <S extends ManifestSection>(section: S) => Array<SectionDecl<S>>): SectionLists {
   return {
     types: make('types'), settings: make('settings'), attachments: make('attachments'), kinds: make('kinds'), fns: make('fns'),
-    context: make('context'), hooks: make('hooks'), mentions: make('mentions'), embedders: make('embedders'), sectioners: make('sectioners'),
+    context: make('context'), hooks: make('hooks'), mentions: make('mentions'), sectioners: make('sectioners'),
     actions: make('actions'),
   };
 }
@@ -614,7 +614,6 @@ export class StoreCatalog implements Catalog {
       context: await checkSection('context', next.context),
       hooks: await checkSection('hooks', next.hooks),
       mentions: await checkSection('mentions', next.mentions),
-      embedders: await checkSection('embedders', next.embedders),
       sectioners: await checkSection('sectioners', next.sectioners),
       actions: await checkSection('actions', next.actions),
     };
@@ -758,7 +757,6 @@ export class StoreCatalog implements Catalog {
       context: () => [],
       hooks: () => [],
       mentions: (d) => this.#scopes.problems([d.target], work.lookup),
-      embedders: () => [],
       sectioners: () => [],
       actions: (d) => this.#scopes.problems([d.input, d.returns, ...(d.state === undefined ? [] : [d.state])], work.lookup),
     };

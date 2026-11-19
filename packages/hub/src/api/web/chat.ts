@@ -125,6 +125,12 @@ export function chatPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>
         await visibleSession(hub, data.session, user);
         return chat.turns.invoke({ ...data, author: user.id });
       },
+      compare: async ({ data, user }) => {
+        await visibleSession(hub, data.session, user);
+        return chat.turns.send({ ...compact(data), author: user.id });
+      },
+      compareView: ({ data, user }) => chat.compare.view(data.turn, user.id),
+      chooseVariant: ({ data, user }) => chat.compare.choose({ ...data, by: user.id }),
       control: async ({ data, user }) => {
         await visibleSession(hub, data.session, user);
         return chat.sessions.control(data.session, data.action, user.id, data.runs);

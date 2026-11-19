@@ -6,7 +6,8 @@
  * loads what each panel needs when the URL asks for it, and owns the chat's keyboard shortcuts. The list's search
  * (`?q=`) and its active or archived view (`?chats=archived`) are in the URL too, and kept moving between chats. A
  * side panel takes the list's column unless the screen is very wide, so the thread keeps a readable width. Each kind
- * of panel keeps the width its left edge was dragged to (`LayoutStore.panelWidth`), within a share of the window.
+ * of panel keeps the width its left edge was dragged to (`LayoutStore.panelWidth`), within a share of the window. An A/B compare
+ * (`?compare=<turn>&v=<variant>`) opens over the chat: its answers side by side, or as tabs on a phone.
  */
 import { isSettled, ResourceUri, type LlmInteraction, type MessageId, type QualifiedName, type SessionId } from '@harness/core';
 import { useRouter } from 'vue-router';
@@ -40,6 +41,10 @@ import { useFnModal } from '../../fns/state/fn-modal.ts';
 import ModelPicker from '../components/ModelPicker.vue';
 import SessionPeople from '../components/SessionPeople.vue';
 import { modelChoiceOf, modelPick, type ModelPick } from '../logic/session.ts';
+import CompareResults from '../components/CompareResults.vue';
+import type { CompareStore } from '../state/compare.ts';
+import { variantLetter, type VariantParam } from '../logic/compare.ts';
+import type { VariantIndex } from '@harness/core';
 import type { ChatPanel } from '../url.ts';
 
 /** Each chat panel's title. */
@@ -249,6 +254,25 @@ async function undoRunTurn(): Promise<void> {
   toasts.ok(`Undid ${report.undone.length} change${report.undone.length === 1 ? '' : 's'}`);
 }
 
+// ── A/B compare ──────────────────────────────────────────────────────────────
+
+/** The compare open over the chat (`?compare=`), followed live while it is open. */
+const compareStore = shallowRef<CompareStore | undefined>(undefined);
+watch([url.session, url.compare], ([session, turn]) => {
+  compareStore.value?.close();
+  compareStore.value = session === undefined || turn === undefined ? undefined : chat.compare(session, turn);
+  void compareStore.value?.open();
+}, { immediate: true });
+onBeforeUnmount(() => { compareStore.value?.close(); });
+const compareOpen = computed({ get: () => compareStore.value !== undefined, set: (open) => { if (!open) { url.closeCompare(); } } });
+const compareVariant = computed<VariantParam | undefined>({ get: () => url.variant.value, set: (at) => { if (at !== undefined) { url.showVariant(at); } } });
+
+/** A variant was chosen: its answer is in the chat now. */
+function compareChosen(variant: VariantIndex): void {
+  toasts.ok(`Variant ${variantLetter(variant)} is in the chat`);
+  url.closeCompare();
+}
+
 // ── keys ─────────────────────────────────────────────────────────────────────
 
 function onKey(event: KeyboardEvent): void {
@@ -300,7 +324,7 @@ onBeforeUnmount(() => {
         :debug="url.debug.value" @debug="url.setDebug($event)"
         @run="url.open('run', $event)" @llm="url.open('llm', $event)" @details="url.open('details', $event)" @tree="url.openTree($event)"
         @resource="url.open('resource', $event)" @panel="url.open('panel', $event)" @sessions="listOpen = true" @nav="layout.drawerOpen.value = true" @new-chat="create"
-        @message="showMessage" @shortcuts="shortcutsOpen = true" @remove="url.session.value && askRemove(url.session.value)"
+        @message="showMessage" @shortcuts="shortcutsOpen = true" @remove="url.session.value && askRemove(url.session.value)" @compare="url.openCompare($event)"
       />
       <SessionList v-else-if="phone" ref="list" class="home-list" v-bind="listBind" v-on="listOn" />
       <div v-else class="start" :class="{ split: compact }">
@@ -345,10 +369,20 @@ onBeforeUnmount(() => {
           :agent="agentName(record.agent)" :agents="chat.capabilities.value.value?.agents ?? []" :models="chat.capabilities.value.value?.models ?? []"
           :priority="thread.limits.value?.priority" :name-of="nameOf" :preview="previewView" @notify="thread.update({ notify: $event })" @systems="thread.update({ systems: $event })"
           @priority="thread.update({ priority: $event })" @agent="thread.update({ agent: $event })" @pick-model="url.open('panel', 'model')"
-          @mode="thread.update({ mode: $event })" @contextor="thread.update({ contextor: $event })" @preview="preview?.preview($event)"
+          @mode="thread.update({ mode: $event })" @contextor="thread.update({ contextor: $event })" @instructions="thread.update({ instructions: $event })" @preview="preview?.preview($event)"
         />
       </PanelFrame>
     </PanelHost>
+
+    <UiModal
+      v-model:open="compareOpen" :placement="phone ? 'bottom' : 'center'" width="min(1480px, 98vw)" label="Compare answers" data-testid="compare"
+      :style="{ height: phone ? '92vh' : 'min(900px, 94vh)' }"
+    >
+      <CompareResults
+        v-if="compareStore" v-model:variant="compareVariant" :store="compareStore" :models="chat.capabilities.value.value?.models ?? []" :tabs="phone || !wide"
+        @close="url.closeCompare()" @chosen="compareChosen"
+      />
+    </UiModal>
 
     <ShortcutsDialog v-model:open="shortcutsOpen" />
     <ConfirmDialog

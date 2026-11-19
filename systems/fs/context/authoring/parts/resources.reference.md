@@ -31,59 +31,6 @@ interface ResourceProvider {
 
 Refers to: [`Page`](context:fs/authoring.core-types.primitives-ts#core-page), [`ReadWant`](context:fs/authoring.core-types.resources-ts#core-readwant), [`ResourceChange`](context:fs/authoring.core-types.resources-ts#core-resourcechange), [`ResourceRead`](context:fs/authoring.core-types.resources-ts#core-resourceread), [`ResourceRoot`](context:fs/authoring.core-types.resources-ts#core-resourceroot), [`ResourceStat`](context:fs/authoring.core-types.resources-ts#core-resourcestat), [`ResourceUri`](context:fs/authoring.core-types.resources-ts#core-resourceuri).
 
-#### `embedder`
-
-function · `import { embedder } from '@harness/sdk'`
-
-Declare an embedder.
-
-```ts
-function embedder(def: EmbedderDef): EmbedderDef;
-```
-
-#### `EmbedderDef`
-
-interface · `import { EmbedderDef } from '@harness/sdk'`
-
-An embed function the hub can index with.
-
-```ts
-interface EmbedderDef {
-  readonly dimensions: number;
-  /** Most characters per text. */
-  readonly maxInput: number;
-  readonly pricePerMillionTokens: Usd;
-}
-```
-
-Refers to: [`Usd`](context:fs/authoring.core-types.primitives-ts#core-usd).
-
-#### `EmbedderImpl`
-
-type · `import { EmbedderImpl } from '@harness/sdk'`
-
-An embedder's implementation: one vector per text, in order.
-
-```ts
-type EmbedderImpl = (texts: string[]) => Promise<number[][]>;
-```
-
-#### `EmbedderRef`
-
-interface · `import { EmbedderRef } from '@harness/sdk'`
-
-A handle to an embedder.
-
-```ts
-interface EmbedderRef<N extends QualifiedName> {
-  readonly ref: 'embedder';
-  readonly name: N;
-  readonly dimensions: number;
-}
-```
-
-Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
-
 #### `sectioner`
 
 function · `import { sectioner } from '@harness/sdk'`

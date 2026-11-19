@@ -12,6 +12,7 @@ import { createHub } from '../api/client.ts';
 import { withTraffic } from '../api/traffic.ts';
 import { ClientLogs, clientLogsCaller } from '../state/client-logs.ts';
 import { BrowserLock, SessionKeeper, SignInForm } from '../state/auth.ts';
+import { AccountStore } from '../state/account.ts';
 import { ConnectionStore } from '../state/connection.ts';
 import { InboxStore } from '../state/inbox.ts';
 import { LayoutStore } from '../state/layout.ts';
@@ -91,6 +92,7 @@ export function createStores(win: Window): Stores {
     chat,
     admin,
     signInForm: () => new SignInForm(api.auth, session, win.localStorage),
+    account: new AccountStore(api.auth),
     resources,
     context: new ContextStore({ api: api.context, events: api.contextEvents }),
     fns: new FnInfoStore(api.fns, api.userEvents),

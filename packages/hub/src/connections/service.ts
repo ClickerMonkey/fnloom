@@ -4,7 +4,6 @@
  * the system turns the provider's answer into an account and credentials, and the credentials become a secret owned
  * by the person. A connection's fns act as its owner, for them and for the people it is shared with.
  */
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { reject } from '@ayepi/core';
 import { z } from 'zod';
 import type { Logger } from '@ayepi/log';
@@ -18,6 +17,7 @@ import { fnOwner } from '../catalog/catalog.ts';
 import type { ConnectionGate, FnConnection, FnRef } from '../access/index.ts';
 import { letsIn } from '../access/scope.ts';
 import type { SecretVault } from '../api/index.ts';
+import { randomSecret, sameText, sha256Url, SignedPayloads } from '../api/signed.ts';
 import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
 import { allRows } from '../store/rows.ts';
@@ -86,7 +86,7 @@ function fnKey(connectKey: FnConnectKey | undefined, args: Json | undefined): Co
 /** Connections over the store. */
 export class StoreConnectionService implements ConnectionService {
   readonly #deps: ConnectionDeps;
-  readonly #key: Buffer;
+  readonly #states: SignedPayloads;
   /** Sign-ins whose callback is being finished now. */
   readonly #claimed = new Set<ConnectionId>();
   /** The last refresh queued for each connection. */
@@ -94,7 +94,7 @@ export class StoreConnectionService implements ConnectionService {
 
   constructor(deps: ConnectionDeps) {
     this.#deps = deps;
-    this.#key = deps.stateKey ?? randomBytes(32);
+    this.#states = new SignedPayloads(() => deps.clock(), deps.stateKey);
   }
 
   get #redirect(): string {
@@ -140,8 +140,8 @@ export class StoreConnectionService implements ConnectionService {
     }
     await this.#begin(row);
     const window = this.#deps.settings.HARNESS_CONNECT_WINDOW;
-    const browser = randomBytes(24).toString('base64url');
-    const state = this.#sign(row.id, now + window, sha256(browser));
+    const browser = randomSecret();
+    const state = this.#states.sign({ c: row.id, b: sha256Url(browser) }, now + window);
     try {
       const { url } = await this.#call(system, how.instance, (c, signal) => c.peer.call('connectStart', { connection: row.id, owner: asker, ...at, redirect: this.#redirect, state }, { signal }));
       const binding: ConnectBinding = { cookie: bindingCookie(row.id), value: browser, maxAge: Math.ceil(window / 1000), secure: this.#redirect.startsWith('https:') };
@@ -153,14 +153,15 @@ export class StoreConnectionService implements ConnectionService {
   }
 
   async callback(params: Readonly<Record<string, string>>, cookies: Readonly<Record<string, string>>): Promise<CallbackAnswer> {
-    const state = this.#verify(params['state']);
+    const signed = this.#states.read(StatePayload, params['state']);
+    const state = signed === undefined ? undefined : { connection: signed.c, browser: signed.b };
     const row = state === undefined ? undefined : await this.#table().get(state.connection);
     if (state === undefined || row?.status !== 'pending' || this.#claimed.has(row.id)) {
       return { system: row?.system, problem: 'This sign-in link has expired or was already used. Connect again.' };
     }
     const cookie = bindingCookie(row.id);
     const browser = cookies[cookie];
-    if (browser === undefined || !sameText(sha256(browser), state.browser)) {
+    if (browser === undefined || !sameText(sha256Url(browser), state.browser)) {
       // another browser came back with this state (a consent link passed on): the starter's sign-in stays open
       this.#deps.log.warn('connection.wrong-browser', { connection: row.id, system: row.system });
       return { system: row.system, problem: 'This sign-in was started in another browser. Connect again from this one.' };
@@ -483,29 +484,6 @@ export class StoreConnectionService implements ConnectionService {
     const text = await this.#deps.secrets.reveal(row.credentials);
     return text === undefined ? undefined : Json.parse(JSON.parse(text));
   }
-
-  /**
-   * `<payload>.<signature>`: the connection, when the state stops working and the hash of the browser binding, signed
-   * with this start's key.
-   */
-  #sign(connection: ConnectionId, until: number, browser: string): string {
-    const payload = Buffer.from(JSON.stringify({ c: connection, u: until, b: browser })).toString('base64url');
-    return `${payload}.${this.#mac(payload)}`;
-  }
-
-  #verify(state: string | undefined): { connection: ConnectionId; browser: string } | undefined {
-    const [payload, signature] = (state ?? '').split('.');
-    if (payload === undefined || signature === undefined) return undefined;
-    const expected = Buffer.from(this.#mac(payload));
-    const given = Buffer.from(signature);
-    if (expected.length !== given.length || !timingSafeEqual(expected, given)) return undefined;
-    const parsed = StatePayload.safeParse(parseJson(Buffer.from(payload, 'base64url').toString('utf8')));
-    return parsed.success && parsed.data.u > this.#deps.clock() ? { connection: parsed.data.c, browser: parsed.data.b } : undefined;
-  }
-
-  #mac(payload: string): string {
-    return createHmac('sha256', this.#key).update(payload).digest('base64url');
-  }
 }
 
 /** A key record as its page shows it, with how people connect; undefined when the record isn't a `ConnectKeyRecord`. */
@@ -515,25 +493,9 @@ function keyEntryOf(value: Json): KeyEntry | undefined {
 }
 
 /** A connect state's signed payload. */
-const StatePayload = z.object({ c: ConnectionId, u: z.number(), b: z.string() });
+const StatePayload = z.object({ c: ConnectionId, b: z.string() });
 
 /** The binding cookie's name for a sign-in. */
 function bindingCookie(connection: ConnectionId): string {
   return `harness_connect_${connection}`;
-}
-
-function sha256(text: string): string {
-  return createHash('sha256').update(text).digest('base64url');
-}
-
-/** Equal texts, compared in constant time. */
-function sameText(a: string, b: string): boolean {
-  const left = Buffer.from(a);
-  const right = Buffer.from(b);
-  return left.length === right.length && timingSafeEqual(left, right);
-}
-
-/** JSON text's value, or undefined when it isn't JSON. */
-function parseJson(text: string): unknown {
-  try { return JSON.parse(text); } catch { return undefined; }
 }

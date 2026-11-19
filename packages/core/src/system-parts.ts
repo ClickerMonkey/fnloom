@@ -1,6 +1,7 @@
 /**
  * What one system added to the hub beyond its fns, context and types (which have their own lists): its kinds,
- * `/commands`, mentions, hooks, actions, settings, attachments, embedders, sectioners, model providers, registries,
+ * `/commands`, mentions, hooks, actions, settings, attachments, embedders (its providers' embedding models), sectioners,
+ * model providers, registries,
  * the registry entries (components) it contributes, and its fns' examples. Each part says where it came from (the
  * contract, or added while running), its version (a hash of its declaration) and, where it has one, who sees it. The
  * admin's system page lists them, each opening to its declaration (build 6 feedback).

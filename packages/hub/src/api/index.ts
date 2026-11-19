@@ -1,15 +1,16 @@
 /**
  * The api module: the ayepi server for the web API (`hubWebSpec`) and the link (`hubLinkSpec` on `/link`), sign-in in
- * single admin mode (SSO later is another `Authenticator`), realtime events relayed from the bus, files and content
+ * a password (break-glass once SSO is on) or an SSO provider (`api/sso.ts`), realtime events relayed from the bus, files and content
  * refs (`@ayepi/files`), web push, secrets, and serving the built web app.
  *
- * Owner: the api lane (with boot). `ScryptHasher` (`api/hash.ts`), `AdminAuthenticator` (`api/auth.ts`),
+ * Owner: the api lane (with boot). `ScryptHasher` (`api/hash.ts`), `HubAuthenticator` (`api/auth.ts`), `IdentityLinker` (`api/identities.ts`), `OidcSignIns` (`api/sso.ts`),
  * `FileContentStore` (`api/files.ts`), `WebPushService` (`api/push.ts`), `BusEventRelay` (`api/events.ts`),
  * `AesSecretVault` (`api/secrets.ts`) and the web API plugins (`api/web/*`). Notifications belong to the chat
  * module (`NotificationService`), which pushes through `PushService`.
  */
 import type { EmitFn } from '@ayepi/core';
-import type { AccessClaims, ActorId, ContentRef, HubWebSpec, Notification, SecretId, SetupState, Tokens, UserView } from '@harness/core';
+import type { ExternalClaims } from './identities.ts';
+import type { AccessClaims, ActorId, ContentRef, HubWebSpec, Notification, SecretId, SetupState, SsoOutcome, Tokens, UserView } from '@harness/core';
 
 /** Hashes and checks passwords (scrypt). Its own interface so the algorithm can change without touching callers. */
 export interface PasswordHasher {
@@ -17,7 +18,10 @@ export interface PasswordHasher {
   verify(password: string, hash: string): Promise<boolean>;
 }
 
-/** Sign-in. Today: one admin account made on first start; later SSO is another implementation. */
+/** What an SSO sign-in came to: a session, or the reason it was refused in words. */
+export type ExternalSignIn = { readonly tokens: Tokens; readonly outcome: SsoOutcome } | { readonly refused: string };
+
+/** Sign-in: one admin account made on first start, passwords (only that admin's once SSO is on), and SSO providers. */
 export interface Authenticator {
   setup(): Promise<SetupState>;
   /** Make the admin account; refused (`undefined`) once one exists. */
@@ -29,6 +33,12 @@ export interface Authenticator {
   signOut(claims: AccessClaims): Promise<void>;
   /** The user for verified claims, or undefined once the session is revoked or the user is disabled. */
   user(claims: AccessClaims): Promise<UserView | undefined>;
+  /** Whether this person may sign in with a password now (once SSO is configured, only the break-glass admin). */
+  passwordAllowed(user: { readonly id: ActorId }): Promise<boolean>;
+  /** Sign in through an SSO provider whose ID token was verified: linked, made and synced, then a session; or refused. */
+  signInExternal(claims: ExternalClaims, device: string): Promise<ExternalSignIn>;
+  /** What signing in with these claims would do, changing nothing (a test sign-in). */
+  preview(claims: ExternalClaims): Promise<SsoOutcome>;
 }
 
 /** Content refs: bytes stored once by hash, read in chunks, uploaded by presigned URL. */

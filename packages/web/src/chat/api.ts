@@ -40,6 +40,10 @@ export function chatApi(hub: Hub) {
     messages: hub.caller('messages', { dedupe: true }),
     send: hub.caller('send', { invalidates: [SESSIONS_TAG] }),
     invoke: hub.caller('invoke'),
+    /** A/B compare: a message answered by several variants of the chat's settings, a compared turn as it stands, and choosing one. */
+    compare: hub.caller('compare', { invalidates: [SESSIONS_TAG] }),
+    compareView: hub.caller('compareView', { lastOnly: true }),
+    chooseVariant: hub.caller('chooseVariant', { invalidates: [SESSIONS_TAG] }),
     control: hub.caller('control'),
     controls: hub.caller('controls', { dedupe: true }),
     background: hub.caller('background'),

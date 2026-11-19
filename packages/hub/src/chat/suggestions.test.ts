@@ -17,21 +17,17 @@ async function world() {
 }
 
 describe('suggestions for a sent message', () => {
-  it('by score: the best over the threshold are used, the rest say why not, and the message carries the record', async () => {
+  // regression: `none` was "no model, the score threshold decides"; Phil's choice is that it means no suggestions at all
+  it('suggests nothing at all when none picks: no fns, no context, no record, and the index is not asked', async () => {
     const w = await world();
+    expect((await w.chat.suggestions.setting()).value).toEqual({ by: 'none' });
     const decided = await w.chat.suggestions.decide({ session: w.session.id, text: 'read the readme', actor: w.admin.id });
-    expect(decided.suggestions.map((s) => s.name)).toEqual(['fs/read', 'fs/guide']);
-    expect(decided.record).toEqual({
-      by: 'score', threshold: 0.45, items: [
-        { used: true, kind: 'fn', name: 'fs/read', score: 0.9 },
-        { used: true, kind: 'context', name: 'fs/guide', score: 0.5 },
-        { used: false, kind: 'fn', name: 'fs/write', score: 0.1, reason: 'below-threshold' },
-        { used: false, kind: 'fn', name: 'web/search', score: 0.8, reason: 'rule' },
-      ],
-    });
+    expect(decided).toEqual({ suggestions: [] });
+    expect(w.index.considered).toEqual([]);
     const { message } = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, parts: [{ type: 'text', text: 'read the readme' }], client: CLIENT });
-    expect(message.suggestions?.items).toHaveLength(4);
+    expect(message.suggestions).toBeUndefined();
     expect(w.llm.asked).toHaveLength(0);
+    expect(w.decisions.asked).toEqual([]);
   });
 
   it('by an LLM: its picks are used, the rest declined with its reasons, its call linked', async () => {
@@ -45,7 +41,7 @@ describe('suggestions for a sent message', () => {
     w.llm.answers = ['{"picks":[{"name":"fs/guide","reason":"explains files"}],"declined":[{"name":"fs/read","reason":"nothing to read yet"}]}'];
     const decided = await w.chat.suggestions.decide({ session: w.session.id, text: 'how do files work', actor: w.admin.id });
     expect(decided.suggestions.map((s) => s.name)).toEqual(['fs/guide']);
-    expect(decided.record).toMatchObject({ by: 'decision', threshold: 0.3, call: 'mdl_1' });
+    expect(decided.record).toMatchObject({ by: 'decision', threshold: 0.3, calls: ['mdl_1'] });
     expect(decided.record?.items).toEqual([
       { used: false, kind: 'fn', name: 'fs/read', score: 0.9, reason: 'declined', note: 'nothing to read yet' },
       { used: true, kind: 'context', name: 'fs/guide', score: 0.5, note: 'explains files' },
@@ -88,7 +84,7 @@ describe('suggestions for a sent message', () => {
     // most likely first; fs/write scored under the floor, so it was never asked about
     expect(decided.suggestions.map((s) => s.name)).toEqual(['fs/read', 'fs/guide']);
     expect(w.decisions.asked).toEqual([['c0'], ['c1']]);
-    expect(decided.record).toMatchObject({ by: 'decision', threshold: 0.3, call: 'mdl_d1' });
+    expect(decided.record).toMatchObject({ by: 'decision', threshold: 0.3, calls: ['mdl_d1', 'mdl_d2'] });
     expect(decided.record?.items).toEqual([
       { used: true, kind: 'fn', name: 'fs/read', score: 0.9, note: '70% likely' },
       { used: true, kind: 'context', name: 'fs/guide', score: 0.5, note: '90% likely' },

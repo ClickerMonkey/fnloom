@@ -28,7 +28,8 @@ export type TokenPricing = z.infer<typeof TokenPricing>;
  * `json`, `embedding`, `imageEmbedding`, `crossModalEmbedding`, `decision`, ...); the hub keeps only those aeye knows.
  * `caching`: whether the model reads a prompt cache. An embedding model (of text or images) gives its vectors'
  * `dimensions` and the most characters it reads (`maxInput`); a
- * decision model the most questions it answers in one call (`maxQuestions`), which every caller splits by.
+ * decision model the most questions it answers in one call (`maxQuestions`) and the most bytes of input and questions
+ * (`maxRequestBytes`), which every caller splits by.
  */
 export const ProviderModelDecl = z.object({
   id: z.string().min(1),
@@ -41,6 +42,7 @@ export const ProviderModelDecl = z.object({
   dimensions: z.number().int().min(1).optional(),
   maxInput: z.number().int().min(1).optional(),
   maxQuestions: z.number().int().min(1).optional(),
+  maxRequestBytes: z.number().int().min(1).optional(),
 }).refine((model) => !EMBEDDING_CAPABILITIES.some((capability) => model.capabilities.includes(capability)) || model.dimensions !== undefined, {
   message: 'An embedding model says how many dimensions its vectors have.', path: ['dimensions'],
 });
@@ -78,6 +80,7 @@ export const LiveProviderModel = z.object({
   contextWindow: z.number().int().min(1).optional(),
   maxOutput: z.number().int().min(1).optional(),
   maxQuestions: z.number().int().min(1).optional(),
+  maxRequestBytes: z.number().int().min(1).optional(),
 });
 export type LiveProviderModel = z.infer<typeof LiveProviderModel>;
 

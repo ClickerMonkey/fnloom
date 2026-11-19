@@ -1,15 +1,16 @@
 <script setup lang="ts">
 /**
  * A chat's settings: who answers and with which model, how its prompt is made (the chat mode and the contextor,
- * each the agent's or this chat's own, and a dry run of what a message would get), (the agent's own choice, or one model for this chat), how urgent its turns are (its priority, as the hub resolved it), how you hear
+ * each the agent's or this chat's own, and a dry run of what a message would get), its system prompt (the agent's
+ * instructions, or this chat's own, as an A/B compare's "Keep its settings" may set), (the agent's own choice, or one model for this chat), how urgent its turns are (its priority, as the hub resolved it), how you hear
  * about it (every message, replies to you, nothing), which systems it uses (each with its status, names, switches
  * and badges in fixed columns), and who is in it. Changes save as they are made.
  */
 import {
   PRIORITIES, type ChatCapabilities, type ChatModeConfig, type ContextorConfig, type NotifyChoice, type Priority, type QualifiedName, type SelectionReport, type Session, type SystemName,
 } from '@harness/core';
-import { computed } from 'vue';
-import { UiBadge, UiButton, UiSegmented, UiSelect, UiSwitch, type SegmentOption, type SelectOption } from '../../ui/index.ts';
+import { computed, ref, watch } from 'vue';
+import { UiBadge, UiButton, UiSegmented, UiSelect, UiSwitch, UiTextarea, type SegmentOption, type SelectOption } from '../../ui/index.ts';
 import { humanize } from '../logic/labels.ts';
 import { agentOptions, modelLabel } from '../logic/session.ts';
 import { CONTEXTOR_CHOICES, contextorFrom, defaultContextor, defaultMode, MODE_CHOICES, modeFrom } from '../logic/modes.ts';
@@ -42,9 +43,17 @@ const emit = defineEmits<{
   /** This chat's chat mode or contextor; `null` goes back to the agent's. */
   mode: [mode: ChatModeConfig | null];
   contextor: [contextor: ContextorConfig | null];
+  /** This chat's system prompt; `null` goes back to the agent's own instructions. */
+  instructions: [text: string | null];
   /** Ask what a message would get from the contextor now. */
   preview: [text: string];
 }>();
+
+/** The system prompt being edited, saved with Save (long text, so not on every key). */
+const prompt = ref(props.session.instructions ?? '');
+watch(() => props.session.instructions, (now) => { prompt.value = now ?? ''; });
+const promptChanged = computed(() => prompt.value.trim() !== (props.session.instructions ?? '').trim());
+function savePrompt(): void { emit('instructions', prompt.value.trim() === '' ? null : prompt.value); }
 
 const agentChoices = computed<SelectOption<QualifiedName>[]>(() => agentOptions(props.agents, props.session.agent).map((a) => ({ value: a.fn, label: a.name })));
 const agentAbout = computed(() => agentOptions(props.agents, props.session.agent)[0]?.description ?? '');
@@ -86,6 +95,15 @@ function toggle(name: SystemName, on: boolean): void {
         label="Chat mode" :value="session.mode" :choices="MODE_CHOICES" :defaults="defaultMode" :read="modeFrom" :busy="saving" testid="session-mode"
         @change="emit('mode', $event)"
       />
+    </section>
+    <section class="section">
+      <h3 class="heading">System prompt</h3>
+      <UiTextarea v-model="prompt" label="System prompt" hide-label :rows="2" :max-rows="10" placeholder="The agent’s own instructions" data-testid="session-instructions" />
+      <div v-if="promptChanged || session.instructions !== undefined" class="prompt-actions">
+        <UiButton v-if="session.instructions !== undefined" size="sm" variant="ghost" :disabled="saving" data-testid="session-instructions-clear" @click="emit('instructions', null)">Use the agent’s</UiButton>
+        <UiButton v-if="promptChanged" size="sm" variant="primary" :loading="saving" data-testid="session-instructions-save" @click="savePrompt">Save</UiButton>
+      </div>
+      <p class="dim">{{ session.instructions === undefined ? 'The agent answers with its own instructions. Write here to give this chat its own.' : 'This chat’s own prompt, instead of the agent’s instructions.' }}</p>
     </section>
     <section class="section">
       <h3 class="heading">Context</h3>
@@ -131,6 +149,7 @@ function toggle(name: SystemName, on: boolean): void {
 .section { display: grid; gap: var(--space-2); }
 .heading { margin: 0; font-size: var(--text-sm); font-weight: var(--weight-strong); }
 .dim { margin: 0; color: var(--text-faint); font-size: var(--text-sm); }
+.prompt-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
 .model { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: 40px; }
 .model-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--weight-medium); }
 .systems { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }

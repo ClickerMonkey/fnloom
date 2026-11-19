@@ -20,7 +20,8 @@ One model a system's provider serves. `capabilities` are aeye `ModelCapability` 
 `json`, `embedding`, `imageEmbedding`, `crossModalEmbedding`, `decision`, ...); the hub keeps only those aeye knows.
 `caching`: whether the model reads a prompt cache. An embedding model (of text or images) gives its vectors'
 `dimensions` and the most characters it reads (`maxInput`); a
-decision model the most questions it answers in one call (`maxQuestions`), which every caller splits by.
+decision model the most questions it answers in one call (`maxQuestions`) and the most bytes of input and questions
+(`maxRequestBytes`), which every caller splits by.
 
 ```ts
 type ProviderModelDecl = {
@@ -39,5 +40,6 @@ type ProviderModelDecl = {
   dimensions?: number | undefined;
   maxInput?: number | undefined;
   maxQuestions?: number | undefined;
+  maxRequestBytes?: number | undefined;
 };
 ```

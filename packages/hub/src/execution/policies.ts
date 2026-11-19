@@ -29,9 +29,14 @@ import { allRows, rows } from '../store/rows.ts';
  * anything else asks the turn's user.
  */
 export function fallback(fn: FnRecord, caller?: ActorKind): Policy['decision'] {
-  if (fn.decl.tags.includes(READ_TAG) || fn.decl.effects?.mode === 'read' || fn.decl.kind === AGENT_KIND) return { effect: 'allow' };
+  if (onlyReads(fn)) return { effect: 'allow' };
   if (fn.decl.tags.includes(OWN_TAG) && fn.system === HUB_SYSTEM && caller === 'system') return { effect: 'allow' };
   return { effect: 'ask', approver: { by: 'turn-user' } };
+}
+
+/** Whether a fn only reads (its `read` tag or mode), or is an agent (whose own calls are decided one by one). */
+export function onlyReads(fn: FnRecord): boolean {
+  return fn.decl.tags.includes(READ_TAG) || fn.decl.effects?.mode === 'read' || fn.decl.kind === AGENT_KIND;
 }
 
 /** What an actor is, for matching subjects. */
@@ -151,6 +156,8 @@ export class HubPolicyEngine implements PolicyEngine {
     const policy = chosen?.decision ?? fallback(fn, chosen === undefined ? (await this.#facts(input.caller)).kind : undefined);
     if (policy.effect === 'deny') return policy;
     if (input.sensitive === true) return this.#approval(input, TURN_USER, undefined);
+    // an A/B compare's variant that would change something asks its person, in each variant on its own
+    if (input.variant !== undefined && !onlyReads(fn)) return this.#approval(input, TURN_USER, undefined);
     const always = fn.decl.approval;
     // auto mode's classifier stands in for the fallback ask; a policy that says ask, or a fn that always asks, still asks
     if (input.autoAllowed === true && chosen === undefined && always === undefined && input.ask === undefined) return { effect: 'allow' };
@@ -187,6 +194,7 @@ export class HubPolicyEngine implements PolicyEngine {
       decisions: [],
       createdAt: clock(),
       ...(preview === undefined ? {} : { preview }),
+      ...(input.variant === undefined ? {} : { variant: input.variant }),
     };
     return { effect: 'ask', approval: await this.#ask(approval, input.turnUser, input.session) };
   }
@@ -221,7 +229,9 @@ export class HubPolicyEngine implements PolicyEngine {
     // nor is a call that touches sensitive files (its card lists them)
     const flagged = approval.preview?.parts.some((part) => part.type === 'flags') === true;
     // nor is a question: its answer is for this one run (build 9, `ask`)
-    const remember = flagged || approval.ask !== undefined || (await this.#deps.catalog.fn(approval.fn))?.decl.approval?.remember === false ? 'once' : input.remember;
+    // nor is an A/B compare variant's: each variant is approved on its own, and "always" there must not reach the chat
+    const once = flagged || approval.ask !== undefined || approval.variant !== undefined;
+    const remember = once || (await this.#deps.catalog.fn(approval.fn))?.decl.approval?.remember === false ? 'once' : input.remember;
     if (input.approve && approval.ask !== undefined) await this.#fill(approval, run, input.answer);
     const { answer: _answer, ...decision } = input;
     return this.#record(approval, run, turnUser, { ...decision, remember });

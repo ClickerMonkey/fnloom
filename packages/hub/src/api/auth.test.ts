@@ -1,7 +1,7 @@
 import { verifyJwt } from '@ayepi/auth/server';
 import { describe, expect, it } from 'vitest';
-import { AccessClaims, type Tokens } from '@harness/core';
-import { ACCESS_TOKEN, AdminAuthenticator } from './auth.ts';
+import { AccessClaims, ActorId, IdentityProviderConfig, type Tokens } from '@harness/core';
+import { ACCESS_TOKEN, HubAuthenticator } from './auth.ts';
 import { ScryptHasher } from './hash.ts';
 import { testStore } from '../testing.ts';
 import { TEST_KEYS } from './testing/rig.ts';
@@ -9,22 +9,30 @@ import { TEST_KEYS } from './testing/rig.ts';
 const HOUR = 3_600_000;
 const admin = { email: 'Admin@Example.com', name: 'Admin', password: 'correct horse battery', device: 'test' };
 
-async function make() {
+async function make(providers: readonly IdentityProviderConfig[] = []) {
   const store = await testStore();
   const clock = { now: 1_800_000_000_000 };
-  const auth = new AdminAuthenticator({
-    store, hasher: new ScryptHasher(10), secret: TEST_KEYS.jwtSecret, accessTtl: 900_000, refreshTtl: 24 * HOUR,
+  const auth = new HubAuthenticator({
+    store, hasher: new ScryptHasher(10), secret: TEST_KEYS.jwtSecret, accessTtl: 900_000, refreshTtl: 24 * HOUR, providers,
     identity: { identity: () => Promise.resolve({ name: 'Harness', source: 'default' as const, version: '1.2.3' }) }, clock: () => clock.now,
   });
   return { store, clock, auth };
 }
 
+/** Bo, made after the admin, with a password of his own (as a hub from before SSO might have). */
+async function passwordUser(store: Awaited<ReturnType<typeof testStore>>, role: 'admin' | 'member'): Promise<ActorId> {
+  const bo = ActorId.parse('act_bo');
+  await store.table('actors').insert({ id: bo, kind: 'user', name: 'Bo', about: '', email: 'bo@example.com', role, createdAt: 1_800_000_000_001, disabled: false });
+  await store.table('credentials').insert({ user: bo, kind: 'password', secretHash: await new ScryptHasher(10).hash('bo password!'), createdAt: 1_800_000_000_001 });
+  return bo;
+}
+
 const claimsOf = (tokens: Tokens): AccessClaims => AccessClaims.parse(verifyJwt(tokens.access, { secret: TEST_KEYS.jwtSecret, ...ACCESS_TOKEN }));
 
-describe('AdminAuthenticator', () => {
+describe('HubAuthenticator', () => {
   it('needs an admin until one is made, then refuses a second', async () => {
     const { auth } = await make();
-    await expect(auth.setup()).resolves.toEqual({ needsAdmin: true, name: 'Harness', version: '1.2.3' });
+    await expect(auth.setup()).resolves.toEqual({ needsAdmin: true, name: 'Harness', version: '1.2.3', sso: [] });
     const tokens = await auth.createAdmin(admin);
     expect(tokens?.user).toMatchObject({ email: 'admin@example.com', name: 'Admin', role: 'admin', kind: 'user' });
     expect(tokens?.expiresIn).toBe(900_000);
@@ -115,6 +123,28 @@ describe('AdminAuthenticator', () => {
     if (tokens === undefined) { throw new Error('no tokens'); }
     const results = await Promise.all([auth.refresh(tokens.refresh), auth.refresh(tokens.refresh)]);
     expect(results.filter((r) => r !== undefined)).toHaveLength(1);
+  });
+
+  it('keeps passwords for the break-glass admin only once SSO is configured', async () => {
+    const acme = IdentityProviderConfig.parse({ id: 'acme', label: 'Acme', issuer: 'https://id.example.test', clientId: 'c' });
+    const { auth, store } = await make([acme]);
+    await expect(auth.setup()).resolves.toMatchObject({ sso: [{ id: 'acme', label: 'Acme' }] });
+    const tokens = await auth.createAdmin(admin);
+    if (tokens === undefined) { throw new Error('no tokens'); }
+    // the bootstrap admin keeps a password, as a break-glass sign-in
+    await expect(auth.signIn(admin)).resolves.toMatchObject({ user: { id: tokens.user.id } });
+    await expect(auth.passwordAllowed(tokens.user)).resolves.toBe(true);
+    // anyone else holding a password (made before SSO was on) can no longer use it
+    const bo = await passwordUser(store, 'admin');
+    await expect(auth.passwordAllowed({ id: bo })).resolves.toBe(false);
+    await expect(auth.signIn({ email: 'bo@example.com', password: 'bo password!', device: 'x' })).resolves.toBeUndefined();
+  });
+
+  it('lets everyone with a password sign in with it while no SSO provider is configured', async () => {
+    const { auth, store } = await make();
+    await auth.createAdmin(admin);
+    const bo = await passwordUser(store, 'member');
+    await expect(auth.signIn({ email: 'bo@example.com', password: 'bo password!', device: 'x' })).resolves.toMatchObject({ user: { id: bo } });
   });
 
   it('refuses a refresh token that is malformed or names no session', async () => {

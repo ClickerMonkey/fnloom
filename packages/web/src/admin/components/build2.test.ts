@@ -84,18 +84,19 @@ describe('model roles and limits', () => {
     dialog.unmount();
   });
 
-  it('DecisionDialog chooses who picks suggestions: no model, a decision model (the role’s or its own), or an LLM', async () => {
+  it('DecisionDialog chooses who picks suggestions: a decision model (the role’s or its own), an LLM, or none (no suggestions)', async () => {
     const judge = model({ id: 'judge', name: 'Judge', provider: 'ollama', capabilities: ['decision'] });
     const mini = model({ id: 'gpt-4o-mini', name: 'Mini', capabilities: ['chat'] });
     const dialog = mount(DecisionDialog, { ...inBody, props: { open: false, view: undefined, models: [judge, mini], sessions: [] } });
     await reveal(dialog);
     const offered = (): (string | null)[] => [...document.body.querySelectorAll('[data-testid=decision-model] [data-model]')].map((o) => o.getAttribute('data-model'));
-    // no model: nothing to pick, and saving says so
+    // none: no suggestions at all, nothing to pick, and saving says so
+    expect(find('[data-testid=decision-about]').textContent).toContain('Nothing is suggested');
     expect(document.body.querySelector('[data-testid=decision-model]')).toBeNull();
     await click('[data-testid=decision-save]');
     expect(dialog.emitted('save')?.[0]).toEqual([{ by: 'none' }]);
     // a decision model offers decision models, and falls back to the Decisions role's
-    await click('[data-testid=decision-by] [role=radio]:nth-child(2)');
+    await click('[data-testid=decision-by] [role=radio]:nth-child(1)');
     expect(offered()).toEqual(['judge']);
     expect(find('[data-testid=decision-model]').textContent).toContain('The Decisions role’s model');
     await click('[data-testid=decision-save]');
@@ -104,7 +105,7 @@ describe('model roles and limits', () => {
     await click('[data-testid=decision-save]');
     expect(dialog.emitted('save')?.[2]).toEqual([{ by: 'decision', model: { model: { model: 'judge' } }, messages: 3, candidates: 20, cap: 6, floor: 0.35 }]);
     // an LLM offers chat models and needs one
-    await click('[data-testid=decision-by] [role=radio]:nth-child(3)');
+    await click('[data-testid=decision-by] [role=radio]:nth-child(2)');
     expect(offered()).toEqual(['gpt-4o-mini']);
     await click('[data-testid=decision-save]');
     expect(document.body.textContent).toContain('Pick the LLM that picks the suggestions.');

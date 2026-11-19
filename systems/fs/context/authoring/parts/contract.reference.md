@@ -77,7 +77,6 @@ interface SystemRefs<N extends string, C extends ContractShape> {
   readonly context: { readonly [K in keyof C['context']]: C['context'][K] extends ContextDef<infer A, boolean> ? ContextRef<Q<N, K>, A> : never };
   readonly hooks: { readonly [K in keyof C['hooks']]: HookRef<Q<N, K>> };
   readonly mentions: { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T, unknown> ? MentionRef<Q<N, K>, T> : never };
-  readonly embedders: { readonly [K in keyof C['embedders']]: EmbedderRef<Q<N, K>> };
   readonly sectioners: { readonly [K in keyof C['sectioners']]: SectionerRef<Q<N, K>> };
   readonly actions: { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, object> ? ActionRef<Q<N, K>, I, R> : never };
   readonly providers: { readonly [K in keyof C['providers']]: ProviderRef<Q<N, K>> };
@@ -102,7 +101,6 @@ interface ContractShape {
   context: Record<string, AnyContextDef>;
   hooks: Record<string, HookDef>;
   mentions: Record<string, MentionDef<unknown, unknown>>;
-  embedders: Record<string, EmbedderDef>;
   sectioners: Record<string, SectionerDef>;
   actions: Record<string, ActionDef<unknown, unknown, object>>;
   /** Model providers it brings (`provider()`), served by its implementation. */
@@ -134,7 +132,7 @@ const · `import { CONTRACT_SECTIONS } from '@harness/sdk'`
 The contract sections, in the order the manifest lists them.
 
 ```ts
-const CONTRACT_SECTIONS: readonly ["types", "settings", "attachments", "kinds", "fns", "context", "hooks", "mentions", "embedders", "sectioners", "actions", "providers"];
+const CONTRACT_SECTIONS: readonly ["types", "settings", "attachments", "kinds", "fns", "context", "hooks", "mentions", "sectioners", "actions", "providers"];
 ```
 
 #### `isSystemContract`
@@ -156,7 +154,7 @@ A contract with nothing in it yet. Its config is the empty object.
 ```ts
 interface EmptyContract {
   config: GinType<{}>;
-  types: {}; settings: {}; attachments: {}; kinds: {}; fns: {}; context: {}; hooks: {}; mentions: {}; embedders: {}; sectioners: {}; actions: {}; providers: {};
+  types: {}; settings: {}; attachments: {}; kinds: {}; fns: {}; context: {}; hooks: {}; mentions: {}; sectioners: {}; actions: {}; providers: {};
   connect: undefined;
 }
 ```
