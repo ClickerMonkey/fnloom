@@ -99,27 +99,35 @@ export interface VectorIndex {
   remove(embedder: QualifiedName, kind: IndexedKind, keys: readonly string[]): Promise<void>;
   /**
    * Nearest by cosine distance; `score` is similarity in [0, 1]. An embedder with no table yet has no vectors, so none.
-   * `within` keeps the search to those items and `prefix` to the keys that start with it; the database applies both
-   * inside the nearest-neighbour search.
+   * What `where` keeps to (`IndexWhere`) the database applies in the nearest-neighbour search, so `limit` hits still come.
    */
-  nearest(embedder: QualifiedName, vector: readonly number[], limit: number, kinds?: readonly IndexedKind[], within?: ReadonlyArray<IndexedItem>, prefix?: string): Promise<Array<{ kind: IndexedKind; key: string; score: number }>>;
+  nearest(embedder: QualifiedName, vector: readonly number[], limit: number, where?: IndexWhere): Promise<Array<{ kind: IndexedKind; key: string; score: number }>>;
+}
+
+/**
+ * What an index search keeps to, each applied by the database itself: these `kinds`, only the items `within`, only keys
+ * starting with `prefix`, and never a key in `excludeKeys` (of any kind: what a chat was suggested before, say).
+ */
+export interface IndexWhere {
+  readonly kinds?: readonly IndexedKind[] | undefined;
+  readonly within?: ReadonlyArray<IndexedItem> | undefined;
+  readonly prefix?: string | undefined;
+  readonly excludeKeys?: readonly string[] | undefined;
 }
 
 /** Full-text search over indexed text (SQLite FTS5 now). `score` is higher for better matches. */
 export interface TextIndex {
   upsert(entries: ReadonlyArray<{ kind: IndexedKind; key: string; text: string }>): Promise<void>;
   remove(kind: IndexedKind, keys: readonly string[]): Promise<void>;
-  /** `within` keeps the search to those items, `prefix` to the keys that start with it; both inside the query. */
+  /** What the query keeps to (`within`, `prefix`, `excludeKeys`) is applied inside the database's search. */
   search(query: TextQuery): Promise<Array<{ kind: IndexedKind; key: string; score: number }>>;
 }
 
-/** One text search: the words, the kinds of item, how many hits, and what to keep to. */
-export interface TextQuery {
+/** One text search: the words, the kinds of item, how many hits, and what else to keep to (`IndexWhere`). */
+export interface TextQuery extends Omit<IndexWhere, 'kinds'> {
   readonly text: string;
   readonly kinds: readonly IndexedKind[];
   readonly limit: number;
-  readonly within?: ReadonlyArray<IndexedItem> | undefined;
-  readonly prefix?: string | undefined;
 }
 
 /**

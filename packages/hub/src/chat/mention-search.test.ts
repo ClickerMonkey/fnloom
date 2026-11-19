@@ -49,7 +49,7 @@ describe('a system\'s resource search for a mention', () => {
     } satisfies MentionSearchDeps;
     const request = await requests.mint({ system: web, actor: w.admin.id, session: w.session.id });
     const answer = await searchForMention(deps, { request, query: 'example', roots: ['https://'], limit: 5 }, web);
-    expect(answer.hits).toEqual([{ uri: 'https://example.com/a', section: 'intro', title: 'Example A', preview: 'Example A\nabout a', score: 0.9 }]);
+    expect(answer.hits).toEqual([{ uri: 'https://example.com/a', section: 'intro', title: 'Example A', preview: 'Example A\nabout a', rank: 0.9 }]);
     expect(scopes).toEqual([w.admin.id]);
     expect(asked[0]).toMatchObject({ text: 'example', kinds: ['section'], limit: 5 });
     await expect(searchForMention(deps, { request, query: 'x', limit: 5 }, SystemName.parse('fs'))).rejects.toMatchObject({ code: 'MENTION_REQUEST_NOT_YOURS' });

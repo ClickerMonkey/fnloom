@@ -133,7 +133,7 @@ export class StoreTurnService implements TurnService {
     const fn = await this.#deps.catalog.fn(input.fn);
     const access = await this.#deps.access.scope(input.author);
     if (fn === undefined || !access.seesFn(fn)) { throw new ChatError('not-found', `No fn ${input.fn}.`); }
-    const connection = access.connection(fn);
+    const connection = access.connection(fn, input.args);
     if (connection?.state === 'missing') { throw new ChatError('unavailable', `${input.fn} acts as you: connect your account on the ${connection.page} page first.`); }
     if (!allowsSystem(session, fn.system)) { throw new ChatError('unavailable', `The ${fn.system} system is not enabled in this session.`); }
     if (fn.available !== true) { throw new ChatError('unavailable', `${input.fn} can't be used now: ${fn.available.detail}.`); }

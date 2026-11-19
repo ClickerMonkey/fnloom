@@ -33,7 +33,7 @@ _Every code sample is a compiled file of the repository, so it is correct for th
 22. [Calling other fns](#22-calling-other-fns)
 23. [Config, events, lifecycle and data](#23-config-events-lifecycle-and-data)
 24. [Remote services: fleets, sign-in and connections per instance](#24-remote-services-fleets-sign-in-and-connections-per-instance)
-25. [The client: renderers, inputs and resource views](#25-the-client-renderers-inputs-and-resource-views)
+25. [The client: renderers, inputs, resource views and pages](#25-the-client-renderers-inputs-resource-views-and-pages)
 26. [Visuals and widgets](#26-visuals-and-widgets)
 27. [Packaging: system.json, build, pack, install](#27-packaging-systemjson-build-pack-install)
 28. [Testing](#28-testing)
@@ -707,6 +707,8 @@ interface SystemContract<N extends string, C extends ContractShape> extends Syst
   readonly grants: SystemGrants | undefined;
   /** Its own config component (a client export), drawn instead of or beside the gin form. */
   readonly configComponent: ConfigComponentDecl | undefined;
+  /** Whole pages it adds to the web app (`/s/<system>/<segment>`), each drawn by a component in `client({ pages })`. */
+  readonly pages: readonly SystemPageDecl[];
   /** Its API groups, each described once; a fn names its group with `fn({ group })`. */
   readonly groups: readonly ApiGroupDecl[];
   /** The declarations themselves. */
@@ -716,7 +718,7 @@ interface SystemContract<N extends string, C extends ContractShape> extends Syst
 }
 ```
 
-Refers to: [`ApiGroupDecl`](#core-apigroupdecl), [`ConfigComponentDecl`](#core-configcomponentdecl), [`ConfigPath`](#core-configpath), [`ContributionDecl`](#core-contributiondecl), [`SystemGrants`](#core-systemgrants).
+Refers to: [`ApiGroupDecl`](#core-apigroupdecl), [`ConfigComponentDecl`](#core-configcomponentdecl), [`ConfigPath`](#core-configpath), [`ContributionDecl`](#core-contributiondecl), [`SystemGrants`](#core-systemgrants), [`SystemPageDecl`](#core-systempagedecl).
 
 #### `SystemRefs`
 
@@ -889,6 +891,13 @@ interface SystemInfo {
    */
   configComponent?: ConfigComponentDecl;
   /**
+   * Whole pages it adds to the web app, each at `/s/<system>/<segment>`: `{ segment: 'sessions', title: 'Claude', icon:
+   * 'code', nav: 'main', access: 'everyone', component: 'SessionsPage' }`. The component is drawn from the client build
+   * (`client({ pages: { SessionsPage } })`), which must have every one named. The nav shows a `main` page while the
+   * system is live; a `hidden` one is reached by link (a detail page). Segments are unique.
+   */
+  pages?: SystemPageInput[];
+  /**
    * Its API groups: a name, a title and what the group's fns are for (`{ name: 'files', title: 'Files', description:
    * 'Read, write and search files.' }`). The hub keeps an index item for the system (`<system>/api`, the groups as
    * choices) and one per group listing its fns, so a model walks the API like a context folder. A fn names its group
@@ -898,7 +907,7 @@ interface SystemInfo {
 }
 ```
 
-Refers to: [`ApiGroupDecl`](#core-apigroupdecl), [`ConfigComponentDecl`](#core-configcomponentdecl), [`ConfigPath`](#core-configpath), [`ContributionDecl`](#core-contributiondecl), [`SystemGrants`](#core-systemgrants).
+Refers to: [`ApiGroupDecl`](#core-apigroupdecl), [`ConfigComponentDecl`](#core-configcomponentdecl), [`ConfigPath`](#core-configpath), [`ContributionDecl`](#core-contributiondecl), [`SystemGrants`](#core-systemgrants), [`SystemPageInput`](#core-systempageinput).
 
 #### `RegistryDef`
 
@@ -2138,6 +2147,11 @@ interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDe
   /** For a fleet: always one instance, or whichever is first available (never refused as ambiguous). */
   routing?: FnRouting;
   /**
+   * For a key-scoped `connect` system (`scope: 'key'`): the key whose connection it acts as, usually the arg naming it
+   * (`{ arg: 'service' }`). A call without that arg acts as no one.
+   */
+  connectKey?: FnConnectKey;
+  /**
    * What it does to data: its mode (`read`, `write`, `delete`), the named types it reads and writes, and whether its own
    * work is free (reading a file). The hub works out the rest and folds in what it uses (`FnFacts`).
    */
@@ -2155,7 +2169,7 @@ interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDe
 }
 ```
 
-Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnEffects`](#core-fneffects), [`FnLimits`](#core-fnlimits), [`FnRouting`](#core-fnrouting), [`Operations`](#core-operations), [`ProposalApprover`](#core-proposalapprover).
+Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnConnectKey`](#core-fnconnectkey), [`FnEffects`](#core-fneffects), [`FnLimits`](#core-fnlimits), [`FnRouting`](#core-fnrouting), [`Operations`](#core-operations), [`ProposalApprover`](#core-proposalapprover).
 
 #### `FnExampleOf`
 
@@ -2211,6 +2225,8 @@ interface FnDef<T extends FnTypes> {
   readonly approval: FnApproval | undefined;
   /** Which instance of a fleet runs it: always one (`{ to: 'instance', instance }`), or the first available (`{ to: 'any' }`). */
   readonly routing: FnRouting | undefined;
+  /** For a key-scoped `connect` system: the key it acts through, fixed or read from an arg (`FnDecl.connectKey`). */
+  readonly connectKey: FnConnectKey | undefined;
   /** What it does to data, as declared. */
   readonly effects: FnEffects | undefined;
   /** How many examples go into the prompt with it. */
@@ -2224,7 +2240,7 @@ interface FnDef<T extends FnTypes> {
 }
 ```
 
-Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnApproval`](#core-fnapproval), [`FnEffects`](#core-fneffects), [`FnLimits`](#core-fnlimits), [`FnRouting`](#core-fnrouting), [`Operations`](#core-operations).
+Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnApproval`](#core-fnapproval), [`FnConnectKey`](#core-fnconnectkey), [`FnEffects`](#core-fneffects), [`FnLimits`](#core-fnlimits), [`FnRouting`](#core-fnrouting), [`Operations`](#core-operations).
 
 #### `AnyFnDef`
 
@@ -5421,7 +5437,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/load_fns`: Add fns to your toolset for this session. Tags: `read`.
 
   ```text
-  (obj{fns: list<text>{minLength=1}}) => obj{ loaded, refused … }
+  (obj{fns: list<text>{minLength=1}}) => obj{ loaded, refused, cards … }
   ```
 - `hub/drop_fns`: Remove fns from your toolset. Tags: `read`.
 
@@ -5443,7 +5459,7 @@ This is the hub contract as the SDK declares it now:
     limit?: num{whole=true, min=1, max=50}
   }) => obj{
     fn: text,
-    items: list<obj{args: any, result?: any, note?: text, /* fnExample id */ id: text, score?: num}>,
+    items: list<obj{args: any, result?: any, note?: text, /* fnExample id */ id: text, rank?: num}>,
     total: num{whole=true, min=0},
     next?: num{whole=true, min=0}
   }
@@ -5463,7 +5479,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/load_context`: Load context into this session. Tags: `read`.
 
   ```text
-  (obj{context: list<text>{minLength=1}}) => obj{ loaded, fns, fnsRefused, refused … }
+  (obj{context: list<text>{minLength=1}}) => obj{ loaded, fns, fnsRefused, refused, cards … }
   ```
 - `hub/search_resources`: Search files and other resources by meaning and words. Tags: `read`.
 
@@ -5472,7 +5488,7 @@ This is the hub contract as the SDK declares it now:
     query: text,
     roots?: list<text>,
     limit?: num{min=1, max=50, whole=true}
-  }) => list<obj{uri: text, section?: text, title: text, preview: text, score: num}>
+  }) => list<obj{uri: text, section?: text, title: text, preview: text, rank: num}>
   ```
 - `hub/run_status`: The status of a run, with its progress or result. Tags: `read`.
 
@@ -5878,7 +5894,7 @@ This is the hub contract as the SDK declares it now:
       visibility: enum<text>{private, shared, public},
       with: list<text>
     }
-  }) => obj{ id, system, instance?, owner, status, account?, expiresAt?, settings, fns, share, problem?, createdAt, updatedAt … }
+  }) => obj{ id, system, instance?, key?, owner, status, account?, expiresAt?, settings, fns, share, problem?, createdAt, updatedAt … }
   ```
 - `hub/connection_disconnect`: Disconnect one of the person's connected accounts.
 
@@ -6556,7 +6572,7 @@ The hub's contract.
 const hub: typeof hub; // too large to print: see its section
 ```
 
-Refers to: [`ContributionView`](#core-contributionview), [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnRefusal`](#core-fnrefusal), [`FnSearchArgs`](#core-fnsearchargs), [`FnSearchPage`](#core-fnsearchpage), [`LoadContextResult`](#core-loadcontextresult), [`MintMcpTokenArgs`](#core-mintmcptokenargs), [`NameRefusal`](#core-namerefusal), [`ReadTableArgs`](#core-readtableargs), [`ResourceOutlineArgs`](#core-resourceoutlineargs), [`ResourceSendArgs`](#core-resourcesendargs), [`ResultTable`](#core-resulttable), [`RowActionsQuery`](#core-rowactionsquery), [`Section`](#core-section), [`WidgetActionOption`](#core-widgetactionoption).
+Refers to: [`ContributionView`](#core-contributionview), [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnSearchArgs`](#core-fnsearchargs), [`FnSearchPage`](#core-fnsearchpage), [`LoadContextResult`](#core-loadcontextresult), [`LoadFnsResult`](#core-loadfnsresult), [`MintMcpTokenArgs`](#core-mintmcptokenargs), [`NameRefusal`](#core-namerefusal), [`ReadTableArgs`](#core-readtableargs), [`ResourceOutlineArgs`](#core-resourceoutlineargs), [`ResourceSendArgs`](#core-resourcesendargs), [`ResultTable`](#core-resulttable), [`RowActionsQuery`](#core-rowactionsquery), [`Section`](#core-section), [`WidgetActionOption`](#core-widgetactionoption).
 
 #### `HubContract`
 
@@ -8783,8 +8799,9 @@ Refers to: [`SystemEvent`](#core-systemevent).
 
 ## 24. Remote services: fleets, sign-in and connections per instance
 
-A system that calls a remote service (an MCP server, an HTTP API) is a fleet: one instance per service, added from
-the browser with its config (`instances: "many"` in `system.json`). Its sign-in is core's `RemoteAuth` in that config:
+A system that calls a remote service it was set up for (an MCP server) is a fleet: one instance per service, added from
+the browser with its config (`instances: "many"` in `system.json`). A system that authors code calling many services
+(the `api` system) runs one instance and keeps its services as records instead: see **Connections per key** below. Its sign-in is core's `RemoteAuth` in that config:
 `none`, `bearer` (a token), `headers` (named header values) or `oauth`, each `per: 'shared'` (the instance's own config
 secrets, the same for everyone) or `per: 'person'` (each person connects their own). List the secret paths in
 `configSecrets` (core's `REMOTE_AUTH_SECRETS` under `auth`), so the hub seals them and never shows them again.
@@ -8796,6 +8813,15 @@ keeps the latest and says it again on every reconnect. `instanceConnectOf(label,
 OAuth (an admin's sign-in shared with everyone when `per: 'shared'`), a form for a per-person token or headers
 (`connectForm`), or nothing to connect. With nothing to connect, calls need no connection; otherwise a person without one
 finds the instance's fns unavailable until they connect on the Connections page.
+
+**Connections per key.** Declare `connect` with `scope: 'key'` and `keys: { type: '<system>/<Type>' }`, a stored type of
+yours whose records each carry `name` (the key), `label` and `auth` (core's `ConnectKeyRecord`; use `RecordAuth`, the
+`TypedAuth` with no secret in it, since a record never holds one). The hub reads the records from its database and
+shows a card per key on the Connections page, worked out with `keyConnectOf(label, auth)`: a per-person token or headers
+is each person's own form, and a shared one is one admin's form, shared with everyone. A fn acts through its key:
+`connectKey: { arg: 'service' }` on a fn that names the key in an arg, or `connectKey` in a kind's description (an api
+fn's service): the run gets the person's (or the shared) connection to that key, or none, and then your system says
+the key needs one (fail with `code: 'not-connected'`). `connectFinish` gets the `key`; read the shared form with `credentialsFromForm(auth, form, 'any')`.
 
 **Credentials.** A form connection's `connectFinish` reads the filled form with `credentialsFromForm(auth, form)` into
 core's `RemoteCredentials` (or a problem to show), which the hub keeps as the person's connection; `accountLabel` names
@@ -8847,17 +8873,42 @@ function instanceConnectOf(label: string, auth: RemoteAuth): z.input<typeof Inst
 
 Refers to: [`InstanceConnect`](#core-instanceconnect), [`RemoteAuth`](#core-remoteauth).
 
+#### `keyConnectOf`
+
+function · `import { keyConnectOf } from '@harness/sdk'`
+
+How people connect to a key of a key-scoped system (a record, which never holds a secret: an API service of the one
+`api` instance), for the hub's Connections page: a per-person token or headers as each person's own form; a shared
+token or headers as one admin's form, shared with everyone; OAuth as `instanceConnectOf`; nothing for no auth.
+
+```ts
+function keyConnectOf(label: string, auth: RemoteAuth): z.input<typeof InstanceConnect>;
+```
+
+Refers to: [`InstanceConnect`](#core-instanceconnect), [`RemoteAuth`](#core-remoteauth).
+
 #### `connectForm`
 
 function · `import { connectForm } from '@harness/sdk'`
 
-The form a person fills to connect with their own token or header values; `undefined` for any other auth.
+The form to connect with a typed token or header values (`FormFor`); `undefined` for any other auth.
 
 ```ts
-function connectForm(auth: RemoteAuth): GinType<Record<string, string>> | undefined;
+function connectForm(auth: RemoteAuth, who?: FormFor): GinType<Record<string, string>> | undefined;
 ```
 
 Refers to: [`RemoteAuth`](#core-remoteauth).
+
+#### `FormFor`
+
+type · `import { FormFor } from '@harness/sdk'`
+
+Whose typed token or header values a connect form takes: `person`, only a per-person auth's (each person their own);
+`any`, a shared one's too (one admin types it for everyone, for a key whose record holds no secret: `keyConnectOf`).
+
+```ts
+type FormFor = 'person' | 'any';
+```
 
 #### `usesConnections`
 
@@ -8878,7 +8929,7 @@ function · `import { credentialsFromForm } from '@harness/sdk'`
 The credentials a filled connect form makes, or what is wrong with it.
 
 ```ts
-function credentialsFromForm(auth: RemoteAuth, form: Json): { readonly credentials: RemoteCredentials; } | { readonly problem: string; };
+function credentialsFromForm(auth: RemoteAuth, form: Json, who?: FormFor): { readonly credentials: RemoteCredentials; } | { readonly problem: string; };
 ```
 
 Refers to: [`Json`](#core-json), [`RemoteAuth`](#core-remoteauth), [`RemoteCredentials`](#core-remotecredentials).
@@ -8954,7 +9005,7 @@ Headers with the secret ones masked (`••••` and their last four characte
 function maskHeaders(headers: Readonly<Record<string, string>>, secret: ReadonlySet<string>): Record<string, string>;
 ```
 
-## 25. The client: renderers, inputs and resource views
+## 25. The client: renderers, inputs, resource views and pages
 
 A system can draw its things in the chat with **Vue 3 components**. `client(contract, renderers)` in `client/index.ts`
 (default export) registers them, and each component's props are typed by the contract, so a component with the wrong
@@ -8965,6 +9016,7 @@ Everything is optional; without a renderer the chat draws a sensible default.
 |---|---|---|
 | `fns` | fn | `FnViewOf<typeof contract, '<fn>'>`: `run`, `status`, `args`, `result?`, `error?`, `progress?`, `state`, `submit` (fns with a `form`), and `system` |
 | `kinds` | kind (used for its fns without their own renderer) | `FnView<UntypedFn> & WithSystem<…>` |
+| `results` | `{ fns, kinds }`: a finished run's result, by fn or kind | `ResultViewOf<typeof contract, '<fn>'>` (a kind's: `ResultView<UntypedFn> & WithSystem<…>`): `run`, `fn`, `args`, `result`, `title`, `system` |
 | `attachments` | attachment | `AttachmentViewOf<typeof contract, '<attachment>'>`: `data`, `title`, `system` |
 | `inputs` | named type | `InputViewOf<typeof contract, '<Type>'>`: `modelValue`, `problems`, `readonly`, `system`; works with `v-model` |
 | `mentions` | mention provider | `MentionView<Target> & WithSystem<…>`: `label`, `target`, `type?`, `hover` |
@@ -8978,6 +9030,7 @@ import { notes } from '../shared/index.ts';
 import FindView from './FindView.vue';
 import NoteCard from './NoteCard.vue';
 import NoteInput from './NoteInput.vue';
+import NotesPage from './NotesPage.vue';
 import ReviewForm from './ReviewForm.vue';
 import WordCount from './WordCount.vue';
 
@@ -8987,6 +9040,8 @@ export default client(notes, {
   inputs: { Note: NoteInput },
   // a tab beside the hub's preview of every markdown resource; `mode: 'replace'` would draw instead of the preview
   resources: { markdown: { component: WordCount, mode: 'tab', label: 'Words' } },
+  // the page the contract's `pages` names, at /s/notes/notes
+  pages: { NotesPage },
 });
 ```
 
@@ -9057,6 +9112,15 @@ starts a new run of one of the system's fns in the renderer's session, as a pers
 `view.submit(value)` (the notes `review` form, `client/ReviewForm.vue` in **Worked examples**, calls
 `view.submit({ approved, note })` and shows the answer once the run is done).
 
+**Results.** A result renderer draws only what a finished run gave, under the chat's own run line (its status, cost and
+args stay the chat's); a fn renderer, which draws the whole run as it goes, wins over it. It may draw with the app's
+result view, `inject(RESULT_VIEW)` (`ResultViewProps`: a result table or a widget's result with its chips, visuals, drill
+and row actions; `keepLook` lets Settings keep the look picked there), and with the app's controls,
+`inject(APP_COMPONENTS)` (the same `SharedComponents` a page has as `host.components`). In a chat, `inject(CHAT_HOST)` asks the agent
+(`ask(text, send)`), waits for a run the renderer started to end (`settled(run)` gives a `RunOutcome`) and moves the app
+(`navigate(path)`). The widgets system draws a `make_widget` proposal's card with Save this way, and a saved widget's
+result by its kind.
+
 **Inputs** are editors (and, read-only, viewers) of a named type, used wherever the chat draws a value of it: `!` forms,
 handler prompts, config forms, run cards, mention cards. They work with `v-model`: emit `update:modelValue` with a whole
 new value, and show `problems`. With `readonly` the same component only shows the value (the notes input,
@@ -9086,7 +9150,107 @@ only take a fit away, with a reason; keep it cheap and pure. The chat's runtime 
 (`visuals(registry, table, facts)`, in load order), leaving out a vetoed one and one whose veto throws; the result view
 ranks them with the built-in ones. How to draw one with ECharts is in **Visuals and widgets**.
 
-### Reference: the client: renderers, inputs and resource views
+**Pages.** A system can add whole pages to the app, each at `/s/<system>/<segment>`. Declare each in the contract's
+`pages` (`segment`, `title`, `description?`, `icon?`, `nav`: `main` puts it in the sidebar, `hidden` leaves it for links
+such as one item's page; `access`: `everyone` or `admin`; and `component`), and give the component in
+`client(contract, { pages: { NotesPage } })`. `client()` throws when a declared page has no component, or a component
+no page names. The hub lists a page while its system is installed and live with its renderers on (an admin reviews and
+can switch off each page like any component), so the page and its sidebar entry appear and disappear with the system;
+an old link to a page whose system is gone keeps its URL and says the system isn't installed.
+
+_From `scripts/docs/example/shared/index.ts`:_
+
+```ts
+// a whole page in the app at /s/notes/notes, in the sidebar while the system is live; client({ pages }) draws it
+pages: [{ segment: 'notes', title: 'Notes', description: 'Every note, searched by the hub.', icon: 'book', component: 'NotesPage' }],
+```
+
+A page's props are `PageViewOf<typeof contract>`: `page` (its segment), `path` (the URL's parts under it, so
+`/s/notes/note/42` gives `['42']`), `system` (its own actions and fns, as every renderer gets) and `host`:
+
+| `host.` | What it gives |
+|---|---|
+| `user` | the person looking at the page (`id`, `name`, `role`, …) |
+| `hub` | the app's typed hub client: `host.hub.caller('records').call({ type: 'notes/Note', search })`; calls run as that person, so the hub's access rules apply, and search, filters and counts run in the hub's database |
+| `query` | the URL query, live: `values`, `get(key)`, `set({ key: value }, { push? })` (undefined or '' removes a key) and `bind(key, fallback?)`, a two-way binding for `v-model`. Keep the page's search, filters, tab and open item here, so every state is a URL |
+| `href(to)` / `go(to, { replace? })` | links and moves between the system's own pages: `{ page?, path?, query? }` (this page when `page` is left out) |
+| `openChat({ title, run? })` | starts a new chat as the person, runs `run` (`{ fn, args }`) there first as the person's own run, and goes to it (the widgets page opens a saved widget this way) |
+| `chatHref(session)` / `goChat(session)` | a link to, and a move to, one of the person's chats (an item's own chat) |
+| `runs({ title })` | runs the page starts and waits on (`PageRuns`): each `run(fn, args, { on?, waiting? })` is the person's own run in a harness chat (made the first time, named by `title`, or `attach(session)`ed), so approval rules apply and the chat records it; it resolves only once the run settled with its outcome (`{ ok, output }` or `{ ok: false, problem }`, never early on the hub's `done`). The chat's `approvals` (with `argsOf(run)`) are answered with `approve`; `close()` when the page goes |
+| `inbox` | the approvals waiting outside any chat, for runs the page knows wait on the person: `load(runs)`, `byRun(run)`, `decide` |
+| `notify` / `format` / `live(refresh, every)` | the app's toasts (`ok`, `error`); money and times as the app writes them (`cost`, `relativeTime`, `fullTime`); and keeping the page live (every `every` ms while it is in view, once more when it comes back) |
+| `components` | the app's own components, so a page looks like the rest of the app: `Frame` (the page frame: title, description, width, `actions` slot), `Input` (a search box or field), `Button`, `Select`, `Textarea`, `Dialog`, `Banner`, `Badge`, `Skeleton`, `Markdown`, `Icon`, `Empty`, `LoadState`, `FnPill`, `ResourceViewer` and `ValueEditor`; and the chat's own parts: `Reasoning`, `Typing`, `Approval` (an approval card, `inChat` when answered through `runs`), `Conversation` (`ConversationEntry`s drawn as the chat draws a thread: the person's bubbles, answers with reasoning folded, calls as run cards folded into one section) and `Composer` (`v-model`, `@send`, `@stop`). The claude system's pages are drawn this way |
+
+Components under the page read the same host with `inject(PAGE_HOST)`. The notes system's page searches its notes
+in the hub with the words in `?q=`:
+
+_From `scripts/docs/example/client/NotesPage.vue`:_
+
+```vue
+<script setup lang="ts">
+/**
+ * The Notes page (`/s/notes/notes`): every note, searched by the hub (never filtered here), with the search in the URL
+ * (`?q=`) so a refresh or a shared link shows the same list. It draws with the app's own frame, search input, load state and markdown,
+ * from `host.components`, so it looks like the rest of the app.
+ */
+import type { PageViewOf } from '@harness/sdk';
+import { ref, watch } from 'vue';
+import type { NotesContract } from '../shared/index.ts';
+
+const view = defineProps<PageViewOf<NotesContract>>();
+const { Frame, Input, LoadState, Markdown } = view.host.components;
+// `?q=` bound two ways: typing changes the URL, and the URL fills the box
+const search = view.host.query.bind('q');
+const records = view.host.hub.caller('records', { lastOnly: true });
+
+const notes = ref<readonly { id: string; title: string; text: string }[]>([]);
+const loading = ref(true);
+const problem = ref('');
+
+async function load(): Promise<void> {
+  loading.value = true;
+  try {
+    // the hub searches its database: words in the title and text, and by meaning
+    const words = search.value.trim();
+    const page = await records.call({ type: 'notes/Note', ...(words === '' ? {} : { search: words }) });
+    notes.value = page.items.map((record) => {
+      const value = record.value;
+      const text = typeof value === 'object' && value !== null && !Array.isArray(value) && typeof value['text'] === 'string' ? value['text'] : '';
+      return { id: record.id, title: record.title, text };
+    });
+    problem.value = '';
+  } catch (error) {
+    problem.value = error instanceof Error ? error.message : 'The notes could not be read.';
+  } finally {
+    loading.value = false;
+  }
+}
+watch(() => search.value, () => { void load(); }, { immediate: true });
+</script>
+
+<template>
+  <Frame title="Notes" description="Every note, searched by the hub.">
+    <Input v-model="search.value" class="search" type="search" icon="search" label="Search notes" hide-label clearable placeholder="Search notes" />
+    <LoadState :loading="loading" :problem="problem" :ready="notes.length > 0" :empty="!loading && notes.length === 0" empty-title="No notes" @retry="load">
+      <ul class="notes">
+        <li v-for="note in notes" :key="note.id" class="note">
+          <h2>{{ note.title }}</h2>
+          <Markdown :source="note.text" />
+        </li>
+      </ul>
+    </LoadState>
+  </Frame>
+</template>
+
+<style scoped>
+.search { max-width: 32rem; margin-bottom: var(--space-3); }
+.notes { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr)); }
+.note { min-width: 0; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.note h2 { margin: 0 0 var(--space-2); font-size: var(--text-md, 1rem); }
+</style>
+```
+
+### Reference: the client: renderers, inputs, resource views and pages
 
 #### `client`
 
@@ -9108,6 +9272,14 @@ A system's renderers, typed by its contract. Every renderer also gets `system` t
 interface ClientRenderers<C extends ContractShape> {
   /** How calls of a fn are drawn in the chat. */
   fns?: { readonly [K in keyof C['fns']]?: Renderer<FnView<FnTypesOf<C, K>> & WithSystem<C>> };
+  /**
+   * How a finished run's result is drawn, by fn, or by kind for a fn of a kind with none of its own: only the result,
+   * under the app's own run line (a fn renderer, which draws the whole run, wins over these).
+   */
+  results?: {
+    readonly fns?: { readonly [K in keyof C['fns']]?: Renderer<ResultView<FnTypesOf<C, K>> & WithSystem<C>> };
+    readonly kinds?: { readonly [K in keyof C['kinds']]?: Renderer<ResultView<UntypedFn> & WithSystem<C>> };
+  };
   /** How a fn of a kind is drawn when the fn has no renderer of its own. */
   kinds?: { readonly [K in keyof C['kinds']]?: Renderer<FnView<UntypedFn> & WithSystem<C>> };
   attachments?: { readonly [K in keyof C['attachments']]?: Renderer<AttachmentView<AttachmentData<C, K>> & WithSystem<C>> };
@@ -9130,6 +9302,11 @@ interface ClientRenderers<C extends ContractShape> {
    * be here, and every component here must be the one named.
    */
   configs?: Readonly<Record<string, Renderer<ConfigView<Infer<C['config']>> & WithSystem<C>>>>;
+  /**
+   * Page components by name: each page the contract declares (`system({ pages })`) names one here, and every one here
+   * is named by a page.
+   */
+  pages?: Readonly<Record<string, Renderer<PageView & WithSystem<C>>>>;
 }
 ```
 
@@ -9210,7 +9387,7 @@ interface AttachmentView<T> {
 
 type · `import { AttachmentViewOf } from '@harness/sdk'`
 
-The props of the renderer for one of a contract's attachments.
+The props of one of a contract's attachments.
 
 ```ts
 type AttachmentViewOf<S extends AnyContract, K extends keyof S['defs']['attachments']> = AttachmentView<Infer<S['defs']['attachments'][K]['data']>> & WithSystem<S['defs']>;
@@ -9596,6 +9773,9 @@ interface AnyViews {
   mention: MentionView<unknown> & WithSystem<ContractShape>;
   resource: ResourceView & WithSystem<ContractShape>;
   config: ConfigView<unknown> & WithSystem<ContractShape>;
+  page: PageView & WithSystem<ContractShape>;
+  /** A result renderer: a fn's own gets its run decoded; a kind's gets the JSON as it is. */
+  result: ResultView<DecodedFn> & WithSystem<ContractShape>;
 }
 ```
 
@@ -9611,6 +9791,7 @@ interface WireViews {
   fn: Omit<FnView<UntypedFn>, 'submit' | 'state'> & { fn: QualifiedName; kind: QualifiedName | undefined; state: Readonly<Record<string, Json>> };
   attachment: AttachmentView<Json> & { attachment: QualifiedName };
   mention: Omit<MentionView<Json>, 'type'> & { provider: QualifiedName };
+  result: ResultView<UntypedFn> & { kind: QualifiedName | undefined };
 }
 ```
 
@@ -9693,6 +9874,700 @@ visuals other systems contribute. Without it, a view falls back on its own syste
 
 ```ts
 const VISUALS: InjectionKey<VisualSource>;
+```
+
+#### `ResultView`
+
+interface · `import { ResultView } from '@harness/sdk'`
+
+The props of a result renderer (`client({ results })`): a finished run's result, drawn where the app shows a run's
+result (the chat's run card) instead of its default view, under the card's own line, status and cost. A fn renderer
+draws a whole run as it goes; a result renderer draws only what it gave.
+
+```ts
+interface ResultView<T extends FnTypes> {
+  run: RunId;
+  /** The fn that ran (for a kind's renderer, one of the kind's fns). */
+  fn: QualifiedName;
+  args: T['args'];
+  result: T['result'];
+  /** The run's name as the app shows it ("Make widget"). */
+  title: string;
+}
+```
+
+Refers to: [`QualifiedName`](#core-qualifiedname), [`RunId`](#core-runid).
+
+#### `ResultViewOf`
+
+type · `import { ResultViewOf } from '@harness/sdk'`
+
+The props of the result renderer for one of a contract's fns: `defineProps<ResultViewOf<typeof widgets, 'make_widget'>>()`.
+
+```ts
+type ResultViewOf<S extends AnyContract, K extends keyof S['defs']['fns']> = ResultView<TypesOf<S['defs']['fns'][K]>> & WithSystem<S['defs']>;
+```
+
+#### `RESULT_VIEW`
+
+const · `import { RESULT_VIEW } from '@harness/sdk'`
+
+The app's result view (`inject(RESULT_VIEW)`), provided app-wide, so result renderers draw with it wherever a run card is.
+
+```ts
+const RESULT_VIEW: InjectionKey<Component<ResultViewProps>>;
+```
+
+#### `APP_COMPONENTS`
+
+const · `import { APP_COMPONENTS } from '@harness/sdk'`
+
+The app's shared components for any renderer (`inject(APP_COMPONENTS)`), in a chat or on a page; a page also has them as `host.components`.
+
+```ts
+const APP_COMPONENTS: InjectionKey<SharedComponents>;
+```
+
+#### `ResultViewProps`
+
+interface · `import { ResultViewProps } from '@harness/sdk'`
+
+The props of the app's result view, as a renderer binds them: a result table, or a widget's result, drawn with every
+fitting visual, its chips, pager, drill and row actions. With `fn`, it reads that fn again (chips, pager, refresh);
+without, it draws only what it has (a preview). `keepLook` offers keeping the look picked in Settings; it resolves
+true when it was kept (or asked for).
+
+```ts
+interface ResultViewProps {
+  value: Json;
+  title: string;
+  fn?: QualifiedName | undefined;
+  args?: Json | undefined;
+  /** Where it keeps its drill levels and picks (a run's id), so two views of one result don't share them. */
+  viewKey?: string | undefined;
+  keepLook?: ((look: ResultLook) => Promise<boolean>) | undefined;
+}
+```
+
+Refers to: [`Json`](#core-json), [`QualifiedName`](#core-qualifiedname).
+
+#### `ResultLook`
+
+interface · `import { ResultLook } from '@harness/sdk'`
+
+The look picked in a result's Settings (a visual and its style, by their labels), which the result may keep as its own.
+
+```ts
+interface ResultLook {
+  readonly visual: string;
+  readonly style: string;
+}
+```
+
+#### `CHAT_HOST`
+
+const · `import { CHAT_HOST } from '@harness/sdk'`
+
+The open chat's host for renderers (asking the agent, waiting for a run); absent outside a chat.
+
+```ts
+const CHAT_HOST: InjectionKey<ChatHost>;
+```
+
+#### `ChatHost`
+
+interface · `import { ChatHost } from '@harness/sdk'`
+
+What the open chat offers its renderers (`inject(CHAT_HOST)`): asking the agent, and waiting for a run (one a
+renderer started with `system.run`) to end. Absent outside a chat.
+
+```ts
+interface ChatHost {
+  /** Ask the agent: send the request now (`send`), or put it in the composer for the person to finish. False when it couldn't. */
+  ask(text: string, send: boolean): Promise<boolean>;
+  /** Wait for a run in the chat to end, and give how; `waiting` is called once if it stops for the person's approval. */
+  settled(run: RunId, waiting?: () => void): Promise<RunOutcome>;
+  /** Go to a path in the app without reloading it (a system page: `systemPagePath('widgets', 'saved')`). */
+  navigate(path: string): void;
+}
+```
+
+Refers to: [`RunId`](#core-runid).
+
+#### `RunOutcome`
+
+type · `import { RunOutcome } from '@harness/sdk'`
+
+How a run the person sees ended: its output, or why it didn't finish (declined, refused, failed, stopped).
+
+```ts
+type RunOutcome = { readonly ok: true; readonly output: Json } | { readonly ok: false; readonly problem: string };
+```
+
+Refers to: [`Json`](#core-json).
+
+#### `ChatStart`
+
+interface · `import { ChatStart } from '@harness/sdk'`
+
+A chat a page starts (`host.openChat`): its title, and the fn it runs first.
+
+```ts
+interface ChatStart {
+  readonly title: string;
+  readonly run?: { readonly fn: QualifiedName; readonly args: Json };
+}
+```
+
+Refers to: [`Json`](#core-json), [`QualifiedName`](#core-qualifiedname).
+
+#### `PageView`
+
+interface · `import { PageView } from '@harness/sdk'`
+
+The props of a system page (`client({ pages })`), at `/s/<system>/<page>/<path...>`.
+
+```ts
+interface PageView {
+  /** The page's segment. */
+  page: string;
+  /** The URL's parts under the page (`/s/claude/session/main/abc` gives `['main', 'abc']`). */
+  path: readonly string[];
+  host: PageHost;
+}
+```
+
+#### `PageViewOf`
+
+type · `import { PageViewOf } from '@harness/sdk'`
+
+The props of one of a contract's pages: `defineProps<PageViewOf<typeof claude>>()`.
+
+```ts
+type PageViewOf<S extends AnyContract> = PageView & WithSystem<S['defs']>;
+```
+
+#### `PageHost`
+
+interface · `import { PageHost } from '@harness/sdk'`
+
+What the app hands a system page: the person, the hub's web API (calls run as that person, so the hub's access rules
+apply), the URL (its query, links to the system's pages and moving between them) and the app's shared components.
+The page also gets `system` (its own system's actions and fns) like every renderer. Components under the page read
+the same host with `inject(PAGE_HOST)`.
+
+```ts
+interface PageHost {
+  /** The person looking at the page. */
+  readonly user: Readonly<UserView>;
+  readonly hub: HubClient;
+  readonly query: PageQuery;
+  /** The URL of one of the system's pages, for an `<a href>`. */
+  href(to: PageLocation): string;
+  /** The URL of one of the person's chats (a run's, an item's own), for an `<a href>`. */
+  chatHref(session: SessionId): string;
+  /** Go to one of the person's chats. */
+  goChat(session: SessionId): void;
+  /** Go to one of the system's pages (this one, with another path or query, when `page` is left out). */
+  go(to: PageLocation, options?: { readonly replace?: boolean }): void;
+  /**
+   * Start a new chat as the person, run a fn there first when `run` is given (as the person's own run, so its approvals,
+   * row actions and undo work), and go to it. Rejects with the reason when the chat couldn't be made.
+   */
+  openChat(start: ChatStart): Promise<void>;
+  readonly components: SharedComponents;
+  /** Runs the page starts and waits on, as the person's own runs in a harness chat (made on first use, or `attach`ed). */
+  runs(options: PageRunsOptions): PageRuns;
+  /** The approvals waiting on the person outside any chat. */
+  readonly inbox: PageInbox;
+  readonly notify: PageNotify;
+  readonly format: PageFormat;
+  /**
+   * Keep the page live: run `refresh` every `every` ms while the page is open and in view, and once more when it comes
+   * back into view. Call it while the page sets up (it stops when the page goes).
+   */
+  live(refresh: () => void, every: number): void;
+}
+```
+
+Refers to: [`SessionId`](#core-sessionid), [`UserView`](#core-userview).
+
+#### `PAGE_HOST`
+
+const · `import { PAGE_HOST } from '@harness/sdk'`
+
+The page host, for components under a page (the page itself gets it as `host`). A global symbol, like the others.
+
+```ts
+const PAGE_HOST: InjectionKey<PageHost>;
+```
+
+#### `PageLocation`
+
+interface · `import { PageLocation } from '@harness/sdk'`
+
+Where a page link goes: one of the system's own pages (this one when left out), the parts under it, and its query.
+
+```ts
+interface PageLocation {
+  readonly page?: string;
+  readonly path?: readonly string[];
+  readonly query?: Readonly<Record<string, string | undefined>>;
+}
+```
+
+#### `PageQuery`
+
+interface · `import { PageQuery } from '@harness/sdk'`
+
+The page's URL query, live: every page is a URL, so a page keeps its search, filters, tab and open item here and a
+refresh or a shared link returns to the same place.
+
+```ts
+interface PageQuery {
+  /** The query now (read reactively). */
+  readonly values: Readonly<Record<string, string>>;
+  get(key: string): string | undefined;
+  /** Change some keys (undefined or '' removes one). It replaces the history entry unless `push` is set. */
+  set(patch: Readonly<Record<string, string | undefined>>, options?: { readonly push?: boolean }): void;
+  /** One key bound two ways; writing the fallback removes the key, so the URL stays short. */
+  bind(key: string, fallback?: string): QueryBinding;
+}
+```
+
+#### `QueryBinding`
+
+interface · `import { QueryBinding } from '@harness/sdk'`
+
+A query key bound two ways, for `v-model`: reading gives the key's value (or the fallback), writing sets it.
+
+```ts
+interface QueryBinding {
+  value: string;
+}
+```
+
+#### `HubClient`
+
+type · `import { HubClient } from '@harness/sdk'`
+
+The hub's web API client, typed by its spec: `host.hub.caller('records').call(query)`, the same client the app uses.
+
+```ts
+type HubClient = ApiClient<HubWebSpec>;
+```
+
+Refers to: [`HubWebSpec`](#core-hubwebspec).
+
+#### `SharedComponents`
+
+interface · `import { SharedComponents } from '@harness/sdk'`
+
+The app's own components, shared with pages so a system's page looks and behaves like the rest of the app, and the
+chat's parts are reused rather than drawn again. The app provides them; a page reads them from `host.components`.
+
+```ts
+interface SharedComponents {
+  /** The frame every app page sits in, so a system's page has the same title, spacing and widths. */
+  readonly Frame: Component<FrameProps>;
+  /** The app's text input, for a page's search box or a field. */
+  readonly Input: Component<InputProps>;
+  readonly Markdown: Component<MarkdownProps>;
+  readonly Icon: Component<IconProps>;
+  readonly Empty: Component<EmptyProps>;
+  readonly LoadState: Component<LoadStateProps>;
+  readonly Reasoning: Component<ReasoningProps>;
+  readonly Typing: Component<TypingProps>;
+  readonly ResourceViewer: Component<ResourceViewerProps>;
+  readonly ValueEditor: Component<ValueEditorProps>;
+  // the app's controls, so a page's buttons, choices and dialogs are the app's own
+  readonly Button: Component<ButtonProps>;
+  readonly Select: Component<SelectProps>;
+  readonly Textarea: Component<TextareaProps>;
+  readonly Dialog: Component<DialogProps>;
+  readonly Banner: Component<BannerProps>;
+  readonly Badge: Component<BadgeProps>;
+  readonly Skeleton: Component<SkeletonProps>;
+  readonly FnPill: Component<FnPillProps>;
+  /** An approval card, answered on the page (`host.runs`' approvals in a chat, or `host.inbox`'s). */
+  readonly Approval: Component<ApprovalProps>;
+  /** A conversation drawn with the chat's own message, answer, reasoning and run parts. */
+  readonly Conversation: Component<ConversationProps>;
+  /** The chat's composer. */
+  readonly Composer: Component<ComposerProps>;
+}
+```
+
+#### `FrameProps`
+
+interface · `import { FrameProps } from '@harness/sdk'`
+
+Props of the app's page frame: the title, a line about the page, and how wide it sits; slots `actions` and `crumb`.
+
+```ts
+interface FrameProps { title: string; description?: string; width?: 'readable' | 'wide' | 'full'; keepTitle?: boolean }
+```
+
+#### `InputProps`
+
+interface · `import { InputProps } from '@harness/sdk'`
+
+Props of the app's one-line text input (`v-model` is the text); `icon` is from the app's icon set, `hideLabel` keeps the label for screen readers only.
+
+```ts
+interface InputProps { modelValue: string; label?: string; type?: 'text' | 'search' | 'email' | 'password' | 'url' | 'number' | 'tel'; placeholder?: string; icon?: string | undefined; clearable?: boolean; hideLabel?: boolean; hint?: string; error?: string; disabled?: boolean; size?: 'sm' | 'md' }
+```
+
+#### `MarkdownProps`
+
+interface · `import { MarkdownProps } from '@harness/sdk'`
+
+Props of the app's markdown view. `navigate` handles links inside the app (`/...`).
+
+```ts
+interface MarkdownProps { source: string; navigate?: ((href: string) => void) | undefined }
+```
+
+#### `IconProps`
+
+interface · `import { IconProps } from '@harness/sdk'`
+
+Props of an app icon; `name` is from the app's icon set.
+
+```ts
+interface IconProps { name: string; size?: number; label?: string }
+```
+
+#### `EmptyProps`
+
+interface · `import { EmptyProps } from '@harness/sdk'`
+
+Props of the app's empty state.
+
+```ts
+interface EmptyProps { title: string; body?: string; icon?: string; tone?: 'neutral' | 'accent' | 'ok' | 'warn' | 'danger' }
+```
+
+#### `LoadStateProps`
+
+interface · `import { LoadStateProps } from '@harness/sdk'`
+
+Props of the app's load state: a skeleton while loading, the problem with Retry (`@retry`), the empty state, or its slot.
+
+```ts
+interface LoadStateProps { loading: boolean; problem: string; ready: boolean; empty: boolean; emptyTitle?: string; emptyBody?: string; emptyIcon?: string; lines?: number }
+```
+
+#### `ReasoningProps`
+
+interface · `import { ReasoningProps } from '@harness/sdk'`
+
+Props of the chat's reasoning block (`v-model:open`).
+
+```ts
+interface ReasoningProps { text: string; thinking: boolean; open: boolean }
+```
+
+#### `TypingProps`
+
+interface · `import { TypingProps } from '@harness/sdk'`
+
+Props of the chat's typing dots.
+
+```ts
+interface TypingProps { label?: string }
+```
+
+#### `PageRuns`
+
+interface · `import { PageRuns } from '@harness/sdk'`
+
+Runs a page starts (`host.runs({ title })`): each is the person's own run in a harness chat, so the hub's approval
+rules see it and the chat records it. The chat is made the first time something runs, unless `attach` names one (an
+item's own chat). A run that stops for approval waits in `approvals`, answered on the page (`components.Approval`
+with `inChat`) or in the chat. Its fields are reactive.
+
+```ts
+interface PageRuns {
+  /** The approvals waiting in the chat, oldest first. */
+  readonly approvals: readonly Approval[];
+  /** What the chat's last call or answer couldn't do, in words; '' when nothing failed. */
+  readonly problem: string;
+  /** A run's args in the chat, once known (to tell which approvals are about what the page shows). */
+  argsOf(run: RunId): Json | undefined;
+  /** Run in this chat instead of making one; nothing changes once a chat is open. */
+  attach(session: SessionId): void;
+  /**
+   * Run a fn, resolving when it settles with its output or why not (never early: a run the hub says is done ends with
+   * its outcome). `on` names the instance it runs on; `waiting` is called once if it stops for approval.
+   */
+  run(fn: QualifiedName, args: Json, options?: { readonly on?: InstanceName; readonly waiting?: () => void }): Promise<RunOutcome>;
+  /** Answer one of `approvals`; false (with `problem` set) when the hub refused. */
+  approve(approval: Approval, approve: boolean, remember: Remember, reason: string, answer: Json | undefined): Promise<boolean>;
+  /** Read the runs the approvals wait on again (one may have been answered elsewhere). */
+  refresh(): void;
+  /** Stop listening to the chat (the page left). */
+  close(): void;
+}
+```
+
+Refers to: [`Approval`](#core-approval), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`QualifiedName`](#core-qualifiedname), [`Remember`](#core-remember), [`RunId`](#core-runid), [`SessionId`](#core-sessionid).
+
+#### `PageRunsOptions`
+
+interface · `import { PageRunsOptions } from '@harness/sdk'`
+
+What a page's runs are called in: the chat made for them is named by `title` (read when it is made).
+
+```ts
+interface PageRunsOptions {
+  readonly title: () => string;
+}
+```
+
+#### `PageInbox`
+
+interface · `import { PageInbox } from '@harness/sdk'`
+
+The approvals outside any chat (the inbox's), for runs a page knows wait on the person. Its fields are reactive.
+
+```ts
+interface PageInbox {
+  /** The approval a run waits on, once `load` read it. */
+  byRun(run: RunId): Approval | undefined;
+  load(runs: readonly RunId[]): Promise<void>;
+  /** Answer one; false (with `problem` set) when the hub refused. */
+  decide(approval: Approval, approve: boolean, reason: string, answer: Json | undefined): Promise<boolean>;
+  readonly problem: string;
+}
+```
+
+Refers to: [`Approval`](#core-approval), [`Json`](#core-json), [`RunId`](#core-runid).
+
+#### `PageNotify`
+
+interface · `import { PageNotify } from '@harness/sdk'`
+
+Short notes to the person, as the app's toasts.
+
+```ts
+interface PageNotify {
+  ok(title: string, detail?: string): void;
+  error(title: string, detail?: string): void;
+}
+```
+
+#### `PageFormat`
+
+interface · `import { PageFormat } from '@harness/sdk'`
+
+Money and times as the rest of the app writes them.
+
+```ts
+interface PageFormat {
+  /** Dollars, as the chat writes a run's cost ("$0.03", "$0.00042"). */
+  cost(usd: number): string;
+  /** How long ago, short ("5m ago"); `now` is the time to count from (ms). */
+  relativeTime(at: number, now: number): string;
+  /** The full date and time, for a tooltip. */
+  fullTime(at: number): string;
+}
+```
+
+#### `PartTone`
+
+type · `import { PartTone } from '@harness/sdk'`
+
+A colour of a status.
+
+```ts
+type PartTone = 'neutral' | 'accent' | 'ok' | 'warn' | 'danger';
+```
+
+#### `ButtonProps`
+
+interface · `import { ButtonProps } from '@harness/sdk'`
+
+Props of the app's button (`@click`); `primary` is the one main action on a surface.
+
+```ts
+interface ButtonProps {
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
+  size?: 'sm' | 'md' | 'lg';
+  type?: 'button' | 'submit' | 'reset';
+  icon?: string | undefined;
+  iconRight?: string | undefined;
+  loading?: boolean;
+  disabled?: boolean;
+  block?: boolean;
+}
+```
+
+#### `SelectChoice`
+
+interface · `import { SelectChoice } from '@harness/sdk'`
+
+One choice of a select.
+
+```ts
+interface SelectChoice {
+  readonly value: string;
+  readonly label: string;
+  readonly disabled?: boolean;
+}
+```
+
+#### `SelectProps`
+
+type · `import { SelectProps } from '@harness/sdk'`
+
+Props of the app's select (`v-model` is the chosen value).
+
+```ts
+type SelectProps = { modelValue: string; options: readonly SelectChoice[]; label?: string; hint?: string; error?: string; required?: boolean; disabled?: boolean; hideLabel?: boolean; size?: 'sm' | 'md' };
+```
+
+#### `TextareaProps`
+
+interface · `import { TextareaProps } from '@harness/sdk'`
+
+Props of the app's growing text area (`v-model` is the text).
+
+```ts
+interface TextareaProps { modelValue: string; label?: string; hint?: string; error?: string; placeholder?: string; rows?: number; maxRows?: number; required?: boolean; disabled?: boolean; hideLabel?: boolean }
+```
+
+#### `DialogProps`
+
+interface · `import { DialogProps } from '@harness/sdk'`
+
+Props of the app's dialog (`v-model:open`); slots: the body, and `footer` for its buttons.
+
+```ts
+interface DialogProps { open: boolean; title: string; description?: string; width?: string }
+```
+
+#### `BannerProps`
+
+interface · `import { BannerProps } from '@harness/sdk'`
+
+Props of the app's banner; slots: the text, and `actions`.
+
+```ts
+interface BannerProps { tone?: PartTone; icon?: string | undefined }
+```
+
+#### `BadgeProps`
+
+interface · `import { BadgeProps } from '@harness/sdk'`
+
+Props of the app's badge (a status word with its dot, which pulses while `live`).
+
+```ts
+interface BadgeProps { tone?: PartTone; dot?: boolean; live?: boolean }
+```
+
+#### `SkeletonProps`
+
+interface · `import { SkeletonProps } from '@harness/sdk'`
+
+Props of the app's loading skeleton.
+
+```ts
+interface SkeletonProps { shape?: 'lines' | 'circle' | 'block'; lines?: number; size?: number }
+```
+
+#### `FnPillProps`
+
+interface · `import { FnPillProps } from '@harness/sdk'`
+
+Props of a fn as a pill (its friendly label tinted by its system; a click opens the app's fn modal).
+
+```ts
+interface FnPillProps { name: string; label?: string | undefined; off?: boolean }
+```
+
+#### `ApprovalProps`
+
+interface · `import { ApprovalProps } from '@harness/sdk'`
+
+Props of an approval card (`@decide(approve, remember, reason, answer)`): what the run will do, then Approve or Deny
+(a form to fill first when it asks for one). `inChat` says it is answered in a chat (`PageRuns.approve`), where the
+answer may be remembered; otherwise (`PageInbox.decide`) every answer is for this run only.
+
+```ts
+interface ApprovalProps { approval: Approval; inChat?: boolean; description?: string }
+```
+
+Refers to: [`Approval`](#core-approval).
+
+#### `ConversationCall`
+
+interface · `import { ConversationCall } from '@harness/sdk'`
+
+A call the agent made (a tool use): drawn as the chat's run card, its output in brief once it settled.
+
+```ts
+interface ConversationCall {
+  readonly key: string;
+  /** The tool's name, shown as its label. */
+  readonly name: string;
+  readonly args: Json;
+  readonly status: 'running' | 'done' | 'failed';
+  /** What it gave back (or why it failed), as text. */
+  readonly output?: string | undefined;
+}
+```
+
+Refers to: [`Json`](#core-json).
+
+#### `ConversationPiece`
+
+type · `import { ConversationPiece } from '@harness/sdk'`
+
+One piece of an answer, in the order the agent made them.
+
+```ts
+type ConversationPiece =
+| { readonly kind: 'text'; readonly text: string }
+| { readonly kind: 'reasoning'; readonly text: string }
+| { readonly kind: 'call'; readonly call: ConversationCall };
+```
+
+#### `ConversationEntry`
+
+type · `import { ConversationEntry } from '@harness/sdk'`
+
+One entry of a conversation: the person's message, an answer (its pieces), or a quiet note. `at` is when (ms).
+
+```ts
+type ConversationEntry =
+| { readonly kind: 'user'; readonly key: string; readonly text: string; readonly at?: number | undefined }
+| { readonly kind: 'answer'; readonly key: string; readonly pieces: readonly ConversationPiece[]; readonly at?: number | undefined }
+| { readonly kind: 'note'; readonly key: string; readonly text: string };
+```
+
+#### `ConversationProps`
+
+interface · `import { ConversationProps } from '@harness/sdk'`
+
+Props of a conversation drawn with the chat's own parts: the person's messages as the chat's bubbles, each answer
+as the chat's answer (markdown words, reasoning folded where it happened, calls as run cards, a stretch of calls
+folded into one section). `system` names whose calls they are; `streaming` says the last answer is still arriving.
+
+```ts
+interface ConversationProps { entries: readonly ConversationEntry[]; agent: string; system: string; streaming?: boolean }
+```
+
+#### `ComposerProps`
+
+interface · `import { ComposerProps } from '@harness/sdk'`
+
+Props of the chat's composer (`v-model` is the text; `@send`, and `@stop` while `running`): Enter sends on a
+keyboard, the box grows with its text, and Stop sits beside Send while work runs. `note` is a short line under it.
+
+```ts
+interface ComposerProps { modelValue: string; placeholder?: string; sending?: boolean; running?: boolean; stopping?: boolean; disabled?: boolean; note?: string }
 ```
 
 ## 26. Visuals and widgets
@@ -12911,6 +13786,72 @@ function onTags(event: Event): void {
 </style>
 ```
 
+#### `scripts/docs/example/client/NotesPage.vue`
+
+```vue
+<script setup lang="ts">
+/**
+ * The Notes page (`/s/notes/notes`): every note, searched by the hub (never filtered here), with the search in the URL
+ * (`?q=`) so a refresh or a shared link shows the same list. It draws with the app's own frame, search input, load state and markdown,
+ * from `host.components`, so it looks like the rest of the app.
+ */
+import type { PageViewOf } from '@harness/sdk';
+import { ref, watch } from 'vue';
+import type { NotesContract } from '../shared/index.ts';
+
+const view = defineProps<PageViewOf<NotesContract>>();
+const { Frame, Input, LoadState, Markdown } = view.host.components;
+// `?q=` bound two ways: typing changes the URL, and the URL fills the box
+const search = view.host.query.bind('q');
+const records = view.host.hub.caller('records', { lastOnly: true });
+
+const notes = ref<readonly { id: string; title: string; text: string }[]>([]);
+const loading = ref(true);
+const problem = ref('');
+
+async function load(): Promise<void> {
+  loading.value = true;
+  try {
+    // the hub searches its database: words in the title and text, and by meaning
+    const words = search.value.trim();
+    const page = await records.call({ type: 'notes/Note', ...(words === '' ? {} : { search: words }) });
+    notes.value = page.items.map((record) => {
+      const value = record.value;
+      const text = typeof value === 'object' && value !== null && !Array.isArray(value) && typeof value['text'] === 'string' ? value['text'] : '';
+      return { id: record.id, title: record.title, text };
+    });
+    problem.value = '';
+  } catch (error) {
+    problem.value = error instanceof Error ? error.message : 'The notes could not be read.';
+  } finally {
+    loading.value = false;
+  }
+}
+watch(() => search.value, () => { void load(); }, { immediate: true });
+</script>
+
+<template>
+  <Frame title="Notes" description="Every note, searched by the hub.">
+    <Input v-model="search.value" class="search" type="search" icon="search" label="Search notes" hide-label clearable placeholder="Search notes" />
+    <LoadState :loading="loading" :problem="problem" :ready="notes.length > 0" :empty="!loading && notes.length === 0" empty-title="No notes" @retry="load">
+      <ul class="notes">
+        <li v-for="note in notes" :key="note.id" class="note">
+          <h2>{{ note.title }}</h2>
+          <Markdown :source="note.text" />
+        </li>
+      </ul>
+    </LoadState>
+  </Frame>
+</template>
+
+<style scoped>
+.search { max-width: 32rem; margin-bottom: var(--space-3); }
+.notes { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr)); }
+.note { min-width: 0; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.note h2 { margin: 0 0 var(--space-2); font-size: var(--text-md, 1rem); }
+</style>
+```
+
 #### `scripts/docs/example/client/ReviewForm.vue`
 
 ```vue
@@ -12999,8 +13940,8 @@ watchEffect(() => {
 ```ts
 /**
  * The notes system's renderers, typed by its contract: the `find` card, the `review` form, the note attachment, the
- * editor and viewer of `notes/Note`, and a resource view for markdown. The chat loads this module from the hub and
- * provides each renderer's `system`.
+ * editor and viewer of `notes/Note`, a resource view for markdown, and the Notes page. The chat loads this module from
+ * the hub and provides each renderer's `system`.
  */
 // typescript-eslint can't see the types of .vue modules from .ts files; vue-tsc checks this file
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
@@ -13010,6 +13951,7 @@ import { notes } from '../shared/index.ts';
 import FindView from './FindView.vue';
 import NoteCard from './NoteCard.vue';
 import NoteInput from './NoteInput.vue';
+import NotesPage from './NotesPage.vue';
 import ReviewForm from './ReviewForm.vue';
 import WordCount from './WordCount.vue';
 
@@ -13019,6 +13961,8 @@ export default client(notes, {
   inputs: { Note: NoteInput },
   // a tab beside the hub's preview of every markdown resource; `mode: 'replace'` would draw instead of the preview
   resources: { markdown: { component: WordCount, mode: 'tab', label: 'Words' } },
+  // the page the contract's `pages` names, at /s/notes/notes
+  pages: { NotesPage },
 });
 // #endregion client
 ```
@@ -13603,6 +14547,10 @@ export const notes = system('notes', {
     { name: 'sharing', title: 'Sharing', description: 'Review and publish a note.' },
   ],
   // #endregion groups
+  // #region pages
+  // a whole page in the app at /s/notes/notes, in the sidebar while the system is live; client({ pages }) draws it
+  pages: [{ segment: 'notes', title: 'Notes', description: 'Every note, searched by the hub.', icon: 'book', component: 'NotesPage' }],
+  // #endregion pages
 })
   .with({
     // #region config
@@ -16026,6 +16974,8 @@ type ApprovalPreview = {
       flag: "models" | "capabilities" | "secrets" | "effects" | "files" | "calls" | "hosts" | "delete-fns" | "write-fns";
       line: string;
       items: string[];
+      lead?: string | undefined;
+      tail?: string | undefined;
     }[];
     grants?: "added" | "changed" | "widened" | "narrowed" | undefined;
     config?: "removed" | "added" | "changed" | undefined;
@@ -16201,6 +17151,8 @@ type ApprovedRun = {
         flag: "models" | "capabilities" | "secrets" | "effects" | "files" | "calls" | "hosts" | "delete-fns" | "write-fns";
         line: string;
         items: string[];
+        lead?: string | undefined;
+        tail?: string | undefined;
       }[];
       grants?: "added" | "changed" | "widened" | "narrowed" | undefined;
       config?: "removed" | "added" | "changed" | undefined;
@@ -16401,7 +17353,10 @@ type ConnectDecl = {
     ask: boolean;
   }>;
   icon?: string | undefined;
-  scope?: "instance" | "system" | undefined;
+  scope?: "instance" | "system" | "key" | undefined;
+  keys?: {
+    type: `${string}/${string}`;
+  } | undefined;
   defaults?: {
     on: boolean;
     ask: boolean;
@@ -16426,6 +17381,7 @@ type ConnectFinish = {
     form: z.core.util.JSONType;
   };
   instance?: InstanceName | undefined;
+  key?: ConnectKey | undefined;
 };
 ```
 
@@ -16486,6 +17442,20 @@ type ConnectStart = {
   redirect: string;
   state: string;
   instance?: InstanceName | undefined;
+  key?: ConnectKey | undefined;
+};
+```
+
+#### <a id="core-fnconnectkey"></a>`FnConnectKey`
+
+const, type · declared in `packages/core/src/connections.ts`
+
+A fn's connection key, for a key-scoped system: a fixed key (an api fn's service, from its kind's description), or the
+arg whose value names it (a fn that takes the service to act on).
+
+```ts
+type FnConnectKey = ConnectKey | {
+  arg: string;
 };
 ```
 
@@ -16614,7 +17584,7 @@ const, type · declared in `packages/core/src/context-files.ts`
 
 What `hub/load_context` did: the context it loaded (with what each loads with it, every time), the fns that context
 brings that went into the session's tools, the fns it brings that could not (`fnsRefused`, each with what blocks it), and
-what it refused, each with the closest names it knows.
+what it refused, each with the closest names it knows. The model reads only its `cards` (`LoadCards`).
 
 ```ts
 type LoadContextResult = {
@@ -16631,6 +17601,27 @@ type LoadContextResult = {
     reason: string;
     closest: `${string}/${string}`[];
   }[];
+  cards: string;
+};
+```
+
+#### <a id="core-loadfnsresult"></a>`LoadFnsResult`
+
+const, type · declared in `packages/core/src/context-files.ts`
+
+What `hub/load_fns` did: the fns that went into the session's tools, and the names it refused, each with what blocks
+it. The model reads only its `cards` (`LoadCards`).
+
+```ts
+type LoadFnsResult = {
+  loaded: `${string}/${string}`[];
+  refused: {
+    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
+    reason: string;
+    fn: string;
+    system?: SystemName | undefined;
+  }[];
+  cards: string;
 };
 ```
 
@@ -16925,21 +17916,6 @@ type FnBlock = {
 };
 ```
 
-#### <a id="core-fnrefusal"></a>`FnRefusal`
-
-const, type · declared in `packages/core/src/fn-block.ts`
-
-A fn the hub refused, by the name it was asked for, with what blocks it.
-
-```ts
-type FnRefusal = {
-  code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
-  reason: string;
-  fn: string;
-  system?: SystemName | undefined;
-};
-```
-
 #### <a id="core-namerefusal"></a>`NameRefusal`
 
 const, type · declared in `packages/core/src/fn-block.ts`
@@ -16989,7 +17965,7 @@ type FnExamplesPage = {
     id: string;
     result?: z.core.util.JSONType | undefined;
     note?: string | undefined;
-    score?: number | undefined;
+    rank?: number | undefined;
   }[];
   total: number;
   next?: number | undefined;
@@ -17061,7 +18037,7 @@ type FnSearchArgs = {
     kind?: string | undefined;
   }[] | undefined;
   available?: boolean | undefined;
-  order?: "name" | "score" | undefined;
+  order?: "name" | "rank" | undefined;
 };
 ```
 
@@ -17084,7 +18060,7 @@ type FnSearchPage = {
     signature?: string | undefined;
     effects?: string | undefined;
     instance?: InstanceName | undefined;
-    score?: number | undefined;
+    rank?: number | undefined;
     similarity?: number | undefined;
     matched?: "words" | "both" | "meaning" | undefined;
     section?: {
@@ -17154,7 +18130,7 @@ type FnSearchQuery = {
   })[] | undefined;
   off?: boolean | undefined;
   available?: boolean | undefined;
-  order?: "name" | "score" | undefined;
+  order?: "name" | "rank" | undefined;
   offset?: number | undefined;
   limit?: number | undefined;
 };
@@ -17423,6 +18399,8 @@ type PreviewAnswer = {
         flag: "models" | "capabilities" | "secrets" | "effects" | "files" | "calls" | "hosts" | "delete-fns" | "write-fns";
         line: string;
         items: string[];
+        lead?: string | undefined;
+        tail?: string | undefined;
       }[];
       grants?: "added" | "changed" | "widened" | "narrowed" | undefined;
       config?: "removed" | "added" | "changed" | undefined;
@@ -17588,6 +18566,9 @@ type PreviewAnswer = {
       } | {
         to: "any";
       } | undefined;
+      connectKey?: ConnectKey | {
+        arg: string;
+      } | undefined;
       effects?: {
         mode?: "read" | "write" | "delete" | undefined;
         reads?: `${string}/${string}`[] | undefined;
@@ -17736,7 +18717,10 @@ type PreviewAnswer = {
         ask: boolean;
       }>;
       icon?: string | undefined;
-      scope?: "instance" | "system" | undefined;
+      scope?: "instance" | "system" | "key" | undefined;
+      keys?: {
+        type: `${string}/${string}`;
+      } | undefined;
       defaults?: {
         on: boolean;
         ask: boolean;
@@ -17826,6 +18810,15 @@ type PreviewAnswer = {
       component: string;
       mode: "replace" | "beside";
     } | undefined;
+    pages?: {
+      segment: string;
+      title: string;
+      nav: "hidden" | "main";
+      access: "admin" | "everyone";
+      component: string;
+      description?: string | undefined;
+      icon?: string | undefined;
+    }[] | undefined;
     groups?: {
       name: string;
       title: string;
@@ -18191,6 +19184,8 @@ type RunRequest = {
           flag: "models" | "capabilities" | "secrets" | "effects" | "files" | "calls" | "hosts" | "delete-fns" | "write-fns";
           line: string;
           items: string[];
+          lead?: string | undefined;
+          tail?: string | undefined;
         }[];
         grants?: "added" | "changed" | "widened" | "narrowed" | undefined;
         config?: "removed" | "added" | "changed" | undefined;
@@ -18567,6 +19562,9 @@ type FnDecl = {
   } | {
     to: "any";
   } | undefined;
+  connectKey?: ConnectKey | {
+    arg: string;
+  } | undefined;
   effects?: {
     mode?: "read" | "write" | "delete" | undefined;
     reads?: `${string}/${string}`[] | undefined;
@@ -18841,6 +19839,7 @@ type KindDescription = {
     language: string;
     code: string;
   } | undefined;
+  connectKey?: ConnectKey | undefined;
 };
 ```
 
@@ -19027,6 +20026,9 @@ type Manifest = {
     } | {
       to: "any";
     } | undefined;
+    connectKey?: ConnectKey | {
+      arg: string;
+    } | undefined;
     effects?: {
       mode?: "read" | "write" | "delete" | undefined;
       reads?: `${string}/${string}`[] | undefined;
@@ -19175,7 +20177,10 @@ type Manifest = {
       ask: boolean;
     }>;
     icon?: string | undefined;
-    scope?: "instance" | "system" | undefined;
+    scope?: "instance" | "system" | "key" | undefined;
+    keys?: {
+      type: `${string}/${string}`;
+    } | undefined;
     defaults?: {
       on: boolean;
       ask: boolean;
@@ -19265,6 +20270,15 @@ type Manifest = {
     component: string;
     mode: "replace" | "beside";
   } | undefined;
+  pages?: {
+    segment: string;
+    title: string;
+    nav: "hidden" | "main";
+    access: "admin" | "everyone";
+    component: string;
+    description?: string | undefined;
+    icon?: string | undefined;
+  }[] | undefined;
   groups?: {
     name: string;
     title: string;
@@ -19437,6 +20451,9 @@ type ManifestPatch = {
         instance: InstanceName;
       } | {
         to: "any";
+      } | undefined;
+      connectKey?: ConnectKey | {
+        arg: string;
       } | undefined;
       effects?: {
         mode?: "read" | "write" | "delete" | undefined;
@@ -20236,6 +21253,247 @@ type ListQuery = {
 };
 ```
 
+### From `packages/core/src/records/actors.ts`
+
+#### <a id="core-approval"></a>`Approval`
+
+const, type · declared in `packages/core/src/records/actors.ts`
+
+A run waiting for approval.
+
+```ts
+type Approval = {
+  id: string;
+  run: string;
+  fn: `${string}/${string}`;
+  approver: {
+    by: "turn-user";
+  } | {
+    by: "actor";
+    actor: string;
+  } | {
+    by: "group";
+    group: string;
+    quorum?: number | undefined;
+  } | {
+    by: "admins";
+  } | {
+    by: "judge";
+    fn: `${string}/${string}`;
+  } | {
+    by: "hub";
+  };
+  status: "pending" | "approved" | "denied" | "expired";
+  decisions: {
+    by: string;
+    approve: boolean;
+    remember: "session" | "always" | "once";
+    at: number;
+    reason?: string | undefined;
+  }[];
+  createdAt: number;
+  policy?: string | undefined;
+  preview?: {
+    title: string;
+    parts: ({
+      type: "text";
+      text: string;
+    } | {
+      type: "code";
+      language: string;
+      code: string;
+      title?: string | undefined;
+    } | {
+      type: "table";
+      title: string;
+      table: {
+        columns: {
+          name: string;
+          kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
+          nullable: boolean;
+          label?: string | undefined;
+          type?: TypeDef<any> | undefined;
+          ref?: `${string}/${string}` | undefined;
+          role?: "group" | "measure" | "attribute" | undefined;
+          key?: boolean | undefined;
+          editable?: boolean | undefined;
+        }[];
+        rows: z.core.util.JSONType[][];
+        offset: number;
+        truncated: boolean;
+        sort: {
+          column: string;
+          dir: "asc" | "desc";
+        }[];
+        limit?: number | undefined;
+        total?: number | undefined;
+        write?: {
+          affected: number;
+        } | undefined;
+        records?: {
+          type: `${string}/${string}`;
+          id: string;
+        } | undefined;
+        drill?: {
+          fn: `${string}/${string}`;
+          args: Record<string, z.core.util.JSONType>;
+          keys: string[];
+        } | undefined;
+      };
+    } | {
+      type: "type-diff";
+      name: string;
+      changes: string[];
+      breaks: {
+        fn: string;
+        why: string;
+      }[];
+      before?: TypeDef<any> | undefined;
+      after?: TypeDef<any> | undefined;
+    } | {
+      type: "flags";
+      flags: {
+        path: string;
+        kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
+        rule: string;
+        access: "read" | "write";
+        action: "ask" | "refuse" | "allow";
+        why: string;
+        certain: boolean;
+      }[];
+    })[];
+    irreversible: boolean;
+    subject?: {
+      kind: "system-install";
+      system: SystemName;
+      instance: InstanceName;
+      version: string;
+      manifestHash: string;
+      bundleHash: string;
+      sourceHash: string;
+      host: {
+        system: SystemName;
+        instance: InstanceName;
+      };
+      source?: string | undefined;
+      grants?: {
+        hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "data" | "ai" | "decide")[];
+        models?: {
+          roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe")[] | undefined;
+          models?: string[] | undefined;
+          perRun?: number | undefined;
+          perDay?: number | undefined;
+        } | undefined;
+        secrets?: string[] | undefined;
+        calls?: (`${string}/${string}` | SystemName)[] | undefined;
+        network?: string[] | undefined;
+        files?: {
+          read: string[];
+          write: string[];
+        } | undefined;
+      } | undefined;
+      replaces?: {
+        version: string;
+        manifestHash: string;
+      } | undefined;
+    } | undefined;
+    checks?: {
+      scan: {
+        size: number;
+        builtins: string[];
+        concerns: {
+          kind: "builtin" | "dynamic-import" | "dynamic-require" | "eval" | "new-function";
+          line: number;
+          detail: string;
+          code: string;
+        }[];
+        urls: string[];
+        hosts: string[];
+      };
+      tests?: {
+        system: SystemName;
+        version: string;
+        ranAt: number;
+        duration: number;
+        passed: number;
+        failed: number;
+        skipped: number;
+        cases: {
+          file: string;
+          name: string;
+          status: "failed" | "skipped" | "passed";
+          duration: number;
+          real?: boolean | undefined;
+          error?: string | undefined;
+        }[];
+        more?: number | undefined;
+        previews?: {
+          component: string;
+          state: string;
+          viewport: "phone" | "desktop";
+          theme: "light" | "dark";
+          image: {
+            hash: string;
+            size: number;
+            mime: string;
+          };
+        }[] | undefined;
+      } | undefined;
+    } | undefined;
+    summary?: {
+      line: string;
+      counts: {
+        section: string;
+        added: number;
+        changed: number;
+        removed: number;
+      }[];
+      flags: {
+        flag: "models" | "capabilities" | "secrets" | "effects" | "files" | "calls" | "hosts" | "delete-fns" | "write-fns";
+        line: string;
+        items: string[];
+        lead?: string | undefined;
+        tail?: string | undefined;
+      }[];
+      grants?: "added" | "changed" | "widened" | "narrowed" | undefined;
+      config?: "removed" | "added" | "changed" | undefined;
+    } | undefined;
+  } | undefined;
+  proposed?: boolean | undefined;
+  ask?: {
+    type: TypeDef<any>;
+    into: string;
+  } | undefined;
+};
+```
+
+#### <a id="core-remember"></a>`Remember`
+
+const, type · declared in `packages/core/src/records/actors.ts`
+
+How long an approval answer lasts. `always` turns into a policy.
+
+```ts
+type Remember = "session" | "always" | "once";
+```
+
+#### <a id="core-userview"></a>`UserView`
+
+const, type · declared in `packages/core/src/records/actors.ts`
+
+The public view of a user, as the browser gets it.
+
+```ts
+type UserView = {
+  name: string;
+  kind: "user";
+  role: "admin" | "member";
+  id: string;
+  email: string;
+  timeZone?: string | undefined;
+};
+```
+
 ### From `packages/core/src/records/chat.ts`
 
 #### <a id="core-messagepart"></a>`MessagePart`
@@ -21022,7 +22280,7 @@ type ResourceHit = {
   uri: `${string}://${string}`;
   title: string;
   preview: string;
-  score: number;
+  rank: number;
   section?: SectionKey | undefined;
 };
 ```
@@ -21699,6 +22957,44 @@ type SystemEvent = {
 };
 ```
 
+### From `packages/core/src/system-pages.ts`
+
+#### <a id="core-systempagedecl"></a>`SystemPageDecl`
+
+const, type · declared in `packages/core/src/system-pages.ts`
+
+One page a contract declares (`Manifest.pages`).
+
+```ts
+type SystemPageDecl = {
+  segment: string;
+  title: string;
+  nav: "hidden" | "main";
+  access: "admin" | "everyone";
+  component: string;
+  description?: string | undefined;
+  icon?: string | undefined;
+};
+```
+
+#### <a id="core-systempageinput"></a>`SystemPageInput`
+
+type · declared in `packages/core/src/system-pages.ts`
+
+A page as an author writes it: `nav` and `access` may be left out.
+
+```ts
+type SystemPageInput = {
+  segment: string;
+  title: string;
+  component: string;
+  description?: string | undefined;
+  icon?: string | undefined;
+  nav?: "hidden" | "main" | undefined;
+  access?: "admin" | "everyone" | undefined;
+};
+```
+
 ### From `packages/core/src/system-providers.ts`
 
 #### <a id="core-providermodeldecl"></a>`ProviderModelDecl`
@@ -21851,6 +23147,16 @@ type VisualRank = {
   styles: string[];
   because: string[];
 };
+```
+
+### From `packages/core/src/web.ts`
+
+#### <a id="core-hubwebspec"></a>`HubWebSpec`
+
+type · declared in `packages/core/src/web.ts`
+
+```ts
+type HubWebSpec = typeof hubWebSpec;
 ```
 
 ### From `packages/core/src/widgets.ts`

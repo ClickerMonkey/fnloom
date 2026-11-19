@@ -68,6 +68,7 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
     ...(dictation === undefined ? {} : { dictation }),
     voiceOutput: false,
     uploads: true,
+    meaning: hub.index.embedders.active() !== undefined,
     mentions: mentions.filter((m) => usable.has(m.system) && !mentionsOff.has(m.name)).map((m) => ({ provider: m.name, title: m.decl.title, ...(m.decl.of === undefined ? {} : { of: m.decl.of }) })),
     // hub-made context (memories, context from resources) is always usable; a system's says why it can't run now
     commands: [...contexts.filter((c) => seenNames.has(c.system)), ...made].flatMap((c) => {

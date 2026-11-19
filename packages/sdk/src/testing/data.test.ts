@@ -134,7 +134,7 @@ describe('flags and mentions', () => {
 
   it('lets a mention provider search resources for the person asking', async () => {
     kit = await testHub(notes, impl);
-    kit.hub.onMentionResources = (search) => Promise.resolve([{ uri: 'web://page/1', title: `About ${search.query}`, preview: '', score: 1 }]);
+    kit.hub.onMentionResources = (search) => Promise.resolve([{ uri: 'web://page/1', title: `About ${search.query}`, preview: '', rank: 1 }]);
     const { options, searches } = await kit.mentions('pages', 'otters');
     expect(options).toEqual([{ label: 'About otters', target: { uri: 'web://page/1' } }]);
     expect(searches).toMatchObject([{ query: 'otters', limit: 3 }]);

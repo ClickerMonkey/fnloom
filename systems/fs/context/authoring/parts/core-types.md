@@ -64,6 +64,8 @@ choices:
     when: "Pick this for From packages/core/src/primitives.ts."
   - to: "fs/authoring.core-types.query-ts"
     when: "Pick this for From packages/core/src/query.ts."
+  - to: "fs/authoring.core-types.records-actors-ts"
+    when: "Pick this for From packages/core/src/records/actors.ts."
   - to: "fs/authoring.core-types.records-chat-ts"
     when: "Pick this for From packages/core/src/records/chat.ts."
   - to: "fs/authoring.core-types.records-mcps-ts"
@@ -86,12 +88,16 @@ choices:
     when: "Pick this for From packages/core/src/sensitivity.ts."
   - to: "fs/authoring.core-types.system-events-ts"
     when: "Pick this for From packages/core/src/system-events.ts."
+  - to: "fs/authoring.core-types.system-pages-ts"
+    when: "Pick this for From packages/core/src/system-pages.ts."
   - to: "fs/authoring.core-types.system-providers-ts"
     when: "Pick this for From packages/core/src/system-providers.ts."
   - to: "fs/authoring.core-types.validation-ts"
     when: "Pick this for From packages/core/src/validation.ts."
   - to: "fs/authoring.core-types.visuals-ts"
     when: "Pick this for From packages/core/src/visuals.ts."
+  - to: "fs/authoring.core-types.web-ts"
+    when: "Pick this for From packages/core/src/web.ts."
   - to: "fs/authoring.core-types.widgets-ts"
     when: "Pick this for From packages/core/src/widgets.ts."
 ---
@@ -101,7 +107,7 @@ choices:
 The wire shapes from `@harness/core` that the SDK's declarations refer to, each resolved to plain TypeScript. Each is a
 zod schema in core with its type inferred from it; import the type (and the schema, to parse) from `@harness/core`.
 
-This part is in 43 pieces; load the one you need:
+This part is in 46 pieces; load the one you need:
 
 - [From packages/core/src/access.ts](context:fs/authoring.core-types.access-ts)
 - [From packages/core/src/admin.ts](context:fs/authoring.core-types.admin-ts)
@@ -131,6 +137,7 @@ This part is in 43 pieces; load the one you need:
 - [From packages/core/src/package.ts](context:fs/authoring.core-types.package-ts)
 - [From packages/core/src/primitives.ts](context:fs/authoring.core-types.primitives-ts)
 - [From packages/core/src/query.ts](context:fs/authoring.core-types.query-ts)
+- [From packages/core/src/records/actors.ts](context:fs/authoring.core-types.records-actors-ts)
 - [From packages/core/src/records/chat.ts](context:fs/authoring.core-types.records-chat-ts)
 - [From packages/core/src/records/mcps.ts](context:fs/authoring.core-types.records-mcps-ts)
 - [From packages/core/src/records/runs.ts](context:fs/authoring.core-types.records-runs-ts)
@@ -142,7 +149,9 @@ This part is in 43 pieces; load the one you need:
 - [From packages/core/src/run.ts](context:fs/authoring.core-types.run-ts)
 - [From packages/core/src/sensitivity.ts](context:fs/authoring.core-types.sensitivity-ts)
 - [From packages/core/src/system-events.ts](context:fs/authoring.core-types.system-events-ts)
+- [From packages/core/src/system-pages.ts](context:fs/authoring.core-types.system-pages-ts)
 - [From packages/core/src/system-providers.ts](context:fs/authoring.core-types.system-providers-ts)
 - [From packages/core/src/validation.ts](context:fs/authoring.core-types.validation-ts)
 - [From packages/core/src/visuals.ts](context:fs/authoring.core-types.visuals-ts)
+- [From packages/core/src/web.ts](context:fs/authoring.core-types.web-ts)
 - [From packages/core/src/widgets.ts](context:fs/authoring.core-types.widgets-ts)

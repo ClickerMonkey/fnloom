@@ -1,12 +1,13 @@
 /**
  * Opening a saved widget in a new chat (data-home): the chat is made, the widget runs there as the person's run, and
- * the page moves to it, where its chips, pager and row actions work. The Data page's widget list and the fn page share it.
+ * the page moves to it, where its chips, pager and row actions work. The fn page uses it; the widgets system's own
+ * page does the same through its page host (`host.openChat`).
  */
 import type { QualifiedName } from '@harness/core';
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { links } from '../../app/routes.ts';
 import { fnLabel } from '../../chat/logic/labels.ts';
+import { openChat } from '../../chat/state/open-chat.ts';
 import { useStores } from '../../state/stores.ts';
 
 /** Open widgets in a new chat; `opening` is the widget on its way. */
@@ -17,10 +18,9 @@ export function useWidgetOpener() {
   async function open(widget: QualifiedName): Promise<void> {
     opening.value = widget;
     try {
-      const session = await chat.sessions.create({ title: fnLabel(widget) });
-      if (session === undefined) { toasts.error("Couldn't open the widget", chat.sessions.problem.value); return; }
-      await chat.thread(session).invoke(widget, {});
-      await router.push(links.session(session));
+      await openChat({ chat, push: (to) => router.push(to) }, { title: fnLabel(widget), run: { fn: widget, args: {} } });
+    } catch (error) {
+      toasts.error("Couldn't open the widget", error instanceof Error ? error.message : String(error));
     } finally {
       opening.value = '';
     }

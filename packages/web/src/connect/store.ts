@@ -2,11 +2,11 @@
  * The connect pages: every per-person system the hub offers, with the asker's connections. Loaded once for the nav
  * and again when a page opens; every change answers with the stored connection, which replaces the one held.
  */
-import type { ConnectionChange, ConnectionId, ConnectionView, ConnectPage, InstanceName, Json, SystemName } from '@harness/core';
+import type { ConnectionChange, ConnectionId, ConnectionView, ConnectPage, Json, SystemName } from '@harness/core';
 import { computed } from 'vue';
 import type { ConnectionsApi } from '../api/connections.ts';
 import { Loaded, Task, type Outcome } from '../state/loaded.ts';
-import { connectNav } from './logic.ts';
+import { connectNav, type ConnectTarget } from './logic.ts';
 
 /** What starting a connection came to: go to the provider's sign-in, or the connection made by a form. */
 export type ConnectStarted = { readonly url: string } | { readonly connection: ConnectionView };
@@ -34,11 +34,11 @@ export class ConnectionsStore {
   }
 
   /**
-   * Start connecting: an OAuth system answers the sign-in address, a form system the connection made. `instance` connects
-   * to one instance of an instance-scoped system (an MCP server).
+   * Start connecting: an OAuth system answers the sign-in address, a form system the connection made. `target` connects
+   * to one instance of an instance-scoped system (an MCP server) or one key of a key-scoped one (an API service).
    */
-  async connect(system: SystemName, form?: Json, instance?: InstanceName): Promise<Outcome<ConnectStarted>> {
-    const body = { system, ...(form === undefined ? {} : { form }), ...(instance === undefined ? {} : { instance }) };
+  async connect(system: SystemName, form?: Json, target?: ConnectTarget): Promise<Outcome<ConnectStarted>> {
+    const body = { system, ...(form === undefined ? {} : { form }), ...target };
     const done = await this.saving.run(() => this.#api.connect.call(body), 'Couldn’t start connecting.');
     if (done.ok && 'connection' in done.value) { this.#put(done.value.connection); }
     return done;

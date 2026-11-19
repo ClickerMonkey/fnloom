@@ -5,7 +5,7 @@ title: "Core types: From packages/core/src/system-events.ts"
 description: "Core types, the part on From packages/core/src/system-events.ts."
 summary: "Core types: From packages/core/src/system-events.ts."
 parent: "fs/authoring.core-types"
-next: "fs/authoring.core-types.system-providers-ts"
+next: "fs/authoring.core-types.system-pages-ts"
 suggest: "none"
 tags: ["authoring", "reference"]
 ---

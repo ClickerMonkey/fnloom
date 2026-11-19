@@ -17,6 +17,7 @@ import type { FnInfoStore } from '../fns/state/fn-info.ts';
 import type { FnNotices } from '../fns/state/fn-notices.ts';
 import type { GraphStore } from '../graph/state/graph.ts';
 import type { DataStore } from '../data/state/data.ts';
+import type { SystemPagesStore } from '../system-pages/store.ts';
 import type { ItemVersionsSource } from '../components/versions/versions.ts';
 import type { ClientLogs } from './client-logs.ts';
 import type { SessionStore } from './session.ts';
@@ -54,6 +55,8 @@ export interface Stores {
   readonly graph: () => GraphStore;
   /** The Data pages (build 8): stored types, their records, saved widgets and the actions rows offer. */
   readonly data: DataStore;
+  /** The pages live systems add (item 9), for the nav and `/s/<system>/<page>`. */
+  readonly pages: SystemPagesStore;
   /** Any item's version history (build 8), a page at a time. */
   readonly itemVersions: ItemVersionsSource;
   /** The browser's logs and API traffic, sent to the hub. */

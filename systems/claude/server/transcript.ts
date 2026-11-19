@@ -3,7 +3,8 @@
  * blocks), read with zod; blocks the harness doesn't show (images, documents, redacted thinking) are left out. One
  * message can hold several blocks: the first item keeps the message's uuid, the next ones add `#2`, `#3`, ….
  */
-import { jsonOf, type ClaudeTranscriptItem, type Json } from '@harness/core';
+import { jsonOf, type Json } from '@harness/core';
+import type { ClaudeTranscriptItem } from '../shared/session.ts';
 import { z } from 'zod';
 import { clip } from './preview.ts';
 

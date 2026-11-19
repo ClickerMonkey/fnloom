@@ -263,7 +263,7 @@ describe('fns search in the hub database', () => {
 
   it('ranks inside the database: a `within` list reaches the vector and text indexes', async () => {
     const { store } = await setup();
-    const near = await store.vectors.nearest(DOCUMENT, [1, 0, 0.1], 5, ['fn'], [{ kind: 'fn', key: 'books/void_invoice' }, { kind: 'fn', key: 'notes/read_note' }]);
+    const near = await store.vectors.nearest(DOCUMENT, [1, 0, 0.1], 5, { kinds: ['fn'], within: [{ kind: 'fn', key: 'books/void_invoice' }, { kind: 'fn', key: 'notes/read_note' }] });
     expect(near.map((h) => h.key)).toEqual(['books/void_invoice', 'notes/read_note']);
     const words = await store.text.search({ text: 'invoice', kinds: ['fn'], limit: 5, within: [{ kind: 'fn', key: 'books/close_month' }] });
     expect(words.map((h) => h.key)).toEqual(['books/close_month']);

@@ -119,7 +119,7 @@ describe('records from chat', () => {
       says('Added.'),
     ], [{ approve: true }]);
     // each wrong call was refused with the path of what is wrong, and only the right one was put to Ada
-    expect(results[0]).toContain('"loaded"');
+    expect(results[0]).toContain('<loaded_fns>');
     expect(results[1]).toContain('value.stars');
     expect(results[2]).toMatch(/value\b/);
     expect(results[3]).toContain('due');
@@ -189,9 +189,9 @@ describe('a fn switched off', () => {
       calls([['hub__records_table', { type: TASK }]]),
       says('I can\'t list them now.'),
     ]);
-    expect(off.results[0]).toContain('"refused"');
+    expect(off.results[0]).toContain('<refused_fns>');
     expect(off.results[0]).toContain('hub/records_table');
-    expect(off.results[0]).not.toMatch(/"loaded":\["hub\/records_table"\]/);
+    expect(off.results[0]).not.toContain('<loaded_fns>');
     expect(off.results[1]).toMatch(/turned off|switched off|unavailable|not/i);
     // nothing of it ran
     expect((await runsOf(off.turn)).filter((run) => run.fn === find && run.status === 'done')).toEqual([]);
@@ -202,7 +202,7 @@ describe('a fn switched off', () => {
       calls([['hub__records_table', { type: TASK }]]),
       says('One task.'),
     ]);
-    expect(on.results[0]).toMatch(/"loaded":\["hub\/records_table"\]/);
+    expect(on.results[0]).toMatch(/<loaded_fns>[\s\S]*name="hub\/records_table"/);
     expect(on.results[1]).toContain('Pay rent');
   });
 });
@@ -227,7 +227,8 @@ describe('the hub\'s own fns as the chat calls them', () => {
       says('Noted.'),
       // a memory for the person is a write: it may wait for Ada's approval
     ], [{ approve: true }]);
-    expect(results[0]).toContain('"refused":[]');
+    expect(results[0]).toContain('<loaded_fns>');
+    expect(results[0]).not.toContain('<refused_fns>');
     for (const result of results) { expect(result).not.toMatch(/has no implementation|not-implemented/); }
     // every call was answered, each from the module behind it: the catalog, the contextor, the models, the reads, the
     // person and admin reads, the index and the memories

@@ -15,7 +15,6 @@ import { LlmCallTab, RunTab, TAB_KEYS } from '../chat/logic/inspect.ts';
 import { BrowserQuery } from '../resources/logic/browse.ts';
 import { ContextBrowseQuery, ContextItemQuery } from '../context/logic/context.ts';
 import { GraphUrl } from '../graph/url.ts';
-import { FleetUrl, SessionUrl } from '../claude/logic/claude.ts';
 import { DataSetsUrl, RecordsUrl, typeParts } from '../data/logic/data.ts';
 import { InboxFilter } from '../state/inbox.ts';
 import { OPEN_KEY } from '../state/push-payload.ts';
@@ -71,12 +70,11 @@ export const ROUTES = {
   context: 'context',
   contextItem: 'context-item',
   graph: 'graph',
-  claude: 'claude',
-  claudeSession: 'claude-session',
   data: 'data',
-  dataWidgets: 'data-widgets',
   dataType: 'data-type',
   connect: 'connect',
+  /** A page a system adds (item 9): `/s/<system>/<page>/<path…>`, drawn by its client build. */
+  systemPage: 'system-page',
   settings: 'settings',
   design: 'design',
   notFound: 'not-found',
@@ -131,24 +129,22 @@ export const QUERIES = {
   [ROUTES.contextItem]: ContextItemQuery,
   /** The graph's search and filters (`q`), focus and hops, collapsed systems and references outside. */
   [ROUTES.graph]: GraphUrl,
-  /** The Claude fleet's words and filters, and the new-session dialog open (build 9). */
-  [ROUTES.claude]: FleetUrl,
-  /** A subagent's transcript shown on a Claude session's page. */
-  [ROUTES.claudeSession]: SessionUrl,
   /** The stored types' words and system; a type's records page's words, filters, sort and first row (build 8). */
   [ROUTES.data]: DataSetsUrl,
-  [ROUTES.dataWidgets]: z.object({ q: z.string() }).partial(),
   [ROUTES.dataType]: RecordsUrl,
   [ROUTES.modelCalls]: z.object({ q: z.string(), run: RunId, call: ModelCallId, [TAB_KEYS.llm]: LlmCallTab }).partial(),
   [ROUTES.fns]: z.object({ q: z.string() }).partial(),
   [ROUTES.mcps]: z.object({ create: z.literal('1') }).partial(),
   /** The add dialog, open (build 9). */
   [ROUTES.mcpServers]: z.object({ add: z.literal('1') }).partial(),
-  [ROUTES.apiServices]: z.object({ add: z.literal('1') }).partial(),
+  /** The services' words, and the add dialog, open (to-do phase 4: services are records of the one api instance). */
+  [ROUTES.apiServices]: z.object({ q: z.string(), add: z.literal('1') }).partial(),
   [ROUTES.fn]: z.object({ days: z.enum(['7', '30', '90']), form: z.enum(['readable', 'stored']) }).partial(),
   [ROUTES.pair]: z.object({ code: z.string() }).partial(),
   /** Why connecting failed, as the hub's redirect back from the provider says. */
   [ROUTES.connect]: z.object({ problem: z.string() }).partial(),
+  /** A system page's own keys (its search, filters, tab): the page binds them through its host (`host.query`). */
+  [ROUTES.systemPage]: z.object({}).catchall(z.string()),
 } as const satisfies Partial<Record<RouteName, z.ZodObject>>;
 
 /** The pages that take a query. */
@@ -177,12 +173,6 @@ export const links = {
   message: (session: SessionId, message: MessageId): RouteLocationRaw => ({ name: ROUTES.session, params: { session }, hash: `#m-${message}` }),
   /** A turn's fn tree, over its session. */
   turnTree: (session: SessionId, turn: TurnId): RouteLocationRaw => ({ name: ROUTES.turnTree, params: { session, turn } }),
-  /** The Claude fleet (build 9): the person's sessions, filtered; `new` opens the new-session dialog. */
-  claude: (query: RouteQuery<typeof ROUTES.claude> = {}): RouteLocationRaw => ({ name: ROUTES.claude, ...queryOf(ROUTES.claude, query) }),
-  /** One Claude session on a machine, with a subagent's transcript open when `task` is given. */
-  claudeSession: (instance: string, session: string, query: RouteQuery<typeof ROUTES.claudeSession> = {}): RouteLocationRaw => ({
-    name: ROUTES.claudeSession, params: { instance, session }, ...queryOf(ROUTES.claudeSession, query),
-  }),
   inbox: (filter: InboxFilter = 'all'): RouteLocationRaw => ({ name: ROUTES.inbox, ...queryOf(ROUTES.inbox, filter === 'all' ? {} : { filter }) }),
   /** The systems page; `pairing` picks out a pairing request. */
   systems: (query: RouteQuery<typeof ROUTES.systems> = {}): RouteLocationRaw => ({ name: ROUTES.systems, ...queryOf(ROUTES.systems, query) }),
@@ -237,8 +227,6 @@ export const links = {
   graph: (query: RouteQuery<typeof ROUTES.graph> = {}): RouteLocationRaw => ({ name: ROUTES.graph, ...queryOf(ROUTES.graph, query) }),
   /** The stored types the person sees, by system (build 8). */
   data: (query: RouteQuery<typeof ROUTES.data> = {}): RouteLocationRaw => ({ name: ROUTES.data, ...queryOf(ROUTES.data, query) }),
-  /** The saved widgets. */
-  dataWidgets: (query: RouteQuery<typeof ROUTES.dataWidgets> = {}): RouteLocationRaw => ({ name: ROUTES.dataWidgets, ...queryOf(ROUTES.dataWidgets, query) }),
   /** One stored type's records (`notes/Note` is `/data/notes/Note`), with one record open when `id` is given. */
   dataType: (type: QualifiedName, query: RouteQuery<typeof ROUTES.dataType> = {}, id?: string): RouteLocationRaw => ({
     name: ROUTES.dataType, params: { ...typeParts(type), ...(id === undefined ? {} : { id }) }, ...queryOf(ROUTES.dataType, query),
@@ -261,11 +249,16 @@ export const links = {
   /** The API services api fns run on (build 9); `add: '1'` opens the add dialog. */
   apiServices: (query: RouteQuery<typeof ROUTES.apiServices> = {}): RouteLocationRaw => ({ name: ROUTES.apiServices, ...queryOf(ROUTES.apiServices, query) }),
   /** One API service, on one of its tabs. */
-  apiService: (instance: InstanceName, tab: ApiServiceTab = 'overview'): RouteLocationRaw => ({ name: ROUTES.apiService, params: tab === 'overview' ? { instance } : { instance, tab } }),
+  apiService: (service: string, tab: ApiServiceTab = 'overview'): RouteLocationRaw => ({ name: ROUTES.apiService, params: tab === 'overview' ? { service } : { service, tab } }),
   /** The page a system's pairing QR code opens: approve it with its instance and config. */
   pair: (pairing: PairingId, code?: string): RouteLocationRaw => ({ name: ROUTES.pair, params: { pairing }, ...queryOf(ROUTES.pair, { code }) }),
   /** A per-person system's page (`/connect/google-calendar`): connect your own account and choose what it may do. */
   connect: (system: SystemName): RouteLocationRaw => ({ name: ROUTES.connect, params: { system } }),
+  /** A page a system adds (`/s/claude/sessions`), with the parts under it and its own query (empty keys left out). */
+  systemPage: (system: SystemName, page: string, path: readonly string[] = [], query: Readonly<Record<string, string | undefined>> = {}): RouteLocationRaw => ({
+    name: ROUTES.systemPage, params: { system, page, path: [...path] },
+    ...queryOf(ROUTES.systemPage, Object.fromEntries(Object.entries(query).flatMap(([key, value]) => (value === undefined || value === '' ? [] : [[key, value]])))),
+  }),
   settings: (section: SettingsSection = 'appearance'): RouteLocationRaw => ({ name: ROUTES.settings, params: { section } }),
   design: (section: DesignSection = 'actions'): RouteLocationRaw => ({ name: ROUTES.design, params: { section } }),
 } as const;
@@ -307,13 +300,17 @@ export const routes: RouteRecordRaw[] = [
   { path: '/context', name: ROUTES.context, component: () => import('../pages/ContextPage.vue'), meta: { title: 'Context' } },
   // the graph moved into the admin area; old links keep their filters
   { path: '/graph', redirect: (to) => ({ name: ROUTES.graph, query: to.query, hash: to.hash }) },
-  { path: '/claude', name: ROUTES.claude, component: () => import('../pages/ClaudePage.vue'), meta: { title: 'Claude' } },
-  { path: '/claude/:instance/:session', name: ROUTES.claudeSession, component: () => import('../pages/ClaudeSessionPage.vue'), meta: { title: 'Claude session' } },
+  // the Claude pages moved into the claude system (`/s/claude/…`); old links keep their filters and open task
+  { path: '/claude', redirect: (to) => ({ name: ROUTES.systemPage, params: { system: 'claude', page: 'sessions', path: [] }, query: to.query, hash: to.hash }) },
+  { path: '/claude/:instance/:session', redirect: (to) => ({ name: ROUTES.systemPage, params: { system: 'claude', page: 'session', path: [String(to.params['instance']), String(to.params['session'])] }, query: to.query, hash: to.hash }) },
   { path: '/data', name: ROUTES.data, component: () => import('../pages/DataPage.vue'), meta: { title: 'Data' } },
-  { path: '/data/widgets', name: ROUTES.dataWidgets, component: () => import('../pages/DataPage.vue'), meta: { title: 'Widgets' } },
+  // the saved widgets moved to the widgets system's own page (`/s/widgets/saved`); old links keep their search
+  { path: '/data/widgets', redirect: (to) => ({ name: ROUTES.systemPage, params: { system: 'widgets', page: 'saved', path: [] }, query: to.query, hash: to.hash }) },
   { path: '/data/:system/:local/:id?', name: ROUTES.dataType, component: () => import('../pages/DataTypePage.vue'), meta: { title: 'Data' } },
   { path: '/context/:system/:local(.+)', name: ROUTES.contextItem, component: () => import('../pages/ContextItemPage.vue'), meta: { title: 'Context' } },
   { path: '/pair/:pairing', name: ROUTES.pair, component: () => import('../pages/PairPage.vue'), meta: { title: 'Pair a system', admin: true } },
+  // a system's page: the host finds it among the live systems' pages, or says the system isn't installed (keeping the URL)
+  { path: '/s/:system/:page/:path(.*)*', name: ROUTES.systemPage, component: () => import('../system-pages/SystemPageHost.vue'), meta: { title: 'Page' } },
   { path: '/connect/:system', name: ROUTES.connect, component: () => import('../pages/ConnectPage.vue'), meta: { title: 'Connect' } },
   { path: '/inbox', name: ROUTES.inbox, component: () => import('../pages/InboxPage.vue'), meta: { title: 'Inbox' } },
   {
@@ -341,7 +338,7 @@ export const routes: RouteRecordRaw[] = [
       { path: 'mcp-servers', name: ROUTES.mcpServers, component: () => import('../admin/views/McpServersView.vue'), meta: { title: 'MCP servers' } },
       { path: `mcp-servers/:instance/:tab(${tabs(McpServerTab)})?`, name: ROUTES.mcpServer, component: () => import('../admin/views/McpServerView.vue'), meta: { title: 'MCP server' } },
       { path: 'api-services', name: ROUTES.apiServices, component: () => import('../admin/views/ApiServicesView.vue'), meta: { title: 'API services' } },
-      { path: `api-services/:instance/:tab(${tabs(ApiServiceTab)})?`, name: ROUTES.apiService, component: () => import('../admin/views/ApiServiceView.vue'), meta: { title: 'API service' } },
+      { path: `api-services/:service/:tab(${tabs(ApiServiceTab)})?`, name: ROUTES.apiService, component: () => import('../admin/views/ApiServiceView.vue'), meta: { title: 'API service' } },
       // the resource browser moved to the top level
       { path: 'resources', redirect: (to) => ({ name: ROUTES.resources, query: to.query }) },
     ],

@@ -1,4 +1,4 @@
-import { ApprovalId, BudgetId, HookBlock, RunId, SessionId, type ChatMessage, type RunStatus } from '@harness/core';
+import { ApprovalId, BudgetId, HookBlock, QualifiedName, RunId, SessionId, type ChatMessage, type RunStatus } from '@harness/core';
 import type { AnyViews } from '@harness/sdk';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -13,6 +13,7 @@ import ChatHeader from './ChatHeader.vue';
 import ChatScroller from './ChatScroller.vue';
 import Composer from './Composer.vue';
 import HoverCard from './HoverCard.vue';
+import InvocationForm from './InvocationForm.vue';
 import LlmCallDetails from './LlmCallDetails.vue';
 import MentionChip from './MentionChip.vue';
 import RendererHost from './RendererHost.vue';
@@ -31,6 +32,15 @@ const fnProps = (status: RunStatus): AnyViews['fn'] => ({ run: RunId.parse('run_
 
 const key = (el: Element, k: string, over: KeyboardEventInit = {}): void => { el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...over })); };
 
+describe('InvocationForm', () => {
+  it('names its fn as a pill in its title, and its args as a form', () => {
+    const form = mount(InvocationForm, { props: { invocation: { fn: QualifiedName.parse('fs/read_file'), description: 'Read a file.', args: { name: 'obj', props: {} } }, busy: false } });
+    expect(form.get('.title').text()).toBe('Run Read file');
+    expect(form.get('.title [data-testid=fn-pill]').attributes('data-fn')).toBe('fs/read_file');
+    expect(form.attributes('aria-label')).toBe('Run Read file');
+  });
+});
+
 describe('RunCard', () => {
   it('shows the label, what it is about, live status and cost; never a raw id', () => {
     const card = mount(RunCard, { props: { run: run({ id: 'run_card', totalCost: 0.02, cost: 0.01 }), now: T0 + 2_300, collapsed: false } });
@@ -41,6 +51,11 @@ describe('RunCard', () => {
     expect(card.text()).toContain('$0.02');
     expect(card.text()).not.toContain('run_card');
     expect(card.classes()).toContain('active');
+    // its fn is a pill (which opens the fn), outside the button that opens the run
+    const pill = card.get('.line [data-testid=fn-pill]');
+    expect(pill.attributes('data-fn')).toBe(card.attributes('data-fn'));
+    expect(pill.text()).toBe('Read file');
+    expect(card.get('.summary').find('[data-testid=fn-pill]').exists()).toBe(false);
   });
 
   it('puts a failure in place of its summary, collapses, opens and moves to the background', async () => {

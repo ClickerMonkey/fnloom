@@ -1,13 +1,12 @@
 /**
- * Build 9 on the admin pages: MCP servers and API services as fleets added from the browser (their config drafts with
- * kept secrets, the stores' calls, a server's status and look), and the connect page's instance cards.
+ * Build 9 on the admin pages: MCP servers as a fleet added from the browser (their config drafts with kept secrets, the
+ * stores' calls, a server's status and look), and the connect page's instance cards. API services: `api-services.test.ts`.
  */
 import { ActorId, ConnectPage, InstanceName, InstanceView, Json, SECRET_KEPT, type McpServerStatus } from '@harness/core';
 import { ApiError } from '@ayepi/core/client';
 import { mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it } from 'vitest';
 import McpServerForm from './components/McpServerForm.vue';
-import { API_AUTH_KINDS, apiServiceConfig, apiServiceDraft } from './logic/api-services.ts';
 import { countsText, mcpServerConfig, mcpServerDraft, mirrorPrefix, serverLook } from './logic/mcp-servers.ts';
 import { authCandidate, authDraft, instanceNameOf, withoutKept } from './logic/remote-config.ts';
 import { McpServersStore, promptsQuery } from './state/mcp-servers.ts';
@@ -55,16 +54,9 @@ describe('remote service configs', () => {
     expect(authCandidate(typed).auth).toEqual({ kind: 'headers', per: 'shared', names: ['X-Api-Key'], values: { 'X-Api-Key': 'k1' } });
   });
 
-  it('checks an API service, puts its kept token back, and refuses OAuth (a service names no sign-in endpoints)', () => {
-    const saved: Json = { label: 'Linear', baseUrl: 'https://api.linear.app', auth: { kind: 'bearer', per: 'shared', token: SECRET_KEPT }, timeout: 10_000, maxBody: 2048 };
-    const draft = apiServiceDraft(saved);
-    expect(draft).toMatchObject({ baseUrl: 'https://api.linear.app', timeout: '10', maxBody: '2', auth: { kind: 'bearer', token: '', kept: ['token'] } });
-    const checked = apiServiceConfig(draft);
-    expect(checked.ok && checked.config['auth']).toEqual({ kind: 'bearer', per: 'shared', token: SECRET_KEPT });
+  it('drops a kept secret from a config so its own schema reads it', () => {
+    const saved: Json = { label: 'Linear', baseUrl: 'https://api.linear.app', auth: { kind: 'bearer', per: 'shared', token: SECRET_KEPT } };
     expect(withoutKept(saved, ['auth.token'])).not.toHaveProperty('auth.token');
-    expect(apiServiceConfig({ ...draft, baseUrl: 'api.linear.app' }).ok).toBe(false);
-    expect(apiServiceConfig({ ...draft, auth: { ...draft.auth, kind: 'oauth', per: 'person' } }).ok).toBe(false);
-    expect(API_AUTH_KINDS).not.toContain('oauth');
   });
 
   it('makes instance names from labels and the mirror prefix from the instance', () => {
@@ -133,9 +125,9 @@ describe('connect page instance cards', () => {
       ],
     });
     const cards = instanceCards(page, ActorId.parse('act_me'), false);
-    expect(cards.map((c) => [c.instance, c.flow, c.mayConnect, c.own?.id])).toEqual([
+    expect(cards.map((c) => [c.id, c.flow, c.mayConnect, c.own?.id])).toEqual([
       ['local', 'none', false, undefined], ['docs', 'oauth', false, undefined], ['linear', 'oauth', true, 'cnx_1'],
     ]);
-    expect(instanceCards(page, undefined, true).find((c) => c.instance === 'docs')?.mayConnect).toBe(true);
+    expect(instanceCards(page, undefined, true).find((c) => c.id === 'docs')?.mayConnect).toBe(true);
   });
 });

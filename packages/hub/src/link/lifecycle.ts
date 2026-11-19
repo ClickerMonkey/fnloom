@@ -54,6 +54,8 @@ const SECTION_THINGS: Partial<Record<ContractChange['section'], RegistryThing>> 
 
 /** The name its client build is listed by among a system's components: the code the web loads for its renderers and config component. */
 export const clientItemName = (system: SystemName): string => `${system}: client build`;
+/** The review and switch item of one of a system's pages (`claude: page sessions`), in the components section. */
+export const pageItemName = (system: SystemName, segment: string): string => `${system}: page ${segment}`;
 
 /**
  * Every item of a manifest, keyed by section and listed name (qualified, a `/command`, `<registry>: <label>`). Besides
@@ -85,6 +87,7 @@ export function manifestItems(manifest: Manifest): Map<string, ManifestItem> {
   add({ section: 'grants', name: manifest.name, origin: 'contract', decl: Json.parse(manifest.grants ?? { hub: [] }) });
   add({ section: 'config', name: manifest.name, origin: 'contract', decl: Json.parse(manifest.config) });
   if (manifest.client !== undefined) { add({ section: 'components', name: clientItemName(manifest.name), origin: 'contract', decl: Json.parse(manifest.client) }); }
+  for (const page of manifest.pages ?? []) { add({ section: 'components', name: pageItemName(manifest.name, page.segment), origin: 'contract', decl: Json.parse(page), effect: { thing: 'components' } }); }
   if (manifest.configComponent !== undefined) { add({ section: 'components', name: `${manifest.name}: config component`, origin: 'contract', decl: Json.parse(manifest.configComponent) }); }
   if (manifest.connect !== undefined) { add({ section: 'config', name: `${manifest.name} connect`, origin: 'contract', decl: Json.parse(manifest.connect) }); }
   add({ section: 'config', name: `${manifest.name} events`, origin: 'contract', decl: [...manifest.events].sort() });

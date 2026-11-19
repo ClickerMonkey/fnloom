@@ -1,8 +1,9 @@
 <script setup lang="ts">
 /**
- * An API service's settings (`ApiServiceConfig`): its label and description, the base URL every request is made
- * under, how it signs in, headers sent on every request, its OpenAPI document (the authoring agent reads its
- * operations), and its limits. The parent checks and saves the draft; problems come by config path.
+ * An API service's settings (`ApiService`, a record of the one api instance): its label and description, the base URL
+ * every request is made under, how it signs in (never the secret: tokens are connections, set on the sign-ins page),
+ * headers sent on every request, its OpenAPI document (the authoring agent reads its operations), and its limits. The
+ * parent checks and saves the draft; problems come by field path.
  */
 import { UiInput, UiTextarea } from '../../ui/index.ts';
 import { API_AUTH_KINDS, type ApiServiceDraft } from '../logic/api-services.ts';
@@ -33,7 +34,7 @@ const maxBody = field('maxBody');
       v-model="baseUrl" label="Base URL" type="url" placeholder="https://api.github.com" required hint="Every request is made under it; a program can't leave it."
       :error="problems['baseUrl'] ?? ''" data-testid="service-base-url"
     />
-    <RemoteAuthFields v-model="auth" :problems="problems" :kinds="API_AUTH_KINDS" />
+    <RemoteAuthFields v-model="auth" :problems="problems" :kinds="API_AUTH_KINDS" :secrets="false" />
     <PairRowsEditor v-model:rows="headers" label="Headers on every request" name-placeholder="Accept" value-placeholder="application/json" hint="Not secrets; the sign-in carries those." :error="problems['headers'] ?? ''" testid="service-headers" />
     <UiInput v-model="openapi" label="OpenAPI document" type="url" placeholder="https://api.example.com/openapi.json" hint="The authoring agent reads its operations." :error="problems['openapi'] ?? ''" />
     <div class="pair">

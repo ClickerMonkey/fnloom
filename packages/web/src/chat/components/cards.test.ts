@@ -26,10 +26,12 @@ describe('HandlerCard', () => {
       args: { command: 'seq 1 30', reason: 'not on the safe list' },
       decl: { description: 'Run this command? Your shell setting asks first.', args: { name: 'obj' }, returns: { name: 'bool' } },
     });
-    const card = mount(HandlerCard, { props: { call, fnLabel: 'Bash' } });
+    const card = mount(HandlerCard, { props: { call, fn: 'fs/bash' } });
     expect(card.attributes('data-kind')).toBe('confirm');
     expect(card.get('.title').text()).toBe('Run this command? Your shell setting asks first.');
     expect(card.text()).toContain('Bash is waiting for your answer.');
+    // its fn is a pill, as everywhere a fn is named
+    expect(card.get('.description [data-testid=fn-pill]').attributes('data-fn')).toBe('fs/bash');
     expect(card.get('[data-testid=arg-list]').text()).toContain('seq 1 30');
     expect(card.find('[role=switch]').exists()).toBe(false);
     expect(card.get('[data-testid=handler-yes]').text()).toBe('Run');
@@ -40,7 +42,7 @@ describe('HandlerCard', () => {
 
   it('asks anything else with a form built from the answer type', () => {
     const call = handlerCall({ decl: { description: 'Pick a folder', args: { name: 'obj' }, returns: { name: 'text' } } });
-    const card = mount(HandlerCard, { props: { call, fnLabel: 'Write file' } });
+    const card = mount(HandlerCard, { props: { call, fn: 'fs/write_file' } });
     expect(card.attributes('data-kind')).toBe('form');
     expect(card.find('[data-testid=handler-yes]').exists()).toBe(false);
     expect(card.find('[data-testid=gin-submit]').exists()).toBe(true);
@@ -259,8 +261,9 @@ describe('BudgetCard', () => {
   const ask = { run: RunId.parse('run_b'), budget, reason: 'the hub budget of $5.00 is used up' };
 
   it('says which budget and how much, and lets an admin raise it or leave it', async () => {
-    const card = mount(BudgetCard, { props: { ask, fnLabel: 'Chat', canRaise: true } });
+    const card = mount(BudgetCard, { props: { ask, fn: 'hub/chat', canRaise: true } });
     expect(card.text()).toContain('The hub budget of $5.00 is used up. Chat waits until it is raised.');
+    expect(card.get('.description [data-testid=fn-pill]').attributes('data-fn')).toBe('hub/chat');
     expect(card.get('[data-testid=budget-raise]').text()).toBe('Raise by $5.00 and resume');
     await card.get('[data-testid=budget-raise]').trigger('click');
     await card.get('[data-testid=budget-leave]').trigger('click');
@@ -269,7 +272,7 @@ describe('BudgetCard', () => {
   });
 
   it('tells anyone else an admin was asked', () => {
-    const card = mount(BudgetCard, { props: { ask, fnLabel: 'Chat', canRaise: false } });
+    const card = mount(BudgetCard, { props: { ask, fn: 'hub/chat', canRaise: false } });
     expect(card.find('[data-testid=budget-raise]').exists()).toBe(false);
     expect(card.get('[data-testid=budget-asked]').text()).toBe('An admin has been asked to raise it.');
   });

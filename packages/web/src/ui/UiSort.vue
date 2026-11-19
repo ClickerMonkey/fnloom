@@ -2,7 +2,8 @@
 /**
  * The sort button beside a search box, always saying how the list is sorted ("Started, newest first"). Its menu lists
  * every sortable field; picking the current one turns its direction round, another starts in its natural direction.
- * With no sort of its own the list's default applies and is shown.
+ * With no sort of its own the list's default applies and is shown. A list searched by rank (`rank`, while text is
+ * searched) is best first by default: the button says so ("Best match"), and the menu offers it back first.
  */
 import type { Sort } from '@harness/core';
 import { computed } from 'vue';
@@ -15,21 +16,31 @@ const props = defineProps<{
   fields: SearchFields;
   /** The sort the list gets with none chosen. */
   defaultSort: readonly Sort[];
+  /** The words for best first, when the list is ranked by its search now (its default then, in place of `defaultSort`). */
+  rank?: string | undefined;
 }>();
+/** The menu value of best first (no field is named this). */
+const RANK = ' rank';
 const model = defineModel<readonly Sort[] | undefined>({ required: true });
 
-const applied = computed(() => (model.value !== undefined && model.value.length > 0 ? model.value : props.defaultSort));
+const chosen = computed(() => (model.value !== undefined && model.value.length > 0 ? model.value : undefined));
+const applied = computed(() => chosen.value ?? (props.rank === undefined ? props.defaultSort : []));
 const current = computed(() => applied.value[0]);
-const items = computed<MenuItem<string>[]>(() => Object.entries(props.fields).filter(([, decl]) => decl.sortable).map(([key, decl]) => ({
-  value: key,
-  label: decl.label,
-  ...(current.value?.field === key ? { icon: current.value.dir === 'asc' ? 'chevron-up' : 'chevron-down', hint: 'reverse' } : {}),
-})));
-const words = computed(() => (current.value === undefined ? 'Sort' : sortText(props.fields, current.value)));
+const items = computed<MenuItem<string>[]>(() => [
+  ...(props.rank === undefined ? [] : [{ value: RANK, label: props.rank, ...(chosen.value === undefined ? { icon: 'check' as const } : {}) }]),
+  ...Object.entries(props.fields).filter(([, decl]) => decl.sortable).map(([key, decl]) => ({
+    value: key,
+    label: decl.label,
+    ...(current.value?.field === key ? { icon: current.value.dir === 'asc' ? 'chevron-up' as const : 'chevron-down' as const, hint: 'reverse' } : {}),
+  })),
+]);
+const words = computed(() => (current.value === undefined ? props.rank ?? 'Sort' : sortText(props.fields, current.value)));
 
 function pick(field: string): void {
+  if (field === RANK) { model.value = undefined; return; }
   const next = withSort(props.fields, applied.value, field);
-  const same = JSON.stringify(next) === JSON.stringify(props.defaultSort);
+  // ranked, every field is a choice of its own; else the default is no choice at all
+  const same = props.rank === undefined && JSON.stringify(next) === JSON.stringify(props.defaultSort);
   model.value = same ? undefined : next;
 }
 </script>

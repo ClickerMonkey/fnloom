@@ -15,7 +15,13 @@ import { z } from 'zod';
 import { VectorMeta, createAuxTable } from './auxTables.ts';
 import type { Scope } from './db.ts';
 import { StoreError } from './errors.ts';
-import { WITHIN_CHUNK, type IndexedItem, type VectorIndex } from './index.ts';
+import { WITHIN_CHUNK, type IndexWhere, type VectorIndex } from './index.ts';
+
+/**
+ * sqlite-vec's ceiling on a KNN's k (`SQLITE_VEC_VEC0_K_MAX`): a larger k is an error ("k value in knn query too large"),
+ * so the extra rows asked for excluded keys never pass it (past it, a page can come up short).
+ */
+export const KNN_K_MAX = 4096;
 
 const Nearest = z.object({ kind: IndexedKind, key: z.string(), distance: z.number() });
 
@@ -165,10 +171,9 @@ export class SqliteVectorIndex implements VectorIndex {
     embedder: QualifiedName,
     vector: readonly number[],
     limit: number,
-    kinds?: readonly IndexedKind[],
-    within?: ReadonlyArray<IndexedItem>,
-    prefix?: string,
+    where: IndexWhere = {},
   ): Promise<Array<{ kind: IndexedKind; key: string; score: number }>> {
+    const { kinds, within, prefix, excludeKeys = [] } = where;
     const table = this.#table(embedder);
     if (table === undefined) return [];
     this.#check(embedder, vector);
@@ -177,20 +182,24 @@ export class SqliteVectorIndex implements VectorIndex {
     const byKind = kinds === undefined ? sql`` : sql`and kind in (${sql.join([...kinds])})`;
     const range = prefix === undefined || prefix === '' ? undefined : prefixRange(prefix);
     const byPrefix = range === undefined ? sql`` : range.below === undefined ? sql`and key >= ${range.from}` : sql`and key >= ${range.from} and key < ${range.below}`;
+    const byExclude = (column: string) => (excludeKeys.length === 0 ? sql`` : sql`and ${sql.ref(column)} not in (${sql.join([...excludeKeys])})`);
     const search = async (ids: readonly string[] | undefined) => {
       // sqlite-vec (0.1.9) applies an `id in` list after the KNN's k, so a short list beyond the k nearest found none,
       // and a vec0 `id in` outside a KNN scans the whole table. So the listed items are measured directly, each looked
       // up by id (`cross join` keeps the list first, so every row is a point lookup); an id with no vector finds none.
+      // Excluded keys are the same: applied after the KNN's k, so it asks for that many more and the outer query drops them.
       const result = ids === undefined
         ? await sql`
-          select kind, key, distance from ${sql.table(table)}
-          where embedding match ${vectorBlob(vector)} and k = ${k} ${byKind} ${byPrefix}
-          order by distance`.execute(this.#scope.db)
+          select kind, key, distance from (
+            select kind, key, distance from ${sql.table(table)}
+            where embedding match ${vectorBlob(vector)} and k = ${Math.min(k + excludeKeys.length, KNN_K_MAX)} ${byKind} ${byPrefix}
+          ) where true ${byExclude('key')}
+          order by distance limit ${k}`.execute(this.#scope.db)
         : await sql`
           with listed(id) as (values ${sql.join(ids.map((id) => sql`(${id})`))})
           select v.kind, v.key, vec_distance_cosine(v.embedding, ${vectorBlob(vector)}) as distance
           from listed cross join ${sql.table(table)} as v on v.id = listed.id
-          where true ${byKind} ${byPrefix}
+          where true ${byKind} ${byPrefix} ${byExclude('v.key')}
           order by distance limit ${k}`.execute(this.#scope.db);
       return result.rows.map((row) => Nearest.parse(row));
     };

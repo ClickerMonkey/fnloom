@@ -2,7 +2,8 @@
 /**
  * Every context item the person may see (`/context`), searched, filtered and sorted by the hub with the list's query in
  * the URL (`q`: words, origin, system, tags...), page by page. Text is the hub's one search (words, and meaning when an
- * embedder is up, over each item and its heading sections), best first, each row saying how it was found. "Context" (`?remember=1`) writes a memory (every other
+ * embedder is up, which the box's placeholder says, over each item and its heading sections), best first unless a sort
+ * is chosen, each row saying how it was found. "Context" (`?remember=1`) writes a memory (every other
  * context option folded under Advanced) and "From a resource" (`?from=1`) makes context from one; each opens the item
  * it made. Live: a change to any item refreshes the list quietly.
  */
@@ -17,7 +18,7 @@ import ContextRow from '../context/components/ContextRow.vue';
 import FromResourceDialog from '../context/components/FromResourceDialog.vue';
 import MemoryDialog from '../context/components/MemoryDialog.vue';
 import ListSearch from '../components/query/ListSearch.vue';
-import { filterOf, isFiltered, sharedFacts, sharedText, type MemoryDraft } from '../context/logic/context.ts';
+import { contextPlaceholder, filterOf, isFiltered, sharedFacts, sharedText, type MemoryDraft } from '../context/logic/context.ts';
 import { hubListQuery, useListQuery } from '../state/query.ts';
 import { useStores } from '../state/stores.ts';
 import { UiButton } from '../ui/index.ts';
@@ -36,7 +37,12 @@ const remembering = computed({ get: () => rememberOpen.value === '1', set: (isOp
 const making = computed({ get: () => fromOpen.value === '1', set: (isOpen) => { fromOpen.value = isOpen ? '1' : ''; } });
 
 const filter = computed(() => filterOf(hubListQuery(search.value)));
-onMounted(() => { void chat.access.load(); });
+onMounted(() => {
+  void chat.access.load();
+  // whether an embedder is up; a chat already read them for its session, which says the same
+  if (chat.capabilities.value.value === undefined) { void chat.capabilities.load(undefined); }
+});
+const placeholder = computed(() => contextPlaceholder(chat.capabilities.value.value?.meaning === true));
 watch(() => JSON.stringify(filter.value), () => { void context.show(filter.value); }, { immediate: true });
 context.follow();
 
@@ -74,7 +80,7 @@ async function fromResource(args: ContextFromResourceArgs): Promise<void> {
       <UiButton icon="file" data-testid="context-from-resource" @click="making = true">From a resource</UiButton>
       <UiButton variant="primary" icon="plus" data-testid="context-remember" @click="remembering = true">Context</UiButton>
     </template>
-    <ListSearch v-model="search" list="contexts" label="context" placeholder="Search words and meaning, or filter" :count="items.length" :more="context.list.hasMore.value" :partial="context.list.partial.value" data-testid="context-filters" />
+    <ListSearch v-model="search" list="contexts" label="context" :placeholder="placeholder" ranked :count="items.length" :more="context.list.hasMore.value" :partial="context.list.partial.value" data-testid="context-filters" />
     <LoadState
       :loading="context.list.loading.value && !context.list.loaded.value" :problem="context.list.problem.value" :ready="context.list.loaded.value" :empty="items.length === 0"
       :empty-title="filtered ? 'Nothing matches' : 'No context yet'"

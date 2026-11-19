@@ -1,22 +1,25 @@
 /**
  * The api authoring agent behind `make_api`, on the SDK's `authoringAgent` and the shared program tools (product's api
- * agent, ported): the chat model says what request it wants from the service; this agent works through the forced
- * workflow on `ctx.ai()` and the chat gets back the saved fn of the service.
+ * agent, ported): the chat model says what request it wants from which web API; this agent works through the forced
+ * workflow on `ctx.ai()` and the chat gets back the saved api fn. Like `code`, it authors code: here, code that calls
+ * an external service.
  *
- * - **find:** `search` lists fns (api fns of this service among them; `reuse` answers with one).
+ * - **find:** the service, unless `make_api` named it: `services` lists them (in the hub's database), `use_service`
+ *   picks one, `add_service` adds one from the base URL the request gives (a record, never a secret: people connect
+ *   to it on the Connections page). `search` lists fns (api fns among them; `reuse` answers with one).
  * - **inspect:** `operations` (the service's OpenAPI operations, a page at a time), `load`, `examples` and `signature`.
  * - **set → check → fix:** the draft's request program (and output program) is checked: the request type, a literal
  *   method, one body slot, the output over `response`. A clean GET that calls no fn is sent with the sample args, so the
  *   agent sees the real response; any other request is prepared and shown, never sent. `test` tries other args.
- * - **return:** the clean draft is kept with `hub/save_fn` as an `api/request` fn of this service (`<service>.<name>`).
+ * - **return:** the clean draft is kept with `hub/save_fn` as an `api/request` fn of its service (`<service>.<name>`).
  */
 import type { ExprDef, TypeDef } from '@aeye/gin';
-import { API_KIND, ApiFnSpec, GinExprDef, GinTypeDef, Json, QualifiedName, type ApiServiceConfig, type InstanceName } from '@harness/core';
+import { API_KIND, ApiFnSpec, ApiService, GinExprDef, GinTypeDef, Json, QualifiedName } from '@harness/core';
 import { encodeValue, type Infer, type StoredFn } from '@harness/sdk';
 import { previewText, ProgramAuthoring, ProgramError, programTools, testTool, type ProgramHost, type ProgramSession } from '@harness/sdk/program';
 import { authoringAgent, authoringTool, type AuthoredFn } from '@harness/sdk/server';
 import { z } from 'zod';
-import { ApiPayload, HTTP_TYPES, type OperationsPage } from '../shared/index.ts';
+import { ApiPayload, HTTP_TYPES, type OperationsPage, type ServicesPage } from '../shared/index.ts';
 import { NoCredential, RequestRefused, ResponseFailed, type SendCtx } from './http.ts';
 import { checkApi, runApi, type ApiCheck } from './program.ts';
 
@@ -33,24 +36,39 @@ export interface ApiDraft {
 
 /** What an api authoring run needs from its run besides the program host. */
 export interface ApiAuthoringDeps {
-  /** This instance: the service the fn is for. */
-  readonly service: InstanceName;
-  readonly config: ApiServiceConfig;
-  /** How a request is sent while authoring (GETs only). */
-  readonly send: SendCtx;
+  /** The services, as the run's person sees them (`Services`). */
+  readonly services: {
+    find(query: { text?: string | undefined; limit?: number | undefined }): Promise<ServicesPage>;
+    get(name: string): Promise<ApiService | undefined>;
+    add(input: unknown): Promise<{ service: ApiService }>;
+  };
+  /** How a request to this service is sent while authoring (GETs only), signed by the run's connection to it if any. */
+  send(service: ApiService): SendCtx;
   /** A page of the service's operations; throws when it has no OpenAPI document. */
-  operations(query: { text?: string | undefined; offset?: number | undefined }): Promise<OperationsPage>;
+  operations(service: ApiService, query: { text?: string | undefined; offset?: number | undefined }): Promise<OperationsPage>;
   getFn(name: QualifiedName): Promise<Infer<typeof StoredFn>>;
-  saveFn(args: { name: string; description: string; payload: Json; examples: Array<{ args: Json; result?: Json }> }): Promise<{ fn: string; version: number }>;
+  saveFn(args: { service: string; name: string; description: string; payload: Json; examples: Array<{ args: Json; result?: Json }> }): Promise<{ fn: string; version: number }>;
 }
 
-/** One api authoring run's state. */
+/** One api authoring run's state: the service it writes for, once given, picked or added. */
 export class ApiAuthoring extends ProgramAuthoring {
   readonly deps: ApiAuthoringDeps;
+  #service: ApiService | undefined;
 
-  constructor(input: { host: ProgramHost; deps: ApiAuthoringDeps }) {
+  constructor(input: { host: ProgramHost; deps: ApiAuthoringDeps; service?: ApiService | undefined }) {
     super({ host: input.host, kind: QualifiedName.parse(API_KIND), own: HTTP_TYPES.map((name) => QualifiedName.parse(`api/${name}`)), guide: API_GUIDE });
     this.deps = input.deps;
+    this.#service = input.service;
+  }
+
+  /** The service the fn is for; undefined until it is given, picked or added. */
+  get service(): ApiService | undefined {
+    return this.#service;
+  }
+
+  /** Write for this service from now on. */
+  use(service: ApiService): void {
+    this.#service = service;
   }
 }
 
@@ -118,8 +136,9 @@ export const API_GUIDE = [
 
 /** The agent's job, step by step. */
 const INSTRUCTIONS = [
-  'You write one api fn for the request below: a request to this web API service, kept as a fn of the service. Work through the tools in order; each step unlocks the next.',
+  'You write one api fn for the request below: a request to a web API service, kept as a fn of that service. Work through the tools in order; each step unlocks the next.',
   '',
+  '0. The service, unless one is given: services with words of its name or base URL, then use_service with its name; when there is none, add_service with the base URL the request gives (a short lowercase name, a label, how it signs in; never a token).',
   '1. search with what the request does: an api fn of this service that already does it is the answer (call reuse with its name and stop).',
   '2. operations to find the method, path and params (when the service has an OpenAPI document); examples once; load fns or types you need.',
   '3. signature: the args as an obj type and the result type (what the caller gets, not the whole response).',
@@ -133,12 +152,12 @@ function callText(fn: string, args: Json): string {
   return `${fn}(${JSON.stringify(args)})`;
 }
 
-/** The draft as the payload's parts. */
-function programsOf(draft: ApiDraft, session: Session): ApiFnSpec | undefined {
+/** The draft as the payload's parts, for the service chosen. */
+function programsOf(draft: ApiDraft, session: Session, service: ApiService): ApiFnSpec | undefined {
   const signature = session.state.signature;
   if (signature === undefined) return undefined;
   return {
-    service: session.state.deps.service, args: signature.args, returns: signature.returns, request: draft.request,
+    service: service.name, args: signature.args, returns: signature.returns, request: draft.request,
     ...(draft.responseType === undefined ? {} : { responseType: draft.responseType }),
     ...(draft.output === undefined ? {} : { output: draft.output }),
   };
@@ -147,14 +166,16 @@ function programsOf(draft: ApiDraft, session: Session): ApiFnSpec | undefined {
 /** Check a draft, then send it (a GET calling no fn) or prepare it, with these args. */
 async function tryDraft(draft: ApiDraft, args: Record<string, Json>, session: Session): Promise<{ check: ApiCheck | undefined; problems: string[]; notes: string[]; result?: Json }> {
   const state = session.state;
-  const spec = programsOf(draft, session);
+  const service = state.service;
+  if (service === undefined) return { check: undefined, problems: [NO_SERVICE], notes: [] };
+  const spec = programsOf(draft, session, service);
   if (spec === undefined) return { check: undefined, problems: ['Declare the signature first (signature), then set the draft again.'], notes: [] };
   const check = checkApi(state.program, spec);
   if (check.problems.length > 0) return { check, problems: check.problems, notes: [] };
   if (check.calls.length > 0) return { check, problems: [], notes: [`It calls ${check.calls.join(', ')}, so it was checked, not run.`] };
   const sendable = check.method === 'GET' || check.method === 'HEAD';
   try {
-    const outcome = await runApi({ program: state.program, spec, check, config: state.deps.config, send: state.deps.send, call: () => Promise.reject(new Error('A test run calls no fn.')) }, args, { prepareOnly: !sendable });
+    const outcome = await runApi({ program: state.program, spec, check, service, send: state.deps.send(service), call: () => Promise.reject(new Error('A test run calls no fn.')) }, args, { prepareOnly: !sendable });
     const exchange = `${outcome.exchange.method} ${outcome.exchange.url}${outcome.exchange.response === undefined ? '' : ` → ${String(outcome.exchange.response.status)}`}`;
     return {
       check, problems: [],
@@ -169,15 +190,73 @@ async function tryDraft(draft: ApiDraft, args: Record<string, Json>, session: Se
   }
 }
 
+/** What a check says while no service is chosen. */
+const NO_SERVICE = 'Choose the service first: use_service with one services listed, or add_service with its base URL.';
+
+/** A service in one line: its name, label, base URL, sign-in and whether it has an OpenAPI document. */
+function serviceLine(service: ApiService): string {
+  const auth = service.auth.kind === 'none' ? 'no sign-in' : `${service.auth.kind} (${service.auth.per})`;
+  return `- ${service.name}: ${service.label}, ${service.baseUrl}, ${auth}${service.openapi === undefined ? '' : ', has an OpenAPI document'}${service.description === undefined ? '' : `. ${service.description}`}`;
+}
+
+/** `services`: the services there are, by words of their name, label, description or base URL. */
+const servicesTool = authoringTool<ApiAuthoring, ApiDraft, { text?: string | undefined }>({
+  name: 'services',
+  stage: 'find',
+  description: 'List the web API services api fns are sent to, narrowed by words of their name, label, description or base URL.',
+  schema: z.object({ text: z.string().optional().describe('Words of the service\'s name, label or base URL.') }),
+  when: (session) => session.state.service === undefined,
+  async call({ text }, session) {
+    const page = await session.state.deps.services.find({ text, limit: 10 });
+    return page.items.length === 0 ? 'No service matches: add_service adds one from its base URL.' : ['Services (use_service with the one the request is for):', ...page.items.map(serviceLine)].join('\n');
+  },
+});
+
+/** `use_service`: write for a service there is. */
+const useServiceTool = authoringTool<ApiAuthoring, ApiDraft, { name: string }>({
+  name: 'use_service',
+  stage: 'find',
+  description: 'Write the fn for this service (one services listed).',
+  schema: z.object({ name: z.string().min(1).describe('The service\'s name, as services listed it.') }),
+  when: (session) => session.state.service === undefined,
+  async call({ name }, session) {
+    const service = await session.state.deps.services.get(name);
+    if (service === undefined) throw new Error(`There is no service ${name}: services lists them.`);
+    session.state.use(service);
+    return `Writing for ${service.label}:\n${serviceLine(service)}`;
+  },
+});
+
+/** What `add_service` takes: a service without the tunables (their defaults are kept). */
+const NewService = ApiService.omit({ timeout: true, maxBody: true });
+
+/** `add_service`: add the service the request is for, from its base URL; it holds no secret. */
+const addServiceTool = authoringTool<ApiAuthoring, ApiDraft, z.infer<typeof NewService>>({
+  name: 'add_service',
+  stage: 'find',
+  description: 'Add the web API service the request is for, when services lists none: its name, label, base URL, how it signs in, and its OpenAPI document when the request gives one.',
+  instructions: 'Only for a service there is none of. Never put a token in it: people connect their own (per: person), or an admin sets a shared one (per: shared), on the Connections page.',
+  schema: NewService,
+  when: (session) => session.state.service === undefined,
+  async call(input, session) {
+    const { service } = await session.state.deps.services.add(input);
+    session.state.use(service);
+    const signIn = service.auth.kind === 'none' ? '' : ` People connect to it on the Connections page (${service.auth.per === 'person' ? 'each their own' : 'an admin, for everyone'}).`;
+    return `Added ${service.label} and writing for it:\n${serviceLine(service)}${signIn}`;
+  },
+});
+
 /** `operations`: the service's OpenAPI operations, narrowed by words, a page at a time. */
 const operationsTool = authoringTool<ApiAuthoring, ApiDraft, { text?: string | undefined; offset?: number | undefined }>({
   name: 'operations',
   stage: 'inspect',
   description: 'List the service\'s operations (method, path, summary) from its OpenAPI document, narrowed by words of the path or summary.',
   schema: z.object({ text: z.string().optional().describe('Words of the path or summary.'), offset: z.number().int().min(0).optional().describe('`next` of the last page.') }),
-  when: (session) => session.state.deps.config.openapi !== undefined,
+  when: (session) => session.state.service?.openapi !== undefined,
   async call(query, session) {
-    const page = await session.state.deps.operations(query);
+    const service = session.state.service;
+    if (service === undefined) throw new Error(NO_SERVICE);
+    const page = await session.state.deps.operations(service, query);
     return [
       page.items.length === 0 ? 'No operation matches.' : `Operations (${String(page.total)} match):`,
       ...page.items.map((op) => `- ${op.method} ${op.path}${op.operationId === undefined ? '' : ` (${op.operationId})`}: ${op.summary}`),
@@ -209,9 +288,9 @@ function draftSchema(session: Session): z.ZodType<ApiDraft> {
 /** The api authoring agent. Run it with the run's `ctx.ai()` and an `ApiAuthoring`. */
 export const apiAuthoring = authoringAgent<ApiAuthoring, ApiDraft>({
   name: 'api_author',
-  description: 'Find or write one api fn (a request to this service, and how its response becomes the result).',
+  description: 'Find or write one api fn (a request to a web API service, and how its response becomes the result).',
   instructions: INSTRUCTIONS,
-  tools: [...programTools<ApiAuthoring, ApiDraft>(), operationsTool, apiTest],
+  tools: [servicesTool, useServiceTool, addServiceTool, ...programTools<ApiAuthoring, ApiDraft>(), operationsTool, apiTest],
   toolNames: { draft: 'set', save: 'return' },
   draft: { description: 'an api fn: name, description, the request program, responseType and output when needed, and sample args.', schema: draftSchema },
   async check(draft, session) {
@@ -225,11 +304,13 @@ export const apiAuthoring = authoringAgent<ApiAuthoring, ApiDraft>({
   },
   async save(draft, session) {
     const state = session.state;
-    const spec = programsOf(draft, session);
+    const service = state.service;
+    if (service === undefined) throw new Error(NO_SERVICE);
+    const spec = programsOf(draft, session, service);
     if (spec === undefined) throw new Error('Declare the signature first.');
     const preview = session.lastCheck?.preview;
     const saved = await state.deps.saveFn({
-      name: `${state.deps.service}.${draft.name}`, description: draft.description, payload: encodeValue(ApiPayload, spec),
+      service: service.name, name: `${service.name}.${draft.name}`, description: draft.description, payload: encodeValue(ApiPayload, spec),
       examples: [{ args: draft.sample, ...(preview === undefined ? {} : { result: preview }) }],
     });
     return {
@@ -243,7 +324,9 @@ export const apiAuthoring = authoringAgent<ApiAuthoring, ApiDraft>({
     if (!name.success || !session.disclosure.awareUnloaded('fn').concat(session.disclosure.loaded('fn')).includes(fn)) return `${fn} was not listed by search.`;
     const stored = await state.deps.getFn(name.data);
     const spec = ApiFnSpec.safeParse(stored.payload);
-    if (stored.kind !== API_KIND || !spec.success || spec.data.service !== state.deps.service) return `${fn} is not an api fn of this service.`;
+    const service = state.service;
+    if (stored.kind !== API_KIND || !spec.success) return `${fn} is not an api fn.`;
+    if (service !== undefined && spec.data.service !== service.name) return `${fn} is an api fn of ${spec.data.service}, not ${service.name}.`;
     await state.loadTypes([...state.program.unresolved(spec.data.args), ...state.program.unresolved(spec.data.returns)].map((type) => QualifiedName.parse(type)));
     return { fn: stored.fn, version: stored.version, about: stored.description, reused: true, signature: state.program.signature(stored.fn, spec.data.args, spec.data.returns), call: callText(stored.fn, {}) };
   },

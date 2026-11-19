@@ -5,7 +5,7 @@
  * result. Absent an output program, the response body is the result.
  */
 import type { ExprDef, Type, TypeDef } from '@aeye/gin';
-import { HttpMethod, isGinExprDef, Json, type ApiFnSpec, type ApiServiceConfig, type HttpExchange, type QualifiedName } from '@harness/core';
+import { HttpMethod, isGinExprDef, Json, type ApiFnSpec, type ApiService, type HttpExchange, type QualifiedName } from '@harness/core';
 import { checkProgram, runProgram, type ProgramCheck, type ProgramScope } from '@harness/sdk/program';
 import { ginAs } from '@harness/sdk';
 import { HttpRequest, HttpResponse } from '../shared/http.ts';
@@ -119,7 +119,7 @@ export interface ApiRun {
   readonly program: ProgramScope;
   readonly spec: ApiPrograms;
   readonly check: ApiCheck;
-  readonly config: ApiServiceConfig;
+  readonly service: ApiService;
   readonly send: SendCtx;
   readonly call: (fn: QualifiedName, args: Json) => Promise<Json>;
 }
@@ -144,9 +144,9 @@ export async function runApi(run: ApiRun, args: Json, options: { prepareOnly?: b
   if (request.method !== check.method) {
     throw new RequestRefused(`The request was checked as ${check.method ?? 'no method'} but built as ${request.method}: the method is written once, literally, and never changed.`);
   }
-  const prepared = await prepare(request, run.config, run.send);
+  const prepared = await prepare(request, run.service, run.send);
   if (options.prepareOnly === true) return { exchange: prepared.exchange };
-  const sent = await send(prepared, run.config, run.send);
+  const sent = await send(prepared, run.service, run.send);
   if (spec.output === undefined || check.output?.expr === undefined || spec.responseType === undefined) {
     return { exchange: sent.exchange, result: Json.parse(program.parse(spec.returns).parse(sent.response.body).encodeLogical()) };
   }

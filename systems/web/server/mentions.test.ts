@@ -7,7 +7,7 @@ const VUE: ResourceUri = 'hub://resources/web/vuejs.org/guide/introduction';
 const REPORT: ResourceUri = 'hub://resources/web/example.com/report';
 
 function hit(uri: ResourceUri, title: string, section?: string): ResourceHit {
-  return { uri, title, preview: `${title}: the text that matched`, score: 1, ...(section === undefined ? {} : { section: SectionKey.parse(section) }) };
+  return { uri, title, preview: `${title}: the text that matched`, rank: 1, ...(section === undefined ? {} : { section: SectionKey.parse(section) }) };
 }
 
 /** A mention ctx whose resources answer from a list, recording each search, and whose log keeps warnings. */

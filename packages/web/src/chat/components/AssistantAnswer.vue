@@ -132,7 +132,8 @@ function setReasoning(id: string, open: boolean): void {
     <div class="column">
       <header class="head">
         <span class="author">{{ authorName }}</span>
-        <time class="time" :datetime="new Date(first.createdAt).toISOString()" :title="fullTime(first.createdAt)">{{ relativeTime(first.createdAt, now) }}</time>
+        <!-- a message with no time (createdAt 0: a system page's conversation, components.Conversation) leaves it out -->
+        <time v-if="first.createdAt > 0" class="time" :datetime="new Date(first.createdAt).toISOString()" :title="fullTime(first.createdAt)">{{ relativeTime(first.createdAt, now) }}</time>
         <button v-if="allRuns.length > 1" type="button" class="collapse-all" @click="emit('collapseAll', anyExpanded)">
           {{ anyExpanded ? 'Collapse all' : 'Expand all' }}
         </button>

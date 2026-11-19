@@ -5,7 +5,8 @@
  * the three requests a person answers (`PermitRequest`, `QuestionRequest`), already in the harness's words, so the
  * fleet never sees an SDK message.
  */
-import type { ClaudeImportable, ClaudePermissionMode, McpServerConfig, ClaudeSessionId, ClaudeTask, ClaudeTranscriptItem, GinTypeDef, Json, JsonObject } from '@harness/core';
+import type { McpServerConfig, GinTypeDef, Json, JsonObject } from '@harness/core';
+import type { ClaudeImportable, ClaudePermissionMode, ClaudeSessionId, ClaudeTask, ClaudeTranscriptItem } from '../shared/session.ts';
 
 /** How to open a live session: a new one (with its id minted by the fleet) or one resumed from Claude's store. */
 export interface DriverOpen {

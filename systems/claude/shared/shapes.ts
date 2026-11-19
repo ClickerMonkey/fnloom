@@ -1,8 +1,9 @@
 /**
  * The claude system's own shapes (zod first; the contract reads them into gin with `ginAs`). The shared contracts a
- * web page or another system also reads (`ClaudeSession`, `ClaudeStart`, …) are in `@harness/core` (`claude.ts`).
+ * web page or another system also reads (`ClaudeSession`, `ClaudeStart`, …) are in `session.ts`.
  */
-import { ClaudeFolder, ClaudeImportable, ClaudeSessionId, ClaudeSessionRef, InstanceName, Timestamp } from '@harness/core';
+import { InstanceName, Timestamp } from '@harness/core';
+import { ClaudeFolder, ClaudeImportable, ClaudeSessionId, ClaudeSessionRef } from './session.ts';
 import { z } from 'zod';
 
 /** A page of Claude's own store (`claude/disk_sessions`): every session on the machine, live or not. */

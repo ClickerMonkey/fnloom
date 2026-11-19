@@ -3,13 +3,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { StoreError } from './errors.ts';
 import { memoryLog } from '../testing.ts';
 import { TEST_EMBEDDER, openTestStore, tempDir } from './fixtures.ts';
-import { HybridSearch, fuseRanks } from './hybrid.ts';
+import { HybridSearch, fuseRanks, type HybridQuery } from './hybrid.ts';
 import type { TextIndex, VectorIndex } from './index.ts';
 import Database from 'better-sqlite3';
 import * as sqliteVec from 'sqlite-vec';
 import { SqliteStore } from './sqlite.ts';
 import { matchExpression } from './text.ts';
-import { similarity, vectorTable } from './vectors.ts';
+import { KNN_K_MAX, similarity, vectorTable } from './vectors.ts';
 
 let store: SqliteStore;
 beforeEach(async () => {
@@ -36,6 +36,12 @@ describe('text index', () => {
     expect(hits[0]?.score).toBeGreaterThan(hits[1]?.score ?? Infinity);
     const both = await store.text.search({ text: 'read', kinds: ['fn', 'context'], limit: 10 });
     expect(both.map((h) => h.kind).sort()).toEqual(['context', 'fn']);
+  });
+
+  it('leaves excluded keys out inside the search, so the limit still fills', async () => {
+    expect((await store.text.search({ text: 'read file', kinds: ['fn'], limit: 1, excludeKeys: ['fs/read'] })).map((h) => h.key)).toEqual(['fs/write']);
+    expect((await store.text.search({ text: 'read', kinds: ['fn', 'context'], limit: 10, excludeKeys: ['fs/read'] })).map((h) => h.key)).toEqual(['fs/guide']);
+    expect((await store.text.search({ text: 'read', kinds: ['fn', 'context'], limit: 10, within: [{ kind: 'fn', key: 'fs/read' }, { kind: 'context', key: 'fs/guide' }], excludeKeys: ['fs/guide'] })).map((h) => h.key)).toEqual(['fs/read']);
   });
 
   it('stems words and folds diacritics', async () => {
@@ -90,35 +96,51 @@ describe('vector index', () => {
   });
 
   it('finds nearest by cosine similarity, filtered by kind', async () => {
-    const hits = await store.vectors.nearest(TEST_EMBEDDER, [1, 0.1, 0], 10, kinds);
+    const hits = await store.vectors.nearest(TEST_EMBEDDER, [1, 0.1, 0], 10, { kinds });
     expect(hits.map((h) => h.key)).toEqual(['x', 'xy', 'y', 'minus-x']);
     expect(hits[0]?.score).toBeCloseTo(0.995, 2);
     expect(hits.at(-1)?.score).toBe(0);
-    expect((await store.vectors.nearest(TEST_EMBEDDER, [0, 1, 0], 10, ['context'])).map((h) => h.key)).toEqual(['y']);
+    expect((await store.vectors.nearest(TEST_EMBEDDER, [0, 1, 0], 10, { kinds: ['context'] })).map((h) => h.key)).toEqual(['y']);
     expect(await store.vectors.nearest(TEST_EMBEDDER, [0, 1, 0], 2)).toHaveLength(2);
     expect(await store.vectors.nearest(TEST_EMBEDDER, [0, 1, 0], 0)).toEqual([]);
-    expect(await store.vectors.nearest(TEST_EMBEDDER, [0, 1, 0], 5, [])).toEqual([]);
+    expect(await store.vectors.nearest(TEST_EMBEDDER, [0, 1, 0], 5, { kinds: [] })).toEqual([]);
   });
 
   it('keeps to a `within` list that names items with no vector yet', async () => {
     const within = [{ kind: 'fn' as const, key: 'x' }, { kind: 'context' as const, key: 'not-embedded' }, { kind: 'context' as const, key: 'y' }];
-    expect((await store.vectors.nearest(TEST_EMBEDDER, [1, 0.1, 0], 10, kinds, within)).map((h) => h.key)).toEqual(['x', 'y']);
-    expect(await store.vectors.nearest(TEST_EMBEDDER, [1, 0, 0], 10, kinds, [{ kind: 'fn', key: 'nothing' }])).toEqual([]);
+    expect((await store.vectors.nearest(TEST_EMBEDDER, [1, 0.1, 0], 10, { kinds, within })).map((h) => h.key)).toEqual(['x', 'y']);
+    expect(await store.vectors.nearest(TEST_EMBEDDER, [1, 0, 0], 10, { kinds, within: [{ kind: 'fn', key: 'nothing' }] })).toEqual([]);
   });
 
   // regression: sqlite-vec applies an id list after the KNN's k, so items past the k nearest of the whole table vanished
   it('finds the items of a `within` list however far they are from the nearest of the whole table', async () => {
-    const far = await store.vectors.nearest(TEST_EMBEDDER, [1, 0.1, 0], 1, kinds, [{ kind: 'context', key: 'y' }, { kind: 'fn', key: 'minus-x' }]);
+    const far = await store.vectors.nearest(TEST_EMBEDDER, [1, 0.1, 0], 1, { kinds, within: [{ kind: 'context', key: 'y' }, { kind: 'fn', key: 'minus-x' }] });
     expect(far.map((h) => h.key)).toEqual(['y']);
     expect(far[0]?.score).toBeCloseTo(0.1 / Math.hypot(1, 0.1), 5);
-    expect((await store.vectors.nearest(TEST_EMBEDDER, [1, 0.1, 0], 2, ['fn'], [{ kind: 'context', key: 'y' }, { kind: 'fn', key: 'minus-x' }])).map((h) => h.key)).toEqual(['minus-x']);
+    expect((await store.vectors.nearest(TEST_EMBEDDER, [1, 0.1, 0], 2, { kinds: ['fn'], within: [{ kind: 'context', key: 'y' }, { kind: 'fn', key: 'minus-x' }] })).map((h) => h.key)).toEqual(['minus-x']);
   });
 
   it('keeps to keys with a prefix inside the search, so other keys never use up the limit', async () => {
     const crowd = Array.from({ length: 30 }, (_, i) => ({ kind: 'fn' as const, key: `x-other-${i}`, vector: [1, 0.01 * (i + 1), 0] }));
     await store.vectors.upsert(TEST_EMBEDDER, [...crowd, { kind: 'fn', key: 'mine-1', vector: [0, 1, 1] }]);
-    expect((await store.vectors.nearest(TEST_EMBEDDER, [1, 0, 0], 2, kinds, undefined, 'mine-')).map((h) => h.key)).toEqual(['mine-1']);
-    expect((await store.vectors.nearest(TEST_EMBEDDER, [1, 0, 0], 3, kinds, undefined, 'x')).map((h) => h.key)).toEqual(['x', 'x-other-0', 'x-other-1']);
+    expect((await store.vectors.nearest(TEST_EMBEDDER, [1, 0, 0], 2, { kinds, prefix: 'mine-' })).map((h) => h.key)).toEqual(['mine-1']);
+    expect((await store.vectors.nearest(TEST_EMBEDDER, [1, 0, 0], 3, { kinds, prefix: 'x' })).map((h) => h.key)).toEqual(['x', 'x-other-0', 'x-other-1']);
+  });
+
+  it('leaves excluded keys out inside the search, of any kind, so they never use up the limit', async () => {
+    // the nearest two are x and xy; excluded, the next two come in their place
+    expect((await store.vectors.nearest(TEST_EMBEDDER, [1, 0.1, 0], 2, { kinds, excludeKeys: ['x', 'xy'] })).map((h) => h.key)).toEqual(['y', 'minus-x']);
+    expect((await store.vectors.nearest(TEST_EMBEDDER, [0, 1, 0], 10, { excludeKeys: ['y'] })).map((h) => h.key)).not.toContain('y');
+    // with a `within` list too
+    const within = [{ kind: 'fn' as const, key: 'x' }, { kind: 'context' as const, key: 'y' }];
+    expect((await store.vectors.nearest(TEST_EMBEDDER, [1, 0.1, 0], 2, { kinds, within, excludeKeys: ['x'] })).map((h) => h.key)).toEqual(['y']);
+    expect(await store.vectors.nearest(TEST_EMBEDDER, [1, 0.1, 0], 2, { kinds, excludeKeys: [] })).toHaveLength(2);
+  });
+
+  // regression: k plus the excluded keys passed sqlite-vec's k ceiling (4096) for a chat suggested thousands of items
+  it('keeps the k it asks for under sqlite-vec\'s ceiling however many keys are excluded', async () => {
+    const many = [...Array.from({ length: KNN_K_MAX + 10 }, (_, i) => `gone-${i}`), 'x'];
+    expect((await store.vectors.nearest(TEST_EMBEDDER, [1, 0.1, 0], 2, { kinds, excludeKeys: many })).map((h) => h.key)).toEqual(['xy', 'y']);
   });
 
   it('replaces a vector on upsert and removes by kind and key', async () => {
@@ -196,7 +218,7 @@ describe('vector index', () => {
       const again = SqliteStore.open({ file, dimensions: { [TEST_EMBEDDER]: 3 }, log });
       await again.migrate();
       expect(records.find((r) => r.msg === 'store.vectors.relaid')).toMatchObject({ table });
-      expect((await again.vectors.nearest(TEST_EMBEDDER, [1, 0, 0], 5, ['fn'], undefined, 'ke')).map((h) => h.key)).toEqual(['kept']);
+      expect((await again.vectors.nearest(TEST_EMBEDDER, [1, 0, 0], 5, { kinds: ['fn'], prefix: 'ke' })).map((h) => h.key)).toEqual(['kept']);
       await again.close();
     } finally {
       tmp.dispose();
@@ -304,6 +326,16 @@ describe('hybrid search', () => {
     expect(asked).toEqual([5, 5]);
     expect(hits).toHaveLength(1);
     expect(hits[0]).toMatchObject({ key: 'v', similarity: 1 });
+  });
+
+  it('hands excluded keys to both indexes, which leave them out in the database', async () => {
+    await store.vectors.ensure(TEST_EMBEDDER, 3);
+    await store.vectors.upsert(TEST_EMBEDDER, [{ kind: 'fn', key: 'fs/read', vector: [1, 0, 0] }, { kind: 'fn', key: 'fs/write', vector: [0.9, 0.1, 0] }]);
+    const vector: HybridQuery['vector'] = { embedder: TEST_EMBEDDER, values: [1, 0, 0] };
+    expect((await store.search.search({ text: 'read file', kinds: ['fn'], limit: 1, vector })).map((h) => h.key)).toEqual(['fs/read']);
+    const excluded = await store.search.search({ text: 'read file', kinds: ['fn'], limit: 1, vector, excludeKeys: ['fs/read'] });
+    expect(excluded.map((h) => h.key)).toEqual(['fs/write']);
+    expect(excluded[0]?.similarity).toBeGreaterThan(0.9);
   });
 
   // regression: the "You there?" chat (2026-11-17) offered the web fns at 0.94 to 1 for every message; the score was

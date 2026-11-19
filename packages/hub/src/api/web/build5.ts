@@ -12,6 +12,7 @@ import { mayView, type FullHandlers, type Viewer } from './access.ts';
 import type { systemsPlugin } from './systems.ts';
 import type { Asker } from '../../fns/index.ts';
 import { seesTypeNamed } from '../../access/scope.ts';
+import { systemPagesFor } from './pages.ts';
 
 /** What the approvals read uses. */
 export type ApprovalsHub = Pick<HubServices, 'chat' | 'execution' | 'store'>;
@@ -94,6 +95,9 @@ export function build5Plugins(hub: HubServices, systems: ReturnType<typeof syste
     plugin({ name: 'web.approvals', spec: approvalsSlice, requires: [systems] })
       .handlers((): FullHandlers<typeof approvalsSlice> => ({ approvals: ({ data, user }) => approvalsOf(hub, data.runs, user) })),
     plugin({ name: 'web.registries', spec: registriesSlice, requires: [systems] })
-      .handlers((): FullHandlers<typeof registriesSlice> => ({ contributions: ({ data, user }) => contributionsTo(hub, data.registry, user.id) })),
+      .handlers((): FullHandlers<typeof registriesSlice> => ({
+        contributions: ({ data, user }) => contributionsTo(hub, data.registry, user.id),
+        systemPages: ({ user }) => systemPagesFor(hub, user),
+      })),
   ] as const;
 }

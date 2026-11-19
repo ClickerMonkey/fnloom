@@ -3,7 +3,8 @@
  * - an MCP server added from the web app (`addInstance`) becomes an `mcp` instance whose tools run with approvals:
  *   a local server over stdio (its tool called from chat), and one over HTTP behind a bearer token (called by hand);
  * - a code fn is written by `code/make_code` and runs;
- * - an API service added the same way gets an api fn written by `api/make_api` against a local JSON service, which runs;
+ * - an API service added as a record of the one api instance gets an api fn written by `api/make_api` against a local
+ *   JSON service, which runs;
  * - with `HARNESS_E2E_CLAUDE` (it starts one real Claude Code session, on Haiku), the claude system starts a session in
  *   a scratch folder, its tool permission shows as an approval card in the chat, and the answer goes back to Claude.
  * The local services listen on `HARNESS_E2E_SERVICE_PORT` and the one after it.
@@ -12,9 +13,8 @@ import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join, resolve } from 'node:path';
 import { BearerAuth, McpToolSet, mcpHttp, mcpToolServer, textResult, type McpHttpHandler } from '@ayepi/mcp';
-import {
-  CLAUDE_SESSION_TYPE, ClaudeSession, ClaudeTurn, InstanceName, QualifiedName, SystemName, isSettled, qualify, type Json, type Run, type SessionId,
-} from '@harness/core';
+import { InstanceName, QualifiedName, SystemName, isSettled, qualify, type Json, type Run, type SessionId } from '@harness/core';
+import { CLAUDE_SESSION_TYPE, ClaudeSession, ClaudeTurn } from '@harness/system-claude';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { waitFor, type SignedIn } from '../scripts/hub-client.ts';
@@ -162,14 +162,14 @@ describe('code and api fns', () => {
     expect(resultOf((await invoked(fn, { a: 2, b: 40 })).run)).toBe(42);
   }, 3 * TURN);
 
-  it('writes an api fn for a service added from the web app and runs it', async () => {
+  it('writes an api fn for a service added as a record of the one api instance and runs it', async () => {
     const base = `http://127.0.0.1:${String(API_PORT)}`;
-    await addInstance(API, 'todos', { label: 'Todos', baseUrl: base, openapi: `${base}/openapi.json`, auth: { kind: 'none' } });
     await usable(API, 'api/make_api');
-    const made = resultOf((await invoked('api/make_api', { request: 'One todo by its id: GET /todos/{id}; arg id (num); give its title (text). Todo 7 gives "Todo number 7".' }, 'todos')).run);
+    await me.hub.call('saveRecord', { type: QualifiedName.parse('api/Service'), value: { name: 'todos', label: 'Todos', baseUrl: base, openapi: `${base}/openapi.json`, auth: { kind: 'none' } } });
+    const made = resultOf((await invoked('api/make_api', { request: 'One todo by its id: GET /todos/{id}; arg id (num); give its title (text). Todo 7 gives "Todo number 7".', service: 'todos' })).run);
     const { fn } = Authored.parse(made);
-    expect(fn).toMatch(/^api\//);
-    expect(JSON.stringify(resultOf((await invoked(fn, { id: 12 }, 'todos')).run))).toContain('Todo number 12');
+    expect(fn).toMatch(/^api\/todos\./);
+    expect(JSON.stringify(resultOf((await invoked(fn, { id: 12 })).run))).toContain('Todo number 12');
   }, 3 * TURN + START);
 });
 

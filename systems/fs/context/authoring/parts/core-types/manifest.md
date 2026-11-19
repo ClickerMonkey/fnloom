@@ -179,6 +179,9 @@ type Manifest = {
     } | {
       to: "any";
     } | undefined;
+    connectKey?: ConnectKey | {
+      arg: string;
+    } | undefined;
     effects?: {
       mode?: "read" | "write" | "delete" | undefined;
       reads?: `${string}/${string}`[] | undefined;
@@ -327,7 +330,10 @@ type Manifest = {
       ask: boolean;
     }>;
     icon?: string | undefined;
-    scope?: "instance" | "system" | undefined;
+    scope?: "instance" | "system" | "key" | undefined;
+    keys?: {
+      type: `${string}/${string}`;
+    } | undefined;
     defaults?: {
       on: boolean;
       ask: boolean;
@@ -417,6 +423,15 @@ type Manifest = {
     component: string;
     mode: "replace" | "beside";
   } | undefined;
+  pages?: {
+    segment: string;
+    title: string;
+    nav: "hidden" | "main";
+    access: "admin" | "everyone";
+    component: string;
+    description?: string | undefined;
+    icon?: string | undefined;
+  }[] | undefined;
   groups?: {
     name: string;
     title: string;

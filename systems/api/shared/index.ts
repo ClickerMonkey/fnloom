@@ -1,18 +1,23 @@
 /**
- * The api system's contract (`shared/`), after product's api kind (build 9 design §5). Each instance is one web API
- * service (config `ApiServiceConfig`: its base URL, how it signs in, its OpenAPI document), added from the browser.
- * An api fn is a gin program whose result is an `api/HttpRequest`, plus an optional program that maps the response to
- * the fn's result; it is kept in the hub as an `api/request` fn of its service (`<service>.<name>`) and runs there.
+ * The api system's contract (`shared/`), after product's api kind (build 9 design §5). Like `code`, it is one instance
+ * that authors fns: an api fn is code that calls an external service. The services are its records (`api/Service`,
+ * core's `ApiService`: the base URL, how it signs in, its OpenAPI document), which the authoring agent picks or adds
+ * and admins edit on the API services page. An api fn is a gin program whose result is an `api/HttpRequest`, plus an
+ * optional program that maps the response to the fn's result; it is kept in the hub as an `api/request` fn named for
+ * its service (`<service>.<name>`) and runs on the one instance.
  *
  * - **The kind** `api/request` (payload `ApiFnSpec`): describing it reads the method off the program (GET and HEAD
- *   read; the others write, so policies ask first); running it materializes the request, keeps it under the base URL,
- *   signs it with the service's auth, sends it and maps the response. A program never sees a credential.
- * - **make_api** is an authoring fn (run it on the service: `on=<service>`): an agent reads the service's operations,
- *   declares the signature, writes the request (and output) programs, has them checked (GETs are sent while
- *   authoring) and saves the fn.
- * - **operations** pages the service's OpenAPI document; **test_request** sends a GET (or HEAD) to try the service.
+ *   read; the others write, so policies ask first) and names its service as the fn's connection key; running it
+ *   materializes the request, keeps it under the service's base URL, signs it with the run's connection to the service,
+ *   sends it and maps the response. A program never sees a credential.
+ * - **Connections** are per service (`connect.scope: 'key'`, the keys being the `api/Service` records): each person
+ *   connects their own token or headers, or an admin sets a shared one for everyone (`keyConnectOf`).
+ * - **make_api** is an authoring fn: an agent picks the service (or adds one), reads its operations, declares the
+ *   signature, writes the request (and output) programs, has them checked (GETs are sent while authoring) and saves the
+ *   fn. **services** lists the services; **operations** pages a service's OpenAPI document; **test_request** sends a GET
+ *   (or HEAD) to try one.
  */
-import { API_CONFIG_SECRETS, API_KIND, API_SYSTEM, ApiFnSpec, ApiServiceConfig, ConnectDecl, HttpExchange } from '@harness/core';
+import { API_KIND, API_SERVICE_RECORDS, API_SERVICE_TYPE, API_SYSTEM, ApiFnSpec, ApiService, ConnectDecl, HttpExchange } from '@harness/core';
 import { context, fn, g, ginAs, hub, kind, system, type, wireType } from '@harness/sdk';
 import { authoredFn } from '@harness/sdk/server';
 import { z } from 'zod';
@@ -31,6 +36,10 @@ export type ApiOperation = z.infer<typeof ApiOperation>;
 export const OperationsPage = z.object({ items: z.array(ApiOperation), total: z.number().int().min(0), next: z.number().int().min(0).optional() });
 export type OperationsPage = z.infer<typeof OperationsPage>;
 
+/** A page of services, found in the hub's database (`services`). */
+export const ServicesPage = z.object({ items: z.array(ApiService), cursor: z.string().optional() });
+export type ServicesPage = z.infer<typeof ServicesPage>;
+
 /** The named types programs build and read, in dependency order (the authoring agent offers them in this order). */
 export const HTTP_TYPES = ['HttpHeader', 'HttpParam', 'HttpPart', 'HttpBody', 'HttpRequest', 'HttpResponse'] as const;
 
@@ -43,26 +52,34 @@ const status = (active: string, done: string, failed: string) => ({
   failed: { one: failed, many: failed },
 });
 
+/** A service's name as a fn takes it: its connection key, so the call acts through the person's connection to it. */
+const serviceName = () => g.text({ pattern: '^[a-z][a-z0-9-]*$' });
+const serviceArg = (docs: string) => g.field(serviceName(), { docs });
+
 /** How callers of `make_api` use it. */
 const MAKE_USAGE = [
-  'Use it when the person wants something from a web API service that has no fn yet: it writes the request as a fn of the service and saves it.',
-  'Run it on the service with on=<service>. Describe the request in `request`: the operation (method and path when known), the args, what the result should hold, and an example.',
+  'Use it when the person wants something from a web API that has no fn yet: it writes the request as an api fn and saves it.',
+  'Name the service when you know it (api/services lists them); left out, the agent picks one or adds it from the base URL in the request.',
+  'Describe the request in `request`: the service or its base URL, the operation (method and path when known), the args, what the result should hold, and an example.',
   'It reuses an api fn that already does it. Call the saved fn afterwards by its name with the args its signature shows; a request that changes something waits for approval.',
 ].join(' ');
 
 /** The contract's declarations, before its `connect` (which names these fns). */
 const declared = system(API_SYSTEM, {
-  description: 'Web API services, one per instance: each signs in its own way, and the requests asked for are kept as fns of the service.',
-  groups: [{ name: 'requests', title: 'Requests', description: 'Write a request to a service as a fn, read its operations, and try a GET.' }],
-  // the hub seals each: the token and client secret as text, the header values whole
-  configSecrets: [...API_CONFIG_SECRETS],
-  // the authoring agent is a model; api fns are hub fns it searches, reads and saves; requests go to the configured
-  // service, whose host is only known from the config (reviewed when an admin adds the service)
-  grants: { hub: ['ai', 'fns', 'search', 'connections'], calls: [hub.fns.fn_get.name, hub.fns.save_fn.name], network: ['*'] },
+  description: 'Web API requests kept as fns, like code: one instance authors api fns (code that calls an external service), each sent to one of its services, whose base URL and sign-in it keeps as records.',
+  groups: [{ name: 'requests', title: 'Requests', description: 'Write a request to a web API service as a fn, find the services, read their operations, and try a GET.' }],
+  // the authoring agent is a model; api fns are hub fns it searches, reads and saves; services are records it reads and
+  // adds; requests go to each service's base URL, known only from its record
+  grants: { hub: ['ai', 'fns', 'search', 'connections', 'data'], calls: [hub.fns.fn_get.name, hub.fns.save_fn.name], network: ['*'] },
 })
   .with({
-    config: ginAs(ApiServiceConfig),
     types: {
+      Service: type({
+        description: 'A web API service api fns are sent to: its base URL, how it signs in (the credentials are connections, never part of it), its default headers and its OpenAPI document.',
+        shape: ginAs(ApiService),
+        display: { label: 'API service', plural: 'API services', icon: 'globe', color: '#4f7cac', title: 'label', subtitle: 'baseUrl' },
+        records: { ...API_SERVICE_RECORDS, search: { ...API_SERVICE_RECORDS.search, text: [...API_SERVICE_RECORDS.search.text] } },
+      }),
       HttpHeader: type({ description: 'One request header; order is kept and a name may repeat.', shape: ginAs(HttpHeader), display: display('Header', 'Headers') }),
       HttpParam: type({
         description: 'One query or form parameter; order is kept and a name may repeat (?tag=a&tag=b). style and explode (OpenAPI 3.1) spell a list or obj value; leave them out for repeated keys.',
@@ -89,44 +106,66 @@ const declared = system(API_SYSTEM, {
     fns: {
       make_api: fn({
         group: 'requests',
-        description: 'Write a request to this service as an api fn (or reuse one that does it) and save it.',
+        description: 'Write a request to a web API service as an api fn (or reuse one that does it) and save it; the service is picked, or added from its base URL.',
         instructions: MAKE_USAGE,
-        args: g.obj({ request: g.field(g.text({ minLength: 1 }), { docs: 'What the request does: the operation, its args, what the result holds, and an example.' }) }),
+        args: g.obj({
+          request: g.field(g.text({ minLength: 1 }), { docs: 'What the request does: the service or its base URL, the operation, its args, what the result holds, and an example.' }),
+          service: g.field(g.optional(serviceName()), { docs: 'The service to write it for, by name; left out, the agent picks or adds one.' }),
+        }),
         returns: authoredFn,
         deps: { getFn: hub.fns.fn_get, saveFn: hub.fns.save_fn },
+        // GETs sent while writing act through the person's connection to the service named
+        connectKey: { arg: 'service' },
         examples: [
-          { args: { request: 'The open issues of a repository: GET /repos/{owner}/{repo}/issues?state=open; args owner and repo; give each issue\'s number and title.' }, note: 'A GET, tried while it is written.' },
-          { args: { request: 'Create an issue: POST /repos/{owner}/{repo}/issues with a JSON body of title and body; give the new issue\'s number.' }, note: 'A write: it is checked but not sent while written, and asks on every run.' },
+          { args: { request: 'The open issues of a repository: GET /repos/{owner}/{repo}/issues?state=open; args owner and repo; give each issue\'s number and title.', service: 'github' }, note: 'A GET, tried while it is written.' },
+          { args: { request: 'Create an issue on https://api.github.com: POST /repos/{owner}/{repo}/issues with a JSON body of title and body; give the new issue\'s number.' }, note: 'A write, on a service the agent picks or adds: checked but not sent while written, and asks on every run.' },
         ],
         status: status('Writing a request…', 'Wrote {output.fn}', 'Writing a request failed'),
-        effects: { mode: 'write', free: false, registry: [{ thing: 'fns', action: 'create', kind: API_KIND }] },
+        effects: { mode: 'write', free: false, writes: [API_SERVICE_TYPE], registry: [{ thing: 'fns', action: 'create', kind: API_KIND }] },
         tags: ['api', 'write'],
+      }),
+      services: fn({
+        group: 'requests',
+        description: 'The web API services api fns are sent to, found by words of their name, label, description or base URL: how each signs in, a page at a time.',
+        instructions: 'Narrow with `text`. Page with `cursor` set to the last page\'s `cursor`.',
+        args: g.obj({ text: g.optional(g.text()), limit: g.optional(g.num({ min: 1, max: 50, whole: true })), cursor: g.optional(g.text()) }),
+        returns: ginAs(ServicesPage),
+        examples: [{ args: { text: 'github', limit: 5 } }],
+        status: status('Finding services…', 'Found services', 'Finding services failed'),
+        effects: { mode: 'read', free: true, reads: [API_SERVICE_TYPE] },
+        tags: ['api', 'read'],
       }),
       operations: fn({
         group: 'requests',
-        description: 'The operations of this service\'s OpenAPI document: method, path and summary, a page at a time.',
+        description: 'The operations of a service\'s OpenAPI document: method, path and summary, a page at a time.',
         instructions: 'Narrow with `text` (words of the path or summary). Page with `offset` set to `next`.',
-        args: g.obj({ text: g.optional(g.text()), offset: g.optional(g.num({ min: 0, whole: true })), limit: g.optional(g.num({ min: 1, max: 100, whole: true })) }),
+        args: g.obj({
+          service: serviceArg('The service, by name.'),
+          text: g.optional(g.text()), offset: g.optional(g.num({ min: 0, whole: true })), limit: g.optional(g.num({ min: 1, max: 100, whole: true })),
+        }),
         returns: ginAs(OperationsPage),
-        examples: [{ args: { text: 'issues', limit: 10 } }],
+        examples: [{ args: { service: 'github', text: 'issues', limit: 10 } }],
         status: status('Reading the operations…', 'Read the operations', 'Reading the operations failed'),
-        effects: { mode: 'read', free: true },
+        effects: { mode: 'read', free: true, reads: [API_SERVICE_TYPE] },
         tags: ['api', 'read'],
       }),
       test_request: fn({
         group: 'requests',
-        description: 'Send one GET (or HEAD) to this service and show the exchange, with credentials masked.',
+        description: 'Send one GET (or HEAD) to a service and show the exchange, with credentials masked.',
         instructions: 'Use it to see what an endpoint gives before writing an api fn. The url is relative to the service\'s base URL.',
         args: g.obj({
+          service: serviceArg('The service, by name.'),
           method: g.optional(g.enum(['GET', 'HEAD'])),
           url: g.text(),
           params: g.optional(g.list(ginAs(HttpParam))),
           headers: g.optional(g.list(ginAs(HttpHeader))),
         }),
         returns: ginAs(HttpExchange),
-        examples: [{ args: { url: '/repos/acme/web/issues', params: [{ key: 'state', value: 'open' }] } }],
+        // it signs with the person's connection to the service it names
+        connectKey: { arg: 'service' },
+        examples: [{ args: { service: 'github', url: '/repos/acme/web/issues', params: [{ key: 'state', value: 'open' }] } }],
         status: status('Trying {args.url}…', 'Tried {args.url}', 'Trying {args.url} failed'),
-        effects: { mode: 'read', free: true },
+        effects: { mode: 'read', free: true, reads: [API_SERVICE_TYPE] },
         tags: ['api', 'read'],
       }),
     },
@@ -136,28 +175,32 @@ const declared = system(API_SYSTEM, {
       guide: context({
         description: 'How to reach a web API service: its saved requests, or a new one written as a fn.',
         content: [
-          'Each api instance is one web API service. Find its saved requests with hub/fns_search (kinds ["api/request"], instance: the service) and call them by name.',
-          'When none does what is asked, call api/make_api on the service (on=<service>) with what the request should do; api/operations lists what the service offers.',
+          'The api system writes requests to web API services as fns, the way code writes programs. api/services lists the services (each a base URL and a sign-in).',
+          'Find the saved requests with hub/fns_search (kinds ["api/request"]) and call them by name (<service>.<name>).',
+          'When none does what is asked, call api/make_api with what the request should do (and the service, when known); api/operations lists what a service offers.',
         ].join(' '),
-        fns: [fns.make_api, fns.operations, fns.test_request],
+        fns: [fns.make_api, fns.services, fns.operations, fns.test_request],
         tags: ['api'],
       }),
     },
   }));
 
 /**
- * The api system's `connect` (manifest `connect`), per instance: a service whose auth is per person asks each person
- * for their own token or header values (the form flow); its own fns and every saved request act as the person.
+ * The api system's `connect` (manifest `connect`), per service (`scope: 'key'`, the keys being its `api/Service`
+ * records): a service whose auth is per person asks each person for their own token or header values (the form flow);
+ * a shared one is set once by an admin, for everyone. Every request fn acts through its service's connection, and
+ * `make_api` and `test_request` through the one of the service they name.
  */
 export const API_CONNECT: ConnectDecl = ConnectDecl.parse({
   title: 'API sign-ins',
-  description: 'Sign in to the web API services that need your own credentials, so the requests you run act as you.',
+  description: 'Sign in to the web API services that need credentials, so the requests you run act as you.',
   icon: 'globe',
-  // each instance says how people connect to it (`ctx.instanceConnect`); this is the system-wide default, a token
+  // each service says how people connect to it (its record's auth); this is the system-wide default, a token
   how: { flow: 'form', form: wireType(g.obj({ token: g.text({ minLength: 1 }) })) },
   settings: wireType(g.obj({})),
-  fns: { make_api: { on: true, ask: false }, operations: { on: true, ask: false }, test_request: { on: true, ask: false } },
-  scope: 'instance',
+  fns: { make_api: { on: true, ask: false }, test_request: { on: true, ask: false } },
+  scope: 'key',
+  keys: { type: API_SERVICE_TYPE },
   defaults: { on: true, ask: false },
 });
 

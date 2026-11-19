@@ -18,7 +18,7 @@ import LinkDialog from './components/LinkDialog.vue';
 import LinkGroups from './components/LinkGroups.vue';
 import MemoryDialog from './components/MemoryDialog.vue';
 import {
-  bodyText, emptyLinkDraft, filterOf, foundView, MATCHED_WORDS, fromResourceRequest, groupLinks, isFiltered, linkKey, linkRequest, memoryDraft, memoryRequest, memoryUpdate, ONLY_ME, PLAIN_OPTIONS, changedOptions, originOf, readContextQuery, removable, scopeText, sharedFacts, sharedText, sizeText, targetText, weightPercent,
+  bodyText, contextPlaceholder, emptyLinkDraft, filterOf, foundView, MATCHED_WORDS, fromResourceRequest, groupLinks, isFiltered, linkKey, linkRequest, memoryDraft, memoryRequest, memoryUpdate, ONLY_ME, PLAIN_OPTIONS, changedOptions, originOf, readContextQuery, removable, scopeText, sharedFacts, sharedText, sizeText, targetText, weightPercent,
 } from './logic/context.ts';
 import { targetRoute } from './logic/targets.ts';
 import { contextLink, contextRecord, fakeContext, fixtureGraph, T_CONTEXT } from './test/fakes.ts';
@@ -271,25 +271,25 @@ describe('the context components', () => {
     expect(alone.get('.origin').text()).toBe('System');
   });
 
-  it('a searched row says which index found it, its score and the section that matched; an unsearched row none of it', async () => {
-    // pure: the badge and score in words
+  it('a searched row says which index found it, its fit or rank and the section that matched; an unsearched row none of it', async () => {
+    // pure: the badge and the fit or rank in words
     expect(foundView(undefined)).toEqual({});
-    expect(foundView({ score: 0.5, matched: 'words' })).toEqual({ matched: MATCHED_WORDS.words, score: 'rank 50%' });
-    expect(foundView({ score: 1, similarity: 0.874, matched: 'both', section: { key: SectionKey.parse('reading/encodings'), path: ['Reading', 'Encodings'], title: 'Encodings' } }))
-      .toEqual({ matched: MATCHED_WORDS.both, score: '87% fit', section: 'Reading › Encodings' });
-    expect(foundView({ score: 0.9, similarity: 0.61, matched: 'meaning' }).matched?.label).toBe('Meaning');
+    expect(foundView({ rank: 0.5, matched: 'words' })).toEqual({ matched: MATCHED_WORDS.words, measure: 'rank 50%' });
+    expect(foundView({ rank: 1, similarity: 0.874, matched: 'both', section: { key: SectionKey.parse('reading/encodings'), path: ['Reading', 'Encodings'], title: 'Encodings' } }))
+      .toEqual({ matched: MATCHED_WORDS.both, measure: '87% fit', section: 'Reading › Encodings' });
+    expect(foundView({ rank: 0.9, similarity: 0.61, matched: 'meaning' }).matched?.label).toBe('Meaning');
     const record = contextRecord('fs/guide', { description: 'How to use the file tools' });
     const r = router();
     const searched = mount(ContextRow, {
-      props: { record, to: links.contextItem(GUIDE), now: T_CONTEXT, found: { score: 1, similarity: 0.9, matched: 'both', section: { key: SectionKey.parse('reading'), path: ['Reading'], title: 'Reading' } } },
+      props: { record, to: links.contextItem(GUIDE), now: T_CONTEXT, found: { rank: 1, similarity: 0.9, matched: 'both', section: { key: SectionKey.parse('reading'), path: ['Reading'], title: 'Reading' } } },
       global: { plugins: [r] },
     });
     expect(searched.get('[data-testid="context-matched"]').text()).toBe('Words + meaning');
-    expect(searched.get('[data-testid="context-score"]').text()).toBe('90% fit');
+    expect(searched.get('[data-testid="context-measure"]').text()).toBe('90% fit');
     expect(searched.get('[data-testid="context-section"]').text()).toBe('Reading');
     const listed = mount(ContextRow, { props: { record, to: links.contextItem(GUIDE), now: T_CONTEXT }, global: { plugins: [r] } });
     expect(listed.find('[data-testid="context-matched"]').exists()).toBe(false);
-    expect(listed.find('[data-testid="context-score"]').exists()).toBe(false);
+    expect(listed.find('[data-testid="context-measure"]').exists()).toBe(false);
     expect(listed.find('[data-testid="context-section"]').exists()).toBe(false);
   });
 
@@ -386,6 +386,47 @@ describe('the context pages', () => {
     await flushPromises();
     expect(r.currentRoute.value.query['q']).toBeUndefined();
     expect(app.findAll('[data-testid="context-row"]')).toHaveLength(4);
+  });
+
+  it('promises meaning in the search box only while an embedder is up, live as it comes and goes', async () => {
+    expect(contextPlaceholder(true)).toBe('Search words and meaning, or filter');
+    expect(contextPlaceholder(false)).toBe('Search words, or filter');
+    const { app, chat } = await start('/context');
+    // the page read the capabilities itself: no chat had
+    expect(chat.api.capabilities.calls).toHaveLength(1);
+    const box = () => app.get('[data-testid="context-filters"] input[type="search"]').attributes('placeholder');
+    expect(box()).toBe('Search words and meaning, or filter');
+    const caps = chat.chat.capabilities.value.value;
+    if (caps === undefined) { throw new Error('no capabilities'); }
+    chat.chat.capabilities.value.value = { ...caps, meaning: false };
+    await flushPromises();
+    expect(box()).toBe('Search words, or filter');
+  });
+
+  it('with text, the list is best first unless a sort is chosen, and the chosen sort goes to the hub', async () => {
+    const { app, router: r, context } = await start('/context?q=latin1');
+    const sortButton = () => app.get('[data-testid="context-filters"] [data-testid="sort"]');
+    expect(sortButton().text()).toBe('Best match');
+    expect(context.api.list.calls.at(-1)?.[0]).toMatchObject({ query: { text: 'latin1' } });
+    expect(context.api.list.calls.at(-1)?.[0]?.query?.sort).toBeUndefined();
+    const pick = async (label: string) => {
+      await sortButton().trigger('click');
+      await flushPromises();
+      Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((item) => item.textContent.includes(label))?.click();
+      await flushPromises();
+    };
+    // the list's own default (updated, newest first) is a choice of its own while ranked
+    await pick('Updated');
+    expect(sortButton().text()).toBe('Updated, newest first');
+    expect(context.api.list.calls.at(-1)?.[0]).toMatchObject({ query: { text: 'latin1', sort: [{ field: 'updatedAt', dir: 'desc' }] } });
+    expect(String(r.currentRoute.value.query['q'])).toContain('latin1');
+    await pick('Best match');
+    expect(sortButton().text()).toBe('Best match');
+    expect(context.api.list.calls.at(-1)?.[0]?.query?.sort).toBeUndefined();
+    // without text there is no best match: the list's default shows
+    await r.push('/context');
+    await flushPromises();
+    expect(sortButton().text()).toBe('Updated, newest first');
   });
 
   it('remembers from the dialog in the URL and opens the new memory', async () => {

@@ -3,9 +3,9 @@
  * a connection whose status a test sets, and a full set of stores built on them.
  */
 import type { CallArgs, CallReturn } from '@ayepi/core';
-import { Notification, Tokens, type UserEvent } from '@harness/core';
+import { Notification, Tokens, type SystemPageView, type UserEvent } from '@harness/core';
 import type { HubWebSpec } from '@harness/core';
-import type { CallerOf, Connection, Endpoint } from '../api/client.ts';
+import { createHub, type CallerOf, type Connection, type Endpoint } from '../api/client.ts';
 import { SessionKeeper, SignInForm } from '../state/auth.ts';
 import { ConnectionStore } from '../state/connection.ts';
 import { PushStore, type PushKeys, type PushPlatform } from '../state/push.ts';
@@ -29,6 +29,7 @@ import { IdentityStore } from '../state/identity.ts';
 import { GraphStore } from '../graph/state/graph.ts';
 import { fakeGraphApi } from '../graph/test/fakes.ts';
 import { ClientLogs } from '../state/client-logs.ts';
+import { SystemPagesStore } from '../system-pages/store.ts';
 
 type EndpointOf<K extends Endpoint> = HubWebSpec['endpoints'][K];
 
@@ -181,8 +182,19 @@ export function fakePush(options: { supported?: boolean; answer?: NotificationPe
   return platform;
 }
 
+/**
+ * The system pages store on a fake list. Its hub client is a real one that is never called (its socket opens on the first
+ * call), for pages that only pass it along.
+ */
+export function fakePages(list: readonly SystemPageView[] = [], events = fakeUserEvents()) {
+  const answer = { list: [...list] };
+  const systemPages = fakeCaller<'systemPages'>(() => Promise.resolve(answer.list));
+  const pages = new SystemPagesStore({ api: { systemPages }, events: events.subscribe, hub: createHub({ origin: 'http://hub.test', token: () => '' }).hub });
+  return { pages, systemPages, events, answer };
+}
+
 /** Every store, built on fakes. `signedIn` starts the session signed in. */
-export function fakeStores(options: { signedIn?: boolean; api?: ReturnType<typeof fakeApi>; admin?: ReturnType<typeof fakeAdmin> } = {}) {
+export function fakeStores(options: { signedIn?: boolean; api?: ReturnType<typeof fakeApi>; admin?: ReturnType<typeof fakeAdmin>; pages?: readonly SystemPageView[] } = {}) {
   const store = memoryStore();
   const api = options.api ?? fakeApi();
   const events = fakeUserEvents();
@@ -195,6 +207,7 @@ export function fakeStores(options: { signedIn?: boolean; api?: ReturnType<typeo
   const context = fakeContext();
   const fns = fakeFnsApi();
   const data = fakeDataApi();
+  const pages = fakePages(options.pages ?? [], events);
   const stores: Stores = {
     session,
     identity: new IdentityStore(api.identity, events.subscribe, store),
@@ -212,10 +225,11 @@ export function fakeStores(options: { signedIn?: boolean; api?: ReturnType<typeo
     fns: new FnInfoStore(fns, events.subscribe),
     fnNotices: new FnNotices(fns),
     graph: () => new GraphStore(fakeGraphApi()),
-    data: new DataStore(data, fns),
+    data: new DataStore(data),
+    pages: pages.pages,
     itemVersions: (query) => data.itemVersions.call(query),
     logs: new ClientLogs({ send: fakeCaller<'clientLogs'>(() => Promise.resolve({ uri: 'hub://logs/test.jsonl', written: 1 })), signedIn: () => false, page: () => '/' }),
     push: new PushStore(api.notifications, fakePush(), () => 'Test browser'),
   };
-  return { stores, api, events, connection, store, chat, admin, resources, context, fns, data };
+  return { stores, api, events, connection, store, chat, admin, resources, context, fns, data, pages };
 }

@@ -39,8 +39,8 @@ function same(row: FnExampleRecord, example: FnExample): boolean {
 }
 
 /** The examples as a reader sees them. */
-function view(row: FnExampleRecord, score?: number): FnExamplesPage['items'][number] {
-  return { id: row.id, args: row.args, ...(row.result === undefined ? {} : { result: row.result }), ...(row.note === undefined ? {} : { note: row.note }), ...(score === undefined ? {} : { score }) };
+function view(row: FnExampleRecord, rank?: number): FnExamplesPage['items'][number] {
+  return { id: row.id, args: row.args, ...(row.result === undefined ? {} : { result: row.result }), ...(row.note === undefined ? {} : { note: row.note }), ...(rank === undefined ? {} : { rank }) };
 }
 
 /** The name the system page lists an example by (`SystemPart.name`, and `itemSwitches` when it is switched off). */

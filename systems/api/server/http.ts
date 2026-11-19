@@ -5,9 +5,10 @@
  * What happened is an `HttpExchange` with the credentials masked.
  */
 import { randomUUID } from 'node:crypto';
-import { credentialHeaders, maskHeaders, readCredentials, secretHeaderNames, sharedHeaders, usesConnections } from '@harness/sdk';
+import { accountLabel, credentialHeaders, maskHeaders, readCredentials, secretHeaderNames } from '@harness/sdk';
 import { followRedirects, type FollowedResponse } from '@harness/sdk/server';
-import { Json, type ApiServiceConfig, type ContentRef, type HttpExchange, type ResourceUri } from '@harness/core';
+import { Json, type ApiService, type ConnectionAccount, type ContentRef, type HttpExchange, type RemoteCredentials, type ResourceUri } from '@harness/core';
+import { z } from 'zod';
 import type { HttpParam, HttpRequest } from '../shared/http.ts';
 
 /** Why a request was not sent: it leaves the base URL, its body is not one slot, or there is no credential. */
@@ -42,7 +43,7 @@ export class ResponseFailed extends Error {
 export interface SendCtx {
   readonly fetch: typeof fetch;
   readonly signal: AbortSignal;
-  /** The run's connection credentials (a per-person or OAuth service), as the hub sent them. */
+  /** The run's connection to the service (the person's own, or the one an admin shares), as the hub sent it. */
   readonly credentials: Json | undefined;
   /** Keep bytes as a file in the hub; its ref. */
   keep(bytes: Uint8Array, mime: string): Promise<ContentRef>;
@@ -52,21 +53,40 @@ export interface SendCtx {
   readonly maxRedirects: number;
 }
 
+/** The base URL a connection's credentials were given for, kept beside them. */
+const BoundTo = z.object({ baseUrl: z.string() });
+
 /**
- * The headers the service's auth adds: the instance's shared token or header values, or the run's person's (or an
- * admin's shared) connection. `NoCredential` when the one to sign with is not there.
+ * A service's credentials as its connection keeps them: the token or header values, and the base URL they were given
+ * for. A request signs only while the service still has that base URL, so a service whose URL is changed afterwards
+ * (by anyone who may edit its record) never carries someone's token to the new host: they connect again.
  */
-export function authHeaders(config: ApiServiceConfig, credentials: Json | undefined): Record<string, string> {
-  const auth = config.auth;
-  if (!usesConnections(auth)) {
-    const shared = sharedHeaders(auth);
-    const wanted = auth.kind === 'headers' ? auth.names : auth.kind === 'bearer' ? ['authorization'] : [];
-    const missing = wanted.filter((name) => shared[name] === undefined);
-    if (missing.length > 0) throw new NoCredential(`${config.label} has no ${missing.join(', ')} set: an admin sets it on the service.`);
-    return shared;
-  }
+export function boundCredentials(credentials: RemoteCredentials, service: Pick<ApiService, 'baseUrl'>): Json {
+  return Json.parse({ ...credentials, baseUrl: service.baseUrl });
+}
+
+/** The account a connection to a service shows: the service, and which token (never the token itself). */
+export function serviceAccount(credentials: RemoteCredentials, service: Pick<ApiService, 'label'>): ConnectionAccount {
+  return { label: service.label, detail: accountLabel(credentials) };
+}
+
+/**
+ * The headers the service's auth adds, from the run's connection to it: the person's own, or the one an admin set for
+ * everyone (`keyConnectOf`). `NoCredential` when there is none, or it was given for another base URL.
+ */
+export function authHeaders(service: ApiService, credentials: Json | undefined): Record<string, string> {
+  const auth = service.auth;
+  if (auth.kind === 'none') return {};
   const read = credentials === undefined ? undefined : readCredentials(credentials);
-  if (read === undefined) throw new NoCredential(`Connect to ${config.label} first, on your connections page.`);
+  if (read === undefined) {
+    throw new NoCredential(auth.per === 'person'
+      ? `Connect to ${service.label} first, on your connections page.`
+      : `${service.label} has no sign-in yet: an admin sets it for everyone on the connections page.`);
+  }
+  const bound = BoundTo.safeParse(credentials);
+  if (!bound.success || bound.data.baseUrl !== service.baseUrl) {
+    throw new NoCredential(`${service.label}'s base URL changed since its sign-in was set: connect to it again on the connections page.`);
+  }
   return credentialHeaders(read);
 }
 
@@ -127,12 +147,12 @@ export interface Prepared {
 }
 
 /** Build the request: the URL with its params, the headers (the service's, the program's, then the auth), the body. */
-export async function prepare(request: HttpRequest, config: ApiServiceConfig, ctx: Pick<SendCtx, 'credentials' | 'bytes'>): Promise<Prepared> {
-  const url = serviceUrl(config.baseUrl, request.url);
+export async function prepare(request: HttpRequest, service: ApiService, ctx: Pick<SendCtx, 'credentials' | 'bytes'>): Promise<Prepared> {
+  const url = serviceUrl(service.baseUrl, request.url);
   for (const param of request.params ?? []) for (const [key, value] of encodeParam(param)) url.searchParams.append(key, value);
-  const auth = authHeaders(config, ctx.credentials);
+  const auth = authHeaders(service, ctx.credentials);
   const headers = new Headers();
-  for (const [key, value] of Object.entries(config.headers ?? {})) headers.set(key, value);
+  for (const [key, value] of Object.entries(service.headers ?? {})) headers.set(key, value);
   for (const header of request.headers ?? []) headers.append(header.key, header.value);
   for (const [key, value] of Object.entries(auth)) headers.set(key, value);
   const slot = bodySlot(request);
@@ -169,7 +189,7 @@ export async function prepare(request: HttpRequest, config: ApiServiceConfig, ct
     if (!headers.has('content-type')) headers.set('content-type', 'application/octet-stream');
     shown = `binary ${body.binary}`;
   }
-  const secret = new Set([...secretHeaderNames(config.auth), ...Object.keys(auth).map((key) => key.toLowerCase())]);
+  const secret = new Set([...secretHeaderNames(service.auth), ...Object.keys(auth).map((key) => key.toLowerCase())]);
   const exchange: HttpExchange = {
     method: request.method,
     url: url.toString(),
@@ -195,12 +215,12 @@ export interface Sent {
  * base URL, since fetch would carry the service's credential headers to any host a redirect names. Only a GET or HEAD
  * follows one; a request that changes something is never sent twice.
  */
-async function follow(prepared: Prepared, config: ApiServiceConfig, ctx: SendCtx, signal: AbortSignal): Promise<FollowedResponse> {
+async function follow(prepared: Prepared, service: ApiService, ctx: SendCtx, signal: AbortSignal): Promise<FollowedResponse> {
   const reads = prepared.init.method === 'GET' || prepared.init.method === 'HEAD';
   return await followRedirects(prepared.url.href, { ...prepared.init, signal }, {
     fetch: ctx.fetch,
     redirects: reads ? ctx.maxRedirects : 0,
-    check: (url) => underBase(config.baseUrl, url) ? Promise.resolve() : Promise.reject(new RequestRefused(`The service redirected to ${url.href}, outside its base URL (${config.baseUrl}).`)),
+    check: (url) => underBase(service.baseUrl, url) ? Promise.resolve() : Promise.reject(new RequestRefused(`The service redirected to ${url.href}, outside its base URL (${service.baseUrl}).`)),
     problems: {
       noLocation: (at) => new RequestRefused(`The service at ${at.href} redirected without saying where.`),
       tooMany: (start, limit) => new RequestRefused(reads ? `${start.href} redirected more than ${String(limit)} times.` : `${start.href} redirected a ${prepared.init.method ?? 'request'}, which is not sent again.`),
@@ -209,14 +229,14 @@ async function follow(prepared: Prepared, config: ApiServiceConfig, ctx: SendCtx
 }
 
 /** Send a prepared request within the service's timeout; a non-2xx answer throws `ResponseFailed`. */
-export async function send(prepared: Prepared, config: ApiServiceConfig, ctx: SendCtx): Promise<Sent> {
+export async function send(prepared: Prepared, service: ApiService, ctx: SendCtx): Promise<Sent> {
   const started = Date.now();
-  const signal = AbortSignal.any([ctx.signal, AbortSignal.timeout(config.timeout)]);
-  const { response: answer, url } = await follow(prepared, config, ctx, signal);
+  const signal = AbortSignal.any([ctx.signal, AbortSignal.timeout(service.timeout)]);
+  const { response: answer, url } = await follow(prepared, service, ctx, signal);
   const type = answer.headers.get('content-type') ?? '';
   const bytes = new Uint8Array(await answer.arrayBuffer());
   let body: Json;
-  if (textual(type) && bytes.length <= config.maxBody) {
+  if (textual(type) && bytes.length <= service.maxBody) {
     const text = new TextDecoder().decode(bytes);
     body = /json/i.test(type) && text.trim() !== '' ? parseJson(text) : text;
   } else if (bytes.length === 0) {

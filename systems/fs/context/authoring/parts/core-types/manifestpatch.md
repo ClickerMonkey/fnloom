@@ -177,6 +177,9 @@ type ManifestPatch = {
       } | {
         to: "any";
       } | undefined;
+      connectKey?: ConnectKey | {
+        arg: string;
+      } | undefined;
       effects?: {
         mode?: "read" | "write" | "delete" | undefined;
         reads?: `${string}/${string}`[] | undefined;

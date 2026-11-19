@@ -10,6 +10,7 @@ import type { UserEvents } from '../../api/notifications.ts';
 import type { ChatApi, FileSender } from '../../chat/api.ts';
 import type { McpProbe } from '../probe.ts';
 import type { AdminApi, SystemLogEvents } from '../api.ts';
+import type { DataApi } from '../../data/api.ts';
 import { ActorsDirectory } from './actors.ts';
 import { ApprovalDesk } from '../../chat/state/approvals.ts';
 import type { FnRecord, ListQuery } from '@harness/core';
@@ -43,6 +44,8 @@ export interface AdminDeps {
   readonly sender: FileSender;
   /** Tries a hub MCP from the browser (its tools, with its secret). */
   readonly probe: McpProbe;
+  /** The data system's record callers: the API services are records of the api system. */
+  readonly data: Pick<DataApi, 'records' | 'saveRecord' | 'removeRecord'>;
 }
 
 /** Every admin store. */
@@ -109,7 +112,7 @@ export class AdminStore {
     this.mcps = new McpsStore(api);
     this.mcp = new McpStore(api, deps.probe);
     this.mcpServers = new McpServersStore(api);
-    this.apiServices = new ApiServicesStore(api);
+    this.apiServices = new ApiServicesStore({ fns: api.fns, records: deps.data.records, saveRecord: deps.data.saveRecord, removeRecord: deps.data.removeRecord });
     this.pairing = new PairingPageStore(api, deps.userEvents);
     this.resources = resourcesBrowser(api, deps.chat);
     this.suggestions = new SuggestionsStore(api);

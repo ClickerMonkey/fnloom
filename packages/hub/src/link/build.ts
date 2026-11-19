@@ -32,6 +32,7 @@ import type { SystemTokens } from './index.ts';
 import type { PackagingEnv, ReviewEnv } from './env.ts';
 import { SystemGrantGuard } from './grants.ts';
 import { SystemLifecycle } from './lifecycle.ts';
+import { migrateApiServices } from './migrate-api.ts';
 import { migrateLegacyInstances } from './migrate.ts';
 import { contentBytes, HubPackages, type PackageContent } from './packages.ts';
 import { StoreAutoPairs } from './auto-pair.ts';
@@ -164,9 +165,14 @@ export function buildSystems(options: SystemsOptions) {
     index: { embedders, indexer, search, suggest, sectioning, batcher },
     /** The link plugin to install on the hub link server. */
     plugin: linkPlugin(handshake, { log, clock }),
-    /** Move build 1's single-instance system rows onto instances (before systems connect). */
-    migrate(): Promise<number> {
-      return migrateLegacyInstances(store, log);
+    /**
+     * Move build 1's single-instance system rows onto instances, then the per-service api instances onto service
+     * records of the one api instance (before systems connect).
+     */
+    async migrate(): Promise<number> {
+      const instances = await migrateLegacyInstances(store, log);
+      const api = await migrateApiServices({ store, vault: options.secrets, log, clock });
+      return instances + api.services + api.removed;
     },
     /** Start following the bus (indexing) and the embedders. */
     start(): void {

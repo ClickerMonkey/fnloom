@@ -5,10 +5,14 @@
  *
  * Reads are quiet (the hub's `readFn`, outside the session): a widget's pager, range, drill and refresh reads stay out
  * of the thread, so live widgets re-run on their own.
+ *
+ * The same thread is the chat host system renderers get (the SDK's `CHAT_HOST`): asking the agent, and waiting for a
+ * run they started to end.
  */
 import { isSettled, type Json, type QualifiedName, type RunId } from '@harness/core';
 import { watch, type WatchStopHandle } from 'vue';
 import { saveBlob } from '../../components/visuals/export.ts';
+import type { ChatHost } from '@harness/sdk';
 import type { RunOutcome, WidgetHost } from '../../components/widgets/widgets.ts';
 import type { DataStore } from '../../data/state/data.ts';
 import { runEnding } from '../logic/runs.ts';
@@ -68,6 +72,15 @@ export function settledRun(thread: Pick<ThreadStore, 'runs' | 'ensureRun'>, run:
       if (isSettled(view.status) && !reading) { reading = true; void readOutcome(); }
     }, { immediate: true });
   });
+}
+
+/** A chat thread's host for system renderers: the thread's ask, and waiting on its runs (`settledRun`). */
+export function threadChatHost(deps: Pick<ThreadWidgetDeps, 'thread' | 'ask'> & { navigate(path: string): void }): ChatHost {
+  return {
+    ask: (text, send) => deps.ask(text, send),
+    settled: (run, waiting) => settledRun(deps.thread, run, waiting),
+    navigate: (path) => { deps.navigate(path); },
+  };
 }
 
 /** A chat thread's widget host. */

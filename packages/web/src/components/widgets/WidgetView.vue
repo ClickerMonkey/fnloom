@@ -6,8 +6,8 @@
  * widget's own), a small toggle between them. The rest is in the result view's 3-dot menu: exports (with "every row",
  * the hub's streamed export of the whole result), Refresh (or "Run again", which asks first, for rows a write
  * returned: those are read-only, without chips, pager or drill), the page's items, full screen and Settings (every
- * fitting visual and its style; a saved widget's look is saved by asking the agent to change it, which the person
- * then saves). The grid pages through the rows held and the buffered pager reads more only when a page needs them; a
+ * fitting visual and its style, and "Save to the widget" where the result can keep the look (`keepLook`: a saved
+ * widget, whose system proposes the change for the person to save)). The grid pages through the rows held and the buffered pager reads more only when a page needs them; a
  * chart's zoom or period sets the range args; a click on a row's mark runs the drill (the widget's own, else the one
  * through the query its rows declare: build-9 feedback), else opens the row's actions (form, then confirm). A drill opens
  * the rows behind the group in a modal (`DrillDialog`), as a widget of its own, a table first; inside it (`inDrill`) a
@@ -35,7 +35,8 @@ import WidgetActionDialog from './WidgetActionDialog.vue';
 import WidgetChips from './WidgetChips.vue';
 import { FnWidgetSource, type WidgetFrame, type WidgetSource } from './widget-source.ts';
 import { startArgs, WidgetState } from './widget-state.ts';
-import { groupCrumbHint, saveLookRequest, WIDGET_HOST, widgetVisuals, type DrillStep } from './widgets.ts';
+import type { ResultLook } from '@harness/sdk';
+import { groupCrumbHint, WIDGET_HOST, widgetVisuals, type DrillStep } from './widgets.ts';
 
 const props = withDefaults(defineProps<{
   frame: WidgetFrame;
@@ -52,15 +53,15 @@ const props = withDefaults(defineProps<{
   opener?: RowOpener | undefined;
   /** A sort its source does (the rows held are a slice of a sorted whole); without it the grid sorts the rows held. */
   sort?: ((next: ResultSort | undefined) => void) | undefined;
-  /** The saved widget this draws: Settings can save its look (by asking the agent to change it). */
-  widget?: QualifiedName | undefined;
+  /** Keep the look picked in Settings as its own (a saved widget's, which the widgets system keeps); resolves true once kept or asked for. */
+  keepLook?: ((look: ResultLook) => Promise<boolean>) | undefined;
   /** The page's own items in the 3-dot menu (Make a widget); a pick emits `item`. */
   items?: readonly MenuAction<string>[];
   /** It draws a drill in its modal: a drill opens as a level here, with a breadcrumb back, rather than another modal. */
   inDrill?: boolean;
   /** The visual shown until the person picks another (a drill's rows: the table). */
   firstVisual?: string | undefined;
-}>(), { fn: undefined, args: undefined, viewKey: '', showTitle: true, source: undefined, opener: undefined, sort: undefined, widget: undefined, items: () => [], inDrill: false, firstVisual: undefined });
+}>(), { fn: undefined, args: undefined, viewKey: '', showTitle: true, source: undefined, opener: undefined, sort: undefined, keepLook: undefined, items: () => [], inDrill: false, firstVisual: undefined });
 const emit = defineEmits<{ saved: [count: number]; item: [value: string] }>();
 
 const results = inject(RESULTS_HOST, OWN_HOST);
@@ -213,16 +214,14 @@ function onItem(value: string): void {
   emit('item', value);
 }
 
-/** Save the look picked in Settings as the saved widget's own: the agent proposes the change, the person saves it. */
+/** Keep the look picked in Settings as the result's own, where it can keep one (`keepLook`). */
 const savingLook = ref(false);
-const canSaveLook = computed(() => props.widget !== undefined && host?.ask !== undefined);
 async function saveLook(close: () => void): Promise<void> {
   const shown = chosenVisual([...visuals.value, ...others.value], choice.value);
-  if (props.widget === undefined || host?.ask === undefined || shown === undefined || savingLook.value) { return; }
+  if (props.keepLook === undefined || shown === undefined || savingLook.value) { return; }
   savingLook.value = true;
   try {
-    const asked = await host.ask(saveLookRequest(props.widget, shown.ranked.visual.label, styleLabel(shown.ranked.visual.shape, shown.style)), true);
-    if (asked) { close(); }
+    if (await props.keepLook({ visual: shown.ranked.visual.label, style: styleLabel(shown.ranked.visual.shape, shown.style) })) { close(); }
   } finally {
     savingLook.value = false;
   }
@@ -264,7 +263,7 @@ async function saveLook(close: () => void): Promise<void> {
         <slot name="tools" />
         <span v-if="liveText !== ''" class="live" data-testid="widget-live"><span class="pulse" aria-hidden="true" />{{ liveText }}</span>
       </template>
-      <template v-if="canSaveLook" #settings="{ close }">
+      <template v-if="keepLook" #settings="{ close }">
         <UiButton variant="ghost" icon="check" :loading="savingLook" data-testid="widget-save-look" @click="saveLook(close)">Save to the widget</UiButton>
       </template>
     </ResultView>

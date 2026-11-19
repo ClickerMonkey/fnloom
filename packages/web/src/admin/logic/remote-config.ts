@@ -107,9 +107,12 @@ export const AUTH_WORDS = {
 
 /** Whose credentials calls use, in words; the OAuth words differ (shared is one admin's sign-in). */
 export const PER_WORDS = {
-  shared: { label: 'Shared', about: 'One set for everyone, typed here and kept sealed.', oauth: 'An admin signs in once on the connections page; everyone uses that sign-in.' },
+  shared: {
+    label: 'Shared', about: 'One set for everyone, typed here and kept sealed.', oauth: 'An admin signs in once on the connections page; everyone uses that sign-in.',
+    record: 'One set for everyone: an admin types it once on the sign-ins page, kept sealed.',
+  },
   person: { label: 'Each person', about: 'Each person types their own on the connections page.', oauth: 'Each person signs in with their own account on the connections page.' },
-} as const satisfies Record<RemoteAuthPer, { readonly label: string; readonly about: string; readonly oauth: string }>;
+} as const satisfies Record<RemoteAuthPer, { readonly label: string; readonly about: string; readonly oauth: string; readonly record?: string }>;
 
 /** The secrets of a sign-in the hub may keep, by their field. */
 export type AuthSecret = 'token' | 'values' | 'clientSecret';

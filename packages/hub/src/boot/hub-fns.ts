@@ -5,7 +5,7 @@
  * typed and checked by the contract's gin types. Services are read when a fn runs, never while registering. Every one
  * keeps to what the run's person may see and use (their `AccessScope`): search hits, loads and results alike.
  */
-import { contextOff, effectCovered, effectsLine, FnExamplesQuery, FnRouting, FnSearchArgs, QualifiedName, qualify, splitName, SystemName, type FnRefusal, type LoadContextResult, type SearchItemKind, type ActorId, type FnDecl, type FnExample, type Json, type IndexedKind, type RegistryEffect, type Run, type Session, type SessionId } from '@harness/core';
+import { contextOff, effectCovered, effectsLine, FnExamplesQuery, FnRouting, FnSearchArgs, QualifiedName, qualify, splitName, SystemName, type FnRefusal, type LoadContextResult, type LoadFnsResult, type SearchItemKind, type ActorId, type FnDecl, type FnExample, type Json, type IndexedKind, type RegistryEffect, type Run, type Session, type SessionId } from '@harness/core';
 import { hub, parseValue, SAVE_FN_TAKEN, wireType } from '@harness/sdk';
 import type { AccessService } from '../access/index.ts';
 import type { FnFactsService, FnsServices } from '../fns/index.ts';
@@ -24,6 +24,8 @@ import type { HandlerRelay } from '../execution/handlers.ts';
 import { parseSectionIndexKey } from '../index/indexer.ts';
 import { broughtFns, withImports } from '../contextor/brought.ts';
 import type { FnScope } from '../contextor/fns.ts';
+import type { FnView, FnViewSource } from '../contextor/index.ts';
+import { loadedContextCards, loadedFnsCards } from '../contextor/render.ts';
 import { fnRefusal, readsAsMissing, refusalOf, unavailableBlock } from '../contextor/views.ts';
 import { itemVersionCount } from '../catalog/versions.ts';
 
@@ -52,6 +54,8 @@ export interface HubFnDeps {
   readonly sharing: () => Pick<AccessService, 'sharing' | 'own'>;
   /** Fns search and examples (build 5). */
   readonly fns: () => Pick<FnsServices, 'search' | 'examples'>;
+  /** Fn cards as the prompt shows them, for what a load answers the model. */
+  readonly views: () => Pick<FnViewSource, 'view'>;
   /** What fns declare they change in the hub (build 6), so a change a run's fn did not declare is refused. */
   readonly facts: () => Pick<FnFactsService, 'registry'>;
   /** The scope of the hub MCP a run's caller is, so `fns_search` keeps to it (none: no MCP). */
@@ -97,6 +101,11 @@ async function hits(deps: HubFnDeps, { session, access }: Asker, kind: IndexedKi
   });
 }
 
+/** The cards of some fns, as the prompt shows them (a fn gone meanwhile has none). */
+async function viewsOf(deps: Pick<HubFnDeps, 'views'>, names: readonly QualifiedName[]): Promise<FnView[]> {
+  return (await Promise.all(names.map((name) => deps.views().view(name)))).flatMap((view) => (view === undefined ? [] : [view]));
+}
+
 /** Names the agent gave, split into well-formed qualified names and the rest. */
 function names(given: readonly string[]): { valid: QualifiedName[]; invalid: string[] } {
   const valid: QualifiedName[] = [];
@@ -111,7 +120,7 @@ function names(given: readonly string[]): { valid: QualifiedName[]; invalid: str
 /** Register the hub fns. */
 export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
 
-  fns.register(hub.fns.load_fns, async (args, ctx) => {
+  fns.register(hub.fns.load_fns, async (args, ctx): Promise<LoadFnsResult> => {
     const { session, access } = await askerOf(deps, ctx);
     const { valid, invalid } = names(args.fns);
     const refused: FnRefusal[] = invalid.map((fn) => ({ fn, code: 'not-a-name', reason: 'not a qualified fn name (system/name)' }));
@@ -122,7 +131,7 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
       if (blocked === undefined) { loaded.push(name); } else { refused.push(refusalOf(name, blocked)); }
     }
     if (loaded.length > 0) { await deps.sessions().load(session.id, { tools: [...new Set([...session.tools, ...loaded])] }); }
-    return { loaded, refused };
+    return { loaded, refused, cards: loadedFnsCards(await viewsOf(deps, loaded), refused) };
   });
 
   fns.register(hub.fns.drop_fns, async (args, ctx) => {
@@ -169,7 +178,7 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
         context: [...new Set([...now.context, ...loaded])], ...(brought.length === 0 ? {} : { tools: [...new Set([...now.tools, ...brought])] }),
       });
     }
-    return { loaded, fns: brought, fnsRefused, refused };
+    return { loaded, fns: brought, fnsRefused, refused, cards: loadedContextCards(records, { added: brought, blocked: fnsRefused }, refused) };
   });
 
   fns.register(hub.fns.search_resources, async (args, ctx) => {
@@ -180,7 +189,7 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
       .filter(({ at }) => roots === undefined || roots.some((root) => at.uri.startsWith(root)))
       .map(({ hit, at }) => ({
         uri: at.uri, ...('section' in at ? { section: at.section } : {}),
-        title: hit.text.split('\n', 1)[0]?.slice(0, 120) ?? at.uri, preview: hit.text.slice(0, PREVIEW), score: hit.rank,
+        title: hit.text.split('\n', 1)[0]?.slice(0, 120) ?? at.uri, preview: hit.text.slice(0, PREVIEW), rank: hit.rank,
       }));
   });
 

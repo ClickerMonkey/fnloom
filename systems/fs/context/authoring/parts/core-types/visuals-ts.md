@@ -5,7 +5,7 @@ title: "Core types: From packages/core/src/visuals.ts"
 description: "Core types, the part on From packages/core/src/visuals.ts."
 summary: "Core types: From packages/core/src/visuals.ts."
 parent: "fs/authoring.core-types"
-next: "fs/authoring.core-types.widgets-ts"
+next: "fs/authoring.core-types.web-ts"
 suggest: "none"
 tags: ["authoring", "reference"]
 ---

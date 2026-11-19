@@ -3,7 +3,7 @@
  * told, and a test drives it through its listener as Claude would: `emit` an event, `permit` a tool use or `question`
  * a question (each resolves with what the person decided). Claude's store is a list the test fills.
  */
-import type { ClaudePermissionMode, ClaudeSessionId, ClaudeTranscriptItem } from '@harness/core';
+import type { ClaudePermissionMode, ClaudeSessionId, ClaudeTranscriptItem } from '../shared/session.ts';
 import { sliceOf, type ClaudeDriver, type DriverEvent, type DriverOpen, type DriverPage, type FoundImportable, type LiveSession, type PermitDecision, type PermitRequest, type QuestionReply, type QuestionRequest, type SessionListener, type StoredSession, type TranscriptRequest, type TranscriptSlice } from './driver.ts';
 
 /** One session the fake opened, and what happened to it. */

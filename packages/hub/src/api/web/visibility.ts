@@ -34,7 +34,7 @@ export function connectionsPlugin(hub: HubServices, systems: ReturnType<typeof s
       },
       connect: async ({ data, user, cookie }) => {
         if (!(await hub.access.scope(user.id)).seesSystem(data.system)) { throw reject(404, 'NOT_FOUND', `${data.system} has no per-person connections`); }
-        const started = await hub.connections.connect(user.id, data.system, data.form, data.instance);
+        const started = await hub.connections.connect(user.id, data.system, data.form, data.instance, data.key);
         if (!('binding' in started)) return started;
         // ties the provider's sign-in to this browser: the callback finishes only where this cookie is
         const { binding } = started;

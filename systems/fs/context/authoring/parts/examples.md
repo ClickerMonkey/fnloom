@@ -14,6 +14,8 @@ choices:
     when: "Pick this for scripts/docs/example/client/NoteCard.vue."
   - to: "fs/authoring.examples.client-noteinput-vue"
     when: "Pick this for scripts/docs/example/client/NoteInput.vue."
+  - to: "fs/authoring.examples.client-notespage-vue"
+    when: "Pick this for scripts/docs/example/client/NotesPage.vue."
   - to: "fs/authoring.examples.client-reviewform-vue"
     when: "Pick this for scripts/docs/example/client/ReviewForm.vue."
   - to: "fs/authoring.examples.client-wordcount-vue"
@@ -48,11 +50,12 @@ choices:
 
 ## 30. Worked examples
 
-This part is in 18 pieces; load the one you need:
+This part is in 19 pieces; load the one you need:
 
 - [scripts/docs/example/client/FindView.vue](context:fs/authoring.examples.client-findview-vue)
 - [scripts/docs/example/client/NoteCard.vue](context:fs/authoring.examples.client-notecard-vue)
 - [scripts/docs/example/client/NoteInput.vue](context:fs/authoring.examples.client-noteinput-vue)
+- [scripts/docs/example/client/NotesPage.vue](context:fs/authoring.examples.client-notespage-vue)
 - [scripts/docs/example/client/ReviewForm.vue](context:fs/authoring.examples.client-reviewform-vue)
 - [scripts/docs/example/client/WordCount.vue](context:fs/authoring.examples.client-wordcount-vue)
 - [scripts/docs/example/client/index.ts](context:fs/authoring.examples.client-index-ts)

@@ -47,6 +47,8 @@ interface SystemContract<N extends string, C extends ContractShape> extends Syst
   readonly grants: SystemGrants | undefined;
   /** Its own config component (a client export), drawn instead of or beside the gin form. */
   readonly configComponent: ConfigComponentDecl | undefined;
+  /** Whole pages it adds to the web app (`/s/<system>/<segment>`), each drawn by a component in `client({ pages })`. */
+  readonly pages: readonly SystemPageDecl[];
   /** Its API groups, each described once; a fn names its group with `fn({ group })`. */
   readonly groups: readonly ApiGroupDecl[];
   /** The declarations themselves. */
@@ -56,7 +58,7 @@ interface SystemContract<N extends string, C extends ContractShape> extends Syst
 }
 ```
 
-Refers to: [`ApiGroupDecl`](context:fs/authoring.core-types.api-index-ts#core-apigroupdecl), [`ConfigComponentDecl`](context:fs/authoring.core-types.grants-ts#core-configcomponentdecl), [`ConfigPath`](context:fs/authoring.core-types.config-secrets-ts#core-configpath), [`ContributionDecl`](context:fs/authoring.core-types.registries-ts#core-contributiondecl), [`SystemGrants`](context:fs/authoring.core-types.grants-ts#core-systemgrants).
+Refers to: [`ApiGroupDecl`](context:fs/authoring.core-types.api-index-ts#core-apigroupdecl), [`ConfigComponentDecl`](context:fs/authoring.core-types.grants-ts#core-configcomponentdecl), [`ConfigPath`](context:fs/authoring.core-types.config-secrets-ts#core-configpath), [`ContributionDecl`](context:fs/authoring.core-types.registries-ts#core-contributiondecl), [`SystemGrants`](context:fs/authoring.core-types.grants-ts#core-systemgrants), [`SystemPageDecl`](context:fs/authoring.core-types.system-pages-ts#core-systempagedecl).
 
 #### `SystemRefs`
 
@@ -229,6 +231,13 @@ interface SystemInfo {
    */
   configComponent?: ConfigComponentDecl;
   /**
+   * Whole pages it adds to the web app, each at `/s/<system>/<segment>`: `{ segment: 'sessions', title: 'Claude', icon:
+   * 'code', nav: 'main', access: 'everyone', component: 'SessionsPage' }`. The component is drawn from the client build
+   * (`client({ pages: { SessionsPage } })`), which must have every one named. The nav shows a `main` page while the
+   * system is live; a `hidden` one is reached by link (a detail page). Segments are unique.
+   */
+  pages?: SystemPageInput[];
+  /**
    * Its API groups: a name, a title and what the group's fns are for (`{ name: 'files', title: 'Files', description:
    * 'Read, write and search files.' }`). The hub keeps an index item for the system (`<system>/api`, the groups as
    * choices) and one per group listing its fns, so a model walks the API like a context folder. A fn names its group
@@ -238,7 +247,7 @@ interface SystemInfo {
 }
 ```
 
-Refers to: [`ApiGroupDecl`](context:fs/authoring.core-types.api-index-ts#core-apigroupdecl), [`ConfigComponentDecl`](context:fs/authoring.core-types.grants-ts#core-configcomponentdecl), [`ConfigPath`](context:fs/authoring.core-types.config-secrets-ts#core-configpath), [`ContributionDecl`](context:fs/authoring.core-types.registries-ts#core-contributiondecl), [`SystemGrants`](context:fs/authoring.core-types.grants-ts#core-systemgrants).
+Refers to: [`ApiGroupDecl`](context:fs/authoring.core-types.api-index-ts#core-apigroupdecl), [`ConfigComponentDecl`](context:fs/authoring.core-types.grants-ts#core-configcomponentdecl), [`ConfigPath`](context:fs/authoring.core-types.config-secrets-ts#core-configpath), [`ContributionDecl`](context:fs/authoring.core-types.registries-ts#core-contributiondecl), [`SystemGrants`](context:fs/authoring.core-types.grants-ts#core-systemgrants), [`SystemPageInput`](context:fs/authoring.core-types.system-pages-ts#core-systempageinput).
 
 #### `RegistryDef`
 

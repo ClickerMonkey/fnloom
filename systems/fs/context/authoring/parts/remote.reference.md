@@ -41,17 +41,42 @@ function instanceConnectOf(label: string, auth: RemoteAuth): z.input<typeof Inst
 
 Refers to: [`InstanceConnect`](context:fs/authoring.core-types.connections-ts#core-instanceconnect), [`RemoteAuth`](context:fs/authoring.core-types.remote-auth-ts#core-remoteauth).
 
+#### `keyConnectOf`
+
+function · `import { keyConnectOf } from '@harness/sdk'`
+
+How people connect to a key of a key-scoped system (a record, which never holds a secret: an API service of the one
+`api` instance), for the hub's Connections page: a per-person token or headers as each person's own form; a shared
+token or headers as one admin's form, shared with everyone; OAuth as `instanceConnectOf`; nothing for no auth.
+
+```ts
+function keyConnectOf(label: string, auth: RemoteAuth): z.input<typeof InstanceConnect>;
+```
+
+Refers to: [`InstanceConnect`](context:fs/authoring.core-types.connections-ts#core-instanceconnect), [`RemoteAuth`](context:fs/authoring.core-types.remote-auth-ts#core-remoteauth).
+
 #### `connectForm`
 
 function · `import { connectForm } from '@harness/sdk'`
 
-The form a person fills to connect with their own token or header values; `undefined` for any other auth.
+The form to connect with a typed token or header values (`FormFor`); `undefined` for any other auth.
 
 ```ts
-function connectForm(auth: RemoteAuth): GinType<Record<string, string>> | undefined;
+function connectForm(auth: RemoteAuth, who?: FormFor): GinType<Record<string, string>> | undefined;
 ```
 
 Refers to: [`RemoteAuth`](context:fs/authoring.core-types.remote-auth-ts#core-remoteauth).
+
+#### `FormFor`
+
+type · `import { FormFor } from '@harness/sdk'`
+
+Whose typed token or header values a connect form takes: `person`, only a per-person auth's (each person their own);
+`any`, a shared one's too (one admin types it for everyone, for a key whose record holds no secret: `keyConnectOf`).
+
+```ts
+type FormFor = 'person' | 'any';
+```
 
 #### `usesConnections`
 
@@ -72,7 +97,7 @@ function · `import { credentialsFromForm } from '@harness/sdk'`
 The credentials a filled connect form makes, or what is wrong with it.
 
 ```ts
-function credentialsFromForm(auth: RemoteAuth, form: Json): { readonly credentials: RemoteCredentials; } | { readonly problem: string; };
+function credentialsFromForm(auth: RemoteAuth, form: Json, who?: FormFor): { readonly credentials: RemoteCredentials; } | { readonly problem: string; };
 ```
 
 Refers to: [`Json`](context:fs/authoring.core-types.primitives-ts#core-json), [`RemoteAuth`](context:fs/authoring.core-types.remote-auth-ts#core-remoteauth), [`RemoteCredentials`](context:fs/authoring.core-types.remote-auth-ts#core-remotecredentials).

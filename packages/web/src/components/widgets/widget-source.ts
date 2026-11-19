@@ -8,7 +8,7 @@ import {
   columnFacts, type ExportQuery, type Json, type QualifiedName, type ResultFacts, type ResultTable, type WidgetActionOption, type WidgetDrill, type WidgetPager,
   type WidgetPaging, type WidgetPreset, type WidgetRange, type WidgetResult, type WidgetShownControl, type WidgetVisual,
 } from '@harness/core';
-import { exportQuery, resultTableOf, widgetResultOf, type WidgetHost } from './widgets.ts';
+import { exportQuery, proposalOf, resultTableOf, widgetResultOf, type WidgetHost } from './widgets.ts';
 
 /** One level of a widget as the view draws it. */
 export interface WidgetFrame {
@@ -56,9 +56,12 @@ export function tableFrame(table: ResultTable, title: string, paged?: WidgetPagi
   };
 }
 
-/** A run's output as a frame: a widget's result or a result table (paged by `paged`); undefined for anything else. */
+/**
+ * A run's output as a frame: a widget's result, a result table (paged by `paged`), or a widget proposal's preview
+ * (the widgets system draws the proposal itself; without its build, the preview still shows); undefined for anything else.
+ */
 export function frameOf(output: Json | undefined, title: string, paged?: WidgetPaging): WidgetFrame | undefined {
-  const result = widgetResultOf(output);
+  const result = widgetResultOf(output) ?? proposalOf(output)?.preview;
   if (result !== undefined) { return resultFrame(result); }
   const table = resultTableOf(output);
   return table === undefined ? undefined : tableFrame(table, title, paged);

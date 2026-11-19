@@ -561,9 +561,12 @@ describe('search and suggestions', () => {
     const [top] = first;
     if (top === undefined) throw new Error('nothing suggested');
     await ctx.store.table('sessions').update(SESSION, { suggested: [top.name] });
+    const near = vi.spyOn(ctx.store.vectors, 'nearest');
     const again = await ctx.suggester.suggest({ session: SESSION, text: 'find a product by its sku', limit: 1 });
     expect(again).toHaveLength(1);
     expect(again.map((s) => s.name)).not.toContain(top.name);
+    // left out by the database inside the nearest search, not by a check on each hit after it
+    expect(near).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.any(Number), expect.objectContaining({ excludeKeys: [top.name] }));
   });
 });
 

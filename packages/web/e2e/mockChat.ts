@@ -91,7 +91,7 @@ export class MockChat {
   capabilities(): ChatCapabilities {
     // `satisfies` the schema's input, so a field the schema gains breaks this at compile time, not at the first call
     const capabilities = {
-      voiceInput: false, voiceOutput: false, uploads: true, display: {},
+      voiceInput: false, voiceOutput: false, uploads: true, meaning: false, display: {},
       mentions: [{ provider: 'fs/files', title: 'Files', of: 'fs/Entry' }],
       methods: [{ type: 'fs/Entry', method: 'reveal', fn: 'fs/Entry.reveal', description: 'Show it in the file manager', args: { name: 'obj', props: { self: { type: { name: 'fs/Entry' } } } } }],
       commands: [

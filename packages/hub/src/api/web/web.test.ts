@@ -48,9 +48,9 @@ function systemRow(name: string, fields: Partial<SystemRecord> = {}): SystemReco
   };
 }
 
-/** A rig with the web API installed and an admin signed in. */
+/** A rig with the web API installed and an admin signed in; no embedder is up unless the test fakes one (`capabilities.meaning`). */
 async function signedIn(fakes: Fakes = {}) {
-  const r = await rig(fakes);
+  const r = await rig({ ...fakes, index: { ...fakes.index, embedders: { active: () => undefined, ...fakes.index?.embedders } } });
   const web = await webRig(r);
   const tokens = await web.admin();
   return { r, web, tokens, as: web.as(tokens), me: tokens.user.id };

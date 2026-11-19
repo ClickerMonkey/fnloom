@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { RemoteAuth } from '@harness/core';
 import {
-  accountLabel, connectForm, credentialHeaders, credentialsFromForm, instanceConnectOf, maskHeaders, readCredentials, secretHeaderNames, sharedHeaders, usesConnections,
+  accountLabel, connectForm, credentialHeaders, credentialsFromForm, instanceConnectOf, keyConnectOf, maskHeaders, readCredentials, secretHeaderNames, sharedHeaders, usesConnections,
 } from './remote-auth.ts';
 
 const PERSON_BEARER: RemoteAuth = { kind: 'bearer', per: 'person' };
@@ -43,5 +43,23 @@ describe('remote auth for instance-scoped systems', () => {
     expect(accountLabel({ token: 'abcd1234' })).toBe('Token ending 1234');
     expect(accountLabel({ headers: { 'X-Key': 'k' } })).toBe('Headers X-Key');
     expect(accountLabel({ accessToken: 'a', tokenType: 'Bearer' })).toBe('Signed in');
+  });
+});
+
+describe('remote auth for key-scoped systems (records that hold no secret)', () => {
+  it('says how people connect to a key: a shared token is one admin form for everyone, a per-person one each person\'s own', () => {
+    expect(keyConnectOf('Tracker', { kind: 'bearer', per: 'shared' })).toMatchObject({ flow: { flow: 'form' }, share: true, title: "Set Tracker's sign-in for everyone" });
+    expect(keyConnectOf('Tracker', { kind: 'headers', per: 'shared', names: ['X-Key'] })).toMatchObject({ flow: { flow: 'form' }, share: true });
+    expect(keyConnectOf('Tracker', PERSON_BEARER)).toEqual(instanceConnectOf('Tracker', PERSON_BEARER));
+    expect(keyConnectOf('Tracker', { kind: 'none' })).toEqual({ title: 'Tracker' });
+    expect(keyConnectOf('Linear', { kind: 'oauth', per: 'shared' })).toMatchObject({ flow: { flow: 'oauth' }, share: true });
+  });
+
+  it('reads a shared form only when asked to (an admin\'s, for a key)', () => {
+    const shared: RemoteAuth = { kind: 'bearer', per: 'shared' };
+    expect(connectForm(shared)).toBeUndefined();
+    expect(credentialsFromForm(shared, { token: 't' })).toEqual({ problem: 'This service connects without a form.' });
+    expect(credentialsFromForm(shared, { token: 't' }, 'any')).toEqual({ credentials: { token: 't' } });
+    expect(credentialsFromForm({ kind: 'headers', per: 'shared', names: ['X-Key'] }, { 'X-Key': 'k' }, 'any')).toEqual({ credentials: { headers: { 'X-Key': 'k' } } });
   });
 });

@@ -8,6 +8,11 @@ import { registerHubFns, UNDECLARED_CHANGE } from './hub-fns.ts';
 import { writeItemVersions } from '../catalog/versions.ts';
 import { Json as JsonValue } from '@harness/core';
 import { linkPayload } from '../testing.ts';
+import { CatalogFnViews } from '../contextor/views.ts';
+import { replyText } from '../execution/wire.ts';
+
+/** What the model reads of a settled run's result. */
+const reads = (settled: { status: string; result?: Json }): string => (settled.status === 'done' && settled.result !== undefined ? replyText(settled.result, { rows: 5, watched: true }) : '');
 
 let rig: ExecutionRig | undefined;
 afterEach(async () => { await rig?.module.stop(); rig = undefined; });
@@ -41,6 +46,7 @@ async function started(hits: SearchHit[] = [], session: Partial<Session> = {}, a
   registerHubFns(r.module.hubFns, {
     store: () => r.store,
     catalog: () => r.catalog,
+    views: () => new CatalogFnViews(r.catalog),
     facts: () => ({ registry: (names) => Promise.resolve(new Map(names.map((name) => [name, []]))) }),
     search: () => ({
       search: async (query) => {
@@ -87,7 +93,15 @@ describe('finding and loading fns', () => {
   it('loads usable fns into the session and says why the rest were refused', async () => {
     const { r, turn } = await started([], { systems: [SystemName.parse('fs')] });
     const settled = await call(r, turn, 'load_fns', { fns: ['fs/read', 'shop/buy', 'fs/nothing', 'not a name'] });
-    expect(settled).toEqual({ status: 'done', result: {
+    // the model reads the XML cards, not the name lists: the loaded fn's card, then each refused name with why
+    expect(reads(settled)).toBe([
+      '<loaded_fns>', 'In your tools from your next step:', '<fn name="fs/read" label="Read" mode="read" available="yes">Read a file.</fn>', '</loaded_fns>',
+      '<refused_fns>', 'Not loaded. Don\'t load these again; if you need one, tell the person what blocks it:',
+      '<refused name="not a name" code="not-a-name" available="no">not a qualified fn name (system/name)</refused>',
+      '<refused name="shop/buy" code="other-system" available="no">this session does not use shop</refused>',
+      '<refused name="fs/nothing" code="no-such-fn" available="no">no such fn</refused>', '</refused_fns>',
+    ].join('\n'));
+    expect(settled).toMatchObject({ status: 'done', result: {
       loaded: ['fs/read'],
       refused: [
         { fn: 'not a name', code: 'not-a-name', reason: 'not a qualified fn name (system/name)' },
@@ -103,7 +117,7 @@ describe('finding and loading fns', () => {
   it('refuses a fn not meant for the model, as hub/load does', async () => {
     const { r, turn } = await started();
     r.catalog.add('fs', 'raw', fn({ description: 'Raw.', args: g.obj({}), returns: g.text(), visibility: 'user' }));
-    expect(await call(r, turn, 'load_fns', { fns: ['fs/raw'] })).toEqual({ status: 'done', result: { loaded: [], refused: [{ fn: 'fs/raw', code: 'not-for-model', reason: 'not for the model', system: 'fs' }] } });
+    expect(await call(r, turn, 'load_fns', { fns: ['fs/raw'] })).toMatchObject({ status: 'done', result: { loaded: [], refused: [{ fn: 'fs/raw', code: 'not-for-model', reason: 'not for the model', system: 'fs' }] } });
   });
 
   it('refuses a held fn with the hub\'s reason, not a bare "unavailable" (regression: "You there?")', async () => {
@@ -111,9 +125,12 @@ describe('finding and loading fns', () => {
     const held = { unavailable: 'held' as const, detail: 'database/create_table changed and waits for an admin to approve it' };
     r.catalog.add('database', 'create_table', fn({ description: 'Create a table.', args: g.obj({}), returns: g.text() }), { available: held });
     await r.store.table('sessions').update(SESSION, { systems: 'all' });
-    expect(await call(r, turn, 'load_fns', { fns: ['database/create_table'] })).toEqual({ status: 'done', result: {
+    const settled = await call(r, turn, 'load_fns', { fns: ['database/create_table'] });
+    expect(settled).toMatchObject({ status: 'done', result: {
       loaded: [], refused: [{ fn: 'database/create_table', code: 'held', reason: held.detail, system: 'database' }],
     } });
+    expect(reads(settled)).toContain(`<refused name="database/create_table" code="held" available="no">${held.detail}</refused>`);
+    expect(reads(settled)).not.toContain('<loaded_fns');
   });
 
   it('gives a held fn from hub/fn_get with what blocks it, as fns_search hits say it, not a bare available: false', async () => {
@@ -164,7 +181,14 @@ describe('context and resources', () => {
     r.catalog.contexts.set(QualifiedName.parse('fs/guide'), 'How to work with files.');
     r.catalog.contexts.set(QualifiedName.parse('fs/guide.paths'), 'Paths are relative to the root.');
     r.catalog.contextDecls.set(QualifiedName.parse('fs/guide'), { imports: [QualifiedName.parse('fs/guide.paths')], fns: [QualifiedName.parse('fs/read')] });
-    expect(await call(r, turn, 'load_context', { context: ['fs/guide: how to work with files', 'fs/missing'] })).toEqual({ status: 'done', result: {
+    const settled = await call(r, turn, 'load_context', { context: ['fs/guide: how to work with files', 'fs/missing'] });
+    expect(reads(settled)).toBe([
+      '<loaded_context>', 'Their text is in front of you from your next step:',
+      '<context key="fs/guide">guide</context>', '<context key="fs/guide.paths">guide.paths</context>', '</loaded_context>',
+      '<brought_fns in_tools="yes">In your tools from your next step: fs/read</brought_fns>',
+      '<refused_context>', 'Not loaded:', '<refused name="fs/missing" available="no">no context you can load has that name. The closest: fs/guide.</refused>', '</refused_context>',
+    ].join('\n'));
+    expect(settled).toMatchObject({ status: 'done', result: {
       loaded: ['fs/guide', 'fs/guide.paths'], fns: ['fs/read'], fnsRefused: [],
       refused: [{ context: 'fs/missing', reason: 'no context you can load has that name', closest: ['fs/guide'] }],
     } });
@@ -179,7 +203,10 @@ describe('context and resources', () => {
     r.catalog.add('database', 'raw', fn({ description: 'Raw.', args: g.obj({}), returns: g.text(), visibility: 'user' }));
     r.catalog.contexts.set(QualifiedName.parse('database/guide'), 'How to make tables.');
     r.catalog.contextDecls.set(QualifiedName.parse('database/guide'), { fns: [QualifiedName.parse('database/create_table'), QualifiedName.parse('fs/read'), QualifiedName.parse('database/raw'), QualifiedName.parse('database/gone')] });
-    expect(await call(r, turn, 'load_context', { context: ['database/guide'] })).toEqual({ status: 'done', result: {
+    const settled = await call(r, turn, 'load_context', { context: ['database/guide'] });
+    expect(reads(settled)).toContain('<brought_fns in_tools="no" available="no">You can\'t use these now: database/create_table (changed and waits for an admin to approve it).');
+    expect(reads(settled)).not.toContain('database/gone');
+    expect(settled).toMatchObject({ status: 'done', result: {
       // a fn never meant for the model, or one that doesn't exist, reads as missing and is not named
       loaded: ['database/guide'], fns: ['fs/read'], refused: [],
       fnsRefused: [{ fn: 'database/create_table', code: 'held', reason: held.detail, system: 'database' }],
@@ -207,7 +234,7 @@ describe('context and resources', () => {
       { kind: 'section', key: 'file:///other/notes.md#Top', rank: 0.4, similarity: 0.4, text: 'notes.md\n\nElsewhere.' },
     ]);
     expect(await call(r, turn, 'search_resources', { query: 'harness', roots: ['file:///repo'] })).toEqual({ status: 'done', result: [
-      { uri: 'file:///repo/README.md', section: 'Intro', title: 'README.md > Intro', preview: 'README.md > Intro\n\nA harness.', score: 0.8 },
+      { uri: 'file:///repo/README.md', section: 'Intro', title: 'README.md > Intro', preview: 'README.md > Intro\n\nA harness.', rank: 0.8 },
     ] });
   });
 });
@@ -231,7 +258,7 @@ describe('keeping to what the person may see', () => {
     r.catalog.contexts.set(QualifiedName.parse('fs/guide'), 'How to work with files.');
     r.catalog.contexts.set(QualifiedName.parse('fs/secret'), 'Private notes.');
     r.catalog.contextDecls.set(QualifiedName.parse('fs/guide'), { imports: [QualifiedName.parse('fs/secret')], fns: [QualifiedName.parse('fs/secret')] });
-    expect(await call(r, turn, 'load_fns', { fns: ['fs/secret'] })).toEqual({ status: 'done', result: { loaded: [], refused: [{ fn: 'fs/secret', code: 'no-such-fn', reason: 'no such fn' }] } });
+    expect(await call(r, turn, 'load_fns', { fns: ['fs/secret'] })).toMatchObject({ status: 'done', result: { loaded: [], refused: [{ fn: 'fs/secret', code: 'no-such-fn', reason: 'no such fn' }] } });
     // what it imports and brings is still kept to what the person may see
     expect(await call(r, turn, 'load_context', { context: ['fs/guide', 'fs/secret'] })).toMatchObject({ status: 'done', result: { loaded: ['fs/guide'], fns: [], fnsRefused: [] } });
     expect(await call(r, turn, 'search_resources', { query: 'x' })).toMatchObject({ status: 'done', result: [{ uri: 'file:///repo/README.md' }] });
@@ -339,6 +366,7 @@ describe('saved fns (build 5)', () => {
           return { added: existing === undefined ? [name] : [], updated: existing === undefined ? [] : [name], removed: [], refused: [] };
         },
       }),
+      views: () => new CatalogFnViews(r.catalog),
       facts: () => ({ registry: (names) => Promise.resolve(new Map(names.map((name) => [name, r.catalog.records.get(name)?.decl.effects?.registry ?? []]))) }),
       search: () => ({ search: () => Promise.resolve([]) }),
       sessions: () => ({ load: () => Promise.reject(new Error('no loads here')) }),

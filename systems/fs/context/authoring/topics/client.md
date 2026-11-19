@@ -18,7 +18,7 @@ choices:
 
 Vue renderers, inputs and resource views typed by the contract, and the visuals and widgets results draw with.
 
-- [The client: renderers, inputs and resource views](context:fs/authoring.client): Vue renderers, inputs and resource views, typed by the contract.
+- [The client: renderers, inputs, resource views and pages](context:fs/authoring.client): Vue renderers, inputs and resource views, typed by the contract.
 - [Visuals and widgets](context:fs/authoring.widgets): Visuals in the hub registry with their shapes, and widgets: saved views of a table fn with controls, paging and row actions.
 
 Fns for this: fn:fs/read, fn:fs/write, fn:fs/edit, fn:fs/bash.

@@ -1,11 +1,13 @@
 <script setup lang="ts">
 /**
- * One run in an answer: its status dot, friendly label, what it is about, and what it is doing now in plain words
+ * One run in an answer: its status dot, its fn as a pill (`FnPill`, which opens the fn), what it is about, and what it is doing now in plain words
  * (only when that adds to the line), with a ticking elapsed time and its cost. Each fact shows once: expanded with its
  * fn's own renderer (or a widget whose chips show its args, or a proposal), the line drops the args summary, and who started it is the
  * line's tooltip (the card sits under their message). Progress shows as a bar or steps. A failed run says why in place of its
- * summary; refused input (which the agent retries) says so quietly, as a dashed card. The body is the fn's own renderer when its system has one, otherwise the result in brief. The card
- * collapses to its one line; clicking the line opens the run's details.
+ * summary; refused input (which the agent retries) says so quietly, as a dashed card. The body is the fn's own renderer when its system has one,
+ * else, once it is done, its system's result renderer (`client({ results })`, by fn or kind: a widget proposal is the
+ * widgets system's), else rows in the result view, else the result in brief. The card
+ * collapses to its one line; clicking the line (past the pill) opens the run's details.
  */
 import { computed } from 'vue';
 import { UiIcon, UiIconButton } from '../../ui/index.ts';
@@ -15,7 +17,9 @@ import { MAIN_INSTANCE, isSettled } from '@harness/core';
 import { argSummary, invalidLine, invalidSummary, isBusy, repeatsArgs, resultBrief, runElapsed, runError, runInvalid, runDeclined, runResult, runStopped, runText, shownStatus, type RunView } from '../logic/runs.ts';
 import RendererHost from './RendererHost.vue';
 import TableResult from '../../components/widgets/TableResult.vue';
-import { proposalOf, showsRows, widgetResultOf } from '../../components/widgets/widgets.ts';
+import { showsRows, widgetResultOf } from '../../components/widgets/widgets.ts';
+import { useStoresIfAny } from '../../state/stores.ts';
+import FnPill from '../../fns/components/FnPill.vue';
 import RunDot from './RunDot.vue';
 import RunProgress from './RunProgress.vue';
 import type { RenderView } from './types.ts';
@@ -35,14 +39,14 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{ open: []; toggle: [collapsed: boolean]; background: [] }>();
 
 const label = computed(() => fnLabel(props.run.fn));
+const stores = useStoresIfAny();
+/** Its result drawn by its system's result renderer, when there is no fn renderer and a loaded build has one. */
+const resultView = computed(() => (props.view === undefined ? stores?.chat.renderers.resultView(props.run, label.value) : undefined));
 const summary = computed(() => argSummary(props.run.args));
-/** Whether the rows drawn below say what the args are: a widget's chip row, or a proposal's own title and description. */
-const rowsShowArgs = computed(() => {
-  const value = result.value;
-  return proposalOf(value) !== undefined || (widgetResultOf(value)?.controls.length ?? 0) > 0;
-});
-/** The args summary on the line: left out while the fn's renderer, or a widget's chips, open below, show them. */
-const about = computed(() => ((props.view !== undefined || (rows.value && rowsShowArgs.value)) && !props.collapsed ? '' : summary.value));
+/** Whether the rows drawn below say what the args are: a widget's chip row. */
+const rowsShowArgs = computed(() => (widgetResultOf(result.value)?.controls.length ?? 0) > 0);
+/** The args summary on the line: left out while the fn's renderer, a result renderer or a widget's chips, open below, show them. */
+const about = computed(() => ((props.view !== undefined || resultView.value !== undefined || (rows.value && rowsShowArgs.value)) && !props.collapsed ? '' : summary.value));
 const words = computed(() => runText(props.run));
 /** Why its fn's output hook stopped it: said as a stop, not an error. */
 const stopped = computed(() => runStopped(props.run));
@@ -60,10 +64,10 @@ const brief = computed(() => resultBrief(result.value));
 const showStatus = computed(() => !isSettled(props.run.status) && !repeatsArgs(words.value, summary.value)
   && (props.view === undefined || props.run.asking === true || props.run.status === 'awaiting-approval'));
 /** A finished result that is rows (a widget's, or a result table): drawn as such rather than in brief. */
-const rows = computed(() => props.view === undefined && props.run.status === 'done' && showsRows(result.value));
-const showResult = computed(() => props.view === undefined && !rows.value && brief.value !== '' && props.run.status === 'done');
+const rows = computed(() => props.view === undefined && resultView.value === undefined && props.run.status === 'done' && showsRows(result.value));
+const showResult = computed(() => props.view === undefined && resultView.value === undefined && !rows.value && brief.value !== '' && props.run.status === 'done');
 const showNotice = computed(() => props.notice !== '' && !isSettled(props.run.status));
-const hasBody = computed(() => showStatus.value || showNotice.value || (props.run.progress !== undefined && !isSettled(props.run.status)) || props.view !== undefined || rows.value || showResult.value);
+const hasBody = computed(() => showStatus.value || showNotice.value || (props.run.progress !== undefined && !isSettled(props.run.status)) || props.view !== undefined || resultView.value !== undefined || rows.value || showResult.value);
 /** The instance it ran on, shown when the system runs as a fleet (anything but its main instance). */
 const instance = computed(() => (props.run.instance === undefined || props.run.instance === MAIN_INSTANCE ? undefined : props.run.instance));
 const canBackground = computed(() => props.run.allowed?.background === true && !props.run.background && !isSettled(props.run.status));
@@ -75,9 +79,9 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
     :aria-label="`${label}: ${words}`"
   >
     <header class="line">
-      <button type="button" class="summary" :title="byline === '' ? undefined : byline" :aria-expanded="collapsed ? 'false' : 'true'" @click="emit('open')">
-        <RunDot :status="status" />
-        <span class="label">{{ label }}</span>
+      <!-- its fn is a pill that opens the fn; the rest of the line opens the run -->
+      <span class="lead"><RunDot :status="status" /><FnPill :name="run.fn" /></span>
+      <button type="button" class="summary" :title="byline === '' ? undefined : byline" :aria-label="`Open ${label}: ${words}`" :aria-expanded="collapsed ? 'false' : 'true'" @click="emit('open')">
         <span v-if="stopped !== undefined" class="about stopped-text" data-testid="run-stopped" :title="stopped">Stopped · {{ stopped }}</span>
         <span v-else-if="error" class="about error-text" :title="error.message">{{ error.message }}</span>
         <span v-else-if="declined !== undefined" class="about" data-testid="run-declined" :title="declined">{{ declined }}</span>
@@ -100,7 +104,8 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
       <p v-if="showNotice" class="notice" data-testid="run-notice"><UiIcon name="clock" :size="13" /><span>{{ notice }}</span></p>
       <RunProgress v-if="run.progress && !isSettled(run.status)" :progress="run.progress" />
       <RendererHost v-if="view" :view="view" :label="label" @inspect="emit('open')" />
-      <TableResult v-else-if="rows" :value="result" :fn="run.fn" :args="run.args" :title="label" :view-key="run.id" />
+      <RendererHost v-else-if="resultView" :view="resultView" :label="label" @inspect="emit('open')" />
+      <TableResult v-else-if="rows" :value="result ?? null" :fn="run.fn" :args="run.args" :title="label" :view-key="run.id" />
       <pre v-else-if="showResult" class="brief">{{ brief }}</pre>
     </div>
   </article>
@@ -115,7 +120,7 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
 .run-card.status-failed { border-color: var(--danger-soft); }
 /* refused input the agent retries: quiet, dashed, never red */
 .run-card.status-invalid-input { border-style: dashed; background: transparent; }
-.run-card.status-invalid-input .label { color: var(--text-dim); }
+.run-card.status-invalid-input .lead { opacity: 0.7; }
 /* a result its fn's own check stopped: the reason is for the person, in a calm warning, not an error */
 .run-card.stopped { border-color: var(--warn-soft); }
 .stopped-text { color: var(--warn); }
@@ -124,11 +129,11 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
 @keyframes card-glow { 0%, 100% { box-shadow: 0 0 0 3px var(--accent-soft); } 50% { box-shadow: 0 0 0 1px var(--accent-soft); } }
 .line { display: flex; align-items: center; gap: var(--space-1); min-width: 0; padding: 2px var(--space-1) 2px 0; }
 .summary {
-  display: flex; align-items: center; gap: var(--space-2); flex: 1; min-width: 0; min-height: 40px; padding: 0 var(--space-2) 0 var(--space-3);
+  display: flex; align-items: center; gap: var(--space-2); flex: 1; min-width: 0; min-height: 40px; padding: 0 var(--space-2) 0 var(--space-1);
   border: 0; border-radius: var(--radius); background: transparent; color: var(--text); text-align: left;
 }
 .summary:focus-visible { outline: none; box-shadow: inset var(--ring); }
-.label { flex: none; font-weight: var(--weight-medium); font-size: var(--text-sm); }
+.lead { display: inline-flex; align-items: center; gap: var(--space-2); flex: none; min-width: 0; max-width: 55%; padding-left: var(--space-3); }
 .about { flex: 1; min-width: 0; color: var(--text-dim); font-size: var(--text-sm); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .error-text { color: var(--danger); font-family: var(--font); }
 .retried-text { color: var(--text-faint); font-family: var(--font); font-style: italic; }

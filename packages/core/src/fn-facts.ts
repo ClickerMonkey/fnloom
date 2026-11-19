@@ -70,10 +70,10 @@ export const FnExamplesQuery = z.object({
 export type FnExamplesQuery = z.infer<typeof FnExamplesQuery>;
 
 /**
- * One example as a reader sees it, with its `score` when found by a query: its place in that search's order as a share
- * of the best (1 = first, `SearchHit.rank`), for ordering only.
+ * One example as a reader sees it, with its `rank` when found by a query: its place in that search's order as a share
+ * of the best (1 = first, `SearchHit.rank`), for ordering only, never a measure of fit.
  */
-export const FnExampleView = FnExample.extend({ id: FnExampleId, score: z.number().optional() });
+export const FnExampleView = FnExample.extend({ id: FnExampleId, rank: z.number().optional() });
 export type FnExampleView = z.infer<typeof FnExampleView>;
 
 /** A page of a fn's examples: `total` of them, `next` the offset of the next page (absent on the last). */
@@ -129,8 +129,8 @@ export const FnSearchQuery = z.object({
   off: z.boolean().optional(),
   /** Only fns that can be used now (default true; `hub/fns_search` for the model defaults to false); false keeps the rest too, each marked with what blocks it (`FnSearchHit.blocked`). */
   available: z.boolean().optional(),
-  /** `score` (the default with `text`) or `name` (the default without). */
-  order: z.enum(['score', 'name']).optional(),
+  /** `rank` (best first, the default with `text`) or `name` (the default without). */
+  order: z.enum(['rank', 'name']).optional(),
   offset: z.number().int().min(0).optional(),
   limit: z.number().int().min(1).max(100).optional(),
 });
@@ -147,7 +147,7 @@ export type FnSearchArgs = z.infer<typeof FnSearchArgs>;
 export const SearchSection = z.object({ key: SectionKey, path: z.array(z.string()), title: z.string() });
 export type SearchSection = z.infer<typeof SearchSection>;
 
-/** One hit: a fn (with its kind, mode and signature line) or a context item, with its score when searched by text. */
+/** One hit: a fn (with its kind, mode and signature line) or a context item, with its rank and fit when searched by text. */
 export const FnSearchHit = z.object({
   item: SearchItemKind,
   name: QualifiedName,
@@ -162,7 +162,7 @@ export const FnSearchHit = z.object({
   effects: z.string().optional(),
   instance: InstanceName.optional(),
   /** Searched by text: its place in the order as a share of the best (1 = first); for ordering, not a measure of fit. */
-  score: z.number().optional(),
+  rank: z.number().optional(),
   /** Searched by meaning: how close it is to the text (cosine, 0 to 1), the one measure of fit; absent with words alone. */
   similarity: z.number().optional(),
   /** Searched by text: which index found it, its words, its meaning, or both. */
@@ -175,8 +175,8 @@ export const FnSearchHit = z.object({
 });
 export type FnSearchHit = z.infer<typeof FnSearchHit>;
 
-/** How a search found a listed item: its score (rank, for ordering), fit, which index found it, and the section. */
-export const SearchFound = FnSearchHit.pick({ score: true, similarity: true, matched: true, section: true });
+/** How a search found a listed item: its rank (for ordering), fit, which index found it, and the section. */
+export const SearchFound = FnSearchHit.pick({ rank: true, similarity: true, matched: true, section: true });
 export type SearchFound = z.infer<typeof SearchFound>;
 
 /** A row of the context list (`contexts`): the item, and how the list's text search found it when it has text. */

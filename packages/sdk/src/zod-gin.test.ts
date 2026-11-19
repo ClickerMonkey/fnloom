@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { parseValue } from './gin.ts';
-import { ApiServiceConfig, ClaudeInstanceConfig, McpServerConfig } from '@harness/core';
+import { ApiServiceConfig, McpServerConfig } from '@harness/core';
 import { ginOf, toolArgsOf } from './zod-gin.ts';
 
 describe('gin types read off zod schemas', () => {
@@ -115,12 +115,6 @@ describe('the build 9 instance configs read into gin', () => {
       schema: ApiServiceConfig,
       value: { label: 'Weather', baseUrl: 'https://api.weather.test/v1', auth: { kind: 'headers', per: 'shared', names: ['X-Key'], values: { 'X-Key': 's' } }, headers: { Accept: 'application/json' } },
       bad: { label: '', baseUrl: 'https://api.weather.test/v1' },
-    },
-    {
-      name: 'a Claude machine',
-      schema: ClaudeInstanceConfig,
-      value: { folders: [{ path: 'C:/work', label: 'Work' }], permissionMode: 'acceptEdits', maxLive: 4, hubMcp: { url: 'http://127.0.0.1:4320/mcp', secret: 's' } },
-      bad: { folders: [{ path: 'C:/work' }], maxLive: 0 },
     },
   ];
 

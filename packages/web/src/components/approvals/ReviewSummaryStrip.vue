@@ -2,11 +2,13 @@
 /**
  * What a set of contract changes amounts to, as the hub worked it out (`ReviewSummary`): its one line, a chip per
  * section that changed ("+3 fns · 1 changed"), how the grants and the config type moved, then its risk flags, most
- * serious first, each with what it is about. The review page's Pending tab and the chat's install card both draw it.
+ * serious first, each with what it is about: a flag about fns names each as a pill (`flagFns`) that opens it. The review
+ * page's Pending tab and the chat's install card both draw it.
  */
 import type { ReviewSummary } from '@harness/core';
 import { computed } from 'vue';
-import { FLAG_LOOK, GRANTS_MOVE_LOOK, sectionWords } from '../../admin/logic/review.ts';
+import { FLAG_LOOK, flagFns, GRANTS_MOVE_LOOK, sectionWords } from '../../admin/logic/review.ts';
+import FnPill from '../../fns/components/FnPill.vue';
 import { UiBadge, UiIcon } from '../../ui/index.ts';
 
 const props = withDefaults(defineProps<{ summary: ReviewSummary; compact?: boolean }>(), { compact: false });
@@ -22,6 +24,8 @@ const chips = computed(() => props.summary.counts.filter((count) => count.sectio
   ],
 })));
 const risky = computed(() => props.summary.flags.length > 0);
+/** Each flag with its fns split out for pills, when it is about fns. */
+const flags = computed(() => props.summary.flags.map((flag) => ({ flag, fns: flagFns(flag) })));
 </script>
 
 <template>
@@ -39,9 +43,14 @@ const risky = computed(() => props.summary.flags.length > 0);
       <UiBadge v-if="summary.config" tone="accent">Config type {{ summary.config }}</UiBadge>
     </div>
     <ul v-if="risky" class="flags" data-testid="review-flags">
-      <li v-for="flag in summary.flags" :key="flag.flag" class="flag" :class="`tone-${FLAG_LOOK[flag.flag].tone}`" :data-flag="flag.flag">
+      <li v-for="{ flag, fns } in flags" :key="flag.flag" class="flag" :class="`tone-${FLAG_LOOK[flag.flag].tone}`" :data-flag="flag.flag">
         <UiIcon :name="FLAG_LOOK[flag.flag].icon" :size="14" />
-        <span>{{ flag.line }}</span>
+        <span v-if="fns" class="about" :aria-label="flag.line">
+          {{ fns.lead }}<template v-if="!fns.tail">:</template>
+          <FnPill v-for="fn in fns.fns" :key="fn" :name="fn" />
+          <template v-if="fns.tail">: {{ fns.tail }}</template>
+        </span>
+        <span v-else>{{ flag.line }}</span>
       </li>
     </ul>
     <p v-else-if="!compact" class="calm">No new write or delete fns, effects, grants, hosts or secrets.</p>
@@ -68,7 +77,8 @@ const risky = computed(() => props.summary.flags.length > 0);
 .count.remove { color: var(--danger); }
 .flags { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
 .flag { display: flex; align-items: flex-start; gap: var(--space-2); padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); background: var(--tone-soft); color: var(--tone); font-size: var(--text-sm); overflow-wrap: anywhere; }
-.flag :deep(svg) { flex: none; margin-top: 3px; }
+.flag > :deep(svg) { flex: none; margin-top: 3px; }
+.about { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); min-width: 0; }
 .calm { margin: 0; color: var(--text-faint); font-size: var(--text-sm); }
 @keyframes strip-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .strip { animation: none; } }

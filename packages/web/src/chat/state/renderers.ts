@@ -12,7 +12,7 @@ import {
 } from '@harness/core';
 import type { InputMount } from '@harness/sdk';
 import type { ResultFacts } from '@harness/core';
-import { ClientRuntime, type ClientBridge, type VisualOption } from '@harness/sdk/client';
+import { ClientRuntime, type ClientBridge, type PageWire, type VisualOption } from '@harness/sdk/client';
 import { shallowRef } from 'vue';
 import type { RenderView } from '../components/types.ts';
 import { runError, runResult, shownStatus, type RunView } from '../logic/runs.ts';
@@ -104,6 +104,25 @@ export class RendererHub {
       fn: run.fn, kind: run.kind === undefined || run.kind === 'native' ? undefined : run.kind, run: run.id, status: shownStatus(run), args: run.args, state,
       ...(result === undefined ? {} : { result }), ...(error === undefined ? {} : { error }), ...(run.progress === undefined ? {} : { progress: run.progress }),
     });
+  }
+
+  /**
+   * A finished run's result renderer (`client({ results })`, by its fn or kind) and its view, titled as the chat names
+   * the run. Undefined until the run is done with a result, or when no build has one for it.
+   */
+  resultView(run: RunView, title: string): RenderView<'result'> | undefined {
+    this.#track();
+    const result = runResult(run);
+    if (run.status !== 'done' || run.args === undefined || result === undefined) { return undefined; }
+    return this.runtime.resultView({
+      fn: run.fn, kind: run.kind === undefined || run.kind === 'native' ? undefined : run.kind, run: run.id, args: run.args, result, title,
+    });
+  }
+
+  /** A system page's component and props (`/s/<system>/<page>`), once its system's build has loaded. */
+  pageView(system: string, page: string, wire: PageWire): RenderView<'page'> | undefined {
+    this.#track();
+    return this.runtime.pageView(system, page, wire);
   }
 
   /** An attachment's renderer and view, if its system's build has one and the data fits its type. */

@@ -12,14 +12,28 @@ export const REVIEW_FLAGS = ['delete-fns', 'write-fns', 'effects', 'capabilities
 export const ReviewFlagKind = z.enum(REVIEW_FLAGS);
 export type ReviewFlagKind = z.infer<typeof ReviewFlagKind>;
 
-/** One risk flag: what it is, in one line, and the items (fn names, hosts, secret names) it is about. */
+/**
+ * One risk flag: what it is, in one line, and the items (fn names, hosts, secret names) it is about. The line is its
+ * `lead`, the items, then its `tail` when it has one (`reviewFlag` writes it), so a view can draw the items as their
+ * own parts (fns as pills) between the same words. A flag kept from before `lead` existed has the line only.
+ */
 export const ReviewFlag = z.object({
   flag: ReviewFlagKind,
-  /** "New delete fns: notes/purge". */
+  /** "Can delete: notes/purge". */
   line: z.string().min(1),
   items: z.array(z.string().min(1)),
+  /** The words before the items ("Can delete", "New effects in"). */
+  lead: z.string().min(1).optional(),
+  /** The words after them (what new effects do), when the line goes on. */
+  tail: z.string().min(1).optional(),
 });
 export type ReviewFlag = z.infer<typeof ReviewFlag>;
+
+/** A flag from its parts, its line written from them: `<lead>: <items>`, or `<lead> <items>: <tail>` with a tail. */
+export function reviewFlag(flag: ReviewFlagKind, lead: string, items: readonly string[], tail?: string): ReviewFlag {
+  const list = items.join(', ');
+  return { flag, line: tail === undefined ? `${lead}: ${list}` : `${lead} ${list}: ${tail}`, items: [...items], lead, ...(tail === undefined ? {} : { tail }) };
+}
 
 /** How many items of one section were added, changed and removed. */
 export const ReviewCount = z.object({

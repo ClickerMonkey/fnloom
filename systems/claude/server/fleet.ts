@@ -7,7 +7,8 @@
  * requests are gone and their runs fail plainly; the sessions stay in Claude's store, resumable.
  */
 import { randomUUID } from 'node:crypto';
-import { proposalKeyFor, type ApprovalPreview, type ClaudePermissionMode, type ClaudeSession, type ClaudeSessionId, type ClaudeTask, type GinTypeDef, type Json, type RecordId, type RunId, type SessionId } from '@harness/core';
+import { proposalKeyFor, type ApprovalPreview, type GinTypeDef, type Json, type RecordId, type RunId, type SessionId } from '@harness/core';
+import type { ClaudePermissionMode, ClaudeSession, ClaudeSessionId, ClaudeTask } from '../shared/session.ts';
 import { g, wireType, type Log } from '@harness/sdk';
 import type { ClaudeDriver, DriverEvent, DriverOpen, LiveSession, PermitDecision, PermitRequest, QuestionReply, SessionListener, TaskChange } from './driver.ts';
 import { permitPreview, questionPreview } from './preview.ts';

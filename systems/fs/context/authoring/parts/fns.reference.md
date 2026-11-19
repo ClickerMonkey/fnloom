@@ -83,6 +83,11 @@ interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDe
   /** For a fleet: always one instance, or whichever is first available (never refused as ambiguous). */
   routing?: FnRouting;
   /**
+   * For a key-scoped `connect` system (`scope: 'key'`): the key whose connection it acts as, usually the arg naming it
+   * (`{ arg: 'service' }`). A call without that arg acts as no one.
+   */
+  connectKey?: FnConnectKey;
+  /**
    * What it does to data: its mode (`read`, `write`, `delete`), the named types it reads and writes, and whether its own
    * work is free (reading a file). The hub works out the rest and folds in what it uses (`FnFacts`).
    */
@@ -100,7 +105,7 @@ interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDe
 }
 ```
 
-Refers to: [`Audience`](context:fs/authoring.core-types.primitives-ts#core-audience), [`Display`](context:fs/authoring.core-types.run-ts#core-display), [`FnEffects`](context:fs/authoring.core-types.contextdecl#core-fneffects), [`FnLimits`](context:fs/authoring.core-types.run-ts#core-fnlimits), [`FnRouting`](context:fs/authoring.core-types.contextdecl#core-fnrouting), [`Operations`](context:fs/authoring.core-types.run-ts#core-operations), [`ProposalApprover`](context:fs/authoring.core-types.approvals-ts#core-proposalapprover).
+Refers to: [`Audience`](context:fs/authoring.core-types.primitives-ts#core-audience), [`Display`](context:fs/authoring.core-types.run-ts#core-display), [`FnConnectKey`](context:fs/authoring.core-types.connections-ts#core-fnconnectkey), [`FnEffects`](context:fs/authoring.core-types.contextdecl#core-fneffects), [`FnLimits`](context:fs/authoring.core-types.run-ts#core-fnlimits), [`FnRouting`](context:fs/authoring.core-types.contextdecl#core-fnrouting), [`Operations`](context:fs/authoring.core-types.run-ts#core-operations), [`ProposalApprover`](context:fs/authoring.core-types.approvals-ts#core-proposalapprover).
 
 #### `FnExampleOf`
 
@@ -156,6 +161,8 @@ interface FnDef<T extends FnTypes> {
   readonly approval: FnApproval | undefined;
   /** Which instance of a fleet runs it: always one (`{ to: 'instance', instance }`), or the first available (`{ to: 'any' }`). */
   readonly routing: FnRouting | undefined;
+  /** For a key-scoped `connect` system: the key it acts through, fixed or read from an arg (`FnDecl.connectKey`). */
+  readonly connectKey: FnConnectKey | undefined;
   /** What it does to data, as declared. */
   readonly effects: FnEffects | undefined;
   /** How many examples go into the prompt with it. */
@@ -169,7 +176,7 @@ interface FnDef<T extends FnTypes> {
 }
 ```
 
-Refers to: [`Audience`](context:fs/authoring.core-types.primitives-ts#core-audience), [`Display`](context:fs/authoring.core-types.run-ts#core-display), [`FnApproval`](context:fs/authoring.core-types.approvals-ts#core-fnapproval), [`FnEffects`](context:fs/authoring.core-types.contextdecl#core-fneffects), [`FnLimits`](context:fs/authoring.core-types.run-ts#core-fnlimits), [`FnRouting`](context:fs/authoring.core-types.contextdecl#core-fnrouting), [`Operations`](context:fs/authoring.core-types.run-ts#core-operations).
+Refers to: [`Audience`](context:fs/authoring.core-types.primitives-ts#core-audience), [`Display`](context:fs/authoring.core-types.run-ts#core-display), [`FnApproval`](context:fs/authoring.core-types.approvals-ts#core-fnapproval), [`FnConnectKey`](context:fs/authoring.core-types.connections-ts#core-fnconnectkey), [`FnEffects`](context:fs/authoring.core-types.contextdecl#core-fneffects), [`FnLimits`](context:fs/authoring.core-types.run-ts#core-fnlimits), [`FnRouting`](context:fs/authoring.core-types.contextdecl#core-fnrouting), [`Operations`](context:fs/authoring.core-types.run-ts#core-operations).
 
 #### `AnyFnDef`
 

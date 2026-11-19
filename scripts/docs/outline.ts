@@ -113,15 +113,20 @@ export const OUTLINE: readonly Topic[] = [
   {
     id: 'remote',
     title: 'Remote services: fleets, sign-in and connections per instance',
-    exports: ['InstanceConnects', 'instanceConnectOf', 'connectForm', 'usesConnections', 'credentialsFromForm', 'readCredentials', 'credentialHeaders', 'sharedHeaders', 'accountLabel', 'secretHeaderNames', 'maskHeaders'],
+    exports: ['InstanceConnects', 'instanceConnectOf', 'keyConnectOf', 'connectForm', 'FormFor', 'usesConnections', 'credentialsFromForm', 'readCredentials', 'credentialHeaders', 'sharedHeaders', 'accountLabel', 'secretHeaderNames', 'maskHeaders'],
   },
   {
     id: 'client',
-    title: 'The client: renderers, inputs and resource views',
+    title: 'The client: renderers, inputs, resource views and pages',
     exports: [
       'client', 'ClientRenderers', 'ClientModule', 'Renderer', 'FnView', 'FnViewOf', 'AttachmentView', 'AttachmentViewOf', 'InputView', 'InputViewOf', 'MentionView', 'ResourceView',
       'SystemClient', 'WithSystem', 'Delivery', 'ResourceViewerEntry', 'BareViewer', 'ResourceViewerMode', 'RESOURCE_VIEWER_MODES', 'RESOURCE_VIEWER', 'ResourceViewerProps', 'INPUT_ANSWERS', 'VALUE_EDITOR', 'ACCESS_INFO', 'SHARE_EDITOR', 'ShareEditorProps', 'InputAnswer', 'InputAnswers', 'ValueEditorProps', 'buildClient', 'BuildClientOptions', 'sharedModules', 'inlineCss', 'SHARED_IMPORTS',
       'AnyViews', 'WireViews', 'Mount', 'InputMount', 'VisualOption', 'VisualSource', 'VISUALS',
+      'ResultView', 'ResultViewOf', 'RESULT_VIEW', 'APP_COMPONENTS', 'ResultViewProps', 'ResultLook', 'CHAT_HOST', 'ChatHost', 'RunOutcome', 'ChatStart',
+      'PageView', 'PageViewOf', 'PageHost', 'PAGE_HOST', 'PageLocation', 'PageQuery', 'QueryBinding', 'HubClient', 'SharedComponents',
+      'FrameProps', 'InputProps', 'MarkdownProps', 'IconProps', 'EmptyProps', 'LoadStateProps', 'ReasoningProps', 'TypingProps',
+      'PageRuns', 'PageRunsOptions', 'PageInbox', 'PageNotify', 'PageFormat', 'PartTone', 'ButtonProps', 'SelectChoice', 'SelectProps', 'TextareaProps', 'DialogProps', 'BannerProps', 'BadgeProps', 'SkeletonProps',
+      'FnPillProps', 'ApprovalProps', 'ConversationCall', 'ConversationPiece', 'ConversationEntry', 'ConversationProps', 'ComposerProps',
     ],
   },
   {

@@ -9,15 +9,21 @@ import { connectFlowOf, RemoteCredentials, type InstanceConnect, type Json, type
 import type { z } from 'zod';
 import { g, parseValue, wireType, type GinType } from './gin.ts';
 
-/** The form a person fills to connect with their own token or header values; `undefined` for any other auth. */
-export function connectForm(auth: RemoteAuth): GinType<Record<string, string>> | undefined {
-  if (auth.kind === 'bearer' && auth.per === 'person') {
-    return g.obj({ token: g.field(g.text({ minLength: 1 }), { docs: 'Your token (sent as `Authorization: Bearer …`).' }) });
+/**
+ * Whose typed token or header values a connect form takes: `person`, only a per-person auth's (each person their own);
+ * `any`, a shared one's too (one admin types it for everyone, for a key whose record holds no secret: `keyConnectOf`).
+ */
+export type FormFor = 'person' | 'any';
+
+/** The form to connect with a typed token or header values (`FormFor`); `undefined` for any other auth. */
+export function connectForm(auth: RemoteAuth, who: FormFor = 'person'): GinType<Record<string, string>> | undefined {
+  if (auth.kind !== 'bearer' && auth.kind !== 'headers') return undefined;
+  if (auth.per === 'shared' && who === 'person') return undefined;
+  const whose = auth.per === 'shared' ? 'The' : 'Your';
+  if (auth.kind === 'bearer') {
+    return g.obj({ token: g.field(g.text({ minLength: 1 }), { docs: `${whose} token (sent as \`Authorization: Bearer …\`).` }) });
   }
-  if (auth.kind === 'headers' && auth.per === 'person') {
-    return g.obj(Object.fromEntries(auth.names.map((name) => [name, g.field(g.text({ minLength: 1 }), { docs: `Your value for the \`${name}\` header.` })])));
-  }
-  return undefined;
+  return g.obj(Object.fromEntries(auth.names.map((name) => [name, g.field(g.text({ minLength: 1 }), { docs: `${whose} value for the \`${name}\` header.` })])));
 }
 
 /**
@@ -33,14 +39,25 @@ export function instanceConnectOf(label: string, auth: RemoteAuth): z.input<type
   return { title: label };
 }
 
+/**
+ * How people connect to a key of a key-scoped system (a record, which never holds a secret: an API service of the one
+ * `api` instance), for the hub's Connections page: a per-person token or headers as each person's own form; a shared
+ * token or headers as one admin's form, shared with everyone; OAuth as `instanceConnectOf`; nothing for no auth.
+ */
+export function keyConnectOf(label: string, auth: RemoteAuth): z.input<typeof InstanceConnect> {
+  const form = auth.kind === 'bearer' || auth.kind === 'headers' ? connectForm(auth, 'any') : undefined;
+  if (form === undefined || auth.kind === 'none' || auth.per === 'person') return instanceConnectOf(label, auth);
+  return { flow: { flow: 'form', form: wireType(form) }, share: true, title: `Set ${label}'s sign-in for everyone` };
+}
+
 /** Whether calls use a person's connection (their own, or the one an admin shares) rather than the instance's config. */
 export function usesConnections(auth: RemoteAuth): boolean {
   return connectFlowOf(auth) !== undefined;
 }
 
 /** The credentials a filled connect form makes, or what is wrong with it. */
-export function credentialsFromForm(auth: RemoteAuth, form: Json): { readonly credentials: RemoteCredentials } | { readonly problem: string } {
-  const type = connectForm(auth);
+export function credentialsFromForm(auth: RemoteAuth, form: Json, who: FormFor = 'person'): { readonly credentials: RemoteCredentials } | { readonly problem: string } {
+  const type = connectForm(auth, who);
   if (type === undefined) { return { problem: 'This service connects without a form.' }; }
   let values: Record<string, string>;
   try {

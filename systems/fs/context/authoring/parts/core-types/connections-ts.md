@@ -34,7 +34,10 @@ type ConnectDecl = {
     ask: boolean;
   }>;
   icon?: string | undefined;
-  scope?: "instance" | "system" | undefined;
+  scope?: "instance" | "system" | "key" | undefined;
+  keys?: {
+    type: `${string}/${string}`;
+  } | undefined;
   defaults?: {
     on: boolean;
     ask: boolean;
@@ -59,6 +62,7 @@ type ConnectFinish = {
     form: z.core.util.JSONType;
   };
   instance?: InstanceName | undefined;
+  key?: ConnectKey | undefined;
 };
 ```
 
@@ -119,6 +123,20 @@ type ConnectStart = {
   redirect: string;
   state: string;
   instance?: InstanceName | undefined;
+  key?: ConnectKey | undefined;
+};
+```
+
+#### <a id="core-fnconnectkey"></a>`FnConnectKey`
+
+const, type · declared in `packages/core/src/connections.ts`
+
+A fn's connection key, for a key-scoped system: a fixed key (an api fn's service, from its kind's description), or the
+arg whose value names it (a fn that takes the service to act on).
+
+```ts
+type FnConnectKey = ConnectKey | {
+  arg: string;
 };
 ```
 

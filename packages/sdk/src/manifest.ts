@@ -66,6 +66,7 @@ export function fnDecl(name: string, def: AnyFnDef): FnDecl {
     ...withValidation(validationOf(def.validate)),
     ...(def.approval === undefined ? {} : { approval: { ...def.approval } }),
     ...(def.routing === undefined ? {} : { routing: def.routing }),
+    ...(def.connectKey === undefined ? {} : { connectKey: def.connectKey }),
     ...(def.effects === undefined ? {} : { effects: def.effects }),
     ...(def.promptExamples === undefined ? {} : { promptExamples: def.promptExamples }),
     ...(def.group === undefined ? {} : { group: def.group }),
@@ -203,6 +204,7 @@ export function manifestBody(contract: AnyContract, options: ManifestOptions): O
     ...(contract.configSecrets.length === 0 ? {} : { configSecrets: checkedSecrets(contract.name, wireType(defs.config), contract.configSecrets) }),
     ...(contract.grants === undefined ? {} : { grants: contract.grants }),
     ...(contract.configComponent === undefined ? {} : { configComponent: contract.configComponent }),
+    ...(contract.pages.length === 0 ? {} : { pages: contract.pages.map((page) => ({ ...page })) }),
     ...(contract.groups.length === 0 ? {} : { groups: checkedGroups(contract.name, contract.groups, fns) }),
   };
 }

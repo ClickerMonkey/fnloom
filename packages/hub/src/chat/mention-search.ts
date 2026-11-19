@@ -53,7 +53,7 @@ export async function searchForMention(deps: MentionSearchDeps, data: MentionRes
   return {
     hits: found.map((hit) => {
       const at = parseSectionIndexKey(hit.key);
-      return ResourceHit.parse({ ...at, title: hit.text.split('\n', 1)[0]?.slice(0, 120) ?? at.uri, preview: hit.text.slice(0, PREVIEW), score: hit.rank });
+      return ResourceHit.parse({ ...at, title: hit.text.split('\n', 1)[0]?.slice(0, 120) ?? at.uri, preview: hit.text.slice(0, PREVIEW), rank: hit.rank });
     }),
   };
 }

@@ -194,6 +194,8 @@ export const ChatCapabilities = z.object({
   /** How voice input is heard: the browser's speech recognition, or a recording sent to the dictation model. Absent while `voiceInput` is false. */
   dictation: z.object({ engine: z.enum(DICTATION_ENGINES), language: z.string().optional() }).optional(),
   uploads: z.boolean(),
+  /** Whether the hub's text searches match by meaning too (an embedder is up); by words alone when false. */
+  meaning: z.boolean(),
   /** `of` is the named type of the things a provider points at, whose methods its hover card offers. */
   mentions: z.array(z.object({ provider: QualifiedName, title: z.string(), of: QualifiedName.optional() })),
   /**

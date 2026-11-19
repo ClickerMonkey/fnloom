@@ -8,7 +8,7 @@
  * (`access/scope.ts`) implements `AccessScope`.
  */
 import type {
-  AccessInfo, AccessTarget, AccessView, ActorId, ConnectionFnOption, ContextRecord, FnRecord, FnRouting, FnShare, FnUsable, Sharing, ShareRule, SystemName, UserConnection,
+  AccessInfo, AccessTarget, AccessView, ActorId, ConnectionFnOption, ContextRecord, FnConnectKey, FnRecord, FnRouting, Json, FnShare, FnUsable, Sharing, ShareRule, SystemName, UserConnection,
 } from '@harness/core';
 
 /** The parts of a fn record access looks at. */
@@ -16,7 +16,7 @@ export interface FnRef {
   readonly name: FnRecord['name'];
   readonly system: string;
   /** Its tags, when the caller has the record: an `admin` fn is hidden from everyone but admins (build 6). */
-  readonly decl?: { readonly tags: readonly string[]; readonly routing?: FnRouting | undefined };
+  readonly decl?: { readonly tags: readonly string[]; readonly routing?: FnRouting | undefined; readonly connectKey?: FnConnectKey | undefined };
 }
 
 /** The parts of a type record access looks at. */
@@ -43,8 +43,11 @@ export type FnConnection =
 
 /** How the per-person fns stand for one person (made by the connections module). */
 export interface ConnectionGate {
-  /** Undefined when the fn doesn't act as a person. */
-  fn(record: FnRef): FnConnection | undefined;
+  /**
+   * Undefined when the fn doesn't act as a person. `args`: the call's, for a fn whose connection key is one of its args
+   * (`FnDecl.connectKey: { arg }`); without them (a list of tools) such a fn is not gated.
+   */
+  fn(record: FnRef, args?: Json): FnConnection | undefined;
 }
 
 /** What one person may see and use, answered without further reads. */
@@ -66,8 +69,8 @@ export interface AccessScope {
   seesContext(record: ContextRef): boolean;
   /** A resource: the closest root above it with a visibility, and the system serving it, visible. */
   seesUri(uri: string): boolean;
-  /** How a per-person fn stands for this person; undefined for any other fn. */
-  connection(record: FnRef): FnConnection | undefined;
+  /** How a per-person fn stands for this person (with a call's args, `ConnectionGate.fn`); undefined for any other fn. */
+  connection(record: FnRef, args?: Json): FnConnection | undefined;
 }
 
 /** Visibility: the stored rows, scopes for people, and the web slice's answers. */

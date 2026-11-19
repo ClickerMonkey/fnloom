@@ -20,7 +20,7 @@ import { showFavicon } from './favicon.ts';
 import { tabTitle } from './title.ts';
 import { links, notificationTarget, ROUTES } from './routes.ts';
 
-const { session, identity, keeper, layout, toasts, inbox, connection, admin, chat } = useStores();
+const { session, identity, keeper, layout, toasts, inbox, connection, admin, chat, pages } = useStores();
 const signOut = useSignOut();
 const route = useRoute();
 const router = useRouter();
@@ -29,7 +29,7 @@ const now = useNow();
 
 const signedIn = session.signedIn;
 const bare = computed(() => route.meta.bare === true || !signedIn.value);
-const entries = computed(() => navEntries(route, session.user.value, { inbox: inbox.unread.value, admin: admin.systems.pending.value }, chat.connections.nav.value));
+const entries = computed(() => navEntries(route, session.user.value, { inbox: inbox.unread.value, admin: admin.systems.pending.value }, chat.connections.nav.value, pages.nav.value));
 /**
  * The page's name: the one thing a detail page is about (`fs`) when it says, else the route's; a connect page takes its
  * system's ("Calendar") once the nav knows it.
@@ -55,8 +55,12 @@ watch(signedIn, (isIn, was) => {
     inbox.start();
     // the per-person systems' pages (a calendar to connect) join the nav
     void chat.connections.load(true);
+    // the live systems' pages join the nav, and come and go with their systems
+    pages.start();
+    void pages.load(true);
     return;
   }
+  pages.clear();
   keeper.stop();
   inbox.stop();
   identity.stop();

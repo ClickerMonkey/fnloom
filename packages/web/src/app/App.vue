@@ -4,7 +4,9 @@
  * every form, the systems' components for their named types, the resource viewer for systems' renderers, and the one
  * fn modal (`?fn=` on any page), which every `FnPill` opens.
  */
-import { RESOURCE_VIEWER } from '@harness/sdk';
+import { APP_COMPONENTS, RESOURCE_VIEWER, RESULT_VIEW } from '@harness/sdk';
+import TableResult from '../components/widgets/TableResult.vue';
+import { SHARED_COMPONENTS } from '../system-pages/shared.ts';
 import { provide } from 'vue';
 import { useRouter } from 'vue-router';
 import { GIN_INPUTS } from '../gin/registry.ts';
@@ -26,6 +28,10 @@ provide(GIN_INPUTS, (type) => chat.renderers.inputView(type));
 // a system's renderer shows any resource with the hub's viewer
 // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- typescript-eslint cannot see the types of .vue modules; vue-tsc checks this against ResourceViewerProps
 provide(RESOURCE_VIEWER, ResourceViewer);
+// systems' result renderers draw with the app's result view and controls wherever a run card is (a chat, a system page)
+// eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- typescript-eslint cannot see the types of .vue modules; vue-tsc checks this against ResultViewProps
+provide(RESULT_VIEW, TableResult);
+provide(APP_COMPONENTS, SHARED_COMPONENTS);
 useLeaveWhenSignedOut();
 // one fn modal for the whole app, bound to the URL (it reads the hub, so only once signed in)
 const fnModal = provideFnModal(useRouter());

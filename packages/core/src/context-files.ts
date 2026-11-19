@@ -57,12 +57,34 @@ export type ContextFileProblem = z.infer<typeof ContextFileProblem>;
 /**
  * What `hub/load_context` did: the context it loaded (with what each loads with it, every time), the fns that context
  * brings that went into the session's tools, the fns it brings that could not (`fnsRefused`, each with what blocks it), and
- * what it refused, each with the closest names it knows.
+ * what it refused, each with the closest names it knows. The model reads only its `cards` (`LoadCards`).
  */
 export const LoadContextResult = z.object({
   loaded: z.array(QualifiedName),
   fns: z.array(QualifiedName),
   fnsRefused: z.array(FnRefusal),
   refused: z.array(z.object({ context: z.string(), reason: z.string().min(1), closest: z.array(QualifiedName) })),
+  /** The result as the model reads it: the hub's XML cards (`<loaded_context>`, `<brought_fns>`, `<refused_context>`). */
+  cards: z.string(),
 });
 export type LoadContextResult = z.infer<typeof LoadContextResult>;
+
+/**
+ * What `hub/load_fns` did: the fns that went into the session's tools, and the names it refused, each with what blocks
+ * it. The model reads only its `cards` (`LoadCards`).
+ */
+export const LoadFnsResult = z.object({
+  loaded: z.array(QualifiedName),
+  refused: z.array(FnRefusal),
+  /** The result as the model reads it: the hub's XML cards (`<loaded_fns>`, `<refused_fns>`). */
+  cards: z.string(),
+});
+export type LoadFnsResult = z.infer<typeof LoadFnsResult>;
+
+/**
+ * A hub load's result (`hub/load_fns`, `hub/load_context`) exactly: the model's tool reply is its XML `cards`, the one
+ * XML every fn and context card is in, while the record keeps the names and refusals for people's views (the chat's
+ * held banner). Exact, so no other fn's result is read as one.
+ */
+export const LoadCards = z.union([LoadFnsResult.strict(), LoadContextResult.strict()]);
+export type LoadCards = z.infer<typeof LoadCards>;

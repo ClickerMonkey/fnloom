@@ -11,6 +11,8 @@
  *   widget against a strict schema built for that source. It never saves; the chat shows the proposal with its preview
  *   and a Save button.
  * - **save_widget** is the person's Save (`visibility: 'user'`): it keeps the proposal as a `widgets/widget` fn.
+ * - **The client** (`client/`) draws a proposal's card with Save and a saved widget's result (keeping the look picked in
+ *   its Settings) through the result-renderer slot, and owns the saved widgets' page (`/s/widgets/saved`).
  */
 import { MakeWidgetArgs, SaveWidgetArgs, WIDGET_KIND, WIDGETS_SYSTEM, WidgetProposal, WidgetSpec } from '@harness/core';
 import { context, fn, g, ginAs, hub, kind, system, type Infer } from '@harness/sdk';
@@ -51,12 +53,17 @@ const MAKE_USAGE = [
   'It proposes and never saves: the person presses Save under the proposal. To change a widget, pass it as `widget`.',
 ].join(' ');
 
+/** The saved widgets' page segment (`/s/widgets/saved`). */
+export const WIDGETS_PAGE = 'saved';
+
 /** The widgets system's contract. */
 export const widgets = system(WIDGETS_SYSTEM, {
   description: 'Saved views of a fn\'s table (charts, calendars, cards, tables) with their controls, presets, drill and row actions, proposed in the chat and kept by the person.',
   groups: [{ name: 'widgets', title: 'Widgets', description: 'Propose a widget over a fn that returns a table, and keep it when the person presses Save.' }],
   // make_widget's agent is on a model; saved widgets are hub fns; runs read sources, the visual registry and row actions
   grants: { hub: ['ai', 'fns'], calls: ['hub/fn_get', 'hub/save_fn', 'hub/read_table', 'hub/visuals', 'hub/row_actions'] },
+  // the saved widgets, searched by the hub, each opened in a new chat (was the Data page's Widgets tab, /data/widgets)
+  pages: [{ segment: WIDGETS_PAGE, title: 'Widgets', description: 'Saved views of data. Open one in a chat to run it with its controls and actions.', icon: 'grid', component: 'WidgetsPage' }],
 })
   .with({
     kinds: {

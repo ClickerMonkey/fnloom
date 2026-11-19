@@ -7,7 +7,7 @@
  * Owner: the hub lane. `StoreConnectionService` (`connections/service.ts`) implements `ConnectionService`.
  */
 import type {
-  ActorId, ConnectionChange, ConnectionId, ConnectionUpdate, ConnectionView, ConnectPage, InstanceName, Json, RunConnection, SystemName, UserConnection,
+  ActorId, ConnectionChange, ConnectionId, ConnectionUpdate, ConnectionView, ConnectKey, ConnectPage, InstanceName, Json, RunConnection, SystemName, UserConnection,
 } from '@harness/core';
 import type { ConnectionGate } from '../access/index.ts';
 
@@ -43,9 +43,10 @@ export interface ConnectionService {
   /**
    * Begin connecting: the provider's URL to send the person to (OAuth), or the finished connection (a form). Build 9:
    * an instance-scoped system (`ConnectDecl.scope`) connects to one `instance`, the way that instance said
-   * (`InstanceConnect`); a shared one is connected by an admin, for everyone.
+   * (`InstanceConnect`); a shared one is connected by an admin, for everyone. A key-scoped system connects to one `key`
+   * (an API service), the way its record says.
    */
-  connect(asker: ActorId, system: SystemName, form?: Json, instance?: InstanceName): Promise<ConnectStart>;
+  connect(asker: ActorId, system: SystemName, form?: Json, instance?: InstanceName, key?: ConnectKey): Promise<ConnectStart>;
   /**
    * The provider sent the person back to `/connect/callback` with these query params; `cookies` are the browser's and
    * must hold the binding `connect` set. Each sign-in finishes once: a replay changes nothing.

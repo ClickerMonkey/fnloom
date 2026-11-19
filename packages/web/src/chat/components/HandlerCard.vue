@@ -5,14 +5,15 @@
  * confirm) looks like an approval: the question, the call's args, and explicit buttons named for what they do
  * ("Run" / "Cancel"). Any other question gets a form for the answer, generated from the handler's return type.
  */
-import type { HandlerCall, Json } from '@harness/core';
+import type { HandlerCall, Json, QualifiedName } from '@harness/core';
 import { computed } from 'vue';
 import { UiButton, UiIcon } from '../../ui/index.ts';
 import GinForm from '../../gin/GinForm.vue';
-import { confirmVerb, humanize, isConfirm } from '../logic/labels.ts';
+import { confirmVerb, fnLabel, humanize, isConfirm } from '../logic/labels.ts';
 import ArgList from './ArgList.vue';
+import FnPill from '../../fns/components/FnPill.vue';
 
-const props = withDefaults(defineProps<{ call: HandlerCall; fnLabel: string; busy?: boolean }>(), { busy: false });
+const props = withDefaults(defineProps<{ call: HandlerCall; /** The fn of the run that asks (a pill that opens it). */ fn: QualifiedName; busy?: boolean }>(), { busy: false });
 const emit = defineEmits<{ answer: [value: Json] }>();
 
 /** A yes-or-no question: answered with two buttons instead of a form. */
@@ -23,14 +24,14 @@ const yes = computed(() => confirmVerb(question.value));
 
 <template>
   <section
-    class="handler" :class="{ confirm }" role="region" :aria-label="`${fnLabel} asks`" data-testid="handler-card" :data-call="call.id"
+    class="handler" :class="{ confirm }" role="region" :aria-label="`${fnLabel(fn)} asks`" data-testid="handler-card" :data-call="call.id"
     :data-kind="confirm ? 'confirm' : 'form'"
   >
     <header class="head">
       <span class="icon"><UiIcon :name="confirm ? 'shield' : 'chat'" :size="16" /></span>
       <div class="titles">
         <h3 class="title">{{ question }}</h3>
-        <p class="description">{{ fnLabel }} is waiting for your answer.</p>
+        <p class="description"><FnPill :name="fn" /> is waiting for your answer.</p>
       </div>
     </header>
     <ArgList :args="call.args" />

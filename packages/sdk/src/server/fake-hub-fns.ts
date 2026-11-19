@@ -82,11 +82,11 @@ export class FakeHubFns {
       if (query.instance !== undefined && instance !== query.instance) { return []; }
       if (query.names !== undefined && !query.names.includes(name)) { return []; }
       const has = new Set(wordsOf(`${kept.saved.name} ${kept.saved.description}`));
-      const score = words.length === 0 ? undefined : words.filter((word) => has.has(word)).length / words.length;
-      if (score === 0) { return []; }
-      return [{ item: 'fn', name, system, description: kept.saved.description, kind, available: true, ...(score === undefined ? {} : { score }), ...(instance === undefined ? {} : { instance }) }];
+      const rank = words.length === 0 ? undefined : words.filter((word) => has.has(word)).length / words.length;
+      if (rank === 0) { return []; }
+      return [{ item: 'fn', name, system, description: kept.saved.description, kind, available: true, ...(rank === undefined ? {} : { rank }), ...(instance === undefined ? {} : { instance }) }];
     });
-    hits.sort((a, b) => (query.order === 'name' || a.score === undefined ? a.name.localeCompare(b.name) : (b.score ?? 0) - (a.score ?? 0)));
+    hits.sort((a, b) => (query.order === 'name' || a.rank === undefined ? a.name.localeCompare(b.name) : (b.rank ?? 0) - (a.rank ?? 0)));
     const offset = query.offset ?? 0;
     const limit = query.limit ?? 10;
     const items = hits.slice(offset, offset + limit);

@@ -21,7 +21,8 @@ import { RESULTS_HOST } from '../../components/results/builtin.ts';
 import { WIDGET_HOST } from '../../components/widgets/widgets.ts';
 import { useRouteQuery } from '../../app/url.ts';
 import { ROUTES } from '../../app/routes.ts';
-import { threadWidgetHost } from '../state/widget-host.ts';
+import { threadChatHost, threadWidgetHost, type ThreadWidgetDeps } from '../state/widget-host.ts';
+import { CHAT_HOST } from '@harness/sdk';
 import ApprovalTray from '../components/ApprovalTray.vue';
 import AssistantAnswer from '../components/AssistantAnswer.vue';
 import BackgroundStrip from '../components/BackgroundStrip.vue';
@@ -140,17 +141,16 @@ provide(VISUALS, chat.visuals.source);
 // widgets in the thread: their reads and actions run here as the person's runs, drill levels live in the URL (`level`),
 // a result table can be made into a widget and a proposal changed by asking the agent
 const levelQuery = useRouteQuery(ROUTES.session).text('level');
-provide(WIDGET_HOST, threadWidgetHost({
-  thread, data,
-  levels: { get: () => levelQuery.value, set: (text) => { levelQuery.value = text; } },
-  ask: async (text, send) => {
-    if (!send) { composer.replace(text); composerBox.value?.focus(); return true; }
-    const sent = await thread.send({ parts: [{ type: 'text', text }] });
-    if (!sent) { toasts.error("Couldn't ask the agent", thread.problem.value); return false; }
-    scroller.value?.toBottom();
-    return true;
-  },
-}));
+const askAgent: ThreadWidgetDeps['ask'] = async (text, send) => {
+  if (!send) { composer.replace(text); composerBox.value?.focus(); return true; }
+  const sent = await thread.send({ parts: [{ type: 'text', text }] });
+  if (!sent) { toasts.error("Couldn't ask the agent", thread.problem.value); return false; }
+  scroller.value?.toBottom();
+  return true;
+};
+provide(WIDGET_HOST, threadWidgetHost({ thread, data, levels: { get: () => levelQuery.value, set: (text) => { levelQuery.value = text; } }, ask: askAgent }));
+// systems' result renderers ask the agent or wait on runs through the thread (the result view is provided app-wide)
+provide(CHAT_HOST, threadChatHost({ thread, ask: askAgent, navigate: (path) => { void router.push(path); } }));
 void chat.access.load();
 
 /** A budget raise is being saved. */
@@ -573,11 +573,11 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
         <BackgroundStrip :runs="thread.background.value" :now="now" @open="emit('run', $event)" />
         <ApprovalTray :items="approvals" @decide="decide" @decide-all="(ids, approve, remember) => thread.approveAll(ids, approve, remember)" />
         <BudgetCard
-          v-for="ask in thread.budgets.value" :key="ask.budget.id" :ask="ask" :fn-label="fnLabel(thread.runs.value.get(ask.run)?.fn ?? 'hub/run')"
+          v-for="ask in thread.budgets.value" :key="ask.budget.id" :ask="ask" :fn="thread.runs.value.get(ask.run)?.fn ?? 'hub/run'"
           :can-raise="auth.user.value?.role === 'admin'" :busy="raisingBudget" @raise="raiseBudget(ask, $event)" @leave="thread.leaveBudget(ask)"
         />
         <HandlerCard
-          v-for="call in thread.handlers.value" :key="call.id" :call="call" :fn-label="fnLabel(thread.runs.value.get(call.run)?.fn ?? 'hub/run')"
+          v-for="call in thread.handlers.value" :key="call.id" :call="call" :fn="thread.runs.value.get(call.run)?.fn ?? 'hub/run'"
           @answer="thread.answer(call.id, $event)"
         />
         <InvocationForm v-if="composer.invoking.value" :invocation="composer.invoking.value" :busy="false" @submit="invoke" @cancel="composer.closeInvocation()" />

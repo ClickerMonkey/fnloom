@@ -98,7 +98,7 @@ type ResourceHit = {
   uri: `${string}://${string}`;
   title: string;
   preview: string;
-  score: number;
+  rank: number;
   section?: SectionKey | undefined;
 };
 ```

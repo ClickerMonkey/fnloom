@@ -7,6 +7,7 @@
  * the chat's title, not its id. Mounted outside the app (no stores) it still searches, without the data's values and
  * names. The query is `v-model` (the page keeps it in the URL with `useListQuery`). When the hub's answer is `partial`
  * (it stopped at its scan bound), the count reads as a lower bound and a line under the bar says to narrow the filters.
+ * A `ranked` list (its text is the hub's one search) is best first while text is searched, unless a sort is chosen.
  */
 import { LIST_FIELDS, type ListName, type Sort } from '@harness/core';
 import { computed, ref } from 'vue';
@@ -16,6 +17,9 @@ import UiIcon from '../../ui/UiIcon.vue';
 import UiSearch from '../../ui/UiSearch.vue';
 import UiSort from '../../ui/UiSort.vue';
 import type { SearchQuery, ValueNamer, ValueOption } from '../../ui/search.ts';
+
+/** What best first is called in the sort button. */
+const BEST_MATCH = 'Best match';
 
 const props = withDefaults(defineProps<{
   list: ListName;
@@ -29,7 +33,9 @@ const props = withDefaults(defineProps<{
   noSort?: boolean;
   /** The hub stopped reading at its scan bound: more rows may match than it found. */
   partial?: boolean;
-}>(), { placeholder: undefined, count: undefined, more: false, noSort: false, partial: false });
+  /** Its text search ranks best first, the default sort while text is searched (a chosen sort still applies). */
+  ranked?: boolean;
+}>(), { placeholder: undefined, count: undefined, more: false, noSort: false, partial: false, ranked: false });
 const model = defineModel<SearchQuery>({ required: true });
 defineSlots<{ default?: () => unknown }>();
 const box = ref<{ focus: () => void } | null>(null);
@@ -52,6 +58,8 @@ const sort = computed({
     model.value = next === undefined ? rest : { ...rest, sort: [...next] };
   },
 });
+/** The words for best first while the list is ranked by its text, else none. */
+const rank = computed(() => (props.ranked && (model.value.text ?? '').trim() !== '' ? BEST_MATCH : undefined));
 const countText = computed(() => (props.count === undefined ? '' : `${props.count.toLocaleString()}${props.more || props.partial ? '+' : ''}`));
 </script>
 
@@ -59,7 +67,7 @@ const countText = computed(() => (props.count === undefined ? '' : `${props.coun
   <div class="list-search" data-testid="list-search">
     <UiSearch ref="box" v-model="model" :fields="fields" :label="`Search ${label}`" :format="formatFigure" :values="values" :name="name" v-bind="placeholder === undefined ? {} : { placeholder }" />
     <div class="side">
-      <UiSort v-if="!noSort" v-model="sort" :fields="fields" :default-sort="defaultSort" />
+      <UiSort v-if="!noSort" v-model="sort" :fields="fields" :default-sort="defaultSort" :rank="rank" />
       <div v-if="$slots['default']" class="extra"><slot /></div>
       <span v-if="countText" class="count" :aria-label="`${countText} ${label}`" data-testid="list-count">{{ countText }}</span>
     </div>

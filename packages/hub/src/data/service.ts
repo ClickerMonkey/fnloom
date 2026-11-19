@@ -43,7 +43,7 @@ interface Stored {
  * The index key of a record: its type, so a search keeps to one type, its owner when it has one, so a search keeps to
  * one person's, and its id (always last).
  */
-const indexKey = (record: Pick<DataRecord, 'type' | 'id' | 'owner'>): string => `${indexPrefix(record.type, record.owner)}${record.id}`;
+export const indexKey = (record: Pick<DataRecord, 'type' | 'id' | 'owner'>): string => `${indexPrefix(record.type, record.owner)}${record.id}`;
 
 /** The record table's id column (`ResultTable.records.id`). */
 const RECORD_ID_COLUMN = 'id';
@@ -60,7 +60,7 @@ function offsetOf(cursor: string | undefined): number {
 }
 
 /** The text a record is searched by: its search fields' values, in order. */
-function searchText(value: unknown, storage: RecordStorage, title: string): string {
+export function searchText(value: unknown, storage: RecordStorage, title: string): string {
   const fields = typeof value === 'object' && value !== null ? Object.entries(value) : [];
   const texts = storage.search.text.flatMap((name) => fields.filter(([key]) => key === name).map(([, v]) => (typeof v === 'string' ? v : JSON.stringify(v))));
   return [title, ...texts].filter((text) => text !== '').join('\n');

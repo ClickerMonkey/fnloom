@@ -5,7 +5,7 @@
  * can now write or delete, new effects on the hub, and new hub calls, secrets, hosts, paths, fns or models granted.
  */
 import {
-  effectsLine, FnDecl, ITEM_SECTIONS, registryMode, REVIEW_FLAGS, strongerMode, SystemGrants,
+  effectsLine, FnDecl, ITEM_SECTIONS, registryMode, REVIEW_FLAGS, reviewFlag, strongerMode, SystemGrants,
   type ContractChange, type DeclaredFnFacts, type FnChangeFacts, type FnMode, type GrantsMove, type Json, type RegistryEffect, type ReviewCount, type ReviewFlag, type ReviewFlagKind, type ReviewSummary,
 } from '@harness/core';
 import { declaredMode } from '../fns/facts.ts';
@@ -59,10 +59,10 @@ function fnFlags(changes: readonly ContractChange[]): ReviewFlag[] {
     for (const effect of fresh) { effects.set(effectKey(effect), effect); }
   }
   const flags: ReviewFlag[] = [];
-  if (deletes.length > 0) { flags.push({ flag: 'delete-fns', line: `Can delete: ${deletes.join(', ')}`, items: deletes }); }
-  if (writes.length > 0) { flags.push({ flag: 'write-fns', line: `Can write: ${writes.join(', ')}`, items: writes }); }
+  if (deletes.length > 0) { flags.push(reviewFlag('delete-fns', 'Can delete', deletes)); }
+  if (writes.length > 0) { flags.push(reviewFlag('write-fns', 'Can write', writes)); }
   const words = effectsLine([...effects.values()]);
-  if (words !== undefined) { flags.push({ flag: 'effects', line: `New effects in ${effectFns.join(', ')}: ${words.replace(/\.$/, '')}`, items: effectFns }); }
+  if (words !== undefined) { flags.push(reviewFlag('effects', 'New effects in', effectFns, words.replace(/\.$/, ''))); }
   return flags;
 }
 
@@ -72,7 +72,7 @@ export function grantsMove(before: SystemGrants | undefined, after: SystemGrants
   const was = before ?? { hub: [] };
   const now = after ?? { hub: [] };
   const flags: ReviewFlag[] = [];
-  const flag = (kind: ReviewFlagKind, label: string, items: readonly string[]): void => { if (items.length > 0) { flags.push({ flag: kind, line: `${label}: ${items.join(', ')}`, items: [...items] }); } };
+  const flag = (kind: ReviewFlagKind, label: string, items: readonly string[]): void => { if (items.length > 0) { flags.push(reviewFlag(kind, label, items)); } };
   flag('capabilities', 'New hub calls', added(was.hub, now.hub));
   flag('secrets', 'New secrets', added(was.secrets, now.secrets));
   flag('hosts', 'New hosts', added(was.network, now.network));

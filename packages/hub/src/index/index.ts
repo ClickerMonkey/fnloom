@@ -101,6 +101,8 @@ export interface SearchQuery {
   readonly within?: ReadonlyArray<{ readonly kind: IndexedKind; readonly key: string }>;
   /** Only items whose key starts with this, applied by the database (no extra candidates needed). */
   readonly prefix?: string;
+  /** Never items with these keys, of any kind, applied by the database (no extra candidates needed). */
+  readonly excludeKeys?: readonly string[];
   /** Words, meaning, or both (the default). */
   readonly match?: 'text' | 'semantic' | 'hybrid';
   /**

@@ -111,7 +111,7 @@ async function onOllama(model: string = MODEL, transcript: LlmMessage[] = pastTa
     store: () => r.store, catalog: () => r.catalog, search: () => search, views: () => new CatalogFnViews(r.catalog), access: () => ({ sharing: noSharing }), tuning: fnsEnv.parse(),
   });
   registerHubFns(r.module.hubFns, {
-    store: () => r.store, catalog: () => r.catalog, search: () => search, sessions: () => sessionLoader(r.store), handlers: () => r.module.handlers, access,
+    store: () => r.store, catalog: () => r.catalog, search: () => search, sessions: () => sessionLoader(r.store), handlers: () => r.module.handlers, access, views: () => new CatalogFnViews(r.catalog),
     sharing: () => ({ sharing: noSharing, own: noSharing }),
     facts: () => ({ registry: (names) => Promise.resolve(new Map(names.map((name) => [name, []]))) }),
     fns: () => ({ search: fnSearch, examples: { sync: () => Promise.resolve(), page: noSharing, patch: noSharing, forPrompt: () => Promise.resolve([]) } }),

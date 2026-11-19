@@ -12,7 +12,7 @@ import { fakeCaller } from '../../test/fakes.ts';
 import { approval, fakeSender, llmCall, run, T0 } from '../../chat/test/fakes.ts';
 import type { McpProbe, ProbeResult } from '../probe.ts';
 import type { SystemLogEvents } from '../api.ts';
-import { BudgetView, LlmSummary, OutputLine, ModelInfo, SettingView, SuggestDecision } from '@harness/core';
+import { BudgetView, LlmSummary, OutputLine, ModelInfo, RecordId, SettingView, SuggestDecision, type DataRecord } from '@harness/core';
 import { AdminStore } from '../state/admin.ts';
 import { fakeBuild2Api } from './build2.ts';
 import { fakeReviewApi } from './review.ts';
@@ -247,15 +247,44 @@ function adminChatApi() {
 }
 type FakeAdminChatApi = ReturnType<typeof adminChatApi>;
 
+/**
+ * The data callers the admin store uses (the API services are records), over records in memory: a `name is` filter
+ * and words (any field's text) narrow a page, a save adds or replaces, a remove removes.
+ */
+export function fakeRecordsApi(kept: DataRecord[] = []) {
+  const valueOf = (record: DataRecord, field: string): unknown => (typeof record.value === 'object' && record.value !== null && !Array.isArray(record.value) ? record.value[field] : undefined);
+  return {
+    kept,
+    records: fakeCaller<'records'>((query) => Promise.resolve({
+      items: kept.filter((record) => record.type === query.type
+        && (query.query?.filters ?? []).every((filter) => filter.op !== 'is' || valueOf(record, filter.field) === filter.value)
+        && (query.search === undefined || JSON.stringify(record.value).toLowerCase().includes(query.search.toLowerCase()))),
+    })),
+    saveRecord: fakeCaller<'saveRecord'>((save) => {
+      const at = kept.findIndex((record) => record.id === save.id);
+      const before = kept[at];
+      const record: DataRecord = { id: before?.id ?? RecordId.parse(`rec_${String(kept.length + 1)}`), type: save.type, value: save.value, title: '', version: (before?.version ?? 0) + 1, createdAt: T0, updatedAt: T0 };
+      if (at < 0) { kept.push(record); } else { kept[at] = record; }
+      return Promise.resolve(record);
+    }),
+    removeRecord: fakeCaller<'removeRecord'>(({ id }) => {
+      const at = kept.findIndex((record) => record.id === id);
+      if (at >= 0) { kept.splice(at, 1); }
+      return Promise.resolve({ removed: at >= 0 });
+    }),
+  };
+}
+
 /** The admin store on fakes, with its channels. */
-export function fakeAdmin(options: { api?: FakeAdminApi; chat?: Partial<FakeAdminChatApi> } = {}) {
+export function fakeAdmin(options: { api?: FakeAdminApi; chat?: Partial<FakeAdminChatApi>; data?: ReturnType<typeof fakeRecordsApi> } = {}) {
   const api = options.api ?? fakeAdminApi();
+  const data = options.data ?? fakeRecordsApi();
   const chatApi = { ...adminChatApi(), ...options.chat };
   const user = channel<UserEvent>();
   const logs = channel<{ system: SystemName; line: OutputLine }>();
   const systemLogs: SystemLogEvents = (system, listener) => logs.subscribe((event) => { if (event.system === system) { listener(event.line); } });
   const sender = fakeSender();
   const probe = fakeProbe();
-  const admin = new AdminStore({ api, chat: chatApi, userEvents: user.subscribe, systemLogs, sender, probe });
-  return { admin, api, chatApi, user, logs, sender, probe };
+  const admin = new AdminStore({ api, chat: chatApi, userEvents: user.subscribe, systemLogs, sender, probe, data });
+  return { admin, api, chatApi, user, logs, sender, probe, data };
 }

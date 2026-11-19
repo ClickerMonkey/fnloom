@@ -5,7 +5,7 @@
 import {
   messageOf,
   type Audience, type Display, type FnError, type FnLimits, type FnValidation, type InputVerdict, type InvalidInput, type Json, type Operations, type OutputVerdict, type ProgressDecl, type ProgressWire,
-  type StatusTemplates, type StepStatus, type Usd, type FnApproval, type FnEffects, type FnRouting, type ProposalApprover,
+  type StatusTemplates, type StepStatus, type Usd, type FnApproval, type FnEffects, type FnRouting, type FnConnectKey, type ProposalApprover,
 } from '@harness/core';
 import { encodeValue, json, type GinType } from './gin.ts';
 import type { ValidateCtx } from './ctx.ts';
@@ -197,6 +197,8 @@ export interface FnDef<T extends FnTypes> {
   readonly approval: FnApproval | undefined;
   /** Which instance of a fleet runs it: always one (`{ to: 'instance', instance }`), or the first available (`{ to: 'any' }`). */
   readonly routing: FnRouting | undefined;
+  /** For a key-scoped `connect` system: the key it acts through, fixed or read from an arg (`FnDecl.connectKey`). */
+  readonly connectKey: FnConnectKey | undefined;
   /** What it does to data, as declared. */
   readonly effects: FnEffects | undefined;
   /** How many examples go into the prompt with it. */
@@ -270,6 +272,11 @@ export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends Pro
   /** For a fleet: always one instance, or whichever is first available (never refused as ambiguous). */
   routing?: FnRouting;
   /**
+   * For a key-scoped `connect` system (`scope: 'key'`): the key whose connection it acts as, usually the arg naming it
+   * (`{ arg: 'service' }`). A call without that arg acts as no one.
+   */
+  connectKey?: FnConnectKey;
+  /**
    * What it does to data: its mode (`read`, `write`, `delete`), the named types it reads and writes, and whether its own
    * work is free (reading a file). The hub works out the rest and folds in what it uses (`FnFacts`).
    */
@@ -327,6 +334,7 @@ export function fn<
     validate: def.validate,
     approval: def.approval === undefined ? undefined : { preview: def.approval.preview ?? true, remember: def.approval.remember ?? false, ...(def.approval.approver === undefined ? {} : { approver: def.approval.approver }) },
     routing: def.routing,
+    connectKey: def.connectKey,
     effects: def.effects,
     promptExamples: def.promptExamples,
     group: def.group,
@@ -406,6 +414,7 @@ export function kindFn<N extends `${string}/${string}`, P, A, R, const T extends
     validate: def.validate,
     approval: undefined,
     routing: def.routing,
+    connectKey: undefined,
     effects: def.effects,
     promptExamples: def.promptExamples,
     group: def.group,

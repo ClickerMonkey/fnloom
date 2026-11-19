@@ -2906,6 +2906,7 @@ export const manifest = {
       "b": [
         "system",
         "instance",
+        "key",
         "form"
       ],
       "f": [],
@@ -3014,6 +3015,24 @@ export const manifest = {
       "b": [
         "registry"
       ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "systemPages": {
+      "method": "POST",
+      "path": "/systemPages",
+      "ws": "systemPages",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [],
       "f": [],
       "hasBody": true,
       "hasHeaders": false,

@@ -9,12 +9,14 @@
 import { randomUUID } from 'node:crypto';
 import { isAbsolute, relative, resolve } from 'node:path';
 import {
-  ClaudeAnswer, ClaudeControl, ClaudeImport, ClaudeInstanceConfig, ClaudePermit, ClaudeSend, ClaudeSession, ClaudeStart, ClaudeTranscriptQuery, ClaudeTurn, jsonOf, KindDescription, MCP_SYSTEM, qualify,
-  type ClaudeImportable, type ClaudeMcpServerSummary, type ClaudeSessionId, type McpServerConfig, type ContextDecl, type ImportReport, type InputProblem, type RunInfo, type UserInfo,
+  jsonOf, KindDescription, MCP_SYSTEM, qualify, type McpServerConfig, type ContextDecl, type ImportReport, type InputProblem, type RunInfo, type UserInfo,
 } from '@harness/core';
 import { CallFailed, ginAs, wireType, type Data, type ProposeOptions, type StoredRecord, type SystemCtx, type SystemImpl } from '@harness/sdk';
 import type { SystemPatch } from '@harness/sdk/server';
-import { AGENT_KIND, AgentArgs, AgentPayload, DiskSessionsQuery, ImportablesQuery, claude, type ClaudeContract, type ImportOutcome } from '../shared/index.ts';
+import {
+  AGENT_KIND, AgentArgs, AgentPayload, ClaudeAnswer, ClaudeControl, ClaudeImport, ClaudeInstanceConfig, ClaudePermit, ClaudeSend, ClaudeSession, ClaudeStart, ClaudeTranscriptQuery, ClaudeTurn, DiskSessionsQuery,
+  ImportablesQuery, claude, type ClaudeContract, type ClaudeImportable, type ClaudeMcpServerSummary, type ClaudeSessionId, type ImportOutcome,
+} from '../shared/index.ts';
 import type { ClaudeDriver, DriverOpen, FoundImportable } from './driver.ts';
 import type { ClaudeSettings } from './env.ts';
 import { NOT_WAITING, SessionFleet, oneLine, type FleetHub } from './fleet.ts';

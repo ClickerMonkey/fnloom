@@ -5,7 +5,7 @@ title: "Worked examples: scripts/docs/example/client/NoteInput.vue"
 description: "Worked examples, the part on scripts/docs/example/client/NoteInput.vue."
 summary: "Worked examples: scripts/docs/example/client/NoteInput.vue."
 parent: "fs/authoring.examples"
-next: "fs/authoring.examples.client-reviewform-vue"
+next: "fs/authoring.examples.client-notespage-vue"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash"]
 tags: ["authoring"]
 ---

@@ -7,6 +7,9 @@ import { OFFLINE_AFTER } from '../state/connection.ts';
 import { STORES } from '../state/stores.ts';
 import { fakeStores, notification } from '../test/fakes.ts';
 import { INBOX_PAGE, InboxFilter } from '../state/inbox.ts';
+import { APP_COMPONENTS, RESULT_VIEW } from '@harness/sdk';
+import TableResult from '../components/widgets/TableResult.vue';
+import { SHARED_COMPONENTS } from '../system-pages/shared.ts';
 import App from './App.vue';
 import { navEntries } from './nav.ts';
 import { createAppRouter } from './router.ts';
@@ -33,6 +36,14 @@ async function start(path: string, options: { signedIn?: boolean; compact?: bool
   const app = mount(App, { attachTo: document.body, global: { plugins: [router], provide: { [STORES]: fakes.stores } } });
   await flushPromises();
   return { ...fakes, router, app };
+}
+
+/** What a mounted component provides under `key`: its own provides, which everything under it injects. */
+function provided(wrapper: object, key: symbol): unknown {
+  const vm: unknown = Reflect.get(wrapper, 'vm');
+  const instance: unknown = typeof vm === 'object' && vm !== null ? Reflect.get(vm, '$') : undefined;
+  const provides: unknown = typeof instance === 'object' && instance !== null ? Reflect.get(instance, 'provides') : undefined;
+  return typeof provides === 'object' && provides !== null ? Reflect.get(provides, key) : undefined;
 }
 
 beforeEach(() => { document.body.innerHTML = ''; });
@@ -150,14 +161,14 @@ describe('nav', () => {
   it('lists the entries for the user, marks the current one and counts the inbox', () => {
     const admin = fakeStores({ signedIn: true }).stores.session.user.value;
     const entries = navEntries({ name: ROUTES.session }, admin, { inbox: 4, admin: 2 });
-    expect(entries.map((e) => e.id)).toEqual(['chat', 'inbox', 'resources', 'context', 'data', 'claude', 'admin', 'settings']);
+    expect(entries.map((e) => e.id)).toEqual(['chat', 'inbox', 'resources', 'context', 'data', 'admin', 'settings']);
     expect(entries.find((e) => e.id === 'admin')?.count).toBe(2);
     expect(navEntries({ name: ROUTES.llmCalls }, admin, { inbox: 0, admin: 0 }).find((e) => e.active)?.id).toBe('admin');
     expect(navEntries({ name: ROUTES.resources }, admin, { inbox: 0, admin: 0 }).find((e) => e.active)?.id).toBe('resources');
     expect(entries.find((e) => e.active)?.id).toBe('chat');
     expect(entries.find((e) => e.id === 'inbox')?.count).toBe(4);
     const member = admin === undefined ? undefined : { ...admin, role: 'member' as const };
-    expect(navEntries({ name: 'nowhere' }, member, { inbox: 0, admin: 3 }).map((e) => e.id)).toEqual(['chat', 'inbox', 'resources', 'context', 'data', 'claude', 'settings']);
+    expect(navEntries({ name: 'nowhere' }, member, { inbox: 0, admin: 3 }).map((e) => e.id)).toEqual(['chat', 'inbox', 'resources', 'context', 'data', 'settings']);
   });
 });
 
@@ -321,6 +332,15 @@ describe('the shell', () => {
     await flushPromises();
     expect(router.currentRoute.value.fullPath).toBe('/chat/ses_9');
     expect(fakes.api.notifications.markRead.calls[0]).toEqual([{ ids: [waiting.id] }]);
+    app.unmount();
+  });
+
+  it('gives systems\x27 result renderers the app\x27s result view and controls on every page, not only in a chat', async () => {
+    // a run card on a system page (its conversation) draws a saved widget through the widgets system's renderer too
+    const { app } = await start('/settings/appearance');
+    // what App provides reaches every page under it (the shell, a chat, a system page)
+    expect(provided(app, RESULT_VIEW)).toBe(TableResult);
+    expect(provided(app, APP_COMPONENTS)).toBe(SHARED_COMPONENTS);
     app.unmount();
   });
 

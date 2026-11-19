@@ -145,9 +145,13 @@ export class SystemEmbedders implements Embedders {
     }
     const changed = usable.size !== this.#embedders.size || [...usable].some(([name, embedder]) => this.#embedders.get(name) !== embedder);
     if (!changed) { return; }
+    const wasActive = this.active() !== undefined;
     this.#embedders.clear();
     for (const [name, embedder] of usable) { this.#embedders.set(name, embedder); }
-    log.info('index.embedders', { embedders: [...usable.keys()], active: this.active() !== undefined });
+    const active = this.active() !== undefined;
+    log.info('index.embedders', { embedders: [...usable.keys()], active });
     for (const listener of [...this.#listeners]) { listener(); }
+    // whether text is searched by meaning too is a capability people see (search boxes say it), so they hear of it
+    if (active !== wasActive) { this.#options.bus.publish('capabilities.changed', {}); }
   }
 }

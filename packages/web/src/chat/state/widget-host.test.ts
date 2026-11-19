@@ -10,7 +10,7 @@ import { emptyRun, runEnding, UNREAD_OUTCOME } from '../logic/runs.ts';
 import { fakeChatApi, fakeSessionEvents, run, session, T0 } from '../test/fakes.ts';
 import { fakeCaller } from '../../test/fakes.ts';
 import { ThreadStore } from './thread.ts';
-import { OUTCOME_READS, threadWidgetHost } from './widget-host.ts';
+import { OUTCOME_READS, threadChatHost, threadWidgetHost } from './widget-host.ts';
 import type { DataStore } from '../../data/state/data.ts';
 
 const S1 = SessionId.parse('ses_1');
@@ -68,6 +68,31 @@ describe('how a run ended (runEnding)', () => {
       .toEqual({ ok: false, problem: 'Not available now' });
     // an undone run keeps the outcome it was done with
     expect(runEnding({ ...emptyRun(RUN, FN, 'undone'), outcome: { status: 'done', result: 1 } })).toEqual({ ok: false, problem: 'It ended undone.' });
+  });
+});
+
+describe('the chat host system renderers get (CHAT_HOST)', () => {
+  it('waits on a run a renderer started until its outcome comes, asks the agent and moves the app', async () => {
+    let record = run({ id: RUN, fn: FN, status: 'running' });
+    const { thread, push } = await host(() => record);
+    const asked: Array<[string, boolean]> = [];
+    const paths: string[] = [];
+    const chat = threadChatHost({ thread, ask: (text, send) => { asked.push([text, send]); return Promise.resolve(true); }, navigate: (path) => { paths.push(path); } });
+    const started = await thread.invoke(FN, { order: 'o1' });
+    expect(started).toBe(RUN);
+    let outcome: unknown;
+    void chat.settled(RUN).then((o) => { outcome = o; });
+    await flushPromises();
+    // the done event comes before the record brings the outcome: not over yet
+    record = run({ id: RUN, fn: FN, status: 'done', outcome: { status: 'done', result: { saved: true } } });
+    push('done');
+    expect(outcome).toBeUndefined();
+    await flushPromises();
+    expect(outcome).toEqual({ ok: true, output: { saved: true } });
+    expect(await chat.ask('Change it: ', false)).toBe(true);
+    expect(asked).toEqual([['Change it: ', false]]);
+    chat.navigate('/s/widgets/saved?q=widgets%2Fx');
+    expect(paths).toEqual(['/s/widgets/saved?q=widgets%2Fx']);
   });
 });
 

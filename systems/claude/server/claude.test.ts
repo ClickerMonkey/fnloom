@@ -6,7 +6,8 @@
  * transcript items, forms, MCP configs) are checked on their own.
  */
 import { resolve } from 'node:path';
-import { ActorId, jsonOf, McpServerConfig, mintId, qualify, SystemView, type ClaudeInstanceConfig, type ClaudeTranscriptItem, type DataRecord } from '@harness/core';
+import { ActorId, jsonOf, McpServerConfig, mintId, qualify, SystemView, type DataRecord } from '@harness/core';
+import type { ClaudeInstanceConfig, ClaudeTranscriptItem } from '../shared/session.ts';
 import { TEST_USER, testHub, type TestSystem } from '@harness/sdk/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';

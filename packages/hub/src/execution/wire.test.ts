@@ -45,6 +45,13 @@ describe('messages', () => {
     expect(replyText({ a: [1] }, SHOWN)).toBe('{"a":[1]}');
   });
 
+  it('gives a hub load as its XML cards, never its name lists; another result with a cards field stays JSON', () => {
+    const cards = '<loaded_fns>\nIn your tools from your next step:\n<fn name="fs/read" label="Read" available="yes">Read.</fn>\n</loaded_fns>';
+    expect(replyText({ loaded: ['fs/read'], refused: [], cards }, SHOWN)).toBe(cards);
+    expect(replyText({ loaded: [], fns: [], fnsRefused: [], refused: [], cards: '<loaded_context />' }, SHOWN)).toBe('<loaded_context />');
+    expect(replyText({ cards: 'a deck', loaded: ['fs/read'], refused: [], shuffled: true }, SHOWN)).toBe('{"cards":"a deck","loaded":["fs/read"],"refused":[],"shuffled":true}');
+  });
+
   it('gives a widget proposal as its preview\'s summary and first rows, waiting for the person\'s Save', () => {
     const visual = { visual: 'table', style: 'table', bind: {} };
     const table = { columns: [{ name: 'n', kind: 'integer', nullable: false }], rows: Array.from({ length: 50 }, (_, i) => [i]), offset: 0, truncated: false, sort: [] };

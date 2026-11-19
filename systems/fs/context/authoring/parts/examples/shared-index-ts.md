@@ -99,6 +99,10 @@ export const notes = system('notes', {
     { name: 'sharing', title: 'Sharing', description: 'Review and publish a note.' },
   ],
   // #endregion groups
+  // #region pages
+  // a whole page in the app at /s/notes/notes, in the sidebar while the system is live; client({ pages }) draws it
+  pages: [{ segment: 'notes', title: 'Notes', description: 'Every note, searched by the hub.', icon: 'book', component: 'NotesPage' }],
+  // #endregion pages
 })
   .with({
     // #region config

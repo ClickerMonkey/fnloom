@@ -3,7 +3,8 @@
  * How a remote service is signed in to (`RemoteAuth`): none, a token, headers or OAuth, each shared (typed here,
  * sealed by the hub) or per person (each person connects on the connections page). A kept secret reads as kept; a
  * blank token or client secret keeps it, and header values are replaced as a whole. Problems come by config path
- * (`auth.token`). `kinds` narrows the ways offered (an API service has no OAuth).
+ * (`auth.token`). `kinds` narrows the ways offered (an API service has no OAuth). `secrets: false` asks only how it signs
+ * in, never the secret itself (a record, such as an API service: a shared token is set by an admin on the sign-ins page).
  */
 import type { RemoteAuthPer } from '@harness/core';
 import { computed } from 'vue';
@@ -12,7 +13,7 @@ import { AUTH_WORDS, PER_WORDS, type AuthDraft, type PairRow, type RemoteAuthKin
 import type { PathProblems } from '../../state/problems.ts';
 import PairRowsEditor from './PairRowsEditor.vue';
 
-const props = withDefaults(defineProps<{ problems?: PathProblems; kinds?: readonly RemoteAuthKind[] }>(), { problems: () => ({}), kinds: () => ['none', 'bearer', 'headers', 'oauth'] });
+const props = withDefaults(defineProps<{ problems?: PathProblems; kinds?: readonly RemoteAuthKind[]; secrets?: boolean }>(), { problems: () => ({}), kinds: () => ['none', 'bearer', 'headers', 'oauth'], secrets: true });
 const auth = defineModel<AuthDraft>({ required: true });
 
 const kindOptions = computed((): SegmentOption<RemoteAuthKind>[] => props.kinds.map((kind) => ({ value: kind, label: AUTH_WORDS[kind].label })));
@@ -21,8 +22,10 @@ const PERS: readonly SegmentOption<RemoteAuthPer>[] = (['shared', 'person'] as c
 const kind = computed({ get: () => auth.value.kind, set: (next: RemoteAuthKind) => { auth.value = { ...auth.value, kind: next }; } });
 const per = computed({ get: () => auth.value.per, set: (next: RemoteAuthPer) => { auth.value = { ...auth.value, per: next }; } });
 const shared = computed(() => auth.value.per === 'shared');
+/** Whether the shared secret is typed here (a config the hub seals), not on the sign-ins page. */
+const typesShared = computed(() => shared.value && props.secrets);
 const keeps = (field: 'token' | 'values' | 'clientSecret'): boolean => auth.value.kept.includes(field);
-const perAbout = computed(() => (auth.value.kind === 'oauth' ? PER_WORDS[auth.value.per].oauth : PER_WORDS[auth.value.per].about));
+const perAbout = computed(() => (auth.value.kind === 'oauth' ? PER_WORDS[auth.value.per].oauth : !props.secrets && shared.value ? PER_WORDS.shared.record : PER_WORDS[auth.value.per].about));
 
 function set(field: 'token' | 'clientId' | 'clientSecret', text: string): void {
   auth.value = { ...auth.value, [field]: text };
@@ -51,13 +54,13 @@ const readScope = (text: string): string | undefined => (text.trim() === '' ? un
     </template>
 
     <UiInput
-      v-if="kind === 'bearer' && shared" :model-value="auth.token" label="Token" type="password" revealable autocomplete="off"
+      v-if="kind === 'bearer' && typesShared" :model-value="auth.token" label="Token" type="password" revealable autocomplete="off"
       :placeholder="keeps('token') ? 'Kept; type a new one to replace it' : ''" :required="!keeps('token')" :error="problems['auth.token'] ?? ''"
       data-testid="auth-token" @update:model-value="set('token', $event)"
     />
     <PairRowsEditor
       v-if="kind === 'headers'" :rows="auth.headers" label="Headers" name-placeholder="X-Api-Key" value-placeholder="Value" secret
-      :names-only="!shared" :kept="shared && keeps('values')" :hint="shared ? 'Sealed by the hub once saved.' : 'Each person types these values when they connect.'"
+      :names-only="!typesShared" :kept="typesShared && keeps('values')" :hint="typesShared ? 'Sealed by the hub once saved.' : shared ? 'An admin types these values once, on the sign-ins page.' : 'Each person types these values when they connect.'"
       :error="problems['auth.names'] ?? problems['auth.values'] ?? ''" testid="auth-headers" @update:rows="setHeaders" @replace="replaceValues"
     />
     <template v-if="kind === 'oauth'">

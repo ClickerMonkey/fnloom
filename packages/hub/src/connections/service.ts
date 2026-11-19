@@ -8,9 +8,10 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import { reject } from '@ayepi/core';
 import { z } from 'zod';
 import type { Logger } from '@ayepi/log';
+import { keyConnectOf } from '@harness/sdk';
 import {
-  ConnectionId, Json, mintId, qualify, splitName, type ActorId, type ConnectDecl, type ConnectFlow, type ConnectionChange, type ConnectionFnOption, type ConnectionUpdate,
-  type ConnectionView, type ConnectPage, type ConnectResult, type IdRandom, type InstanceConnect, type InstanceName, type RunConnection, type SecretId, type SystemName,
+  ConnectionId, ConnectKey, ConnectKeyRecord, InstanceConnect, Json, mintId, qualify, splitName, type ActorId, type ConnectDecl, type Filter, type FnConnectKey, type ConnectFlow, type ConnectionChange, type ConnectionFnOption, type ConnectionUpdate,
+  type ConnectionView, type ConnectPage, type ConnectResult, type IdRandom, type InstanceName, type QualifiedName, type RunConnection, type SecretId, type SystemName,
   type UserConnection,
 } from '@harness/core';
 import { fnOwner } from '../catalog/catalog.ts';
@@ -54,16 +55,32 @@ export function connectionView(row: UserConnection): ConnectionView {
 /** The switches of a fn of an instance-scoped system that neither the connection nor the declaration names. */
 const ON_WITHOUT_ASKING: ConnectionFnOption = { on: true, ask: false };
 
-/** How one connection is made: the flow, and for an instance whether one admin connection serves everyone. */
+/** How one connection is made: the flow, the instance or key it is to, and whether one admin connection serves everyone. */
 interface ConnectHow {
   readonly flow: ConnectFlow;
   readonly instance?: InstanceName | undefined;
+  readonly key?: ConnectKey | undefined;
   readonly share: boolean;
 }
 
-/** The key of an instance in the gate's map. */
-function instanceKey(system: string, instance: InstanceName): string {
+/** One key of a key-scoped system, as its page shows it. */
+type KeyEntry = NonNullable<ConnectPage['keys']>[number];
+
+/** The key of an instance (or of a connection key) in the gate's map. */
+function instanceKey(system: string, instance: string): string {
   return `${system}/${instance}`;
+}
+
+/** The records of a key type read per query page (`ConnectDecl.keys`). */
+const KEY_PAGE = 200;
+
+/** The key a fn of a key-scoped system acts through: fixed, or read from the call's args; undefined without one. */
+function fnKey(connectKey: FnConnectKey | undefined, args: Json | undefined): ConnectKey | undefined {
+  if (connectKey === undefined) return undefined;
+  if (typeof connectKey === 'string') return connectKey;
+  const value = args !== null && typeof args === 'object' && !Array.isArray(args) ? args[connectKey.arg] : undefined;
+  const key = ConnectKey.safeParse(value);
+  return key.success ? key.data : undefined;
 }
 
 /** Connections over the store. */
@@ -89,20 +106,25 @@ export class StoreConnectionService implements ConnectionService {
     for (const { system, decl, ready } of await this.#decls()) {
       const connections = await allRows(this.#table(), { where: { owner: asker, system } });
       const instances = decl.scope === 'instance' ? await this.#instancePages(system) : undefined;
-      pages.push({ system, decl, ready, connections: connections.sort((a, b) => b.createdAt - a.createdAt).map(connectionView), ...(instances === undefined ? {} : { instances }) });
+      const keys = decl.scope === 'key' ? await this.#keyEntries(decl) : undefined;
+      pages.push({
+        system, decl, ready, connections: connections.sort((a, b) => b.createdAt - a.createdAt).map(connectionView),
+        ...(instances === undefined ? {} : { instances }), ...(keys === undefined ? {} : { keys }),
+      });
     }
     return pages;
   }
 
-  async connect(asker: ActorId, system: SystemName, form?: Json, instance?: InstanceName): Promise<ConnectStart> {
-    const how = await this.#how(asker, system, await this.#decl(system), instance);
+  async connect(asker: ActorId, system: SystemName, form?: Json, instance?: InstanceName, key?: ConnectKey): Promise<ConnectStart> {
+    const how = await this.#how(asker, system, await this.#decl(system), instance, key);
     const now = this.#deps.clock();
     const row: UserConnection = {
-      id: mintId('connection', this.#deps.random), system, ...(how.instance === undefined ? {} : { instance: how.instance }), owner: asker, status: 'pending', settings: {}, fns: {},
+      id: mintId('connection', this.#deps.random), system, ...(how.instance === undefined ? {} : { instance: how.instance }), ...(how.key === undefined ? {} : { key: how.key }),
+      owner: asker, status: 'pending', settings: {}, fns: {},
       // a shared instance connection (an admin's sign-in) serves everyone
       share: how.share ? { visibility: 'public', with: [] } : { visibility: 'private', with: [] }, createdAt: now, updatedAt: now,
     };
-    const at = how.instance === undefined ? {} : { instance: how.instance };
+    const at = { ...(how.instance === undefined ? {} : { instance: how.instance }), ...(how.key === undefined ? {} : { key: how.key }) };
     if (how.flow.flow === 'form') {
       if (form === undefined) { throw reject(422, 'FORM_NEEDED', `connecting to ${system} needs its form filled in`); }
       const problems = await this.#deps.catalog.check(system, how.flow.form, form);
@@ -164,7 +186,8 @@ export class StoreConnectionService implements ConnectionService {
     let result: ConnectResult;
     try {
       result = await this.#call(row.system, row.instance, (c, signal) => c.peer.call('connectFinish', {
-        connection: row.id, owner: row.owner, ...(row.instance === undefined ? {} : { instance: row.instance }), redirect: this.#redirect, answer: { params: { ...params } },
+        connection: row.id, owner: row.owner, ...(row.instance === undefined ? {} : { instance: row.instance }), ...(row.key === undefined ? {} : { key: row.key }),
+        redirect: this.#redirect, answer: { params: { ...params } },
       }, { signal }));
     } catch (error) {
       result = { problem: error instanceof Error ? error.message : String(error) };
@@ -241,9 +264,20 @@ export class StoreConnectionService implements ConnectionService {
       .sort((a, b) => (a.owner === actor ? 0 : 1) - (b.owner === actor ? 0 : 1) || b.createdAt - a.createdAt);
     const connects = await this.#instanceConnects([...decls.values()].filter((entry) => entry.decl.scope === 'instance').map((entry) => entry.system));
     return {
-      fn: (record: FnRef): FnConnection | undefined => {
+      fn: (record: FnRef, args?: Json): FnConnection | undefined => {
         const entry = decls.get(record.system);
         const local = splitName(record.name).local;
+        if (entry?.decl.scope === 'key') {
+          // a fn acts as the person through its key: its own (an api fn's service), or the one its call names. The
+          // key's record is not read here (the gate is built for every scope, and the keys are a system's records,
+          // unbounded): without a connection to the key the fn acts as no one, and the system says when the key needs
+          // one (the api system's `not-connected` failure)
+          const key = fnKey(record.decl?.connectKey, args);
+          const connection = key === undefined ? undefined : usable.find((row) => row.system === record.system && row.key === key);
+          if (connection === undefined) return undefined;
+          const option = connection.fns[local] ?? entry.decl.fns[local] ?? entry.decl.defaults ?? ON_WITHOUT_ASKING;
+          return option.on ? { state: 'ready', connection, option } : { state: 'off' };
+        }
         if (entry?.decl.scope === 'instance') {
           // every fn that runs on an instance people connect to acts as the person
           const instance = record.decl?.routing?.to === 'instance' ? record.decl.routing.instance : undefined;
@@ -276,7 +310,7 @@ export class StoreConnectionService implements ConnectionService {
   /** Store a new pending row, dropping the person's earlier sign-ins to the same system that never came back. */
   async #begin(row: UserConnection): Promise<void> {
     for (const stale of await allRows(this.#table(), { where: { owner: row.owner, system: row.system, status: 'pending' } })) {
-      if (stale.instance !== row.instance) continue;
+      if (stale.instance !== row.instance || stale.key !== row.key) continue;
       await this.#table().remove(stale.id);
     }
     await this.#table().insert(row);
@@ -307,7 +341,15 @@ export class StoreConnectionService implements ConnectionService {
    * How a connection to a system is made: its declared flow, or for an instance-scoped system the named instance's own
    * (`InstanceConnect`). Refused when the instance is missing, needs no connection, or is shared and the asker is no admin.
    */
-  async #how(asker: ActorId, system: SystemName, decl: ConnectDecl, instance: InstanceName | undefined): Promise<ConnectHow> {
+  async #how(asker: ActorId, system: SystemName, decl: ConnectDecl, instance: InstanceName | undefined, key: ConnectKey | undefined): Promise<ConnectHow> {
+    if (key !== undefined && decl.scope !== 'key') { throw reject(422, 'NOT_PER_KEY', `${system} does not connect per key`); }
+    if (decl.scope === 'key') {
+      if (instance !== undefined) { throw reject(422, 'NOT_PER_INSTANCE', `${system} connects per key, not per instance`); }
+      if (key === undefined) { throw reject(422, 'KEY_NEEDED', `say which ${system} key to connect to`); }
+      const entry = await this.#keyEntry(decl, key);
+      if (entry === undefined) { throw reject(404, 'NOT_FOUND', `${system} has no ${key} to connect to`); }
+      return { ...await this.#flowOf(asker, `${system}/${key}`, entry.connect), key };
+    }
     if (decl.scope !== 'instance') {
       if (instance !== undefined) { throw reject(422, 'NOT_PER_INSTANCE', `${system} connects once for the whole system, not per instance`); }
       return { flow: decl.how, share: false };
@@ -315,14 +357,50 @@ export class StoreConnectionService implements ConnectionService {
     if (instance === undefined) { throw reject(422, 'INSTANCE_NEEDED', `say which ${system} instance to connect to`); }
     const record = await this.#deps.store.table('instances').get({ system, instance });
     if (record === undefined || record.status === 'removed') { throw reject(404, 'NOT_FOUND', `${system} has no instance ${instance}`); }
-    const flow = record.connect?.flow;
-    if (flow === undefined) { throw reject(422, 'NO_CONNECTION_NEEDED', `${system}/${instance} needs no connection`); }
-    const share = record.connect?.share === true;
+    return { ...await this.#flowOf(asker, `${system}/${instance}`, record.connect), instance };
+  }
+
+  /** The flow an instance or key connects by; refused when it needs none, or is shared and the asker is no admin. */
+  async #flowOf(asker: ActorId, what: string, connect: InstanceConnect | undefined): Promise<{ flow: ConnectFlow; share: boolean }> {
+    const flow = connect?.flow;
+    if (flow === undefined) { throw reject(422, 'NO_CONNECTION_NEEDED', `${what} needs no connection`); }
+    const share = connect?.share === true;
     const actor = share ? await this.#deps.store.table('actors').get(asker) : undefined;
     if (share && (actor?.kind !== 'user' || actor.role !== 'admin')) {
-      throw reject(403, 'ADMIN_CONNECTS', `an admin connects ${system}/${instance} once, for everyone`);
+      throw reject(403, 'ADMIN_CONNECTS', `an admin connects ${what} once, for everyone`);
     }
-    return { flow, instance, share };
+    return { flow, share };
+  }
+
+  /**
+   * A key-scoped system's keys people connect to (`ConnectDecl.keys`): its key type's records, read a page at a time
+   * from the database, each with how people connect (`keyConnectOf` over its auth). A record that isn't a
+   * `ConnectKeyRecord` is left out.
+   */
+  async #keyEntries(decl: ConnectDecl): Promise<KeyEntry[]> {
+    const type = decl.keys?.type;
+    if (type === undefined) return [];
+    const out: KeyEntry[] = [];
+    for (let offset = 0; ; offset += KEY_PAGE) {
+      const page = await this.#keyRecords(type, [], offset, KEY_PAGE);
+      out.push(...page.items.flatMap((value) => keyEntryOf(value) ?? []));
+      if (page.items.length === 0 || offset + page.items.length >= page.total) return out;
+    }
+  }
+
+  /** One key of a key-scoped system, found by its name in the database. */
+  async #keyEntry(decl: ConnectDecl, key: ConnectKey): Promise<KeyEntry | undefined> {
+    const type = decl.keys?.type;
+    if (type === undefined) return undefined;
+    const page = await this.#keyRecords(type, [{ field: 'name', op: 'is', value: key }], 0, 1);
+    const value = page.items[0];
+    return value === undefined ? undefined : keyEntryOf(value);
+  }
+
+  /** A page of a key type's record values, by name. */
+  async #keyRecords(type: QualifiedName, filters: readonly Filter[], offset: number, limit: number): Promise<{ items: Json[]; total: number }> {
+    const found = await this.#deps.store.recordQueries.find({ type, filters, sort: [{ field: 'name', dir: 'asc' }], offset, limit });
+    return { items: found.items.map((record) => record.value), total: found.total };
   }
 
   /** The instances of an instance-scoped system people connect to (those that said how), for its page. */
@@ -345,6 +423,12 @@ export class StoreConnectionService implements ConnectionService {
 
   /** The fn names a connection's switches may not name: not per-person fns of its system (per instance: not its instance's fns). */
   async #unknownFns(row: UserConnection, decl: ConnectDecl, names: readonly string[]): Promise<string[]> {
+    if (decl.scope === 'key') {
+      // any fn of a key-scoped system may act through a key (its own, or the one its call names)
+      const unknown: string[] = [];
+      for (const name of names) { if (await this.#deps.catalog.fn(qualify(row.system, name)) === undefined) unknown.push(name); }
+      return unknown;
+    }
     if (decl.scope !== 'instance') return names.filter((fn) => !(fn in decl.fns));
     const unknown: string[] = [];
     for (const name of names) {
@@ -422,6 +506,12 @@ export class StoreConnectionService implements ConnectionService {
   #mac(payload: string): string {
     return createHmac('sha256', this.#key).update(payload).digest('base64url');
   }
+}
+
+/** A key record as its page shows it, with how people connect; undefined when the record isn't a `ConnectKeyRecord`. */
+function keyEntryOf(value: Json): KeyEntry | undefined {
+  const read = ConnectKeyRecord.safeParse(value);
+  return read.success ? { key: read.data.name, label: read.data.label, connect: InstanceConnect.parse(keyConnectOf(read.data.label, read.data.auth)) } : undefined;
 }
 
 /** A connect state's signed payload. */

@@ -10,7 +10,7 @@ export type { StatusInput, CheckedStatus, CheckedTemplate, OneTokens, ManyTokens
 export { g, json, wireType, parseValue, encodeValue, referencesOf, loadTypes, sampleOf, sampleArgs, type GinType, type Infer, type LoadedTypes } from './gin.ts';
 export { ginOf, ginAs, toolArgsOf, type FlatArgs, type ToolArgs } from './zod-gin.ts';
 export {
-  accountLabel, connectForm, credentialHeaders, credentialsFromForm, instanceConnectOf, maskHeaders, readCredentials, secretHeaderNames, sharedHeaders, usesConnections,
+  accountLabel, connectForm, credentialHeaders, credentialsFromForm, instanceConnectOf, keyConnectOf, type FormFor, maskHeaders, readCredentials, secretHeaderNames, sharedHeaders, usesConnections,
 } from './remote-auth.ts';
 export {
   fn, handler, linear, steps, noProgress, progressDecl, kindFn, validationOf,
@@ -56,12 +56,19 @@ export {
   manifestOf, manifestBody, fnDecl, canonicalJson, contractHash, sha256, fnsMissingExamples, checkExamples, MissingExamplesError, type ManifestOptions,
 } from './manifest.ts';
 export {
-  client, RESOURCE_VIEWER, RESOURCE_VIEWER_MODES, INPUT_ANSWERS, VALUE_EDITOR, ACCESS_INFO, SHARE_EDITOR, VISUALS,
+  client, RESOURCE_VIEWER, RESOURCE_VIEWER_MODES, INPUT_ANSWERS, VALUE_EDITOR, ACCESS_INFO, SHARE_EDITOR, VISUALS, RESULT_VIEW, CHAT_HOST, APP_COMPONENTS,
+  type ResultView, type ResultViewOf, type ResultViewProps, type ResultLook, type RunOutcome, type ChatHost, type ChatStart,
   type InputAnswer, type InputAnswers, type ValueEditorProps, type ShareEditorProps,
   type Renderer, type Delivery, type FnView, type SystemClient, type WithSystem, type AttachmentView, type InputView, type MentionView, type ResourceView,
   type FnViewOf, type AttachmentViewOf, type InputViewOf, type AnyViews, type WireViews, type Mount, type InputMount, type ClientRenderers, type ClientModule, type ResourceViewerProps,
+  PAGE_HOST, type PageView, type PageViewOf, type PageHost, type PageLocation, type PageQuery, type QueryBinding, type HubClient, type SharedComponents,
+  type MarkdownProps, type InputProps, type IconProps, type EmptyProps, type LoadStateProps, type ReasoningProps, type TypingProps, type FrameProps,
   type ResourceViewerEntry, type ResourceViewerMode, type BareViewer, type VisualView, type VisualEntry, VISUAL_EMITS, type VisualEmits, type VisualPalette, type VisualRange, type VisualTheme, visualTheme, type VisualOption, type VisualSource,
 } from './client.ts';
+export type {
+  PageRuns, PageRunsOptions, PageInbox, PageNotify, PageFormat, PartTone, ButtonProps, SelectChoice, SelectProps, TextareaProps, DialogProps, BannerProps, BadgeProps, SkeletonProps, FnPillProps, ApprovalProps,
+  ConversationCall, ConversationPiece, ConversationEntry, ConversationProps, ComposerProps,
+} from './page-parts.ts';
 export {
   HUB_VISUALS, WIDGET_KIND, WIDGETS_SYSTEM, WINDOW_ARGS, BUILT_IN_CONTRIBUTIONS, channel, visual, ginTypeFacts, resultFacts, rankedVisuals, argsOf, pagingOf, rangeOf, widgetArgs, widgetControls, widgetRunArgs, widgetPager,
   widgetActionOptions, boundArgs, ginTypeOf, returnsTable,

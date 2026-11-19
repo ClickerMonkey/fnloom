@@ -1,11 +1,12 @@
 <script setup lang="ts">
 /**
  * The `!` form: a fn picked to run by hand, its args as a form generated from its gin type, stacked above the
- * composer (not a modal). Submitting runs it, and that submit is the approval.
+ * composer (not a modal). Submitting runs it, and that submit is the approval. Its fn is a pill that opens the fn.
  */
 import type { Json } from '@harness/core';
 import { UiIcon, UiIconButton } from '../../ui/index.ts';
 import GinForm from '../../gin/GinForm.vue';
+import FnPill from '../../fns/components/FnPill.vue';
 import { fnLabel } from '../logic/labels.ts';
 import type { Invocation } from '../logic/composer.ts';
 
@@ -18,7 +19,7 @@ const emit = defineEmits<{ submit: [args: Json]; cancel: [] }>();
     <header class="head">
       <span class="icon"><UiIcon name="fn" :size="16" /></span>
       <div class="titles">
-        <h3 class="title">Run {{ fnLabel(invocation.fn) }}</h3>
+        <h3 class="title">Run <FnPill :name="invocation.fn" /></h3>
         <p class="description">{{ invocation.description }}</p>
       </div>
       <UiIconButton size="sm" icon="x" label="Close" @click="emit('cancel')" />
@@ -36,6 +37,6 @@ const emit = defineEmits<{ submit: [args: Json]; cancel: [] }>();
 .head { display: flex; align-items: flex-start; gap: var(--space-3); }
 .icon { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: var(--radius); background: var(--accent-soft); color: var(--accent); }
 .titles { display: grid; gap: 2px; flex: 1; min-width: 0; }
-.title { margin: 0; font-size: var(--text-md); font-weight: var(--weight-strong); }
+.title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0; font-size: var(--text-md); font-weight: var(--weight-strong); }
 .description { margin: 0; color: var(--text-dim); font-size: var(--text-sm); }
 </style>

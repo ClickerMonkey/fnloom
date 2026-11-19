@@ -73,7 +73,7 @@ describe('the context list', () => {
     expect(found.items.map((c) => c.name).sort()).toEqual(['fs/guide', 'hub/memory-mine']);
     const guide = found.items.find((c) => c.name === 'fs/guide');
     expect(guide?.found).toMatchObject({ matched: 'words', section: { title: 'Encodings', path: ['Reading', 'Encodings'] } });
-    expect(guide?.found?.score).toBeGreaterThan(0);
+    expect(guide?.found?.rank).toBeGreaterThan(0);
     // words alone measure no fit
     expect(guide?.found?.similarity).toBeUndefined();
     const mine = found.items.find((c): c is ContextListItem => c.name === 'hub/memory-mine');
@@ -90,6 +90,30 @@ describe('the context list', () => {
     expect(one.items).toHaveLength(1);
     expect(one.cursor).toBe('1');
     expect((await page({ text: 'latin1', limit: 1, cursor: one.cursor })).items.map((c) => c.name)).not.toContain(one.items[0]?.name);
+  });
+
+  it('with text, a chosen sort still applies: the matches are sorted and paged by the database, each still saying how it was found', async () => {
+    const { store, names, page } = await rig();
+    const sql = vi.spyOn(store.lists, 'find');
+    const oldest = { sort: [{ field: 'updatedAt', dir: 'asc' as const }] };
+    // memory-mine (updated 1) before the guide (updated 3), whatever the search's own order
+    expect(await names({ text: 'latin1', ...oldest })).toEqual(['hub/memory-mine', 'fs/guide']);
+    expect(await names({ text: 'latin1', sort: [{ field: 'updatedAt', dir: 'desc' }] })).toEqual(['fs/guide', 'hub/memory-mine']);
+    expect(await names({ text: 'latin1', sort: [{ field: 'name', dir: 'desc' }] })).toEqual(['hub/memory-mine', 'fs/guide']);
+    // the sort and page went to the database with the matches' keys
+    const keys: unknown = expect.arrayContaining(['fs/guide', 'hub/memory-mine']);
+    expect(sql).toHaveBeenCalledWith(expect.objectContaining({ table: 'context', sort: oldest.sort, keys }));
+    const first = await page({ text: 'latin1', limit: 1, ...oldest });
+    expect(first.items.map((c) => c.name)).toEqual(['hub/memory-mine']);
+    expect(first.items[0]?.found).toMatchObject({ matched: 'words' });
+    expect(first.cursor).toBe('1');
+    const second = await page({ text: 'latin1', limit: 1, cursor: first.cursor, ...oldest });
+    expect(second.items.map((c) => c.name)).toEqual(['fs/guide']);
+    expect(second.items[0]?.found?.section?.title).toBe('Encodings');
+    expect(second.cursor).toBeUndefined();
+    // the filters still narrow it, and nothing found is an empty page
+    expect(await names({ text: 'latin1', filters: [{ field: 'origin', op: 'is', value: 'memory' }], ...oldest })).toEqual(['hub/memory-mine']);
+    expect(await names({ text: 'zebra', ...oldest })).toEqual([]);
   });
 });
 

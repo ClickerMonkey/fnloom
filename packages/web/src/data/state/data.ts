@@ -1,20 +1,19 @@
 /**
- * The Data pages' state (build 8): the stored types the person sees (by words and system, a page at a time), the saved
- * widgets (fns of the widgets system's kind, found by the hub's fn search), the actions rows offer, an export, and one
+ * The Data pages' state (build 8): the stored types the person sees (by words and system, a page at a time) (the saved
+ * widgets are the widgets system's own page, `/s/widgets/saved`), the actions rows offer, an export, and one
  * stored type's records page with the record opened from it: its value, saving it (with the version it changes, so two
  * people editing at once don't overwrite each other), removing it and its history. Every read is the hub's query with
  * a page; nothing here holds a whole set.
  */
 import {
-  WIDGET_KIND, type DataRecord, type DataSetView, type ExportQuery, type FnSearchHit, type Json, type QualifiedName, type RecordId, type RecordPage, type RecordQuery, type RecordTableQuery,
+  type DataRecord, type DataSetView, type ExportQuery, type Json, type QualifiedName, type RecordId, type RecordPage, type RecordQuery, type RecordTableQuery,
   type RecordVersion, type ResultTable, type RowActionsQuery, type SystemName, type WidgetActionOption,
 } from '@harness/core';
 import { ref, shallowRef } from 'vue';
 import { Loaded, Paged, Task } from '../../state/loaded.ts';
-import type { FnsApi } from '../../fns/api.ts';
 import type { DataApi } from '../api.ts';
 
-/** How many stored types or widgets a page holds. */
+/** How many stored types a page holds. */
 export const DATA_SETS_PAGE = 50;
 /** How many versions of a record a page holds. */
 export const RECORD_VERSIONS_PAGE = 20;
@@ -30,15 +29,11 @@ type StoreApi = Pick<DataApi, 'dataSets' | 'records' | 'rowActions' | 'readFn' |
 /** The Data pages. */
 export class DataStore {
   readonly #api: StoreApi;
-  readonly #fns: Pick<FnsApi, 'searchFns'>;
   /** The stored types, a page at a time. */
   readonly sets: Paged<DataSetView, DataSetFilter>;
-  /** The saved widgets, a page at a time, by words. */
-  readonly widgets: Paged<FnSearchHit, string>;
 
-  constructor(api: StoreApi, fns: Pick<FnsApi, 'searchFns'>) {
+  constructor(api: StoreApi) {
     this.#api = api;
-    this.#fns = fns;
     this.sets = new Paged<DataSetView, DataSetFilter>({
       fetch: async (filter, cursor, limit) => this.#api.dataSets.call({
         limit, ...(cursor === undefined ? {} : { cursor }), ...(filter.text === '' ? {} : { text: filter.text }), ...(filter.system === undefined ? {} : { system: filter.system }),
@@ -47,16 +42,6 @@ export class DataStore {
       failure: "Couldn't load the stored data.",
       limit: DATA_SETS_PAGE,
     }, { text: '', system: undefined });
-    this.widgets = new Paged<FnSearchHit, string>({
-      fetch: async (text, cursor, limit) => {
-        const offset = cursor === undefined ? 0 : Number(cursor);
-        const page = await this.#fns.searchFns.call({ kinds: [WIDGET_KIND], items: ['fn'], limit, offset, ...(text === '' ? {} : { text }) });
-        return { items: page.items, ...(page.next === undefined ? {} : { cursor: String(page.next) }) };
-      },
-      key: (hit) => hit.name,
-      failure: "Couldn't load the saved widgets.",
-      limit: DATA_SETS_PAGE,
-    }, '');
   }
 
   /** The actions rows of these types offer, narrowed by a widget's list when given. */

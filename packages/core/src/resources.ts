@@ -160,6 +160,6 @@ export const ResourceHit = z.object({
   title: z.string(),
   preview: z.string(),
   /** Its place in the search's order as a share of the best (1 = first, `SearchHit.rank`): for ordering, not fit. */
-  score: z.number(),
+  rank: z.number(),
 });
 export type ResourceHit = z.infer<typeof ResourceHit>;

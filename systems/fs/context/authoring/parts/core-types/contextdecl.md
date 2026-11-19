@@ -160,6 +160,9 @@ type FnDecl = {
   } | {
     to: "any";
   } | undefined;
+  connectKey?: ConnectKey | {
+    arg: string;
+  } | undefined;
   effects?: {
     mode?: "read" | "write" | "delete" | undefined;
     reads?: `${string}/${string}`[] | undefined;
@@ -434,6 +437,7 @@ type KindDescription = {
     language: string;
     code: string;
   } | undefined;
+  connectKey?: ConnectKey | undefined;
 };
 ```
 

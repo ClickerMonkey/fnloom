@@ -15,11 +15,15 @@
  *   whose input and result are checked with the contract's gin types, and `run.<fn>(args)`, which starts a run of one
  *   of the system's fns in the session, its args checked the same way. `submit(run, value)` sends a form the same way.
  *   Each send is a `Delivery` whose `status` is reactive.
+ * - **Results.** `resultView(wire)` finds the renderer for a finished run's result (`client({ results })`): the fn's
+ *   own, decoded with its gin types, else its kind's, given the JSON.
+ * - **Pages.** `pageView(system, page, wire)` mounts a system's page (`system({ pages })`, `client({ pages })`) with
+ *   the host the app hands it (`PageHost`) and its system's client.
  *
  * This module is browser code: it imports Vue and the SDK's contract builders, nothing from Node.
  */
 import { ObjType } from '@aeye/gin';
-import { DeliveryStatus, QualifiedName, qualify, type DeliveryId, type Json, type ResultFacts, type ResultTable, type RunId, type VisualShape } from '@harness/core';
+import { DeliveryStatus, QualifiedName, qualify, type DeliveryId, type Json, type ResultFacts, type ResultTable, type RunId, type SystemPageDecl, type VisualShape } from '@harness/core';
 import { reactive, type Component } from 'vue';
 import { type AnyViews, type ClientModule, type Delivery, type InputMount, type Mount, type ResourceViewerEntry, type ResourceViewerMode, type SystemClient, type VisualOption, type WireViews } from './client.ts';
 import { encodeValue, parseValue, type GinType } from './gin.ts';
@@ -82,8 +86,8 @@ function isViewerEntry(value: AnyRenderer | ResourceViewerEntry<AnyRenderer>): v
   return typeof value === 'object' && 'component' in value && 'mode' in value;
 }
 
-/** The renderer sections looked up by qualified name. */
-type Section = 'fns' | 'kinds' | 'attachments' | 'inputs' | 'mentions';
+/** The renderer sections looked up by qualified name (`resultFns` and `resultKinds` are `client({ results })`). */
+type Section = 'fns' | 'kinds' | 'attachments' | 'inputs' | 'mentions' | 'resultFns' | 'resultKinds';
 
 /** A registered module with its contract types erased: renderers by section and local name, and its actions. */
 interface Registered {
@@ -100,7 +104,18 @@ interface Registered {
   readonly mentions: Readonly<Record<string, GinType | undefined>>;
   /** Its own config component, when the contract names one. */
   readonly config: RegisteredConfig | undefined;
+  /** Its pages by segment, each with the component that draws it. */
+  readonly pages: ReadonlyMap<string, RegisteredPage>;
 }
+
+/** A page a contract declares, with its component from `client({ pages })`. */
+interface RegisteredPage {
+  readonly decl: SystemPageDecl;
+  readonly component: AnyRenderer;
+}
+
+/** What the app hands the runtime to mount a page: the page's view without its segment (the runtime knows it). */
+export type PageWire = Omit<AnyViews['page'], 'page' | 'system'>;
 
 /** A system's config component with its contract types erased. */
 interface RegisteredConfig {
@@ -155,8 +170,12 @@ function decodeState(type: GinType | undefined, state: Readonly<Record<string, J
 function erase<C extends ContractShape>(module: ClientModule<C>): Registered {
   const r = module.renderers;
   return {
-    renderers: { fns: r.fns ?? {}, kinds: r.kinds ?? {}, attachments: r.attachments ?? {}, inputs: r.inputs ?? {}, mentions: r.mentions ?? {} },
+    renderers: {
+      fns: r.fns ?? {}, kinds: r.kinds ?? {}, attachments: r.attachments ?? {}, inputs: r.inputs ?? {}, mentions: r.mentions ?? {},
+      resultFns: r.results?.fns ?? {}, resultKinds: r.results?.kinds ?? {},
+    },
     config: configOf(module),
+    pages: pagesOf(module),
     actions: module.contract.defs.actions,
     fns: module.contract.defs.fns,
     forms: Object.fromEntries(Object.entries(module.contract.defs.fns).map(([name, def]) => [name, def.form])),
@@ -171,6 +190,15 @@ function configOf<C extends ContractShape>(module: ClientModule<C>): RegisteredC
   const decl = module.contract.configComponent;
   const component = decl === undefined ? undefined : module.renderers.configs?.[decl.component];
   return decl === undefined || component === undefined ? undefined : { component, mode: decl.mode, type: module.contract.defs.config };
+}
+
+/** A module's pages by segment; `client()` checked that each one's component is there. */
+function pagesOf<C extends ContractShape>(module: ClientModule<C>): Map<string, RegisteredPage> {
+  const components: Readonly<Record<string, AnyRenderer | undefined>> = module.renderers.pages ?? {};
+  return new Map(module.contract.pages.flatMap((decl) => {
+    const component = components[decl.component];
+    return component === undefined ? [] : [[decl.segment, { decl, component }] as const];
+  }));
 }
 
 /** One loaded visual, with its contract types erased. */
@@ -364,6 +392,26 @@ export class ClientRuntime {
     return { component: byKind, props };
   }
 
+  /**
+   * A finished run's result renderer and its props (`client({ results })`): the fn's own gets its args and result
+   * decoded with the fn's gin types; a kind's (for a fn of the kind with none of its own) gets the JSON as it is, and
+   * its own system's client. Undefined when none is loaded, or the values don't fit the fn's types.
+   */
+  resultView(wire: WireViews['result']): Mount<'result'> | undefined {
+    const { kind, args, result, ...rest } = wire;
+    const own = this.#lookup(wire.fn, 'resultFns');
+    if (own !== undefined) {
+      const { system, local } = split(wire.fn);
+      const def = this.#modules.get(system)?.fns[local];
+      if (def === undefined) { return undefined; }
+      const decoded = this.#decode(wire.fn, () => ({ args: parseValue(def.args, args), result: parseValue(def.returns, result) }));
+      return decoded === undefined ? undefined : { component: own, props: { ...rest, ...decoded, system: this.systemClient(system, wire.run) } };
+    }
+    const byKind = kind === undefined ? undefined : this.#lookup(kind, 'resultKinds');
+    if (kind === undefined || byKind === undefined) { return undefined; }
+    return { component: byKind, props: { ...rest, args, result, system: this.systemClient(split(kind).system, wire.run) } };
+  }
+
   /** An attachment's renderer, with its data decoded with the attachment's gin type. */
   attachmentView(wire: WireViews['attachment']): Mount<'attachment'> | undefined {
     const component = this.#lookup(wire.attachment, 'attachments');
@@ -421,6 +469,20 @@ export class ClientRuntime {
         system: this.systemClient(system),
       },
     };
+  }
+
+  /** The pages a loaded system's contract declares (none until its build is loaded). */
+  pages(system: string): readonly SystemPageDecl[] {
+    return [...(this.#modules.get(system)?.pages.values() ?? [])].map((page) => page.decl);
+  }
+
+  /**
+   * A system's page and its props: the host the app made for it, the URL parts under it and the system's client.
+   * Undefined when the system's build isn't loaded or declares no page with that segment.
+   */
+  pageView(system: string, page: string, wire: PageWire): Mount<'page'> | undefined {
+    const found = this.#modules.get(system)?.pages.get(page);
+    return found === undefined ? undefined : { component: found.component, props: { ...wire, page, system: this.systemClient(system) } };
   }
 
   /** Run a decode, or undefined (logged) when the value doesn't fit its type. */

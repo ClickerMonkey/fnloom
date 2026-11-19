@@ -6,11 +6,12 @@
  * waiting on them, with a running workflow), and a session's transcript (`readFn` of `claude/transcript`).
  */
 import {
-  ClaudeSession, ClaudeTranscriptQuery, ConnectDecl, DataRecord, InstanceName, Json, McpServerStatus, SECRET_KEPT, type SystemName, type AddInstance, type ApprovalPreview, type ClaudeTranscriptItem, type ClaudeTranscriptPage,
+  ConnectDecl, DataRecord, InstanceName, Json, McpServerStatus, SECRET_KEPT, qualify, type SystemName, type AddInstance, type ApprovalPreview,
   type ConnectPage, type InstanceRef, type InstanceView, type ProposalAsk, type ReadTableArgs, type RecordPage, type RecordQuery, type RunId, type SessionId,
 } from '@harness/core';
 import { z } from 'zod';
-import { CLAUDE_FNS, SESSION_TYPE } from '../src/claude/logic/claude.ts';
+// the claude system's own shapes (they ship with the system since item 9)
+import { CLAUDE_SESSION_TYPE as SESSION_TYPE, CLAUDE_SYSTEM, ClaudeSession, ClaudeTranscriptQuery, type ClaudeTranscriptItem, type ClaudeTranscriptPage } from '@harness/system-claude';
 import { instanceView } from '../src/admin/test/build2.ts';
 import { API } from '../src/admin/logic/api-services.ts';
 import { MCP } from '../src/admin/logic/mcp-servers.ts';
@@ -151,7 +152,7 @@ export class MockBuild9 {
 
   /** A read fn's answer: a server's status, a Claude transcript, or undefined for a fn the mock leaves to others. */
   read(input: ReadTableArgs): Json | undefined {
-    if (input.fn === CLAUDE_FNS.transcript) {
+    if (input.fn === qualify(CLAUDE_SYSTEM, 'transcript')) {
       const query = ClaudeTranscriptQuery.parse(input.args);
       const items = query.agent === undefined ? TRANSCRIPT : TRANSCRIPT.slice(1, 3);
       // one item a stored message: a page from the start, or back from the newest

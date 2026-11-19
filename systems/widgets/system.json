@@ -5,5 +5,6 @@
   "description": "Saved views of a fn's table: the charts, controls, presets, drill and row actions a person keeps to look at again.",
   "protocol": 1,
   "server": { "entry": "server/main.ts", "external": {} },
+  "client": { "entry": "client/index.ts" },
   "instances": "one"
 }

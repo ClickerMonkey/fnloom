@@ -200,6 +200,8 @@ type PreviewAnswer = {
         flag: "models" | "capabilities" | "secrets" | "effects" | "files" | "calls" | "hosts" | "delete-fns" | "write-fns";
         line: string;
         items: string[];
+        lead?: string | undefined;
+        tail?: string | undefined;
       }[];
       grants?: "added" | "changed" | "widened" | "narrowed" | undefined;
       config?: "removed" | "added" | "changed" | undefined;
@@ -365,6 +367,9 @@ type PreviewAnswer = {
       } | {
         to: "any";
       } | undefined;
+      connectKey?: ConnectKey | {
+        arg: string;
+      } | undefined;
       effects?: {
         mode?: "read" | "write" | "delete" | undefined;
         reads?: `${string}/${string}`[] | undefined;
@@ -513,7 +518,10 @@ type PreviewAnswer = {
         ask: boolean;
       }>;
       icon?: string | undefined;
-      scope?: "instance" | "system" | undefined;
+      scope?: "instance" | "system" | "key" | undefined;
+      keys?: {
+        type: `${string}/${string}`;
+      } | undefined;
       defaults?: {
         on: boolean;
         ask: boolean;
@@ -603,6 +611,15 @@ type PreviewAnswer = {
       component: string;
       mode: "replace" | "beside";
     } | undefined;
+    pages?: {
+      segment: string;
+      title: string;
+      nav: "hidden" | "main";
+      access: "admin" | "everyone";
+      component: string;
+      description?: string | undefined;
+      icon?: string | undefined;
+    }[] | undefined;
     groups?: {
       name: string;
       title: string;

@@ -3,7 +3,8 @@
  * use and a question become proposals for the owner whose key the record names first, approval and decline settle
  * them, an interrupt withdraws them, and a session that ends tells whoever waits on its turn.
  */
-import { ActorId, InstanceName, RunId, mintId, type ClaudeSession, type RecordId } from '@harness/core';
+import { ActorId, InstanceName, RunId, mintId, type RecordId } from '@harness/core';
+import type { ClaudeSession } from '../shared/session.ts';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { FakeClaudeDriver } from './fake-driver.ts';

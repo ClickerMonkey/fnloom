@@ -14,7 +14,8 @@ import {
   getSessionInfo, getSessionMessages, getSubagentMessages, listSessions, query,
   type CanUseTool, type McpServerStatus, type OnElicitation, type OnUserDialog, type Options, type PermissionResult, type Query, type SDKMessage, type SDKSessionInfo, type SDKUserMessage, type SessionMessage,
 } from '@anthropic-ai/claude-agent-sdk';
-import { ClaudeSessionId, McpServerConfig, isJsonObject, jsonOf, type ClaudeTask, type ClaudeTaskKind, type ClaudeTranscriptItem, type JsonObject } from '@harness/core';
+import { McpServerConfig, isJsonObject, jsonOf, type JsonObject } from '@harness/core';
+import { ClaudeSessionId, type ClaudeTask, type ClaudeTaskKind, type ClaudeTranscriptItem } from '../shared/session.ts';
 import { g, wireType } from '@harness/sdk';
 import { sliceOf, type ClaudeDriver, type DriverEvent, type DriverOpen, type DriverPage, type FoundImportable, type LiveSession, type SessionListener, type StoredSession, type TaskChange, type TranscriptRequest, type TranscriptSlice } from './driver.ts';
 import { AskUserQuestionInput, askUserQuestionForm, elicitationForm } from './questions.ts';

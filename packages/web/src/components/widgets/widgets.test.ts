@@ -1,7 +1,8 @@
 /**
  * The widget pass's widget view: the logic (chip args with relative dates, the widget's own visuals, drill levels in
  * the URL, the export query), the state (buffered pager, drill levels, form then confirm, derived then, live re-runs),
- * and the components (chip row with presets and Apply, read-only rows, the proposal card with Save).
+ * and the components (chip row with presets and Apply, read-only rows, a proposal's preview without the widgets system's
+ * card, keeping a look). The proposal card with Save is the widgets system's own (`systems/widgets/client`).
  */
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,7 +15,8 @@ import { FnWidgetSource, resultFrame, tableFrame } from './widget-source.ts';
 import { WidgetState, type WidgetClock } from './widget-state.ts';
 import WidgetView from './WidgetView.vue';
 import { editInput, enteredValue } from './record-edits.ts';
-import { chipArgs, exportQuery, readLevels, rowTypes, SAVE_WIDGET_FN, saveLookRequest, WIDGET_HOST, widgetVisuals, type RunOutcome, type WidgetHost } from './widgets.ts';
+import type { ResultLook } from '@harness/sdk';
+import { chipArgs, exportQuery, readLevels, rowTypes, WIDGET_HOST, widgetVisuals, type RunOutcome, type WidgetHost } from './widgets.ts';
 
 const CLOCK: WidgetClock = { now: () => new Date('2026-11-13T10:00:00Z'), zone: () => 'UTC' };
 
@@ -248,16 +250,16 @@ describe('the widget view', () => {
     wrapper.unmount();
   });
 
-  it('draws a proposal with its preview and saves it as the person, then links to it', async () => {
-    const fake = fakeHost();
-    const wrapper = mount(TableResult, { attachTo: document.body, props: { value: Json.parse(SAMPLE_PROPOSAL), fn: QualifiedName.parse('widgets/make_widget'), title: 'Make widget' }, global: { provide: { [WIDGET_HOST]: fake.host }, stubs: { RouterLink: { template: '<a><slot /></a>' } } } });
+  it('draws a proposal\'s preview as it is when the widgets system draws no card: no Save, no re-reads, no Make a widget', async () => {
+    const fake = fakeHost({ ask: () => Promise.resolve(true) });
+    const wrapper = mount(TableResult, { attachTo: document.body, props: { value: Json.parse(SAMPLE_PROPOSAL), fn: QualifiedName.parse('widgets/make_widget'), title: 'Make widget' }, global: { provide: { [WIDGET_HOST]: fake.host } } });
     await flushPromises();
     expect(wrapper.find('[data-testid=widget-view]').exists()).toBe(true);
-    expect((await menuOf(wrapper)).has('refresh')).toBe(false);
-    await wrapper.get('[data-testid=widget-proposal-save]').trigger('click');
-    await flushPromises();
-    expect(fake.runs).toEqual([{ fn: SAVE_WIDGET_FN, args: Json.parse({ name: 'open_notes', description: SAMPLE_PROPOSAL.description, spec: SAMPLE_PROPOSAL.spec }) }]);
-    expect(wrapper.get('[data-testid=widget-proposal-saved]').text()).toBe('Saved as widgets/open_notes');
+    expect(wrapper.find('[data-testid=widget-proposal-save]').exists()).toBe(false);
+    const menu = await menuOf(wrapper);
+    expect(menu.has('refresh')).toBe(false);
+    expect(menu.has('make-widget')).toBe(false);
+    expect(fake.reads).toEqual([]);
     wrapper.unmount();
   });
 });
@@ -281,7 +283,7 @@ describe('the widget chrome', () => {
     own.unmount();
   });
 
-  it('a plain table has no toggle and offers Make a widget in its menu; a saved widget\'s Settings saves its look', async () => {
+  it('a plain table has no toggle and offers Make a widget in its menu; Settings keeps the look where the result can keep one', async () => {
     const asked: string[] = [];
     const fake = fakeHost({ ask: (text) => { asked.push(text); return Promise.resolve(true); } });
     const plain = mount(TableResult, { attachTo: document.body, props: { value: Json.parse(SAMPLE_TABLE), fn: QualifiedName.parse('db/notes'), title: 'Notes' }, global: { provide: { [WIDGET_HOST]: fake.host } } });
@@ -298,7 +300,9 @@ describe('the widget chrome', () => {
     plain.unmount();
     document.body.innerHTML = '';
 
-    const saved = mount(TableResult, { attachTo: document.body, props: { value: Json.parse(SAMPLE_WIDGET), fn: NOTES_WIDGET, title: 'Open notes' }, global: { provide: { [WIDGET_HOST]: fake.host } } });
+    const kept: ResultLook[] = [];
+    const keepLook = (look: ResultLook): Promise<boolean> => { kept.push(look); return Promise.resolve(true); };
+    const saved = mount(TableResult, { attachTo: document.body, props: { value: Json.parse(SAMPLE_WIDGET), fn: NOTES_WIDGET, title: 'Open notes', keepLook }, global: { provide: { [WIDGET_HOST]: fake.host } } });
     await flushPromises();
     const menu = await menuOf(saved);
     expect(menu.has('make-widget')).toBe(false);
@@ -306,7 +310,8 @@ describe('the widget chrome', () => {
     await flushPromises();
     document.querySelector<HTMLButtonElement>('[data-testid=widget-save-look]')?.click();
     await flushPromises();
-    expect(asked[1]).toBe(saveLookRequest(NOTES_WIDGET, 'Words per note', 'Bars'));
+    expect(kept).toEqual([{ visual: 'Words per note', style: 'Bars' }]);
+    expect(asked).toHaveLength(1);
     expect(document.querySelector('[data-testid=result-settings]')).toBeNull();
     saved.unmount();
   });

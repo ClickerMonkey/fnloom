@@ -67,6 +67,18 @@ export type RemoteAuth = z.infer<typeof RemoteAuth>;
 export const TypedAuth = z.discriminatedUnion('kind', [NoAuth, BearerAuth, HeadersAuth]);
 export type TypedAuth = z.infer<typeof TypedAuth>;
 
+/**
+ * A `TypedAuth` with no secret in it: how a record (which never holds a secret) says its service signs in. A shared
+ * token or shared header values are then one admin's connection shared with everyone (`InstanceConnect.share`), and a
+ * per-person one each person's own connection, both kept by the hub as secrets.
+ */
+export const RecordAuth = z.discriminatedUnion('kind', [
+  NoAuth,
+  BearerAuth.omit({ token: true }),
+  HeadersAuth.omit({ values: true }),
+]);
+export type RecordAuth = z.infer<typeof RecordAuth>;
+
 /** The config paths (under an instance's `auth` field) that hold a `TypedAuth`'s secrets. */
 export const TYPED_AUTH_SECRETS = ['auth.token', 'auth.values'] as const satisfies readonly ConfigPath[];
 

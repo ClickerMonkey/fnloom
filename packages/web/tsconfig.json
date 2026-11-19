@@ -9,5 +9,5 @@
   },
   "include": ["src/**/*.ts", "src/**/*.vue", "vite.config.ts", "env.ts", "e2e/**/*.ts"],
   "exclude": ["sw/**"],
-  "references": [{ "path": "../core" }, { "path": "../sdk" }, { "path": "./sw" }]
+  "references": [{ "path": "../core" }, { "path": "../sdk" }, { "path": "./sw" }, { "path": "../../systems/claude" }]
 }

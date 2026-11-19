@@ -175,6 +175,14 @@ export function sizeText(record: Pick<ContextRecord, 'tokens' | 'decl'>): string
   return `${record.tokens.full.toLocaleString()} tokens`;
 }
 
+/**
+ * The context search box's placeholder: it promises meaning only while an embedder is up (`ChatCapabilities.meaning`);
+ * without one the hub searches words alone, and so does the box's promise.
+ */
+export function contextPlaceholder(meaning: boolean): string {
+  return meaning ? 'Search words and meaning, or filter' : 'Search words, or filter';
+}
+
 /** How a search found a row, in words: which index (its words, its meaning, or both), each with its badge tone. */
 export const MATCHED_WORDS = {
   words: { label: 'Words', title: 'Found by its words', tone: 'neutral' },
@@ -182,11 +190,11 @@ export const MATCHED_WORDS = {
   both: { label: 'Words + meaning', title: 'Found by its words and its meaning', tone: 'ok' },
 } as const satisfies Record<SearchMatchedBy, { readonly label: string; readonly title: string; readonly tone: Tone }>;
 
-/** How a searched row reads: its "matched by" badge, its score in words, and the section that found it. */
+/** How a searched row reads: its "matched by" badge, its fit (or rank) in words, and the section that found it. */
 export interface FoundView {
   readonly matched?: (typeof MATCHED_WORDS)[SearchMatchedBy];
   /** Its fit when meaning was measured (`similarity`, "87% fit"), else its place in the order ("rank 92%"). */
-  readonly score?: string;
+  readonly measure?: string;
   /** The heading path of the section that found it, `Reading › Encodings`. */
   readonly section?: string;
 }
@@ -195,10 +203,10 @@ export interface FoundView {
 export function foundView(found: SearchFound | undefined): FoundView {
   if (found === undefined) { return {}; }
   const percent = (value: number) => `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
-  const score = found.similarity !== undefined ? `${percent(found.similarity)} fit` : found.score === undefined ? undefined : `rank ${percent(found.score)}`;
+  const measure = found.similarity !== undefined ? `${percent(found.similarity)} fit` : found.rank === undefined ? undefined : `rank ${percent(found.rank)}`;
   return {
     ...(found.matched === undefined ? {} : { matched: MATCHED_WORDS[found.matched] }),
-    ...(score === undefined ? {} : { score }),
+    ...(measure === undefined ? {} : { measure }),
     ...(found.section === undefined ? {} : { section: found.section.path.join(' › ') }),
   };
 }

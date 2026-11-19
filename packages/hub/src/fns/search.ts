@@ -279,12 +279,12 @@ function sectionOf(record: ContextRecord, key: string): SearchSection | undefine
 type Scored = Pick<SearchHit, 'rank' | 'similarity' | 'matched'> & { readonly section?: string };
 
 /**
- * A hit's `score` (its rank, for ordering), `similarity` (its measured fit, when there is one) and `matched` (which
+ * A hit's `rank` (its place in the order), `similarity` (its measured fit, when there is one) and `matched` (which
  * index found it), each its own field.
  */
-function scoresOf(found: Scored | undefined): Pick<FnSearchHit, 'score' | 'similarity' | 'matched'> {
+function scoresOf(found: Scored | undefined): Pick<FnSearchHit, 'rank' | 'similarity' | 'matched'> {
   if (found === undefined) return {};
-  return { score: found.rank, ...(found.similarity === undefined ? {} : { similarity: found.similarity }), ...(found.matched === undefined ? {} : { matched: found.matched }) };
+  return { rank: found.rank, ...(found.similarity === undefined ? {} : { similarity: found.similarity }), ...(found.matched === undefined ? {} : { matched: found.matched }) };
 }
 
 /** Context rows read per page while gathering the filters' candidates. */

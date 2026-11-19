@@ -7,7 +7,7 @@
 import {
   effectsLine, GinTypeDef, ITEM_SECTIONS, qualify, SystemGrants, type ChangeRef, type ClientAssets, type ContractChange, type DeclaredFnFacts, type FnChangeFacts, type FnDecl, type FnFacts,
   type FnMode, type GrantsMove, type HubCapability, type InstallChecks, type ItemRef, type ItemSection, type Json, type PreviewPart, type QualifiedName, type RefusalRecord,
-  type RefusalRule, type ReviewFlagKind, type SystemName, type SystemReview, type SystemStage,
+  type RefusalRule, type ReviewFlag, type ReviewFlagKind, type SystemName, type SystemReview, type SystemStage,
 } from '@harness/core';
 import { formatDuration } from '../../chat/logic/format.ts';
 import type { IconName, Tone } from '../../ui/index.ts';
@@ -487,6 +487,26 @@ export const FLAG_LOOK = {
   calls: { tone: 'accent', icon: 'fn' },
   models: { tone: 'accent', icon: 'cpu' },
 } as const satisfies Record<ReviewFlagKind, { tone: Tone; icon: IconName }>;
+
+/** The flags whose items are fns (or fn globs, for `calls`), each drawn as a pill. */
+const FN_FLAGS: ReadonlySet<ReviewFlagKind> = new Set(['delete-fns', 'write-fns', 'effects', 'calls']);
+
+/** A flag about fns as the strip draws it: the words before them, the fns as pills, and the words after (the effects). */
+export interface FlagFns {
+  readonly lead: string;
+  readonly fns: readonly string[];
+  readonly tail: string;
+}
+
+/**
+ * A flag about fns as its parts, so each fn is a pill between the hub's own words (`ReviewFlag.lead` and `tail`, the
+ * parts its line is written from). Undefined for a flag about something else, or one kept from before it had parts
+ * (it is then drawn as its line).
+ */
+export function flagFns(flag: ReviewFlag): FlagFns | undefined {
+  if (!FN_FLAGS.has(flag.flag) || flag.items.length === 0 || flag.lead === undefined) { return undefined; }
+  return { lead: flag.lead, fns: flag.items, tail: flag.tail ?? '' };
+}
 
 /** What happened to the grants, for the strip's chip. */
 export const GRANTS_MOVE_LOOK = {

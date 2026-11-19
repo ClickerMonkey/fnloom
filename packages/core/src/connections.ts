@@ -10,7 +10,8 @@ import { z } from 'zod';
 import { ShareRule } from './access.ts';
 import { GinTypeDef } from './gin.ts';
 import { PickOption } from './pickers.ts';
-import { ActorId, ConnectionId, InstanceName, Json, LocalName, SecretId, SystemName, Timestamp } from './primitives.ts';
+import { ActorId, ConnectionId, InstanceName, Json, LocalName, QualifiedName, SecretId, SYSTEM_NAME_PATTERN, SystemName, Timestamp } from './primitives.ts';
+import { RemoteAuth } from './remote-auth.ts';
 
 /** A per-person fn's switches: whether it is on, and whether it must ask before acting. */
 export const ConnectionFnOption = z.object({ on: z.boolean(), ask: z.boolean() });
@@ -36,6 +37,28 @@ export const InstanceConnect = z.object({
 });
 export type InstanceConnect = z.infer<typeof InstanceConnect>;
 
+/**
+ * A connection key: one of the things a key-scoped system (`ConnectDecl.scope: 'key'`) signs in to below its instance,
+ * named by the system's own records (an API service of the one `api` instance). People connect per key.
+ */
+export const ConnectKey = z.string().regex(SYSTEM_NAME_PATTERN).brand<'ConnectKey'>();
+export type ConnectKey = z.infer<typeof ConnectKey>;
+
+/**
+ * What the hub reads of each record of a key-scoped system's key type (`ConnectDecl.keys.type`): the key, the words on
+ * its card, and how it signs in (`RemoteAuth`, from which the hub works out how people connect). Other fields are the
+ * system's own.
+ */
+export const ConnectKeyRecord = z.looseObject({ name: ConnectKey, label: z.string().min(1), auth: RemoteAuth });
+export type ConnectKeyRecord = z.infer<typeof ConnectKeyRecord>;
+
+/**
+ * A fn's connection key, for a key-scoped system: a fixed key (an api fn's service, from its kind's description), or the
+ * arg whose value names it (a fn that takes the service to act on).
+ */
+export const FnConnectKey = z.union([ConnectKey, z.object({ arg: LocalName })]);
+export type FnConnectKey = z.infer<typeof FnConnectKey>;
+
 /** A system's `connect` declaration: its page, how to connect, the per-person settings and the fns that act as the person. */
 export const ConnectDecl = z.object({
   /** The page's title in the nav ("Calendar"). */
@@ -50,9 +73,13 @@ export const ConnectDecl = z.object({
   /**
    * Build 9: `instance` makes connections per fleet instance (an MCP server, an API service): each instance says
    * whether and how people connect to it (`instanceConnect` on the hub link, `InstanceConnect`), and every fn that runs
-   * on such an instance acts as the person. Absent, `system`: one connection per person to the whole system.
+   * on such an instance acts as the person. `key`: connections per key the system's records name (`keys`), below its
+   * instance (an API service of the one `api` instance); a fn acts as the person through its key (`FnDecl.connectKey`).
+   * Absent, `system`: one connection per person to the whole system.
    */
-  scope: z.enum(['system', 'instance']).optional(),
+  scope: z.enum(['system', 'instance', 'key']).optional(),
+  /** For `scope: 'key'`: the system's stored type whose records are the keys (each a `ConnectKeyRecord`). */
+  keys: z.object({ type: QualifiedName }).optional(),
   /** Build 9: the switches of a fn `fns` does not name (the runtime fns of an instance-scoped system). */
   defaults: ConnectionFnOption.optional(),
 });
@@ -80,6 +107,8 @@ export const UserConnection = z.object({
   system: SystemName,
   /** Build 9: the instance it is to, for an instance-scoped system (`ConnectDecl.scope`). */
   instance: InstanceName.optional(),
+  /** The key it is to, for a key-scoped system (`ConnectDecl.scope: 'key'`). */
+  key: ConnectKey.optional(),
   owner: ActorId,
   status: ConnectionStatus,
   account: ConnectionAccount.optional(),
@@ -112,6 +141,8 @@ export const ConnectPage = z.object({
   connections: z.array(ConnectionView),
   /** Build 9, an instance-scoped system: its instances people connect to, each with how (`InstanceConnect`). */
   instances: z.array(z.object({ instance: InstanceName, label: z.string(), connect: InstanceConnect })).optional(),
+  /** A key-scoped system: its keys people connect to, each with how. */
+  keys: z.array(z.object({ key: ConnectKey, label: z.string(), connect: InstanceConnect })).optional(),
 });
 export type ConnectPage = z.infer<typeof ConnectPage>;
 
@@ -120,7 +151,7 @@ export const RunConnection = z.object({ id: ConnectionId, owner: ActorId, creden
 export type RunConnection = z.infer<typeof RunConnection>;
 
 /** Hub → system: begin connecting (`connectStart`). `state` goes through the provider and back to the hub unchanged. */
-export const ConnectStart = z.object({ connection: ConnectionId, owner: ActorId, redirect: z.url(), state: z.string(), instance: InstanceName.optional() });
+export const ConnectStart = z.object({ connection: ConnectionId, owner: ActorId, redirect: z.url(), state: z.string(), instance: InstanceName.optional(), key: ConnectKey.optional() });
 export type ConnectStart = z.infer<typeof ConnectStart>;
 
 /** Hub → system: the redirect came back (its query `params`) or the form was sent (`form`); answer the account and credentials. */
@@ -128,6 +159,7 @@ export const ConnectFinish = z.object({
   connection: ConnectionId,
   owner: ActorId,
   instance: InstanceName.optional(),
+  key: ConnectKey.optional(),
   redirect: z.url(),
   answer: z.union([z.object({ params: z.record(z.string(), z.string()) }), z.object({ form: Json })]),
 });

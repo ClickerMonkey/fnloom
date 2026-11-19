@@ -4,16 +4,18 @@
  * much ("the session budget of $1.00 is used up"), and, for someone who may raise it, "Raise by $X and resume" or
  * "Leave it". Anyone else is told an admin was asked. The run goes on by itself once the budget is raised.
  */
-import { upperFirst } from '@harness/core';
+import { upperFirst, type QualifiedName } from '@harness/core';
 import { computed, ref } from 'vue';
 import { UiButton, UiIcon } from '../../ui/index.ts';
+import FnPill from '../../fns/components/FnPill.vue';
 import { formatCost } from '../logic/format.ts';
+import { fnLabel } from '../logic/labels.ts';
 import type { BudgetAsk } from '../state/thread.ts';
 
 const props = withDefaults(defineProps<{
   ask: BudgetAsk;
-  /** The fn of the run that waits, in words. */
-  fnLabel: string;
+  /** The fn of the run that waits (a pill that opens it). */
+  fn: QualifiedName;
   /** Whether this person may raise budgets (admins). */
   canRaise: boolean;
   busy?: boolean;
@@ -31,12 +33,12 @@ function raise(): void {
 </script>
 
 <template>
-  <section class="budget" role="region" :aria-label="`${fnLabel} waits on a budget`" data-testid="budget-card" :data-budget="ask.budget.id">
+  <section class="budget" role="region" :aria-label="`${fnLabel(fn)} waits on a budget`" data-testid="budget-card" :data-budget="ask.budget.id">
     <header class="head">
       <span class="icon"><UiIcon name="warning" :size="16" /></span>
       <div class="titles">
         <h3 class="title">Budget reached</h3>
-        <p class="description">{{ upperFirst(ask.reason) }}. {{ fnLabel }} waits until it is raised.</p>
+        <p class="description">{{ upperFirst(ask.reason) }}. <FnPill :name="fn" /> waits until it is raised.</p>
       </div>
     </header>
     <footer v-if="canRaise" class="foot">

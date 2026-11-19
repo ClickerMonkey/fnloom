@@ -2,9 +2,9 @@
 /**
  * A per-person system's page (`/connect/<system>`, a calendar): connect your own account, then choose the settings,
  * which of its fns the chat may use and which ask you first, and, on a hub with more than one person, who else may
- * use it. Until an admin has configured the system the page says so. An instance-scoped system (build 9: MCP servers,
- * API services) lists its instances instead, each connected to on its own card. The hub's redirect back from the
- * provider lands here, with `?problem=` when connecting failed.
+ * use it. Until an admin has configured the system the page says so. An instance-scoped system (build 9: MCP servers)
+ * lists its instances instead, and a key-scoped one (the api system) its services, each connected to on its own card.
+ * The hub's redirect back from the provider lands here, with `?problem=` when connecting failed.
  */
 import { SystemName, type ConnectionFnOption, type ConnectionView, type Json, type ShareRule } from '@harness/core';
 import { computed, onMounted, ref, watch } from 'vue';
@@ -15,7 +15,7 @@ import { useRouteQuery } from '../app/url.ts';
 import ConnectionFns from '../connect/ConnectionFns.vue';
 import ConnectionSettingsPicks from '../connect/ConnectionSettingsPicks.vue';
 import InstanceConnectCard from '../connect/InstanceConnectCard.vue';
-import { fnRows, instanceCards, pageConnections, pageIcon, settingsPicks, STATUS_WORDS, withFnOption, type InstanceCard } from '../connect/logic.ts';
+import { fnRows, instanceCards, pageConnections, pageIcon, scopedPage, settingsPicks, STATUS_WORDS, withFnOption, type InstanceCard } from '../connect/logic.ts';
 import GinForm from '../gin/GinForm.vue';
 import { useStores } from '../state/stores.ts';
 import { UiBadge, UiBanner, UiButton, UiCard, UiEmpty, UiIcon, UiSkeleton, UiVisibility, relativeTime } from '../ui/index.ts';
@@ -30,8 +30,8 @@ const problem = useRouteQuery(ROUTES.connect).text('problem');
 
 const system = computed(() => { const read = SystemName.safeParse(route.params['system']); return read.success ? read.data : undefined; });
 const page = computed(() => (system.value === undefined ? undefined : store.page(system.value)));
-/** Build 9: the page of an instance-scoped system, connected to an instance at a time. */
-const scoped = computed(() => page.value?.decl.scope === 'instance');
+/** Build 9: the page of an instance- or key-scoped system, connected to an instance (or an API service) at a time. */
+const scoped = computed(() => page.value !== undefined && scopedPage(page.value));
 const mine = computed(() => (page.value === undefined || scoped.value ? undefined : pageConnections(page.value, session.user.value?.id)));
 const own = computed(() => mine.value?.own);
 const connected = computed(() => own.value?.status === 'connected');
@@ -65,7 +65,7 @@ onMounted(() => {
 
 async function connect(form?: Json, card?: InstanceCard): Promise<void> {
   if (system.value === undefined) { return; }
-  const started = await store.connect(system.value, form, card?.instance);
+  const started = await store.connect(system.value, form, card?.target);
   if (!started.ok) { return; }
   if ('url' in started.value) { window.location.assign(started.value.url); return; }
   problem.value = '';
@@ -115,7 +115,7 @@ const share = computed({
       <UiCard v-if="scoped" :title="`${page.decl.title} to connect`" subtitle="Each has its own sign-in; its fns act as you once you connect." compact flush data-testid="connection-instances">
         <ul v-if="cards.length > 0" class="instances">
           <InstanceConnectCard
-            v-for="card in cards" :key="card.instance" :card="card" :owners="owners" :busy="store.saving.busy.value"
+            v-for="card in cards" :key="card.id" :card="card" :owners="owners" :busy="store.saving.busy.value"
             @connect="connect($event, card)" @disconnect="disconnect(card.own)"
           />
         </ul>

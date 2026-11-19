@@ -178,6 +178,8 @@ type ApprovalPreview = {
       flag: "models" | "capabilities" | "secrets" | "effects" | "files" | "calls" | "hosts" | "delete-fns" | "write-fns";
       line: string;
       items: string[];
+      lead?: string | undefined;
+      tail?: string | undefined;
     }[];
     grants?: "added" | "changed" | "widened" | "narrowed" | undefined;
     config?: "removed" | "added" | "changed" | undefined;
@@ -353,6 +355,8 @@ type ApprovedRun = {
         flag: "models" | "capabilities" | "secrets" | "effects" | "files" | "calls" | "hosts" | "delete-fns" | "write-fns";
         line: string;
         items: string[];
+        lead?: string | undefined;
+        tail?: string | undefined;
       }[];
       grants?: "added" | "changed" | "widened" | "narrowed" | undefined;
       config?: "removed" | "added" | "changed" | undefined;

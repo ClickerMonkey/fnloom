@@ -1,7 +1,8 @@
 /**
- * Build 9's Claude fleet, which only rendering can check: the fleet list with a waiting session, the new-session
- * dialog, a session's page with its waiting cards (a tool to approve, a question with a form), tasks and workflows,
- * transcript and message box, and a subagent's transcript.
+ * Build 9's Claude fleet (the claude system's pages since item 9; `/claude` redirects to `/s/claude/…`), which only
+ * rendering can check: the fleet list with a waiting session, the new-session dialog, a session's page with its waiting
+ * cards (a tool to approve, a question with a form), tasks and workflows, transcript and message box, and a subagent's
+ * transcript.
  */
 import type { Scenario } from '../harness.ts';
 import { CLAUDE_WAITING } from '../mockBuild9.ts';
@@ -28,7 +29,7 @@ export const claude: Scenario = {
 
       await signedIn(ctx, sessionPath);
       await page.waitForSelector('[data-testid="claude-waiting"] [data-testid="approval-ask"]');
-      await page.waitForSelector('[data-testid="claude-transcript"] [data-testid="transcript-tool"]');
+      await page.waitForSelector('[data-testid="claude-transcript"] [data-testid="assistant-answer"]');
       const cards = await page.$$eval('[data-testid="claude-waiting"] [data-testid="approval-card"]', (els) => els.length);
       check(cards === 2, `the session should show its two waiting cards, not ${cards}`);
       await settle(page);

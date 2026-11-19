@@ -4,16 +4,17 @@
  * hub's summary strip, each change drawn as its tab draws it, per-change Approve and Decline, the raw diff toggle, and
  * the runtime additions a page at a time. The install card shows the same strip.
  */
-import { ApprovalPreview, FnChangeFacts, Json, type SystemReview, type ContractChange, type ReviewSummary } from '@harness/core';
+import { ApprovalPreview, FnChangeFacts, Json, reviewFlag, type SystemReview, type ContractChange, type ReviewSummary } from '@harness/core';
 import { g } from '@harness/sdk';
 import { mount, RouterLinkStub } from '@vue/test-utils';
 import { afterEach, describe, expect, it } from 'vitest';
 import ApprovalPreviewView from '../components/approvals/ApprovalPreview.vue';
+import ReviewSummaryStrip from '../components/approvals/ReviewSummaryStrip.vue';
 import ChangeList from './components/ChangeList.vue';
 import GrantsView from './components/GrantsView.vue';
 import MarkdownDiff from './components/pending/MarkdownDiff.vue';
 import PendingTab from './components/pending/PendingTab.vue';
-import { blockDiff, changeGroups, changeView, factRows, grantDeltaRows, markdownBlocks, RUNTIME_PAGE, sequenceDiff, typeDiffPart, wordDiff } from './logic/review.ts';
+import { blockDiff, changeGroups, changeView, factRows, flagFns, grantDeltaRows, markdownBlocks, RUNTIME_PAGE, sequenceDiff, typeDiffPart, wordDiff } from './logic/review.ts';
 import { fakeAdmin } from './test/fakes.ts';
 import { review } from './test/review.ts';
 import { fakeCaller } from '../test/fakes.ts';
@@ -25,7 +26,7 @@ const money = (usd: number): string => `$${usd.toFixed(2)}`;
 const SUMMARY: ReviewSummary = {
   line: '+1 fn, 1 changed, 1 context item changed, grants widened', grants: 'widened',
   counts: [{ section: 'fns', added: 1, changed: 1, removed: 0 }, { section: 'context', added: 0, changed: 1, removed: 0 }, { section: 'grants', added: 0, changed: 1, removed: 0 }],
-  flags: [{ flag: 'delete-fns', line: 'Can delete: notes/purge', items: ['notes/purge'] }, { flag: 'hosts', line: 'New hosts: cdn.example.com', items: ['cdn.example.com'] }],
+  flags: [reviewFlag('delete-fns', 'Can delete', ['notes/purge']), reviewFlag('hosts', 'New hosts', ['cdn.example.com'])],
 };
 const CHANGES: ContractChange[] = [
   { section: 'fns', name: 'notes/purge', change: 'added', origin: 'contract', after: { description: 'Drop old notes.' } },
@@ -112,6 +113,40 @@ describe('deciding one change at a time', () => {
     const { admin } = fakeAdmin();
     await admin.review.open(review().system);
     expect(await admin.review.decide({ section: 'fns', name: 'notes/find' }, 'approve')).toEqual({ ok: false, problem: 'Nothing waits for review.' });
+  });
+});
+
+describe('the summary strip’s fn flags', () => {
+  it('takes a flag about fns as the hub’s parts so each fn is a pill; other flags stay a line', () => {
+    const deletes = reviewFlag('delete-fns', 'Can delete', ['notes/purge', 'notes/drop']);
+    expect(deletes.line).toBe('Can delete: notes/purge, notes/drop');
+    expect(flagFns(deletes)).toEqual({ lead: 'Can delete', fns: ['notes/purge', 'notes/drop'], tail: '' });
+    const effects = reviewFlag('effects', 'New effects in', ['notes/save'], 'Creates fns (input/form)');
+    expect(effects.line).toBe('New effects in notes/save: Creates fns (input/form)');
+    expect(flagFns(effects)).toEqual({ lead: 'New effects in', fns: ['notes/save'], tail: 'Creates fns (input/form)' });
+    expect(flagFns(reviewFlag('calls', 'May call', ['hub/*']))).toEqual({ lead: 'May call', fns: ['hub/*'], tail: '' });
+    expect(flagFns(reviewFlag('hosts', 'New hosts', ['cdn.example.com']))).toBeUndefined();
+    // a flag kept from before it had parts: drawn as its line
+    expect(flagFns({ flag: 'write-fns', line: 'Can write: notes/save', items: ['notes/save'] })).toBeUndefined();
+  });
+
+  it('draws the effects flag with its fn pills between the hub’s words', () => {
+    const summary: ReviewSummary = { ...SUMMARY, flags: [reviewFlag('effects', 'New effects in', ['notes/save', 'notes/tag'], 'Creates fns')] };
+    const flag = mount(ReviewSummaryStrip, { props: { summary }, global: { stubs } }).get('[data-flag="effects"]');
+    expect(flag.findAll('[data-testid="fn-pill"]').map((pill) => pill.attributes('data-fn'))).toEqual(['notes/save', 'notes/tag']);
+    expect(flag.text()).toMatch(/^New effects in.*: Creates fns$/s);
+    expect(flag.find('[aria-label]').attributes('aria-label')).toBe('New effects in notes/save, notes/tag: Creates fns');
+  });
+
+  it('draws the fns of a flag as pills, and the rest as their line', () => {
+    const wrapper = mount(ReviewSummaryStrip, { props: { summary: SUMMARY }, global: { stubs } });
+    const deletes = wrapper.get('[data-flag="delete-fns"]');
+    expect(deletes.findAll('[data-testid="fn-pill"]').map((pill) => pill.attributes('data-fn'))).toEqual(['notes/purge']);
+    expect(deletes.text()).toContain('Can delete:');
+    expect(deletes.find('[aria-label]').attributes('aria-label')).toBe('Can delete: notes/purge');
+    const hosts = wrapper.get('[data-flag="hosts"]');
+    expect(hosts.find('[data-testid="fn-pill"]').exists()).toBe(false);
+    expect(hosts.text()).toBe('New hosts: cdn.example.com');
   });
 });
 

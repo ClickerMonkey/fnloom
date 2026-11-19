@@ -4,12 +4,16 @@
  * bindings), the chip row's words and the args a chip set runs with, the actions a row can take and the args a click
  * sends, the drill levels kept in the URL, and the words around them. The page a widget is drawn on provides a
  * `WidgetHost`, which runs what the view asks for, so the view knows nothing of where it is.
+ *
+ * This is the app's result view, shared by the chat, the Data page and the fn page. What only the widgets system does
+ * (a proposal's card with Save, keeping a saved widget's look, the list of saved widgets) is the widgets system's own
+ * client (`systems/widgets/client`), drawn through the result-renderer slot and its page.
  */
 import {
   ExportQuery, humanize, labelFor, QualifiedName, RELATIVE_DATES, ResultTable, WidgetPaging, WidgetProposal, WidgetResult, type ArgValue, type FnMode, type Json,
-  type RecordUpdate, type RowActionsQuery, type SaveWidgetArgs, type WidgetActionOption, type WidgetDrill, type WidgetShownControl, type WidgetVisual,
+  type RecordUpdate, type RowActionsQuery, type WidgetActionOption, type WidgetDrill, type WidgetShownControl, type WidgetVisual,
 } from '@harness/core';
-import { relativeDatesFor, resolveArgValue } from '@harness/sdk';
+import { relativeDatesFor, resolveArgValue, type RunOutcome } from '@harness/sdk';
 import type { InjectionKey } from 'vue';
 import { z } from 'zod';
 import type { RankedVisual } from '../results/visuals.ts';
@@ -23,7 +27,7 @@ export function widgetResultOf(value: Json | undefined): WidgetResult | undefine
   return parsed.success ? parsed.data : undefined;
 }
 
-/** A run result as a widget proposal (`widgets/make_widget`), when it is one. */
+/** A run result as a widget proposal (`widgets/make_widget`), when it is one (drawn by the widgets system; its preview is rows). */
 export function proposalOf(value: Json | undefined): WidgetProposal | undefined {
   if (value === undefined) { return undefined; }
   const parsed = WidgetProposal.safeParse(value);
@@ -260,16 +264,6 @@ export function saveWidgetRequest(fn: QualifiedName, args: Json | undefined): st
   return `Make a widget from ${fn}${asked} that I can open again (use widgets/make_widget). Keep controls for its arguments and the visuals that fit.`;
 }
 
-/** The request that asks the agent to change a proposal before it is saved. */
-export function changeWidgetRequest(proposal: Pick<WidgetProposal, 'spec'>): string {
-  return `Change the proposed widget “${proposal.spec.title}” (from ${proposal.spec.source}): `;
-}
-
-/** The request that asks the agent to save a look picked in a widget's Settings as the saved widget's own (it proposes; the person saves). */
-export function saveLookRequest(widget: QualifiedName, visual: string, style: string): string {
-  return `Change the widget ${widget} so it opens as ${visual} (${style}) first, keeping its other visuals and everything else (use widgets/make_widget).`;
-}
-
 /** The streamed export of a widget's whole result (`GET /api/export`); undefined when its source doesn't page. */
 export function exportQuery(result: Pick<WidgetResult, 'source' | 'paging'>): ExportQuery | undefined {
   const paging = result.paging;
@@ -278,8 +272,8 @@ export function exportQuery(result: Pick<WidgetResult, 'source' | 'paging'>): Ex
   return ExportQuery.parse({ fn: result.source.fn, args: JSON.stringify(args), offset: paging.offset, limit: paging.limit, format: 'csv' });
 }
 
-/** How an ordinary run the person sees ended: its output, or why it didn't finish. */
-export type RunOutcome = { readonly ok: true; readonly output: Json } | { readonly ok: false; readonly problem: string };
+/** How an ordinary run the person sees ended: its output, or why it didn't finish (the SDK's, which renderers get too). */
+export type { RunOutcome } from '@harness/sdk';
 
 /** What a widget needs from the page it is drawn on. */
 export interface WidgetHost {
@@ -308,14 +302,6 @@ export interface WidgetHost {
 
 /** Where a page provides its widget host. */
 export const WIDGET_HOST: InjectionKey<WidgetHost> = Symbol('widget-host');
-
-/** The fn that keeps a proposal (`widgets/save_widget`), run as the person. */
-export const SAVE_WIDGET_FN = QualifiedName.parse('widgets/save_widget');
-
-/** A proposal as `widgets/save_widget` takes it. */
-export function saveArgs(proposal: WidgetProposal): SaveWidgetArgs {
-  return { name: proposal.name, description: proposal.description, spec: proposal.spec, ...(proposal.replaces === undefined ? {} : { replace: proposal.replaces }) };
-}
 
 /**
  * A drill-through-the-query crumb's hover text: the raw group keys and values its humanized words stand for

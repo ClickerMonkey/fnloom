@@ -143,7 +143,7 @@ onMounted(() => {
         </template>
       </div>
       <div class="meta">
-        <time class="time" :datetime="new Date(message.createdAt).toISOString()" :title="fullTime(message.createdAt)">{{ relativeTime(message.createdAt, now) }}</time>
+        <time v-if="message.createdAt > 0" class="time" :datetime="new Date(message.createdAt).toISOString()" :title="fullTime(message.createdAt)">{{ relativeTime(message.createdAt, now) }}</time>
         <SuggestionChips :suggestions="suggestions" @use="(item, kind) => emit('suggestion', item, kind)" />
         <button
           v-if="addedText.length > 0 && !hidden" type="button" class="added-toggle touch-target" data-testid="added-for-model" title="Added for the model"

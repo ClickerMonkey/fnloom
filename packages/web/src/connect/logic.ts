@@ -3,7 +3,7 @@
  * person's own, else the system's default), the nav entries the pages add, and plain words for a connection's state.
  */
 import type {
-  ActorId, ConnectionAccount, ConnectionFnOption, ConnectionStatus, ConnectionView, ConnectPage, GinTypeDef, InstanceConnect, InstanceName, Json, PickOption, SystemName,
+  ActorId, ConnectionAccount, ConnectionFnOption, ConnectionStatus, ConnectionView, ConnectKey, ConnectPage, GinTypeDef, InstanceConnect, InstanceName, Json, PickOption, SystemName,
 } from '@harness/core';
 import { ICONS, type IconName } from '../ui/icons.ts';
 import type { Tone } from '../ui/types.ts';
@@ -123,7 +123,10 @@ export function pickedSettings(picks: readonly SettingsPick[], values: Readonly<
 
 /** Build 9: one instance of an instance-scoped system (an MCP server, an API service) as its card shows it. */
 export interface InstanceCard {
-  readonly instance: InstanceName;
+  /** What it is to: an instance of an instance-scoped system, or a key of a key-scoped one (an API service). */
+  readonly target: ConnectTarget;
+  /** Its instance or key, as one text (the card's key in a list). */
+  readonly id: string;
   readonly label: string;
   readonly connect: InstanceConnect;
   /** The person's own connection to it: the newest, if any. */
@@ -136,11 +139,28 @@ export interface InstanceCard {
   readonly mayConnect: boolean;
 }
 
-/** The instance cards of an instance-scoped page, in label order; empty for a page connected to as a whole. */
+/** What a card connects to: an instance (`ConnectDecl.scope: 'instance'`) or a key (`scope: 'key'`, an API service). */
+export type ConnectTarget = { readonly instance: InstanceName } | { readonly key: ConnectKey };
+
+/** Whether a connection is to a target. */
+function isTo(connection: ConnectionView, target: ConnectTarget): boolean {
+  return 'key' in target ? connection.key === target.key : connection.instance === target.instance;
+}
+
+/** Whether a page is connected to a target at a time (its instances or keys) rather than as a whole. */
+export function scopedPage(page: Pick<ConnectPage, 'decl'>): boolean {
+  return page.decl.scope === 'instance' || page.decl.scope === 'key';
+}
+
+/** The cards of an instance- or key-scoped page, in label order; empty for a page connected to as a whole. */
 export function instanceCards(page: ConnectPage, me: ActorId | undefined, isAdmin: boolean): InstanceCard[] {
   const newest = [...page.connections].sort((a, b) => b.updatedAt - a.updatedAt);
-  return (page.instances ?? []).map((entry) => {
-    const mine = newest.filter((c) => c.instance === entry.instance);
+  const targets: Array<Pick<InstanceCard, 'target' | 'id' | 'label' | 'connect'>> = [
+    ...(page.instances ?? []).map((entry) => ({ target: { instance: entry.instance }, id: entry.instance, label: entry.label, connect: entry.connect })),
+    ...(page.keys ?? []).map((entry) => ({ target: { key: entry.key }, id: entry.key, label: entry.label, connect: entry.connect })),
+  ];
+  return targets.map((entry) => {
+    const mine = newest.filter((c) => isTo(c, entry.target));
     const flow: InstanceCard['flow'] = entry.connect.flow?.flow ?? 'none';
     return {
       ...entry,

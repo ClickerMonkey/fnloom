@@ -76,9 +76,9 @@ describe('fns endpoints (build 5 feedback)', () => {
     });
     const web = await webRig(r);
     const as = web.as(await web.admin());
-    expect(await web.client.call('searchFns', { text: 'overdue', kinds: ['database/query'], order: 'score' }, as)).toEqual({ items: [] });
+    expect(await web.client.call('searchFns', { text: 'overdue', kinds: ['database/query'], order: 'rank' }, as)).toEqual({ items: [] });
     const anyText: unknown = expect.any(String);
-    expect(searched).toEqual([{ query: { text: 'overdue', kinds: ['database/query'], order: 'score' }, actor: anyText }]);
+    expect(searched).toEqual([{ query: { text: 'overdue', kinds: ['database/query'], order: 'rank' }, actor: anyText }]);
     expect(await web.client.call('fnExamples', { fn: 'books/overdue', query: 'late' }, as)).toEqual({ fn: 'books/overdue', items: [], total: 0 });
     expect(await web.client.call('fnFacts', { fn: 'books/overdue' }, as)).toEqual(facts);
     await expect(web.client.call('fnFacts', { fn: 'books/secret' }, as)).rejects.toThrow(/no fn/);

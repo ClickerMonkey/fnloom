@@ -1,6 +1,6 @@
 /**
  * The claude system's contract (`shared/`): a fleet of Claude Code sessions on one machine per instance, driven with
- * the Claude Agent SDK (build-9-design.md §6 is binding; the shared shapes are `@harness/core`'s `claude.ts`).
+ * the Claude Agent SDK (build-9-design.md §6 is binding; the shapes a page or another system reads are in `session.ts`).
  *
  * - **Sessions:** `start_session` starts one in a configured folder, `send` messages it (resuming a closed one),
  *   `control` interrupts or stops it and switches its permission mode, `transcript` reads it a page at a time from
@@ -13,19 +13,23 @@
  * - **Imports:** `importables` lists Claude's agents, skills and MCP servers in a folder; `import` (an admin's
  *   approval) makes skills context with their `/command`, agents `claude/agent` fns, and MCP servers `mcp` instances.
  */
+import { context, fn, ginAs, hub, kind, linear, system, type } from '@harness/sdk';
 import {
   CLAUDE_CONFIG_SECRETS, CLAUDE_SYSTEM, ClaudeAnswer, ClaudeControl, ClaudeImport, ClaudeInstanceConfig, ClaudePermit, ClaudeSession, ClaudeSend, ClaudeStart,
   ClaudeTranscriptPage, ClaudeTranscriptQuery, ClaudeTurn,
-} from '@harness/core';
-import { context, fn, ginAs, hub, kind, linear, system, type } from '@harness/sdk';
+} from './session.ts';
 import {
   AgentPayload, AnswerOutcome, ControlOutcome, DiskSessionsPage, DiskSessionsQuery, FoldersList, FoldersQuery, ImportOutcome, ImportablesList, ImportablesQuery, ImportedSkill, PermitOutcome,
 } from './shapes.ts';
 
+export * from './session.ts';
 export * from './shapes.ts';
 
 /** The kind of an imported Claude agent's fn, qualified. */
 export const AGENT_KIND = `${CLAUDE_SYSTEM}/agent`;
+
+/** The claude system's pages (`/s/claude/<segment>`): the fleet, and one session (`/s/claude/session/<instance>/<session>`). */
+export const CLAUDE_PAGES = { fleet: 'sessions', session: 'session' } as const;
 
 /** An example session id, as the examples write it. */
 const SESSION = '0b7c3c56-2f7e-4d2a-9d55-5c1f0f4e8a21';
@@ -63,6 +67,11 @@ export const claude = system(CLAUDE_SYSTEM, {
   configSecrets: [...CLAUDE_CONFIG_SECRETS],
   // sessions are person-owned records; approvals and questions are proposed runs; agents are saved as fns
   grants: { hub: ['data', 'approvals', 'fns'], calls: ['hub/save_fn', 'hub/add_instance', 'hub/system_get'] },
+  // the fleet in the sidebar while the system is live, and one session's page reached from it (client/ draws both)
+  pages: [
+    { segment: CLAUDE_PAGES.fleet, title: 'Claude', description: 'Your Claude Code sessions on every machine: what each is doing, and what waits on you.', icon: 'code', nav: 'main', component: 'FleetPage' },
+    { segment: CLAUDE_PAGES.session, title: 'Claude session', description: 'One Claude Code session: its transcript, tasks and what waits on you, with a message box.', icon: 'code', nav: 'hidden', component: 'SessionPage' },
+  ],
 })
   .with({
     config: ginAs(ClaudeInstanceConfig),

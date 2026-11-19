@@ -112,7 +112,7 @@ export function llmCall(overrides: Loose<LlmInteraction> = {}): LlmInteraction {
 /** Capabilities with every power on. */
 export function capabilities(overrides: Loose<ChatCapabilities> = {}): ChatCapabilities {
   return ChatCapabilities.parse({
-    voiceInput: true, voiceOutput: false, uploads: true,
+    voiceInput: true, voiceOutput: false, uploads: true, meaning: true,
     mentions: [{ provider: 'fs/files', title: 'Files', of: 'fs/Entry' }],
     methods: [
       { type: 'fs/Entry', method: 'reveal', fn: 'fs/Entry.reveal', description: 'Show it in the file manager', args: { name: 'obj', props: { self: { type: { name: 'fs/Entry' } } } } },

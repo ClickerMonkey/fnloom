@@ -10,7 +10,7 @@ import { ActorKind, Audience, LocalName, Duration, FnKindName, InstanceName, Jso
 import { SectionMatch, Link } from './resources.ts';
 import { Display, FnLimits, Operations, ProgressDecl, TimeInfo, UserInfo } from './run.ts';
 import { StatusTemplates } from './status.ts';
-import { ConnectDecl } from './connections.ts';
+import { ConnectDecl, ConnectKey, FnConnectKey } from './connections.ts';
 import { SystemProviderDecl } from './system-providers.ts';
 import { FnValidation } from './validation.ts';
 import { FnApproval } from './approvals.ts';
@@ -18,6 +18,7 @@ import { ConfigSecrets } from './config-secrets.ts';
 import { ContributionDecl, RegistryDecl } from './registries.ts';
 import { ShareRule } from './access.ts';
 import { ConfigComponentDecl, SystemGrants } from './grants.ts';
+import { SystemPages } from './system-pages.ts';
 import { RecordStorage } from './data.ts';
 import { ApiGroupDecl } from './api-index.ts';
 import { ChatModeType } from './modes.ts';
@@ -240,6 +241,11 @@ export const FnDecl = z.object({
   approval: FnApproval.optional(),
   /** Which fleet instance runs it. */
   routing: FnRouting.optional(),
+  /**
+   * For a key-scoped `connect` system (`ConnectDecl.scope: 'key'`): the key whose connection it acts as, fixed (from
+   * its kind, `KindDescription.connectKey`) or read from one of its args. Absent, it acts as no person.
+   */
+  connectKey: FnConnectKey.optional(),
   /** What it does to data (see `FnFacts` for what the hub works out). */
   effects: FnEffects.optional(),
   /**
@@ -424,6 +430,8 @@ export const Manifest = z.object({
   grants: SystemGrants.optional(),
   /** Its own config component, drawn instead of or beside the gin form. */
   configComponent: ConfigComponentDecl.optional(),
+  /** Whole pages it adds to the web app (`/s/<system>/<segment>`), each drawn by a component of its client build. */
+  pages: SystemPages.optional(),
   /** Build 8: its API groups, each described once (`FnDecl.group`). */
   groups: z.array(ApiGroupDecl).optional(),
 });
@@ -492,6 +500,8 @@ export const KindDescription = z.object({
   effects: FnEffects.optional(),
   /** The payload as a person reads it (a query's SQL), shown on the fn's page over the stored JSON. */
   readable: ReadablePayload.optional(),
+  /** For a key-scoped `connect` system: the key this payload's fn acts through (an api fn's service), as `FnDecl.connectKey`. */
+  connectKey: ConnectKey.optional(),
   /**
    * At least one example call, worked out from the payload (a query from its params, a form from a filled sample, an
    * API or MCP tool from its schema), so every fn of a kind has one. The author's own examples, when the fn declares

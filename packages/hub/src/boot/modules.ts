@@ -178,7 +178,7 @@ export function registerHubContract(
   };
   registerHubFns(module.hubFns, {
     store: () => hub.store, catalog: () => hub.catalog, search: () => hub.index.search, sessions: () => hub.chat.sessions, handlers: () => module.handlers,
-    access: (actor) => hub.access.scope(actor), sharing: () => hub.access, fns: () => hub.fns, facts: () => hub.fns.facts, mcpScope,
+    access: (actor) => hub.access.scope(actor), sharing: () => hub.access, fns: () => hub.fns, facts: () => hub.fns.facts, views: () => hub.contextor.views, mcpScope,
   });
   let ops: AdminOperations | undefined;
   registerAdminFns(module.hubFns, () => (ops ??= adminOperations(hub)));

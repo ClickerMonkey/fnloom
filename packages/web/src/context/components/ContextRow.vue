@@ -8,7 +8,7 @@
  * switch beside it. What every row of the list shares (`shared`: all off with their system's context, all added while
  * running, one origin) is said once above the list, not on the row. The key is never shown. The whole row is a link to
  * the item's page. A row the list's search found (`found`) says which index found it (a "matched by" badge: words,
- * meaning or both), its score, and the heading section that matched.
+ * meaning or both), its fit (or rank), and the heading section that matched.
  */
 import { contextOff, type ContextRecord, type SearchFound } from '@harness/core';
 import { computed } from 'vue';
@@ -56,7 +56,7 @@ const seenBy = computed(() => (props.detailed || props.record.decl.visible !== '
       <span v-if="detailed" class="origin" data-testid="context-declared">{{ declared }}<code v-if="record.version !== undefined" class="version" :title="`Version ${record.version}`">{{ record.version.slice(0, 8) }}</code></span>
       <span v-else-if="shared.origin === undefined" class="origin">{{ origin.short }}</span>
       <span class="facts">
-        <span v-if="seen.score !== undefined" class="score" data-testid="context-score">{{ seen.score }}</span>
+        <span v-if="seen.measure !== undefined" class="measure" data-testid="context-measure">{{ seen.measure }}</span>
         <span v-if="sizeText(record) !== undefined" class="tokens">{{ sizeText(record) }}</span>
         <time class="when" :datetime="new Date(record.updatedAt).toISOString()" :title="fullTime(record.updatedAt)">{{ relativeTime(record.updatedAt, now) }}</time>
       </span>
@@ -81,7 +81,7 @@ const seenBy = computed(() => (props.detailed || props.record.decl.visible !== '
 .side { display: grid; justify-items: end; gap: 2px; color: var(--text-faint); font-size: var(--text-xs); white-space: nowrap; }
 .origin { color: var(--text-dim); }
 .section { display: inline-flex; align-items: center; gap: var(--space-1); min-width: 0; color: var(--accent); font-size: var(--text-xs); overflow-wrap: anywhere; }
-.score { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.measure { color: var(--text-dim); font-variant-numeric: tabular-nums; }
 .version { margin-left: var(--space-2); color: var(--text-faint); font-size: var(--text-xs); }
 /* size and time share one line, so every row with a one-line title is the same height */
 .facts { display: flex; gap: var(--space-2); }

@@ -1,4 +1,4 @@
-import { ContextDecl, GinTypeDef, QualifiedName, SystemName, type FnDecl, type KindDescription, type Manifest } from '@harness/core';
+import { ConnectKey, ContextDecl, GinTypeDef, QualifiedName, SystemName, type FnDecl, type KindDescription, type Manifest } from '@harness/core';
 import { g, wireType } from '@harness/sdk';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { manifestHashOf, StoreCatalog } from './catalog.ts';
@@ -164,6 +164,20 @@ describe('fns of a kind', () => {
     expect(sales?.decl.deps).toEqual(['shop/list']);
     expect(sales?.decl.returns).toEqual(wireType(g.num()));
     expect(describer).toMatchObject({ calls: [{ kind: 'shop/report', payload: { query: 'week' } }] });
+  });
+
+  it('keeps the connection key its kind names for the payload (an api fn\'s service)', async () => {
+    const inner = reportDescriber();
+    const keyed: KindDescriber = {
+      describe: async (kind, payload) => {
+        const answer = await inner.describe(kind, payload);
+        return answer.description === undefined ? answer : { ...answer, description: { ...answer.description, connectKey: ConnectKey.parse('tracker') } };
+      },
+    };
+    const { catalog } = await setup(keyed);
+    await catalog.importManifest(await manifestFor(shop));
+    await catalog.importManifest(await manifestFor(orders));
+    expect((await catalog.fn(q('orders/sales')))?.decl.connectKey).toBe('tracker');
   });
 
   it('gives a fn declared without examples its kind\'s, and keeps an author\'s own', async () => {

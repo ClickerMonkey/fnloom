@@ -64,4 +64,9 @@ export default tseslint.config(
     files: ['packages/web/src/main.ts'],
     rules: { '@typescript-eslint/no-unsafe-argument': 'off' },
   },
+  {
+    // the same for the shared components a system page gets: each is a .vue module, and vue-tsc checks them against the SDK's props
+    files: ['packages/web/src/system-pages/shared.ts'],
+    rules: { '@typescript-eslint/no-unsafe-assignment': 'off' },
+  },
 );

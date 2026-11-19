@@ -5,7 +5,7 @@ title: "Core types: From packages/core/src/query.ts"
 description: "Core types, the part on From packages/core/src/query.ts."
 summary: "Core types: From packages/core/src/query.ts."
 parent: "fs/authoring.core-types"
-next: "fs/authoring.core-types.records-chat-ts"
+next: "fs/authoring.core-types.records-actors-ts"
 suggest: "none"
 tags: ["authoring", "reference"]
 ---

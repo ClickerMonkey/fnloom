@@ -25,21 +25,23 @@ import { FnNotices } from '../fns/state/fn-notices.ts';
 import { IdentityStore } from '../state/identity.ts';
 import { GraphStore } from '../graph/state/graph.ts';
 import { DataStore } from '../data/state/data.ts';
+import { SystemPagesStore } from '../system-pages/store.ts';
 import type { Stores } from '../state/stores.ts';
 
 /** The stores that fetch again after a reconnect. */
-export type ResyncStores = Pick<Stores, 'session' | 'connection' | 'inbox' | 'chat' | 'admin'>;
+export type ResyncStores = Pick<Stores, 'session' | 'connection' | 'inbox' | 'chat' | 'admin' | 'pages'>;
 
 /**
  * Fetch again whatever may have changed while the hub was unreachable (events sent meanwhile are lost): the inbox,
- * the chat (its list and the open thread: messages, runs and what waits on the person), and the systems list once
- * an admin page has loaded it. Returns the function that stops.
+ * the chat (its list and the open thread: messages, runs and what waits on the person), the live systems' pages (a
+ * system may have come or gone meanwhile), and the systems list once an admin page has loaded it. Returns the function that stops.
  */
 export function resyncOnReconnect(stores: ResyncStores): () => void {
   return stores.connection.onReconnect(() => {
     if (!stores.session.signedIn.value) { return; }
     void stores.inbox.refresh();
     void stores.chat.refresh();
+    void stores.pages.refresh();
     if (stores.admin.systems.list.value.value !== undefined) { void stores.admin.systems.load(true); }
   });
 }
@@ -67,7 +69,7 @@ export function createStores(win: Window): Stores {
   });
   const admin = new AdminStore({
     api: api.admin, chat: api.chat, userEvents: api.userEvents, systemLogs: api.systemLogs, sender: new XhrFileSender(),
-    probe: new HttpMcpProbe((url, init) => win.fetch(url, init)),
+    probe: new HttpMcpProbe((url, init) => win.fetch(url, init)), data: api.data,
   });
   const runtime = chat.renderers.runtime;
   const resources = new ResourcesStore({
@@ -75,7 +77,8 @@ export function createStores(win: Window): Stores {
     systems: { viewers: (format) => runtime.resourceViewers(format), client: (system) => runtime.systemClient(system), version: chat.renderers.version },
     prepare: () => chat.prepareRenderers(),
   });
-  resyncOnReconnect({ session, connection, inbox, chat, admin });
+  const pages = new SystemPagesStore({ api: api.pages, events: api.userEvents, hub });
+  resyncOnReconnect({ session, connection, inbox, chat, admin, pages });
   return {
     session,
     identity: new IdentityStore(api.identity, api.userEvents, win.localStorage),
@@ -93,7 +96,8 @@ export function createStores(win: Window): Stores {
     fns: new FnInfoStore(api.fns, api.userEvents),
     fnNotices: new FnNotices(api.fns),
     graph: () => new GraphStore(api.graph),
-    data: new DataStore(api.data, api.fns),
+    data: new DataStore(api.data),
+    pages,
     itemVersions: (query) => api.data.itemVersions.call(query),
     logs,
     push: new PushStore(api.notifications, new BrowserPush(win, import.meta.env.DEV ? SERVICE_WORKERS.source : SERVICE_WORKERS.built), () => win.navigator.userAgent),

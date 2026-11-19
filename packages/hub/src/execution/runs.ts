@@ -226,7 +226,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     // a fn the turn's person may not see is as good as missing to them; a per-person fn needs a connection to act as
     const access = await this.#deps.access.scope(turn.user.id);
     if (!access.seesFn(fn)) throw new RunRefused(fnError('caller', `There is no fn ${input.fn}.`, 'not-found'));
-    const connection = access.connection(fn);
+    const connection = access.connection(fn, input.args);
     if (connection?.state === 'missing' && !blockedCall) throw new RunRefused(fnError('retry', `${input.fn} acts as you: connect your account on the ${connection.page} page first.`, 'unavailable'));
     const parent = input.parent === undefined ? undefined : await store.table('runs').get(input.parent);
     if (input.parent !== undefined && parent === undefined) throw new RunRefused(fnError('fatal', `There is no parent run ${input.parent}.`, 'not-found'));
@@ -924,7 +924,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
    * the run fails rather than act as another.
    */
   async #connection(run: Run, fn: FnRecord, turn: Turn): Promise<Pick<RunRequest, 'connection'>> {
-    const gate = (await this.#deps.access.scope(turn.user.id)).connection(fn);
+    const gate = (await this.#deps.access.scope(turn.user.id)).connection(fn, run.args);
     if (gate === undefined) return {};
     if (gate.state !== 'ready' || gate.connection.id !== run.connection) {
       throw new RunRefused(fnError('retry', `${fn.name} was started to act as an account that is no longer connected or shared with you; ask again.`, 'unavailable'));

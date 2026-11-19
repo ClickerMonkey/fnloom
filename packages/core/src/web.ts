@@ -36,10 +36,11 @@ import { FieldValueOption, ListQuery, ListValuesQuery, QueryFnArgs, QueryFnResul
 import { SuggestDecision, SuggestDecisionView, SuggestionRecord } from './suggestions.ts';
 import { AutoPairChoice, AutoPairView } from './auto-pair.ts';
 import { AccessInfo, AccessTarget, AccessView, Sharing } from './access.ts';
-import { ConnectionChange, ConnectionView, ConnectPage } from './connections.ts';
+import { ConnectionChange, ConnectionView, ConnectKey, ConnectPage } from './connections.ts';
 import { PickOption, PickQuery } from './pickers.ts';
 import { AutoClassifier, AutoClassifierView, ClientLogBatch, ClientLogReceipt, ContextListItem, FnExamplesPage, FnExamplesQuery, FnFacts, FnSearchPage, FnSearchQuery } from './fn-facts.ts';
 import { ContributionView } from './registries.ts';
+import { SystemPageView } from './system-pages.ts';
 import { SystemParts, SystemPartsQuery } from './system-parts.ts';
 import { GoLiveRequest, ItemSection, RefusalPage, RefusalQuery, ReviewDecided, ReviewDecision, SystemReview, TestCallRequest } from './lifecycle.ts';
 import { SystemStage } from './grants.ts';
@@ -625,7 +626,7 @@ export const connectionsSlice = spec({
   endpoints: use(tel, hubAuth).group({
     connectPages: { body: z.object({}), response: z.array(ConnectPage), ws: 'connectPages' },
     // HTTP only: the answer sets the cookie that ties the provider's sign-in to this browser (`/connect/callback` checks it)
-    connect: { body: z.object({ system: SystemName, instance: InstanceName.optional(), form: Json.optional() }), response: z.union([z.object({ url: z.url() }), z.object({ connection: ConnectionView })]), ws: 'connect', httpOnly: true },
+    connect: { body: z.object({ system: SystemName, instance: InstanceName.optional(), key: ConnectKey.optional(), form: Json.optional() }), response: z.union([z.object({ url: z.url() }), z.object({ connection: ConnectionView })]), ws: 'connect', httpOnly: true },
     updateConnection: { body: ConnectionChange, response: ConnectionView, ws: 'updateConnection' },
     disconnect: { body: z.object({ connection: ConnectionId }), response: z.object({ ok: z.boolean() }), ws: 'disconnect' },
   }),
@@ -650,10 +651,12 @@ export const approvalsSlice = spec({
   }),
 });
 
-/** Registries: the entries every connected system contributes to a registry, so the app loads their bundles. */
+/** Registries: the entries every connected system contributes to a registry, and the systems' pages, so the app loads their bundles. */
 export const registriesSlice = spec({
   endpoints: use(tel, hubAuth).group({
     contributions: { body: z.object({ registry: QualifiedName }), response: z.array(ContributionView), ws: 'contributions' },
+    /** The pages of the live systems the person may see and open (item 9), for the nav and `/s/<system>/<page>`. */
+    systemPages: { body: z.object({}), response: z.array(SystemPageView), ws: 'systemPages' },
   }),
 });
 

@@ -4,7 +4,7 @@
  * the query fails or takes longer than `embedWait` (the embedder is busy, say indexing), or when the vectors can't be
  * searched with it (no vectors stored yet, or the query is another size), it is words alone, so a person or agent
  * waiting never waits on the embedder for long. Results can be limited to some systems and to what a `keep` check lets
- * through (what the person asking may see); a key `prefix` is applied by the database itself. Each hit says its place
+ * through (what the person asking may see); a key `prefix` and `excludeKeys` are applied by the database itself. Each hit says its place
  * in the order (`rank`, a share of the best) and, whenever the vectors were searched and it has one, its similarity of
  * meaning to the query (`similarity`, `store/hybrid.ts`); a search asking for `meaning` (suggestions) gets only hits
  * with a similarity, and none at all rather than ones words alone ranked, since a rank says nothing about fit. Each hit
@@ -57,6 +57,7 @@ export class IndexSearch implements Search {
     const words: HybridQuery = {
       text: query.text, kinds: query.kinds, limit: filtered ? query.limit * overfetch : query.limit,
       ...(query.within === undefined ? {} : { within: query.within }), ...(query.prefix === undefined ? {} : { prefix: query.prefix }),
+      ...(query.excludeKeys === undefined || query.excludeKeys.length === 0 ? {} : { excludeKeys: query.excludeKeys }),
       ...(query.match === undefined ? {} : { match: query.match }),
     };
     const hits = vector === undefined ? await hybrid.search(words) : await this.#hybrid({ ...words, vector: { embedder: document, values: vector } }, query.meaning === true ? undefined : words);

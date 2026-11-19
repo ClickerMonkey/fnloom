@@ -3,7 +3,7 @@ import { RESULT_TABLE_INSTRUCTION, RESULT_TABLE_ROUTING, ResultTable, SystemName
 import { describe, expect, it } from 'vitest';
 import { contiguousTail, exchanges, textOf, firstAndLast, isPersonMessage, namedIn, personWords, shorten, shortenResults, summarise } from './history.ts';
 import type { FnView } from './index.ts';
-import { blockedFnsLine, blockedLine, cardsSection, contextBlock, describedWithEffects, earlierBlock, fnCard, listedLine, tableInstruction, moreContext, moreFns, parseRunBlocks, resultText, RunBlockFilter, splitThinking, ThinkingFilter } from './render.ts';
+import { blockedFnsLine, blockedLine, broughtWords, cardsSection, contextBlock, describedWithEffects, earlierBlock, fnCard, listedLine, tableInstruction, moreContext, moreFns, parseRunBlocks, resultText, RunBlockFilter, splitThinking, ThinkingFilter } from './render.ts';
 import { ContextCatalog, contextRecord } from './testing.ts';
 import { CatalogFnViews } from './views.ts';
 
@@ -114,6 +114,12 @@ describe('prompt text', () => {
       '<brought_fns in_tools="no" available="no">You can\'t use these now: database/create_table, database/insert_rows (changed and waits for an admin to approve it); fs/read (fs is not connected). If you need one, tell the person what blocks it.</brought_fns>',
       '</context>',
     ].join('\n'));
+    // in the static toolset's words nothing joins the tools: the cards are run by name
+    const staticBlock = contextBlock({ name: 'database/guide', detail: 'full', text: 'Tables.', fns: { added: ['database/list_tables'], waiting: ['database/drop_table'], words: broughtWords('static', 'native') } });
+    expect(staticBlock).toContain('<brought_fns loaded="yes">Their cards are in this prompt; run one with run({ fn, args }): database/list_tables</brought_fns>');
+    expect(staticBlock).toContain('<brought_fns loaded="no">Not loaded this step: inspect one for its args, then run it by name: database/drop_table</brought_fns>');
+    expect(staticBlock).not.toContain('tools');
+    expect(broughtWords('tools', 'native')).toEqual({ attribute: 'in_tools', added: 'In your tools now', waiting: 'Not in your tools this step' });
     // nothing added says nothing is in the tools
     expect(contextBlock({ name: 'database/guide', detail: 'full', text: 'Tables.', fns: { added: [], blocked: [held('database/create_table')] } })).not.toContain('in_tools="yes"');
     expect(contextBlock({ name: 'fs/guide', detail: 'full', text: 'Start.', choices: [{ to: 'fs/git', when: 'for commits', tokens: 40 }] })).toBe([

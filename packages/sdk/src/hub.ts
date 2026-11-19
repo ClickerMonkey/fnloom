@@ -12,7 +12,7 @@ import {
   ADMIN_TAG, adminSlice, chatSlice, CONTENT_HASH_PATTERN, ChatModeConfig, contextorSlice, contextSlice, ContextorConfig, DETAIL_LEVELS, ERROR_CLASSES,
   graphSlice, versionsSlice, dataSlice, ContributionView, ReadTableArgs, ResultTable, RowActionsQuery, WidgetActionOption, mcpsSlice, metricsSlice, accessSlice, autoPairSlice, connectionsSlice, explorerSlice, suggestionsSlice, MintMcpTokenArgs, modelsSlice, OWN_TAG, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, RUN_STATUSES, runsSlice,
   FnLive, GinTypeDef, LIST_NAMES, querySlice, Section, settingsSlice, systemsSlice, LlmContentPart, ModelLimits, LINK_TARGET_KINDS, type Display,
-  FnBlock, FnExample, FnExamplesPage, FnExamplesQuery, FnRouting, FnSearchArgs, FnSearchPage, FnRefusal, LoadContextResult, NameRefusal, ShareRule, type RegistryEffect,
+  FnBlock, FnExample, FnExamplesPage, FnExamplesQuery, FnRouting, FnSearchArgs, FnSearchPage, LoadContextResult, LoadFnsResult, NameRefusal, ShareRule, type RegistryEffect,
 } from '@harness/core';
 import { z } from 'zod';
 import { fn, type FnExampleOf } from './fn.ts';
@@ -554,7 +554,7 @@ export const SAVE_FN_TAKEN = 'fn-taken';
 const FNS_SEARCH_GUIDE = [
   'Use it to find a fn before writing one: describe what it should do in plain words as `text`, and narrow with filters when you know them',
   '(`kinds: ["database/query"], instance: "main"` for the saved queries of one database; `kinds: ["input/form"]` for saved forms).',
-  'With `text`, hits come best first: `score` is a hit\'s place in that order (1 = first, whatever it is), and `similarity`, when given, is how close its meaning is (0 to 1; under about 0.45 is likely unrelated);',
+  'With `text`, hits come best first: `rank` is a hit\'s place in that order (1 = first, whatever it is), and `similarity`, when given, is how close its meaning is (0 to 1; under about 0.45 is likely unrelated);',
   'compare a hit\'s description with what you need before reusing it. Without `text` it lists alphabetically.',
   'Page with `offset` set to `next`. Call a hit by its name with the args its `signature` shows, or load it with hub/load_fns first.',
   'A hit with `available: false` can\'t be used now: `blocked.reason` says why, in the hub\'s words. Don\'t load or call it; if you need it, tell the person what blocks it.',
@@ -631,10 +631,10 @@ export const hub = system('hub', {
     fns: {
       load_fns: fn({
         description: 'Add fns to your toolset for this session.',
-        instructions: 'Use it after hub/fns_search, with the names you will call; they can be called from your next step. A refused name says why in `reason`, in the hub\'s words (no such fn, another system, waits for an admin to approve it): do not load it again; tell the person what blocks it. Load only what you need: every loaded fn takes room in the prompt.',
+        instructions: 'Use it after hub/fns_search, with the names you will call; they can be called from your next step. It answers with the cards of what it loaded (`<loaded_fns>`) and of each name it refused (`<refused_fns>`) with why, in the hub\'s words (no such fn, another system, waits for an admin to approve it): do not load a refused one again; tell the person what blocks it. Load only what you need: every loaded fn takes room in the prompt.',
         examples: [{ args: { fns: ['fs/read', 'fs/edit'] }, note: 'Two fns for a file change.' }],
         args: g.obj({ fns: g.list(g.text(), { minLength: 1 }) }),
-        returns: g.obj({ loaded: g.list(g.text()), refused: g.list(ginAs(FnRefusal)) }),
+        returns: ginAs(LoadFnsResult),
         tags: [READ_TAG],
         display: 'hidden',
       }),
@@ -695,7 +695,7 @@ export const hub = system('hub', {
         description: 'Load context into this session.',
         instructions: [
           'Use it after hub/fns_search (or a choice under "Where to go next" in a context), with the names that fit; their text is in front of you from the next step.',
-          'Each loads with the context it imports, and the fns it brings go into your tools; the result lists both. A brought fn that could not be added is in `fnsRefused` with the reason the hub gave: it is not in your tools. A name you got wrong is refused with the closest names.',
+          'Each loads with the context it imports, and the fns it brings go into your tools; it answers with the cards of both (`<loaded_context>`, `<brought_fns>`). A brought fn that could not be added is named with the reason the hub gave (`available="no"`): it is not in your tools. A name you got wrong is refused with the closest names (`<refused_context>`).',
           'A line copied as `name: description` is fine. Load only what the task needs, one step at a time.',
         ].join(' '),
         examples: [
@@ -712,7 +712,7 @@ export const hub = system('hub', {
         instructions: 'Use it to find files, pages and uploads by what they say, across every system. Give a plain description of what you look for; narrow to roots (a folder\'s uri, a crawl) when you know them. Each hit has a section and a preview: read the best with hub/resource_read rather than guessing from the preview.',
         examples: [{ args: { query: 'where the hub client retries requests' }, note: 'Code by what it does.' }, { args: { query: 'refund policy', roots: ['web://docs.example.com'], limit: 5 }, note: 'One crawled site only.' }],
         args: g.obj({ query: g.text(), roots: g.optional(g.list(g.text())), limit: g.optional(g.num({ min: 1, max: 50, whole: true })) }),
-        returns: g.list(g.obj({ uri: g.text(), section: g.optional(g.text()), title: g.text(), preview: g.text(), score: g.num() })),
+        returns: g.list(g.obj({ uri: g.text(), section: g.optional(g.text()), title: g.text(), preview: g.text(), rank: g.num() })),
         tags: [READ_TAG],
       }),
       run_status: fn({

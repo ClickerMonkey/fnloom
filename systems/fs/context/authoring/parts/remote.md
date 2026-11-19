@@ -12,13 +12,14 @@ choices:
   - to: "fs/authoring.remote.reference"
     when: "Pick this when you need the exact signatures and options."
   - to: "fs/authoring.client"
-    when: "Pick this to go on in order: The client: renderers, inputs and resource views."
+    when: "Pick this to go on in order: The client: renderers, inputs, resource views and pages."
 ---
 
 ## 24. Remote services: fleets, sign-in and connections per instance
 
-A system that calls a remote service (an MCP server, an HTTP API) is a fleet: one instance per service, added from
-the browser with its config (`instances: "many"` in `system.json`). Its sign-in is core's `RemoteAuth` in that config:
+A system that calls a remote service it was set up for (an MCP server) is a fleet: one instance per service, added from
+the browser with its config (`instances: "many"` in `system.json`). A system that authors code calling many services
+(the `api` system) runs one instance and keeps its services as records instead: see **Connections per key** below. Its sign-in is core's `RemoteAuth` in that config:
 `none`, `bearer` (a token), `headers` (named header values) or `oauth`, each `per: 'shared'` (the instance's own config
 secrets, the same for everyone) or `per: 'person'` (each person connects their own). List the secret paths in
 `configSecrets` (core's `REMOTE_AUTH_SECRETS` under `auth`), so the hub seals them and never shows them again.
@@ -30,6 +31,15 @@ keeps the latest and says it again on every reconnect. `instanceConnectOf(label,
 OAuth (an admin's sign-in shared with everyone when `per: 'shared'`), a form for a per-person token or headers
 (`connectForm`), or nothing to connect. With nothing to connect, calls need no connection; otherwise a person without one
 finds the instance's fns unavailable until they connect on the Connections page.
+
+**Connections per key.** Declare `connect` with `scope: 'key'` and `keys: { type: '<system>/<Type>' }`, a stored type of
+yours whose records each carry `name` (the key), `label` and `auth` (core's `ConnectKeyRecord`; use `RecordAuth`, the
+`TypedAuth` with no secret in it, since a record never holds one). The hub reads the records from its database and
+shows a card per key on the Connections page, worked out with `keyConnectOf(label, auth)`: a per-person token or headers
+is each person's own form, and a shared one is one admin's form, shared with everyone. A fn acts through its key:
+`connectKey: { arg: 'service' }` on a fn that names the key in an arg, or `connectKey` in a kind's description (an api
+fn's service): the run gets the person's (or the shared) connection to that key, or none, and then your system says
+the key needs one (fail with `code: 'not-connected'`). `connectFinish` gets the `key`; read the shared form with `credentialsFromForm(auth, form, 'any')`.
 
 **Credentials.** A form connection's `connectFinish` reads the filled form with `credentialsFromForm(auth, form)` into
 core's `RemoteCredentials` (or a problem to show), which the hub keeps as the person's connection; `accountLabel` names

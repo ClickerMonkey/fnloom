@@ -5,7 +5,7 @@
  * same. Fn and context cards are the one XML of `xml.ts`.
  */
 import {
-  fnLabel, problemLine, RESULT_TABLE_INSTRUCTION, type ContextRecord, type Detail, type FnBlock, type FnExample, type FnMode, type FnRefusal, type FnRecord, type InputProblem, type QualifiedName,
+  fnLabel, problemLine, RESULT_TABLE_INSTRUCTION, type ChatModeType, type ContextRecord, type Detail, type FnBlock, type FnExample, type FnMode, type FnRefusal, type FnRecord, type InputProblem, type QualifiedName,
 } from '@harness/core';
 import { fnMode } from '../link/review-summary.ts';
 import type { CallProtocol, ChosenContext, ExchangeSummary, FnView } from './index.ts';
@@ -124,12 +124,38 @@ export function blockedLine(fn: string, block: Pick<FnBlock, 'reason'>): string 
 /**
  * What a context item's brought fns are in this prompt: `added` (in the model's tools now), `waiting` (usable, but not
  * in this step's tools: cut to fit, or listed only), and `blocked` (they can't be used now, each with what blocks it).
- * A context block says only what is true of each, so the model is never told a held fn is in its tools.
+ * A context block says only what is true of each, so the model is never told a held fn is in its tools, in the chat
+ * mode's `words` (the tools mode's by default).
  */
 export interface BroughtFnLines {
   readonly added: readonly string[];
   readonly waiting?: readonly string[];
   readonly blocked?: readonly FnRefusal[];
+  readonly words?: BroughtWords;
+}
+
+/**
+ * How a context card says what its brought fns are, in a chat mode's words: `attribute` names whether they are ready
+ * to call, `added` and `waiting` lead the two lists.
+ */
+export interface BroughtWords {
+  readonly attribute: string;
+  readonly added: string;
+  readonly waiting: string;
+}
+
+/** The tools mode's words: an added fn is a native tool now. */
+const TOOLS_BROUGHT: BroughtWords = { attribute: 'in_tools', added: 'In your tools now', waiting: 'Not in your tools this step' };
+
+/**
+ * The words for brought fns in a chat mode. In the tools mode an added fn is a native tool. The static toolset has its
+ * five tools only: nothing joins them, so an added fn is a card in the prompt, run by name with `run` (or a block in the
+ * text protocol), and one not shown can still be inspected, then run by name.
+ */
+export function broughtWords(mode: ChatModeType, protocol: Protocol): BroughtWords {
+  if (mode === 'tools') return TOOLS_BROUGHT;
+  const run = protocol === 'text' ? `a <${RUN_TAG} fn="…">{…}</${RUN_TAG}> block` : 'run({ fn, args })';
+  return { attribute: 'loaded', added: `Their cards are in this prompt; run one with ${run}`, waiting: 'Not loaded this step: inspect one for its args, then run it by name' };
 }
 
 /**
@@ -153,11 +179,11 @@ const BROUGHT_TAG = 'brought_fns';
 /** A context card's parts about its brought fns: only the added ones as in the tools, the rest named for what they are. */
 function broughtParts(fns: BroughtFnLines | undefined): Markup[] {
   if (fns === undefined) return [];
-  const { added, waiting = [], blocked = [] } = fns;
+  const { added, waiting = [], blocked = [], words = TOOLS_BROUGHT } = fns;
   return [
-    ...(added.length === 0 ? [] : [element(BROUGHT_TAG, { in_tools: 'yes' }, [`In your tools now: ${added.join(', ')}`])]),
-    ...(waiting.length === 0 ? [] : [element(BROUGHT_TAG, { in_tools: 'no' }, [`Not in your tools this step: ${waiting.join(', ')}`])]),
-    ...(blocked.length === 0 ? [] : [element(BROUGHT_TAG, { in_tools: 'no', available: AVAILABLE.no }, [`You can't use these now: ${blockedFnsLine(blocked)}. If you need one, tell the person what blocks it.`])]),
+    ...(added.length === 0 ? [] : [element(BROUGHT_TAG, { [words.attribute]: 'yes' }, [`${words.added}: ${added.join(', ')}`])]),
+    ...(waiting.length === 0 ? [] : [element(BROUGHT_TAG, { [words.attribute]: 'no' }, [`${words.waiting}: ${waiting.join(', ')}`])]),
+    ...(blocked.length === 0 ? [] : [element(BROUGHT_TAG, { [words.attribute]: 'no', available: AVAILABLE.no }, [`You can't use these now: ${blockedFnsLine(blocked)}. If you need one, tell the person what blocks it.`])]),
   ];
 }
 
@@ -186,6 +212,45 @@ export function listedContextElement(record: Pick<ContextRecord, 'name' | 'decl'
 /** Listed context items, loadable by name. */
 export function moreContext(records: readonly Pick<ContextRecord, 'name' | 'decl'>[]): string {
   return cardList('more_context', 'Load any of these by name if it helps:', records.map(listedContextElement));
+}
+
+/** A refused name's card: the name as given, the hub's code, and why. */
+function refusedElement(name: string, reason: string, attributes: Record<string, string | undefined> = {}): Markup {
+  return element('refused', { name, ...attributes, available: AVAILABLE.no }, [reason]);
+}
+
+/** The words for what a load just brought: it joins the tools from the next step. */
+const LOADED_BROUGHT: BroughtWords = { attribute: 'in_tools', added: 'In your tools from your next step', waiting: 'Not in your tools' };
+
+/**
+ * What `hub/load_fns` answers the model: the loaded fns' cards (`<loaded_fns>`, each listed: its name, label, mode and
+ * first line; its tool has the rest from the next step), then each refused name with the hub's reason (`<refused_fns>`).
+ */
+export function loadedFnsCards(loaded: readonly FnView[], refused: readonly FnRefusal[]): string {
+  return [
+    cardList('loaded_fns', 'In your tools from your next step:', loaded.map((view) => fnCardElement(view, 'listed'))),
+    cardList('refused_fns', 'Not loaded. Don\'t load these again; if you need one, tell the person what blocks it:', refused.map((r) => refusedElement(r.fn, r.reason, { code: r.code }))),
+  ].filter((part) => part !== '').join('\n') || '<loaded_fns />';
+}
+
+/** A context name `hub/load_context` refused: as given, why, and the closest names it knows. */
+export interface RefusedContext {
+  readonly context: string;
+  readonly reason: string;
+  readonly closest: readonly string[];
+}
+
+/**
+ * What `hub/load_context` answers the model: the loaded items' cards (`<loaded_context>`, each listed: its text is in
+ * the prompt from the next step), the fns they brought for what they are (`<brought_fns>`, as a context block says
+ * them), and each refused name with the closest names (`<refused_context>`).
+ */
+export function loadedContextCards(loaded: readonly Pick<ContextRecord, 'name' | 'decl'>[], brought: Pick<BroughtFnLines, 'added' | 'blocked'>, refused: readonly RefusedContext[]): string {
+  return [
+    cardList('loaded_context', 'Their text is in front of you from your next step:', loaded.map(listedContextElement)),
+    ...broughtParts({ ...brought, words: LOADED_BROUGHT }).map((part) => part.toString()),
+    cardList('refused_context', 'Not loaded:', refused.map((r) => refusedElement(r.context, r.closest.length === 0 ? r.reason : `${r.reason}. The closest: ${r.closest.join(', ')}.`))),
+  ].filter((part) => part !== '').join('\n') || '<loaded_context />';
 }
 
 /** Listed fns, loadable by name (tools mode, where only loaded fns are native tools). */

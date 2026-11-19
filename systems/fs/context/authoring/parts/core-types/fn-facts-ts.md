@@ -44,7 +44,7 @@ type FnExamplesPage = {
     id: string;
     result?: z.core.util.JSONType | undefined;
     note?: string | undefined;
-    score?: number | undefined;
+    rank?: number | undefined;
   }[];
   total: number;
   next?: number | undefined;
@@ -116,7 +116,7 @@ type FnSearchArgs = {
     kind?: string | undefined;
   }[] | undefined;
   available?: boolean | undefined;
-  order?: "name" | "score" | undefined;
+  order?: "name" | "rank" | undefined;
 };
 ```
 
@@ -139,7 +139,7 @@ type FnSearchPage = {
     signature?: string | undefined;
     effects?: string | undefined;
     instance?: InstanceName | undefined;
-    score?: number | undefined;
+    rank?: number | undefined;
     similarity?: number | undefined;
     matched?: "words" | "both" | "meaning" | undefined;
     section?: {
@@ -209,7 +209,7 @@ type FnSearchQuery = {
   })[] | undefined;
   off?: boolean | undefined;
   available?: boolean | undefined;
-  order?: "name" | "score" | undefined;
+  order?: "name" | "rank" | undefined;
   offset?: number | undefined;
   limit?: number | undefined;
 };

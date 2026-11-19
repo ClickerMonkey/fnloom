@@ -1,10 +1,10 @@
 <script setup lang="ts">
 /**
- * The API services api fns run on (`/admin/api-services`), each an instance of the bundled `api` system: its name,
- * base URL, how it signs in and its instance's status; each opens its page. "Add API service" (`?add=1`) adds one: the
- * hub installs, pairs, configures and starts it. Its fns are made in the chat (`api/make_api`).
+ * The web API services api fns are sent to (`/admin/api-services`): records of the one `api` instance, searched by
+ * words in the hub's database (`?q=`), each row its label, base URL, name and sign-in, opening its page. "Add API
+ * service" (`?add=1`) adds one as a record; the authoring agent adds them too, from the chat (`api/make_api`). A service
+ * holds no secret: a shared token is set on the API sign-ins page.
  */
-import { InstanceName } from '@harness/core';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import AppPage from '../../app/AppPage.vue';
@@ -13,73 +13,82 @@ import { links, ROUTES } from '../../app/routes.ts';
 import { useRouteQuery } from '../../app/url.ts';
 import type { PathProblems } from '../../state/problems.ts';
 import { useStores } from '../../state/stores.ts';
-import { UiButton, UiEmpty } from '../../ui/index.ts';
+import { UiButton, UiEmpty, UiInput } from '../../ui/index.ts';
 import AddServiceDialog from '../components/AddServiceDialog.vue';
 import ApiServiceForm from '../components/ApiServiceForm.vue';
 import LoadState from '../components/LoadState.vue';
 import ServiceRows from '../components/ServiceRows.vue';
 import type { ServiceRow } from '../logic/service-views.ts';
-import { apiServiceConfig, apiServiceDraft, readApiService } from '../logic/api-services.ts';
+import { API, apiServiceDraft, apiServiceValue } from '../logic/api-services.ts';
 import { authSummary } from '../logic/remote-config.ts';
-import { SYSTEM_STATUS_LOOK } from '../logic/systems.ts';
 
 const { admin, toasts } = useStores();
-const fleet = admin.apiServices.fleet;
+const store = admin.apiServices;
 const router = useRouter();
 const query = useRouteQuery(ROUTES.apiServices);
+const words = query.draft('q');
 const add = query.text('add', { push: true });
 const adding = computed({ get: () => add.value === '1', set: (isOpen) => { add.value = isOpen ? '1' : ''; } });
 
 const draft = ref(apiServiceDraft());
-const instance = ref('');
+const name = ref('');
 const problems = ref<PathProblems>({});
-const nameError = ref('');
-watch(adding, (isOpen) => { if (isOpen) { draft.value = apiServiceDraft(); instance.value = ''; problems.value = {}; nameError.value = ''; } });
+watch(adding, (isOpen) => { if (isOpen) { draft.value = apiServiceDraft(); name.value = ''; problems.value = {}; } });
 
-const rows = computed(() => (fleet.list.value.value ?? []).map((view): ServiceRow => {
-  const config = readApiService(view.config?.value);
-  return {
-    key: view.instance, to: links.apiService(view.instance), label: config?.label ?? view.instance, look: SYSTEM_STATUS_LOOK[view.status],
-    where: config?.baseUrl ?? 'Not set up', detail: [view.instance, config === undefined ? '' : authSummary(config.auth)].filter((part) => part !== '').join(' · '),
-  };
-}));
+/** Services have no state of their own: a row says how people sign in. */
+const LOOK = { none: { tone: 'ok', word: 'Open', live: false }, shared: { tone: 'accent', word: 'Shared sign-in', live: false }, person: { tone: 'neutral', word: 'Each person signs in', live: false } } as const;
 
-onMounted(() => { void fleet.load(fleet.list.value.value !== undefined); });
-useLive(() => { void fleet.load(true); }, 15_000);
+const rows = computed(() => (store.list.value.value ?? []).map(({ service }): ServiceRow => ({
+  key: service.name, to: links.apiService(service.name), label: service.label, where: service.baseUrl,
+  look: LOOK[service.auth.kind === 'none' ? 'none' : service.auth.per],
+  detail: [service.name, authSummary(service.auth), service.openapi === undefined ? '' : 'OpenAPI'].filter((part) => part !== '').join(' · '),
+})));
+const searching = computed(() => words.value.value.trim() !== '');
+
+watch(() => words.value.value, (text) => { void store.load(text, store.list.value.value !== undefined); });
+onMounted(() => { void store.load(words.value.value, store.list.value.value !== undefined); });
+useLive(() => { void store.load(words.value.value, true); }, 30_000);
 
 async function save(): Promise<void> {
-  const checked = apiServiceConfig(draft.value);
-  const name = InstanceName.safeParse(instance.value);
+  const checked = apiServiceValue({ ...draft.value, name: name.value });
   problems.value = checked.ok ? {} : checked.problems;
-  nameError.value = name.success ? '' : 'invalid';
-  if (!checked.ok || !name.success) { return; }
-  const description = draft.value.description.trim();
-  const added = await fleet.add(name.data, checked.config, description === '' ? undefined : description);
+  if (!checked.ok) { return; }
+  const added = await store.save(checked.service);
   if (!added.ok) { return; }
-  toasts.ok(`Added ${draft.value.label.trim()}`, 'Ask in the chat to make fns that call it.');
-  await router.replace(links.apiService(added.value.instance));
+  const signIn = checked.service.auth.kind === 'none' ? 'Ask in the chat for fns that call it.' : 'Its sign-in is set on the API sign-ins page; then ask in the chat for fns that call it.';
+  toasts.ok(`Added ${checked.service.label}`, signIn);
+  await router.replace(links.apiService(added.value.service.name));
 }
 </script>
 
 <template>
-  <AppPage title="API services" description="Web APIs that api fns call: each holds its base URL and signs every request, so a fn never sees a credential.">
+  <AppPage title="API services" description="The web APIs api fns call: each a base URL and how it signs in. Fns never see a credential; people's tokens are their connections.">
     <template #actions>
+      <UiButton variant="ghost" icon="key" data-testid="api-sign-ins" @click="router.push(links.connect(API))">Sign-ins</UiButton>
       <UiButton variant="primary" icon="plus" data-testid="add-api-service" @click="adding = true">Add API service</UiButton>
     </template>
-    <LoadState :loading="fleet.list.loading.value" :problem="fleet.list.problem.value" :ready="fleet.list.value.value !== undefined" :empty="rows.length === 0" @retry="fleet.load()">
-      <template #empty>
-        <UiEmpty icon="globe" title="No API services yet" body="Add one by its base URL and sign-in; then ask in the chat for fns that call it.">
-          <template #actions><UiButton variant="primary" icon="plus" @click="adding = true">Add API service</UiButton></template>
-        </UiEmpty>
-      </template>
-      <ServiceRows :rows="rows" icon="globe" testid="api-services" />
-    </LoadState>
+    <div class="page">
+      <UiInput v-model="words.draft.value" type="search" icon="search" label="Search API services" hide-label placeholder="Search names, base URLs and descriptions" clearable data-testid="api-services-search" />
+      <LoadState :loading="store.list.loading.value" :problem="store.list.problem.value" :ready="store.list.value.value !== undefined" :empty="rows.length === 0" @retry="store.load()">
+        <template #empty>
+          <UiEmpty v-if="searching" icon="search" title="No API services match" body="Try other words." />
+          <UiEmpty v-else icon="globe" title="No API services yet" body="Add one by its base URL and sign-in, or ask in the chat for a fn that calls a web API: the authoring agent adds its service.">
+            <template #actions><UiButton variant="primary" icon="plus" @click="adding = true">Add API service</UiButton></template>
+          </UiEmpty>
+        </template>
+        <ServiceRows :rows="rows" icon="globe" testid="api-services" />
+      </LoadState>
+    </div>
     <AddServiceDialog
-      v-model:open="adding" v-model:instance="instance" title="Add API service" description="A web API that api fns call through the hub."
-      :label="draft.label" name-hint="Names the service its fns run on; it can't change later." :name-error="nameError"
-      :busy="fleet.adding.busy.value" :problem="fleet.adding.problem.value" @save="save"
+      v-model:open="adding" v-model:instance="name" title="Add API service" description="A web API that api fns call through the hub."
+      :label="draft.label" name-hint="Its fns and sign-ins name it; it can't change later." :name-error="problems['name'] ?? ''"
+      :busy="store.saving.busy.value" :problem="store.saving.problem.value" @save="save"
     >
       <ApiServiceForm v-model="draft" :problems="problems" />
     </AddServiceDialog>
   </AppPage>
 </template>
+
+<style scoped>
+.page { display: grid; gap: var(--space-4); min-width: 0; }
+</style>

@@ -28,7 +28,7 @@ import type {
 } from './index.ts';
 import { AUTO_MODEL } from './limits.ts';
 import { CHAT_MODES } from './modes.ts';
-import { contextBlock, earlierBlock, moreContext, type BroughtFnLines } from './render.ts';
+import { broughtWords, contextBlock, earlierBlock, moreContext, type BroughtFnLines, type BroughtWords } from './render.ts';
 import { MESSAGE_FRAMING } from './tokens.ts';
 import { fnRefusal, readsAsMissing, refusalOf, usable } from './views.ts';
 import type { AccessScope } from '../access/index.ts';
@@ -94,7 +94,7 @@ export type BroughtBlocks = ReadonlyMap<string, FnBlock | undefined>;
  * the hub's reason when they can't be used now, `waiting` for the rest; one that reads as missing (unseen, not for the
  * model) is not named at all.
  */
-export function broughtLines(fns: readonly string[], inTools: ReadonlySet<string>, blocks: BroughtBlocks): BroughtFnLines {
+export function broughtLines(fns: readonly string[], inTools: ReadonlySet<string>, blocks: BroughtBlocks, words?: BroughtWords): BroughtFnLines {
   const added: string[] = [];
   const waiting: string[] = [];
   const blocked: FnRefusal[] = [];
@@ -104,18 +104,19 @@ export function broughtLines(fns: readonly string[], inTools: ReadonlySet<string
     else if (block === undefined) waiting.push(fn);
     else if (!readsAsMissing(block)) blocked.push(refusalOf(fn, block));
   }
-  return { added, waiting, blocked };
+  return { added, waiting, blocked, ...(words === undefined ? {} : { words }) };
 }
 
 /**
  * The system message's text after the instructions: its fixed part (`fixedRegion`), context, earlier summaries, fn
- * cards. Each context block names the fns it brings for what they are this step (`broughtLines`), from `held`.
+ * cards. Each context block names the fns it brings for what they are this step (`broughtLines`), from `held`, in the
+ * chat mode's `words` (`broughtWords`: in the tools, or cards run by name in the static toolset).
  */
-export function contextRegion(fixed: string, selection: Pick<Selection, 'context' | 'earlier' | 'fns'>, systemEnd: string, held: BroughtBlocks = new Map()): string {
+export function contextRegion(fixed: string, selection: Pick<Selection, 'context' | 'earlier' | 'fns'>, systemEnd: string, held: BroughtBlocks = new Map(), words?: BroughtWords): string {
   const ordered = contextOrder(selection.context);
   const inTools = new Set<string>(selection.fns.filter((f) => f.detail !== 'listed').map((f) => f.view.record.name));
   const blocks = ordered.filter((c) => c.detail !== 'listed').map((c) => contextBlock({
-    name: c.record.name, title: c.record.decl.title, detail: c.detail, text: c.text, fns: broughtLines(c.record.decl.fns, inTools, held), ...(c.choices === undefined ? {} : { choices: c.choices }),
+    name: c.record.name, title: c.record.decl.title, detail: c.detail, text: c.text, fns: broughtLines(c.record.decl.fns, inTools, held, words), ...(c.choices === undefined ? {} : { choices: c.choices }),
   }));
   const listed = moreContext(ordered.filter((c) => c.detail === 'listed').map((c) => c.record));
   return [fixed, ...blocks, listed, ...selection.earlier.map(earlierBlock), systemEnd].filter((part) => part !== '').join('\n\n');
@@ -245,7 +246,7 @@ export class HubPromptPlanner implements PromptPlanner {
     };
     let selection = await this.#forTurn(await contextor.select(input), session, query);
     let rendered = await mode.render(selection, ctx);
-    let assembled = this.#assemble(planning.instructions, guide, selection, rendered, estimator, await this.#held(selection, session, access));
+    let assembled = this.#assemble(planning.instructions, guide, selection, mode, rendered, estimator, await this.#held(selection, session, access));
     // the parts' estimates can add up to less than the whole's: choose again with less room for the optional parts
     // (the overshoot taken off, at least doubling each time) until it fits; refused only once no optional room is left
     const room = Math.max(0, plan.flexible);
@@ -256,7 +257,7 @@ export class HubPromptPlanner implements PromptPlanner {
       const tighter: BudgetPlan = { ...plan, flexible: plan.flexible - taken };
       selection = await this.#forTurn(await contextor.select({ ...input, plan: tighter }), session, query);
       rendered = await mode.render(selection, ctx);
-      assembled = this.#assemble(planning.instructions, guide, selection, rendered, estimator, await this.#held(selection, session, access));
+      assembled = this.#assemble(planning.instructions, guide, selection, mode, rendered, estimator, await this.#held(selection, session, access));
     }
     const report: SelectionReport = {
       ...selection.report, mode: choice.mode.type, contextor: choice.contextor.type,
@@ -306,8 +307,8 @@ export class HubPromptPlanner implements PromptPlanner {
   }
 
   /** The system region, the messages and the request's estimate. */
-  #assemble(instructions: string, guide: string, selection: Selection, rendered: Awaited<ReturnType<ChatMode['render']>>, estimator: TokenEstimator, held: BroughtBlocks) {
-    const context = contextRegion(guide, selection, rendered.systemEnd, held);
+  #assemble(instructions: string, guide: string, selection: Selection, mode: ChatMode, rendered: Awaited<ReturnType<ChatMode['render']>>, estimator: TokenEstimator, held: BroughtBlocks) {
+    const context = contextRegion(guide, selection, rendered.systemEnd, held, broughtWords(mode.type, rendered.protocol));
     const messages: LlmMessage[] = [...selection.linear, ...(rendered.tail === undefined ? [] : [{ role: 'system' as const, content: rendered.tail }])];
     const system = context === '' ? instructions : `${instructions}\n\n${context}`;
     const estimate = estimator.message({ role: 'system', content: system }) + rendered.tools.reduce((sum, t) => sum + estimator.tool(t.spec), 0) + estimator.messages(messages);

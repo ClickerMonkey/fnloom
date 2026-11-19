@@ -82,6 +82,10 @@ describe('a pending review in one strip', () => {
       ['capabilities', ['ai']], ['secrets', ['NOTES_TOKEN']], ['hosts', ['api.example.com']],
     ]);
     expect(summary.flags.find((flag) => flag.flag === 'effects')?.line).toBe('New effects in notes/read: Removes context');
+    // each flag carries the parts its line is written from, so a view draws the fns as pills between the same words
+    expect(summary.flags.find((flag) => flag.flag === 'effects')).toMatchObject({ lead: 'New effects in', tail: 'Removes context' });
+    expect(summary.flags.find((flag) => flag.flag === 'delete-fns')).toMatchObject({ lead: 'Can delete', line: 'Can delete: notes/read' });
+    expect(summary.flags.find((flag) => flag.flag === 'delete-fns')?.tail).toBeUndefined();
   });
 
   it('says a config type changed and a fresh install adds everything', async () => {
@@ -98,7 +102,7 @@ describe('a pending review in one strip', () => {
     expect(grantsMove({ hub: ['ai', 'fns'] }, { hub: ['ai'] }).move).toBe('narrowed');
     expect(grantsMove({ hub: ['fns'] }, { hub: ['ai'] }).move).toBe('changed');
     expect(grantsMove({ hub: [], models: { roles: ['chat'], perRun: 1 } }, { hub: [], models: { perRun: 2 } }).flags).toEqual([
-      { flag: 'models', line: 'New models: any role, more spend a run', items: ['any role', 'more spend a run'] },
+      { flag: 'models', line: 'New models: any role, more spend a run', items: ['any role', 'more spend a run'], lead: 'New models' },
     ]);
   });
 

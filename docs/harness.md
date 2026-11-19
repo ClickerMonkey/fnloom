@@ -284,9 +284,13 @@ A system says in `system.json` whether it runs one copy or many (`"instances": "
 system's record (a later hello that says nothing keeps it). A `one` system's page has no Instances tab and no
 "Install another": its instance's facts are on the overview and its data and export are on a Data tab, and old
 instance links go to the same tab on the system page. A `many` system keeps the fleet pages even with one
-instance. claude, database, fs and mcp are `many`. The owner decided api is `one`, but api is still `many` for now,
-because it keeps one service per instance (its config, fn routing and per-person connections are all per
-instance); making it `one` means reworking it into one instance that holds a list of services.
+instance. claude, database, fs and mcp are `many`; api is `one`. Like code, the api system authors fns: an api fn is
+code that calls an external service. Its services are records of the one instance (`api/Service`: the base URL, how
+it signs in, the OpenAPI document), which the authoring agent picks or adds and admins edit under Admin → API services;
+a record never holds a secret. Connections are keyed per service (`ConnectDecl.scope: 'key'`): each person connects
+their own token, or an admin sets a shared one for everyone, and a token signs only while the service keeps the base
+URL it was given for. An older hub's per-service instances become records of the one instance when it starts
+(`link/migrate-api.ts`).
 
 ### Changing itself
 
@@ -559,6 +563,42 @@ export default client(fs, {
   same flag.
 - **Resource views.** A system's viewer for a format either replaces the hub's preview or adds a tab beside it
   (`{ component, mode: 'tab', label: 'Schema' }`).
+- **Result renderers.** `results: { fns, kinds }` draws only a finished run's result, under the chat's own run line,
+  by fn or by kind. A fn renderer, which draws the whole run, wins over it. A result renderer can draw with the app's
+  own result view (`RESULT_VIEW`) and controls (`APP_COMPONENTS`), on every page that shows a run, not only in a
+  chat. In a chat it can also reach the chat itself (`CHAT_HOST`) to ask in the composer, wait for a run's outcome,
+  or move somewhere.
+
+**System pages.** A system can own whole pages of the app. The contract declares them
+(`system({ pages: [{ segment, title, icon, nav, access, component }] })` and `client()` names each component. A page
+lives at `/s/<system>/<page>/…`. Pages with `nav: 'main'` are in the sidebar, and hidden ones are detail pages
+reached by links. `access: 'admin'` pages are listed only for admins. The hub lists a person's pages only while the
+system is live, has its renderers on, ships a client build and is visible to them. Each page is also a review and
+switch item (`<system>: page <segment>`), so an admin can switch one off or hold it for review. Pages come and go
+with their systems without a reload.
+
+A link to a page whose system isn't installed keeps its URL and says so, and draws the page once the system is
+back. A page that fails to load or throws says so, and the app stays up.
+
+A page gets a host. It holds:
+- the person and the typed hub web API, whose calls run as that person;
+- the URL query, bound for `v-model`;
+- links and moves between the system's pages and the person's chats;
+- `openChat`, which starts a chat running a fn;
+- `runs` and `inbox`, for the person's own runs and approvals;
+- notices, formatting, and `live` refreshing;
+- the app's shared components: the page frame, inputs, buttons, dialogs, fn pills, markdown, the chat's
+  conversation, composer and approval card, and more, each with props typed in the SDK.
+
+A page draws with these, so it looks and behaves like the app's own. Two systems own pages now:
+- **Claude:** the fleet at `/s/claude/sessions`, and one session at `/s/claude/session/<instance>/<session>`. The
+  transcript is drawn with the chat's own message, answer and note parts, with the chat's composer under it. The old
+  `/claude` links redirect there.
+- **Widgets:** the saved widgets at `/s/widgets/saved`. The proposal card and saved widgets are its result
+  renderers. The old `/data/widgets` link redirects there.
+
+Nothing of either is left in the web package except the shared result view, which the Data pages and plain fn
+tables use too.
 
 ### Talking back to the system
 
@@ -678,13 +718,18 @@ Static plus graph is the setup for small local models; `hub/chat_small` is the c
 
 When a context item in the prompt brings fns, it says which of them are in the model's tools this step, which are
 not in its tools this step, and which it can't use now, with the reason (fns sharing a reason are named together).
+The wording follows the chat mode. In tools mode the fns are "in your tools now". In static mode they are loaded:
+their cards are in the prompt and the model runs one with `run`, or writes a `<run fn="…">` block when it has no
+native tool calls. A fn that isn't loaded this step is one to inspect for its args and then run by name.
 
 **One card format.** Every fn and context the model reads about, in every mode and every place (static cards, the
 `more_fns` and `more_context` lists, `inspect`, a fn's exposed fns, a refused call, suggestions), is the same XML card,
 written by one renderer: `<fn name label mode available reason>` with its description, args, returns, instructions,
 examples and types as the room allows, and `<context key title>` with its text, the fns it brings and its choices.
 Every value is escaped, so text inside a card can never pass for a tag. A fn the person can't use now still gets its
-card, marked `available="no"` with the reason.
+card, marked `available="no"` with the reason. What `hub/load_fns` and `hub/load_context` give back reaches the model
+as cards too: the fns loaded and those refused with their reasons, and the context loaded with the fns it brought.
+The run's record keeps the names as well, which the chat's held banner reads.
 
 **The systems in the prompt.** The chat agent's system prompt lists the systems available when the chat started, as
 `<systems>` with each one's name, label and description, first in the fixed part of the prompt. The list is kept on the
@@ -713,7 +758,8 @@ Before the LLM sees a user message, two things may add to it:
   reads the same later even if the fn changes. Fns the person can't see, or that aren't for the model, are left out;
   fns they can't use now are shown with `available="no"` and the reason. **Nothing is suggested twice in a chat:** what
   was suggested is kept on the session in the hub database, and neither the hub nor a hook suggests it again, nor
-  anything the session already has loaded. Undoing a turn gives its suggestions back.
+  anything the session already has loaded. The search query itself leaves those keys out, in the word, meaning and
+  combined searches alike, so a page of suggestions is still full. Undoing a turn gives its suggestions back.
 - **Systems' hooks**: a system can declare a hook and add its own information (the git branch, the open
   ticket). A hook gets the message and the same who-and-when every run gets.
 
@@ -948,7 +994,11 @@ the tightest.
   a long item is found by the part that matches, and counts once at its best. The Context page's search uses it, with
   the page's filters (origin, tags, switched off, size, updated…) run as SQL in the same query, and its sorting and
   paging in the database. Each row found by text shows how well it fits, whether words, meaning or both found it, and
-  the section that matched. A person only ever finds context they may see, private memory included.
+  the section that matched. A person only ever finds context they may see, private memory included. While text is
+  searched the list is in best-match order unless the person picks a sort. A picked sort applies to the best 100
+  matches, and the database sorts and pages them. The search box says whether it searches meaning as well as words,
+  and changes as soon as an embedder comes or goes. A search hit's place in the order is its `rank`. "Score" means
+  only a suggestion's similarity.
 
 ### Context as a graph
 

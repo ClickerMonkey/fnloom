@@ -298,6 +298,31 @@ describe('the plain contextor (build 6: a context brings its fns)', () => {
     // a fn that doesn't exist (or that the person can't see) is not named
     expect(planned.context).not.toContain('database/gone');
   });
+
+  it('in the static toolset never says a brought fn is in the tools: its card is in the prompt, run by name', async () => {
+    const mode: ChatModeConfig = { type: 'static', protocol: 'native', placement: 'system-end', loadDetail: 'full' };
+    const { r, session, turn } = await planning([], { agent: 'hub/chat', context: ['database/guide'], mode });
+    const chat = await r.catalog.fn('hub/chat');
+    if (chat === undefined) throw new Error('no hub/chat');
+    r.catalog.addContext(contextRecord('database/guide', { description: 'Tables.', content: 'Make a table, then add rows.', fns: ['database/list_tables', 'database/create_table'] }));
+    r.catalog.addFn('database/list_tables', fn({ description: 'List tables.', args: g.obj({}), returns: g.text() }));
+    r.catalog.addFn('database/create_table', fn({ description: 'Create a table.', args: g.obj({}), returns: g.text() }), { available: { unavailable: 'held', detail: 'database/create_table changed and waits for an admin to approve it' } });
+    const planned = await r.planner.plan({ session, turn, agent: chat, model: 'small', instructions: 'Be brief.', transcript: [{ role: 'user', content: 'track my tasks' }] });
+    expect(planned.report.mode).toBe('static');
+    expect(planned.context).not.toContain('in_tools');
+    expect(planned.context).not.toContain('In your tools');
+    expect(planned.context).toContain('<brought_fns loaded="yes">Their cards are in this prompt; run one with run({ fn, args }): database/list_tables</brought_fns>');
+    expect(planned.context).toContain('<fn name="database/list_tables"');
+    expect(planned.context).toContain('<brought_fns loaded="no" available="no">You can\'t use these now: database/create_table (changed and waits for an admin to approve it).');
+    // the text protocol says to write a block
+    const text = await planning([], { agent: 'hub/chat', context: ['database/guide'], mode: { ...mode, protocol: 'text' } });
+    text.r.catalog.addContext(contextRecord('database/guide', { description: 'Tables.', content: 'Make a table.', fns: ['database/list_tables'] }));
+    text.r.catalog.addFn('database/list_tables', fn({ description: 'List tables.', args: g.obj({}), returns: g.text() }));
+    const textChat = await text.r.catalog.fn('hub/chat');
+    if (textChat === undefined) throw new Error('no hub/chat');
+    const written = await text.r.planner.plan({ session: text.session, turn: text.turn, agent: textChat, model: 'small', instructions: 'Be brief.', transcript: [{ role: 'user', content: 'tables' }] });
+    expect(written.context).toContain('<brought_fns loaded="yes">Their cards are in this prompt; run one with a &lt;run fn="…"&gt;{…}&lt;/run&gt; block: database/list_tables</brought_fns>');
+  });
 });
 
 describe('the chat agents\' prompt', () => {

@@ -63,23 +63,25 @@ export class SqliteTextIndex implements TextIndex {
   async search(query: TextQuery): Promise<Array<{ kind: IndexedKind; key: string; score: number }>> {
     const match = matchExpression(query.text);
     if (match === '' || query.kinds.length === 0 || query.limit < 1 || query.within?.length === 0) return [];
-    if (query.within === undefined) return this.#search(match, query.kinds, query.limit, undefined, query.prefix);
+    if (query.within === undefined) return this.#search(match, query, undefined);
     // a long `within` list is searched in pieces, the best of every piece's matches kept
-    const pieces = await Promise.all(chunks(query.within, WITHIN_CHUNK).map((piece) => this.#search(match, query.kinds, query.limit, piece, query.prefix)));
+    const pieces = await Promise.all(chunks(query.within, WITHIN_CHUNK).map((piece) => this.#search(match, query, piece)));
     return pieces.flat().sort((a, b) => b.score - a.score).slice(0, Math.floor(query.limit));
   }
 
   /**
-   * One statement's matches, best first, kept to `within` when given (two parameters per item, so pieces stay small) and
-   * to keys starting with `prefix` (compared as text, so no character of it is a pattern).
+   * One statement's matches, best first, kept to `within` when given (two parameters per item, so pieces stay small),
+   * to keys starting with `prefix` (compared as text, so no character of it is a pattern), and to keys not in `excludeKeys`.
    */
-  async #search(match: string, kinds: readonly IndexedKind[], limit: number, within: ReadonlyArray<IndexedItem> | undefined, prefix: string | undefined): Promise<Array<{ kind: IndexedKind; key: string; score: number }>> {
+  async #search(match: string, query: TextQuery, within: ReadonlyArray<IndexedItem> | undefined): Promise<Array<{ kind: IndexedKind; key: string; score: number }>> {
+    const { kinds, limit, prefix, excludeKeys } = query;
     const byItem = within === undefined ? sql`` : sql`and (${sql.join(within.map((item) => sql`(d.kind = ${item.kind} and d.key = ${item.key})`), sql` or `)})`;
     const byPrefix = prefix === undefined || prefix === '' ? sql`` : sql`and substr(d.key, 1, ${prefix.length}) = ${prefix}`;
+    const byExclude = excludeKeys === undefined || excludeKeys.length === 0 ? sql`` : sql`and d.key not in (${sql.join([...excludeKeys])})`;
     const result = await sql`
       select d.kind as kind, d.key as key, bm25(${sql.table(TEXT_FTS)}) as rank
       from ${sql.table(TEXT_FTS)} join ${sql.table('_text_docs' satisfies keyof AuxDb)} d on d.id = ${sql.table(TEXT_FTS)}.rowid
-      where ${sql.table(TEXT_FTS)} match ${match} and d.kind in (${sql.join([...kinds])}) ${byItem} ${byPrefix}
+      where ${sql.table(TEXT_FTS)} match ${match} and d.kind in (${sql.join([...kinds])}) ${byItem} ${byPrefix} ${byExclude}
       order by rank limit ${Math.floor(limit)}`.execute(this.#scope.db);
     // BM25 is lower for better matches; flip it so higher is better
     return result.rows.map((row) => {

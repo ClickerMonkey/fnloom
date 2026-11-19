@@ -43,6 +43,8 @@ export interface HybridQuery {
   readonly within?: readonly Ranked[];
   /** Only items whose key starts with this (the database applies it in both indexes). */
   readonly prefix?: string;
+  /** Never these keys, of any kind (the database leaves them out in both indexes, so `limit` hits still come). */
+  readonly excludeKeys?: readonly string[];
   /** Leave out the words (`semantic`), or the vectors (`text`); both by default. */
   readonly match?: 'text' | 'semantic' | 'hybrid';
 }
@@ -99,8 +101,8 @@ export class HybridSearch {
     const vector = query.match === 'text' ? undefined : query.vector;
     const useText = query.match !== 'semantic' || vector === undefined;
     const [near, text] = await Promise.all([
-      vector === undefined ? Promise.resolve([]) : this.#vectors.nearest(vector.embedder, vector.values, depth, query.kinds, query.within, query.prefix),
-      useText ? this.#text.search({ text: query.text, kinds: query.kinds, limit: depth, ...(query.within === undefined ? {} : { within: query.within }), ...(query.prefix === undefined ? {} : { prefix: query.prefix }) }) : Promise.resolve([]),
+      vector === undefined ? Promise.resolve([]) : this.#vectors.nearest(vector.embedder, vector.values, depth, { kinds: query.kinds, within: query.within, prefix: query.prefix, excludeKeys: query.excludeKeys }),
+      useText ? this.#text.search({ text: query.text, kinds: query.kinds, limit: depth, within: query.within, prefix: query.prefix, excludeKeys: query.excludeKeys }) : Promise.resolve([]),
     ]);
     const k = this.#tuning.HARNESS_SEARCH_RRF_K;
     if (vector === undefined) return fuseRanks({ text }, k).slice(0, limit);
@@ -120,7 +122,7 @@ export class HybridSearch {
     const out = new Map<string, number>(near.map((hit) => [compositeKey(hit.kind, hit.key), hit.score]));
     const missing = hits.filter((hit) => !out.has(compositeKey(hit.kind, hit.key)));
     if (missing.length === 0) return out;
-    for (const hit of await this.#vectors.nearest(vector.embedder, vector.values, missing.length, kinds, missing)) {
+    for (const hit of await this.#vectors.nearest(vector.embedder, vector.values, missing.length, { kinds, within: missing })) {
       out.set(compositeKey(hit.kind, hit.key), hit.score);
     }
     return out;

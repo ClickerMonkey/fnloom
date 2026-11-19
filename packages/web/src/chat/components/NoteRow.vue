@@ -16,7 +16,7 @@ const shown = computed(() => props.undone.map((m) => ({ id: m.id, who: m.role ==
 </script>
 
 <template>
-  <div :id="`m-${message.id}`" class="note" :class="{ flash }" data-testid="note" :title="fullTime(message.createdAt)" tabindex="-1">
+  <div :id="`m-${message.id}`" class="note" :class="{ flash }" data-testid="note" :title="message.createdAt > 0 ? fullTime(message.createdAt) : undefined" tabindex="-1">
     <p class="line"><UiIcon class="icon" name="info" :size="14" />{{ text }}</p>
     <button v-if="shown.length > 0" type="button" class="toggle" :aria-expanded="open ? 'true' : 'false'" data-testid="note-undone-toggle" @click="open = !open">
       <UiIcon :name="open ? 'chevron-down' : 'chevron-right'" :size="14" />{{ open ? 'Hide' : 'Show' }} what was undone

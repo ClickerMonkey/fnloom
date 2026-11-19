@@ -4,7 +4,7 @@
  * text of a tool reply, token totals, and the lenient mapping it saves transcripts and interactions with.
  */
 import type { Message, Request } from '@aeye/core';
-import { ChangeSet, ResultTable, rowsLine, tableModelView, WidgetProposal, WidgetResult, type Json, type LlmMessage, type TableModelView, type TableReading, type LlmRequest, type LlmUsage } from '@harness/core';
+import { ChangeSet, LoadCards, ResultTable, rowsLine, tableModelView, WidgetProposal, WidgetResult, type Json, type LlmMessage, type TableModelView, type TableReading, type LlmRequest, type LlmUsage } from '@harness/core';
 import { LlmWire } from '@harness/sdk/server';
 
 export {
@@ -36,11 +36,14 @@ export function requestToWire(request: Request): LlmRequest {
  * run keeps it whole for the run view's diff tabs, and the model reads a file when it needs the content. A table
  * result (a widget run, a fn returning a `ResultTable`) is drawn for the person when someone watches the run, so the
  * model reads its summary and the first `reading.rows` rows (`tableModelView`), told who sees the rest; a widget
- * proposal (`widgets/make_widget`) the same of its preview, with a line saying it waits for the person's Save.
+ * proposal (`widgets/make_widget`) the same of its preview, with a line saying it waits for the person's Save. A hub load
+ * (`hub/load_fns`, `hub/load_context`) is read as its XML cards (`LoadCards`), never its record's name lists.
  */
 export function replyText(value: Json, reading: TableReading): string {
   if (typeof value === 'string') return value;
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return JSON.stringify(value);
+  const load = LoadCards.safeParse(value);
+  if (load.success) return load.data.cards;
   const table = tableReply(value, reading);
   if (table !== undefined) return JSON.stringify(table);
   const { changes, ...rest } = value;

@@ -10,6 +10,7 @@ import { contextApi, contextEvents, type ContextApi, type ContextEvents } from '
 import { fnsApi, type FnsApi } from '../fns/api.ts';
 import { graphApi, type GraphApi } from '../graph/api/graph.ts';
 import { dataApi, type DataApi } from '../data/api.ts';
+import { systemPagesApi, type SystemPagesApi } from '../system-pages/api.ts';
 
 /**
  * The app's callers. Spelled out by each area's own type, so the compiler refers to them by name rather than writing
@@ -31,6 +32,8 @@ export interface Api {
   readonly graph: GraphApi;
   /** The data system, widgets' row actions and items' version history (build 8). */
   readonly data: DataApi;
+  /** The pages live systems add (item 9). */
+  readonly pages: SystemPagesApi;
   readonly contextEvents: ContextEvents;
   readonly connection: Connection;
 }
@@ -52,6 +55,7 @@ export function createApi(hub: Hub): Api {
     fns: fnsApi(hub),
     graph: graphApi(hub),
     data: dataApi(hub),
+    pages: systemPagesApi(hub),
     contextEvents: contextEvents(userEvents(hub)),
     connection: hub.connection,
   };

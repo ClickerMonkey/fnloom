@@ -74,10 +74,11 @@ describe('the Data pages', () => {
     app.unmount();
   });
 
-  it('lists saved widgets at /data/widgets', async () => {
-    const { app, fns } = await visit('/data/widgets?q=notes');
-    expect(fns.searchFns.calls.at(-1)?.[0]).toMatchObject({ kinds: ['widgets/widget'], text: 'notes' });
-    expect(app.findAll('[data-testid=data-widget]').length).toBeGreaterThan(0);
+  it('sends an old /data/widgets link to the widgets system\'s page, keeping its search', async () => {
+    const { app, router } = await visit('/data/widgets?q=notes');
+    expect(router.currentRoute.value.fullPath).toBe('/s/widgets/saved?q=notes');
+    // the Data page lists stored types only; the widgets are their system's page
+    expect(app.find('[data-testid=data-view]').exists()).toBe(false);
     app.unmount();
   });
 

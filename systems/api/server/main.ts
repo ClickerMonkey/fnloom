@@ -1,6 +1,6 @@
 /**
- * The api system's process (one per service): its contract served to the hub. Api fns live in the hub, so nothing is
- * restored here, and it has no client bundle.
+ * The api system's process (one instance, like code): its contract served to the hub. Api fns and services (records)
+ * live in the hub, so nothing is restored here, and it has no client bundle.
  */
 import { loggedHost, placeFolders, serve } from '@harness/sdk/server';
 import { api } from '../shared/index.ts';

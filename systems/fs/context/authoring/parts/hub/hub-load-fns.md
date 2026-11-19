@@ -15,7 +15,7 @@ tags: ["authoring"]
 - `hub/load_fns`: Add fns to your toolset for this session. Tags: `read`.
 
   ```text
-  (obj{fns: list<text>{minLength=1}}) => obj{ loaded, refused … }
+  (obj{fns: list<text>{minLength=1}}) => obj{ loaded, refused, cards … }
   ```
 - `hub/drop_fns`: Remove fns from your toolset. Tags: `read`.
 
@@ -37,7 +37,7 @@ tags: ["authoring"]
     limit?: num{whole=true, min=1, max=50}
   }) => obj{
     fn: text,
-    items: list<obj{args: any, result?: any, note?: text, /* fnExample id */ id: text, score?: num}>,
+    items: list<obj{args: any, result?: any, note?: text, /* fnExample id */ id: text, rank?: num}>,
     total: num{whole=true, min=0},
     next?: num{whole=true, min=0}
   }
@@ -57,7 +57,7 @@ tags: ["authoring"]
 - `hub/load_context`: Load context into this session. Tags: `read`.
 
   ```text
-  (obj{context: list<text>{minLength=1}}) => obj{ loaded, fns, fnsRefused, refused … }
+  (obj{context: list<text>{minLength=1}}) => obj{ loaded, fns, fnsRefused, refused, cards … }
   ```
 - `hub/search_resources`: Search files and other resources by meaning and words. Tags: `read`.
 
@@ -66,7 +66,7 @@ tags: ["authoring"]
     query: text,
     roots?: list<text>,
     limit?: num{min=1, max=50, whole=true}
-  }) => list<obj{uri: text, section?: text, title: text, preview: text, score: num}>
+  }) => list<obj{uri: text, section?: text, title: text, preview: text, rank: num}>
   ```
 - `hub/run_status`: The status of a run, with its progress or result. Tags: `read`.
 
@@ -472,7 +472,7 @@ tags: ["authoring"]
       visibility: enum<text>{private, shared, public},
       with: list<text>
     }
-  }) => obj{ id, system, instance?, owner, status, account?, expiresAt?, settings, fns, share, problem?, createdAt, updatedAt … }
+  }) => obj{ id, system, instance?, key?, owner, status, account?, expiresAt?, settings, fns, share, problem?, createdAt, updatedAt … }
   ```
 - `hub/connection_disconnect`: Disconnect one of the person's connected accounts.
 

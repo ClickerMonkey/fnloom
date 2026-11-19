@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /**
- * Build 9: one instance of an instance-scoped system on its connect page (an MCP server, an API service): its name, how
+ * Build 9: one instance of an instance-scoped system (an MCP server), or one key of a key-scoped one (an API service),
+ * on its connect page: its name, how
  * people connect (a sign-in in the browser, a form of the person's own token or header values, or nothing to do),
  * the person's connection with its state, and connecting, reconnecting or disconnecting. A sign-in shared with
  * everyone is made once by an admin; others see it as shared.
@@ -18,7 +19,7 @@ const form = (): GinTypeDef | undefined => (props.card.connect.flow?.flow === 'f
 </script>
 
 <template>
-  <li class="card" :data-instance="card.instance" data-testid="instance-connect">
+  <li class="card" :data-instance="card.id" data-testid="instance-connect">
     <div class="row">
       <span class="mark" aria-hidden="true"><UiIcon :name="card.flow === 'none' ? 'check' : 'key'" :size="16" /></span>
       <div class="who">
