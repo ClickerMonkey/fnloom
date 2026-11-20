@@ -12,7 +12,7 @@ import type {
   ActorId, AnnouncedSystems, Approver, Asker, ChatMessage, ClientInfo, DeliveryId, DeliveryRecord, HookBlock, InstanceName, Json, MentionHover, MentionOption,
   MessageId, MessagePart, Notification, NotificationId, NotificationLink, NotificationReason, OutgoingPart, Page, Presence, QualifiedName, RunId,
   Session, SessionControls, SessionId, Suggestion, SuggestDecision, SuggestDecisionView, SuggestionRecord, SessionPatch, SessionSummary, StateFieldValue, StateOwner, SystemName, TurnId, TurnStatus, UndoReport, UserInfo,
-  Compact, DecideAnswer, DecideRequest, SessionListQuery, MessageListQuery, NotificationListQuery, SessionControlAction, CompareVariantInput, CompareView, VariantIndex,
+  Compact, DecideAnswer, DecideRequest, SessionListQuery, MessageListQuery, NotificationListQuery, SessionControlAction, CompareVariantInput, CompareView, KeptVariant, Turn, VariantIndex,
 } from '@harness/core';
 
 /** Sessions. */
@@ -111,6 +111,8 @@ export interface CompareService {
   view(turn: TurnId, viewer: ActorId): Promise<CompareView>;
   /** Choose a variant: it joins the chat (transcript, loaded fns and context, state, messages, runs); the others are discarded. */
   choose(input: { turn: TurnId; variant: VariantIndex; adopt?: boolean | undefined; by: ActorId }): Promise<CompareView>;
+  /** What a compared turn's variants did that undoing the turn leaves done, by variant. */
+  kept(turn: Turn): Promise<KeptVariant[]>;
 }
 
 /** Who answers a message: with one person, the session's agent; with more, only agents replied to, or every agent on reply-all. */

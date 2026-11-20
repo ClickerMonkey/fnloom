@@ -9,11 +9,13 @@
  *
  * Choosing a variant appends it to the chat: the transcript it added, the fns and context it loaded, the state it
  * changed, and its messages, runs and LLM calls move to the compared turn (so undoing that turn undoes them). The other
- * variants are discarded; what they already did stays done and is listed on the turn.
+ * variants are discarded; what they already did stays done and is listed on the turn. Undoing the compared turn undoes
+ * only the chosen variant's runs: what the others did (or every variant did, when the turn is undone before a variant
+ * was chosen) stays done, and the undo lists it (`kept`).
  */
 import {
   CompareSettings, mintId, type ActorId, type AgentActor, type ChatMessage, type CompareEffect, type CompareFork, type CompareVariant, type CompareVariantInput,
-  type CompareVariantView, type CompareView, type Run, type Session, type SessionId, type StateField, type Turn, type TurnId, type VariantIndex,
+  type CompareVariantView, type CompareView, type KeptVariant, type Run, type Session, type SessionId, type StateField, type Turn, type TurnId, type VariantIndex,
 } from '@harness/core';
 import type { ChatDeps } from './deps.ts';
 import { ChatError, messageOf } from './errors.ts';
@@ -32,6 +34,9 @@ const SETTINGS = CompareSettings.keyof().options;
 /** Turn statuses still going. */
 const GOING: ReadonlySet<Turn['status']> = new Set(['running', 'paused']);
 
+/** A variant's letter name ("Variant B"). */
+const letterLabel = (index: number): string => `Variant ${String.fromCharCode(65 + index)}`;
+
 /** A variant's name when the person gave none: what it changes ("gpt-5 · static"), else its letter. */
 export function variantLabel(input: CompareVariantInput, index: number): string {
   if (input.label !== undefined) { return input.label; }
@@ -41,7 +46,7 @@ export function variantLabel(input: CompareVariantInput, index: number): string 
     model, s.mode?.type, s.contextor?.type, s.fnMode, s.agent, s.instructions === undefined ? undefined : 'own prompt',
     s.systems === undefined ? undefined : s.systems === 'all' ? 'all systems' : `${s.systems.length} systems`,
   ].filter((part): part is string => part !== undefined);
-  return parts.length === 0 ? `Variant ${String.fromCharCode(65 + index)}` : parts.join(' · ');
+  return parts.length === 0 ? letterLabel(index) : parts.join(' · ');
 }
 
 /** Each variant's even share of a turn's cost cap. */
@@ -237,6 +242,23 @@ export class StoreCompareService implements CompareService {
       ...variant, status: own.status, spent: own.cost, tokens: root?.tokens ?? 0, startedAt: own.createdAt, ...(own.endedAt === undefined ? {} : { endedAt: own.endedAt }),
       time: Math.max(0, (own.endedAt ?? clock()) - own.createdAt), messages: messages.map((m) => this.#parts.streams.overlay(m)), approvals,
     };
+  }
+
+  /**
+   * What a compared turn's variants did that undoing the turn leaves done, by variant: the discarded variants' effects
+   * once one was chosen, every variant's before. Variants that changed nothing are left out; empty for a turn not compared.
+   */
+  async kept(turn: Turn): Promise<KeptVariant[]> {
+    const compare = turn.compare;
+    if (compare === undefined) { return []; }
+    const left = compare.chosen === undefined
+      ? await Promise.all(compare.variants.map(async (v) => ({ variant: v.variant, effects: await this.#effects(v.turn) })))
+      : compare.discarded;
+    return left.flatMap(({ variant, effects }) => {
+      const label = compare.variants.find((v) => v.variant === variant)?.label ?? letterLabel(variant);
+      const [first, ...rest] = effects;
+      return first === undefined ? [] : [{ variant, label, effects: [first, ...rest] }];
+    });
   }
 
   /** What a variant did that stays done: its tool runs that finished and change things (not reads, not agents). */

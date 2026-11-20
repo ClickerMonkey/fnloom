@@ -4,6 +4,7 @@ import { HubLedger, TURN_CAP } from '../execution/ledger.ts';
 import { LedgerSpend } from '../execution/spend.ts';
 import { testSettings } from '../execution/testing.ts';
 import { variantBudget, variantLabel } from './compare.ts';
+import { undoNote } from './undo.ts';
 import { agentActorId } from './support.ts';
 import { CLIENT, LIMITS, chatWorld, makeRun, settle } from './testing.ts';
 
@@ -195,6 +196,9 @@ describe('choosing a variant', () => {
     const report = await w.chat.undo.undoTurn(w.sent.turn, w.admin.id);
     expect(report.session?.messages).toBe(2);
     expect((await w.store.table('sessions').get(w.session.id))?.transcript).toEqual(EARLIER);
+    // what the discarded variant did is not the turn's, so it stays, and the undo says so
+    expect(report.kept).toEqual([{ variant: 1, label: 'read · own prompt', effects: [{ run: 'run_w', fn: 'fs/write' }] }]);
+    expect(w.runs.controlled.filter((c) => c.action === 'undo').map((c) => c.run)).not.toContain('run_w');
   });
 
   it('can make the chosen variant\'s settings the chat\'s own', async () => {
@@ -235,6 +239,44 @@ describe('choosing a variant', () => {
     await w.store.table('runs').update(root, { status: 'running' });
     await w.chat.compare.choose({ turn: w.sent.turn, variant: 0, by: w.admin.id });
     expect(w.runs.controlled).toContainEqual({ action: 'cancel', run: root });
+  });
+});
+
+describe('undoing a compared turn before a variant is chosen', () => {
+  it('keeps what each variant did and lists it by variant, in the report and the note', async () => {
+    const w = await compared();
+    const write = async (i: number, id: string, fn: string): Promise<void> => {
+      const v = w.variant(i);
+      const root = (await w.store.table('turns').get(v.turn))?.root;
+      await w.store.table('runs').insert(makeRun({ id: IDS.run.parse(id), fn: QualifiedName.parse(fn), turn: v.turn, session: v.session, actor: w.admin.id, status: 'done', parent: root }));
+    };
+    await write(0, 'run_a1', 'fs/write');
+    await write(0, 'run_a2', 'fs/read');
+    await write(0, 'run_a3', 'fs/write');
+    await write(1, 'run_b1', 'fs/read');
+    await w.answer(0, 'A');
+    await w.answer(1, 'B');
+    const report = await w.chat.undo.undoTurn(w.sent.turn, w.admin.id);
+    // only the variant that changed something, with its writes (not its reads), each still done
+    const kept = [{ variant: 0, label: 'Fast', effects: [{ run: 'run_a1', fn: 'fs/write' }, { run: 'run_a3', fn: 'fs/write' }] }];
+    expect(report.kept).toEqual(kept);
+    expect(w.runs.controlled.filter((c) => c.action === 'undo')).toEqual([]);
+    expect((await w.store.table('runs').get(IDS.run.parse('run_a1')))?.status).toBe('done');
+    const note = (await w.chat.sessions.messages(w.session.id, w.admin.id, { limit: 1 })).items[0];
+    expect(note).toMatchObject({ role: 'note', turn: w.sent.turn });
+    expect(note?.parts).toEqual([{ type: 'text', text: undoNote(report) }, { type: 'kept-effects', variants: kept }]);
+    expect(undoNote(report)).toContain('What the variants did stays as it is: 2 changes by Fast.');
+    expect(undoNote(report)).not.toContain('changed nothing');
+  });
+
+  it('lists nothing kept when no variant changed anything', async () => {
+    const w = await compared();
+    await w.answer(0, 'A');
+    await w.answer(1, 'B');
+    const report = await w.chat.undo.undoTurn(w.sent.turn, w.admin.id);
+    expect(report.kept).toBeUndefined();
+    const note = (await w.chat.sessions.messages(w.session.id, w.admin.id, { limit: 1 })).items[0];
+    expect(note?.parts.map((p) => p.type)).toEqual(['text']);
   });
 });
 

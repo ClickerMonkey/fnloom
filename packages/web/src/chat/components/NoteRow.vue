@@ -1,10 +1,12 @@
 <script setup lang="ts">
 /**
  * Something the hub says in the thread (a turn was undone): a centred, muted line. An undo note keeps the question
- * and answer it took out of the thread behind a toggle, dimmed and struck, so nothing is lost from view for good.
+ * and answer it took out of the thread behind a toggle, dimmed and struck, so nothing is lost from view for good. The
+ * undo note of an A/B compared turn lists what its variants did that stays done, each variant with its fns as pills.
  */
 import type { ChatMessage } from '@harness/core';
 import { computed, ref } from 'vue';
+import FnPill from '../../fns/components/FnPill.vue';
 import { UiIcon, fullTime } from '../../ui/index.ts';
 import { clamp } from '../logic/format.ts';
 import { messageText } from '../logic/thread.ts';
@@ -12,12 +14,19 @@ import { messageText } from '../logic/thread.ts';
 const props = withDefaults(defineProps<{ message: ChatMessage; undone?: readonly ChatMessage[]; flash?: boolean }>(), { undone: () => [], flash: false });
 const text = computed(() => messageText(props.message.parts));
 const open = ref(false);
+const kept = computed(() => props.message.parts.flatMap((part) => (part.type === 'kept-effects' ? part.variants : [])));
 const shown = computed(() => props.undone.map((m) => ({ id: m.id, who: m.role === 'user' ? 'Asked' : 'Answered', text: clamp(messageText(m.parts), 160) })).filter((m) => m.text !== ''));
 </script>
 
 <template>
   <div :id="`m-${message.id}`" class="note" :class="{ flash }" data-testid="note" :title="message.createdAt > 0 ? fullTime(message.createdAt) : undefined" tabindex="-1">
     <p class="line"><UiIcon class="icon" name="info" :size="14" />{{ text }}</p>
+    <ul v-if="kept.length > 0" class="kept" aria-label="What the variants did that stays" data-testid="note-kept">
+      <li v-for="k in kept" :key="k.variant" class="variant">
+        <span class="label">{{ k.label }}</span>
+        <FnPill v-for="effect in k.effects" :key="effect.run" :name="effect.fn" />
+      </li>
+    </ul>
     <button v-if="shown.length > 0" type="button" class="toggle" :aria-expanded="open ? 'true' : 'false'" data-testid="note-undone-toggle" @click="open = !open">
       <UiIcon :name="open ? 'chevron-down' : 'chevron-right'" :size="14" />{{ open ? 'Hide' : 'Show' }} what was undone
     </button>
@@ -36,6 +45,9 @@ const shown = computed(() => props.undone.map((m) => ({ id: m.id, who: m.role ==
 .toggle:focus-visible { outline: none; box-shadow: var(--ring); }
 .undone { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; color: var(--text-faint); font-size: var(--text-xs); text-align: left; }
 .who { font-weight: var(--weight-medium); }
+.kept { display: grid; gap: var(--space-1); justify-items: center; margin: var(--space-1) 0 0; padding: 0; list-style: none; }
+.variant { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--space-1); animation: ui-rise-in var(--medium) var(--ease); }
+.label { padding: 0 var(--space-2); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text-dim); font-size: var(--text-xs); font-weight: var(--weight-medium); }
 .note:focus { outline: none; }
 .flash { animation: ui-flash 1.6s var(--ease); }
 </style>

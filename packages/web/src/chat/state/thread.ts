@@ -108,6 +108,8 @@ export interface UndoSummary {
   readonly undone: number;
   readonly failed: number;
   readonly notUndoable: number;
+  /** What A/B variants did that stays done (`UndoReport.kept`), counted in fn runs. */
+  readonly kept: number;
 }
 
 /** Add up undo reports. */
@@ -117,7 +119,13 @@ export function undoSummary(reports: readonly UndoReport[]): UndoSummary {
     undone: reports.reduce((n, r) => n + r.undone.length, 0),
     failed: reports.reduce((n, r) => n + r.failed.length, 0),
     notUndoable: reports.reduce((n, r) => n + r.notUndoable.length, 0),
+    kept: reports.reduce((n, r) => n + keptCount(r), 0),
   };
+}
+
+/** How many fn runs of an undone turn's A/B variants stay done. */
+export function keptCount(report: UndoReport): number {
+  return (report.kept ?? []).reduce((n, k) => n + k.effects.length, 0);
 }
 
 /**

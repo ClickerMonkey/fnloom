@@ -236,7 +236,7 @@ export function executionModule(options: {
       config: hub.link.config,
       roles: { resolve: (role) => hub.models.roles.resolve(role) },
       access: { scope: (actor) => hub.access.scope(actor) },
-      connections: { forRun: (connection) => hub.connections.forRun(connection) },
+      connections: { forRun: (connection) => hub.connections.forRun(connection), unconnected: (record, args) => hub.connections.unconnected(record, args) },
       ...chatPorts(hub),
       ...contextorPorts(hub),
       ...metricsPorts(hub),

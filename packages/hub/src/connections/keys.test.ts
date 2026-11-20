@@ -129,4 +129,23 @@ describe('key-scoped connections', () => {
     // Ada has no connection to the tracker of her own: Ben's is private
     expect((await connections.gate(ADA, new Set())).fn(request)).toBeUndefined();
   });
+
+  it('says which key a call can\'t run without, read from its one record, with the connect page\'s link', async () => {
+    const { connections } = await world();
+    const link = 'http://hub.test/connect/api';
+    expect(await connections.unconnected(fn('tracker.issues', ConnectKey.parse('tracker')))).toEqual({ system: API, key: 'tracker', label: 'TRACKER', shared: false, link });
+    // a shared key: an admin connects it, for everyone
+    expect(await connections.unconnected(fn('board.cards', ConnectKey.parse('board')))).toEqual({ system: API, key: 'board', label: 'BOARD', shared: true, link });
+    // the key named by the call's args
+    const named = fn('test_request', { arg: 'service' });
+    expect(await connections.unconnected(named, { service: 'tracker', url: '/' })).toMatchObject({ key: 'tracker' });
+    expect(await connections.unconnected(named)).toBeUndefined();
+    // a key with no sign-in, a key with no record (or not a key record), a fn with no key: nothing to connect
+    expect(await connections.unconnected(fn('open.cards', ConnectKey.parse('open')))).toBeUndefined();
+    expect(await connections.unconnected(fn('gone.cards', ConnectKey.parse('gone')))).toBeUndefined();
+    expect(await connections.unconnected(fn('broken.cards', ConnectKey.parse('broken')))).toBeUndefined();
+    expect(await connections.unconnected(fn('services', undefined))).toBeUndefined();
+    // a fn of a system that isn't key-scoped
+    expect(await connections.unconnected({ name: QualifiedName.parse('cal/list'), system: 'cal', decl: { tags: [], connectKey: ConnectKey.parse('tracker') } })).toBeUndefined();
+  });
 });

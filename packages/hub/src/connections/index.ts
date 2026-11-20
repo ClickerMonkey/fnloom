@@ -9,7 +9,7 @@
 import type {
   ActorId, ConnectionChange, ConnectionId, ConnectionUpdate, ConnectionView, ConnectKey, ConnectPage, InstanceName, Json, RunConnection, SystemName, UserConnection,
 } from '@harness/core';
-import type { ConnectionGate } from '../access/index.ts';
+import type { ConnectionGate, FnRef } from '../access/index.ts';
 
 /** Where the redirect sends the person back to (`/connect/<system>`), with the problem when it failed. */
 export interface CallbackAnswer {
@@ -31,6 +31,21 @@ export interface ConnectBinding {
   readonly maxAge: number;
   /** Send it over HTTPS only (the hub's public URL is https). */
   readonly secure: boolean;
+}
+
+/**
+ * A key a fn's call acts through that signs in (its record's auth) and that the caller has no connection to: the call
+ * can't run (the system would fail it `not-connected`), so the hub refuses it before anyone is asked to approve it.
+ */
+export interface UnconnectedKey {
+  readonly system: SystemName;
+  readonly key: ConnectKey;
+  /** The key's own words (the service's label). */
+  readonly label: string;
+  /** Whether an admin connects it once, for everyone (rather than each person their own). */
+  readonly shared: boolean;
+  /** The system's connect page, under the hub's public URL (`/connect/<system>`). */
+  readonly link: string;
 }
 
 /** How connecting began: the provider's URL and the browser binding (OAuth), or the finished connection (a form). */
@@ -60,6 +75,12 @@ export interface ConnectionService {
   refreshed(system: SystemName, update: ConnectionUpdate, instance?: InstanceName): Promise<void>;
   /** How a person's per-person fns stand: their own connection, else the newest one shared with them. */
   gate(actor: ActorId, groups: ReadonlySet<ActorId>): Promise<ConnectionGate>;
+  /**
+   * For a call the person's gate found no connection for (`ConnectionGate.fn` undefined): the key-scoped fn's key it
+   * would act through, when that key signs in. Read from the one key record in the database; undefined for a fn of no
+   * key (or of no key-scoped system), a key that needs no connection, or a key with no record.
+   */
+  unconnected(record: FnRef, args?: Json): Promise<UnconnectedKey | undefined>;
   /** What a run acting as a connection carries: its credentials revealed. */
   forRun(connection: UserConnection): Promise<RunConnection>;
 }

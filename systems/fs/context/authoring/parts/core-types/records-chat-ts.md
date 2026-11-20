@@ -182,5 +182,15 @@ type MessagePart = {
     label?: string | undefined;
     description?: string | undefined;
   }[];
+} | {
+  type: "kept-effects";
+  variants: {
+    variant: number;
+    label: string;
+    effects: {
+      run: string;
+      fn: `${string}/${string}`;
+    }[];
+  }[];
 };
 ```

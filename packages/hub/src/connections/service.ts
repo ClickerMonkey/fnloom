@@ -10,7 +10,7 @@ import type { Logger } from '@ayepi/log';
 import { keyConnectOf } from '@harness/sdk';
 import {
   ConnectionId, ConnectKey, ConnectKeyRecord, InstanceConnect, Json, mintId, qualify, splitName, type ActorId, type ConnectDecl, type Filter, type FnConnectKey, type ConnectFlow, type ConnectionChange, type ConnectionFnOption, type ConnectionUpdate,
-  type ConnectionView, type ConnectPage, type ConnectResult, type IdRandom, type InstanceName, type QualifiedName, type RunConnection, type SecretId, type SystemName,
+  type ConnectionView, type ConnectPage, type ConnectResult, type IdRandom, type InstanceName, type QualifiedName, type RunConnection, type SecretId, SystemName,
   type UserConnection,
 } from '@harness/core';
 import { fnOwner } from '../catalog/catalog.ts';
@@ -24,7 +24,7 @@ import { allRows } from '../store/rows.ts';
 import type { LinkService, SystemConnection } from '../link/index.ts';
 import type { HubStore } from '../store/index.ts';
 import type { ConnectionsEnv } from './env.ts';
-import type { CallbackAnswer, ConnectBinding, ConnectionService, ConnectStart } from './index.ts';
+import type { CallbackAnswer, ConnectBinding, ConnectionService, ConnectStart, UnconnectedKey } from './index.ts';
 
 /** Where providers send people back to, under the hub's public URL. */
 export const CONNECT_CALLBACK_PATH = '/connect/callback';
@@ -271,8 +271,8 @@ export class StoreConnectionService implements ConnectionService {
         if (entry?.decl.scope === 'key') {
           // a fn acts as the person through its key: its own (an api fn's service), or the one its call names. The
           // key's record is not read here (the gate is built for every scope, and the keys are a system's records,
-          // unbounded): without a connection to the key the fn acts as no one, and the system says when the key needs
-          // one (the api system's `not-connected` failure)
+          // unbounded): without a connection to the key the fn acts as no one. A run start then reads the one key's
+          // record (`unconnected`) and refuses a call to a key that signs in before any approval is asked
           const key = fnKey(record.decl?.connectKey, args);
           const connection = key === undefined ? undefined : usable.find((row) => row.system === record.system && row.key === key);
           if (connection === undefined) return undefined;
@@ -296,6 +296,18 @@ export class StoreConnectionService implements ConnectionService {
         return option.on ? { state: 'ready', connection, option } : { state: 'off' };
       },
     };
+  }
+
+  async unconnected(record: FnRef, args?: Json): Promise<UnconnectedKey | undefined> {
+    const key = fnKey(record.decl?.connectKey, args);
+    if (key === undefined) return undefined;
+    const system = SystemName.parse(record.system);
+    const decl = (await this.#deps.catalog.manifest(system))?.connect;
+    if (decl?.scope !== 'key') return undefined;
+    // the one record by its name, in the database: a key with no way to connect (no auth) needs no connection
+    const entry = await this.#keyEntry(decl, key);
+    if (entry?.connect.flow === undefined) return undefined;
+    return { system, key, label: entry.label, shared: entry.connect.share, link: new URL(`/connect/${system}`, this.#deps.hubUrl).toString() };
   }
 
   async forRun(connection: UserConnection): Promise<RunConnection> {

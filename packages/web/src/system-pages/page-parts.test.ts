@@ -7,9 +7,10 @@
 import { ApprovalId, InstanceName, RunId, SessionId, type ProposalAsk } from '@harness/core';
 import type { ConversationEntry } from '@harness/sdk';
 import { flushPromises, mount } from '@vue/test-utils';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMemoryHistory } from 'vue-router';
 import { createAppRouter } from '../app/router.ts';
+import { LONG_PRESS_MS } from '../ui/index.ts';
 import { ROUTES } from '../app/routes.ts';
 import { approval as sampleApproval, fakeChat, fakeChatApi, run as sampleRun } from '../chat/test/fakes.ts';
 import { approvableTogether } from '../components/approvals/rules.ts';
@@ -168,7 +169,7 @@ describe('a conversation drawn with the chat’s parts (components.Conversation)
 });
 
 describe('the chat’s composer on a page (components.Composer)', () => {
-  it('edits the page’s text, sends it, and stops what runs with Cancel', async () => {
+  it('edits the page’s text, sends it, and stops what runs at once with Stop', async () => {
     const composer = mount(PageComposer, { props: { modelValue: '', running: true }, attachTo: document.body });
     await composer.get('textarea').setValue('Also add a test');
     expect(composer.emitted('update:modelValue')?.at(-1)).toEqual(['Also add a test']);
@@ -177,8 +178,69 @@ describe('the chat’s composer on a page (components.Composer)', () => {
     expect(composer.emitted('send')).toHaveLength(1);
     await composer.get('[data-testid="stop"]').trigger('click');
     await flushPromises();
-    document.body.querySelector<HTMLButtonElement>('[data-verb="cancel"]')?.click();
+    // no panel in between: one press stops it
     expect(composer.emitted('stop')).toHaveLength(1);
+    expect(document.body.querySelector('[data-testid="run-control"]')).toBeNull();
+    composer.unmount();
+  });
+
+  it('opens the run-control panel from the menu beside Stop, and its Cancel stops too', async () => {
+    const composer = mount(PageComposer, { props: { modelValue: '', running: true }, attachTo: document.body });
+    const menu = composer.get('[data-testid="stop-menu"]');
+    expect(menu.attributes('aria-label')).toBe('Stop options');
+    expect(menu.attributes('aria-expanded')).toBe('false');
+    await menu.trigger('click');
+    await flushPromises();
+    expect(menu.attributes('aria-expanded')).toBe('true');
+    expect(composer.emitted('stop')).toBeUndefined();
+    document.body.querySelector<HTMLButtonElement>('[data-testid="run-control"] [data-verb="cancel"]')?.click();
+    await flushPromises();
+    expect(composer.emitted('stop')).toHaveLength(1);
+    expect(menu.attributes('aria-expanded')).toBe('false');
+    composer.unmount();
+  });
+
+  it('opens the panel on a long press or a right-click on Stop, without stopping', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const composer = mount(PageComposer, { props: { modelValue: '', running: true }, attachTo: document.body });
+      const stop = composer.get('[data-testid="stop"]');
+      const menu = composer.get('[data-testid="stop-menu"]');
+      // a short press is a plain Stop
+      await stop.trigger('pointerdown', { button: 0 });
+      vi.advanceTimersByTime(LONG_PRESS_MS - 100);
+      await stop.trigger('pointerup');
+      await stop.trigger('click', { detail: 1 });
+      expect(composer.emitted('stop')).toHaveLength(1);
+      // held: the panel opens, and the click the press ends in does not stop
+      await stop.trigger('pointerdown', { button: 0 });
+      vi.advanceTimersByTime(LONG_PRESS_MS);
+      await flushPromises();
+      expect(menu.attributes('aria-expanded')).toBe('true');
+      await stop.trigger('pointerup');
+      await stop.trigger('click', { detail: 1 });
+      expect(composer.emitted('stop')).toHaveLength(1);
+      // a touch long-press that also reports a context menu opens it once and keeps the page's menu away
+      await menu.trigger('click');
+      await stop.trigger('pointerdown', { button: 0 });
+      vi.advanceTimersByTime(LONG_PRESS_MS);
+      const touchMenu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      stop.element.dispatchEvent(touchMenu);
+      await flushPromises();
+      expect(touchMenu.defaultPrevented).toBe(true);
+      expect(menu.attributes('aria-expanded')).toBe('true');
+      await menu.trigger('click');
+      // a right-click opens it, and the next keyboard press of Stop still stops
+      await stop.trigger('pointerdown', { button: 2 });
+      await stop.trigger('contextmenu');
+      await flushPromises();
+      expect(menu.attributes('aria-expanded')).toBe('true');
+      await stop.trigger('click', { detail: 0 });
+      expect(composer.emitted('stop')).toHaveLength(2);
+      composer.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('sends nothing while it is empty or turned off', async () => {

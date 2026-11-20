@@ -1,8 +1,10 @@
 import { fn, g } from '@harness/sdk';
-import { ConnectionId, SystemName, type FnRecord, type Json, type QualifiedName, type Turn, type UserConnection } from '@harness/core';
+import { ConnectionId, ConnectKey, SystemName, type FnRecord, type Json, type QualifiedName, type Turn, type UserConnection } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openScope, type AccessScope, type FnConnection, type FnRef } from '../access/index.ts';
+import type { UnconnectedKey } from '../connections/index.ts';
 import type { RunInput } from './index.ts';
+import type { ExecutionDeps } from './ports.ts';
 import { AGENT, ALICE, executionRig, type ExecutionRig } from './testing.ts';
 
 const read = fn({ description: 'Read a file.', args: g.obj({ path: g.text() }), returns: g.text(), tags: ['read'] });
@@ -21,10 +23,10 @@ function scope(hidden: readonly string[], connection: (record: FnRef) => FnConne
 let rig: ExecutionRig;
 afterEach(async () => { await rig.module.stop(); });
 
-async function started(access: AccessScope): Promise<ExecutionRig> {
+async function started(access: AccessScope, unconnected: ExecutionDeps['connections']['unconnected'] = () => Promise.resolve(undefined)): Promise<ExecutionRig> {
   rig = await executionRig({
     access: { scope: () => Promise.resolve(access) },
-    connections: { forRun: (connection) => Promise.resolve({ id: connection.id, owner: connection.owner, credentials: { token: 't' }, settings: connection.settings }) },
+    connections: { forRun: (connection) => Promise.resolve({ id: connection.id, owner: connection.owner, credentials: { token: 't' }, settings: connection.settings }), unconnected },
   });
   rig.catalog.add('fs', 'read', read);
   rig.catalog.add('cal', 'list_events', listEvents);
@@ -81,5 +83,40 @@ describe('visibility at a run start', () => {
     expect(outcome.status).toBe('failed');
     expect(JSON.stringify(outcome)).toMatch(/no longer connected or shared/);
     expect(cal.requests).toHaveLength(0);
+  });
+
+  it('refuses a call through a key that signs in and has no connection before any approval is asked, with the connect link', async () => {
+    const tracker: UnconnectedKey = { system: SystemName.parse('cal'), key: ConnectKey.parse('tracker'), label: 'Tracker', shared: false, link: 'http://hub.test/connect/cal' };
+    const asked: Array<{ name: string; args: Json | undefined }> = [];
+    let missing: UnconnectedKey | undefined = tracker;
+    const r = await started(scope([], () => undefined), (record, args) => { asked.push({ name: record.name, args }); return Promise.resolve(missing); });
+    // the fn always asks first: the refusal comes before that, so nobody is asked about a call that can't run
+    const record = r.catalog.add('cal', 'issues', listEvents);
+    r.catalog.set(record.name, { decl: { ...record.decl, approval: { preview: false, remember: false } } });
+    r.connect('cal');
+    const turn = await r.turn();
+    await expect(r.module.runs.start({ ...input(turn, record.name, { repo: 'web' }), caller: AGENT })).rejects.toMatchObject({
+      error: { class: 'caller', code: 'not-connected', message: 'Connect to Tracker first, at http://hub.test/connect/cal', data: { system: 'cal', key: 'tracker', link: 'http://hub.test/connect/cal' } },
+    });
+    expect(asked).toEqual([{ name: 'cal/issues', args: { repo: 'web' } }]);
+    expect(r.bus.of('approval')).toEqual([]);
+    expect((await r.store.table('runs').find({ limit: 5 })).items).toEqual([]);
+    // a shared key says an admin sets it for everyone
+    missing = { ...tracker, shared: true };
+    await expect(r.module.runs.start({ ...input(turn, record.name), caller: AGENT })).rejects.toThrow('Tracker has no sign-in yet: an admin sets it for everyone at http://hub.test/connect/cal');
+    // connected (or a key that needs no connection): the same call is asked about as usual
+    missing = undefined;
+    const { run } = await r.module.runs.start({ ...input(turn, record.name), caller: AGENT });
+    expect((await r.module.runs.get(run))?.status).toBe('awaiting-approval');
+  });
+
+  it('never looks for a key when the call already has a connection to act as', async () => {
+    const ready = { state: 'ready' as const, connection: CONNECTION, option: { on: true, ask: false } };
+    let asked = 0;
+    const r = await started(scope([], (record) => (isCal(record) ? ready : undefined)), () => { asked += 1; return Promise.resolve(undefined); });
+    r.connect('cal');
+    const { settled } = await r.module.runs.start(input(await r.turn(), 'cal/list_events'));
+    expect(await settled).toMatchObject({ status: 'done' });
+    expect(asked).toBe(0);
   });
 });

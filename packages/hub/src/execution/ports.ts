@@ -62,7 +62,7 @@ export interface ExecutionDeps extends ExecutionBase {
   /** What the person a run is for may see and use (a fn they can't is refused as missing). */
   readonly access: Pick<AccessService, 'scope'>;
   /** The credentials a per-person fn's run acts with. */
-  readonly connections: Pick<ConnectionService, 'forRun'>;
+  readonly connections: Pick<ConnectionService, 'forRun' | 'unconnected'>;
 }
 
 /** One run to execute: the stored run, its fn and the request its executor gets. */

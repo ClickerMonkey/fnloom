@@ -25,8 +25,9 @@ export default defineConfig({
       '/clients': { target: hub, changeOrigin: true },
       // the redirect back from a provider's sign-in (a calendar): the hub answers it, then sends the person to /connect/<system>
       '/connect/callback': { target: hub, changeOrigin: true },
-      // SSO: a provider button's start, and the redirect back from the provider; the hub answers both
-      '/auth/sso': { target: hub, changeOrigin: true },
+      // SSO: a provider button's start, and the redirect back from the provider; the hub answers both. `xfwd` tells the
+      // hub the host the browser used (X-Forwarded-Host), so a start here bounces to HARNESS_URL, where the provider comes back
+      '/auth/sso': { target: hub, changeOrigin: true, xfwd: true },
       // the install manifest, which carries the hub's display name
       '/manifest.webmanifest': { target: hub, changeOrigin: true },
       '/ws': { target: hub.replace('http', 'ws'), ws: true },

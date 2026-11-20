@@ -61,7 +61,7 @@ export function createChat(given: ChatDeps): ChatModule {
   const deliveries = new LinkDeliveryService(deps, people);
   const compare = new StoreCompareService(deps, { sessions, people, streams });
   const turns = new StoreTurnService(deps, { sessions, people, mentions, enricher: enrich, reply, notifications, presence, streams, compare });
-  const undo = new RunUndoService(deps, sessions, state);
+  const undo = new RunUndoService(deps, sessions, state, compare);
   return {
     sessions, turns, reply, enrich, suggestions, state, deliveries, undo, mentions, mentionRequests, notifications, presence, compare, approvers: new StoreApprovers(deps),
     start: () => {

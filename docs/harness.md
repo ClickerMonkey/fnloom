@@ -290,7 +290,8 @@ code that calls an external service. Its services are records of the one instanc
 it signs in, the OpenAPI document), which the authoring agent picks or adds and admins edit under Admin → API services;
 a record never holds a secret. Connections are keyed per service (`ConnectDecl.scope: 'key'`): each person connects
 their own token, or an admin sets a shared one for everyone, and a token signs only while the service keeps the base
-URL it was given for. An older hub's per-service instances become records of the one instance when it starts
+URL it was given for. A call to a service that signs in, by someone with no connection to it, is refused when the run
+starts, before anyone is asked to approve it, with the connect page's link. An older hub's per-service instances become records of the one instance when it starts
 (`link/migrate-api.ts`).
 
 ### Changing itself
@@ -674,7 +675,9 @@ right viewer: `<ResourceViewer :uri="uri" compact />`.
 - **Global tool timeout:** if a run passes the timeout *and* a user is active in the session, the agent
   is unblocked the same way.
 - **Pause and cancel** on the session are offered only as far as the running runs support them. Cancel
-  stops what can stop; the rest finishes and is reported.
+  stops what can stop; the rest finishes and is reported. In a chat, Stop opens the panel with Pause, Resume and
+  Cancel. On a system page's composer (the Claude session page), one press of Stop stops at once, and the panel opens
+  from the small menu button beside it, a long press or a right-click.
 - **Undo a turn:** every run with an undo payload is undone, newest first. The turn also goes back to where it
   started: its messages come out of the conversation, the fns and context it loaded are unloaded, the ones it
   dropped are loaded again, and the graph selection is put back. The chat reports what really changed, and says
@@ -705,8 +708,11 @@ right viewer: `<ResourceViewer :uri="uri" compact />`.
   LLM calls move to the compared turn, so the turn's tree, details and undo work as for any turn. "Keep its settings"
   makes its settings the chat's own too. The others are cancelled if still going and discarded; what they already did
   stays done and is listed on the turn (`TurnCompare.discarded`). A compare can't be chosen once a later message was
-  sent or once it was undone. The chat's own system prompt is in its settings (System prompt), so a kept variant's
-  prompt can be seen, changed or given back to the agent. The variant dialog is built from the chat's own pickers
+  sent or once it was undone. Undoing a compared turn undoes only the chosen variant's runs; what the others did (or
+  every variant did, when it is undone before one was chosen) stays done, and the undo lists it by variant
+  (`UndoReport.kept`): the note says how many changes each variant left and shows its fns as pills (a `kept-effects`
+  part), and the undo toast counts them (Phil: "Keep effects, but list them in the undo notice"). The chat's own
+  system prompt is in its settings (System prompt), so a kept variant's prompt can be seen, changed or given back to the agent. The variant dialog is built from the chat's own pickers
   (model, mode, agent, fn mode, systems, system prompt), warns when two variants are the same, and shows each one's
   share of the budget.
 - **A held system shows a banner.** When a turn's runs show a fn refused because its system waits for a review, the
@@ -1032,7 +1038,8 @@ the tightest.
   Once a provider is configured, only the bootstrap admin keeps a password. That admin is the break-glass login: the
   first account given a password, always an admin, never turned off, and the only password sign-in the page offers
   (folded under "Admin? Sign in with a password"). A provider sends people back to `HARNESS_URL`, and the sign-in is
-  bound to the browser that started it, so the hub has to be opened at that address for SSO to finish.
+  bound to the browser that started it. A start opened at any other address (the LAN IP, the web dev port) first
+  sends the browser to the same start on `HARNESS_URL`, keeping where to go after, so the sign-in finishes there.
 - **Admin › People** (`/admin/people/<tab>`) has three tabs. **People** lists everyone (searched, filtered and counted
   in the database), and a person's panel sets their role, whether they can sign in and their groups, and shows how they
   sign in; an admin can add a person ahead of their first sign-in. **Groups** lists the groups with their member
@@ -1607,6 +1614,17 @@ Already checked: type-checking all of the types and examples takes about two sec
 - **A/B compare** (to-do phase 6, 2026-11-19): built as Phil decided. Up to 4 variants, any session setting (system
   prompt included), each variant in a hidden fork with an even share of the turn's budget reserved up front, and every
   write in a variant approved by the person for that variant (never remembered as a policy).
+- **To-do follow-ups** (2026-11-19, hitloop `todo-2026-11-19-followups`): built as Phil decided.
+  - SSO origin: "Redirect to HARNESS_URL before starting sign-in". A start reached at another host (the request's
+    `Host`, or a proxy's first `X-Forwarded-Host`) redirects to the same start on `HARNESS_URL` with `next` kept and
+    a `relocated` flag, so a proxy that hides the host can't cause a loop. The person finishes on `HARNESS_URL`.
+  - A/B undo before choosing: "Keep effects, but list them in the undo notice". Undo reverts none of the variants'
+    runs; the report's `kept` and the note list each variant's writes.
+  - Claude Stop: "Stop interrupts at once; panel via long-press/menu". Only system pages' composers work this way;
+    the chat's Stop still opens the panel.
+  - api fn with no connection: "Check the connection before asking approval". The run start reads the one key
+    record and refuses the call `not-connected` (class `caller`) with the link in its data. The api system's own
+    `not-connected` failure still covers a token set for an older base URL.
 - **Phase 5 follow-ups** (2026-11-19): "No suggestions" means nothing is suggested (no score-only fallback); embedders
   exist only as providers' embedding models, and the index embeds through the hub's AI; `backfill()` filters in the
   database; decide calls split by `maxRequestBytes` as well as `maxQuestions`; markdown image links come from

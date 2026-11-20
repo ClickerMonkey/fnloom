@@ -13,7 +13,7 @@ import { SuggestionRecord } from '../suggestions.ts';
 import { RunStatus } from '../run.ts';
 import { Display } from '../run.ts';
 import { AnnouncedSystems, SystemChange } from './announced.ts';
-import { CompareFork, SessionSettings } from './compare.ts';
+import { CompareFork, KeptVariant, SessionSettings } from './compare.ts';
 
 export * from './announced.ts';
 export * from './compare.ts';
@@ -110,6 +110,8 @@ export const MessagePart = z.discriminatedUnion('type', [
   z.object({ type: z.literal('link'), link: Link }),
   /** The systems that went on or off since the model was last told. The chat hides it; the LLM reads it before the message. */
   z.object({ type: z.literal('systems-changed'), on: z.array(SystemChange), off: z.array(SystemChange) }),
+  /** On an undo note of an A/B compared turn: what its variants did that the undo left as it is, by variant. */
+  z.object({ type: z.literal('kept-effects'), variants: z.array(KeptVariant) }),
 ]);
 export type MessagePart = z.infer<typeof MessagePart>;
 

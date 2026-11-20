@@ -5832,7 +5832,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/turn_undo`: Undo what one message's runs did, where their fns can undo.
 
   ```text
-  (obj{/* turn id */ turn: text}) => obj{ turn, undone, failed, notUndoable, session? … }
+  (obj{/* turn id */ turn: text}) => obj{ turn, undone, failed, notUndoable, kept?, session? … }
   ```
 - `hub/memory_update`: Change a memory: its text, title, weight, tags, the fns it brings or where it applies.
 
@@ -10577,7 +10577,8 @@ interface ConversationProps { entries: readonly ConversationEntry[]; agent: stri
 interface · `import { ComposerProps } from '@harness/sdk'`
 
 Props of the chat's composer (`v-model` is the text; `@send`, and `@stop` while `running`): Enter sends on a
-keyboard, the box grows with its text, and Stop sits beside Send while work runs. `note` is a short line under it.
+keyboard, the box grows with its text, and Stop sits beside Send while work runs. One press of Stop emits `@stop` at once;
+the menu beside it (or a long press, or a right-click) opens the run-control panel. `note` is a short line under it.
 
 ```ts
 interface ComposerProps { modelValue: string; placeholder?: string; sending?: boolean; running?: boolean; stopping?: boolean; disabled?: boolean; note?: string }
@@ -21856,6 +21857,16 @@ type MessagePart = {
     reason: string;
     label?: string | undefined;
     description?: string | undefined;
+  }[];
+} | {
+  type: "kept-effects";
+  variants: {
+    variant: number;
+    label: string;
+    effects: {
+      run: string;
+      fn: `${string}/${string}`;
+    }[];
   }[];
 };
 ```

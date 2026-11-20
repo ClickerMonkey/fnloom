@@ -1,8 +1,8 @@
-import { IDS, type LlmMessage, type Run, type TurnId } from '@harness/core';
+import { IDS, QualifiedName, type LlmMessage, type Run, type TurnId, type UndoReport } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { fieldType } from './state.ts';
 import { CLIENT, chatWorld, gin, makeRun, settle } from './testing.ts';
-import { undoNote } from './undo.ts';
+import { undoNote, undoNoteParts } from './undo.ts';
 
 const text = gin({ name: 'text' });
 
@@ -207,5 +207,17 @@ describe('the undo note', () => {
     const rewound = (messages: number) => undoNote({ turn: IDS.turn.parse('trn_1'), undone: [], failed: [], notUndoable: [], session: { messages, unloaded: [], reloaded: [] } });
     expect(rewound(1)).toBe('Took the turn\'s one message out of the conversation, so the agent starts again from before it.');
     expect(rewound(0)).toBe('Undid the turn. It had changed nothing.');
+  });
+
+  it('says what A/B variants did that stays, by variant, and carries it as a kept-effects part', () => {
+    const turn = IDS.turn.parse('trn_1');
+    const kept = [
+      { variant: 0, label: 'Fast', effects: [{ run: IDS.run.parse('run_1'), fn: QualifiedName.parse('fs/write') }, { run: IDS.run.parse('run_2'), fn: QualifiedName.parse('fs/rm') }] },
+      { variant: 2, label: 'Variant C', effects: [{ run: IDS.run.parse('run_3'), fn: QualifiedName.parse('mail/send') }] },
+    ] satisfies UndoReport['kept'];
+    const report: UndoReport = { turn, undone: [], failed: [], notUndoable: [], kept };
+    expect(undoNote(report)).toBe('What the variants did stays as it is: 2 changes by Fast, one change by Variant C.');
+    expect(undoNoteParts(report)).toEqual([{ type: 'text', text: undoNote(report) }, { type: 'kept-effects', variants: kept }]);
+    expect(undoNoteParts({ turn, undone: [], failed: [], notUndoable: [], kept: [] })).toEqual([{ type: 'text', text: 'Undid the turn. It had changed nothing.' }]);
   });
 });

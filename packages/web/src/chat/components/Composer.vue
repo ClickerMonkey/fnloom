@@ -36,6 +36,8 @@ const props = withDefaults(defineProps<{
   paused: boolean;
   stopping: boolean;
   controls?: SessionControls | undefined;
+  /** Stop cancels at once; its panel opens from the menu beside it or a long press (a system page's composer). */
+  immediateStop?: boolean;
   picker: { readonly open: boolean; readonly kind: 'mention' | 'command' | 'invoke' | undefined; readonly items: readonly PickerItem[]; readonly active: number; readonly loading: boolean };
   hint?: CommandHint | undefined;
   files: readonly StagedFile[];
@@ -52,7 +54,7 @@ const props = withDefaults(defineProps<{
   touch: boolean;
   /** A short note under the box ("2 runs moved to background"). */
   note?: string;
-}>(), { caretRequest: undefined, controls: undefined, hint: undefined, reply: undefined, editing: false, note: '' });
+}>(), { caretRequest: undefined, controls: undefined, immediateStop: false, hint: undefined, reply: undefined, editing: false, note: '' });
 
 const emit = defineEmits<{
   input: [text: string, caret: number];
@@ -271,7 +273,7 @@ defineExpose({ focus: () => { area.value?.focus(); } });
           </button>
         </div>
         <div class="right">
-          <RunControl :controls="controls" :running="running" :paused="paused" :stopping="stopping" @control="(verb, runs) => emit('control', verb, runs)" />
+          <RunControl :controls="controls" :running="running" :paused="paused" :stopping="stopping" :immediate="immediateStop" @control="(verb, runs) => emit('control', verb, runs)" />
           <UiIconButton
             class="send" :class="{ ready: canSend }" icon="arrow-up" :label="editing ? 'Save and resend' : touch ? 'Send' : 'Send (Enter; Shift+Enter for a new line)'" :disabled="!canSend || sending"
             data-testid="send" @click="emit('send')"

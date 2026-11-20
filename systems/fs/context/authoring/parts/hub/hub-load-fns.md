@@ -447,7 +447,7 @@ tags: ["authoring"]
 - `hub/turn_undo`: Undo what one message's runs did, where their fns can undo.
 
   ```text
-  (obj{/* turn id */ turn: text}) => obj{ turn, undone, failed, notUndoable, session? … }
+  (obj{/* turn id */ turn: text}) => obj{ turn, undone, failed, notUndoable, kept?, session? … }
   ```
 - `hub/memory_update`: Change a memory: its text, title, weight, tags, the fns it brings or where it applies.
 

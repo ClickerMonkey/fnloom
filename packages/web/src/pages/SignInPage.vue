@@ -3,7 +3,9 @@
  * Sign in, or make the admin account on a new hub. Afterwards it returns to the page that sent you here (`?next=`).
  *
  * With SSO providers configured (`setup.sso`), each is a "Continue with …" button: a plain link to the hub's start
- * route, which sends the browser to the provider. The provider's way back lands here: with the new session in the URL
+ * route, which sends the browser to the provider. Opened anywhere but `HARNESS_URL` (the LAN IP, the dev port), the
+ * start first bounces to itself on `HARNESS_URL`, `next` kept, so the sign-in finishes there, where the provider comes
+ * back. The provider's way back lands here: with the new session in the URL
  * fragment (`#sso=`, swapped for tokens at once and wiped from the address bar), or with `?problem=` when the sign-in
  * was refused. Passwords then belong to the break-glass admin only, so the password form folds away under "Sign in with
  * a password". Without providers the page is the password form, as before.

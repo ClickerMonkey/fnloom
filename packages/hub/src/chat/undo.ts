@@ -4,13 +4,15 @@
  * transcript is cut back to before the turn, and the fns, context and graph selection the agent had loaded are put
  * back, so a retry starts again from before the turn and never reads it. Runs that changed something but can't be
  * undone are reported, and the hub posts a note in the session saying what happened. Turns are undone newest first:
- * a turn with a later one still standing is refused, since the later one was built on it.
+ * a turn with a later one still standing is refused, since the later one was built on it. An A/B compared turn keeps
+ * what its variants did outside the chat (all of them before one was chosen, the discarded ones after): undo leaves it as
+ * it is and lists it by variant (`UndoReport.kept`), and the note carries it as a `kept-effects` part.
  */
-import { mintId, READ_TAG, TurnStatus, type ActorId, type ChatMessage, type QualifiedName, type Run, type Session, type Turn, type TurnId, type UndoReport } from '@harness/core';
+import { mintId, READ_TAG, TurnStatus, type ActorId, type ChatMessage, type QualifiedName, type Run, type Session, type MessagePart, type Turn, type TurnId, type UndoReport } from '@harness/core';
 import type { ChatDeps } from './deps.ts';
 import { ChatError, messageOf } from './errors.ts';
 import { AGENT_KIND } from '../execution/index.ts';
-import type { StateService, UndoService } from './index.ts';
+import type { CompareService, StateService, UndoService } from './index.ts';
 import { isActiveRun, type StoreSessionService } from './sessions.ts';
 import { someRows } from '../store/rows.ts';
 
@@ -30,14 +32,24 @@ export function undoNote(report: UndoReport): string {
   const lines: string[] = [];
   const session = report.session;
   const rewound = session !== undefined && (session.messages > 0 || session.unloaded.length > 0 || session.reloaded.length > 0);
-  if (report.undone.length === 0 && report.failed.length === 0 && report.notUndoable.length === 0 && !rewound) { lines.push('Undid the turn. It had changed nothing.'); }
+  const kept = report.kept ?? [];
+  if (report.undone.length === 0 && report.failed.length === 0 && report.notUndoable.length === 0 && kept.length === 0 && !rewound) { lines.push('Undid the turn. It had changed nothing.'); }
   if (session !== undefined && session.messages > 0) { lines.push(`Took the turn's ${count(session.messages, 'message', 'messages')} out of the conversation, so the agent starts again from before it.`); }
   if (session !== undefined && session.unloaded.length > 0) { lines.push(`Unloaded what the turn loaded: ${session.unloaded.join(', ')}.`); }
   if (session !== undefined && session.reloaded.length > 0) { lines.push(`Loaded again what the turn dropped: ${session.reloaded.join(', ')}.`); }
   if (report.undone.length > 0) { lines.push(`Undid ${count(report.undone.length, 'change', 'changes')}:`, ...report.undone.map((u) => `- ${u.fn}: ${u.summary}`)); }
   if (report.failed.length > 0) { lines.push('Could not undo:', ...report.failed.map((f) => `- ${f.fn}: ${f.error.message}`)); }
   if (report.notUndoable.length > 0) { lines.push('These have no undo and were left as they are:', ...report.notUndoable.map((n) => `- ${n.fn}`)); }
+  if (kept.length > 0) {
+    lines.push(`What the variants did stays as it is: ${kept.map((k) => `${count(k.effects.length, 'change', 'changes')} by ${k.label}`).join(', ')}.`);
+  }
   return lines.join('\n');
+}
+
+/** The parts of the note the hub posts after undoing a turn: its words, and what the variants did that stays, by variant. */
+export function undoNoteParts(report: UndoReport): MessagePart[] {
+  const text: MessagePart = { type: 'text', text: undoNote(report) };
+  return report.kept === undefined || report.kept.length === 0 ? [text] : [text, { type: 'kept-effects', variants: report.kept }];
 }
 
 /** Undo on the store, through the run service. */
@@ -45,11 +57,16 @@ export class RunUndoService implements UndoService {
   readonly #deps: Pick<ChatDeps, 'store' | 'clock' | 'random' | 'bus' | 'log' | 'settings' | 'runs' | 'catalog' | 'hubActor'>;
   readonly #sessions: StoreSessionService;
   readonly #state: StateService;
+  readonly #compare: Pick<CompareService, 'kept'>;
 
-  constructor(deps: Pick<ChatDeps, 'store' | 'clock' | 'random' | 'bus' | 'log' | 'settings' | 'runs' | 'catalog' | 'hubActor'>, sessions: StoreSessionService, state: StateService) {
+  constructor(
+    deps: Pick<ChatDeps, 'store' | 'clock' | 'random' | 'bus' | 'log' | 'settings' | 'runs' | 'catalog' | 'hubActor'>, sessions: StoreSessionService, state: StateService,
+    compare: Pick<CompareService, 'kept'>,
+  ) {
     this.#deps = deps;
     this.#sessions = sessions;
     this.#state = state;
+    this.#compare = compare;
   }
 
   async undoTurn(id: TurnId, by: ActorId): Promise<UndoReport> {
@@ -70,15 +87,17 @@ export class RunUndoService implements UndoService {
     if (runs.some(isActiveRun)) { throw new ChatError('conflict', 'Some runs of this turn are still going. Undo it once they finish.'); }
     const report: UndoReport = { turn: id, undone: [], failed: [], notUndoable: [] };
     for (const run of runs) { await this.#undoRun(run, by, report); }
+    const kept = await this.#compare.kept(turn);
+    if (kept.length > 0) { report.kept = kept; }
     const rewound = await this.#rewind(turn);
     if (rewound !== undefined) { report.session = rewound; } else if (turn.session !== undefined) { await this.#sessions.save(turn.session, {}); }
     await this.#deps.store.table('turns').update(id, { status: 'undone' });
     this.#deps.log.info('chat.turn.undone', {
-      turn: id, by, undone: report.undone.length, failed: report.failed.length, notUndoable: report.notUndoable.length, messages: report.session?.messages ?? null,
+      turn: id, by, undone: report.undone.length, failed: report.failed.length, notUndoable: report.notUndoable.length, kept: kept.reduce((n, k) => n + k.effects.length, 0), messages: report.session?.messages ?? null,
     });
     if (turn.session !== undefined) {
       const note: ChatMessage = {
-        id: mintId('message', this.#deps.random), session: turn.session, turn: id, author: this.#deps.hubActor, role: 'note', parts: [{ type: 'text', text: undoNote(report) }],
+        id: mintId('message', this.#deps.random), session: turn.session, turn: id, author: this.#deps.hubActor, role: 'note', parts: undoNoteParts(report),
         runs: runs.map((r) => r.id), status: 'done', replyAll: false, answerers: [], createdAt: this.#deps.clock(),
       };
       await this.#deps.store.table('messages').insert(note);

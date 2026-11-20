@@ -20,7 +20,7 @@ import { z } from 'zod';
 import { HUB_SYSTEM, systemAvailability } from '../catalog/availability.ts';
 import { installCard } from '../link/install.ts';
 import { DeadlineTimers, deadlineError, runDeadline, type RunDeadline } from './deadlines.ts';
-import { fnError, HubStopping, messageOf, RunRefused, RunStopped, RunTimedOut } from './errors.ts';
+import { fnError, HubStopping, messageOf, notConnected, RunRefused, RunStopped, RunTimedOut } from './errors.ts';
 import { rows } from '../store/rows.ts';
 import { SystemGone } from './executors.ts';
 import { AGENT_KIND, type Ledger, type LimitResolver, type PolicyEngine, type RunInput, type RunService } from './index.ts';
@@ -228,6 +228,10 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     if (!access.seesFn(fn)) throw new RunRefused(fnError('caller', `There is no fn ${input.fn}.`, 'not-found'));
     const connection = access.connection(fn, input.args);
     if (connection?.state === 'missing' && !blockedCall) throw new RunRefused(fnError('retry', `${input.fn} acts as you: connect your account on the ${connection.page} page first.`, 'unavailable'));
+    // a call through a key that signs in, with no connection to it, could only fail in the run: refused before any
+    // approval is asked for it
+    const unconnected = connection === undefined && !blockedCall ? await this.#deps.connections.unconnected(fn, input.args) : undefined;
+    if (unconnected !== undefined) throw new RunRefused(notConnected(unconnected));
     const parent = input.parent === undefined ? undefined : await store.table('runs').get(input.parent);
     if (input.parent !== undefined && parent === undefined) throw new RunRefused(fnError('fatal', `There is no parent run ${input.parent}.`, 'not-found'));
     if (parent !== undefined) {

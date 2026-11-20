@@ -88,7 +88,8 @@ interface ConversationProps { entries: readonly ConversationEntry[]; agent: stri
 interface · `import { ComposerProps } from '@harness/sdk'`
 
 Props of the chat's composer (`v-model` is the text; `@send`, and `@stop` while `running`): Enter sends on a
-keyboard, the box grows with its text, and Stop sits beside Send while work runs. `note` is a short line under it.
+keyboard, the box grows with its text, and Stop sits beside Send while work runs. One press of Stop emits `@stop` at once;
+the menu beside it (or a long press, or a right-click) opens the run-control panel. `note` is a short line under it.
 
 ```ts
 interface ComposerProps { modelValue: string; placeholder?: string; sending?: boolean; running?: boolean; stopping?: boolean; disabled?: boolean; note?: string }

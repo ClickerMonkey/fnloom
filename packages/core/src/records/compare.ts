@@ -68,6 +68,14 @@ export const DiscardedVariant = z.object({ variant: VariantIndex, effects: z.arr
 export type DiscardedVariant = z.infer<typeof DiscardedVariant>;
 
 /**
+ * What one variant did that stays done once its compared turn is undone: the turn was undone before a variant was chosen,
+ * or the variant was not chosen. Undo leaves it as it is (only the chosen variant's runs belong to the turn), so the
+ * undo report and note list it, by variant.
+ */
+export const KeptVariant = z.object({ variant: VariantIndex, label: z.string(), effects: z.array(CompareEffect).min(1) });
+export type KeptVariant = z.infer<typeof KeptVariant>;
+
+/**
  * A compared turn's variants (`Turn.compare`). Each variant is reserved its share of the turn's budget up front
  * (`reserved`), so all of them together never spend more than one answer may. Once one is chosen (`chosen`) its answer
  * is the turn's, and the others are discarded with what they did listed.

@@ -387,7 +387,7 @@ export async function executionRig(options: {
     config: { current: (system) => Promise.resolve(configs.get(system)) },
     roles: { resolve: () => Promise.resolve(undefined) },
     access: options.access ?? { scope: (actor) => Promise.resolve(openScope(actor)) },
-    connections: options.connections ?? { forRun: () => Promise.reject(new Error('no connections in this rig')) },
+    connections: options.connections ?? { forRun: () => Promise.reject(new Error('no connections in this rig')), unconnected: () => Promise.resolve(undefined) },
     presence: { active: () => Promise.resolve(presence.active) },
     turns: {
       begin: async (input) => {

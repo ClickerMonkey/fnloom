@@ -4,7 +4,9 @@
  * provider's key set, and userinfo. The hub keeps nothing between the start and the callback: what finishing needs
  * (the `state`, `nonce` and PKCE verifier, where to go after) is a signed, expiring payload (`SignedPayloads`, the
  * same helper as the connections' `state`) in an httpOnly cookie on the callback path, so the sign-in finishes only in
- * the browser that started it, and the verifier never travels through the provider.
+ * the browser that started it, and the verifier never travels through the provider. Because that cookie lives on the
+ * origin the start ran on, and the provider always comes back to `HARNESS_URL`, a start reached at any other host (the
+ * LAN IP, the web dev port) first bounces to the same start on `HARNESS_URL` (`relocate`), keeping where to go after.
  *
  * A finished sign-in goes to `HubAuthenticator.signInExternal` (linking, the first-sign-in policy, roles and groups),
  * and the callback hands the sign-in page the session's refresh token in the URL fragment, which never reaches a
@@ -25,6 +27,9 @@ import { randomSecret, SignedPayloads } from './signed.ts';
 
 /** The cookie that carries a sign-in in flight from its start to the callback. */
 export const SSO_COOKIE = 'harness_sso';
+
+/** The query flag a bounced start carries, so a hub that can't tell its own host (a proxy that drops it) starts anyway rather than bouncing forever. */
+export const SSO_RELOCATED_KEY = 'relocated';
 
 /** How long a test sign-in's result is kept for its admin. */
 const TEST_KEPT = 15 * 60_000;
@@ -67,6 +72,12 @@ export interface SsoCallbackAnswer {
 export interface SsoService {
   /** The configured providers. */
   readonly providers: readonly IdentityProviderConfig[];
+  /**
+   * Where a start at `start` should go first when the browser reached the hub at host `reached` (`host:port`) rather
+   * than `HARNESS_URL`'s: the same path and query on `HARNESS_URL`, so the binding cookie is set on the origin the
+   * provider sends the person back to. Undefined to start here: the host matches, or the start was already bounced.
+   */
+  relocate(reached: string | undefined, start: URL): string | undefined;
   /** Begin a sign-in (or a test sign-in, for `test.admin`). Refused for an unknown provider; throws when it can't be reached. */
   start(provider: string, options: { readonly next?: string | undefined; readonly test?: { readonly id: string; readonly admin: ActorId } | undefined }): Promise<SsoStart>;
   /** The provider sent the browser back with these query params and these cookies. Never throws: problems go in the location. */
@@ -112,6 +123,16 @@ export class OidcSignIns implements SsoService {
 
   get #redirect(): string {
     return new URL(SSO_CALLBACK_PATH, this.#deps.hubUrl).toString();
+  }
+
+  relocate(reached: string | undefined, start: URL): string | undefined {
+    const home = new URL(this.#deps.hubUrl);
+    if (start.searchParams.has(SSO_RELOCATED_KEY) || reached === undefined || sameHost(reached, home)) return undefined;
+    const there = new URL(start.pathname, home);
+    const next = safePath(start.searchParams.get('next') ?? undefined);
+    if (next !== undefined) there.searchParams.set('next', next);
+    there.searchParams.set(SSO_RELOCATED_KEY, '1');
+    return there.toString();
   }
 
   async start(provider: string, options: { readonly next?: string | undefined; readonly test?: { readonly id: string; readonly admin: ActorId } | undefined }): Promise<SsoStart> {
@@ -277,6 +298,11 @@ function testPage(test: string): string {
 /** A path in this app, never another site. */
 function safePath(next: string | undefined): string | undefined {
   return next !== undefined && /^\/(?![/\\])/.test(next) ? next : undefined;
+}
+
+/** Whether `host` (`host[:port]`, as a request's `Host` says) is `url`'s host, default ports and case aside. */
+function sameHost(host: string, url: URL): boolean {
+  try { return new URL(`${url.protocol}//${host}`).host === url.host; } catch { return false; }
 }
 
 /** Claims as JSON (values JSON can't hold are left out). */

@@ -59,7 +59,7 @@ import { STATUS_LINE, statusLine, type RunView } from '../logic/runs.ts';
 import { agentOptions, budgetMeter, messageSuggestions, modelLabel, whoAnswers, type SuggestionItem } from '../logic/session.ts';
 import { messageText, threadItems, type MentionPart } from '../logic/thread.ts';
 import { sendDraft } from '../state/send.ts';
-import type { BudgetAsk } from '../state/thread.ts';
+import { keptCount, type BudgetAsk } from '../state/thread.ts';
 import { turnVerbs, type ControlVerb, type TurnVerb } from '../logic/controls.ts';
 import type { ChatPanel } from '../url.ts';
 
@@ -242,9 +242,11 @@ async function undo(turn: TurnId): Promise<void> {
   if (report === undefined) { toasts.error("Couldn't undo", thread.problem.value); return; }
   const undone = report.undone.length;
   const left = report.failed.length + report.notUndoable.length;
+  const kept = keptCount(report);
+  const body = [left > 0 ? `${left} couldn't be undone.` : '', kept > 0 ? `${kept} change${kept === 1 ? '' : 's'} by the variants stay${kept === 1 ? 's' : ''}.` : ''].filter((s) => s !== '').join(' ');
   toasts.push({
     tone: left > 0 ? 'warn' : 'ok', title: undone > 0 ? `Undid ${undone} change${undone === 1 ? '' : 's'}` : 'Turn undone',
-    ...(left > 0 ? { body: `${left} couldn't be undone.` } : {}),
+    ...(body === '' ? {} : { body }),
     action: { label: 'Show note', run: () => { scroller.value?.toBottom(true); } },
   });
 }

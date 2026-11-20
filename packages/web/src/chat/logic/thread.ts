@@ -172,7 +172,7 @@ export function messageText(parts: readonly MessagePart[]): string {
       case 'file': return `[${part.name}]`;
       case 'link': return 'title' in part.link && part.link.title !== undefined ? part.link.title : '';
       case 'attachment': return part.title;
-      case 'reasoning': case 'invocation': case 'call': case 'extra': case 'hook': case 'input-answer': case 'systems-changed': return '';
+      case 'reasoning': case 'invocation': case 'call': case 'extra': case 'hook': case 'input-answer': case 'systems-changed': case 'kept-effects': return '';
     }
   }).filter((text) => text !== '').join(' ').replace(/ {2,}/g, ' ').trim();
 }
@@ -188,7 +188,7 @@ export function resendParts(parts: readonly MessagePart[]): OutgoingPart[] {
       case 'file': out.push({ type: 'file', ref: part.ref, name: part.name }); break;
       // the rest are added by the hub or the agent, never sent by a person
       // a form's answers belong to the run that asked, which a resend doesn't repeat
-      case 'reasoning': case 'invocation': case 'call': case 'extra': case 'hook': case 'input-answer': case 'systems-changed': case 'attachment': case 'link': break;
+      case 'reasoning': case 'invocation': case 'call': case 'extra': case 'hook': case 'input-answer': case 'systems-changed': case 'kept-effects': case 'attachment': case 'link': break;
     }
   }
   return out;

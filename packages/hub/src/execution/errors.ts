@@ -3,10 +3,22 @@
  * again), and `causeOf` finds one inside a wrapper (aeye wraps errors thrown by hooks in its own).
  */
 import { messageOf, type BudgetId, type ErrorClass, type FnError, type RunControlAction } from '@harness/core';
+import type { UnconnectedKey } from '../connections/index.ts';
 
 /** Make a `FnError`. */
 export function fnError(errorClass: ErrorClass, message: string, code?: string): FnError {
   return code === undefined ? { class: errorClass, message } : { class: errorClass, message, code };
+}
+
+/**
+ * A call to a key that signs in, which the caller has no connection to: what the system would fail it with
+ * (`not-connected`), with the connect page's link to say and to show.
+ */
+export function notConnected(key: UnconnectedKey): FnError {
+  const message = key.shared
+    ? `${key.label} has no sign-in yet: an admin sets it for everyone at ${key.link}`
+    : `Connect to ${key.label} first, at ${key.link}`;
+  return { class: 'caller', message, code: 'not-connected', data: { system: key.system, key: key.key, link: key.link } };
 }
 
 /** A run could not be started: the fn is unknown, unavailable, not a declared dep, or its args don't fit. */

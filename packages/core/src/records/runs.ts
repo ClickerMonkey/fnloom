@@ -10,7 +10,7 @@ import { RunText } from '../status.ts';
 import { GraphSelection, SelectionReport } from '../modes.ts';
 import { ResolvedLimits } from './spend.ts';
 import { AnnouncedSystems } from './announced.ts';
-import { TurnCompare } from './compare.ts';
+import { KeptVariant, TurnCompare } from './compare.ts';
 
 /** A session state change a run made, with the value before, so undoing the turn can put it back. */
 export const StateChange = z.object({ field: z.string(), type: z.string(), before: Json.optional(), after: Json.optional() });
@@ -252,6 +252,8 @@ export const UndoReport = z.object({
   undone: z.array(z.object({ run: RunId, fn: QualifiedName, summary: z.string() })),
   failed: z.array(z.object({ run: RunId, fn: QualifiedName, error: FnError })),
   notUndoable: z.array(z.object({ run: RunId, fn: QualifiedName })),
+  /** An A/B compared turn: what its variants did that stays done, by variant (only variants that changed something). */
+  kept: z.array(KeptVariant).optional(),
   /** How the session was put back to before the turn (a session turn that kept its start). */
   session: z.object({
     /** Messages of the turn taken out of the transcript the agent continues. */
