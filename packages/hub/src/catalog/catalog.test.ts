@@ -1,5 +1,5 @@
 import { ConnectKey, ContextDecl, GinTypeDef, QualifiedName, SystemName, type FnDecl, type KindDescription, type Manifest } from '@harness/core';
-import { g, wireType } from '@harness/sdk';
+import { fn, g, system, wireType } from '@harness/sdk';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { manifestHashOf, StoreCatalog } from './catalog.ts';
 import { ADMIN, declOf, manifestFor, orders, shop, systemRow } from './fixtures.ts';
@@ -136,6 +136,24 @@ describe('changes other systems depend on', () => {
     expect(report.refused[0]?.name).toBe('shop/Product');
     const widened = { ...product, def: wireType(g.obj({ sku: g.text(), price: g.num(), stock: g.optional(g.num()) })) };
     expect((await catalog.importManifest({ ...shopManifest, types: [widened] })).updated).toContain('shop/Product');
+  });
+
+  it("accepts a breaking change to the hub's own fns and logs the dependents, so the hub can still start", async () => {
+    const ctx = await setup();
+    const hubLike = system('hub', { description: 'The hub.' }).with({
+      fns: { system_get: fn({ description: 'A system.', args: g.obj({ name: g.text() }), returns: g.obj({ fns: g.num() }) }) },
+    });
+    const caller = system('claude', { description: 'Calls the hub.' }).with({
+      fns: { importables: fn({ description: 'Uses the hub.', args: g.obj({}), returns: g.bool(), deps: { system: hubLike.fns.system_get } }) },
+    });
+    const hubManifest = await manifestFor(hubLike);
+    await ctx.catalog.importManifest(hubManifest);
+    await ctx.catalog.importManifest(await manifestFor(caller));
+    const changed = { ...declOf(hubManifest, 'system_get'), returns: wireType(g.obj({ counts: g.obj({ fns: g.num() }) })) };
+    const report = await ctx.catalog.importManifest({ ...hubManifest, fns: [changed] });
+    expect(report.refused).toEqual([]);
+    expect(report.updated).toEqual(['hub/system_get']);
+    expect(ctx.records.some((r) => r.msg === 'catalog.hub.breaking')).toBe(true);
   });
 
   it('refuses a fn change that breaks the fns depending on it', async () => {

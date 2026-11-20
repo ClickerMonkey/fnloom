@@ -8,8 +8,8 @@ import type { Logger } from '@ayepi/log';
 import {
   apiContextName, Json, MANIFEST_SECTION_NAMES, noFnStats, QualifiedName, qualify, roleLinkTo, runtimeNames, splitName, type ModelRole,
   type ActorId, type Availability, type ContextDecl, type ContextRecord, type FnDecl, type FnRecord, type GinTypeDef, type ImportReport,
-  type KindDecl, type KindRecord, type Manifest, type ManifestPatch, type ManifestSection, type SectionDecl, type SystemName,
-  type InstanceName, type TypeDecl, type TypeRecord, type DeclaredBy, type FnLink, type ApiGroupDecl,
+  type KindDecl, type KindRecord, type Manifest, type ManifestPatch, type ManifestSection, type SectionDecl,
+  type InstanceName, SystemName, type TypeDecl, type TypeRecord, type DeclaredBy, type FnLink, type ApiGroupDecl,
 } from '@harness/core';
 import { canonicalJson, sha256 } from '@harness/sdk';
 import { z } from 'zod';
@@ -54,6 +54,9 @@ function eachSection(make: <S extends ManifestSection>(section: S) => Array<Sect
 }
 
 /** The empty report. */
+/** The hub's own system: its contract is the authority other systems' contracts follow. */
+const HUB = SystemName.parse('hub');
+
 const emptyReport = (): ImportReport => ({ added: [], updated: [], removed: [], refused: [] });
 
 /** The fleet instance a type belongs to, if one does. */
@@ -772,6 +775,11 @@ export class StoreCatalog implements Catalog {
     if (existing === undefined || sameDecl(existing.def, decl.def) || !(await this.#mentionedElsewhere(work, name))) { return []; }
     const { types: [next, old], scope } = this.#scopes.parse([decl.def, existing.def], work.lookup);
     if (next === undefined || old === undefined || next.compatible(old, undefined, scope)) { return []; }
+    // as for fns: the hub's own types change with the hub, and the systems that use them catch up
+    if (work.system === HUB) {
+      this.options.log.warn('catalog.hub.breaking', { type: name });
+      return [];
+    }
     return [`${name} changed in a way other systems can't accept: it must still accept every value it accepted before`];
   }
 
@@ -808,7 +816,14 @@ export class StoreCatalog implements Catalog {
     const out: string[] = [];
     if (!newArgs.compatible(oldArgs, undefined, scope)) { out.push(`its args no longer accept what ${dependents.join(', ')} pass`); }
     if (!oldReturns.compatible(newReturns, undefined, scope)) { out.push(`its result no longer fits what ${dependents.join(', ')} expect`); }
-    if (out.length > 0) { work.described.delete(decl.name); }
+    if (out.length === 0) { return out; }
+    // the hub's own API is the authority: a new hub version changes it, and the systems that call it catch up when
+    // they next send their contract, so a break is logged, never refused (a refusal would stop the hub starting)
+    if (work.system === HUB) {
+      this.options.log.warn('catalog.hub.breaking', { fn: name, dependents, problems: out });
+      return [];
+    }
+    work.described.delete(decl.name);
     return out;
   }
 
