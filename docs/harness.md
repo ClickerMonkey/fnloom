@@ -1632,3 +1632,10 @@ Already checked: type-checking all of the types and examples takes about two sec
 - **ayepi follow-ups** (2026-11-19): gin's wire schemas are gin's own JSON Schema, supplied through `@ayepi/core`'s
   `withJsonSchema`; identical schema helpers merge into one component; MCP tool inputs use core's conversion; Ajv
   2020 strict checks run in ayepi's tests.
+- **Security review** (2026-11-21, hitloop `security-2026-11-21`, report docs/plans/security-review-2026-11-21.md):
+  all seven high findings fixed as recommended (events scoped per person, http(s)-only URLs in schemas and UI, system
+  client builds load only after approval, agent fns always call as an agent actor, bash safe list confined to the
+  roots with a scrubbed env, writes that lead to execution ask and internal git is hardened, the api system uses the
+  address guard with admin-only private hosts). Phil: "For outside images and other things that could be conditional
+  have admin setting. For rate limiting use ayepi/rate". Outgoing fetches from read fns are logged on the run, not
+  asked about.
