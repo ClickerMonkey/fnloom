@@ -46,7 +46,7 @@ export async function judgeCase(router: OpenRouter, model: string, record: CaseR
     `Request ${record.case} ("${record.title}"), as typed: ${played?.steps.map((step, i) => `${i + 1}. "${step.say}"${step.newChat === true ? ' (in a new chat)' : ''}${step.whileRunning === true ? ' (sent while the previous turn was still running)' : ''}${step.files === undefined ? '' : ` [files: ${step.files.join(', ')}]`}`).join(' ') ?? record.title}`,
     `Good: ${record.good}`,
     `What it should end up using (for you only): ${played?.notes ?? '—'}`,
-    `The person's private facts: ${played?.facts.join(' ') || 'none'} They were after: ${played?.wants ?? '—'}`,
+    `The person's private facts (only the person knew these; the assistant starts knowing none of them unless the transcript shows it was told or found them, so asking for one is right): ${played?.facts.join(' ') || 'none'} They were after: ${played?.wants ?? '—'}`,
     `How it ended: ${record.ending.by} — ${record.ending.reason}`,
     `Hard checks: ${record.checks.map((c) => `${c.ok ? 'ok' : 'FAILED'} ${c.name}: ${c.detail}`).join(' | ')}`,
     `Numbers: ${record.stats.turns} turns, ${record.stats.toolRuns} runs, ${record.stats.modelCalls} model calls, ${Math.round(record.stats.wallMs / 1000)}s.`,

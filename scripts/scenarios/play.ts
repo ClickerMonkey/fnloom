@@ -109,6 +109,14 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
     let value: unknown;
     if (call.decl.returns.name === 'bool') {
       value = stance === 'person' ? (await person.decide(seen, question)).approve : stance === 'yes';
+    } else if (call.decl.returns.name === 'obj') {
+      // an object answer (hub/ask_user's { answer }) is a small form: filled, checked, and filled again once on a problem
+      const form = { title: question, description: '', type: call.decl.returns };
+      const fields = fieldAsks(form);
+      let checked = checkAnswers(form.type, jsonValues(await person.fill(seen, question, fields)));
+      if ('problem' in checked) { checked = checkAnswers(form.type, jsonValues(await person.fill(seen, question, fields, checked.problem))); }
+      if ('problem' in checked) { throw new Error(`the person couldn't answer "${clip(question, 120)}": ${checked.problem}`); }
+      value = checked.value;
     } else {
       value = await person.answer(seen, `${question}\n${clip(JSON.stringify(call.args), 800)}`, clip(JSON.stringify(call.decl.returns), 1_500));
     }
