@@ -8,12 +8,14 @@
  *   HARNESS_TEST_EMAIL / HARNESS_TEST_PASSWORD   the test account (default e2e@harness.local / e2e-admin-password),
  *                           made on first start; it is the hub's admin
  *   HARNESS_TEST_EMBEDDER   the EmbeddingGemma service (default http://127.0.0.1:8760)
+ *   HARNESS_TEST_ALSO       more systems to run besides hub, fs, embedder, database and input (a comma list of npm run dev's components: web-system,widgets)
  */
 import { existsSync, mkdirSync, appendFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { env } from '@ayepi/env';
 import BetterSqlite3 from 'better-sqlite3';
 import { z } from 'zod';
+import { COMPONENTS } from './dev-env.ts';
 import { fsConfig, ROOT, startStack } from './stack.ts';
 import { PROJECTS_SQL, SHOP_SQL } from '../systems/database/server/fixture.ts';
 import type { DatabaseConfig } from '../systems/database/shared/shapes.ts';
@@ -24,6 +26,7 @@ const testEnv = env({
   HARNESS_TEST_EMAIL: z.email().default('e2e@harness.local'),
   HARNESS_TEST_PASSWORD: z.string().min(10).default('e2e-admin-password'),
   HARNESS_TEST_EMBEDDER: z.string().default('http://127.0.0.1:8760'),
+  HARNESS_TEST_ALSO: z.string().default('').transform((list) => list.split(',').map((name) => name.trim()).filter((name) => name !== '')).pipe(z.array(z.enum(COMPONENTS))),
 });
 
 /** The same database settings the e2e suite gives its fixtures: writable, schema changes allowed, for everyone. */
@@ -55,7 +58,7 @@ const stack = await startStack({
   admin: { email: settings.HARNESS_TEST_EMAIL, password: settings.HARNESS_TEST_PASSWORD },
   build: true,
   watch: false,
-  only: new Set(['hub', 'fs', 'embedder', 'database', 'input']),
+  only: new Set(['hub', 'fs', 'embedder', 'database', 'input', ...settings.HARNESS_TEST_ALSO]),
   systems: {
     fs: fsConfig(ROOT),
     embedder: { url: settings.HARNESS_TEST_EMBEDDER },

@@ -20,11 +20,11 @@ export default feature({
     const field = await page.$(`${tid('invocation-form')} textarea, ${tid('invocation-form')} input[type="text"]`);
     check(field !== null, 'the form has a field for the command');
     await field.click();
-    await field.type('echo invoked-from-ui');
+    await field.type('ls ui-tests/features/invoke.ts');
     await page.click(tid('gin-submit'));
     await page.waitForSelector('[data-testid="run-card"][data-status="done"]', { timeout: 60_000 });
     await settle(page, 600);
-    check((await page.$eval(tid('thread'), (el) => el.textContent)).includes('invoked-from-ui'), 'the card shows what the command printed');
+    check((await page.$eval(tid('thread'), (el) => el.textContent)).includes('features/invoke.ts'), 'the card shows what the command printed');
     await ctx.shot('ran');
 
     await compose(page, '!write');

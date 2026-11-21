@@ -4,7 +4,7 @@
  * desktop, a narrow laptop, a tablet and a phone), and the features that ask for them (`also`) at a wide screen and a
  * phone on its side, signed in as the admin in one browser context per viewport, saving each step's screenshot to
  * `ui-tests/shots/<feature>/<viewport>-<step>.png` and checking the layout rules there (no sideways scroll, no
- * overlapping or off-screen controls).
+ * overlapping or off-screen controls), and that the hub's Content-Security-Policy refused nothing and no script error was thrown.
  */
 import { env } from '@ayepi/env';
 import type { MessageId, RunId, SessionId, TurnId } from '@harness/core';
@@ -108,12 +108,15 @@ export function feature(def: Feature): Feature {
   return def;
 }
 
+/** A problem a step's shot found: a layout rule broken, a Content-Security-Policy refusal, or an uncaught page error. */
+export type ShotProblem = LayoutProblem | { readonly rule: 'csp' | 'page-error'; readonly detail: string };
+
 /** The result of one feature at one viewport. */
 export interface FeatureResult {
   readonly feature: string;
   readonly viewport: ViewportName;
   readonly shots: readonly string[];
-  readonly problems: readonly LayoutProblem[];
+  readonly problems: readonly ShotProblem[];
   readonly error?: string;
   readonly took: number;
 }

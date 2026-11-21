@@ -49,7 +49,7 @@ export async function fixtures(api: SignedIn, base: string, turnTimeout: number)
     const userMessage = watch.of('message').find((e) => e.message.turn === read.turn && e.message.role === 'user')?.message.id;
     if (userMessage === undefined) { throw new Error('the fixture turn has no user message'); }
     const { result: bash } = await approver.during((async () => {
-      const invoked = await api.hub.call('invoke', { session: session.id, fn: QualifiedName.parse('fs/bash'), args: { command: 'echo ui-tests' }, client: clientInfo() });
+      const invoked = await api.hub.call('invoke', { session: session.id, fn: QualifiedName.parse('fs/bash'), args: { command: 'ls ui-tests/kit.ts' }, client: clientInfo() });
       await watch.next('run', (e) => e.run === invoked.run && finished(e.update), 60_000);
       return invoked;
     })());

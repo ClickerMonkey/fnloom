@@ -173,6 +173,7 @@ npm run build       # web manifest, typecheck, then the web build the hub serves
 npm run e2e         # the whole stack end to end with a free OpenRouter model (boots its own on :4330)
 npm run ui-tests    # puppeteer checks of every UI feature against a running harness (HARNESS_UI_URL)
 npm run ui-tests:mock  # the same features against the web app's mock hub (nothing else running)
+npm run ui-tests:go-live  # shoot and approve systems waiting for review on the hub at HARNESS_UI_URL
 npm run gallery     # ui-tests shots into the screenshot gallery (ui-tests/gallery/index.html), outdated ones flagged
 npm run docs:authoring # regenerate packages/sdk/AUTHORING.md, the system authoring guide (checked in npm run check)
 npm run check       # manifest and .env.example checks, typecheck, lint, coverage, explorer: everything offline
@@ -208,7 +209,10 @@ stored with versions; a broken context folder fails the build; `load_context` an
   (`HARNESS_UI_ONLY=chat-shell,mentions` for some). One script per feature in `ui-tests/features/`, each run at
   desktop, laptop, tablet and phone sizes (plus wide and phone-landscape where a feature asks;
   `HARNESS_UI_VIEWPORTS=tablet,phone` for some). Every shot is also checked for horizontal scroll, overlapping
-  controls and controls off screen. Shots go to `ui-tests/shots/<feature>/`, a summary to
+  controls, controls off screen, refusals by the hub's Content-Security-Policy and uncaught script errors. On a hub where
+  systems wait for review (a fresh `npm run test:stack`, or after changing a system), run `npm run ui-tests:go-live`
+  first: it shoots each waiting review and approves it as an admin would. `HARNESS_TEST_ALSO=web-system,widgets` adds
+  systems to `npm run test:stack`. Shots go to `ui-tests/shots/<feature>/`, a summary to
   `ui-tests/shots/report.json`. A full run (about 220 checks) takes about half an hour.
 - `npm run gallery` runs the same features (same `HARNESS_UI_*` settings; `HARNESS_GALLERY_MOCK=true` for the mock hub)
   and keeps their shots in `ui-tests/gallery/`: the new shots are staged with the gallery's other features and swapped

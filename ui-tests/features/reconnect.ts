@@ -46,7 +46,7 @@ export default feature({
     await ctx.shot('offline');
 
     // meanwhile a fn runs in this chat and finishes
-    const invoked = await api.hub.call('invoke', { session, fn: QualifiedName.parse('fs/bash'), args: { command: 'echo while-you-were-away' }, client: clientInfo() });
+    const invoked = await api.hub.call('invoke', { session, fn: QualifiedName.parse('fs/bash'), args: { command: 'ls ui-tests/features/reconnect.ts' }, client: clientInfo() });
     const run: RunId = invoked.run;
     const deadline = Date.now() + 60_000;
     for (;;) {

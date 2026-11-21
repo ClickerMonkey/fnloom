@@ -132,3 +132,22 @@ Low:
 - fs snapshots: fixed (pruned). Refresh with a garbage secret: fixed (only refused). Client builds and docs public: open.
 - CLI: secrets via env or stdin, no cwd `.env` URL with outside sign-in: fixed. WS token in the URL query: open.
 - Test MCP server: fixed (127.0.0.1 by default).
+
+## Visual check (2026-11-21, after Phil's "Check visually things work fine")
+
+Run on a fresh test stack (`npm run test:stack` with `HARNESS_TEST_ALSO=web-system,widgets`, then
+`npm run ui-tests:go-live`): 16 UI features at desktop and phone size, 32 runs, all pass, with no CSP refusal and no
+script error (the runner now checks both on every shot).
+
+- The CSP first refused zod's `new Function` probe on every page, in the app and in each system client build. Fixed with
+  zod's `jitless` setting, from `packages/web/public/zod-config.js`, loaded before any module.
+- "Every (minutes)" on People › Sign-in sat lower than the other two fields; aligned.
+- `echo` is no longer a safe command (H5), so UI tests that relied on it running without a card now use `ls` on a path
+  inside the folders.
+- Seen working: outside images wait for a click and load after it; the Hub setting, password tries and proxy cards; a
+  changed client build waits in the system's Pending tab while the live one keeps working (H3); `web/read` renders a page
+  in the guarded headless browser and its card lists what it fetched.
+- Not seen: the api service form (the api system isn't part of the test stack; the API services page says
+  "No stored type api/Service." without it, as before these fixes).
+- Machine note: puppeteer wants Chrome 156 and only 154 is installed on BagEnd, so the web system and the UI tests need
+  `PUPPETEER_EXECUTABLE_PATH` pointing at the cached 154 until `npx puppeteer browsers install chrome` is run.

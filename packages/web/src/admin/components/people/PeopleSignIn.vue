@@ -197,7 +197,7 @@ async function copy(text: string): Promise<void> {
         <div class="limits">
           <UiInput v-model="limitsForm.account" label="Tries for one email" type="number" hint="From one address." data-testid="limit-account" />
           <UiInput v-model="limitsForm.address" label="Tries in all" type="number" hint="From one address, any email." data-testid="limit-address" />
-          <UiInput v-model="limitsForm.minutes" label="Every (minutes)" type="number" data-testid="limit-minutes" />
+          <UiInput v-model="limitsForm.minutes" label="Every (minutes)" type="number" hint="How long tries are counted." data-testid="limit-minutes" />
         </div>
         <p v-if="!limitsDraft.success" class="problem" role="alert">Use whole numbers: at least 1 try, over 1 minute to 1 day.</p>
         <template #footer>
@@ -230,7 +230,7 @@ async function copy(text: string): Promise<void> {
 .head { min-width: 0; }
 .title { margin: 0; font-size: var(--text-md); font-weight: var(--weight-strong); }
 .description { margin: 0; color: var(--text-dim); font-size: var(--text-sm); }
-.limits { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-3); }
+.limits { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); align-items: start; gap: var(--space-3); }
 .providers { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: var(--space-4); }
 .facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-2) var(--space-4); margin: 0; font-size: var(--text-sm); }
 .facts dt { color: var(--text-dim); }

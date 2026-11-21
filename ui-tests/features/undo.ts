@@ -8,7 +8,7 @@ export default feature({
   async run(ctx) {
     const { page, api } = ctx;
     const session = await newChat(ctx);
-    await api.hub.call('invoke', { session, fn: QualifiedName.parse('fs/bash'), args: { command: 'echo to-undo' }, client: clientInfo() });
+    await api.hub.call('invoke', { session, fn: QualifiedName.parse('fs/bash'), args: { command: 'ls ui-tests/features/undo.ts' }, client: clientInfo() });
     await page.waitForSelector('[data-testid="run-card"][data-status="done"]', { timeout: 60_000 });
     await settle(page);
     await ctx.shot('before');

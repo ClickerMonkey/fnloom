@@ -11,11 +11,11 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer, { type Browser, type BrowserContext, type Page } from 'puppeteer';
-import { layoutProblems, type LayoutProblem } from '../packages/web/e2e/harness.ts';
+import { layoutProblems } from '../packages/web/e2e/harness.ts';
 import { signIn, type SignedIn } from '../scripts/hub-client.ts';
 import { FEATURES } from './features/index.ts';
 import { fixtures } from './fixtures.ts';
-import { settle, tid, uiEnv, viewportsOf, VIEWPORTS, type Feature, type FeatureResult, type Fixtures, type UiSettings, type ViewportName } from './kit.ts';
+import { settle, tid, uiEnv, viewportsOf, VIEWPORTS, type Feature, type FeatureResult, type Fixtures, type ShotProblem, type UiSettings, type ViewportName } from './kit.ts';
 
 const SHOTS = fileURLToPath(new URL('./shots/', import.meta.url));
 
@@ -24,6 +24,10 @@ async function pageFor(context: BrowserContext, viewport: ViewportName): Promise
   const page = await context.newPage();
   // tsx keeps function names with a `__name` helper, which code passed to page.evaluate would call in the browser
   await page.evaluateOnNewDocument('globalThis.__name = (fn) => fn;');
+  // every Content-Security-Policy refusal is kept, so a step's shot can report it (the hub's CSP must never break the app)
+  await page.evaluateOnNewDocument(`globalThis.__csp = []; document.addEventListener('securitypolicyviolation', (e) => {
+    globalThis.__csp.push(e.effectiveDirective + ' ' + (e.blockedURI || 'inline') + (e.sourceFile ? ' (' + e.sourceFile.split('/').pop() + ':' + e.lineNumber + ')' : ''));
+  });`);
   const { width, height, deviceScaleFactor, isMobile, hasTouch } = VIEWPORTS[viewport];
   await page.setViewport({ width, height, deviceScaleFactor, isMobile, hasTouch });
   return page;
@@ -49,9 +53,10 @@ async function runOne(feature: Feature, viewport: ViewportName, context: Browser
   mkdirSync(dir, { recursive: true });
   const page = await pageFor(context, viewport);
   const shots: string[] = [];
-  const problems: LayoutProblem[] = [];
+  const problems: ShotProblem[] = [];
   let step = 'start';
   const started = Date.now();
+  page.on('pageerror', (error) => { problems.push({ rule: 'page-error', detail: `${step}: ${error instanceof Error ? error.message : String(error)}` }); });
   try {
     await feature.run({
       page, viewport, fixtures: made, api, mock: settings.HARNESS_UI_MOCK,
@@ -63,6 +68,11 @@ async function runOne(feature: Feature, viewport: ViewportName, context: Browser
         await page.screenshot({ path: file });
         shots.push(file);
         problems.push(...(await layoutProblems(page)).map((p) => ({ ...p, detail: `${name}: ${p.detail}` })));
+        const refused = await page.evaluate(() => {
+          const kept: unknown = Reflect.get(globalThis, '__csp');
+          return Array.isArray(kept) ? kept.splice(0).map(String) : [];
+        });
+        problems.push(...[...new Set(refused)].map((detail) => ({ rule: 'csp' as const, detail: `${name}: ${detail}` })));
       },
     });
     return { feature: feature.id, viewport, shots, problems, took: Date.now() - started };

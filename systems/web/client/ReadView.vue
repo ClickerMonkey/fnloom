@@ -44,7 +44,7 @@ const chars = computed(() => new Intl.NumberFormat(navigator.language).format(fa
       <li class="fact">{{ chars }} characters{{ facts.truncated ? ', cut short' : '' }}</li>
     </ul>
 
-    <p v-if="view.result && view.result.fetched.length > 0" class="fetched"><span class="label">Fetched:</span> <code v-for="(url, at) in view.result.fetched" :key="at" class="hop">{{ url }}</code></p>
+    <p v-if="view.result && view.result.fetched.length > 0" class="fetched" data-testid="web-fetched"><span class="label">Fetched:</span> <code v-for="(url, at) in view.result.fetched" :key="at" class="hop">{{ url }}</code></p>
 
     <div v-if="running" class="progress" role="progressbar" aria-label="Reading the page"><div class="bar" /></div>
 

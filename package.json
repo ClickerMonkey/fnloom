@@ -49,6 +49,7 @@
     "dev:web": "npm run dev -w @harness/web",
     "e2e:mock": "npm run e2e:mock -w @harness/web",
     "ui-tests": "tsx ui-tests/run.ts",
+    "ui-tests:go-live": "tsx ui-tests/go-live.ts",
     "ui-tests:mock": "tsx ui-tests/mock.ts",
     "gallery": "tsx scripts/gallery.ts",
     "mock:serve": "tsx scripts/mock-serve.ts",

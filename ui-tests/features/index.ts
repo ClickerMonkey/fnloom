@@ -63,6 +63,7 @@ import runDrawer from './run-drawer.ts';
 import reconnect from './reconnect.ts';
 import scrolling from './scrolling.ts';
 import sessionSettings from './session-settings.ts';
+import security from './security.ts';
 import settings from './settings.ts';
 import shortcuts from './shortcuts.ts';
 import signIn from './sign-in.ts';
@@ -87,4 +88,5 @@ export const FEATURES: readonly Feature[] = [
   ginEditors, resourceBrowser, viewers,
   modelRoles, chatModes, contextGraph, contextItems, invalidInput, modelCalls, fnMetrics, hubMcps, instances, qrPairing,
   streaming, approvals, build5Feedback, build6Screens, build6Install, build6Added, searchPills, build7Review, build7Graph, build8Data, build8Changes, widgetsCharts, widgetChrome, widgetDrill,
+  security,
 ];
