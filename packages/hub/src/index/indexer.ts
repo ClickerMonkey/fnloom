@@ -13,8 +13,9 @@
  *
  * Store calls are synchronous SQLite work, so long loops (a backfill of thousands of items at startup) give way to
  * the event loop every `ROWS_PER_TURN` rows, and requests keep being answered meanwhile. Embedding goes a chunk at a
- * time, each chunk's vectors saved as it finishes: a failure keeps what was done, and a backfill is tried again
- * later (the wait doubling up to a most).
+ * time, each chunk's vectors saved as it finishes: a failure keeps what was done, halves the chunk (a busy embedder
+ * that timed out on a big one may manage a smaller one; it is back to full once a catch-up gets through), and a
+ * backfill is tried again later (the wait doubling up to a most). `status` tells how far it has got.
  *
  * Pictures (`images.ts`: image resources, and the images context items show) are indexed as `image` items while an
  * image space is set up (`Embedders.images`): their caption in the full-text index under the document embedder like
@@ -27,7 +28,7 @@ import { setImmediate as nextTurn } from 'node:timers/promises';
 import type { Logger } from '@ayepi/log';
 import {
   INDEXED_KINDS, ResourceUri, SystemName, compositeKey, splitName, type ContextDecl, type EmbedInput, type FnDecl, type IndexEntry, type IndexedKind, type QualifiedName,
-  type SectionDiff, type SectionKey, type SectionRow, type TypeRecord,
+  type IndexStatus, type SectionDiff, type SectionKey, type SectionRow, type TypeRecord,
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
@@ -156,10 +157,27 @@ export class StoreIndexer implements Indexer {
   #imageTable: QualifiedName | undefined;
   /** Whether an image space is in use now (pictures made while there was none are caught up when one comes). */
   #imagesLive = false;
+  /** Rows embedded together now: `chunk`, halved after each failure down to one, full again after a success. */
+  #chunk: number;
+  /** Whether an embedding is running now, and the last one that failed. */
+  #embeddingNow = false;
+  #lastError: IndexStatus['lastError'];
 
   constructor(options: IndexerOptions) {
     this.#options = options;
     this.#retry = { timer: undefined, wait: options.retry.first };
+    this.#chunk = options.chunk;
+  }
+
+  async status(): Promise<IndexStatus> {
+    const { store, document, embedders } = this.#options;
+    const index = store.table('index');
+    const texts = { embedder: document, kind: { in: TEXT_KINDS } } as const;
+    const [items, pending] = await Promise.all([index.count(texts), index.count({ ...texts, vectorHash: { differsFrom: 'hash' } })]);
+    return {
+      meaning: embedders.active() !== undefined, items, pending, embedding: this.#embeddingNow, retrying: this.#retry.timer !== undefined,
+      ...(this.#lastError === undefined ? {} : { lastError: this.#lastError }),
+    };
   }
 
   /** Follow the bus and the embedders. Returns the function that stops following. */
@@ -457,7 +475,7 @@ export class StoreIndexer implements Indexer {
   }
 
   /**
-   * Embed rows, a bounded chunk at a time (`chunk`, `HARNESS_INDEX_EMBED_BATCH`): text with the document embedder, if
+   * Embed rows, a bounded chunk at a time (`chunk`, `HARNESS_INDEX_EMBED_BATCH`, halved after a failure): text with the document embedder, if
    * it is connected, and pictures with the image space's, if there is one. Each chunk's vectors are saved (and its rows
    * marked embedded) as it lands. Embedding runs one call of this at a time, so a catch-up and the upserts beside it
    * never flood the embedder, and a row embedded meanwhile is skipped. A row given a vector of the wrong size, or a
@@ -476,6 +494,7 @@ export class StoreIndexer implements Indexer {
     const pictures = space === undefined ? [] : rows.filter((row) => row.kind === 'image');
     if (texts.length + pictures.length === 0) { return; }
     const progress = { done: 0 };
+    this.#embeddingNow = true;
     try {
       if (active !== undefined && texts.length > 0) {
         await this.#sized(active.document.dimensions);
@@ -486,9 +505,15 @@ export class StoreIndexer implements Indexer {
         await this.#embedInto(pictures, space.embedder, space.embedder.name, (row) => this.#picture(row), progress);
       }
       this.#retry.wait = this.#options.retry.first;
+      this.#chunk = this.#options.chunk;
     } catch (error) {
-      log.warn('index.embed.failed', { items: texts.length + pictures.length - progress.done, saved: progress.done, error: messageOf(error) });
+      const chunk = this.#chunk;
+      this.#chunk = Math.max(1, Math.floor(chunk / 2));
+      this.#lastError = { at: this.#options.clock(), message: messageOf(error) };
+      log.warn('index.embed.failed', { items: texts.length + pictures.length - progress.done, saved: progress.done, chunk, next: this.#chunk, error: messageOf(error) });
       this.#tryAgainLater();
+    } finally {
+      this.#embeddingNow = false;
     }
   }
 
@@ -496,8 +521,9 @@ export class StoreIndexer implements Indexer {
   async #embedInto(
     rows: readonly IndexEntry[], embedder: Embedder, table: QualifiedName, input: (row: IndexEntry) => Promise<EmbedInput | undefined>, progress: { done: number },
   ): Promise<void> {
-    const { store, batcher, log, chunk } = this.#options;
+    const { store, batcher, log } = this.#options;
     const { name, dimensions } = embedder;
+    const chunk = this.#chunk;
     for (let at = 0; at < rows.length; at += chunk) {
       const part = (await Promise.all(rows.slice(at, at + chunk).map((r) => store.table('index').get(r))))
         .filter((r): r is IndexEntry => r !== undefined && this.#waiting(r));

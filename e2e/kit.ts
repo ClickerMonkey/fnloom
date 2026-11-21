@@ -6,7 +6,7 @@
 import { isSettled, type ContentRef, type Json, type QualifiedName, type Run, type RunId, type SessionId, type TreeNode } from '@harness/core';
 import { inject } from 'vitest';
 import { signIn, waitFor, type SignedIn } from '../scripts/hub-client.ts';
-import { clientInfo } from '../scripts/session.ts';
+import { clientInfo, uploadBytes } from '../scripts/session.ts';
 import { e2eEnv } from './env.ts';
 
 export { Approver, ask, clientInfo, finished, SessionWatch, statusOf, textOf } from '../scripts/session.ts';
@@ -37,11 +37,8 @@ export async function invoke(me: SignedIn, session: SessionId, fn: QualifiedName
 }
 
 /** Upload bytes to the hub's content store, as the browser does, and give their ref. */
-export async function upload(me: SignedIn, name: string, mime: string, bytes: Uint8Array): Promise<ContentRef> {
-  const { url, upload: id } = await me.hub.call('upload', { name, mime, size: bytes.length });
-  const put = await fetch(new URL(url, inject('e2eHub').url), { method: 'PUT', body: new Blob([new Uint8Array(bytes)], { type: mime }), headers: { 'content-type': mime } });
-  if (!put.ok) { throw new Error(`the hub refused the upload of ${name}: HTTP ${put.status}`); }
-  return me.hub.call('uploaded', { upload: id });
+export function upload(me: SignedIn, name: string, mime: string, bytes: Uint8Array): Promise<ContentRef> {
+  return uploadBytes(me, inject('e2eHub').url, { name, mime, bytes });
 }
 
 /** Every run in a turn's tree, depth first. */

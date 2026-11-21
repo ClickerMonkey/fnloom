@@ -14,7 +14,7 @@ export const indexEnv = env({
   HARNESS_INDEX_MAX_TEXT: z.number().int().min(100).default(4_000).describe('The most characters of a section, fn or context that are embedded.'),
   HARNESS_SEARCH_OVERFETCH: z.number().int().min(1).default(3).describe('How many extra candidates search asks for when it filters by system.'),
   HARNESS_SEARCH_EMBED_WAIT: z.number().int().min(0).default(4_000).describe('The longest search waits for its query\'s embedding (a busy embedder may be indexing) before it searches by words alone.'),
-  HARNESS_INDEX_EMBED_BATCH: z.number().int().min(1).default(64).describe('How many index rows are embedded and saved together in a catch-up; each chunk is saved as it lands, so a failure loses at most one.'),
+  HARNESS_INDEX_EMBED_BATCH: z.number().int().min(1).default(16).describe('How many index rows are embedded and saved together in a catch-up (at most HARNESS_EMBED_BATCH, so a chunk is one embed call); each chunk is saved as it lands, so a failure loses at most one, and a failure halves the next chunks until a catch-up gets through. Small enough that a busy embedder answers one within its timeout.'),
   HARNESS_INDEX_RETRY: z.number().int().min(1).default(5_000).describe('How long after a failed embedding the index first tries again; the wait doubles after each failure.'),
   HARNESS_INDEX_RETRY_MOST: z.number().int().min(1).default(300_000).describe('The longest the index waits before trying a failed embedding again.'),
   HARNESS_INDEX_IMAGE_MAX: z.number().int().min(1).default(MAX_PICTURE_BYTES).describe('The most bytes of a picture the image space embeds; a larger one is indexed by its caption alone.'),

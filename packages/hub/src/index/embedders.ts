@@ -1,7 +1,7 @@
 /**
  * Embedders come from the model providers systems bring: every declared model with the `embedding` capability (text) or
  * `imageEmbedding` (images), and its `dimensions`, of a provider a connected system offers now (`OfferedProviders`:
- * live, not switched off) is an `Embedder`, named by its system and model id (`embedder/document`). It embeds through
+ * live, not switched off, and set up on the hub AI: `serves`) is an `Embedder`, named by its system and model id (`embedder/document`). It embeds through
  * the hub's AI (the LLM gateway), pinned to its model on its provider, a batch at a time, so pricing and the live model
  * listing are the hub AI's, in one place. The index uses the pair named in `modelEnv` (`document` for what is stored,
  * `query` for what is searched), once both are there and share their dimensions. Each embed is a `ModelCall` of the
@@ -27,7 +27,7 @@ import type { EmbedLane } from './batch.ts';
 import type { Embedder, Embedders, ImageSpace } from './index.ts';
 
 /** The hub's AI as the embedders use it: its LLM gateway's embed. */
-export type HubEmbeds = Pick<LlmGateway, 'embed'>;
+export type HubEmbeds = Pick<LlmGateway, 'embed' | 'serves'>;
 
 /** The embedder name of a system's embedding model: its system and model id. */
 export function embedderName(system: SystemName, model: string): QualifiedName {
@@ -205,7 +205,11 @@ export class SystemEmbedders implements Embedders {
   async #refresh(): Promise<void> {
     const { offered, batch, log, document, query, ai } = this.#options;
     const usable = new Map<QualifiedName, ProviderEmbedder>();
+    const hub = ai();
     for (const provider of await offered.list()) {
+      // a provider is offered a moment before the hub AI is rebuilt with it: its embedders wait until it is set up there
+      // (the AI's reload says so with `capabilities.changed`), so nothing is embedded only to be refused as not set up
+      if (hub?.serves?.(provider.key) === false) { continue; }
       for (const model of embeddingModels(provider)) {
         const name = embedderName(provider.system, model.id);
         if (usable.has(name)) {

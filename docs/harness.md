@@ -1164,7 +1164,11 @@ What the security review of 2026-11-21 changed (findings in `docs/plans/security
   provider, usually a system's) and searches them for suggestions, `get_fn`/`get_context`-style tools and `@` mentions.
   Each embed goes through the hub's AI pinned to that model, so it is priced and recorded like any model call, and a
   search's embed waits as interactive work. Catching up after an embedder comes back asks the database for just the
-  rows whose vector is out of date.
+  rows whose vector is out of date. An embedder is taken up only once the hub's AI has its provider set up (a system
+  going live offers it a moment before the AI is rebuilt). The catch-up embeds in small chunks
+  (`HARNESS_INDEX_EMBED_BATCH`, one embed call each), saving each as it lands; a failed chunk halves the next ones and
+  the rest is tried again after a doubling wait, back to full chunks once it gets through. Admins (and the scenario
+  runner) read how far it has got with `indexStatus`: items waiting for a vector, running or retrying, the last failure.
 - **Pictures** are indexed too when an image space is in use: image resources (from their bytes) and the http(s)
   images a context item's text shows (as children of the item). Images get a **second vector space** with its own model,
   an embedding model with aeye's `imageEmbedding`. A model whose text and image vectors share one space

@@ -53,7 +53,8 @@
     "ui-tests:mock": "tsx ui-tests/mock.ts",
     "gallery": "tsx scripts/gallery.ts",
     "mock:serve": "tsx scripts/mock-serve.ts",
-    "test:stack": "tsx scripts/test-stack.ts"
+    "test:stack": "tsx scripts/test-stack.ts",
+    "scenarios": "tsx scripts/scenarios/run.ts"
   },
   "devDependencies": {
     "@ayepi/context": "file:../ayepi/packages/context",

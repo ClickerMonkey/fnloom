@@ -199,6 +199,11 @@ export interface LlmGateway {
   chat(input: { request: LlmRequest; model?: ModelChoice; provider?: string; priority?: Priority }, site: ModelSite, signal: AbortSignal): Promise<Recorded<string>>;
   /** The models configured providers offer. */
   models(): Promise<EngineModel[]>;
+  /**
+   * Whether a provider (its aeye key) is set up on the hub AI now, so a call pinned to it can run (a system's provider
+   * is offered a moment before the AI is rebuilt with it). Absent: assumed set up.
+   */
+  serves?(provider: string): boolean;
 }
 
 /** The model providers behind the hub AI. */

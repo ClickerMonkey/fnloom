@@ -85,5 +85,6 @@ export function adminPlugin(hub: HubServices, systems: ReturnType<typeof systems
         return store.table('resources').find({ order: [['seenAt', 'desc']], limit: data.limit ?? PAGE_SIZE, ...(data.cursor === undefined ? {} : { cursor: data.cursor }) });
       },
       removeRule: ({ data, user }) => ops.remove_rule(data, user.id),
+      indexStatus: () => hub.index.indexer.status(),
     }));
 }

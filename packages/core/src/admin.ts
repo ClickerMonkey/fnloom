@@ -17,6 +17,21 @@ import { BudgetRule, ProviderKind } from './records/spend.ts';
 export const OutputLine = z.object({ at: Timestamp, stream: z.enum(['stdout', 'stderr', 'hub']), text: z.string() });
 export type OutputLine = z.infer<typeof OutputLine>;
 
+/**
+ * How far the index's embedding has got (`indexStatus`): whether text is searched by meaning now (the document and
+ * query embedders are both set up), how many text items there are and how many still wait for a vector, whether a
+ * catch-up is embedding now or waiting to try again after a failure, and the last failure.
+ */
+export const IndexStatus = z.object({
+  meaning: z.boolean(),
+  items: z.number().int().min(0),
+  pending: z.number().int().min(0),
+  embedding: z.boolean(),
+  retrying: z.boolean(),
+  lastError: z.object({ at: Timestamp, message: z.string() }).optional(),
+});
+export type IndexStatus = z.infer<typeof IndexStatus>;
+
 /** Who serves a model: a configured provider's kind (`openai`), or a provider a system brings (`<system>/<name>`). */
 export const ModelProvider = z.union([ProviderKind, QualifiedName]);
 export type ModelProvider = z.infer<typeof ModelProvider>;

@@ -151,7 +151,8 @@ export function buildSystems(options: SystemsOptions) {
   });
   const sectioning = new Sectioning({ store, catalog, router: resources });
   const indexer = new StoreIndexer({ store, bus, log, clock, catalog, embedders, batcher, router: resources, sectioning, document, maxText: settings.index.HARNESS_INDEX_MAX_TEXT, maxCrawl: settings.index.HARNESS_INDEX_CRAWL_MAX,
-    chunk: settings.index.HARNESS_INDEX_EMBED_BATCH,
+    // a chunk is one embed call: a bigger one would be split into calls that keep running after the first fails
+    chunk: Math.min(settings.index.HARNESS_INDEX_EMBED_BATCH, settings.model.HARNESS_EMBED_BATCH),
     retry: { first: settings.index.HARNESS_INDEX_RETRY, most: settings.index.HARNESS_INDEX_RETRY_MOST }, maxPicture: settings.index.HARNESS_INDEX_IMAGE_MAX,
   });
   const hybrid = new HybridSearch({ vectors: store.vectors, text: store.text }, settings.search);

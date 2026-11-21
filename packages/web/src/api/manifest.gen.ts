@@ -1962,6 +1962,24 @@ export const manifest = {
       "multi": false,
       "bodyEnc": "json"
     },
+    "indexStatus": {
+      "method": "POST",
+      "path": "/indexStatus",
+      "ws": "indexStatus",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
     "browseResources": {
       "method": "POST",
       "path": "/browseResources",

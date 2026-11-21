@@ -136,6 +136,8 @@ export interface LlmEngine {
   speech(input: SpeechCall, ctx: HubCallContext, signal?: AbortSignal): Promise<Spoken>;
   decide(input: DecideCall, ctx: HubCallContext, signal?: AbortSignal): Promise<DecisionResponse>;
   models(): EngineModel[];
+  /** Whether a provider (its aeye key) is set up on the engine now, so a call pinned to it can run; absent: assumed. */
+  serves?(provider: string): boolean;
 }
 
 /**

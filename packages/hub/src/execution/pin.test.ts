@@ -4,7 +4,7 @@ import { limiter } from '@ayepi/rate';
 import { describe, expect, it } from 'vitest';
 import { StoreModelCallLog } from '../metrics/calls.ts';
 import { memoryLog, RecordingBus, testStore } from '../testing.ts';
-import { createHubAi, HubAiHooks } from './ai.ts';
+import { AeyeLlm, createHubAi, HubAiHooks, SwitchingLlm } from './ai.ts';
 import { InteractionRecorder } from './interactions.ts';
 import { HubLedger } from './ledger.ts';
 import { LedgerSpend } from './spend.ts';
@@ -43,5 +43,22 @@ describe('a call pinned to a provider', () => {
     openrouter.script(says('never'));
     await expect(ai.chat.get({ messages: [{ role: 'user', content: 'hi' }] }, { purpose: 'test', metadata: { model: 'test-model', provider: 'ollama' } })).rejects.toThrow('ollama is not set up');
     expect(openrouter.requests).toHaveLength(0);
+  });
+});
+
+describe('the switching hub AI', () => {
+  // the index's embedders wait on this: a system's provider is offered a moment before the AI is rebuilt with it
+  it('says which providers are set up, following each rebuild', async () => {
+    const { log } = memoryLog();
+    const store = await testStore();
+    const base = { store, bus: new RecordingBus(), clock: () => 1_000, settings: testSettings(), log };
+    const hooks = new HubAiHooks({
+      ...base, ledger: new HubLedger(base, new LedgerSpend(store)), recorder: new InteractionRecorder(base), calls: new StoreModelCallLog({ store, clock: base.clock, log }),
+      costs: { addCost: () => Promise.resolve(), addTokens: () => Promise.resolve() }, modelLimit: limiter({ limit: 10, window: 60_000 }),
+    });
+    const engine = new SwitchingLlm((providers) => new AeyeLlm(createHubAi({ providers, hooks, log, models: [TEST_MODEL] })), { openrouter: new ScriptedProvider() });
+    expect([engine.serves('openrouter'), engine.serves('embedder/gemma')]).toEqual([true, false]);
+    await engine.use({ openrouter: new ScriptedProvider(), 'embedder/gemma': new ScriptedProvider() });
+    expect(engine.serves('embedder/gemma')).toBe(true);
   });
 });

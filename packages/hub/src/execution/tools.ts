@@ -44,9 +44,16 @@ export class PendingCalls {
   }
 }
 
-/** Any JSON object, else the error aeye feeds back to the model. */
+/** A value with every `undefined` object field left out, at any depth (aeye hands strict-schema `null`s back as `undefined`). */
+function withoutUndefined(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutUndefined);
+  if (value === null || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).filter(([, field]) => field !== undefined).map(([key, field]) => [key, withoutUndefined(field)]));
+}
+
+/** Any JSON object, else the error aeye feeds back to the model. A field left `undefined` counts as left out. */
 export function acceptObject(raw: unknown): object | Error {
-  const parsed = JsonObject.safeParse(raw);
+  const parsed = JsonObject.safeParse(withoutUndefined(raw));
   return parsed.success ? parsed.data : new Error('The args must be one JSON object.');
 }
 

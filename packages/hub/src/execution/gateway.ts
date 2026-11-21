@@ -145,6 +145,10 @@ export class HubLlmGateway implements LlmGateway {
     return Promise.resolve(this.#deps.llm.models());
   }
 
+  serves(provider: string): boolean {
+    return this.#deps.llm.serves?.(provider) ?? true;
+  }
+
   /**
    * One non-chat call: paid by its run when it has one (refused when a system names a run that isn't its own, or none),
    * on the LLM queue at the run's priority (the hub's own work waits as background), with its record read back.

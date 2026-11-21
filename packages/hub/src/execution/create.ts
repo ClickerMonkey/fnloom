@@ -111,9 +111,11 @@ export function createExecution(input: ExecutionInput): ExecutionModule {
     runs, agents, llm, limits, ledger, policies, handlers, hubFns, providers,
     linkHandlers: executionLinkHandlers({ ...input, runs, gateway: llm, handlers }),
     async start() {
-      await providers.reload();
+      // the index's embedders hear that the hub AI now has a system's provider (they wait for it before embedding)
+      const reload = async (): Promise<void> => { await providers.reload(); input.bus.publish('capabilities.changed', {}); };
+      await reload();
       stops.push(watchProviders(() => {
-        void providers.reload().catch((error: unknown) => { input.log.error('providers.reload-failed', { error: messageOf(error) }); });
+        void reload().catch((error: unknown) => { input.log.error('providers.reload-failed', { error: messageOf(error) }); });
       }));
       queues.start();
       stops.push(runs.onSettled((run) => {

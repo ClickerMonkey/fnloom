@@ -254,6 +254,42 @@ describe('indexing', () => {
     stop();
   });
 
+  // regression (scenarios smoke-2): a busy embedder timed out on every 64-row chunk, so nothing was ever saved
+  it('halves the chunk after a failure, saves each smaller chunk, and is back to full once a catch-up gets through', async () => {
+    const { indexer, embedders, records } = ctx;
+    const sizes: number[] = [];
+    class Recording extends WordEmbedder {
+      override embed(texts: readonly string[]): Promise<number[][]> { sizes.push(texts.length); return super.embed(texts); }
+    }
+    embedders.document = new Recording(DOCUMENT);
+    await indexer.upsert(Array.from({ length: 6 }, (_, i) => ({ kind: 'fn' as const, key: `shop/fn${i}`, text: `Fn ${i} lists products` })));
+    // the first chunk (of 4) fails: nothing saved, and the next chunks are of 2
+    embedders.document.failOn = 1;
+    const stop = indexer.start();
+    embedders.connect();
+    await expect.poll(() => records.find((r) => r.msg === 'index.embed.failed')).toMatchObject({ saved: 0, items: 6, chunk: 4, next: 2 });
+    await expect.poll(() => vectorKeys(), { timeout: 2_000 }).toHaveLength(6);
+    expect(sizes).toEqual([4, 2, 2, 2]);
+    // through: the next catch-up goes in full chunks again
+    sizes.length = 0;
+    await indexer.upsert(Array.from({ length: 8 }, (_, i) => ({ kind: 'fn' as const, key: `shop/more${i}`, text: `More ${i}` })));
+    expect(sizes).toEqual([4, 4]);
+    stop();
+  });
+
+  it('tells how far embedding has got: items waiting, retrying, and the last failure', async () => {
+    const { indexer, embedders } = ctx;
+    await indexer.upsert(Array.from({ length: 5 }, (_, i) => ({ kind: 'fn' as const, key: `shop/fn${i}`, text: `Fn ${i}` })));
+    expect(await indexer.status()).toEqual({ meaning: false, items: 5, pending: 5, embedding: false, retrying: false });
+    embedders.document.failing = true;
+    const stop = indexer.start();
+    embedders.connect();
+    await expect.poll(() => indexer.status()).toMatchObject({ meaning: true, pending: 5, retrying: true, lastError: { message: 'Error: embedder down' } });
+    embedders.document.failing = false;
+    await expect.poll(() => indexer.status(), { timeout: 2_000 }).toMatchObject({ meaning: true, items: 5, pending: 0 });
+    stop();
+  });
+
   it('gives way to the event loop while it stores thousands of items', async () => {
     const { indexer } = ctx;
     let ticks = 0;
@@ -683,6 +719,25 @@ describe('embedders from systems', () => {
     await settle(5);
     await embedders.refresh();
     expect(embedders.active()).toBeUndefined();
+    await rig.stop();
+  });
+
+  // regression (scenarios smoke-2): going live offered the provider before the hub AI was rebuilt with it, so the
+  // catch-up's first embeds were refused with "The provider … is not set up" and nothing was saved
+  it('takes up an embedder only once the hub AI has its provider set up', async () => {
+    const rig = await linkRig();
+    const ai = rigHubAi(rig);
+    let ready = false;
+    const embedders = riggedEmbedders(rig, { embed: (...args) => ai.embed(...args), serves: (provider) => ready && provider === 'vectors/local' });
+    const system = new FakeSystem(rig.app, 'vectors', await manifestFor(vectorsContract));
+    await pairDirectly(rig, system);
+    await system.start();
+    await embedders.refresh();
+    expect(embedders.active()).toBeUndefined();
+    // the hub AI's reload says so with capabilities.changed
+    ready = true;
+    rig.bus.publish('capabilities.changed', {});
+    await expect.poll(() => embedders.active()?.document.name).toBe(DOCUMENT);
     await rig.stop();
   });
 

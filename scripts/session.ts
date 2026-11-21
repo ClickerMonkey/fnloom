@@ -1,10 +1,11 @@
 /**
  * Driving one chat session from a script (the e2e tests and the UI test fixtures): a live recorder of its events that
  * waits for the one expected (`SessionWatch`), an approver that says yes to its approvals and confirmations while some
- * work runs, and `ask`, which sends a message and waits for the agent's finished answer.
+ * work runs, `ask`, which sends a message and waits for the agent's finished answer, and `uploadBytes`, which uploads a
+ * file the way the browser does.
  */
 import { BoolType } from '@aeye/gin';
-import type { Approval, ChatMessage, ClientInfo, HandlerCall, RunStatus, RunUpdate, SessionEvent, SessionId, TurnId } from '@harness/core';
+import type { Approval, ChatMessage, ClientInfo, ContentRef, HandlerCall, RunStatus, RunUpdate, SessionEvent, SessionId, TurnId } from '@harness/core';
 import type { SignedIn } from './hub-client.ts';
 
 /** The browser facts a message carries. */
@@ -129,4 +130,12 @@ export async function ask(client: SignedIn, watch: SessionWatch, text: string, t
 /** The plain text of a message. */
 export function textOf(message: ChatMessage): string {
   return message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('');
+}
+
+/** Upload bytes to the hub's content store, as the browser does (a presigned PUT, then `uploaded`), and give their ref. */
+export async function uploadBytes(client: SignedIn, origin: string, file: { name: string; mime: string; bytes: Uint8Array }): Promise<ContentRef> {
+  const { url, upload } = await client.hub.call('upload', { name: file.name, mime: file.mime, size: file.bytes.length });
+  const put = await fetch(new URL(url, origin), { method: 'PUT', body: new Blob([new Uint8Array(file.bytes)], { type: file.mime }), headers: { 'content-type': file.mime } });
+  if (!put.ok) { throw new Error(`the hub refused the upload of ${file.name}: HTTP ${put.status}`); }
+  return client.hub.call('uploaded', { upload });
 }

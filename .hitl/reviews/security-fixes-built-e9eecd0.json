@@ -1,0 +1,69 @@
+{
+  "$schema": "https://unpkg.com/hitloop/schema/reviews.schema.json",
+  "title": "Security fixes, built (e9eecd0)",
+  "intro": "Your 12 answers are built and committed locally: harness **e9eecd0** (258 files) and ayepi **0c17846** (auth https-only endpoints; node socket limits). **Nothing is pushed.** Typecheck passes. The 11 key regression test files pass (134 tests); the full run was 846 of 855, and the failures were fixed, plus the known proxy.test one.\n\nEach fix has an exploit-style test that fails without it. One verdict per item; the last items are the open questions.\n\n**Needs your eyes in a browser:** the new CSP (index.html, PDFs, system client builds) and the web system's Chrome rendering. I only checked them by reading code.",
+  "mode": "review",
+  "from": "security review (main session)",
+  "created": "2026-11-21T13:43:52.962Z",
+  "items": [
+    {
+      "title": "Status of every finding",
+      "file": "docs/plans/security-review-2026-11-21.md",
+      "against": "b3bd082",
+      "ask": "Does the status list match what you expected?",
+      "id": "status-of-every-finding"
+    },
+    {
+      "title": "Security passage in harness.md",
+      "file": "docs/harness.md",
+      "against": "b3bd082",
+      "ask": "Is the new Security passage right?",
+      "id": "security-passage-in-harness-md"
+    },
+    {
+      "title": "H1: events per person",
+      "file": "packages/hub/src/api/events.ts",
+      "against": "b3bd082",
+      "note": "`ROUTES` now says who hears each event: notifications go to their person; approvals to approvers plus the turn user; session summaries to participants; pairings to admins. Shared catalog/system events still go to everyone signed in. Sign-out or turning a user off closes their sockets.",
+      "id": "h1-events-per-person"
+    },
+    {
+      "title": "H5/H6: fs bash safe list",
+      "file": "systems/fs/server/safe.ts",
+      "against": "b3bd082",
+      "note": "A table of allowed commands with refused flags. A path word must resolve inside the roots; `$`, `~` and globs ask. `echo`, `npm test`, `npx vitest` and `npx tsc` are off the list. Bash gets a scrubbed env plus the fs `commandEnv` allowlist.",
+      "id": "h5-h6-fs-bash-safe-list"
+    },
+    {
+      "title": "H7: api address guard",
+      "file": "systems/api/server/guard.ts",
+      "against": "b3bd082",
+      "id": "h7-api-address-guard"
+    },
+    {
+      "title": "H2: one URL rule",
+      "file": "packages/core/src/urls.ts",
+      "against": "b3bd082",
+      "id": "h2-one-url-rule"
+    },
+    {
+      "title": "New admin settings",
+      "md": "| Setting | Where | Default |\n|---|---|---|\n| Load outside images | Settings › Hub | ask |\n| Password tries | People › Sign-in | 10 / 15 min per (email, address); 100 / 15 min per address |\n| Proxy | People › Sign-in | 0 proxies (X-Forwarded-For ignored) |\n| allowPrivate | each API service | off |\n| Shared with everyone | each agent-added API service | not shared |\n| commandEnv | fs config | none |\n| snapshots | fs config | 20 per file, 500 MB |",
+      "ask": "Are these defaults right?",
+      "id": "new-admin-settings"
+    },
+    {
+      "title": "Open: limits that are still env settings",
+      "md": "Your note said conditional things should be admin settings. These ended up as **env settings** instead: pairing limits (`HARNESS_PAIRING_*`), socket caps (`HARNESS_LINK_*`), max frame (`HARNESS_MAX_FRAME`, now 4 MiB), WS message size, and fs grep's timeout and line cap (`FS_*`).",
+      "ask": "Looks good = move them to admin settings (I recommend this for pairing limits; frame and socket sizes are read at start, so they can stay env). No = leave all as env.",
+      "id": "open-limits-that-are-still-env-s"
+    },
+    {
+      "title": "Open: smaller gaps left",
+      "md": "- **Unshared api services:** still visible (name and base URL) through the hub's generic record tools.\n- **Removal from a session:** someone removed keeps an open `on.session` subscription until their socket closes.\n- **Git config already in a repo:** a `textconv`/`filter` there still runs on a typed `git diff`.\n- **Approvers lookup:** `StoreApprovers.#admins` still loads every user and filters in memory (`activeAdmins` can replace it).\n- **Per-process state:** SSO hand-off codes and the setup code are held in memory, per process.\n- **IPv6 ranges:** the address guard doesn't block the NAT64 or 6to4 ranges.\n- **Low findings not chosen:** email auto-linking to the break-glass admin, systems labelling their own fns, the database dry-run running DML, the JS network guard being advisory only, public client builds and docs, and the WS token in the URL.",
+      "ask": "Looks good = I fix the first six in a follow-up. Needs changes = say which.",
+      "id": "open-smaller-gaps-left"
+    }
+  ],
+  "updated": "2026-11-21T13:43:52.962Z"
+}

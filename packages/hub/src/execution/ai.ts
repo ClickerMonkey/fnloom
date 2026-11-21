@@ -248,11 +248,19 @@ export type HubAi = ReturnType<typeof createHubAi>;
  */
 export class SwitchingLlm implements LlmEngine {
   #current: LlmEngine;
+  /** The keys of the providers the current AI was built with. */
+  #keys: ReadonlySet<string>;
   readonly #make: (providers: Providers) => RefreshableEngine;
 
   constructor(make: (providers: Providers) => RefreshableEngine, providers: Providers) {
     this.#make = make;
     this.#current = make(providers);
+    this.#keys = new Set(Object.keys(providers));
+  }
+
+  /** Whether the AI calls switch to now has this provider (a pin to one it hasn't is refused as not set up). */
+  serves(provider: string): boolean {
+    return this.#keys.has(provider);
   }
 
   get streamer(): Streamer<HubCallContext, HubCallMetadata> {
@@ -291,6 +299,7 @@ export class SwitchingLlm implements LlmEngine {
     const next = this.#make(providers);
     await next.refresh();
     this.#current = next;
+    this.#keys = new Set(Object.keys(providers));
   }
 }
 

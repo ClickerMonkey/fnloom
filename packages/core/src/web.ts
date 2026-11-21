@@ -8,7 +8,7 @@ import { bearerAuth } from '@ayepi/auth';
 import { mergeSpecs, middleware, spec, use } from '@ayepi/core';
 import { telemetry } from '@ayepi/otel';
 import { z } from 'zod';
-import { BudgetView, LlmSummary, ModelInfo, OutputLine, RuleRef, SettingView } from './admin.ts';
+import { BudgetView, IndexStatus, LlmSummary, ModelInfo, OutputLine, RuleRef, SettingView } from './admin.ts';
 import { MentionHover, MentionOption, ImportReport, SuggestionScore } from './manifest.ts';
 import {
   ActorId, ActorKind, ApprovalId, AutoPairId, ConnectionId, DeliveryId, Duration, HubMcpId, ProviderId, HandlerCallId, InstanceName, InstanceRef, Json, LlmInteractionId, MessageId,
@@ -446,6 +446,8 @@ export const adminSlice = spec({
     /** Resources the hub knows, most recently seen first. */
     resources: { body: PageRequest.extend({ query: ListQuery.optional() }), response: page(ResourceRecord), ws: 'resources' },
     removeRule: { body: RuleRef, response: z.object({ ok: z.boolean() }), ws: 'removeRule' },
+    /** How far the index's embedding has got: items waiting for a vector, a catch-up running or retrying, the last failure. */
+    indexStatus: { body: z.object({}), response: IndexStatus, ws: 'indexStatus' },
   }),
   events: {
     /** New output lines of one system (admins). */

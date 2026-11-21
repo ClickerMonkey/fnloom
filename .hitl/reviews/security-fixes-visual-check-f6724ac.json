@@ -1,0 +1,62 @@
+{
+  "$schema": "https://unpkg.com/hitloop/schema/reviews.schema.json",
+  "title": "Security fixes, visual check (f6724ac)",
+  "intro": "You said: \"Check visually things work fine\". I ran a fresh test stack on **:4340** (its own data; your :4300 and :4320 stacks weren't touched) with fs, database, input, embedder, web and widgets. I drove it in Chrome: **16 UI features, desktop and phone, 32 runs, all pass.** The runner now also fails a shot on any CSP refusal or script error.\n\nWhat the browser check found and fixed (commit **f6724ac**, local, not pushed):\n- **CSP refusals on every page:** the new CSP refused zod's `new Function` probe in the app and in every system's client build. It was harmless, but each one was a red console error. zod now runs `jitless`.\n- **Sign-in limits layout:** the \"Every (minutes)\" field sat lower than the other two fields; now aligned.\n- **UI tests:** they ran `echo`, which now asks first, so they use `ls` instead.\n\nNot seen: the api service form, because the api system isn't in the test stack.\n\nThe two open questions from the first review (limits that are still env settings, and the six small gaps) are still waiting on your verdict there.",
+  "mode": "review",
+  "from": "security review (main session)",
+  "created": "2026-11-21T14:45:38.367Z",
+  "items": [
+    {
+      "title": "Outside image waits for a click",
+      "image": "ui-tests/shots/security/desktop-image-held.png",
+      "note": "An agent answer with an image from example.com. Nothing is fetched until you click it.",
+      "id": "outside-image-waits-for-a-click"
+    },
+    {
+      "title": "After the click",
+      "image": "ui-tests/shots/security/desktop-image-released.png",
+      "note": "It loads after the click. It shows as broken only because example.com/chart.png doesn't exist.",
+      "id": "after-the-click"
+    },
+    {
+      "title": "Phone: held image",
+      "image": "ui-tests/shots/security/phone-image-held.png",
+      "id": "phone-held-image"
+    },
+    {
+      "title": "Settings › Hub: Load outside images",
+      "image": "ui-tests/shots/security/phone-hub-outside-images.png",
+      "note": "Off by default (ask first).",
+      "id": "settings-hub-load-outside-images"
+    },
+    {
+      "title": "People › Sign-in: Password tries (aligned)",
+      "image": "ui-tests/shots/security/desktop-sign-in-limits.png",
+      "note": "The Every (minutes) field now lines up with the other two. Before the fix it sat about 10 px lower, because it had no hint under it.",
+      "id": "people-sign-in-password-tries-al"
+    },
+    {
+      "title": "People › Sign-in: Proxy",
+      "image": "ui-tests/shots/security/desktop-proxy-trust.png",
+      "id": "people-sign-in-proxy"
+    },
+    {
+      "title": "A changed client build waits for approval (H3)",
+      "image": "ui-tests/shots/go-live/web-pending.png",
+      "note": "After I changed the web system's client, its new build waited here. The old live build kept working until it was approved.",
+      "id": "a-changed-client-build-waits-for"
+    },
+    {
+      "title": "web/read in the guarded headless Chrome",
+      "image": "ui-tests/shots/security/desktop-web-read.png",
+      "note": "Rendered with WebSockets and service workers blocked and DNS pinned; the card lists every URL it fetched (Fetched: …).",
+      "id": "web-read-in-the-guarded-headless"
+    },
+    {
+      "title": "A new system's review before Go live",
+      "image": "ui-tests/shots/go-live/fs.png",
+      "id": "a-new-system-s-review-before-go"
+    }
+  ],
+  "updated": "2026-11-21T14:45:45.797Z"
+}

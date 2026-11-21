@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "kind": "review",
+  "seq": 11,
+  "readSeq": 10,
+  "overall": {
+    "verdict": "ok",
+    "note": "Make sure it's setup to run these against a fresh D\nSqlite db then come back with what didn't work and your analysis as to why and what did and why. Then we'll iterate and improve the fns, context, kinds, instructions, chat prompt, etc. we may do this several times and need a clean slate. Maybe run the whole thing 3 times per iteration for each case to reduce happenstance",
+    "at": "2026-11-21T21:43:42.142Z",
+    "seq": 10
+  },
+  "items": {
+    "planning-and-everyday-help-7-14": {
+      "verdict": "ok",
+      "rev": "1jpvitv",
+      "at": "2026-11-21T21:41:17.879Z",
+      "seq": 1,
+      "ack": {
+        "at": "2026-11-21T21:44:21.613Z",
+        "note": "Building the runner: a fresh hub and SQLite data folder for every pass, each request 3 times per iteration, then a report on what worked and what didn't, and why."
+      }
+    },
+    "paperwork-and-documents-15-18": {
+      "verdict": "ok",
+      "rev": "1ojtjn0",
+      "at": "2026-11-21T21:41:19.728Z",
+      "seq": 2,
+      "ack": {
+        "at": "2026-11-21T21:44:21.613Z",
+        "note": "Building the runner: a fresh hub and SQLite data folder for every pass, each request 3 times per iteration, then a report on what worked and what didn't, and why."
+      }
+    },
+    "making-things-19-23": {
+      "verdict": "ok",
+      "rev": "1wcot2p",
+      "at": "2026-11-21T21:41:22.891Z",
+      "seq": 3,
+      "ack": {
+        "at": "2026-11-21T21:44:21.613Z",
+        "note": "Building the runner: a fresh hub and SQLite data folder for every pass, each request 3 times per iteration, then a report on what worked and what didn't, and why."
+      }
+    },
+    "calendar-and-reminders-24-27": {
+      "verdict": "ok",
+      "rev": "jad0ka",
+      "at": "2026-11-21T21:41:24.951Z",
+      "seq": 4,
+      "ack": {
+        "at": "2026-11-21T21:44:21.613Z",
+        "note": "Building the runner: a fresh hub and SQLite data folder for every pass, each request 3 times per iteration, then a report on what worked and what didn't, and why."
+      }
+    },
+    "remembering-and-looking-back-28": {
+      "verdict": "ok",
+      "rev": "w409wm",
+      "at": "2026-11-21T21:41:33.172Z",
+      "seq": 5,
+      "ack": {
+        "at": "2026-11-21T21:44:21.613Z",
+        "note": "Building the runner: a fresh hub and SQLite data folder for every pass, each request 3 times per iteration, then a report on what worked and what didn't, and why."
+      }
+    },
+    "the-computer-and-the-house-32-34": {
+      "verdict": "ok",
+      "rev": "heon3l",
+      "at": "2026-11-21T21:41:34.521Z",
+      "seq": 6,
+      "ack": {
+        "at": "2026-11-21T21:44:21.613Z",
+        "note": "Building the runner: a fresh hub and SQLite data folder for every pass, each request 3 times per iteration, then a report on what worked and what didn't, and why."
+      }
+    },
+    "family-accounts-and-money-35-37": {
+      "verdict": "ok",
+      "rev": "4wxqs5",
+      "at": "2026-11-21T21:41:38.567Z",
+      "seq": 7,
+      "ack": {
+        "at": "2026-11-21T21:44:21.613Z",
+        "note": "Building the runner: a fresh hub and SQLite data folder for every pass, each request 3 times per iteration, then a report on what worked and what didn't, and why."
+      }
+    },
+    "odd-ones-38-40": {
+      "verdict": "ok",
+      "rev": "o1orr4",
+      "at": "2026-11-21T21:41:38.575Z",
+      "seq": 8,
+      "ack": {
+        "at": "2026-11-21T21:44:21.613Z",
+        "note": "Building the runner: a fresh hub and SQLite data folder for every pass, each request 3 times per iteration, then a report on what worked and what didn't, and why."
+      }
+    },
+    "how-we-d-run-them": {
+      "verdict": "ok",
+      "rev": "hi5ade",
+      "at": "2026-11-21T21:41:40.482Z",
+      "seq": 9,
+      "ack": {
+        "at": "2026-11-21T21:44:21.613Z",
+        "note": "Building the runner: a fresh hub and SQLite data folder for every pass, each request 3 times per iteration, then a report on what worked and what didn't, and why."
+      }
+    }
+  },
+  "comments": []
+}

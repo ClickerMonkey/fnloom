@@ -1,0 +1,96 @@
+{
+  "$schema": "https://unpkg.com/hitloop/schema/reviews.schema.json",
+  "title": "40 live-test scenarios (GPT-6 Luna)",
+  "intro": "40 prompts meant to cover everything the harness does, in six groups, plus how we'd run them. Give each group a verdict and comment on any line: scenarios to drop, change or add. Once you approve, we build the runner.",
+  "mode": "review",
+  "from": "harness scenarios session",
+  "created": "2026-11-21T19:00:52.988Z",
+  "items": [
+    {
+      "title": "A. Chat and turn mechanics (1–8)",
+      "file": "docs/plans/scenarios-2026-11-21.md",
+      "lines": "9-34",
+      "id": "a-chat-and-turn-mechanics-1-8",
+      "snap": {
+        "path": ".hitl/media/snaps/40-live-test-scenarios-gpt-6-luna/a-chat-and-turn-mechanics-1-8-a6db9d44.md",
+        "sha": "a6db9d449c4ee614de2920739d24f2ca5a4bba07",
+        "size": 11851,
+        "at": "2026-11-21T19:00:52.991Z"
+      }
+    },
+    {
+      "title": "B. Chat modes and contextors (9–13)",
+      "file": "docs/plans/scenarios-2026-11-21.md",
+      "lines": "35-51",
+      "id": "b-chat-modes-and-contextors-9-13",
+      "snap": {
+        "path": ".hitl/media/snaps/40-live-test-scenarios-gpt-6-luna/b-chat-modes-and-contextors-9-13-a6db9d44.md",
+        "sha": "a6db9d449c4ee614de2920739d24f2ca5a4bba07",
+        "size": 11851,
+        "at": "2026-11-21T19:00:52.992Z"
+      }
+    },
+    {
+      "title": "C. Context, memory and resources (14–20)",
+      "file": "docs/plans/scenarios-2026-11-21.md",
+      "lines": "52-71",
+      "id": "c-context-memory-and-resources-1",
+      "snap": {
+        "path": ".hitl/media/snaps/40-live-test-scenarios-gpt-6-luna/c-context-memory-and-resources-1-a6db9d44.md",
+        "sha": "a6db9d449c4ee614de2920739d24f2ca5a4bba07",
+        "size": 11851,
+        "at": "2026-11-21T19:00:52.992Z"
+      }
+    },
+    {
+      "title": "D. Systems that make fns (21–28)",
+      "file": "docs/plans/scenarios-2026-11-21.md",
+      "lines": "72-94",
+      "id": "d-systems-that-make-fns-21-28",
+      "snap": {
+        "path": ".hitl/media/snaps/40-live-test-scenarios-gpt-6-luna/d-systems-that-make-fns-21-28-a6db9d44.md",
+        "sha": "a6db9d449c4ee614de2920739d24f2ca5a4bba07",
+        "size": 11851,
+        "at": "2026-11-21T19:00:52.998Z"
+      }
+    },
+    {
+      "title": "E. Bridges (29–32)",
+      "file": "docs/plans/scenarios-2026-11-21.md",
+      "lines": "95-106",
+      "id": "e-bridges-29-32",
+      "snap": {
+        "path": ".hitl/media/snaps/40-live-test-scenarios-gpt-6-luna/e-bridges-29-32-a6db9d44.md",
+        "sha": "a6db9d449c4ee614de2920739d24f2ca5a4bba07",
+        "size": 11851,
+        "at": "2026-11-21T19:00:52.999Z"
+      }
+    },
+    {
+      "title": "F. Admin, people and limits (33–40)",
+      "file": "docs/plans/scenarios-2026-11-21.md",
+      "lines": "107-127",
+      "id": "f-admin-people-and-limits-33-40",
+      "snap": {
+        "path": ".hitl/media/snaps/40-live-test-scenarios-gpt-6-luna/f-admin-people-and-limits-33-40-a6db9d44.md",
+        "sha": "a6db9d449c4ee614de2920739d24f2ca5a4bba07",
+        "size": 11851,
+        "at": "2026-11-21T19:00:52.999Z"
+      }
+    },
+    {
+      "title": "How we'd run them",
+      "file": "docs/plans/scenarios-2026-11-21.md",
+      "lines": "128-134",
+      "ask": "Is this the right way to run them?",
+      "id": "how-we-d-run-them",
+      "snap": {
+        "path": ".hitl/media/snaps/40-live-test-scenarios-gpt-6-luna/how-we-d-run-them-a6db9d44.md",
+        "sha": "a6db9d449c4ee614de2920739d24f2ca5a4bba07",
+        "size": 11851,
+        "at": "2026-11-21T19:00:53.000Z"
+      }
+    }
+  ],
+  "updated": "2026-11-21T19:00:53.000Z"
+}

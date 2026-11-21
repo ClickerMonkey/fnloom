@@ -11,7 +11,7 @@
  * Systems that need embeddings ask through the hub link's `model` (modality `embed`), recorded like any model call.
  */
 import type {
-  ConvertedVersion, EmbedderAbilities, EmbedImage, EmbedInput, FormKind, IndexedKind, QualifiedName, ResourceLink, ResourceRoot, ResourceStat, ResourceUri, SearchHit, SectionDiff, SessionId, SystemName,
+  ConvertedVersion, EmbedderAbilities, EmbedImage, EmbedInput, FormKind, IndexedKind, IndexStatus, QualifiedName, ResourceLink, ResourceRoot, ResourceStat, ResourceUri, SearchHit, SectionDiff, SessionId, SystemName,
 } from '@harness/core';
 import type { Suggestion } from '@harness/core';
 import type { EmbedLane } from './batch.ts';
@@ -86,6 +86,8 @@ export interface Indexer {
    * resource's primary form instead of its raw text). Returns the stop, after which the router's raw text is read again.
    */
   readWith(reader: IndexReader): () => void;
+  /** How far embedding has got: text items waiting for a vector (asked of the database), a catch-up running or retrying, the last failure. */
+  status(): Promise<IndexStatus>;
 }
 
 /** A resource's text in the form sectioning and the index read. */
