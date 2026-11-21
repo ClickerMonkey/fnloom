@@ -289,6 +289,10 @@ export interface FnDef<T extends FnTypes> {
   readonly limits: FnLimits;
   readonly visibility: Audience;
   readonly tags: readonly string[];
+  /** What its calls operate on: claim templates the hub fills from each call's args (see `FnInput.parallelClaims`). */
+  readonly parallelClaims: readonly string[];
+  /** Whether the hub also asks its implementation's `claims(args, ctx)` before an agent's call starts. */
+  readonly dynamicClaims: boolean;
   /** Phantom: lets the SDK read T back out of a def. */
   readonly [phantom]?: T;
 }
@@ -299,7 +303,7 @@ export type AnyFnDef = FnDef<FnTypes>;
 export type TypesOf<F> = F extends FnDef<infer T> ? T : never;
 
 /** What `fn()` takes. Only `description`, `args` and `returns` are required. */
-export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDef, S, U, St extends object, F> {
+export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDef, S, U, St extends object, F, C extends readonly string[] = readonly string[]> {
   description: string;
   /** Extra guidance the LLM sees when the fn is in its toolset. */
   instructions?: string;
@@ -332,7 +336,47 @@ export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends Pro
   /** Default `both`. */
   visibility?: Audience;
   tags?: string[];
+  /**
+   * What its calls operate on, so an agent's calls that touch the same thing never run at once. When a model makes
+   * several calls in one step they run together, except that a call whose claims conflict with an earlier call's (in
+   * the model's order) waits until that call has settled. A claim is text with `{args.x}` tokens filled from the
+   * call's args and checked against them: `['file:{args.path}']`. A token naming a list gives one claim per item;
+   * `{args.dir|.}` names a fallback. Two calls conflict when they share a claim; `'*'` conflicts with every call.
+   */
+  parallelClaims?: ClaimsInput<NoInfer<A>, C>;
+  /**
+   * The hub also asks the implementation's `claims(args, ctx)` for a call's claims before it starts (a path resolved
+   * against the roots), joined with `parallelClaims`. Requires `claims` in the implementation; a round trip per call.
+   */
+  dynamicClaims?: true;
 }
+
+/** What a call claims: plain strings, compared exactly. aeye's `ToolClaims`. */
+export type ToolClaims = readonly string[];
+
+/** The tokens a claim template may use: a path into its fn's args. */
+export type ClaimTokens<A> = `args.${PathsOf<A>}`;
+
+/** A claim template as written, or an error naming the token it may not use. */
+export type CheckedClaim<S extends string, A> =
+  [Exclude<TokensOf<S>, ClaimTokens<A>>] extends [never] ? S : `Unknown claim token {${Exclude<TokensOf<S>, ClaimTokens<A>>}}`;
+
+/** What `parallelClaims` takes: the templates as written, each checked against the fn's args. */
+export type ClaimsInput<A, C extends readonly string[]> = C & { readonly [K in keyof C]: C[K] extends string ? CheckedClaim<C[K], A> : C[K] };
+
+/** The dotted paths into a value (`path`, `range.start`, `items.0`), four levels deep. */
+export type PathsOf<T, Depth extends readonly unknown[] = []> =
+  Depth['length'] extends 4 ? never
+    : T extends readonly (infer Item)[] ? `${number}` | `${number}.${PathsOf<Item, [...Depth, unknown]>}`
+    : T extends object
+      ? string extends keyof T ? string
+      : { [K in keyof T & string]-?: K | `${K}.${PathsOf<NonNullable<T[K]>, [...Depth, unknown]>}` }[keyof T & string]
+    : never;
+
+/** The token names a template uses: `'file:{args.path|none}'` → `'args.path'`. */
+export type TokensOf<S extends string> = S extends `${string}{${infer Token}}${infer Rest}`
+  ? (Token extends `${infer Name}|${string}` ? Name : Token) | TokensOf<Rest>
+  : never;
 
 /** The types of a native fn. */
 export interface NativeFnTypes<A, R, D extends Deps, H extends Handlers, P extends ProgressDef, S, U, St extends object = {}, F = never> {
@@ -340,8 +384,11 @@ export interface NativeFnTypes<A, R, D extends Deps, H extends Handlers, P exten
 }
 
 /** Declare a native fn: a fn its system implements in code. */
-export declare function fn<A, R, const D extends Deps = {}, const H extends Handlers = {}, const P extends ProgressDef = NoProgress, S = never, U = never, St extends object = {}, F = never>(
-  def: FnInput<A, R, D, H, P, S, U, St, F>,
+export declare function fn<
+  A, R, const D extends Deps = {}, const H extends Handlers = {}, const P extends ProgressDef = NoProgress, S = never, U = never, St extends object = {}, F = never,
+  const C extends readonly string[] = readonly string[],
+>(
+  def: FnInput<A, R, D, H, P, S, U, St, F, C>,
 ): FnDef<NativeFnTypes<A, R, NoInfer<D>, NoInfer<H>, NoInfer<P>, NoInfer<S>, NoInfer<U>, NoInfer<St>, NoInfer<F>>>;
 
 /**
@@ -470,9 +517,15 @@ export type UndoOutcome =
   /** Nothing left to undo. */
   | { status: 'gone' };
 
-/** The implementation of a native fn. `undo` is required exactly when the fn declares an undo type. */
+/**
+ * The implementation of a native fn. `undo` is required exactly when the fn declares an undo type; `claims` when it
+ * declares `dynamicClaims`: what a call with these args operates on (`'*'` to run alone), asked before it starts.
+ */
 export type FnImpl<T extends FnTypes, Cfg = unknown> =
-  { run(args: T['args'], ctx: FnCtx<T, Cfg>): Promise<Outcome<T>> } &
+  {
+    run(args: T['args'], ctx: FnCtx<T, Cfg>): Promise<Outcome<T>>;
+    claims?(args: T['args'], ctx: ClaimsCtx<Cfg>): ToolClaims | Promise<ToolClaims>;
+  } &
   ([T['undo']] extends [never] ? { undo?: never } : { undo(payload: T['undo'], ctx: UndoCtx<Cfg>): Promise<UndoOutcome> });
 
 /**
@@ -519,6 +572,17 @@ export interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services {
   fail(cls: ErrorClass, message: string, extra?: { code?: string; data?: Json; undo?: T['undo']; cost?: Usd }): Outcome<T>;
   pause(state: T['resume'], extra?: { cost?: Usd }): Outcome<T>;
   cancelled(extra?: { partial?: T['result']; undo?: T['undo']; cost?: Usd }): Outcome<T>;
+}
+
+/** What a fn's `claims(args, ctx)` gets: the call isn't a run yet, so it has its caller instead. */
+export interface ClaimsCtx<Cfg = unknown> extends Services {
+  readonly config: Cfg;
+  /** The person whose turn made the call. */
+  readonly user: UserInfo;
+  /** The agent run that made the call. */
+  readonly caller: RunId;
+  readonly session: SessionId | undefined;
+  readonly signal: AbortSignal;
 }
 
 /** What an undo implementation gets. */
@@ -877,6 +941,7 @@ export interface LlmPayload {
   maxTools: number;
   context: QualifiedName[];
   hooks: QualifiedName[];
+  /** `sequential`: each tool call waits for the one before, as if every call claimed `'*'`; `parallel` goes by claims. */
   toolExecution: 'parallel' | 'sequential';
   maxIterations: number;
 }

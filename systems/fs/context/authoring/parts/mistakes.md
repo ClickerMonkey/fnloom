@@ -110,6 +110,21 @@ reason given. If you see one of these errors, the fix is in the reason.
   ```ts
   void ((args: Infer<typeof hub.fns.resource_read.args>) => args)({});
   ```
+- **`paht` is not one of the args.**
+
+  ```ts
+  fn({ description: 'Write a file.', args, returns: g.bool(), parallelClaims: ['file:{args.paht}'] });
+  ```
+- **A claim reads only the args.**
+
+  ```ts
+  fn({ description: 'Write a file.', args, returns: g.bool(), parallelClaims: ['file:{output.path}'] });
+  ```
+- **Claims are strings.**
+
+  ```ts
+  claims: (args) => [args.from.length],
+  ```
 - **The title must be one of the type's fields.**
 
   ```ts

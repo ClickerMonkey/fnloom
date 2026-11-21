@@ -9,7 +9,7 @@
  * await kit.stop();
  * ```
  */
-import { qualify, type Json, type DataRecord, type KindDescription, type MentionOption as WireMentionOption, type OutcomeWire, type QualifiedName, type ResultTable, type RunRequest, type SensitivityFlag, type VisualRank } from '@harness/core';
+import { fillClaims, qualify, type Json, type DataRecord, type KindDescription, type MentionOption as WireMentionOption, type OutcomeWire, type QualifiedName, type ResultTable, type RunRequest, type SensitivityFlag, type VisualRank } from '@harness/core';
 import type { KindDef } from '../declare.ts';
 import type { AnyFnDef, FnDef, TypesOf } from '../fn.ts';
 import { encodeValue, parseValue } from '../gin.ts';
@@ -174,6 +174,19 @@ export class TestSystem<N extends string, C extends ContractShape> {
     const request = this.hub.request(fn, encodeValue(def.args, args));
     const answer = await this.hub.flags({ fn: name, kind: 'native', args: request.args, run: request.run.id, user: request.run.user });
     return answer.flags;
+  }
+
+  /**
+   * What an agent's call of a fn with these args would operate on, as the hub works it out before starting it: its
+   * `parallelClaims` filled from the args, then (for a fn with `dynamicClaims`) what its own `claims(args, ctx)` adds.
+   */
+  async claims<K extends FnNameOf<C>>(name: K, args: FnArgsOf<C, K>): Promise<string[]> {
+    const def = this.#fn(name);
+    const request = this.hub.request(qualify(this.contract.name, name), encodeValue(def.args, args));
+    const filled = fillClaims(def.parallelClaims, request.args);
+    if (!def.dynamicClaims) { return filled; }
+    const answer = await this.hub.claims({ fn: name, args: request.args, user: request.run.user, caller: request.run.id });
+    return [...new Set([...filled, ...answer.claims])];
   }
 
   /** A mention provider's options for what the person typed after `@`, with any resource searches it made. */

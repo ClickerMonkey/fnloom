@@ -69,7 +69,8 @@ export interface StatusValues {
 const MAX_VALUE = 60;
 const MAX_ITEMS = 3;
 
-const TOKEN = /\{([^{}|]+)(?:\|([^{}]*))?\}/g;
+/** A template token: `{name}`, or `{name|fallback}` with the text used when it has no value (status words, claims). */
+export const TEMPLATE_TOKEN = /\{([^{}|]+)(?:\|([^{}]*))?\}/g;
 
 /**
  * Resolve a run's status text for a phase from the first source whose tokens all have values. `sources` run from
@@ -95,7 +96,7 @@ export function countedText(text: Pick<RunText, 'one' | 'many'>, count: number):
 /** A template filled in, or undefined when a token has no value. `{n}` stays for the count in `many` forms. */
 function fill(template: string, values: StatusValues, many: boolean): string | undefined {
   const missing: string[] = [];
-  const text = template.replace(TOKEN, (whole, token: string, fallback: string | undefined) => {
+  const text = template.replace(TEMPLATE_TOKEN, (whole, token: string, fallback: string | undefined) => {
     const value = tokenValue(token.trim(), values, many);
     if (value !== undefined) { return value; }
     if (fallback !== undefined) { return fallback; }
@@ -111,11 +112,11 @@ function tokenValue(token: string, values: StatusValues, many: boolean): string 
   if (token === 'n') { return many ? '{n}' : undefined; }
   const [root, ...path] = token.split('.');
   const base = root === 'args' ? values.args : root === 'output' ? values.output : undefined;
-  return base === undefined ? undefined : spoken(at(base, path));
+  return base === undefined ? undefined : spoken(valueAtPath(base, path));
 }
 
 /** The value at a dotted path (array indices too), or undefined. A plain key walk: nothing is evaluated. */
-function at(value: Json, path: readonly string[]): Json | undefined {
+export function valueAtPath(value: Json, path: readonly string[]): Json | undefined {
   let current: Json | undefined = value;
   for (const key of path) {
     if (current === undefined || current === null || typeof current !== 'object') { return undefined; }

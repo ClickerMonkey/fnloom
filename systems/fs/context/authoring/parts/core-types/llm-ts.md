@@ -22,7 +22,7 @@ An LLM request forwarded from a system (behind `ctx.llm` and the aeye provider s
 type LlmForward = {
   request: {
     messages: {
-      role: "system" | "user" | "assistant" | "tool";
+      role: "user" | "system" | "assistant" | "tool";
       content: string | {
         type: "file" | "text" | "image" | "audio" | "video";
         content: string;
@@ -139,7 +139,7 @@ An LLM request as it crosses the wire.
 ```ts
 type LlmRequest = {
   messages: {
-    role: "system" | "user" | "assistant" | "tool";
+    role: "user" | "system" | "assistant" | "tool";
     content: string | {
       type: "file" | "text" | "image" | "audio" | "video";
       content: string;

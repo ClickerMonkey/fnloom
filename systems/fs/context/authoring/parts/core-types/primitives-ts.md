@@ -27,7 +27,7 @@ const, type · declared in `packages/core/src/primitives.ts`
 What kind of thing an actor is.
 
 ```ts
-type ActorKind = "mcp" | "system" | "user" | "group" | "agent";
+type ActorKind = "user" | "mcp" | "system" | "group" | "agent";
 ```
 
 #### <a id="core-audience"></a>`Audience`
@@ -37,7 +37,7 @@ const, type · declared in `packages/core/src/primitives.ts`
 Who can see a thing: people in the UI, the LLM, both, or neither.
 
 ```ts
-type Audience = "llm" | "none" | "user" | "both";
+type Audience = "user" | "llm" | "none" | "both";
 ```
 
 #### <a id="core-deliveryid"></a>`DeliveryId`

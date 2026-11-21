@@ -157,7 +157,7 @@ export class FakeSystem {
       },
       run: notHere, control: notHere, undo: notHere, handler: notHere, child: notHere, context: notHere, hook: notHere, mentions: notHere,
       mentionHover: notHere, mentionText: notHere, action: notHere, form: notHere, restart: notHere,
-      validate: notHere, preview: notHere, flags: notHere, estimate: notHere, providerChat: notHere, providerDecide: notHere, connectStart: notHere, connectFinish: notHere, disconnect: notHere,
+      validate: notHere, preview: notHere, flags: notHere, claims: notHere, estimate: notHere, providerChat: notHere, providerDecide: notHere, connectStart: notHere, connectFinish: notHere, disconnect: notHere,
     })]);
     const ws: ClientWs = {
       send: (frame) => { if (this.conn !== null) { void this.#app.ws.message(this.conn, frame); } },

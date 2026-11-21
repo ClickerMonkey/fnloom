@@ -158,6 +158,8 @@ export const fs = system('fs', {
         // the hub asks which sensitive files a call touches first (server/sensitive.ts)
         flags: true,
         args: g.obj({ path: path(), text: hub.types.LongText }),
+        // two changes to one file in the same step run in the model's order (server/impl.ts fileClaims)
+        dynamicClaims: true,
         returns: g.obj({ created: g.bool() }),
         status: {
           active: { one: 'Writing {args.path}…', many: 'Writing {n} files…' },
@@ -179,6 +181,8 @@ export const fs = system('fs', {
         // the hub asks which sensitive files a call touches first (server/sensitive.ts)
         flags: true,
         args: g.obj({ path: path(), find: g.text({ minLength: 1 }), replace: g.text(), all: g.optional(g.bool()) }),
+        // two changes to one file in the same step run in the model's order (server/impl.ts fileClaims)
+        dynamicClaims: true,
         returns: g.obj({ replacements: g.num() }),
         status: {
           active: { one: 'Editing {args.path}…', many: 'Editing {n} files…' },
@@ -303,6 +307,8 @@ export const fs = system('fs', {
         flags: true,
         args: g.obj({ path: path() }),
         returns: g.obj({ removed: g.bool() }),
+        // two changes to one file in the same step run in the model's order (server/impl.ts fileClaims)
+        dynamicClaims: true,
         status: {
           active: { one: 'Deleting {args.path}…', many: 'Deleting {n} files…' },
           retry: { one: 'Retrying deleting {args.path}…', many: 'Retrying {n} deletes…' },

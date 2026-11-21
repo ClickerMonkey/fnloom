@@ -5,7 +5,7 @@ title: "Core types: From packages/core/src/checks.ts"
 description: "Core types, the part on From packages/core/src/checks.ts."
 summary: "Core types: From packages/core/src/checks.ts."
 parent: "fs/authoring.core-types"
-next: "fs/authoring.core-types.config-secrets-ts"
+next: "fs/authoring.core-types.claims-ts"
 suggest: "none"
 tags: ["authoring", "reference"]
 ---

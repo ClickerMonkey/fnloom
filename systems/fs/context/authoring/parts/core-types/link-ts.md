@@ -57,8 +57,8 @@ type Hello = {
   contractHash?: string | undefined;
   pairingToken?: string | undefined;
   autoPair?: {
-    secret: string;
     id: string;
+    secret: string;
   } | undefined;
 };
 ```

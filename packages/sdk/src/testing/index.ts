@@ -10,7 +10,8 @@
  *   dark into a gallery; `renderHtml` for a quick in-process render.
  * - `kit.kindProps(kind, payload)`: what a kind derives from a payload. `contextFolder(dir, contract)`: the context
  *   folder parses, its links resolve, and the fns each context brings.
- * - `kit.flags(fn, args)`: the sensitive files a run would touch, as the hub asks first. `kit.mentions(provider, q)`:
+ * - `kit.flags(fn, args)`: the sensitive files a run would touch, as the hub asks first. `kit.claims(fn, args)`: what an
+ *   agent's call would operate on (its `parallelClaims` filled, and its `claims` hook). `kit.mentions(provider, q)`:
  *   a mention provider's options and the resource searches it made. `kit.records(type)`: the records runs saved
  *   (`ctx.data`, answered in memory by the fake hub). `scratchFolder({ git, files })`: a folder (a git repository) to
  *   run file and command fns in, for change sets and sensitive files.

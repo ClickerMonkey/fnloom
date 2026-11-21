@@ -43,8 +43,9 @@ Every system tests itself with the SDK's **test kit** (`@harness/sdk/testing`), 
 - **Data.** The fake hub answers `ctx.data` from records in memory, like the hub (filters, sorts, text search, pages,
   versions, `expect`, person-owned types refused outside runs): `kit.records('<Type>')` reads what runs saved, and
   `kit.hub.data.save(...)` puts records in first. Another system's stored type goes in `kit.hub.storedTypes`.
-- **Sensitive files and mentions.** `kit.flags('<fn>', args)` gives the flags its `flags` hook answers, as the hub
-  asks before a run. `kit.mentions('<provider>', query)` gives a mention provider's options and the resource searches
+- **Sensitive files, claims and mentions.** `kit.flags('<fn>', args)` gives the flags its `flags` hook answers, as
+  the hub asks before a run. `kit.claims('<fn>', args)` gives what an agent's call would operate on: its
+  `parallelClaims` filled from the args, joined with what its `claims` hook answers. `kit.mentions('<provider>', query)` gives a mention provider's options and the resource searches
   it made (answer them with `kit.hub.onMentionResources`).
 - **Files and commands.** `scratchFolder({ git: true, files })` makes a temp folder (a git repository with the files
   committed) to run file and command fns in: change a file, add an untracked or ignored one, and check the change set

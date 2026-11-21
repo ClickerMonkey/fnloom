@@ -36,6 +36,7 @@ export const OUTLINE: readonly Topic[] = [
     exports: [
       'fn', 'FnInput', 'FnExampleOf', 'FnDef', 'AnyFnDef', 'FnTypes', 'NativeFnTypes', 'TypesOf', 'Deps', 'FnRef', 'AnyFnRef', 'FnValidators', 'ValidateCtx', 'PreviewCtx',
       'DEFAULT_STATUS', 'StatusTemplates', 'StatusForms', 'RunPhase', 'StatusInput', 'CheckedStatus', 'CheckedTemplate', 'OneTokens', 'ManyTokens', 'PathsOf', 'TokensOf',
+      'fillClaims', 'ClaimsRequest', 'ClaimsInput', 'CheckedClaim', 'ClaimTokens', 'ToolClaims', 'ClaimsCtx', 'ALL_CLAIMS',
       'fnsMissingExamples', 'checkExamples', 'MissingExamplesError',
     ],
   },

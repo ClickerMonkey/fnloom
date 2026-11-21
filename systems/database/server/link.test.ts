@@ -228,7 +228,7 @@ describe('the database system over the link', () => {
     expect(proposal?.preview.parts.map((part) => part.type)).toEqual(['text', 'code', 'table']);
     const payload = hub.fns.kept.get('database/main.mark_paid')?.saved.payload ?? null;
     const checked = await hub.peer().call('check', { kind: 'query', payload });
-    expect(checked).toMatchObject({ problems: [], description: { approval: { preview: true, remember: false }, types: ['database/main.orders'], effects: { mode: 'write', reads: ['database/main.orders'], writes: ['database/main.orders'], free: true } } });
+    expect(checked).toMatchObject({ problems: [], description: { approval: { preview: true, remember: false }, types: ['database/main.orders'], effects: { mode: 'write', reads: ['database/main.orders'], writes: ['database/main.orders'], free: true }, parallelClaims: ['table:orders'] } });
     const preview = await hub.preview({ run: mintId('run'), fn: 'main.mark_paid', args: {}, user: TEST_USER, kind: 'database/query', payload });
     expect(preview).toMatchObject({ preview: { title: 'Change 2 rows in orders (Shop database)' } });
     // a write the hub sent with no approval is refused, and changes nothing

@@ -23,6 +23,7 @@ import { RecordStorage } from './data.ts';
 import { ApiGroupDecl } from './api-index.ts';
 import { ChatModeType } from './modes.ts';
 import { ModelRole } from './model-calls.ts';
+import { ClaimTemplate } from './claims.ts';
 
 
 /** How values of a named type are shown: in mention chips, hover cards and inputs. */
@@ -260,6 +261,14 @@ export const FnDecl = z.object({
   roles: z.array(ModelRole).optional(),
   /** Widget pass: its rows change on their own, so widgets over it may refresh while shown. */
   live: FnLive.optional(),
+  /**
+   * What its calls operate on (`claims.ts`): claim templates the hub fills from a call's args (`file:{args.path}`), or
+   * `*` to run alone. An agent's calls of one step run together, except that a call whose claims conflict with an
+   * earlier call's waits until that call has settled.
+   */
+  parallelClaims: z.array(ClaimTemplate).optional(),
+  /** Before an agent's call starts, the hub also asks its system for its claims (`claims` on the system link), from the args and the call's context. */
+  dynamicClaims: z.boolean().optional(),
 });
 export type FnDecl = z.infer<typeof FnDecl>;
 
@@ -489,6 +498,8 @@ export const KindDescription = z.object({
   readable: ReadablePayload.optional(),
   /** For a key-scoped `connect` system: the key this payload's fn acts through (an api fn's service), as `FnDecl.connectKey`. */
   connectKey: ConnectKey.optional(),
+  /** What this payload's fn's calls operate on (a write query's tables), as `FnDecl.parallelClaims`; joined with the fn's own. */
+  parallelClaims: z.array(ClaimTemplate).optional(),
   /**
    * At least one example call, worked out from the payload (a query from its params, a form from a filled sample, an
    * API or MCP tool from its schema), so every fn of a kind has one. The author's own examples, when the fn declares

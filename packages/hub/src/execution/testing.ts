@@ -17,7 +17,7 @@ import {
   type TurnId, type TurnStatus, type UndoOutcome, type UserInfo, type RunControlAction, type SuggestionRecord,
   type ProviderChat, type ProviderChunk, type ProviderDecide, type ProviderDecideResult, type ProviderEmbed, type ProviderEmbedResult, type ProviderModels,
   type ProviderModelsResult, type ValidateAnswer, type ValidateRequest,
-  type ConnectFinish, type ContextDecl, type ConnectResult, type ConnectStart, type RunConnection, type PreviewAnswer, type PreviewRequest, type FlagsAnswer,
+  type ConnectFinish, type ContextDecl, type ConnectResult, type ConnectStart, type RunConnection, type PreviewAnswer, type PreviewRequest, type FlagsAnswer, type ClaimsAnswer, type ClaimsRequest,
 } from '@harness/core';
 import { z } from 'zod';
 import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
@@ -249,6 +249,8 @@ export interface SystemBehaviour {
   preview: (input: PreviewRequest) => PreviewAnswer;
   /** The sensitive files a run of a fn that declares `flags` would touch (build 8). */
   flags: (input: PreviewRequest) => FlagsAnswer;
+  /** What an agent's call of a fn that declares `dynamicClaims` operates on. */
+  claims: (input: ClaimsRequest) => ClaimsAnswer | Promise<ClaimsAnswer>;
 }
 
 /** A system connected to the rig over an in-process socket, serving `systemLinkSpec` for real. */
@@ -258,6 +260,7 @@ export class TestSystem {
   readonly validations: ValidateRequest[] = [];
   readonly previews: PreviewRequest[] = [];
   readonly flagged: PreviewRequest[] = [];
+  readonly claimed: ClaimsRequest[] = [];
   readonly chats: ProviderChat[] = [];
   readonly decisions: ProviderDecide[] = [];
   readonly children: Array<{ parent: string; key: string; run: string; update?: unknown }> = [];
@@ -276,6 +279,7 @@ export class TestSystem {
     disconnect: () => undefined,
     preview: () => ({ preview: { title: 'Do it', parts: [], irreversible: false } }),
     flags: () => ({ flags: [] }),
+    claims: () => ({ claims: [] }),
   };
   conn: WsConn | undefined;
   readonly #controller = new AbortController();
@@ -294,6 +298,7 @@ export class TestSystem {
       form: notHere, restart: notHere, stop: notHere, configure: notHere, export: notHere, estimate: notHere,
       preview: ({ data }) => { this.previews.push(data); return this.behaviour.preview(data); },
       flags: ({ data }) => { this.flagged.push(data); return this.behaviour.flags(data); },
+      claims: ({ data }) => { this.claimed.push(data); return this.behaviour.claims(data); },
       validate: ({ data }) => { this.validations.push(data); return this.behaviour.validate(data); },
       providerChat: ({ data }) => { this.chats.push(data); return this.behaviour.providerChat(data); },
       providerEmbed: ({ data }) => this.behaviour.providerEmbed(data),
@@ -379,7 +384,10 @@ export async function executionRig(options: {
     ...(rigAccess === undefined ? {} : { access: (actor: ActorId) => rigAccess.scope(actor) }),
   });
 
-  const module: ExecutionModule = createExecution({
+  // the queue's store outlives a restart, as the hub store's does
+  const work = memoryBackend();
+  const rate = rateMemory();
+  const build = (): ExecutionModule => createExecution({
     settings: options.settings ?? testSettings(),
     log, clock, random, store, bus, catalog,
     link: { connection: (system) => { const found = systems.get(system); return found === undefined ? undefined : found.connection(hub); } },
@@ -412,10 +420,19 @@ export async function executionRig(options: {
     },
     enrich: { render: (message) => message.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') },
     approvers: { approvers: (approver: Approver, turnUser: ActorId) => Promise.resolve(approver.by === 'turn-user' ? [turnUser] : approver.by === 'actor' ? [approver.actor] : approver.by === 'admins' ? [ALICE] : []) },
-    ports: { work: memoryBackend(), rate: rateMemory() },
+    ports: { work, rate },
     calls, metrics, planner: contextor.planner,
     llm: options.llm ?? { providers: { [SCRIPTED_AS]: provider }, models: [TEST_MODEL] },
   });
+  let module = build();
+
+  /** Stop the module and start a new one over the same store, systems and queue, as a hub restart does. */
+  const restart = async (): Promise<ExecutionModule> => {
+    await module.stop();
+    module = build();
+    await module.start();
+    return module;
+  };
 
   /** Connect a fake system. */
   const connect = (name: string): TestSystem => {
@@ -446,7 +463,7 @@ export async function executionRig(options: {
     });
   };
 
-  return { module, store, bus, log, records, time, catalog, provider, chat, presence, configs, approverSets, connect, session, turn, hub, calls, metrics };
+  return { get module(): ExecutionModule { return module; }, restart, store, bus, log, records, time, catalog, provider, chat, presence, configs, approverSets, connect, session, turn, hub, calls, metrics };
 }
 
 export type ExecutionRig = Awaited<ReturnType<typeof executionRig>>;

@@ -22,6 +22,7 @@ import { DecideAnswer, DecideRequest } from './decisions.ts';
 import { DataRecord, RecordGet, RecordPage, RecordQuery, RecordRemove, RecordSave, RecordTableQuery } from './data.ts';
 import { MentionRequestId, MentionResourceHits, MentionResourceSearch } from './mention-search.ts';
 import { FlagsAnswer } from './sensitivity.ts';
+import { ClaimsAnswer, ClaimsRequest } from './claims.ts';
 import { ResultTable } from './registries.ts';
 import { FnExamplesPage, FnExamplesPatch, FnExamplesQuery, FnSearchPage, FnSearchQuery, KindEstimateAnswer, KindEstimateRequest } from './fn-facts.ts';
 import { HookBlock, HookInput, ImportReport, KindDescription, KindFnShape, Manifest, ManifestPatch, MentionHover, MentionOption } from './manifest.ts';
@@ -454,6 +455,8 @@ export const systemLinkSpec = spec({
     // Build 8
     /** Which sensitive files a run of a fn with `flags` would touch (`sensitivity.ts`), asked before the mode gate. */
     flags: endpoint({ body: PreviewRequest, response: FlagsAnswer, ws: 'fg' }),
+    /** What an agent's call of a fn with `dynamicClaims` operates on (`claims.ts`), asked before the call becomes a run. */
+    claims: endpoint({ body: ClaimsRequest, response: ClaimsAnswer, ws: 'pcl' }),
   },
 });
 export type SystemLinkSpec = typeof systemLinkSpec;

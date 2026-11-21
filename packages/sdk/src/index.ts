@@ -7,6 +7,9 @@ export { ACTIVE_RUN_STATUSES, SETTLED_RUN_STATUSES, isSettled, isUnsettled, type
 /** Status words: core's templates, typed against a fn's args and result. */
 export { DEFAULT_STATUS, type StatusTemplates, type StatusForms, type RunPhase } from '@harness/core';
 export type { StatusInput, CheckedStatus, CheckedTemplate, OneTokens, ManyTokens, PathsOf, TokensOf } from './status.ts';
+/** Parallel claims: what a fn's calls operate on, so an agent's calls that clash run one after another. */
+export { fillClaims, type ClaimsRequest } from '@harness/core';
+export type { ClaimsInput, CheckedClaim, ClaimTokens, ToolClaims } from './claims.ts';
 export { g, json, wireType, parseValue, encodeValue, referencesOf, loadTypes, sampleOf, sampleArgs, type GinType, type Infer, type LoadedTypes } from './gin.ts';
 export { ginOf, ginAs, toolArgsOf, type FlatArgs, type ToolArgs } from './zod-gin.ts';
 export {
@@ -35,7 +38,7 @@ export {
   type Llm, type Files, type Resources, type Types, type Log, type Services, type SystemCtx, type SessionState, type Settled, type CallOptions, type Caller,
   type Callers, type FnCall, type BudgetInfo, type Resume, type FnCtx, type UndoCtx, type ValidateCtx, type AskerCtx, type ActionCtx, type RunStatusView, type SystemPlace,
   type Data, type StoredRecord, type StoredType, type RecordFind,
-  type ForwardModality, type ModelInput, type ModelOutput, type PreviewCtx, type Proposals, type ProposeOptions, type Decisions, type DecideOptions, type Fleets, type FnSearch, type AiSource, type AdminNotices, type InstanceConnects,
+  type ForwardModality, type ModelInput, type ModelOutput, type PreviewCtx, type ClaimsCtx, type Proposals, type ProposeOptions, type Decisions, type DecideOptions, type Fleets, type FnSearch, type AiSource, type AdminNotices, type InstanceConnects,
 } from './ctx.ts';
 export { ResultBlock, ResultBlockType, ResultColumnInfo, ResultFn, NextPage } from './results.ts';
 export type { FnImpl } from './impl.ts';

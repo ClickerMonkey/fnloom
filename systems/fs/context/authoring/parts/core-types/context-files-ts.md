@@ -100,8 +100,8 @@ type ContextFileHeader = {
   imports: `${string}/${string}`[];
   fns: `${string}/${string}`[];
   suggestFns: `${string}/${string}`[];
-  suggest: "llm" | "none" | "user" | "both";
-  visible: "llm" | "none" | "user" | "both";
+  suggest: "user" | "llm" | "none" | "both";
+  visible: "user" | "llm" | "none" | "both";
   alwaysFor: `${string}/${string}`[];
   tags: string[];
   title?: string | undefined;

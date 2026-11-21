@@ -875,6 +875,8 @@ export class StoreCatalog implements Catalog {
       ...(description.readable === undefined ? {} : { readable: description.readable }),
       // and the key it acts through, for a key-scoped connect system (an api fn's service)
       ...(description.connectKey === undefined ? {} : { connectKey: description.connectKey }),
+      // and what its calls operate on (a write query's tables), with whatever the fn claims itself
+      ...(description.parallelClaims === undefined ? {} : { parallelClaims: [...new Set([...(decl.parallelClaims ?? []), ...description.parallelClaims])] }),
       // the author's examples win; a fn declared without any gets its kind's, so every fn of a kind has one
       examples: decl.examples !== undefined && decl.examples.length > 0 ? decl.examples : description.examples,
       // the fn's own status words win over what its kind says for the payload

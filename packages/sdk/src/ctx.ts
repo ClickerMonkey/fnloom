@@ -255,6 +255,17 @@ export interface PreviewCtx<Cfg = unknown> extends SystemCtx<Cfg> {
   readonly user: UserInfo;
 }
 
+/**
+ * What a fn's `claims(args, ctx)` gets: the system context, the person whose turn made the call, the agent run that
+ * made it and its chat. The call isn't a run yet, so it has no run of its own.
+ */
+export interface ClaimsCtx<Cfg = unknown> extends SystemCtx<Cfg> {
+  readonly user: UserInfo;
+  /** The agent run that made the call. */
+  readonly caller: RunId;
+  readonly session: SessionId | undefined;
+}
+
 /** What hooks, mentions, actions, dynamic context, events and lifecycle events get. */
 /**
  * This system's fleet: every paired instance, whether it is online, its config (secret fields as `SECRET_KEPT`) and

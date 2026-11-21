@@ -20,6 +20,8 @@ choices:
     when: "Pick this for From packages/core/src/auto-pair.ts."
   - to: "fs/authoring.core-types.checks-ts"
     when: "Pick this for From packages/core/src/checks.ts."
+  - to: "fs/authoring.core-types.claims-ts"
+    when: "Pick this for From packages/core/src/claims.ts."
   - to: "fs/authoring.core-types.config-secrets-ts"
     when: "Pick this for From packages/core/src/config-secrets.ts."
   - to: "fs/authoring.core-types.connections-ts"
@@ -107,7 +109,7 @@ choices:
 The wire shapes from `@harness/core` that the SDK's declarations refer to, each resolved to plain TypeScript. Each is a
 zod schema in core with its type inferred from it; import the type (and the schema, to parse) from `@harness/core`.
 
-This part is in 46 pieces; load the one you need:
+This part is in 47 pieces; load the one you need:
 
 - [From packages/core/src/access.ts](context:fs/authoring.core-types.access-ts)
 - [From packages/core/src/admin.ts](context:fs/authoring.core-types.admin-ts)
@@ -115,6 +117,7 @@ This part is in 46 pieces; load the one you need:
 - [From packages/core/src/approvals.ts](context:fs/authoring.core-types.approvals-ts)
 - [From packages/core/src/auto-pair.ts](context:fs/authoring.core-types.auto-pair-ts)
 - [From packages/core/src/checks.ts](context:fs/authoring.core-types.checks-ts)
+- [From packages/core/src/claims.ts](context:fs/authoring.core-types.claims-ts)
 - [From packages/core/src/config-secrets.ts](context:fs/authoring.core-types.config-secrets-ts)
 - [From packages/core/src/connections.ts](context:fs/authoring.core-types.connections-ts)
 - [From packages/core/src/context-files.ts](context:fs/authoring.core-types.context-files-ts)

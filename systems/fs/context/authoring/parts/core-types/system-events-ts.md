@@ -22,9 +22,9 @@ Hub events a system can subscribe to.
 type SystemEvent = {
   type: "message";
   message: {
+    id: string;
     session: string;
     role: "user" | "note" | "assistant";
-    id: string;
     createdAt: number;
     author: string;
     replyAll: boolean;

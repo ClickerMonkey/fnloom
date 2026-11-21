@@ -380,6 +380,35 @@ The implementation receives typed args and a context:
 It returns an **outcome**: done (result, cost, optional undo payload), paused (resume payload), failed
 (error plus whether to retry, tell the caller, or stop the turn), or cancelled.
 
+### Parallel claims
+
+When a model makes several tool calls in one step, the hub starts them together, unless they operate on the same
+thing. A fn says what its calls operate on with **claims**, plain strings compared exactly: `parallelClaims` in its
+contract holds templates the hub fills from the call's args with no round trip (`file:{args.path}`; a list arg gives
+one claim per item, `{args.dir|.}` names a fallback, `*` conflicts with every call), and `dynamicClaims: true` has
+the hub also ask the system's `claims(args, ctx)` before the call starts (a path resolved against the roots, the
+person and chat in `ctx`). The rule is aeye's (`claimsConflict`, `claimWaits`): a call whose claims conflict with an
+earlier call's (in the model's order) waits until that call has settled, and the rest run together. A kind's
+`describe` may add claims for a payload (a write query claims the tables it writes).
+
+- **Where it runs.** The agent loop orders the child runs of an iteration itself: a call that must wait is **held** on
+  the agent's state (`PendingCall.held`: what it waits for and what it starts with), and starts once those calls have
+  settled. A call in the background is still running, so a held call keeps waiting for it. The state is saved as each
+  held call starts, and child runs are keyed by iteration and call id, so a restart neither loses a held call nor
+  starts it twice.
+- **What takes no part.** Refused input (invalid args, a fn the model made up) never waits and holds no one up. A step
+  of one call asks no system anything.
+- **When it can't be told.** A system that is gone, or whose `claims` hook throws, makes that call claim `*` (it runs
+  alone), with a warning in the log.
+- **When the agent stops waiting.** Cancelling the agent (or its deadline, or its tool timeout while the person
+  watches) skips its held calls for good, Continue included; the model reads that each did not run and why. A pause
+  keeps them held.
+- **`toolExecution: 'sequential'`** is the same mechanism: every call of such an agent claims `*`, so each waits for
+  the one before.
+- **Bundled fns that claim:** fs `write`, `edit` and `remove` (dynamic: `file:<full path>`, so `./a.ts` and `a.ts`
+  clash); database `create_table`, `alter_table` and `change_schema` (`table:{args.table}`), and saved queries that
+  write (`table:<table>` for each table written, from the kind's `describe`).
+
 ### Calling other fns
 
 A call from inside a fn goes to the hub and is queued like every other run. That is how the hub sees
@@ -1702,3 +1731,11 @@ Already checked: type-checking all of the types and examples takes about two sec
   address guard with admin-only private hosts). Phil: "For outside images and other things that could be conditional
   have admin setting. For rate limiting use ayepi/rate". Outgoing fetches from read fns are logged on the run, not
   asked about.
+- **Parallel claims** (2026-11-21). Phil: "Let's enhance aeye (aits) and then harness so a tool can statically or
+  dynamically with the ctx and tool args specify parallelClaims so during parallel tool execution if tools operate on
+  the same things they aren't ran in parallel and they are executed sequentially. So basically parallel tool calling
+  can be safe but also be sequential depending on the circumstances of the tool call. Then after that well tested added
+  that functionality to fns in harness." aeye owns the rule (`claimWaits`); the hub's agent loop applies it to the
+  child runs of each iteration (**Parallel claims** under **Fns**). Static claims use the status words' `{args.x}`
+  tokens, checked against the args at compile time; a system that can't answer for its dynamic claims makes the call
+  run alone; held calls a stopped agent no longer waits for are skipped, never started later.

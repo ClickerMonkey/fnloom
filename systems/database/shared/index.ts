@@ -161,6 +161,8 @@ export const database = system('database', {
         visibility: 'none',
         approval: { preview: true, remember: false },
         status: status('Changing {args.table}…', 'Changed {args.table}', 'Changing {args.table} failed'),
+        // changes to one table in the same step run in the model's order (saved queries that write claim it too)
+        parallelClaims: ['table:{args.table}'],
         effects: { mode: 'delete', free: true, registry: [{ thing: 'types', action: 'create' }, { thing: 'types', action: 'update' }, { thing: 'types', action: 'remove' }] },
         tags: ['database', 'schema', 'write'],
       }),
@@ -370,6 +372,8 @@ export const database = system('database', {
           { args: { table: 'notes', type: { name: 'obj', props: { id: { type: { name: 'num', options: { whole: true } } }, text: { type: { name: 'text' } }, due: { type: { name: 'optional', generic: { T: { name: 'date' } } } } } } }, note: 'A whole-number id, a text column, and a date that may be empty.' },
         ],
         status: status('Creating {args.table}…', 'Created {args.table}', 'Creating {args.table} failed'),
+        // changes to one table in the same step run in the model's order (saved queries that write claim it too)
+        parallelClaims: ['table:{args.table}'],
         effects: { mode: 'write', free: true, registry: [{ thing: 'types', action: 'create' }] },
         tags: ['database', 'schema', 'write'],
         // any instance answers: it picks the database and forwards there with `on`
@@ -385,6 +389,8 @@ export const database = system('database', {
         approval: { preview: true, remember: false },
         examples: [{ args: { table: 'notes', type: { name: 'obj', props: { id: { type: { name: 'num', options: { whole: true } } }, text: { type: { name: 'text' } }, done: { type: { name: 'bool' } } } } }, note: 'Adds `done`, drops `due`.' }],
         status: status('Changing {args.table}…', 'Changed {args.table}', 'Changing {args.table} failed'),
+        // changes to one table in the same step run in the model's order (saved queries that write claim it too)
+        parallelClaims: ['table:{args.table}'],
         effects: { mode: 'delete', free: true, registry: [{ thing: 'types', action: 'update' }] },
         tags: ['database', 'schema', 'write'],
         // any instance answers: it picks the database and forwards there with `on`

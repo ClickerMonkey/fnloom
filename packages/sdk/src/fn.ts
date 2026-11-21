@@ -10,6 +10,7 @@ import {
 import { encodeValue, json, type GinType } from './gin.ts';
 import type { ValidateCtx } from './ctx.ts';
 import type { AnyFnRef, AnyKindRef, KindRef } from './refs.ts';
+import type { ClaimsInput } from './claims.ts';
 import type { StatusInput } from './status.ts';
 import { orDefault, type Simplify } from './util.ts';
 
@@ -209,6 +210,10 @@ export interface FnDef<T extends FnTypes> {
   readonly flags: boolean;
   /** The hub model roles it needs set (`FnDecl.roles`); it is unavailable (`role-unset`) while one has no model. */
   readonly roles: readonly ModelRole[] | undefined;
+  /** What its calls operate on, as claim templates the hub fills from each call's args (`FnDecl.parallelClaims`). */
+  readonly parallelClaims: readonly string[];
+  /** Whether the hub also asks its implementation's `claims(args, ctx)` before an agent's call starts. */
+  readonly dynamicClaims: boolean;
   /** Phantom: lets the SDK read T back out of a def. Never set at runtime. */
   readonly types?: T;
 }
@@ -219,7 +224,9 @@ export type AnyFnDef = FnDef<FnTypes>;
 export type TypesOf<F> = F extends FnDef<infer T> ? T : never;
 
 /** What `fn()` takes. Only `description`, `args` and `returns` are required. */
-export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDef, S, U, St extends object, F, T extends StatusTemplates = StatusTemplates> {
+export interface FnInput<
+  A, R, D extends Deps, H extends Handlers, P extends ProgressDef, S, U, St extends object, F, T extends StatusTemplates = StatusTemplates, C extends readonly string[] = readonly string[],
+> {
   description: string;
   /** Extra guidance the LLM sees when the fn is in its toolset. */
   instructions?: string;
@@ -298,6 +305,21 @@ export interface FnInput<A, R, D extends Deps, H extends Handlers, P extends Pro
    * keeps it unavailable (`role-unset`) and says which role an admin must set.
    */
   roles?: ModelRole[];
+  /**
+   * What its calls operate on, so an agent's calls that touch the same thing never run at once: when a model makes
+   * several calls in one step they run together, except that a call whose claims conflict with an earlier call's (in
+   * the model's order) waits until that call has settled. Each claim is text with `{args.x}` tokens filled from the
+   * call's args and checked against them: `['file:{args.path}']`. A token naming a list gives one claim per item, and
+   * `{args.dir|.}` names a fallback. Two calls conflict when they share a claim; `'*'` conflicts with every call (it
+   * runs alone).
+   */
+  parallelClaims?: ClaimsInput<NoInfer<A>, C>;
+  /**
+   * The hub also asks its implementation's `claims(args, ctx)` for a call's claims before it starts (paths resolved
+   * against the roots, the rows a query would touch), joined with `parallelClaims`. Requires `claims` in the
+   * implementation. It costs a round trip per call, so prefer `parallelClaims` when the args say it all.
+   */
+  dynamicClaims?: true;
 }
 
 /** The types of a native fn. */
@@ -308,9 +330,9 @@ export interface NativeFnTypes<A, R, D extends Deps, H extends Handlers, P exten
 /** Declare a native fn: a fn its system implements in code. */
 export function fn<
   A, R, const D extends Deps = {}, const H extends Handlers = {}, const P extends ProgressDef = NoProgress, S = never, U = never, St extends object = {}, F = never,
-  const T extends StatusTemplates = StatusTemplates,
+  const T extends StatusTemplates = StatusTemplates, const C extends readonly string[] = readonly string[],
 >(
-  def: FnInput<A, R, D, H, P, S, U, St, F, T>,
+  def: FnInput<A, R, D, H, P, S, U, St, F, T, C>,
 ): FnDef<NativeFnTypes<A, R, NoInfer<D>, NoInfer<H>, NoInfer<P>, NoInfer<S>, NoInfer<U>, NoInfer<St>, NoInfer<F>>> {
   return {
     kind: 'native',
@@ -347,6 +369,8 @@ export function fn<
     group: def.group,
     flags: def.flags === true,
     roles: def.roles,
+    parallelClaims: [...(def.parallelClaims ?? [])],
+    dynamicClaims: def.dynamicClaims === true,
   };
 }
 
@@ -428,6 +452,8 @@ export function kindFn<N extends `${string}/${string}`, P, A, R, const T extends
     group: def.group,
     flags: false,
     roles: undefined,
+    parallelClaims: [],
+    dynamicClaims: false,
   };
 }
 

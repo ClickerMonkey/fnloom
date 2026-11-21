@@ -26,8 +26,8 @@ type ContextDecl = {
   imports: `${string}/${string}`[];
   fns: `${string}/${string}`[];
   suggestFns: `${string}/${string}`[];
-  suggest: "llm" | "none" | "user" | "both";
-  visible: "llm" | "none" | "user" | "both";
+  suggest: "user" | "llm" | "none" | "both";
+  visible: "user" | "llm" | "none" | "both";
   alwaysFor: `${string}/${string}`[];
   tags: string[];
   title?: string | undefined;
@@ -110,7 +110,7 @@ type FnDecl = {
     retries?: number | undefined;
     cost?: number | undefined;
   };
-  visibility: "llm" | "none" | "user" | "both";
+  visibility: "user" | "llm" | "none" | "both";
   tags: string[];
   instructions?: string | undefined;
   payload?: z.core.util.JSONType | undefined;
@@ -181,6 +181,8 @@ type FnDecl = {
   live?: {
     every: number;
   } | undefined;
+  parallelClaims?: string[] | undefined;
+  dynamicClaims?: boolean | undefined;
 };
 ```
 
@@ -439,6 +441,7 @@ type KindDescription = {
     code: string;
   } | undefined;
   connectKey?: ConnectKey | undefined;
+  parallelClaims?: string[] | undefined;
 };
 ```
 

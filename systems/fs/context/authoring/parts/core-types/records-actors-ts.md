@@ -247,11 +247,11 @@ The public view of a user, as the browser gets it.
 
 ```ts
 type UserView = {
-  name: string;
-  kind: "user";
-  role: "admin" | "member";
   id: string;
+  name: string;
   email: string;
+  role: "admin" | "member";
+  kind: "user";
   timeZone?: string | undefined;
 };
 ```

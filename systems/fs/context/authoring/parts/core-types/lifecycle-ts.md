@@ -245,7 +245,7 @@ type PreviewAnswer = {
       name: string;
       description: string;
       type: TypeDef<any>;
-      appliesTo: ("mcp" | "system" | "user" | "group" | "agent")[];
+      appliesTo: ("user" | "mcp" | "system" | "group" | "agent")[];
       merge: "union" | "user-wins" | "intersect" | "most-restrictive";
       editableBy: ("self" | "fns")[];
     }[];
@@ -318,7 +318,7 @@ type PreviewAnswer = {
         retries?: number | undefined;
         cost?: number | undefined;
       };
-      visibility: "llm" | "none" | "user" | "both";
+      visibility: "user" | "llm" | "none" | "both";
       tags: string[];
       instructions?: string | undefined;
       payload?: z.core.util.JSONType | undefined;
@@ -389,6 +389,8 @@ type PreviewAnswer = {
       live?: {
         every: number;
       } | undefined;
+      parallelClaims?: string[] | undefined;
+      dynamicClaims?: boolean | undefined;
     }[];
     context: {
       name: string;
@@ -396,8 +398,8 @@ type PreviewAnswer = {
       imports: `${string}/${string}`[];
       fns: `${string}/${string}`[];
       suggestFns: `${string}/${string}`[];
-      suggest: "llm" | "none" | "user" | "both";
-      visible: "llm" | "none" | "user" | "both";
+      suggest: "user" | "llm" | "none" | "both";
+      visible: "user" | "llm" | "none" | "both";
       alwaysFor: `${string}/${string}`[];
       tags: string[];
       title?: string | undefined;

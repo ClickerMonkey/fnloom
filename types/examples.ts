@@ -195,6 +195,25 @@ void serve(tiny, { fns: { ping: { async run(_a, ctx) { return ctx.done('pong'); 
 // @ts-expect-error a fn that isn't in the contract can't be implemented
 void serve(tiny, { fns: { ping: { async run(_a, ctx) { return ctx.done('pong'); } }, pong: { async run(_a: {}, ctx: never) { return ctx; } } } }, { hub: '', state: '' });
 
+// ── Parallel claims: calls that touch the same thing run one after another ────
+
+// a claim reads the call's args: two writes to one path in the same step run in the model's order
+const writeFile = fn({ description: 'Write a file.', args: g.obj({ path: g.text(), text: g.text() }), returns: g.bool(), parallelClaims: ['file:{args.path}'] });
+expect<Equal<typeof writeFile.parallelClaims, readonly string[]>>(true);
+// @ts-expect-error a claim may only read the fn's own args
+fn({ description: 'Write a file.', args: g.obj({ path: g.text() }), returns: g.bool(), parallelClaims: ['file:{args.paht}'] });
+// a list gives one claim per item, a fallback fills an arg left out, and '*' runs alone
+fn({ description: 'Zip files.', args: g.obj({ paths: g.list(g.text()), into: g.optional(g.text()) }), returns: g.bool(), parallelClaims: ['file:{args.paths}', 'file:{args.into|out.zip}'] });
+fn({ description: 'Restart.', args: g.obj({}), returns: g.bool(), parallelClaims: ['*'] });
+// claims worked out per call, from the args and the call's context: the implementation says
+const moveFile = fn({ description: 'Move a file.', args: g.obj({ from: g.text(), to: g.text() }), returns: g.bool(), dynamicClaims: true });
+const moving = system('moving', { description: 'Moves files.' }).with({ fns: { move: moveFile } });
+void serve(moving, {
+  fns: { move: { async run(_a, ctx) { return ctx.done(true); }, claims: (args, ctx) => [`file:${args.from}`, `file:${args.to}`, `user:${ctx.user.id}`] } },
+}, { hub: '', state: '' });
+// @ts-expect-error claims are strings
+void serve(moving, { fns: { move: { async run(_a, ctx) { return ctx.done(true); }, claims: (args) => [args.from.length] } } }, { hub: '', state: '' });
+
 // ── Calling other systems' fns ───────────────────────────────────────────────
 
 const copyFn = fn({

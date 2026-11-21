@@ -1943,6 +1943,8 @@ A **fn** is something people, agents and code can run: a name, a description, ty
 | `visibility` | who sees it: `both` (default), `user` (people only, not the LLM), `llm`, `none` | |
 | `group` | its API group, one of the system's `groups` (**The contract**); the general group when absent | a group the system doesn't declare is refused |
 | `flags` | `true`: before every run the hub asks `flags(args, ctx)` which sensitive files it would touch (below) | `flags` must be implemented |
+| `parallelClaims` | what its calls operate on, as templates filled from the args (`['file:{args.path}']`, `'*'` to run alone), so an agent's calls that clash run in order (below) | tokens are checked against the args |
+| `dynamicClaims` | `true`: before an agent's call starts the hub also asks `claims(args, ctx)` (below) | `claims` must be implemented |
 
 _From `scripts/docs/example/shared/index.ts`:_
 
@@ -2073,6 +2075,21 @@ rule's words, a write or an `ask` flag makes it wait for the person (never remem
 `ctx.approved` set, so the fn may then show the sensitive files it would otherwise leave out. Like a preview, `flags`
 must not change anything. `kit.flags('<fn>', args)` tests it (**Testing**).
 
+**Parallel claims.** When a model makes several tool calls in one step, the hub starts them together, unless they
+operate on the same thing. A fn says what its calls operate on with claims, plain strings compared exactly:
+`parallelClaims: ['file:{args.path}']` fills `{args.<path>}` from the call's args (a token for a path the args don't
+have doesn't compile), a list arg gives one claim per item, `{args.dir|.}` names a fallback, and a template whose
+token has no value and no fallback claims nothing. `'*'` conflicts with every call: the call runs alone. When the
+args don't say it all (a path to resolve against the roots), declare `dynamicClaims: true` and implement
+`claims(args, ctx)`: it gets a `ClaimsCtx` (the system context, the person, the agent run that made the call and its
+chat) and returns the call's claims (`ALL_CLAIMS` from `@harness/sdk/server` is `'*'`); the hub joins them with the
+templates, and treats a call whose system is gone or whose hook throws as `'*'`. A call whose claims conflict with an
+earlier call's (in the model's order) waits until that call has settled; the rest run together. Refused input never
+waits or holds anyone up, and an agent with `toolExecution: 'sequential'` runs every call alone. Claim only what
+really clashes (two writes to one file, two schema changes to one table): every claim can slow an agent down. Like
+`flags`, `claims` must not change anything. `kit.claims('<fn>', args)` gives a call's claims as the hub works them
+out (**Testing**).
+
 **API groups.** `system(name, { groups: [{ name, title, description }] })` names the groups a system's fns are listed
 in, and `fn({ group })` puts a fn in one. The hub keeps an index item per system (`<system>/api`, its groups as
 choices) and one per group listing its fns a line each, so a model walks a large API like a context folder.
@@ -2086,7 +2103,7 @@ function · `import { fn } from '@harness/sdk'`
 Declare a native fn: a fn its system implements in code.
 
 ```ts
-function fn<A, R, const D extends Deps = {}, const H extends Handlers = {}, const P extends ProgressDef = NoProgress, S = never, U = never, St extends object = {}, F = never, const T extends StatusTemplates = { active: { one: string; many: string; }; retry: { one: string; many: string; }; done: { one: string; many: string; }; failed: { one: string; many: string; }; }>(def: FnInput<A, R, D, H, P, S, U, St, F, T>): FnDef<NativeFnTypes<A, R, NoInfer<D>, NoInfer<H>, NoInfer<P>, NoInfer<S>, NoInfer<U>, NoInfer<St>, NoInfer<F>>>;
+function fn<A, R, const D extends Deps = {}, const H extends Handlers = {}, const P extends ProgressDef = NoProgress, S = never, U = never, St extends object = {}, F = never, const T extends StatusTemplates = { active: { one: string; many: string; }; retry: { one: string; many: string; }; done: { one: string; many: string; }; failed: { one: string; many: string; }; }, const C extends readonly string[] = readonly string[]>(def: FnInput<A, R, D, H, P, S, U, St, F, T, C>): FnDef<NativeFnTypes<A, R, NoInfer<D>, NoInfer<H>, NoInfer<P>, NoInfer<S>, NoInfer<U>, NoInfer<St>, NoInfer<F>>>;
 ```
 
 #### `FnInput`
@@ -2096,7 +2113,9 @@ interface · `import { FnInput } from '@harness/sdk'`
 What `fn()` takes. Only `description`, `args` and `returns` are required.
 
 ```ts
-interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDef, S, U, St extends object, F, T extends StatusTemplates = StatusTemplates> {
+interface FnInput<
+  A, R, D extends Deps, H extends Handlers, P extends ProgressDef, S, U, St extends object, F, T extends StatusTemplates = StatusTemplates, C extends readonly string[] = readonly string[],
+> {
   description: string;
   /** Extra guidance the LLM sees when the fn is in its toolset. */
   instructions?: string;
@@ -2175,6 +2194,21 @@ interface FnInput<A, R, D extends Deps, H extends Handlers, P extends ProgressDe
    * keeps it unavailable (`role-unset`) and says which role an admin must set.
    */
   roles?: ModelRole[];
+  /**
+   * What its calls operate on, so an agent's calls that touch the same thing never run at once: when a model makes
+   * several calls in one step they run together, except that a call whose claims conflict with an earlier call's (in
+   * the model's order) waits until that call has settled. Each claim is text with `{args.x}` tokens filled from the
+   * call's args and checked against them: `['file:{args.path}']`. A token naming a list gives one claim per item, and
+   * `{args.dir|.}` names a fallback. Two calls conflict when they share a claim; `'*'` conflicts with every call (it
+   * runs alone).
+   */
+  parallelClaims?: ClaimsInput<NoInfer<A>, C>;
+  /**
+   * The hub also asks its implementation's `claims(args, ctx)` for a call's claims before it starts (paths resolved
+   * against the roots, the rows a query would touch), joined with `parallelClaims`. Requires `claims` in the
+   * implementation. It costs a round trip per call, so prefer `parallelClaims` when the args say it all.
+   */
+  dynamicClaims?: true;
 }
 ```
 
@@ -2246,6 +2280,10 @@ interface FnDef<T extends FnTypes> {
   readonly flags: boolean;
   /** The hub model roles it needs set (`FnDecl.roles`); it is unavailable (`role-unset`) while one has no model. */
   readonly roles: readonly ModelRole[] | undefined;
+  /** What its calls operate on, as claim templates the hub fills from each call's args (`FnDecl.parallelClaims`). */
+  readonly parallelClaims: readonly string[];
+  /** Whether the hub also asks its implementation's `claims(args, ctx)` before an agent's call starts. */
+  readonly dynamicClaims: boolean;
   /** Phantom: lets the SDK read T back out of a def. Never set at runtime. */
   readonly types?: T;
 }
@@ -2552,6 +2590,123 @@ The token names a template uses: `'{fn} read {args.path|a file}'` → `'fn' | 'a
 type TokensOf<S extends string> = S extends `${string}{${infer Token}}${infer Rest}`
 ? (Token extends `${infer Name}|${string}` ? Name : Token) | TokensOf<Rest>
 : never;
+```
+
+#### `fillClaims`
+
+function · `import { fillClaims } from '@harness/sdk'`
+
+A call's claims from its fn's templates (`FnDecl.parallelClaims`) and its args, each once, in the order declared.
+
+@example fillClaims(['file:{args.path}'], { path: 'src/app.ts' })   // → ['file:src/app.ts']
+fillClaims(['row:{args.ids}'], { ids: [1, 2] })            // → ['row:1', 'row:2']
+fillClaims(['dir:{args.cwd|.}'], {})                       // → ['dir:.']
+
+```ts
+function fillClaims(templates: readonly string[], args: Json): string[];
+```
+
+Refers to: [`Json`](#core-json).
+
+#### `ClaimsRequest`
+
+const, type · `import { ClaimsRequest } from '@harness/sdk'`
+
+What the hub asks a fn's system for a call's claims with (`claims` on the system link), before the call is a run.
+
+```ts
+type ClaimsRequest = {
+  fn: string;
+  args: z.core.util.JSONType;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    role: "admin" | "member";
+    groups: {
+      id: string;
+      name: string;
+    }[];
+    timeZone: string;
+    locale: string;
+  };
+  caller: string;
+  session?: string | undefined;
+};
+```
+
+Refers to: [`Json`](#core-json), [`RunId`](#core-runid), [`SessionId`](#core-sessionid), [`UserInfo`](#core-userinfo).
+
+#### `ClaimsInput`
+
+type · `import { ClaimsInput } from '@harness/sdk'`
+
+What a fn's `parallelClaims` option takes: the templates as written, each checked against its args.
+
+```ts
+type ClaimsInput<A, C extends readonly string[]> = C & { readonly [K in keyof C]: C[K] extends string ? CheckedClaim<C[K], A> : C[K] };
+```
+
+#### `CheckedClaim`
+
+type · `import { CheckedClaim } from '@harness/sdk'`
+
+A claim template as written, or an error naming the token it may not use.
+
+```ts
+type CheckedClaim<S extends string, A> =
+[Exclude<TokensOf<S>, ClaimTokens<A>>] extends [never] ? S : `Unknown claim token {${Exclude<TokensOf<S>, ClaimTokens<A>>}}`;
+```
+
+#### `ClaimTokens`
+
+type · `import { ClaimTokens } from '@harness/sdk'`
+
+The tokens a claim template may use: a path into its fn's args.
+
+```ts
+type ClaimTokens<A> = `args.${PathsOf<A>}`;
+```
+
+#### `ToolClaims`
+
+type · `import { ToolClaims } from '@harness/sdk'`
+
+The claims of one tool call. An empty list claims nothing and conflicts
+with nothing (except a call that runs alone, see `ALL_CLAIMS`).
+
+```ts
+type ToolClaims = readonly string[];
+```
+
+#### `ClaimsCtx`
+
+interface · `import { ClaimsCtx } from '@harness/sdk'`
+
+What a fn's `claims(args, ctx)` gets: the system context, the person whose turn made the call, the agent run that
+made it and its chat. The call isn't a run yet, so it has no run of its own.
+
+```ts
+interface ClaimsCtx<Cfg = unknown> extends SystemCtx<Cfg> {
+  readonly user: UserInfo;
+  /** The agent run that made the call. */
+  readonly caller: RunId;
+  readonly session: SessionId | undefined;
+}
+```
+
+Refers to: [`RunId`](#core-runid), [`SessionId`](#core-sessionid), [`UserInfo`](#core-userinfo).
+
+#### `ALL_CLAIMS`
+
+const · `import { ALL_CLAIMS } from '@harness/sdk/server'`
+
+A claim that conflicts with every other call in the batch, whatever that
+call claims or whether it claims anything: the call runs alone. Earlier
+calls finish before it starts, and later calls wait for it.
+
+```ts
+const ALL_CLAIMS: "*";
 ```
 
 #### `fnsMissingExamples`
@@ -3076,8 +3231,8 @@ The result block: everything the model needs to talk about rows the person is sh
 type ResultBlock = {
   shown: string;
   columns: {
-    nullable: boolean;
     name: string;
+    nullable: boolean;
     kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
   }[];
   rowCount: number;
@@ -3121,8 +3276,8 @@ A result column as the model reads it.
 
 ```ts
 type ResultColumnInfo = {
-  nullable: boolean;
   name: string;
+  nullable: boolean;
   kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
 };
 ```
@@ -7308,7 +7463,9 @@ type · `import { FnImpl } from '@harness/sdk'`
 The implementation of a native fn. `undo` is required exactly when the fn declares an undo type; `preview` when it
 declares `approval` with a preview (checked when the system serves): what a run would do, or why it can't go ahead.
 `flags` when it declares `flags: true`: the sensitive files a run with these args would read or write (empty when
-none), asked by the hub before every run.
+none), asked by the hub before every run. `claims` when it declares `dynamicClaims: true`: what a call with these
+args operates on (`file:/abs/path`, or `'*'` to run alone), asked by the hub before an agent's call starts, so calls
+that clash run one after another.
 
 ```ts
 type FnImpl<T extends FnTypes, Cfg = unknown> =
@@ -7316,6 +7473,7 @@ type FnImpl<T extends FnTypes, Cfg = unknown> =
   run(args: T['args'], ctx: FnCtx<T, Cfg>): Promise<Outcome<T>>;
   preview?(args: T['args'], ctx: PreviewCtx<Cfg>): Promise<PreviewAnswer>;
   flags?(args: T['args'], ctx: PreviewCtx<Cfg>): Promise<SensitivityFlag[]>;
+  claims?(args: T['args'], ctx: ClaimsCtx<Cfg>): ToolClaims | Promise<ToolClaims>;
 } &
 ([T['undo']] extends [never] ? { undo?: never } : { undo(payload: T['undo'], ctx: UndoCtx<Cfg>): Promise<UndoOutcome> });
 ```
@@ -11944,8 +12102,9 @@ Every system tests itself with the SDK's **test kit** (`@harness/sdk/testing`), 
 - **Data.** The fake hub answers `ctx.data` from records in memory, like the hub (filters, sorts, text search, pages,
   versions, `expect`, person-owned types refused outside runs): `kit.records('<Type>')` reads what runs saved, and
   `kit.hub.data.save(...)` puts records in first. Another system's stored type goes in `kit.hub.storedTypes`.
-- **Sensitive files and mentions.** `kit.flags('<fn>', args)` gives the flags its `flags` hook answers, as the hub
-  asks before a run. `kit.mentions('<provider>', query)` gives a mention provider's options and the resource searches
+- **Sensitive files, claims and mentions.** `kit.flags('<fn>', args)` gives the flags its `flags` hook answers, as
+  the hub asks before a run. `kit.claims('<fn>', args)` gives what an agent's call would operate on: its
+  `parallelClaims` filled from the args, joined with what its `claims` hook answers. `kit.mentions('<provider>', query)` gives a mention provider's options and the resource searches
   it made (answer them with `kit.hub.onMentionResources`).
 - **Files and commands.** `scratchFolder({ git: true, files })` makes a temp folder (a git repository with the files
   committed) to run file and command fns in: change a file, add an untracked or ignored one, and check the change set
@@ -12197,6 +12356,8 @@ class FakeHub {
   preview(body: SystemBody<"preview">): Promise<PreviewAnswer>;
   /** Ask the connected system which sensitive files a run would touch (`flags`), as the hub does before a run. */
   flags(body: SystemBody<"flags">): Promise<FlagsAnswer>;
+  /** Ask the connected system what an agent's call would operate on (`claims`), as the hub does before the call starts. */
+  claims(body: SystemBody<"claims">): Promise<ClaimsAnswer>;
   /**
   * Ask the connected system for `@` options (`mentions`) as `TEST_USER`, with a fresh mention request, so its provider
   * may search resources (`ctx.resources.search`, answered by `onMentionResources` and kept in `mentionSearches`).
@@ -12226,7 +12387,7 @@ class FakeHub {
 }
 ```
 
-Refers to: [`ActorId`](#core-actorid), [`AdminNotice`](#core-adminnotice), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FlagsAnswer`](#core-flagsanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`Hello`](#core-hello), [`HubLinkSpec`](#core-hublinkspec), [`HubModelInfo`](#core-hubmodelinfo), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`KindEstimateAnswer`](#core-kindestimateanswer), [`KindFnShape`](#core-kindfnshape), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`MentionResourceSearch`](#core-mentionresourcesearch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceHit`](#core-resourcehit), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`Section`](#core-section), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
+Refers to: [`ActorId`](#core-actorid), [`AdminNotice`](#core-adminnotice), [`ClaimsAnswer`](#core-claimsanswer), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FlagsAnswer`](#core-flagsanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`Hello`](#core-hello), [`HubLinkSpec`](#core-hublinkspec), [`HubModelInfo`](#core-hubmodelinfo), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`KindEstimateAnswer`](#core-kindestimateanswer), [`KindFnShape`](#core-kindfnshape), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`MentionResourceSearch`](#core-mentionresourcesearch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceHit`](#core-resourcehit), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`Section`](#core-section), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
 
 #### `FakeHubOptions`
 
@@ -12683,6 +12844,11 @@ class TestSystem<N extends string, C extends ContractShape> {
   * own `flags(args, ctx)`; none for a fn that declares no `flags`.
   */
   flags<K extends FnNameOf<C>>(name: K, args: FnArgsOf<C, K>): Promise<SensitivityFlag[]>;
+  /**
+  * What an agent's call of a fn with these args would operate on, as the hub works it out before starting it: its
+  * `parallelClaims` filled from the args, then (for a fn with `dynamicClaims`) what its own `claims(args, ctx)` adds.
+  */
+  claims<K extends FnNameOf<C>>(name: K, args: FnArgsOf<C, K>): Promise<string[]>;
   /** A mention provider's options for what the person typed after `@`, with any resource searches it made. */
   mentions(provider: keyof C["mentions"] & string, query: string): Promise<{ readonly options: WireMentionOption[]; readonly searches: FakeHub["mentionSearches"]; }>;
   /** The records of one of the system's stored types the run left in the fake hub, newest change first. */
@@ -13470,6 +13636,21 @@ reason given. If you see one of these errors, the fix is in the reason.
 
   ```ts
   void ((args: Infer<typeof hub.fns.resource_read.args>) => args)({});
+  ```
+- **`paht` is not one of the args.**
+
+  ```ts
+  fn({ description: 'Write a file.', args, returns: g.bool(), parallelClaims: ['file:{args.paht}'] });
+  ```
+- **A claim reads only the args.**
+
+  ```ts
+  fn({ description: 'Write a file.', args, returns: g.bool(), parallelClaims: ['file:{output.path}'] });
+  ```
+- **Claims are strings.**
+
+  ```ts
+  claims: (args) => [args.from.length],
   ```
 - **The title must be one of the type's fields.**
 
@@ -14869,7 +15050,7 @@ The fs system (`systems/fs`) gives agents files and a shell over chosen folders.
 real system's declarations: a named type with a method, a setting, an attachment, fns with status words, undo, state,
 progress and handlers, a hook, a mention provider, static and dynamic context, and an agent.
 
-#### `systems/fs/shared/index.ts`, lines 1-219
+#### `systems/fs/shared/index.ts`, lines 1-212
 
 ```ts
 /**
@@ -15032,6 +15213,8 @@ export const fs = system('fs', {
         // the hub asks which sensitive files a call touches first (server/sensitive.ts)
         flags: true,
         args: g.obj({ path: path(), text: hub.types.LongText }),
+        // two changes to one file in the same step run in the model's order (server/impl.ts fileClaims)
+        dynamicClaims: true,
         returns: g.obj({ created: g.bool() }),
         status: {
           active: { one: 'Writing {args.path}…', many: 'Writing {n} files…' },
@@ -15053,6 +15236,8 @@ export const fs = system('fs', {
         // the hub asks which sensitive files a call touches first (server/sensitive.ts)
         flags: true,
         args: g.obj({ path: path(), find: g.text({ minLength: 1 }), replace: g.text(), all: g.optional(g.bool()) }),
+        // two changes to one file in the same step run in the model's order (server/impl.ts fileClaims)
+        dynamicClaims: true,
         returns: g.obj({ replacements: g.num() }),
         status: {
           active: { one: 'Editing {args.path}…', many: 'Editing {n} files…' },
@@ -15080,6 +15265,11 @@ export const fs = system('fs', {
         },
         tags: ['read'],
       }),
+```
+
+#### `systems/fs/shared/index.ts`, lines 213-416
+
+```ts
       glob: fn({
         group: 'files',
         description: 'Find paths matching a glob.',
@@ -15091,11 +15281,6 @@ export const fs = system('fs', {
         effects: { mode: 'read', free: true },
         // the hub asks which sensitive files a call touches first (server/sensitive.ts)
         flags: true,
-```
-
-#### `systems/fs/shared/index.ts`, lines 220-426
-
-```ts
         args: g.obj({ pattern: g.text(), root: g.optional(g.text()) }),
         returns: g.obj({ paths: g.list(g.text()), hidden: hidden() }),
         status: {
@@ -15182,6 +15367,8 @@ export const fs = system('fs', {
         flags: true,
         args: g.obj({ path: path() }),
         returns: g.obj({ removed: g.bool() }),
+        // two changes to one file in the same step run in the model's order (server/impl.ts fileClaims)
+        dynamicClaims: true,
         status: {
           active: { one: 'Deleting {args.path}…', many: 'Deleting {n} files…' },
           retry: { one: 'Retrying deleting {args.path}…', many: 'Retrying {n} deletes…' },
@@ -15287,6 +15474,11 @@ export const fs = system('fs', {
     hooks: { git: hook({ description: 'Adds the current branch and the changed files.', order: 50, timeout: 500 }) },
   })
   // mentions, context and the agent use the types and fns declared above
+```
+
+#### `systems/fs/shared/index.ts`, lines 417-499
+
+```ts
   .with(({ fns, types }) => ({
     mentions: {
       // chips and cards show as Entry: its label, icon and color, and its reveal method on the card
@@ -15303,11 +15495,6 @@ export const fs = system('fs', {
         // the guide brings the fns it is about, so finding it finds them
         fns: [fns.read, fns.list, fns.glob, fns.grep, fns.edit, fns.write, fns.bash, fns.cd, fns.remove],
       }),
-```
-
-#### `systems/fs/shared/index.ts`, lines 427-493
-
-```ts
       tree: context({
         description: 'The folder tree of a root, as it is now.',
         command: { name: 'tree', args: { root: arg('Which root (default: all)', { required: false }) } },
@@ -17450,6 +17637,20 @@ const, type · declared in `packages/core/src/checks.ts`
 type PreviewViewport = "phone" | "desktop";
 ```
 
+### From `packages/core/src/claims.ts`
+
+#### <a id="core-claimsanswer"></a>`ClaimsAnswer`
+
+const, type · declared in `packages/core/src/claims.ts`
+
+A system's answer to `claims`: the call's claims (empty when it claims nothing).
+
+```ts
+type ClaimsAnswer = {
+  claims: string[];
+};
+```
+
 ### From `packages/core/src/config-secrets.ts`
 
 #### <a id="core-configpath"></a>`ConfigPath`
@@ -17718,8 +17919,8 @@ type ContextFileHeader = {
   imports: `${string}/${string}`[];
   fns: `${string}/${string}`[];
   suggestFns: `${string}/${string}`[];
-  suggest: "llm" | "none" | "user" | "both";
-  visible: "llm" | "none" | "user" | "both";
+  suggest: "user" | "llm" | "none" | "both";
+  visible: "user" | "llm" | "none" | "both";
   alwaysFor: `${string}/${string}`[];
   tags: string[];
   title?: string | undefined;
@@ -18650,7 +18851,7 @@ type PreviewAnswer = {
       name: string;
       description: string;
       type: TypeDef<any>;
-      appliesTo: ("mcp" | "system" | "user" | "group" | "agent")[];
+      appliesTo: ("user" | "mcp" | "system" | "group" | "agent")[];
       merge: "union" | "user-wins" | "intersect" | "most-restrictive";
       editableBy: ("self" | "fns")[];
     }[];
@@ -18723,7 +18924,7 @@ type PreviewAnswer = {
         retries?: number | undefined;
         cost?: number | undefined;
       };
-      visibility: "llm" | "none" | "user" | "both";
+      visibility: "user" | "llm" | "none" | "both";
       tags: string[];
       instructions?: string | undefined;
       payload?: z.core.util.JSONType | undefined;
@@ -18794,6 +18995,8 @@ type PreviewAnswer = {
       live?: {
         every: number;
       } | undefined;
+      parallelClaims?: string[] | undefined;
+      dynamicClaims?: boolean | undefined;
     }[];
     context: {
       name: string;
@@ -18801,8 +19004,8 @@ type PreviewAnswer = {
       imports: `${string}/${string}`[];
       fns: `${string}/${string}`[];
       suggestFns: `${string}/${string}`[];
-      suggest: "llm" | "none" | "user" | "both";
-      visible: "llm" | "none" | "user" | "both";
+      suggest: "user" | "llm" | "none" | "both";
+      visible: "user" | "llm" | "none" | "both";
       alwaysFor: `${string}/${string}`[];
       tags: string[];
       title?: string | undefined;
@@ -19083,8 +19286,8 @@ type Hello = {
   contractHash?: string | undefined;
   pairingToken?: string | undefined;
   autoPair?: {
-    secret: string;
     id: string;
+    secret: string;
   } | undefined;
 };
 ```
@@ -19445,7 +19648,7 @@ An LLM request forwarded from a system (behind `ctx.llm` and the aeye provider s
 type LlmForward = {
   request: {
     messages: {
-      role: "system" | "user" | "assistant" | "tool";
+      role: "user" | "system" | "assistant" | "tool";
       content: string | {
         type: "file" | "text" | "image" | "audio" | "video";
         content: string;
@@ -19562,7 +19765,7 @@ An LLM request as it crosses the wire.
 ```ts
 type LlmRequest = {
   messages: {
-    role: "system" | "user" | "assistant" | "tool";
+    role: "user" | "system" | "assistant" | "tool";
     content: string | {
       type: "file" | "text" | "image" | "audio" | "video";
       content: string;
@@ -19634,8 +19837,8 @@ type ContextDecl = {
   imports: `${string}/${string}`[];
   fns: `${string}/${string}`[];
   suggestFns: `${string}/${string}`[];
-  suggest: "llm" | "none" | "user" | "both";
-  visible: "llm" | "none" | "user" | "both";
+  suggest: "user" | "llm" | "none" | "both";
+  visible: "user" | "llm" | "none" | "both";
   alwaysFor: `${string}/${string}`[];
   tags: string[];
   title?: string | undefined;
@@ -19718,7 +19921,7 @@ type FnDecl = {
     retries?: number | undefined;
     cost?: number | undefined;
   };
-  visibility: "llm" | "none" | "user" | "both";
+  visibility: "user" | "llm" | "none" | "both";
   tags: string[];
   instructions?: string | undefined;
   payload?: z.core.util.JSONType | undefined;
@@ -19789,6 +19992,8 @@ type FnDecl = {
   live?: {
     every: number;
   } | undefined;
+  parallelClaims?: string[] | undefined;
+  dynamicClaims?: boolean | undefined;
 };
 ```
 
@@ -20047,6 +20252,7 @@ type KindDescription = {
     code: string;
   } | undefined;
   connectKey?: ConnectKey | undefined;
+  parallelClaims?: string[] | undefined;
 };
 ```
 
@@ -20111,7 +20317,7 @@ type Manifest = {
     name: string;
     description: string;
     type: TypeDef<any>;
-    appliesTo: ("mcp" | "system" | "user" | "group" | "agent")[];
+    appliesTo: ("user" | "mcp" | "system" | "group" | "agent")[];
     merge: "union" | "user-wins" | "intersect" | "most-restrictive";
     editableBy: ("self" | "fns")[];
   }[];
@@ -20184,7 +20390,7 @@ type Manifest = {
       retries?: number | undefined;
       cost?: number | undefined;
     };
-    visibility: "llm" | "none" | "user" | "both";
+    visibility: "user" | "llm" | "none" | "both";
     tags: string[];
     instructions?: string | undefined;
     payload?: z.core.util.JSONType | undefined;
@@ -20255,6 +20461,8 @@ type Manifest = {
     live?: {
       every: number;
     } | undefined;
+    parallelClaims?: string[] | undefined;
+    dynamicClaims?: boolean | undefined;
   }[];
   context: {
     name: string;
@@ -20262,8 +20470,8 @@ type Manifest = {
     imports: `${string}/${string}`[];
     fns: `${string}/${string}`[];
     suggestFns: `${string}/${string}`[];
-    suggest: "llm" | "none" | "user" | "both";
-    visible: "llm" | "none" | "user" | "both";
+    suggest: "user" | "llm" | "none" | "both";
+    visible: "user" | "llm" | "none" | "both";
     alwaysFor: `${string}/${string}`[];
     tags: string[];
     title?: string | undefined;
@@ -20537,7 +20745,7 @@ type ManifestPatch = {
       name: string;
       description: string;
       type: TypeDef<any>;
-      appliesTo: ("mcp" | "system" | "user" | "group" | "agent")[];
+      appliesTo: ("user" | "mcp" | "system" | "group" | "agent")[];
       merge: "union" | "user-wins" | "intersect" | "most-restrictive";
       editableBy: ("self" | "fns")[];
     }[] | undefined;
@@ -20610,7 +20818,7 @@ type ManifestPatch = {
         retries?: number | undefined;
         cost?: number | undefined;
       };
-      visibility: "llm" | "none" | "user" | "both";
+      visibility: "user" | "llm" | "none" | "both";
       tags: string[];
       instructions?: string | undefined;
       payload?: z.core.util.JSONType | undefined;
@@ -20681,6 +20889,8 @@ type ManifestPatch = {
       live?: {
         every: number;
       } | undefined;
+      parallelClaims?: string[] | undefined;
+      dynamicClaims?: boolean | undefined;
     }[] | undefined;
     context?: {
       name: string;
@@ -20688,8 +20898,8 @@ type ManifestPatch = {
       imports: `${string}/${string}`[];
       fns: `${string}/${string}`[];
       suggestFns: `${string}/${string}`[];
-      suggest: "llm" | "none" | "user" | "both";
-      visible: "llm" | "none" | "user" | "both";
+      suggest: "user" | "llm" | "none" | "both";
+      visible: "user" | "llm" | "none" | "both";
       alwaysFor: `${string}/${string}`[];
       tags: string[];
       title?: string | undefined;
@@ -21076,7 +21286,7 @@ type ModelForward = ({
 } | {
   modality: "decide";
   input: string | {
-    role: "system" | "user" | "assistant" | "tool";
+    role: "user" | "system" | "assistant" | "tool";
     content: string | {
       type: "file" | "text" | "image" | "audio" | "video";
       content: string;
@@ -21351,7 +21561,7 @@ const, type · declared in `packages/core/src/primitives.ts`
 What kind of thing an actor is.
 
 ```ts
-type ActorKind = "mcp" | "system" | "user" | "group" | "agent";
+type ActorKind = "user" | "mcp" | "system" | "group" | "agent";
 ```
 
 #### <a id="core-audience"></a>`Audience`
@@ -21361,7 +21571,7 @@ const, type · declared in `packages/core/src/primitives.ts`
 Who can see a thing: people in the UI, the LLM, both, or neither.
 
 ```ts
-type Audience = "llm" | "none" | "user" | "both";
+type Audience = "user" | "llm" | "none" | "both";
 ```
 
 #### <a id="core-deliveryid"></a>`DeliveryId`
@@ -21767,11 +21977,11 @@ The public view of a user, as the browser gets it.
 
 ```ts
 type UserView = {
-  name: string;
-  kind: "user";
-  role: "admin" | "member";
   id: string;
+  name: string;
   email: string;
+  role: "admin" | "member";
+  kind: "user";
   timeZone?: string | undefined;
 };
 ```
@@ -23186,9 +23396,9 @@ Hub events a system can subscribe to.
 type SystemEvent = {
   type: "message";
   message: {
+    id: string;
     session: string;
     role: "user" | "note" | "assistant";
-    id: string;
     createdAt: number;
     author: string;
     replyAll: boolean;

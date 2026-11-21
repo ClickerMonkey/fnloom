@@ -5,7 +5,7 @@
  */
 import { implement, reject, server, type Server } from '@ayepi/core';
 import {
-  CostEstimate, EXPORT_NOT_READY, FlagsAnswer, systemLinkSpec, type KindEstimateAnswer, type KindEstimateRequest, type MentionRequestId,
+  ClaimsAnswer, CostEstimate, EXPORT_NOT_READY, FlagsAnswer, systemLinkSpec, type ClaimsRequest, type KindEstimateAnswer, type KindEstimateRequest, type MentionRequestId,
   type ActorId, type ConfigValue, type DeliveryId, type HookBlock, type Json, type KindDescription, type MentionHover,
   type MentionOption as WireMentionOption, type ResourceRead, type ResourceUri, type RunId, type RunInfo, type Section, type SessionId,
   type InstanceConnect, type StopReason, type SystemEvent, type SystemLinkSpec, type TimeInfo, type UndoOutcome, type UserInfo, type ValidateAnswer, type ValidateRequest, type PreviewAnswer, type PreviewRequest,
@@ -224,6 +224,7 @@ export class SystemRuntime<C extends ContractShape> {
       preview: ({ data, signal }) => this.#preview(data, signal),
       estimate: ({ data, signal }) => this.#estimate(data, signal),
       flags: ({ data, signal }) => this.#flags(data, signal),
+      claims: ({ data, signal }) => this.#claims(data, signal),
       providerChat: ({ data, signal }) => this.#providers.chat(data, signal),
       providerEmbed: ({ data, signal }) => this.#providers.embed(data, signal),
       providerDecide: ({ data, signal }) => this.#providers.decide(data, signal),
@@ -341,6 +342,19 @@ export class SystemRuntime<C extends ContractShape> {
     const ctx = { ...this.systemCtx(signal), run: data.run, user: data.user };
     const flags = await target.impl.flags(decodeOrThrow(target.def.args, data.args, 'The args'), ctx);
     return FlagsAnswer.parse({ flags });
+  }
+
+  /**
+   * What an agent's call would operate on: the fn's `claims(args, ctx)`, before the call is a run. A fn without the hook
+   * (it declared no `dynamicClaims`, so the hub doesn't ask) claims nothing beyond its templates.
+   */
+  async #claims(data: ClaimsRequest, signal: AbortSignal): Promise<ClaimsAnswer> {
+    const target = this.#parts.table.target(data.fn, 'native');
+    if (typeof target === 'string') { throw reject(404, 'NOT_FOUND', target); }
+    if (target.kind !== 'native' || target.impl.claims === undefined) { return { claims: [] }; }
+    const ctx = { ...this.systemCtx(signal), user: data.user, caller: data.caller, session: data.session };
+    const claims = await target.impl.claims(decodeOrThrow(target.def.args, data.args, 'The args'), ctx);
+    return ClaimsAnswer.parse({ claims: [...claims] });
   }
 
   /**

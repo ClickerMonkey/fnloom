@@ -210,6 +210,11 @@ function effectsOfQuery(instance: string, compiled: CompiledQuery): FnEffects {
   return { mode, reads: reads.map((table) => qualifiedTypeOf(instance, table)), writes: writes.map((table) => qualifiedTypeOf(instance, table)), free: true };
 }
 
+/** The claims of a query that writes these tables: one per table, as `create_table` and `alter_table` claim theirs. */
+export function tableClaims(tables: readonly string[]): string[] {
+  return tables.map((table) => `table:${table}`);
+}
+
 /** Build the database implementation. */
 export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
   const s = deps.settings;
@@ -642,6 +647,8 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
             types: compiled.tables.map((table) => qualifiedTypeOf(parsed.instance, table)),
             // what it reads and writes, for its facts (and so for the hub's search by type, and the tables a schema change breaks)
             effects: effectsOfQuery(parsed.instance, compiled),
+            // a write claims the tables it writes, so two writes to one table in the same step run in the model's order
+            ...(compiled.writes ? { parallelClaims: tableClaims(effectsOf(compiled).writes) } : {}),
             // its SQL in this database's dialect, params as placeholders, for the fn's page
             readable: { language: 'sql', code: here.plan(compiled, {}, []).sql },
             operations: { cancel: true, pause: false, undo: false, background: false },

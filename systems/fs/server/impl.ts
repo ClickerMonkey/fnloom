@@ -4,7 +4,7 @@
  * file manager, the restarter, the watcher, hosting and the clock), so tests run it against a temp folder with fakes.
  */
 import { flagsVerdict, type PairingGrant, type PairingGrantRequest, type PreviewAnswer, type SensitivityFlag } from '@harness/core';
-import type { FnCtx, FnTypes, HookContribution, Outcome, PreviewCtx, SystemImpl } from '@harness/sdk';
+import type { ClaimsCtx, FnCtx, FnTypes, HookContribution, Outcome, PreviewCtx, SystemImpl, ToolClaims } from '@harness/sdk';
 import { COMMAND_TIMEOUT_MIN, fs, type FsContract } from '../shared/index.ts';
 import { CommandRunner, outputOf, type CommandOutcome } from './commands.ts';
 import { authoringStart, PackagedAuthoring, type AuthoringSource } from './authoring.ts';
@@ -142,6 +142,17 @@ export function createFsImpl(deps: FsDeps): FsServer {
     const at = guard(ctx.config).resolve(path, { write: false });
     return sensitivity(ctx.config).flags([{ at, access, certain: true, ...(text === undefined ? {} : { text }) }], ctx.signal);
   });
+  /**
+   * What a call that changes one file claims: the file by its full path, so two spellings of it (`./a.ts`, `app/a.ts`)
+   * still clash. A path outside the roots claims nothing: its run is refused before it touches anything.
+   */
+  const fileClaims = (ctx: ClaimsCtx<FsConfig>, path: string): ToolClaims => {
+    try {
+      return [`file:${guard(ctx.config).resolve(path, { write: false }).path}`];
+    } catch {
+      return [];
+    }
+  };
   /** The flags of a search: its base folder, and the glob when it names sensitive files itself (`.env*`, `*.pem`). */
   const searchFlags = (ctx: PreviewCtx<FsConfig>, root: string | undefined, glob: string | undefined) => flagsOf(async () => {
     const rules = sensitivity(ctx.config);
@@ -207,6 +218,7 @@ export function createFsImpl(deps: FsDeps): FsServer {
       },
       write: {
         flags: (args, ctx) => fileFlags(ctx, args.path, 'write', args.text),
+        claims: (args, ctx) => fileClaims(ctx, args.path),
         run: (args, ctx) => attempt(ctx, async () => {
           const at = guard(ctx.config).resolve(args.path, { write: true });
           const refusal = await refused(ctx.config, [{ at, access: 'write', certain: true, text: args.text }], ctx.signal);
@@ -220,6 +232,7 @@ export function createFsImpl(deps: FsDeps): FsServer {
       },
       edit: {
         flags: (args, ctx) => fileFlags(ctx, args.path, 'write', args.replace),
+        claims: (args, ctx) => fileClaims(ctx, args.path),
         run: (args, ctx) => attempt(ctx, async () => {
           const at = guard(ctx.config).resolve(args.path, { write: true });
           const refusal = await refused(ctx.config, [{ at, access: 'write', certain: true, text: args.replace }], ctx.signal);
@@ -232,6 +245,7 @@ export function createFsImpl(deps: FsDeps): FsServer {
       },
       remove: {
         flags: (args, ctx) => fileFlags(ctx, args.path, 'write'),
+        claims: (args, ctx) => fileClaims(ctx, args.path),
         run: (args, ctx) => attempt(ctx, async () => {
           const at = guard(ctx.config).resolve(args.path, { write: true });
           const refusal = await refused(ctx.config, [{ at, access: 'write', certain: true }], ctx.signal);

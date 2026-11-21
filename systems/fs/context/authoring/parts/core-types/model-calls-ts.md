@@ -87,7 +87,7 @@ type ModelForward = ({
 } | {
   modality: "decide";
   input: string | {
-    role: "system" | "user" | "assistant" | "tool";
+    role: "user" | "system" | "assistant" | "tool";
     content: string | {
       type: "file" | "text" | "image" | "audio" | "video";
       content: string;

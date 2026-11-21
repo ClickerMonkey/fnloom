@@ -199,6 +199,21 @@ describe('fns of a kind', () => {
     expect((await catalog.fn(q('orders/sales')))?.decl.connectKey).toBe('tracker');
   });
 
+  it('joins the claims its kind works out for the payload (a write query\'s tables) with the fn\'s own', async () => {
+    const inner = reportDescriber();
+    const claiming: KindDescriber = {
+      describe: async (kind, payload) => {
+        const answer = await inner.describe(kind, payload);
+        return answer.description === undefined ? answer : { ...answer, description: { ...answer.description, parallelClaims: ['table:sales', 'report:{args.week}'] } };
+      },
+    };
+    const { catalog } = await setup(claiming);
+    await catalog.importManifest(await manifestFor(shop));
+    const manifest = await manifestFor(orders);
+    await catalog.importManifest({ ...manifest, fns: manifest.fns.map((fn) => (fn.name === 'sales' ? { ...fn, parallelClaims: ['report:{args.week}'] } : fn)) });
+    expect((await catalog.fn(q('orders/sales')))?.decl.parallelClaims).toEqual(['report:{args.week}', 'table:sales']);
+  });
+
   it('gives a fn declared without examples its kind\'s, and keeps an author\'s own', async () => {
     const { catalog } = await setup();
     await catalog.importManifest(await manifestFor(shop));

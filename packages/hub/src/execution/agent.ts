@@ -14,8 +14,8 @@
 import { Prompt, type Context, type Message, type PromptInput, type Request, type Usage } from '@aeye/core';
 import { LlmPayloadType, parseValue } from '@harness/sdk';
 import {
-  isSettled, Json, LlmMessage, MessageId, ModelChoice, QualifiedName, RunId, SelectionReport, splitName, type ActorId, type FnError, type FnRecord, type InvalidInput, type OutcomeWire, type Run,
-  type RunSettled, type Session, type RunControlAction, type TableReading,
+  InstanceName, isSettled, Json, LlmInteractionId, LlmMessage, MessageId, ModelChoice, QualifiedName, RunId, SelectionReport, splitName, type ActorId, type FnError, type FnRecord, type InvalidInput,
+  type OutcomeWire, type Run, type RunSettled, type Session, type RunControlAction, type TableReading, type UserInfo,
 } from '@harness/core';
 import { z } from 'zod';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
@@ -34,8 +34,24 @@ import type { ControlAnswer, Conversation, ExecutionDeps, ExecutionJob, LlmEngin
 import { transientDelay, type ExecutionQueues } from './queues.ts';
 import { DECLINED_CODE, PROPOSED_KEY, settledOf, type HubRunService } from './runs.ts';
 import { LlmCallScope, type HubCallContext, type HubCallMetadata } from './scope.ts';
+import { stepWaits } from './claims.ts';
 import { agentTools, PendingCalls } from './tools.ts';
 import { isObjectSchema, messageFromWire, messageToWire, replyText, toolName } from './wire.ts';
+
+/**
+ * A call held back until earlier calls of its iteration have settled, since they claim the same things (`claims.ts`):
+ * which calls it waits for, and what it starts with then. Kept on the agent's state, so a restart starts it as well.
+ */
+export const HeldCall = z.object({
+  /** The tool call ids of the earlier calls it waits for, in the model's order. */
+  after: z.array(z.string()).min(1),
+  args: Json,
+  /** The fleet instance the model named. */
+  on: InstanceName.optional(),
+  /** The model call that made it. */
+  llmCall: LlmInteractionId.optional(),
+});
+export type HeldCall = z.infer<typeof HeldCall>;
 
 /** One call of the last iteration (a native tool call, or a `<run>` block), and the run it became (or why it didn't). */
 export const PendingCall = z.object({
@@ -48,6 +64,10 @@ export const PendingCall = z.object({
   invalid: z.string().optional(),
   /** It came as a `<run>` block in the model's text, so its reply goes back as a `<result>` message. */
   block: z.boolean().optional(),
+  /** Not started yet: it waits for earlier calls that claim the same things. Cleared when it starts. */
+  held: HeldCall.optional(),
+  /** A held call that will never start: the agent stopped waiting (cancelled, timed out, or let its calls run on). */
+  skipped: z.literal(true).optional(),
 });
 export type PendingCall = z.infer<typeof PendingCall>;
 
@@ -166,7 +186,7 @@ export class RunConversation implements Conversation {
 
 /** What the agent loop uses. */
 export interface AgentLoopDeps extends ExecutionDeps {
-  readonly runs: Pick<HubRunService, 'start' | 'get' | 'wait' | 'settle' | 'background' | 'cancel' | 'info' | 'reopen'>;
+  readonly runs: Pick<HubRunService, 'start' | 'get' | 'wait' | 'settle' | 'background' | 'cancel' | 'info' | 'reopen' | 'onSettled'>;
   readonly queues: Pick<ExecutionQueues, 'enqueueLlm' | 'cancel'>;
   readonly llm: Pick<LlmEngine, 'streamer'>;
   readonly models: Pick<ModelResolver, 'resolve'>;
@@ -406,8 +426,9 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     const made = suspended ? this.#toolCalls(collected, calls) : this.#blockCalls(collected, answer, state.iteration);
     if (made !== undefined) {
       const interpreted = await Promise.all(made.calls.map(async (call) => ({ ...call, plan: await this.#deps.planner.interpret(call.out, planned) })));
-      const pending = await this.#startCalls(run, state.iteration, interpreted, last?.interaction);
-      await this.#deps.planner.settled({ model, estimate: planned.estimate, actual: last?.usage.input, used: pending.flatMap((call) => (call.run === undefined || call.invalid !== undefined ? [] : [QualifiedName.parse(call.fn)])) });
+      const pending = await this.#startCalls(run, state.iteration, interpreted, last?.interaction, { user: turn.user, sequential: payload.toolExecution === 'sequential' });
+      const used = pending.flatMap((call) => ((call.run === undefined && call.held === undefined) || call.invalid !== undefined ? [] : [QualifiedName.parse(call.fn)]));
+      await this.#deps.planner.settled({ model, estimate: planned.estimate, actual: last?.usage.input, used });
       if (message !== undefined) await this.#deps.turns.track(message, pending.flatMap((call) => {
         const fn = QualifiedName.safeParse(call.fn);
         return call.run === undefined || !fn.success ? [] : [{ run: call.run, fn: fn.data }];
@@ -532,6 +553,8 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     // Read after stopping: the iteration saves its state as it goes, so the run handed in may be behind.
     const state = stateOf((await this.#deps.runs.get(run.id)) ?? run);
     if (action === 'cancel') {
+      // held calls never start once it is cancelled, Continue included; a pause keeps them held
+      await this.#skipHeld(run.id);
       for (const call of state.pending) if (call.run !== undefined) await this.#deps.runs.cancel(call.run, run.actor);
       if (state.message !== undefined) await this.#deps.turns.finish(state.message, [{ type: 'text', text: 'Cancelled.' }], 'failed');
       await this.#deps.runs.settle(run.id, { status: 'cancelled' });
@@ -548,6 +571,7 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     if (job !== undefined) await this.#deps.queues.cancel(job, 'timeout');
     this.#jobs.delete(run.id);
     const state = stateOf((await this.#deps.runs.get(run.id)) ?? run);
+    await this.#skipHeld(run.id);
     for (const call of state.pending) if (call.run !== undefined) await this.#deps.runs.cancel(call.run, run.actor);
     if (state.message !== undefined) await this.#deps.turns.finish(state.message, [{ type: 'text', text: failureText(error) }], 'failed');
     this.#deps.log.info('agent.stopped', { run: run.id, code: error.code });
@@ -587,19 +611,32 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     for await (const run of rows(this.#deps.store.table('runs'), { where: { status: 'waiting', kind: AGENT_KIND } })) void this.#await(run, stateOf(run));
   }
 
-  /** Wait until every call of an iteration has settled or gone to the background, then queue the next iteration. */
+  /**
+   * Wait until every call of an iteration has settled or gone to the background, then queue the next iteration. Held
+   * calls start as the calls they wait for settle (`#release`). Everything it goes by is on the stored state, so after a
+   * restart (`recover`) it carries on where it was. When the person is still there after the tool timeout, the running
+   * calls go to the background and the held ones are skipped: the agent answers with what it has.
+   */
   async #await(run: Run, state: AgentState): Promise<void> {
     const { runs, presence, settings, log } = this.#deps;
-    const waits = state.pending.flatMap((call) => (call.run === undefined ? [] : [runs.wait(call.run)]));
-    const progress = { settled: false };
-    const all = Promise.all(waits).then(() => { progress.settled = true; });
     const timeout = settings.queue.HARNESS_TOOL_TIMEOUT;
     for (;;) {
-      await Promise.race([all, sleep(timeout)]);
-      if (progress.settled) break;
+      const now = await this.#release(run.id, state.iteration);
+      if (now === undefined) return;
+      const held = now.state.pending.filter(isHeld);
+      // while calls are held, wake when one they wait for settles; then, when every call has settled or gone to the background
+      const watch = held.length === 0 ? undefined : this.#anySettled(blockersOf(now.state, held));
+      const progress = watch?.settled ?? Promise.all(now.state.pending.flatMap((call) => (call.run === undefined ? [] : [runs.wait(call.run)])));
+      const outcome = await Promise.race([progress.then(() => 'progress' as const), sleep(timeout).then(() => 'timeout' as const)]).finally(() => { watch?.stop(); });
+      if (outcome === 'progress') {
+        if (held.length === 0) break;
+        continue;
+      }
       if (run.session !== undefined && (await presence.active(run.session))) {
-        log.info('agent.tool-timeout', { run: run.id, iteration: state.iteration });
-        await this.#backgroundCalls(state);
+        log.info('agent.tool-timeout', { run: run.id, iteration: state.iteration, held: held.length });
+        await this.#backgroundCalls(now.state);
+        await this.#skipHeld(run.id);
+        break;
       }
     }
     const current = await runs.get(run.id);
@@ -638,12 +675,18 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
    * Start an iteration's calls as child runs: each planned run of a fn (never a wrapper: a static `run` starts the fn
    * it names), keyed by its iteration and call id, so a job that runs the iteration again gets the same runs back while
    * a model that reuses ids across iterations (some do) still gets new runs. A call refused before it ran (invalid
-   * input) is answered with its reply; a run that can't start is answered with why.
+   * input) is answered with its reply; a run that can't start is answered with why. A call whose claims conflict with
+   * an earlier call's (`claims.ts`) is held instead: it starts once those have settled (`#release`).
    */
-  async #startCalls(run: Run, iteration: number, calls: ReadonlyArray<ModelCalls[number] & { plan: CallPlan }>, llmCall: Run['llmCall']): Promise<PendingCall[]> {
+  async #startCalls(
+    run: Run, iteration: number, calls: ReadonlyArray<ModelCalls[number] & { plan: CallPlan }>, llmCall: Run['llmCall'], step: { user: UserInfo; sequential: boolean },
+  ): Promise<PendingCall[]> {
     const caller = await this.#agentActor(run);
+    const waits = await stepWaits(this.#deps, { ...step, caller: run.id, session: run.session }, calls.map(({ toolCallId, plan }) => ({
+      toolCallId, fn: plan.type === 'run' ? plan.fn : undefined, args: plan.args ?? {},
+    })));
     const pending: PendingCall[] = [];
-    for (const { toolCallId, block, plan, out } of calls) {
+    for (const [index, { toolCallId, block, plan, out }] of calls.entries()) {
       const marker = block ? { block: true } : {};
       if (plan.type === 'invalid') {
         // refused input for a fn the model named is still a run (settled invalid-input at once), so the chat shows it
@@ -659,18 +702,128 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
         this.#deps.log.info('agent.invalid-input', { run: run.id, iteration, fn: plan.fn ?? null, source: plan.invalid.source });
         continue;
       }
-      try {
-        const started = await this.#deps.runs.start({
-          fn: plan.fn, args: plan.args, turn: run.turn, parent: run.id, key: toolCallKey(iteration, toolCallId), actor: run.actor, caller, priority: run.priority,
-          background: false, handlers: [], toolCallId, ...(plan.on === undefined ? {} : { on: plan.on }), ...(run.session === undefined ? {} : { session: run.session }),
-          ...(llmCall === undefined ? {} : { llmCall }),
-        });
-        pending.push({ toolCallId, fn: plan.fn, run: started.run, ...marker });
-      } catch (error) {
-        pending.push({ toolCallId, fn: plan.fn, error: causeOf(error, RunRefused)?.error.message ?? messageOf(error), ...marker });
+      const held: HeldCall = { after: waits[index] ?? [], args: plan.args, ...(plan.on === undefined ? {} : { on: plan.on }), ...(llmCall === undefined ? {} : { llmCall }) };
+      if (held.after.length > 0) {
+        pending.push({ toolCallId, fn: plan.fn, held, ...marker });
+        this.#deps.log.info('agent.call-held', { run: run.id, iteration, fn: plan.fn, after: held.after });
+        continue;
       }
+      pending.push(await this.#startCall(run, caller, iteration, { toolCallId, fn: plan.fn, held, ...marker }));
     }
     return pending;
+  }
+
+  /** Start one call as a child run, keyed by its iteration and call id (so starting it again gets the same run back). */
+  async #startCall(run: Run, caller: ActorId, iteration: number, call: PendingCall & { held: HeldCall }): Promise<PendingCall> {
+    const { held, skipped: _skipped, ...rest } = call;
+    try {
+      const started = await this.#deps.runs.start({
+        fn: QualifiedName.parse(call.fn), args: held.args, turn: run.turn, parent: run.id, key: toolCallKey(iteration, call.toolCallId), actor: run.actor, caller, priority: run.priority,
+        background: false, handlers: [], toolCallId: call.toolCallId, ...(held.on === undefined ? {} : { on: held.on }), ...(run.session === undefined ? {} : { session: run.session }),
+        ...(held.llmCall === undefined ? {} : { llmCall: held.llmCall }),
+      });
+      return { ...rest, run: started.run };
+    } catch (error) {
+      return { ...rest, error: causeOf(error, RunRefused)?.error.message ?? messageOf(error) };
+    }
+  }
+
+  /**
+   * Start the held calls of an iteration whose waits are over: every call each waits for has settled (one that never
+   * became a run counts as settled; one in the background is still running). Each start is saved on the agent's state
+   * at once, so a restart neither loses a held call nor starts it twice (a call started again gets its run back by its
+   * key). The agent run and its state as they are now, or undefined when the run no longer waits for this iteration.
+   */
+  async #release(id: RunId, iteration: number): Promise<{ run: Run; state: AgentState } | undefined> {
+    for (;;) {
+      const run = await this.#deps.runs.get(id);
+      if (run?.status !== 'waiting') return undefined;
+      const state = stateOf(run);
+      if (state.iteration !== iteration) return undefined;
+      const ready = await this.#ready(state);
+      if (ready.length === 0) return { run, state };
+      const caller = await this.#agentActor(run);
+      // the state already names the iteration it runs next; its pending calls were made by the one before
+      const made = iteration - 1;
+      for (const call of ready) {
+        const started = await this.#startCall(run, caller, made, call);
+        this.#deps.log.info('agent.call-released', { run: id, iteration, fn: call.fn, child: started.run ?? null });
+        if (!(await this.#saveStarted(id, iteration, started))) {
+          // the agent stopped waiting while the call started: a cancelled or finished agent leaves no call running (a
+          // paused one finds it again by its key when it resumes)
+          const now = await this.#deps.runs.get(id);
+          if (started.run !== undefined && now?.status !== 'paused') await this.#deps.runs.cancel(started.run, run.actor);
+          return undefined;
+        }
+        if (started.run !== undefined && state.message !== undefined) await this.#deps.turns.track(state.message, [{ run: started.run, fn: QualifiedName.parse(started.fn) }]);
+      }
+    }
+  }
+
+  /** The held calls whose waits are over, in the model's order. */
+  async #ready(state: AgentState): Promise<Array<PendingCall & { held: HeldCall }>> {
+    const byId = new Map(state.pending.map((call) => [call.toolCallId, call]));
+    const settled = async (toolCallId: string): Promise<boolean> => {
+      const call = byId.get(toolCallId);
+      if (call === undefined || call.skipped === true) return true;
+      if (call.run === undefined) return call.held === undefined;
+      const child = await this.#deps.runs.get(call.run);
+      return child === undefined || isSettled(child.status);
+    };
+    const ready: Array<PendingCall & { held: HeldCall }> = [];
+    for (const call of state.pending) {
+      if (!isHeld(call)) continue;
+      const waits = await Promise.all(call.held.after.map(settled));
+      if (waits.every(Boolean)) ready.push(call);
+    }
+    return ready;
+  }
+
+  /** Save a held call as started (its run, or why it couldn't start), if the agent still waits for its iteration. */
+  async #saveStarted(id: RunId, iteration: number, started: PendingCall): Promise<boolean> {
+    return this.#deps.store.tx(async (tx) => {
+      const run = await tx.table('runs').get(id);
+      if (run?.status !== 'waiting') return false;
+      const state = stateOf(run);
+      if (state.iteration !== iteration) return false;
+      const pending = state.pending.map((call) => (call.toolCallId === started.toolCallId ? started : call));
+      await tx.table('runs').update(id, { resume: Json.parse({ ...state, pending }) });
+      return true;
+    });
+  }
+
+  /** Mark an iteration's held calls as never to start: the agent stopped waiting for them. */
+  async #skipHeld(id: RunId): Promise<void> {
+    await this.#deps.store.tx(async (tx) => {
+      const run = await tx.table('runs').get(id);
+      if (run === undefined) return;
+      const state = stateOf(run);
+      if (!state.pending.some(isHeld)) return;
+      const pending = state.pending.map((call): PendingCall => (isHeld(call) ? { ...call, skipped: true } : call));
+      await tx.table('runs').update(id, { resume: Json.parse({ ...state, pending }) });
+    });
+  }
+
+  /**
+   * Settles once any of these runs settles (in the background a run is still running), or at once when none is
+   * running now. `stop` drops the listener.
+   */
+  #anySettled(ids: readonly RunId[]): { settled: Promise<void>; stop: () => void } {
+    let stop = (): void => undefined;
+    const settled = new Promise<void>((resolve) => {
+      const heard = new Set<RunId>();
+      let open: ReadonlySet<RunId> | undefined;
+      // listening first, so a run that settles while the rows are read is still heard
+      stop = this.#deps.runs.onSettled((run) => {
+        heard.add(run.id);
+        if (open?.has(run.id) === true) resolve();
+      });
+      void Promise.all(ids.map((id) => this.#deps.runs.get(id))).then((rows) => {
+        open = new Set(rows.flatMap((row) => (row === undefined || isSettled(row.status) ? [] : [row.id])));
+        if (open.size === 0 || [...open].some((id) => heard.has(id))) resolve();
+      }, () => { resolve(); });
+    });
+    return { settled, stop: () => { stop(); } };
   }
 
   /**
@@ -687,6 +840,8 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
         ? { role: 'user', content: resultText(call.fn, status, content) }
         : { role: 'tool', toolCallId: call.toolCallId, content });
       if (call.invalid !== undefined) return reply('invalid-input', call.invalid);
+      // a held call the agent stopped waiting for never ran; that isn't the call failing
+      if (call.run === undefined && call.held !== undefined) return reply('skipped', heldReply({ ...call, held: call.held }, pending));
       if (call.run === undefined) {
         failed += 1;
         return reply('failed', `Error: ${call.error ?? 'the call could not start'}`);
@@ -818,6 +973,24 @@ function outputOf(signature: FnSignature): { schema: z.ZodType<object> | false; 
   if (isObjectSchema(returns)) return { schema: returns, result: (output) => Json.parse(output) };
   const wrapped = z.object({ result: returns });
   return { schema: wrapped, result: (output) => Json.parse(wrapped.parse(output).result) };
+}
+
+/** Whether a call is held: it waits for earlier calls and has neither started nor been skipped. */
+function isHeld(call: PendingCall): call is PendingCall & { held: HeldCall } {
+  return call.held !== undefined && call.run === undefined && call.skipped !== true;
+}
+
+/** The runs of the calls these held calls wait for. */
+function blockersOf(state: AgentState, held: ReadonlyArray<PendingCall & { held: HeldCall }>): RunId[] {
+  const waitedFor = new Set(held.flatMap((call) => call.held.after));
+  return state.pending.flatMap((call) => (call.run !== undefined && waitedFor.has(call.toolCallId) ? [call.run] : []));
+}
+
+/** What the model reads for a held call that never started: it waited for an earlier call working on the same things. */
+export function heldReply(call: PendingCall & { held: HeldCall }, pending: readonly PendingCall[]): string {
+  const earlier = [...new Set(call.held.after.flatMap((id) => pending.find((other) => other.toolCallId === id)?.fn ?? []))];
+  return `Not run: it works on the same things as an earlier call (${earlier.join(', ')}), so it waited for that to finish, and it had not when `
+    + 'this reply was written. Call it again once that call is done, if it is still needed.';
 }
 
 /** The key of a tool call's run within its agent run. */

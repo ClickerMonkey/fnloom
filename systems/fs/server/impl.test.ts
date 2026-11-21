@@ -71,6 +71,18 @@ describe('the fs implementation', () => {
     expect(progress.at(-1)?.[0]).toBe(1);
   });
 
+  it('claims the file a write, an edit or a delete changes by its full path, so two spellings of one file clash', async () => {
+    const { fns } = server.impl;
+    const call = { ...systemCtx({ config }), caller: mintId('run') };
+    const file = `file:${root}/a.txt`;
+    expect(await fns.write.claims?.({ path: 'a.txt', text: 'x' }, call)).toEqual([file]);
+    expect(await fns.edit.claims?.({ path: './a.txt', find: 'alpha', replace: 'beta' }, call)).toEqual([file]);
+    expect(await fns.remove.claims?.({ path: `${root}/a.txt` }, call)).toEqual([file]);
+    expect(await fns.write.claims?.({ path: 'src/b.ts', text: 'x' }, call)).toEqual([`file:${root}/src/b.ts`]);
+    // a path outside the roots claims nothing: its run is refused before it touches anything
+    expect(await fns.write.claims?.({ path: '../outside.txt', text: 'x' }, call)).toEqual([]);
+  });
+
   it('flags sensitive files before a run, leaves them out of listings and searches, and refuses what a rule refuses', async () => {
     await writeFile(`${root}/.env`, 'TOKEN=abc // TODO\n');
     const { fns } = server.impl;

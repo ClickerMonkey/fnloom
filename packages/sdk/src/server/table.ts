@@ -8,7 +8,7 @@ import type {
   AllowedOperations, ApprovedRun, ConnectFinish, CostEstimate, Manifest, ManifestPatch, ManifestSection, SectionDecl, ConnectionUpdate, ConnectResult, ConnectStart, Detail, ErrorClass, HookInput, InputProblem, Json, KindDescription, MentionHover, PreviewAnswer, RunConnection, RunInfo, SensitivityFlag, ShareRule, StepStatus, TypeDecl, StopReason, SystemEvent, UndoOutcome, Usd,
 } from '@harness/core';
 import { MANIFEST_SECTIONS, MANIFEST_SECTION_NAMES } from '@harness/core';
-import type { ActionCtx, AskerCtx, BudgetInfo, CallOptions, Decisions, FnCall, Fleets, FnCtx, FnSearch, PreviewCtx, Proposals, Resume, Services, SessionState, SystemCtx, UndoCtx } from '../ctx.ts';
+import type { ActionCtx, AskerCtx, BudgetInfo, CallOptions, Decisions, FnCall, Fleets, FnCtx, FnSearch, PreviewCtx, ClaimsCtx, Proposals, Resume, Services, SessionState, SystemCtx, UndoCtx } from '../ctx.ts';
 import type {
   ActionImpl, AnyTypeDef, ContextImpl, HookContribution, HookImpl, KindCheckCtx, KindDef, KindEstimateInput, KindImpl, KindRunCtx, MentionCtx, MentionImpl,
   MentionOption, MethodImpl, SectionerImpl,
@@ -19,6 +19,7 @@ import type { AnyFnRef } from '../refs.ts';
 import type { ResourceProvider } from '../resources.ts';
 import type { ProviderImpl } from '../providers.ts';
 import type { Provider } from '@aeye/ai';
+import type { ToolClaims } from '@aeye/core';
 import { refuseOldEmbedders, type AnyContract, type ConnectImpl, type ContractShape, type EventHandlers, type Lifecycle, type SystemImpl } from '../system.ts';
 import { expectType, type Equal } from '../util.ts';
 
@@ -82,6 +83,7 @@ export interface RuntimeFnImpl {
   run(args: unknown, ctx: RuntimeFnCtx): Promise<AnyOutcome>;
   preview?(args: unknown, ctx: PreviewCtx): Promise<PreviewAnswer>;
   flags?(args: unknown, ctx: PreviewCtx): Promise<SensitivityFlag[]>;
+  claims?(args: unknown, ctx: ClaimsCtx): ToolClaims | Promise<ToolClaims>;
   undo?(payload: unknown, ctx: UndoCtx): Promise<UndoOutcome>;
 }
 
@@ -420,7 +422,8 @@ export class SystemTable {
 
 /**
  * A native fn that asks for approval with a preview must implement `preview`; one that declares `flags` must implement
- * `flags`. Only a native fn can declare `flags` (its system knows which files its args name).
+ * `flags`, and one that declares `dynamicClaims` must implement `claims`. Only a native fn can declare `flags` or
+ * `dynamicClaims` (its system knows what its args name).
  */
 function checkHooks(system: string, local: string, def: AnyFnDef, impl: RuntimeFnImpl | undefined): void {
   if (def.kind === 'native' && def.approval?.preview === true && impl !== undefined && impl.preview === undefined) {
@@ -431,6 +434,12 @@ function checkHooks(system: string, local: string, def: AnyFnDef, impl: RuntimeF
   }
   if (def.flags && impl !== undefined && impl.flags === undefined) {
     throw new Error(`${system}/${local} declares flags, so its implementation needs a flags(args, ctx).`);
+  }
+  if (def.dynamicClaims && def.kind !== 'native') {
+    throw new Error(`${system}/${local} declares dynamicClaims, but only a native fn can work out its claims.`);
+  }
+  if (def.dynamicClaims && impl !== undefined && impl.claims === undefined) {
+    throw new Error(`${system}/${local} declares dynamicClaims, so its implementation needs a claims(args, ctx).`);
   }
 }
 

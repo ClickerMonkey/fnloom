@@ -72,6 +72,8 @@ export function fnDecl(name: string, def: AnyFnDef): FnDecl {
     ...(def.group === undefined ? {} : { group: def.group }),
     ...(def.flags ? { flags: true } : {}),
     ...(def.roles === undefined || def.roles.length === 0 ? {} : { roles: [...def.roles] }),
+    ...(def.parallelClaims.length === 0 ? {} : { parallelClaims: [...def.parallelClaims] }),
+    ...(def.dynamicClaims ? { dynamicClaims: true } : {}),
   };
 }
 

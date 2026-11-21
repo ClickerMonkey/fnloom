@@ -23,6 +23,8 @@ A **fn** is something people, agents and code can run: a name, a description, ty
 | `visibility` | who sees it: `both` (default), `user` (people only, not the LLM), `llm`, `none` | |
 | `group` | its API group, one of the system's `groups` (**The contract**); the general group when absent | a group the system doesn't declare is refused |
 | `flags` | `true`: before every run the hub asks `flags(args, ctx)` which sensitive files it would touch (below) | `flags` must be implemented |
+| `parallelClaims` | what its calls operate on, as templates filled from the args (`['file:{args.path}']`, `'*'` to run alone), so an agent's calls that clash run in order (below) | tokens are checked against the args |
+| `dynamicClaims` | `true`: before an agent's call starts the hub also asks `claims(args, ctx)` (below) | `claims` must be implemented |
 
 <!-- include: scripts/docs/example/shared/index.ts#fn-add -->
 
@@ -95,6 +97,21 @@ rule's words, a write or an `ask` flag makes it wait for the person (never remem
 `auto` mode, whose classifier sees the flags), and none lets it go on. A run the person approved after that ask has
 `ctx.approved` set, so the fn may then show the sensitive files it would otherwise leave out. Like a preview, `flags`
 must not change anything. `kit.flags('<fn>', args)` tests it (**Testing**).
+
+**Parallel claims.** When a model makes several tool calls in one step, the hub starts them together, unless they
+operate on the same thing. A fn says what its calls operate on with claims, plain strings compared exactly:
+`parallelClaims: ['file:{args.path}']` fills `{args.<path>}` from the call's args (a token for a path the args don't
+have doesn't compile), a list arg gives one claim per item, `{args.dir|.}` names a fallback, and a template whose
+token has no value and no fallback claims nothing. `'*'` conflicts with every call: the call runs alone. When the
+args don't say it all (a path to resolve against the roots), declare `dynamicClaims: true` and implement
+`claims(args, ctx)`: it gets a `ClaimsCtx` (the system context, the person, the agent run that made the call and its
+chat) and returns the call's claims (`ALL_CLAIMS` from `@harness/sdk/server` is `'*'`); the hub joins them with the
+templates, and treats a call whose system is gone or whose hook throws as `'*'`. A call whose claims conflict with an
+earlier call's (in the model's order) waits until that call has settled; the rest run together. Refused input never
+waits or holds anyone up, and an agent with `toolExecution: 'sequential'` runs every call alone. Claim only what
+really clashes (two writes to one file, two schema changes to one table): every claim can slow an agent down. Like
+`flags`, `claims` must not change anything. `kit.claims('<fn>', args)` gives a call's claims as the hub works them
+out (**Testing**).
 
 **API groups.** `system(name, { groups: [{ name, title, description }] })` names the groups a system's fns are listed
 in, and `fn({ group })` puts a fn in one. The hub keeps an index item per system (`<system>/api`, its groups as
