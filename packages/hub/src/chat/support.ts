@@ -1,12 +1,13 @@
 /** Small helpers the chat services share: a monotonic clock, agent actors, session scoping, paging and system calls. */
 import {
-  IDS, QualifiedName, splitName, type SystemName, type ActorId, type Json, type ManifestSection, type Participant, type Session, type SessionId,
+  IDS, QualifiedName, splitName, type SystemName, type ActorId, type AgentActor, type FnRecord, type Json, type ManifestSection, type Participant, type Session, type SessionId,
   type TurnId,
 } from '@harness/core';
 import { canonicalJson } from '@harness/sdk';
 import { HUB_SYSTEM, systemOf } from '../catalog/availability.ts';
 import type { Catalog, CatalogEntry } from '../catalog/index.ts';
 import type { SystemConnection, LinkService } from '../link/index.ts';
+import type { HubStore } from '../store/index.ts';
 import { ChatError } from './errors.ts';
 
 // ─── Time ─────────────────────────────────────────────────────────────────────
@@ -28,6 +29,19 @@ export function monotonic(clock: () => number): () => number {
 /** The actor id of an agent fn. Stable, so every module finds the same actor for the same fn without a lookup. */
 export function agentActorId(fn: QualifiedName): ActorId {
   return IDS.actor.parse(`act_agent.${fn}`);
+}
+
+/**
+ * The actor of an agent fn, made on first use: the author of its messages and the caller of its tools, whether it
+ * answers a session or was run directly. The one place agent actors are made.
+ */
+export async function ensureAgentActor(deps: { readonly store: HubStore; readonly clock: () => number }, fn: Pick<FnRecord, 'name' | 'decl'>): Promise<AgentActor> {
+  const id = agentActorId(fn.name);
+  const existing = await deps.store.table('actors').get(id);
+  if (existing?.kind === 'agent') return existing;
+  const agent: AgentActor = { id, kind: 'agent', fn: fn.name, name: agentName(fn.name), about: fn.decl.description, createdAt: deps.clock(), disabled: false };
+  await deps.store.table('actors').put(agent);
+  return agent;
 }
 
 /** A person-readable name for an agent fn: `hub/chat` → "Chat", `crm/deal_coach` → "Deal coach". */

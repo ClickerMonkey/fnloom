@@ -9,6 +9,7 @@
  */
 import { API_KIND, API_SERVICE_TYPE, ApiService, ConnectKey, mintId, QualifiedName, type ApiFnSpec, type DataRecord, type Json, type LlmForward, type RunConnection } from '@harness/core';
 import { encodeValue, sampleArgs } from '@harness/sdk';
+import type { HostLookup } from '@harness/sdk/server';
 import { mockModel, testHub, toolCall, type ScriptStep, type TestSystem } from '@harness/sdk/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { api, ApiPayload, HttpRequest } from '../shared/index.ts';
@@ -69,8 +70,11 @@ function serviceRecord(service: ApiService): DataRecord {
 let kit: Kit | undefined;
 afterEach(async () => { await kit?.stop(); kit = undefined; });
 
+/** Every hostname resolves to a public address (no DNS in tests; the guard's own cases are in `guard.test.ts`). */
+const lookupOf = (): HostLookup => () => Promise.resolve(['93.184.216.34']);
+
 async function start(script: readonly ScriptStep[], sent: Sent[], kept: readonly ApiService[] = [TRACKER, BOARD]): Promise<Kit> {
-  kit = await testHub(api, createApiImpl({ settings: apiEnv.parse() }), { model: mockModel(script), serve: { fetch: services(sent) }, records: kept.map(serviceRecord) });
+  kit = await testHub(api, createApiImpl({ settings: apiEnv.parse(), lookup: lookupOf() }), { model: mockModel(script), serve: { fetch: services(sent) }, records: kept.map(serviceRecord) });
   return kit;
 }
 

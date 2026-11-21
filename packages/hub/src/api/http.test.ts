@@ -17,6 +17,7 @@ async function start(options: { expiry?: number; ready?: boolean } = {}) {
   const front = new HttpFront({
     web, link: server(spec({ endpoints: {} }), []), files: [], heartbeat: 60_000,
     mcp: { fetch: (request) => Promise.resolve(Response.json({ path: new URL(request.url).pathname, auth: request.headers.get('authorization') })) }, tokenMargin: 0, clock: Date.now, log: memoryLog().log,
+    maxMessage: { browser: 1_000_000, link: 1_000_000 },
     health: { live: () => true, ready: () => options.ready ?? true },
     tokenExpiry: (token) => (token === 'good' && options.expiry !== undefined ? Date.now() + options.expiry : undefined),
   });

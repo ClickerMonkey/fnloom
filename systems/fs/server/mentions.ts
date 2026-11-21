@@ -1,6 +1,7 @@
 /**
  * The `files` mention: `@` search over the roots' paths (from a short-lived index, so typing stays fast), the hover
- * card with a preview, and the text the LLM gets for a mentioned file.
+ * card with a preview, and the text the LLM gets for a mentioned file. Sensitive files (`server/sensitive.ts`) are
+ * left out of searches and never previewed.
  */
 import type { MentionHover, UserInfo } from '@harness/core';
 import type { MentionOption } from '@harness/sdk';
@@ -10,7 +11,11 @@ import type { FileService } from './files.ts';
 import type { Documents, EntryValue, Located, PathGuard, ResolvedRoot } from './index.ts';
 import { childPath, fileUri, parentOf } from './paths.ts';
 import { FsProblem } from './problem.ts';
+import type { Sensitivity } from './sensitive.ts';
 import { collect, type WalkEntry } from './walk.ts';
+
+/** How many pages of ranked paths one `@` search judges for sensitive files before it answers with what it has. */
+const SEARCH_PAGES = 5;
 
 /** How the path index is kept. */
 export interface IndexLimits {
@@ -91,9 +96,21 @@ export class FileMentions {
     this.limits = deps.limits;
   }
 
-  async search(guard: PathGuard, query: string): Promise<MentionOption<FileTargetValue>[]> {
+  /**
+   * The best matches for a query, leaving out sensitive files as listings do (`Sensitivity.hidden`): ranked first, then
+   * judged a page at a time until the page is full or `SEARCH_PAGES` pages were judged.
+   */
+  async search(guard: PathGuard, query: string, sensitivity: Sensitivity, signal?: AbortSignal): Promise<MentionOption<FileTargetValue>[]> {
     const found = (await Promise.all(guard.roots.map(async (root) => (await this.index.paths(root)).map((entry) => ({ root, entry }))))).flat();
-    return rank(query, found, this.limits.results).map(({ root, entry }) => ({
+    const page = this.limits.results;
+    const ranked = rank(query, found, page * SEARCH_PAGES);
+    const shown: typeof ranked = [];
+    for (let i = 0; i < ranked.length && shown.length < page; i += page) {
+      const batch = ranked.slice(i, i + page).map((item) => ({ ...item, at: { path: item.entry.path, root: item.root, relative: item.entry.relative } }));
+      const hide = await sensitivity.hidden(batch.map((item) => item.at), { content: false }, signal);
+      shown.push(...batch.filter((item) => !hide.has(item.at.path)).slice(0, page - shown.length));
+    }
+    return shown.map(({ root, entry }) => ({
       label: entry.type === 'folder' ? `${entry.name}/` : entry.name,
       hint: entry.depth === 1 ? root.name : `${root.name} · ${parentOf(entry.relative)}`,
       icon: entry.type === 'folder' ? 'folder' : 'file',
@@ -101,7 +118,8 @@ export class FileMentions {
     }));
   }
 
-  async hover(guard: PathGuard, target: FileTargetValue, user: UserInfo): Promise<(Omit<MentionHover, 'value'> & { value?: EntryValue }) | undefined> {
+  /** The hover card; a sensitive file's card has no preview of what it holds. */
+  async hover(guard: PathGuard, target: FileTargetValue, user: UserInfo, sensitivity: Sensitivity, signal?: AbortSignal): Promise<(Omit<MentionHover, 'value'> & { value?: EntryValue }) | undefined> {
     const at = this.locate(guard, target);
     const entry = at === undefined ? undefined : await this.files.entry(at.path);
     if (at === undefined || entry === undefined) { return undefined; }
@@ -111,7 +129,8 @@ export class FileMentions {
       ...(entry.type === 'file' ? [{ label: 'Size', value: formatBytes(entry.size) }] : []),
       { label: 'Modified', value: modified },
     ];
-    const body = await this.preview(at, entry);
+    const hidden = (await sensitivity.hidden([at], { content: true }, signal)).has(at.path);
+    const body = hidden ? undefined : await this.preview(at, entry);
     return {
       title: lastSegment(at.path),
       subtitle: at.relative === '' ? at.root.folder : `${at.root.name}/${at.relative}`,

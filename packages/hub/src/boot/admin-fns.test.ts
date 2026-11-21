@@ -17,7 +17,7 @@ function recordingOps(asked: Array<{ op: string; data: unknown; by: string }>): 
   return {
     configure_provider: (data, by) => { asked.push({ op: 'configure_provider', data, by }); return Promise.resolve({ models: 3 }); },
     set_budget: (data, by) => { asked.push({ op: 'set_budget', data, by }); return Promise.resolve({ id: 'bgt_1' }); },
-    set_model_category: unused, set_priority: unused, set_policy: unused, set_actor_setting: unused, add_user: unused, add_group: unused, update_user: unused, set_membership: unused, set_sign_in_policy: unused,
+    set_model_category: unused, set_priority: unused, set_policy: unused, set_actor_setting: unused, add_user: unused, add_group: unused, update_user: unused, set_membership: unused, set_sign_in_policy: unused, set_sign_in_limits: unused, set_proxy_trust: unused,
     remove_rule: unused, approve_pairing: unused, create_pairing_token: unused, configure_system: unused, enable_system: unused, switch_item: unused, remove_system: unused,
     install_system: unused, start_system: unused, stop_system: unused, restart_system: unused, upgrade_system: unused, set_model_role: unused, clear_model_role: unused,
     set_model_limits: unused, create_mcp: unused, update_mcp: unused, rotate_mcp_secret: unused, delete_mcp: unused, preview_mcp: unused,
@@ -111,6 +111,8 @@ const ADMIN_EXAMPLES: { readonly [N in AdminFnName]: ArgsOf<(typeof hub.fns)[N]>
   update_user: { user: 'act_bo', role: 'admin' },
   set_membership: { group: 'act_team', user: 'act_bo', member: true },
   set_sign_in_policy: { mode: 'domains', domains: ['example.com'] },
+  set_sign_in_limits: { account: { limit: 5, window: 60000 }, address: { limit: 50, window: 60000 } },
+  set_proxy_trust: { proxies: 1 },
   remove_rule: { kind: 'budget', id: 'bgt_1' },
   approve_pairing: { pairing: 'par_1', approve: true },
   create_pairing_token: { expiresIn: 60 },
@@ -152,7 +154,7 @@ describe('every admin fn', () => {
     const ops: AdminOperations = {
       configure_provider: reached('configure_provider'), set_model_category: reached('set_model_category'), set_budget: reached('set_budget'),
       set_priority: reached('set_priority'), set_policy: reached('set_policy'), set_actor_setting: reached('set_actor_setting'), add_user: reached('add_user'),
-      add_group: reached('add_group'), update_user: reached('update_user'), set_membership: reached('set_membership'), set_sign_in_policy: reached('set_sign_in_policy'), remove_rule: reached('remove_rule'), approve_pairing: reached('approve_pairing'),
+      add_group: reached('add_group'), update_user: reached('update_user'), set_membership: reached('set_membership'), set_sign_in_policy: reached('set_sign_in_policy'), set_sign_in_limits: reached('set_sign_in_limits'), set_proxy_trust: reached('set_proxy_trust'), remove_rule: reached('remove_rule'), approve_pairing: reached('approve_pairing'),
       create_pairing_token: reached('create_pairing_token'), configure_system: reached('configure_system'), enable_system: reached('enable_system'), switch_item: reached('switch_item'),
       remove_system: reached('remove_system'), install_system: reached('install_system'), start_system: reached('start_system'), stop_system: reached('stop_system'), restart_system: reached('restart_system'),
       upgrade_system: reached('upgrade_system'), set_model_role: reached('set_model_role'), clear_model_role: reached('clear_model_role'),

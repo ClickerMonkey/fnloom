@@ -35,7 +35,8 @@ export const manifest = {
       "b": [
         "email",
         "name",
-        "password"
+        "password",
+        "setup"
       ],
       "f": [],
       "hasBody": true,
@@ -77,6 +78,26 @@ export const manifest = {
       "q": [],
       "b": [
         "refresh"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "redeemSso": {
+      "method": "POST",
+      "path": "/redeemSso",
+      "ws": "redeemSso",
+      "httpOnly": true,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "code"
       ],
       "f": [],
       "hasBody": true,
@@ -1604,6 +1625,47 @@ export const manifest = {
       "multi": false,
       "bodyEnc": "json"
     },
+    "setSignInLimits": {
+      "method": "POST",
+      "path": "/setSignInLimits",
+      "ws": "setSignInLimits",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "account",
+        "address"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "setProxyTrust": {
+      "method": "POST",
+      "path": "/setProxyTrust",
+      "ws": "setProxyTrust",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "proxies"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
     "systemFns": {
       "method": "POST",
       "path": "/systemFns",
@@ -2991,6 +3053,44 @@ export const manifest = {
       "multi": false,
       "bodyEnc": "json"
     },
+    "outsideImages": {
+      "method": "POST",
+      "path": "/outsideImages",
+      "ws": "outsideImages",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "setOutsideImages": {
+      "method": "POST",
+      "path": "/setOutsideImages",
+      "ws": "setOutsideImages",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "value"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
     "accessInfo": {
       "method": "POST",
       "path": "/accessInfo",
@@ -4072,7 +4172,7 @@ export const manifest = {
     },
     "user": {
       "ws": "on.user",
-      "hasParams": false
+      "hasParams": true
     }
   }
 } as const satisfies Manifest;

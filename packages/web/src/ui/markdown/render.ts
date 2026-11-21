@@ -1,7 +1,7 @@
 /**
  * Draws a markdown tree as Vue elements. Links open outside the app in a new tab; links inside it (`/…`, `#…`) and
  * resource URIs (`fs://…`, in a link or as a code span) go to `navigate` when given, so the app's router or resource
- * viewer handles them. Images open in `view` when given. Code blocks are `UiCodeBlock`s; tables scroll inside their
+ * viewer handles them. Images open in `view` when given; one `held` (from outside the hub) is a placeholder until clicked. Code blocks are `UiCodeBlock`s; tables scroll inside their
  * own box.
  */
 import { h, type VNode, type VNodeArrayChildren } from 'vue';
@@ -9,7 +9,7 @@ import UiCodeBlock from '../UiCodeBlock.vue';
 import UiDiagram from '../UiDiagram.vue';
 import type { MdBlock, MdInline } from './ast.ts';
 import { DIAGRAM_LANGUAGES } from './diagram.ts';
-import { RESOURCE_LINK } from './inline.ts';
+import { RESOURCE_LINK } from '@harness/sdk';
 import { mathAttrs, texToMath, type MathNode } from './math.ts';
 
 /** A MathML tree as elements (Vue puts children of `math` in the MathML namespace). */
@@ -30,6 +30,27 @@ export interface RenderHooks {
   readonly copied: (ok: boolean) => void;
   /** Show an image large; without it images only draw inline. */
   readonly view?: ((src: string, alt: string) => void) | undefined;
+  /**
+   * The host of an image that waits for a click before it loads (one from outside the hub, while the admin's setting
+   * asks first), else `undefined`; without it every image loads.
+   */
+  readonly held?: ((src: string) => string | undefined) | undefined;
+  /** Load a held image (its placeholder was clicked). */
+  readonly release?: ((src: string) => void) | undefined;
+}
+
+/** An image, or a placeholder that loads it when clicked while it is held. Images never send a referrer. */
+function image(src: string, alt: string, hooks: RenderHooks): VNode {
+  const host = hooks.held?.(src);
+  if (host !== undefined) {
+    return h('button', {
+      type: 'button', class: 'md-image-held', 'data-testid': 'md-image-held', title: src,
+      onClick: () => { hooks.release?.(src); },
+    }, [h('span', { class: 'md-image-held-label' }, `Load image from ${host}`), ...(alt === '' ? [] : [h('span', { class: 'md-image-held-alt' }, alt)])]);
+  }
+  const img = h('img', { src, alt, loading: 'lazy', referrerpolicy: 'no-referrer', class: 'md-image' });
+  const view = hooks.view;
+  return view === undefined ? img : h('button', { type: 'button', class: 'md-image-open', 'aria-label': alt === '' ? 'Open image' : `Open image: ${alt}`, onClick: () => { view(src, alt); } }, [img]);
 }
 
 const isInternal = (href: string): boolean => href.startsWith('/') || href.startsWith('#') || href.startsWith('.') || RESOURCE_LINK.test(href);
@@ -55,11 +76,7 @@ function inline(nodes: readonly MdInline[], hooks: RenderHooks): VNodeArrayChild
         : h('code', { class: 'md-code' }, node.text);
       case 'break': return h('br');
       case 'math': return math(node.tex, false);
-      case 'image': {
-        const img = h('img', { src: node.src, alt: node.alt, loading: 'lazy', class: 'md-image' });
-        const view = hooks.view;
-        return view === undefined ? img : h('button', { type: 'button', class: 'md-image-open', 'aria-label': node.alt === '' ? 'Open image' : `Open image: ${node.alt}`, onClick: () => { view(node.src, node.alt); } }, [img]);
-      }
+      case 'image': return image(node.src, node.alt, hooks);
       case 'link': {
         const internal = isInternal(node.href);
         return h('a', {

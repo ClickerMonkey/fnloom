@@ -7,14 +7,15 @@
  * page at a time from Claude's own store; importables come from a session opened only to ask what it sees.
  */
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
   getSessionInfo, getSessionMessages, getSubagentMessages, listSessions, query,
-  type CanUseTool, type McpServerStatus, type OnElicitation, type OnUserDialog, type Options, type PermissionResult, type Query, type SDKMessage, type SDKSessionInfo, type SDKUserMessage, type SessionMessage,
+  type CanUseTool, type McpServerStatus, type McpServerStatusConfig, type OnElicitation, type OnUserDialog, type Options, type PermissionResult, type Query, type SDKMessage, type SDKSessionInfo, type SDKUserMessage, type SessionMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import { McpServerConfig, isJsonObject, jsonOf, type JsonObject } from '@harness/core';
+import { z } from 'zod';
 import { ClaudeSessionId, type ClaudeTask, type ClaudeTaskKind, type ClaudeTranscriptItem } from '../shared/session.ts';
 import { g, wireType } from '@harness/sdk';
 import { sliceOf, type ClaudeDriver, type DriverEvent, type DriverOpen, type DriverPage, type FoundImportable, type LiveSession, type SessionListener, type StoredSession, type TaskChange, type TranscriptRequest, type TranscriptSlice } from './driver.ts';
@@ -203,6 +204,60 @@ export function mcpConfigOf(status: McpServerStatus): McpServerConfig | undefine
   return undefined;
 }
 
+/** A Markdown file's `description:` in its YAML header, or empty. */
+function descriptionOf(text: string): string {
+  const header = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text)?.[1] ?? '';
+  return (/^description:\s*(.*)$/m.exec(header)?.[1] ?? '').trim().replace(/^(["'])(.*)\1$/, '$2');
+}
+
+/** A folder's `.mcp.json`, as far as an import reads it: each server's command or address (never started). */
+const ProjectMcpFile = z.object({
+  mcpServers: z.record(z.string(), z.union([
+    z.object({ type: z.literal('stdio').optional(), command: z.string().min(1), args: z.array(z.string()).optional(), env: z.record(z.string(), z.string()).optional() }),
+    z.object({ type: z.literal('http'), url: z.string(), headers: z.record(z.string(), z.string()).optional() }),
+    z.object({ type: z.literal('sse'), url: z.string(), headers: z.record(z.string(), z.string()).optional() }),
+  ])).default({}),
+});
+
+/** The `.md` files (or, `nested`, the folders holding `file`) under a folder, by name; none when it is missing. */
+async function namedFiles(dir: string, nested?: string): Promise<{ readonly name: string; readonly path: string }[]> {
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  return entries.flatMap((entry) => {
+    if (nested !== undefined) { return entry.isDirectory() && existsSync(join(dir, entry.name, nested)) ? [{ name: entry.name, path: join(dir, entry.name, nested) }] : []; }
+    return entry.isFile() && entry.name.endsWith('.md') ? [{ name: entry.name.slice(0, -3), path: join(dir, entry.name) }] : [];
+  });
+}
+
+/**
+ * A folder's own agents, skills, commands and MCP servers (its `.claude/` and `.mcp.json`), read as files: the probe
+ * session loads the person's own settings only, so a folder's settings, hooks and MCP servers never run to list them.
+ */
+export async function projectImportables(folder: string): Promise<FoundImportable[]> {
+  const claudeDir = join(folder, '.claude');
+  const described = async (files: readonly { readonly name: string; readonly path: string }[]) => Promise.all(files.map(async (file) => ({ name: file.name, description: descriptionOf(await readFile(file.path, 'utf8')) })));
+  const agents = await described(await namedFiles(join(claudeDir, 'agents')));
+  const skills = await described([...await namedFiles(join(claudeDir, 'skills'), 'SKILL.md'), ...await namedFiles(join(claudeDir, 'commands'))]);
+  const mcpText = await readFile(join(folder, '.mcp.json'), 'utf8').catch(() => undefined);
+  const mcp = mcpText === undefined ? undefined : ProjectMcpFile.safeParse(parsedJson(mcpText));
+  const servers = mcp?.success === true ? Object.entries(mcp.data.mcpServers) : [];
+  return [
+    ...agents.map((agent): FoundImportable => ({ kind: 'agent', name: agent.name, description: agent.description, scope: 'project', folder })),
+    ...skills.map((skill): FoundImportable => ({ kind: 'skill', name: skill.name, description: skill.description, scope: 'project', folder })),
+    ...servers.flatMap(([name, given]): FoundImportable[] => {
+      const config: McpServerStatusConfig = given.type === 'http' || given.type === 'sse'
+        ? { type: given.type, url: given.url, ...(given.headers === undefined ? {} : { headers: given.headers }) }
+        : { type: 'stdio', command: given.command, args: given.args ?? [], ...(given.env === undefined ? {} : { env: given.env }) };
+      const server = mcpConfigOf({ name, status: 'pending', config, scope: 'project' });
+      return server === undefined ? [] : [{ kind: 'mcp-server', name, description: name, scope: 'project', server, folder }];
+    }),
+  ];
+}
+
+/** A file's JSON, or `undefined` when it isn't JSON. */
+function parsedJson(text: string): unknown {
+  try { const value: unknown = JSON.parse(text); return value; } catch { return undefined; }
+}
+
 /** Claude's scope words, as an importable MCP server's. */
 function mcpScope(scope: string | undefined): 'user' | 'project' | 'local' | 'plugin' {
   return scope === 'user' || scope === 'project' || scope === 'local' ? scope : 'plugin';
@@ -288,11 +343,14 @@ export class AgentSdkDriver implements ClaudeDriver {
   async importables(folder: string): Promise<FoundImportable[]> {
     // a session that is never sent a message: it starts, says what it sees, and is closed without a model call
     const input = new InputQueue();
-    const probe = query({ prompt: input, options: { ...this.#base(folder), persistSession: false } });
+    // the person's own settings only: a folder's settings, hooks and .mcp.json are its files to read, never to run
+    const probe = query({ prompt: input, options: { ...this.#base(folder), settingSources: ['user'], persistSession: false } });
     try {
       const [agents, commands, servers] = await Promise.all([probe.supportedAgents(), probe.supportedCommands(), probe.mcpServerStatus()]);
       const scoped = (name: string, ...parts: string[]) => (name.includes(':') ? { scope: 'plugin' as const } : found(folder, ...parts));
-      return [
+      const project = await projectImportables(folder);
+      const listed = new Set(project.map((item) => `${item.kind}:${item.name}`));
+      const fromProbe: FoundImportable[] = [
         ...agents.flatMap((agent): FoundImportable[] => {
           const where = scoped(agent.name, 'agents', `${agent.name}.md`);
           return where === undefined ? [] : [{ kind: 'agent', name: agent.name, description: agent.description, scope: where.scope, ...(where.scope === 'project' ? { folder } : {}) }];
@@ -307,6 +365,7 @@ export class AgentSdkDriver implements ClaudeDriver {
           return server === undefined ? [] : [{ kind: 'mcp-server', name: status.name, description: status.serverInfo === undefined ? status.name : `${status.serverInfo.name} ${status.serverInfo.version}`, scope, server, ...(scope === 'project' || scope === 'local' ? { folder } : {}) }];
         }),
       ];
+      return [...project, ...fromProbe.filter((item) => !listed.has(`${item.kind}:${item.name}`))];
     } finally {
       input.end();
       probe.close();

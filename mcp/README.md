@@ -20,7 +20,7 @@ npx tsx mcp/server.ts --transport command --auth headers --header X-Api-Key=abc
 | `--token` | `test-token` | the bearer token `token` mode accepts |
 | `--header NAME=VALUE` | `X-Api-Key=test-key` | a header `headers` mode requires; repeatable; replaces the default |
 | `--port` | `4400` | HTTP port (not used by `command`) |
-| `--host` | `0.0.0.0` | HTTP bind address; use this to reach it over the LAN |
+| `--host` | `127.0.0.1` | HTTP bind address; pass `0.0.0.0` to reach it over the LAN (its test tokens are fixed, so only on a trusted network) |
 | `--oauth-ttl` | `3600` | access token lifetime in seconds, for testing refresh |
 
 ## Transports

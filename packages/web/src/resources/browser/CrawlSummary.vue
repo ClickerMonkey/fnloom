@@ -1,5 +1,6 @@
 <script setup lang="ts">
 /** What a web crawl was, over its pages in the browser: the site, when it ran, how many pages it kept, and a link to the site. */
+import { safeHref } from '@harness/sdk';
 import { computed } from 'vue';
 import { UiIcon, fullTime } from '../../ui/index.ts';
 import type { CrawlFolder } from '../logic/crawls.ts';
@@ -10,7 +11,8 @@ const props = defineProps<{
   pages?: number | undefined;
 }>();
 
-const site = computed(() => `https://${props.crawl.host}`);
+/** The site's address, when the folder's host makes a safe one. */
+const site = computed(() => safeHref(`https://${props.crawl.host}`));
 </script>
 
 <template>
@@ -23,7 +25,7 @@ const site = computed(() => `https://${props.crawl.host}`);
         <template v-if="pages !== undefined"> · {{ pages.toLocaleString() }} {{ pages === 1 ? 'page' : 'pages' }}</template>
       </span>
     </div>
-    <a :href="site" target="_blank" rel="noopener noreferrer" class="site">Open site <UiIcon name="external" :size="14" /></a>
+    <a v-if="site" :href="site" target="_blank" rel="noopener noreferrer" class="site">Open site <UiIcon name="external" :size="14" /></a>
   </div>
 </template>
 

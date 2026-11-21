@@ -44,6 +44,7 @@ describe('the fs implementation', () => {
       changes: new FakeChanges(),
       ignores: NO_IGNORES,
       now: () => 0,
+      baseEnv: process.env,
     });
   };
 
@@ -104,7 +105,7 @@ describe('the fs implementation', () => {
   it('returns the files a command changed with its output', async () => {
     const changed = { source: 'git' as const, cwd: root, files: [{ path: 'a.txt', root: 'root', status: 'modified' as const, diff: '@@ -1 +1 @@\n-a\n+b', added: 1, removed: 1, certain: true }], ignored: 0, truncated: false };
     const capture = new FakeChanges(() => changed);
-    const withChanges = createFsImpl({ settings, shell: new FakeShell(), opener, restarter, git: new FakeGit(new Map()), snapshots: new DiskSnapshots(`${tmp.path}/s`), documents: new AeyeDocuments(createDefaultResourceRegistry()), watch: () => () => undefined, changes: capture, ignores: NO_IGNORES, now: () => 0 });
+    const withChanges = createFsImpl({ settings, shell: new FakeShell(), opener, restarter, git: new FakeGit(new Map()), snapshots: new DiskSnapshots(`${tmp.path}/s`), documents: new AeyeDocuments(createDefaultResourceRegistry()), watch: () => () => undefined, changes: capture, ignores: NO_IGNORES, now: () => 0, baseEnv: process.env });
     const made = fnCtx<TypesOf<Fns['bash']>>({ handlers: { confirm: () => Promise.resolve(true) }, progress: { set: () => undefined }, fns: {}, form: undefined, state: memoryState() }, { config });
     expect(doneResult(await withChanges.impl.fns.bash.run({ command: 'npm run fmt' }, made.ctx))).toMatchObject({ exitCode: 0, changes: changed });
     expect(capture.started).toEqual([root]);
@@ -156,7 +157,7 @@ describe('the fs implementation', () => {
 
   it('removes and undoes, and skips diffs too big to draw', async () => {
     const small = { ...settings, FS_DIFF_MAX: 3 };
-    server = createFsImpl({ settings: small, shell, opener, restarter, git: new FakeGit(new Map()), snapshots: new DiskSnapshots(`${tmp.path}/s`), documents: new AeyeDocuments(createDefaultResourceRegistry()), watch: () => () => undefined, changes: new FakeChanges(), ignores: NO_IGNORES, now: () => 0 });
+    server = createFsImpl({ settings: small, shell, opener, restarter, git: new FakeGit(new Map()), snapshots: new DiskSnapshots(`${tmp.path}/s`), documents: new AeyeDocuments(createDefaultResourceRegistry()), watch: () => () => undefined, changes: new FakeChanges(), ignores: NO_IGNORES, now: () => 0, baseEnv: process.env });
     const run = fnCtx<TypesOf<Fns['remove']>>(none(), { config: config });
     const outcome = await server.impl.fns.remove.run({ path: 'a.txt' }, run.ctx);
     expect(doneResult(outcome)).toEqual({ removed: true });
@@ -242,6 +243,83 @@ describe('the fs implementation', () => {
       expect(failure(await server.impl.fns.bash.run({ command: 'rm -rf build' }, no.ctx)).code).toBe('denied');
       expect(failure(await server.impl.fns.bash.run({ command: 'rm -rf build' }, bashCtx(memoryState()).ctx)).code).toBe('needs-confirmation');
       expect(shell.calls).toHaveLength(1);
+      // a command the person confirmed runs git as they have it set up
+      expect(shell.calls[0]?.env).not.toHaveProperty('GIT_CONFIG_COUNT');
+    });
+
+    it('asks before a safe command that reaches outside the roots, through a variable or ~, or writes through git', async () => {
+      const defaults = createFsImpl({
+        settings: { ...settings, FS_SAFE_COMMANDS: fsEnv.parse().FS_SAFE_COMMANDS }, shell, opener, restarter, git: new FakeGit(new Map()), snapshots: new DiskSnapshots(`${tmp.path}/s`),
+        documents: new AeyeDocuments(createDefaultResourceRegistry()), watch: () => () => undefined, changes: new FakeChanges(), ignores: NO_IGNORES, now: () => 0, baseEnv: process.env,
+      });
+      await writeFile(`${tmp.path}/secret.txt`, 'outside\n');
+      await writeFile(`${root}/.env`, 'OPENROUTER_API_KEY=sk-or-secret\n');
+      const asked: string[] = [];
+      const run = (command: string, settings?: Record<string, unknown>) => defaults.impl.fns.bash.run({ command }, bashCtx(memoryState<Cwd>(), { confirm: (input) => { asked.push(input.command); return Promise.resolve(false); }, ...(settings === undefined ? {} : { settings }) }).ctx);
+      for (const command of ['cat a.txt', 'git diff --stat', 'git log -3 --format=%h', 'git branch -a']) {
+        expect((await run(command)).status).toBe('done');
+      }
+      expect(asked).toEqual([]);
+      const echoing = { 'fs/shell': { allowed: true, safe: ['echo', 'cat'] } };
+      const risky = ['cat ../secret.txt', `cat ${tmp.path}/secret.txt`, 'cat $PWD/.env', 'cat ~/.ssh/id_rsa', 'cat .en?', 'git diff --output=../x', 'git log --ext-diff', 'git branch -D main', 'git branch new', 'npm test', 'npx vitest'];
+      for (const command of risky) { expect(failure(await run(command)).code).toBe('denied'); }
+      expect(failure(await run('echo $OPENROUTER_API_KEY', echoing)).code).toBe('denied');
+      expect(asked).toEqual([...risky, 'echo $OPENROUTER_API_KEY']);
+      expect(shell.calls).toHaveLength(4);
+      // what runs without asking also runs git without the programs a repository's config names
+      expect(shell.calls.map((call) => call.env['GIT_CONFIG_KEY_0'])).toEqual(['core.fsmonitor', 'core.fsmonitor', 'core.fsmonitor', 'core.fsmonitor']);
+
+      // the hub is told too, so it asks the person even where fs's own check would not
+      const preview = { ...systemCtx({ config }), run: mintId('run') };
+      const flagged = async (command: string) => (await defaults.impl.fns.bash.flags?.({ command }, preview) ?? []).map((flag) => [flag.path, flag.kind, flag.action]);
+      expect(await flagged('cat ../secret.txt')).toEqual([['../secret.txt', 'unknown-path', 'ask']]);
+      expect(await flagged('cat $PWD/.env')).toEqual([['$PWD/.env', 'env', 'ask']]);
+      expect(await flagged('echo $OPENROUTER_API_KEY')).toEqual([['$OPENROUTER_API_KEY', 'unknown-path', 'ask']]);
+      expect(await flagged('ls ~')).toEqual([['~', 'unknown-path', 'ask']]);
+      // a glob too costly to expand is not expanded, and asks
+      const bomb = '{a,b}'.repeat(20);
+      expect(await flagged(`ls ${bomb}`)).toEqual([[bomb, 'unknown-path', 'ask']]);
+      expect(await flagged('cat a.txt 2>/dev/null')).toEqual([]);
+    });
+
+    it('starts commands with the basics and the admin\'s env names only', async () => {
+      process.env['OPENROUTER_API_KEY'] = 'sk-or-planted';
+      process.env['HARNESS_TEST_ALLOWED'] = 'yes';
+      try {
+        const withEnv = createFsImpl({
+          settings, shell, opener, restarter, git: new FakeGit(new Map()), snapshots: new DiskSnapshots(`${tmp.path}/s`),
+          documents: new AeyeDocuments(createDefaultResourceRegistry()), watch: () => () => undefined, changes: new FakeChanges(), ignores: NO_IGNORES, now: () => 0, baseEnv: process.env,
+        });
+        const allowing = { ...config, commandEnv: ['HARNESS_TEST_ALLOWED'] };
+        const made = fnCtx<TypesOf<Fns['bash']>>({ handlers: { confirm: undefined }, progress: { set: () => undefined }, fns: {}, form: undefined, state: memoryState() }, { config: allowing });
+        expect((await withEnv.impl.fns.bash.run({ command: 'ls' }, made.ctx)).status).toBe('done');
+        const env = shell.calls[0]?.env ?? {};
+        expect(Object.keys(env).some((name) => name.toUpperCase() === 'PATH')).toBe(true);
+        expect(env['HARNESS_TEST_ALLOWED']).toBe('yes');
+        expect(env).not.toHaveProperty('OPENROUTER_API_KEY');
+      } finally {
+        delete process.env['OPENROUTER_API_KEY'];
+        delete process.env['HARNESS_TEST_ALLOWED'];
+      }
+    });
+
+    it('asks before writes that lead to running code, even under an admin\'s own rules', async () => {
+      const { fns } = server.impl;
+      const preview = { ...systemCtx({ config }), run: mintId('run') };
+      const writes = async (path: string, on: FsConfig = config) => (await fns.write.flags?.({ path, text: 'x' }, { ...preview, config: on }) ?? []).map((flag) => [flag.kind, flag.action]);
+      for (const path of ['.git/config', '.git/hooks/pre-commit', 'package.json', 'package-lock.json', 'vitest.config.ts', 'src/vite.config.mjs', 'tsconfig.json', '.husky/pre-commit', '.githooks/post-checkout', '.claude/settings.json', '.vscode/tasks.json', '.github/workflows/ci.yml']) {
+        expect(await writes(path), path).toEqual([['runs-code', 'ask']]);
+      }
+      expect(await writes('src/b.ts')).toEqual([]);
+      // reading one is fine: its flag passes
+      expect((await fns.read.flags?.({ path: 'package.json' }, preview) ?? []).map((flag) => flag.action)).toEqual(['allow']);
+      expect(await writes('.git/config', { ...config, sensitive: [] })).toEqual([['runs-code', 'ask']]);
+      // where the file system finds names without case, another spelling is the same file
+      if (process.platform === 'win32' || process.platform === 'darwin') {
+        for (const path of ['.GIT/config', '.Git/hooks/pre-commit', 'PACKAGE.JSON', 'Vitest.Config.ts']) { expect(await writes(path), path).toEqual([['runs-code', 'ask']]); }
+        expect(await writes('.GIT/config', { ...config, sensitive: [] })).toEqual([['runs-code', 'ask']]);
+      }
+      expect((await fns.bash.flags?.({ command: 'echo "[core] fsmonitor = x" >> .git/config' }, preview) ?? []).map((flag) => [flag.path, flag.kind, flag.access])).toEqual([['.git/config', 'runs-code', 'write']]);
     });
 
     it('follows the user\'s shell setting over the default safe list', async () => {

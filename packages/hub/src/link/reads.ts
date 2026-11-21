@@ -9,6 +9,7 @@ import { plugin } from '@ayepi/plugin';
 import { hubLinkSpec, instanceLabel, isSettled, type ActorId, type LinkSession, type ResourceRead, type ResourceUri, type RunId, type SectionKey } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
 import type { Asking, ResourceReader } from '../resources/index.ts';
+import { runIsOf } from '../execution/link-handlers.ts';
 import { PROPOSED_KEY } from '../execution/runs.ts';
 import type { HubStore } from '../store/index.ts';
 import type { ResourceRouter } from './index.ts';
@@ -40,7 +41,7 @@ export interface LinkReadDeps {
 export async function askingOf(store: HubStore, link: LinkSession, run: RunId | undefined): Promise<Asking> {
   if (run !== undefined) {
     const row = await store.table('runs').get(run);
-    if (row?.system !== link.system || (row.instance !== undefined && row.instance !== link.instance)) throw refuse(403, 'NOT_YOUR_RUN', `run ${run} is not ${instanceLabel(link)}'s`);
+    if (row === undefined || !runIsOf(row, link)) throw refuse(403, 'NOT_YOUR_RUN', `run ${run} is not ${instanceLabel(link)}'s`);
     if (isSettled(row.status) && (row.status === 'undone' || row.undo === undefined)) throw refuse(403, 'RUN_SETTLED', `run ${run} has settled`);
     // a run a system proposed for a person (a Claude permit) sits in the system's own turn but acts for that person
     const proposedFor = row.parent === undefined && row.key.startsWith(PROPOSED_KEY);

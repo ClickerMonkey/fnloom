@@ -6,7 +6,7 @@
 import { parseArgs } from 'node:util';
 import { z } from 'zod';
 import type { CliFiles } from './files.ts';
-import type { CliEnv, HubSession } from './hub.ts';
+import type { CliSettings, HubSession } from './hub.ts';
 import type { SystemBuilder, SystemTestRunner } from '@harness/build';
 
 /** Where a command's output goes. */
@@ -28,7 +28,7 @@ export interface CliIo {
   /** Runs system folders' own tests (`harness test`). */
   readonly tests: SystemTestRunner;
   /** The CLI's settings (`cliEnv`). */
-  readonly settings: CliEnv;
+  readonly settings: CliSettings;
   /** Wait (polling a hub). */
   sleep(ms: number): Promise<void>;
   /** The lines of standard input (the MCP bridge). */
@@ -41,7 +41,7 @@ export interface CliIo {
 export const HUB_OPTIONS = {
   /** The hub's address; default `HARNESS_URL`. */
   hub: z.string().optional(),
-  /** An admin access token; default `HARNESS_TOKEN`, else the admin account from `.env`. */
+  /** An admin access token, or `-` to read it from stdin; default `HARNESS_TOKEN`, else the admin account from `.env`. */
   token: z.string().optional(),
 } as const;
 

@@ -22,7 +22,7 @@ import { WIDGET_HOST } from '../../components/widgets/widgets.ts';
 import { useRouteQuery } from '../../app/url.ts';
 import { ROUTES } from '../../app/routes.ts';
 import { threadChatHost, threadWidgetHost, type ThreadWidgetDeps } from '../state/widget-host.ts';
-import { CHAT_HOST } from '@harness/sdk';
+import { CHAT_HOST, safeHref } from '@harness/sdk';
 import ApprovalTray from '../components/ApprovalTray.vue';
 import AssistantAnswer from '../components/AssistantAnswer.vue';
 import BackgroundStrip from '../components/BackgroundStrip.vue';
@@ -304,7 +304,11 @@ function openLink(link: Link): void {
   hoverOpen.value = false;
   if ('resource' in link) { emit('resource', link.resource); return; }
   if ('run' in link) { emit('run', link.run); return; }
-  if ('url' in link) { window.open(link.url, '_blank', 'noopener,noreferrer'); return; }
+  if ('url' in link) {
+    const href = safeHref(link.url);
+    if (href !== undefined) { window.open(href, '_blank', 'noopener,noreferrer'); }
+    return;
+  }
   toasts.push({ title: link.title, body: "Files can't be opened from the chat yet." });
 }
 

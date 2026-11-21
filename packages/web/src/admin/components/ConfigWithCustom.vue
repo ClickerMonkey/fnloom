@@ -29,7 +29,8 @@ const emit = defineEmits<{ save: [value: Json] }>();
 
 const ginType = computed(() => (isGinTypeDef(props.type) ? props.type : undefined));
 const custom = computed(() => (props.target !== undefined && props.loader !== undefined && ginType.value !== undefined ? { target: props.target, loader: props.loader, type: ginType.value } : undefined));
-const showForm = computed(() => custom.value === undefined || custom.value.target.decl.mode === 'beside');
+// the form stands in for a system's own settings until its build is approved
+const showForm = computed(() => custom.value === undefined || custom.value.target.decl.mode === 'beside' || !custom.value.target.approved);
 </script>
 
 <template>

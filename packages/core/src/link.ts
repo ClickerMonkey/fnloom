@@ -28,6 +28,7 @@ import { HookBlock, HookInput, ImportReport, KindDescription, KindFnShape, Manif
 import {
   ActorId, DeliveryId, Duration, FnKindName, HandlerCallId, InstanceName, Json, LocalName, MAIN_INSTANCE, JsonObject, PairingId, QualifiedName, RunId, SessionId, SystemName, Timestamp, Usd, page,
 } from './primitives.ts';
+import { HttpUrl } from './urls.ts';
 import { InstanceMode, TypeDefinitions } from './records/systems.ts';
 import { SystemEvent } from './system-events.ts';
 import { ContentRef, Link, ReadWant, ResourceChange, ResourceRead, ResourceRoot, ResourceStat, ResourceUri, Section, SectionKey } from './resources.ts';
@@ -446,7 +447,7 @@ export const systemLinkSpec = spec({
     /** Which of a provider's models it serves now (its aeye `listModels`); the hub offers only the declared ones. */
     providerModels: endpoint({ body: ProviderModels, response: ProviderModelsResult, ws: 'pml' }),
     /** Per-person systems (`connect`): where to send the person to connect (OAuth), then finish with what came back. */
-    connectStart: endpoint({ body: ConnectStart, response: z.object({ url: z.url() }), ws: 'cs' }),
+    connectStart: endpoint({ body: ConnectStart, response: z.object({ url: HttpUrl }), ws: 'cs' }),
     connectFinish: endpoint({ body: ConnectFinish, response: ConnectResult, ws: 'cn' }),
     /** The person disconnected: revoke the credentials at the provider where it can. */
     disconnect: endpoint({ body: RunConnection.pick({ id: true, owner: true, credentials: true }), ws: 'dc' }),

@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import type { FileChange, FileChangeStatus, NoDiffReason } from '@harness/core';
 import type { GitIgnores, Sensitivity } from './sensitive.ts';
 import type { CaptureSession, ChangeCapture, Exec, Located, PathGuard, WatchFolder } from './index.ts';
+import { runGit } from './git.ts';
 import { inside, normalize } from './paths.ts';
 
 /** How change capture is bounded. */
@@ -178,7 +179,7 @@ export class CommandChanges implements ChangeCapture {
 
   /** Run git in a folder with the settings every call here uses. */
   #git(folder: string, args: readonly string[], signal: AbortSignal | undefined) {
-    return this.#deps.exec.exec('git', ['-C', folder, '-c', 'core.quotepath=off', ...args], { timeout: this.#deps.limits.gitTimeout, ...(signal === undefined ? {} : { signal }) });
+    return runGit(this.#deps.exec, folder, args, { timeout: this.#deps.limits.gitTimeout, signal });
   }
 
   /**
@@ -345,7 +346,7 @@ export class CommandChanges implements ChangeCapture {
 
   /** The raw diff of a file from before the call to now; `undefined` when there is nothing to diff against. */
   async #diff(file: { top: string; rel: string; kept: Kept | undefined; headBefore: string | undefined; after: StatusEntry | undefined }, abs: string, exists: boolean, status: FileChangeStatus, signal: AbortSignal | undefined): Promise<string | undefined> {
-    const flags = ['--no-color', '--no-ext-diff'];
+    const flags = ['--no-color', '--no-ext-diff', '--no-textconv'];
     const nothing = '/dev/null';
     if (file.kept !== undefined) {
       if (file.kept.sign === 'missing') { return (await this.#git(file.top, ['diff', ...flags, '--no-index', '--', nothing, abs], signal)).stdout; }

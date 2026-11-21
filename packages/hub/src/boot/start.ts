@@ -16,7 +16,7 @@ import type { Logger } from '@ayepi/log';
 import { createPluginHost } from '@ayepi/plugin';
 import { updown, type Component } from '@ayepi/updown';
 import { mintId, systemLinkSpec, type ActorId, type SystemActor } from '@harness/core';
-import { ACCESS_TOKEN } from '../api/auth.ts';
+import { ACCESS_TOKEN, announceSetup, SETUP_FILE } from '../api/auth.ts';
 import { FILES_PATH, HttpFront } from '../api/http.ts';
 import { generateVapidKeys, webPushSender, type PushSender } from '../api/push.ts';
 import { ClientBuildRoute, WebAppRoute } from '../api/serve.ts';
@@ -134,6 +134,7 @@ export async function startHub(options: StartOptions & StartSeams): Promise<Runn
     if (email !== undefined && password !== undefined && await api.auth.bootstrap({ email, password })) {
       log.info('auth.admin.bootstrapped', { email });
     }
+    await announceSetup(api.auth, { file: join(settings.hubEnv.HARNESS_DATA, SETUP_FILE), hubUrl: settings.hubEnv.HARNESS_URL, log });
 
     const lc = updown<ComponentName>({
       signals: options.signals === true ? SIGNALS : false, exit: options.signals === true, timeout: settings.httpEnv.HARNESS_SHUTDOWN_TIMEOUT,
@@ -142,7 +143,8 @@ export async function startHub(options: StartOptions & StartSeams): Promise<Runn
     const front = new HttpFront({
       web, link, mcp: { fetch: (request) => hub.mcp.endpoints.handle(request) }, health: { live: () => lc.isLive(), ready: () => lc.isReady() }, heartbeat: settings.httpEnv.HARNESS_WS_HEARTBEAT,
       tokenMargin: settings.httpEnv.HARNESS_WS_TOKEN_MARGIN, clock, log,
-      files: [new ConnectCallbackRoute(() => hub.connections), new SsoRoute(() => api.sso), new ClientBuildRoute({ catalog: hub.catalog, content: api.content, lifecycle: () => hub.link.lifecycle }), new WebAppRoute(webDist(settings), api.identity)],
+      maxMessage: { browser: settings.httpEnv.HARNESS_WS_MAX_MESSAGE, link: settings.linkEnv.HARNESS_MAX_FRAME }, linkGate: hub.link.gate,
+      files: [new ConnectCallbackRoute(() => hub.connections), new SsoRoute(() => api.sso), new ClientBuildRoute({ content: api.content, lifecycle: () => hub.link.lifecycle }), new WebAppRoute(webDist(settings), api.identity, settings.hubEnv.HARNESS_URL)],
       tokenExpiry: (token) => accessTokenExpiry(token, keys.jwtSecret),
     });
     const onError = (error: unknown, phase: string, plugin: string): void => { log.warn('plugin.teardown.failed', { phase, plugin }, error); };
@@ -160,7 +162,7 @@ export async function startHub(options: StartOptions & StartSeams): Promise<Runn
       {
         name: COMPONENTS.plugins, deps: [COMPONENTS.store],
         up: async () => {
-          for (const plugin of webPlugins(hub, { secret: keys.jwtSecret })) { await webHost.install(plugin); }
+          for (const plugin of webPlugins(hub, { secret: keys.jwtSecret, sockets: web.ws })) { await webHost.install(plugin); }
           for (const plugin of modules.flatMap((m) => m.linkPlugins ?? [])) { await linkHost.install(plugin); }
         },
         post: async () => {

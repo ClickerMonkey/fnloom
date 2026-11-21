@@ -110,12 +110,13 @@ describe('SignInForm', () => {
     const form = new SignInForm(api.auth, new SessionStore(memoryStore()));
     await form.load();
     expect(form.needsAdmin).toBe(true);
-    expect(await form.submit({ email: 'nope', password: 'short', name: '' })).toBe(false);
-    expect(form.fields.value).toEqual({ email: 'Enter an email address.', password: 'At least 8 characters.', name: 'Required.' });
+    expect(await form.submit({ email: 'nope', password: 'short', name: '', setup: ' ' })).toBe(false);
+    expect(form.fields.value).toEqual({ email: 'Enter an email address.', password: 'At least 8 characters.', name: 'Required.', setup: 'Required.' });
     expect(api.auth.createAdmin.calls).toHaveLength(0);
-    expect(await form.submit({ email: 'ada@example.com', password: 'long enough pass', name: 'Ada' })).toBe(true);
+    expect(await form.submit({ email: 'ada@example.com', password: 'long enough pass', name: 'Ada', setup: 'c0de' })).toBe(true);
     expect(form.fields.value).toEqual({});
     expect(api.auth.createAdmin.calls).toHaveLength(1);
+    expect(api.auth.createAdmin.calls[0]?.[0]).toMatchObject({ setup: 'c0de' });
   });
 
   it('says why sign-in failed, using the hub reason when it gives one', async () => {

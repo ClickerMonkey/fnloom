@@ -2,6 +2,7 @@
 import { RESOURCE_VERSION_KINDS } from '@aeye/resources/versions';
 import { z } from 'zod';
 import { RunId, Timestamp } from './primitives.ts';
+import { HttpUrl } from './urls.ts';
 
 /** An absolute URI. A system serves the URIs under its roots. */
 export const ResourceUri = z.templateLiteral([z.string().regex(/^[a-z][a-z0-9+.-]*$/), '://', z.string()]);
@@ -147,7 +148,7 @@ export type SectionMatch = z.infer<typeof SectionMatch>;
 /** A link attachment: to a resource (or one of its sections), a URL, stored content, or a run. */
 export const Link = z.union([
   z.object({ resource: ResourceUri, section: SectionKey.optional(), title: z.string().optional() }),
-  z.object({ url: z.url(), title: z.string() }),
+  z.object({ url: HttpUrl, title: z.string() }),
   z.object({ file: ContentRef, title: z.string() }),
   z.object({ run: RunId, title: z.string() }),
 ]);

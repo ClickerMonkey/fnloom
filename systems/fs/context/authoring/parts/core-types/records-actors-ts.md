@@ -111,7 +111,7 @@ type Approval = {
       type: "flags";
       flags: {
         path: string;
-        kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
+        kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content" | "runs-code" | "unknown-path";
         rule: string;
         access: "read" | "write";
         action: "ask" | "allow" | "refuse";

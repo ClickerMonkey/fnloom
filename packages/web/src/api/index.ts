@@ -1,8 +1,10 @@
 /** Every caller the app uses, grouped by area, made once from the one client. */
+import type { ActorId } from '@harness/core';
 import { adminApi, systemLogEvents, type AdminApi, type SystemLogEvents } from '../admin/api.ts';
 import { chatApi, sessionEvents, type ChatApi, type SessionEvents } from '../chat/api.ts';
 import { authApi, type AuthApi } from './auth.ts';
 import { identityApi, type IdentityApi } from './identity.ts';
+import { outsideImagesApi, type OutsideImagesApi } from './outside-images.ts';
 import type { Connection, Hub } from './client.ts';
 import { notificationsApi, userEvents, type NotificationsApi, type UserEvents } from './notifications.ts';
 import { resourceEvents, resourcesApi, type ResourceEvents, type ResourcesApi } from '../resources/api/resources.ts';
@@ -19,6 +21,8 @@ import { systemPagesApi, type SystemPagesApi } from '../system-pages/api.ts';
 export interface Api {
   readonly auth: AuthApi;
   readonly identity: IdentityApi;
+  /** The admin's setting for markdown images from outside the hub. */
+  readonly outsideImages: OutsideImagesApi;
   readonly notifications: NotificationsApi;
   readonly userEvents: UserEvents;
   readonly chat: ChatApi;
@@ -38,25 +42,27 @@ export interface Api {
   readonly connection: Connection;
 }
 
-/** Make the app's callers. */
-export function createApi(hub: Hub): Api {
+/** Make the app's callers; `me` is who is signed in (reactive), whose live events the app hears. */
+export function createApi(hub: Hub, me: () => ActorId | undefined): Api {
+  const events = userEvents(hub, me);
   return {
     auth: authApi(hub),
     identity: identityApi(hub),
+    outsideImages: outsideImagesApi(hub),
     notifications: notificationsApi(hub),
-    userEvents: userEvents(hub),
+    userEvents: events,
     chat: chatApi(hub),
     sessionEvents: sessionEvents(hub),
     admin: adminApi(hub),
     systemLogs: systemLogEvents(hub),
     resources: resourcesApi(hub),
-    resourceEvents: resourceEvents(userEvents(hub)),
+    resourceEvents: resourceEvents(events),
     context: contextApi(hub),
     fns: fnsApi(hub),
     graph: graphApi(hub),
     data: dataApi(hub),
     pages: systemPagesApi(hub),
-    contextEvents: contextEvents(userEvents(hub)),
+    contextEvents: contextEvents(events),
     connection: hub.connection,
   };
 }

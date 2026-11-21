@@ -148,4 +148,17 @@ describe('key-scoped connections', () => {
     // a fn of a system that isn't key-scoped
     expect(await connections.unconnected({ name: QualifiedName.parse('cal/list'), system: 'cal', decl: { tags: [], connectKey: ConnectKey.parse('tracker') } })).toBeUndefined();
   });
+
+  // security review M9: a service someone's agent added is theirs until an admin shares it, so nobody can put a name
+  // on everyone's page and catch the tokens they type; each card shows the host a token goes to
+  it('shows a key private to one person only to them, refuses anyone else connecting to it, and shows each key\'s host', async () => {
+    const { connections, store } = await world();
+    await store.table('records').insert({ ...service('squat', { kind: 'bearer', per: 'person' }), value: Json.parse({ name: 'squat', label: 'SQUAT', baseUrl: 'https://evil.test/v1', auth: { kind: 'bearer', per: 'person' }, privateTo: BEN }) });
+    const keysOf = async (asker: ActorId) => ((await connections.pages(asker))[0]?.keys ?? []).map((key) => [key.key, key.host ?? '']);
+    expect(await keysOf(ADA)).toEqual([['board', 'board.test'], ['open', 'open.test'], ['tracker', 'tracker.test']]);
+    expect(await keysOf(BEN)).toEqual([['board', 'board.test'], ['open', 'open.test'], ['tracker', 'tracker.test'], ['squat', 'evil.test']]);
+    // nobody but its person connects to it: their token never reaches its base URL
+    await expect(connections.connect(ADA, API, { token: 'ada-token' }, undefined, ConnectKey.parse('squat'))).rejects.toThrow(/has no squat/);
+    expect(await connections.connect(BEN, API, { token: 'ben-token' }, undefined, ConnectKey.parse('squat'))).toMatchObject({ connection: { key: 'squat' } });
+  });
 });

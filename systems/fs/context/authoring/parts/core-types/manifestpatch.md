@@ -48,6 +48,7 @@ type ManifestPatch = {
           text: string[];
           embed: boolean;
         };
+        writers?: "admins" | undefined;
       } | undefined;
     }[] | undefined;
     settings?: {
@@ -477,6 +478,7 @@ type TypeDecl = {
       text: string[];
       embed: boolean;
     };
+    writers?: "admins" | undefined;
   } | undefined;
 };
 ```

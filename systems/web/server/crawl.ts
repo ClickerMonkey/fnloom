@@ -78,6 +78,8 @@ export type CrawlSkip = SkippedPageValue;
 export interface CrawlReport {
   readonly pages: readonly CrawlKept[];
   readonly skipped: readonly CrawlSkip[];
+  /** Every URL the crawl requested, robots.txt and redirects included, in order (credentials redacted). */
+  readonly fetched: readonly string[];
 }
 
 /** Keeps a fetched page as a hub resource; throws to leave it out (a `CallFailed`, say). */
@@ -173,6 +175,8 @@ type Skip = (url: URL | string, reason: CrawlSkipReason, detail?: string) => voi
 export class Crawler {
   readonly #deps: CrawlerDeps;
   readonly #robots = new Map<string, Promise<RobotsRules>>();
+  /** Every URL this crawl requested, in order (credentials redacted). */
+  readonly #fetched: string[] = [];
 
   constructor(deps: CrawlerDeps) {
     this.#deps = deps;
@@ -191,7 +195,7 @@ export class Crawler {
     const imports: Array<Promise<{ depth: number; kept: CrawlKept } | undefined>> = [];
     const keptUrls = new Set<string>();
     let kept = 0;
-    const { registry, options } = this.#deps.pages.crawling(plan.fetch, this.#deps.signal, (url) => this.#check(url, plan.fetch));
+    const { registry, options } = this.#deps.pages.crawling(plan.fetch, this.#deps.signal, (url) => this.#check(url, plan.fetch), (url) => { this.#fetched.push(url); });
 
     let graph: ResourceGraph;
     try {
@@ -235,7 +239,7 @@ export class Crawler {
       await Promise.allSettled(imports);
       const robots = error.message.includes(ROBOTS_REFUSAL);
       skip(plan.start, robots ? 'robots' : 'failed', robots ? undefined : error.message);
-      return { pages: [], skipped: [...skipped.values()] };
+      return { pages: [], skipped: [...skipped.values()], fetched: [...this.#fetched] };
     }
     const settled = await Promise.all(imports);
     for (const node of graph.nodes.values()) {
@@ -243,7 +247,7 @@ export class Crawler {
     }
     // in the order the walk reached them: by depth, then as the graph met them
     const pages = settled.flatMap((entry) => (entry === undefined ? [] : [entry])).sort((a, b) => a.depth - b.depth).map((entry) => entry.kept);
-    return { pages, skipped: [...skipped.values()] };
+    return { pages, skipped: [...skipped.values()], fetched: [...this.#fetched] };
   }
 
   /** Why a link the graph didn't load was left out, for the limit and failures (links the crawl chose not to follow are said already). */
@@ -282,6 +286,8 @@ export class Crawler {
       rendered: fetched.rendered,
       renderError: fetched.renderError,
       title: titleFor(node.type, bytes, fetched.url),
+      // the crawl's own list has every hop (its report's `fetched`); a page knows where it began and ended
+      fetched: [...new Set([redactUrl(withoutFragment(fetched.requestedUrl)), redactUrl(withoutFragment(fetched.url))])],
     };
   }
 
@@ -308,10 +314,16 @@ export class Crawler {
   #rules(url: URL, settings: FetchSettings): Promise<RobotsRules> {
     const known = this.#robots.get(url.origin);
     if (known !== undefined) { return known; }
-    const reading = this.#deps.pages.fetch(`${url.origin}/robots.txt`, { ...settings, render: 'never' }, this.#deps.signal).then(
-      (page) => (page.mime.startsWith('text/') ? RobotsRules.parse(new TextDecoder().decode(page.bytes), this.#deps.agent) : RobotsRules.ALLOW_ALL),
+    const robots = `${url.origin}/robots.txt`;
+    const reading = this.#deps.pages.fetch(robots, { ...settings, render: 'never' }, this.#deps.signal).then(
+      (page) => {
+        this.#fetched.push(...page.fetched);
+        return page.mime.startsWith('text/') ? RobotsRules.parse(new TextDecoder().decode(page.bytes), this.#deps.agent) : RobotsRules.ALLOW_ALL;
+      },
       (error: unknown) => {
         if (this.#deps.signal.aborted || !(error instanceof WebProblem)) { throw error; }
+        // asked for, if refused or failed
+        this.#fetched.push(redactUrl(robots));
         return RobotsRules.ALLOW_ALL;
       },
     );

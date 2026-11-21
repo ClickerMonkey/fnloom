@@ -23,6 +23,7 @@ import {
 import { z } from 'zod';
 import type { EventBus } from '../bus.ts';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
+import { runIsOf } from '../execution/link-handlers.ts';
 import type { Catalog } from '../catalog/index.ts';
 import { ROLE_OF } from '../models/gateway.ts';
 import type { HubStore } from '../store/index.ts';
@@ -225,10 +226,10 @@ export class SystemGrantGuard {
     return (await this.#options.store.table('fnFacts').get(fn.name))?.mode ?? fn.decl.effects?.mode ?? 'read';
   }
 
-  /** The run a body names, when it is one of this link's system's own (another system's is the handler's to refuse). */
+  /** The run a body names, when it is one of this link's instance's own (another's is the handler's to refuse). */
   async #ownRun(link: LinkSession, id: RunId): Promise<Run | undefined> {
     const run = await this.#options.store.table('runs').get(id);
-    return run?.system === link.system ? run : undefined;
+    return run !== undefined && runIsOf(run, link) ? run : undefined;
   }
 
   /**

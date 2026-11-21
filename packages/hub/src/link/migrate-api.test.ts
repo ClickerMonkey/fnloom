@@ -76,8 +76,8 @@ describe('migrating per-service api instances to one instance', () => {
     // the services, as records found by name in the database and searchable by words, with no secret in them
     const records = await store.recordQueries.find({ type: API_SERVICE_TYPE, filters: [], sort: [{ field: 'name', dir: 'asc' }], offset: 0, limit: 10 });
     expect(records.items.map((record) => record.value)).toEqual([
-      { name: 'board', label: 'Board', description: 'Cards.', baseUrl: 'https://board.test/api', auth: { kind: 'bearer', per: 'person' }, timeout: 60_000, maxBody: 2_097_152 },
-      { name: 'tracker', label: 'Tracker', baseUrl: 'https://tracker.test/v1', auth: { kind: 'bearer', per: 'shared' }, openapi: 'https://tracker.test/openapi.json', timeout: 30_000, maxBody: 4096 },
+      { name: 'board', label: 'Board', description: 'Cards.', baseUrl: 'https://board.test/api', allowPrivate: false, auth: { kind: 'bearer', per: 'person' }, timeout: 60_000, maxBody: 2_097_152 },
+      { name: 'tracker', label: 'Tracker', baseUrl: 'https://tracker.test/v1', allowPrivate: false, auth: { kind: 'bearer', per: 'shared' }, openapi: 'https://tracker.test/openapi.json', timeout: 30_000, maxBody: 4096 },
     ]);
     expect(records.items.map((record) => [record.title, record.version, record.updatedBy, record.updatedBySystem])).toEqual([['Board', 1, ADA, 'api'], ['Tracker', 1, ADA, 'api']]);
     expect(JSON.stringify(records.items)).not.toContain('shared-token');

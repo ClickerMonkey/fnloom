@@ -142,12 +142,13 @@ describe('the sign-in page with SSO', () => {
     expect(document.body.querySelector('[data-testid="sign-in-form"]')).not.toBeNull();
   });
 
-  it('swaps the hand-over in the fragment for a session, wipes it from the address, and goes on', async () => {
+  it('swaps the hand-off code in the fragment for a session, wipes it from the address, and goes on', async () => {
     const api = fakeApi();
     const fresh: Tokens = tokens({ refresh: 'rotated' });
-    api.auth.refresh = fakeCaller<'refresh'>(() => Promise.resolve(fresh));
+    api.auth.redeemSso = fakeCaller<'redeemSso'>(() => Promise.resolve(fresh));
     const { router, stores } = await open('/sign-in?next=%2Finbox#sso=handover-1', { signedIn: false, api });
-    expect(api.auth.refresh.calls[0]?.[0]).toEqual({ refresh: 'handover-1' });
+    expect(api.auth.redeemSso.calls[0]?.[0]).toEqual({ code: 'handover-1' });
+    expect(api.auth.refresh.calls).toHaveLength(0);
     expect(stores.session.refreshToken.value).toBe('rotated');
     await vi.waitFor(() => { expect(router.currentRoute.value.path).toBe('/inbox'); });
     expect(router.currentRoute.value.hash).toBe('');

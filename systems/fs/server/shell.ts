@@ -1,9 +1,11 @@
 /**
  * Running commands: the shell `bash` uses (Git Bash on Windows when it is installed), programs run without a shell
- * (git, the file manager), the safe-command check, and output kept to a size with its end preserved.
+ * (git, the file manager), the scrubbed environment commands start with, and output kept to a size with its end preserved.
+ * The safe-command check is in `safe.ts`.
  */
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { scrubbedEnv } from '@harness/sdk/server';
 import type { CommandEnd, CommandProgress, CommandRun, Exec, Shell } from './index.ts';
 
 /** Which shell runs command lines: a POSIX shell by path, or the platform's own (`cmd.exe`, `/bin/sh`). */
@@ -21,14 +23,27 @@ export function chooseShell(configured: string | undefined, platform: NodeJS.Pla
   return found === undefined ? { type: 'system' } : { type: 'posix', path: found };
 }
 
-/** Characters that chain, redirect or substitute, so a command with them is never "safe" by its prefix. */
-const CHAINING = [';', '&', '|', '>', '<', '`', '$(', '\n', '\r'];
+/**
+ * The OS variables every command keeps besides those `scrubbedEnv` keeps (`PATH`, the temp folders): home, user,
+ * locale, terminal, and the ones Windows programs need to start. Nothing that holds a key.
+ */
+export const COMMAND_BASICS: readonly string[] = [
+  'HOME', 'USER', 'USERNAME', 'LOGNAME', 'SHELL', 'LANG', 'LANGUAGE', 'LC_ALL', 'LC_CTYPE', 'LC_MESSAGES', 'TERM', 'TZ',
+  'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'COMSPEC', 'PATHEXT', 'WINDIR',
+];
 
-/** Whether a command runs without asking: exactly a safe prefix, or one followed by arguments, with no chaining. */
-export function isSafe(command: string, safe: readonly string[]): boolean {
-  const line = command.trim();
-  if (CHAINING.some((mark) => line.includes(mark))) { return false; }
-  return safe.some((prefix) => line === prefix || line.startsWith(`${prefix} `));
+/**
+ * The environment a `bash` command starts with: `scrubbedEnv` of fs's own (`PATH`, the OS basics), the
+ * `COMMAND_BASICS`, and the names an admin allows (the fs config's `commandEnv`), matched without case. Never fs's
+ * keys or anything else it was started with.
+ */
+export function commandEnv(base: Readonly<Record<string, string | undefined>>, allowed: readonly string[]): Record<string, string> {
+  const wanted: ReadonlySet<string> = new Set([...COMMAND_BASICS, ...allowed].map((name) => name.toUpperCase()));
+  const extra: Record<string, string> = {};
+  for (const [name, value] of Object.entries(base)) {
+    if (value !== undefined && wanted.has(name.toUpperCase())) { extra[name] = value; }
+  }
+  return scrubbedEnv(base, extra);
 }
 
 /** Keeps the last `max` characters of a stream and counts what was cut. */
@@ -82,7 +97,10 @@ export interface ProcessTree {
 
 /** A POSIX process group: the process starts detached as its leader, and the whole group is killed. */
 export class GroupTree implements ProcessTree {
-  readonly env = undefined;
+  readonly env: NodeJS.ProcessEnv | undefined;
+  constructor(env?: NodeJS.ProcessEnv) {
+    this.env = env;
+  }
 
   stop(pid: number | undefined, kill: () => void): void {
     if (pid === undefined) { kill(); return; }
@@ -92,7 +110,10 @@ export class GroupTree implements ProcessTree {
 
 /** A Windows process tree, walked by taskkill from the live parent. */
 export class TaskTree implements ProcessTree {
-  readonly env: NodeJS.ProcessEnv | undefined = undefined;
+  readonly env: NodeJS.ProcessEnv | undefined;
+  constructor(env?: NodeJS.ProcessEnv) {
+    this.env = env;
+  }
 
   stop(pid: number | undefined, kill: () => void): void {
     if (pid === undefined) { kill(); return; }
@@ -117,11 +138,11 @@ export class MsysTree extends TaskTree {
   private readonly bash: string;
   private readonly mark: string;
 
-  constructor(bash: string) {
+  constructor(bash: string, env: NodeJS.ProcessEnv = process.env) {
     super();
     this.bash = bash;
     this.mark = randomUUID();
-    this.env = { ...process.env, [RUN_MARK]: this.mark };
+    this.env = { ...env, [RUN_MARK]: this.mark };
   }
 
   override stop(pid: number | undefined, kill: () => void): void {
@@ -133,8 +154,8 @@ export class MsysTree extends TaskTree {
 }
 
 /** The tree for programs this platform starts itself. */
-export function platformTree(): ProcessTree {
-  return process.platform === 'win32' ? new TaskTree() : new GroupTree();
+export function platformTree(env?: NodeJS.ProcessEnv): ProcessTree {
+  return process.platform === 'win32' ? new TaskTree(env) : new GroupTree(env);
 }
 
 /** Exit codes reported when a command didn't end on its own: 124 (timeout) and 130 (interrupted), as shells do. */
@@ -199,8 +220,8 @@ export function runProcess(
 }
 
 /** The tree for a POSIX shell: on Windows it is an MSYS one (Git Bash, Cygwin), whose programs taskkill can't follow. */
-export function posixTree(path: string, platform: NodeJS.Platform = process.platform): ProcessTree {
-  return platform === 'win32' ? new MsysTree(path) : new GroupTree();
+export function posixTree(path: string, platform: NodeJS.Platform = process.platform, env?: NodeJS.ProcessEnv): ProcessTree {
+  return platform === 'win32' ? new MsysTree(path, env) : new GroupTree(env);
 }
 
 /** The real shell. */
@@ -215,8 +236,8 @@ export class NodeShell implements Shell {
   run(input: Parameters<Shell['run']>[0]): Promise<CommandRun> {
     const options = { cwd: input.cwd, timeout: input.timeout, signal: input.signal, onOutput: input.onOutput };
     return this.choice.type === 'posix'
-      ? runProcess(this.choice.path, ['-c', input.command], { ...options, tree: posixTree(this.choice.path) }, this.limits)
-      : runProcess(input.command, [], { ...options, shell: true }, this.limits);
+      ? runProcess(this.choice.path, ['-c', input.command], { ...options, tree: posixTree(this.choice.path, process.platform, input.env) }, this.limits)
+      : runProcess(input.command, [], { ...options, shell: true, tree: platformTree(input.env) }, this.limits);
   }
 }
 
@@ -228,6 +249,7 @@ export class NodeExec implements Exec {
   }
 
   exec(file: string, args: readonly string[], options: Parameters<Exec['exec']>[2]): Promise<CommandRun> {
-    return runProcess(file, args, options, this.limits);
+    const { env, ...rest } = options;
+    return runProcess(file, args, { ...rest, ...(env === undefined ? {} : { tree: platformTree(env) }) }, this.limits);
   }
 }

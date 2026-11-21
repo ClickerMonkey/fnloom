@@ -55,7 +55,7 @@ const roots = computed(() => parts.roots.value.value ?? []);
 const changes = computed(() => review.value?.pending?.changes ?? []);
 const rule = ref<RefusalRule | 'all'>('all');
 const loader = configComponentsOf(chat);
-const target = computed(() => (review.value === undefined ? undefined : configTarget(review.value.manifest)));
+const target = computed(() => (review.value === undefined ? undefined : configTarget(review.value)));
 const view = computed(() => system.view.value.value);
 const problems = ref<readonly string[]>([]);
 const confirming = ref(false);

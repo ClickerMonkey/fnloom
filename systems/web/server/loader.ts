@@ -8,7 +8,7 @@ import { fetchResource, htmlToCleanMarkdown, type FetchFn, type ResolveOptions, 
 import type { RenderModeValue } from '../shared/index.ts';
 import { labelOf, parseWebUrl, redactUrl } from '../shared/urls.ts';
 import type { HostLookup } from '@harness/sdk/server';
-import { AddressGuard } from './guard.ts';
+import { AddressGuard, type AddressCheck } from './guard.ts';
 import { guardedFetch } from './http.ts';
 import type { FetchedPage, FetchSettings, PageSource } from './index.ts';
 import { WebProblem, isAbort, isTimeout, messageOf } from './problem.ts';
@@ -43,15 +43,20 @@ export class PageLoader implements PageSource {
     this.#deps = deps;
   }
 
-  crawling(settings: FetchSettings, signal: AbortSignal, before: (url: URL) => Promise<void>): { registry: ResourceRegistry; options: ResolveOptions } {
-    return { registry: this.#deps.registry, options: this.#options(settings, signal, before) };
+  crawling(settings: FetchSettings, signal: AbortSignal, before: (url: URL) => Promise<void>, fetched: (url: string) => void): { registry: ResourceRegistry; options: ResolveOptions } {
+    return { registry: this.#deps.registry, options: this.#options(settings, signal, fetched, before) };
   }
 
-  /** The options every fetch goes through: the guarded fetch (each hop checked), the renderer under its mode, the limits. */
-  #options(settings: FetchSettings, signal: AbortSignal | undefined, before?: (url: URL) => Promise<void>): ResolveOptions {
+  /**
+   * The options every fetch goes through: the guarded fetch (each hop checked, and each one requested told to
+   * `fetched`), the renderer under its mode, the limits.
+   */
+  #options(settings: FetchSettings, signal: AbortSignal | undefined, fetched: (url: string) => void, before?: (url: URL) => Promise<void>): ResolveOptions {
     const guard = new AddressGuard(this.#deps.lookup, settings.allowPrivate);
     const render: RenderModeValue = settings.render;
-    const guarded = guardedFetch({ fetch: this.#deps.fetch, guard, redirects: this.#deps.redirects, maxBytes: settings.maxBytes });
+    // every URL that goes out, redirects included, is said on the run (credentials redacted)
+    const told: AddressCheck = { check: async (url, given) => { await guard.check(url, given); fetched(redactUrl(url)); }, address: (host, given) => guard.address(host, given) };
+    const guarded = guardedFetch({ fetch: this.#deps.fetch, guard: told, redirects: this.#deps.redirects, maxBytes: settings.maxBytes });
     // a crawl's links may carry fragments, which are never sent
     const fetch: FetchFn = before === undefined ? guarded : async (input, init) => {
       const url = parseWebUrl(input);
@@ -74,8 +79,9 @@ export class PageLoader implements PageSource {
   async fetch(input: string, settings: FetchSettings, signal?: AbortSignal): Promise<FetchedPage> {
     const url = parseWebUrl(input);
     if (url === undefined) { throw new WebProblem('bad-url', `"${input}" isn't an http or https URL.`); }
+    const fetched: string[] = [];
     try {
-      const page = await fetchResource(url.href, this.#deps.registry, this.#options(settings, signal));
+      const page = await fetchResource(url.href, this.#deps.registry, this.#options(settings, signal, (hop) => { fetched.push(hop); }));
       const bytes = page.source.input;
       return {
         bytes,
@@ -87,6 +93,7 @@ export class PageLoader implements PageSource {
         rendered: page.renderedBy !== undefined,
         renderError: page.renderError,
         title: titleFor(page.source.type, bytes, page.url),
+        fetched,
       };
     } catch (error) {
       if (error instanceof WebProblem || signal?.aborted === true || isAbort(error)) { throw error; }

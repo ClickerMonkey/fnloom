@@ -101,9 +101,11 @@ describe('systemPagesFor', () => {
 
   it('holds a page that waits for review', async () => {
     const { store, hub } = await world();
+    // what waits is the contract the hub has (a review is made as it arrives)
+    const hash = (await hub.catalog.manifest(SHOP))?.hash ?? '';
     await store.table('systemReviews').put({
       system: SHOP, updatedAt: 1,
-      pending: { version: '1.1.0', hash: 'h2', by: 'contract', since: 1, changes: [{ section: 'components', name: pageItemName(SHOP, 'stock'), change: 'added', origin: 'contract' }] },
+      pending: { version: '1.1.0', hash, by: 'contract', since: 1, changes: [{ section: 'components', name: pageItemName(SHOP, 'stock'), change: 'added', origin: 'contract' }] },
     });
     expect(await segments(hub)).toEqual(['orders', 'order']);
   });

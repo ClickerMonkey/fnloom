@@ -26,13 +26,15 @@ type TextKeys<T> = { [K in keyof T]-?: T[K] extends string | undefined ? K : nev
 interface · `import { RecordsInput } from '@harness/sdk'`
 
 How the hub keeps records of a type (`type({ records })`), typed by the type: `table` for many records or `value`
-for one; `shared` (everyone who sees the type sees them) or `person` (each record its owner's); the text fields
-text search matches, in order of weight, and whether records are embedded for search by meaning.
+for one; `shared` (everyone who sees the type sees them) or `person` (each record its owner's); `writers: 'admins'`
+when only admins (and the system itself) change them; the text fields text search matches, in order of weight, and
+whether records are embedded for search by meaning.
 
 ```ts
 interface RecordsInput<T> {
   shape: RecordStorage['shape'];
   owner: RecordStorage['owner'];
+  writers?: RecordStorage['writers'];
   search?: { text?: TextKeys<T>[]; embed?: boolean };
 }
 ```

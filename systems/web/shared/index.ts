@@ -56,6 +56,8 @@ export const CrawlResult = g.obj({
   /** Pages left out, up to the system's list limit; `moreSkipped` counts the rest. */
   skipped: g.list(SkippedPage),
   moreSkipped: g.num({ min: 0, whole: true }),
+  /** Every URL the crawl requested, robots.txt and redirects included (credentials redacted), shown on the run. */
+  fetched: g.list(g.text()),
 });
 
 /** A web page: where it is and what it is called. */
@@ -106,6 +108,8 @@ export const ReadResult = g.obj({
   truncated: g.bool(),
   /** Whether the page was run in the headless browser before it was read. */
   rendered: g.bool(),
+  /** Every URL requested for it, redirects included (credentials redacted), shown on the run. */
+  fetched: g.list(g.text()),
 });
 
 /** What `web/fetch_raw` gives the hub: core's `RawPage`, the shape the hub reads the result with. */

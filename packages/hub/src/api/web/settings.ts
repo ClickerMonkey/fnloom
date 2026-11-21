@@ -29,5 +29,7 @@ export function settingsPlugin(hub: HubServices, systems: ReturnType<typeof syst
       updateUser: ({ data, user }) => ops.update_user(data, user.id),
       setMembership: ({ data, user }) => ops.set_membership(data, user.id),
       setSignInPolicy: ({ data, user }) => ops.set_sign_in_policy(data, user.id),
+      setSignInLimits: ({ data, user }) => ops.set_sign_in_limits(data, user.id),
+      setProxyTrust: ({ data, user }) => ops.set_proxy_trust(data, user.id),
     }));
 }

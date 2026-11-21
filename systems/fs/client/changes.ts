@@ -29,6 +29,7 @@ export const STATUS_WORDS: Readonly<Record<FileChangeStatus, string>> = { added:
 /** What kind of sensitive file it is, in plain words. */
 const SENSITIVE_WORDS: Readonly<Record<SensitivityKind, string>> = {
   gitignored: 'ignored by git', env: 'an env file', key: 'a key', credential: 'a credential file', token: 'holds a token', 'secret-content': 'holds a password',
+  'runs-code': 'runs code', 'unknown-path': 'a path not known',
 };
 
 /** Why a file has no diff, in plain words. */

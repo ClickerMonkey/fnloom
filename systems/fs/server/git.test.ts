@@ -1,7 +1,12 @@
+import { execFileSync } from 'node:child_process';
+import { chmod, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { CliGit, describeStatus, parseStatus } from './git.ts';
+import { CliGit, describeStatus, gitArgs, gitEnv, hardenedGitConfigEnv, parseStatus } from './git.ts';
 import type { CommandRun, Exec } from './index.ts';
 import { PlatformOpener, revealCommand } from './reveal.ts';
+import { NodeExec } from './shell.ts';
+import { tempFolder } from './testing.ts';
 
 class TableExec implements Exec {
   readonly calls: Array<{ file: string; args: readonly string[] }> = [];
@@ -36,9 +41,65 @@ describe('git status', () => {
   it('asks git once per folder and treats a failure as "not a repository"', async () => {
     const exec = new TableExec(ok('## main\n'));
     expect(await new CliGit(exec, 100).status('/srv/work')).toEqual({ branch: 'main', tracking: undefined, changes: [] });
-    expect(exec.calls[0]).toEqual({ file: 'git', args: ['-C', '/srv/work', 'status', '--porcelain=v1', '--branch'] });
+    expect(exec.calls[0]).toEqual({ file: 'git', args: gitArgs('/srv/work', ['status', '--porcelain=v1', '--branch']) });
     expect(await new CliGit(new TableExec({ exitCode: 128, stdout: '', stderr: 'not a git repository', ended: 'exit' }), 100).status('/x')).toBeUndefined();
     expect(await new CliGit(new TableExec({ ...ok('## main'), ended: 'timeout' }), 100).status('/x')).toBeUndefined();
+  });
+});
+
+describe('fs\'s own git', () => {
+  it('ignores an fsmonitor and hooks a write planted in .git', async () => {
+    const tmp = await tempFolder();
+    try {
+      const repo = tmp.path;
+      execFileSync('git', ['init', '-q', repo]);
+      await writeFile(`${repo}/a.txt`, 'a\n');
+      // the planted program leaves a file behind when git runs it
+      await writeFile(`${repo}/mon.sh`, '#!/bin/sh\necho ran > "$(dirname "$0")/planted"\n');
+      await chmod(`${repo}/mon.sh`, 0o755);
+      execFileSync('git', ['-C', repo, 'config', 'core.fsmonitor', `${repo}/mon.sh`]);
+      await writeFile(`${repo}/.git/hooks/post-index-change`, '#!/bin/sh\necho ran > planted\n');
+      await chmod(`${repo}/.git/hooks/post-index-change`, 0o755);
+      // plain git runs it: the plant works here
+      execFileSync('git', ['-C', repo, 'status', '--porcelain'], { stdio: 'ignore' });
+      expect(existsSync(`${repo}/planted`)).toBe(true);
+      await rm(`${repo}/planted`);
+      const status = await new CliGit(new NodeExec({ outputMax: 10_000, progressEvery: 1_000 }), 10_000).status(repo);
+      expect(status?.changes).toContain('?? a.txt');
+      expect(existsSync(`${repo}/planted`)).toBe(false);
+    } finally {
+      await tmp.cleanup();
+    }
+  });
+
+  // the environment form needs git 2.31 or later; an older git ignores it
+  const version = /(\d+)\.(\d+)/.exec(execFileSync('git', ['--version'], { encoding: 'utf8' })) ?? [];
+  const envConfig = Number(version[1]) > 2 || (Number(version[1]) === 2 && Number(version[2]) >= 31);
+  it.runIf(envConfig)('keeps a planted fsmonitor from running in the git a safe command line runs', async () => {
+    const tmp = await tempFolder();
+    try {
+      const repo = tmp.path;
+      execFileSync('git', ['init', '-q', repo]);
+      await writeFile(`${repo}/a.txt`, 'a\n');
+      await writeFile(`${repo}/mon.sh`, '#!/bin/sh\necho ran > "$(dirname "$0")/planted"\n');
+      await chmod(`${repo}/mon.sh`, 0o755);
+      execFileSync('git', ['-C', repo, 'config', 'core.fsmonitor', `${repo}/mon.sh`]);
+      execFileSync('git', ['-C', repo, 'status', '--porcelain'], { stdio: 'ignore' });
+      expect(existsSync(`${repo}/planted`)).toBe(true);
+      await rm(`${repo}/planted`);
+      // as typed, with no -c: only the environment hardens it
+      execFileSync('git', ['-C', repo, 'status', '--porcelain'], { stdio: 'ignore', env: { ...process.env, ...hardenedGitConfigEnv() } });
+      expect(existsSync(`${repo}/planted`)).toBe(false);
+    } finally {
+      await tmp.cleanup();
+    }
+  });
+
+  it('runs with no system config and none of fs\'s keys', () => {
+    const env = gitEnv({ PATH: '/bin', OPENROUTER_API_KEY: 'sk-or-secret', HARNESS_ADMIN_PASSWORD: 'x' });
+    expect(env).toMatchObject({ PATH: '/bin', GIT_CONFIG_NOSYSTEM: '1' });
+    expect(env).not.toHaveProperty('OPENROUTER_API_KEY');
+    expect(env).not.toHaveProperty('HARNESS_ADMIN_PASSWORD');
   });
 });
 

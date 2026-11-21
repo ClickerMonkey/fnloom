@@ -5,6 +5,7 @@
  */
 import { ApiError } from '@ayepi/core';
 import { UsageError, parseCommand, type CliCommand, type CliIo } from './command.ts';
+import { secretOption } from './hub.ts';
 import { buildCommand } from './commands/build.ts';
 import { exportDataCommand } from './commands/data.ts';
 import { installCommand } from './commands/install.ts';
@@ -33,7 +34,8 @@ export function helpText(): string {
     '',
     ...COMMANDS.map((c) => `  ${usageOf(c).padEnd(width)}  ${c.summary}`),
     '',
-    'Commands that talk to a hub take --hub <url> and --token <token> (or HARNESS_URL, HARNESS_TOKEN, or the admin account in .env).',
+    'Commands that talk to a hub take --hub <url> (or HARNESS_URL) and sign in with HARNESS_TOKEN, or --token - to read the token',
+    'from stdin, or the admin account in .env. A token typed as --token <token> can be seen by other programs on this machine.',
   ].join('\n');
 }
 
@@ -69,7 +71,10 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
   }
 }
 
-/** Parse and run one command. */
-function runParsed<C extends CliCommand>(definition: C, argv: readonly string[], io: CliIo): Promise<number> {
-  return definition.run(parseCommand(definition, argv), io);
+/** Parse and run one command; a `--token` it takes is read from stdin when given as `-`. */
+async function runParsed<C extends CliCommand>(definition: C, argv: readonly string[], io: CliIo): Promise<number> {
+  const parsed = parseCommand(definition, argv);
+  const given = parsed.values['token'];
+  const token = typeof given === 'string' ? await secretOption(given, io, { flag: '--token', env: 'HARNESS_TOKEN', stdin: true }) : given;
+  return definition.run(token === given ? parsed : { ...parsed, values: { ...parsed.values, token } }, io);
 }

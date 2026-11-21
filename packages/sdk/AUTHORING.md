@@ -1827,13 +1827,15 @@ type TextKeys<T> = { [K in keyof T]-?: T[K] extends string | undefined ? K : nev
 interface · `import { RecordsInput } from '@harness/sdk'`
 
 How the hub keeps records of a type (`type({ records })`), typed by the type: `table` for many records or `value`
-for one; `shared` (everyone who sees the type sees them) or `person` (each record its owner's); the text fields
-text search matches, in order of weight, and whether records are embedded for search by meaning.
+for one; `shared` (everyone who sees the type sees them) or `person` (each record its owner's); `writers: 'admins'`
+when only admins (and the system itself) change them; the text fields text search matches, in order of weight, and
+whether records are embedded for search by meaning.
 
 ```ts
 interface RecordsInput<T> {
   shape: RecordStorage['shape'];
   owner: RecordStorage['owner'];
+  writers?: RecordStorage['writers'];
   search?: { text?: TextKeys<T>[]; embed?: boolean };
 }
 ```
@@ -5923,21 +5925,7 @@ This is the hub contract as the SDK declares it now:
     limit?: num{whole=true, min=1, max=200},
     text?: text,
     system?: text
-  }) => obj{
-    items: list<obj{
-      type: text,
-      system: text,
-      description: text,
-      storage: obj{
-        shape: enum<text>{table, value},
-        owner: enum<text>{shared, person},
-        search: obj{text: list<text{minLength=1}>, embed: bool}
-      },
-      records: num{whole=true, min=0},
-      updatedAt?: num{whole=true}
-    }>,
-    cursor?: text
-  }
+  }) => obj{ items, cursor? … }
   ```
 - `hub/records_find`: Records of one stored type: filtered and sorted on its fields, searched by words (and meaning, when the type is embedded), a page at a time. Tags: `read`.
 
@@ -6163,6 +6151,38 @@ This is the hub contract as the SDK declares it now:
   }, obj{
     mode: literal<text>{value="anyone"}
   }>
+  ```
+- `hub/set_sign_in_limits`: Set how many password sign-ins the hub takes: tries for one email from one address, and tries from one address in all, each in a time window (ms). Tags: `admin`.
+
+  ```text
+  (obj{
+    account: obj{
+      limit: num{whole=true, min=1, max=100000},
+      window: num{whole=true, min=1000, max=86400000}
+    },
+    address: obj{
+      limit: num{whole=true, min=1, max=100000},
+      window: num{whole=true, min=1000, max=86400000}
+    }
+  }) => obj{
+    account: obj{
+      limit: num{whole=true, min=1, max=100000},
+      window: num{whole=true, min=1000, max=86400000}
+    },
+    address: obj{
+      limit: num{whole=true, min=1, max=100000},
+      window: num{whole=true, min=1000, max=86400000}
+    }
+  }
+  ```
+- `hub/set_proxy_trust`: Set how many proxies in front of the hub say where requests come from (X-Forwarded-For); 0 means none, and the connection's own address counts. Tags: `admin`.
+
+  ```text
+  (obj{
+    proxies: num{whole=true, min=0, max=5}
+  }) => obj{
+    proxies: num{whole=true, min=0, max=5}
+  }
   ```
 - `hub/remove_rule`: Remove a budget, priority rule, policy, model category or provider. Tags: `admin`.
 
@@ -6611,6 +6631,8 @@ const ADMIN_ENDPOINTS = {
   update_user: settingsSlice.endpoints.updateUser,
   set_membership: settingsSlice.endpoints.setMembership,
   set_sign_in_policy: settingsSlice.endpoints.setSignInPolicy,
+  set_sign_in_limits: settingsSlice.endpoints.setSignInLimits,
+  set_proxy_trust: settingsSlice.endpoints.setProxyTrust,
   remove_rule: adminSlice.endpoints.removeRule,
   approve_pairing: systemsSlice.endpoints.approvePairing,
   create_pairing_token: systemsSlice.endpoints.createPairingToken,
@@ -7818,7 +7840,11 @@ interface Services extends SystemPlace, AiSource, AdminNotices {
   /** LLM calls through the hub, counted against the run's budget. */
   readonly llm: Llm;
   readonly files: Files;
-  /** fetch, through the system's outbound rules. */
+  /**
+   * Plain fetch (`serve`'s `fetch` option, else the global one). It checks no address: a process the hub or fs hosts
+   * is held to its `grants.network` hosts by its supervisor's proxy, and a system that fetches a URL someone else
+   * named (a page, an API service's base URL) checks every hop itself with `addressVerdict` and `followRedirects`.
+   */
   readonly fetch: typeof fetch;
   /** Resources from any system the actor may see. */
   readonly resources: Resources;
@@ -9193,6 +9219,10 @@ A page's props are `PageViewOf<typeof contract>`: `page` (its segment), `path` (
 | `inbox` | the approvals waiting outside any chat, for runs the page knows wait on the person: `load(runs)`, `byRun(run)`, `decide` |
 | `notify` / `format` / `live(refresh, every)` | the app's toasts (`ok`, `error`); money and times as the app writes them (`cost`, `relativeTime`, `fullTime`); and keeping the page live (every `every` ms while it is in view, once more when it comes back) |
 | `components` | the app's own components, so a page looks like the rest of the app: `Frame` (the page frame: title, description, width, `actions` slot), `Input` (a search box or field), `Button`, `Select`, `Textarea`, `Dialog`, `Banner`, `Badge`, `Skeleton`, `Markdown`, `Icon`, `Empty`, `LoadState`, `FnPill`, `ResourceViewer` and `ValueEditor`; and the chat's own parts: `Reasoning`, `Typing`, `Approval` (an approval card, `inChat` when answered through `runs`), `Conversation` (`ConversationEntry`s drawn as the chat draws a thread: the person's bubbles, answers with reasoning folded, calls as run cards folded into one section) and `Composer` (`v-model`, `@send`, `@stop`). The claude system's pages are drawn this way |
+
+A link a renderer or page builds from data (a URL a system, a model or a web page sent) goes through `safeHref(url)`
+first: it gives back the URL when a link may go there (http and https, mail, places in the app, resource URIs) and
+`undefined` for `javascript:`, `data:`, `//host` and the like. Show a refused URL as plain text, never as a link.
 
 Components under the page read the same host with `inject(PAGE_HOST)`. The notes system's page searches its notes
 in the hub with the words in `?q=`:
@@ -10584,6 +10614,40 @@ the menu beside it (or a long press, or a right-click) opens the run-control pan
 interface ComposerProps { modelValue: string; placeholder?: string; sending?: boolean; running?: boolean; stopping?: boolean; disabled?: boolean; note?: string }
 ```
 
+#### `safeHref`
+
+function · `import { safeHref } from '@harness/sdk'`
+
+The URL if a link may go there, else `undefined`: http and https (`HttpUrl`), mail, places in the app, and resource
+URIs (the resource viewer opens them). Refuses `javascript:`, `data:`, `vbscript:`, protocol-relative URLs and any
+URL with whitespace or control characters inside. Show a refused URL as plain text, never as a link.
+
+```ts
+function safeHref(url: string | undefined | null): string | undefined;
+```
+
+#### `RESOURCE_LINK`
+
+const · `import { RESOURCE_LINK } from '@harness/sdk'`
+
+A resource URI a system serves (`fs://docs/a.md`, and `file:///C:/…`, which the fs system's resources are): a
+scheme, then `://`; never one a browser would run or load as a page. The chat opens these in its resource viewer.
+
+```ts
+const RESOURCE_LINK: RegExp;
+```
+
+#### `APP_PATH`
+
+const · `import { APP_PATH } from '@harness/sdk'`
+
+A place inside the app: a path or a relative path. Never `//host`, nor `/\host`, which browsers read as `//host`
+(another site).
+
+```ts
+const APP_PATH: RegExp;
+```
+
 ## 26. Visuals and widgets
 
 A fn that returns a `ResultTable` (a database query, `hub/records_table`, any fn of that shape) is drawn by the result
@@ -11665,7 +11729,7 @@ Every command, read from the CLI itself:
 | `harness system stop <system> [--instance <name>]` | Stop an installed system (every instance, or one with --instance). |
 | `harness system upgrade <system> [--version <version>]` | Upgrade an installed system from its npm or git source (a zip upgrades by installing a newer zip). |
 | `harness system uninstall <system> [--instance <name>]` | Stop and remove an installed system’s instances (one with --instance); their data folders stay. |
-| `harness mcp <slug> --secret <secret>` | Bridge a hub MCP to stdin and stdout, for MCP clients that speak stdio only. |
+| `harness mcp <slug> [--hub <url>] (the secret in HARNESS_MCP_SECRET)` | Bridge a hub MCP to stdin and stdout, for MCP clients that speak stdio only. |
 
 `harness system new` fills the name in everywhere the template has `template`: as is in strings and paths, in camel
 case in identifiers (`templateEnv` becomes `notesDbEnv`) and Pascal case in type names (`TemplateDeps` becomes
@@ -14805,7 +14869,7 @@ The fs system (`systems/fs`) gives agents files and a shell over chosen folders.
 real system's declarations: a named type with a method, a setting, an attachment, fns with status words, undo, state,
 progress and handlers, a hook, a mention provider, static and dynamic context, and an agent.
 
-#### `systems/fs/shared/index.ts`, lines 1-217
+#### `systems/fs/shared/index.ts`, lines 1-219
 
 ```ts
 /**
@@ -14858,6 +14922,12 @@ export const Root = g.obj({
   index: g.enum(['all', 'on-read', 'none']),
 });
 
+/** How many undo copies fs keeps: per file (the newest), and in all (the oldest go first). */
+export const SnapshotLimits = g.obj({
+  perFile: g.field(g.num({ min: 1, whole: true }), { docs: 'Undo copies kept per file.' }),
+  totalMb: g.field(g.num({ min: 1, whole: true }), { docs: 'Most space all undo copies use, in MB.' }),
+});
+
 /** What a command printed and how it ended. */
 export const CommandResult = g.obj({ exitCode: g.num({ whole: true }), stdout: g.text(), stderr: g.text() });
 
@@ -14907,11 +14977,17 @@ export const fs = system('fs', {
       // its own source folder, so it can change itself and restart
       self: g.optional(g.text()),
       // which files are sensitive and what reads and writes of them do (server/sensitive.ts); left out: the defaults
-      // (gitignored files, env files but the example, keys, credentials, tokens and passwords in content); [] trusts all
+      // (gitignored files, env files but the example, keys, credentials, tokens and passwords in content, and writes of
+      // files that lead to running code); [] trusts all but writes into .git, which always ask
       sensitive: g.optional(g.list(ginAs(SensitivityRule))),
       // before build 8: globs of files never served as resources (`!` serves one again); turned into rules when
       // `sensitive` is absent
       secrets: g.optional(g.list(g.text())),
+      // the env variables bash commands get besides PATH, home, temp and locale (server/shell.ts `commandEnv`); left
+      // out: none, so fs's own keys never reach a command
+      commandEnv: g.field(g.optional(g.list(g.text({ minLength: 1 }))), { docs: 'Env variables commands also get, by name. Others are never passed on.' }),
+      // how many undo copies fs keeps (server/snapshots.ts); left out: SNAPSHOT_DEFAULTS
+      snapshots: g.field(g.optional(SnapshotLimits), { docs: 'How many undo copies to keep per file, and how much space they may use in all.' }),
     }),
     types: { Entry },
     settings: {
@@ -15015,6 +15091,11 @@ export const fs = system('fs', {
         effects: { mode: 'read', free: true },
         // the hub asks which sensitive files a call touches first (server/sensitive.ts)
         flags: true,
+```
+
+#### `systems/fs/shared/index.ts`, lines 220-426
+
+```ts
         args: g.obj({ pattern: g.text(), root: g.optional(g.text()) }),
         returns: g.obj({ paths: g.list(g.text()), hidden: hidden() }),
         status: {
@@ -15025,11 +15106,6 @@ export const fs = system('fs', {
         },
         tags: ['read'],
       }),
-```
-
-#### `systems/fs/shared/index.ts`, lines 218-414
-
-```ts
       grep: fn({
         group: 'files',
         description: 'Search file contents with a regular expression.',
@@ -15229,7 +15305,7 @@ export const fs = system('fs', {
       }),
 ```
 
-#### `systems/fs/shared/index.ts`, lines 415-477
+#### `systems/fs/shared/index.ts`, lines 427-493
 
 ```ts
       tree: context({
@@ -15289,6 +15365,10 @@ export type CommandOutput = Infer<typeof CommandResult>;
 export type DiffValue = Infer<typeof DiffData>;
 /** The shell setting's value. */
 export type ShellPolicyValue = Infer<typeof ShellPolicy>;
+/** How many undo copies fs keeps. */
+export type SnapshotLimitsValue = Infer<typeof SnapshotLimits>;
+/** The undo copies kept when the config names no limits: 20 per file, 500 MB in all. */
+export const SNAPSHOT_DEFAULTS: SnapshotLimitsValue = { perFile: 20, totalMb: 500 };
 /** The files mention's target. */
 export type FileTargetValue = Infer<typeof FileTarget>;
 /** What undo needs to put a file back. */
@@ -16158,6 +16238,11 @@ interface AllowlistProxyOptions {
   /** The hosts let through at first (`grants.network`, plus the hub's own); `setAllowed` changes them. */
   readonly allow: readonly string[];
   readonly onRefused: (refusal: ProxyRefusal) => void;
+  /**
+   * Where an allowed target is connected to: the address it was checked at (resolved once, so a name that resolves
+   * elsewhere a moment later can't move the connection), or `undefined` to refuse it. Absent, the host as named.
+   */
+  readonly route?: (target: ProxyRefusal) => Promise<string | undefined>;
 }
 ```
 
@@ -16924,7 +17009,7 @@ type ApprovalPreview = {
     type: "flags";
     flags: {
       path: string;
-      kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
+      kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content" | "runs-code" | "unknown-path";
       rule: string;
       access: "read" | "write";
       action: "ask" | "allow" | "refuse";
@@ -17101,7 +17186,7 @@ type ApprovedRun = {
       type: "flags";
       flags: {
         path: string;
-        kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
+        kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content" | "runs-code" | "unknown-path";
         rule: string;
         access: "read" | "write";
         action: "ask" | "allow" | "refuse";
@@ -17912,6 +17997,7 @@ type RecordStorage = {
     text: string[];
     embed: boolean;
   };
+  writers?: "admins" | undefined;
 };
 ```
 
@@ -18421,7 +18507,7 @@ type PreviewAnswer = {
       type: "flags";
       flags: {
         path: string;
-        kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
+        kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content" | "runs-code" | "unknown-path";
         rule: string;
         access: "read" | "write";
         action: "ask" | "allow" | "refuse";
@@ -18557,6 +18643,7 @@ type PreviewAnswer = {
           text: string[];
           embed: boolean;
         };
+        writers?: "admins" | undefined;
       } | undefined;
     }[];
     settings: {
@@ -19205,7 +19292,7 @@ type RunRequest = {
         type: "flags";
         flags: {
           path: string;
-          kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
+          kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content" | "runs-code" | "unknown-path";
           rule: string;
           access: "read" | "write";
           action: "ask" | "allow" | "refuse";
@@ -20017,6 +20104,7 @@ type Manifest = {
         text: string[];
         embed: boolean;
       };
+      writers?: "admins" | undefined;
     } | undefined;
   }[];
   settings: {
@@ -20442,6 +20530,7 @@ type ManifestPatch = {
           text: string[];
           embed: boolean;
         };
+        writers?: "admins" | undefined;
       } | undefined;
     }[] | undefined;
     settings?: {
@@ -20871,6 +20960,7 @@ type TypeDecl = {
       text: string[];
       embed: boolean;
     };
+    writers?: "admins" | undefined;
   } | undefined;
 };
 ```
@@ -21541,7 +21631,7 @@ type Approval = {
       type: "flags";
       flags: {
         path: string;
-        kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
+        kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content" | "runs-code" | "unknown-path";
         rule: string;
         access: "read" | "write";
         action: "ask" | "allow" | "refuse";
@@ -21947,6 +22037,7 @@ type TypeDefinitions = {
         text: string[];
         embed: boolean;
       };
+      writers?: "admins" | undefined;
     } | undefined;
     declaredBy?: "contract" | "runtime" | undefined;
     version?: string | undefined;
@@ -23055,7 +23146,7 @@ The system's answer to `flags`: the files the call would touch that its rules fl
 type FlagsAnswer = {
   flags: {
     path: string;
-    kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
+    kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content" | "runs-code" | "unknown-path";
     rule: string;
     access: "read" | "write";
     action: "ask" | "allow" | "refuse";
@@ -23074,7 +23165,7 @@ One sensitive file a call would touch, and what the rule says about it.
 ```ts
 type SensitivityFlag = {
   path: string;
-  kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content";
+  kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content" | "runs-code" | "unknown-path";
   rule: string;
   access: "read" | "write";
   action: "ask" | "allow" | "refuse";

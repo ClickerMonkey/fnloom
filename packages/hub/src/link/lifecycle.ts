@@ -12,7 +12,7 @@ import { reject as refuse } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import { canonicalJson } from '@harness/sdk';
 import {
-  DECLINED_KEPT, effectCovered, FnDecl, FnKindName, Json, MANIFEST_SECTION_NAMES, qualify, QualifiedName, runtimeNames,
+  DECLINED_KEPT, effectCovered, FnDecl, type ClientAssets, FnKindName, Json, MANIFEST_SECTION_NAMES, qualify, QualifiedName, runtimeNames,
   type ActorId, type ChangeRef, type ContractChange, type DeclaredBy, type DeclinedChange, type GoLiveRequest, type ReviewDecided, type ReviewDecision, type ItemRef, type ItemSection, type LiveContract, type Manifest, type PendingReview,
   type RegistryEffect, type RegistryThing, type SwitchPart, type SystemName, type SystemReviewRecord, type SystemStage,
 } from '@harness/core';
@@ -193,6 +193,27 @@ export class SystemLifecycle {
   /** The review row of a system. */
   review(system: SystemName): Promise<SystemReviewRecord | undefined> {
     return this.#options.store.table('systemReviews').get(system);
+  }
+
+  /**
+   * The client build of a system an admin approved, which is the only one the hub serves and the web loads (its
+   * renderers, pages and config component run as the admin): none while the system is installed and not yet live,
+   * while the build is switched off or waits in a pending review, or while the contract it came with is neither the
+   * live one nor the one waiting (just imported, not yet compared). A system that went live before reviews (no review
+   * row) keeps the build it had. With `HARNESS_REVIEW_SYSTEMS` off, every contract is live as it arrives.
+   */
+  async approvedClient(system: SystemName): Promise<ClientAssets | undefined> {
+    const { store, catalog } = this.#options;
+    const name = clientItemName(system);
+    const [record, manifest, review, switched] = await Promise.all([
+      store.table('systems').get(system), catalog.manifest(system), this.review(system), store.table('itemSwitches').get({ system, section: 'components', name }),
+    ]);
+    const client = manifest?.client;
+    if (record === undefined || client === undefined || (record.stage ?? 'live') !== 'live' || switched !== undefined) { return undefined; }
+    if (review === undefined) { return client; }
+    const waiting = review.pending?.changes.some((change) => change.section === 'components' && change.name === name && change.change !== 'removed') === true;
+    const reviewed = review.live?.hash === manifest?.hash || review.pending?.hash === manifest?.hash;
+    return reviewed && !waiting ? client : undefined;
   }
 
   /** The fns, context items and parts held off by pending reviews, by section, across every system. */

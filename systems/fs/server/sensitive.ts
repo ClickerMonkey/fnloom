@@ -17,12 +17,35 @@ import { open, readdir, stat } from 'node:fs/promises';
 import { dirname, join, matchesGlob } from 'node:path';
 import { SENSITIVE_SCAN_BYTES, type SensitivityFlag, type SensitivityRule } from '@harness/core';
 import type { Exec, IgnoreCheck, Located, PathGuard } from './index.ts';
+import { runGit } from './git.ts';
 import { inside, normalize } from './paths.ts';
 import { FsProblem } from './problem.ts';
+import { globProblem } from './search.ts';
+
+/**
+ * Git's own folder: its config and hooks name programs git runs (an fsmonitor, hooks, filters), so a write there is a
+ * way to run code. Every rule list has it, even an admin's own (`rulesOf`).
+ */
+export const GIT_INTERNALS_RULE: SensitivityRule = { name: 'git-internals', kind: 'runs-code', match: { type: 'glob', glob: '.git' }, read: 'allow', write: 'ask', why: 'Git runs programs its config and hooks name.' };
+
+/**
+ * Files whose change leads to running code on the next build, test, commit or editor task: git internals, package
+ * manifests and lockfiles (their scripts and install hooks), tool configs (vite, vitest, eslint, tsconfig ...), hook
+ * folders, agent and editor settings, CI workflows. Reads are fine; writes ask.
+ */
+export const RUNS_CODE_RULES: readonly SensitivityRule[] = [
+  GIT_INTERNALS_RULE,
+  { name: 'package-scripts', kind: 'runs-code', match: { type: 'glob', glob: '{package.json,package-lock.json,npm-shrinkwrap.json,pnpm-lock.yaml,pnpm-workspace.yaml,yarn.lock,.yarnrc,.yarnrc.yml,bun.lockb,bunfig.toml,deno.json,deno.jsonc}' }, read: 'allow', write: 'ask', why: 'Its scripts run on install, build and test.' },
+  { name: 'tool-configs', kind: 'runs-code', match: { type: 'glob', glob: '{*.config.*,tsconfig*.json,jsconfig*.json,.eslintrc*,.babelrc*,.mocharc*,.lintstagedrc*,Makefile,makefile,GNUmakefile,justfile,Taskfile.yml}' }, read: 'allow', write: 'ask', why: 'Tools load it and run what it says on the next build or test.' },
+  { name: 'hook-folders', kind: 'runs-code', match: { type: 'glob', glob: '{.husky,.githooks,.claude,.devcontainer}' }, read: 'allow', write: 'ask', why: 'What is in it runs on a commit, or in an agent or container.' },
+  { name: 'editor-tasks', kind: 'runs-code', match: { type: 'glob', glob: '.vscode/{tasks,launch,settings}.json' }, read: 'allow', write: 'ask', why: 'The editor runs the commands it names.' },
+  { name: 'ci-workflows', kind: 'runs-code', match: { type: 'glob', glob: '{.github/workflows,.gitlab-ci.yml}' }, read: 'allow', write: 'ask', why: 'CI runs it on the next push.' },
+];
 
 /**
  * What an fs instance treats as sensitive when its config names no list. Reads of gitignored files, env files, keys,
- * credential files and files holding tokens or passwords ask the person; every write of one asks.
+ * credential files and files holding tokens or passwords ask the person; every write of one asks, and so does every
+ * write of a file that leads to running code (`RUNS_CODE_RULES`).
  */
 export const DEFAULT_SENSITIVITY_RULES: readonly SensitivityRule[] = [
   { name: 'gitignored', kind: 'gitignored', match: { type: 'gitignored' }, read: 'ask', write: 'ask', why: 'Git ignores it: build output, local settings or secrets kept out of the repository.' },
@@ -34,6 +57,7 @@ export const DEFAULT_SENSITIVITY_RULES: readonly SensitivityRule[] = [
   { name: 'private-key-content', kind: 'key', match: { type: 'content', pattern: '-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED |PGP )?PRIVATE KEY' }, read: 'ask', write: 'ask', why: 'It holds a private key.' },
   { name: 'token-content', kind: 'token', match: { type: 'content', pattern: '\\b(?:AKIA[0-9A-Z]{16}|sk-(?:proj-|ant-)?[A-Za-z0-9_-]{32,}|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{40,}|xox[abprs]-[A-Za-z0-9-]{20,})' }, read: 'ask', write: 'ask', why: 'It holds what looks like an access token (AWS, OpenAI, Anthropic, GitHub or Slack).' },
   { name: 'password-content', kind: 'secret-content', match: { type: 'content', pattern: '(?:password|passwd|PASSWORD|Password|secret|SECRET|api_?key|API_?KEY|apiKey)["\']?\\s*[:=]\\s*["\'][^"\'\\s]{8,}["\']' }, read: 'ask', write: 'ask', why: 'It has a password or secret written out in it.' },
+  ...RUNS_CODE_RULES,
 ];
 
 /** The glob rules the old `secrets` config list stands for: each glob a credential rule, `!` globs its exceptions. */
@@ -46,13 +70,16 @@ export function rulesFromSecrets(globs: readonly string[]): SensitivityRule[] {
 }
 
 /**
- * The rule list of a config: `sensitive` when given; else, for a config from before build 8 that names `secrets`, the
- * default gitignored and content rules plus its globs; else the defaults.
+ * The rule list of a config: `sensitive` when given, with git's own folder always added (`GIT_INTERNALS_RULE`);
+ * else, for a config from before build 8 that names `secrets`, the default gitignored, content and runs-code rules
+ * plus its globs; else the defaults.
  */
 export function rulesOf(config: { readonly sensitive?: readonly SensitivityRule[] | undefined; readonly secrets?: readonly string[] | undefined }): readonly SensitivityRule[] {
-  if (config.sensitive !== undefined) { return config.sensitive; }
+  if (config.sensitive !== undefined) {
+    return config.sensitive.some((rule) => rule.name === GIT_INTERNALS_RULE.name) ? config.sensitive : [...config.sensitive, GIT_INTERNALS_RULE];
+  }
   if (config.secrets === undefined) { return DEFAULT_SENSITIVITY_RULES; }
-  return [...DEFAULT_SENSITIVITY_RULES.filter((rule) => rule.match.type !== 'glob'), ...rulesFromSecrets(config.secrets)];
+  return [...DEFAULT_SENSITIVITY_RULES.filter((rule) => rule.match.type !== 'glob' || rule.kind === 'runs-code'), ...rulesFromSecrets(config.secrets)];
 }
 
 /**
@@ -63,6 +90,9 @@ export function rulesOf(config: { readonly sensitive?: readonly SensitivityRule[
 function matchesDotted(subject: string, glob: string): boolean {
   return matchesGlob(subject, glob) || matchesGlob(subject.replace(/(^|\/)\./g, '$1\u0000'), glob);
 }
+
+/** Whether this platform's file systems find names without case (Windows, macOS). */
+const CASELESS_FILES = process.platform === 'win32' || process.platform === 'darwin';
 
 /** How strict an action is, to pick the strictest of several matching rules. */
 const STRICTNESS = { allow: 0, ask: 1, refuse: 2 } as const;
@@ -107,10 +137,16 @@ export class Sensitivity {
   readonly rules: readonly SensitivityRule[];
   private readonly ignores: IgnoreCheck;
   private readonly patterns: ReadonlyMap<SensitivityRule, RegExp>;
+  /**
+   * Whether names are matched without case, as the file system finds them: on Windows and macOS `.GIT/config` and
+   * `.ENV` are `.git/config` and `.env`, so a rule must not miss them.
+   */
+  private readonly caseless: boolean;
 
-  constructor(rules: readonly SensitivityRule[], ignores: IgnoreCheck) {
+  constructor(rules: readonly SensitivityRule[], ignores: IgnoreCheck, options: { caseless?: boolean } = {}) {
     this.rules = rules;
     this.ignores = ignores;
+    this.caseless = options.caseless ?? CASELESS_FILES;
     const patterns = new Map<SensitivityRule, RegExp>();
     for (const rule of rules) {
       if (rule.match.type !== 'content') { continue; }
@@ -131,15 +167,16 @@ export class Sensitivity {
   /** The name rules matching a path relative to its root, or any folder above it. */
   byName(relative: string): SensitivityRule[] {
     if (relative === '') { return []; }
-    const parts = relative.split('/');
+    const fold = (text: string) => (this.caseless ? text.toLowerCase() : text);
+    const parts = fold(relative).split('/');
     return this.rules.filter((rule) => {
       if (rule.match.type !== 'glob') { return false; }
-      const glob = rule.match.glob;
+      const glob = fold(rule.match.glob);
       return parts.some((_, i) => {
         const entry = parts.slice(0, i + 1);
         const subject = glob.includes('/') ? entry.join('/') : entry[entry.length - 1] ?? '';
         if (!matchesDotted(subject, glob)) { return false; }
-        return !(rule.except ?? []).some((except) => matchesDotted(except.includes('/') ? entry.join('/') : entry[entry.length - 1] ?? '', except));
+        return !(rule.except ?? []).map(fold).some((except) => matchesDotted(except.includes('/') ? entry.join('/') : entry[entry.length - 1] ?? '', except));
       });
     });
   }
@@ -190,7 +227,9 @@ export class Sensitivity {
    * is still on the diff's `-` lines; gitignored files are counted, not listed), if any.
    */
   async changed(at: Located, before?: string): Promise<SensitivityRule | undefined> {
-    return strictest(await this.matching(at, { ignored: false, content: true, ...(before === undefined ? {} : { text: before }) }), 'read');
+    const matched = await this.matching(at, { ignored: false, content: true, ...(before === undefined ? {} : { text: before }) });
+    // a diff is a read: a rule that allows reads (package.json) leaves it shown
+    return strictest(matched.filter((rule) => rule.read !== 'allow'), 'read');
   }
 
   /** Every rule matching a file. */
@@ -277,7 +316,7 @@ export class GitIgnores implements IgnoreCheck {
     const out = new Set<string>();
     for (let i = 0; i < rels.length; i += CHECK_CHUNK) {
       const chunk = rels.slice(i, i + CHECK_CHUNK);
-      const run = await this.exec.exec('git', ['-C', top, '-c', 'core.quotepath=off', 'check-ignore', '--', ...chunk], { timeout: this.timeout, ...(signal === undefined ? {} : { signal }) });
+      const run = await runGit(this.exec, top, ['check-ignore', '--', ...chunk], { timeout: this.timeout, signal });
       // 0: some are ignored, 1: none are; anything else (git missing, a path outside the tree) judges nothing
       if (run.ended !== 'exit' || run.exitCode !== 0) { continue; }
       // one path per line, as given (`-z` needs `--stdin`, which the exec seam can't feed)
@@ -308,12 +347,14 @@ async function workTreeOf(path: string, known: Map<string, string | undefined>):
 /**
  * A word of a command line that may be a path, whether the command writes it, and where it is looked for: under the
  * folder an earlier `cd` on the same line moved to (`folder`, as written), or nowhere that can be told (`lost`: a
- * `cd` to `-`, home or a variable). `glob` marks a word the shell expands (`*`, `?`, `[...]`, `{a,b}`).
+ * `cd` to `-`, home or a variable). `glob` marks a word the shell expands (`*`, `?`, `[...]`, `{a,b}`), `unknown` one
+ * whose path can't be told from the line (a variable, a substitution, `~`).
  */
 export interface CommandPath {
   readonly word: string;
   readonly access: 'read' | 'write';
   readonly glob?: true;
+  readonly unknown?: true;
   readonly folder?: string;
   readonly lost?: true;
 }
@@ -362,8 +403,8 @@ export function tokenize(command: string): Token[] {
 
 /**
  * The words of a command line that may name files, with whether the command writes them: redirect targets and the
- * arguments of commands like `rm`, `mv` and `tee` are writes, other arguments reads. Options, variables and env
- * assignments are left out; globs are kept and marked. A `cd` moves where later words are looked for. A guess: the
+ * arguments of commands like `rm`, `mv` and `tee` are writes, other arguments reads. Options and env assignments are
+ * left out; globs, variables and `~` are kept and marked. A `cd` moves where later words are looked for. A guess: the
  * shell may do anything, so the flags it leads to are never `certain`.
  */
 export function commandPaths(command: string): CommandPath[] {
@@ -375,7 +416,7 @@ export function commandPaths(command: string): CommandPath[] {
   let lost = false;
   const place = (): Pick<CommandPath, 'folder' | 'lost'> => (lost ? { lost: true } : folder === undefined ? {} : { folder });
   const push = (word: string, access: 'read' | 'write') => {
-    if (plausiblePath(word)) { out.push({ word, access, ...(isGlob(word) ? { glob: true } : {}), ...place() }); }
+    if (plausiblePath(word)) { out.push({ word, access, ...(isGlob(word) ? { glob: true } : {}), ...(unknownWord(word) ? { unknown: true } : {}), ...place() }); }
   };
   const endProgram = () => {
     // `cd` alone goes home, which is no folder of ours
@@ -398,7 +439,7 @@ export function commandPaths(command: string): CommandPath[] {
     if (MOVING.has(program)) {
       if (moved || (word.startsWith('-') && word !== '-')) { continue; }
       moved = true;
-      if (word === '-' || !plausiblePath(word) || isGlob(word) || word.startsWith('~')) { lost = true; continue; }
+      if (word === '-' || !plausiblePath(word) || isGlob(word) || unknownWord(word)) { lost = true; continue; }
       folder = isAbsolute(word) || folder === undefined ? word : `${folder}/${word}`;
       continue;
     }
@@ -408,9 +449,18 @@ export function commandPaths(command: string): CommandPath[] {
   return out;
 }
 
-/** Whether a word could be a file path worth judging (a glob counts). */
+/** Whether a word could be a file path worth judging (a glob, a variable or `~` counts). */
 function plausiblePath(word: string): boolean {
-  return word !== '' && !word.startsWith('-') && !/[$`()<>|;&]/.test(word) && !/^[a-z]+:\/\//i.test(word);
+  if (word === '' || word.startsWith('-') || /^[a-z]+:\/\//i.test(word) || NOWHERE.has(word)) { return false; }
+  return unknownWord(word) || !/[()<>|;&]/.test(word);
+}
+
+/** Paths that name no file: what is written there is thrown away. */
+const NOWHERE: ReadonlySet<string> = new Set(['/dev/null', 'NUL', 'nul']);
+
+/** Whether the shell makes a word into a path the line doesn't spell out: a variable, a substitution or `~`. */
+export function unknownWord(word: string): boolean {
+  return /[$`]/.test(word) || word.startsWith('~') || /[=:]~/.test(word);
 }
 
 /** Whether the shell expands a word as a glob. */
@@ -465,32 +515,46 @@ export interface CommandCheck {
  * The sensitivity flags of a command line, none `certain`. Each word is placed against the folder it runs in (after
  * any `cd` before it on the line), a glob expanded to the files it matches there, and every file there is judged by
  * name, gitignore and content (a read of a word that is no file is no read, as `npm run build`; a write may create
- * it). A word that leads to no flagged file is still judged by its name (`cat ~/.ssh/id_rsa`, a missing `.env`, a
- * `cd` that can't be followed), so a plainly sensitive name always shows.
+ * it). A word that leads to no flagged file is still judged by its name (`cat ~/.ssh/id_rsa`, a missing `.env`), so a
+ * plainly sensitive name always shows. A word fs can't place in the roots (a variable, `~`, after a `cd` that can't be
+ * followed, a path or glob that leads outside them) that no name rule flags gets an `unknown-path` flag, which asks.
  */
 export async function commandFlags(check: CommandCheck, command: string): Promise<SensitivityFlag[]> {
   const out: SensitivityFlag[] = [];
   for (const path of commandPaths(command)) {
-    const located = path.lost === true ? [] : await placed(check, path);
-    const existing = await Promise.all(located.map(async (at) => ({ at, there: await check.isFile(at.path) })));
+    const where = path.lost === true || path.unknown === true ? undefined : await placed(check, path);
+    const existing = await Promise.all((where ?? []).map(async (at) => ({ at, there: await check.isFile(at.path) })));
     const judged: Judged[] = existing.filter(({ there }) => there || (path.access === 'write' && path.glob !== true)).map(({ at }) => ({
       at, access: path.access, certain: false, shown: path.glob === true ? (at.relative === '' ? at.root.name : at.relative) : path.word,
     }));
     const flags = await check.rules.flags(judged, check.signal);
-    out.push(...(flags.length > 0 ? flags : check.rules.named(path.word, path.access)));
+    if (flags.length > 0) { out.push(...flags); continue; }
+    const named = check.rules.named(path.word, path.access);
+    out.push(...(named.length > 0 || where !== undefined ? named : [unknownPathFlag(path)]));
   }
   return out;
 }
 
-/** Where a command line's word leads in the roots: one place, or each file a glob expands to; none outside them. */
-async function placed(check: CommandCheck, path: CommandPath): Promise<Located[]> {
+/** The flag of a command line's path fs can't place in the roots: nothing about it can be checked, so it asks. */
+function unknownPathFlag(path: CommandPath): SensitivityFlag {
+  return { path: path.word, kind: 'unknown-path', rule: 'unknown-path', access: path.access, action: 'ask', why: 'fs can\'t tell where this path leads (a variable, ~, or a place outside its folders).', certain: false };
+}
+
+/**
+ * Where a command line's word leads in the roots: one place, or each file a glob expands to; `undefined` when it, or a
+ * file its glob matches, is outside them.
+ */
+async function placed(check: CommandCheck, path: CommandPath): Promise<Located[] | undefined> {
   try {
     const folder = path.folder === undefined ? check.cwd : check.guard.resolve(path.folder, { write: false, cwd: check.cwd }).path;
     if (path.glob !== true) { return [check.guard.resolve(path.word, { write: false, cwd: folder })]; }
+    // a glob too costly to expand is a path fs can't tell
+    if (globProblem(path.word) !== undefined) { return undefined; }
     const start = folder ?? check.guard.resolve('', { write: false }).root.folder;
-    return (await expandGlob(start, path.word, check.globLimit)).flatMap((found) => { const at = check.guard.locate(found); return at === undefined ? [] : [at]; });
+    const found = (await expandGlob(start, path.word, check.globLimit)).map((file) => check.guard.locate(file));
+    return found.every((at) => at !== undefined) ? found : undefined;
   } catch (error) {
-    if (error instanceof FsProblem) { return []; }
+    if (error instanceof FsProblem) { return undefined; }
     throw error;
   }
 }

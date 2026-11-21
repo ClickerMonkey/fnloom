@@ -4,6 +4,7 @@
  * chat). Browser-safe; state lives here, not in the components.
  */
 import { RUN_STATUS_WORDS, type FnError, type RunId, type RunStatus } from '@harness/core';
+import { safeHref } from '@harness/sdk';
 import { reactive } from 'vue';
 import type { ReadResultValue, SearchHitValue } from '../shared/index.ts';
 import { domainOf, labelOf, redactUrl } from '../shared/urls.ts';
@@ -33,6 +34,8 @@ export interface ResultRow {
   readonly key: string;
   readonly title: string;
   readonly url: string;
+  /** Where its links go, when the URL is safe to open (`safeHref`); else it shows as plain text. */
+  readonly href: string | undefined;
   readonly domain: string;
   /** The address shown under the title, credentials redacted and the scheme dropped. */
   readonly shown: string;
@@ -63,6 +66,7 @@ export function resultRows(results: readonly SearchHitValue[], locale?: string):
     key: `${index}:${hit.url}`,
     title: hit.title,
     url: hit.url,
+    href: safeHref(hit.url),
     domain: domainOf(hit.url),
     shown: shownUrl(hit.url),
     snippet: hit.snippet,
@@ -76,6 +80,8 @@ export interface PageFacts {
   readonly title: string;
   readonly domain: string;
   readonly shown: string;
+  /** Where the page link goes, when the address is safe to open (`safeHref`); else it shows as plain text. */
+  readonly href: string | undefined;
   /** The page ended up somewhere other than asked. */
   readonly moved: boolean;
   readonly rendered: boolean;
@@ -91,6 +97,7 @@ export function pageFacts(asked: string, result: ReadResultValue | undefined): P
     title: result?.title ?? (parses ? labelOf(at) : at),
     domain: parses ? domainOf(at) : at,
     shown: parses ? shownUrl(at) : at,
+    href: safeHref(at),
     moved: result !== undefined && URL.canParse(asked) && new URL(asked).href !== new URL(result.finalUrl).href,
     rendered: result?.rendered ?? false,
     truncated: result?.truncated ?? false,

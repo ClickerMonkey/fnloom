@@ -9,8 +9,11 @@ import { z } from 'zod';
 /** Folder names skipped by every walk (listing, glob, grep, tree, mentions) unless asked for by path. */
 const IGNORED = ['.git', 'node_modules', 'dist', 'coverage', '.types', '.harness', '.harness-test', '.next', '.cache', '__pycache__', '.venv'];
 
-/** Command prefixes that run without asking when the user has no shell setting. */
-const SAFE = ['ls', 'pwd', 'cat', 'head', 'tail', 'wc', 'echo', 'which', 'git status', 'git diff', 'git log', 'git show', 'git branch', 'npm run typecheck', 'npm test', 'npx vitest', 'npx tsc'];
+/**
+ * Commands that run without asking when the user has no shell setting, while their paths stay inside the roots and
+ * their options fit their shapes (server/safe.ts). Nothing that runs the repository's own code (npm test, npx vitest).
+ */
+const SAFE = ['ls', 'pwd', 'cat', 'head', 'tail', 'wc', 'which', 'git status', 'git diff', 'git log', 'git show', 'git branch'];
 
 export const fsEnv = env({
   ...systemFields(),
@@ -46,6 +49,10 @@ export const fsEnv = env({
   FS_GREP_LIMIT: z.number().int().min(1).default(200),
   /** Most files one `grep` or `glob` looks at. */
   FS_SCAN_MAX: z.number().int().min(1).default(50_000),
+  /** How long one `grep` may match for before it is stopped, so a slow pattern can't hold fs up. */
+  FS_GREP_TIMEOUT: z.number().int().min(1).default(20_000),
+  /** Characters of each line `grep` tests against its pattern (the rest of a longer line is not searched). */
+  FS_GREP_TEST_MAX: z.number().int().min(1).default(10_000),
   /** Characters of a matching line `grep` returns. */
   FS_LINE_MAX: z.number().int().min(1).default(300),
   /** Most paths `glob` returns. */
@@ -54,7 +61,7 @@ export const fsEnv = env({
   FS_LIST_LIMIT: z.number().int().min(1).default(2_000),
   /** Folder names every walk skips. */
   FS_IGNORE: z.array(z.string()).default(IGNORED),
-  /** Command prefixes that run without asking when the user has no shell setting. */
+  /** Commands that run without asking when the user has no shell setting (server/safe.ts says when). */
   FS_SAFE_COMMANDS: z.array(z.string()).default(SAFE),
   /** How deep the `tree` context goes. */
   FS_TREE_DEPTH: z.number().int().min(1).default(3),

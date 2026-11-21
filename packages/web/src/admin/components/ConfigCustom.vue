@@ -3,13 +3,13 @@
  * A system's own config component (build 7), loaded from its client build: it gets the config, its gin type, gin's
  * check of a value and the system's client, and emits `change` with a new value. Save sends that value; the hub checks
  * it again with the gin type. While the build loads a skeleton shows; a build that fails to load says so, and the gin
- * form (when shown beside it) still works.
+ * form (when shown beside it) still works. A build no admin approved yet is never loaded: a short line says so.
  */
 import type { GinTypeDef, Json } from '@harness/core';
 import { computed, inject, shallowRef, watch, type Component } from 'vue';
 import { GIN_TYPES, LOCAL_TYPES } from '../../gin/types.ts';
 import { UiBanner, UiButton, UiCard, UiSkeleton } from '../../ui/index.ts';
-import type { ConfigComponentRef, ConfigComponents, ConfigViewProps } from '../state/config-component.ts';
+import { UNAPPROVED_CONFIG, type ConfigComponentRef, type ConfigComponents, type ConfigViewProps } from '../state/config-component.ts';
 
 const props = withDefaults(defineProps<{
   target: ConfigComponentRef;
@@ -29,6 +29,8 @@ watch(() => props.value, (value) => { draft.value = value; });
 watch(() => props.target, async (target) => {
   component.value = undefined;
   problem.value = '';
+  // its code runs as you: not before an admin approved this build
+  if (!target.approved) { return; }
   try {
     component.value = await props.loader.load(target);
   } catch (error) {
@@ -51,7 +53,8 @@ const changed = computed(() => JSON.stringify(draft.value) !== JSON.stringify(pr
 <template>
   <UiCard :title="`${target.system}’s own settings`" subtitle="Drawn by the system itself; the hub still checks the config before saving." data-testid="config-custom">
     <div class="body">
-      <UiBanner v-if="problem !== ''" tone="danger">{{ problem }}</UiBanner>
+      <p v-if="!target.approved" class="held" data-testid="config-custom-unapproved">{{ UNAPPROVED_CONFIG }}</p>
+      <UiBanner v-else-if="problem !== ''" tone="danger">{{ problem }}</UiBanner>
       <UiSkeleton v-else-if="component === undefined" :lines="3" />
       <component :is="component" v-else v-bind="viewProps" @change="(value: Json) => (draft = value)" />
       <ul v-if="changed && problems.length > 0" class="problems" data-testid="config-custom-problems">
@@ -66,6 +69,7 @@ const changed = computed(() => JSON.stringify(draft.value) !== JSON.stringify(pr
 
 <style scoped>
 .body { display: grid; gap: var(--space-3); }
+.held { margin: 0; color: var(--text-2); font-size: var(--text-sm); }
 .problems { margin: 0; padding-left: var(--space-5); color: var(--danger); font-size: var(--text-sm); }
 .actions { display: flex; justify-content: flex-end; }
 </style>

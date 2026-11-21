@@ -191,11 +191,11 @@ export interface WebRig {
 export async function webRig(r: Rig): Promise<WebRig> {
   const app = server(spec({ endpoints: {} }), []);
   const host = createPluginHost(app);
-  for (const plugin of webPlugins(r.hub, { secret: TEST_KEYS.jwtSecret })) { await host.install(plugin); }
+  for (const plugin of webPlugins(r.hub, { secret: TEST_KEYS.jwtSecret, sockets: app.ws })) { await host.install(plugin); }
   const client = apiClient<HubWebSpec>({ baseUrl: 'http://hub', manifest: hubWebSpec, validate: hubWebSpec, fetchImpl: (req) => app.fetch(req) });
   return {
     app, host, client,
-    admin: () => client.call('createAdmin', { email: 'admin@example.com', name: 'Admin', password: 'correct horse battery' }),
+    admin: async () => client.call('createAdmin', { email: 'admin@example.com', name: 'Admin', password: 'correct horse battery', setup: await r.hub.api.auth.openSetup() ?? 'none' }),
     as: (tokens) => ({ headers: { authorization: `Bearer ${tokens.access}` } }),
   };
 }
@@ -204,10 +204,17 @@ export async function webRig(r: Rig): Promise<WebRig> {
 export function fakeServices(fakes: Fakes = {}): Pick<HubServices, ModuleKey> {
   return {
     catalog: fake('catalog', fakes.catalog),
-    link: group<HubServices['link']>('link', keysOf<HubServices['link']>({ connections: true, pairing: true, config: true, supervisor: true, admin: true, resources: true, tokens: true, output: true, packages: true, instances: true, autoPairs: true, lifecycle: true, grants: true }), {
+    link: group<HubServices['link']>('link', keysOf<HubServices['link']>({ connections: true, pairing: true, config: true, supervisor: true, admin: true, resources: true, tokens: true, output: true, packages: true, instances: true, autoPairs: true, lifecycle: true, grants: true, gate: true }), {
       ...fakes.link,
       // nothing is switched off or waiting for review unless a test says so
-      lifecycle: { off: () => Promise.resolve(new Set<string>()), offItems: () => Promise.resolve([]), stage: () => Promise.resolve('live'), ...fakes.link?.lifecycle },
+      lifecycle: {
+        off: () => Promise.resolve(new Set<string>()), offItems: () => Promise.resolve([]), stage: () => Promise.resolve('live'),
+        // every build the catalog fake has counts as approved
+        approvedClient: async (system) => (await fakes.catalog?.manifest?.(system))?.client,
+        ...fakes.link?.lifecycle,
+      },
+      // every /link upgrade is taken
+      gate: { admit: () => Promise.resolve(true), bind: () => undefined, helloed: () => undefined, linked: () => undefined, ...fakes.link?.gate },
     }),
     execution: group('execution', keysOf<HubServices['execution']>({ runs: true, agents: true, llm: true, limits: true, ledger: true, policies: true, handlers: true, providers: true }), fakes.execution),
     chat: group('chat', keysOf<HubServices['chat']>({

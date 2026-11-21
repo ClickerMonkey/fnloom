@@ -6,8 +6,12 @@
  *
  * The component gets `ConfigViewProps` and emits `change` with a new value; the page saves it, and the hub still
  * checks it against the config type.
+ *
+ * A build runs as the admin looking at it, so one is imported only once an admin approved it (`SystemReview.clientApproved`:
+ * the system went live, or the change to its build was approved); until then the page says so, and the hub would not
+ * serve it anyway.
  */
-import type { ClientAssets, ConfigComponentDecl, GinTypeDef, Json, Manifest, SystemName } from '@harness/core';
+import type { ClientAssets, ConfigComponentDecl, GinTypeDef, Json, SystemName, SystemReview } from '@harness/core';
 import type { ContractShape, SystemClient } from '@harness/sdk';
 import { isClientModule, type ClientRuntime } from '@harness/sdk/client';
 import { markRaw, type Component } from 'vue';
@@ -25,12 +29,17 @@ export interface ConfigViewProps {
   readonly client: SystemClient<ContractShape>;
 }
 
-/** Where a system's config component is: its client build and the export the contract names. */
+/** Where a system's config component is: its client build, the export the contract names, and whether it may load. */
 export interface ConfigComponentRef {
   readonly system: SystemName;
   readonly client: Pick<ClientAssets, 'hash' | 'entry'>;
   readonly decl: ConfigComponentDecl;
+  /** Whether an admin approved this build; an unapproved one is never imported. */
+  readonly approved: boolean;
 }
+
+/** What a page shows in place of a config component whose build isn't approved yet. */
+export const UNAPPROVED_CONFIG = 'Its settings page loads once you approve it.';
 
 /** What loading needs: importing a build, sharing the app's modules first, and the runtime its renderers join. */
 export interface ConfigComponentDeps {
@@ -58,6 +67,7 @@ export class ConfigComponents {
 
   /** The component a contract names, or a readable error when its build doesn't export it. */
   async load(ref: ConfigComponentRef): Promise<Component> {
+    if (!ref.approved) { throw new Error(UNAPPROVED_CONFIG); }
     const exports = await this.#build(clientFileUrl(ref.system, ref.client));
     const component = exports[ref.decl.component];
     if (!isComponent(component)) { throw new Error(`${ref.system}'s client build has no config component named ${ref.decl.component}.`); }
@@ -106,8 +116,8 @@ export function configComponentsOf(chat: { readonly renderers: { readonly runtim
   return made;
 }
 
-/** Where a contract's own config component is, when it names one and ships a client build. */
-export function configTarget(manifest: Pick<Manifest, 'name' | 'client' | 'configComponent'>): ConfigComponentRef | undefined {
-  const { client, configComponent } = manifest;
-  return client === undefined || configComponent === undefined ? undefined : { system: manifest.name, client, decl: configComponent };
+/** Where a reviewed contract's own config component is, when it names one and ships a client build. */
+export function configTarget(review: Pick<SystemReview, 'manifest' | 'clientApproved'>): ConfigComponentRef | undefined {
+  const { name, client, configComponent } = review.manifest;
+  return client === undefined || configComponent === undefined ? undefined : { system: name, client, decl: configComponent, approved: review.clientApproved === true };
 }

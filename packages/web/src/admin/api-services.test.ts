@@ -22,7 +22,13 @@ describe('an API service draft', () => {
   it('saves its name from the label, never a typed secret, and refuses OAuth (a service names no sign-in endpoints)', () => {
     const draft = { ...apiServiceDraft(), label: 'Linear tickets', baseUrl: 'https://api.linear.app', auth: { ...authDraft({ kind: 'bearer', per: 'shared' }), token: 'typed' }, timeout: '10', maxBody: '2' };
     const checked = apiServiceValue(draft);
-    expect(checked.ok && checked.service).toEqual({ name: 'linear-tickets', label: 'Linear tickets', baseUrl: 'https://api.linear.app', auth: { kind: 'bearer', per: 'shared' }, timeout: 10_000, maxBody: 2048 });
+    expect(checked.ok && checked.service).toEqual({ name: 'linear-tickets', label: 'Linear tickets', baseUrl: 'https://api.linear.app', allowPrivate: false, auth: { kind: 'bearer', per: 'shared' }, timeout: 10_000, maxBody: 2048 });
+    // an admin's switches are kept: private addresses, and an agent-added service stays its person's until shared
+    const own = apiServiceDraft(ApiService.parse({ name: 'mine', label: 'Mine', baseUrl: 'https://mine.test', privateTo: 'act_ann' }));
+    expect(own).toMatchObject({ shared: false, privateTo: 'act_ann', allowPrivate: false });
+    expect(apiServiceValue({ ...own, allowPrivate: true })).toMatchObject({ ok: true, service: { allowPrivate: true, privateTo: 'act_ann' } });
+    const shared = apiServiceValue({ ...own, shared: true });
+    expect(shared.ok && shared.service.privateTo).toBeUndefined();
     expect(apiServiceDraft(checked.ok ? checked.service : undefined)).toMatchObject({ name: 'linear-tickets', timeout: '10', maxBody: '2', auth: { kind: 'bearer', per: 'shared', token: '' } });
     const problem: unknown = expect.any(String);
     expect(apiServiceValue({ ...draft, name: 'Linear!' })).toMatchObject({ ok: false, problems: { name: problem } });
@@ -90,7 +96,7 @@ describe('the connect page of a key-scoped system', () => {
       decl: { title: 'API sign-ins', description: '', how: { flow: 'oauth' }, settings: { name: 'obj', props: {} }, fns: {}, scope: 'key', keys: { type: 'api/Service' } },
       connections: [connection(me, 'tracker'), connection(admin, 'board')],
       keys: [
-        { key: ConnectKey.parse('tracker'), label: 'Tracker', connect: { flow: { flow: 'form', form: { name: 'obj', props: {} } }, share: false, title: 'Connect to Tracker' } },
+        { key: ConnectKey.parse('tracker'), label: 'Tracker', host: 'tracker.test', connect: { flow: { flow: 'form', form: { name: 'obj', props: {} } }, share: false, title: 'Connect to Tracker' } },
         { key: ConnectKey.parse('board'), label: 'Board', connect: { flow: { flow: 'form', form: { name: 'obj', props: {} } }, share: true, title: 'Set Board\'s sign-in for everyone' } },
       ],
     });
@@ -100,5 +106,7 @@ describe('the connect page of a key-scoped system', () => {
       ['board', { key: 'board' }, undefined, [admin], false],
       ['tracker', { key: 'tracker' }, me, [], true],
     ]);
+    // the host a token goes to is on the card, before anyone types one
+    expect(cards.map((card) => card.host)).toEqual([undefined, 'tracker.test']);
   });
 });

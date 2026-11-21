@@ -9,6 +9,7 @@ import type { SessionKeeper, SignInForm } from './auth.ts';
 import type { ConnectionStore } from './connection.ts';
 import type { IdentityStore } from './identity.ts';
 import type { InboxStore } from './inbox.ts';
+import type { OutsideImagesStore } from './outside-images.ts';
 import type { LayoutStore } from './layout.ts';
 import type { PushStore } from './push.ts';
 import type { ResourcesStore } from '../resources/state/resources.ts';
@@ -30,6 +31,8 @@ export interface Stores {
   readonly session: SessionStore;
   /** The hub's display name and version, live. */
   readonly identity: IdentityStore;
+  /** Whether markdown images from outside the hub load at once (the admin's setting). */
+  readonly outsideImages: OutsideImagesStore;
   readonly keeper: SessionKeeper;
   readonly theme: ThemeStore;
   readonly layout: LayoutStore;

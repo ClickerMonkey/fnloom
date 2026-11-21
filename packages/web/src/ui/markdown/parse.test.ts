@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MdBlock } from './ast.ts';
-import { parseInline, safeImage, safeLink } from './inline.ts';
+import { safeHref } from '@harness/sdk';
+import { parseInline, safeImage } from './inline.ts';
 import { parseMarkdown } from './parse.ts';
 
 const text = (t: string) => ({ type: 'text', text: t }) as const;
@@ -45,17 +46,17 @@ describe('parseInline', () => {
   it('drops unsafe link and image URLs, keeping their text', () => {
     expect(parseInline('[click](javascript:alert(1))')).toEqual([text('click')]);
     expect(parseInline('![x](data:image/png;base64,AAAA)')).toEqual([text('x')]);
-    expect(safeLink('JavaScript:alert(1)')).toBeUndefined();
-    expect(safeLink('//evil.example')).toBeUndefined();
-    expect(safeLink('/chat/ses_1')).toBe('/chat/ses_1');
-    expect(safeLink('#m-1')).toBe('#m-1');
+    expect(safeHref('JavaScript:alert(1)')).toBeUndefined();
+    expect(safeHref('//evil.example')).toBeUndefined();
+    expect(safeHref('/chat/ses_1')).toBe('/chat/ses_1');
+    expect(safeHref('#m-1')).toBe('#m-1');
     expect(safeImage('mailto:a@b.co')).toBeUndefined();
   });
 
   it('links the resource URIs systems serve, file:/// ones included, bare or in a link', () => {
     const uri = 'file:///C:/work/docs/harness.md';
-    expect(safeLink(uri)).toBe(uri);
-    expect(safeLink('fs://docs/a.md')).toBe('fs://docs/a.md');
+    expect(safeHref(uri)).toBe(uri);
+    expect(safeHref('fs://docs/a.md')).toBe('fs://docs/a.md');
     expect(parseInline(`read ${uri}, then`)).toEqual([text('read '), { type: 'link', href: uri, children: [text(uri)] }, text(', then')]);
     expect(parseInline(`[harness.md](${uri})`)).toEqual([{ type: 'link', href: uri, children: [text('harness.md')] }]);
     expect(parseInline('profile://x')).toEqual([text('profile://x')]);

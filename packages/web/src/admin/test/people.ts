@@ -2,7 +2,7 @@
  * Fake People callers (SSO): two people (the break-glass admin and a member who signed in through Acme), one group,
  * one provider, and the hub's answers to checks, test sign-ins and writes, all parsed through the hub's own schemas.
  */
-import { GroupView, PersonView, SignInPolicy, SignInSettings, SsoCheck, SsoTestResult, UserView } from '@harness/core';
+import { DEFAULT_PROXY_TRUST, DEFAULT_SIGN_IN_LIMITS, GroupView, PersonView, ProxyTrust, SignInLimits, SignInPolicy, SignInSettings, SsoCheck, SsoTestResult, UserView } from '@harness/core';
 import { ApiError } from '@ayepi/core/client';
 import { fakeCaller } from '../../test/fakes.ts';
 import { T0 } from '../../test/clock.ts';
@@ -24,7 +24,7 @@ export const FINANCE = GroupView.parse({ id: 'act_finance', name: 'Finance', abo
 export function signInSettings(policy: SignInPolicy = { mode: 'invite' }): SignInSettings {
   return SignInSettings.parse({
     providers: [{ id: 'acme', label: 'Acme', issuer: 'https://id.acme.test', clientId: 'harness', scope: 'openid email profile', userinfo: true, claims: { role: 'groups', admin: ['admins'], groups: 'groups' }, confidential: true }],
-    policy, breakGlass: UserView.parse(ADA), callbackUrl: 'https://hub.test/auth/sso/callback',
+    policy, breakGlass: UserView.parse(ADA), callbackUrl: 'https://hub.test/auth/sso/callback', limits: DEFAULT_SIGN_IN_LIMITS, proxy: DEFAULT_PROXY_TRUST,
   });
 }
 
@@ -46,6 +46,8 @@ export function fakePeopleApi() {
     setMembership: fakeCaller<'setMembership'>(() => Promise.resolve({ ok: true })),
     signInSettings: fakeCaller<'signInSettings'>(() => Promise.resolve(signInSettings())),
     setSignInPolicy: fakeCaller<'setSignInPolicy'>((policy) => Promise.resolve(SignInPolicy.parse(policy))),
+    setSignInLimits: fakeCaller<'setSignInLimits'>((limits) => Promise.resolve(SignInLimits.parse(limits))),
+    setProxyTrust: fakeCaller<'setProxyTrust'>((trust) => Promise.resolve(ProxyTrust.parse(trust))),
     checkSsoProvider: fakeCaller<'checkSsoProvider'>(({ provider }) => Promise.resolve(SsoCheck.parse({
       provider, ok: true, discovery: { ok: true, detail: 'Found https://id.acme.test.' }, keys: { ok: true, detail: '2 signing keys.' }, checkedAt: T0,
     }))),

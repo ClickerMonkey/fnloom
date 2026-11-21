@@ -37,7 +37,9 @@ import { migrateApiServices } from './migrate-api.ts';
 import { migrateLegacyInstances } from './migrate.ts';
 import { contentBytes, HubPackages, type PackageContent } from './packages.ts';
 import { StoreAutoPairs } from './auto-pair.ts';
-import { StorePairingService } from './pairing.ts';
+import { PairingLimits, StorePairingService } from './pairing.ts';
+import { LinkGate } from './gate.ts';
+import { clientAddress } from '../api/client-address.ts';
 import type { ProcessStarter } from '@harness/sdk/server';
 import { NodeInstaller, type Installer } from './process.ts';
 import { FleetRouter } from './router.ts';
@@ -161,15 +163,24 @@ export function buildSystems(options: SystemsOptions) {
     maxBytes: settings.packaging.HARNESS_PACKAGE_MAX,
   });
 
+  // where a socket comes from, by the admin's proxy setting, for the pairing limits and the socket caps
+  const address = (req: Request): Promise<string> => clientAddress(req, store);
+  const pairingLimits = new PairingLimits({
+    perAddress: settings.link.HARNESS_PAIRING_LIMIT, total: settings.link.HARNESS_PAIRING_LIMIT_TOTAL, window: settings.link.HARNESS_PAIRING_WINDOW, clock, log, rate: store.ports.rate,
+  });
+  const gate = new LinkGate({
+    log, peers: connections.peers, address, perAddress: settings.link.HARNESS_LINK_UNLINKED_PER_ADDRESS, total: settings.link.HARNESS_LINK_UNLINKED_MAX,
+    helloTimeout: settings.link.HARNESS_LINK_HELLO_TIMEOUT, linkTimeout: settings.link.HARNESS_PAIRING_TIMEOUT,
+  });
   const handshake = new LinkHandshake({
-    log, clock, catalog, links: connections, pairing, autoPairs, config, instances, tokens, resources, output, lifecycle, grants, bus,
+    log, clock, catalog, links: connections, pairing, autoPairs, config, instances, tokens, resources, output, lifecycle, grants, bus, address, pairingLimits, gate,
     limits: { maxFrame: settings.link.HARNESS_MAX_FRAME, maxChunk: settings.link.HARNESS_MAX_CHUNK, heartbeat: settings.link.HARNESS_HEARTBEAT },
   });
 
   let stopIndexer: (() => void) | undefined;
   let stopOutput: (() => void) | undefined;
   return {
-    catalog, connections, pairing, autoPairs, config, instances, resources, admin, relay, supervisor, packages, router, handshake, output, lifecycle, grants,
+    catalog, connections, pairing, autoPairs, config, instances, resources, admin, relay, supervisor, packages, router, handshake, output, lifecycle, grants, gate,
     index: { embedders, indexer, search, suggest, sectioning, batcher, images },
     /** The link plugin to install on the hub link server. */
     plugin: linkPlugin(handshake, { log, clock }),

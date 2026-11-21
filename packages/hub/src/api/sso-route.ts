@@ -8,13 +8,14 @@
  *   comes back there and the cookie must be set there too.
  * - `/auth/sso/callback`: where the provider sends the person back (the same redirect the connections use for their
  *   providers, `/connect/callback`, has its own route). It clears the cookie and redirects to the sign-in page, with
- *   the session's refresh token in the fragment, or `?problem=`; a test sign-in goes back to the People page.
+ *   a one-time code in the fragment and the hand-off cookie that binds it to this browser (on the redeem endpoint's
+ *   path), or `?problem=`; a test sign-in goes back to the People page.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { SSO_CALLBACK_PATH } from '@harness/core';
 import { cookiesOf } from './connect.ts';
 import type { FileRoute } from './serve.ts';
-import { SSO_COOKIE, UnknownProvider, type SsoCookie, type SsoService } from './sso.ts';
+import { SSO_COOKIE, UnknownProvider, type SsoCallbackAnswer, type SsoCookie, type SsoService } from './sso.ts';
 
 /** `/auth/sso/<provider>/start`. */
 const START = /^\/auth\/sso\/([a-z0-9][a-z0-9-]{0,31})\/start$/;
@@ -37,8 +38,9 @@ export class SsoRoute implements FileRoute {
     const url = new URL(req.url ?? '/', 'http://hub');
     if (path === SSO_CALLBACK_PATH) {
       const answer = await this.#sso().callback(url.searchParams, cookiesOf(req.headers.cookie), (req.headers['user-agent'] ?? 'unknown').slice(0, 200))
-        .catch(() => ({ location: `/sign-in?${new URLSearchParams({ problem: 'That sign-in didn’t finish. Sign in again.' }).toString()}`, clear: SSO_COOKIE }));
-      redirect(res, answer.location, `${answer.clear}=; Path=${SSO_CALLBACK_PATH}; Max-Age=0; HttpOnly; SameSite=Lax`);
+        .catch((): SsoCallbackAnswer => ({ location: `/sign-in?${new URLSearchParams({ problem: 'That sign-in didn’t finish. Sign in again.' }).toString()}`, clear: SSO_COOKIE }));
+      const clear = `${answer.clear}=; Path=${SSO_CALLBACK_PATH}; Max-Age=0; HttpOnly; SameSite=Lax`;
+      redirect(res, answer.location, answer.handoff !== undefined ? [clear, setCookie(answer.handoff)] : clear);
       return true;
     }
     const provider = START.exec(path)?.[1];
@@ -66,6 +68,6 @@ function reachedHost(req: IncomingMessage): string | undefined {
   return first === undefined || first === '' ? req.headers.host : first;
 }
 
-function redirect(res: ServerResponse, location: string, cookie: string): void {
+function redirect(res: ServerResponse, location: string, cookie: string | string[]): void {
   res.writeHead(302, { location, 'cache-control': 'no-store', 'set-cookie': cookie, 'referrer-policy': 'no-referrer' }).end();
 }

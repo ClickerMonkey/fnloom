@@ -3,7 +3,11 @@ import { MAIN_INSTANCE, RunId, SystemName, type ProposedRun, type Run, type RunS
 import { afterEach, describe, expect, it } from 'vitest';
 import { backgroundReply, backgroundResult, INTERRUPTED, RunConversation, settledReply, stateOf } from './agent.ts';
 import { AGENT_KIND, type AgentKind, type RunInput } from './index.ts';
+import { agentActorId } from '../chat/support.ts';
 import { AGENT, ALICE, calls, executionRig, OPEN_LIMITS, says, SESSION, testSettings, until, type ExecutionRig } from './testing.ts';
+
+/** The helper agent's own actor: the caller of its tools and the author of its follow-ups. */
+const HELPER = agentActorId('tools/helper');
 
 /** A run a person watches, reading five rows of a table. */
 const SHOWN: TableReading = { rows: 5, watched: true };
@@ -69,7 +73,7 @@ describe('a session agent', () => {
 
     expect(settled).toEqual({ status: 'done', result: 'It says hello.' });
     expect(fs.requests).toHaveLength(1);
-    expect(fs.requests[0]).toMatchObject({ fn: 'read', args: { path: 'a.txt' }, run: { parent: run, caller: AGENT } });
+    expect(fs.requests[0]).toMatchObject({ fn: 'read', args: { path: 'a.txt' }, run: { parent: run, caller: HELPER } });
     const session = await r.store.table('sessions').get(SESSION);
     expect(session?.transcript.map((m) => m.role)).toEqual(['user', 'assistant', 'tool', 'assistant']);
     expect(session?.transcript[0]?.content).toBe('What is in a.txt?');
@@ -138,6 +142,23 @@ describe('a session agent', () => {
     expect((await runTo(r, run)).settled).toEqual({ status: 'done', result: 'written' });
   });
 
+  it('asks before a write when the person ran the agent directly (!): its tool calls are the agent’s, never the person’s', async () => {
+    const r = await started();
+    const fs = r.connect('fs');
+    await r.session();
+    const turn = await r.turn({ session: SESSION, text: '!helper write it' });
+    r.provider.script(calls([['fs__write', { path: 'a', text: 'b' }]]), says('written'));
+    const { run } = await r.module.agents.start({ ...agentInput(turn), caller: ALICE });
+    await until(() => r.bus.of('approval').length > 0, 'the approval');
+    expect(fs.requests).toHaveLength(0);
+    expect(await r.store.table('actors').get(HELPER)).toMatchObject({ kind: 'agent', fn: 'tools/helper' });
+    const approval = r.bus.of('approval')[0]?.approval;
+    if (approval === undefined) throw new Error('no approval');
+    await r.module.policies.answer(approval.id, { by: ALICE, approve: true, remember: 'once' });
+    expect((await runTo(r, run)).settled).toEqual({ status: 'done', result: 'written' });
+    expect(fs.requests[0]).toMatchObject({ fn: 'write', run: { caller: HELPER } });
+  });
+
   it('stops waiting on slow tools after the timeout while the person is there, and says they still run', async () => {
     const r = await started({ settings: testSettings({ HARNESS_TOOL_TIMEOUT: 30 }), active: true });
     r.connect('fs').behaviour.run = () => new Promise(() => undefined);
@@ -187,7 +208,7 @@ describe('a session agent', () => {
     await until(() => tool.release !== undefined, 'the tool run to reach its system');
     tool.release?.({ status: 'done', result: 'the big file' });
     await until(() => r.chat.followUps.length > 0, 'the agent to be woken');
-    expect(r.chat.followUps).toEqual([{ turn: turn.id, agent: AGENT }]);
+    expect(r.chat.followUps).toEqual([{ turn: turn.id, agent: HELPER }]);
     const transcript = (await r.store.table('sessions').get(SESSION))?.transcript ?? [];
     const note = transcript.at(-1);
     expect(note).toEqual({ role: 'user', content: backgroundResult(child, { status: 'done', result: 'the big file' }, SHOWN) });
@@ -221,7 +242,7 @@ describe('a session agent', () => {
     if (proposed === undefined) throw new Error('nothing was proposed');
     await r.module.policies.answer(proposed.approval, { by: ALICE, approve, remember: 'once', ...(approve ? {} : { reason: 'not that table' }) });
     await until(() => r.chat.followUps.length > 0, 'the agent to be woken');
-    expect(r.chat.followUps).toEqual([{ turn: turn.id, agent: AGENT }]);
+    expect(r.chat.followUps).toEqual([{ turn: turn.id, agent: HELPER }]);
     const note = (await r.store.table('sessions').get(SESSION))?.transcript.at(-1);
     expect(note?.role).toBe('user');
     expect(note?.content).toContain(`<approval-result fn="fs/write" outcome="${outcome}">\n${reply}\n</approval-result>`);

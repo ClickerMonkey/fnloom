@@ -4,7 +4,10 @@
  * installed.
  */
 import { plugin, type AnyPlugin } from '@ayepi/plugin';
-import { eventsSlice } from '@harness/core';
+import { reject, type WsConn } from '@ayepi/core';
+import { eventsSlice, ownEvents, type AccessClaims, type ActorId, sessionWatch, SessionEventParams, UserEventParams } from '@harness/core';
+import type { WebSockets } from '../events.ts';
+import { visibleSession } from './access.ts';
 import type { HubServices } from '../../boot/index.ts';
 import { adminOperations } from '../admin-ops.ts';
 import { hubReads } from '../reads.ts';
@@ -33,24 +36,62 @@ import { reviewPlugin } from './review.ts';
 import { identityPlugin } from './identity.ts';
 import { peoplePlugin } from './people.ts';
 import { imageEmbeddingPlugin } from './images.ts';
+import { outsideImagesPlugin } from './outside-images.ts';
 import { versionsPlugin } from './versions.ts';
 import { dataPlugin } from './data.ts';
 import { tablesPlugin } from './tables.ts';
 
-/** The realtime plugin: while installed, bus events reach browsers as `session` and `user` events. */
-export function eventsPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>) {
+/** What the web API plugins need besides the services. */
+export interface WebPluginOptions extends AuthPluginOptions {
+  /** The web API server's sockets, so a sign-out ends that sign-in's live events. */
+  readonly sockets: WebSockets;
+}
+
+/** The subscription a guard looks at, refused when it isn't a socket's. */
+function subscription(io: { readonly ws?: { readonly data: unknown; readonly conn: WsConn } | undefined }): { readonly data: unknown; readonly conn: WsConn } {
+  if (io.ws === undefined) { throw reject(400, 'SOCKET_ONLY', 'live events come over the socket'); }
+  return io.ws;
+}
+
+/**
+ * Tell the relay who a socket listens as, then check the sign-in is still on. A sign-out that lands while the guard
+ * runs is then caught either way: before the check it is refused here, after it the relay ends the socket.
+ */
+async function listenAs(hub: HubServices, conn: WsConn, ctx: { readonly user: { readonly id: ActorId }; readonly jwt: AccessClaims }): Promise<void> {
+  hub.api.relay.listen(conn, { user: ctx.user.id, session: ctx.jwt.session });
+  if ((await hub.api.auth.user(ctx.jwt)) === undefined) { throw reject(401, 'SIGNED_OUT', 'sign in again'); }
+}
+
+/**
+ * The realtime plugin: while installed, bus events reach browsers as `session` and `user` events. `ownEvents` lets a
+ * person hear only their own `user` events and `sessionWatch` only sessions they may see (404 otherwise, as over
+ * HTTP); both tell the relay who the socket listens as, so signing out ends it.
+ */
+export function eventsPlugin(hub: HubServices, auth: ReturnType<typeof authPlugin>, sockets: WebSockets) {
   return plugin({ name: 'web.events', spec: eventsSlice, requires: [auth] })
+    .middleware(ownEvents, () => async (io) => {
+      const { data, conn } = subscription(io);
+      if (UserEventParams.parse(data).user !== io.ctx.user.id) { throw reject(403, 'NOT_YOUR_EVENTS', 'you can only hear your own events'); }
+      await listenAs(hub, conn, io.ctx);
+      return io.next();
+    })
+    .middleware(sessionWatch, () => async (io) => {
+      const { data, conn } = subscription(io);
+      await visibleSession(hub, SessionEventParams.parse(data).session, io.ctx.user);
+      await listenAs(hub, conn, io.ctx);
+      return io.next();
+    })
     .lifecycle((ctx) => {
       let stop: (() => void) | undefined;
       return {
-        up: () => { stop = hub.api.relay.start(ctx.emit); },
+        up: () => { stop = hub.api.relay.start(ctx.emit, sockets); },
         stop: () => { stop?.(); },
       };
     });
 }
 
 /** Every web API plugin, in the order they must be installed. */
-export function webPlugins(hub: HubServices, options: AuthPluginOptions): readonly AnyPlugin[] {
+export function webPlugins(hub: HubServices, options: WebPluginOptions): readonly AnyPlugin[] {
   const auth = authPlugin(hub, options);
   const ops = adminOperations(hub);
   const reads = hubReads(hub);
@@ -81,10 +122,11 @@ export function webPlugins(hub: HubServices, options: AuthPluginOptions): readon
     identityPlugin(hub, systems),
     peoplePlugin(hub, systems, reads),
     imageEmbeddingPlugin(hub, systems),
+    outsideImagesPlugin(hub, systems),
     versionsPlugin(auth, reads),
     dataPlugin(hub, auth),
     ...tablesPlugin(hub, auth),
-    eventsPlugin(hub, auth),
+    eventsPlugin(hub, auth, options.sockets),
   ];
 }
 

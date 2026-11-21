@@ -24,6 +24,7 @@ const form = (): GinTypeDef | undefined => (props.card.connect.flow?.flow === 'f
       <span class="mark" aria-hidden="true"><UiIcon :name="card.flow === 'none' ? 'check' : 'key'" :size="16" /></span>
       <div class="who">
         <span class="label">{{ card.label }}</span>
+        <span v-if="card.host" class="host" data-testid="instance-connect-host">Sends to <strong>{{ card.host }}</strong></span>
         <span class="detail">
           <template v-if="card.own !== undefined">
             <UiBadge :tone="STATUS_WORDS[card.own.status].tone" dot>{{ STATUS_WORDS[card.own.status].label }}</UiBadge>
@@ -59,6 +60,7 @@ const form = (): GinTypeDef | undefined => (props.card.connect.flow?.flow === 'f
 .mark { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: var(--radius); background: var(--surface-2); color: var(--accent); flex: none; }
 .who { display: grid; gap: 2px; flex: 1 1 12rem; min-width: 0; }
 .label { font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+.host { font-size: var(--text-sm); overflow-wrap: anywhere; }
 .detail { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); color: var(--text-dim); font-size: var(--text-sm); }
 .actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .problem { margin: 0; color: var(--danger); font-size: var(--text-sm); }

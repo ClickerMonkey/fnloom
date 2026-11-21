@@ -350,8 +350,9 @@ slice (`hub/src/api/web/*.ts`). `[admin]` marks a slice behind `adminOnly`.
 | Slice | Endpoint | Purpose |
 | --- | --- | --- |
 | auth | `setup` | Whether the admin account still needs making, and the SSO providers to offer. |
-| | `createAdmin` | Make the admin account (the bootstrap, break-glass admin). |
+| | `createAdmin` | Make the admin account (the bootstrap, break-glass admin), with the one-time setup code the hub logged. |
 | | `signIn`, `refresh`, `signOut` | Tokens (a password sign-in is the break-glass admin's only, once SSO is on). |
+| | `redeemSso` | Finish an SSO sign-in: the one-time hand-off code, with this browser's hand-off cookie (HTTP only). |
 | | `me`, `account` | The signed-in user; their own account with how they sign in and their groups. |
 | people [admin] | `people`, `groups`, `groupMembers` | SSO: people and groups by the `users` and `groups` lists. |
 | | `signInSettings`, `checkSsoProvider`, `testSsoSignIn`, `ssoTestResult` | The env providers (read-only), their check and a test sign-in. |
@@ -392,6 +393,8 @@ slice (`hub/src/api/web/*.ts`). `[admin]` marks a slice behind `adminOnly`.
 | | `setActorSetting` | Actor settings. |
 | | `addUser`, `addGroup`, `updateUser`, `setMembership` | People. |
 | | `setSignInPolicy` | SSO: who may make an account at their first sign-in. |
+| | `setSignInLimits` | How many password tries the hub takes, per email and address and per address. |
+| | `setProxyTrust` | How many proxies in front of the hub say where requests come from (0: none). |
 | admin [admin] | `systemFns`, `systemLogs` (+ `systemLog` event) | A system's fns and output. |
 | | `models`, `modelCategories`, `budgets`, `priorityRules`, `policies`, `actors`, `actorSettings` | Reads for the admin pages. |
 | | `resolveLimits` | Limits a user would get. |

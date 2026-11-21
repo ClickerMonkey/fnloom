@@ -53,7 +53,7 @@ export function apiServices(base: BaseServices, parts: ApiParts): ApiServices {
   const providers = settings.authEnv.HARNESS_SSO_PROVIDERS;
   const auth = new HubAuthenticator({
     store, clock, identity, secret: parts.keys.jwtSecret, hasher: new ScryptHasher(settings.authEnv.HARNESS_PASSWORD_COST),
-    accessTtl: settings.authEnv.HARNESS_ACCESS_TTL, refreshTtl: settings.authEnv.HARNESS_REFRESH_TTL, providers,
+    accessTtl: settings.authEnv.HARNESS_ACCESS_TTL, refreshTtl: settings.authEnv.HARNESS_REFRESH_TTL, providers, bus,
   });
   return {
     identity,
@@ -69,7 +69,7 @@ export function apiServices(base: BaseServices, parts: ApiParts): ApiServices {
       store, sender: parts.pushSender, publicKey: parts.keys.vapid.publicKey, identity,
       onError: (error, subscription) => { log.warn('push.failed', { push: subscription.id, user: subscription.user }, error); },
     }),
-    relay: new BusEventRelay(bus),
+    relay: new BusEventRelay({ bus, store }),
     secrets: new AesSecretVault({ store, box: new SecretBox(parts.keys.secretKey), clock }),
   };
 }

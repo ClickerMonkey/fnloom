@@ -7,6 +7,7 @@ import { settle } from '../testing.ts';
 import { fingerprint, makeKeyPair, signNonce } from './keys.ts';
 import { checkedInstall } from './install.ts';
 import { FakeSystem, linkRig, pairDirectly, type LinkRig } from './rig.ts';
+import { UNKNOWN_ADDRESS } from '../api/client-address.ts';
 
 const q = (name: string) => QualifiedName.parse(name);
 const SHOP = SystemName.parse('shop');
@@ -40,7 +41,7 @@ describe('pairing with a code', () => {
     expect(reply.url).toBe(`http://hub/pair/${reply.pairing}?code=${reply.code ?? ''}`);
     expect(reply.expiresAt).toBe(rig.time.now + 60_000);
     const pending = await rig.pairing.pending();
-    expect(pending).toMatchObject([{ id: reply.pairing, name: 'shop', instance: 'main', method: 'code', address: '10.0.0.7', keyFingerprint: fingerprint(system.keys.publicKey) }]);
+    expect(pending).toMatchObject([{ id: reply.pairing, name: 'shop', instance: 'main', method: 'code', address: UNKNOWN_ADDRESS, keyFingerprint: fingerprint(system.keys.publicKey) }]);
     expect(rig.bus.of('pairing')).toHaveLength(1);
 
     // the same name and key asking again gets the same request
@@ -149,13 +150,14 @@ describe('re-keying with a token', () => {
 });
 
 describe('the handshake', () => {
-  it('asks a known name with another key to pair again, replacing it', async () => {
+  it('never lets a code replace a paired key: a known name with another key needs a token made for it', async () => {
     const system = new FakeSystem(rig.app, 'shop', shopManifest);
     await pairDirectly(rig, system);
     const impostor = new FakeSystem(rig.app, 'shop', shopManifest, makeKeyPair());
-    const reply = await impostor.connect();
-    expect(reply).toMatchObject({ kind: 'pairing' });
-    expect((await rig.pairing.pending())[0]?.replaces).toBe('shop');
+    expect(await statusOf(impostor.connect())).toEqual({ status: 403, code: 'REKEY_NEEDS_TOKEN' });
+    expect(await rig.pairing.pending()).toEqual([]);
+    expect(rig.bus.of('pairing')).toHaveLength(0);
+    expect((await rig.store.table('instances').get(main('shop')))?.publicKey).toBe(system.keys.publicKey);
   });
 
   it('refuses a wrong signature, a prove without hello, and calls before the handshake', async () => {
@@ -175,7 +177,7 @@ describe('the handshake', () => {
     await system.start();
     const record = await rig.store.table('systems').get(SystemName.parse('shop'));
     expect(record).toMatchObject({ status: 'needs-config', manifestHash: shopManifest.hash, description: 'A small shop.' });
-    expect(await rig.store.table('instances').get(main('shop'))).toMatchObject({ status: 'needs-config', manifestHash: shopManifest.hash, address: '10.0.0.7' });
+    expect(await rig.store.table('instances').get(main('shop'))).toMatchObject({ status: 'needs-config', manifestHash: shopManifest.hash, address: UNKNOWN_ADDRESS });
     expect(await rig.catalog.availability(q('shop/get'))).toMatchObject({ unavailable: 'system-needs-config' });
     expect(rig.links.connection(SHOP)).toMatchObject({ instance: 'main', boot: 'b-1' });
 

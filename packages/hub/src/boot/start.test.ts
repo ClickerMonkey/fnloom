@@ -2,12 +2,13 @@
  * The whole hub process on a free port: lifecycle, the HTTP front (API prefix, health, the web build with its
  * single-page fallback), browser sockets with realtime events, the link socket, and shutdown. Other modules are fakes.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { client, wsTransport } from '@ayepi/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { hubWebSpec, SystemName, type HubWebSpec, type OutputLine, type UserEvent } from '@harness/core';
+import { DEFAULT_SIGN_IN_LIMITS, hubWebSpec, SystemName, type HubWebSpec, type OutputLine, type UserEvent } from '@harness/core';
+import { SETUP_FILE } from '../api/auth.ts';
 import { fakeModules, recordingPush, testSettings } from '../api/testing/rig.ts';
 import { memoryLog } from '../testing.ts';
 import type { HubSettings } from './env.ts';
@@ -17,6 +18,7 @@ import { ensureHubActor, startHub } from './start.ts';
 const dir = mkdtempSync(join(tmpdir(), 'harness-hub-'));
 const lifecycle: string[] = [];
 let hub: RunningHub;
+const logged = memoryLog();
 
 function settingsFor(data: string): HubSettings {
   const base = testSettings();
@@ -35,7 +37,7 @@ function settingsFor(data: string): HubSettings {
 
 beforeAll(async () => {
   hub = await startHub({
-    settings: settingsFor(dir), port: 0, log: memoryLog().log, pushSender: recordingPush(),
+    settings: settingsFor(dir), port: 0, log: logged.log, pushSender: recordingPush(),
     keyMaker: { secret: () => `secret-${Math.random().toString(36).padEnd(40, '0')}`, vapid: () => ({ publicKey: 'pub', privateKey: 'priv' }) },
     modules: fakeModules({
       catalog: { manifest: () => Promise.resolve(undefined) },
@@ -69,7 +71,10 @@ describe('a running hub', () => {
 
   it('serves the web API under /api', async () => {
     await expect(api().call('setup')).resolves.toMatchObject({ needsAdmin: true, name: 'Harness' });
-    const tokens = await api().call('createAdmin', { email: 'admin@example.com', name: 'Admin', password: 'correct horse battery' });
+    // anyone who can reach the port, without the code from the hub's log, can't make themselves the admin
+    await expect(api().call('createAdmin', { email: 'mallory@example.com', name: 'M', password: 'correct horse battery', setup: 'guess' })).rejects.toMatchObject({ status: 403 });
+    await expect(api().call('setup')).resolves.toMatchObject({ needsAdmin: true });
+    const tokens = await api().call('createAdmin', { email: 'admin@example.com', name: 'Admin', password: 'correct horse battery', setup: readFileSync(join(dir, SETUP_FILE), 'utf8') });
     await expect(api().call('me', { headers: { authorization: `Bearer ${tokens.access}` } })).resolves.toMatchObject({ email: 'admin@example.com' });
   });
 
@@ -99,7 +104,7 @@ describe('a running hub', () => {
     const sdk = client<HubWebSpec>({ baseUrl: `${hub.url}/api`, manifest: hubWebSpec, ws: socket, prefer: 'ws' });
     try {
       await expect(sdk.call('me')).resolves.toMatchObject({ id: tokens.user.id });
-      const heard = new Promise<UserEvent>((resolve) => { sdk.on('user', (event) => { resolve(event); }); });
+      const heard = new Promise<UserEvent>((resolve) => { sdk.on('user', { user: tokens.user.id }, (event) => { resolve(event); }); });
       // The subscription travels after the socket is open; give it a moment, then announce.
       await new Promise((resolve) => setTimeout(resolve, 100));
       hub.services.bus.publish('capabilities.changed', {});
@@ -135,6 +140,72 @@ describe('a running hub', () => {
       ws.onerror = () => { resolve(true); };
     });
     expect(refused).toBe(true);
+  });
+
+  it('puts the security headers on every response: the API, health checks, the app and unknown paths', async () => {
+    for (const path of ['/api/setup', '/healthz', '/', '/assets/app.js', '/clients/fs/x/y', '/mcp/none']) {
+      const res = await fetch(`${hub.url}${path}`);
+      expect(res.headers.get('x-content-type-options'), path).toBe('nosniff');
+      expect(res.headers.get('x-frame-options'), path).toBe('DENY');
+      expect(res.headers.get('referrer-policy'), path).toBe('strict-origin-when-cross-origin');
+      expect(res.headers.get('content-security-policy'), path).toContain("frame-ancestors 'none'");
+    }
+    expect((await fetch(`${hub.url}/`)).headers.get('content-security-policy')).toContain("script-src 'self';");
+  });
+
+  it('never runs an uploaded page or picture opened from its download link', async () => {
+    const { content } = hub.services.api;
+    for (const [name, mime, body] of [['page.html', 'text/html', '<script>alert(1)</script>'], ['art.svg', 'image/svg+xml', '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>']] as const) {
+      const ref = await content.put(new TextEncoder().encode(body), mime);
+      const link = new URL(await content.presignDownload(ref, name), hub.url);
+      const res = await fetch(link);
+      expect(res.status, name).toBe(200);
+      const csp = res.headers.get('content-security-policy') ?? '';
+      // no script source at all: default-src 'none' with no script-src
+      expect(csp, name).toContain("default-src 'none'");
+      expect(csp, name).not.toContain('script-src');
+      expect(res.headers.get('x-content-type-options'), name).toBe('nosniff');
+      expect(res.headers.get('x-frame-options'), name).toBe('SAMEORIGIN');
+    }
+  });
+
+  it('counts sign-in tries per email and address: X-Forwarded-For only counts behind a trusted proxy', async () => {
+    const admin = await api().call('signIn', { email: 'admin@example.com', password: 'correct horse battery' });
+    const as = { headers: { authorization: `Bearer ${admin.access}` } };
+    const from = (address: string) => ({ headers: { 'x-forwarded-for': address } });
+    const wrong = { email: 'admin@example.com', password: 'a guess' };
+    const right = { email: 'admin@example.com', password: 'correct horse battery' };
+    await api().call('setSignInLimits', { ...DEFAULT_SIGN_IN_LIMITS, account: { limit: 2, window: 60_000 } }, as);
+    try {
+      await api().call('setProxyTrust', { proxies: 1 }, as);
+      for (let i = 0; i < 2; i++) { await expect(api().call('signIn', wrong, from('203.0.113.1'))).rejects.toMatchObject({ status: 401 }); }
+      // the guessing address is held off, even with the right password...
+      await expect(api().call('signIn', right, from('203.0.113.1'))).rejects.toMatchObject({ status: 429 });
+      // ...but the owner, from anywhere else, signs in
+      await expect(api().call('signIn', right, from('198.51.100.7'))).resolves.toMatchObject({ user: { id: admin.user.id } });
+      // an IPv6 /64 is one address: moving to another address in it doesn't buy more tries
+      await expect(api().call('signIn', wrong, from('2001:db8:1:2::a'))).rejects.toMatchObject({ status: 401 });
+      await expect(api().call('signIn', wrong, from('2001:DB8:1:2:0:0:0:b'))).rejects.toMatchObject({ status: 401 });
+      await expect(api().call('signIn', right, from('2001:db8:1:2:ffff::c'))).rejects.toMatchObject({ status: 429 });
+      await expect(api().call('signIn', right, from('2001:db8:1:3::1'))).resolves.toMatchObject({ user: { id: admin.user.id } });
+      await api().call('setProxyTrust', { proxies: 0 }, as);
+      // with no trusted proxy the header is ignored: this try counts against the socket's own address, not the held one
+      await expect(api().call('signIn', wrong, from('203.0.113.1'))).rejects.toMatchObject({ status: 401 });
+      // the address the hub counted is the socket's own
+      expect(logged.records.filter((record) => record.msg === 'auth.sign-in.refused').at(-1)).toMatchObject({ from: '127.0.0.1' });
+      await expect(api().call('signIn', right, from('203.0.113.1'))).resolves.toMatchObject({ user: { id: admin.user.id } });
+    } finally {
+      await api().call('setProxyTrust', { proxies: 0 }, as);
+      await api().call('setSignInLimits', DEFAULT_SIGN_IN_LIMITS, as);
+    }
+  });
+
+  it('wrote the one-time setup code to its data folder and logged a setup link; it no longer works', async () => {
+    const code = readFileSync(join(dir, SETUP_FILE), 'utf8').trim();
+    const waiting = logged.records.find((record) => record.msg === 'auth.setup.waiting');
+    expect(JSON.stringify(waiting)).toContain(`/sign-in?setup=${code}`);
+    const again = { email: 'second@example.com', name: 'Second', password: 'correct horse battery', setup: code };
+    await expect(api().call('createAdmin', again)).rejects.toMatchObject({ status: 409 });
   });
 
   it('has made its own actor, once', async () => {

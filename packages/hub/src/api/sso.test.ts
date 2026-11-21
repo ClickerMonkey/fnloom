@@ -7,11 +7,11 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ActorId, IdentityProviderConfigs, SSO_HANDOFF_KEY, type SignInPolicy, type Tokens } from '@harness/core';
+import { ActorId, IdentityProviderConfigs, SSO_HANDOFF_COOKIE, SSO_HANDOFF_KEY, type SignInPolicy, type Tokens } from '@harness/core';
 import { FakeIssuer, type FakeAccount } from './testing/issuer.ts';
 import { rig, testSettings, webRig, type Rig, type WebRig } from './testing/rig.ts';
 import { SsoRoute } from './sso-route.ts';
-import { SSO_COOKIE } from './sso.ts';
+import { HANDOFF_TTL, SSO_COOKIE, SSO_REDEEM_PATH } from './sso.ts';
 
 let server: Server | undefined;
 afterEach(async () => { await new Promise((done) => { if (server === undefined) { done(undefined); } else { server.close(done); } }); server = undefined; });
@@ -64,15 +64,32 @@ async function signIn(hub: Hub, account: FakeAccount, next = '/chat', startPath 
   const back = hub.issuer.authorize(start.headers.get('location') ?? '', account);
   const done = await hub.get(`/auth/sso/callback?${back.toString()}`, cookieOf(start));
   expect(done.headers.get('set-cookie')).toContain(`${SSO_COOKIE}=; Path=/auth/sso/callback; Max-Age=0`);
-  return done.headers.get('location') ?? '';
+  const location = done.headers.get('location') ?? '';
+  const handoff = done.headers.getSetCookie().find((cookie) => cookie.startsWith(`${SSO_HANDOFF_COOKIE}=`));
+  if (handoff !== undefined) {
+    expect(handoff).toContain(`Path=${SSO_REDEEM_PATH}`);
+    expect(handoff).toContain('HttpOnly');
+    handoffs.set(location, handoff.split(';')[0] ?? '');
+  }
+  return location;
 }
 
-/** The tokens the sign-in page gets for a successful callback's location (the refresh token in the fragment, swapped). */
-async function handedOver(web: WebRig, location: string): Promise<Tokens> {
-  const fragment = new URLSearchParams(location.slice(location.indexOf('#') + 1));
-  const refresh = fragment.get(SSO_HANDOFF_KEY);
-  if (refresh === null) throw new Error(`no hand-over in ${location}`);
-  return web.client.call('refresh', { refresh });
+/** The hand-off cookie each finished sign-in set, by the location it sent the browser to (the browser that finished it). */
+const handoffs = new Map<string, string>();
+
+/** The hand-off code a successful callback's location carries in its fragment. */
+function codeIn(location: string): string {
+  const code = new URLSearchParams(location.slice(location.indexOf('#') + 1)).get(SSO_HANDOFF_KEY);
+  if (code === null) throw new Error(`no hand-off in ${location}`);
+  return code;
+}
+
+/**
+ * The tokens the sign-in page gets for a successful callback's location: the code in the fragment, redeemed with
+ * the hand-off cookie of the browser it finished in (`cookie` for another browser's, or `null` for none).
+ */
+async function handedOver(web: WebRig, location: string, cookie: string | null | undefined = handoffs.get(location)): Promise<Tokens> {
+  return web.client.call('redeemSso', { code: codeIn(location) }, cookie === null || cookie === undefined ? {} : { headers: { cookie } });
 }
 
 /** The problem a redirect to the sign-in page carries. */
@@ -144,11 +161,32 @@ describe('SSO sign-in through an OpenID provider', () => {
     expect(tokens.user).toMatchObject({ name: 'Ann Lee', email: 'ann@example.com', role: 'member' });
     const identity = await hub.r.store.table('externalIdentities').get({ issuer: hub.issuer.issuer, sub: 'ann-1' });
     expect(identity).toMatchObject({ provider: 'acme', user: tokens.user.id, email: 'ann@example.com' });
-    // the hand-over token is spent: the sign-in page swapped it for its own
-    await expect(handedOver(hub.web, location)).rejects.toThrow();
+    // the hand-off code is spent: it works once
+    await expect(handedOver(hub.web, location)).rejects.toMatchObject({ status: 401 });
     // a second sign-in is the same person, linked
     const again = await handedOver(hub.web, await signIn(hub, ann));
     expect(again.user.id).toBe(tokens.user.id);
+  });
+
+  it('redeems a hand-off code only in the browser the sign-in finished in, once, and only for a minute (login CSRF)', async () => {
+    const hub = await hubWithSso();
+    await setPolicy(hub, { mode: 'anyone' });
+    // Mallory signs in as herself and sends Ann her code: Ann's browser has no cookie for it, or its own for another
+    const mallory: FakeAccount = { sub: 'mal-1', claims: { email: 'mallory@example.com', email_verified: true, name: 'Mallory' } };
+    const hers = await signIn(hub, mallory);
+    const anns = await signIn(hub, ann);
+    await expect(handedOver(hub.web, hers, null)).rejects.toMatchObject({ status: 401 });
+    await expect(handedOver(hub.web, hers, handoffs.get(anns))).rejects.toMatchObject({ status: 401 });
+    await expect(handedOver(hub.web, hers, `${SSO_HANDOFF_COOKIE}=forged.value`)).rejects.toMatchObject({ status: 401 });
+    // Ann's own code, in Ann's browser, signs Ann in, once
+    await expect(handedOver(hub.web, anns)).resolves.toMatchObject({ user: { name: 'Ann Lee' } });
+    await expect(handedOver(hub.web, anns)).rejects.toMatchObject({ status: 401 });
+    // a code left too long stops working, even in its own browser
+    const late = await signIn(hub, ann);
+    hub.r.now += HANDOFF_TTL + 1;
+    await expect(handedOver(hub.web, late)).rejects.toMatchObject({ status: 401 });
+    // and the fragment never carries a refresh token
+    expect(codeIn(late)).not.toContain('.');
   });
 
   it('is invite only until the admin says otherwise, and links an invited person by verified email', async () => {

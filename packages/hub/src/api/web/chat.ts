@@ -14,7 +14,6 @@ import { CLIENTS_PATH } from '../serve.ts';
 import { userInfo, visibleSession, type FullHandlers } from './access.ts';
 import type { authPlugin } from './auth.ts';
 import { dictationOf } from '../../models/roles.ts';
-import { clientItemName } from '../../link/lifecycle.ts';
 import { visibleMade } from '../../resources/context.ts';
 import type { HubReads } from '../reads.ts';
 
@@ -32,7 +31,7 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
   // an installed system (not yet live) offers nothing, like one that is not connected
   const live = seen.filter((s) => systemAvailability(s.name, s) === true && s.enabled.functions).map((s) => s.name);
   const usable = new Set(live.filter((name) => allows(scope, name)));
-  const [commandsOff, mentionsOff, componentsOff] = await Promise.all([hub.link.lifecycle.off('commands'), hub.link.lifecycle.off('mentions'), hub.link.lifecycle.off('components')]);
+  const [commandsOff, mentionsOff] = await Promise.all([hub.link.lifecycle.off('commands'), hub.link.lifecycle.off('mentions')]);
   const seenNames = new Set(seen.map((s) => s.name));
   /** Why a seen system's commands can't run in this session now. */
   const unusableReason = (name: SystemName): string => {
@@ -50,7 +49,8 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
     // only a live system's fns can be available: the database keeps to those, not every fn of every system
     hub.catalog.fns({ systems: [HUB_SYSTEM, ...live], available: true }),
     hub.execution.llm.models(),
-    Promise.all(rendering.map(async (s) => ({ system: s.name, manifest: await hub.catalog.manifest(s.name) }))),
+    // only a client build an admin approved is loaded: none of a system still installed, waiting for review or switched off
+    Promise.all(rendering.map(async (s) => ({ system: s.name, client: await hub.link.lifecycle.approvedClient(s.name) }))),
     hub.catalog.entries('types'),
     hub.models.roles.get('dictate'),
   ]);
@@ -84,10 +84,7 @@ export async function capabilities(hub: HubServices, user: UserView, session?: S
       const f = byName.get(qualify(t.system, `${t.decl.name}.${method}`));
       return f === undefined || !byHand(f) ? [] : [{ type: t.name, method, fn: f.name, description: f.decl.description, args: f.decl.args }];
     })),
-    // a client build switched off, or changed and waiting for review, is not loaded
-    clients: manifests.flatMap(({ system, manifest }) => (manifest?.client === undefined || componentsOff.has(clientItemName(system)) ? [] : [{
-      system, url: clientUrl(system, manifest.client.hash, manifest.client.entry), hash: manifest.client.hash,
-    }])),
+    clients: manifests.flatMap(({ system, client }) => (client === undefined ? [] : [{ system, url: clientUrl(system, client.hash, client.entry), hash: client.hash }])),
     systems: seen.filter((s) => allows(scope, s.name)).map((s) => ({ name: s.name, status: s.status, enabled: s.enabled.functions })),
     // the picker offers models that chat: an embedding or rerank model can't answer
     models: models.filter((model) => model.capabilities.includes('chat') && !model.capabilities.some((c) => c === 'embedding' || c === 'rerank')),

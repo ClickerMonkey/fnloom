@@ -48,6 +48,7 @@ describe('fs over the link', () => {
       changes: new FakeChanges(),
       ignores: NO_IGNORES,
       now: () => 0,
+      baseEnv: process.env,
     });
     hub = new FakeHub({ config: configFor(root) });
     running = await serve(fs, server.impl, { hub: 'ws://hub.test/link', state: `${tmp.path}/state`, version: '0.0.0' }, hub.host());

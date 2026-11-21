@@ -15,7 +15,7 @@ import PartsByKind from './components/PartsByKind.vue';
 import ReviewFnList from './components/ReviewFnList.vue';
 import { checksConcerns, checksLine, checksWarn, clientFileUrl, declaredItems, fnReviews, grantRows, lineDiff, refusalLine, timeText, withSwitch } from './logic/review.ts';
 import { partChoices, partGroups, shownPart } from './logic/systems.ts';
-import { ConfigComponents, configTarget } from './state/config-component.ts';
+import { ConfigComponents, configTarget, UNAPPROVED_CONFIG } from './state/config-component.ts';
 import { fakeAdmin, fakeAdminApi } from './test/fakes.ts';
 import { notesManifest, review } from './test/review.ts';
 import { fakeCaller } from '../test/fakes.ts';
@@ -83,10 +83,11 @@ describe('review logic', () => {
     expect(shownPart([], 'roots')).toBeUndefined();
   });
 
-  it('finds a contract’s config component in its client build', () => {
-    expect(configTarget(review().manifest)).toBeUndefined();
+  it('finds a contract’s config component in its client build, approved only when the hub says so', () => {
+    expect(configTarget(review())).toBeUndefined();
     const manifest = notesManifest('h', { client: { entry: 'client/index.js', hash: 'c1', files: [] }, configComponent: { component: 'NotesConfig', mode: 'replace' } });
-    expect(configTarget(manifest)).toEqual({ system: 'notes', client: manifest.client, decl: { component: 'NotesConfig', mode: 'replace' } });
+    expect(configTarget({ manifest, clientApproved: true })).toEqual({ system: 'notes', client: manifest.client, decl: { component: 'NotesConfig', mode: 'replace' }, approved: true });
+    expect(configTarget({ manifest })).toMatchObject({ approved: false });
     expect(clientFileUrl(manifest.name, { entry: 'client/index.js', hash: 'c1' })).toBe('/clients/notes/c1/client/index.js');
   });
 });
@@ -209,7 +210,7 @@ describe('a system’s own config component', () => {
     });
     return { made, register, share, imported };
   }
-  const target = { system: notesManifest().name, client: { entry: 'index.js', hash: 'c1' }, decl: { component: 'NotesConfig', mode: 'replace' as const } };
+  const target = { system: notesManifest().name, client: { entry: 'index.js', hash: 'c1' }, decl: { component: 'NotesConfig', mode: 'replace' as const }, approved: true };
 
   it('imports a build once, sharing the app’s modules first, and says when the export is missing', async () => {
     const { made, share, imported } = loader({ NotesConfig });
@@ -218,6 +219,16 @@ describe('a system’s own config component', () => {
     expect(imported).toEqual(['/clients/notes/c1/index.js']);
     expect(share).toHaveBeenCalledTimes(1);
     await expect(made.load({ ...target, decl: { component: 'Gone', mode: 'replace' } })).rejects.toThrow('no config component named Gone');
+  });
+
+  it('never imports a build no admin approved: the page says it loads once approved', async () => {
+    const { made, imported } = loader({ NotesConfig });
+    await expect(made.load({ ...target, approved: false })).rejects.toThrow(UNAPPROVED_CONFIG);
+    const wrapper = mount(ConfigCustom, { props: { target: { ...target, approved: false }, loader: made, type: TYPE, value: { folder: '/old' } satisfies Json } });
+    await flushPromises();
+    expect(wrapper.find('[data-testid="config-custom-unapproved"]').text()).toBe('Its settings page loads once you approve it.');
+    expect(wrapper.find('[data-testid="notes-config"]').exists()).toBe(false);
+    expect(imported).toEqual([]);
   });
 
   it('draws it with the config, checks a change with gin, and saves a valid one', async () => {

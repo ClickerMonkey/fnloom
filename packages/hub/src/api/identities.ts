@@ -14,8 +14,8 @@
  */
 import { verifiedEmailOf } from '@ayepi/auth/oauth';
 import {
-  DEFAULT_SIGN_IN_POLICY, managesRole, mintId, SIGN_IN_POLICY_OPTION, UserView,
-  type ActorId, type ExternalIdentity, type GroupActor, type IdentityProviderConfig, type IdRandom, type Json, type SignInPolicy, type SsoOutcome, type UserActor, type UserRole,
+  DEFAULT_SIGN_IN_LIMITS, DEFAULT_SIGN_IN_POLICY, managesRole, mintId, SIGN_IN_LIMITS_OPTION, SIGN_IN_POLICY_OPTION, UserView,
+  type ActorId, type ExternalIdentity, type GroupActor, type IdentityProviderConfig, type IdRandom, type Json, type SignInLimits, type SignInPolicy, type SsoOutcome, type UserActor, type UserRole,
 } from '@harness/core';
 import { GROUP_COLUMNS, USER_COLUMNS } from '../query/columns.ts';
 import type { HubStore } from '../store/index.ts';
@@ -62,6 +62,12 @@ export async function findUserByEmail(store: HubStore, email: string): Promise<U
 export async function signInPolicy(store: HubStore): Promise<SignInPolicy> {
   const row = await store.table('hubOptions').get(SIGN_IN_POLICY_OPTION);
   return row?.key === SIGN_IN_POLICY_OPTION ? row.value : DEFAULT_SIGN_IN_POLICY;
+}
+
+/** How many password sign-ins the hub takes: the admin's limits, else the defaults. */
+export async function signInLimits(store: HubStore): Promise<SignInLimits> {
+  const row = await store.table('hubOptions').get(SIGN_IN_LIMITS_OPTION);
+  return row?.key === SIGN_IN_LIMITS_OPTION ? row.value : DEFAULT_SIGN_IN_LIMITS;
 }
 
 /**

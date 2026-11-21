@@ -10,6 +10,7 @@ import { followRedirects, type FollowedResponse } from '@harness/sdk/server';
 import { Json, type ApiService, type ConnectionAccount, type ContentRef, type HttpExchange, type RemoteCredentials, type ResourceUri } from '@harness/core';
 import { z } from 'zod';
 import type { HttpParam, HttpRequest } from '../shared/http.ts';
+import type { AddressCheck } from './guard.ts';
 
 /** Why a request was not sent: it leaves the base URL, its body is not one slot, or there is no credential. */
 export class RequestRefused extends Error {
@@ -51,6 +52,8 @@ export interface SendCtx {
   bytes(uri: ResourceUri): Promise<Uint8Array<ArrayBuffer>>;
   /** The redirects one request follows; each must stay under the base URL, so a credential never leaves it. */
   readonly maxRedirects: number;
+  /** The service's address check (`ServiceGuard`), run before every hop: no private address unless an admin allowed it. */
+  readonly guard: AddressCheck;
 }
 
 /** The base URL a connection's credentials were given for, kept beside them. */
@@ -211,8 +214,9 @@ export interface Sent {
 }
 
 /**
- * Send a prepared request, following redirects by hand (the SDK's `followRedirects`): every hop must stay under the
- * base URL, since fetch would carry the service's credential headers to any host a redirect names. Only a GET or HEAD
+ * Send a prepared request, following redirects by hand (the SDK's `followRedirects`): every hop, the first too, must
+ * stay under the base URL, since fetch would carry the service's credential headers to any host a redirect names, and
+ * pass the service's address check, so no hop reaches a private address unless an admin allowed it. Only a GET or HEAD
  * follows one; a request that changes something is never sent twice.
  */
 async function follow(prepared: Prepared, service: ApiService, ctx: SendCtx, signal: AbortSignal): Promise<FollowedResponse> {
@@ -220,7 +224,10 @@ async function follow(prepared: Prepared, service: ApiService, ctx: SendCtx, sig
   return await followRedirects(prepared.url.href, { ...prepared.init, signal }, {
     fetch: ctx.fetch,
     redirects: reads ? ctx.maxRedirects : 0,
-    check: (url) => underBase(service.baseUrl, url) ? Promise.resolve() : Promise.reject(new RequestRefused(`The service redirected to ${url.href}, outside its base URL (${service.baseUrl}).`)),
+    async check(url, checking) {
+      if (!underBase(service.baseUrl, url)) { throw new RequestRefused(`The service redirected to ${url.href}, outside its base URL (${service.baseUrl}).`); }
+      await ctx.guard.check(url, checking);
+    },
     problems: {
       noLocation: (at) => new RequestRefused(`The service at ${at.href} redirected without saying where.`),
       tooMany: (start, limit) => new RequestRefused(reads ? `${start.href} redirected more than ${String(limit)} times.` : `${start.href} redirected a ${prepared.init.method ?? 'request'}, which is not sent again.`),

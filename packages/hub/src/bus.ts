@@ -6,7 +6,7 @@
  * Owner: the api lane implements `EventBus` (`bus/memory.ts`); every module publishes and subscribes through it.
  */
 import type {
-  ActorId, Approval, BudgetRule, ChatMessage, DeliveryView, FnRecord, FnStats, HandlerCall, HubMcpId, MessageId, PairingRequest, Presence, QualifiedName, ResourceChange,
+  ActorId, Approval, AuthSessionId, BudgetRule, ChatMessage, DeliveryView, FnRecord, FnStats, HandlerCall, HubMcpId, MessageId, PairingRequest, Presence, QualifiedName, ResourceChange,
   FormKind, OutputLine, ResourceRoot, ResourceUri, RunId, RunUpdate, SessionControls, SessionId, SessionSummary, StateFieldValue, SystemName, SystemStatus, Notification,
   HubIdentity, ModelRole, TurnId,
 } from '@harness/core';
@@ -26,7 +26,8 @@ export interface HubEvents {
   'state.changed': { session: SessionId; system: SystemName; fields: StateFieldValue[] };
   'delivery': { session: SessionId; delivery: DeliveryView };
   'handler': { session?: SessionId; call: HandlerCall };
-  'approval': { session?: SessionId; approval: Approval; approvers: readonly ActorId[] };
+  /** `approvers` answer it; `turnUser` is the person whose turn asked (who also sees it wait). */
+  'approval': { session?: SessionId; approval: Approval; approvers: readonly ActorId[]; turnUser: ActorId };
   'presence': { presence: Presence };
   'notification': { notification: Notification };
   'system.status': { system: SystemName; status: SystemStatus };
@@ -38,6 +39,8 @@ export interface HubEvents {
   'system.notice': { system: SystemName; title: string; body: string };
   'system.output': { system: SystemName; line: OutputLine };
   'pairing': { pairing: PairingRequest };
+  /** A person's access ended: one sign-in (`session`, signed out) or all of theirs (turned off). Their live events stop. */
+  'access.ended': { user: ActorId; session?: AuthSessionId };
   /** Build 8: the hub's display name changed. */
   'identity': { identity: HubIdentity };
   'catalog.changed': { added: QualifiedName[]; removed: QualifiedName[]; fns: readonly FnRecord[] };
@@ -61,9 +64,9 @@ export interface HubEvents {
 
 export type HubEventName = keyof HubEvents;
 
-/** A typed publish/subscribe bus. Listeners run after the publishing call returns; a throwing listener is logged, not propagated. */
+/** A typed publish/subscribe bus. Listeners run after the publishing call returns; a listener that throws or rejects is logged, not propagated. */
 export interface EventBus {
   publish<E extends HubEventName>(event: E, data: HubEvents[E]): void;
   /** Returns the unsubscribe. */
-  subscribe<E extends HubEventName>(event: E, listener: (data: HubEvents[E]) => void): () => void;
+  subscribe<E extends HubEventName>(event: E, listener: (data: HubEvents[E]) => void | Promise<void>): () => void;
 }

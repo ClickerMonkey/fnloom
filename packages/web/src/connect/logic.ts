@@ -129,6 +129,8 @@ export interface InstanceCard {
   readonly id: string;
   readonly label: string;
   readonly connect: InstanceConnect;
+  /** The host its requests go to (an API service's base URL), shown so people see where a token goes. */
+  readonly host?: string | undefined;
   /** The person's own connection to it: the newest, if any. */
   readonly own: ConnectionView | undefined;
   /** Connections to it others shared with the person (a shared sign-in an admin made). */
@@ -155,9 +157,9 @@ export function scopedPage(page: Pick<ConnectPage, 'decl'>): boolean {
 /** The cards of an instance- or key-scoped page, in label order; empty for a page connected to as a whole. */
 export function instanceCards(page: ConnectPage, me: ActorId | undefined, isAdmin: boolean): InstanceCard[] {
   const newest = [...page.connections].sort((a, b) => b.updatedAt - a.updatedAt);
-  const targets: Array<Pick<InstanceCard, 'target' | 'id' | 'label' | 'connect'>> = [
+  const targets: Array<Pick<InstanceCard, 'target' | 'id' | 'label' | 'connect' | 'host'>> = [
     ...(page.instances ?? []).map((entry) => ({ target: { instance: entry.instance }, id: entry.instance, label: entry.label, connect: entry.connect })),
-    ...(page.keys ?? []).map((entry) => ({ target: { key: entry.key }, id: entry.key, label: entry.label, connect: entry.connect })),
+    ...(page.keys ?? []).map((entry) => ({ target: { key: entry.key }, id: entry.key, label: entry.label, connect: entry.connect, host: entry.host })),
   ];
   return targets.map((entry) => {
     const mine = newest.filter((c) => isTo(c, entry.target));

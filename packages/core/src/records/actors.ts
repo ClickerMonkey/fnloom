@@ -49,6 +49,9 @@ export type Membership = z.infer<typeof Membership>;
 export const Credential = z.object({ user: ActorId, kind: z.enum(['password', 'passkey']), secretHash: z.string(), createdAt: Timestamp });
 export type Credential = z.infer<typeof Credential>;
 
+/** How many rotated refresh token hashes a session keeps. */
+export const ROTATED_KEPT = 8;
+
 /** A signed-in browser: makes refresh and revocation of access tokens possible. */
 export const AuthSession = z.object({
   id: AuthSessionId,
@@ -56,6 +59,12 @@ export const AuthSession = z.object({
   /** Bumped to revoke every token of this session. */
   version: z.number().int().min(1),
   refreshHash: z.string(),
+  /**
+   * The hashes of the refresh tokens this session rotated away from, newest first (at most `ROTATED_KEPT`): one of
+   * them used again means someone else had it, and the session ends. A secret that was never this session's is only
+   * refused, so a guess at someone's session id can't sign them out.
+   */
+  rotatedHashes: z.array(z.string()).optional(),
   device: z.string(),
   createdAt: Timestamp,
   lastSeenAt: Timestamp,

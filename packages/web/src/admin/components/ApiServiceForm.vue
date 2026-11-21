@@ -2,10 +2,11 @@
 /**
  * An API service's settings (`ApiService`, a record of the one api instance): its label and description, the base URL
  * every request is made under, how it signs in (never the secret: tokens are connections, set on the sign-ins page),
- * headers sent on every request, its OpenAPI document (the authoring agent reads its operations), and its limits. The
- * parent checks and saves the draft; problems come by field path.
+ * headers sent on every request, its OpenAPI document (the authoring agent reads its operations), its limits, whether
+ * it may reach private addresses, and whether everyone sees it (a service a person's agent added is theirs until an
+ * admin shares it). The parent checks and saves the draft; problems come by field path.
  */
-import { UiInput, UiTextarea } from '../../ui/index.ts';
+import { UiInput, UiSwitch, UiTextarea } from '../../ui/index.ts';
 import { API_AUTH_KINDS, type ApiServiceDraft } from '../logic/api-services.ts';
 import type { PathProblems } from '../../state/problems.ts';
 import { draftFields } from '../state/draft.ts';
@@ -24,6 +25,8 @@ const headers = field('headers');
 const openapi = field('openapi');
 const timeout = field('timeout');
 const maxBody = field('maxBody');
+const allowPrivate = field('allowPrivate');
+const shared = field('shared');
 </script>
 
 <template>
@@ -41,6 +44,11 @@ const maxBody = field('maxBody');
       <UiInput v-model="timeout" label="Request timeout (seconds)" type="number" hint="A slower request is stopped." :error="problems['timeout'] ?? ''" />
       <UiInput v-model="maxBody" label="Largest body kept (KB)" type="number" hint="A larger response becomes a resource." :error="problems['maxBody'] ?? ''" />
     </div>
+    <UiSwitch v-model="allowPrivate" label="Allow private addresses" description="Let requests reach your own network (localhost, 10.x, 192.168.x). Off by default." data-testid="service-allow-private" />
+    <UiSwitch
+      v-if="draft.privateTo !== undefined" v-model="shared" label="Shared with everyone"
+      description="Added by someone's agent: only they see it until you share it." data-testid="service-shared"
+    />
   </div>
 </template>
 

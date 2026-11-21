@@ -3,6 +3,11 @@
  * on any page loads the app) and systems' client builds at `/clients/<system>/<build hash>/<path>`. Client files are
  * content refs named by their hash, so they are cached for good; the web app's hashed `assets/` are too, and
  * `index.html` is always checked again.
+ *
+ * Every hub response carries `SECURITY_HEADERS` (`secureResponse`, set by the HTTP front before any route answers):
+ * no MIME sniffing, never framed by another page, and the origin only as a referrer. The app page adds its content
+ * security policy (`appCsp`). A client build's files other than what a page loads into itself (scripts, styles,
+ * fonts, pictures) are sent as downloads, so a build's `.html` or `.svg` never runs as a page on the hub's origin.
  */
 import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
@@ -10,16 +15,68 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join, resolve, sep } from 'node:path';
 import { Readable } from 'node:stream';
 import { SystemName } from '@harness/core';
-import type { Catalog } from '../catalog/index.ts';
 import type { ContentStore } from './index.ts';
 import { mimeOf } from './mime.ts';
-import { clientItemName, type SystemLifecycle } from '../link/lifecycle.ts';
+import type { SystemLifecycle } from '../link/lifecycle.ts';
 import type { HubIdentityService } from '../boot/identity.ts';
 
 /** Serves one kind of file; resolves true when it answered the request. */
 export interface FileRoute {
   serve(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean>;
 }
+
+/** The headers every hub response carries (the app page's CSP replaces the bare `frame-ancestors` one). */
+export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
+  'x-content-type-options': 'nosniff',
+  'x-frame-options': 'DENY',
+  'content-security-policy': "frame-ancestors 'none'",
+  'referrer-policy': 'strict-origin-when-cross-origin',
+};
+
+/** Put `SECURITY_HEADERS` on a response before anything answers it (a route's own headers add to them or replace them). */
+export function secureResponse(res: ServerResponse): void {
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) { res.setHeader(name, value); }
+}
+
+/**
+ * The policy on the presigned file transfers (`/_files`): what people upload is shown as it is (a picture, a video, a
+ * PDF, text) but never runs, so an uploaded `.html` or `.svg` opened from its link can't act as the hub's page. The app
+ * may frame one (the PDF viewer's fallback), nothing else may.
+ */
+export const FILES_HEADERS: Readonly<Record<string, string>> = {
+  'content-security-policy': "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; object-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'",
+  'x-frame-options': 'SAMEORIGIN',
+};
+
+/** Put `FILES_HEADERS` on a presigned file transfer's response (after `secureResponse`). */
+export function secureFileResponse(res: ServerResponse): void {
+  for (const [name, value] of Object.entries(FILES_HEADERS)) { res.setHeader(name, value); }
+}
+
+/** A `Host` header that is only a host and port (so it can go in a policy as it is). */
+const PLAIN_HOST = /^[A-Za-z0-9.-]+(?::\d{1,5})?$|^\[[0-9A-Fa-f:.]+\](?::\d{1,5})?$/;
+
+/**
+ * The web app page's content security policy. Scripts only from the hub (the app's modules, system client builds
+ * under `/clients`, pdf.js's worker, the service worker), never inline or `eval`; no plugins, no `<base>`, never
+ * framed. Styles allow inline ones: Vue writes static parts of templates as HTML with `style` attributes, and
+ * mermaid measures its diagrams with a `<style>` in the page. Images may be anywhere on https (the UI asks before
+ * loading outside ones), `data:` and `blob:` (mermaid diagrams, pasted pictures). Requests and sockets go to the
+ * hub only: the page's own origin, the host it was reached at over ws/wss, and `HARNESS_URL` (the hub MCPs' URLs).
+ */
+export function appCsp(hubUrl: string, host: string | undefined): string {
+  const hub = new URL(hubUrl);
+  const sockets = [hub.host, ...(host !== undefined && PLAIN_HOST.test(host) ? [host] : [])];
+  const connect = ["'self'", hub.origin, ...[...new Set(sockets)].flatMap((h) => [`ws://${h}`, `wss://${h}`])];
+  return [
+    "default-src 'self'", "script-src 'self'", "object-src 'none'", "base-uri 'none'", "frame-ancestors 'none'", "form-action 'self'",
+    "img-src 'self' data: blob: https:", "style-src 'self' 'unsafe-inline'", "font-src 'self' data:", "worker-src 'self' blob:",
+    "media-src 'self' blob: data:", `connect-src ${connect.join(' ')}`,
+  ].join('; ');
+}
+
+/** The file types a client build serves as they are: what a page loads into itself, never a page of its own. */
+const CLIENT_INLINE = /\.(?:m?js|css|map|woff2?|ttf|otf|json|wasm|png|jpe?g|gif|webp|avif|ico)$/i;
 
 const FOREVER = 'public, max-age=31536000, immutable';
 const ALWAYS_CHECK = 'no-cache';
@@ -78,10 +135,13 @@ export function webManifest(name: string): string {
 export class WebAppRoute implements FileRoute {
   readonly #root: string;
   readonly #identity: Pick<HubIdentityService, 'identity'>;
+  readonly #hubUrl: string;
 
-  constructor(root: string, identity: Pick<HubIdentityService, 'identity'>) {
+  /** `hubUrl` is `HARNESS_URL`, which the page's policy lets it reach. */
+  constructor(root: string, identity: Pick<HubIdentityService, 'identity'>, hubUrl: string) {
     this.#root = resolve(root);
     this.#identity = identity;
+    this.#hubUrl = hubUrl;
   }
 
   async serve(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
@@ -95,7 +155,10 @@ export class WebAppRoute implements FileRoute {
     if (file === undefined) { return false; }
     if (file.path === join(this.#root, 'index.html')) {
       const body = namedIndexHtml(await readFile(file.path, 'utf8'), (await this.#identity.identity()).name);
-      send(res, 200, { 'content-type': 'text/html; charset=utf-8', 'content-length': Buffer.byteLength(body), 'cache-control': ALWAYS_CHECK }, headOnly(req) ? '' : body);
+      send(res, 200, {
+        'content-type': 'text/html; charset=utf-8', 'content-length': Buffer.byteLength(body), 'cache-control': ALWAYS_CHECK,
+        'content-security-policy': appCsp(this.#hubUrl, req.headers.host),
+      }, headOnly(req) ? '' : body);
       return true;
     }
     const headers = { 'content-type': mimeOf(file.path), 'content-length': file.size, 'cache-control': path.startsWith('/assets/') ? FOREVER : ALWAYS_CHECK };
@@ -122,14 +185,12 @@ export class WebAppRoute implements FileRoute {
 /** The prefix client builds are served under. */
 export const CLIENTS_PATH = '/clients/';
 
-/** Systems' client builds, from their content refs; none while switched off or changed and waiting for review. */
+/** Systems' client builds, from their content refs: only the build an admin approved (`SystemLifecycle.approvedClient`). */
 export class ClientBuildRoute implements FileRoute {
-  readonly #catalog: Pick<Catalog, 'manifest'>;
   readonly #content: Pick<ContentStore, 'open'>;
-  readonly #lifecycle: () => Pick<SystemLifecycle, 'off'>;
+  readonly #lifecycle: () => Pick<SystemLifecycle, 'approvedClient'>;
 
-  constructor(options: { catalog: Pick<Catalog, 'manifest'>; content: Pick<ContentStore, 'open'>; lifecycle: () => Pick<SystemLifecycle, 'off'> }) {
-    this.#catalog = options.catalog;
+  constructor(options: { content: Pick<ContentStore, 'open'>; lifecycle: () => Pick<SystemLifecycle, 'approvedClient'> }) {
     this.#content = options.content;
     this.#lifecycle = options.lifecycle;
   }
@@ -141,12 +202,15 @@ export class ClientBuildRoute implements FileRoute {
     const [system, build, ...rest] = parts;
     const name = SystemName.safeParse(system);
     if (!name.success || build === undefined || rest.length === 0) { return notFound(res); }
-    const off = await this.#lifecycle().off('components', { system: name.data });
-    const client = off.has(clientItemName(name.data)) ? undefined : (await this.#catalog.manifest(name.data))?.client;
+    // only a build an admin approved: never one of a system still installed, waiting for review, or switched off
+    const client = await this.#lifecycle().approvedClient(name.data);
     const file = client?.hash === build ? client.files.find((f) => f.path === rest.join('/')) : undefined;
     const bytes = file === undefined ? undefined : await this.#content.open(file.hash);
     if (file === undefined || bytes === undefined) { return notFound(res); }
-    const headers = { 'content-type': mimeOf(file.path), 'content-length': bytes.size, 'cache-control': FOREVER, etag: `"${file.hash}"` };
+    const headers = {
+      'content-type': mimeOf(file.path), 'content-length': bytes.size, 'cache-control': FOREVER, etag: `"${file.hash}"`,
+      ...(CLIENT_INLINE.test(file.path) ? {} : { 'content-disposition': 'attachment' }),
+    };
     if (req.headers['if-none-match'] === headers.etag) {
       await bytes.stream.cancel();
       send(res, 304, { etag: headers.etag, 'cache-control': FOREVER }, '');

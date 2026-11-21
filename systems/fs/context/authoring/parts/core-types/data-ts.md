@@ -167,6 +167,7 @@ type RecordStorage = {
     text: string[];
     embed: boolean;
   };
+  writers?: "admins" | undefined;
 };
 ```
 

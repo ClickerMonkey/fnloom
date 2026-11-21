@@ -5,7 +5,7 @@ title: "Worked examples: scripts/docs/example/tsconfig.json"
 description: "Worked examples, the part on scripts/docs/example/tsconfig.json."
 summary: "Worked examples: scripts/docs/example/tsconfig.json."
 parent: "fs/authoring.examples"
-next: "fs/authoring.examples.systems-fs-shared-index-ts-lines-1-217"
+next: "fs/authoring.examples.systems-fs-shared-index-ts-lines-1-219"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash"]
 tags: ["authoring"]
 ---

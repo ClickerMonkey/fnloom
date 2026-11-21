@@ -55,6 +55,8 @@ const ADMIN_ENDPOINTS = {
   update_user: settingsSlice.endpoints.updateUser,
   set_membership: settingsSlice.endpoints.setMembership,
   set_sign_in_policy: settingsSlice.endpoints.setSignInPolicy,
+  set_sign_in_limits: settingsSlice.endpoints.setSignInLimits,
+  set_proxy_trust: settingsSlice.endpoints.setProxyTrust,
   remove_rule: adminSlice.endpoints.removeRule,
   approve_pairing: systemsSlice.endpoints.approvePairing,
   create_pairing_token: systemsSlice.endpoints.createPairingToken,

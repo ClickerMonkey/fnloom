@@ -14,7 +14,7 @@ import { z } from 'zod';
 import { GinExprDef, GinTypeDef } from './gin.ts';
 import { ConnectKey } from './connections.ts';
 import type { RecordStorage } from './data.ts';
-import { Json } from './primitives.ts';
+import { ActorId, Json } from './primitives.ts';
 import { HeaderValues, RecordAuth, TypedAuth, TYPED_AUTH_SECRETS } from './remote-auth.ts';
 import type { ConfigPath } from './config-secrets.ts';
 
@@ -66,9 +66,12 @@ export type ApiServiceName = ConnectKey;
 /** The stored type of api services (`api/Service`): the api system's records, one per web API service. */
 export const API_SERVICE_TYPE = 'api/Service';
 
-/** How `api/Service` keeps its records: shared, searched by label, name, description and base URL. */
+/**
+ * How `api/Service` keeps its records: shared, changed only by admins (and the api system, which adds a service its
+ * agent was asked for as its person's own), searched by label, name, description and base URL.
+ */
 export const API_SERVICE_RECORDS = {
-  shape: 'table', owner: 'shared', search: { text: ['label', 'name', 'description', 'baseUrl'], embed: false },
+  shape: 'table', owner: 'shared', writers: 'admins', search: { text: ['label', 'name', 'description', 'baseUrl'], embed: false },
 } as const satisfies RecordStorage;
 
 /**
@@ -83,6 +86,16 @@ export const ApiService = z.object({
   description: z.string().optional(),
   /** Every request's URL is relative to this; a program can't leave it. */
   baseUrl: z.url(),
+  /**
+   * Set by an admin: requests (and its OpenAPI document) may reach private, loopback and link-local addresses (your
+   * own network). Off, every hop to one is refused.
+   */
+  allowPrivate: z.boolean().default(false),
+  /**
+   * A service a person's agent added: only they see it and connect to it until an admin shares it (clears this).
+   * Absent: everyone.
+   */
+  privateTo: ActorId.optional(),
   /** How it signs in; the credentials are connections (`RecordAuth`). */
   auth: RecordAuth.default({ kind: 'none' }),
   /** Headers sent on every request (not secrets; `auth` carries those). */

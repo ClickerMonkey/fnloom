@@ -48,6 +48,12 @@ export const Root = g.obj({
   index: g.enum(['all', 'on-read', 'none']),
 });
 
+/** How many undo copies fs keeps: per file (the newest), and in all (the oldest go first). */
+export const SnapshotLimits = g.obj({
+  perFile: g.field(g.num({ min: 1, whole: true }), { docs: 'Undo copies kept per file.' }),
+  totalMb: g.field(g.num({ min: 1, whole: true }), { docs: 'Most space all undo copies use, in MB.' }),
+});
+
 /** What a command printed and how it ended. */
 export const CommandResult = g.obj({ exitCode: g.num({ whole: true }), stdout: g.text(), stderr: g.text() });
 
@@ -97,11 +103,17 @@ export const fs = system('fs', {
       // its own source folder, so it can change itself and restart
       self: g.optional(g.text()),
       // which files are sensitive and what reads and writes of them do (server/sensitive.ts); left out: the defaults
-      // (gitignored files, env files but the example, keys, credentials, tokens and passwords in content); [] trusts all
+      // (gitignored files, env files but the example, keys, credentials, tokens and passwords in content, and writes of
+      // files that lead to running code); [] trusts all but writes into .git, which always ask
       sensitive: g.optional(g.list(ginAs(SensitivityRule))),
       // before build 8: globs of files never served as resources (`!` serves one again); turned into rules when
       // `sensitive` is absent
       secrets: g.optional(g.list(g.text())),
+      // the env variables bash commands get besides PATH, home, temp and locale (server/shell.ts `commandEnv`); left
+      // out: none, so fs's own keys never reach a command
+      commandEnv: g.field(g.optional(g.list(g.text({ minLength: 1 }))), { docs: 'Env variables commands also get, by name. Others are never passed on.' }),
+      // how many undo copies fs keeps (server/snapshots.ts); left out: SNAPSHOT_DEFAULTS
+      snapshots: g.field(g.optional(SnapshotLimits), { docs: 'How many undo copies to keep per file, and how much space they may use in all.' }),
     }),
     types: { Entry },
     settings: {
@@ -469,6 +481,10 @@ export type CommandOutput = Infer<typeof CommandResult>;
 export type DiffValue = Infer<typeof DiffData>;
 /** The shell setting's value. */
 export type ShellPolicyValue = Infer<typeof ShellPolicy>;
+/** How many undo copies fs keeps. */
+export type SnapshotLimitsValue = Infer<typeof SnapshotLimits>;
+/** The undo copies kept when the config names no limits: 20 per file, 500 MB in all. */
+export const SNAPSHOT_DEFAULTS: SnapshotLimitsValue = { perFile: 20, totalMb: 500 };
 /** The files mention's target. */
 export type FileTargetValue = Infer<typeof FileTarget>;
 /** What undo needs to put a file back. */

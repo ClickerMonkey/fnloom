@@ -15,7 +15,11 @@
 import { z } from 'zod';
 
 /** What makes a file sensitive. */
-export const SENSITIVITY_KINDS = ['gitignored', 'env', 'key', 'credential', 'token', 'secret-content'] as const;
+/**
+ * `runs-code`: a file whose change leads to running code (git internals, package scripts, tool configs);
+ * `unknown-path`: a command line's path that can't be told (a variable, `~`, a glob, or outside the roots).
+ */
+export const SENSITIVITY_KINDS = ['gitignored', 'env', 'key', 'credential', 'token', 'secret-content', 'runs-code', 'unknown-path'] as const;
 export const SensitivityKind = z.enum(SENSITIVITY_KINDS);
 export type SensitivityKind = z.infer<typeof SensitivityKind>;
 

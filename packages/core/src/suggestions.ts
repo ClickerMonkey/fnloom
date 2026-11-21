@@ -8,7 +8,8 @@ import { AutoClassifier } from './fn-facts.ts';
 import { HUB_NAME_OPTION, HubDisplayName } from './identity.ts';
 import { ImageEmbedding } from './image-embeddings.ts';
 import { RoleModel } from './model-calls.ts';
-import { SIGN_IN_POLICY_OPTION, SignInPolicy } from './sso.ts';
+import { PROXY_TRUST_OPTION, ProxyTrust, SIGN_IN_LIMITS_OPTION, SIGN_IN_POLICY_OPTION, SignInLimits, SignInPolicy } from './sso.ts';
+import { OUTSIDE_IMAGES_OPTION, OutsideImages } from './urls.ts';
 import { ActorId, ModelCallId, QualifiedName, Timestamp } from './primitives.ts';
 
 /** Who chose: the score threshold (records from before 2026-11-19, when no model picked), the decision model, or the graph contextor's selection. */
@@ -127,5 +128,11 @@ export const HubOption = z.discriminatedUnion('key', [
   z.object({ key: z.literal('imageEmbedding'), value: ImageEmbedding, setBy: ActorId, updatedAt: Timestamp }),
   /** SSO: who may make an account by signing in through a provider for the first time (`sso.ts`). */
   z.object({ key: z.literal(SIGN_IN_POLICY_OPTION), value: SignInPolicy, setBy: ActorId, updatedAt: Timestamp }),
+  /** Whether markdown images from outside the hub load at once or wait for a click (`urls.ts`). */
+  z.object({ key: z.literal(OUTSIDE_IMAGES_OPTION), value: OutsideImages, setBy: ActorId, updatedAt: Timestamp }),
+  /** How many password sign-ins the hub takes (`sso.ts`). */
+  z.object({ key: z.literal(SIGN_IN_LIMITS_OPTION), value: SignInLimits, setBy: ActorId, updatedAt: Timestamp }),
+  /** Whether proxies in front of the hub say where requests come from (`sso.ts`). */
+  z.object({ key: z.literal(PROXY_TRUST_OPTION), value: ProxyTrust, setBy: ActorId, updatedAt: Timestamp }),
 ]);
 export type HubOption = z.infer<typeof HubOption>;

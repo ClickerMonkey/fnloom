@@ -42,6 +42,7 @@ export const httpEnv = env({
   HARNESS_MAX_UPLOAD: z.number().int().min(1).default(100 * 1024 * 1024).describe('The largest upload, in bytes.'),
   HARNESS_PRESIGN_TTL: z.number().int().min(1_000).default(600_000).describe('How long a presigned upload or download URL stays valid.'),
   HARNESS_WS_HEARTBEAT: z.number().int().min(1_000).default(30_000).describe('The WebSocket ping interval; a connection that misses a pong is dropped.'),
+  HARNESS_WS_MAX_MESSAGE: z.number().int().min(16_384).default(4_194_304).describe('The largest message a browser socket may send, in bytes; a bigger one closes the socket.'),
   HARNESS_WS_TOKEN_MARGIN: z.number().int().min(0).default(10_000).describe('A browser socket is closed this long before its access token expires, so it reconnects with a fresh one.'),
   HARNESS_SHED_THRESHOLD: z.number().int().min(1).default(200).describe('Event-loop delay (running average) that counts as overloaded.'),
   HARNESS_SHED_SUSTAINED: z.number().int().min(0).default(1_000).describe('How long the loop must stay overloaded before requests are refused.'),
@@ -57,8 +58,6 @@ export const authEnv = env({
   HARNESS_ADMIN_PASSWORD: z.string().min(8).optional().describe('The single admin account\'s password (at least 8 characters).'),
   HARNESS_ACCESS_TTL: z.number().int().min(60_000).default(900_000).describe('How long an access token lasts.'),
   HARNESS_REFRESH_TTL: z.number().int().min(3_600_000).default(30 * 86_400_000).describe('How long a refresh token lasts.'),
-  HARNESS_SIGN_IN_LIMIT: z.number().int().min(1).default(10).describe('Most sign-in attempts from one address in a window.'),
-  HARNESS_SIGN_IN_WINDOW: z.number().int().min(1_000).default(60_000).describe('The window sign-in attempts are counted over.'),
   HARNESS_PASSWORD_COST: z.number().int().min(10).max(20).default(15).describe('scrypt\'s cost as a power of two (15: 32 768 rounds).'),
   HARNESS_FILES_SECRET: z.string().min(32).optional().describe('Signs presigned file URLs.'),
   HARNESS_SSO_PROVIDERS: IdentityProviderConfigs.default([]).describe(
@@ -85,10 +84,17 @@ export const queueEnv = env({
 
 /** The system link. */
 export const linkEnv = env({
-  HARNESS_MAX_FRAME: z.number().int().min(16_384).default(262_144).describe('The largest frame a system link accepts, in bytes.'),
+  HARNESS_MAX_FRAME: z.number().int().min(16_384).default(4_194_304).describe('The largest frame a system link accepts, in bytes; a bigger one closes the link.'),
   HARNESS_MAX_CHUNK: z.number().int().min(16_384).default(131_072).describe('The largest chunk a stream is cut into on a system link, in bytes.'),
   HARNESS_HEARTBEAT: z.number().int().min(1_000).default(15_000).describe('How often a system link is pinged; a link that misses a pong is dropped.'),
   HARNESS_PAIRING_TIMEOUT: z.number().int().min(10_000).default(600_000).describe('How long a pairing request waits for an admin.'),
+  HARNESS_PAIRING_LIMIT: z.number().int().min(1).default(10).describe('Most pairing requests (with a code or auto pair) from one address in HARNESS_PAIRING_WINDOW.'),
+  HARNESS_PAIRING_LIMIT_TOTAL: z.number().int().min(1).default(60).describe('Most pairing requests from every address together in HARNESS_PAIRING_WINDOW.'),
+  HARNESS_PAIRING_WINDOW: z.number().int().min(1_000).default(600_000).describe('The window pairing requests are counted in, in milliseconds.'),
+  HARNESS_LINK_HELLO_TIMEOUT: z.number().int().min(1_000).default(15_000).describe('How long a new system link may take to say hello before it is closed.'),
+  HARNESS_LINK_UNLINKED_PER_ADDRESS: z.number().int().min(1).default(32).describe('Most system links from one address that have not finished the handshake (waiting to pair counts) at once.'),
+  HARNESS_LINK_UNLINKED_MAX: z.number().int().min(1).default(128).describe('Most system links from every address that have not finished the handshake at once.'),
+  HARNESS_LINK_MAX_UPLOADS: z.number().int().min(1).default(16).describe('Most uploads one system may have in progress at once.'),
   HARNESS_PAIRING_GRANT_TTL: z.number().int().min(5_000).default(60_000).describe('How long a pairing token granted to an approved install run stays good.'),
   HARNESS_STOP_TIMEOUT: z.number().int().min(100).default(10_000).describe('How long an installed system has to stop before it is killed.'),
   HARNESS_RESTART_BACKOFF: z.number().int().min(100).default(2_000).describe('The first delay before an installed system that exited is started again.'),

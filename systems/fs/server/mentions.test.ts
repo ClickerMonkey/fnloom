@@ -5,9 +5,12 @@ import { FileService } from './files.ts';
 import type { Document, Documents } from './index.ts';
 import { FileMentions, PathIndex, rank, score } from './mentions.ts';
 import { RootGuard, fileUri } from './paths.ts';
+import { DEFAULT_SENSITIVITY_RULES, Sensitivity } from './sensitive.ts';
 import { DiskSnapshots } from './snapshots.ts';
-import { tempFolder } from './testing.ts';
+import { NO_IGNORES, tempFolder } from './testing.ts';
 import type { WalkEntry } from './walk.ts';
+
+const rules = new Sensitivity(DEFAULT_SENSITIVITY_RULES, NO_IGNORES);
 
 const entry = (relative: string): WalkEntry => ({ path: `/r/${relative}`, relative, name: relative.split('/').pop() ?? relative, type: 'file', depth: relative.split('/').length });
 
@@ -75,12 +78,26 @@ describe('FileMentions', () => {
   afterEach(() => tmp.cleanup());
 
   it('searches names across roots with a hint saying where', async () => {
-    expect(await mentions.search(guard, 'guide')).toEqual([{ label: 'guide.md', hint: 'work · docs', icon: 'file', target: { root: 'work', path: 'docs/guide.md' } }]);
-    expect((await mentions.search(guard, ''))[0]).toEqual({ label: 'docs/', hint: 'work', icon: 'folder', target: { root: 'work', path: 'docs' } });
+    expect(await mentions.search(guard, 'guide', rules)).toEqual([{ label: 'guide.md', hint: 'work · docs', icon: 'file', target: { root: 'work', path: 'docs/guide.md' } }]);
+    expect((await mentions.search(guard, '', rules))[0]).toEqual({ label: 'docs/', hint: 'work', icon: 'folder', target: { root: 'work', path: 'docs' } });
+  });
+
+  it('neither lists nor previews env and key files, and fills the page past them', async () => {
+    await writeFile(`${tmp.path}/.env`, 'OPENROUTER_API_KEY=sk-or-secret\n');
+    await writeFile(`${tmp.path}/env.md`, 'about env\n');
+    await writeFile(`${tmp.path}/server.pem`, '-----BEGIN PRIVATE KEY-----\n');
+    await writeFile(`${tmp.path}/notes.txt`, 'token sk-ant-abcdefghijklmnopqrstuvwxyz0123456789\n');
+    expect((await mentions.search(guard, 'env', rules)).map((found) => found.label)).toEqual(['env.md']);
+    expect(await mentions.search(guard, 'pem', rules)).toEqual([]);
+    for (const path of ['.env', 'server.pem', 'notes.txt']) {
+      const card = await mentions.hover(guard, { root: 'work', path }, user, rules);
+      expect(card?.title).toBe(path);
+      expect(card?.body).toBeUndefined();
+    }
   });
 
   it('draws a hover card with fields, a preview and the Entry value', async () => {
-    const card = await mentions.hover(guard, { root: 'work', path: 'docs/guide.md' }, user);
+    const card = await mentions.hover(guard, { root: 'work', path: 'docs/guide.md' }, user, rules);
     expect(card).toMatchObject({
       title: 'guide.md',
       subtitle: 'work/docs/guide.md',
@@ -93,20 +110,20 @@ describe('FileMentions', () => {
   });
 
   it('draws a folder or the root without size or preview, and a short file of no known format whole', async () => {
-    const folder = await mentions.hover(guard, { root: 'work', path: 'docs' }, user);
+    const folder = await mentions.hover(guard, { root: 'work', path: 'docs' }, user, rules);
     expect(folder?.fields?.map((f) => [f.label, f.value])[0]).toEqual(['Type', 'folder']);
     expect(folder?.body).toBeUndefined();
-    expect((await mentions.hover(guard, { root: 'work', path: '' }, user))?.subtitle).toBe(tmp.path);
+    expect((await mentions.hover(guard, { root: 'work', path: '' }, user, rules))?.subtitle).toBe(tmp.path);
     await writeFile(`${tmp.path}/notes.xyz`, 'hi\n');
-    const plain = await mentions.hover(guard, { root: 'work', path: 'notes.xyz' }, user);
+    const plain = await mentions.hover(guard, { root: 'work', path: 'notes.xyz' }, user, rules);
     expect(plain?.fields?.[0]?.value).toBe('file');
     expect(plain?.body).toBe('```\nhi\n```');
   });
 
   it('has no card for something gone, outside, or in an unknown root', async () => {
-    expect(await mentions.hover(guard, { root: 'work', path: 'nope.md' }, user)).toBeUndefined();
-    expect(await mentions.hover(guard, { root: 'work', path: '../../etc/passwd' }, user)).toBeUndefined();
-    expect(await mentions.hover(guard, { root: 'other', path: 'docs' }, user)).toBeUndefined();
+    expect(await mentions.hover(guard, { root: 'work', path: 'nope.md' }, user, rules)).toBeUndefined();
+    expect(await mentions.hover(guard, { root: 'work', path: '../../etc/passwd' }, user, rules)).toBeUndefined();
+    expect(await mentions.hover(guard, { root: 'other', path: 'docs' }, user, rules)).toBeUndefined();
   });
 
   it('tells the LLM what and where a mention is, and how to read it', async () => {

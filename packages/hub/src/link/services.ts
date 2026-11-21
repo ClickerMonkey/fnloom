@@ -11,14 +11,14 @@
 import { reject as refuse, spec } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
 import {
-  hubLinkSpec, type ActorId, type AdminNotice, type AttachmentDecl, type ContentRef, type Json, type KindFnShape, type Link, type LinkSession, type QualifiedName, type Run, type RunId, type StateOwner, type TypeDefinitions,
+  hubLinkSpec, instanceLabel, type ActorId, type AdminNotice, type AttachmentDecl, type ContentRef, type Json, type KindFnShape, type Link, type LinkSession, type QualifiedName, type Run, type RunId, type StateOwner, type TypeDefinitions,
 } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
 import type { ContentStore } from '../api/index.ts';
 import { typeDefinitions } from '../catalog/definitions.ts';
 import type { Catalog } from '../catalog/index.ts';
 import type { AttachedPart, StateService } from '../chat/index.ts';
-import type { LinkHandler } from '../execution/link-handlers.ts';
+import { runIsOf, type LinkHandler } from '../execution/link-handlers.ts';
 import type { EventBus } from '../bus.ts';
 import type { HubStore } from '../store/index.ts';
 import { askingOf } from './reads.ts';
@@ -65,6 +65,8 @@ export interface LinkServiceDeps {
   readonly maxUpload: number;
   /** An upload not finished within this long is dropped. */
   readonly uploadTtl: number;
+  /** The most uploads one system may have in progress at once. */
+  readonly maxUploads: number;
   readonly clock: () => number;
   /** Build 6: what an actor may see, so `types` answers only the types the run's person (or the system) may see. */
   readonly access?: (actor: ActorId) => Promise<Pick<AccessScope, 'seesType' | 'seesFn'>>;
@@ -79,20 +81,28 @@ interface Upload {
   readonly startedAt: number;
 }
 
-/** Uploads in progress, per system, so two systems' upload ids can't collide. */
-export class ChunkedUploads {
-  readonly #open = new Map<string, Upload>();
-  readonly #deps: Pick<LinkServiceDeps, 'content' | 'maxUpload' | 'uploadTtl' | 'clock'>;
+/** What chunked uploads need. */
+type UploadDeps = Pick<LinkServiceDeps, 'content' | 'maxUpload' | 'uploadTtl' | 'maxUploads' | 'clock'>;
 
-  constructor(deps: Pick<LinkServiceDeps, 'content' | 'maxUpload' | 'uploadTtl' | 'clock'>) {
+/** Uploads in progress, per instance, so two instances' upload ids can't collide, and at most `maxUploads` per system. */
+export class ChunkedUploads {
+  readonly #open = new Map<string, Upload & { readonly system: string }>();
+  readonly #deps: UploadDeps;
+
+  constructor(deps: UploadDeps) {
     this.#deps = deps;
   }
 
   /** Add a base64 chunk; the last one stores the bytes and returns their ref. */
   async add(link: LinkSession, input: { upload: string; chunk: string; last: boolean; mime: string }): Promise<{ ref?: ContentRef }> {
     this.#sweep();
-    const key = `${link.system}\u0000${input.upload}`;
-    const upload = this.#open.get(key) ?? { chunks: [], size: 0, startedAt: this.#deps.clock() };
+    // by instance too: another instance of a fleet can't add to this one's upload
+    const key = `${link.system}\u0000${link.instance}\u0000${input.upload}`;
+    const known = this.#open.get(key);
+    if (known === undefined && this.#openOf(link.system) >= this.#deps.maxUploads) {
+      throw refuse(429, 'TOO_MANY_UPLOADS', `${link.system} has ${this.#deps.maxUploads} uploads in progress: finish one first`);
+    }
+    const upload = known ?? { chunks: [], size: 0, startedAt: this.#deps.clock(), system: link.system };
     const bytes = Buffer.from(input.chunk, 'base64');
     upload.size += bytes.length;
     if (upload.size > this.#deps.maxUpload) {
@@ -111,6 +121,13 @@ export class ChunkedUploads {
   /** How many uploads are in progress. */
   get size(): number {
     return this.#open.size;
+  }
+
+  /** How many uploads one system has in progress. */
+  #openOf(system: string): number {
+    let count = 0;
+    for (const upload of this.#open.values()) { if (upload.system === system) { count++; } }
+    return count;
   }
 
   #sweep(): void {
@@ -217,11 +234,11 @@ export class LinkServices {
     return { fn: { args: record.decl.args, returns: record.decl.returns, description: record.decl.description, mode } };
   }
 
-  /** The run a system names, refused unless that system ran it. */
+  /** The run an instance names, refused unless that instance ran it. */
   async #ownRun(link: LinkSession, id: RunId): Promise<Run> {
     const run = await this.#deps.store().table('runs').get(id);
     if (run === undefined) { throw refuse(404, 'RUN_NOT_FOUND', `no run ${id}`); }
-    if (run.system !== link.system) { throw refuse(403, 'NOT_YOUR_RUN', `run ${id} belongs to ${run.system}`); }
+    if (!runIsOf(run, link)) { throw refuse(403, 'NOT_YOUR_RUN', `run ${id} is not ${instanceLabel(link)}'s`); }
     return run;
   }
 

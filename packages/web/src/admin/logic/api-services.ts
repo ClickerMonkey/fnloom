@@ -33,6 +33,12 @@ export interface ApiServiceDraft {
   readonly openapi: string;
   readonly timeout: string;
   readonly maxBody: string;
+  /** Requests may reach private, loopback and link-local addresses (an admin's choice; off by default). */
+  readonly allowPrivate: boolean;
+  /** Everyone sees it; off for a service a person's agent added, until an admin shares it. */
+  readonly shared: boolean;
+  /** Whose own it is while not shared (kept as it was). */
+  readonly privateTo: ApiService['privateTo'];
 }
 
 /** A new service's settings: the schema's own defaults. */
@@ -57,6 +63,9 @@ export function apiServiceDraft(service?: ApiService): ApiServiceDraft {
     openapi: service?.openapi ?? '',
     timeout: String(options.timeout / 1000),
     maxBody: String(Math.round(options.maxBody / 1024)),
+    allowPrivate: service?.allowPrivate ?? false,
+    shared: service?.privateTo === undefined,
+    privateTo: service?.privateTo,
   };
 }
 
@@ -84,6 +93,8 @@ export function apiServiceValue(draft: ApiServiceDraft): { readonly ok: true; re
     ...(openapi === undefined ? {} : { openapi }),
     ...(timeout === undefined ? {} : { timeout }),
     ...(maxBody === undefined ? {} : { maxBody }),
+    allowPrivate: draft.allowPrivate,
+    ...(draft.shared || draft.privateTo === undefined ? {} : { privateTo: draft.privateTo }),
   });
   return checked.ok ? { ok: true, service: checked.value } : checked;
 }

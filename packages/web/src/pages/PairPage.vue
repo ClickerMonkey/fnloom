@@ -5,7 +5,7 @@
  * in the link is the one the system shows; the admin names the instance, fills in its config (the gin value editor,
  * from the config type the system sent) and pairs it in one step, or refuses. It then follows the system live until
  * it is connected; a newly paired system is installed, not live, so the page leads on to its review. Once it is
- * paired, its config shows again with the system's own config component when its contract names one (build 7), so a
+ * paired, its config shows again (with the system's own config component once an admin approved its build), so a
  * config the hub refused can be fixed here. Signing in comes first and returns here.
  */
 import { InstanceName, PairingId, type AutoPairChoice, type Json } from '@harness/core';
@@ -63,7 +63,7 @@ const view = computed(() => (paired.value !== undefined && systems.view.value.va
 const review = computed(() => (paired.value !== undefined && reviews.review.value.value?.system === paired.value ? reviews.review.value.value : undefined));
 const installed = computed(() => (review.value?.stage ?? view.value?.stage) === 'installed');
 const loader = configComponentsOf(chat);
-const target = computed(() => (review.value === undefined ? undefined : configTarget(review.value.manifest)));
+const target = computed(() => (review.value === undefined ? undefined : configTarget(review.value)));
 /** Its config again after pairing: when the hub refused the one given, or the system draws its own settings. */
 const showConfig = computed(() => view.value?.configType !== undefined && (phase.value === 'needs-config' || target.value !== undefined));
 const configProblems = ref<readonly string[]>([]);

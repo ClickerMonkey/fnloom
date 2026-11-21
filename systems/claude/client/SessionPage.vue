@@ -11,7 +11,7 @@
 import { InstanceName, type Json, type Remember, type SessionId } from '@harness/core';
 import type { PageViewOf } from '@harness/sdk';
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
-import { CLAUDE_PAGES, CLAUDE_SYSTEM, ClaudePermissionMode, ClaudeSessionId, type ClaudeContract, type ClaudeControl } from '../shared/index.ts';
+import { CLAUDE_PAGES, CLAUDE_SYSTEM, ClaudePermissionMode, ClaudeSessionId, asksPerson, type ClaudeContract, type ClaudeControl } from '../shared/index.ts';
 import { plainClick } from './host.ts';
 import TaskList from './TaskList.vue';
 import { folderName, isLive, MODE_CHOICES, MODE_LABEL, statusLook, taskTree, transcriptEntries } from './logic.ts';
@@ -78,7 +78,7 @@ const text = ref('');
 async function act(action: ClaudeControl['action'], next?: ClaudePermissionMode): Promise<void> {
   const current = store.value;
   if (current === undefined) { return; }
-  if (await current.control(action, next)) { host.notify.ok(next !== undefined ? `Mode: ${MODE_LABEL[next]}` : action === 'stop' ? 'Session stopped' : 'Interrupted'); }
+  if (await current.control(action, next)) { host.notify.ok(next !== undefined ? (asksPerson(next) ? `Approve ${MODE_LABEL[next]} on its card` : `Mode: ${MODE_LABEL[next]}`) : action === 'stop' ? 'Session stopped' : 'Interrupted'); }
   else { host.notify.error(action === 'mode' ? "Couldn't switch the mode" : action === 'stop' ? "Couldn't stop it" : "Couldn't interrupt it", current.problem.value); }
 }
 

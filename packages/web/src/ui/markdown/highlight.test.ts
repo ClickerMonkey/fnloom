@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 import UiCodeBlock from '../UiCodeBlock.vue';
 import { highlight, knowsLanguage } from './highlight.ts';
-import { safeLink } from './inline.ts';
+import { safeHref } from '@harness/sdk';
 import UiMarkdown from './UiMarkdown.vue';
 
 const kinds = (code: string, language: string) => highlight(code, language).filter((t) => t.kind !== 'plain').map((t) => [t.kind, t.text]);
@@ -34,9 +34,9 @@ describe('highlight', () => {
 
 describe('markdown links and images', () => {
   it('links resource URIs (in links and code spans) to navigate, never script URLs', async () => {
-    expect(safeLink('fs://docs/a.md')).toBe('fs://docs/a.md');
-    expect(safeLink('javascript://x')).toBeUndefined();
-    expect(safeLink('data://x')).toBeUndefined();
+    expect(safeHref('fs://docs/a.md')).toBe('fs://docs/a.md');
+    expect(safeHref('javascript://x')).toBeUndefined();
+    expect(safeHref('data://x')).toBeUndefined();
     const navigate = vi.fn();
     const md = mount(UiMarkdown, { props: { source: 'See [the doc](fs://docs/a.md) and `fs://docs/b.md`.', navigate }, attachTo: document.body });
     const links = md.findAll('a');

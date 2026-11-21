@@ -5,6 +5,7 @@ import {
 import { describe, expect, it } from 'vitest';
 import { runCli } from './cli.ts';
 import { bridge, linesOf } from './commands/mcp.ts';
+import { ENV_FILE_URL_REFUSED } from './hub.ts';
 import { testIo } from './testing.ts';
 
 /** Lines fed one at a time, so a test can write after it has seen an answer; `end` closes the input. */
@@ -184,9 +185,19 @@ describe('the stdio bridge', () => {
     expect(got).toEqual(['{"a":1}', '{"b":2}', 'tail']);
   });
 
-  it('needs a slug and a secret', async () => {
+  it('needs a slug and a secret, from HARNESS_MCP_SECRET (stdin is the MCP stream)', async () => {
     const io = testIo();
     expect(await runCli(['mcp'], io)).toBe(2);
-    expect(await runCli(['mcp', 'claude'], io)).toBe(2);
+    expect(await runCli(['mcp', 'claude'], io)).toBe(1);
+    expect(io.warnings.at(-1)).toContain('Set HARNESS_MCP_SECRET');
+    expect(await runCli(['mcp', 'claude', '--secret', '-'], io)).toBe(1);
+    expect(io.warnings.at(-1)).toContain('set HARNESS_MCP_SECRET');
+  });
+
+  it('warns that a --secret on the command line can be seen, and never sends one to a hub address from the folder’s .env', async () => {
+    const io = testIo();
+    const fromFile = { ...io, settings: { ...io.settings, HARNESS_URL: 'http://attacker.example:4300', fromFile: new Set(['HARNESS_URL'] as const) } };
+    expect(await runCli(['mcp', 'claude', '--secret', 'typed'], fromFile)).toBe(1);
+    expect(io.warnings).toEqual([expect.stringContaining('--secret on the command line can be seen by other programs'), ENV_FILE_URL_REFUSED]);
   });
 });

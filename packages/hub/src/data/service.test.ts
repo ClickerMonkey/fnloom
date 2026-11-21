@@ -1,4 +1,4 @@
-import { ActorId, IDS, QualifiedName, SystemName, type IndexedKind, type Manifest, type SearchHit } from '@harness/core';
+import { ActorId, IDS, QualifiedName, SystemName, type IndexedKind, type Manifest, type SearchHit, type TypeDecl } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { openScope, type AccessScope } from '../access/index.ts';
 import { StoreCatalog } from '../catalog/catalog.ts';
@@ -16,7 +16,7 @@ const BEN = ActorId.parse('act_ben');
 /** A member's scope: sees everything, but is no admin. */
 const member = (actor: ActorId): AccessScope => ({ ...openScope(actor), admin: false });
 
-async function world(depth?: number) {
+async function world(depth?: number, extra: readonly TypeDecl[] = []) {
   const store = await testStore();
   const catalog = new StoreCatalog({ store, bus: new RecordingBus(), log: memoryLog().log, clock: () => 1, describer: { describe: () => Promise.resolve({ problems: [] }) } });
   const base = await manifestFor(shop);
@@ -34,6 +34,7 @@ async function world(depth?: number) {
         def: { name: 'obj', props: { theme: { type: { name: 'text' } } } },
         records: { shape: 'value', owner: 'person', search: { text: [], embed: false } },
       },
+      ...extra,
     ],
   };
   expect((await catalog.importManifest(manifest)).refused).toEqual([]);
@@ -141,5 +142,34 @@ describe('the data system', () => {
     await expect(data.update({ type: NOTE, id: saved.id, set: { done: false }, expect: 1 }, ann)).rejects.toMatchObject({ code: 'RECORD_MOVED_ON' });
     await expect(data.update({ type: NOTE, id: saved.id, set: { colour: 'red' } }, ann)).rejects.toMatchObject({ code: 'RECORD_INVALID' });
     await expect(data.update({ type: NOTE, id: saved.id, set: { stars: 'many' } }, ann)).rejects.toMatchObject({ code: 'RECORD_INVALID' });
+  });
+
+  // security review H7/M9: a record that grants something (an API service's base URL, its private-address switch, who
+  // sees it) is changed only by an admin or the type's own system, never by a member or their agent's hub/record_save
+  it('lets only admins and the type\'s own system change a type whose records only admins write', async () => {
+    const LINK = QualifiedName.parse('shop/Link');
+    const { data, ben } = await world(undefined, [{
+      name: 'Link', description: 'Where requests go.', display: { label: 'Link', title: 'url' }, methods: [],
+      def: { name: 'obj', props: { url: { type: { name: 'text' } }, allowPrivate: { type: { name: 'bool' } } } },
+      records: { shape: 'table', owner: 'shared', writers: 'admins', search: { text: ['url'], embed: false } },
+    }]);
+    const admin: DataAsker = { actor: IDS.actor.parse('act_admin'), access: openScope(IDS.actor.parse('act_admin')) };
+    const shopRun: DataAsker = { actor: BEN, access: member(BEN), system: SystemName.parse('shop'), run: IDS.run.parse('run_ben') };
+    const benAgent: DataAsker = { ...ben, run: IDS.run.parse('run_agent') };
+    const kept = await data.save({ type: LINK, value: { url: 'https://example.test', allowPrivate: false } }, admin);
+    const repoint = { type: LINK, id: kept.id, value: { url: 'http://169.254.169.254', allowPrivate: true } };
+    for (const asker of [ben, benAgent]) {
+      await expect(data.save(repoint, asker)).rejects.toMatchObject({ status: 403, code: 'RECORD_ADMINS_ONLY' });
+      await expect(data.update({ type: LINK, id: kept.id, set: { allowPrivate: true } }, asker)).rejects.toMatchObject({ code: 'RECORD_ADMINS_ONLY' });
+      await expect(data.save({ type: LINK, value: { url: 'http://127.0.0.1', allowPrivate: true } }, asker)).rejects.toMatchObject({ code: 'RECORD_ADMINS_ONLY' });
+      await expect(data.remove({ type: LINK, id: kept.id }, asker)).rejects.toMatchObject({ code: 'RECORD_ADMINS_ONLY' });
+      // refused before anyone is asked to approve the write
+      expect(await data.problems(repoint, asker)).toEqual([{ path: 'type', message: 'only an admin changes shop/Link records' }]);
+    }
+    // a member still reads them
+    expect((await data.find({ type: LINK }, ben)).items.map((record) => record.value)).toEqual([{ url: 'https://example.test', allowPrivate: false }]);
+    // the system that owns the type writes them in its person's run (its own code decides what), and an admin always may
+    expect(await data.save({ type: LINK, value: { url: 'https://other.test', allowPrivate: false } }, shopRun)).toMatchObject({ updatedBySystem: 'shop' });
+    expect(await data.save(repoint, admin)).toMatchObject({ version: 2, value: { allowPrivate: true } });
   });
 });

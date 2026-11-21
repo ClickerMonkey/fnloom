@@ -398,6 +398,18 @@ describe('pages', () => {
     app.unmount();
   });
 
+  it('fills the setup code in from the link the hub logged', async () => {
+    screen(false);
+    const fakes = fakeStores();
+    fakes.api.auth.setup.call = async () => ({ needsAdmin: true, name: 'New hub', version: '1', sso: [] });
+    const router = createAppRouter(fakes.stores.session, createMemoryHistory());
+    await router.push('/sign-in?setup=0123abcd');
+    const app = mount(App, { attachTo: document.body, global: { plugins: [router], provide: { [STORES]: fakes.stores } } });
+    await flushPromises();
+    expect(app.get<HTMLInputElement>('[data-testid="setup-code"] input').element.value).toBe('0123abcd');
+    app.unmount();
+  });
+
   it('keeps the inbox filter and search in the URL', async () => {
     const { app, router, api } = await start('/inbox?filter=unread');
     await flushPromises();

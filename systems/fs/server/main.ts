@@ -13,7 +13,7 @@ import { NodeFiles, ViteBuilder } from '@harness/build';
 import { SystemName } from '@harness/core';
 import { createDefaultResourceRegistry } from '@aeye/resources/default';
 import { AllowlistProxy, CrashPolicy, NodeStarter, RESTART_CODE, endpointOf, loggedHost, placeFolders, rendererFolder, scrubbedEnv, serve, type RunningSystem } from '@harness/sdk/server';
-import { fs } from '../shared/index.ts';
+import { SNAPSHOT_DEFAULTS, fs } from '../shared/index.ts';
 import { CommandChanges } from './changes.ts';
 import { AeyeDocuments } from './documents.ts';
 import { fsEnv } from './env.ts';
@@ -105,7 +105,8 @@ const server = createFsImpl({
   shell: new NodeShell(shell, processLimits),
   git: new CliGit(exec, settings.FS_GIT_TIMEOUT),
   opener: new PlatformOpener(exec, process.platform, settings.FS_REVEAL_TIMEOUT),
-  snapshots: new DiskSnapshots(join(dataDir, 'snapshots')),
+  // pruned by the limits in the config fs runs with; saves happen only in runs, once `server` is set
+  snapshots: new DiskSnapshots(join(dataDir, 'snapshots'), () => server.config().snapshots ?? SNAPSHOT_DEFAULTS),
   documents: new AeyeDocuments(createDefaultResourceRegistry()),
   restarter,
   watch: watchFolder,
@@ -114,6 +115,7 @@ const server = createFsImpl({
   hosting,
   grantPairing: (request) => running.grantPairing(request),
   now: () => Date.now(),
+  baseEnv: process.env,
 });
 
 // a packed fs runs the bundle built beside it; from source the renderers are built on every start

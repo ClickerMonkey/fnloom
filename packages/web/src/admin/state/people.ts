@@ -5,7 +5,7 @@
  * hub's refusal, and refresh what is shown.
  */
 import type {
-  ActorId, GroupView, ListQuery, PersonView, SetMembership, SignInPolicy, SignInSettings, SsoCheck, SsoProviderId, SsoTestResult, UpdateUser, UserRole, UserView,
+  ActorId, GroupView, ListQuery, PersonView, ProxyTrust, SetMembership, SignInLimits, SignInPolicy, SignInSettings, SsoCheck, SsoProviderId, SsoTestResult, UpdateUser, UserRole, UserView,
 } from '@harness/core';
 import { shallowRef } from 'vue';
 import { Loaded, Paged, Task, type Outcome, type Page } from '../../state/loaded.ts';
@@ -15,7 +15,7 @@ import { BROWSER_PAGE } from './browsers.ts';
 
 /** The callers the People pages use. */
 export type PeopleApi = Pick<AdminApi,
-  'people' | 'groups' | 'groupMembers' | 'addUser' | 'addGroup' | 'updateUser' | 'setMembership' | 'signInSettings' | 'setSignInPolicy' | 'checkSsoProvider' | 'testSsoSignIn' | 'ssoTestResult'>;
+  'people' | 'groups' | 'groupMembers' | 'addUser' | 'addGroup' | 'updateUser' | 'setMembership' | 'signInSettings' | 'setSignInPolicy' | 'setSignInLimits' | 'setProxyTrust' | 'checkSsoProvider' | 'testSsoSignIn' | 'ssoTestResult'>;
 
 /** A person to add. */
 export interface NewPerson {
@@ -116,6 +116,20 @@ export class PeopleStore {
 
   async setPolicy(policy: SignInPolicy): Promise<Outcome<SignInPolicy>> {
     const done = await this.save.run(() => this.#api.setSignInPolicy.call(policy), 'Couldn’t save who can join.');
+    if (done.ok) void this.loadSignIn(true);
+    return done;
+  }
+
+  /** How many password sign-ins the hub takes. */
+  async setLimits(limits: SignInLimits): Promise<Outcome<SignInLimits>> {
+    const done = await this.save.run(() => this.#api.setSignInLimits.call(limits), 'Couldn’t save the sign-in limits.');
+    if (done.ok) void this.loadSignIn(true);
+    return done;
+  }
+
+  /** How many proxies in front of the hub say where requests come from. */
+  async setProxy(trust: ProxyTrust): Promise<Outcome<ProxyTrust>> {
+    const done = await this.save.run(() => this.#api.setProxyTrust.call(trust), 'Couldn’t save the proxy setting.');
     if (done.ok) void this.loadSignIn(true);
     return done;
   }

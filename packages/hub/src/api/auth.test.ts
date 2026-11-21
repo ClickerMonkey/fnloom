@@ -19,6 +19,11 @@ async function make(providers: readonly IdentityProviderConfig[] = []) {
   return { store, clock, auth };
 }
 
+/** Make the admin with the setup code the hub would print (none once someone is there). */
+async function withSetup(auth: HubAuthenticator, input: typeof admin = admin): Promise<Tokens | undefined> {
+  return auth.createAdmin({ ...input, setup: await auth.openSetup() ?? '' });
+}
+
 /** Bo, made after the admin, with a password of his own (as a hub from before SSO might have). */
 async function passwordUser(store: Awaited<ReturnType<typeof testStore>>, role: 'admin' | 'member'): Promise<ActorId> {
   const bo = ActorId.parse('act_bo');
@@ -33,16 +38,16 @@ describe('HubAuthenticator', () => {
   it('needs an admin until one is made, then refuses a second', async () => {
     const { auth } = await make();
     await expect(auth.setup()).resolves.toEqual({ needsAdmin: true, name: 'Harness', version: '1.2.3', sso: [] });
-    const tokens = await auth.createAdmin(admin);
+    const tokens = await withSetup(auth);
     expect(tokens?.user).toMatchObject({ email: 'admin@example.com', name: 'Admin', role: 'admin', kind: 'user' });
     expect(tokens?.expiresIn).toBe(900_000);
     await expect(auth.setup()).resolves.toMatchObject({ needsAdmin: false });
-    await expect(auth.createAdmin({ ...admin, email: 'other@example.com' })).resolves.toBeUndefined();
+    await expect(withSetup(auth, { ...admin, email: 'other@example.com' })).resolves.toBeUndefined();
   });
 
   it('issues an access token for the session, that its user resolves to', async () => {
     const { auth } = await make();
-    const tokens = await auth.createAdmin(admin);
+    const tokens = await withSetup(auth);
     if (tokens === undefined) { throw new Error('no tokens'); }
     const claims = claimsOf(tokens);
     expect(claims.actor).toBe(tokens.user.id);
@@ -52,7 +57,7 @@ describe('HubAuthenticator', () => {
 
   it('signs in with the right password (any case of email) and not otherwise', async () => {
     const { auth } = await make();
-    await auth.createAdmin(admin);
+    await withSetup(auth);
     await expect(auth.signIn({ email: ' ADMIN@example.com ', password: admin.password, device: 'phone' })).resolves.toMatchObject({ user: { role: 'admin' } });
     await expect(auth.signIn({ email: admin.email, password: 'wrong', device: 'phone' })).resolves.toBeUndefined();
     await expect(auth.signIn({ email: 'nobody@example.com', password: admin.password, device: 'phone' })).resolves.toBeUndefined();
@@ -60,7 +65,7 @@ describe('HubAuthenticator', () => {
 
   it('refuses a disabled user', async () => {
     const { auth, store } = await make();
-    const tokens = await auth.createAdmin(admin);
+    const tokens = await withSetup(auth);
     if (tokens === undefined) { throw new Error('no tokens'); }
     await store.table('actors').update(tokens.user.id, { disabled: true });
     await expect(auth.signIn(admin)).resolves.toBeUndefined();
@@ -70,7 +75,7 @@ describe('HubAuthenticator', () => {
 
   it('rotates the refresh token, and a reused one ends the session', async () => {
     const { auth } = await make();
-    const first = await auth.createAdmin(admin);
+    const first = await withSetup(auth);
     if (first === undefined) { throw new Error('no tokens'); }
     const second = await auth.refresh(first.refresh);
     expect(second?.refresh).toBeDefined();
@@ -81,9 +86,48 @@ describe('HubAuthenticator', () => {
     await expect(auth.user(claimsOf(second))).resolves.toBeUndefined();
   });
 
+  it('refuses a wrong secret for a real session without ending it (a guessed session id signs nobody out)', async () => {
+    const { auth } = await make();
+    const tokens = await withSetup(auth);
+    if (tokens === undefined) { throw new Error('no tokens'); }
+    const session = claimsOf(tokens).session;
+    await expect(auth.refresh(`${session}.not-the-secret`)).resolves.toBeUndefined();
+    await expect(auth.user(claimsOf(tokens))).resolves.toBeDefined();
+    await expect(auth.refresh(tokens.refresh)).resolves.toMatchObject({ user: { id: tokens.user.id } });
+  });
+
+  it('ends the session when a refresh token rotated away from some time ago is used again', async () => {
+    const { auth } = await make();
+    const first = await withSetup(auth);
+    if (first === undefined) { throw new Error('no tokens'); }
+    const second = await auth.refresh(first.refresh);
+    const third = second === undefined ? undefined : await auth.refresh(second.refresh);
+    if (third === undefined) { throw new Error('no tokens'); }
+    await expect(auth.refresh(first.refresh)).resolves.toBeUndefined();
+    await expect(auth.refresh(third.refresh)).resolves.toBeUndefined();
+    await expect(auth.user(claimsOf(third))).resolves.toBeUndefined();
+  });
+
+  it('makes the first admin only with the current setup code', async () => {
+    const { auth } = await make();
+    // no code made yet: nothing works, not even an empty one
+    await expect(auth.createAdmin({ ...admin, setup: '' })).resolves.toBeUndefined();
+    const code = await auth.openSetup();
+    expect(code).toMatch(/^[0-9a-f]{20}$/);
+    await expect(auth.createAdmin({ ...admin, setup: 'wrong' })).resolves.toBeUndefined();
+    const newer = await auth.openSetup();
+    // a new code replaces the last
+    await expect(auth.createAdmin({ ...admin, setup: code ?? '' })).resolves.toBeUndefined();
+    await expect(auth.setup()).resolves.toMatchObject({ needsAdmin: true });
+    await expect(auth.createAdmin({ ...admin, setup: ` ${newer ?? ''} ` })).resolves.toMatchObject({ user: { role: 'admin' } });
+    // spent: once the admin is there, no code is made and the old one is gone
+    await expect(auth.openSetup()).resolves.toBeUndefined();
+    expect(auth.setupMatches(newer ?? '')).toBe(false);
+  });
+
   it('ends a session not refreshed within the refresh lifetime', async () => {
     const { auth, clock } = await make();
-    const tokens = await auth.createAdmin(admin);
+    const tokens = await withSetup(auth);
     if (tokens === undefined) { throw new Error('no tokens'); }
     clock.now += 25 * HOUR;
     await expect(auth.refresh(tokens.refresh)).resolves.toBeUndefined();
@@ -91,13 +135,13 @@ describe('HubAuthenticator', () => {
 
   it.each(['', 'nodot', '.secret', 'session.', 'aus_missing.secret'])('refuses a malformed or unknown refresh token %j', async (refresh) => {
     const { auth } = await make();
-    await auth.createAdmin(admin);
+    await withSetup(auth);
     await expect(auth.refresh(refresh)).resolves.toBeUndefined();
   });
 
   it('signing out and revoking access end the tokens at once', async () => {
     const { auth } = await make();
-    const tokens = await auth.createAdmin(admin);
+    const tokens = await withSetup(auth);
     if (tokens === undefined) { throw new Error('no tokens'); }
     const other = await auth.signIn(admin);
     if (other === undefined) { throw new Error('no tokens'); }
@@ -119,7 +163,7 @@ describe('HubAuthenticator', () => {
 
   it('rotates once when two refreshes race with the same token', async () => {
     const { auth } = await make();
-    const tokens = await auth.createAdmin(admin);
+    const tokens = await withSetup(auth);
     if (tokens === undefined) { throw new Error('no tokens'); }
     const results = await Promise.all([auth.refresh(tokens.refresh), auth.refresh(tokens.refresh)]);
     expect(results.filter((r) => r !== undefined)).toHaveLength(1);
@@ -129,7 +173,7 @@ describe('HubAuthenticator', () => {
     const acme = IdentityProviderConfig.parse({ id: 'acme', label: 'Acme', issuer: 'https://id.example.test', clientId: 'c' });
     const { auth, store } = await make([acme]);
     await expect(auth.setup()).resolves.toMatchObject({ sso: [{ id: 'acme', label: 'Acme' }] });
-    const tokens = await auth.createAdmin(admin);
+    const tokens = await withSetup(auth);
     if (tokens === undefined) { throw new Error('no tokens'); }
     // the bootstrap admin keeps a password, as a break-glass sign-in
     await expect(auth.signIn(admin)).resolves.toMatchObject({ user: { id: tokens.user.id } });
@@ -142,7 +186,7 @@ describe('HubAuthenticator', () => {
 
   it('lets everyone with a password sign in with it while no SSO provider is configured', async () => {
     const { auth, store } = await make();
-    await auth.createAdmin(admin);
+    await withSetup(auth);
     const bo = await passwordUser(store, 'member');
     await expect(auth.signIn({ email: 'bo@example.com', password: 'bo password!', device: 'x' })).resolves.toMatchObject({ user: { id: bo } });
   });

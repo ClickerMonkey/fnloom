@@ -8,7 +8,8 @@
  * `AesSecretVault` (`api/secrets.ts`) and the web API plugins (`api/web/*`). Notifications belong to the chat
  * module (`NotificationService`), which pushes through `PushService`.
  */
-import type { EmitFn } from '@ayepi/core';
+import type { EmitFn, WsConn } from '@ayepi/core';
+import type { Listener, WebSockets } from './events.ts';
 import type { ExternalClaims } from './identities.ts';
 import type { AccessClaims, ActorId, ContentRef, HubWebSpec, Notification, SecretId, SetupState, SsoOutcome, Tokens, UserView } from '@harness/core';
 
@@ -24,8 +25,15 @@ export type ExternalSignIn = { readonly tokens: Tokens; readonly outcome: SsoOut
 /** Sign-in: one admin account made on first start, passwords (only that admin's once SSO is on), and SSO providers. */
 export interface Authenticator {
   setup(): Promise<SetupState>;
-  /** Make the admin account; refused (`undefined`) once one exists. */
-  createAdmin(input: { email: string; name: string; password: string; device: string }): Promise<Tokens | undefined>;
+  /**
+   * Make a new one-time setup code while the hub has no one (the code the setup page asks for; the hub prints it to
+   * its log); undefined once someone is there. Each call replaces the last code.
+   */
+  openSetup(): Promise<string | undefined>;
+  /** Whether this is the current setup code. */
+  setupMatches(code: string): boolean;
+  /** Make the admin account with the setup code; refused (`undefined`) once one exists or for a wrong code. */
+  createAdmin(input: { email: string; name: string; password: string; setup: string; device: string }): Promise<Tokens | undefined>;
   /** Tokens for a good email and password, `undefined` otherwise (the same answer for an unknown email and a bad password). */
   signIn(input: { email: string; password: string; device: string }): Promise<Tokens | undefined>;
   /** New tokens for a refresh token. A refresh token used twice revokes its session (it was stolen or replayed). */
@@ -66,9 +74,14 @@ export interface PushService {
 /** The web API's typed event emitter (its `session` and `user` events). */
 export type WebEmit = EmitFn<HubWebSpec>;
 
-/** Relays bus events to browsers as `session` / `user` web events. Returns the stop. */
+/**
+ * Relays bus events to browsers as `session` / `user` web events, each to the people it is for. The event guards tell it
+ * who each socket listens as (`listen`); when a person's access ends (`access.ended`) it ends their sockets with
+ * `sockets.close`. `start` returns the stop.
+ */
 export interface EventRelay {
-  start(emit: WebEmit): () => void;
+  listen(conn: WsConn, who: Listener): void;
+  start(emit: WebEmit, sockets: WebSockets): () => void;
 }
 
 /** Secrets (provider keys) encrypted at rest. Only ids leave the hub; the plain value is read where it is used. */

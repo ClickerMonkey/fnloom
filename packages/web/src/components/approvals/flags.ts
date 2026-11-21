@@ -13,6 +13,8 @@ export const SENSITIVE_KIND_WORDS = {
   credential: 'Credentials',
   token: 'Token',
   'secret-content': 'Holds a secret',
+  'runs-code': 'Runs code',
+  'unknown-path': 'Path not known',
 } as const satisfies Record<SensitivityKind, string>;
 
 /** One flagged file, ready to show. */

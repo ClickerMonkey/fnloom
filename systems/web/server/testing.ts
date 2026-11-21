@@ -7,7 +7,7 @@ import type { FetchFn } from '@aeye/resources';
 import type { HostLookup } from '@harness/sdk/server';
 import type { SearchFoundValue } from '../shared/index.ts';
 import type { FetchedPage, FetchSettings, PageSource, SearchArgs, SearchProvider } from './index.ts';
-import type { BrowserTab, HeadlessBrowser, LaunchBrowser, LoadedTab, TabLoad } from './renderer.ts';
+import type { BrowserTab, HeadlessBrowser, LaunchBrowser, LoadedTab, TabLoad, TabNetwork } from './renderer.ts';
 
 /** One request the scripted fetch saw. */
 export interface SeenRequest {
@@ -69,6 +69,8 @@ export type TabScript = (request: TabLoad) => Promise<LoadedTab>;
 /** A fake headless browser: each tab runs `script`; it records loads, open tabs and launches. */
 export class FakeBrowser implements HeadlessBrowser {
   readonly loads: TabLoad[] = [];
+  /** The network each tab was opened with. */
+  readonly networks: TabNetwork[] = [];
   openTabs = 0;
   closedTabs = 0;
   connected = true;
@@ -79,7 +81,8 @@ export class FakeBrowser implements HeadlessBrowser {
     this.#script = script;
   }
 
-  open(): Promise<BrowserTab> {
+  open(network: TabNetwork): Promise<BrowserTab> {
+    this.networks.push(network);
     this.openTabs += 1;
     let done = false;
     const tab: BrowserTab = {
@@ -156,6 +159,7 @@ export function fetchedPage(overrides: Partial<FetchedPage> = {}): FetchedPage {
     rendered: false,
     renderError: undefined,
     title: 'Example',
+    fetched: [overrides.requestedUrl ?? 'https://example.com/'],
     ...overrides,
   };
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * The page card for `web/read`: the page's title and site, where it ended up, whether the browser rendered it and
- * whether the text was cut, and a compact preview of the hub resource it was kept as (the chat's `ResourceViewer`,
+ * whether the text was cut, every URL it fetched (redirects included), and a compact preview of the hub resource it was kept as (the chat's `ResourceViewer`,
  * which draws its markdown form). Before the hub's viewer is there (or without one) it shows the start of the text.
  */
 import { RESOURCE_VIEWER, type FnViewOf } from '@harness/sdk';
@@ -32,7 +32,8 @@ const chars = computed(() => new Intl.NumberFormat(navigator.language).format(fa
       <span class="badge" aria-hidden="true">{{ facts.domain.charAt(0).toUpperCase() }}</span>
       <div class="names">
         <h3 class="title" :title="facts.title">{{ facts.title }}</h3>
-        <a class="url" :href="view.result?.finalUrl ?? view.args.url" target="_blank" rel="noopener noreferrer" :title="facts.shown">{{ facts.shown }}</a>
+        <a v-if="facts.href" class="url" :href="facts.href" target="_blank" rel="noopener noreferrer" :title="facts.shown">{{ facts.shown }}</a>
+        <span v-else class="url" :title="facts.shown">{{ facts.shown }}</span>
       </div>
       <StatusChip :chip="chip" />
     </header>
@@ -42,6 +43,8 @@ const chars = computed(() => new Intl.NumberFormat(navigator.language).format(fa
       <li v-if="facts.moved" class="fact">Redirected</li>
       <li class="fact">{{ chars }} characters{{ facts.truncated ? ', cut short' : '' }}</li>
     </ul>
+
+    <p v-if="view.result && view.result.fetched.length > 0" class="fetched"><span class="label">Fetched:</span> <code v-for="(url, at) in view.result.fetched" :key="at" class="hop">{{ url }}</code></p>
 
     <div v-if="running" class="progress" role="progressbar" aria-label="Reading the page"><div class="bar" /></div>
 
@@ -87,6 +90,8 @@ const chars = computed(() => new Intl.NumberFormat(navigator.language).format(fa
 .facts { display: flex; flex-wrap: wrap; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
 .fact { padding: 1px var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-full); color: var(--text-dim); font-size: var(--text-xs); }
 .fact.rendered { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 35%, var(--border)); }
+.fetched { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1); margin: 0; color: var(--text-dim); font-size: var(--text-xs); }
+.hop { font: var(--text-xs)/1.4 var(--mono); overflow-wrap: anywhere; }
 .progress { height: 3px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
 .bar {
   width: 40%;

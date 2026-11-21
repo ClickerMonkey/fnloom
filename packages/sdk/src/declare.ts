@@ -36,12 +36,14 @@ export type TextKeys<T> = { [K in keyof T]-?: T[K] extends string | undefined ? 
 
 /**
  * How the hub keeps records of a type (`type({ records })`), typed by the type: `table` for many records or `value`
- * for one; `shared` (everyone who sees the type sees them) or `person` (each record its owner's); the text fields
- * text search matches, in order of weight, and whether records are embedded for search by meaning.
+ * for one; `shared` (everyone who sees the type sees them) or `person` (each record its owner's); `writers: 'admins'`
+ * when only admins (and the system itself) change them; the text fields text search matches, in order of weight, and
+ * whether records are embedded for search by meaning.
  */
 export interface RecordsInput<T> {
   shape: RecordStorage['shape'];
   owner: RecordStorage['owner'];
+  writers?: RecordStorage['writers'];
   search?: { text?: TextKeys<T>[]; embed?: boolean };
 }
 export type AnyTypeDef = TypeDef<unknown, Methods>;
@@ -65,6 +67,7 @@ export function type<T, const M extends Methods = {}>(def: {
   const records = def.records === undefined ? undefined : RecordStorage.parse({
     shape: def.records.shape,
     owner: def.records.owner,
+    ...(def.records.writers === undefined ? {} : { writers: def.records.writers }),
     search: { text: [...(def.records.search?.text ?? [])], embed: def.records.search?.embed ?? false },
   });
   return { description: def.description, shape: def.shape, display: { ...def.display }, methods: orDefault(def.methods, {}), records };

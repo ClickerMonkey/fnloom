@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { ApiError } from '@ayepi/core';
-import { ActorId, ContentRef, IDS, MAIN_INSTANCE, QualifiedName, SessionId, SystemName, type DeliveryRecord, type Json, type LinkSession, type TypeRecord } from '@harness/core';
+import { ActorId, ContentRef, IDS, InstanceName, MAIN_INSTANCE, QualifiedName, SessionId, SystemName, type DeliveryRecord, type Json, type LinkSession, type TypeRecord } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { makeRun } from '../chat/testing.ts';
 import { openTestStore } from '../store/fixtures.ts';
@@ -60,6 +60,7 @@ async function services(overrides: Partial<LinkServiceDeps> = {}) {
     turns: () => ({ attach: (run, part) => { attached.push({ run, part }); return Promise.resolve(); } }),
     maxUpload: 10,
     uploadTtl: 1_000,
+    maxUploads: 4,
     clock: () => now,
     bus: () => ({ publish: (topic, event) => { notices.push({ topic, event }); } }),
     ...overrides,
@@ -81,13 +82,44 @@ describe('uploads in chunks', () => {
   it('refuses an upload over the limit and forgets ones left unfinished too long', async () => {
     const { content } = await services();
     let now = 0;
-    const uploads = new ChunkedUploads({ content: () => content, maxUpload: 4, uploadTtl: 100, clock: () => now });
+    const uploads = new ChunkedUploads({ content: () => content, maxUpload: 4, uploadTtl: 100, maxUploads: 4, clock: () => now });
     await expect(uploads.add(FS, { upload: 'big', chunk: Buffer.from('12345').toString('base64'), last: true, mime: 'x' })).rejects.toMatchObject({ status: 413 });
     await uploads.add(FS, { upload: 'slow', chunk: Buffer.from('ab').toString('base64'), last: false, mime: 'x' });
     expect(uploads.size).toBe(1);
     now = 500;
     await uploads.add(FS, { upload: 'other', chunk: Buffer.from('c').toString('base64'), last: false, mime: 'x' });
     expect(uploads.size).toBe(1);
+  });
+});
+
+describe('uploads in progress', () => {
+  it('lets one system have only so many at once, leaving other systems and finished ones alone', async () => {
+    const { content } = await services();
+    const uploads = new ChunkedUploads({ content: () => content, maxUpload: 100, uploadTtl: 1_000, maxUploads: 2, clock: () => 0 });
+    const chunk = (upload: string, last = false) => ({ upload, chunk: Buffer.from('a').toString('base64'), last, mime: 'x' });
+    await uploads.add(FS, chunk('one'));
+    await uploads.add(FS, chunk('two'));
+    // a third at once is refused, before any of its bytes are kept
+    await expect(uploads.add(FS, chunk('three'))).rejects.toMatchObject({ status: 429, code: 'TOO_MANY_UPLOADS' });
+    expect(uploads.size).toBe(2);
+    // the ones it has go on, another system has its own count, and a finished one makes room
+    await uploads.add(FS, chunk('one'));
+    await uploads.add(SHOP, chunk('one'));
+    await uploads.add(FS, chunk('two', true));
+    await uploads.add(FS, chunk('three'));
+    expect(uploads.size).toBe(3);
+  });
+
+  it("keeps a fleet's instances' uploads apart, so one can't add bytes to another's", async () => {
+    const { content } = await services();
+    const uploads = new ChunkedUploads({ content: () => content, maxUpload: 100, uploadTtl: 1_000, maxUploads: 4, clock: () => 0 });
+    const other: LinkSession = { ...FS, instance: InstanceName.parse('b'), boot: 'i3' };
+    const piece = (text: string, last: boolean) => ({ upload: 'u1', chunk: Buffer.from(text).toString('base64'), last, mime: 'text/plain' });
+    await uploads.add(FS, piece('mine', false));
+    // the attack: instance b sends a chunk under instance main's upload id
+    await uploads.add(other, piece('evil', false));
+    const { ref } = await uploads.add(FS, piece('!', true));
+    expect(Buffer.from(content.stored.get(ref?.hash ?? '') ?? []).toString()).toBe('mine!');
   });
 });
 
@@ -108,6 +140,19 @@ describe('state, settings and attachments for a system\'s own runs', () => {
     await expect(s.stateGet(SHOP, { run: RUN })).rejects.toMatchObject({ status: 403 });
     await expect(s.stateGet(FS, { delivery: IDS.delivery.parse('dlv_none') })).rejects.toMatchObject({ status: 404 });
     expect(state.map((e) => e.op)).toEqual(['get', 'set']);
+  });
+
+  it("refuses another instance of the fleet a run its instance ran", async () => {
+    const { services: s, store: opened } = await services();
+    const own = IDS.run.parse('run_mine');
+    await opened.table('runs').insert(makeRun({ id: own, fn: 'fs/bash', turn: IDS.turn.parse('trn_one'), actor: ADA, instance: MAIN_INSTANCE }));
+    const other: LinkSession = { ...FS, instance: InstanceName.parse('b'), boot: 'i3' };
+    await expect(s.stateGet(other, { run: own })).rejects.toMatchObject({ status: 403, code: 'NOT_YOUR_RUN' });
+    await expect(s.stateSet(other, { run: own }, { patch: { cwd: '/y' }, clear: [] })).rejects.toMatchObject({ status: 403 });
+    await expect(s.setting(other, { run: own, setting: QualifiedName.parse('fs/x') })).rejects.toMatchObject({ status: 403 });
+    await expect(s.attach(other, { run: own, item: { link: { url: 'https://a.example', title: 'a' } } })).rejects.toMatchObject({ status: 403 });
+    await expect(s.content(other, { ref: ref('ab', 1), offset: 0, length: 1, run: own })).rejects.toMatchObject({ status: 403 });
+    expect(await s.stateGet(FS, { run: own })).toMatchObject({ version: 3 });
   });
 
   it('reads and writes state only for deliveries that went to the asking system', async () => {

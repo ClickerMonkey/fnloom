@@ -3,7 +3,7 @@
  * web page or another system also reads (`ClaudeSession`, `ClaudeStart`, …) are in `session.ts`.
  */
 import { InstanceName, Timestamp } from '@harness/core';
-import { ClaudeFolder, ClaudeImportable, ClaudeSessionId, ClaudeSessionRef } from './session.ts';
+import { ClaudeFolder, ClaudeImportable, ClaudeSessionId, ClaudeSessionRef, ModeAsked } from './session.ts';
 import { z } from 'zod';
 
 /** A page of Claude's own store (`claude/disk_sessions`): every session on the machine, live or not. */
@@ -65,7 +65,11 @@ export const AnswerOutcome = ClaudeSessionRef.extend({ request: z.string(), answ
 export type AnswerOutcome = z.infer<typeof AnswerOutcome>;
 
 /** What `claude/control` answers: the session's status after it. */
-export const ControlOutcome = ClaudeSessionRef.extend({ status: z.enum(['starting', 'working', 'waiting', 'idle', 'closed', 'failed']) });
+export const ControlOutcome = ClaudeSessionRef.extend({
+  status: z.enum(['starting', 'working', 'waiting', 'idle', 'closed', 'failed']),
+  /** The mode asked for, waiting for the session's person (`claude/allow_mode`); the mode is unchanged until then. */
+  modeAsked: ModeAsked.optional(),
+});
 export type ControlOutcome = z.infer<typeof ControlOutcome>;
 
 /** The payload of a `claude/agent` fn: an imported Claude agent (a subagent definition) on one machine. */

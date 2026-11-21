@@ -4,7 +4,7 @@ import { readPackage, sealExport, unzip, zip } from '@harness/hub/package';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { COMMANDS, findCommand, helpText, runCli, usageOf } from './cli.ts';
-import { command, optionsOf, parseCommand, UsageError } from './command.ts';
+import { command, optionsOf, parseCommand, UsageError, type HubOptions } from './command.ts';
 import { builtManifest, isExternal, isStale, readSystemJson } from '@harness/build';
 import { npmSpec } from './commands/install.ts';
 import { reportLines } from './commands/test.ts';
@@ -61,6 +61,19 @@ describe('arguments', () => {
     expect(io.warnings.at(-1)).toContain('has no system.json');
     expect(await runCli(['system', 'list'], io)).toBe(1);
     expect(io.warnings.at(-1)).toBe('this test has no hub');
+  });
+
+  it('reads --token - from stdin, and warns that a token typed on the command line can be seen', async () => {
+    const io = testIo({ stdin: ['', 'from-stdin'] });
+    const asked: HubOptions[] = [];
+    const watched = { ...io, hub: (options: HubOptions) => { asked.push(options); return io.hub(options); } };
+    expect(await runCli(['system', 'list', '--token', '-'], watched)).toBe(1);
+    expect(asked.at(-1)?.token).toBe('from-stdin');
+    expect(io.warnings).toEqual(['this test has no hub']);
+    expect(await runCli(['system', 'list', '--token', 'typed'], watched)).toBe(1);
+    expect(asked.at(-1)?.token).toBe('typed');
+    expect(io.warnings.at(-2)).toBe('--token on the command line can be seen by other programs on this machine. Set HARNESS_TOKEN instead, or pass --token - and give it on stdin.');
+    expect(await runCli(['system', 'list', '--token', '-'], { ...testIo(), hub: watched.hub })).toBe(1);
   });
 });
 

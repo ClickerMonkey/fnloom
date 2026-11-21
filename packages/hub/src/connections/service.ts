@@ -106,7 +106,7 @@ export class StoreConnectionService implements ConnectionService {
     for (const { system, decl, ready } of await this.#decls()) {
       const connections = await allRows(this.#table(), { where: { owner: asker, system } });
       const instances = decl.scope === 'instance' ? await this.#instancePages(system) : undefined;
-      const keys = decl.scope === 'key' ? await this.#keyEntries(decl) : undefined;
+      const keys = decl.scope === 'key' ? await this.#keyEntries(decl, asker) : undefined;
       pages.push({
         system, decl, ready, connections: connections.sort((a, b) => b.createdAt - a.createdAt).map(connectionView),
         ...(instances === undefined ? {} : { instances }), ...(keys === undefined ? {} : { keys }),
@@ -360,7 +360,8 @@ export class StoreConnectionService implements ConnectionService {
       if (instance !== undefined) { throw reject(422, 'NOT_PER_INSTANCE', `${system} connects per key, not per instance`); }
       if (key === undefined) { throw reject(422, 'KEY_NEEDED', `say which ${system} key to connect to`); }
       const entry = await this.#keyEntry(decl, key);
-      if (entry === undefined) { throw reject(404, 'NOT_FOUND', `${system} has no ${key} to connect to`); }
+      // a key only one person sees (a service their agent added, until an admin shares it) is not there for anyone else
+      if (entry === undefined || (entry.privateTo !== undefined && entry.privateTo !== asker)) { throw reject(404, 'NOT_FOUND', `${system} has no ${key} to connect to`); }
       return { ...await this.#flowOf(asker, `${system}/${key}`, entry.connect), key };
     }
     if (decl.scope !== 'instance') {
@@ -386,23 +387,27 @@ export class StoreConnectionService implements ConnectionService {
   }
 
   /**
-   * A key-scoped system's keys people connect to (`ConnectDecl.keys`): its key type's records, read a page at a time
-   * from the database, each with how people connect (`keyConnectOf` over its auth). A record that isn't a
-   * `ConnectKeyRecord` is left out.
+   * A key-scoped system's keys the asker connects to (`ConnectDecl.keys`): its key type's records everyone sees and the
+   * asker's own (`privateTo`), each filter in the database, read a page at a time, each with how people connect
+   * (`keyConnectOf` over its auth). A record that isn't a `ConnectKeyRecord` is left out.
    */
-  async #keyEntries(decl: ConnectDecl): Promise<KeyEntry[]> {
+  async #keyEntries(decl: ConnectDecl, asker: ActorId): Promise<KeyEntry[]> {
     const type = decl.keys?.type;
     if (type === undefined) return [];
     const out: KeyEntry[] = [];
-    for (let offset = 0; ; offset += KEY_PAGE) {
-      const page = await this.#keyRecords(type, [], offset, KEY_PAGE);
-      out.push(...page.items.flatMap((value) => keyEntryOf(value) ?? []));
-      if (page.items.length === 0 || offset + page.items.length >= page.total) return out;
+    const audiences: Filter[][] = [[{ field: 'privateTo', op: 'empty' }], [{ field: 'privateTo', op: 'is', value: asker }]];
+    for (const filters of audiences) {
+      for (let offset = 0; ; offset += KEY_PAGE) {
+        const page = await this.#keyRecords(type, filters, offset, KEY_PAGE);
+        out.push(...page.items.flatMap((value) => { const entry = keyEntryOf(value); return entry === undefined ? [] : [keyView(entry)]; }));
+        if (page.items.length === 0 || offset + page.items.length >= page.total) break;
+      }
     }
+    return out;
   }
 
-  /** One key of a key-scoped system, found by its name in the database. */
-  async #keyEntry(decl: ConnectDecl, key: ConnectKey): Promise<KeyEntry | undefined> {
+  /** One key of a key-scoped system, found by its name in the database, with who it is private to. */
+  async #keyEntry(decl: ConnectDecl, key: ConnectKey): Promise<(KeyEntry & { readonly privateTo?: ActorId | undefined }) | undefined> {
     const type = decl.keys?.type;
     if (type === undefined) return undefined;
     const page = await this.#keyRecords(type, [{ field: 'name', op: 'is', value: key }], 0, 1);
@@ -499,9 +504,19 @@ export class StoreConnectionService implements ConnectionService {
 }
 
 /** A key record as its page shows it, with how people connect; undefined when the record isn't a `ConnectKeyRecord`. */
-function keyEntryOf(value: Json): KeyEntry | undefined {
+function keyEntryOf(value: Json): (KeyEntry & { readonly privateTo?: ActorId | undefined }) | undefined {
   const read = ConnectKeyRecord.safeParse(value);
-  return read.success ? { key: read.data.name, label: read.data.label, connect: InstanceConnect.parse(keyConnectOf(read.data.label, read.data.auth)) } : undefined;
+  if (!read.success) return undefined;
+  const { name, label, auth, baseUrl, privateTo } = read.data;
+  return {
+    key: name, label, connect: InstanceConnect.parse(keyConnectOf(label, auth)),
+    ...(baseUrl === undefined ? {} : { host: new URL(baseUrl).host }), ...(privateTo === undefined ? {} : { privateTo }),
+  };
+}
+
+/** A key as the page shows it (who it is private to stays on the hub). */
+function keyView(entry: KeyEntry & { readonly privateTo?: ActorId | undefined }): KeyEntry {
+  return { key: entry.key, label: entry.label, connect: entry.connect, ...(entry.host === undefined ? {} : { host: entry.host }) };
 }
 
 /** A connect state's signed payload. */

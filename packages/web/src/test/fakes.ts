@@ -27,6 +27,7 @@ import { FnNotices } from '../fns/state/fn-notices.ts';
 import { DataStore } from '../data/state/data.ts';
 import { fakeDataApi } from '../data/test/fakes.ts';
 import { IdentityStore } from '../state/identity.ts';
+import { OutsideImagesStore } from '../state/outside-images.ts';
 import { GraphStore } from '../graph/state/graph.ts';
 import { fakeGraphApi } from '../graph/test/fakes.ts';
 import { ClientLogs } from '../state/client-logs.ts';
@@ -139,6 +140,7 @@ export function fakeApi() {
       createAdmin: fakeCaller<'createAdmin'>(() => Promise.resolve(tokens())),
       signIn: fakeCaller<'signIn'>(() => Promise.resolve(tokens())),
       refresh: fakeCaller<'refresh'>(() => Promise.resolve(tokens({ access: 'access.fresh' }))),
+      redeemSso: fakeCaller<'redeemSso'>(() => Promise.resolve(tokens({ access: 'access.sso' }))),
       signOut: fakeCaller<'signOut'>(() => Promise.resolve()),
       me: fakeCaller<'me'>(() => Promise.resolve(tokens().user)),
       account: fakeCaller<'account'>(() => Promise.resolve({
@@ -149,6 +151,10 @@ export function fakeApi() {
     identity: {
       identity: fakeCaller<'identity'>(() => Promise.resolve({ name: 'Test hub', source: 'setting' as const, version: '1.0.0' })),
       setHubName: fakeCaller<'setHubName'>(({ name }) => Promise.resolve({ name: name ?? 'Harness', source: name === null ? 'default' as const : 'setting' as const, version: '1.0.0' })),
+    },
+    outsideImages: {
+      outsideImages: fakeCaller<'outsideImages'>(() => Promise.resolve({ value: 'ask' as const })),
+      setOutsideImages: fakeCaller<'setOutsideImages'>(({ value }) => Promise.resolve({ value, setBy: tokens().user.id, updatedAt: 1 })),
     },
     notifications: {
       list: fakeCaller<'notifications'>(() => Promise.resolve({ items: [] })),
@@ -216,6 +222,7 @@ export function fakeStores(options: { signedIn?: boolean; api?: ReturnType<typeo
   const stores: Stores = {
     session,
     identity: new IdentityStore(api.identity, events.subscribe, store),
+    outsideImages: new OutsideImagesStore(api.outsideImages),
     keeper: new SessionKeeper(api.auth, session),
     theme: new ThemeStore({ store, media: fakeMedia().media, root: document.documentElement }),
     layout: new LayoutStore(store),

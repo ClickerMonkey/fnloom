@@ -1,5 +1,6 @@
 /** Callers for the notifications inbox and web push, and the user's live events (new notifications among them). */
-import type { UserEvent } from '@harness/core';
+import { watch } from 'vue';
+import type { ActorId, UserEvent } from '@harness/core';
 import type { Hub } from './client.ts';
 
 /** The inbox's cache tag, cleared when notifications are marked read. */
@@ -21,7 +22,17 @@ export type NotificationsApi = ReturnType<typeof notificationsApi>;
 /** Listen to what the hub tells this user; returns the function that stops listening. */
 export type UserEvents = (listener: (event: UserEvent) => void) => () => void;
 
-/** The user's live events, from the hub's `user` channel. */
-export function userEvents(hub: Hub): UserEvents {
-  return (listener) => hub.on('user', listener);
+/**
+ * The signed-in person's live events, from the hub's `user` channel, which hears only the person it names. Follows who
+ * is signed in (`me`, reactive): subscribes as them once someone signs in, and again as whoever signs in next.
+ */
+export function userEvents(hub: Hub, me: () => ActorId | undefined): UserEvents {
+  return (listener) => {
+    let stop: (() => void) | undefined;
+    const unwatch = watch(me, (user) => {
+      stop?.();
+      stop = user === undefined ? undefined : hub.on('user', { user }, listener);
+    }, { immediate: true });
+    return () => { unwatch(); stop?.(); };
+  };
 }

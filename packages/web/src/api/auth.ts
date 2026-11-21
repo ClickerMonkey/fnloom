@@ -11,6 +11,8 @@ export function authApi(hub: Hub) {
     createAdmin: hub.caller('createAdmin'),
     signIn: hub.caller('signIn'),
     refresh: hub.caller('refresh'),
+    /** Finish an SSO sign-in: the hand-off code for tokens (HTTP, so the hand-off cookie goes with it). */
+    redeemSso: hub.caller('redeemSso'),
     signOut: hub.caller('signOut'),
     me: hub.caller('me', { dedupe: true }),
     /** Your own account: how you sign in and your groups. */

@@ -91,3 +91,44 @@ Medium and low:
   no cwd .env URL with admin creds. Not chosen: pinning the MCP OAuth token endpoint.
 - Exfiltration through read fetches: "Just log them" (outgoing URLs shown on the run).
 - Build: "One workflow, high first".
+
+## Status (2026-11-21, after the fix workflow)
+
+High:
+- H1: fixed. `on.user` takes the signed-in person and each event names who hears it; `on.session` checks `visibleSession`; sign-out, refresh reuse, revoke and turning someone off end subscriptions.
+- H2: fixed. `HttpUrl` in core for browser-opened URLs, `safeHref` in the SDK before every data-built link; ayepi OAuth/OIDC endpoints must be https.
+- H3: fixed. `SystemLifecycle.approvedClient` gates `/clients`, renderers, pages and the settings page.
+- H4: fixed. `ensureAgentActor`; agent fns never call as `run.caller`.
+- H5: fixed. Safe commands confined to the roots, no `$`/`~`/globs, option tables, scrubbed env.
+- H6: fixed. Writes that run code ask (case-insensitive on Windows/macOS); internal and typed safe git hardened. Open: a `textconv`/`filter` already planted before the fix still runs on typed `git diff`.
+- H7: fixed. Address guard on every hop and the OpenAPI fetch; private hosts per service by an admin.
+
+Medium:
+- M1: fixed. Setup code for the first admin.
+- M2: fixed. One-time code bound to the browser by an httpOnly cookie.
+- M3: fixed. Headers on every response, app CSP, client `.html`/`.svg` as downloads, `/_files` never runs script. Open: not yet tried in a real browser.
+- M4: fixed. Outside images ask first; admin setting `outsideImages` (default `ask`).
+- M5: fixed. Real socket address, `@ayepi/rate` pairing limits, collapsing, no re-key by code.
+- M6: fixed. `runIsOf` checks system and instance everywhere.
+- M7: not chosen.
+- M8: fixed. `maxPayload` on `/link` and `/ws`, handshake socket caps, upload caps.
+- M9: fixed. Services are their person's until an admin shares them; names held; connect cards show the host. Open: the hub's generic record tools still show an unshared service's name and base URL.
+- M10: fixed. Per-tab proxy to the checked address, WebSockets blocked, service workers bypassed. Open: one live render check.
+- M11: fixed. Riskier modes ask the person, the probe reads only user settings, realpath folder check, MCP import card.
+- M12: fixed. Per (email, address) and per address with `@ayepi/rate`, IPv6 by /64; admin settings `signInLimits` and `proxyTrust`.
+- M13: fixed (with H6).
+- M14: fixed. Grep in a worker with a deadline; glob patterns that explode are refused.
+
+Low:
+- Email auto-linking to the break-glass admin: open.
+- fs mentions: fixed.
+- Claude MCP import preview: fixed.
+- MCP client OAuth token endpoint: not chosen (pinning); the endpoint must now be https.
+- Read-only fetches: fixed as decided (every URL listed on the run).
+- Install reserved names and `shell: true`: not chosen.
+- Systems label their own fns: open.
+- Database: `run` re-checks `ctx.approved`: fixed. Dry-run DML in a rolled-back transaction: open.
+- JS network guard and child proxy are advisory: open.
+- fs snapshots: fixed (pruned). Refresh with a garbage secret: fixed (only refused). Client builds and docs public: open.
+- CLI: secrets via env or stdin, no cwd `.env` URL with outside sign-in: fixed. WS token in the URL query: open.
+- Test MCP server: fixed (127.0.0.1 by default).

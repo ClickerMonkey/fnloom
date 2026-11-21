@@ -6,20 +6,23 @@
  * `answer` runs settle what the fleet waits on; a declined one arrives as a `run` event. Imported skills are kept as
  * `claude/Skill` records and declared as context again on every start.
  */
-import { randomUUID } from 'node:crypto';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { createHmac, randomBytes, randomUUID } from 'node:crypto';
+import { existsSync, lstatSync, realpathSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import {
-  jsonOf, KindDescription, MCP_SYSTEM, qualify, type McpServerConfig, type ContextDecl, type ImportReport, type InputProblem, type RunInfo, type UserInfo,
+  jsonOf, KindDescription, MCP_SYSTEM, qualify, type ApprovalPreview, type McpServerConfig, type ContextDecl, type ImportReport, type InputProblem, type Json, type ProposedRun,
+  type RunInfo, type UserInfo,
 } from '@harness/core';
-import { CallFailed, ginAs, wireType, type Data, type ProposeOptions, type StoredRecord, type SystemCtx, type SystemImpl } from '@harness/sdk';
+import { CallFailed, canonicalJson, ginAs, wireType, type Data, type ProposeOptions, type StoredRecord, type SystemCtx, type SystemImpl } from '@harness/sdk';
 import type { SystemPatch } from '@harness/sdk/server';
 import {
-  AGENT_KIND, AgentArgs, AgentPayload, ClaudeAnswer, ClaudeControl, ClaudeImport, ClaudeInstanceConfig, ClaudePermit, ClaudeSend, ClaudeSession, ClaudeStart, ClaudeTranscriptQuery, ClaudeTurn, DiskSessionsQuery,
+  AGENT_KIND, AgentArgs, AgentPayload, ClaudeAllowMode, ClaudeAnswer, ClaudeControl, asksPerson, type ClaudePermissionMode, type ModeAsked, ClaudeImport, ClaudeInstanceConfig, ClaudePermit, ClaudeSend, ClaudeSession, ClaudeStart, ClaudeTranscriptQuery, ClaudeTurn, DiskSessionsQuery,
   ImportablesQuery, claude, type ClaudeContract, type ClaudeImportable, type ClaudeMcpServerSummary, type ClaudeSessionId, type ImportOutcome,
 } from '../shared/index.ts';
 import type { ClaudeDriver, DriverOpen, FoundImportable } from './driver.ts';
 import type { ClaudeSettings } from './env.ts';
 import { NOT_WAITING, SessionFleet, oneLine, type FleetHub } from './fleet.ts';
+import { mcpServerLines, modePreview } from './preview.ts';
 
 /** What the impl needs of the running system: declaring imported skills as context. */
 export interface ClaudeRuntime {
@@ -46,16 +49,41 @@ interface RunSide {
   readonly signal: AbortSignal;
   readonly config: unknown;
   progress(line: string, count: number): void;
+  /** Proposing a run for the person (a mode that lets Claude do more on its own). */
+  propose(fn: string, args: Json, options: ProposeOptions): Promise<ProposedRun>;
 }
 
 /** A fraction that grows with each line and never reaches the end (a turn's length is unknown). */
 const fractionOf = (count: number): number => 1 - 1 / (1 + count / 8);
 
-/** The folder a request names, when it is under one of the configured folders. */
+/**
+ * Where a path really is: its deepest existing folder with links followed, plus the part that doesn't exist yet.
+ * `undefined` for a link that leads nowhere (where it leads could change after the check).
+ */
+function reallyAt(path: string): string | undefined {
+  const missing: string[] = [];
+  let at = resolve(path);
+  while (!existsSync(at)) {
+    try { lstatSync(at); return undefined; } catch { /* nothing there: look one folder up */ }
+    const up = dirname(at);
+    if (up === at) { return resolve(path); }
+    missing.unshift(basename(at));
+    at = up;
+  }
+  return join(realpathSync.native(at), ...missing);
+}
+
+/**
+ * The folder a request names, where it really is (links followed), when that is under where one of the configured
+ * folders really is: a link inside a configured folder can't lead a session out of it.
+ */
 export function allowedFolder(folder: string, config: ClaudeInstanceConfig): string | undefined {
-  const wanted = resolve(folder);
+  const wanted = reallyAt(folder);
+  if (wanted === undefined) { return undefined; }
   return config.folders.some((root) => {
-    const rel = relative(resolve(root.path), wanted);
+    const real = reallyAt(root.path);
+    if (real === undefined) { return false; }
+    const rel = relative(real, wanted);
     return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
   }) ? wanted : undefined;
 }
@@ -87,6 +115,9 @@ export function instanceNameOf(name: string): string {
 export function createClaudeImpl(deps: ClaudeDeps): { readonly impl: SystemImpl<ClaudeContract['defs']>; readonly fleet: SessionFleet; close(): Promise<void> } {
   const settings = deps.settings;
   const instance = settings.HARNESS_INSTANCE;
+  // signs what an import card's MCP server is in full (env values and headers too, which the card never shows), so a
+  // change to any of it after the approval is caught; new each start, so a card from before a restart asks again
+  const cardKey = randomBytes(32);
   const now = deps.now ?? (() => Date.now());
   let system: SystemCtx | undefined;
 
@@ -155,6 +186,22 @@ export function createClaudeImpl(deps: ClaudeDeps): { readonly impl: SystemImpl<
     return end.ok ? { done: { instance, session, status, text: end.text, costUsd: end.costUsd } } : { failed: end.text === '' ? 'The turn failed.' : end.text };
   }
 
+  /**
+   * Ask the session's person to let it work in `mode`, one that lets Claude do more on its own: a proposed
+   * `allow_mode` run, every time (its approvals are never remembered), with the mode on its card.
+   */
+  async function askMode(value: ClaudeSession, mode: ClaudePermissionMode, side: Pick<RunSide, 'propose'>): Promise<ModeAsked> {
+    const args: ClaudeAllowMode = { instance, session: value.session, mode };
+    const proposed = await side.propose('allow_mode', jsonOf(args), { preview: modePreview(mode, value), approver: 'person' });
+    return { run: proposed.run, mode, says: `Working in ${mode} mode waits for the person to approve it. Tell them and end your turn; until then the session stays in ${value.permissionMode} mode.` };
+  }
+
+  /** Switch a session's mode: a live one now, a closed one when it is next resumed (`send` opens it with its record's). */
+  async function switchMode(record: StoredRecord<ClaudeSession>, mode: ClaudePermissionMode, data: Data): Promise<void> {
+    if (fleet.isLive(record.value.session)) { await fleet.setMode(record.value.session, mode); return; }
+    await data.save(claude.types.Session, { ...record.value, permissionMode: mode }, { id: record.id });
+  }
+
   /** Start a session for the run's person (`start_session` and the `agent` kind). */
   async function start(args: ClaudeStart, side: RunSide): Promise<Done<ClaudeTurn>> {
     const config = configOf(side.config);
@@ -163,16 +210,21 @@ export function createClaudeImpl(deps: ClaudeDeps): { readonly impl: SystemImpl<
     if (folder === undefined) { return { invalid: [{ path: 'folder', message: `Not under a configured folder (${config.folders.map((f) => f.path).join(', ')}).` }] }; }
     if (fleet.size >= config.maxLive) { return { failed: `${String(config.maxLive)} sessions are live on this machine, the most it runs at once: stop one first.` }; }
     const at = now();
+    // a mode the run asks for that lets Claude do more on its own waits for the person; the session starts careful
+    const asked = args.permissionMode !== undefined && asksPerson(args.permissionMode) ? args.permissionMode : undefined;
+    const permissionMode = asked === undefined ? args.permissionMode ?? config.permissionMode : asksPerson(config.permissionMode) ? 'default' : config.permissionMode;
     const value: ClaudeSession = {
       instance, session: randomUUID(), folder, title: args.title ?? oneLine(args.prompt, 80), status: 'starting', owner: side.run.user.id,
       ...(side.run.session === undefined ? {} : { chat: side.run.session }),
       ...((args.model ?? config.model) === undefined ? {} : { model: args.model ?? config.model }),
-      permissionMode: args.permissionMode ?? config.permissionMode, ...(args.agent === undefined ? {} : { agent: args.agent }),
+      permissionMode, ...(args.agent === undefined ? {} : { agent: args.agent }),
       waiting: [], asking: [], tasks: [], turns: 0, costUsd: 0, startedAt: at, updatedAt: at,
     };
     const saved = await side.data.save(claude.types.Session, value);
     fleet.open(saved.id, value, openOf(value, false, config), args.prompt, config.idleClose);
-    return turnOf(value.session, args.wait, side);
+    const modeAsked = asked === undefined ? undefined : await askMode(value, asked, side);
+    const turn = await turnOf(value.session, args.wait, side);
+    return modeAsked !== undefined && 'done' in turn ? { done: { ...turn.done, modeAsked } } : turn;
   }
 
   /** Send to a session, resuming it first when it isn't live. */
@@ -295,6 +347,7 @@ export function createClaudeImpl(deps: ClaudeDeps): { readonly impl: SystemImpl<
           const outcome = await start(ClaudeStart.parse({ folder: given.data.folder ?? agent.folder, prompt: given.data.prompt, agent: agent.agent, wait: given.data.wait }), {
             run: ctx.run, data: ctx.data, signal: ctx.signal, config: ctx.config,
             progress: (line, count) => { ctx.progress({ fraction: fractionOf(count), message: line }); },
+            propose: (fn, proposed, options) => ctx.propose(fn, proposed, options),
           });
           return 'done' in outcome ? ctx.done(jsonOf(outcome.done)) : 'invalid' in outcome ? ctx.invalid(outcome.invalid) : ctx.fail('caller', outcome.failed);
         },
@@ -329,15 +382,30 @@ export function createClaudeImpl(deps: ClaudeDeps): { readonly impl: SystemImpl<
           if (args.action === 'mode' && args.mode === undefined) { return ctx.invalid([{ path: 'mode', message: 'Give the permission mode to switch to.' }]); }
           // the mode decides what Claude may do without asking its person, so only they change it (an admin may interrupt or stop)
           if (args.mode !== undefined && record.value.owner !== ctx.run.user.id) { return ctx.invalid([{ path: 'mode', message: "This session is another person's: only they can change what it may do without asking. You can interrupt it or stop it." }]); }
-          if (!fleet.isLive(args.session)) {
-            if (args.action !== 'mode') { return ctx.invalid([{ path: 'session', message: `The session is not live, so there is nothing to ${args.action}.` }]); }
-            // a closed session takes the mode when it is next resumed (`send` opens it with its record's mode)
-            if (args.mode !== undefined) { await ctx.data.save(claude.types.Session, { ...record.value, permissionMode: args.mode }, { id: record.id }); }
-            return ctx.done({ instance, session: args.session, status: 'closed' });
-          }
-          if (args.mode !== undefined) { await fleet.setMode(args.session, args.mode); }
+          if (!fleet.isLive(args.session) && args.action !== 'mode') { return ctx.invalid([{ path: 'session', message: `The session is not live, so there is nothing to ${args.action}.` }]); }
+          // a mode that lets Claude do more on its own is the person's to approve, every time; any other switches now
+          const asked = args.mode !== undefined && asksPerson(args.mode) ? args.mode : undefined;
+          if (args.mode !== undefined && asked === undefined) { await switchMode(record, args.mode, ctx.data); }
           if (args.action === 'interrupt') { await fleet.interrupt(args.session); } else if (args.action === 'stop') { fleet.stop(args.session); }
+          const status = fleet.value(args.session)?.status ?? 'closed';
+          const modeAsked = asked === undefined ? undefined : await askMode(fleet.value(args.session) ?? record.value, asked, ctx);
+          return ctx.done({ instance, session: args.session, status, ...(modeAsked === undefined ? {} : { modeAsked }) });
+        },
+      },
+      allow_mode: {
+        async run(raw, ctx) {
+          const args = ClaudeAllowMode.parse(raw);
+          if (args.instance !== instance) { return ctx.invalid(elsewhere(args.instance)); }
+          const record = await recordOf(ctx.data, args.session);
+          // the run is the session's person's (the approver of the proposal): only they let it do more on its own
+          if (record === undefined || record.value.owner !== ctx.run.user.id) { return ctx.invalid([{ path: 'session', message: 'No such session of yours on this machine.' }]); }
+          if (ctx.approved === undefined) { return ctx.fail('caller', 'This mode needs the person to approve it first.'); }
+          await switchMode(record, args.mode, ctx.data);
           return ctx.done({ instance, session: args.session, status: fleet.value(args.session)?.status ?? 'closed' });
+        },
+        preview(raw) {
+          const args = ClaudeAllowMode.parse(raw);
+          return Promise.resolve({ preview: modePreview(args.mode, fleet.value(args.session)) });
         },
       },
       transcript: {
@@ -406,15 +474,16 @@ export function createClaudeImpl(deps: ClaudeDeps): { readonly impl: SystemImpl<
           const args = ClaudeImport.parse(raw);
           const config = configOf(ctx.config);
           if (config === undefined) { return ctx.fail('caller', 'This claude instance is not configured yet.'); }
+          // what runs is what the admin's card showed: an MCP server whose command changed since is not imported
+          if (ctx.approved === undefined) { return ctx.fail('caller', 'An import needs an admin to approve it first.'); }
+          if (canonicalJson(jsonOf(await importPreview(args, config))) !== canonicalJson(jsonOf(ctx.approved.preview))) { return ctx.fail('caller', 'What Claude has changed since the import was approved: ask again.'); }
           const outcome: ImportOutcome = { imported: [], refused: [] };
           const skills: ContextDecl[] = [];
           for (const item of args.items) {
-            const folder = allowedFolder(item.folder ?? config.folders[0]?.path ?? '.', config);
-            const found = folder === undefined ? [] : await deps.driver.importables(folder);
-            const thing = found.find((f) => f.kind === item.kind && f.name === item.name);
+            const target = await importTarget(item, config);
             const refuse = (why: string) => { outcome.refused.push({ kind: item.kind, name: item.name, why }); };
-            if (folder === undefined) { refuse('Its folder is not under a configured folder.'); continue; }
-            if (thing === undefined) { refuse(`Claude does not see this ${item.kind} in ${folder}.`); continue; }
+            if ('why' in target) { refuse(target.why); continue; }
+            const { folder, thing } = target;
             switch (thing.kind) {
               case 'skill': {
                 const content = await deps.driver.skillText(thing.name, folder);
@@ -448,9 +517,36 @@ export function createClaudeImpl(deps: ClaudeDeps): { readonly impl: SystemImpl<
           if (skills.length > 0 && deps.runtime !== undefined) { await (await deps.runtime()).patch({ upsert: { context: skills } }); }
           return ctx.done(outcome);
         },
+        async preview(raw, ctx) {
+          const config = configOf(ctx.config);
+          if (config === undefined) { return { refused: 'This claude instance is not configured yet.' }; }
+          return { preview: await importPreview(ClaudeImport.parse(raw), config) };
+        },
       },
     },
   };
+
+  /** What an import item names, as Claude sees it now, or why it can't be imported. */
+  async function importTarget(item: ClaudeImport['items'][number], config: ClaudeInstanceConfig): Promise<{ readonly folder: string; readonly thing: FoundImportable } | { readonly why: string }> {
+    const folder = allowedFolder(item.folder ?? config.folders[0]?.path ?? '.', config);
+    if (folder === undefined) { return { why: 'Its folder is not under a configured folder.' }; }
+    const thing = (await deps.driver.importables(folder)).find((f) => f.kind === item.kind && f.name === item.name);
+    return thing === undefined ? { why: `Claude does not see this ${item.kind} in ${folder}.` } : { folder, thing };
+  }
+
+  /** The admin's card for an import: each item and where it is from; an MCP server's command, args, folder and env names. */
+  async function importPreview(args: ClaudeImport, config: ClaudeInstanceConfig): Promise<ApprovalPreview> {
+    const parts = await Promise.all(args.items.map(async (item): Promise<ApprovalPreview['parts'][number]> => {
+      const target = await importTarget(item, config);
+      if ('why' in target) { return { type: 'text', text: `${item.kind} ${item.name}: not imported. ${target.why}` }; }
+      const { thing, folder } = target;
+      if (thing.kind !== 'mcp-server') { return { type: 'text', text: `${thing.kind} ${thing.name} (${thing.scope}, ${folder})` }; }
+      const check = createHmac('sha256', cardKey).update(canonicalJson(jsonOf(thing.server))).digest('hex').slice(0, 12);
+      return { type: 'code', language: 'text', title: `MCP server ${thing.name} (${thing.scope}, ${folder})`, code: `${mcpServerLines(thing.server)}
+check: ${check}` };
+    }));
+    return { title: `Import ${String(args.items.length)} from Claude`, parts, irreversible: false };
+  }
 
   return { impl, fleet, close: () => fleet.stopAll() };
 }

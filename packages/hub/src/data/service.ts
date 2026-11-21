@@ -154,6 +154,7 @@ export class StoreDataService implements DataService {
 
   async save(input: RecordSave, asker: DataAsker): Promise<DataRecord> {
     const stored = await this.#stored(input.type, asker);
+    this.#mayWrite(stored, asker);
     const problems = await this.#deps.catalog.check(stored.type.system, stored.type.def, input.value);
     if (problems.length > 0) { throw reject(400, 'RECORD_INVALID', `the value doesn't fit ${stored.type.name}: ${problems.join('; ')}`); }
     const now = this.#deps.clock();
@@ -196,6 +197,7 @@ export class StoreDataService implements DataService {
     const type = await this.#deps.catalog.type(input.type);
     if (type?.records === undefined || !asker.access.seesType(type)) { return [{ path: 'type', message: `no stored type ${input.type}` }]; }
     const stored: Stored = { type: { ...type, records: type.records }, fields: recordFields(type.def) };
+    if (!this.#writes(stored, asker)) { return [{ path: 'type', message: adminsOnly(type.name) }]; }
     if (!('set' in input)) { return (await this.#deps.catalog.check(type.system, type.def, input.value)).map((problem) => problemAt('value', problem)); }
     const fields = new Set(stored.fields.map((field) => field.name));
     const unknown = Object.keys(input.set).filter((name) => !fields.has(name));
@@ -208,6 +210,7 @@ export class StoreDataService implements DataService {
 
   async remove(input: RecordRemove, asker: DataAsker): Promise<boolean> {
     const stored = await this.#stored(input.type, asker);
+    this.#mayWrite(stored, asker);
     const removed = await this.#deps.store.tx(async (tx) => {
       const record = await tx.table('records').get(input.id);
       if (record === undefined || !this.#sees(record, stored, asker)) { return undefined; }
@@ -243,6 +246,16 @@ export class StoreDataService implements DataService {
     const type = await this.#deps.catalog.type(name);
     if (type?.records === undefined || !asker.access.seesType(type)) { throw reject(404, 'NO_STORED_TYPE', `no stored type ${name}`); }
     return { type: { ...type, records: type.records }, fields: recordFields(type.def) };
+  }
+
+  /** Whether the asker may change a type's records: anyone who sees it, unless only admins (and its own system) write it. */
+  #writes(stored: Stored, asker: DataAsker): boolean {
+    return stored.type.records.writers !== 'admins' || asker.access.admin || asker.system === stored.type.system;
+  }
+
+  /** Refused (403) unless the asker may change the type's records (`#writes`). */
+  #mayWrite(stored: Stored, asker: DataAsker): void {
+    if (!this.#writes(stored, asker)) { throw reject(403, 'RECORD_ADMINS_ONLY', adminsOnly(stored.type.name)); }
   }
 
   /** Whether reads of a type keep to the asker's own records: a person-owned type, for anyone but an admin or its own system outside a run. */
@@ -318,6 +331,11 @@ export class StoreDataService implements DataService {
       ...(record.run === undefined ? {} : { run: record.run }),
     };
   }
+}
+
+/** Why a change to an admins-only type was refused. */
+function adminsOnly(type: QualifiedName): string {
+  return `only an admin changes ${type} records`;
 }
 
 /** A catalog check's line (`stars: Expected a number`, or a message for the whole value) as a problem under an arg. */

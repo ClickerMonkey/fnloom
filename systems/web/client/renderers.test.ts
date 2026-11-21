@@ -91,7 +91,7 @@ describe('SearchView', () => {
 });
 
 describe('ReadView', () => {
-  const result = { uri: 'hub://resources/web/a', title: 'Page A', finalUrl: 'https://www.example.com/b', text: 'Hello page.', truncated: true, rendered: true };
+  const result = { uri: 'hub://resources/web/a', title: 'Page A', finalUrl: 'https://www.example.com/b', text: 'Hello page.', truncated: true, rendered: true, fetched: ['https://example.com/a', 'https://www.example.com/b'] };
 
   it('shows the page, its facts and the hub viewer\'s compact preview of the kept resource', () => {
     const Viewer = defineComponent({ props: { uri: { type: String, required: true }, compact: Boolean }, setup: (props) => () => h('div', { class: 'viewer' }, `${props.uri} ${String(props.compact)}`) });
@@ -101,6 +101,9 @@ describe('ReadView', () => {
     expect(card.find('.url').attributes('href')).toBe('https://www.example.com/b');
     expect(card.findAll('.fact').map((f) => f.text())).toEqual(['Rendered', 'Redirected', '11 characters, cut short']);
     expect(card.find('.viewer').text()).toBe('hub://resources/web/a true');
+    // every URL the read sent out, redirects included
+    expect(card.find('.fetched .label').text()).toBe('Fetched:');
+    expect(card.findAll('.fetched .hop').map((hop) => hop.text())).toEqual(['https://example.com/a', 'https://www.example.com/b']);
   });
 
   it('shows the start of the text without a viewer, and the asked URL while it runs', () => {

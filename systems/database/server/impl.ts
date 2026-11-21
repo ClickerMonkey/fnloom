@@ -665,6 +665,8 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
           const attach = (table: Parameters<QueryRunCtx['attach']>[0], title: string): void => { ctx.attach(database.attachments.result, table, title); };
           if (compiled.writes) {
             if (!instance.writes) { return ctx.fail('caller', `${instance.config.label} is read-only now.`); }
+            // a write always asks (its description says so); never run one the hub sent without an approval
+            if (ctx.approved === undefined) { return ctx.fail('caller', 'This write needs the person to approve it first.'); }
             return ctx.done(Json.parse(await queries.write(instance, compiled, plan, fn, { attach, watched: ctx.run.watched })));
           }
           // a grouped read says how a click on one of its groups reads the rows behind it (drill_down)

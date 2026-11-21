@@ -45,6 +45,7 @@
  *   search tied to a mention request).
  */
 export * from './primitives.ts';
+export * from './urls.ts';
 export * from './modes.ts';
 export * from './context-graph.ts';
 export * from './objects.ts';

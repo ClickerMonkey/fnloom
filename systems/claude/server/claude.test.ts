@@ -5,7 +5,9 @@
  * answers; transcripts and Claude's store page; imports make skill context and agent fns. The SDK mappings (messages,
  * transcript items, forms, MCP configs) are checked on their own.
  */
-import { resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { ActorId, jsonOf, McpServerConfig, mintId, qualify, SystemView, type DataRecord } from '@harness/core';
 import type { ClaudeInstanceConfig, ClaudeTranscriptItem } from '../shared/session.ts';
 import { TEST_USER, testHub, type TestSystem } from '@harness/sdk/testing';
@@ -15,7 +17,7 @@ import { claude } from '../shared/index.ts';
 import { bodyOf, eventsOf, mcpConfigOf } from './agent-sdk.ts';
 import { claudeEnv, sessionEnv } from './env.ts';
 import { FakeClaudeDriver } from './fake-driver.ts';
-import { createClaudeImpl, type ClaudeRuntime } from './impl.ts';
+import { allowedFolder, createClaudeImpl, type ClaudeRuntime } from './impl.ts';
 import { askUserQuestionForm, elicitationForm } from './questions.ts';
 import { itemsOf } from './transcript.ts';
 
@@ -53,6 +55,53 @@ describe('claude system', () => {
     expect(outside.outcome.status).toBe('invalid-input');
     // a model learns where sessions may start from claude/folders
     expect((await kit.call('folders', {})).result).toEqual({ instance: 'main', folders: [{ path: ROOT, label: 'Code' }] });
+  });
+
+  it('never lets a run switch a session to a mode that asks less: control asks the person on a card, every time', async () => {
+    const { kit, driver } = await setup();
+    const { result } = await kit.call('start_session', { folder: FOLDER, prompt: 'Look at the tests.' });
+    // an injected agent's control call (write, free) switches nothing by itself
+    const asked = await kit.call('control', { instance: 'main', session: result.session, action: 'mode', mode: 'acceptEdits' });
+    expect(driver.live(result.session).modes).toEqual([]);
+    expect(asked.result.modeAsked).toMatchObject({ mode: 'acceptEdits' });
+    const proposal = kit.hub.proposals.at(-1);
+    expect(proposal).toMatchObject({ fn: 'allow_mode', approver: 'person', args: { instance: 'main', session: result.session, mode: 'acceptEdits' }, preview: { title: 'Let Claude work in acceptEdits mode?' } });
+    expect(JSON.stringify(proposal?.preview)).toContain('edits files');
+    // a direct allow_mode run (not the approved proposal) switches nothing either
+    expect((await kit.run('allow_mode', { instance: 'main', session: result.session, mode: 'auto' })).outcome.status).toBe('failed');
+    expect((await kit.approve(proposal?.run ?? '')).status).toBe('done');
+    expect(driver.live(result.session).modes).toEqual(['acceptEdits']);
+    // its approvals are never remembered as a policy: the hub asks every time
+    expect(claude.defs.fns.allow_mode.approval).toEqual({ preview: true, remember: false });
+  });
+
+  it('starts a session asked for in auto mode in default, asking the person for auto', async () => {
+    const { kit, driver } = await setup();
+    const { result } = await kit.call('start_session', { folder: FOLDER, prompt: 'Refactor it all.', permissionMode: 'auto' });
+    expect(driver.live(result.session).open).toMatchObject({ permissionMode: 'default' });
+    expect(kit.records('Session')[0]?.value).toMatchObject({ permissionMode: 'default' });
+    expect(result.modeAsked).toMatchObject({ mode: 'auto' });
+    expect(kit.hub.proposals.at(-1)).toMatchObject({ fn: 'allow_mode', args: { mode: 'auto' }, preview: { title: 'Let Claude work in auto mode?' } });
+    // plan asks no one
+    const planned = await kit.call('start_session', { folder: FOLDER, prompt: 'Plan it.', permissionMode: 'plan' });
+    expect(driver.live(planned.result.session).open).toMatchObject({ permissionMode: 'plan' });
+    expect(planned.result.modeAsked).toBeUndefined();
+  });
+
+  it('refuses a folder that a link inside a configured folder leads out of', () => {
+    const root = mkdtempSync(join(tmpdir(), 'claude-root-'));
+    const outside = mkdtempSync(join(tmpdir(), 'claude-outside-'));
+    try {
+      symlinkSync(outside, join(root, 'escape'), 'junction');
+      mkdirSync(join(root, 'inside'));
+      const config = { folders: [{ path: root }], permissionMode: 'default' as const, maxLive: 2, idleClose: 3_600_000 };
+      expect(allowedFolder(join(root, 'escape'), config)).toBeUndefined();
+      expect(allowedFolder(join(root, 'escape', 'deeper'), config)).toBeUndefined();
+      expect(allowedFolder(join(root, 'inside'), config)).toBe(join(realpathSync.native(root), 'inside'));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   it("refuses an admin's send to a member's session, whose questions only that member answers", async () => {
@@ -161,8 +210,8 @@ describe('claude system', () => {
     await kit.call('control', { instance: 'main', session: result.session, action: 'interrupt', mode: 'plan' });
     expect(driver.live(result.session)).toMatchObject({ interrupts: 1, modes: ['plan'] });
     // a mode switch alone leaves the turn running
-    await kit.call('control', { instance: 'main', session: result.session, action: 'mode', mode: 'acceptEdits' });
-    expect(driver.live(result.session)).toMatchObject({ interrupts: 1, modes: ['plan', 'acceptEdits'] });
+    await kit.call('control', { instance: 'main', session: result.session, action: 'mode', mode: 'default' });
+    expect(driver.live(result.session)).toMatchObject({ interrupts: 1, modes: ['plan', 'default'] });
     expect((await kit.run('control', { instance: 'main', session: result.session, action: 'mode' })).outcome.status).toBe('invalid-input');
     const stopped = await kit.call('control', { instance: 'main', session: result.session, action: 'stop' });
     expect(stopped.result.status).toBe('closed');
@@ -196,7 +245,12 @@ describe('claude system', () => {
       added.push(call.args);
       return Promise.resolve({ status: 'done', result: { system: 'mcp', instance: 'linear' } });
     };
-    const imported = await kit.call('import', { items: [{ kind: 'skill', name: 'release-notes', folder: FOLDER }, { kind: 'agent', name: 'code-reviewer', folder: FOLDER }, { kind: 'mcp-server', name: 'linear', folder: FOLDER }] });
+    const items = [{ kind: 'skill', name: 'release-notes', folder: FOLDER }, { kind: 'agent', name: 'code-reviewer', folder: FOLDER }, { kind: 'mcp-server', name: 'linear', folder: FOLDER }] as const;
+    const card = await kit.hub.preview({ run: mintId('run'), fn: 'import', args: jsonOf({ items }), user: TEST_USER });
+    if (!('preview' in card)) throw new Error('no preview');
+    // an import the hub sent with no approval imports nothing
+    expect((await kit.run('import', { items: [...items] })).outcome).toMatchObject({ status: 'failed', error: { message: 'An import needs an admin to approve it first.' } });
+    const imported = await kit.call('import', { items: [...items] }, { approved: { by: TEST_USER.id, preview: card.preview } });
     expect(imported.result.imported).toEqual([
       { kind: 'skill', name: 'release-notes', as: 'claude/skill_release_notes' },
       { kind: 'agent', name: 'code-reviewer', as: 'claude/agent_code_reviewer' },
@@ -214,6 +268,30 @@ describe('claude system', () => {
     // a list never carries a server's secrets: only how it is reached and their names
     expect(listed.result.items[3]).toMatchObject({ server: { transport: 'stdio', where: 'npx', secrets: ['GITHUB_PERSONAL_ACCESS_TOKEN'] } });
     expect(JSON.stringify(listed.result)).not.toContain('ghp_');
+  });
+
+  it('shows an MCP server import on the admin card as its command, args, folder and env names, and imports only what the card showed', async () => {
+    const { kit, driver } = await setup();
+    const github = (command: string) => ({
+      kind: 'mcp-server' as const, name: 'github', description: 'GitHub', scope: 'project' as const, folder: FOLDER,
+      server: McpServerConfig.parse({ label: 'github', transport: { type: 'stdio', command, args: ['server.js'], cwd: FOLDER, env: { GITHUB_TOKEN: 'ghp_secret' } } }),
+    });
+    driver.found = [github('node')];
+    const items = [{ kind: 'mcp-server' as const, name: 'github', folder: FOLDER }];
+    const card = await kit.hub.preview({ run: mintId('run'), fn: 'import', args: jsonOf({ items }), user: TEST_USER });
+    if (!('preview' in card)) throw new Error('no preview');
+    const shown = JSON.stringify(card.preview);
+    expect(shown).toContain('command: node');
+    expect(shown).toContain('args: [\\"server.js\\"]');
+    expect(shown).toContain(`folder: ${FOLDER}`.replace(/\\/g, '\\\\'));
+    expect(shown).toContain('env: GITHUB_TOKEN');
+    expect(shown).not.toContain('ghp_secret');
+    // the folder's .mcp.json changed after the card was approved: nothing is imported
+    driver.found = [github('evil.exe')];
+    expect((await kit.run('import', { items }, { approved: { by: TEST_USER.id, preview: card.preview } })).outcome).toMatchObject({ status: 'failed', error: { message: 'What Claude has changed since the import was approved: ask again.' } });
+    // nor when only an env value changed, which the card never shows
+    driver.found = [{ ...github('node'), server: McpServerConfig.parse({ label: 'github', transport: { type: 'stdio', command: 'node', args: ['server.js'], cwd: FOLDER, env: { GITHUB_TOKEN: 'ghp_other' } } }) }];
+    expect((await kit.run('import', { items }, { approved: { by: TEST_USER.id, preview: card.preview } })).outcome).toMatchObject({ status: 'failed', error: { message: 'What Claude has changed since the import was approved: ask again.' } });
   });
 
   it('describes an imported agent with an example: a task in its own words', async () => {

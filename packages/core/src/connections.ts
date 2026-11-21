@@ -46,10 +46,14 @@ export type ConnectKey = z.infer<typeof ConnectKey>;
 
 /**
  * What the hub reads of each record of a key-scoped system's key type (`ConnectDecl.keys.type`): the key, the words on
- * its card, and how it signs in (`RemoteAuth`, from which the hub works out how people connect). Other fields are the
+ * its card, and how it signs in (`RemoteAuth`, from which the hub works out how people connect). Optional: `baseUrl`,
+ * where its requests go (the card shows its host, so people see where a token goes before they type it), and
+ * `privateTo`, the one person who sees and connects to it (absent: everyone who sees the system). Other fields are the
  * system's own.
  */
-export const ConnectKeyRecord = z.looseObject({ name: ConnectKey, label: z.string().min(1), auth: RemoteAuth });
+export const ConnectKeyRecord = z.looseObject({
+  name: ConnectKey, label: z.string().min(1), auth: RemoteAuth, baseUrl: z.url().optional(), privateTo: ActorId.optional(),
+});
 export type ConnectKeyRecord = z.infer<typeof ConnectKeyRecord>;
 
 /**
@@ -141,8 +145,8 @@ export const ConnectPage = z.object({
   connections: z.array(ConnectionView),
   /** Build 9, an instance-scoped system: its instances people connect to, each with how (`InstanceConnect`). */
   instances: z.array(z.object({ instance: InstanceName, label: z.string(), connect: InstanceConnect })).optional(),
-  /** A key-scoped system: its keys people connect to, each with how. */
-  keys: z.array(z.object({ key: ConnectKey, label: z.string(), connect: InstanceConnect })).optional(),
+  /** A key-scoped system: its keys people connect to, each with how, and the host its requests go to when it says. */
+  keys: z.array(z.object({ key: ConnectKey, label: z.string(), connect: InstanceConnect, host: z.string().optional() })).optional(),
 });
 export type ConnectPage = z.infer<typeof ConnectPage>;
 

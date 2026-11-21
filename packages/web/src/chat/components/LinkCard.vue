@@ -1,6 +1,10 @@
 <script setup lang="ts">
-/** A link a fn added to an answer, as a card: a resource (opens the viewer), a web page, a stored file, or a run. */
+/**
+ * A link a fn added to an answer, as a card: a resource (opens the viewer), a web page, a stored file, or a run. A web
+ * address that isn't safe to open (`safeHref`) shows as plain text, not a link.
+ */
 import type { Link } from '@harness/core';
+import { safeHref } from '@harness/sdk';
 import { computed } from 'vue';
 import { UiIcon, type IconName } from '../../ui/index.ts';
 import { formatBytes } from '../logic/format.ts';
@@ -8,14 +12,16 @@ import { formatBytes } from '../logic/format.ts';
 const props = defineProps<{ link: Link }>();
 const emit = defineEmits<{ open: [link: Link] }>();
 
+/** A web link's address, when it is safe to open. */
+const href = computed(() => ('url' in props.link ? safeHref(props.link.url) : undefined));
+
 const look = computed<{ icon: IconName; title: string; where: string }>(() => {
   const link = props.link;
   if ('resource' in link) { return { icon: 'copy', title: link.title ?? link.resource.split('/').at(-1) ?? link.resource, where: link.resource }; }
-  if ('url' in link) { return { icon: 'external', title: link.title, where: new URL(link.url).host }; }
+  if ('url' in link) { return { icon: 'external', title: link.title, where: href.value === undefined ? link.url : new URL(href.value, window.location.href).host }; }
   if ('file' in link) { return { icon: 'copy', title: link.title, where: `${link.file.mime} · ${formatBytes(link.file.size)}` }; }
   return { icon: 'fn', title: link.title, where: 'Run details' };
 });
-const href = computed(() => ('url' in props.link ? props.link.url : undefined));
 </script>
 
 <template>
@@ -23,6 +29,10 @@ const href = computed(() => ('url' in props.link ? props.link.url : undefined));
     <span class="icon"><UiIcon :name="look.icon" :size="16" /></span>
     <span class="text"><span class="title">{{ look.title }}</span><span class="where">{{ look.where }}</span></span>
   </a>
+  <div v-else-if="'url' in link" class="link-card" data-testid="link-card-plain">
+    <span class="icon"><UiIcon :name="look.icon" :size="16" /></span>
+    <span class="text"><span class="title">{{ look.title }}</span><span class="where">{{ look.where }}</span></span>
+  </div>
   <button v-else type="button" class="link-card" data-testid="link-card" @click="emit('open', link)">
     <span class="icon"><UiIcon :name="look.icon" :size="16" /></span>
     <span class="text"><span class="title">{{ look.title }}</span><span class="where">{{ look.where }}</span></span>

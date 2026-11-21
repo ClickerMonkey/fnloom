@@ -187,6 +187,11 @@ export const SystemReview = z.object({
   refusals: z.object({ total: z.number().int().min(0), last: z.array(RefusalRecord).max(10) }),
   /** Short-lived links to the checks' preview images, by content hash, so the gallery can show them (made per read, never stored). */
   previewUrls: z.record(z.string(), z.string()).optional(),
+  /**
+   * Whether the web may load the contract's client build (its renderers and config component): only once an admin
+   * approved that very build, by going live or approving the change. Absent: not approved.
+   */
+  clientApproved: z.boolean().optional(),
 });
 export type SystemReview = z.infer<typeof SystemReview>;
 

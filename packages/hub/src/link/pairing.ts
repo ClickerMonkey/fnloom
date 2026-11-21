@@ -10,11 +10,16 @@
  * An instance is known by its key: a hello whose key matches an instance of the system proves it as that instance,
  * whatever name it asked for (the admin may have renamed it), and its welcome says the name it was paired as.
  *
+ * Pairing with a code never replaces a paired instance's key: that needs a token made for the system's name (or the
+ * instance's auto-pair secret). Requests are rate limited per address and in all (`PairingLimits`), and a request for
+ * a name an address is already asking about takes that request over, so the admins hear about it once.
+ *
  * Either way of pairing may grant auto pair (`link/auto-pair.ts`); an instance that later brings its secret with a new
  * key is re-keyed by `autoPaired` once it signs the challenge with that key.
  */
 import { reject as refuse, type Peer } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
+import { limiter, type Limiter, type RateLimitStore } from '@ayepi/rate';
 import {
   MAIN_INSTANCE, instanceLabel, isReservedSystemName, mintId, type ActorId, type GinTypeDef, type Hello, type HelloReply, type InstanceRecord,
   type InstanceRef, type Json, type PairingId, type PairingInfo, type PairingRequest, type PairingToken, type SystemLinkSpec, type SystemName,
@@ -22,6 +27,7 @@ import {
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
 import { allRows } from '../store/rows.ts';
+import { limitKey } from '../api/client-address.ts';
 import { messageOf } from '../catalog/scope.ts';
 import type { HubStore } from '../store/index.ts';
 import type { AutoPairService } from './auto-pair.ts';
@@ -71,6 +77,52 @@ export interface PairingAsker {
   readonly peer: Peer<SystemLinkSpec>;
 }
 
+/** How many pairing requests the hub takes: per address, and from every address together, in one window. */
+export interface PairingLimitOptions {
+  readonly perAddress: number;
+  readonly total: number;
+  readonly window: number;
+  readonly clock: () => number;
+  readonly log: Logger;
+  /** Where the counts live (the hub database); in memory when absent. */
+  readonly rate?: RateLimitStore | undefined;
+}
+
+/** Counts pairing requests (with a code, or with an auto-pair secret) with `@ayepi/rate`, refusing past the limits. */
+export class PairingLimits {
+  readonly #options: PairingLimitOptions;
+  readonly #address: Limiter;
+  readonly #total: Limiter;
+
+  constructor(options: PairingLimitOptions) {
+    this.#options = options;
+    const store = options.rate === undefined ? {} : { store: options.rate };
+    this.#address = limiter({ limit: options.perAddress, window: options.window, algorithm: 'sliding-window', prefix: 'pairing-address', ...store });
+    this.#total = limiter({ limit: options.total, window: options.window, algorithm: 'sliding-window', prefix: 'pairing-total', ...store });
+  }
+
+  /**
+   * Count one request from `address`; refused (429) when it, or every address together, asked too often. With
+   * `cost` 0 nothing is counted, and it is refused when no request is left (before trying a pairing token, which
+   * counts only when refused).
+   */
+  async check(address: string, system: SystemName, cost: 0 | 1 = 1): Promise<void> {
+    const now = this.#options.clock();
+    for (const [counter, key] of [[this.#address, address], [this.#total, 'all']] as const) {
+      const result = await counter.check(limitKey(key), { now, cost });
+      if (!result.allowed || (cost === 0 && result.remaining < 1)) {
+        this.#options.log.warn('pairing.limited', { system, address, scope: counter === this.#total ? 'total' : 'address' });
+        throw refuse(429, 'PAIRING_LIMITED', `too many pairing requests; try again in ${Math.ceil(result.retryAfter / 1000)}s`);
+      }
+    }
+  }
+}
+
+/** The refusal of a code pairing that would replace a paired instance's key. */
+function rekeyNeedsToken(name: SystemName): Error {
+  return refuse(403, 'REKEY_NEEDS_TOKEN', `${name} is paired already: to pair it again, an admin makes a pairing token for ${name}`);
+}
+
 /** A known instance a hello's key matches, so it gets a challenge rather than a pairing. */
 export interface KnownKey {
   readonly instance: InstanceRecord;
@@ -102,9 +154,11 @@ export class StorePairingService implements PairingService {
 
   /**
    * Start pairing for a hello the hub can't accept with a challenge. With a valid pairing token it is approved at
-   * once; otherwise it waits for an admin with a code (an unexpired request for the same instance and key is reused).
-   * A token replaces the key of an instance already paired only when it was made for that system's name, so a token
-   * meant for a new system can't take over an existing one. Names the hub keeps for itself are refused.
+   * once; otherwise it waits for an admin with a code. An unexpired request for the same instance and key is reused;
+   * one from the same address for the same name and instance (another key) is taken over by this hello, with a new
+   * code, so the admins are told once. A token replaces the key of an instance already paired only when it was made
+   * for that system's name, so a token meant for a new system can't take over an existing one; a code never does.
+   * Names the hub keeps for itself are refused.
    */
   async start(hello: Hello, asker: PairingAsker): Promise<HelloReply> {
     if (isReservedSystemName(hello.name)) { throw refuse(403, 'RESERVED_NAME', `${hello.name} is a name the hub keeps for itself`); }
@@ -130,14 +184,28 @@ export class StorePairingService implements PairingService {
       return { kind: 'pairing', pairing: request.id, url: this.approvalUrl(request, asker.origin), expiresAt: request.expiresAt };
     }
 
-    const open = (await allRows(store.table('pairings'), { where: { name: hello.name, status: 'pending' } }))
-      .find((r) => r.keyFingerprint === keyFingerprint && (r.instance ?? MAIN_INSTANCE) === hello.instance && r.expiresAt > now);
-    const request = open ?? await store.table('pairings').insert({ ...base, id: mintId('pairing'), method: 'code', code: pairingCode(), status: 'pending' });
-    this.#waiting.set(request.id, { peer: asker.peer, origin: asker.origin });
-    if (open === undefined) {
+    if (rekeys) { throw rekeyNeedsToken(hello.name); }
+    const pending = (await allRows(store.table('pairings'), { where: { name: hello.name, status: 'pending', method: 'code' } })).filter((r) => r.expiresAt > now);
+    const same = pending.find((r) => r.keyFingerprint === keyFingerprint && (r.instance ?? MAIN_INSTANCE) === hello.instance);
+    // (the same instance only: two instances of a fleet on one machine may ask at once)
+    const fromThere = same === undefined ? pending.find((r) => r.address === asker.address && (r.instance ?? MAIN_INSTANCE) === hello.instance) : undefined;
+    let request: PairingRequest;
+    if (same !== undefined) {
+      request = same;
+    } else if (fromThere === undefined) {
+      request = await store.table('pairings').insert({ ...base, id: mintId('pairing'), method: 'code', code: pairingCode(), status: 'pending' });
       this.#options.bus.publish('pairing', { pairing: request });
-      this.#options.log.info('pairing.requested', { pairing: request.id, system: request.name, instance: hello.instance, method: 'code', replaces: request.replaces });
+      this.#options.log.info('pairing.requested', { pairing: request.id, system: request.name, instance: hello.instance, method: 'code' });
+    } else {
+      // the same address asking again for the same name: this hello takes the request over, so it is announced once
+      // (what the earlier socket said about itself was its own, so it goes)
+      const { description: _description, configType: _type, configSecrets: _secrets, replaces: _replaces, ...earlier } = fromThere;
+      request = await store.table('pairings').put({ ...earlier, ...base, createdAt: earlier.createdAt, expiresAt: earlier.expiresAt, code: pairingCode() });
+      this.#waiting.delete(request.id);
+      this.#options.bus.publish('pairing', { pairing: request });
+      this.#options.log.info('pairing.requested.again', { pairing: request.id, system: request.name, instance: hello.instance });
     }
+    this.#waiting.set(request.id, { peer: asker.peer, origin: asker.origin });
     return {
       kind: 'pairing', pairing: request.id, ...(request.code === undefined ? {} : { code: request.code }),
       url: this.approvalUrl(request, asker.origin), expiresAt: request.expiresAt,
@@ -154,6 +222,7 @@ export class StorePairingService implements PairingService {
     if (waiting?.peer !== peer) { throw refuse(403, 'NOT_YOUR_PAIRING', 'only the socket that started a pairing may describe it'); }
     const { replaces: _before, ...request } = await this.#open(info.pairing);
     const rekeys = await this.#rekeys({ system: request.name, instance: info.instance }, request.keyFingerprint);
+    if (rekeys && request.method === 'code') { throw rekeyNeedsToken(request.name); }
     const updated = await this.#options.store.table('pairings').put({
       ...request, description: info.description, instance: info.instance, ...(info.configType === undefined ? {} : { configType: info.configType }),
       ...(info.configSecrets === undefined ? {} : { configSecrets: info.configSecrets }),
@@ -186,6 +255,8 @@ export class StorePairingService implements PairingService {
 
   async approve(pairing: PairingId, by: ActorId, choice: PairingChoice = {}): Promise<InstanceRecord> {
     const request = await this.#open(pairing);
+    // a code never replaces a paired key, even on a request saved as replacing one
+    if (request.method === 'code' && request.replaces !== undefined) { throw rekeyNeedsToken(request.name); }
     const record = await this.#pair(request, by, choice);
     if (choice.autoPair !== undefined) { await this.#options.autoPairs.grant(record, choice.autoPair, by); }
     const approved = await this.#options.store.table('pairings').update(pairing, { status: 'approved', instance: record.instance });

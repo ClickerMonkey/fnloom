@@ -170,7 +170,11 @@ export interface Services extends SystemPlace, AiSource, AdminNotices {
   /** LLM calls through the hub, counted against the run's budget. */
   readonly llm: Llm;
   readonly files: Files;
-  /** fetch, through the system's outbound rules. */
+  /**
+   * Plain fetch (`serve`'s `fetch` option, else the global one). It checks no address: a process the hub or fs hosts
+   * is held to its `grants.network` hosts by its supervisor's proxy, and a system that fetches a URL someone else
+   * named (a page, an API service's base URL) checks every hop itself with `addressVerdict` and `followRedirects`.
+   */
   readonly fetch: typeof fetch;
   /** Resources from any system the actor may see. */
   readonly resources: Resources;

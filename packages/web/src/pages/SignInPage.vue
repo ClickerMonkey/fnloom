@@ -1,13 +1,15 @@
 <script setup lang="ts">
 /**
  * Sign in, or make the admin account on a new hub. Afterwards it returns to the page that sent you here (`?next=`).
+ * A new hub's admin account needs the setup code the hub printed to its log: the log's link fills it in
+ * (`?setup=`), or it is typed in.
  *
  * With SSO providers configured (`setup.sso`), each is a "Continue with …" button: a plain link to the hub's start
  * route, which sends the browser to the provider. Opened anywhere but `HARNESS_URL` (the LAN IP, the dev port), the
  * start first bounces to itself on `HARNESS_URL`, `next` kept, so the sign-in finishes there, where the provider comes
- * back. The provider's way back lands here: with the new session in the URL
- * fragment (`#sso=`, swapped for tokens at once and wiped from the address bar), or with `?problem=` when the sign-in
- * was refused. Passwords then belong to the break-glass admin only, so the password form folds away under "Sign in with
+ * back. The provider's way back lands here: with a one-time code in the URL
+ * fragment (`#sso=`, swapped for tokens at once and wiped from the address bar; it only works in this browser), or
+ * with `?problem=` when the sign-in was refused. Passwords then belong to the break-glass admin only, so the password form folds away under "Sign in with
  * a password". Without providers the page is the password form, as before.
  *
  * The form's checks are the hub's own (see `SignInForm`). The fields carry the names and autocomplete hints password
@@ -26,8 +28,11 @@ const { signInForm, identity } = useStores();
 const form = signInForm();
 const hubName = identity.name;
 const version = identity.version;
-const input = reactive({ email: form.remembered.email ?? '', password: '', name: '', remember: form.remembered.remember });
 const route = useRoute();
+const input = reactive({
+  email: form.remembered.email ?? '', password: '', name: '', remember: form.remembered.remember,
+  setup: typeof route.query['setup'] === 'string' ? route.query['setup'] : '',
+});
 const router = useRouter();
 /** The password form, shown at once without providers, folded under its own button with them. */
 const passwordOpen = ref(false);
@@ -48,11 +53,11 @@ function handover(): string | undefined {
 }
 
 onMounted(async () => {
-  const refresh = handover();
-  if (refresh !== undefined) {
-    // the token leaves the address bar (and the history entry) before anything else runs
+  const code = handover();
+  if (code !== undefined) {
+    // the code leaves the address bar (and the history entry) before anything else runs
     await router.replace({ query: next.value === undefined ? {} : { next: next.value }, hash: '' });
-    if (await form.finishSso(refresh)) { await router.replace(next.value ?? links.chat()); return; }
+    if (await form.finishSso(code)) { await router.replace(next.value ?? links.chat()); return; }
   }
   void form.load();
 });
@@ -117,6 +122,10 @@ async function submit(): Promise<void> {
 
         <form v-if="showPassword" class="form" method="post" action="" novalidate data-testid="sign-in-form" @submit.prevent="submit">
           <p v-if="providers.length > 0" class="divider"><span>Break-glass password</span></p>
+          <UiInput
+            v-if="form.needsAdmin" v-model="input.setup" label="Setup code" name="setup" autocomplete="off" required data-testid="setup-code"
+            hint="Printed in the hub’s log when it started, and saved in its data folder as setup-code.txt." :error="form.fields.value.setup ?? ''"
+          />
           <UiInput v-if="form.needsAdmin" v-model="input.name" label="Your name" name="name" autocomplete="name" required :error="form.fields.value.name ?? ''" autofocus />
           <UiInput v-model="input.email" label="Email" name="username" type="email" autocomplete="username" required :error="form.fields.value.email ?? ''" :autofocus="!form.needsAdmin && input.email === ''" />
           <UiInput

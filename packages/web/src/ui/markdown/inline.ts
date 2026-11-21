@@ -3,34 +3,20 @@
  * autolinks (`<https://…>`, bare `https://…` and bare `file:///…`), backslash escapes and hard line breaks. A delimiter that never
  * closes stays literal text, so half-streamed text renders as typed.
  */
+import { isHttpUrl } from '@harness/core';
+import { APP_PATH, safeHref } from '@harness/sdk';
 import type { MdInline } from './ast.ts';
 
 const PUNCTUATION = /[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/;
-/**
- * A resource URI a system serves (`fs://docs/a.md`, and `file:///C:/…`, which the fs system's resources are): a
- * scheme, then `://`; never one a browser would run or load as a page. The chat opens these in its resource viewer.
- */
-export const RESOURCE_LINK = /^(?!(?:javascript|data|vbscript|https?|blob):)[a-z][a-z0-9+.-]*:\/\/\S+$/i;
-const SAFE_LINK = /^(https?:|mailto:|\/(?!\/)|#|\.{1,2}\/)/i;
-const SAFE_IMAGE = /^(https?:|\/(?!\/)|\.{1,2}\/)/i;
 const BARE_URL = /^https?:\/\/[^\s<>"]+/;
 /** A bare `file:///…` URI in text, linked like a web address so a file the agent names opens in the viewer. */
 const BARE_FILE = /^file:\/\/\/[^\s<>"`]+/i;
 const TRAILING = /[.,;:!?)\]'"]+$/;
 
-/**
- * The URL if links may go there, else `undefined`: the web, mail, places in the app, and resource URIs (the resource
- * viewer opens them). Refuses `javascript:`, `data:` and protocol-relative URLs.
- */
-export function safeLink(href: string): string | undefined {
-  const trimmed = href.trim();
-  return SAFE_LINK.test(trimmed) || RESOURCE_LINK.test(trimmed) ? trimmed : undefined;
-}
-
-/** The URL if an image may load from it, else `undefined`. */
+/** The URL if an image may load from it (a link `safeHref` allows that is http, https or a place in the app), else `undefined`. */
 export function safeImage(src: string): string | undefined {
-  const trimmed = src.trim();
-  return SAFE_IMAGE.test(trimmed) ? trimmed : undefined;
+  const href = safeHref(src);
+  return href !== undefined && (isHttpUrl(href) || APP_PATH.test(href)) ? href : undefined;
 }
 
 /** Find the `]` that closes the `[` at `open`, honouring nesting and escapes. */
@@ -187,7 +173,7 @@ export function parseInline(text: string): MdInline[] {
       const dest = close >= 0 ? readDestination(text, close + 1) : undefined;
       if (dest) {
         const children = parseInline(text.slice(i + 1, close));
-        const href = safeLink(dest.url);
+        const href = safeHref(dest.url);
         if (href === undefined) { for (const child of children) { if (child.type === 'text') { pushText(out, child.text); } else { out.push(child); } } } else { out.push({ type: 'link', href, children }); }
         i = dest.end;
         continue;

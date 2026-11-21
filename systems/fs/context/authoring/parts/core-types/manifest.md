@@ -50,6 +50,7 @@ type Manifest = {
         text: string[];
         embed: boolean;
       };
+      writers?: "admins" | undefined;
     } | undefined;
   }[];
   settings: {

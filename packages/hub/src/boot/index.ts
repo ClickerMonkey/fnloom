@@ -27,6 +27,7 @@ import type {
 } from '../link/index.ts';
 import type { AutoPairService } from '../link/auto-pair.ts';
 import type { SystemGrantGuard } from '../link/grants.ts';
+import type { LinkGate } from '../link/gate.ts';
 import type { SystemLifecycle } from '../link/lifecycle.ts';
 import type { HubStore, StoreFactory } from '../store/index.ts';
 import type { AccessService } from '../access/index.ts';
@@ -64,6 +65,8 @@ export interface HubServices {
     readonly lifecycle: SystemLifecycle;
     /** Build 7: what systems may do through the hub, and the refusals. */
     readonly grants: SystemGrantGuard;
+    /** How many `/link` sockets that haven't finished the handshake are kept, and for how long. */
+    readonly gate: LinkGate;
   };
   readonly execution: {
     readonly runs: RunService; readonly agents: AgentLoop; readonly llm: LlmGateway; readonly limits: LimitResolver; readonly ledger: Ledger;

@@ -138,8 +138,8 @@ A chat's settings also answer "what would a message get?" with the context and t
 
 An admin makes hub MCPs under Admin → MCPs: each is an MCP endpoint at `<hub>/mcp/<slug>` with its own secret
 (shown once) and include/exclude rules over systems, fns, types, context and resources. Point an MCP client at the
-URL with the secret as its bearer token, or, for clients that speak stdio only, run
-`harness mcp <slug> --secret <secret>`.
+URL with the secret as its bearer token, or, for clients that speak stdio only, run `harness mcp <slug>` with the
+secret in `HARNESS_MCP_SECRET` in its environment (`--secret` works too, but other programs can see it).
 
 ## The CLI
 
@@ -153,11 +153,12 @@ harness system install <zip|folder|npm-spec> [--instance <name>] [--config <file
 harness system list | start | stop | upgrade | uninstall <system>
 harness system export-data <system>  # an instance's data folder as a zip
 harness test [dir] [--previews]      # run a system's tests (vitest), optionally shooting the preview gallery
-harness mcp <slug> --secret <secret> # bridge a hub MCP to stdio
+harness mcp <slug>                   # bridge a hub MCP to stdio (secret in HARNESS_MCP_SECRET)
 ```
 
-Commands that talk to a hub take `--hub <url>` and `--token <token>` (or `HARNESS_URL`, `HARNESS_TOKEN`, or the
-admin account in `.env`). A system started without a token asks to pair: on a terminal it prints a QR code of the
+Commands that talk to a hub take `--hub <url>` (or `HARNESS_URL`) and sign in with `HARNESS_TOKEN`, `--token -` (the
+token read from stdin), or the admin account in `.env`. `--token <token>` works too, but other programs can see it. A hub
+address from the folder's `.env` is only used with a sign-in from that same file. A system started without a token asks to pair: on a terminal it prints a QR code of the
 hub's pairing link (`HARNESS_PAIRING_QR`: `auto`, always or never) that opens the `/pair` page on a phone, where an
 admin compares the code, fills its config and pairs it.
 

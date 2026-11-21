@@ -14,6 +14,7 @@ import {
   ActorId, ActorKind, ApprovalId, AutoPairId, ConnectionId, DeliveryId, Duration, HubMcpId, ProviderId, HandlerCallId, InstanceName, InstanceRef, Json, LlmInteractionId, MessageId,
   ModelCallId, PageRequest, PairingId, Priority, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId, page,
 } from './primitives.ts';
+import { HttpUrl, OutsideImages, OutsideImagesView } from './urls.ts';
 import { ReadWant, ResourceRead, ResourceRoot, ResourceStat, ResourceUri, ContentRef } from './resources.ts';
 import { ClientInfo, RunUpdate } from './run.ts';
 import { CompareChoose, CompareStart, CompareView } from './compare.ts';
@@ -48,7 +49,9 @@ import { GoLiveRequest, ItemSection, RefusalPage, RefusalQuery, ReviewDecided, R
 import { SystemStage } from './grants.ts';
 import { GraphPage, GraphQuery } from './graph.ts';
 import { HubIdentity, SetHubName } from './identity.ts';
-import { GroupView, PersonView, SetMembership, SignInPolicy, SignInSettings, SsoButton, SsoCheck, SsoProviderId, SsoTestResult, UpdateUser } from './sso.ts';
+import {
+  GroupView, PersonView, ProxyTrust, SetMembership, SignInLimits, SignInPolicy, SignInSettings, SSO_HANDOFF_COOKIE, SsoButton, SsoCheck, SsoProviderId, SsoTestResult, UpdateUser,
+} from './sso.ts';
 import { ItemVersionsPage, ItemVersionsQuery } from './versions.ts';
 import { DataRecord, DataSetPage, DataSetQuery, RecordGet, RecordPage, RecordQuery, RecordRemove, RecordSave, RecordTableQuery, RecordUpdate, RecordVersionsPage, RecordVersionsQuery } from './data.ts';
 import { ExportQuery, ReadTableArgs, RowActionsQuery, WidgetActionOption } from './widgets.ts';
@@ -192,10 +195,18 @@ export const authSlice = mergeSpecs(
   spec({
     endpoints: use(tel).group({
       setup: { method: 'GET', response: SetupState, ws: 'setup' },
-      /** Make the single admin account. Only works while `setup.needsAdmin`. */
-      createAdmin: { body: z.object({ email: z.email(), name: z.string().min(1), password: z.string().min(8) }), response: Tokens, ws: 'createAdmin' },
+      /**
+       * Make the single admin account. Only works while `setup.needsAdmin`, and only with the one-time setup code the
+       * hub printed to its log and wrote to its data folder when it started with no one in it.
+       */
+      createAdmin: { body: z.object({ email: z.email(), name: z.string().min(1), password: z.string().min(8), setup: z.string().trim().min(1) }), response: Tokens, ws: 'createAdmin' },
       signIn: { body: z.object({ email: z.email(), password: z.string() }), response: Tokens, errors: { 401: z.object({ reason: z.string() }) }, ws: 'signIn' },
       refresh: { body: z.object({ refresh: z.string() }), response: Tokens, ws: 'refresh' },
+      /**
+       * Finish an SSO sign-in: swap the one-time code the callback left in the sign-in page's address for tokens. Over
+       * HTTP only: the code works once, and only with the cookie the callback set in this browser.
+       */
+      redeemSso: { body: z.object({ code: z.string().min(1) }), cookies: z.object({ [SSO_HANDOFF_COOKIE]: z.string().optional() }), response: Tokens, ws: 'redeemSso', httpOnly: true },
     }),
   }),
   spec({
@@ -403,6 +414,10 @@ export const settingsSlice = spec({
     setMembership: { body: SetMembership, response: z.object({ ok: z.boolean() }), ws: 'setMembership' },
     /** SSO: who may make an account by signing in through a provider for the first time. */
     setSignInPolicy: { body: SignInPolicy, response: SignInPolicy, ws: 'setSignInPolicy' },
+    /** How many password sign-ins the hub takes, per email and per address. */
+    setSignInLimits: { body: SignInLimits, response: SignInLimits, ws: 'setSignInLimits' },
+    /** How many proxies in front of the hub say where requests come from (0: none, the socket's address counts). */
+    setProxyTrust: { body: ProxyTrust, response: ProxyTrust, ws: 'setProxyTrust' },
   }),
 });
 
@@ -438,13 +453,27 @@ export const adminSlice = spec({
   },
 });
 
-/** The realtime events of a signed-in browser (no endpoints). */
+/** Refuses a `user` subscription for anyone but the signed-in person (admins too hear only their own). Requires `hubAuth`. */
+export const ownEvents = middleware('ownEvents', { requires: [hubAuth] });
+/** Refuses a `session` subscription to a session the person may not see (404, as over HTTP). Requires `hubAuth`. */
+export const sessionWatch = middleware('sessionWatch', { requires: [hubAuth] });
+
+/** What a `user` subscription names: the signed-in person. */
+export const UserEventParams = z.object({ user: ActorId });
+/** What a `session` subscription names: a session the person may see. */
+export const SessionEventParams = z.object({ session: SessionId });
+
+/**
+ * The realtime events of a signed-in browser (no endpoints). Each is scoped to a person: `user` carries only what is
+ * for that person (their notifications, approvals they answer, their sessions, pairings for admins, and what changes
+ * for everyone), and `session` only a session they may see. Both end when the person signs out or is turned off.
+ */
 export const eventsSlice = spec({
   endpoints: {},
   events: {
     // Event channel ids share the ws namespace with endpoint ids (`session` is an endpoint's), so events get an `on.` prefix.
-    session: { params: z.object({ session: SessionId }), data: SessionEvent, guard: [hubAuth], ws: 'on.session' },
-    user: { data: UserEvent, guard: [hubAuth], ws: 'on.user' },
+    session: { params: SessionEventParams, data: SessionEvent, guard: [hubAuth, sessionWatch], ws: 'on.session' },
+    user: { params: UserEventParams, data: UserEvent, guard: [hubAuth, ownEvents], ws: 'on.user' },
   },
 });
 
@@ -631,6 +660,20 @@ export const imageEmbeddingSlice = spec({
   }),
 });
 
+/** Images from outside the hub in markdown: everyone signed in reads the setting (their chat follows it); admins set it. */
+export const outsideImagesSlice = mergeSpecs(
+  spec({
+    endpoints: use(tel, hubAuth).group({
+      outsideImages: { body: z.object({}), response: OutsideImagesView, ws: 'outsideImages' },
+    }),
+  }),
+  spec({
+    endpoints: use(tel, hubAuth, adminOnly).group({
+      setOutsideImages: { body: z.object({ value: OutsideImages }), response: OutsideImagesView, ws: 'setOutsideImages' },
+    }),
+  }),
+);
+
 /** Auto-pair secrets (admins): list them (no secret is ever shown) and revoke one. */
 export const autoPairSlice = spec({
   endpoints: use(tel, hubAuth, adminOnly).group({
@@ -662,7 +705,7 @@ export const connectionsSlice = spec({
   endpoints: use(tel, hubAuth).group({
     connectPages: { body: z.object({}), response: z.array(ConnectPage), ws: 'connectPages' },
     // HTTP only: the answer sets the cookie that ties the provider's sign-in to this browser (`/connect/callback` checks it)
-    connect: { body: z.object({ system: SystemName, instance: InstanceName.optional(), key: ConnectKey.optional(), form: Json.optional() }), response: z.union([z.object({ url: z.url() }), z.object({ connection: ConnectionView })]), ws: 'connect', httpOnly: true },
+    connect: { body: z.object({ system: SystemName, instance: InstanceName.optional(), key: ConnectKey.optional(), form: Json.optional() }), response: z.union([z.object({ url: HttpUrl }), z.object({ connection: ConnectionView })]), ws: 'connect', httpOnly: true },
     updateConnection: { body: ConnectionChange, response: ConnectionView, ws: 'updateConnection' },
     disconnect: { body: z.object({ connection: ConnectionId }), response: z.object({ ok: z.boolean() }), ws: 'disconnect' },
   }),
@@ -792,7 +835,7 @@ export const peopleSlice = spec({
      * Start a test sign-in: the provider's URL to open; the callback keeps the result for `ssoTestResult` instead of
      * signing in. Over HTTP only: it sets the cookie that binds the sign-in to this browser.
      */
-    testSsoSignIn: { body: z.object({ provider: SsoProviderId }), response: z.object({ url: z.string(), test: z.string() }), ws: 'testSsoSignIn', httpOnly: true },
+    testSsoSignIn: { body: z.object({ provider: SsoProviderId }), response: z.object({ url: HttpUrl, test: z.string() }), ws: 'testSsoSignIn', httpOnly: true },
     ssoTestResult: { body: z.object({ test: z.string() }), response: SsoTestResult, ws: 'ssoTestResult' },
   }),
 });
@@ -844,7 +887,7 @@ export const exportSlice = spec({
 export const hubWebSpec = mergeSpecs(
   authSlice, chatSlice, runsSlice, findSlice, inboxSlice, contentSlice, systemsSlice, settingsSlice, adminSlice, eventsSlice,
   resourcesSlice, contextSlice, contextorSlice, modelsSlice, metricsSlice, mcpsSlice, packagingSlice,
-  querySlice, suggestionsSlice, autoPairSlice, imageEmbeddingSlice,
+  querySlice, suggestionsSlice, autoPairSlice, imageEmbeddingSlice, outsideImagesSlice,
   accessSlice, connectionsSlice, pickerSlice,
   approvalsSlice, registriesSlice, fnsSlice,
   explorerSlice,

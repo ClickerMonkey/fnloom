@@ -1,5 +1,7 @@
 /**
- * `harness mcp <slug> --secret <secret>`: bridge a hub MCP to stdin and stdout, for MCP clients that only speak stdio.
+ * `harness mcp <slug>`: bridge a hub MCP to stdin and stdout, for MCP clients that only speak stdio. Its secret is
+ * `HARNESS_MCP_SECRET` in the environment the MCP client starts it with (`--secret <secret>` works, with a warning: other
+ * programs can see it; stdin is the MCP stream, so it can't come from there).
  * The bridge is built from `@ayepi/mcp` parts: an {@link McpClient} connected to the hub MCP's Streamable HTTP endpoint
  * (`<hub>/mcp/<slug>`), offered again as an `mcpSourceServer` whose tools, resources and prompts are the hub's
  * ({@link proxySources}), driven over the stdio lines. The local server keeps the stdio client's request ids and the
@@ -14,7 +16,7 @@ import {
 import { McpSlug } from '@harness/core';
 import { z } from 'zod';
 import { HUB_OPTIONS, command } from '../command.ts';
-import { hubTarget } from '../hub.ts';
+import { hubTarget, secretOption } from '../hub.ts';
 
 /** Who the bridge says it is to the hub. */
 export const BRIDGE_CLIENT: McpImplementation = { name: 'harness-cli', version: '0.0.0' };
@@ -181,11 +183,15 @@ export async function* linesOf(stream: AsyncIterable<Uint8Array | string> | Iter
 export const mcpCommand = command({
   path: ['mcp'],
   summary: 'Bridge a hub MCP to stdin and stdout, for MCP clients that speak stdio only.',
-  usage: '<slug> --secret <secret>',
-  args: z.object({ positionals: z.tuple([McpSlug]), values: z.object({ hub: HUB_OPTIONS.hub, secret: z.string().min(1) }) }),
+  usage: '<slug> [--hub <url>] (the secret in HARNESS_MCP_SECRET)',
+  args: z.object({ positionals: z.tuple([McpSlug]), values: z.object({ hub: HUB_OPTIONS.hub, secret: z.string().min(1).optional() }) }),
   async run({ positionals: [slug], values }, io) {
-    const target = hubTarget(io.settings, values);
-    const transport = new McpHttpClientTransport(`${target.url}/mcp/${slug}`, { headers: { authorization: `Bearer ${values.secret}` } });
+    // stdin is the MCP stream: the secret comes from the environment, or (with a warning) the command line
+    const given = await secretOption(values.secret, io, { flag: '--secret', env: 'HARNESS_MCP_SECRET', stdin: false });
+    const secret = given ?? io.settings.HARNESS_MCP_SECRET;
+    if (secret === undefined) { throw new Error('Set HARNESS_MCP_SECRET to the secret of the hub MCP, in the environment the MCP client starts this with.'); }
+    const target = hubTarget(io.settings, values, { fromFile: given === undefined && io.settings.fromFile.has('HARNESS_MCP_SECRET') });
+    const transport = new McpHttpClientTransport(`${target.url}/mcp/${slug}`, { headers: { authorization: `Bearer ${secret}` } });
     await bridge(transport, io.stdin(), { write: (line) => { io.out.line(line); } });
     return 0;
   },

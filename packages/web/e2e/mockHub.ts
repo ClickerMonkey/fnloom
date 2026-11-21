@@ -440,7 +440,7 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }): Mock
   const rest = implement(hubWebSpec).handlers(mockHandlers(hubWebSpec, { seed: 'harness-ui', now: () => NOW, overrides, except: realNames }));
   const app = server(hubWebSpec, [real, rest]);
   chat.attach((session, event) => { app.emit('session', { session }, event); });
-  admin.attach({ user: (event) => { app.emit('user', event); }, log: (system, line) => { app.emit('systemLog', { system }, line); } });
+  admin.attach({ user: (event) => { app.emit('user', { user: owner() }, event); }, log: (system, line) => { app.emit('systemLog', { system }, line); } });
 
   let live = 0;
   /** Push a new notification to every signed-in browser. */
@@ -452,10 +452,10 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }): Mock
       link: { session: 'ses_live' }, read: false, pushed: false, createdAt: Date.now(),
     });
     state.notifications = [notification, ...state.notifications];
-    app.emit('user', { type: 'notification', notification });
+    app.emit('user', { user: notification.user }, { type: 'notification', notification });
   };
 
-  announce = (event) => { app.emit('user', event); };
+  announce = (event) => { app.emit('user', { user: owner() }, event); };
   return { app, notify, tick: () => { admin.tick(); }, library };
 }
 

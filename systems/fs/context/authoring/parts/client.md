@@ -191,6 +191,10 @@ A page's props are `PageViewOf<typeof contract>`: `page` (its segment), `path` (
 | `notify` / `format` / `live(refresh, every)` | the app's toasts (`ok`, `error`); money and times as the app writes them (`cost`, `relativeTime`, `fullTime`); and keeping the page live (every `every` ms while it is in view, once more when it comes back) |
 | `components` | the app's own components, so a page looks like the rest of the app: `Frame` (the page frame: title, description, width, `actions` slot), `Input` (a search box or field), `Button`, `Select`, `Textarea`, `Dialog`, `Banner`, `Badge`, `Skeleton`, `Markdown`, `Icon`, `Empty`, `LoadState`, `FnPill`, `ResourceViewer` and `ValueEditor`; and the chat's own parts: `Reasoning`, `Typing`, `Approval` (an approval card, `inChat` when answered through `runs`), `Conversation` (`ConversationEntry`s drawn as the chat draws a thread: the person's bubbles, answers with reasoning folded, calls as run cards folded into one section) and `Composer` (`v-model`, `@send`, `@stop`). The claude system's pages are drawn this way |
 
+A link a renderer or page builds from data (a URL a system, a model or a web page sent) goes through `safeHref(url)`
+first: it gives back the URL when a link may go there (http and https, mail, places in the app, resource URIs) and
+`undefined` for `javascript:`, `data:`, `//host` and the like. Show a refused URL as plain text, never as a link.
+
 Components under the page read the same host with `inject(PAGE_HOST)`. The notes system's page searches its notes
 in the hub with the words in `?q=`:
 

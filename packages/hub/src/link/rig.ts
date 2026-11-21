@@ -31,6 +31,8 @@ export const RIG_SETTINGS: SystemsSettings = {
   link: {
     HARNESS_MAX_FRAME: 262_144, HARNESS_MAX_CHUNK: 1_024, HARNESS_HEARTBEAT: 15_000, HARNESS_PAIRING_TIMEOUT: 60_000, HARNESS_PAIRING_GRANT_TTL: 60_000, HARNESS_STOP_TIMEOUT: 1_000,
     HARNESS_RESTART_BACKOFF: 5, HARNESS_RESTARTS_PER_HOUR: 2, HARNESS_RESTART_BACKOFF_MAX: 300_000, HARNESS_PROCESS_OUTPUT_TAIL: 8_192,
+    HARNESS_PAIRING_LIMIT: 20, HARNESS_PAIRING_LIMIT_TOTAL: 100, HARNESS_PAIRING_WINDOW: 60_000, HARNESS_LINK_HELLO_TIMEOUT: 15_000,
+    HARNESS_LINK_UNLINKED_PER_ADDRESS: 8, HARNESS_LINK_UNLINKED_MAX: 64, HARNESS_LINK_MAX_UPLOADS: 16,
   },
   model: { HARNESS_EMBEDDER_DOCUMENT: 'vectors/document', HARNESS_EMBEDDER_QUERY: 'vectors/query', HARNESS_EMBED_BATCH: 8 },
   index: { HARNESS_EMBED_WAIT: 1, HARNESS_EMBED_POLL: 2, HARNESS_EMBED_INTERACTIVE: 2, HARNESS_EMBED_BACKGROUND: 1, HARNESS_INDEX_MAX_TEXT: 500, HARNESS_SEARCH_OVERFETCH: 3, HARNESS_SEARCH_EMBED_WAIT: 1_000, HARNESS_INDEX_CRAWL_MAX: 1_000, HARNESS_INDEX_EMBED_BATCH: 8, HARNESS_INDEX_RETRY: 50, HARNESS_INDEX_RETRY_MOST: 200, HARNESS_INDEX_IMAGE_MAX: 1_000_000 },
@@ -42,7 +44,7 @@ export const RIG_SETTINGS: SystemsSettings = {
 const noLauncher: ProcessStarter = { launch: () => { throw new Error('the rig starts no processes'); } };
 
 /** The system side over fakes, with a running hub link server. */
-export async function linkRig(options: { publicUrl?: string; review?: Partial<SystemsSettings['review']> } = {}) {
+export async function linkRig(options: { publicUrl?: string; review?: Partial<SystemsSettings['review']>; link?: Partial<SystemsSettings['link']> } = {}) {
   const store = await testStore();
   const bus = new RecordingBus();
   const { log, records } = memoryLog();
@@ -54,6 +56,7 @@ export async function linkRig(options: { publicUrl?: string; review?: Partial<Sy
     ...RIG_SETTINGS,
     ...(options.publicUrl === undefined ? {} : { packaging: { ...RIG_SETTINGS.packaging, HARNESS_PUBLIC_URL: options.publicUrl } }),
     review: { ...RIG_SETTINGS.review, ...options.review },
+    link: { ...RIG_SETTINGS.link, ...options.link },
   };
   const systems = buildSystems({
     store, bus, log, clock, settings, launcher: noLauncher, content: () => content, secrets: () => vault,
@@ -123,6 +126,7 @@ export class FakeSystem {
   #deliver: (frame: string) => void = () => undefined;
   readonly #states = new Set<(state: 'closed' | 'connecting' | 'open') => void>();
   #host = 'hub';
+  #from = '10.0.0.7';
 
   constructor(app: Serves, name: string, manifest: Manifest, keys: StoredKeyPair = makeKeyPair()) {
     this.#app = app;
@@ -169,9 +173,15 @@ export class FakeSystem {
     return this;
   }
 
+  /** The address its socket says it comes from (`X-Forwarded-For`, read only while the hub trusts a proxy). */
+  from(address: string): this {
+    this.#from = address;
+    return this;
+  }
+
   /** Open the socket. */
   open(): void {
-    const opened = this.#app.ws.open((frame) => { if (this.conn === opened) { this.#deliver(frame); } }, new Request(`http://${this.#host}/link`, { headers: { 'x-forwarded-for': '10.0.0.7' } }));
+    const opened = this.#app.ws.open((frame) => { if (this.conn === opened) { this.#deliver(frame); } }, new Request(`http://${this.#host}/link`, { headers: { 'x-forwarded-for': this.#from } }));
     this.conn = opened;
     for (const cb of this.#states) { cb('open'); }
   }

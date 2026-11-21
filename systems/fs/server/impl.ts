@@ -19,6 +19,7 @@ import { FsProblem } from './problem.ts';
 import { FsResources } from './resources.ts';
 import { compilePattern, globPaths, grepFiles, searchBases, type SearchLimits } from './search.ts';
 import { commandFlags, rulesOf, Sensitivity, shownOn, type Judged } from './sensitive.ts';
+import { commandEnv } from './shell.ts';
 import { renderTree } from './tree.ts';
 
 /** Everything the implementation is built from. */
@@ -36,6 +37,8 @@ export interface FsDeps {
   /** Which files git ignores, for the `gitignored` sensitivity rule. */
   readonly ignores: IgnoreCheck;
   readonly now: () => number;
+  /** The environment fs started with: `bash` commands get only its basics and what the config allows (`commandEnv`). */
+  readonly baseEnv: Readonly<Record<string, string | undefined>>;
   /**
    * Building, starting and supervising systems written here (`install_system` and the rest); absent when this fs
    * can't build systems (a packed fs without `@harness/build`), and those fns say so.
@@ -110,7 +113,7 @@ export function createFsImpl(deps: FsDeps): FsServer {
   const commands = new CommandRunner(deps.shell, files, { timeout: s.FS_COMMAND_TIMEOUT, maxTimeout: s.FS_COMMAND_TIMEOUT_MAX, safe: s.FS_SAFE_COMMANDS });
   const index = new PathIndex({ ttl: s.FS_INDEX_TTL, max: s.FS_INDEX_MAX, ignore: s.FS_IGNORE }, deps.now);
   const mentions = new FileMentions({ index, files, documents: deps.documents, limits: { results: s.FS_MENTION_LIMIT, previewLines: s.FS_PREVIEW_LINES } });
-  const search: SearchLimits = { scanMax: s.FS_SCAN_MAX, lineMax: s.FS_LINE_MAX, ignore: s.FS_IGNORE };
+  const search: SearchLimits = { scanMax: s.FS_SCAN_MAX, lineMax: s.FS_LINE_MAX, ignore: s.FS_IGNORE, grepTimeout: s.FS_GREP_TIMEOUT, testMax: s.FS_GREP_TEST_MAX };
 
   // one guard (and rule list) per config value: runs keep the config they started with, so each gets its own
   const guard = perConfig<PathGuard>((config) => new RootGuard(config.roots));
@@ -297,6 +300,7 @@ export function createFsImpl(deps: FsDeps): FsServer {
             sessionCwd: state.cwd,
             signal: ctx.signal,
             confirm: ctx.handlers.confirm,
+            env: commandEnv(deps.baseEnv, ctx.config.commandEnv ?? []),
             onOutput: (fraction, line) => { ctx.progress.set(fraction, line); },
             capture: (cwd) => deps.changes.start({ cwd, guard: guard(ctx.config), sensitivity: sensitivity(ctx.config) }, ctx.signal),
           });
@@ -399,8 +403,8 @@ export function createFsImpl(deps: FsDeps): FsServer {
     },
     mentions: {
       files: {
-        search: (query, ctx) => mentions.search(guard(ctx.config), query),
-        hover: (target, ctx) => mentions.hover(guard(ctx.config), target, ctx.user),
+        search: (query, ctx) => mentions.search(guard(ctx.config), query, sensitivity(ctx.config), ctx.signal),
+        hover: (target, ctx) => mentions.hover(guard(ctx.config), target, ctx.user, sensitivity(ctx.config), ctx.signal),
         llm: (target, ctx) => mentions.llm(guard(ctx.config), target),
       },
     },

@@ -1,10 +1,13 @@
 /**
  * The service's operations, read from its OpenAPI document (JSON) a page at a time: what `operations` and the authoring
- * agent's `operations` tool show. The document is read fresh each time; nothing is kept here.
+ * agent's `operations` tool show. The document is read fresh each time; nothing is kept here. It is fetched like a
+ * request: every hop through the service's address check, redirects followed by hand.
  */
 import { HttpMethod } from '@harness/core';
+import { followRedirects } from '@harness/sdk/server';
 import { z } from 'zod';
 import type { ApiOperation, OperationsPage } from '../shared/index.ts';
+import { RequestRefused, type SendCtx } from './http.ts';
 
 const Operation = z.object({ summary: z.string().optional(), description: z.string().optional(), operationId: z.string().optional() });
 const Document = z.object({ paths: z.record(z.string(), z.record(z.string(), z.unknown())) });
@@ -31,9 +34,17 @@ export function operationsPage(all: readonly ApiOperation[], query: { text?: str
   return { items, total: hits.length, ...(offset + items.length < hits.length ? { next: offset + items.length } : {}) };
 }
 
-/** Read a service's OpenAPI document. */
-export async function readOperations(url: string, fetcher: typeof fetch, signal: AbortSignal): Promise<ApiOperation[]> {
-  const answer = await fetcher(url, { signal, headers: { accept: 'application/json' } });
+/** Read a service's OpenAPI document, each hop through the service's address check (`SendCtx.guard`). */
+export async function readOperations(url: string, how: Pick<SendCtx, 'fetch' | 'signal' | 'guard' | 'maxRedirects'>): Promise<ApiOperation[]> {
+  const { response: answer } = await followRedirects(url, { signal: how.signal, headers: { accept: 'application/json' } }, {
+    fetch: how.fetch,
+    redirects: how.maxRedirects,
+    check: (at, signal) => how.guard.check(at, signal),
+    problems: {
+      noLocation: (at) => new RequestRefused(`The OpenAPI document at ${at.href} redirected without saying where.`),
+      tooMany: (start, limit) => new RequestRefused(`The OpenAPI document at ${start.href} redirected more than ${String(limit)} times.`),
+    },
+  });
   if (!answer.ok) throw new Error(`The OpenAPI document at ${url} answered ${String(answer.status)}.`);
   const document: unknown = await answer.json();
   return operationsOf(document);

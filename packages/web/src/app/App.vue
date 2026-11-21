@@ -17,9 +17,12 @@ import { provideFnModal } from '../fns/state/fn-modal.ts';
 import ResourceViewer from '../resources/ResourceViewer.vue';
 import { useStores } from '../state/stores.ts';
 import AppShell from './AppShell.vue';
+import { OUTSIDE_IMAGES } from '../ui/markdown/images.ts';
 import { useLeaveWhenSignedOut } from './signOut.ts';
 
-const { chat, itemVersions, session } = useStores();
+const { chat, itemVersions, session, outsideImages } = useStores();
+// markdown images from outside the hub wait for a click unless the admin's setting says to load them
+provide(OUTSIDE_IMAGES, () => outsideImages.value.value);
 provide(GIN_TYPES, chat.types);
 // every item's version history (a fn, type, context item or part) reads from the hub
 provide(ITEM_VERSIONS, itemVersions);

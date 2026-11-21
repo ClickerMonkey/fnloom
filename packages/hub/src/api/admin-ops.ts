@@ -10,7 +10,7 @@ import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { reject } from '@ayepi/core';
 import {
-  compact, dataExportFileName, SIGN_IN_POLICY_OPTION, MAIN_INSTANCE, mintId, qualify, splitName, SystemName, type ActorId, type HostedBy, type InstanceName, type Json, type GroupActor, type ModelInfo, type ProviderConfig, type ProviderInput, type ProviderKind,
+  compact, dataExportFileName, PROXY_TRUST_OPTION, SIGN_IN_LIMITS_OPTION, SIGN_IN_POLICY_OPTION, MAIN_INSTANCE, mintId, qualify, splitName, SystemName, type ActorId, type HostedBy, type InstanceName, type Json, type GroupActor, type ModelInfo, type ProviderConfig, type ProviderInput, type ProviderKind,
   type InstallSource, type ProviderRecord, type SecretId, type SystemRecord, type UserActor,
 } from '@harness/core';
 import type { ADMIN_ENDPOINTS, AdminFnName } from '@harness/sdk';
@@ -242,6 +242,8 @@ export function adminOperations(hub: HubServices): AdminOperations {
       }
       if (demotes && actor.id === by) { throw reject(409, 'NOT_YOURSELF', 'You can\x27t take away your own admin role or turn off your own sign-in.'); }
       await store.table('actors').update(actor.id, compact({ name: data.name, role: data.role, disabled: data.disabled }));
+      // a person turned off stops hearing live events at once (their next call is refused anyway)
+      if (data.disabled === true) { bus.publish('access.ended', { user: actor.id }); }
       hub.log.info('user.updated', { actor: actor.id, role: data.role, disabled: data.disabled, by });
       return { id: actor.id };
     },
@@ -256,6 +258,16 @@ export function adminOperations(hub: HubServices): AdminOperations {
     set_sign_in_policy: async (data, by) => {
       await store.table('hubOptions').put({ key: SIGN_IN_POLICY_OPTION, value: data, setBy: by, updatedAt: hub.clock() });
       hub.log.info('sign-in.policy.set', { mode: data.mode, by });
+      return data;
+    },
+    set_sign_in_limits: async (data, by) => {
+      await store.table('hubOptions').put({ key: SIGN_IN_LIMITS_OPTION, value: data, setBy: by, updatedAt: hub.clock() });
+      hub.log.info('sign-in.limits.set', { ...data, by });
+      return data;
+    },
+    set_proxy_trust: async (data, by) => {
+      await store.table('hubOptions').put({ key: PROXY_TRUST_OPTION, value: data, setBy: by, updatedAt: hub.clock() });
+      hub.log.info('proxy-trust.set', { proxies: data.proxies, by });
       return data;
     },
     remove_rule: async (data, by) => {

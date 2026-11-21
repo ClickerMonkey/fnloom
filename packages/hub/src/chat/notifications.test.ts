@@ -57,9 +57,9 @@ describe('notifications from hub events', () => {
     const w = await chatWorld();
     const stop = w.chat.start();
     const bo = await w.user('Bo');
-    w.bus.publish('approval', { session: w.session.id, approval: approval(), approvers: [w.admin.id, bo.id] });
-    w.bus.publish('approval', { session: w.session.id, approval: approval(), approvers: [w.admin.id, bo.id] });
-    w.bus.publish('approval', { approval: { ...approval('approved'), id: IDS.approval.parse('apr_2') }, approvers: [w.admin.id] });
+    w.bus.publish('approval', { session: w.session.id, approval: approval(), approvers: [w.admin.id, bo.id], turnUser: w.admin.id });
+    w.bus.publish('approval', { session: w.session.id, approval: approval(), approvers: [w.admin.id, bo.id], turnUser: w.admin.id });
+    w.bus.publish('approval', { approval: { ...approval('approved'), id: IDS.approval.parse('apr_2') }, approvers: [w.admin.id], turnUser: w.admin.id });
     await settle();
     const mine = await w.chat.notifications.list(w.admin.id, {});
     expect(mine.items).toEqual([expect.objectContaining({ reason: 'approval-needed', title: 'Approve fs/write?', link: { run: 'run_1' } })]);
@@ -118,7 +118,7 @@ describe('notifications from hub events', () => {
       id: IDS.handlerCall.parse('hcl_1'), run: IDS.run.parse('run_2'), handler: 'confirm', args: {}, decl: { description: 'Run it?', args: gin({ name: 'any' }), returns: gin({ name: 'bool' }) },
       answerer: { user: w.admin.id }, status: 'pending', createdAt: 0,
     };
-    w.bus.publish('approval', { approval: approval(), approvers: [w.admin.id] });
+    w.bus.publish('approval', { approval: approval(), approvers: [w.admin.id], turnUser: w.admin.id });
     w.bus.publish('handler', { call });
     w.bus.publish('pairing', { pairing });
     w.bus.publish('system.status', { system: SystemName.parse('fs'), status: 'needs-config' });
@@ -126,7 +126,7 @@ describe('notifications from hub events', () => {
     await settle();
     expect((await w.chat.notifications.list(w.admin.id, { unread: true })).items).toHaveLength(5);
 
-    w.bus.publish('approval', { approval: approval('approved'), approvers: [w.admin.id] });
+    w.bus.publish('approval', { approval: approval('approved'), approvers: [w.admin.id], turnUser: w.admin.id });
     w.bus.publish('pairing', { pairing: { ...pairing, status: 'approved' } });
     w.bus.publish('system.status', { system: SystemName.parse('fs'), status: 'connected' });
     // the run asking the question ended (it timed out) before anyone answered

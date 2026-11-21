@@ -4,14 +4,17 @@
  * read-only, each with the redirect URI to register, how its claims set roles and groups, Check (the hub fetches its
  * discovery document and key set now) and Test sign-in (a real sign-in at the provider that signs nobody in: it comes
  * back here with `?test=` and shows what the provider sent and what a sign-in would do). Below, who may make an account
- * at their first sign-in (the admin's setting), and the break-glass admin who keeps a password.
+ * at their first sign-in (the admin's setting), how many password tries the hub takes (per email and per address)
+ * and whether a proxy in front of the hub says where requests come from, and the break-glass admin who keeps a
+ * password.
  */
-import type { SignInPolicy, SsoProviderView } from '@harness/core';
+import { ProxyTrust, SignInLimits, type SignInPolicy, type SsoProviderView } from '@harness/core';
+import { safeHref } from '@harness/sdk';
 import { computed, ref, watch } from 'vue';
 import { useRouteQuery } from '../../../app/url.ts';
 import { ROUTES } from '../../../app/routes.ts';
 import { useStores } from '../../../state/stores.ts';
-import { UiBadge, UiBanner, UiButton, UiCard, UiChipInput, UiCodeBlock, UiIcon, UiSegmented, UiSkeleton } from '../../../ui/index.ts';
+import { UiBadge, UiBanner, UiButton, UiCard, UiChipInput, UiCodeBlock, UiIcon, UiInput, UiSegmented, UiSkeleton } from '../../../ui/index.ts';
 import { copyText } from '../../../ui/clipboard.ts';
 import { LINK_WORDS, POLICY_OPTIONS, policyText, readDomain, testHeadline } from '../../logic/people.ts';
 
@@ -36,6 +39,38 @@ watch(() => settings.value?.policy, (policy) => {
   mode.value = policy.mode;
   domains.value = policy.mode === 'domains' ? policy.domains : [];
 }, { immediate: true });
+/** The limits form, as typed: tries for one email, tries from one address, and the minutes they are counted over. */
+const limitsForm = ref({ account: '', address: '', minutes: '' });
+const limitsDraft = computed(() => {
+  const minutes = Number(limitsForm.value.minutes) * 60_000;
+  return SignInLimits.safeParse({
+    account: { limit: Number(limitsForm.value.account), window: minutes },
+    address: { limit: Number(limitsForm.value.address), window: minutes },
+  });
+});
+const limitsDirty = computed(() => settings.value !== undefined && limitsDraft.value.success && JSON.stringify(limitsDraft.value.data) !== JSON.stringify(settings.value.limits));
+const proxies = ref('0');
+const proxyDraft = computed(() => ProxyTrust.safeParse({ proxies: Number(proxies.value) }));
+const proxyDirty = computed(() => settings.value !== undefined && proxyDraft.value.success && proxyDraft.value.data.proxies !== settings.value.proxy.proxies);
+
+watch(() => settings.value?.limits, (limits) => {
+  if (limits === undefined) return;
+  limitsForm.value = { account: String(limits.account.limit), address: String(limits.address.limit), minutes: String(Math.round(limits.account.window / 60_000)) };
+}, { immediate: true });
+watch(() => settings.value?.proxy, (proxy) => { if (proxy !== undefined) proxies.value = String(proxy.proxies); }, { immediate: true });
+
+async function saveLimits(): Promise<void> {
+  if (!limitsDraft.value.success) return;
+  const done = await people.setLimits(limitsDraft.value.data);
+  if (done.ok) toasts.ok('Saved the sign-in limits'); else toasts.error(done.problem);
+}
+
+async function saveProxy(): Promise<void> {
+  if (!proxyDraft.value.success) return;
+  const done = await people.setProxy(proxyDraft.value.data);
+  if (done.ok) toasts.ok('Saved the proxy setting'); else toasts.error(done.problem);
+}
+
 watch(test, (id) => { if (id !== '') void people.loadTest(id); else people.test.reset(); }, { immediate: true });
 
 /** How a provider's claims set roles and groups, in short lines. */
@@ -64,8 +99,10 @@ async function savePolicy(): Promise<void> {
 async function startTest(provider: SsoProviderView): Promise<void> {
   const started = await people.startTest(provider.id);
   if (!started.ok) { toasts.error(started.problem); return; }
+  const href = safeHref(started.value.url);
+  if (href === undefined) { toasts.error('The sign-in address isn’t a web address.'); return; }
   // the provider sends the browser back to this tab with the result's id
-  window.location.assign(started.value.url);
+  window.location.assign(href);
 }
 
 async function copy(text: string): Promise<void> {
@@ -156,6 +193,29 @@ async function copy(text: string): Promise<void> {
         </template>
       </UiCard>
 
+      <UiCard title="Password tries" subtitle="Slows down guessing. Counted per address, so tries from elsewhere never lock someone out." data-testid="sign-in-limits">
+        <div class="limits">
+          <UiInput v-model="limitsForm.account" label="Tries for one email" type="number" hint="From one address." data-testid="limit-account" />
+          <UiInput v-model="limitsForm.address" label="Tries in all" type="number" hint="From one address, any email." data-testid="limit-address" />
+          <UiInput v-model="limitsForm.minutes" label="Every (minutes)" type="number" data-testid="limit-minutes" />
+        </div>
+        <p v-if="!limitsDraft.success" class="problem" role="alert">Use whole numbers: at least 1 try, over 1 minute to 1 day.</p>
+        <template #footer>
+          <UiButton variant="primary" :disabled="!limitsDirty" :loading="people.save.busy.value" data-testid="save-limits" @click="saveLimits">Save</UiButton>
+        </template>
+      </UiCard>
+
+      <UiCard title="Proxy" subtitle="Where requests come from. Only change this when every request reaches the hub through a reverse proxy." data-testid="proxy-trust">
+        <UiInput
+          v-model="proxies" label="Proxies in front of the hub" type="number" data-testid="proxy-count"
+          hint="0: none, the connection's own address counts. Trusting a proxy that isn't there lets anyone pick their address."
+          :error="proxyDraft.success ? '' : 'A whole number from 0 to 5.'"
+        />
+        <template #footer>
+          <UiButton variant="primary" :disabled="!proxyDirty" :loading="people.save.busy.value" data-testid="save-proxy" @click="saveProxy">Save</UiButton>
+        </template>
+      </UiCard>
+
       <UiCard title="Break-glass admin" subtitle="Once a provider is set, only this account keeps a password, for when a provider is down.">
         <p v-if="settings.breakGlass" class="description"><strong>{{ settings.breakGlass.name }}</strong> ({{ settings.breakGlass.email }}) signs in with a password on the sign-in page. Everyone else signs in through a provider.</p>
         <p v-else class="description">No account has a password yet.</p>
@@ -170,6 +230,7 @@ async function copy(text: string): Promise<void> {
 .head { min-width: 0; }
 .title { margin: 0; font-size: var(--text-md); font-weight: var(--weight-strong); }
 .description { margin: 0; color: var(--text-dim); font-size: var(--text-sm); }
+.limits { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-3); }
 .providers { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: var(--space-4); }
 .facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-2) var(--space-4); margin: 0; font-size: var(--text-sm); }
 .facts dt { color: var(--text-dim); }

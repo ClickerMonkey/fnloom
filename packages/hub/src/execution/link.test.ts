@@ -3,6 +3,7 @@ import { ActorId, HandlerCallId, LinkSession, hubLinkSpec, type RunId, type LlmF
 import { afterEach, describe, expect, it } from 'vitest';
 import { linkPayload } from '../testing.ts';
 import { EXECUTION_LINK_SPEC } from './create.ts';
+import { ChildRelay } from './link-handlers.ts';
 import type { RunInput } from './index.ts';
 import { AGENT, ALICE, calls, executionRig, says, SESSION, until, type ExecutionRig } from './testing.ts';
 
@@ -36,6 +37,8 @@ const input = (turn: Turn, name: QualifiedName, args: RunInput['args']): RunInpu
 });
 const fsLink = LinkSession.parse({ system: 'fs', instance: 'main', boot: 'test-1' });
 const otherLink = LinkSession.parse({ system: 'other', instance: 'main', boot: 'o-1' });
+/** Another instance of the same fleet: it may not act on main's runs. */
+const fleetB = LinkSession.parse({ system: 'fs', instance: 'b', boot: 'b-1' });
 
 /** A running fs run the link calls can belong to. */
 async function parentRun(r: ExecutionRig): Promise<{ turn: Turn; run: RunId }> {
@@ -81,7 +84,7 @@ describe('the link endpoints', () => {
     const r = await started();
     const { run } = await parentRun(r);
     expect(await r.module.linkHandlers.call(payload({ parent: run, fn: 'fs/nope', args: {}, key: 'x', handlers: [], background: false }))).toMatchObject({ status: 'failed', error: { code: 'not-found' } });
-    await expect(r.module.linkHandlers.call(payload({ parent: run, fn: 'fs/read', args: {}, key: 'x', handlers: [], background: false }, otherLink))).rejects.toThrow(/not other's/);
+    await expect(r.module.linkHandlers.call(payload({ parent: run, fn: 'fs/read', args: {}, key: 'x', handlers: [], background: false }, otherLink))).rejects.toThrow("not other@main's");
     await expect(r.module.linkHandlers.progress(payload({ run, progress: { fraction: 0.5 } }, otherLink))).rejects.toThrow();
   });
 
@@ -109,6 +112,46 @@ describe('the link endpoints', () => {
     expect(await r.module.linkHandlers.control(payload({ run: child.id, action: 'cancel' }))).toEqual({ accepted: false, reason: 'busy' });
     await until(() => fs.children.some((c) => c.run === child.id), 'the child notice');
     expect(fs.children.find((c) => c.run === child.id)).toMatchObject({ parent: run, key: 'r2' });
+  });
+});
+
+describe('a fleet', () => {
+  it("refuses instance B every act on instance A's run", async () => {
+    const r = await started();
+    const { run } = await parentRun(r);
+    await expect(r.module.linkHandlers.call(payload({ parent: run, fn: 'fs/read', args: { path: 'b' }, key: 'x', handlers: [], background: false }, fleetB))).rejects.toThrow("is not fs@b's");
+    await expect(r.module.linkHandlers.progress(payload({ run, progress: { fraction: 0.5 } }, fleetB))).rejects.toThrow("is not fs@b's");
+    await expect(r.module.linkHandlers.allow(payload({ run, operations: { cancel: false } }, fleetB))).rejects.toThrow("is not fs@b's");
+    await expect(r.module.linkHandlers.undoWith(payload({ run, undo: { path: 'a' } }, fleetB))).rejects.toThrow("is not fs@b's");
+    expect(await r.module.runs.get(run)).not.toMatchObject({ allowed: { cancel: false } });
+    // main itself still may
+    await r.module.linkHandlers.progress(payload({ run, progress: { fraction: 0.5 } }));
+  });
+
+  it("lets B neither control A's child calls nor hear about them: they go to A", async () => {
+    const r = await started();
+    const { run } = await parentRun(r);
+    const fs = r.connect('fs');
+    fs.behaviour.run = () => new Promise(() => undefined);
+    const told: Array<{ system: string; instance: string | undefined }> = [];
+    const relay = new ChildRelay({
+      store: r.store, bus: r.bus, log: r.log,
+      link: { connection: (system, instance) => { told.push({ system, instance }); return undefined; } },
+    });
+    const stop = relay.start();
+    try {
+      void r.module.linkHandlers.call(payload({ parent: run, fn: 'fs/read', args: { path: 'b' }, key: 'r3', handlers: [], background: false }));
+      await until(async () => (await r.store.table('runs').find({ where: { parent: run }, limit: 1 })).items[0]?.status === 'running', 'the child to run');
+      const child = (await r.store.table('runs').find({ where: { parent: run }, limit: 1 })).items[0];
+      if (child === undefined) throw new Error('no child');
+      const refused = await r.module.linkHandlers.control(payload({ run: child.id, action: 'cancel' }, fleetB));
+      expect(refused.accepted).toBe(false);
+      expect(refused.reason).toContain('fs@b');
+      await until(() => told.length > 0, 'the relay to look up a connection');
+      expect(told.every((t) => t.system === 'fs' && t.instance === 'main')).toBe(true);
+    } finally {
+      stop();
+    }
   });
 });
 

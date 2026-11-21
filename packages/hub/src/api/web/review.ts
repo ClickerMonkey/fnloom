@@ -26,8 +26,9 @@ export async function systemReview(
   hub: Pick<HubServices, 'store' | 'catalog' | 'fns' | 'log'> & { readonly link: Pick<HubServices['link'], 'lifecycle'>; readonly api: { readonly content: Pick<ContentStore, 'presignDownload'> } },
   system: SystemName,
 ): Promise<SystemReview> {
-  const [record, manifest, fns, review, off] = await Promise.all([
+  const [record, manifest, fns, review, off, approved] = await Promise.all([
     hub.store.table('systems').get(system), hub.catalog.manifest(system), hub.catalog.fns({ system }), hub.link.lifecycle.review(system), hub.link.lifecycle.offItems(system),
+    hub.link.lifecycle.approvedClient(system),
   ]);
   if (record === undefined || manifest === undefined) { throw reject(404, 'NO_SYSTEM', `${system} hasn't sent its contract yet`); }
   const facts: FnFacts[] = [];
@@ -49,6 +50,7 @@ export async function systemReview(
     ...(review?.live === undefined ? {} : { live: review.live }),
     ...(review?.pending === undefined ? {} : { pending: { ...review.pending, summary: reviewSummary(review.pending.changes), fns: fnChangeFacts(review.pending.changes) } }),
     declined: review?.declined ?? [],
+    clientApproved: approved !== undefined && approved.hash === manifest.client?.hash,
   };
 }
 

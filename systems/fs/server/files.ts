@@ -136,7 +136,7 @@ export class FileService {
       throw new FsProblem('ambiguous', `The text to replace appears ${count} times in ${at.path}. Add surrounding lines so it is unique, or pass all: true.`);
     }
     const after = replaceText(before, find, replace, all);
-    const ref = await this.snapshots.save(new TextEncoder().encode(before), TEXT_MIME);
+    const ref = await this.snapshots.save(new TextEncoder().encode(before), TEXT_MIME, at.path);
     await writeFile(at.path, after);
     return { before, after, previous: ref, replacements: all ? count : 1 };
   }
@@ -190,7 +190,7 @@ export class FileService {
   private async keep(at: At): Promise<{ ref: ContentRef; text: string | undefined }> {
     const bytes = await this.bytes(at);
     const binary = isBinary(bytes);
-    const ref = await this.snapshots.save(bytes, binary ? BINARY_MIME : TEXT_MIME);
+    const ref = await this.snapshots.save(bytes, binary ? BINARY_MIME : TEXT_MIME, at.path);
     return { ref, text: binary ? undefined : new TextDecoder().decode(bytes) };
   }
 }

@@ -85,6 +85,41 @@ export const DEFAULT_SIGN_IN_POLICY: SignInPolicy = { mode: 'invite' };
 /** The hub option the policy is kept under. */
 export const SIGN_IN_POLICY_OPTION = 'signInPolicy';
 
+/** At most `limit` tries in any `window` ms. */
+export const TryLimit = z.object({
+  limit: z.number().int().min(1).max(100_000),
+  window: z.number().int().min(1_000).max(86_400_000),
+});
+export type TryLimit = z.infer<typeof TryLimit>;
+
+/**
+ * How many password sign-ins the hub takes (the admin's setting; `@ayepi/rate` counts them in the hub's database).
+ * `account` counts one email's tries from one address, so someone guessing a password elsewhere never locks its owner
+ * out; `address` counts every try from one address, whatever the email, so one address can't guess at many accounts.
+ */
+export const SignInLimits = z.object({ account: TryLimit, address: TryLimit });
+export type SignInLimits = z.infer<typeof SignInLimits>;
+
+/** The limits until an admin sets them: 10 tries for one email, and 100 tries in all, per address per 15 minutes. */
+export const DEFAULT_SIGN_IN_LIMITS: SignInLimits = { account: { limit: 10, window: 15 * 60_000 }, address: { limit: 100, window: 15 * 60_000 } };
+
+/** The hub option the sign-in limits are kept under. */
+export const SIGN_IN_LIMITS_OPTION = 'signInLimits';
+
+/**
+ * Which address a request comes from (the admin's setting): with no proxy in front of the hub (`proxies: 0`, the
+ * default) the socket's address, and `X-Forwarded-For` is ignored, since anyone can send it. Behind `proxies`
+ * proxies that each add the address they saw, the entry that many places from the end of `X-Forwarded-For`.
+ */
+export const ProxyTrust = z.object({ proxies: z.number().int().min(0).max(5) });
+export type ProxyTrust = z.infer<typeof ProxyTrust>;
+
+/** No proxy is trusted until an admin says one is in front of the hub. */
+export const DEFAULT_PROXY_TRUST: ProxyTrust = { proxies: 0 };
+
+/** The hub option the proxy setting is kept under. */
+export const PROXY_TRUST_OPTION = 'proxyTrust';
+
 /** A person's account at an outside provider, linked to their hub user. */
 export const ExternalIdentity = z.object({
   /** The provider's issuer, as its discovery says it. */
@@ -116,6 +151,10 @@ export const SignInSettings = z.object({
   breakGlass: UserView.optional(),
   /** The redirect URI to register with each provider. */
   callbackUrl: z.string(),
+  /** How many password sign-ins the hub takes. */
+  limits: SignInLimits,
+  /** Whether the hub is behind proxies, which say where a request comes from. */
+  proxy: ProxyTrust,
 });
 export type SignInSettings = z.infer<typeof SignInSettings>;
 
@@ -219,5 +258,11 @@ export function ssoStartPath(provider: SsoProviderId): string {
 /** The People page's Sign-in tab, where a test sign-in comes back to (`?test=<id>`). */
 export const SSO_TEST_PAGE = '/admin/people/sign-in';
 
-/** The fragment key the callback hands the sign-in page its refresh token under (`/sign-in#sso=...`). */
+/**
+ * The fragment key the callback hands the sign-in page a one-time code under (`/sign-in#sso=...`). The code works
+ * once, for a short while, and only with the cookie (`SSO_HANDOFF_COOKIE`) the callback set in the same browser.
+ */
 export const SSO_HANDOFF_KEY = 'sso';
+
+/** The httpOnly cookie that binds an SSO hand-off code to the browser the sign-in finished in. */
+export const SSO_HANDOFF_COOKIE = 'harness_sso_handoff';

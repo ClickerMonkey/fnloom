@@ -28,6 +28,11 @@ export const RecordStorage = z.object({
   shape: z.enum(['table', 'value']),
   /** Whether each record belongs to one person (only they and admins see it) or to everyone who sees the type. */
   owner: z.enum(['shared', 'person']),
+  /**
+   * Who may change its records besides the type's own system: anyone who sees the type (absent), or only admins
+   * (`admins`: records whose fields grant something, such as where requests may go).
+   */
+  writers: z.literal('admins').optional(),
   search: z.object({
     /** Top-level text fields matched by text search, in order of weight. */
     text: z.array(z.string().min(1)),

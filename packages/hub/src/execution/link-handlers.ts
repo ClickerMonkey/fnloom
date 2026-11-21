@@ -4,7 +4,7 @@
  * The link module installs these on the link server; `ChildRelay` tells a calling system about its child runs.
  */
 import { reject as refuse, type HandlerFor } from '@ayepi/core';
-import { isSettled, type HubLinkSpec, type Run, type RunId, type RunSettled, type RunUpdate, type SystemName } from '@harness/core';
+import { instanceLabel, isSettled, type HubLinkSpec, type InstanceRef, type Run, type RunId, type RunSettled, type RunUpdate } from '@harness/core';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
 import { causeOf, fnError, messageOf, RunRefused } from './errors.ts';
 import type { LlmGateway } from './index.ts';
@@ -29,25 +29,33 @@ export interface LinkHandlerDeps extends Pick<ExecutionDeps, 'store' | 'log'> {
 export class NotYourRun extends Error {
   override readonly name = 'NotYourRun';
 
-  constructor(run: RunId, system: string) {
-    super(`run ${run} is not ${system}'s`);
+  constructor(run: RunId, link: InstanceRef) {
+    super(`run ${run} is not ${instanceLabel(link)}'s`);
   }
+}
+
+/**
+ * Whether a run is the asking instance's: its system's, and that instance's when the run was given one (a fleet's
+ * runs are routed to one instance; a run with none went to whichever instance of the system was connected).
+ */
+export function runIsOf(run: Pick<Run, 'system' | 'instance'>, link: InstanceRef): boolean {
+  return run.system === link.system && (run.instance === undefined || run.instance === link.instance);
 }
 
 /** The handlers, by endpoint. */
 export function executionLinkHandlers(deps: LinkHandlerDeps): { [K in ExecutionLinkEndpoints]: LinkHandler<K> } {
   const { runs, gateway, store } = deps;
 
-  /** The run, if it belongs to the system asking. */
-  const own = async (id: RunId, system: SystemName): Promise<Run> => {
+  /** The run, if it belongs to the instance asking. */
+  const own = async (id: RunId, link: InstanceRef): Promise<Run> => {
     const run = await runs.get(id);
-    if (run?.system !== system) throw new NotYourRun(id, system);
+    if (run === undefined || !runIsOf(run, link)) throw new NotYourRun(id, link);
     return run;
   };
 
   return {
     call: async ({ data, link }): Promise<RunSettled> => {
-      const parent = await own(data.parent, link.system);
+      const parent = await own(data.parent, link);
       if (isSettled(parent.status)) return { status: 'failed', error: fnError('fatal', `run ${parent.id} has already finished`, 'settled') };
       const system = await store.table('systems').get(link.system);
       try {
@@ -67,16 +75,16 @@ export function executionLinkHandlers(deps: LinkHandlerDeps): { [K in ExecutionL
     control: async ({ data, link }) => {
       const child = await runs.get(data.run);
       const parent = child?.parent === undefined ? undefined : await runs.get(child.parent);
-      if (child === undefined || parent?.system !== link.system) return { accepted: false, reason: `run ${data.run} is not a call ${link.system} made` };
+      if (child === undefined || parent === undefined || !runIsOf(parent, link)) return { accepted: false, reason: `run ${data.run} is not a call ${instanceLabel(link)} made` };
       const answer = data.action === 'cancel' ? await runs.cancel(child.id, parent.actor) : await runs.pause(child.id, parent.actor);
       return answer.reason === undefined ? { accepted: answer.accepted } : { accepted: answer.accepted, reason: answer.reason };
     },
     progress: async ({ data, link }) => {
-      await own(data.run, link.system);
+      await own(data.run, link);
       await runs.progress(data.run, data.progress);
     },
     allow: async ({ data, link }) => {
-      await own(data.run, link.system);
+      await own(data.run, link);
       await runs.allow(data.run, {
         ...(data.operations.cancel === undefined ? {} : { cancel: data.operations.cancel }),
         ...(data.operations.pause === undefined ? {} : { pause: data.operations.pause }),
@@ -84,11 +92,11 @@ export function executionLinkHandlers(deps: LinkHandlerDeps): { [K in ExecutionL
       });
     },
     undoWith: async ({ data, link }) => {
-      await own(data.run, link.system);
+      await own(data.run, link);
       await runs.undoWith(data.run, data.undo);
     },
     handle: async ({ data, link, signal }) => {
-      await own(data.run, link.system);
+      await own(data.run, link);
       return deps.handlers.handle(data, signal);
     },
     llm: ({ data, link, signal }) => gateway.forward({ ...data, system: link.system, instance: link.instance }, signal),
@@ -126,7 +134,8 @@ export class ChildRelay {
     if (run?.parent === undefined) return;
     const parent = await store.table('runs').get(run.parent);
     if (parent === undefined || parent.system === HUB_SYSTEM) return;
-    const connection = link.connection(parent.system);
+    // to the instance that made the call, never another of its fleet
+    const connection = link.connection(parent.system, parent.instance);
     if (connection === undefined) return;
     await connection.peer.call('child', { parent: parent.id, key: run.key, run: run.id, ...(update === undefined ? {} : { update }) });
   }

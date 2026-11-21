@@ -2,10 +2,12 @@
 /**
  * Markdown, rendered safely (no HTML from the source reaches the page) and styled for reading: comfortable spacing,
  * code and tables that scroll inside themselves, long words that wrap. Images open large in a viewer. Handles text
- * that is still streaming in.
+ * that is still streaming in. Images from outside the hub wait for a click while the admin's setting says to ask
+ * (`images.ts`).
  */
-import { computed, ref, type FunctionalComponent } from 'vue';
+import { computed, inject, reactive, ref, type FunctionalComponent } from 'vue';
 import UiImageViewer from '../UiImageViewer.vue';
+import { DEFAULT_OUTSIDE_IMAGES, OUTSIDE_IMAGES, outsideHost } from './images.ts';
 import { parseMarkdown } from './parse.ts';
 import { renderBlocks } from './render.ts';
 
@@ -19,8 +21,13 @@ const emit = defineEmits<{ copied: [ok: boolean] }>();
 const blocks = computed(() => parseMarkdown(props.source));
 const viewing = ref<{ src: string; alt: string } | undefined>(undefined);
 const viewerOpen = computed({ get: () => viewing.value !== undefined, set: (open) => { if (!open) { viewing.value = undefined; } } });
+const outsideImages = inject(OUTSIDE_IMAGES, DEFAULT_OUTSIDE_IMAGES);
+/** Outside images clicked to load here. */
+const released = reactive(new Set<string>());
+const held = (src: string): string | undefined => (outsideImages() === 'always' || released.has(src) ? undefined : outsideHost(src, window.location.origin));
 const Blocks: FunctionalComponent = () => renderBlocks(blocks.value, {
   navigate: props.navigate, copied: (ok) => { emit('copied', ok); }, view: (src, alt) => { viewing.value = { src, alt }; },
+  held, release: (src) => { released.add(src); },
 });
 </script>
 
@@ -56,6 +63,10 @@ const Blocks: FunctionalComponent = () => renderBlocks(blocks.value, {
 .ui-markdown :deep(.md-image) { display: block; max-width: 100%; height: auto; border-radius: var(--radius); }
 .ui-markdown :deep(.md-image-open) { display: block; max-width: 100%; padding: 0; border: 0; border-radius: var(--radius); background: transparent; cursor: zoom-in; }
 .ui-markdown :deep(.md-image-open:focus-visible) { outline: none; box-shadow: var(--ring); }
+.ui-markdown :deep(.md-image-held) { display: inline-grid; gap: 2px; max-width: 100%; padding: var(--space-2) var(--space-3); border: 1px dashed var(--border-strong); border-radius: var(--radius); background: var(--surface-2); color: var(--text); font: inherit; font-size: var(--text-sm); text-align: left; cursor: pointer; }
+.ui-markdown :deep(.md-image-held:hover) { border-color: var(--accent); }
+.ui-markdown :deep(.md-image-held:focus-visible) { outline: none; box-shadow: var(--ring); }
+.ui-markdown :deep(.md-image-held-alt) { color: var(--text-dim); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .ui-markdown :deep(.md-resource) { text-decoration: none; }
 .ui-markdown :deep(.md-resource .md-code) { color: var(--accent); }
 .ui-markdown :deep(.md-table) { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }

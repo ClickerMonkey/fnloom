@@ -10,7 +10,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { BUILD_ONLY_MODULES, isExternal, ViteBuilder } from '@harness/build';
 import { scrubbedEnv } from '@harness/sdk/server';
 import { NodeFiles } from './files.ts';
-import { cliSettings, connectHub, hubTarget } from './hub.ts';
+import { cliSettings, connectHub, ENV_FILE_URL_REFUSED, hubTarget } from './hub.ts';
 import { waitFor } from './hub-client.ts';
 
 const root = mkdtempSync(join(tmpdir(), 'harness-cli-seams-'));
@@ -39,10 +39,25 @@ describe('NodeFiles', () => {
 describe('the hub target', () => {
   it('reads .env under the environment, and lets options win', () => {
     writeFileSync(join(root, '.env'), 'HARNESS_URL=http://from-env-file:4300/\nHARNESS_ADMIN_EMAIL=ada@example.com\nHARNESS_ADMIN_PASSWORD=pw\n');
-    const settings = cliSettings(root, { HARNESS_TOKEN: 'from-environment' });
+    const settings = cliSettings(root, { HARNESS_ADMIN_PASSWORD: 'from-environment' });
     expect(settings.HARNESS_URL).toBe('http://from-env-file:4300/');
-    expect(hubTarget(settings, {})).toEqual({ url: 'http://from-env-file:4300', token: 'from-environment', admin: { email: 'ada@example.com', password: 'pw' } });
+    expect(settings.HARNESS_ADMIN_PASSWORD).toBe('from-environment');
+    expect(hubTarget(cliSettings(root, {}), {})).toEqual({ url: 'http://from-env-file:4300', token: undefined, admin: { email: 'ada@example.com', password: 'pw' } });
     expect(hubTarget(settings, { hub: 'http://other:1/', token: 't' })).toMatchObject({ url: 'http://other:1', token: 't' });
+    expect(hubTarget(cliSettings(root, { HARNESS_URL: 'http://mine:4300', HARNESS_TOKEN: 'tok' }), {})).toMatchObject({ url: 'http://mine:4300', token: 'tok' });
+  });
+
+  it('never sends a sign-in from the environment or the command line to a hub address from the folder’s .env', () => {
+    // a folder's .env names an attacker's hub; the person's real sign-in is in their environment
+    writeFileSync(join(root, '.env'), 'HARNESS_URL=http://attacker.example:4300\n');
+    expect(() => hubTarget(cliSettings(root, { HARNESS_TOKEN: 'real-token' }), {})).toThrow(ENV_FILE_URL_REFUSED);
+    expect(() => hubTarget(cliSettings(root, { HARNESS_ADMIN_EMAIL: 'ada@example.com', HARNESS_ADMIN_PASSWORD: 'pw' }), {})).toThrow(ENV_FILE_URL_REFUSED);
+    expect(() => hubTarget(cliSettings(root, {}), { token: 'typed' })).toThrow(ENV_FILE_URL_REFUSED);
+    expect(() => hubTarget(cliSettings(root, { HARNESS_MCP_SECRET: 's' }), {}, { fromFile: false })).toThrow(ENV_FILE_URL_REFUSED);
+    // the person's own address, or a sign-in in the same file, is fine
+    expect(hubTarget(cliSettings(root, { HARNESS_TOKEN: 'real-token' }), { hub: 'http://mine:4300' })).toMatchObject({ url: 'http://mine:4300', token: 'real-token' });
+    writeFileSync(join(root, '.env'), 'HARNESS_URL=http://dev:4300\nHARNESS_TOKEN=dev-token\n');
+    expect(hubTarget(cliSettings(root, {}), {})).toMatchObject({ url: 'http://dev:4300', token: 'dev-token' });
   });
 
   it('refuses to sign in with neither a token nor an admin account', async () => {

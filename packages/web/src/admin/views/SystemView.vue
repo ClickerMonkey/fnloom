@@ -97,7 +97,7 @@ async function installZip(zip: File, options: PackageOptions): Promise<void> {
 const review = computed(() => reviews.review.value.value);
 const stage = computed(() => review.value?.stage ?? view.value?.stage ?? 'live');
 const loader = configComponentsOf(chat);
-const target = computed(() => (review.value === undefined ? undefined : configTarget(review.value.manifest)));
+const target = computed(() => (review.value === undefined ? undefined : configTarget(review.value)));
 const rule = ref<RefusalRule | 'all'>('all');
 watch(rule, (picked) => { if (name.value !== undefined) { void reviews.loadRefusals(name.value, picked === 'all' ? undefined : picked); } });
 const runPage = (run: RunId): RouteLocationRaw => links.runs({ run });

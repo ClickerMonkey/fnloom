@@ -151,7 +151,7 @@ Every command, read from the CLI itself:
 | `harness system stop <system> [--instance <name>]` | Stop an installed system (every instance, or one with --instance). |
 | `harness system upgrade <system> [--version <version>]` | Upgrade an installed system from its npm or git source (a zip upgrades by installing a newer zip). |
 | `harness system uninstall <system> [--instance <name>]` | Stop and remove an installed system’s instances (one with --instance); their data folders stay. |
-| `harness mcp <slug> --secret <secret>` | Bridge a hub MCP to stdin and stdout, for MCP clients that speak stdio only. |
+| `harness mcp <slug> [--hub <url>] (the secret in HARNESS_MCP_SECRET)` | Bridge a hub MCP to stdin and stdout, for MCP clients that speak stdio only. |
 
 `harness system new` fills the name in everywhere the template has `template`: as is in strings and paths, in camel
 case in identifiers (`templateEnv` becomes `notesDbEnv`) and Pascal case in type names (`TemplateDeps` becomes

@@ -137,16 +137,20 @@ export function createWebImpl(deps: WebDeps): WebServer {
           const root = crawlRoot(report.pages.map((page) => page.uri), folder);
           const shown = report.skipped.slice(0, s.WEB_CRAWL_SKIPPED_SHOWN);
           ctx.log.info('web.crawl.done', { url: redactUrl(start), root, pages: report.pages.length, skipped: report.skipped.length });
-          return ctx.done({ root, count: report.pages.length, pages: [...report.pages], skipped: shown, moreSkipped: report.skipped.length - shown.length });
+          return ctx.done({ root, count: report.pages.length, pages: [...report.pages], skipped: shown, moreSkipped: report.skipped.length - shown.length, fetched: [...report.fetched] });
         }),
       },
       read: {
         run: (args, ctx) => attempt(ctx, async () => {
           const url = parseWebUrl(args.url);
           if (url === undefined) { return ctx.invalid([urlProblem(args.url)]); }
+          // fetched here, so the run says every URL that went out (redirects too), and held for the hub's import to take
+          // back through fetch_raw, as a crawl's pages are
+          const page = await deps.pages.fetch(url.href, fetchSettings(ctx.config, s, args.render), ctx.signal);
+          held.put(page);
           // the hub fns' args and results are the web endpoints' bodies and responses, so core's schemas check both; an
           // import's body is a union, which tool args carry as `input`
-          const importing: ResourceImportArgs = { url: url.href, ...(args.render === undefined ? {} : { render: args.render }) };
+          const importing: ResourceImportArgs = { url: page.requestedUrl, ...(args.render === undefined ? {} : { render: args.render }) };
           const record = ResourceRecord.parse(await ctx.fns.importResource(importing));
           const reading: ResourceReadArgs = { uri: record.uri, maxChars: args.maxChars ?? s.WEB_READ_CHARS };
           const read = ResourceReadResult.parse(await ctx.fns.readResource(reading));
@@ -154,7 +158,7 @@ export function createWebImpl(deps: WebDeps): WebServer {
           const finalUrl = source?.finalUrl ?? source?.url ?? url.href;
           const rendered = source?.rendered ?? false;
           ctx.log.info('web.read.done', { url: redactUrl(finalUrl), uri: record.uri, chars: read.text.length, truncated: read.truncated, rendered });
-          return ctx.done({ uri: record.uri, title: record.stat.name, finalUrl, text: read.text, truncated: read.truncated, rendered });
+          return ctx.done({ uri: record.uri, title: record.stat.name, finalUrl, text: read.text, truncated: read.truncated, rendered, fetched: [...page.fetched] });
         }),
       },
     },

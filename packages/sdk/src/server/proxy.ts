@@ -46,6 +46,11 @@ export interface AllowlistProxyOptions {
   /** The hosts let through at first (`grants.network`, plus the hub's own); `setAllowed` changes them. */
   readonly allow: readonly string[];
   readonly onRefused: (refusal: ProxyRefusal) => void;
+  /**
+   * Where an allowed target is connected to: the address it was checked at (resolved once, so a name that resolves
+   * elsewhere a moment later can't move the connection), or `undefined` to refuse it. Absent, the host as named.
+   */
+  readonly route?: (target: ProxyRefusal) => Promise<string | undefined>;
 }
 
 /** The variables that send a child's `fetch` and `http(s)` through the proxy at `url`, with `direct` hosts not proxied. */
@@ -124,6 +129,16 @@ export class AllowlistProxy implements NetworkGate {
     return false;
   }
 
+  /** The address to connect an allowed target to (`route`), or `undefined` when it is refused (and reported). */
+  async #routed(target: ProxyRefusal): Promise<string | undefined> {
+    if (!this.#allowed(target)) { return undefined; }
+    const route = this.#options.route;
+    if (route === undefined) { return target.host; }
+    const address = await route(target).catch(() => undefined);
+    if (address === undefined) { this.#options.onRefused(target); }
+    return address;
+  }
+
   #keep(socket: Duplex): void {
     this.#open.add(socket);
     socket.once('close', () => { this.#open.delete(socket); });
@@ -133,11 +148,19 @@ export class AllowlistProxy implements NetworkGate {
     this.#keep(client);
     client.on('error', () => { client.destroy(); });
     const target = targetOf(req.url ?? '', 443);
-    if (target === undefined || !this.#allowed(target)) {
+    if (target === undefined) {
       client.end('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n');
       return;
     }
-    const upstream: Socket = connect(target.port, target.host, () => {
+    void this.#routed(target).then((address) => {
+      if (address === undefined) { client.end('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n'); return; }
+      this.#connectTunnel(client, head, target.port, address);
+    });
+  }
+
+  /** Open a tunnel for `client` to `address`. */
+  #connectTunnel(client: Duplex, head: Buffer, port: number, address: string): void {
+    const upstream: Socket = connect(port, address, () => {
       client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
       if (head.length > 0) { upstream.write(head); }
       upstream.pipe(client);
@@ -156,15 +179,18 @@ export class AllowlistProxy implements NetworkGate {
       return;
     }
     const target = { host: url.hostname.replace(/^\[|\]$/g, ''), port: url.port === '' ? 80 : Number(url.port) };
-    if (url.protocol !== 'http:' || !this.#allowed(target)) {
+    if (url.protocol !== 'http:') {
       res.writeHead(403).end();
       return;
     }
-    const upstream = forward({ host: target.host, port: target.port, method: req.method, path: `${url.pathname}${url.search}`, headers: req.headers }, (answer) => {
-      res.writeHead(answer.statusCode ?? 502, answer.headers);
-      answer.pipe(res);
+    void this.#routed(target).then((address) => {
+      if (address === undefined) { res.writeHead(403).end(); return; }
+      const upstream = forward({ host: address, port: target.port, method: req.method, path: `${url.pathname}${url.search}`, headers: req.headers }, (answer) => {
+        res.writeHead(answer.statusCode ?? 502, answer.headers);
+        answer.pipe(res);
+      });
+      upstream.on('error', () => { if (!res.headersSent) { res.writeHead(502); } res.end(); });
+      req.pipe(upstream);
     });
-    upstream.on('error', () => { if (!res.headersSent) { res.writeHead(502); } res.end(); });
-    req.pipe(upstream);
   }
 }

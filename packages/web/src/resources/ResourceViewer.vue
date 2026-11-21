@@ -11,6 +11,7 @@
  * It is provided under `RESOURCE_VIEWER`, so a system's renderer can show any resource with it.
  */
 import type { QualifiedName, ResourceStat, ResourceUri, SectionKey } from '@harness/core';
+import { safeHref } from '@harness/sdk';
 import { computed, ref, watch } from 'vue';
 import ConfirmDialog from '../admin/components/ConfirmDialog.vue';
 import { useStores } from '../state/stores.ts';
@@ -104,7 +105,8 @@ const loading = computed(() => store.opened.loading.value || (load.value?.loadin
 /** Links inside a resource: another resource opens here; anything else in a new tab. */
 function navigate(href: string): void {
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(href) && !/^https?:/i.test(href)) { emit('navigate', href); return; }
-  window.open(href, '_blank', 'noopener');
+  const safe = safeHref(href);
+  if (safe !== undefined) { window.open(safe, '_blank', 'noopener'); }
 }
 
 async function copyUri(): Promise<void> {

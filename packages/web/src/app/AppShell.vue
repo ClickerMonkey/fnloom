@@ -20,7 +20,7 @@ import { showFavicon } from './favicon.ts';
 import { tabTitle } from './title.ts';
 import { links, notificationTarget, ROUTES } from './routes.ts';
 
-const { session, identity, keeper, layout, toasts, inbox, connection, admin, chat, pages } = useStores();
+const { session, identity, keeper, layout, toasts, inbox, connection, admin, chat, pages, outsideImages } = useStores();
 const signOut = useSignOut();
 const route = useRoute();
 const router = useRouter();
@@ -58,9 +58,12 @@ watch(signedIn, (isIn, was) => {
     // the live systems' pages join the nav, and come and go with their systems
     pages.start();
     void pages.load(true);
+    // whether chats load images from outside the hub at once (the admin's setting)
+    void outsideImages.load();
     return;
   }
   pages.clear();
+  outsideImages.clear();
   keeper.stop();
   inbox.stop();
   identity.stop();

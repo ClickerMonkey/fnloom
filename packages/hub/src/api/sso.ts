@@ -9,21 +9,25 @@
  * LAN IP, the web dev port) first bounces to the same start on `HARNESS_URL` (`relocate`), keeping where to go after.
  *
  * A finished sign-in goes to `HubAuthenticator.signInExternal` (linking, the first-sign-in policy, roles and groups),
- * and the callback hands the sign-in page the session's refresh token in the URL fragment, which never reaches a
- * server; the page swaps it at once (refresh tokens rotate on use). A test sign-in (an admin's, from the People page)
+ * and the callback hands the sign-in page a one-time code in the URL fragment, which never reaches a server, with a
+ * signed httpOnly cookie on the redeem endpoint's path that carries the code's hash. The page swaps the code for the
+ * session's tokens at once (`redeem`): it works once, for `HANDOFF_TTL`, and only with that cookie, so a code
+ * someone else got from their own sign-in can't sign this browser in as them (login CSRF). A test sign-in (an admin's, from the People page)
  * signs nobody in: it keeps what the provider sent and what a real sign-in would do, for that admin to read.
  */
 import { JwksCache, OAuthError, OidcClient } from '@ayepi/auth/oauth';
 import {
-  ActorId, Json, SSO_CALLBACK_PATH, SSO_HANDOFF_KEY, SSO_TEST_PAGE, SsoProviderId, UserView,
-  type IdentityProviderConfig, type SignInSettings, type SsoCheck, type SsoCheckStep, type SsoTestResult,
+  ActorId, Json, SSO_CALLBACK_PATH, SSO_HANDOFF_COOKIE, SSO_HANDOFF_KEY, SSO_TEST_PAGE, SsoProviderId, UserView,
+  type IdentityProviderConfig, type SignInSettings, type SsoCheck, type SsoCheckStep, type SsoTestResult, type Tokens,
 } from '@harness/core';
 import { z } from 'zod';
 import type { Logger } from '@ayepi/log';
 import type { HubStore } from '../store/index.ts';
 import type { Authenticator } from './index.ts';
-import { breakGlassAdmin, signInPolicy, type ExternalClaims } from './identities.ts';
-import { randomSecret, SignedPayloads } from './signed.ts';
+import { proxyTrust } from './client-address.ts';
+import { API_PREFIX } from './http.ts';
+import { breakGlassAdmin, signInLimits, signInPolicy, type ExternalClaims } from './identities.ts';
+import { randomSecret, sameText, sha256Url, SignedPayloads } from './signed.ts';
 
 /** The cookie that carries a sign-in in flight from its start to the callback. */
 export const SSO_COOKIE = 'harness_sso';
@@ -33,6 +37,15 @@ export const SSO_RELOCATED_KEY = 'relocated';
 
 /** How long a test sign-in's result is kept for its admin. */
 const TEST_KEPT = 15 * 60_000;
+
+/** How long the sign-in page has to swap a hand-off code for tokens. */
+export const HANDOFF_TTL = 60_000;
+
+/** The redeem endpoint's path (`redeemSso` under the web API), which the hand-off cookie is scoped to. */
+export const SSO_REDEEM_PATH = `${API_PREFIX}/redeemSso`;
+
+/** A hand-off cookie's payload: the hash of the code it lets this browser redeem. */
+const Handoff = z.object({ h: z.string() });
 
 /** A sign-in in flight, as its cookie carries it. */
 const Pending = z.object({
@@ -62,10 +75,11 @@ export interface SsoStart {
   readonly cookie: SsoCookie;
 }
 
-/** Where the callback sends the browser, and the cookie to clear. */
+/** Where the callback sends the browser, the cookie to clear, and the hand-off cookie a finished sign-in sets. */
 export interface SsoCallbackAnswer {
   readonly location: string;
   readonly clear: string;
+  readonly handoff?: SsoCookie;
 }
 
 /** SSO sign-in: start, callback, provider checks and test sign-ins. */
@@ -82,6 +96,11 @@ export interface SsoService {
   start(provider: string, options: { readonly next?: string | undefined; readonly test?: { readonly id: string; readonly admin: ActorId } | undefined }): Promise<SsoStart>;
   /** The provider sent the browser back with these query params and these cookies. Never throws: problems go in the location. */
   callback(params: URLSearchParams, cookies: Readonly<Record<string, string>>, device: string): Promise<SsoCallbackAnswer>;
+  /**
+   * Swap a hand-off code for its sign-in's tokens, once, given the hand-off cookie the callback set in this browser.
+   * Undefined for a code that is unknown, spent, expired, or doesn't match the cookie (or there is none).
+   */
+  redeem(code: string, cookie: string | undefined): Tokens | undefined;
   /** Fetch a provider's discovery document and key set now. */
   check(provider: string): Promise<SsoCheck>;
   /** A test sign-in's result, for the admin who ran it; undefined while it hasn't come back (or for anyone else). */
@@ -114,6 +133,8 @@ export class OidcSignIns implements SsoService {
   readonly #signed: SignedPayloads;
   readonly #clients = new Map<string, OidcClient>();
   readonly #tests = new Map<string, { readonly admin: ActorId; readonly result: SsoTestResult }>();
+  /** Finished sign-ins waiting for their page to redeem them, by the code's hash. */
+  readonly #handoffs = new Map<string, { readonly tokens: Tokens; readonly until: number }>();
 
   constructor(deps: SsoDeps) {
     this.#deps = deps;
@@ -179,7 +200,24 @@ export class OidcSignIns implements SsoService {
       return { location: signInPage({ problem: signedIn.refused, next: pending.x }), clear: SSO_COOKIE };
     }
     this.#deps.log.info('sso.signed-in', { provider: config.id, user: signedIn.tokens.user.id, link: signedIn.outcome.link });
-    return { location: `${signInPage({ next: pending.x })}#${new URLSearchParams({ [SSO_HANDOFF_KEY]: signedIn.tokens.refresh }).toString()}`, clear: SSO_COOKIE };
+    const code = randomSecret(32);
+    const until = this.#deps.clock() + HANDOFF_TTL;
+    this.#pruneHandoffs();
+    this.#handoffs.set(sha256Url(code), { tokens: signedIn.tokens, until });
+    return {
+      location: `${signInPage({ next: pending.x })}#${new URLSearchParams({ [SSO_HANDOFF_KEY]: code }).toString()}`, clear: SSO_COOKIE,
+      handoff: { name: SSO_HANDOFF_COOKIE, value: this.#signed.sign({ h: sha256Url(code) }, until), path: SSO_REDEEM_PATH, maxAge: Math.ceil(HANDOFF_TTL / 1000), secure: this.#redirect.startsWith('https:') },
+    };
+  }
+
+  redeem(code: string, cookie: string | undefined): Tokens | undefined {
+    this.#pruneHandoffs();
+    const bound = this.#signed.read(Handoff, cookie);
+    const hash = sha256Url(code);
+    if (bound === undefined || !sameText(bound.h, hash)) return undefined;
+    const kept = this.#handoffs.get(hash);
+    this.#handoffs.delete(hash);
+    return kept?.tokens;
   }
 
   async check(provider: string): Promise<SsoCheck> {
@@ -211,10 +249,11 @@ export class OidcSignIns implements SsoService {
   }
 
   async settings(): Promise<SignInSettings> {
-    const [policy, breakGlass] = await Promise.all([signInPolicy(this.#deps.store), breakGlassAdmin(this.#deps.store)]);
+    const { store } = this.#deps;
+    const [policy, breakGlass, limits, proxy] = await Promise.all([signInPolicy(store), breakGlassAdmin(store), signInLimits(store), proxyTrust(store)]);
     return {
       providers: this.providers.map(({ clientSecret, ...config }) => ({ ...config, confidential: clientSecret !== undefined })),
-      policy, ...(breakGlass === undefined ? {} : { breakGlass: UserView.parse(breakGlass) }), callbackUrl: this.#redirect,
+      policy, ...(breakGlass === undefined ? {} : { breakGlass: UserView.parse(breakGlass) }), callbackUrl: this.#redirect, limits, proxy,
     };
   }
 
@@ -230,6 +269,12 @@ export class OidcSignIns implements SsoService {
   #keep(test: { readonly id: string; readonly admin: ActorId }, result: SsoTestResult): void {
     this.#prune();
     this.#tests.set(test.id, { admin: test.admin, result });
+  }
+
+  /** Drop hand-offs no longer redeemable. */
+  #pruneHandoffs(): void {
+    const now = this.#deps.clock();
+    for (const [hash, kept] of this.#handoffs) { if (kept.until <= now) this.#handoffs.delete(hash); }
   }
 
   /** Drop test results older than they are kept. */

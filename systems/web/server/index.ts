@@ -46,6 +46,8 @@ export interface FetchedPage {
   readonly renderError: string | undefined;
   /** Its title, or a label from its URL with credentials redacted. */
   readonly title: string;
+  /** Every URL requested for it, redirects included, in order (credentials redacted): what the run says it fetched. */
+  readonly fetched: readonly string[];
 }
 
 /** Fetches URLs. */
@@ -55,9 +57,9 @@ export interface PageSource {
   /**
    * What `@aeye/resources`' graph walks a site with: the registry, and the options every page is fetched with under
    * these settings (the guarded fetch, the renderer, the limits), calling `before` ahead of each request (a crawl
-   * checks robots.txt there; throwing refuses the request).
+   * checks robots.txt there; throwing refuses the request), and telling `fetched` each URL requested, redirects included.
    */
-  crawling(settings: FetchSettings, signal: AbortSignal, before: (url: URL) => Promise<void>): { registry: ResourceRegistry; options: ResolveOptions };
+  crawling(settings: FetchSettings, signal: AbortSignal, before: (url: URL) => Promise<void>, fetched: (url: string) => void): { registry: ResourceRegistry; options: ResolveOptions };
 }
 
 /** Hands fetched bytes to the hub for the run that fetched them. */

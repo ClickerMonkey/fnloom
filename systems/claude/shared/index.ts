@@ -8,14 +8,16 @@
  *   searched with `hub/records_*`; `disk_sessions` lists every session in Claude's store.
  * - **Needs attention:** a tool Claude wants to use is a proposed run of `permit`, a question Claude (or an MCP server
  *   through it) asks is a proposed run of `answer` with a form; both wait for the session's person in the inbox and in
- *   the chat the session started from. Neither is ever called by the model.
+ *   the chat the session started from. Neither is ever called by the model. A mode that lets Claude do more on its own
+ *   (`acceptEdits`, `auto`, `dontAsk`), asked for by `start_session` or `control`, is a proposed run of `allow_mode`
+ *   for the session's person, every time (never remembered).
  * - **Tasks and workflows** are kept on the record (`ClaudeSession.tasks`) and reported as a waiting run's progress.
  * - **Imports:** `importables` lists Claude's agents, skills and MCP servers in a folder; `import` (an admin's
  *   approval) makes skills context with their `/command`, agents `claude/agent` fns, and MCP servers `mcp` instances.
  */
 import { context, fn, ginAs, hub, kind, linear, system, type } from '@harness/sdk';
 import {
-  CLAUDE_CONFIG_SECRETS, CLAUDE_SYSTEM, ClaudeAnswer, ClaudeControl, ClaudeImport, ClaudeInstanceConfig, ClaudePermit, ClaudeSession, ClaudeSend, ClaudeStart,
+  CLAUDE_CONFIG_SECRETS, CLAUDE_SYSTEM, ClaudeAllowMode, ClaudeAnswer, ClaudeControl, ClaudeImport, ClaudeInstanceConfig, ClaudePermit, ClaudeSession, ClaudeSend, ClaudeStart,
   ClaudeTranscriptPage, ClaudeTranscriptQuery, ClaudeTurn,
 } from './session.ts';
 import {
@@ -103,7 +105,7 @@ export const claude = system(CLAUDE_SYSTEM, {
       start_session: fn({
         group: 'sessions',
         description: 'Start a Claude Code session in a folder with a first message; it keeps working on its own and asks the person when it needs approval or an answer.',
-        instructions: 'Use it to hand a coding task to Claude Code. `folder` must be under one of the instance\'s folders (claude/folders lists them). Leave `wait` off for long work: the session shows in the fleet and reports its tasks; set it to have this run wait for the first turn\'s answer.',
+        instructions: 'Use it to hand a coding task to Claude Code. `folder` must be under one of the instance\'s folders (claude/folders lists them). Leave `wait` off for long work: the session shows in the fleet and reports its tasks; set it to have this run wait for the first turn\'s answer. A `permissionMode` of acceptEdits, auto or dontAsk is asked of the person first (`modeAsked`): the session starts in default until they approve.',
         args: ginAs(ClaudeStart),
         returns: ginAs(ClaudeTurn),
         progress: linear,
@@ -130,7 +132,7 @@ export const claude = system(CLAUDE_SYSTEM, {
       control: fn({
         group: 'sessions',
         description: 'Interrupt a Claude Code session\'s current turn, stop the session (it stays resumable), or only switch its permission mode (`action: "mode"` with `mode`).',
-        instructions: 'Use `interrupt` when the person wants Claude to stop what it is doing now and wait; `stop` when they are done with the session; `mode` to change what Claude may do without asking (for example `plan` or `acceptEdits`) while it keeps working.',
+        instructions: 'Use `interrupt` when the person wants Claude to stop what it is doing now and wait; `stop` when they are done with the session; `mode` to change what Claude may do without asking (for example `plan` or `acceptEdits`) while it keeps working. acceptEdits, auto and dontAsk are asked of the person first (`modeAsked`): tell them and end your turn.',
         args: ginAs(ClaudeControl),
         returns: ginAs(ControlOutcome),
         examples: [
@@ -174,6 +176,21 @@ export const claude = system(CLAUDE_SYSTEM, {
         effects: { mode: 'write', free: true },
         tags: ['claude'],
       }),
+      allow_mode: fn({
+        group: 'attention',
+        description: 'Let a Claude Code session work in a mode where it does more without asking (the person\'s approval of the proposed run).',
+        instructions: 'Proposed by the system for the session\'s person; the model never calls it.',
+        args: ginAs(ClaudeAllowMode),
+        returns: ginAs(ControlOutcome),
+        examples: [{ args: { instance: 'main', session: SESSION, mode: 'acceptEdits' } }],
+        visibility: 'none',
+        display: 'hidden',
+        // asked every time, with the mode on its card, and never remembered as a policy
+        approval: { preview: true, remember: false },
+        status: status('Switching the mode…', 'Switched the mode', 'Switching the mode failed'),
+        effects: { mode: 'write', free: true },
+        tags: ['claude'],
+      }),
       answer: fn({
         group: 'attention',
         description: 'Give Claude the person\'s answer to a question it waits on (the form on the proposed run); a decline tells Claude the person did not answer.',
@@ -207,7 +224,8 @@ export const claude = system(CLAUDE_SYSTEM, {
         returns: ginAs(ImportOutcome),
         deps: { saveFn: hub.fns.save_fn, addInstance: hub.fns.add_instance },
         examples: [{ args: { items: [{ kind: 'skill', name: 'release-notes', folder: 'C:/code/shop' }, { kind: 'agent', name: 'code-reviewer' }] } }],
-        approval: { preview: false, remember: false, approver: 'admins' },
+        // the card shows what each item is: an MCP server's command, args, folder and env names (never their values)
+        approval: { preview: true, remember: false, approver: 'admins' },
         status: status('Importing from Claude…', 'Imported from Claude', 'Importing from Claude failed'),
         effects: { mode: 'write', free: true, registry: [{ thing: 'fns', action: 'create', kind: AGENT_KIND }, { thing: 'context', action: 'create' }, { thing: 'fns', action: 'create' }] },
         tags: ['claude', 'write'],

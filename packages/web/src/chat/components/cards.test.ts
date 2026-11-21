@@ -98,6 +98,14 @@ describe('LinkCard', () => {
     const runLink = mount(LinkCard, { props: { link: { run: RunId.parse('run_1'), title: 'The build' } } });
     expect(runLink.text()).toContain('Run details');
   });
+
+  it('shows a script or data address as plain text, never a link (H2)', () => {
+    for (const url of ['javascript:alert(document.cookie)', 'data:text/html,<script>1</script>', 'vbscript:x']) {
+      const card = mount(LinkCard, { props: { link: { url, title: 'Bad' } } });
+      expect(card.find('a').exists()).toBe(false);
+      expect(card.get('[data-testid="link-card-plain"]').text()).toContain(url);
+    }
+  });
 });
 
 describe('TurnNotice', () => {

@@ -41,6 +41,30 @@ export type ClaudeSessionRef = z.infer<typeof ClaudeSessionRef>;
 export const ClaudePermissionMode = z.enum(['default', 'acceptEdits', 'plan', 'dontAsk', 'auto']);
 export type ClaudePermissionMode = z.infer<typeof ClaudePermissionMode>;
 
+/** The modes in which Claude asks before every tool its settings don't allow; any other one lets it do more on its own. */
+export const CAREFUL_MODES: readonly ClaudePermissionMode[] = ['default', 'plan'];
+
+/**
+ * Whether switching a session to `mode` lets Claude do more without asking (`acceptEdits`, `auto`, `dontAsk`): a run
+ * that asks for one never switches itself, it asks the session's person (`claude/allow_mode`), every time.
+ */
+export function asksPerson(mode: ClaudePermissionMode): boolean {
+  return !CAREFUL_MODES.includes(mode);
+}
+
+/** What each mode lets Claude do, as the approval card says it. */
+export const MODE_MEANING: Readonly<Record<ClaudePermissionMode, string>> = {
+  default: 'Claude asks before each tool its settings don’t allow.',
+  plan: 'Claude only plans: it reads and suggests, and changes nothing.',
+  acceptEdits: 'Claude edits files in the session’s folder without asking.',
+  auto: 'Claude decides on its own which tools to use, without asking.',
+  dontAsk: 'Claude never asks: it uses only the tools its settings allow and is refused the rest.',
+};
+
+/** A mode switch waiting for the session's person: the proposed `claude/allow_mode` run, and what to tell them. */
+export const ModeAsked = z.object({ run: RunId, mode: ClaudePermissionMode, says: z.string() });
+export type ModeAsked = z.infer<typeof ModeAsked>;
+
 /** A folder sessions may start in. */
 export const ClaudeFolder = z.object({ path: z.string().min(1), label: z.string().min(1).optional() });
 export type ClaudeFolder = z.infer<typeof ClaudeFolder>;
@@ -191,6 +215,8 @@ export type ClaudeSend = z.infer<typeof ClaudeSend>;
 /** What a start or send answers: the session, and the turn's outcome when it waited. */
 export const ClaudeTurn = ClaudeSessionRef.extend({
   status: ClaudeSessionStatus,
+  /** The mode asked for, waiting for the person (the session runs in `default` until they approve). */
+  modeAsked: ModeAsked.optional(),
   /** The turn's final text, when it waited. */
   text: z.string().optional(),
   costUsd: z.number().min(0).optional(),
@@ -203,6 +229,10 @@ export type ClaudeTurn = z.infer<typeof ClaudeTurn>;
  */
 export const ClaudeControl = ClaudeSessionRef.extend({ action: z.enum(['interrupt', 'stop', 'mode']), mode: ClaudePermissionMode.optional() });
 export type ClaudeControl = z.infer<typeof ClaudeControl>;
+
+/** The args of a proposed `claude/allow_mode` run: a mode that lets Claude do more on its own, which its person approves. */
+export const ClaudeAllowMode = ClaudeSessionRef.extend({ mode: ClaudePermissionMode });
+export type ClaudeAllowMode = z.infer<typeof ClaudeAllowMode>;
 
 /**
  * The args of a proposed `claude/permit` run: one tool use Claude waits on. Approved, Claude may use it (`always`

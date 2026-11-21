@@ -1030,7 +1030,9 @@ the tightest.
 - **Signing in** (SSO, to-do item 2): generic OpenID Connect providers from `HARNESS_SSO_PROVIDERS` (env only), run
   by `@ayepi/auth/oauth`'s `OidcClient`. A provider button starts at `/auth/sso/<provider>/start`; what finishing
   needs rides in a signed, httpOnly cookie on `/auth/sso/callback` (the same signed-payload helper as the connections'
-  `state`), and the callback hands the sign-in page the new session's refresh token in the URL fragment. An
+  `state`), and the callback hands the sign-in page a one-time code in the URL fragment, bound to that browser by a
+  signed httpOnly cookie on the redeem endpoint (`redeemSso`), which swaps it for the session's tokens once, within a
+  minute (security review M2). An
   `ExternalIdentity` (issuer, subject) links a provider account to a person; otherwise a matching email links only when
   `email_verified` is true. A first sign-in with nobody to link makes an account only as the admin's policy allows
   (invite only, email domains, anyone). Claims set the role (admin, member, or not allowed) and the groups of the same
@@ -1040,6 +1042,12 @@ the tightest.
   (folded under "Admin? Sign in with a password"). A provider sends people back to `HARNESS_URL`, and the sign-in is
   bound to the browser that started it. A start opened at any other address (the LAN IP, the web dev port) first
   sends the browser to the same start on `HARNESS_URL`, keeping where to go after, so the sign-in finishes there.
+- **First admin and password tries** (security review M1, M12): a hub that starts with no one in it (and no
+  `HARNESS_ADMIN_*`) makes a one-time setup code, prints a `/sign-in?setup=<code>` link to its log and writes the code
+  to `setup-code.txt` in its data folder; the setup page needs it. Password tries are counted with `@ayepi/rate` in the
+  hub's database per (email, address) and per address, never per email alone, so guessing from elsewhere never locks
+  the owner out. The limits and the number of trusted proxies (`X-Forwarded-For` is ignored until an admin says one is
+  there) are admin settings on the People page's Sign-in tab, read through one helper (`api/client-address.ts`).
 - **Admin › People** (`/admin/people/<tab>`) has three tabs. **People** lists everyone (searched, filtered and counted
   in the database), and a person's panel sets their role, whether they can sign in and their groups, and shows how they
   sign in; an admin can add a person ahead of their first sign-in. **Groups** lists the groups with their member
@@ -1054,6 +1062,61 @@ the tightest.
 - **Approvals** are records. "Always" turns into a policy.
 - **Actor settings** are typed values systems declare and attach to actors, set by an admin or by a fn.
   For example, the database system declares row and field access rules; an admin sets them per group.
+
+### Security
+
+What the security review of 2026-11-21 changed (findings in `docs/plans/security-review-2026-11-21.md`):
+
+- **Live events go only to the people they are for.** A browser subscribes to `on.user` as the person signed in, and
+  the hub refuses anyone else's. Each event names who hears it: a notification its person, an approval its approvers
+  and the turn's person, a session change the session's people, a pairing the admins (read from the database when it
+  happens). `on.session` uses the same check as reading the session. Signing out, a replayed refresh token, a revoked
+  sign-in or an admin turning someone off ends that sign-in's subscriptions at once.
+- **Links built from data are http or https only.** `HttpUrl` in core is the one schema for URLs the browser opens
+  (connect and SSO-test addresses, chat links, web sources), and `safeHref` in the SDK is the one check the app and
+  system renderers use before a link, `window.open` or `location.assign`. `javascript:`, `data:`, `//host` and `/\host`
+  are shown as plain text. ayepi's OAuth and OIDC metadata endpoints must be https (http only on loopback).
+- **Outside images ask first.** A markdown image from another host shows a "Load image" button; images never send a
+  referrer. The admin setting "Load outside images" (Settings › Hub, `outsideImages`, default `ask`) turns that off.
+- **A system's client build loads only after approval.** `SystemLifecycle.approvedClient` is the one rule: the system
+  is live and its current build was approved in review. `/clients`, the chat's renderers, pages and the settings page
+  all use it; a build's `.html` and `.svg` are sent as downloads.
+- **Agent fns always call as an agent actor**, made in one place (`ensureAgentActor`), never as the person who started
+  them, so their tool calls get approval cards as any agent's do.
+- **fs bash.** A "safe" command runs without asking only when it is a plain command (no `;`, `|`, `>`, `$`, `~`,
+  globs or braces), every path in it resolves inside the roots, and its options fit a small table (no
+  `git diff --output`, no `git branch -D`). Test runners and `echo` are no longer safe. Commands get a scrubbed env plus
+  the names the fs config's `commandEnv` allows. Writes that lead to running code (`.git`, package manifests, configs,
+  hooks, workflows) ask, case-insensitively on Windows and macOS. The hub's own git calls and typed safe git commands
+  run with fsmonitor, hooks, pagers and external diffs turned off. Grep runs in a worker with a deadline, and
+  snapshots are pruned (fs config `snapshots`, 20 per file and 500 MB by default).
+- **The api system checks addresses.** Every request and the OpenAPI fetch, each redirect hop included, goes through
+  the SDK's `addressVerdict`: private, loopback and link-local hosts are refused unless an admin turns on "Allow private
+  addresses" for that service. A service an agent adds belongs to its person until an admin shares it, and only admins
+  write the service records (`RecordStorage.writers: 'admins'`).
+- **Headers.** Every hub response is `nosniff`, never framed (`frame-ancestors 'none'`) and sends only the origin as a
+  referrer. The app page's policy allows scripts only from the hub (no inline scripts, no eval), inline styles, images
+  from the hub, `data:`, `blob:` and https, and requests and sockets to the hub only. Uploaded files opened from their
+  link never run script.
+- **SSO hand-off.** The callback puts a one-time code in the URL, bound to the browser by an httpOnly cookie; the
+  sign-in page swaps it for tokens once, within a minute.
+- **First admin.** A hub with no one in it makes a setup code (logged as a link and written to `setup-code.txt` in
+  its data folder); making the first admin needs it.
+- **Rate limits** all use `@ayepi/rate` in the hub's database. Password tries count per (email, address) and per
+  address, never per email alone (admin settings `signInLimits`, 10 and 100 per 15 minutes). An IPv6 address counts as
+  its /64. `X-Forwarded-For` is read only when an admin says how many proxies are in front (`proxyTrust`, default 0);
+  `api/client-address.ts` is the one place that works out where a request comes from.
+- **Link limits.** Pairing requests count per address and in total, a repeated request from the same place replaces
+  the open one, and a code pairing can't replace a paired key (that needs a token). Sockets that haven't finished the
+  handshake are capped per address and in total and closed if they don't say hello in time; messages and uploads in
+  progress are capped. These are env settings (`HARNESS_PAIRING_*`, `HARNESS_LINK_*`, `HARNESS_MAX_FRAME`,
+  `HARNESS_WS_MAX_MESSAGE`). A fleet instance can act only on its own runs.
+- **Other systems.** The claude system asks the person before a riskier mode, reads project `.claude` items as files,
+  follows links before checking a folder and shows an MCP import's command on its card. The web system's Chrome goes
+  through a proxy per tab that connects only to the address the guard checked, and read fetches list every URL they
+  requested on the run. The database re-checks approval before a write. The test MCP server listens on 127.0.0.1. The
+  CLI reads secrets from the env or stdin and refuses a hub address from the folder's `.env` with a sign-in from
+  elsewhere.
 
 ## Content: resources, sections and context
 

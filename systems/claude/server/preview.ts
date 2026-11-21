@@ -1,9 +1,11 @@
 /**
  * What the approval cards show: a tool use Claude waits on (the command for a shell, a diff for an edit, the content
- * for a new file, else the input as JSON) and a question (its words; the form is the card's `ask`).
+ * for a new file, else the input as JSON), a question (its words; the form is the card's `ask`), a mode that lets Claude
+ * do more on its own, and what an import would add.
  */
 import { z } from 'zod';
-import type { ApprovalPreview, JsonObject, PreviewPart } from '@harness/core';
+import type { ApprovalPreview, JsonObject, McpServerConfig, PreviewPart } from '@harness/core';
+import { MODE_MEANING, type ClaudePermissionMode, type ClaudeSession } from '../shared/session.ts';
 import type { PermitRequest, QuestionRequest } from './driver.ts';
 
 const BashInput = z.object({ command: z.string(), description: z.string().optional() });
@@ -53,4 +55,22 @@ export function permitPreview(request: PermitRequest, max: number): ApprovalPrev
 /** The card of a question Claude waits on. */
 export function questionPreview(request: QuestionRequest): ApprovalPreview {
   return { title: request.title, parts: [{ type: 'text', text: request.text }], irreversible: false };
+}
+
+/** The card of a mode that lets Claude do more on its own (`claude/allow_mode`): the mode, what it means, and where. */
+export function modePreview(mode: ClaudePermissionMode, session: Pick<ClaudeSession, 'title' | 'folder'> | undefined): ApprovalPreview {
+  const where = session === undefined ? [] : [{ type: 'text' as const, text: `Session: ${session.title} (${session.folder})` }];
+  return { title: `Let Claude work in ${mode} mode?`, parts: [{ type: 'text', text: MODE_MEANING[mode] }, ...where], irreversible: false };
+}
+
+/** What a stdio MCP server would start: its command, args and folder, and its env names (never their values). */
+export function mcpServerLines(server: McpServerConfig): string {
+  const transport = server.transport;
+  if (transport.type !== 'stdio') { return `${transport.type} ${transport.url}`; }
+  return [
+    `command: ${transport.command}`,
+    `args: ${transport.args.length === 0 ? '(none)' : JSON.stringify(transport.args)}`,
+    `folder: ${transport.cwd ?? '(the instance’s own)'}`,
+    `env: ${Object.keys(transport.env ?? {}).join(', ') || '(none)'}`,
+  ].join('\n');
 }

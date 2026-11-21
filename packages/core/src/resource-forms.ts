@@ -9,6 +9,7 @@ import type { RenderMode as LibraryRenderMode } from '@aeye/resources';
 import { resourceVersionSchema } from '@aeye/resources/versions';
 import { z } from 'zod';
 import { ActorId, ModelCallId, PageRequest, QualifiedName, RunId, type Same, SystemName, Timestamp } from './primitives.ts';
+import { HttpUrl } from './urls.ts';
 import { CONTENT_HASH, ContentRef, ConvertedKind, FormKind, ResourceUri, SectionKey } from './resources.ts';
 
 // ─── Forms ────────────────────────────────────────────────────────────────────
@@ -61,7 +62,7 @@ export const ResourceSource = z.discriminatedUnion('from', [
   /** `served: text` when the system sent its own text and no bytes: that text is the raw content and is not converted again. */
   z.object({ from: z.literal('system'), system: SystemName, served: z.enum(['bytes', 'text']).optional() }),
   z.object({ from: z.literal('upload'), by: ActorId }),
-  z.object({ from: z.literal('web'), url: z.url(), finalUrl: z.url().optional(), fetchedAt: Timestamp, rendered: z.boolean() }),
+  z.object({ from: z.literal('web'), url: HttpUrl, finalUrl: HttpUrl.optional(), fetchedAt: Timestamp, rendered: z.boolean() }),
   z.object({ from: z.literal('run'), run: RunId, fn: QualifiedName }),
 ]);
 export type ResourceSource = z.infer<typeof ResourceSource>;
@@ -188,7 +189,7 @@ export type ResourceReadResult = z.infer<typeof ResourceReadResult>;
 /** `hub/resource_import`: a URL or uploaded content into a hub resource. */
 export const ResourceImportArgs = z.union([
   /** `folder`: where under the hub's imports the page goes, so a crawl keeps its pages under one root. */
-  z.object({ url: z.url(), render: RenderMode.optional(), name: z.string().optional(), folder: z.string().min(1).optional() }),
+  z.object({ url: HttpUrl, render: RenderMode.optional(), name: z.string().optional(), folder: z.string().min(1).optional() }),
   z.object({ content: ContentRef, name: z.string().min(1), path: z.string().optional() }),
 ]);
 export type ResourceImportArgs = z.infer<typeof ResourceImportArgs>;

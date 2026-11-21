@@ -24,6 +24,7 @@ import { ContextStore } from '../context/state/context.ts';
 import { FnInfoStore } from '../fns/state/fn-info.ts';
 import { FnNotices } from '../fns/state/fn-notices.ts';
 import { IdentityStore } from '../state/identity.ts';
+import { OutsideImagesStore } from '../state/outside-images.ts';
 import { GraphStore } from '../graph/state/graph.ts';
 import { DataStore } from '../data/state/data.ts';
 import { SystemPagesStore } from '../system-pages/store.ts';
@@ -57,7 +58,7 @@ export function createStores(win: Window): Stores {
   const logs = new ClientLogs({ send: clientLogsCaller(plain), signedIn: () => session.signedIn.value, page: () => win.location.pathname });
   logs.watch(win);
   const hub = withTraffic(plain, (call) => { logs.traffic(call); });
-  const api = createApi(hub);
+  const api = createApi(hub, () => session.user.value?.id);
   const keeper = new SessionKeeper(api.auth, session, Date.now, new BrowserLock(win.navigator));
   const connection = new ConnectionStore(api.connection);
   const inbox = new InboxStore(api.notifications, api.userEvents);
@@ -83,6 +84,7 @@ export function createStores(win: Window): Stores {
   return {
     session,
     identity: new IdentityStore(api.identity, api.userEvents, win.localStorage),
+    outsideImages: new OutsideImagesStore(api.outsideImages),
     keeper,
     theme: new ThemeStore({ store: win.localStorage, media: (query) => win.matchMedia(query), root: win.document.documentElement }),
     layout: new LayoutStore(win.localStorage),

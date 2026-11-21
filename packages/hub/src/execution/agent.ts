@@ -21,6 +21,7 @@ import { z } from 'zod';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
 import type { FnSignature } from '../catalog/index.ts';
 import type { MessageEnricher } from '../chat/index.ts';
+import { ensureAgentActor } from '../chat/support.ts';
 import type { CallPlan, ExposedTo, ModelCallOut, PromptPlanner } from '../contextor/index.ts';
 import { AUTO_MODEL } from '../contextor/limits.ts';
 import { parseRunBlocks, problemLines, resultText, RunBlockFilter, splitThinking, ThinkingFilter } from '../contextor/render.ts';
@@ -721,16 +722,18 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     return opened.id;
   }
 
-  /** The actor of an agent fn (the author of its messages and the caller of its tools). */
+  /**
+   * The actor of an agent fn (the author of its messages and the caller of its tools), made on first use. Never the
+   * person who ran it: an agent's tool calls are the agent's, so policies ask for them as they would in a session.
+   */
   async #agentActor(run: Run): Promise<ActorId> {
     const known = this.#agents.get(run.fn);
     if (known !== undefined) return known;
-    for await (const actor of rows(this.#deps.store.table('actors'), { where: { kind: 'agent' } })) {
-      if (actor.kind !== 'agent' || actor.fn !== run.fn) continue;
-      this.#agents.set(run.fn, actor.id);
-      return actor.id;
-    }
-    return run.caller;
+    const fn = await this.#deps.catalog.fn(run.fn);
+    if (fn === undefined) throw new Error(`${run.fn} no longer exists`);
+    const actor = await ensureAgentActor(this.#deps, fn);
+    this.#agents.set(run.fn, actor.id);
+    return actor.id;
   }
 
   /** The conversation to keep on the state (only for agents that aren't a session's). */

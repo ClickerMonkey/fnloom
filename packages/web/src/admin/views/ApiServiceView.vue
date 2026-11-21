@@ -49,6 +49,8 @@ const facts = computed<readonly Fact[]>(() => {
     ...(s.headers === undefined ? [] : [{ label: 'Headers', value: Object.keys(s.headers).join(', ') }]),
     { label: 'Limits', value: `${String(s.timeout / 1000)} s a request, bodies up to ${formatBytes(s.maxBody)}` },
     { label: 'Name', value: s.name, code: true },
+    ...(s.allowPrivate ? [{ label: 'Private addresses', value: 'Allowed' }] : []),
+    ...(s.privateTo === undefined ? [] : [{ label: 'Seen by', value: 'Only the person whose agent added it, until you share it in Settings' }]),
   ];
 });
 

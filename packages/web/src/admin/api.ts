@@ -124,6 +124,8 @@ export function adminApi(hub: Hub) {
     setMembership: hub.caller('setMembership'),
     signInSettings: hub.caller('signInSettings', { dedupe: true }),
     setSignInPolicy: hub.caller('setSignInPolicy'),
+    setSignInLimits: hub.caller('setSignInLimits'),
+    setProxyTrust: hub.caller('setProxyTrust'),
     checkSsoProvider: hub.caller('checkSsoProvider'),
     testSsoSignIn: hub.caller('testSsoSignIn'),
     ssoTestResult: hub.caller('ssoTestResult', { lastOnly: true }),

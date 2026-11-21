@@ -5,7 +5,7 @@
 import { ApiError, manifestFromSpec } from '@ayepi/core';
 import { describe, expect, it } from 'vitest';
 import {
-  ActorId, ContextDecl, hubWebSpec, MAIN_INSTANCE, mintId, ModelCallId, NotificationId, QualifiedName, ResourceUri, RunId, SessionId, SystemName, TurnId, type ActorKind, type ModelForward, type ModelInfo, type ModelRoleView, type ResolvedLimits, type Run, type SettingDecl, type Session, type SystemRecord, type Tokens,
+  ActorId, ContextDecl, DEFAULT_SIGN_IN_LIMITS, hubWebSpec, MAIN_INSTANCE, mintId, ModelCallId, NotificationId, QualifiedName, ResourceUri, RunId, SessionId, SystemName, TurnId, type ActorKind, type ModelForward, type ModelInfo, type ModelRoleView, type ResolvedLimits, type Run, type SettingDecl, type Session, type SystemRecord, type Tokens,
 } from '@harness/core';
 import { fn, g, wireType } from '@harness/sdk';
 import { TestCatalog } from '../../execution/testing.ts';
@@ -88,6 +88,18 @@ describe('sign-in', () => {
     await expect(web.client.call('me', web.as(tokens))).rejects.toMatchObject({ status: 401 });
   });
 
+  it('refuses to make the first admin without the setup code the hub logged (anyone on the network could otherwise)', async () => {
+    const r = await rig();
+    const web = await webRig(r);
+    const mallory = { email: 'mallory@example.com', name: 'Mallory', password: 'correct horse battery' };
+    // before the hub made a code, and with a wrong one after
+    await expect(web.client.call('createAdmin', { ...mallory, setup: 'guess' })).rejects.toMatchObject({ status: 403, code: 'SETUP_CODE' });
+    const code = await r.hub.api.auth.openSetup();
+    await expect(web.client.call('createAdmin', { ...mallory, setup: 'guess' })).rejects.toMatchObject({ status: 403, code: 'SETUP_CODE' });
+    await expect(web.client.call('setup')).resolves.toMatchObject({ needsAdmin: true });
+    await expect(web.client.call('createAdmin', { ...mallory, email: 'admin@example.com', setup: code ?? '' })).resolves.toMatchObject({ user: { role: 'admin' } });
+  });
+
   it('says why a sign-in failed, and slows down repeated tries', async () => {
     const r = await rig();
     const web = await webRig(r);
@@ -96,7 +108,7 @@ describe('sign-in', () => {
     const error: unknown = await web.client.call('signIn', wrong).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({ status: 401, data: { reason: 'That email and password don’t match.' } });
-    for (let i = 1; i < r.hub.settings.authEnv.HARNESS_SIGN_IN_LIMIT; i++) { await web.client.call('signIn', wrong).catch(() => undefined); }
+    for (let i = 1; i < DEFAULT_SIGN_IN_LIMITS.account.limit; i++) { await web.client.call('signIn', wrong).catch(() => undefined); }
     await expect(web.client.call('signIn', { ...wrong, password: 'correct horse battery' })).rejects.toMatchObject({ status: 429 });
   });
 

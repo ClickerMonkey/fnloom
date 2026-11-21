@@ -7,13 +7,14 @@
  * The catalog, link and index modules are one build (`buildSystems`): each of their factories returns its part of it.
  */
 import type { Logger } from '@ayepi/log';
-import { hubLinkSpec, type ActorId } from '@harness/core';
+import { hubLinkSpec, instanceLabel, type ActorId } from '@harness/core';
 import { reject, spec } from '@ayepi/core';
 import { plugin } from '@ayepi/plugin';
 import { hub, manifestOf } from '@harness/sdk';
 import type { Catalog } from '../catalog/index.ts';
 import { createChat } from '../chat/chat.ts';
 import { executionModule, type ExecutionModule, type LlmSource } from '../execution/create.ts';
+import { runIsOf } from '../execution/link-handlers.ts';
 import { buildSystems, type HubSystems } from '../link/build.ts';
 import { linkServicesPlugin, serviceCatalog } from '../link/services.ts';
 import { linkReadsPlugin } from '../link/reads.ts';
@@ -117,9 +118,9 @@ function systemsModules(seams: ModuleSeams): Pick<HubModules, 'catalog' | 'link'
     link: (context) => {
       const { hub } = context;
       const systems = systemsOf(context);
-      const { connections, pairing, config, supervisor, admin, resources, output, packages, router, autoPairs, lifecycle, grants } = systems;
+      const { connections, pairing, config, supervisor, admin, resources, output, packages, router, autoPairs, lifecycle, grants, gate } = systems;
       return {
-        services: { connections, pairing, config, supervisor, admin, resources, output, packages, instances: router, autoPairs, tokens: context.systemTokens, lifecycle, grants },
+        services: { connections, pairing, config, supervisor, admin, resources, output, packages, instances: router, autoPairs, tokens: context.systemTokens, lifecycle, grants, gate },
         hooks: {
           // build 1's single-instance rows move onto instances before any system can connect
           work: { up: async () => { await systems.migrate(); } },
@@ -127,7 +128,8 @@ function systemsModules(seams: ModuleSeams): Pick<HubModules, 'catalog' | 'link'
         },
         linkPlugins: [systems.plugin, linkServicesPlugin({
           store: () => hub.store, catalog: () => serviceCatalog(hub.catalog), content: () => hub.api.content, state: () => hub.chat.state, turns: () => hub.chat.turns,
-          maxUpload: hub.settings.httpEnv.HARNESS_MAX_UPLOAD, uploadTtl: hub.settings.httpEnv.HARNESS_PRESIGN_TTL, clock: hub.clock,
+          maxUpload: hub.settings.httpEnv.HARNESS_MAX_UPLOAD, uploadTtl: hub.settings.httpEnv.HARNESS_PRESIGN_TTL,
+          maxUploads: hub.settings.linkEnv.HARNESS_LINK_MAX_UPLOADS, clock: hub.clock,
           access: (actor) => hub.access.scope(actor), bus: () => hub.bus,
         }), linkReadsPlugin({
           store: () => hub.store, access: (actor) => hub.access.scope(actor), router: () => hub.link.resources, reader: () => hub.resources.reader, pairing: () => hub.link.pairing,
@@ -161,8 +163,9 @@ const chatModule: ModuleFactory<'chat'> = ({ hub, hubActor }) => {
     hooks: { work: { up: () => { stop = chat.start(); return Promise.resolve(); }, pre: () => { stop?.(); return Promise.resolve(); } } },
     linkPlugins: [plugin({ name: 'decide', spec: DECIDE_LINK_SPEC }).handlers(() => ({
       decide: async ({ data, link }) => {
-        // the call is charged to the run, so it must be one of the asking system's
-        if ((await hub.store.table('runs').get(data.run))?.system !== link.system) { throw reject(403, 'NOT_YOUR_RUN', `run ${data.run} is not ${link.system}'s`); }
+        // the call is charged to the run, so it must be one of the asking instance's
+        const run = await hub.store.table('runs').get(data.run);
+        if (run === undefined || !runIsOf(run, link)) { throw reject(403, 'NOT_YOUR_RUN', `run ${data.run} is not ${instanceLabel(link)}'s`); }
         return chat.suggestions.forSystem(data);
       },
     })), mentionSearchPlugin({

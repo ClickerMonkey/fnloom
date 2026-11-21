@@ -2,24 +2,28 @@
  * The api system's implementation, one instance that authors api fns (like `code`): the `request` kind (check,
  * describe and run through the shared program runtime and the executor), `make_api` (the authoring agent in
  * `authoring.ts`), `services`, `operations`, `test_request`, and `connect` (a person's own token or header values for a
- * service, or the shared ones an admin sets for everyone). The services are records in the hub (`services.ts`); api fns
- * are the hub's; a person's credentials are the hub's secrets, sent with each run that acts through a service.
+ * service, or the shared ones an admin sets for everyone). The services are records in the hub (`services.ts`), each
+ * seen as the run's person sees it; api fns are the hub's; a person's credentials are the hub's secrets, sent with each
+ * run that acts through a service. Every request and OpenAPI fetch goes through the service's address check (`guard.ts`).
  */
-import { API_KIND, ApiFnSpec, KindDescription, strongerMode, type ApiService, type Json, type QualifiedName, type ResourceUri } from '@harness/core';
-import { CallFailed, credentialsFromForm, hub, sampleArgs, type Files, type KindCheckCtx, type SystemImpl } from '@harness/sdk';
+import { API_KIND, ApiFnSpec, KindDescription, strongerMode, type ApiService, type Json, type QualifiedName, type ResourceUri, type UserInfo } from '@harness/core';
+import { CallFailed, credentialsFromForm, hub, sampleArgs, type Data, type Files, type KindCheckCtx, type SystemImpl } from '@harness/sdk';
 import { calleesMode, hubProgramHost, kindCheckLookups, kindRunLookups, ProgramError, storedProgramScope, type ProgramLookups } from '@harness/sdk/program';
-import { AuthoringError } from '@harness/sdk/server';
+import { AuthoringError, systemLookup, type HostLookup } from '@harness/sdk/server';
 import { HttpRequest, type ApiContract } from '../shared/index.ts';
 import { ApiAuthoring, apiAuthoring } from './authoring.ts';
 import type { ApiSettings } from './env.ts';
 import { boundCredentials, NoCredential, prepare, RequestRefused, ResponseFailed, responseFile, send, serviceAccount, type SendCtx } from './http.ts';
 import { operationsPage, readOperations } from './openapi.ts';
+import { ServiceGuard } from './guard.ts';
 import { checkApi, modeOf, readableApi, runApi, type ApiCheck } from './program.ts';
-import { NoService, Services } from './services.ts';
+import { NoService, Services, viewerOf } from './services.ts';
 
 /** Everything the implementation is built from. */
 export interface ApiDeps {
   readonly settings: ApiSettings;
+  /** How hostnames resolve for the address check (default: the machine's resolver); a seam, so tests answer without DNS. */
+  readonly lookup?: HostLookup;
 }
 
 /** A payload's programs checked in the world its lookups give. */
@@ -48,9 +52,10 @@ interface RunSending {
  * connection, but only when the run acts through this service (`connectedTo`): a connection to one service never
  * signs a request to another.
  */
-function sendCtx(settings: ApiSettings, ctx: RunSending, service: ApiService, connectedTo: string | undefined): SendCtx {
+function sendCtx(deps: ApiDeps, ctx: RunSending, service: ApiService, connectedTo: string | undefined): SendCtx {
   return {
-    maxRedirects: settings.HARNESS_API_MAX_REDIRECTS,
+    maxRedirects: deps.settings.HARNESS_API_MAX_REDIRECTS,
+    guard: new ServiceGuard(deps.lookup ?? systemLookup, service),
     fetch: ctx.fetch,
     signal: ctx.signal,
     credentials: connectedTo === service.name ? ctx.connection?.credentials : undefined,
@@ -73,11 +78,14 @@ function failure(error: unknown): string | undefined {
 
 /** Build the api implementation. */
 export function createApiImpl(deps: ApiDeps): SystemImpl<ApiContract['defs']> {
+  const lookup = deps.lookup ?? systemLookup;
+  /** The services as a run's person sees them. */
+  const servicesFor = (ctx: { readonly data: Data; readonly run: { readonly user: UserInfo } }) => new Services(ctx.data, viewerOf(ctx.run.user), lookup);
   return {
     fns: {
       make_api: {
         async run(args, ctx) {
-          const services = new Services(ctx.data);
+          const services = servicesFor(ctx);
           const given = args.service === undefined ? undefined : await services.get(args.service);
           if (args.service !== undefined && given === undefined) return ctx.fail('caller', new NoService(args.service).message);
           const getFn = async (fn: QualifiedName) => await ctx.fns.getFn({ fn });
@@ -94,10 +102,10 @@ export function createApiImpl(deps: ApiDeps): SystemImpl<ApiContract['defs']> {
                   return added;
                 },
               },
-              send: (service) => sendCtx(deps.settings, ctx, service, args.service),
+              send: (service) => sendCtx(deps, ctx, service, args.service),
               async operations(service, query) {
                 if (service.openapi === undefined) throw new Error(`${service.label} has no OpenAPI document set.`);
-                return operationsPage(await readOperations(service.openapi, ctx.fetch, ctx.signal), query);
+                return operationsPage(await readOperations(service.openapi, sendCtx(deps, ctx, service, undefined)), query);
               },
               getFn,
               async saveFn(save) {
@@ -122,23 +130,28 @@ export function createApiImpl(deps: ApiDeps): SystemImpl<ApiContract['defs']> {
       },
       services: {
         async run(args, ctx) {
-          return ctx.done(await new Services(ctx.data).find(args));
+          return ctx.done(await servicesFor(ctx).find(args));
         },
       },
       operations: {
         async run(args, ctx) {
-          const service = await new Services(ctx.data).get(args.service);
+          const service = await servicesFor(ctx).get(args.service);
           if (service === undefined) return ctx.fail('caller', new NoService(args.service).message);
           if (service.openapi === undefined) return ctx.fail('caller', `${service.label} has no OpenAPI document set; an admin can add its URL to the service.`);
-          return ctx.done(operationsPage(await readOperations(service.openapi, ctx.fetch, ctx.signal), args));
+          try {
+            return ctx.done(operationsPage(await readOperations(service.openapi, sendCtx(deps, ctx, service, undefined)), args));
+          } catch (error) {
+            if (error instanceof RequestRefused) return ctx.fail('caller', error.message);
+            throw error;
+          }
         },
       },
       test_request: {
         async run(args, ctx) {
-          const service = await new Services(ctx.data).get(args.service);
+          const service = await servicesFor(ctx).get(args.service);
           if (service === undefined) return ctx.fail('caller', new NoService(args.service).message);
           const request = HttpRequest.parse({ method: args.method ?? 'GET', url: args.url, ...(args.params === undefined ? {} : { params: args.params }), ...(args.headers === undefined ? {} : { headers: args.headers }) });
-          const how = sendCtx(deps.settings, ctx, service, args.service);
+          const how = sendCtx(deps, ctx, service, args.service);
           try {
             return ctx.done((await send(await prepare(request, service, how), service, how)).exchange);
           } catch (error) {
@@ -178,12 +191,12 @@ export function createApiImpl(deps: ApiDeps): SystemImpl<ApiContract['defs']> {
         },
         async run(payload, args, ctx) {
           const spec = ApiFnSpec.parse(payload);
-          const service = await new Services(ctx.data).get(spec.service);
+          const service = await servicesFor(ctx).get(spec.service);
           if (service === undefined) return ctx.fail('fatal', `${ctx.run.fn} is for the service ${spec.service}, which is gone.`);
           const { check, program } = await checked(spec, kindRunLookups(ctx));
           if (check.problems.length > 0) return ctx.fail('fatal', `${ctx.run.fn} no longer checks: ${check.problems.join(' ')}`);
           try {
-            const outcome = await runApi({ program, spec, check, service, send: sendCtx(deps.settings, ctx, service, spec.service), call: async (fn, input) => ctx.call(fn, input) }, args);
+            const outcome = await runApi({ program, spec, check, service, send: sendCtx(deps, ctx, service, spec.service), call: async (fn, input) => ctx.call(fn, input) }, args);
             const status = outcome.exchange.response?.status;
             ctx.progress({ step: 'request', status: 'done', detail: `${outcome.exchange.method} ${outcome.exchange.url}${status === undefined ? '' : ` → ${String(status)}`}` });
             ctx.log.info('api.exchange', { method: outcome.exchange.method, url: outcome.exchange.url, status: status ?? null, headers: outcome.exchange.headers.map((header) => `${header.key}: ${header.value}`) });
@@ -204,7 +217,8 @@ export function createApiImpl(deps: ApiDeps): SystemImpl<ApiContract['defs']> {
       },
       async finish(request, ctx) {
         if (request.key === undefined) return { problem: 'Say which API service to connect to.' };
-        const service = await new Services(ctx.data).get(request.key);
+        // as the person connecting sees it: another person's unshared service is not there for them
+        const service = await new Services(ctx.data, { id: request.owner, admin: false }, lookup).get(request.key);
         if (service === undefined) return { problem: new NoService(request.key).message };
         if (!('form' in request.answer)) return { problem: `${service.label} takes a typed token or header values, not a sign-in.` };
         // a shared token is typed by an admin for everyone (the hub lets only an admin make that connection)

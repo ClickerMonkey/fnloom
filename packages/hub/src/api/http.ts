@@ -7,10 +7,10 @@
  * access token expires (`closeAt`), so the browser reconnects with the fresh token it holds by then.
  */
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'node:http';
-import type { AnySpec, Server } from '@ayepi/core';
+import type { AnySpec, Server, WsConn } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import { createRequestListener, routeUpgrades, upgradeHandler, type UpgradeHandler } from '@ayepi/node';
-import type { FileRoute } from './serve.ts';
+import { secureFileResponse, secureResponse, type FileRoute } from './serve.ts';
 
 /** The prefix of the web API's HTTP paths. */
 export const API_PREFIX = '/api';
@@ -49,6 +49,10 @@ export interface HttpFrontOptions {
   readonly tokenExpiry: (token: string) => number | undefined;
   /** Close a browser socket this long before its token expires. */
   readonly tokenMargin: number;
+  /** The largest message a browser socket, and a system link, may send (bytes); a bigger one closes the socket. */
+  readonly maxMessage: { readonly browser: number; readonly link: number };
+  /** Which `/link` upgrades to take, and a way to close one of its sockets (`LinkGate`). */
+  readonly linkGate?: { admit(req: Request): Promise<boolean>; bind(close: (conn: WsConn, code: number, reason: string) => void): void };
   readonly clock: () => number;
   readonly log: Logger;
 }
@@ -65,8 +69,10 @@ export class HttpFront {
     this.#o = options;
     this.#web = createRequestListener(options.web);
     this.#mcp = createRequestListener(options.mcp);
-    const browser = upgradeHandler(options.web, { heartbeat: options.heartbeat, clock: options.clock, closeAt: (req) => this.#closeAt(req) });
-    const systems = upgradeHandler(options.link, { heartbeat: options.heartbeat });
+    const browser = upgradeHandler(options.web, { heartbeat: options.heartbeat, clock: options.clock, closeAt: (req) => this.#closeAt(req), maxPayload: options.maxMessage.browser });
+    const gate = options.linkGate;
+    const systems = upgradeHandler(options.link, { heartbeat: options.heartbeat, maxPayload: options.maxMessage.link, ...(gate === undefined ? {} : { admit: (req: Request) => gate.admit(req) }) });
+    gate?.bind((conn, code, reason) => { systems.close(conn, code, reason); });
     this.#sockets = [browser, systems];
     this.#server = createServer((req, res) => { void this.#request(req, res); });
     routeUpgrades(this.#server, { [WS_PATH]: browser, [LINK_PATH]: systems });
@@ -105,6 +111,7 @@ export class HttpFront {
   async #request(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://hub');
     const path = url.pathname;
+    secureResponse(res);
     try {
       if (path === '/healthz' || path === '/readyz') {
         const ok = path === '/healthz' ? this.#o.health.live() : this.#o.health.ready();
@@ -121,6 +128,7 @@ export class HttpFront {
         return;
       }
       if (passesThrough(path)) {
+        if (path === FILES_PATH) { secureFileResponse(res); }
         this.#web(req, res);
         return;
       }

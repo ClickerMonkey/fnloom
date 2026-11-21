@@ -58,17 +58,20 @@ export type CommandProgress = (fraction: number, line: string) => void;
 
 /** Runs shell command lines. An interface so tests use a fake. */
 export interface Shell {
-  run(input: { command: string; cwd: string; timeout: number; signal: AbortSignal; onOutput?: CommandProgress }): Promise<CommandRun>;
+  /** `env` is the whole environment the command starts with (`commandEnv`): nothing is inherited. */
+  run(input: { command: string; cwd: string; timeout: number; signal: AbortSignal; env: Readonly<Record<string, string>>; onOutput?: CommandProgress }): Promise<CommandRun>;
 }
 
 /** Runs one program with arguments, no shell (git, the file manager). An interface so tests use a fake. */
 export interface Exec {
-  exec(file: string, args: readonly string[], options: { cwd?: string; timeout: number; signal?: AbortSignal }): Promise<CommandRun>;
+  /** Without `env` the program inherits fs's environment. */
+  exec(file: string, args: readonly string[], options: { cwd?: string; timeout: number; signal?: AbortSignal; env?: Readonly<Record<string, string>> }): Promise<CommandRun>;
 }
 
 /** Keeps earlier file contents by hash so a change can be undone. */
 export interface Snapshots {
-  save(bytes: Uint8Array, mime: string): Promise<ContentRef>;
+  /** Keep bytes; `path` is the file they were taken of, so its oldest copies can be pruned. */
+  save(bytes: Uint8Array, mime: string, path?: string): Promise<ContentRef>;
   /** The bytes, or `undefined` when they are no longer kept. */
   load(ref: ContentRef): Promise<Uint8Array | undefined>;
 }

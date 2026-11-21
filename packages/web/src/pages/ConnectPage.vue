@@ -6,6 +6,7 @@
  * lists its instances instead, and a key-scoped one (the api system) its services, each connected to on its own card.
  * The hub's redirect back from the provider lands here, with `?problem=` when connecting failed.
  */
+import { safeHref } from '@harness/sdk';
 import { SystemName, type ConnectionFnOption, type ConnectionView, type Json, type ShareRule } from '@harness/core';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -67,7 +68,13 @@ async function connect(form?: Json, card?: InstanceCard): Promise<void> {
   if (system.value === undefined) { return; }
   const started = await store.connect(system.value, form, card?.target);
   if (!started.ok) { return; }
-  if ('url' in started.value) { window.location.assign(started.value.url); return; }
+  if ('url' in started.value) {
+    // never a `javascript:` or `data:` address a system or its sign-in server sent
+    const href = safeHref(started.value.url);
+    if (href === undefined) { problem.value = 'the sign-in address isn’t a web address.'; return; }
+    window.location.assign(href);
+    return;
+  }
   problem.value = '';
   toasts.ok('Connected');
 }

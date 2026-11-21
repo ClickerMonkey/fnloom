@@ -1,6 +1,6 @@
 /**
  * Running a command for `bash`: the user's shell setting, the working folder from session state, confirmation for
- * commands outside the safe list, and the timeout. The bash card's "Run again" starts a new `bash` run, so a command
+ * commands that aren't safe (`safe.ts`), the scrubbed environment it starts with, and the timeout. The bash card's "Run again" starts a new `bash` run, so a command
  * runs the same way from the agent and from its card.
  */
 import type { ChangeSet } from '@harness/core';
@@ -8,7 +8,8 @@ import type { ShellPolicyValue } from '../shared/index.ts';
 import type { FileService } from './files.ts';
 import type { CaptureSession, CommandOutput, CommandProgress, CommandRun, PathGuard, Shell } from './index.ts';
 import { FsProblem } from './problem.ts';
-import { isSafe } from './shell.ts';
+import { hardenedGitConfigEnv } from './git.ts';
+import { isSafe } from './safe.ts';
 
 /** Asks the caller whether to run a command; `undefined` when nobody can be asked. */
 export type Confirm = ((input: { command: string; reason: string }) => Promise<boolean>) | undefined;
@@ -41,6 +42,8 @@ export interface CommandScope {
   readonly signal: AbortSignal;
   /** Asked when the command isn't safe; undefined when nobody can be asked. */
   readonly confirm: Confirm;
+  /** The whole environment the command starts with (`commandEnv`). */
+  readonly env: Readonly<Record<string, string>>;
   readonly onOutput?: CommandProgress;
   /** Starts watching what the command changes in the folder it runs in (`server/changes.ts`), when wanted. */
   readonly capture?: (cwd: string) => Promise<CaptureSession>;
@@ -59,6 +62,17 @@ export interface CommandOutcome extends CommandRun {
 /** The output part of a run, as the contract's `CommandResult`. */
 export function outputOf(run: CommandRun): CommandOutput {
   return { exitCode: run.exitCode, stdout: run.stdout, stderr: run.stderr };
+}
+
+/** Whether the path guard places a word inside the roots, from the folder a command runs in. */
+function placeable(guard: PathGuard, word: string, cwd: string): boolean {
+  try {
+    guard.resolve(word, { write: false, cwd });
+    return true;
+  } catch (error) {
+    if (error instanceof FsProblem) { return false; }
+    throw error;
+  }
 }
 
 /** Runs commands for fns. */
@@ -93,11 +107,12 @@ export class CommandRunner {
     const policy = scope.policy ?? { allowed: true, safe: [...this.limits.safe] };
     if (!policy.allowed) { throw new FsProblem('denied', 'Your shell setting doesn\'t allow running commands.'); }
     const cwd = await this.workingFolder(scope.guard, request.cwd, scope.sessionCwd);
-    if (!isSafe(request.command, policy.safe)) {
+    const safe = isSafe(request.command, policy.safe, (word) => placeable(scope.guard, word, cwd));
+    if (!safe) {
       if (scope.confirm === undefined) {
         throw new FsProblem('needs-confirmation', `"${request.command}" isn't one of your safe commands, and there is no one to confirm it.`);
       }
-      const yes = await scope.confirm({ command: request.command, reason: 'It isn\'t one of your safe commands.' });
+      const yes = await scope.confirm({ command: request.command, reason: 'It isn\'t one of your safe commands, or it reaches outside the folders.' });
       if (!yes) { throw new FsProblem('denied', `"${request.command}" was not confirmed, so it didn't run.`); }
     }
     const timeout = Math.min(request.timeout ?? this.limits.timeout, this.limits.maxTimeout);
@@ -107,7 +122,8 @@ export class CommandRunner {
     let run: CommandRun;
     let changes: ChangeSet | undefined;
     try {
-      run = await this.shell.run({ command: request.command, cwd, timeout, signal: scope.signal, ...(scope.onOutput === undefined ? {} : { onOutput: scope.onOutput }) });
+      // a command that runs without asking also runs git without the programs a repository's config names
+      run = await this.shell.run({ command: request.command, cwd, timeout, signal: scope.signal, env: safe ? { ...scope.env, ...hardenedGitConfigEnv() } : scope.env, ...(scope.onOutput === undefined ? {} : { onOutput: scope.onOutput }) });
     } finally {
       // the session is finished even when the shell throws, so its watcher and kept copies go
       changes = await session?.finish().catch(failed);

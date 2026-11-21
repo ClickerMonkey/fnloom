@@ -343,7 +343,7 @@ export class HubPolicyEngine implements PolicyEngine {
 
   async #publish(approval: Approval, turnUser: ActorId, session: SessionId | undefined): Promise<void> {
     const approvers = await this.#deps.approvers.approvers(approval.approver, turnUser);
-    this.#deps.bus.publish('approval', { approval, approvers, ...(session === undefined ? {} : { session }) });
+    this.#deps.bus.publish('approval', { approval, approvers, turnUser, ...(session === undefined ? {} : { session }) });
   }
 
   async #facts(id: ActorId): Promise<ActorFacts> {

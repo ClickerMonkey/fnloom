@@ -21,11 +21,15 @@ import type { SessionStore } from './session.ts';
 const CreateAdmin = hubWebSpec.endpoints.createAdmin.cfg.body;
 const SignIn = hubWebSpec.endpoints.signIn.cfg.body;
 
-/** What the sign-in form holds. `remember` is "Remember me" (true when left out). */
+/**
+ * What the sign-in form holds. `remember` is "Remember me" (true when left out); `setup` is the setup code a new
+ * hub asks for before its admin account is made (from the link in its log, or typed in).
+ */
 export interface SignInInput {
   email: string;
   password: string;
   name: string;
+  setup?: string;
   remember?: boolean;
 }
 
@@ -41,12 +45,12 @@ export type SignInField = Exclude<keyof SignInInput, 'remember'>;
 
 /**
  * The sign-in page's state. Besides the password form, it offers the hub's SSO providers (`setup.sso`): a provider's
- * button is a plain link to the hub's start route, and the hub's callback comes back to the sign-in page with the new
- * session's refresh token in the URL fragment (`#sso=`), which `finishSso` swaps for tokens at once (it rotates on use,
- * so the one in the address bar is spent), or with `?problem=` when the sign-in was refused.
+ * button is a plain link to the hub's start route, and the hub's callback comes back to the sign-in page with a
+ * one-time code in the URL fragment (`#sso=`), which `finishSso` swaps for tokens at once (it works once, and only in
+ * the browser the sign-in finished in, which holds its cookie), or with `?problem=` when the sign-in was refused.
  */
 export class SignInForm {
-  readonly #api: Pick<AuthApi, 'setup' | 'createAdmin' | 'signIn' | 'refresh'>;
+  readonly #api: Pick<AuthApi, 'setup' | 'createAdmin' | 'signIn' | 'redeemSso'>;
   readonly #session: SessionStore;
   readonly #store: KeyValueStore | undefined;
 
@@ -62,7 +66,7 @@ export class SignInForm {
   readonly fields = shallowRef<FieldProblems<SignInField>>({});
 
   /** `store` keeps the last sign-in's choice; without it the form starts with "Remember me" ticked and no email. */
-  constructor(api: Pick<AuthApi, 'setup' | 'createAdmin' | 'signIn' | 'refresh'>, session: SessionStore, store?: KeyValueStore) {
+  constructor(api: Pick<AuthApi, 'setup' | 'createAdmin' | 'signIn' | 'redeemSso'>, session: SessionStore, store?: KeyValueStore) {
     this.#api = api;
     this.#session = session;
     this.#store = store;
@@ -80,14 +84,14 @@ export class SignInForm {
   }
 
   /**
-   * Finish an SSO sign-in: swap the hand-over refresh token the hub's callback put in the fragment for tokens, kept
-   * as "Remember me" was last left. Resolves whether the person is now signed in.
+   * Finish an SSO sign-in: swap the one-time code the hub's callback put in the fragment for tokens, kept as
+   * "Remember me" was last left. Resolves whether the person is now signed in.
    */
-  async finishSso(refresh: string): Promise<boolean> {
+  async finishSso(code: string): Promise<boolean> {
     this.busy.value = true;
     this.problem.value = '';
     try {
-      this.#session.keep(await this.#api.refresh.call({ refresh }, BEFORE_SIGN_IN), this.remembered.remember);
+      this.#session.keep(await this.#api.redeemSso.call({ code }, BEFORE_SIGN_IN), this.remembered.remember);
       return true;
     } catch (error) {
       this.problem.value = problemText(error, 'That sign-in didn’t finish. Sign in again.');
@@ -119,7 +123,7 @@ export class SignInForm {
     this.busy.value = true;
     try {
       const tokens = this.needsAdmin
-        ? await this.#api.createAdmin.call({ email: input.email, name: input.name, password: input.password }, BEFORE_SIGN_IN)
+        ? await this.#api.createAdmin.call({ email: input.email, name: input.name, password: input.password, setup: input.setup ?? '' }, BEFORE_SIGN_IN)
         : await this.#api.signIn.call({ email: input.email, password: input.password }, BEFORE_SIGN_IN);
       const remember = input.remember ?? true;
       this.#session.keep(tokens, remember);

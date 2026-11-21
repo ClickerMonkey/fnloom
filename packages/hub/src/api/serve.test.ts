@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SystemName, type Manifest } from '@harness/core';
 import { clientUrl } from './web/chat.ts';
-import { clientItemName } from '../link/lifecycle.ts';
 import { ClientBuildRoute, WebAppRoute, type FileRoute } from './serve.ts';
 import { testManifest } from './testing/rig.ts';
 
@@ -34,7 +33,7 @@ describe('WebAppRoute', () => {
     writeFileSync(join(dir, 'index.html'), '<!doctype html><title>Harness</title><meta name="apple-mobile-web-app-title" content="Harness">');
     writeFileSync(join(dir, 'assets', 'app-1a2b.js'), 'console.log(1)');
     writeFileSync(join(tmpdir(), 'harness-outside.txt'), 'secret');
-    site = await serveRoutes([new WebAppRoute(dir, { identity: () => Promise.resolve({ name: hubName, source: 'setting' as const, version: '1.0.0' }) })]);
+    site = await serveRoutes([new WebAppRoute(dir, { identity: () => Promise.resolve({ name: hubName, source: 'setting' as const, version: '1.0.0' }) }, 'http://hub.test')]);
   });
   afterAll(async () => {
     await site.close();
@@ -89,12 +88,11 @@ describe('ClientBuildRoute', () => {
   const fileHash = 'b'.repeat(64);
   const manifest = { client: { entry: 'index.js', hash: 'build1', files: [{ path: 'chunks/view.js', size: 6, hash: fileHash }] } };
   let site: Awaited<ReturnType<typeof serveRoutes>>;
-  /** The components switched off or waiting for review. */
-  const held = new Set<string>();
+  /** Whether the lifecycle says the build is approved (the real rule is tested in `link/client-approval.test.ts`). */
+  let approved = true;
   beforeAll(async () => {
     const route = new ClientBuildRoute({
-      lifecycle: () => ({ off: () => Promise.resolve(held) }),
-      catalog: { manifest: (system) => Promise.resolve(system === fs ? parseManifest(manifest) : undefined) },
+      lifecycle: () => ({ approvedClient: (system) => Promise.resolve(approved && system === fs ? parseManifest(manifest).client : undefined) }),
       content: {
         open: (hash) => Promise.resolve(hash === fileHash
           ? { stream: new Blob(['view()']).stream(), size: 6, mime: 'application/octet-stream' }
@@ -114,9 +112,9 @@ describe('ClientBuildRoute', () => {
     expect(await res.text()).toBe('view()');
   });
 
-  it('serves nothing while the build is switched off or waits for review', async () => {
-    held.add(clientItemName(fs));
-    try { expect((await fetch(`${site.url}${clientUrl(fs, 'build1', 'chunks/view.js')}`)).status).toBe(404); } finally { held.clear(); }
+  it('serves nothing while the build is not approved', async () => {
+    approved = false;
+    try { expect((await fetch(`${site.url}${clientUrl(fs, 'build1', 'chunks/view.js')}`)).status).toBe(404); } finally { approved = true; }
   });
 
   it('says not modified when the browser has it', async () => {

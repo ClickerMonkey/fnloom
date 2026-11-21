@@ -231,7 +231,14 @@ describe('the database system over the link', () => {
     expect(checked).toMatchObject({ problems: [], description: { approval: { preview: true, remember: false }, types: ['database/main.orders'], effects: { mode: 'write', reads: ['database/main.orders'], writes: ['database/main.orders'], free: true } } });
     const preview = await hub.preview({ run: mintId('run'), fn: 'main.mark_paid', args: {}, user: TEST_USER, kind: 'database/query', payload });
     expect(preview).toMatchObject({ preview: { title: 'Change 2 rows in orders (Shop database)' } });
-    expect(done(await hub.run('database/main.mark_paid', {}, { kind: 'database/query', payload }))).toMatchObject({ affected: 2 });
+    // a write the hub sent with no approval is refused, and changes nothing
+    expect(await hub.run('database/main.mark_paid', {}, { kind: 'database/query', payload })).toMatchObject({ status: 'failed', error: { message: 'This write needs the person to approve it first.' } });
+    const unchanged = new BetterSqlite3(join(dir, 'shop.db'));
+    expect(unchanged.prepare('SELECT count(*) AS n FROM orders WHERE status = \'open\'').get()).toEqual({ n: 2 });
+    unchanged.close();
+    if (proposal === undefined) throw new Error('no proposal');
+    const approved = { by: TEST_USER.id, preview: proposal.preview };
+    expect(done(await hub.run('database/main.mark_paid', {}, { kind: 'database/query', payload, approved }))).toMatchObject({ affected: 2 });
     const check = new BetterSqlite3(join(dir, 'shop.db'));
     expect(check.prepare('SELECT count(*) AS n FROM orders WHERE status = \'open\'').get()).toEqual({ n: 0 });
     check.close();
@@ -240,7 +247,7 @@ describe('the database system over the link', () => {
     const returning = { ...MARK_PAID, name: 'mark_shipped', title: 'Mark paid orders shipped', description: 'Marks every paid order as shipped, giving back the orders changed.', query: { kind: 'update', type: 'orders', set: { status: { kind: 'literal', value: 'shipped' } }, where: byStatus({ kind: 'literal', value: 'paid' }), returning: [{ expr: ref('orders', 'id'), as: 'id' }] } };
     expect((await keep(returning)).fn).toMatchObject({ name: 'database/main.mark_shipped' });
     const shippedPayload = hub.fns.kept.get('database/main.mark_shipped')?.saved.payload ?? null;
-    const shipped = done(await hub.run('database/main.mark_shipped', {}, { kind: 'database/query', payload: shippedPayload }));
+    const shipped = done(await hub.run('database/main.mark_shipped', {}, { kind: 'database/query', payload: shippedPayload, approved }));
     expect(shipped).toMatchObject({ affected: 4, returned: { rowCount: 4 } });
     expect(hub.attachments.at(-1)?.item).toMatchObject({ attachment: 'database/result', data: { write: { affected: 4 } } });
   });

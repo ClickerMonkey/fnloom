@@ -191,7 +191,7 @@ export function testIo(options: { hub?: FakeHub; cwd?: string; stdin?: readonly 
   const warnings: string[] = [];
   const cwd = options.cwd ?? resolve(sep, 'work');
   cliEnv.set({});
-  const settings = cliEnv.parse();
+  const settings = { ...cliEnv.parse(), fromFile: new Set<never>() };
   const built = new FakeBuilder(memory);
   return {
     lines, warnings, memory, built, builder: built, tests: new FakeTests(),

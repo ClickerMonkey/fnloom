@@ -69,7 +69,8 @@ function read(url: string): void {
           <span class="domain" :title="row.shown">{{ row.shown }}</span>
           <span v-if="row.published" class="date">{{ row.published }}</span>
         </div>
-        <a class="title" :href="row.url" target="_blank" rel="noopener noreferrer">{{ row.title }}</a>
+        <a v-if="row.href" class="title" :href="row.href" target="_blank" rel="noopener noreferrer">{{ row.title }}</a>
+        <span v-else class="title">{{ row.title }}</span>
         <p
           v-if="row.snippet" class="snippet" :class="{ open: opened.has(row.key) }"
           role="button" tabindex="0" :aria-expanded="opened.has(row.key)"
@@ -86,7 +87,7 @@ function read(url: string): void {
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h4a2 2 0 0 1 2 2v7a1.5 1.5 0 0 0-1.5-1.5h-4.5zM13.5 3.5h-4a2 2 0 0 0-1 .3M13.5 3.5V11H9" /></svg>
             {{ starts.states[row.url]?.phase === 'starting' ? 'Starting…' : 'Read' }}
           </button>
-          <a class="action" :href="row.url" target="_blank" rel="noopener noreferrer">
+          <a v-if="row.href" class="action" :href="row.href" target="_blank" rel="noopener noreferrer">
             <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2.5h4.5V7M13.5 2.5 7.5 8.5M11.5 9.5v3a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3" /></svg>
             Open
           </a>

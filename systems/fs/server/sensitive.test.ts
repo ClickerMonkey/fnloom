@@ -4,7 +4,7 @@ import type { SensitivityRule } from '@harness/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Located } from './index.ts';
 import { RootGuard } from './paths.ts';
-import { DEFAULT_SENSITIVITY_RULES, GitIgnores, Sensitivity, commandPaths, rulesOf } from './sensitive.ts';
+import { DEFAULT_SENSITIVITY_RULES, GIT_INTERNALS_RULE, GitIgnores, RUNS_CODE_RULES, Sensitivity, commandPaths, rulesOf } from './sensitive.ts';
 import { NodeExec } from './shell.ts';
 import { NO_IGNORES, ignoring, tempFolder } from './testing.ts';
 
@@ -23,6 +23,15 @@ describe('the default sensitivity rules', () => {
   ])('flags %s by name (%s)', (path, rule) => {
     expect(named(path)).toEqual([rule]);
     expect(rules.hides(path)).toBe(true);
+  });
+
+  it('matches without case where the file system finds names without case', () => {
+    const caseless = new Sensitivity(DEFAULT_SENSITIVITY_RULES, NO_IGNORES, { caseless: true });
+    for (const path of ['.GIT/config', '.Git/hooks/pre-commit', 'PACKAGE.JSON', '.ENV', 'Server.PEM']) {
+      expect(caseless.named(path, 'write'), path).toEqual([expect.objectContaining({ action: 'ask' })]);
+    }
+    expect(caseless.hides('.ENV.example')).toBe(false);
+    expect(new Sensitivity(DEFAULT_SENSITIVITY_RULES, NO_IGNORES, { caseless: false }).named('.GIT/config', 'write')).toEqual([]);
   });
 
   it.each(['.env.example', '.env.sample', 'src/id_map.ts', 'README.md', 'keys.ts', 'credentialsHelper.ts'])('leaves %s alone', (path) => {
@@ -117,10 +126,12 @@ describe('Sensitivity', () => {
 describe('rulesOf', () => {
   it('turns an old secrets list into rules, keeping the gitignored and content defaults', () => {
     const rules = rulesOf({ secrets: ['vault', '!vault/public.txt'] });
-    expect(rules.filter((rule) => rule.match.type === 'glob')).toEqual([expect.objectContaining({ name: 'secret vault', match: { type: 'glob', glob: 'vault' }, except: ['vault/public.txt'] })]);
+    expect(rules.filter((rule) => rule.match.type === 'glob' && rule.kind !== 'runs-code')).toEqual([expect.objectContaining({ name: 'secret vault', match: { type: 'glob', glob: 'vault' }, except: ['vault/public.txt'] })]);
     expect(rules.some((rule) => rule.match.type === 'gitignored')).toBe(true);
     expect(rulesOf({})).toBe(DEFAULT_SENSITIVITY_RULES);
-    expect(rulesOf({ sensitive: [], secrets: ['x'] })).toEqual([]);
+    expect(rules.filter((rule) => rule.kind === 'runs-code')).toEqual(RUNS_CODE_RULES);
+    // an admin's own list, even an empty one, still asks before writes into .git
+    expect(rulesOf({ sensitive: [], secrets: ['x'] })).toEqual([GIT_INTERNALS_RULE]);
   });
 });
 
@@ -130,7 +141,7 @@ describe('commandPaths', () => {
     ['echo "KEY=1" > .env.local', [{ word: 'KEY=1', access: 'read' }, { word: '.env.local', access: 'write' }]],
     ['rm -f secrets/a.pem && git status', [{ word: 'secrets/a.pem', access: 'write' }, { word: 'status', access: 'read' }]],
     ['FOO=1 node "my file.js" 2>&1 | tee out.log', [{ word: 'my file.js', access: 'read' }, { word: 'out.log', access: 'write' }]],
-    ['ls *.pem $HOME https://x.y/z', [{ word: '*.pem', access: 'read', glob: true }]],
+    ['ls *.pem $HOME https://x.y/z', [{ word: '*.pem', access: 'read', glob: true }, { word: '$HOME', access: 'read', unknown: true }]],
     ['cd sub && cat .env; cd ../b && rm x', [{ word: '.env', access: 'read', folder: 'sub' }, { word: 'x', access: 'write', folder: 'sub/../b' }]],
     ['cd && cat .env', [{ word: '.env', access: 'read', lost: true }]],
     ['cd - && cat .env', [{ word: '.env', access: 'read', lost: true }]],

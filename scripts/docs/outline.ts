@@ -127,6 +127,7 @@ export const OUTLINE: readonly Topic[] = [
       'FrameProps', 'InputProps', 'MarkdownProps', 'IconProps', 'EmptyProps', 'LoadStateProps', 'ReasoningProps', 'TypingProps',
       'PageRuns', 'PageRunsOptions', 'PageInbox', 'PageNotify', 'PageFormat', 'PartTone', 'ButtonProps', 'SelectChoice', 'SelectProps', 'TextareaProps', 'DialogProps', 'BannerProps', 'BadgeProps', 'SkeletonProps',
       'FnPillProps', 'ApprovalProps', 'ConversationCall', 'ConversationPiece', 'ConversationEntry', 'ConversationProps', 'ComposerProps',
+      'safeHref', 'RESOURCE_LINK', 'APP_PATH',
     ],
   },
   {

@@ -10,11 +10,11 @@ tags: ["authoring", "reference"]
 choices:
   - to: "fs/authoring.ctx.reference.fnctx"
     when: "Pick this for FnCtx, Services, SystemCtx, SystemPlace, UndoCtx, AskerCtx, BudgetInfo, RunStatusView, Llm, ForwardModality, ModelInput, ModelOutput, Files, Resources, Types, Log, Proposals,…"
-  - to: "fs/authoring.ctx.reference.hubaiof"
-    when: "Pick this for hubAiOf, hubModelId, roleModelId, aeyeModelOf, ModelLink, HubModelLink, harnessAi, harnessAiOf, HarnessAi, HarnessProvider, HarnessProviderConfig, HarnessMetadata, HubLlm, HubLlmError,…"
+  - to: "fs/authoring.ctx.reference.hubai"
+    when: "Pick this for hubAi, hubAiOf, hubModelId, roleModelId, aeyeModelOf, ModelLink, HubModelLink, harnessAi, harnessAiOf, HarnessAi, HarnessProvider, HarnessProviderConfig, HarnessMetadata, HubLlm,…"
 ---
 
 This part is in 2 pieces; load the one you need:
 
-- [FnCtx … hubAi](context:fs/authoring.ctx.reference.fnctx)
-- [hubAiOf … wireRequest](context:fs/authoring.ctx.reference.hubaiof)
+- [FnCtx … AdminNotices](context:fs/authoring.ctx.reference.fnctx)
+- [hubAi … wireRequest](context:fs/authoring.ctx.reference.hubai)

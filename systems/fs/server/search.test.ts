@@ -9,7 +9,7 @@ import { tempFolder } from './testing.ts';
 import { drawTree, renderTree } from './tree.ts';
 import type { WalkEntry } from './walk.ts';
 
-const limits = { scanMax: 1_000, lineMax: 20, ignore: ['node_modules'] };
+const limits = { scanMax: 1_000, lineMax: 20, ignore: ['node_modules'], grepTimeout: 10_000, testMax: 10_000 };
 const signal = new AbortController().signal;
 const entry = (relative: string, depth = relative.split('/').length, type: WalkEntry['type'] = 'file'): WalkEntry =>
   ({ path: `/r/${relative}`, relative, name: relative.split('/').pop() ?? relative, type, depth });
@@ -20,6 +20,15 @@ describe('globMatcher', () => {
     expect(globMatcher('src/*.ts')(entry('src/deep/a.ts'))).toBe(false);
     expect(globMatcher('src/**/*.ts')(entry('src/deep/a.ts'))).toBe(true);
     expect(globMatcher('*.md')(entry('src/a.ts'))).toBe(false);
+  });
+
+  it('refuses a glob whose brace lists, ranges or groups would hold fs up, at once', () => {
+    const started = performance.now();
+    for (const pattern of ['{a,b}'.repeat(20), '{1..2000000}', '*(*(a))b', '+(a|aa)+(a|aa)b']) {
+      expect(() => globMatcher(pattern), pattern).toThrow(expect.objectContaining({ code: 'bad-pattern' }));
+    }
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(globMatcher('*.{ts,tsx,js}')(entry('src/a.tsx'))).toBe(true);
   });
 
   it('refuses an invalid regular expression with a message', () => {
@@ -71,6 +80,33 @@ describe('searching a root', () => {
     expect(progress[progress.length - 1]).toEqual([1, '2 matches in 4 files']);
     const filtered = await grepFiles(files, searchBases(guard, undefined), { pattern: /answer/, glob: 'src/*.ts', limit: 1 }, limits, signal, () => undefined);
     expect(filtered).toEqual([{ path: `${tmp.path}/src/a.ts`, line: 1, text: 'const answer = 42;' }]);
+  });
+
+  it('stops a catastrophic pattern at its deadline instead of hanging fs', async () => {
+    await writeFile(`${tmp.path}/slow.txt`, `${'a'.repeat(40)}b\n`);
+    const started = performance.now();
+    let ticks = 0;
+    const ticker = setInterval(() => { ticks += 1; }, 20);
+    try {
+      const search = grepFiles(files, searchBases(guard, undefined), { pattern: compilePattern('^(a+)+$'), glob: 'slow.txt', limit: 10 }, { ...limits, grepTimeout: 400 }, signal, () => undefined);
+      await expect(search).rejects.toMatchObject({ code: 'timeout' });
+    } finally {
+      clearInterval(ticker);
+    }
+    expect(performance.now() - started).toBeLessThan(5_000);
+    // the event loop kept running while the pattern was being matched
+    expect(ticks).toBeGreaterThan(5);
+  });
+
+  it('cancels a slow pattern mid-file, and tests only the start of a very long line', async () => {
+    await writeFile(`${tmp.path}/slow.txt`, `${'a'.repeat(40)}b\n`);
+    const controller = new AbortController();
+    const search = grepFiles(files, searchBases(guard, undefined), { pattern: compilePattern('^(a+)+$'), glob: 'slow.txt', limit: 10 }, limits, controller.signal, () => undefined);
+    setTimeout(() => { controller.abort(new Error('cancelled')); }, 100);
+    await expect(search).rejects.toThrow('cancelled');
+    await writeFile(`${tmp.path}/long.txt`, `${'x'.repeat(50)}NEEDLE\n`);
+    const cut = await grepFiles(files, searchBases(guard, undefined), { pattern: /NEEDLE/, glob: 'long.txt', limit: 10 }, { ...limits, testMax: 50 }, signal, () => undefined);
+    expect(cut).toEqual([]);
   });
 
   it('stops when the run is cancelled', async () => {

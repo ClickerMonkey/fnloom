@@ -3,7 +3,7 @@ import type { ActorId, AgentActor, Asker, ClientInfo, QualifiedName, SessionId, 
 import type { ChatDeps } from './deps.ts';
 import { ChatError } from './errors.ts';
 import { AGENT_KIND } from '../execution/index.ts';
-import { agentActorId, agentName } from './support.ts';
+import { ensureAgentActor } from './support.ts';
 import { allRows } from '../store/rows.ts';
 import { timeInfo } from '../execution/time.ts';
 
@@ -48,12 +48,7 @@ export class People {
   async agent(fn: QualifiedName): Promise<AgentActor> {
     const record = await this.#deps.catalog.fn(fn);
     if (record?.decl.kind !== AGENT_KIND) { throw new ChatError('invalid', `${fn} is not an agent.`); }
-    const id = agentActorId(fn);
-    const existing = await this.#deps.store.table('actors').get(id);
-    if (existing?.kind === 'agent') { return existing; }
-    const agent: AgentActor = { id, kind: 'agent', fn, name: agentName(fn), about: record.decl.description, createdAt: this.#deps.clock(), disabled: false };
-    await this.#deps.store.table('actors').put(agent);
-    return agent;
+    return ensureAgentActor(this.#deps, record);
   }
 
   /** Who is asking, and their current time, for a request in a session. */

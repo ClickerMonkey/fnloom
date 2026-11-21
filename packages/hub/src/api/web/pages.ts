@@ -5,9 +5,9 @@
  * waiting for review. Removed and paired-but-not-live systems list none, so their pages leave the nav and a stale link
  * shows "not installed". Admin-only pages are left out for everyone else.
  */
-import { SystemStatus, type Manifest, type SystemPageView, type SystemName, type SystemRecord } from '@harness/core';
+import { SystemStatus, type ClientAssets, type Manifest, type SystemPageView, type SystemName, type SystemRecord } from '@harness/core';
 import type { HubServices } from '../../boot/index.ts';
-import { clientItemName, pageItemName } from '../../link/lifecycle.ts';
+import { pageItemName } from '../../link/lifecycle.ts';
 import { allRows } from '../../store/rows.ts';
 import type { Viewer } from './access.ts';
 import { clientUrl } from './chat.ts';
@@ -17,7 +17,7 @@ export interface PagesHub {
   readonly store: Pick<HubServices['store'], 'table'>;
   readonly catalog: Pick<HubServices['catalog'], 'manifest'>;
   readonly access: Pick<HubServices['access'], 'scope'>;
-  readonly link: { readonly lifecycle: Pick<HubServices['link']['lifecycle'], 'off'> };
+  readonly link: { readonly lifecycle: Pick<HubServices['link']['lifecycle'], 'off' | 'approvedClient'> };
 }
 
 /** The statuses of an installed system: everything but pairing and removed. */
@@ -34,10 +34,9 @@ async function liveSystems(hub: Pick<PagesHub, 'store'>): Promise<SystemRecord[]
   return [...live, ...unstaged];
 }
 
-/** A system's pages a viewer may open, with where its client build is; none without a build. */
-function pagesOf(system: SystemName, manifest: Manifest | undefined, off: ReadonlySet<string>, viewer: Viewer): SystemPageView[] {
-  const build = manifest?.client;
-  if (build === undefined || off.has(clientItemName(system))) { return []; }
+/** A system's pages a viewer may open, with where its approved client build is; none without one. */
+function pagesOf(system: SystemName, manifest: Manifest | undefined, build: ClientAssets | undefined, off: ReadonlySet<string>, viewer: Viewer): SystemPageView[] {
+  if (build === undefined) { return []; }
   const client = { url: clientUrl(system, build.hash, build.entry), hash: build.hash };
   return (manifest?.pages ?? [])
     .filter((page) => !off.has(pageItemName(system, page.segment)) && (page.access === 'everyone' || viewer.role === 'admin'))
@@ -48,6 +47,9 @@ function pagesOf(system: SystemName, manifest: Manifest | undefined, off: Readon
 export async function systemPagesFor(hub: PagesHub, viewer: Viewer): Promise<SystemPageView[]> {
   const [systems, scope, off] = await Promise.all([liveSystems(hub), hub.access.scope(viewer.id), hub.link.lifecycle.off('components')]);
   const shown = systems.filter((record) => record.enabled.renderers && scope.seesSystem(record.name)).sort((a, b) => a.name.localeCompare(b.name));
-  const manifests = await Promise.all(shown.map(async (record) => ({ system: record.name, manifest: await hub.catalog.manifest(record.name) })));
-  return manifests.flatMap(({ system, manifest }) => pagesOf(system, manifest, off, viewer));
+  // only the client build an admin approved (`SystemLifecycle.approvedClient`), the one the hub serves
+  const manifests = await Promise.all(shown.map(async (record) => ({
+    system: record.name, manifest: await hub.catalog.manifest(record.name), build: await hub.link.lifecycle.approvedClient(record.name),
+  })));
+  return manifests.flatMap(({ system, manifest, build }) => pagesOf(system, manifest, build, off, viewer));
 }

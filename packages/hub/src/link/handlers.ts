@@ -9,6 +9,9 @@
  * pairing, unless it brings an auto-pair secret (`link/auto-pair.ts`): a good one gets a nonce to sign with the hello's
  * new key, and proving it re-keys the instance and rotates the secret. `prove` checks the signature, makes the socket that instance's connection, and welcomes it with the name
  * it is known as, its config, why it is starting, an HTTP token, whether to send its manifest, and the link's limits.
+ * Where a socket comes from is `clientAddress` (its own address unless the admin trusts a proxy); asking to pair, with
+ * a code or an auto-pair secret, is rate limited by it (`PairingLimits`), and the gate (`LinkGate`) hears of each
+ * hello and of each socket linked.
  */
 import { reject as refuse, spec, type HandlerFor, type ImplFor, type WsConn } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
@@ -23,7 +26,8 @@ import type { ResourceRouter, SystemTokens } from './index.ts';
 import { isPublicKey, randomToken, verifyNonce } from './keys.ts';
 import type { SystemOutput } from './output.ts';
 import { autoPairRefused, type AutoPairMatch, type AutoPairService } from './auto-pair.ts';
-import type { StorePairingService } from './pairing.ts';
+import type { PairingLimits, StorePairingService } from './pairing.ts';
+import type { LinkGate } from './gate.ts';
 import type { InstanceKeeper } from './status.ts';
 import { maskSecrets } from './config-secrets.ts';
 import { Serial } from '../catalog/serial.ts';
@@ -68,12 +72,14 @@ export interface LinkHandlerOptions {
   readonly grants: Pick<SystemGrantGuard, 'check' | 'refused'>;
   /** Build 9: told when an instance changes how people connect to it (who may use which fns changes with it). */
   readonly bus: Pick<EventBus, 'publish'>;
+  /** Where a socket comes from (`clientAddress`: the socket's own address unless the admin trusts a proxy). */
+  readonly address: (req: Request) => Promise<string>;
+  /** How often an address (and everyone) may ask to pair, with a code or an auto-pair secret. */
+  readonly pairingLimits: Pick<PairingLimits, 'check'>;
+  /** Counts and times sockets until they are linked. */
+  readonly gate?: Pick<LinkGate, 'helloed' | 'linked'>;
 }
 
-/** Where a socket came from, as far as its upgrade request says. */
-export function addressOf(conn: WsConn): string {
-  return conn.req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? conn.req.headers.get('x-real-ip') ?? new URL(conn.req.url).host;
-}
 
 /**
  * The web origin a socket reached the hub at: the `Host` it dialed, with `http` for `ws` and `https` for `wss` (or
@@ -187,17 +193,30 @@ export class LinkHandshake {
   async #hello(hello: Hello, conn: WsConn | undefined): Promise<Awaited<ReturnType<LinkHandlers['hello']>>> {
     const peer = conn === undefined ? undefined : this.#options.links.peer(conn);
     if (conn === undefined || peer === undefined) { throw refuse(400, 'NOT_A_LINK', 'hello must come over the link socket'); }
+    this.#options.gate?.helloed(conn);
     if (!isPublicKey(hello.publicKey)) { throw refuse(400, 'BAD_KEY', 'the public key must be Ed25519, SPKI DER in base64'); }
     const known = await this.#options.pairing.known(hello);
     if (known !== undefined) { return this.#challenge(conn, { hello, ref: known.instance }); }
+    const address = await this.#options.address(conn.req);
+    const limits = this.#options.pairingLimits;
+    // asking to pair is counted; a token is an admin's say-so, so only a refused one counts (a bundled hub's systems
+    // pair with tokens from one address at once), and none is tried once the address has no requests left
+    const byToken = hello.pairingToken !== undefined && hello.autoPair === undefined;
+    await limits.check(address, hello.name, byToken ? 0 : 1);
     if (hello.autoPair !== undefined) {
-      const match = await this.#options.autoPairs.check(hello.autoPair, hello.name, addressOf(conn));
+      const match = await this.#options.autoPairs.check(hello.autoPair, hello.name, address);
       const existing = await this.#options.instances.get(match.secret);
       // an instance an admin removed stays removed: its secret is refused like any other that can't be used
       if (existing?.status === 'removed') { throw autoPairRefused(); }
       return this.#challenge(conn, { hello, ref: { system: match.secret.system, instance: match.secret.instance }, autoPair: match });
     }
-    return this.#options.pairing.start(hello, { address: addressOf(conn), origin: originOf(conn), peer });
+    if (!byToken) { return this.#options.pairing.start(hello, { address, origin: originOf(conn), peer }); }
+    try {
+      return await this.#options.pairing.start(hello, { address, origin: originOf(conn), peer });
+    } catch (error) {
+      await limits.check(address, hello.name);
+      throw error;
+    }
   }
 
   /** Send a socket a nonce to sign, remembering what it proves. */
@@ -225,7 +244,7 @@ export class LinkHandshake {
     } else {
       // rotate first: should re-keying fail, the secret it brought stays good as the previous one
       autoPair = await autoPairs.rotate(challenge.autoPair);
-      await pairing.autoPaired(ref, hello, addressOf(conn), challenge.autoPair.secret.createdBy);
+      await pairing.autoPaired(ref, hello, await this.#options.address(conn.req), challenge.autoPair.secret.createdBy);
     }
     // an update of a hosted instance re-pairs with its key, so its host's approved install is recorded here
     if (hello.contractHash !== undefined) { await pairing.rehosted(ref, hello.contractHash); }
@@ -237,7 +256,8 @@ export class LinkHandshake {
     const sendManifest = manifest === undefined || record.manifestHash !== hello.manifestHash;
     const session: LinkSession = { ...ref, boot: hello.boot };
     links.establish(conn, session);
-    await instances.sync(ref, { version: hello.version, lastSeenAt: clock(), address: addressOf(conn) });
+    this.#options.gate?.linked(conn);
+    await instances.sync(ref, { version: hello.version, lastSeenAt: clock(), address: await this.#options.address(conn.req) });
     // a system that says how many copies it runs (`system.json`) keeps it on its row, for the admin pages
     const system = await instances.syncSystem(ref.system, hello.instances === undefined ? {} : { instances: hello.instances });
     const current = sendManifest ? await config.current(ref.system, ref.instance) : await config.applyPending(ref, system.actor);

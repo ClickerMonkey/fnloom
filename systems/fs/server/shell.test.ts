@@ -1,26 +1,10 @@
 import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { GroupTree, MsysTree, NOT_STARTED, NodeExec, NodeShell, TailBuffer, chooseShell, isSafe, posixTree, runProcess } from './shell.ts';
+import { GroupTree, MsysTree, NOT_STARTED, NodeExec, NodeShell, TailBuffer, chooseShell, commandEnv, posixTree, runProcess } from './shell.ts';
 
 const limits = { outputMax: 1_000, progressEvery: 20 };
 const node = process.execPath;
-
-describe('isSafe', () => {
-  const safe = ['ls', 'git status', 'npm test'];
-  it('accepts a safe prefix alone or with arguments', () => {
-    expect(isSafe('ls', safe)).toBe(true);
-    expect(isSafe('  ls -la src ', safe)).toBe(true);
-    expect(isSafe('git status --short', safe)).toBe(true);
-  });
-  it('refuses lookalikes and anything that chains, pipes, redirects or substitutes', () => {
-    expect(isSafe('lsof', safe)).toBe(false);
-    expect(isSafe('git statusx', safe)).toBe(false);
-    for (const line of ['ls; rm -rf .', 'ls && rm x', 'ls | sh', 'ls > out', 'ls `rm x`', 'ls $(rm x)', 'ls\nrm x', 'npm test & rm x']) {
-      expect(isSafe(line, safe)).toBe(false);
-    }
-    expect(isSafe('ls', [])).toBe(false);
-  });
-});
+const env = commandEnv(process.env, []);
 
 describe('chooseShell', () => {
   it('uses the configured shell, or the system one when asked', () => {
@@ -83,7 +67,7 @@ describe('runProcess', () => {
 describe('NodeShell', () => {
   it('runs a command line in a folder with the system shell', async () => {
     const shell = new NodeShell({ type: 'system' }, limits);
-    const run = await shell.run({ command: 'echo hello', cwd: process.cwd(), timeout: 10_000, signal: new AbortController().signal });
+    const run = await shell.run({ command: 'echo hello', cwd: process.cwd(), timeout: 10_000, signal: new AbortController().signal, env });
     expect(run.exitCode).toBe(0);
     expect(run.stdout).toContain('hello');
   });
@@ -91,7 +75,7 @@ describe('NodeShell', () => {
   it('runs a command line with a POSIX shell by path', async () => {
     const choice = chooseShell(undefined, process.platform, existsSync);
     if (choice.type !== 'posix') { return; }
-    const run = await new NodeShell(choice, limits).run({ command: 'echo "$((2 + 3))"', cwd: process.cwd(), timeout: 10_000, signal: new AbortController().signal });
+    const run = await new NodeShell(choice, limits).run({ command: 'echo "$((2 + 3))"', cwd: process.cwd(), timeout: 10_000, signal: new AbortController().signal, env });
     expect(run.stdout.trim()).toBe('5');
   });
 
@@ -101,7 +85,7 @@ describe('NodeShell', () => {
     const controller = new AbortController();
     const shell = new NodeShell(choice, limits);
     const running = shell.run({
-      command: 'echo up; sleep 25 && echo slept', cwd: process.cwd(), timeout: 60_000, signal: controller.signal,
+      command: 'echo up; sleep 25 && echo slept', cwd: process.cwd(), timeout: 60_000, signal: controller.signal, env,
       onOutput: (_, line) => { if (line === 'up') { controller.abort(); } },
     });
     const started = performance.now();
@@ -110,6 +94,29 @@ describe('NodeShell', () => {
     expect(run.stdout).not.toContain('slept');
     expect(performance.now() - started).toBeLessThan(5_000);
   }, 30_000);
+});
+
+describe('the command environment', () => {
+  it('keeps PATH, home, temp and what the admin allows, never the keys fs has', () => {
+    const base = { PATH: '/bin', HOME: '/home/a', TEMP: '/tmp', LANG: 'en_US.UTF-8', OPENROUTER_API_KEY: 'sk-or-1', HARNESS_ADMIN_PASSWORD: 'p', NODE_ENV: 'test' };
+    expect(commandEnv(base, [])).toEqual({ PATH: '/bin', HOME: '/home/a', TEMP: '/tmp', LANG: 'en_US.UTF-8' });
+    expect(commandEnv(base, ['node_env'])).toMatchObject({ NODE_ENV: 'test' });
+  });
+
+  it('starts a real bash command without the keys fs has', async () => {
+    const choice = chooseShell(undefined, process.platform, existsSync);
+    if (choice.type !== 'posix') { return; }
+    process.env['OPENROUTER_API_KEY'] = 'sk-or-planted';
+    try {
+      const run = await new NodeShell(choice, { ...limits, outputMax: 100_000 }).run({ command: 'env', cwd: process.cwd(), timeout: 10_000, signal: new AbortController().signal, env: commandEnv(process.env, []) });
+      expect(run.exitCode).toBe(0);
+      expect(run.stdout).toMatch(/^PATH=/im);
+      expect(run.stdout).not.toContain('sk-or-planted');
+      expect(run.stdout).not.toContain('OPENROUTER_API_KEY');
+    } finally {
+      delete process.env['OPENROUTER_API_KEY'];
+    }
+  });
 });
 
 describe('process trees', () => {

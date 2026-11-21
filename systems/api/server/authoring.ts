@@ -14,7 +14,7 @@
  * - **return:** the clean draft is kept with `hub/save_fn` as an `api/request` fn of its service (`<service>.<name>`).
  */
 import type { ExprDef, TypeDef } from '@aeye/gin';
-import { API_KIND, ApiFnSpec, ApiService, GinExprDef, GinTypeDef, Json, QualifiedName } from '@harness/core';
+import { API_KIND, ApiFnSpec, GinExprDef, GinTypeDef, Json, QualifiedName, type ApiService } from '@harness/core';
 import { encodeValue, type Infer, type StoredFn } from '@harness/sdk';
 import { previewText, ProgramAuthoring, ProgramError, programTools, testTool, type ProgramHost, type ProgramSession } from '@harness/sdk/program';
 import { authoringAgent, authoringTool, type AuthoredFn } from '@harness/sdk/server';
@@ -22,6 +22,7 @@ import { z } from 'zod';
 import { ApiPayload, HTTP_TYPES, type OperationsPage, type ServicesPage } from '../shared/index.ts';
 import { NoCredential, RequestRefused, ResponseFailed, type SendCtx } from './http.ts';
 import { checkApi, runApi, type ApiCheck } from './program.ts';
+import { NewService } from './services.ts';
 
 /** A draft as the agent writes it. */
 export interface ApiDraft {
@@ -227,22 +228,19 @@ const useServiceTool = authoringTool<ApiAuthoring, ApiDraft, { name: string }>({
   },
 });
 
-/** What `add_service` takes: a service without the tunables (their defaults are kept). */
-const NewService = ApiService.omit({ timeout: true, maxBody: true });
-
 /** `add_service`: add the service the request is for, from its base URL; it holds no secret. */
 const addServiceTool = authoringTool<ApiAuthoring, ApiDraft, z.infer<typeof NewService>>({
   name: 'add_service',
   stage: 'find',
   description: 'Add the web API service the request is for, when services lists none: its name, label, base URL, how it signs in, and its OpenAPI document when the request gives one.',
-  instructions: 'Only for a service there is none of. Never put a token in it: people connect their own (per: person), or an admin sets a shared one (per: shared), on the Connections page.',
+  instructions: 'Only for a service there is none of. Never put a token in it: people connect their own (per: person), or an admin sets a shared one (per: shared), on the Connections page. It is the person\'s own until an admin shares it. A private or local address (localhost, 10.x, 192.168.x, 169.254.x) is refused.',
   schema: NewService,
   when: (session) => session.state.service === undefined,
   async call(input, session) {
     const { service } = await session.state.deps.services.add(input);
     session.state.use(service);
     const signIn = service.auth.kind === 'none' ? '' : ` People connect to it on the Connections page (${service.auth.per === 'person' ? 'each their own' : 'an admin, for everyone'}).`;
-    return `Added ${service.label} and writing for it:\n${serviceLine(service)}${signIn}`;
+    return `Added ${service.label} and writing for it:\n${serviceLine(service)}${signIn} Only this person sees it until an admin shares it.`;
   },
 });
 

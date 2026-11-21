@@ -3,9 +3,13 @@
  * built by scripts (`looksScriptRendered`) or the mode says `always`. One headless browser is shared and launched on
  * the first render (and again if it crashes); each render gets its own private browser context and tab, so cookies
  * and storage never carry from one page to the next. At most `concurrency` pages render at once. Images, fonts and
- * media are never downloaded, and every request a page makes passes the address guard. A page is taken once its
- * network goes quiet, or when the idle wait runs out, whichever is first.
+ * media are never downloaded, and every request a page makes passes the address guard. Each tab's network also goes
+ * through its own proxy (`tabProxy`), which connects only to the address the guard checked a host at: requests that
+ * skip the page's interception (WebSocket handshakes, service workers) are held to the same rules, and a name that
+ * resolves elsewhere after its check (DNS rebinding) can't move a connection. A page is taken once its network goes
+ * quiet, or when the idle wait runs out, whichever is first.
  */
+import { AllowlistProxy } from '@harness/sdk/server';
 import type { PageRenderer, RenderRequest, RenderedHtml } from '@aeye/resources';
 import { redactUrl } from '../shared/urls.ts';
 import type { AddressCheck } from './guard.ts';
@@ -34,6 +38,12 @@ export interface LoadedTab {
   readonly url: string;
 }
 
+/** Where a tab's network goes: its own proxy, which connects only to checked addresses. */
+export interface TabNetwork {
+  /** The proxy's URL (`http://127.0.0.1:<port>`). */
+  readonly proxy: string;
+}
+
 /** One tab in its own browser context. */
 export interface BrowserTab {
   load(request: TabLoad): Promise<LoadedTab>;
@@ -45,7 +55,8 @@ export interface BrowserTab {
 export interface HeadlessBrowser {
   /** False once the browser has crashed or been closed. */
   readonly connected: boolean;
-  open(): Promise<BrowserTab>;
+  /** A tab in a new private context whose every connection goes through `network`'s proxy. */
+  open(network: TabNetwork): Promise<BrowserTab>;
   close(): Promise<void>;
 }
 
@@ -131,6 +142,14 @@ export function requestFilter(guard: AddressCheck, signal?: AbortSignal): (url: 
   };
 }
 
+/**
+ * The proxy a tab's network goes through: any host, connected at the one address `guard` checked it at (private ones
+ * refused unless the guard allows them), so nothing the page does reaches an address the guard didn't pass.
+ */
+export function tabProxy(guard: AddressCheck, signal?: AbortSignal): AllowlistProxy {
+  return new AllowlistProxy({ allow: ['*'], onRefused: () => undefined, route: (target) => guard.address(target.host, signal) });
+}
+
 /** Hands out page renderers that share one browser, each checking its pages' requests with its own address guard. */
 export interface Renderers {
   /** A renderer (`@aeye/resources`' `PageRenderer`) whose pages' requests pass `guard`. */
@@ -170,7 +189,14 @@ export class PageTabs implements Renderers {
 
   async #render(request: RenderRequest, guard: AddressCheck): Promise<RenderedHtml> {
     const browser = await this.#shared();
-    const tab = await browser.open();
+    const proxy = tabProxy(guard, request.signal);
+    let tab: BrowserTab;
+    try {
+      tab = await browser.open({ proxy: await proxy.start() });
+    } catch (error) {
+      await proxy.close();
+      throw error;
+    }
     const closeTab = () => { void tab.close(); };
     request.signal?.addEventListener('abort', closeTab, { once: true });
     try {
@@ -190,6 +216,7 @@ export class PageTabs implements Renderers {
     } finally {
       request.signal?.removeEventListener('abort', closeTab);
       await tab.close();
+      await proxy.close();
     }
   }
 

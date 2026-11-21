@@ -4,6 +4,7 @@ export { API_EXAMPLES, API_GUIDE, ApiAuthoring, apiAuthoring, type ApiAuthoringD
 export { authHeaders, bodySlot, boundCredentials, NoCredential, prepare, RequestRefused, ResponseFailed, send, serviceAccount, serviceUrl, type Prepared, type SendCtx, type Sent } from './http.ts';
 export { checkApi, modeOf, requestMethod, runApi, type ApiCheck, type ApiOutcome, type ApiRun } from './program.ts';
 export { operationsOf, operationsPage, readOperations } from './openapi.ts';
-export { NoService, Services, ServiceTaken } from './services.ts';
+export { NewService, NoService, Services, ServiceTaken, viewerOf, type Viewer } from './services.ts';
+export { AddressRefused, ServiceGuard, type AddressCheck } from './guard.ts';
 export { apiEnv, type ApiSettings } from './env.ts';
 export { api } from '../shared/index.ts';

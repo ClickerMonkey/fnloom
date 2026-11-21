@@ -15,7 +15,7 @@ import ThemePicker from '../components/ThemePicker.vue';
 import { UiAvatar, UiBadge, UiBanner, UiButton, UiCard, UiSwitch, UiTabs, relativeTime, type TabItem } from '../ui/index.ts';
 import { useNow } from '../ui/now.ts';
 
-const { theme, layout, session, push, toasts, identity, account } = useStores();
+const { theme, layout, session, push, toasts, identity, account, outsideImages } = useStores();
 const signOut = useSignOut();
 const section = useParamChoice('section', SettingsSection, 'appearance');
 
@@ -59,6 +59,12 @@ const mine = computed(() => account.view.value.value);
 onMounted(() => { void push.check(); });
 watch(section, (current) => { if (current === 'account') void account.load(); }, { immediate: true });
 
+/** The admin's switch: outside images load at once (`always`) or wait for a click (`ask`, the default). */
+const loadOutside = computed({
+  get: () => outsideImages.value.value === 'always',
+  set: (on: boolean) => { void outsideImages.set(on ? 'always' : 'ask').then((outcome) => { if (outcome.ok) { toasts.ok('Saved'); } }); },
+});
+
 async function rename(name: string | null): Promise<void> {
   const outcome = await identity.rename(name);
   if (outcome.ok) { toasts.ok(name === null ? 'Back to the default name' : 'Hub name saved'); }
@@ -96,6 +102,13 @@ async function rename(name: string | null): Promise<void> {
           <HubNameCard
             :name="identity.name.value" :source="identity.source.value" :busy="identity.saving.busy.value" :problem="identity.saving.problem.value" @save="rename"
           />
+          <UiCard title="Images in chats" data-testid="outside-images-card">
+            <UiSwitch
+              v-model="loadOutside" label="Load outside images" :disabled="outsideImages.saving.busy.value" data-testid="outside-images-switch"
+              description="Show images from other sites at once. Off: each one waits for a click, so a message can't send data out just by being read."
+            />
+            <UiBanner v-if="outsideImages.saving.problem.value !== ''" tone="danger">{{ outsideImages.saving.problem.value }}</UiBanner>
+          </UiCard>
         </div>
         <div v-else class="stack">
           <UiCard v-if="user" title="Account">
