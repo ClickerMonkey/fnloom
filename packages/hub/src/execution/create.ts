@@ -42,11 +42,11 @@ export type LlmSource =
   | { readonly engine: (hooks: HubAiHooks) => LlmEngine };
 
 /** The engine an `LlmSource` gives, how its providers are reloaded, and how to hear that they changed. */
-function engineOf(source: LlmSource, hooks: HubAiHooks, log: ExecutionInput['log']): { engine: LlmEngine; providers: ProviderService; watch: (changed: () => void) => () => void } {
+function engineOf(source: LlmSource, hooks: HubAiHooks, log: ExecutionInput['log'], settings: ExecutionInput['settings']): { engine: LlmEngine; providers: ProviderService; watch: (changed: () => void) => () => void } {
   const still = (): (() => void) => () => {};
   if ('engine' in source) return { engine: source.engine(hooks), providers: { reload: () => Promise.resolve() }, watch: still };
   const models = source.models === undefined ? {} : { models: source.models };
-  const engine = new SwitchingLlm((providers) => new AeyeLlm(createHubAi({ providers, hooks, log, ...models })), 'providers' in source ? source.providers : {});
+  const engine = new SwitchingLlm((providers) => new AeyeLlm(createHubAi({ providers, hooks, log, ...models }), { blankRun: settings.execution.HARNESS_STREAM_BLANK_RUN }), 'providers' in source ? source.providers : {});
   if (!('stored' in source)) return { engine, providers: { reload: () => Promise.resolve() }, watch: still };
   const { stored } = source;
   return { engine, providers: { reload: async () => { await engine.use(await stored.load()); } }, watch: (changed) => stored.watch?.(changed) ?? still() };
@@ -94,7 +94,7 @@ export function createExecution(input: ExecutionInput): ExecutionModule {
   const runs: HubRunService = new HubRunService({ ...input, policies, ledger, queues, limits });
   policies.decideWith(new RunDeciders({ store: input.store, runs, ledger }));
   const hooks = new HubAiHooks({ ...input, ledger, recorder, costs: runs, calls: input.calls, modelLimit: modelLimiter(input.settings, input.ports.rate) });
-  const { engine, providers, watch: watchProviders } = engineOf(input.llm, hooks, input.log);
+  const { engine, providers, watch: watchProviders } = engineOf(input.llm, hooks, input.log, input.settings);
   const models = new ModelResolver(input);
   const agents: HubAgentLoop = new HubAgentLoop({ ...input, runs, queues, llm: engine, models });
   const hubFns = new HubFns();

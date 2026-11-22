@@ -5,16 +5,22 @@
  * person's words. Suggestions are cards in the one XML of `contextor/xml.ts`, each fn's card snapshotted when the
  * message is sent, and a fn or context is suggested once in a chat, never again (`Session.suggested`). Before all of
  * that, a message after the first says which systems went on or off since the model was last told (`chat/announce.ts`).
+ * When the suggestions chooser's action is `load`, what it picked is loaded for the turn instead (`#load`): the fns
+ * join the tools, the context's text is brought into the message, and `<loaded_for_you>` tells the model so.
  */
 import {
-  compact, DEFAULT_CHAT_MODE, type AnnouncedSystems, fnLabel, INPUT_ANSWER_TAG, splitName, type ActorId, type ChatMessage, type ChatModeType, type HookBlock, type HookInput, type Link, type MessagePart,
-  type QualifiedName, type Session, type SuggestedFnCard, type SuggestionRecord, type TurnId, type UserInfo,
+  compact, contextOff, DEFAULT_CHAT_MODE, type AnnouncedSystems, fnLabel, INPUT_ANSWER_TAG, splitName, type ActorId, type ChatMessage, type ChatModeType, type ContextRecord, type HookBlock, type HookInput,
+  type Link, type LoadedForYouPart, type LoadOutcome, type MessagePart, type QualifiedName, type Session, type SuggestedFnCard, type Suggestion, type SuggestionOutcome, type SuggestionRecord, type TurnId,
+  type UserInfo,
 } from '@harness/core';
+import { withImports } from '../contextor/brought.ts';
+import { DEFAULT_CHARS_PER_TOKEN } from '../contextor/tokens.ts';
 import { announce, systemsChanged, systemsNow } from './announce.ts';
 import type { ChatDeps } from './deps.ts';
 import { messageOf } from './errors.ts';
+import { fileTag } from './files.ts';
 import type { CatalogEntry } from '../catalog/index.ts';
-import type { MessageEnricher, SuggestionDecider } from './index.ts';
+import type { DecidedSuggestions, MessageEnricher, SuggestionDecider } from './index.ts';
 import { allowsSystem, callSystem, escapeAttribute, escapeBody } from './support.ts';
 import { timeInfo, weekday } from '../execution/time.ts';
 import type { AccessScope } from '../access/index.ts';
@@ -23,7 +29,7 @@ import type { FnView, FnViewSource, ModeChoice } from '../contextor/index.ts';
 import { modeChoice } from '../contextor/planner.ts';
 import { fnHead, promptExamples } from '../contextor/render.ts';
 import { CatalogFnViews, fnRefusal, readsAsMissing } from '../contextor/views.ts';
-import { cardList, contextElement, fnElement } from '../contextor/xml.ts';
+import { cardList, contextElement, element, fnElement } from '../contextor/xml.ts';
 import { LlmPayloadType, parseValue, type LlmPayload } from '@harness/sdk';
 
 /** The tags the hub's own extras carry for the LLM. */
@@ -70,15 +76,83 @@ function suggestionList(block: Extract<HookBlock, { type: 'suggest-context' | 's
   })));
 }
 
-/** The names a message's parts suggest (the hub's and its hooks'), in order. */
+/**
+ * The names a message's parts suggest (the hub's and its hooks'), in order, and those the suggestions chooser loaded
+ * for it (`loaded-for-you`): what was loaded is never suggested again either.
+ */
 export function suggestedIn(parts: readonly MessagePart[]): QualifiedName[] {
-  return parts.flatMap((part) => (part.type === 'extra' || part.type === 'hook' ? part.blocks : [])).flatMap((block) => {
-    switch (block.type) {
-      case 'suggest-context': return block.items.map((item) => item.context);
-      case 'suggest-fns': return block.items.map((item) => item.fn);
-      case 'text': case 'load': return [];
-    }
+  return parts.flatMap((part): QualifiedName[] => {
+    if (part.type === 'loaded-for-you') return [...part.fns.map((item) => item.fn), ...part.context.map((item) => item.context)];
+    if (part.type !== 'extra' && part.type !== 'hook') return [];
+    return part.blocks.flatMap((block) => {
+      switch (block.type) {
+        case 'suggest-context': return block.items.map((item) => item.context);
+        case 'suggest-fns': return block.items.map((item) => item.fn);
+        case 'text': case 'load': return [];
+      }
+    });
   });
+}
+
+/** The fns the suggestions chooser loaded for a message (`loaded-for-you`): they join the session's tools when it is sent. */
+export function loadedFnsIn(parts: readonly MessagePart[]): QualifiedName[] {
+  return parts.flatMap((part) => (part.type === 'loaded-for-you' ? part.fns.map((item) => item.fn) : []));
+}
+
+/** The tag the model reads what was loaded for a message in. */
+export const LOADED_FOR_YOU_TAG = 'loaded_for_you';
+
+/** Who picked what was loaded, as the model reads it. */
+const LOADED_BY: Readonly<Record<LoadedForYouPart['by'], string>> = { decision: 'the hub\'s decision model', llm: 'the hub\'s chooser model' };
+
+/**
+ * The line at the top of `<loaded_for_you>`, by the toolset: in the tools mode the fns are native tools now; the static
+ * toolset runs them by name, their cards in the prompt.
+ */
+export const LOADED_FOR_YOU_LINES: Readonly<Record<ChatModeType, (by: string) => string>> = {
+  tools: (by) => `Loaded for this message because ${by} judged they fit it: the fns are in your tools now, and the context's text is below (the fns it brings are in your tools too). Use them; don't load them again.`,
+  static: (by) => `Loaded for this message because ${by} judged they fit it: the fns are loaded (their cards are in the prompt; run one by name with run), and the context's text is below. Use them; don't load them again.`,
+};
+
+/** A context item loaded into a message, as `<loaded_for_you>` shows it: its card with its text and the fns it brings. */
+function loadedContextBlock(entry: LoadedForYouPart['context'][number]): string {
+  const about = entry.why === undefined ? [] : [element('why', {}, [entry.why])];
+  return contextElement({
+    key: entry.context, title: entry.title, text: entry.text,
+    parts: [...about, ...(entry.fns === undefined || entry.fns.length === 0 ? [] : [element('brought_fns', { in_tools: 'yes' }, [`In your tools now: ${entry.fns.join(', ')}`])])],
+  }).toString();
+}
+
+/** What the suggestions chooser loaded for a message, as the model reads it. */
+export function loadedForYou(part: LoadedForYouPart): string {
+  const line = LOADED_FOR_YOU_LINES[part.toolset ?? UNSTATED_TOOLSET](LOADED_BY[part.by]);
+  const fns = part.fns.map((item) => element('fn', { name: item.fn, label: item.label, brought_by: item.broughtBy }, [item.why ?? '']).toString());
+  return [`<${LOADED_FOR_YOU_TAG}>`, line, ...fns, ...part.context.map(loadedContextBlock), `</${LOADED_FOR_YOU_TAG}>`].join('\n');
+}
+
+/** A context item's estimated tokens in a message, as `<loaded_for_you>` shows it (the planner measures it exactly). */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / DEFAULT_CHARS_PER_TOKEN);
+}
+
+/** A `why` field when there is one. */
+function whyOf(why: string | undefined): { why?: string } {
+  return why === undefined ? {} : { why };
+}
+
+/** The suggested context and fns as the extras the LLM reads, best first, and the record of every candidate. */
+function suggestionParts(suggestions: readonly Suggestion[], record: SuggestionRecord | undefined): { parts: MessagePart[]; record?: SuggestionRecord } {
+  const ranked = [...suggestions].sort((a, b) => b.score - a.score);
+  const fns = ranked.filter((s) => s.kind === 'fn');
+  const context = ranked.filter((s) => s.kind === 'context');
+  const parts: MessagePart[] = [];
+  if (context.length > 0) {
+    parts.push({ type: 'extra', extra: 'suggested-context', blocks: [{ type: 'suggest-context', items: context.map((s) => ({ context: s.name, why: s.description, score: s.score })) }] });
+  }
+  if (fns.length > 0) {
+    parts.push({ type: 'extra', extra: 'suggested-fns', blocks: [{ type: 'suggest-fns', items: fns.map((s) => ({ fn: s.name, why: s.description, score: s.score })) }] });
+  }
+  return record === undefined ? { parts } : { parts, record };
 }
 
 /** A session's suggested set after a message with these parts was sent (nothing to change when they suggest nothing). */
@@ -89,12 +163,12 @@ export function suggestedAfter(session: Pick<Session, 'suggested'>, parts: reado
 
 /** Enriches and renders messages. */
 export class HubMessageEnricher implements MessageEnricher {
-  readonly #deps: Pick<ChatDeps, 'clock' | 'log' | 'settings' | 'catalog' | 'link' | 'access' | 'store'>;
+  readonly #deps: Pick<ChatDeps, 'clock' | 'log' | 'settings' | 'catalog' | 'link' | 'access' | 'store' | 'promptRoom'>;
   readonly #decider: Pick<SuggestionDecider, 'decide'>;
   readonly #views: FnViewSource;
 
   /** `views` shows suggested fns' signatures; by default straight from the catalog. */
-  constructor(deps: Pick<ChatDeps, 'clock' | 'log' | 'settings' | 'catalog' | 'link' | 'access' | 'store'>, decider: Pick<SuggestionDecider, 'decide'>, views: FnViewSource = new CatalogFnViews(deps.catalog)) {
+  constructor(deps: Pick<ChatDeps, 'clock' | 'log' | 'settings' | 'catalog' | 'link' | 'access' | 'store' | 'promptRoom'>, decider: Pick<SuggestionDecider, 'decide'>, views: FnViewSource = new CatalogFnViews(deps.catalog)) {
     this.#deps = deps;
     this.#decider = decider;
     this.#views = views;
@@ -104,14 +178,131 @@ export class HubMessageEnricher implements MessageEnricher {
     const choice = await this.#choice(input.session);
     // the graph contextor chooses context and fns for each prompt itself, so its sessions get no suggestion blocks
     const suggest = choice.contextor.type !== 'graph';
-    const [systems, suggested, hooks] = await Promise.all([
-      this.#systems(input.session, input.user.id), suggest ? this.#suggestions(input.session, input.text, input.user.id) : NO_SUGGESTIONS, this.#hooks(input),
+    const [systems, decided, hooks] = await Promise.all([
+      this.#systems(input.session, input.user.id), suggest ? this.#decide(input.session, input.text, input.user.id) : undefined, this.#hooks(input),
     ]);
-    const offered = await this.#offer([...suggested.parts, ...hooks], { session: input.session, actor: input.user.id, toolset: choice.mode.type });
-    const parts = [...(systems.changed === undefined ? [] : [systems.changed]), this.#localTime(input.user), ...offered];
+    const at = { session: input.session, actor: input.user.id, toolset: choice.mode.type };
+    // a chooser whose action is `load` loads what it can for the turn; the rest of its picks are suggested
+    const loading = decided?.load === undefined ? undefined : await this.#load(decided, decided.load, { ...at, text: input.text });
+    const suggested = decided === undefined ? NO_SUGGESTIONS : suggestionParts(loading?.rest ?? decided.suggestions, loading?.record ?? decided.record);
+    const offered = await this.#offer([...suggested.parts, ...hooks], at, loading?.names ?? []);
+    const parts = [...(systems.changed === undefined ? [] : [systems.changed]), this.#localTime(input.user), ...(loading?.part === undefined ? [] : [loading.part]), ...offered];
     return {
       parts, ...(suggested.record === undefined ? {} : { suggestions: suggested.record }), ...(systems.announced === undefined ? {} : { announcedSystems: systems.announced }),
     };
+  }
+
+  /**
+   * What a chooser with the action `load` picked, loaded for the turn as `hub/load_fns` and `hub/load_context` load:
+   * each fn the session may use joins its tools (`#loads` in `chat/turns.ts` adds the part's fns when the message is
+   * sent); each context item is brought into the message as its text, with its imports and the fns it brings (into
+   * the tools too), best first while its text fits the room (`#contextRoom`). What was suggested or loaded before, what
+   * the person can't see and what is gone are left to `#offer`, which drops them. What didn't fit (`budget`) or can't
+   * be used now (`blocked`: a fn that can't be used here, a context item with no text of its own) is suggested
+   * instead, and the record says so. `names`: what this message loads, so nothing suggests it again.
+   */
+  async #load(decided: DecidedSuggestions, load: NonNullable<DecidedSuggestions['load']>, at: { session: Session; actor: ActorId; toolset: ChatModeType; text: string }): Promise<{
+    part?: LoadedForYouPart; rest: Suggestion[]; record?: SuggestionRecord; names: QualifiedName[];
+  }> {
+    const { session } = at;
+    const access = await this.#deps.access.scope(at.actor);
+    const seen = new Set<string>([...(session.suggested ?? []), ...session.tools, ...session.context]);
+    const broughtBy = new Map((decided.record?.items ?? []).flatMap((item) => (item.kind === 'fn' && item.broughtBy !== undefined ? [[item.name, item.broughtBy] as const] : [])));
+    const ranked = [...decided.suggestions].sort((a, b) => b.score - a.score);
+    const why = (item: Suggestion): string | undefined => load.why.get(`${item.kind}:${item.name}`);
+    const outcomes = new Map<string, LoadOutcome>();
+    const rest: Suggestion[] = [];
+    const taken = { fn: new Set<string>(), context: new Set<string>() };
+    const context: LoadedForYouPart['context'] = [];
+    const contexts = ranked.filter((item) => item.kind === 'context');
+    let left = contexts.length === 0 ? 0 : await this.#contextRoom(at);
+    for (const item of contexts) {
+      if (taken.context.has(item.name)) continue;
+      const main = seen.has(item.name) ? undefined : await this.#deps.catalog.context(item.name);
+      if (main === undefined || contextOff(main) || !seesContextAs(access, main, session.id)) { rest.push(item); continue; }
+      if (main.decl.content === undefined) { rest.push(item); outcomes.set(`context:${item.name}`, 'blocked'); continue; }
+      // it comes with what it imports, each once in the message, as hub/load_context loads it
+      const records: ContextRecord[] = [];
+      for (const name of await withImports(this.#deps.catalog, [item.name])) {
+        if (name !== item.name && (seen.has(name) || taken.context.has(name))) continue;
+        const record = name === item.name ? main : await this.#deps.catalog.context(name as QualifiedName);
+        if (record?.decl.content === undefined || contextOff(record) || !allowsSystem(session, record.system) || !seesContextAs(access, record, session.id)) continue;
+        records.push(record);
+      }
+      const entries = records.map((record) => ({
+        context: record.name, ...(record.decl.title === undefined ? {} : { title: record.decl.title }),
+        ...(record === main ? whyOf(why(item)) : { why: `Imported by ${item.name}.` }), text: record.decl.content ?? '',
+        ...(record.decl.fns.length === 0 ? {} : { fns: [...record.decl.fns] }),
+      }));
+      const cost = entries.reduce((sum, entry) => sum + estimateTokens(loadedContextBlock(entry)), 0);
+      if (cost > left) { rest.push(item); outcomes.set(`context:${item.name}`, 'budget'); continue; }
+      left -= cost;
+      for (const entry of entries) { context.push(entry); taken.context.add(entry.context); }
+    }
+    // the fns: those picked, then those the loaded context brings (each once, only what the session may use)
+    const fns: LoadedForYouPart['fns'] = [];
+    const addFn = async (item: Pick<Suggestion, 'name'> & { readonly why?: string | undefined }, by: QualifiedName | undefined): Promise<'loaded' | 'blocked' | 'missing'> => {
+      const record = await this.#deps.catalog.fn(item.name);
+      const blocked = fnRefusal(record, session, access);
+      if (record === undefined || (blocked !== undefined && readsAsMissing(blocked))) return 'missing';
+      if (blocked !== undefined) return 'blocked';
+      fns.push({ fn: item.name, label: fnHead(record).label, ...(item.why === undefined ? {} : { why: item.why }), ...(by === undefined ? {} : { broughtBy: by }) });
+      taken.fn.add(item.name);
+      return 'loaded';
+    };
+    for (const item of ranked.filter((s) => s.kind === 'fn')) {
+      const by = broughtBy.get(item.name);
+      // a fn suggested because its context was: loaded with it, else suggested with it
+      if (by !== undefined && !taken.context.has(by)) { rest.push(item); const of = outcomes.get(`context:${by}`); if (of !== undefined) outcomes.set(`fn:${item.name}`, of); continue; }
+      if (taken.fn.has(item.name)) continue;
+      if (seen.has(item.name)) { rest.push(item); continue; }
+      const added = await addFn({ name: item.name, why: by === undefined ? why(item) : undefined }, by);
+      if (added !== 'loaded') { rest.push(item); if (added === 'blocked') outcomes.set(`fn:${item.name}`, 'blocked'); }
+    }
+    const brought: SuggestionOutcome[] = [];
+    for (const entry of context) {
+      for (const name of entry.fns ?? []) {
+        if (seen.has(name) || taken.fn.has(name)) continue;
+        if (await addFn({ name }, entry.context) === 'loaded') brought.push({ used: true, kind: 'fn', name, broughtBy: entry.context, load: 'loaded' });
+      }
+    }
+    // a context card names only the fns it brought that are in the tools now (one that can't be used is suggested, or left out)
+    const inTools = (name: QualifiedName): boolean => taken.fn.has(name) || session.tools.includes(name);
+    for (const [i, entry] of context.entries()) {
+      const { fns: brings, ...card } = entry;
+      const kept = (brings ?? []).filter(inTools);
+      context[i] = kept.length === 0 ? card : { ...card, fns: kept };
+    }
+    // the record: what each pick became (one left to #offer, seen or gone, says nothing of a load)
+    const record = decided.record === undefined ? undefined : {
+      ...decided.record,
+      items: [...decided.record.items.map((item): SuggestionOutcome => {
+        if (!item.used || item.load === undefined) return item;
+        const { load: _meant, ...rest } = item;
+        const became = taken[item.kind].has(item.name) ? 'loaded' : outcomes.get(`${item.kind}:${item.name}`);
+        return became === undefined ? rest : { ...rest, load: became };
+      }), ...brought.filter((item) => !decided.record?.items.some((had) => had.kind === 'fn' && had.name === item.name))],
+    };
+    this.#deps.log.info('chat.suggest.loaded', { session: session.id, by: load.by, fns: fns.length, context: context.length, suggested: rest.length });
+    const part: LoadedForYouPart | undefined = fns.length + context.length === 0 ? undefined : { type: 'loaded-for-you', by: load.by, toolset: at.toolset, fns, context };
+    return { ...(part === undefined ? {} : { part }), rest, ...(record === undefined ? {} : { record }), names: [...fns.map((f) => f.fn), ...context.map((c) => c.context)] };
+  }
+
+  /**
+   * The most tokens of context text a chooser may load into one message: `HARNESS_AUTOLOAD_TOKENS`, and no more than
+   * `HARNESS_AUTOLOAD_ROOM_SHARE` of the room the prompt has besides its fixed part (`ChatDeps.promptRoom`), so the
+   * contextor's plan, which counts the message in its fixed part, still has room for the history.
+   */
+  async #contextRoom(at: { session: Session; actor: ActorId; text: string }): Promise<number> {
+    const cap = this.#deps.settings.chat.HARNESS_AUTOLOAD_TOKENS;
+    if (cap === 0 || this.#deps.promptRoom === undefined) return cap;
+    try {
+      const room = await this.#deps.promptRoom({ session: at.session.id, text: at.text, actor: at.actor });
+      return room === undefined ? cap : Math.max(0, Math.min(cap, Math.floor(room * this.#deps.settings.chat.HARNESS_AUTOLOAD_ROOM_SHARE)));
+    } catch (error) {
+      this.#deps.log.warn('chat.suggest.room-unknown', { session: at.session.id, error: messageOf(error) });
+      return cap;
+    }
   }
 
   /** What changed in the session's systems for its person since the model was last told, and the snapshot after it. */
@@ -158,9 +349,7 @@ export class HubMessageEnricher implements MessageEnricher {
           inline.push(`<command context="${escapeAttribute(part.context)}"${attributes(part.args)} />`);
           break;
         case 'invocation': inline.push(`<invocation fn="${escapeAttribute(part.fn)}" run="${escapeAttribute(part.run)}" />`); break;
-        case 'file':
-          inline.push(`<file name="${escapeAttribute(part.name)}" mime="${escapeAttribute(part.ref.mime)}" size="${part.ref.size}" hash="${part.ref.hash}" />`);
-          break;
+        case 'file': inline.push(fileTag(part)); break;
         case 'extra': blocks.push(this.block(EXTRA_TAGS[part.extra], part.blocks)); break;
         case 'hook': blocks.push(this.block(hookTag(part.hook), part.blocks)); break;
         case 'attachment':
@@ -169,6 +358,8 @@ export class HubMessageEnricher implements MessageEnricher {
         case 'link': inline.push(linkTag(part.link)); break;
         // a form's answers: the model reads them, the chat shows the message only in debug mode
         case 'input-answer': blocks.push(`<${INPUT_ANSWER_TAG} title="${escapeAttribute(part.title)}">${escapeBody(part.text)}</${INPUT_ANSWER_TAG}>`); break;
+        // what the suggestions chooser loaded for the turn, so the model uses it and doesn't load it again
+        case 'loaded-for-you': blocks.push(loadedForYou(part)); break;
       }
     }
     return [...first, inline.join(''), ...blocks].filter((s) => s !== '').join('\n\n');
@@ -194,26 +385,14 @@ export class HubMessageEnricher implements MessageEnricher {
     return { type: 'extra', extra: 'local-time', blocks: [{ type: 'text', tag: 'now', text }] };
   }
 
-  /** The suggested context and fns as the extras the LLM reads, and the record of every candidate. */
-  async #suggestions(session: Session, text: string, actor: ActorId): Promise<{ parts: MessagePart[]; record?: SuggestionRecord }> {
-    let decided: Awaited<ReturnType<SuggestionDecider['decide']>>;
+  /** What the suggestions chooser picked for the message, and the record of every candidate (none when it fails, logged). */
+  async #decide(session: Session, text: string, actor: ActorId): Promise<DecidedSuggestions | undefined> {
     try {
-      decided = await this.#decider.decide({ session: session.id, text, actor });
+      return await this.#decider.decide({ session: session.id, text, actor });
     } catch (error) {
       this.#deps.log.warn('chat.suggest.failed', { session: session.id, error: messageOf(error) });
-      return { parts: [] };
+      return undefined;
     }
-    const ranked = [...decided.suggestions].sort((a, b) => b.score - a.score);
-    const fns = ranked.filter((s) => s.kind === 'fn');
-    const context = ranked.filter((s) => s.kind === 'context');
-    const parts: MessagePart[] = [];
-    if (context.length > 0) {
-      parts.push({ type: 'extra', extra: 'suggested-context', blocks: [{ type: 'suggest-context', items: context.map((s) => ({ context: s.name, why: s.description, score: s.score })) }] });
-    }
-    if (fns.length > 0) {
-      parts.push({ type: 'extra', extra: 'suggested-fns', blocks: [{ type: 'suggest-fns', items: fns.map((s) => ({ fn: s.name, why: s.description, score: s.score })) }] });
-    }
-    return decided.record === undefined ? { parts } : { parts, record: decided.record };
   }
 
   /**
@@ -221,10 +400,10 @@ export class HubMessageEnricher implements MessageEnricher {
    * message already suggests) left out, and so is what the session has loaded (it is in the prompt already), each
    * block stamped with the session's toolset, each fn's card snapshotted, a context's title added. A fn or context the
    * person can't see, one that is gone, or a fn not for the model, is left out. A block left with nothing goes, and a
-   * part left with no blocks.
+   * part left with no blocks. `loaded`: what this message loads for the turn (`#load`), never suggested with it.
    */
-  async #offer(parts: readonly MessagePart[], at: { session: Session; actor: ActorId; toolset: ChatModeType }): Promise<MessagePart[]> {
-    const seen = new Set<string>([...(at.session.suggested ?? []), ...at.session.tools, ...at.session.context]);
+  async #offer(parts: readonly MessagePart[], at: { session: Session; actor: ActorId; toolset: ChatModeType }, loaded: readonly QualifiedName[] = []): Promise<MessagePart[]> {
+    const seen = new Set<string>([...(at.session.suggested ?? []), ...at.session.tools, ...at.session.context, ...loaded]);
     const out: MessagePart[] = [];
     let access: AccessScope | undefined;
     const scope = async (): Promise<AccessScope> => (access ??= await this.#deps.access.scope(at.actor));

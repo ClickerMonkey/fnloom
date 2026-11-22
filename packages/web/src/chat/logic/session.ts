@@ -154,6 +154,12 @@ export function messageSuggestions(message: Pick<ChatMessage, 'parts' | 'suggest
   const loadedFns = new Set(session?.tools ?? []);
   const loadedContext = new Set(session?.context ?? []);
   for (const part of message.parts) {
+    // what the suggestions chooser loaded for the turn shows as added
+    if (part.type === 'loaded-for-you') {
+      for (const c of part.context) { context.set(c.context, item(c.context, c.why, 'auto', c.title ?? humanize(localName(c.context)))); }
+      for (const f of part.fns) { fns.set(f.fn, item(f.fn, f.why, 'auto', f.label)); }
+      continue;
+    }
     if (part.type !== 'extra' && part.type !== 'hook') { continue; }
     for (const block of part.blocks) {
       if (block.type === 'suggest-context') {

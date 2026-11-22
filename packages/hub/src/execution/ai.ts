@@ -14,6 +14,7 @@ import { models as knownModels, strictSupport } from '@aeye/models';
 import { compact, ModelProvider, type CacheSupport, type LlmInteractionId, type ReservationId, type Usd } from '@harness/core';
 import { limiter, type Limiter } from '@ayepi/rate';
 import type { ModelCallLog, OpenModelCall } from '../metrics/index.ts';
+import { executionEnv } from './env.ts';
 import { BudgetRefused, LlmRateLimited, messageOf } from './errors.ts';
 import type { CallSite, Ledger } from './index.ts';
 import type { InteractionRecorder } from './interactions.ts';
@@ -22,6 +23,7 @@ import {
 } from './media.ts';
 import type { EngineModel as ModelView, ExecutionBase, LlmEngine, RunCosts } from './ports.ts';
 import type { CallReceipts, HubCallContext, HubCallMetadata, LlmCallScope } from './scope.ts';
+import { guardStream, type StreamGuardOptions } from './stream-guard.ts';
 import { requestToWire, responseToWire, tokensOf, usageToWire } from './wire.ts';
 
 /** The model a call went to, as the hooks see it. */
@@ -323,9 +325,10 @@ export class AeyeLlm implements RefreshableEngine {
   readonly #ai: HubAi;
   readonly streamer: Streamer<HubCallContext, HubCallMetadata>;
 
-  constructor(ai: HubAi) {
+  /** `guard`: the stream guard's settings (`stream-guard.ts`); `HARNESS_STREAM_BLANK_RUN`'s default when absent. */
+  constructor(ai: HubAi, guard: StreamGuardOptions = { blankRun: executionEnv.get('HARNESS_STREAM_BLANK_RUN') }) {
     this.#ai = ai;
-    this.streamer = ai.chat.createStreamer();
+    this.streamer = guardStream(ai.chat.createStreamer(), guard);
   }
 
   /** Ask every provider for the models it serves (a provider that can't answer keeps the known list's models). */

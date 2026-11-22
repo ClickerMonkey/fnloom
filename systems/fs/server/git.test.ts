@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process';
-import { chmod, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { CliGit, describeStatus, gitArgs, gitEnv, hardenedGitConfigEnv, parseStatus } from './git.ts';
+import { CliGit, describeStatus, gitArgs, gitEnv, hardenedGitConfigEnv, parseStatus, within } from './git.ts';
 import type { CommandRun, Exec } from './index.ts';
 import { PlatformOpener, revealCommand } from './reveal.ts';
 import { NodeExec } from './shell.ts';
@@ -10,14 +10,15 @@ import { tempFolder } from './testing.ts';
 
 class TableExec implements Exec {
   readonly calls: Array<{ file: string; args: readonly string[] }> = [];
-  private readonly answer: CommandRun;
-  constructor(answer: CommandRun) {
-    this.answer = answer;
+  private readonly answer: (args: readonly string[]) => CommandRun;
+  /** `answer`: what every call gives, or what each gives by its args. */
+  constructor(answer: CommandRun | ((args: readonly string[]) => CommandRun)) {
+    this.answer = typeof answer === 'function' ? answer : () => answer;
   }
 
   exec(file: string, args: readonly string[]): Promise<CommandRun> {
     this.calls.push({ file, args });
-    return Promise.resolve(this.answer);
+    return Promise.resolve(this.answer(args));
   }
 }
 
@@ -38,12 +39,37 @@ describe('git status', () => {
     expect(describeStatus('work', { branch: 'main', tracking: undefined, changes: [] }, 5)).toBe('"work": branch main, no changes.');
   });
 
-  it('asks git once per folder and treats a failure as "not a repository"', async () => {
-    const exec = new TableExec(ok('## main\n'));
+  it('asks git for the top level, then the status, and treats a failure as "not a repository"', async () => {
+    const exec = new TableExec((args) => ok(args.includes('rev-parse') ? '/srv/work\n' : '## main\n'));
     expect(await new CliGit(exec, 100).status('/srv/work')).toEqual({ branch: 'main', tracking: undefined, changes: [] });
-    expect(exec.calls[0]).toEqual({ file: 'git', args: gitArgs('/srv/work', ['status', '--porcelain=v1', '--branch']) });
+    expect(exec.calls.map((call) => call.args)).toEqual([gitArgs('/srv/work', ['rev-parse', '--show-toplevel']), gitArgs('/srv/work', ['status', '--porcelain=v1', '--branch'])]);
     expect(await new CliGit(new TableExec({ exitCode: 128, stdout: '', stderr: 'not a git repository', ended: 'exit' }), 100).status('/x')).toBeUndefined();
-    expect(await new CliGit(new TableExec({ ...ok('## main'), ended: 'timeout' }), 100).status('/x')).toBeUndefined();
+    expect(await new CliGit(new TableExec((args) => (args.includes('rev-parse') ? ok('/x\n') : { ...ok('## main'), ended: 'timeout' })), 100).status('/x')).toBeUndefined();
+  });
+
+  it('never reports a repository rooted above the folder (a root inside another repository)', async () => {
+    const above = new TableExec((args) => ok(args.includes('rev-parse') ? '/srv\n' : '## main\n M other.ts\n'));
+    expect(await new CliGit(above, 100).status('/srv/work')).toBeUndefined();
+    // and it doesn't ask for that repository's status at all
+    expect(above.calls).toHaveLength(1);
+    expect(await within('/srv/work', '/srv/work')).toBe(true);
+    expect(await within('/srv', '/srv/work')).toBe(false);
+    expect(await within('/srv/workshop', '/srv/work')).toBe(false);
+    expect(await within('', '/srv/work')).toBe(false);
+  });
+
+  it('with real git: a root that is the repository is reported, a folder inside one is not', async () => {
+    const tmp = await tempFolder();
+    try {
+      execFileSync('git', ['init', '-q', tmp.path]);
+      await mkdir(`${tmp.path}/inner`);
+      await writeFile(`${tmp.path}/inner/a.txt`, 'a\n');
+      const git = new CliGit(new NodeExec({ outputMax: 10_000, progressEvery: 1_000 }), 10_000);
+      expect((await git.status(tmp.path))?.changes).toEqual(['?? inner/']);
+      expect(await git.status(`${tmp.path}/inner`)).toBeUndefined();
+    } finally {
+      await tmp.cleanup();
+    }
   });
 });
 

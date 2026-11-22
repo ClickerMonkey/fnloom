@@ -52,6 +52,7 @@ export * from './context-graph.ts';
 export * from './objects.ts';
 export * from './ports.ts';
 export * from './gin.ts';
+export * from './issues.ts';
 export * from './run.ts';
 export * from './labels.ts';
 export * from './status.ts';

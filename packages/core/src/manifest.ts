@@ -164,6 +164,19 @@ export const RegistryEffect = z.object({
 export type RegistryEffect = z.infer<typeof RegistryEffect>;
 
 /**
+ * The things a fn may keep of what it reads without becoming a write (`FnEffects.keeps`): only hub resources, which
+ * belong to the hub's store of what was read, not to anything the person owns.
+ */
+export const KEPT_THINGS = ['resources'] as const;
+export const KeptThing = z.enum(KEPT_THINGS);
+export type KeptThing = z.infer<typeof KeptThing>;
+
+/** Whether an effect is the keeping a fn declared (`FnEffects.keeps`): creating a thing it keeps. */
+export function isKept(effect: RegistryEffect, keeps: readonly KeptThing[] | undefined): boolean {
+  return effect.action === 'create' && (keeps ?? []).some((thing) => thing === effect.thing);
+}
+
+/**
  * What a fn says it does to data (`FnDecl.effects`): its mode, the named types it reads and writes, what it creates,
  * updates or removes in the hub, and whether its own work costs nothing. Absent parts are worked out by the hub (`FnFacts`): the mode from the `read` tag, the types
  * from its signature, and everything a fn uses (its deps, an agent's tools) is folded in.
@@ -176,8 +189,16 @@ export const FnEffects = z.object({
   free: z.boolean().optional(),
   /** What it creates, updates or removes in the hub. The hub refuses a registry change a run's fn did not declare. */
   registry: z.array(RegistryEffect).optional(),
+  /**
+   * What it keeps of what it read, a side effect of reading (`KEPT_THINGS`): `['resources']` for a fn that keeps the
+   * page or results it fetched as a hub resource (`web/read`, `web/search`). Creating those (its own registry, or a
+   * fn it uses whose only change is creating them, as `hub/resource_import`) does not raise its mode above what it
+   * declares; the creation is still listed in its facts' `registry`, so the classifier and reviews see it.
+   */
+  keeps: z.array(KeptThing).min(1).optional(),
 });
 export type FnEffects = z.infer<typeof FnEffects>;
+
 
 /** How a person reads a kind fn's payload (a saved query's SQL in its database's dialect), as its kind writes it. */
 export const ReadablePayload = z.object({

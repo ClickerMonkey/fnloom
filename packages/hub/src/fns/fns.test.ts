@@ -5,7 +5,7 @@
  */
 import {
   ActorId, compositeKey, ModelCallId, nicheOf, QualifiedName, ResourceUri, RunId, SessionId, SystemName, noFnStats, noOutcomes, type FnSearchHit, type Niche,
-  type ContextRecord, type FnMetricsDay, type FnRecord, type IndexedKind, type ModelInfo, type Session, type SystemStatus,
+  type ContextRecord, type FnEffects, type FnMetricsDay, type FnRecord, type IndexedKind, type ModelInfo, type Session, type SystemStatus,
 } from '@harness/core';
 import { context, fn, g, hub, system, type as typeDecl } from '@harness/sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -413,6 +413,39 @@ describe('fn facts', () => {
     if (voided === undefined) throw new Error('no fn');
     await facts.refresh([voided], []);
     expect((await facts.modes([q('books/close_month')])).get(q('books/close_month'))).toBe('write');
+  });
+
+  // iteration 2 (Phil, 2026-11-22: "Go with your recommendations"): fetching and keeping a page is a read side effect
+  it('keeps a fn that declares what it keeps of what it reads a read, with the creation still listed', async () => {
+    const { facts, catalog, search, asker, store } = await setup();
+    const keeps: FnEffects = { mode: 'read', keeps: ['resources'] };
+    const page = g.obj({ url: g.text() });
+    const pages = system('pages', { description: 'Web pages.' }).with({
+      fns: {
+        // web/read's shape: reads a page and keeps it as a hub resource
+        read_page: fn({ description: 'Read a web page and keep it.', args: page, returns: g.text(), deps: { importResource: hub.fns.resource_import }, effects: keeps, tags: ['read'] }),
+        // the same without saying it keeps what it reads: the import makes it a write, as before
+        fetch_page: fn({ description: 'Fetch a web page into the hub.', args: page, returns: g.text(), deps: { importResource: hub.fns.resource_import }, effects: { mode: 'read' } }),
+        // keeping resources excuses only their creation: removing one is still a delete
+        tidy_pages: fn({ description: 'Read a page, keep it, and remove an old one.', args: page, returns: g.text(), deps: { importResource: hub.fns.resource_import, remove: hub.fns.resource_delete }, effects: keeps }),
+      },
+    });
+    await store.table('systems').put(systemRow('pages', 'connected'));
+    await catalog.importManifest(await manifestFor(pages));
+    const fns = (await catalog.fns({})).filter((f) => f.system === 'pages');
+    await facts.refresh(fns, []);
+    const read = await facts.facts(q('pages/read_page'));
+    expect(read).toMatchObject({ mode: 'read', uses: ['hub/resource_import'], registry: [{ thing: 'resources', action: 'create' }] });
+    expect((await facts.facts(q('pages/fetch_page'))).mode).toBe('write');
+    expect((await facts.facts(q('pages/tidy_pages'))).mode).toBe('delete');
+    // read-only searches find it, and a read-only chat runs it
+    const reads = await search.search({ modes: ['read'], systems: [SystemName.parse('pages')] }, asker);
+    expect(reads.items.map((hit) => hit.name)).toEqual(['pages/read_page']);
+    const gate = new SessionModeGate(() => facts, () => ({ classify: () => Promise.resolve({ allow: false, reason: 'no' }) }));
+    const fnOf = async (name: string) => { const f = await catalog.fn(q(name)); if (f === undefined) throw new Error(name); return f; };
+    const session: Session = { id: SessionId.parse('ses_1'), title: '', owner: ME, agent: q('hub/chat'), participants: [], systems: 'all', tools: [], context: [], status: 'idle', transcript: [], createdAt: 0, updatedAt: 0, archived: false, fnMode: 'read' };
+    expect((await gate.check({ session, fn: await fnOf('pages/read_page'), args: {}, run: RunId.parse('run_1'), flags: [] })).effect).toBe('pass');
+    expect((await gate.check({ session, fn: await fnOf('pages/fetch_page'), args: {}, run: RunId.parse('run_1'), flags: [] })).effect).toBe('refuse');
   });
 });
 

@@ -162,6 +162,22 @@ describe('a session agent', () => {
     expect(transcript.filter((m) => m.role === 'tool')).toHaveLength(2);
   });
 
+  it('stops a tool call whose arguments run blank (the stream guard) and the model recovers on the next iteration', async () => {
+    const r = await started();
+    const fs = r.connect('fs');
+    fs.behaviour.run = () => Promise.resolve({ status: 'done', result: 'hello' });
+    await r.session();
+    const turn = await r.turn({ session: SESSION, text: 'go' });
+    const stuck = { id: 'call_1', name: 'fs__read', arguments: '{"path": "a.txt"' };
+    const blanks = Array.from({ length: 400 }, () => ({ toolCallArguments: { ...stuck, arguments: (stuck.arguments += ' '.repeat(10)) } }));
+    r.provider.script([{ toolCallNamed: { ...stuck } }, ...blanks, { toolCall: { ...stuck } }, { finishReason: 'tool_calls' }], calls([['fs__read', { path: 'a.txt' }]]), says('It says hello.'));
+    const { run } = await r.module.agents.start(agentInput(turn));
+    expect((await runTo(r, run)).settled).toEqual({ status: 'done', result: 'It says hello.' });
+    // the stuck call never ran; the model read why and called again
+    expect(fs.requests).toHaveLength(1);
+    expect(JSON.stringify(r.provider.requests[1]?.messages)).toContain('Stopped by the hub: these arguments ran into 2000 blank characters');
+  });
+
   it('asks before a tool that writes, and continues once the person approves', async () => {
     const r = await started();
     r.connect('fs');

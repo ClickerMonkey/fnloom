@@ -63,6 +63,13 @@ export const RunInfo = z.object({
    * agents, MCP calls and background runs, whose results must not say "shown to the person".
    */
   watched: z.boolean().optional(),
+  /**
+   * The run is the chat's own (a chat turn's agent, or a fn it called directly, on a session), whether or not anyone has
+   * the chat open now: what it shows stays in the chat, and a form's answers come back to the chat agent as the next
+   * user message (`<input-answer>`). Absent for nested agents' calls, MCP calls and background runs, whose forms wait
+   * in the person's chat with their answers going to the chat, never back to the caller.
+   */
+  inChat: z.boolean().optional(),
 });
 export type RunInfo = z.infer<typeof RunInfo>;
 

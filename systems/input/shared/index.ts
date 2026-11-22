@@ -31,7 +31,7 @@ export const Asked = g.obj({
   form: InputForm,
   /** The saved form's fn (`input/trip_details`) when one was reused. */
   saved: g.optional(g.text()),
-  /** What the model does now: end its turn and wait for the answers (or, with nobody watching, go on without them). */
+  /** What the model does now: end its turn, the answers coming back as the next message (or, in a run that is not the chat's own, go on without them). */
   next: g.text(),
   /** How to show the same form again directly (`input/trip_details({})`), when it is a saved one. */
   call: g.optional(g.text()),
@@ -48,18 +48,21 @@ export const FormCheck = g.obj({
   fields: g.num({ min: 0, whole: true }),
 });
 
-/** What the model is told after asking: wait for the person. */
-export const WAIT_FOR_ANSWERS = 'The form is shown to the person. End your turn now and wait: their answers arrive as the next user message, in <input-answer> tags.';
+/**
+ * What the chat agent is told after asking (`RunInfo.inChat`): end the turn; the answers come back as the next user
+ * message whenever the person sends the form, now or after they next open the chat.
+ */
+export const WAIT_FOR_ANSWERS = 'The form is in the person\'s chat. End your turn now without answering for them: their answers arrive as the next user message, in <input-answer> tags, whenever they send it.';
 
 /**
- * What the model is told after asking in a run nobody is watching (a nested agent, an MCP call, a background run): the
- * form waits in the person's chat, so the caller must not wait for the answers.
+ * What the model is told after asking in a run that is not the chat's own (a nested agent's call, an MCP call, a
+ * background run): the form waits in the person's chat and its answers go to the chat, never back to this caller.
  */
-export const HEADLESS_ASKED = "Nobody is watching this run, so the form waits in the person's chat and the answers will not come back to you. Don't wait for them: go on with what you have, or end your run saying what you still need.";
+export const HEADLESS_ASKED = "This run is not the chat's own (a nested agent, a background run or an MCP call), so the form waits in the person's chat and its answers go to the chat, not back to you. Don't wait for them: go on with what you have, or end your run saying what you still need.";
 
-/** The sentence an input fn answers with: wait for the person when one is watching, else don't. */
-export function nextAfterAsking(watched: boolean | undefined): string {
-  return watched === true ? WAIT_FOR_ANSWERS : HEADLESS_ASKED;
+/** The sentence an input fn answers with: end the turn and wait in the chat's own run, else go on without the answers. */
+export function nextAfterAsking(run: { readonly inChat?: boolean | undefined }): string {
+  return run.inChat === true ? WAIT_FOR_ANSWERS : HEADLESS_ASKED;
 }
 
 /** The kind of every saved form, qualified. */

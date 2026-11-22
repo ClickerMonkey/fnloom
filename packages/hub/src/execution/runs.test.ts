@@ -310,6 +310,9 @@ describe('runs on a system', () => {
     const away = await r.module.runs.start({ ...input(turn, 'fs/read', { path: 'd' }), session: session.id, key: 'away' });
     await away.settled;
     expect(watchedOf(away.run)).toBeUndefined();
+    // the chat's own run stays in the chat whether or not it is open (a form's answers come back as the next message)
+    const inChatOf = (run: RunId): boolean | undefined => fs.requests.find((request) => request.run.id === run)?.run.inChat;
+    expect([inChatOf(top.run), inChatOf(child.run), inChatOf(nested.run), inChatOf(sessionless.run), inChatOf(away.run)]).toEqual([true, true, undefined, undefined, true]);
   });
 
   it('reports progress, narrows operations and undoes with the registered payload', async () => {
@@ -567,5 +570,15 @@ describe('refused input', () => {
   it('reads problems off a schema check', () => {
     expect(invalidArgs(z.object({ a: z.string() }).safeParse({ a: 'x' }))).toBeUndefined();
     expect(invalidArgs(z.object({ a: z.object({ b: z.number() }) }).safeParse({ a: { b: 'x' } }))).toMatchObject({ source: 'schema', problems: [{ path: 'a.b' }] });
+  });
+
+  it('keeps the problems short: the branch of a union the args got furthest into, a few at most (iteration 2)', () => {
+    const step = z.union([z.object({ kind: z.literal('get'), path: z.array(z.string()) }).strict(), z.object({ kind: z.literal('set'), value: z.number() }).strict()]);
+    const args = { steps: [{ kind: 'set', value: 'x' }] };
+    expect(invalidArgs(z.object({ steps: z.array(step) }).safeParse(args), args)).toEqual({
+      source: 'schema', problems: [{ path: 'steps.0.value', message: 'Invalid input: expected number, received string' }],
+    });
+    const wide = z.object(Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`f${i}`, z.string()])));
+    expect(invalidArgs(wide.safeParse({}), {})?.problems).toHaveLength(6);
   });
 });

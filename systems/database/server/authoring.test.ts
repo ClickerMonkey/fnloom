@@ -99,6 +99,6 @@ describe('the query authoring fns', () => {
   it('says what to do when the database is unclear: ask with input/ask_choice, or headless, say so', () => {
     const ask = { ask: 'Which database: Shop or Billing?', databases: ['main', 'billing'] };
     expect(askNext(ask, ['Shop', 'Billing'], true)).toContain('input/ask_choice');
-    expect(askNext(ask, ['Shop', 'Billing'], undefined)).toContain('Nobody is watching');
+    expect(askNext(ask, ['Shop', 'Billing'], undefined)).toContain("not the chat's own");
   });
 });

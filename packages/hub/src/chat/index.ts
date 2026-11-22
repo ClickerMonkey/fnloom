@@ -124,6 +124,12 @@ export interface ReplyRule {
 export interface DecidedSuggestions {
   readonly suggestions: Suggestion[];
   readonly record?: SuggestionRecord;
+  /**
+   * Set when the chooser's action is `load` and its model picked (not when it failed and the score decided): the
+   * suggestions are to be loaded for the turn, as far as they can be (`HubMessageEnricher`), by whom, with each pick's
+   * reason by its key (`kind:name`).
+   */
+  readonly load?: { readonly by: 'decision' | 'llm'; readonly why: ReadonlyMap<string, string> };
 }
 
 /**

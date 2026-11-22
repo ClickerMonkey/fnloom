@@ -13,6 +13,7 @@ import { plugin } from '@ayepi/plugin';
 import { hub, manifestOf } from '@harness/sdk';
 import type { Catalog } from '../catalog/index.ts';
 import { createChat } from '../chat/chat.ts';
+import { resourceFiles } from '../chat/files.ts';
 import { executionModule, type ExecutionModule, type LlmSource } from '../execution/create.ts';
 import { runIsOf } from '../execution/link-handlers.ts';
 import { buildSystems, type HubSystems } from '../link/build.ts';
@@ -156,6 +157,13 @@ const chatModule: ModuleFactory<'chat'> = ({ hub, hubActor }) => {
     search: hub.index.search, suggest: hub.index.suggest, llm: hub.execution.llm, push: hub.api.push, hubActor, access: { scope: (actor) => hub.access.scope(actor) },
     // the models module is read when a decision is made, never while chat is built
     decider: { model: (choice) => hub.models.decider.model(choice), ask: (request) => hub.models.decider.ask(request) },
+    // a sent message's files become hub resources the model reads in one call (`chat/files.ts`)
+    files: resourceFiles(() => hub.resources),
+    // the contextor's flexible budget for the message, so context a chooser loads into it is sized to the room left
+    promptRoom: async ({ session, text, actor }) => {
+      const { budget } = await hub.contextor.planner.preview(session, text, actor);
+      return budget.window - budget.output - budget.reasoning - budget.margin - budget.fixed;
+    },
   });
   let stop: (() => void) | undefined;
   return {
@@ -190,7 +198,7 @@ export function registerHubContract(
   };
   registerHubFns(module.hubFns, {
     store: () => hub.store, catalog: () => hub.catalog, search: () => hub.index.search, sessions: () => hub.chat.sessions, handlers: () => module.handlers,
-    access: (actor) => hub.access.scope(actor), sharing: () => hub.access, fns: () => hub.fns, facts: () => hub.fns.facts, views: () => hub.contextor.views, mcpScope, decider: () => hub.models.decider,
+    access: (actor) => hub.access.scope(actor), sharing: () => hub.access, fns: () => hub.fns, facts: () => hub.fns.facts, views: () => hub.contextor.views, mcpScope, decider: () => hub.models.decider, searchLoadMax: hub.settings.fnsEnv.HARNESS_SEARCH_LOAD_MAX,
   });
   let ops: AdminOperations | undefined;
   registerAdminFns(module.hubFns, () => (ops ??= adminOperations(hub)));

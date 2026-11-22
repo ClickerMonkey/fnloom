@@ -1,7 +1,7 @@
-import { ChatModeConfig, IDS, READ_TAG, SuggestDecision, SystemName, type ChatMessage, type HookDecl, type Session, type UserInfo } from '@harness/core';
+import { ChatModeConfig, IDS, QualifiedName, READ_TAG, SuggestDecision, SystemName, type ChatMessage, type HookDecl, type Session, type UserInfo } from '@harness/core';
 import { fn, g } from '@harness/sdk';
 import { describe, expect, it } from 'vitest';
-import { hookTag, HubMessageEnricher, SUGGESTED_CONTEXT_LINES, SUGGESTED_FNS_LINES, suggestedAfter, suggestedIn } from './enrich.ts';
+import { hookTag, HubMessageEnricher, loadedFnsIn, LOADED_FOR_YOU_LINES, SUGGESTED_CONTEXT_LINES, SUGGESTED_FNS_LINES, suggestedAfter, suggestedIn } from './enrich.ts';
 import { ContextCatalog } from '../contextor/testing.ts';
 import { CatalogFnViews } from '../contextor/views.ts';
 import { hiddenMessage } from './turns.ts';
@@ -150,6 +150,22 @@ describe('the text the LLM gets', () => {
         + `<link file="${ref.hash}" title="Notes" /><link run="run_2" title="The run" />`,
       '<attachment name="fs/diff" title="Diff">{"lines":2}</attachment>',
     ].join('\n\n'));
+  });
+
+  it('names a kept file\'s uri and the one fn that reads it, with a small text file\'s text inside (iteration 2)', async () => {
+    const w = await world();
+    const pdf = { hash: 'b'.repeat(64), size: 900, mime: 'application/pdf' };
+    const photo = { hash: 'c'.repeat(64), size: 800, mime: 'image/jpeg' };
+    const notes = { hash: 'd'.repeat(64), size: 9, mime: 'text/plain' };
+    expect(w.chat.enrich.render(message([
+      { type: 'file', ref: pdf, name: 'quote.pdf', uri: 'hub://resources/uploads/2026-11-22/quote.pdf' },
+      { type: 'file', ref: photo, name: 'receipt.jpg', uri: 'hub://resources/uploads/2026-11-22/receipt.jpg' },
+      { type: 'file', ref: notes, name: 'a&b.txt', uri: 'hub://resources/uploads/2026-11-22/a&b.txt', text: 'milk <2>', truncated: true },
+    ]))).toBe(
+      '<file name="quote.pdf" mime="application/pdf" size="900" uri="hub://resources/uploads/2026-11-22/quote.pdf" read="hub/resource_read" />'
+        + '<file name="receipt.jpg" mime="image/jpeg" size="800" uri="hub://resources/uploads/2026-11-22/receipt.jpg" read="hub/resource_send" />'
+        + '<file name="a&amp;b.txt" mime="text/plain" size="9" uri="hub://resources/uploads/2026-11-22/a&amp;b.txt" read="hub/resource_read" truncated="true">milk &lt;2&gt;</file>',
+    );
   });
 
   it('writes suggestions as cards in their block, escaped, not wrapped twice', async () => {
@@ -303,5 +319,87 @@ describe('suggestions as sent', () => {
   it('keep what a session was suggested when nothing new is', () => {
     expect(suggestedAfter({ suggested: ['fs/read'] }, [])).toEqual({});
     expect(suggestedAfter({}, [{ type: 'extra', extra: 'suggested-fns', blocks: [{ type: 'suggest-fns', items: [{ fn: 'fs/read' }] }] }])).toEqual({ suggested: ['fs/read'] });
+  });
+});
+
+describe('a suggestions chooser that loads what it picks', () => {
+  /** A world whose decision model takes every candidate and loads it; fs/read and fs/write, a guide that brings fs/tree. */
+  async function loading() {
+    const w = await world();
+    await w.chat.suggestions.set(SuggestDecision.parse({ by: 'decision', floor: 0, action: 'load' }), w.admin.id);
+    w.catalog.addFn('fs', { name: 'read', description: 'Read a file.', tags: [READ_TAG] });
+    w.catalog.addFn('fs', { name: 'write', description: 'Write a file.' });
+    w.catalog.addFn('fs', { name: 'tree', description: 'List a folder.', tags: [READ_TAG] });
+    w.catalog.addContext('fs', { name: 'guide', title: 'Files', description: 'How files work.', content: 'Paths are relative to the root.', fns: [QualifiedName.parse('fs/tree')] });
+    w.index.suggestions = [
+      { kind: 'fn', name: 'fs/write', description: 'Write a file.', score: 0.7 },
+      { kind: 'context', name: 'fs/guide', description: 'How files work.', score: 0.8 },
+      { kind: 'fn', name: 'fs/read', description: 'Read a file.', score: 0.9 },
+    ];
+    return w;
+  }
+
+  it('loads the picks for the turn: fns as tools, context as its text with the fns it brings, and says so to the model', async () => {
+    const w = await loading();
+    const { parts, suggestions } = await w.chat.enrich.enrich({ session: w.session, turn, text: 'read the readme', user: w.user });
+    // nothing is left to suggest: everything picked was loaded
+    expect(parts.slice(1)).toEqual([{
+      type: 'loaded-for-you', by: 'decision', toolset: 'tools',
+      fns: [{ fn: 'fs/read', label: 'Read', why: '100% likely' }, { fn: 'fs/tree', label: 'Tree', broughtBy: 'fs/guide' }, { fn: 'fs/write', label: 'Write', why: '100% likely' }],
+      context: [{ context: 'fs/guide', title: 'Files', why: '100% likely', text: 'Paths are relative to the root.', fns: ['fs/tree'] }],
+    }]);
+    expect(suggestions?.action).toBe('load');
+    expect(suggestions?.items.filter((i) => i.used).map((i) => [i.name, i.used ? i.load : undefined])).toEqual([['fs/read', 'loaded'], ['fs/guide', 'loaded'], ['fs/write', 'loaded'], ['fs/tree', 'loaded']]);
+    // what was loaded is never suggested again in the chat, and its fns join the tools when the message is sent
+    expect(suggestedIn(parts)).toEqual(['fs/read', 'fs/tree', 'fs/write', 'fs/guide']);
+    expect(loadedFnsIn(parts)).toEqual(['fs/read', 'fs/tree', 'fs/write']);
+    const text = w.chat.enrich.render({
+      id: IDS.message.parse('msg_1'), session: w.session.id, turn, author: w.admin.id, role: 'user', parts: [{ type: 'text', text: 'read the readme' }, ...parts.slice(1)],
+      runs: [], status: 'done', replyAll: false, answerers: [], createdAt: 0,
+    });
+    expect(text).toContain(`<loaded_for_you>\n${LOADED_FOR_YOU_LINES.tools('the hub\'s decision model')}\n<fn name="fs/read" label="Read">100% likely</fn>`);
+    expect(text).toContain('<context key="fs/guide" title="Files">');
+    expect(text).toContain('Paths are relative to the root.');
+    expect(text).toContain('<brought_fns in_tools="yes">In your tools now: fs/tree</brought_fns>');
+  });
+
+  it('suggests what doesn\'t fit the room or can\'t be used now, and records why', async () => {
+    const w = await loading();
+    // no room for any context text, and fs/write is switched off
+    Object.assign(w.deps.settings.chat, { HARNESS_AUTOLOAD_TOKENS: 1 });
+    const write = w.catalog.addFn('fs', { name: 'write', description: 'Write a file.' });
+    w.catalog.fnRecords.set(write.name, { ...write, available: { unavailable: 'disabled', detail: 'switched off' } });
+    const { parts, suggestions } = await new HubMessageEnricher(w.deps, w.chat.suggestions).enrich({ session: w.session, turn, text: 'read the readme', user: w.user });
+    const loaded = parts.find((p) => p.type === 'loaded-for-you');
+    expect(loaded?.type === 'loaded-for-you' ? loaded.fns.map((f) => f.fn) : []).toEqual(['fs/read']);
+    expect(loaded?.type === 'loaded-for-you' ? loaded.context : undefined).toEqual([]);
+    // the guide (and the fn it brings) and the blocked fn are suggested instead
+    expect(suggestedIn(parts.filter((p) => p.type !== 'loaded-for-you'))).toEqual(['fs/guide', 'fs/tree', 'fs/write']);
+    const became = Object.fromEntries((suggestions?.items ?? []).flatMap((i) => (i.used ? [[i.name, i.load]] : [])));
+    expect(became).toEqual({ 'fs/read': 'loaded', 'fs/guide': 'budget', 'fs/write': 'blocked', 'fs/tree': 'budget' });
+  });
+
+  it('only suggests when the action is suggest, or the decision model fails', async () => {
+    const w = await loading();
+    await w.chat.suggestions.set(SuggestDecision.parse({ by: 'decision', floor: 0 }), w.admin.id);
+    const plain = await w.chat.enrich.enrich({ session: w.session, turn, text: 'read the readme', user: w.user });
+    expect(plain.parts.some((p) => p.type === 'loaded-for-you')).toBe(false);
+    expect(plain.suggestions?.action).toBeUndefined();
+    await w.chat.suggestions.set(SuggestDecision.parse({ by: 'decision', floor: 0, action: 'load' }), w.admin.id);
+    w.decisions.answer = () => { throw new Error('model down'); };
+    const failed = await w.chat.enrich.enrich({ session: w.session, turn, text: 'read the readme', user: w.user });
+    expect(failed.parts.some((p) => p.type === 'loaded-for-you')).toBe(false);
+    expect(failed.suggestions?.action).toBeUndefined();
+  });
+
+  it('adds the loaded fns to the session\'s tools when the message is sent; the turn\'s start keeps the tools before, for undo', async () => {
+    const w = await loading();
+    const sent = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, client: CLIENT, parts: [{ type: 'text', text: 'read the readme' }] });
+    const session = await w.store.table('sessions').get(w.session.id);
+    expect(session?.tools).toEqual(['fs/read', 'fs/tree', 'fs/write']);
+    // the context is in the message, not the session's loaded context; nothing loaded is suggested again
+    expect(session?.context).toEqual([]);
+    expect(session?.suggested).toEqual(['fs/read', 'fs/tree', 'fs/write', 'fs/guide']);
+    expect((await w.store.table('turns').get(sent.turn))?.start).toMatchObject({ tools: [], context: [] });
   });
 });

@@ -14,10 +14,16 @@
  * (`failed`). A score is a candidate's similarity of meaning to the
  * message (`index/suggester.ts`), never its rank, so the threshold and the floor tell a fit from noise.
  *
+ * A model chooser's action (`SuggestDecision.action`) is `suggest` (the default) or `load`: with `load` the record says
+ * so (`action: 'load'`), each pick is marked to load (`load: 'loaded'`), and the decision carries `load` with the
+ * picks' reasons, so the enricher loads them for the turn (`chat/enrich.ts`), sizing context to the prompt's room and
+ * marking what didn't fit or can't be used `budget` or `blocked`. When the model fails, the score's picks are only
+ * suggested.
+ *
  * The same chooser answers a system's `decide` (reuse something it has, or make something new), unless it is `none`.
  */
 import {
-  messageOf, StoredSuggestDecision, SUGGEST_DECISION_DEFAULT, yesProbability, type ActorId, type DecideAnswer, type DecideRequest, type DecisionAnswer,
+  actionOf, messageOf, StoredSuggestDecision, SUGGEST_DECISION_DEFAULT, yesProbability, type ActorId, type DecideAnswer, type DecideRequest, type DecisionAnswer,
   type DecisionQuestions, type LlmMessage, type ModelCallId, type ModelChoice, type RoleModel, type SessionId, type SkipReason, type Suggestion,
   type SuggestDecision, type SuggestDecisionView, type SuggestionOutcome, type SuggestionRecord,
 } from '@harness/core';
@@ -124,12 +130,12 @@ export class HubSuggestions implements SuggestionDecider {
         if (fn === undefined || fn.disabled || !access.seesFn(fn) || !access.mayUse(fn)) { continue; }
         have.add(name);
         brought.push({ kind: 'fn', name, description: fn.decl.description, score: context.score });
-        outcomes.push({ used: true, kind: 'fn', name, score: context.score, broughtBy: context.name });
+        outcomes.push({ used: true, kind: 'fn', name, score: context.score, broughtBy: context.name, ...(decided.load === undefined ? {} : { load: 'loaded' as const }) });
       }
     }
     if (brought.length === 0) { return decided; }
     const record = decided.record === undefined ? undefined : { ...decided.record, items: [...decided.record.items, ...outcomes] };
-    return record === undefined ? { suggestions: [...decided.suggestions, ...brought] } : { suggestions: [...decided.suggestions, ...brought], record };
+    return { ...decided, suggestions: [...decided.suggestions, ...brought], ...(record === undefined ? {} : { record }) };
   }
 
   async #decide(input: { session: SessionId; text: string; actor: ActorId }): Promise<DecidedSuggestions> {
@@ -167,9 +173,14 @@ export class HubSuggestions implements SuggestionDecider {
         ? await this.#llmChoices(messages, pool, setting, signal, calls)
         : await this.#decisionChoices(messages, pool, setting, signal, calls);
       const chosen = pool.filter((item) => choices.picked.has(item));
-      const items = pool.map((item) => (choices.picked.has(item) ? used(item, choices.picked.get(item)) : skipped(item, 'declined', choices.declined.get(item))));
-      this.#deps.log.info('suggestions.decided', { session: input.session, by: setting.by, candidates: pool.length, picked: chosen.length, calls });
-      return finish(chosen, { ...base, ...(calls.length === 0 ? {} : { calls }), items: [...items, ...rest, ...hidden] });
+      // with the action `load` each pick is meant to load; the enricher says what became of it when the message is sent
+      const loads = actionOf(setting) === 'load';
+      const items = pool.map((item) => (choices.picked.has(item) ? { ...used(item, choices.picked.get(item)), ...(loads ? { load: 'loaded' as const } : {}) } : skipped(item, 'declined', choices.declined.get(item))));
+      this.#deps.log.info('suggestions.decided', { session: input.session, by: setting.by, action: actionOf(setting), candidates: pool.length, picked: chosen.length, calls });
+      const decided = finish(chosen, { ...base, ...(calls.length === 0 ? {} : { calls }), ...(loads ? { action: 'load' as const } : {}), items: [...items, ...rest, ...hidden] });
+      if (!loads) { return decided; }
+      const why = new Map(chosen.flatMap((item) => { const note = choices.picked.get(item); return note === undefined ? [] : [[candidateKey(item), note] as const]; }));
+      return { ...decided, load: { by: setting.by, why } };
     } catch (error) {
       this.#deps.log.warn('suggestions.decision.failed', { session: input.session, by: setting.by, error: messageOf(error) });
       // the score decides: the best at or over the threshold, up to the cap

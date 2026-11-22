@@ -35,7 +35,7 @@ export function nameFor(base: string, attempt: number): string {
 }
 
 /** An input fn's answer: the form, the saved form it came from, and what the caller does next (by whether anyone watches). */
-const asked = (ctx: { run: RunInfo }, form: InputFormValue, saved?: string): AskedValue => ({ form, next: nextAfterAsking(ctx.run.watched), ...(saved === undefined ? {} : { saved }) });
+const asked = (ctx: { run: RunInfo }, form: InputFormValue, saved?: string): AskedValue => ({ form, next: nextAfterAsking(ctx.run), ...(saved === undefined ? {} : { saved }) });
 
 /** `hub/save_fn` as a run of `save_form` or `get_input` calls it. */
 type SaveFn = FnCtx<TypesOf<InputContract['defs']['fns']['save_form']>>['fns']['saveFn'];

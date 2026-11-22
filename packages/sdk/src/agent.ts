@@ -45,7 +45,7 @@ export interface AgentInput<A, R, T extends StatusTemplates = StatusTemplates> {
   mode?: NonNullable<LlmPayload['mode']>;
   /** What goes into each prompt: plain (the hub's default), suggest, or graph (for small local models). */
   contextor?: NonNullable<LlmPayload['contextor']>;
-  /** The most tokens one answer may take; the model's own limit when absent. */
+  /** The most tokens one answer may take (never past the model's own limit); the hub's `HARNESS_AGENT_MAX_OUTPUT` when absent. */
   maxOutput?: number;
   visibility?: Audience;
   tags?: string[];

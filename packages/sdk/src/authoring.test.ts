@@ -68,6 +68,29 @@ describe('the authoring agent', () => {
     await expect(failed).rejects.toBeInstanceOf(AuthoringError);
     await expect(failed).rejects.toMatchObject({ stage: 'fix', problems: ['There is no tag b.'] });
   });
+
+  it('answers args that don\'t fit with the first problems at their paths, and reads a field sent as a JSON string', async () => {
+    const script = [
+      callTool('search', { text: 'x' }), callTool('load', { name: 'Note' }), callTool('draft', { draft: { tag: 5 } }),
+      callTool('draft', { draft: JSON.stringify({ tag: 'work' }) }), callTool('save', {}), replyChunks('Saved.'),
+    ];
+    const link = new FakeModelLink({ reply: () => script.shift() ?? replyChunks('done') });
+    const { session } = await notesAgent().run(await fakeHubAi(link), 'Notes', { tags: ['work'] });
+    const told = JSON.stringify(link.forwards[3]?.request.messages);
+    expect(told).toContain("the args don't fit; fix these and send the whole call again:");
+    expect(told).toContain('- draft.tag: Invalid input: expected string, received number');
+    // the double-encoded draft was read as its JSON, checked clean and saved
+    expect(session.log.map((step) => step.tool)).toEqual(['search', 'load', 'draft', 'save']);
+  });
+
+  it('caps every model step at HARNESS_AUTHORING_MAX_TOKENS', async () => {
+    const script = [callTool('search', { text: 'x' }), callTool('load', { name: 'Note' }), callTool('draft', { draft: { tag: 'work' } }), callTool('save', {}), replyChunks('Saved.')];
+    const link = new FakeModelLink({ reply: () => script.shift() ?? replyChunks('done') });
+    await notesAgent().run(await fakeHubAi(link), 'Notes', { tags: ['work'] });
+    expect(link.forwards.length).toBeGreaterThan(4);
+    // the default cap on every step, the last (after save, no tool required) too
+    expect(link.forwards.map((forward) => forward.request.maxTokens)).toEqual(link.forwards.map(() => 16_000));
+  });
 });
 
 describe('Disclosure', () => {

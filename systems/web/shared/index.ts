@@ -6,7 +6,7 @@
  * call its fns with typed refs; its server implements it and its client draws it.
  */
 import type { RenderMode as LibraryRenderMode } from '@aeye/resources';
-import { RawPage as CoreRawPage } from '@harness/core';
+import { RawPage as CoreRawPage, type FnEffects } from '@harness/core';
 import { type Infer, type ValueOf, context, fn, g, ginAs, hub, linear, mention, system, type } from '@harness/sdk';
 
 const renderModes = ['auto', 'always', 'never'] as const satisfies readonly LibraryRenderMode[];
@@ -124,6 +124,13 @@ export const PageTarget = g.or([
   }),
 ]);
 
+/**
+ * What search, read and crawl do to data: they read, and keep what they read as hub resources (`hub/resource_import`).
+ * Keeping it is a read side effect (Phil, 2026-11-22): it changes nothing the person owns, so they stay reads for
+ * read-only searches and chats, and the resource creation is still listed in their facts.
+ */
+const KEEPS_WHAT_IT_READS: FnEffects = { mode: 'read', keeps: ['resources'] };
+
 const url = () => g.field(g.text({ minLength: 1 }), { docs: 'An http or https URL. A bare address like `example.com/docs` is read as https.' });
 
 /** The web system's contract. */
@@ -181,7 +188,7 @@ export const web = system('web', {
           { args: { query: 'EU AI Act enforcement', topic: 'news', days: 7 }, note: 'This week\'s news.' },
           { args: { query: 'vue 3 defineModel', include: ['vuejs.org'] }, note: 'Only the official docs.' },
         ],
-        effects: { mode: 'read' },
+        effects: KEEPS_WHAT_IT_READS,
         status: {
           active: { one: 'Searching the web for {args.query}…', many: 'Running {n} web searches…' },
           retry: { one: 'Searching the web for {args.query} again…', many: 'Retrying {n} web searches…' },
@@ -209,7 +216,7 @@ export const web = system('web', {
           { args: { url: 'https://vuejs.org/guide/components/v-model.html', maxChars: 8000 } },
           { args: { url: 'example.com/pricing', render: 'always' }, note: 'A bare address is read as https; a script-built page is rendered first.' },
         ],
-        effects: { mode: 'read' },
+        effects: KEEPS_WHAT_IT_READS,
         status: {
           active: { one: 'Reading {args.url}…', many: 'Reading {n} web pages…' },
           retry: { one: 'Reading {args.url} again…', many: 'Retrying {n} web pages…' },
@@ -238,7 +245,7 @@ export const web = system('web', {
           { args: { url: 'https://docs.example.com/', depth: 2, maxPages: 30, include: ['/guide/**'] }, note: 'One section of a docs site.' },
           { args: { url: 'https://blog.example.com/2026/', depth: 1, maxPages: 10 } },
         ],
-        effects: { mode: 'read' },
+        effects: KEEPS_WHAT_IT_READS,
         status: {
           active: { one: 'Crawling {args.url}…', many: 'Crawling {n} sites…' },
           retry: { one: 'Crawling {args.url} again…', many: 'Retrying {n} crawls…' },

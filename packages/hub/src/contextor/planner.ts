@@ -231,9 +231,12 @@ export class HubPromptPlanner implements PromptPlanner {
     const guide = fixedRegion(await this.#systems(session, access), mode.guide(ctx), citationsPrompt(session));
     const tools = await mode.fixedTools(ctx);
     const head = estimator.text(planning.instructions) + MESSAGE_FRAMING + (guide === '' ? 0 : estimator.text(`\n\n${guide}`)) + tools.reduce((sum, t) => sum + estimator.tool(t.spec), 0);
-    const reserve = budgetPlan(view.limits, 0, this.#deps.settings.HARNESS_PROMPT_MARGIN, payload.maxOutput);
+    // an agent that declares no `maxOutput` still gets a bound (`HARNESS_AGENT_MAX_OUTPUT`): a stuck model stops there
+    const cap = this.#deps.settings.HARNESS_AGENT_MAX_OUTPUT;
+    const maxOutput = payload.maxOutput ?? (cap > 0 ? cap : undefined);
+    const reserve = budgetPlan(view.limits, 0, this.#deps.settings.HARNESS_PROMPT_MARGIN, maxOutput);
     const fitted = this.#fitCurrent(currentExchange?.messages ?? [], reserve, head, estimator, model);
-    const plan = budgetPlan(view.limits, head + estimator.messages(fitted.messages), this.#deps.settings.HARNESS_PROMPT_MARGIN, payload.maxOutput);
+    const plan = budgetPlan(view.limits, head + estimator.messages(fitted.messages), this.#deps.settings.HARNESS_PROMPT_MARGIN, maxOutput);
     const query = currentExchange?.user ?? '';
     // the fns the mode's own tools replace are never shown
     const shown = (names: readonly string[]): string[] => names.filter((name) => !mode.replaces.has(name));

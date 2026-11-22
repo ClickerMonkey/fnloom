@@ -5,7 +5,7 @@
  * can now write or delete, new effects on the hub, and new hub calls, secrets, hosts, paths, fns or models granted.
  */
 import {
-  effectsLine, FnDecl, ITEM_SECTIONS, registryMode, REVIEW_FLAGS, reviewFlag, strongerMode, SystemGrants,
+  effectsLine, FnDecl, isKept, ITEM_SECTIONS, registryMode, REVIEW_FLAGS, reviewFlag, strongerMode, SystemGrants,
   type ContractChange, type DeclaredFnFacts, type FnChangeFacts, type FnMode, type GrantsMove, type Json, type RegistryEffect, type ReviewCount, type ReviewFlag, type ReviewFlagKind, type ReviewSummary,
 } from '@harness/core';
 import { declaredMode } from '../fns/facts.ts';
@@ -22,9 +22,12 @@ const NOUNS: Readonly<Record<ContractChange['section'], readonly [string, string
 /** The whole-system config items beside the config type, by the suffix of their listed name (`manifestItems`). */
 const CONFIG_WORDS: Readonly<Record<string, string>> = { connect: 'connect page', events: 'hub events', resources: 'resource serving' };
 
-/** The mode a fn's declaration amounts to: what it declares, raised by what it creates, updates or removes in the hub. */
+/**
+ * The mode a fn's declaration amounts to: what it declares, raised by what it creates, updates or removes in the hub
+ * (but for what it keeps of what it reads, `FnEffects.keeps`).
+ */
 export function fnMode(decl: FnDecl): FnMode {
-  const least = registryMode(decl.effects?.registry ?? []);
+  const least = registryMode((decl.effects?.registry ?? []).filter((effect) => !isKept(effect, decl.effects?.keeps)));
   const own = declaredMode(decl);
   return least === undefined ? own : strongerMode(own, least);
 }

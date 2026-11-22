@@ -167,3 +167,28 @@ describe('tool schemas that cross the wire', () => {
     expect(sent).toContain('"key"');
   });
 });
+
+// iteration 1, rep 3: every forwarded authoring step rebuilt its 50 KB gin program schema from JSON (10 to 20 ms) and
+// the hub converted it back to JSON schema to save the interaction (110 ms), on the event loop, until it shed load
+describe('schemas made once', () => {
+  const big = z.object({ draft: z.object({ name: z.string(), steps: z.array(z.union([z.object({ kind: z.literal('a'), n: z.number() }), z.object({ kind: z.literal('b'), s: z.string() })])) }) });
+  const json = refuse.jsonSchema(big);
+
+  it('rebuilds the same JSON schema from the wire into the same zod schema, and a changed one anew', () => {
+    const wire = (parameters: typeof json): LlmRequest => ({ messages: [{ role: 'user', content: 'hi' }], tools: [{ name: 'set', parameters }] });
+    const first = requestFromWire(wire(json)).tools?.[0]?.parameters;
+    const again = requestFromWire(wire(structuredClone(json))).tools?.[0]?.parameters;
+    expect(again).toBe(first);
+    const other = requestFromWire(wire(refuse.jsonSchema(z.object({ other: z.string() })))).tools?.[0]?.parameters;
+    expect(other).not.toBe(first);
+    expect(other?.safeParse({ other: 'x' }).success).toBe(true);
+  });
+
+  it('converts a zod schema to JSON schema once per schema', () => {
+    const wire = new LlmWire({ unrepresentable: 'placeholder' });
+    const request: Request = { messages: [{ role: 'user', content: 'hi' }], tools: [{ name: 'set', parameters: big }] };
+    const once = wire.request(request).tools?.[0]?.parameters;
+    expect(wire.request(request).tools?.[0]?.parameters).toBe(once);
+    expect(once).toEqual(json);
+  });
+});

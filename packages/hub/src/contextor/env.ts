@@ -53,6 +53,7 @@ export const contextorEnv = env({
   HARNESS_METRIC_USED_WEIGHT: weight('recent use', 0.5),
   HARNESS_METRIC_USED_TARGET: target('recent use', 1),
   HARNESS_METRIC_USED_K: steepness('recent use', 1.5),
+  HARNESS_AGENT_MAX_OUTPUT: z.number().int().min(0).default(16_000).describe('The most tokens one answer of an agent fn (the chat\'s among them) may take when its payload declares no `maxOutput`, so a stuck model cannot write for minutes; 0 leaves it to the model\'s own limit.'),
   HARNESS_PROMPT_MARGIN: z.number().min(0).max(0.5).default(0.06).describe('The share of a model\'s window kept free for estimate error (at least 64 tokens).'),
 });
 

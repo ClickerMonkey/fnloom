@@ -195,13 +195,14 @@ const NOT_VALUES = { path: 'args', message: 'args must be a JSON object of value
 
 /**
  * What get_query tells its caller when neither the request nor the decision model says which database: ask the person
- * with input/ask_choice and call again, or, with nobody watching, say which databases could answer.
+ * with input/ask_choice and call again when the run is the chat's own (`RunInfo.inChat`: the answer comes back as the next
+ * message), else say which databases could answer.
  */
-export function askNext(ask: AskWhichDatabase, labels: readonly string[], watched: boolean | undefined): string {
+export function askNext(ask: AskWhichDatabase, labels: readonly string[], inChat: boolean | undefined): string {
   const options = labels.map((label) => `"${label}"`).join(', ');
-  return watched === true
+  return inChat === true
     ? `Ask the person with input/ask_choice (question "${ask.ask}", options ${options}), end your turn, then call get_query again with the database they pick.`
-    : `Nobody is watching this run, so nobody can pick: say the request could be for ${options} and stop, or call get_query again naming the database.`;
+    : `This run is not the chat's own, so nobody can pick here: say the request could be for ${options} and stop, or call get_query again naming the database.`;
 }
 
 /** A query's effects with its tables as the hub's type names. */
@@ -560,7 +561,7 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
           if ('invalid' in picked) { return ctx.invalid([{ path: 'database', message: picked.invalid }]); }
           if ('ask' in picked) {
             const labels = picked.databases.map((name) => members.find((member) => member.instance === name)?.label ?? name);
-            return ctx.done({ ...picked, next: askNext(picked, labels, ctx.run.watched) });
+            return ctx.done({ ...picked, next: askNext(picked, labels, ctx.run.inChat) });
           }
           const answer = await authorOn(ctx, picked.database, { request: args.detailedDescription });
           return isProblem(answer) ? refuse(ctx, answer) : ctx.done(answer);

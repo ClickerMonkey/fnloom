@@ -11,7 +11,7 @@
  * resume go as far as the run allows (`allowed`). Undo hands the run's undo payload back to its executor.
  */
 import {
-  compact, FN_MODES, INVALID_INPUT_CODE, isSettled, isUnsettled, MAIN_INSTANCE, mintId, problemLine, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
+  clip, compact, CONCISE_LIMITS, conciseIssues, FN_MODES, INVALID_INPUT_CODE, isSettled, isUnsettled, MAIN_INSTANCE, mintId, problemLine, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
   type ProgressWire, type ResumeWire, type Run, type RunId, type RunInfo, type RunRequest, type RunSettled, type RunStatus, type RunText, type RunUpdate,
   type Turn, type UndoOutcome, type Usd, type RunControlAction, type FnError, type InputProblem, type InvalidInput, type Compact,
   flagsVerdict, proposalSubjectOf, type CompareFork, type SessionId, type ApprovalPreview, type Approver, type PreviewPart, type SensitivityFlag, type InstanceName, type ProposedRun, type ProposeRun, type UserInfo, type QualifiedName, qualify,
@@ -29,6 +29,15 @@ import type { ExecutionQueues } from './queues.ts';
 import { timeInfo } from './time.ts';
 import { RunWording } from './wording.ts';
 import type { FnModeGate, ModeVerdict } from '../fns/index.ts';
+
+/**
+ * Whether a run is the chat's own (`RunInfo.inChat`): a chat turn's agent or a fn it called directly, on a session, not
+ * in the background (not a nested agent's own calls, a background run or an MCP call, which has no session). A person
+ * watches it when they also have the session open (`RunInfo.watched`).
+ */
+export function chatOwn(run: Pick<Run, 'session' | 'background'>, parent: Pick<Run, 'parent'> | undefined): boolean {
+  return run.session !== undefined && !run.background && parent?.parent === undefined;
+}
 
 /** Why a signal aborted, as an error. */
 function abortError(signal: AbortSignal): Error {
@@ -50,13 +59,14 @@ function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
 }
 
 /**
- * The problems of args that don't fit a fn's args schema, as refused input (`schema`), each at its dotted path; none
- * when they fit.
+ * The problems of args that don't fit a fn's args schema, as refused input (`schema`), each at its full dotted path
+ * with what was expected there, a few at most (`conciseIssues`: unions followed into the branch the args got furthest
+ * into, a gin type checked by gin); none when they fit. `args` is what was checked.
  */
-export function invalidArgs(checked: z.ZodSafeParseResult<unknown>): InvalidInput | undefined {
+export function invalidArgs(checked: z.ZodSafeParseResult<unknown>, args?: unknown): InvalidInput | undefined {
   if (checked.success) return undefined;
-  const [first, ...rest] = checked.error.issues.map((issue): InputProblem => ({ path: issue.path.map(String).join('.'), message: issue.message }));
-  return first === undefined ? { source: 'schema', problems: [{ path: '', message: z.prettifyError(checked.error) }] } : { source: 'schema', problems: [first, ...rest] };
+  const [first, ...rest] = conciseIssues(checked.error, args).map((issue): InputProblem => ({ path: issue.path, message: issue.message }));
+  return first === undefined ? { source: 'schema', problems: [{ path: '', message: clip(z.prettifyError(checked.error), CONCISE_LIMITS.chars) }] } : { source: 'schema', problems: [first, ...rest] };
 }
 
 /** Which executor runs a run. */
@@ -243,7 +253,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const missing = Object.entries(fn.decl.handlers).filter(([name, decl]) => decl.required && !handlers.includes(name)).map(([name]) => name);
     if (missing.length > 0) throw new RunRefused(fnError('fatal', `${fn.name} needs its caller to answer ${missing.join(', ')}, which this caller can't.`, 'needs-handlers'));
     // input already refused is not checked again (a blocked fn's signature may not even resolve, its kind gone)
-    const checked = input.invalid ?? invalidArgs((await catalog.signature(fn.name)).argsSchema.safeParse(input.args));
+    const checked = input.invalid ?? invalidArgs((await catalog.signature(fn.name)).argsSchema.safeParse(input.args), input.args);
     const system = SystemName.parse(executingSystem(fn));
     // the one place a system's run is given its instance: a fleet with no clear pick is refused input the caller can fix
     const routed = checked === undefined && executorKind(fn) === 'system'
@@ -442,7 +452,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const key = `${PROPOSED_KEY}${input.key}`;
     const existing = parent === undefined ? await this.#proposedBefore(name, key) : await this.#child(parent.id, key);
     if (existing !== undefined) return this.#proposal(existing);
-    const invalid = invalidArgs((await catalog.signature(name)).argsSchema.safeParse(input.args));
+    const invalid = invalidArgs((await catalog.signature(name)).argsSchema.safeParse(input.args), input.args);
     if (invalid !== undefined) throw new RunRefused(fnError('caller', `The args don't fit ${name}: ${invalid.problems.map(problemLine).join('; ')}`, INVALID_INPUT_CODE));
     // build 9: outside a run, a proposal may wait for a person (a Claude session's owner) instead of the admins
     const person = parent === undefined && input.for !== undefined ? await this.#waitsFor(input, input.for) : undefined;
@@ -953,7 +963,8 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const turn = known ?? (await this.#turn(run));
     const parent = run.parent === undefined ? undefined : await this.get(run.parent);
     const connection = this.#deps.link.connection(run.system, run.instance);
-    const watched = await this.#watched(run, parent);
+    const inChat = chatOwn(run, parent);
+    const watched = inChat && run.session !== undefined && await this.#deps.presence.active(run.session);
     return {
       id: run.id,
       fn: run.fn,
@@ -972,16 +983,8 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       attempt: run.attempt,
       priority: run.priority,
       ...(watched ? { watched } : {}),
+      ...(inChat ? { inChat } : {}),
     };
-  }
-
-  /**
-   * Whether a person watches the run as it happens: a chat turn's run (the turn's agent or a fn it called directly,
-   * not a nested agent's own calls, a background run or an MCP call, which has no session) on a session someone has open.
-   */
-  async #watched(run: Run, parent: Run | undefined): Promise<boolean> {
-    if (run.session === undefined || run.background || parent?.parent !== undefined) return false;
-    return await this.#deps.presence.active(run.session);
   }
 
   async #turn(run: Run): Promise<Turn> {

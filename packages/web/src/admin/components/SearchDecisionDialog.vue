@@ -3,13 +3,14 @@
  * One item kind's search setting (fns' or context's), one choice: as ranked (nobody filters), a decision model (its
  * own or the Decisions role's; one yes/no question per hit, kept at the role's threshold), or an LLM (asked which hits
  * to keep, with reasons). It applies wherever the search is asked: the model's `hub/fns_search` and the web's search.
+ * A judge's action returns the kept hits, or also loads the best of them when the chat model searches.
  */
-import { SEARCH_JUDGES, type ModelInfo, type SearchDecision, type SearchDecisionView, type SearchItemKind, type SearchJudge } from '@harness/core';
+import { CHOOSER_ACTIONS, SEARCH_JUDGES, type ChooserAction, type ModelInfo, type SearchDecision, type SearchDecisionView, type SearchItemKind, type SearchJudge } from '@harness/core';
 import { computed, ref, watch } from 'vue';
 import ModelPicker from '../../chat/components/ModelPicker.vue';
 import type { ModelPick } from '../../chat/logic/session.ts';
 import { UiBanner, UiButton, UiDialog, UiField, UiSegmented, type SegmentOption } from '../../ui/index.ts';
-import { chooserModels, SEARCH_ITEM_WORDS, SEARCH_JUDGE_WORDS, searchDecisionOf, searchDraft, type SearchDraft } from '../logic/suggestions.ts';
+import { chooserModels, SEARCH_ACTION_WORDS, SEARCH_ITEM_WORDS, SEARCH_JUDGE_WORDS, searchDecisionOf, searchDraft, type SearchDraft } from '../logic/suggestions.ts';
 
 const props = withDefaults(defineProps<{
   item: SearchItemKind;
@@ -28,6 +29,8 @@ const set = <K extends keyof SearchDraft>(key: K, value: SearchDraft[K]): void =
 
 const JUDGES: readonly SegmentOption<SearchJudge>[] = SEARCH_JUDGES.map((value) => ({ value, label: SEARCH_JUDGE_WORDS[value].label, icon: SEARCH_JUDGE_WORDS[value].icon }));
 const by = computed({ get: () => draft.value.by, set: (value: SearchJudge) => { set('by', value); } });
+const ACTIONS: readonly SegmentOption<ChooserAction>[] = CHOOSER_ACTIONS.map((value) => ({ value, label: SEARCH_ACTION_WORDS[value].label, icon: SEARCH_ACTION_WORDS[value].icon }));
+const action = computed({ get: () => draft.value.action, set: (value: ChooserAction) => { set('action', value); } });
 const checked = computed(() => searchDecisionOf(draft.value));
 const modelError = computed(() => (tried.value && !checked.value.ok ? checked.value.problem : ''));
 /** The chosen model of the judge on show: the decision model's or the LLM's. */
@@ -68,6 +71,10 @@ function save(): void {
           <p v-if="draft.by === 'decision' && pickable.length === 0" class="dim">No provider offers a decision model yet: add one (an Ollama System One model, or a system’s provider).</p>
         </div>
       </UiField>
+      <template v-if="draft.by !== 'none'">
+        <UiSegmented v-model="action" :options="ACTIONS" label="What it does" data-testid="search-decision-action" />
+        <p class="dim" data-testid="search-decision-action-about">{{ SEARCH_ACTION_WORDS[draft.action].about }}</p>
+      </template>
       <p v-if="draft.by !== 'none'" class="dim">Each check is a model call charged to the run that searched. If the model fails, every hit is kept and the search says so.</p>
       <UiBanner v-if="problem !== ''" tone="danger">{{ problem }}</UiBanner>
     </form>

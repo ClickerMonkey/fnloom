@@ -9,7 +9,7 @@ import { budgetAmount, budgetUse, periodText, resolvedText, scopeText } from './
 import { adminNav, adminNavGroups } from './nav.ts';
 import { decisionText, sortPolicies, subjectText, targetText } from './policies.ts';
 import { autoPairState, availabilityText, endsText, groupedCode, pendingPairings, sortSystems, systemActions, timeLeft } from './systems.ts';
-import { chooserModels, decisionDraft, decisionModelText, decisionOf, previewParts, searchDecisionOf, searchDecisionText, searchDraft } from './suggestions.ts';
+import { chooserModels, decisionDraft, decisionModelText, decisionOf, loadText, previewParts, searchDecisionOf, searchDecisionText, searchDraft } from './suggestions.ts';
 
 const names: Record<string, string> = { act_eng: 'Engineering', act_ada: 'Ada' };
 const nameOf = (id: ActorId): string => names[id] ?? id;
@@ -209,7 +209,7 @@ describe('browsers and nav', () => {
 describe('build 3 admin forms', () => {
   it('reads the suggestions form (no model, a decision model or an LLM), says the setting in words and splits a try-out', () => {
     const none = decisionDraft(undefined);
-    expect(none).toMatchObject({ by: 'none', messages: '3', cap: '6', floor: '0.2' });
+    expect(none).toMatchObject({ by: 'none', action: 'suggest', messages: '3', cap: '6', floor: '0.2' });
     expect(decisionOf(none)).toEqual({ ok: true, value: { by: 'none' } });
     expect(decisionModelText(undefined)).toBe('No model: the closest in meaning over the threshold are suggested');
     // an LLM needs its model; a decision model falls back to the Decisions role's
@@ -226,6 +226,14 @@ describe('build 3 admin forms', () => {
     expect(decisionModelText({ value: role.value })).toBe('The Decisions role’s model decides · last 3 messages · up to 6 of 20 above 0.2');
     const own = decisionOf({ ...none, by: 'decision', decision: 'judge' });
     expect(own.ok && own.value.by === 'decision' ? own.value.model : undefined).toEqual({ model: { model: 'judge' } });
+    // a model chooser may load what it picks; the row says so, and the form reads it back
+    const loads = decisionOf({ ...none, by: 'decision', action: 'load' });
+    if (!loads.ok) { throw new Error(loads.problem); }
+    expect(loads.value).toEqual({ by: 'decision', action: 'load', messages: 3, candidates: 20, cap: 6, floor: 0.2 });
+    expect(decisionModelText({ value: loads.value })).toBe('The Decisions role’s model decides and loads · last 3 messages · up to 6 of 20 above 0.2');
+    expect(decisionDraft({ value: loads.value }).action).toBe('load');
+    // no model only suggests, whatever the form held
+    expect(decisionOf({ ...none, action: 'load' })).toEqual({ ok: true, value: { by: 'none' } });
     // each chooser picks among the models able to: decision models, or chat models
     const models = [
       { id: 'judge', provider: 'ollama', name: 'Judge', capabilities: ['decision'] },
@@ -236,7 +244,7 @@ describe('build 3 admin forms', () => {
     expect(chooserModels('none', models)).toEqual([]);
     // the search settings: as ranked by default; an LLM needs its model, a decision model falls back to the role's
     const ranked = searchDraft(undefined);
-    expect(ranked).toEqual({ by: 'none', decision: '', llm: '' });
+    expect(ranked).toEqual({ by: 'none', action: 'suggest', decision: '', llm: '' });
     expect(searchDecisionOf(ranked)).toEqual({ ok: true, value: { by: 'none' } });
     expect(searchDecisionText(undefined)).toBe('As ranked: every hit is returned');
     expect(searchDecisionOf({ ...ranked, by: 'llm' })).toEqual({ ok: false, problem: 'Pick the LLM that filters the hits.' });
@@ -244,7 +252,9 @@ describe('build 3 admin forms', () => {
     const filtering = searchDecisionOf({ ...ranked, by: 'llm', llm: 'gpt-4o-mini' });
     expect(filtering).toEqual({ ok: true, value: { by: 'llm', model: { model: { model: 'gpt-4o-mini' } } } });
     if (!filtering.ok) { throw new Error(filtering.problem); }
-    expect(searchDraft({ value: filtering.value })).toEqual({ by: 'llm', decision: '', llm: 'gpt-4o-mini' });
+    expect(searchDraft({ value: filtering.value })).toEqual({ by: 'llm', action: 'suggest', decision: '', llm: 'gpt-4o-mini' });
+    expect(searchDecisionOf({ ...ranked, by: 'decision', action: 'load' })).toEqual({ ok: true, value: { by: 'decision', action: 'load' } });
+    expect(searchDecisionText({ value: { by: 'decision', action: 'load' } })).toBe('The Decisions role’s model keeps the hits that fit what was searched for, and loads the best for the chat model');
     expect(searchDecisionText({ value: { by: 'decision' } })).toBe('The Decisions role’s model keeps the hits that fit what was searched for');
     const parts = previewParts({ by: 'decision', items: [
       { used: true, kind: 'fn', name: QualifiedName.parse('fs/read') },
@@ -252,6 +262,10 @@ describe('build 3 admin forms', () => {
     ] });
     expect(parts.used.map((i) => i.name)).toEqual(['fs/read']);
     expect(parts.left[0]?.why).toContain('only reads');
+    expect(parts.loads).toBe(false);
+    const loaded = previewParts({ by: 'decision', action: 'load', items: [{ used: true, kind: 'fn', name: QualifiedName.parse('fs/read'), load: 'budget' }] });
+    expect(loaded.loads).toBe(true);
+    expect(loadText(loaded.used[0] ?? { used: false, kind: 'fn', name: QualifiedName.parse('fs/read'), reason: 'rule' })).toBe('No room to load it, so suggested');
   });
 
   it('says where an auto pair secret stands and when it ends', () => {

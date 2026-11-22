@@ -93,7 +93,8 @@ describe('web over the link', () => {
     for (const decl of manifest?.fns ?? []) {
       expect(decl.instructions, decl.name).toBeTruthy();
       expect(decl.examples?.length ?? 0, decl.name).toBeGreaterThan(0);
-      expect(decl.effects, decl.name).toEqual({ mode: 'read' });
+      // search, read and crawl keep what they fetch as hub resources, a read side effect (Phil, 2026-11-22)
+      expect(decl.effects, decl.name).toEqual(decl.name === 'fetch_raw' ? { mode: 'read' } : { mode: 'read', keeps: ['resources'] });
     }
     expect(fns.get('search')?.tags).toContain('read');
     expect(fns.get('read')?.tags).toContain('read');

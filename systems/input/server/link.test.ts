@@ -134,9 +134,12 @@ describe('input over the link', () => {
     expect(await hub.run('input/save_form', { name: 'Nobody', description: 'x', form: TRIP, visibility: 'shared' })).toMatchObject({ status: 'invalid-input' });
     // the hub finds it for the agent by its words and kind
     expect(hub.fns.search({ text: 'trip where you go', kinds: [FORM_KIND] }).items[0]).toMatchObject({ name: 'input/trip_details', kind: FORM_KIND });
-    const watched = hub.runInfo(QualifiedName.parse('input/trip_details'), { watched: true });
+    const watched = hub.runInfo(QualifiedName.parse('input/trip_details'), { watched: true, inChat: true });
     expect(done(await hub.run('input/trip_details', {}, { kind: 'input/form', payload: TRIP, run: watched }))).toMatchObject({ saved: 'input/trip_details', form: { title: 'Trip details' }, next: WAIT_FOR_ANSWERS });
-    // with nobody watching (a nested agent, an MCP call) the caller is told not to wait for answers
+    // the chat's own run with the chat closed (iteration 1's scenarios): the answers still come back, so end the turn
+    const closed = hub.runInfo(QualifiedName.parse('input/trip_details'), { inChat: true });
+    expect(done(await hub.run('input/trip_details', {}, { kind: 'input/form', payload: TRIP, run: closed }))).toMatchObject({ next: WAIT_FOR_ANSWERS });
+    // a run that is not the chat's own (a nested agent, an MCP call): the caller is told not to wait for answers
     expect(done(await hub.run('input/trip_details', {}, { kind: 'input/form', payload: TRIP }))).toMatchObject({ next: HEADLESS_ASKED });
   });
 });

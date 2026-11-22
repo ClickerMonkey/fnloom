@@ -32,6 +32,33 @@ export function isGinTypeDef(value: unknown): value is TypeDef {
   return isRecord(value) && 'name' in value && typeof value.name === 'string';
 }
 
+/**
+ * What gin itself says is wrong with a type definition (`registry.parse` over the built-in registry), or undefined when
+ * it parses, or when its only fault is a name the built-in registry doesn't know (a stored type, a row type), which a
+ * hub with that type would accept. A short, exact problem for the model where a zod schema's union says little.
+ */
+export function ginTypeProblem(def: TypeDef): string | undefined {
+  if (ginSchemas === undefined) {
+    const registry = createRegistry();
+    ginSchemas = { registry, bag: buildSchemas(registry, { namedRefs: true }) };
+  }
+  const problem = (candidate: unknown): string | undefined => {
+    try {
+      ginSchemas?.registry.parse(candidate);
+      return undefined;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  };
+  const message = problem(def);
+  if (message === undefined || !/no type named|unknown type/.test(message)) return message;
+  // an unknown name with props (a row type named like its table): what is wrong with the props, as an object type's
+  const props: unknown = isRecord(def) && 'props' in def ? def.props : undefined;
+  if (props === undefined) return undefined;
+  const inner = problem({ name: 'obj', props });
+  return inner === undefined ? `"${def.name}" is not a type; an object type is named "obj"` : `"${def.name}" is not a type (an object type is named "obj"), and ${inner}`;
+}
+
 /** A gin type in its JSON wire form. `registry.parse` turns it back into a gin type and checks it fully. */
 export const GinTypeDef = withJsonSchema(
   z.custom<TypeDef>(isGinTypeDef, { message: 'Expected a gin type definition ({ name, ... }).' }),

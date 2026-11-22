@@ -19,6 +19,7 @@ export const executionEnv = env({
   HARNESS_VALIDATE_RETRIES: z.number().int().min(0).default(2).describe('How many times in a turn a fn whose output hook refused its result may be tried again before the run stops.'),
   HARNESS_TOOL_RESULT_ROWS: z.number().int().min(0).max(100).default(5).describe('How many rows of a table result (a widget run, a fn returning a table) the model reads after its summary; the person sees the whole table.'),
   HARNESS_HEADLESS_RESULT_ROWS: z.number().int().min(0).max(500).default(50).describe('How many rows of a table result the model reads in a run nobody watches (a nested agent, a background or scheduled run), where no one sees the table and the model answers from these rows.'),
+  HARNESS_STREAM_BLANK_RUN: z.number().int().min(64).default(2_000).describe('Blank characters in a row (spaces, newlines, or their JSON escapes) in a tool call\'s arguments or an answer\'s text that make a model stream degenerate: the hub stops it there and the call fails with a note the model can act on (`stream-guard.ts`).'),
   HARNESS_AGENT_TOOL_FAILURES: z.number().int().min(1).default(4).describe('Consecutive iterations whose tool calls all fail before an agent run stops.'),
 });
 

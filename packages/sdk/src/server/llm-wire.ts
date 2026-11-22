@@ -13,8 +13,19 @@ import {
   type DecisionInput, type FinishReason, type LlmChunk, type LlmContentPart, type LlmForwardChunk, type LlmMessage, type LlmRequest, type LlmResponse, type LlmToolCall,
   type LlmToolSpec, type LlmUsage,
 } from '@harness/core';
+import { env } from '@ayepi/env';
 import { z } from 'zod';
 import { LinkGap } from './wire.ts';
+
+/** The wire's tunables. */
+export const llmWireEnv = env({
+  /**
+   * How many tool and output schemas rebuilt from the wire are kept, by their JSON (`schemaFromWire`). An authoring
+   * agent sends the same few large schemas (a gin program's, 50 KB of JSON schema) every round, and rebuilding one
+   * took 10 to 20 ms of the hub's event loop each time (iteration 1, rep 3); the rebuilt zod schema is kept instead.
+   */
+  HARNESS_WIRE_SCHEMA_CACHE: z.coerce.number().int().min(0).default(64),
+});
 
 /** How `LlmWire` treats what the wire can't carry. */
 export interface LlmWireOptions {
@@ -78,6 +89,11 @@ function messageFields(message: Message | LlmMessage): Pick<Message, 'role' | 'n
 /** aeye → wire for the parts where callers differ in what the wire can't carry. */
 export class LlmWire {
   readonly #options: LlmWireOptions;
+  /**
+   * Each zod schema's JSON schema, made once per schema object: saving a forwarded authoring call converted its tools
+   * back to JSON schema every round, 110 ms of the hub's event loop each (iteration 1, rep 3).
+   */
+  readonly #json = new WeakMap<z.ZodType, Json>();
 
   constructor(options: LlmWireOptions) {
     this.#options = options;
@@ -109,7 +125,11 @@ export class LlmWire {
 
   /** A zod schema as JSON schema (its input side). */
   jsonSchema(schema: z.ZodType): Json {
-    return Json.parse(z.toJSONSchema(schema, { io: 'input', unrepresentable: this.#options.unrepresentable === 'refuse' ? 'throw' : 'any' }));
+    const known = this.#json.get(schema);
+    if (known !== undefined) { return known; }
+    const made = Json.parse(z.toJSONSchema(schema, { io: 'input', unrepresentable: this.#options.unrepresentable === 'refuse' ? 'throw' : 'any' }));
+    this.#json.set(schema, made);
+    return made;
   }
 
   #tool(tool: ToolDefinition): LlmToolSpec {
@@ -206,9 +226,29 @@ function isStringOnly(value: Json): boolean {
   return value !== null && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 1 && value['type'] === 'string';
 }
 
-/** A JSON schema from the wire rebuilt as zod, its records kept records for the provider's strict dialect. */
+/** Schemas rebuilt from the wire by their JSON, least recently used first (`HARNESS_WIRE_SCHEMA_CACHE`). */
+const rebuilt = new Map<string, z.ZodType>();
+
+/**
+ * A JSON schema from the wire rebuilt as zod, its records kept records for the provider's strict dialect. The same
+ * JSON gives the same zod schema (kept, `HARNESS_WIRE_SCHEMA_CACHE`), so a schema sent every round is rebuilt once,
+ * and what keys on the schema (aeye's strict-mode rewrite, `LlmWire.jsonSchema`) is reused with it.
+ */
 export function schemaFromWire(schema: Json): z.ZodType {
-  return z.fromJSONSchema(JsonSchemaObject.parse(withoutStringKeys(schema)));
+  const size = llmWireEnv.get('HARNESS_WIRE_SCHEMA_CACHE');
+  const key = size === 0 ? undefined : JSON.stringify(schema);
+  const known = key === undefined ? undefined : rebuilt.get(key);
+  if (key !== undefined && known !== undefined) {
+    rebuilt.delete(key);
+    rebuilt.set(key, known);
+    return known;
+  }
+  const made = z.fromJSONSchema(JsonSchemaObject.parse(withoutStringKeys(schema)));
+  if (key !== undefined) {
+    rebuilt.set(key, made);
+    while (rebuilt.size > size) { const oldest = rebuilt.keys().next().value; if (oldest === undefined) break; rebuilt.delete(oldest); }
+  }
+  return made;
 }
 
 /** A JSON schema rebuilt as a zod schema of objects; refused when it doesn't describe an object. */

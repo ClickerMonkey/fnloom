@@ -3,7 +3,7 @@
  * the slice of these it uses (`Pick<ChatDeps, …>`), so its tests fake just that.
  */
 import type { Logger } from '@ayepi/log';
-import type { ActorId, IdRandom } from '@harness/core';
+import type { ActorId, ContentRef, IdRandom, ResourceUri, SessionId } from '@harness/core';
 import type { PushService } from '../api/index.ts';
 import type { HubSettings } from '../boot/env.ts';
 import type { EventBus } from '../bus.ts';
@@ -48,4 +48,22 @@ export interface ChatDeps {
   readonly hubActor: ActorId;
   /** What each person may see and use. */
   readonly access: Pick<AccessService, 'scope'>;
+  /**
+   * The room, in tokens, the prompt for a message has besides its fixed part (the session's agent model's window less
+   * its output, reasoning, margin, instructions, tools and the message itself: the contextor's flexible budget), so
+   * context a suggestions chooser loads into the message is sized to it. Undefined when it can't be told (no agent, no
+   * planner); then only `HARNESS_AUTOLOAD_TOKENS` holds it.
+   */
+  readonly promptRoom?: (input: { session: SessionId; text: string; actor: ActorId }) => Promise<number | undefined>;
+  /**
+   * Keeps a file the person attached as a hub resource (the resources module's import) and gives its uri, with its text
+   * when it is a text file (at most `maxChars`), so the model reads it at once. Absent (some tests): files reach the
+   * model by their content ref only.
+   */
+  readonly files?: AttachedFiles;
+}
+
+/** How a sent message's files become resources the model reads (`ChatDeps.files`). */
+export interface AttachedFiles {
+  keep(file: { readonly ref: ContentRef; readonly name: string }, who: { readonly actor: ActorId; readonly session: SessionId }, maxChars: number): Promise<{ uri: ResourceUri; text?: string; truncated?: boolean }>;
 }

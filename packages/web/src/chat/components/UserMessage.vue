@@ -80,6 +80,7 @@ const addedText = computed(() => split.value.added.flatMap((part: MessagePart): 
   if (part.type === 'systems-changed') {
     return [...part.on.map((c) => `System on: ${c.name} (${c.reason})`), ...part.off.map((c) => `System off: ${c.name} (${c.reason})`)];
   }
+  if (part.type === 'loaded-for-you') { return [`Loaded for you: ${[...part.context.map((c) => c.context), ...part.fns.map((f) => f.fn)].join(', ')}`]; }
   if (part.type !== 'extra' && part.type !== 'hook') { return []; }
   return part.blocks.flatMap((block): string[] => {
     switch (block.type) {

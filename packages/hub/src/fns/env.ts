@@ -6,6 +6,7 @@ export const fnsEnv = env({
   HARNESS_FN_SEARCH_LIMIT: z.number().int().min(1).max(100).default(20).describe('How many fns and context items a search returns when the asker doesn\'t say.'),
   HARNESS_FN_SEARCH_NICHE_WEIGHT: z.number().min(0).max(1).default(0.5).describe('What the rank of a developer, admin or reference hit is multiplied by when the search does not name its niche (`FnSearchQuery.niches`), so an ordinary request finds what it needs first; 1 ranks it like the rest.'),
   HARNESS_SEARCH_DECISION_TIMEOUT: z.number().int().min(500).default(15_000).describe('How long the search decision model (or LLM) an admin chose has to filter one page of hits of a kind before every hit is kept.'),
+  HARNESS_SEARCH_LOAD_MAX: z.number().int().min(0).max(20).default(5).describe('With a search decision whose action is `load`, the most kept hits of each kind (fns, context) `hub/fns_search` loads into the chat, best first.'),
   HARNESS_FN_SEARCH_CANDIDATES: z.number().int().min(10).default(5_000).describe('The most items a filtered search ranks by words and meaning; filters that let more through rank the whole index instead.'),
   HARNESS_FN_PROMPT_EXAMPLES: z.number().int().min(0).max(20).default(2).describe('How many examples of a fn go into the prompt with it when the fn doesn\'t say (`FnDecl.promptExamples`), the most relevant to the turn first.'),
   HARNESS_FN_EXAMPLES_PAGE: z.number().int().min(1).max(50).default(10).describe('How many examples a `hub/fn_examples` page holds when the asker doesn\'t say.'),

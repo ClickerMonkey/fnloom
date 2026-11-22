@@ -10,7 +10,7 @@
  * are marked `harness-crash` too and the next rep starts).
  *
  *   --cases 1,5,12        which cases (default: all 40)
- *   --variants off,on     the household variants (`variants.ts`; default `off`): with more than one, each rep of each
+ *   --variants off,on     the household variants (`variants.ts`: off, on, load; default `off`): with more than one, each rep of each
  *                         variant gets its own fresh stack, in `<iteration>/<variant>/rep-<n>/`, reps interleaved
  *                         (rep 1 off, rep 1 on, rep 2 off, …), and the report compares them case by case
  *   --variant <name>      with --diagnose or --view: the variant folder to read (a run of several variants)
@@ -370,7 +370,7 @@ async function main(): Promise<void> {
   const variants = parseVariants(options.variants);
   // a variant the hub can't set up, or a decision model that doesn't answer, stops the run before anything boots
   checkVariantSupport(variants);
-  if (variants.includes('on')) {
+  if (variants.some((name) => name !== 'off')) {
     const proof = await proveDecisionModel(settings.OPENROUTER_API_KEY, settings.HARNESS_SCENARIOS_DECISION_MODEL);
     log(`decision model ${proof.model} answers (${proof.ms}ms, ${proof.cost === undefined ? 'cost not reported' : usd(proof.cost)}): ${JSON.stringify(proof.answers)}`);
   }

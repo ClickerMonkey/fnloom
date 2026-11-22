@@ -457,13 +457,15 @@ const adminFns = {
   install_package: adminFn('Install a system package zip (made by `harness system pack`), pair it, configure it and start it.', 'Use it with a package zip made by `harness system pack`: it installs, pairs, configures and starts the system in one step.', ADMIN_ENDPOINTS.install_package, [{ args: { zip: { hash: '0000000000000000000000000000000000000000000000000000000000000000', size: 2048, mime: 'application/zip' } } }], changes('create', 'fns', 'types', 'context', 'kinds', 'components')),
   add_instance: adminFn('Add an instance of a bundled fleet system (an MCP server, an API service) with its config: installed, paired and started on the hub machine.', 'Use it when an admin asks to add an MCP server or an API service. Ask for the secret fields only when the server needs them, and never repeat them back.', ADMIN_ENDPOINTS.add_instance, [{ args: { system: 'mcp', instance: 'linear', description: 'Linear issues', config: { label: 'Linear', transport: { type: 'http', url: 'https://mcp.linear.app/mcp' }, auth: { kind: 'oauth', per: 'person' } } }, note: 'A remote MCP server people sign in to.' }], changes('create', 'fns', 'types', 'context')),
   remove_instance: adminFn('Remove one instance of a system.', 'Use it only when an admin asks to remove one instance of a system. Offer hub/export_system_data first so its data can be kept.', ADMIN_ENDPOINTS.remove_instance, [{ args: { system: 'database', instance: 'old' } }], changes('remove', 'fns', 'types')),
-  suggest_decision_set: adminFn('Choose who picks what each message is offered: none (no model: the best by similarity over the threshold), a decision model (one yes/no question per candidate, the decide role\'s threshold), or an LLM; and how many candidates it sees and picks.', 'Use it when an admin wants a model to pick what each message is offered, or to let the score alone decide. An LLM needs a model; a decision model uses the decide role\'s unless one is named.', ADMIN_ENDPOINTS.suggest_decision_set, [
+  suggest_decision_set: adminFn('Choose who picks what each message is offered: none (no model: the best by similarity over the threshold), a decision model (one yes/no question per candidate, the decide role\'s threshold), or an LLM; how many candidates it sees and picks; and a model\'s action: suggest (cards the chat model may load, the default) or load (what it picks is loaded for the turn: fns join the tools, context is brought into the message).', 'Use it when an admin wants a model to pick what each message is offered, or to let the score alone decide. An LLM needs a model; a decision model uses the decide role\'s unless one is named. Set action load only when the admin wants the picks loaded without the chat model asking; none (the score alone) only suggests, and context that doesn\'t fit the prompt\'s room is suggested instead.', ADMIN_ENDPOINTS.suggest_decision_set, [
     { args: { by: 'none' }, note: 'Let the score decide again.' },
-    { args: { by: 'decision', messages: 3, candidates: 20, cap: 6, floor: 0.2 }, note: 'The decide role\'s decision model picks.' },
+    { args: { by: 'decision', messages: 3, candidates: 20, cap: 6, floor: 0.2 }, note: 'The decide role\'s decision model picks; its picks are suggested.' },
+    { args: { by: 'decision', messages: 3, candidates: 20, cap: 6, floor: 0.2, action: 'load' }, note: 'The decide role\'s decision model picks, and what it picks is loaded for the turn.' },
   ]),
-  search_decision_set: adminFn('Choose who filters search hits before they are returned, for fns or for context: none (as ranked), a decision model (one yes/no question per hit, kept at the decide role\'s threshold) or an LLM.', 'Use it when an admin wants searches (hub/fns_search and the web\'s) to drop hits that don\'t fit what was searched for. Set fns and context apart; an LLM needs a model, a decision model uses the decide role\'s unless one is named. Each filter call is a model call charged to the run that searched.', ADMIN_ENDPOINTS.search_decision_set, [
+  search_decision_set: adminFn('Choose who filters search hits before they are returned, for fns or for context: none (as ranked), a decision model (one yes/no question per hit, kept at the decide role\'s threshold) or an LLM; and a model\'s action: suggest (the kept hits are returned, the default) or load (hub/fns_search in a chat also loads the best kept hits, up to the hub\'s limit, and says so).', 'Use it when an admin wants searches (hub/fns_search and the web\'s) to drop hits that don\'t fit what was searched for, or to have the model\'s searches load what fits. Set fns and context apart; an LLM needs a model, a decision model uses the decide role\'s unless one is named. Each filter call is a model call charged to the run that searched; the web\'s search only filters.', ADMIN_ENDPOINTS.search_decision_set, [
     { args: { item: 'fn', value: { by: 'decision' } }, note: 'The decide role\'s decision model filters fn hits.' },
     { args: { item: 'context', value: { by: 'none' } }, note: 'Context hits as ranked again.' },
+    { args: { item: 'fn', value: { by: 'decision', action: 'load' } }, note: 'The decision model filters fn hits, and hub/fns_search loads the best kept ones.' },
   ]),
   auto_pair_revoke: adminFn('Revoke an auto-pair secret, so its instance must pair again by code or token.', 'Use it when a machine is lost or retired; find the secret with hub/auto_pairs_list.', ADMIN_ENDPOINTS.auto_pair_revoke, [{ args: { id: 'apk_01HZX3' } }]),
   system_reimport: adminFn('Import a system\'s stored contract again, re-checking every entry.', 'Use it after a hub upgrade or when a system\'s fns look stale; it reports what was added, updated, removed or refused.', ADMIN_ENDPOINTS.system_reimport, [{ args: { system: 'database' } }], changes('update', 'fns', 'types', 'context', 'kinds')),
@@ -505,7 +507,10 @@ export const LlmPayloadType = g.obj({
   mode: g.optional(ChatModeType),
   /** What goes into each prompt (plain, suggest or graph); the hub's default (`plain`) when absent. A session may override it. */
   contextor: g.optional(ContextorType),
-  /** The most tokens one answer may take (as core's `ModelLimits.maxOutputTokens`); the model's own limit when absent. */
+  /**
+   * The most tokens one answer may take (as core's `ModelLimits.maxOutputTokens`, and never past the model's own
+   * limit); the hub's `HARNESS_AGENT_MAX_OUTPUT` when absent.
+   */
   maxOutput: g.optional(ginAs(ModelLimits.shape.maxOutputTokens.unwrap())),
 });
 
@@ -578,6 +583,7 @@ const FNS_SEARCH_GUIDE = [
   'With `text`, hits come best first: `rank` is a hit\'s place in that order (1 = first, whatever it is), and `similarity`, when given, is how close its meaning is (0 to 1; under about 0.45 is likely unrelated);',
   'read each hit\'s description and keep only those that fit what you need: the first hit is not always right. If nothing fits, search again with other words or another filter, at most once or twice, then say what you could not find. Without `text` it lists by name.',
   'Page with `offset` set to the `next` it gave. A fn hit must be loaded (hub/load_fns) before you can call it, with the args its `signature` shows; a context hit is loaded with hub/load_context. In the static toolset (find, inspect, load, unload, run) you run a fn hit by its name with run.',
+  'When the page has `loaded`, the hub loaded those hits for you: call the fns and read the context from your next step, without loading them again.',
   'A hit with `available: false` can\'t be used now: `blocked.reason` says why, in the hub\'s words. Don\'t load or call it; if you need it, tell the person what blocks it.',
 ].join(' ');
 

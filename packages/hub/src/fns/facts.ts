@@ -4,10 +4,12 @@
  * the types it reads from its result's named types, and those it writes from its args' when it isn't read-only. Then
  * every fn it uses (its deps, an agent's tools), followed to a tunable depth, folds in: the strongest mode, the union
  * of the types and of what they create, update or remove in the hub (build 6: a registry change is at least a write,
- * a removal a delete), and free only when all of them are. The stored part (`fnFacts`, `fnTypes`) is what search filters on;
+ * a removal a delete), and free only when all of them are. A fn that declares what it keeps of what it reads
+ * (`FnEffects.keeps`: `web/read` keeps the page as a hub resource) is not raised by creating those: a used fn whose only
+ * change is that creation (`hub/resource_import`) folds in all but its mode, and the creation stays in `registry`. The stored part (`fnFacts`, `fnTypes`) is what search filters on;
  * `fnUses` lists what each fn uses so a changed fn refreshes the fns that use it. The cost estimate (from its kind's `CostEstimator`) and run times (from `fnMetrics`) are read when asked.
  */
-import { READ_TAG, QualifiedName, registryMode, uniqueEffects, type FnDecl, type FnFacts, type RegistryEffect, type FnFactsRecord, type FnMetricsDay, type FnMode, type FnRecord, type FnTypeUse, type Json, type RunTimes } from '@harness/core';
+import { isKept, READ_TAG, QualifiedName, registryMode, type KeptThing, uniqueEffects, type FnDecl, type FnFacts, type RegistryEffect, type FnFactsRecord, type FnMetricsDay, type FnMode, type FnRecord, type FnTypeUse, type Json, type RunTimes } from '@harness/core';
 import { parseValue, LlmPayloadType } from '@harness/sdk';
 import type { Catalog } from '../catalog/index.ts';
 import { GinScopes } from '../catalog/scope.ts';
@@ -45,6 +47,16 @@ interface OwnFacts {
   readonly uses: readonly QualifiedName[];
   /** What it creates, updates or removes in the hub. */
   readonly registry: readonly RegistryEffect[];
+  /** What it keeps of what it reads (`FnEffects.keeps`): creating these doesn't raise its mode. */
+  readonly keeps?: readonly KeptThing[];
+}
+
+/**
+ * Whether a used fn only keeps what this fn reads (`FnEffects.keeps`): its only changes create things this fn keeps,
+ * and it writes no types (`hub/resource_import` under `web/read`). Its mode then doesn't fold into this fn's.
+ */
+function onlyKeeps(used: Pick<OwnFacts, 'registry' | 'writes'>, keeps: readonly KeptThing[] | undefined): boolean {
+  return keeps !== undefined && used.registry.length > 0 && used.writes.length === 0 && used.registry.every((effect) => isKept(effect, keeps));
 }
 
 /** The longest a duration reads as minutes rather than seconds. */
@@ -160,7 +172,8 @@ export class StoreFnFacts implements FnFactsService {
         const used = await this.#deps.catalog().fn(name);
         if (used === undefined) continue;
         const facts = await this.#own(used);
-        mode = strongerMode(mode, facts.mode);
+        // a fn that only keeps what this one reads (a page kept as a resource) leaves its mode alone; its creation is still listed
+        if (!onlyKeeps(facts, own.keeps)) mode = strongerMode(mode, facts.mode);
         free &&= facts.free;
         for (const type of facts.reads) reads.add(type);
         for (const type of facts.writes) writes.add(type);
@@ -171,7 +184,8 @@ export class StoreFnFacts implements FnFactsService {
     }
     seen.delete(fn.name);
     const changes = uniqueEffects(registry);
-    const least = registryMode(changes);
+    // keeping what it read is not a change it makes: the kept creations stay listed but raise nothing
+    const least = registryMode(changes.filter((effect) => !isKept(effect, own.keeps)));
     return { mode: least === undefined ? mode : strongerMode(mode, least), free, reads: [...reads].sort(), writes: [...writes].sort(), uses: [...seen].sort(), registry: changes };
   }
 
@@ -185,7 +199,7 @@ export class StoreFnFacts implements FnFactsService {
     const writes = decl.effects?.writes ?? (mode === 'read' ? [] : await this.#named(this.#scopes.mentions(decl.args)));
     // an agent always spends on its model; anything else spends only if it says so or its history shows it
     const free = decl.effects?.free ?? (!agent && decl.limits.cost === undefined && fn.stats.averageCost === 0);
-    return { mode, reads, writes, free, uses: [...new Set([...decl.deps, ...tools])], registry: decl.effects?.registry ?? [] };
+    return { mode, reads, writes, free, uses: [...new Set([...decl.deps, ...tools])], registry: decl.effects?.registry ?? [], ...(decl.effects?.keeps === undefined ? {} : { keeps: decl.effects.keeps }) };
   }
 
   /** The names that are stored named types. */

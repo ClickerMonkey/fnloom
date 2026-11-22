@@ -861,11 +861,56 @@ Before the LLM sees a user message, two things may add to it:
   per candidate and picks those at or above the decide role's threshold, most likely first, or an **LLM** (a chat
   model), which reads the candidates and answers which to pick, with reasons. If the model fails, the score decides.
   A system's `decide` link call uses the same choice.
+
+  **What it does** with its picks is a second choice for a model chooser (Phil, 2026-11-22: "There should also be
+  options to not only allow a decision model or llm to suggest context or fns but actually have them automatically
+  add them making the fn available or the context is brought into the user message"): **suggest** (the default, the
+  cards above) or **load**. With load, what it picks is loaded for the turn as `hub/load_fns` and `hub/load_context`
+  load: each fn the session may use joins its tools from the model's first step (in static mode its card is in the
+  prompt, run by name), and each context item is brought into the user message as its text, with its imports and the
+  fns it brings (which join the tools too). The message tells the model so in a `<loaded_for_you>` block (who picked,
+  each fn with the chooser's reason, each context item's text), so it uses them and doesn't load them again. Context
+  is sized to the prompt: at most `HARNESS_AUTOLOAD_TOKENS` (6000) of text, and no more than
+  `HARNESS_AUTOLOAD_ROOM_SHARE` (a quarter) of the room the agent model's window leaves past its output, reasoning,
+  margin, instructions, tools and the message; the planner counts the message in its fixed part, so the history gives
+  way, never the window. What doesn't fit (`budget`), a fn that can't be used now, or a context item with no text of
+  its own yet (`blocked`), is suggested as a card instead, and the message's record says what became of each pick
+  (loaded, budget or blocked; the admin's "Try it" shows it too). Loaded items count as suggested, so nothing loaded
+  is suggested again, and undoing the turn takes the loaded fns out of the tools again (the turn's start keeps the
+  tools as they were) and the message, with its context, goes. No model (the score alone) only suggests: similarity
+  is too weak a sign to put things in the prompt unasked. When the model fails, the score's picks are suggested, not
+  loaded.
+
+  The **fn and context search decisions** (who filters `hub/fns_search` hits, set apart for fns and for context) take
+  the same action. With load, `hub/fns_search` in a chat also loads the best kept hits of that kind it may use, up to
+  `HARNESS_SEARCH_LOAD_MAX` (5) each: fns into the tools, context into the session (with its imports and the fns it
+  brings), and its page says so (`loaded`, with a line telling the model not to load them again). The web's search
+  only filters, and a filter that failed loads nothing.
 - **Systems' hooks**: a system can declare a hook and add its own information (the git branch, the open
-  ticket). A hook gets the message and the same who-and-when every run gets.
+  ticket). A hook gets the message and the same who-and-when every run gets. fs's git hook reports a root only when
+  the root is its repository's top level: a root inside another repository is not that repository, so its branch
+  and changed files are left out.
 
 Each addition is a small tagged block in the message, so the model can tell it apart from what the user
 typed.
+
+**A form's answers come back as the next message.** A run is the chat's own (`RunInfo.inChat`: the turn's agent or a
+fn it called directly, on a session, not in the background) whether or not anyone has the chat open (`watched`). A
+form shown there tells the agent to end its turn: the person's answers arrive as the next user message, in
+`<input-answer>` tags, whenever they send it. Only a run that is not the chat's own (a nested agent's call, an MCP
+call, a background run) is told not to wait, since the answers go to the chat and not back to it. Until iteration 2
+this went by `watched`, so a chat nobody had open (every scenario run) told the chat agent "Nobody is watching… go on".
+
+**Attached files are resources the model reads in one call** (iteration 2: a receipt photo, insurance quotes, a school
+PDF and a bank statement reached the model as a name and a hash, and it spent its turn looking for them). When a
+message is sent, each file is kept as a hub upload (`hub://resources/uploads/<day>/<name>`, as its sender), and the
+message carries the resource's uri. The model reads `<file name mime size uri read="…" />`: `read` names the one fn
+that reads it, called with `{ "uri": … }`: `hub/resource_send` for a picture (the model sees the image itself),
+`hub/resource_read` for anything else (a PDF's pages, a spreadsheet's tables, a document's text). A text file (plain
+text, markdown, CSV, JSON…) of up to `HARNESS_FILE_INLINE_CHARS` (4000) characters is in the block itself, with
+`truncated="true"` when only its start is (`chat/files.ts`). The readers (and `hub/resource_outline`) join the
+session's tools with the message. A file the hub could not keep goes out with its content ref (`hash`) only, which
+`hub/resource_import` takes.
 
 ### Chat inputs
 
@@ -996,6 +1041,19 @@ were away, a system waiting for pairing, a budget reached.
 - **Everything is saved:** every LLM interaction (request, response, usage, cost, timing) and every run
   (args, outcome, progress, timing, cost, errors). The **fn tree** of a turn is a query away.
 - **Providers and models** are configured on the hub (or by asking in chat) and come from aeye.
+- **Every answer has an output bound** (iteration 2: GPT-6 Luna once wrote 65k tokens of whitespace into one tool call
+  over four minutes). An agent fn's answer is capped by its declared `maxOutput`, else `HARNESS_AGENT_MAX_OUTPUT`
+  (16k tokens; 0 leaves the model's own limit), and an authoring agent's steps by `HARNESS_AUTHORING_MAX_TOKENS` (16k,
+  or the agent's `maxTokens`). Every chat stream also passes the **stream guard** (`execution/stream-guard.ts`): a tool
+  call whose arguments run into `HARNESS_STREAM_BLANK_RUN` blank characters in a row (2000; spaces, newlines or their
+  JSON escapes) is stopped there, and a call the output limit cut off is finished instead of reaching aeye as `length`.
+  Either way the call's arguments become a short note ("Stopped by the hub: …"), which fails to parse, so the model
+  reads it as that call's invalid input and calls again; nothing runs. An answer whose text runs blank just ends.
+- **Forwarded calls cost the loop little** (iteration 1, rep 3, where the hub shed load). A system's call carries its
+  tool schemas as JSON schema; the hub rebuilt a code authoring step's 54 KB program schema every round (12 to 21 ms)
+  and converted it back to JSON schema to save the interaction (about 110 ms), all on the event loop. Rebuilt schemas
+  are kept by their JSON (`HARNESS_WIRE_SCHEMA_CACHE`, 64) and each zod schema's JSON schema is made once, so a step
+  costs under 1 ms after the first (measured on rep 3's own recorded requests).
 
 ### Every model call is recorded
 
@@ -1048,6 +1106,15 @@ the admin's fn pages show them and `hub/fn_metrics` gives them to the LLM.
 A model's mistake in calling a fn (JSON that doesn't parse, arguments that don't fit the fn's type, input the fn's
 own checks refuse) ends the run as **invalid input**: the problems go back to the model so it can try again, the
 chat shows it softly as "Retried", and it doesn't count as a failure. A real failure is **failed**.
+
+The problems are short (iteration 2: a nested type's mistake came back as megabytes of union branches, or as
+"Unrecognized key: props" one level too high). `conciseIssues` (core) names at most five, each at its full dotted path
+with what was expected there: a union is followed into the branch the value got furthest into, a union no branch of
+which got past its tag says which tags fit (`program.vars.0.value: no form fits; "kind" must be one of: get, new, …`),
+and a gin type at the failing path is parsed by gin, whose message names the real fault
+(`gin.parse: prop 'id' has unknown key 'name' — valid keys: docs, type, …`) with the shape of an object type. The hub's
+args check uses it, and so does every authoring agent's tool (`parseArgs`, which also reads a field sent as a string
+holding JSON).
 
 ### The LLM can see and do everything
 
@@ -1294,6 +1361,16 @@ actions, everything in the URL.
 A system for the web: search (Tavily) and reading a page, which imports the page as a hub resource (rendered with a
 headless browser first when it is built by scripts) and gives back its markdown. It refuses private addresses
 unless an admin allows them.
+
+**Its searches and reads are reads** (Phil, 2026-11-22: "Go with your recommendations"). `web/search`, `web/read` and
+`web/crawl` keep what they fetch as hub resources through `hub/resource_import`, which is a write. Keeping what was read
+changes nothing the person owns, so the fns declare it as a fact, `effects: { mode: 'read', keeps: ['resources'] }`
+(`FnEffects.keeps`): when a fn's facts are worked out, creating a thing it keeps (its own registry effect, or a fn it
+uses whose only change is that creation and which writes no types) does not raise its mode. The creation is still
+listed in its facts' `registry`, so the auto classifier and reviews see it. Anything else still folds in: a fn that keeps
+resources and also removes one is a delete. So read-only searches (`modes: ["read"]`) and chats in `read` mode use them.
+Approvals are unchanged: the fns are tagged `read`, and a system's call of `hub/resource_import` (tagged `own`) is
+allowed as before.
 
 ## Storage
 

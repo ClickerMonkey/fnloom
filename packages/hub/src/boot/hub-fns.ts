@@ -5,7 +5,7 @@
  * typed and checked by the contract's gin types. Services are read when a fn runs, never while registering. Every one
  * keeps to what the run's person may see and use (their `AccessScope`): search hits, loads and results alike.
  */
-import { ContextCrawlArgs, contextOff, effectCovered, effectsLine, FnExamplesQuery, FnRouting, FnSearchArgs, QualifiedName, qualify, splitName, SystemName, type FnRefusal, type ContextCrawlResult, type ContextRecord, type CrawledContext, type LoadContextResult, type LoadFnsResult, type SearchItemKind, type ActorId, type FnDecl, type FnExample, type Json, type IndexedKind, type RegistryEffect, type Run, type Session, type SessionId } from '@harness/core';
+import { ContextCrawlArgs, contextOff, effectCovered, effectsLine, FnExamplesQuery, FnRouting, FnSearchArgs, QualifiedName, qualify, splitName, SystemName, type FnRefusal, type ContextCrawlResult, type ContextRecord, type CrawledContext, type FnSearchPage, type LoadContextResult, type LoadFnsResult, type SearchItemKind, type ActorId, type FnDecl, type FnExample, type Json, type IndexedKind, type RegistryEffect, type Run, type Session, type SessionId } from '@harness/core';
 import { hub, parseValue, SAVE_FN_TAKEN, wireType } from '@harness/sdk';
 import type { AccessService } from '../access/index.ts';
 import type { FnFactsService, FnsServices } from '../fns/index.ts';
@@ -65,6 +65,8 @@ export interface HubFnDeps {
   readonly decider: () => Pick<Decider, 'model' | 'ask'>;
   /** The scope of the hub MCP a run's caller is, so `fns_search` keeps to it (none: no MCP). */
   readonly mcpScope?: (caller: ActorId) => Promise<Pick<FnScope, 'fns' | 'context'> | undefined>;
+  /** With a `load` search decision, the most kept hits of each kind `hub/fns_search` loads (`HARNESS_SEARCH_LOAD_MAX`; 5 when not given). */
+  readonly searchLoadMax?: number;
 }
 
 /** The error code of a registry change the calling run's fn did not declare (`FnEffects.registry`). */
@@ -183,6 +185,43 @@ async function loadIntoSession(deps: HubFnDeps, asker: Asker, names: readonly Qu
   return { loaded, records, brought, fnsRefused };
 }
 
+/** How many kept hits of each kind a `load` search decision loads when the hub's setting isn't given (tests). */
+const DEFAULT_SEARCH_LOAD_MAX = 5;
+
+/** What `hub/fns_search` tells the model it loaded. */
+export const SEARCH_LOADED_NOTE = 'Loaded for you because the hub\'s search decision kept them: the fns can be called from your next step, and the context is in your prompt from your next step (with the fns it brings). Don\'t load them again.';
+
+/**
+ * The page of a search whose decision's action is `load` (`SearchFiltered.action`, not failed), with the best kept
+ * hits of that kind loaded into the asker's session, up to `max` of each, as `hub/load_fns` and `hub/load_context` load
+ * them: a fn the session may use joins its tools; a context item loads with its imports and the fns it brings. What
+ * the session has loaded already is left as it is. The page says what was loaded (`loaded`), so the model doesn't load
+ * it again.
+ */
+export async function loadKept(deps: HubFnDeps, asker: Asker, page: FnSearchPage, max: number): Promise<FnSearchPage> {
+  const kinds = new Set((page.filtered ?? []).filter((f) => f.action === 'load' && f.failed === undefined).map((f) => f.item));
+  if (kinds.size === 0 || max === 0) return page;
+  const { access } = asker;
+  // read again: a load in the same step may have changed the session meanwhile
+  const session = (await deps.store().table('sessions').get(asker.session.id)) ?? asker.session;
+  const fns: QualifiedName[] = [];
+  if (kinds.has('fn')) {
+    for (const hit of page.items) {
+      if (fns.length >= max) break;
+      if (hit.item !== 'fn' || session.tools.includes(hit.name) || fns.includes(hit.name)) continue;
+      if (fnRefusal(await deps.catalog().fn(hit.name), session, access) === undefined) fns.push(hit.name);
+    }
+    if (fns.length > 0) await deps.sessions().load(session.id, { tools: [...new Set([...session.tools, ...fns])] });
+  }
+  const names = kinds.has('context')
+    ? [...new Set(page.items.filter((hit) => hit.item === 'context' && !session.context.includes(hit.name)).map((hit) => hit.name))].slice(0, max)
+    : [];
+  const context = names.length === 0 ? undefined : await loadIntoSession(deps, { session, access }, names);
+  const loaded = { fns: [...fns, ...(context?.brought ?? []).filter((name) => !fns.includes(name))], context: context?.loaded ?? [] };
+  if (loaded.fns.length + loaded.context.length === 0) return page;
+  return { ...page, loaded: { ...loaded, note: SEARCH_LOADED_NOTE } };
+}
+
 /** Register the hub fns. */
 export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
 
@@ -268,9 +307,11 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
     // never a fn not for the model; the admin's search decisions judge hits against the turn's latest user message
     const query = FnSearchArgs.parse(args);
     const latest = await latestUserText(deps.store(), id);
-    return deps.fns().search.search({ ...query, available: query.available ?? false }, {
+    const page = await deps.fns().search.search({ ...query, available: query.available ?? false }, {
       actor, access, keep, forModel: true, run: ctx.request.run.id, ...(latest === undefined ? {} : { latest }),
     });
+    // a search decision whose action is `load` has the best kept hits loaded into the chat
+    return session === undefined ? page : loadKept(deps, { session, access }, page, deps.searchLoadMax ?? DEFAULT_SEARCH_LOAD_MAX);
   });
 
   fns.register(hub.fns.fn_examples, async (args, ctx) => {

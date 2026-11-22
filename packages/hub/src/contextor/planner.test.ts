@@ -114,6 +114,17 @@ describe('the graph contextor', () => {
     expect(planned.maxTokens).toBe(512);
   });
 
+  it('bounds an agent that declares no maxOutput by HARNESS_AGENT_MAX_OUTPUT, and 0 leaves the model\'s own limit', async () => {
+    const planned = async (settings: { HARNESS_AGENT_MAX_OUTPUT?: number } = {}): Promise<number> => {
+      const { r, plan } = await planning([], {}, { models: [chatModel('small', { contextWindow: 200_000 })], settings });
+      await r.limits.set('small', { contextWindow: 200_000, maxOutputTokens: 100_000 }, ALICE);
+      return (await plan('hi')).maxTokens;
+    };
+    expect(await planned()).toBe(16_000);
+    expect(await planned({ HARNESS_AGENT_MAX_OUTPUT: 3_000 })).toBe(3_000);
+    expect(await planned({ HARNESS_AGENT_MAX_OUTPUT: 0 })).toBe(100_000);
+  });
+
   it('keeps offering a fn the session ran recently, and a loaded one', async () => {
     const transcript: LlmMessage[] = [
       { role: 'user', content: 'grep for TODO' },

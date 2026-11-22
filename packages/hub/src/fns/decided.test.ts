@@ -94,6 +94,12 @@ describe('search decisions', () => {
     expect(prompt).toContain('Search: search the web');
     expect(prompt).toContain('Latest user message: Find me sources');
     expect(prompt).not.toContain('web/fetch_raw');
+    // an action of load marks the record so (hub/fns_search loads the kept hits); the filter itself loads nothing
+    await w.search.set('context', { by: 'llm', model: { model: { model: 'tiny' } }, action: 'load' }, ADMIN);
+    w.llm.answers = ['{"keep":[{"name":"web/guide"}]}'];
+    const loads = await w.search.filter(PAGE, { text: 'search the web' }, {});
+    expect(loads.filtered).toEqual([{ item: 'context', by: 'llm', dropped: [{ name: 'fs/authoring' }], calls: ['mdl_2'], action: 'load' }]);
+    expect(loads.loaded).toBeUndefined();
   });
 
   it('keeps every hit when the model fails, and says so', async () => {

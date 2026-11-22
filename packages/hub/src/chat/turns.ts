@@ -12,7 +12,8 @@ import {
 import type { AccessScope } from '../access/index.ts';
 import { seesContextNamed } from '../access/scope.ts';
 import { cacheMissOf } from './cache.ts';
-import { suggestedAfter } from './enrich.ts';
+import { loadedFnsIn, suggestedAfter } from './enrich.ts';
+import { fileReaders } from './files.ts';
 import { finishedParts } from './streams.ts';
 import { citeParts, nextCiteNumber, resolveCites, streamedCite } from './cites.ts';
 import type { ChatDeps } from './deps.ts';
@@ -41,7 +42,7 @@ export function plainText(parts: readonly MessagePart[]): string {
       case 'file': return part.name;
       case 'link': return part.link.title ?? '';
       case 'attachment': return part.title;
-      case 'reasoning': case 'extra': case 'hook': case 'input-answer': case 'call': case 'systems-changed': case 'kept-effects': return '';
+      case 'reasoning': case 'extra': case 'hook': case 'input-answer': case 'call': case 'systems-changed': case 'kept-effects': case 'loaded-for-you': return '';
     }
   }).join('').trim();
 }
@@ -85,10 +86,10 @@ export interface TurnParts {
 
 /** Turns on the store. */
 export class StoreTurnService implements TurnService {
-  readonly #deps: Pick<ChatDeps, 'store' | 'clock' | 'random' | 'bus' | 'log' | 'settings' | 'runs' | 'agents' | 'limits' | 'catalog' | 'access'>;
+  readonly #deps: Pick<ChatDeps, 'store' | 'clock' | 'random' | 'bus' | 'log' | 'settings' | 'runs' | 'agents' | 'limits' | 'catalog' | 'access' | 'files'>;
   readonly #parts: TurnParts;
 
-  constructor(deps: Pick<ChatDeps, 'store' | 'clock' | 'random' | 'bus' | 'log' | 'settings' | 'runs' | 'agents' | 'limits' | 'catalog' | 'access'>, parts: TurnParts) {
+  constructor(deps: Pick<ChatDeps, 'store' | 'clock' | 'random' | 'bus' | 'log' | 'settings' | 'runs' | 'agents' | 'limits' | 'catalog' | 'access' | 'files'>, parts: TurnParts) {
     this.#deps = deps;
     this.#parts = parts;
   }
@@ -105,7 +106,7 @@ export class StoreTurnService implements TurnService {
     const access = await this.#deps.access.scope(input.author);
     const commanded = await this.#commands(session, input.parts, access);
     const turn = mintId('turn', this.#deps.random);
-    const parts = await this.#parts.mentions.resolve({ session, asker, parts: input.parts });
+    const parts = await this.#keepFiles(session, asker.actor, await this.#parts.mentions.resolve({ session, asker, parts: input.parts }));
     const text = plainText(parts);
     const [limits, extras] = await Promise.all([
       this.#deps.limits.resolve({ user, session: session.id, turn }),
@@ -129,7 +130,7 @@ export class StoreTurnService implements TurnService {
     this.#deps.log.info('chat.turn.sent', { session: session.id, turn, message: message.id, answerers: answerers.length, parts: message.parts.length });
     this.#deps.bus.publish('message', { message });
     const saved = await this.#parts.sessions.save(session.id, {
-      ...this.#sessionAfterSend(session, message, text, await this.#loads(session, extraParts, access), commanded),
+      ...this.#sessionAfterSend(session, message, text, await this.#loads(session, extraParts, access, parts), commanded),
       // what the model now knows about the systems (`chat/announce.ts`)
       ...(announcedSystems === undefined ? {} : { announcedSystems }),
       ...(variants === undefined ? {} : { status: 'running' as const }),
@@ -464,8 +465,33 @@ export class StoreTurnService implements TurnService {
     return names;
   }
 
-  /** The fns and context hooks asked to load, kept to what the session allows and can use now. */
-  async #loads(session: Session, extras: readonly MessagePart[], access: AccessScope): Promise<{ tools: QualifiedName[]; context: QualifiedName[] }> {
+  /**
+   * The files a message carries, each kept as a hub resource (`ChatDeps.files`) with its uri, and a small text file's
+   * text, so the model reads it at once. A sender's own `uri` and `text` are dropped; a file that can't be kept keeps
+   * only its content ref (logged).
+   */
+  async #keepFiles(session: Session, actor: ActorId, parts: readonly MessagePart[]): Promise<MessagePart[]> {
+    const files = this.#deps.files;
+    const maxChars = this.#deps.settings.chat.HARNESS_FILE_INLINE_CHARS;
+    return Promise.all(parts.map(async (part): Promise<MessagePart> => {
+      if (part.type !== 'file') { return part; }
+      const bare: MessagePart = { type: 'file', ref: part.ref, name: part.name };
+      if (files === undefined) { return bare; }
+      try {
+        const kept = await files.keep({ ref: part.ref, name: part.name }, { actor, session: session.id }, maxChars);
+        return { ...bare, uri: kept.uri, ...(kept.text === undefined ? {} : { text: kept.text }), ...(kept.truncated === true ? { truncated: true } : {}) };
+      } catch (error) {
+        this.#deps.log.warn('chat.file.keep-failed', { session: session.id, name: part.name, hash: part.ref.hash, error: messageOf(error) });
+        return bare;
+      }
+    }));
+  }
+
+  /**
+   * The fns and context hooks asked to load, the fns the suggestions chooser loaded, and the readers of the files the
+   * message carries (`fileReaders`), kept to what the session allows and can use now.
+   */
+  async #loads(session: Session, extras: readonly MessagePart[], access: AccessScope, parts: readonly MessagePart[] = []): Promise<{ tools: QualifiedName[]; context: QualifiedName[] }> {
     const asked = extras.flatMap((p) => (p.type === 'hook' ? p.blocks : [])).flatMap((b) => (b.type === 'load' ? [b] : []));
     const usable = async (names: readonly QualifiedName[], sees: (name: QualifiedName) => Promise<boolean>): Promise<QualifiedName[]> => {
       const checked = await Promise.all(names.map(async (name) => allowsSystem(session, splitName(name).system) && (await this.#deps.catalog.availability(name)) === true && await sees(name)));
@@ -473,7 +499,8 @@ export class StoreTurnService implements TurnService {
     };
     const seesFn = (name: QualifiedName): Promise<boolean> => Promise.resolve(access.mayUse({ name, system: splitName(name).system }));
     const seesContext = (name: QualifiedName): Promise<boolean> => seesContextNamed(access, (n) => this.#deps.catalog.context(n), name, session.id);
-    return { tools: await usable(asked.flatMap((b) => b.fns ?? []), seesFn), context: await usable(asked.flatMap((b) => b.context ?? []), seesContext) };
+    // the fns the suggestions chooser loaded for the turn join the tools too (their context is in the message itself)
+    return { tools: await usable([...asked.flatMap((b) => b.fns ?? []), ...loadedFnsIn(extras), ...fileReaders(parts)], seesFn), context: await usable(asked.flatMap((b) => b.context ?? []), seesContext) };
   }
 
   /** Wake each answering agent; any agent run still busy in the session goes to the background first. */

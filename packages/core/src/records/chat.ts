@@ -4,10 +4,10 @@ import { ModelInfo } from '../admin.ts';
 import { GinTypeDef } from '../gin.ts';
 import { LlmMessage } from '../llm.ts';
 import { DICTATION_ENGINES } from '../model-calls.ts';
-import { GraphSelection } from '../modes.ts';
+import { ChatModeType, GraphSelection } from '../modes.ts';
 import { CommandArg, HookBlock } from '../manifest.ts';
 import { ActorId, Json, MessageId, ModelCallId, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId } from '../primitives.ts';
-import { ContentRef, Link } from '../resources.ts';
+import { ContentRef, Link, ResourceUri } from '../resources.ts';
 import { SystemStatus } from './systems.ts';
 import { SuggestionRecord } from '../suggestions.ts';
 import { RunStatus } from '../run.ts';
@@ -81,7 +81,16 @@ const TextPart = z.object({ type: z.literal('text'), text: z.string() });
 /** Something picked with `@`: the chat shows `label` as a chip; the LLM gets `text` (written at send time) in its place. */
 const MentionPart = z.object({ type: z.literal('mention'), provider: QualifiedName, label: z.string(), target: Json, text: z.string() });
 const CommandPart = z.object({ type: z.literal('command'), context: QualifiedName, args: z.record(z.string(), z.string()) });
-const FilePart = z.object({ type: z.literal('file'), ref: ContentRef, name: z.string() });
+/**
+ * A file the person attached. The hub keeps it as a hub resource when the message is sent and writes `uri` (what the
+ * model reads it by, in one call: `hub/resource_read`, or `hub/resource_send` for a picture), and, for a small text
+ * file, `text`: its text, so the model reads it in the message (`truncated` when only its start fits). A sender's own
+ * `uri` and `text` are never kept.
+ */
+const FilePart = z.object({
+  type: z.literal('file'), ref: ContentRef, name: z.string(),
+  uri: ResourceUri.optional(), text: z.string().optional(), truncated: z.boolean().optional(),
+});
 /**
  * Answers to an input form: the model reads them as `<input-answer>` tags (`text` is what it reads, written
  * by the web from the form's labels and values); the chat hides the part. `run` is the `input/*` run that asked.
@@ -90,6 +99,22 @@ const InputAnswerPart = z.object({ type: z.literal('input-answer'), run: RunId, 
 
 /** The tag the model reads input answers in. */
 export const INPUT_ANSWER_TAG = 'input-answer';
+
+/**
+ * What the suggestions chooser loaded for a user message (its action `load`, `SuggestDecision`): the fns that joined
+ * the session's tools when it was sent, and the context brought into the message as its text (snapshotted then, with
+ * its imports, and the fns it brings, which joined the tools too). `by`: who picked them; each item's `why` is the
+ * chooser's reason. The model reads it as `<loaded_for_you>`; the chat hides the part and shows the items as loaded
+ * suggestions. Undoing the turn takes the fns out of the tools again.
+ */
+export const LoadedForYouPart = z.object({
+  type: z.literal('loaded-for-you'),
+  by: z.enum(['decision', 'llm']),
+  toolset: ChatModeType.optional(),
+  fns: z.array(z.object({ fn: QualifiedName, label: z.string(), why: z.string().optional(), broughtBy: QualifiedName.optional() })),
+  context: z.array(z.object({ context: QualifiedName, title: z.string().optional(), why: z.string().optional(), text: z.string(), fns: z.array(QualifiedName).optional() })),
+});
+export type LoadedForYouPart = z.infer<typeof LoadedForYouPart>;
 
 /** A piece of a message. */
 export const MessagePart = z.discriminatedUnion('type', [
@@ -116,11 +141,12 @@ export const MessagePart = z.discriminatedUnion('type', [
   z.object({ type: z.literal('systems-changed'), on: z.array(SystemChange), off: z.array(SystemChange) }),
   /** On an undo note of an A/B compared turn: what its variants did that the undo left as it is, by variant. */
   z.object({ type: z.literal('kept-effects'), variants: z.array(KeptVariant) }),
+  LoadedForYouPart,
 ]);
 export type MessagePart = z.infer<typeof MessagePart>;
 
 /** The parts the chat hides (they still go to the model): what the hub or a hook added, a form's answers, and system changes. */
-export const HIDDEN_PART_TYPES = ['extra', 'hook', 'input-answer', 'systems-changed'] as const satisfies readonly MessagePart['type'][];
+export const HIDDEN_PART_TYPES = ['extra', 'hook', 'input-answer', 'systems-changed', 'loaded-for-you'] as const satisfies readonly MessagePart['type'][];
 const HIDDEN_PARTS: ReadonlySet<string> = new Set(HIDDEN_PART_TYPES);
 
 /** Whether the chat hides a part (it shows in debug mode only). */

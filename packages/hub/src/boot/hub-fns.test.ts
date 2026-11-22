@@ -1,10 +1,10 @@
 import { agent, fn, g, hub, manifestOf, type FnRef } from '@harness/sdk';
-import { ActorId, ContextCrawlResult, LinkSession, ModelCallId, QualifiedName, SystemName, type FnSearchHit, type FnSearchQuery, type Json, type RegistryEffect, type SearchHit, type Session, type SessionId, type Turn } from '@harness/core';
+import { ActorId, ContextCrawlResult, LinkSession, ModelCallId, QualifiedName, SystemName, type FnSearchHit, type FnSearchQuery, type Json, type SearchFiltered, type RegistryEffect, type SearchHit, type Session, type SessionId, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AGENT_KIND, type RunInput } from '../execution/index.ts';
 import { AGENT, ALICE, calls, executionRig, says, SESSION, until, type ExecutionRig } from '../execution/testing.ts';
 import { openScope, type AccessScope } from '../access/index.ts';
-import { CONTEXT_CRAWL_PURPOSE, NO_DECISION_MODEL, registerHubFns, UNDECLARED_CHANGE } from './hub-fns.ts';
+import { CONTEXT_CRAWL_PURPOSE, NO_DECISION_MODEL, registerHubFns, SEARCH_LOADED_NOTE, UNDECLARED_CHANGE } from './hub-fns.ts';
 import { writeItemVersions } from '../catalog/versions.ts';
 import { Json as JsonValue } from '@harness/core';
 import { linkPayload } from '../testing.ts';
@@ -20,7 +20,9 @@ let rig: ExecutionRig | undefined;
 /** The decider `hub/context_crawl` asks (none set by default). */
 const NO_DECIDER: Pick<Decider, 'model' | 'ask'> = { model: () => Promise.resolve({ problem: 'No decision model is set (an admin sets the Decide role).' }), ask: () => Promise.reject(new Error('no decision model')) };
 let decider = NO_DECIDER;
-afterEach(async () => { await rig?.module.stop(); rig = undefined; decider = NO_DECIDER; });
+/** What the admin's search decisions did to the fake search's page (none by default). */
+let filtered: SearchFiltered[] | undefined;
+afterEach(async () => { await rig?.module.stop(); rig = undefined; decider = NO_DECIDER; filtered = undefined; });
 
 /** Put a hub fn in the rig's catalog with the contract's args and result. */
 function addHubFn<A, R>(r: ExecutionRig, ref: FnRef<QualifiedName, A, R>): void {
@@ -74,7 +76,7 @@ async function started(hits: SearchHit[] = [], session: Partial<Session> = {}, a
     fns: () => ({ search: { search: (query, asker) => {
       fnSearches.push(query);
       const items = known.filter((hit) => (query.items ?? ['fn']).includes(hit.item) && (asker.keep === undefined || asker.keep(hit.item, hit.name)));
-      return Promise.resolve({ items });
+      return Promise.resolve(filtered === undefined ? { items } : { items, filtered });
     } }, examples: { sync: () => Promise.resolve(), page: () => Promise.reject(new Error('no examples here')), patch: () => Promise.reject(new Error('no examples here')), forPrompt: () => Promise.resolve([]) } }),
   });
   await r.session({ systems: [SystemName.parse('fs'), SystemName.parse('shop')], ...session });
@@ -94,6 +96,27 @@ describe('finding and loading fns', () => {
     const settled = await call(r, turn, 'fns_search', { text: 'open a file' });
     expect(settled).toEqual({ status: 'done', result: { items: [{ item: 'fn', name: 'fs/read', system: 'fs', description: 'Read a file.', available: true }] } });
     expect(fnSearches[0]).toMatchObject({ text: 'open a file' });
+  });
+
+  it('loads the best kept hits it may use when a search decision\'s action is load, and says so', async () => {
+    const { r, turn } = await started();
+    r.catalog.contexts.set(QualifiedName.parse('fs/guide'), 'How to work with files.');
+    // a filter that loads fns only: the usable fn loads, the offline one doesn't, and context hits are only returned
+    filtered = [{ item: 'fn', by: 'decision', dropped: [], action: 'load' }, { item: 'context', by: 'decision', dropped: [] }];
+    const fnsOnly = await call(r, turn, 'fns_search', { text: 'read', items: ['fn', 'context'] });
+    expect(fnsOnly).toMatchObject({ status: 'done', result: { loaded: { fns: ['fs/read'], context: [], note: SEARCH_LOADED_NOTE } } });
+    expect((await r.store.table('sessions').get(SESSION))?.tools).toEqual(['fs/read']);
+    // context too, with what it brings; what is loaded already is left as it is
+    filtered = [{ item: 'fn', by: 'decision', dropped: [], action: 'load' }, { item: 'context', by: 'decision', dropped: [], action: 'load' }];
+    const both = await call(r, turn, 'fns_search', { text: 'read', items: ['fn', 'context'] });
+    expect(both).toMatchObject({ status: 'done', result: { loaded: { fns: [], context: ['fs/guide'] } } });
+    expect((await r.store.table('sessions').get(SESSION))?.context).toEqual(['fs/guide']);
+    // a filter that failed loads nothing, and neither does a decision that only filters
+    await r.store.table('sessions').update(SESSION, { tools: [], context: [] });
+    filtered = [{ item: 'fn', by: 'decision', dropped: [], action: 'load', failed: 'The decision model failed (down), so every hit was kept.' }, { item: 'context', by: 'llm', dropped: [] }];
+    const failed = await call(r, turn, 'fns_search', { text: 'read', items: ['fn', 'context'] });
+    expect(failed.status === 'done' && typeof failed.result === 'object' && failed.result !== null && 'loaded' in failed.result).toBe(false);
+    expect((await r.store.table('sessions').get(SESSION))?.tools).toEqual([]);
   });
 
   it('loads usable fns into the session and says why the rest were refused', async () => {

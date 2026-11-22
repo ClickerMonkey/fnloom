@@ -201,14 +201,28 @@ export const SearchFiltered = z.object({
   dropped: z.array(z.object({ name: QualifiedName, note: z.string().optional() })),
   calls: z.array(ModelCallId).min(1).optional(),
   failed: z.string().optional(),
+  /** `load` when the decision's action loads the kept hits (`SearchDecision.action`): `hub/fns_search` in a chat loads them. */
+  action: z.literal('load').optional(),
 });
 export type SearchFiltered = z.infer<typeof SearchFiltered>;
 
 /**
+ * What `hub/fns_search` loaded because a search decision's action is `load`: the fns now in the session's tools, the
+ * context now in the session (with the fns it brings), and a line telling the model so, so it doesn't load them again.
+ */
+export const SearchLoaded = z.object({
+  fns: z.array(QualifiedName),
+  context: z.array(QualifiedName),
+  note: z.string(),
+});
+export type SearchLoaded = z.infer<typeof SearchLoaded>;
+
+/**
  * A page of hits; `next` is the offset of the next page, absent on the last. `filtered`: what the admin's search
  * decisions dropped from this page (a page can then hold fewer hits than its limit while another follows).
+ * `loaded`: what `hub/fns_search` loaded of the kept hits (a decision whose action is `load`).
  */
-export const FnSearchPage = z.object({ items: z.array(FnSearchHit), next: z.number().int().min(0).optional(), filtered: z.array(SearchFiltered).optional() });
+export const FnSearchPage = z.object({ items: z.array(FnSearchHit), next: z.number().int().min(0).optional(), filtered: z.array(SearchFiltered).optional(), loaded: SearchLoaded.optional() });
 export type FnSearchPage = z.infer<typeof FnSearchPage>;
 
 // ─── Facts ────────────────────────────────────────────────────────────────────

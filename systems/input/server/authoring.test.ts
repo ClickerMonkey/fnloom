@@ -34,7 +34,7 @@ describe('get_input', () => {
     ]);
     const kit = await testHub(input, createInputImpl({ settings: inputEnv.parse() }), { config: {}, model });
     try {
-      const watched = kit.hub.runInfo(QualifiedName.parse('input/get_input'), { watched: true });
+      const watched = kit.hub.runInfo(QualifiedName.parse('input/get_input'), { watched: true, inChat: true });
       const made = await kit.call('get_input', { detailedDescription: 'The trip: the city and how many nights.' }, { run: watched });
       expect(made.result).toMatchObject({ form: { title: 'Trip details' }, saved: 'input/trip_details', call: 'input/trip_details({})', next: WAIT_FOR_ANSWERS });
       expect(kit.hub.fns.kept.get('input/trip_details')?.saved).toMatchObject({ kind: FORM_KIND, payload: TRIP, share: { visibility: 'private', with: [] } });

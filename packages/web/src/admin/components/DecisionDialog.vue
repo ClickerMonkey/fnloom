@@ -3,16 +3,17 @@
  * The suggestions setting, one choice: no model (the closest in meaning over the threshold are suggested), a decision model (its own or the
  * Decisions role's; one yes/no question per candidate, picked at the role's threshold), or an LLM (asked for its picks
  * with reasons). A model chooser also sets how many of the person's recent messages it reads, how many candidates above
- * which score it sees, and the most it picks. "Try it" shows what would be suggested for a message in a session now:
+ * which score it sees, the most it picks, and what it does with its picks: suggests them (cards the chat model may load)
+ * or loads them for the turn (no model only suggests). "Try it" shows what would be suggested for a message in a session now:
  * what is used and what is left out, with each reason.
  */
-import { SessionId, type ModelInfo, type SessionSummary, type SuggestDecision, type SuggestDecisionView, type SuggestionChooser, type SuggestionRecord, SUGGESTION_CHOOSERS } from '@harness/core';
+import { CHOOSER_ACTIONS, SessionId, type ChooserAction, type ModelInfo, type SessionSummary, type SuggestDecision, type SuggestDecisionView, type SuggestionChooser, type SuggestionRecord, SUGGESTION_CHOOSERS } from '@harness/core';
 import { computed, ref, watch } from 'vue';
 import FnPill from '../../fns/components/FnPill.vue';
 import ModelPicker from '../../chat/components/ModelPicker.vue';
 import type { ModelPick } from '../../chat/logic/session.ts';
 import { UiBanner, UiButton, UiDialog, UiField, UiInput, UiSegmented, UiSelect, type SegmentOption, type SelectOption } from '../../ui/index.ts';
-import { CHOOSER_WORDS, chooserModels, decisionDraft, decisionOf, previewParts, type DecisionDraft } from '../logic/suggestions.ts';
+import { ACTION_WORDS, CHOOSER_WORDS, chooserModels, decisionDraft, decisionOf, loadText, previewParts, type DecisionDraft } from '../logic/suggestions.ts';
 
 const props = withDefaults(defineProps<{
   view: SuggestDecisionView | undefined;
@@ -35,6 +36,8 @@ const set = <K extends keyof DecisionDraft>(key: K, value: DecisionDraft[K]): vo
 const CHOOSERS: readonly SegmentOption<SuggestionChooser>[] = SUGGESTION_CHOOSERS.map((value) => ({ value, label: CHOOSER_WORDS[value].label, icon: CHOOSER_WORDS[value].icon }));
 const by = computed({ get: () => draft.value.by, set: (value: SuggestionChooser) => { set('by', value); } });
 const usesModel = computed(() => draft.value.by !== 'none');
+const ACTIONS: readonly SegmentOption<ChooserAction>[] = CHOOSER_ACTIONS.map((value) => ({ value, label: ACTION_WORDS[value].label, icon: ACTION_WORDS[value].icon }));
+const action = computed({ get: () => draft.value.action, set: (value: ChooserAction) => { set('action', value); } });
 
 const checked = computed(() => decisionOf(draft.value));
 const modelError = computed(() => (tried.value && !checked.value.ok && checked.value.at === 'model' ? checked.value.problem : ''));
@@ -74,6 +77,8 @@ function tryIt(): void {
       <UiSegmented v-model="by" :options="CHOOSERS" label="Who picks" data-testid="decision-by" />
       <p class="dim" data-testid="decision-about">{{ CHOOSER_WORDS[draft.by].about }}</p>
       <template v-if="usesModel">
+        <UiSegmented v-model="action" :options="ACTIONS" label="What it does" data-testid="decision-action" />
+        <p class="dim" data-testid="decision-action-about">{{ ACTION_WORDS[draft.action].about }}</p>
         <UiField :label="draft.by === 'llm' ? 'LLM' : 'Decision model'" :error="modelError" :required="draft.by === 'llm'">
           <div class="model" data-testid="decision-model">
             <div class="chosen-row">
@@ -108,7 +113,7 @@ function tryIt(): void {
         </div>
         <p v-if="previewProblem !== ''" class="bad" role="alert">{{ previewProblem }}</p>
         <ul v-if="parts" class="outcomes" data-testid="decision-preview">
-          <li v-for="item in parts.used" :key="`u${item.name}`" class="used"><FnPill v-if="item.kind === 'fn'" :name="item.name" /><code v-else>{{ item.name }}</code><span class="dim">{{ item.kind }}{{ item.score === undefined ? '' : ` · ${item.score.toFixed(2)}` }}{{ item.note ? ` · ${item.note}` : '' }}</span></li>
+          <li v-for="item in parts.used" :key="`u${item.name}`" class="used"><FnPill v-if="item.kind === 'fn'" :name="item.name" /><code v-else>{{ item.name }}</code><span class="dim">{{ item.kind }}{{ item.score === undefined ? '' : ` · ${item.score.toFixed(2)}` }}{{ item.note ? ` · ${item.note}` : '' }}{{ loadText(item) ? ` · ${loadText(item)}` : '' }}</span></li>
           <li v-for="{ item, why } in parts.left" :key="`l${item.name}`" class="left"><FnPill v-if="item.kind === 'fn'" :name="item.name" /><code v-else>{{ item.name }}</code><span class="dim">{{ why }}</span></li>
           <li v-if="parts.used.length + parts.left.length === 0" class="dim">Nothing to suggest for that.</li>
         </ul>

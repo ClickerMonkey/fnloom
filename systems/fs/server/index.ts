@@ -107,7 +107,10 @@ export interface GitStatus {
 
 /** Asks git about a folder. */
 export interface Git {
-  /** The status, or `undefined` when the folder isn't in a git work tree. */
+  /**
+   * The status of the work tree whose top level is the folder itself, or `undefined` when it is in none or only inside
+   * a repository rooted above it (a root inside another repository is not that repository).
+   */
   status(folder: string, signal?: AbortSignal): Promise<GitStatus | undefined>;
 }
 

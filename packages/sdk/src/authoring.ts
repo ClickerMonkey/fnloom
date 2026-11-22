@@ -20,6 +20,7 @@
  */
 import type { AI, AIContextRequired, AIMetadataRequired } from '@aeye/ai';
 import type { ToolCompatible } from '@aeye/core';
+import { conciseIssues, issueLines } from '@harness/core';
 import { env } from '@ayepi/env';
 import { z } from 'zod';
 import { g, json, type Infer } from './gin.ts';
@@ -31,6 +32,12 @@ export const authoringEnv = env({
   HARNESS_AUTHORING_FIXES: z.coerce.number().int().min(0).default(3),
   /** The most model rounds one authoring run takes. */
   HARNESS_AUTHORING_ROUNDS: z.coerce.number().int().min(2).default(24),
+  /**
+   * The most tokens one model step of an authoring run may write (its `maxTokens`). A draft is a few thousand tokens at
+   * most; without a cap a stuck model once wrote 65k tokens of whitespace into one call over four minutes. A step that
+   * reaches it comes back to the model as that call's error (the hub's stream guard), so it writes a smaller call.
+   */
+  HARNESS_AUTHORING_MAX_TOKENS: z.coerce.number().int().min(256).default(16_000),
 });
 
 /** The fixed workflow, in order. `fix` is entered when a check fails and left when a draft checks clean. */
@@ -257,20 +264,54 @@ export function authoringTool<S, D, I extends object>(def: AuthoringToolInput<S,
   return {
     name: def.name,
     stage: def.stage,
-    make: (ai, session) => ai.tool({
-      name: def.name,
-      description: def.description,
-      ...(def.instructions === undefined ? {} : { instructions: def.instructions }),
-      ...(def.strict === undefined ? {} : { strict: def.strict }),
-      schema: () => (typeof def.schema === 'function' ? def.schema(session) : def.schema),
-      applicable: () => session.open(def.stage) && (def.when?.(session) ?? true),
-      call: async (input: I) => {
-        const text = await def.call(input, session);
-        session.done(def.stage, def.name);
-        return text;
-      },
-    }),
+    make: (ai, session) => {
+      const schemaOf = (): z.ZodType<I> => (typeof def.schema === 'function' ? def.schema(session) : def.schema);
+      return ai.tool({
+        name: def.name,
+        description: def.description,
+        ...(def.instructions === undefined ? {} : { instructions: def.instructions }),
+        ...(def.strict === undefined ? {} : { strict: def.strict }),
+        schema: () => schemaOf(),
+        // args that don't fit come back short: the first few problems at their paths, not zod's whole union tree
+        parse: (raw: unknown) => parseArgs(schemaOf(), raw),
+        applicable: () => session.open(def.stage) && (def.when?.(session) ?? true),
+        call: async (input: I) => {
+          const text = await def.call(input, session);
+          session.done(def.stage, def.name);
+          return text;
+        },
+      });
+    },
   };
+}
+
+/**
+ * An authoring tool's args, checked against its schema: the value, or an error naming the first few problems at their
+ * paths (`conciseIssues`). A field the model sent as a string holding JSON (some providers double-encode large args)
+ * is read as that JSON before giving up.
+ */
+export function parseArgs<I>(schema: z.ZodType<I>, raw: unknown): I | Error {
+  const checked = schema.safeParse(raw);
+  if (checked.success) return checked.data;
+  const decoded = decodeStringFields(raw);
+  if (decoded !== undefined) {
+    const again = schema.safeParse(decoded);
+    if (again.success) return again.data;
+  }
+  return new Error(`the args don't fit; fix these and send the whole call again:\n${issueLines(conciseIssues(checked.error, raw))}`);
+}
+
+/** `raw` with its top-level string fields that hold a JSON object or list read as that JSON; undefined when none do. */
+function decodeStringFields(raw: unknown): Record<string, unknown> | undefined {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined;
+  let changed = false;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    out[key] = value;
+    if (typeof value !== 'string' || !/^\s*[[{]/.test(value)) continue;
+    try { out[key] = JSON.parse(value); changed = true; } catch { /* not JSON: kept as it is */ }
+  }
+  return changed ? out : undefined;
 }
 
 /** What `authoringAgent` takes. */
@@ -298,6 +339,8 @@ export interface AuthoringAgentInput<S, D> {
   readonly fixes?: number;
   /** Model rounds; `HARNESS_AUTHORING_ROUNDS` when absent. */
   readonly rounds?: number;
+  /** The most tokens one model step may write; `HARNESS_AUTHORING_MAX_TOKENS` when absent. */
+  readonly maxTokens?: number;
   /** `find: false`: the agent is handed what it builds on, so it starts in `inspect` (no find tools, no `reuse`). */
   readonly stages?: { readonly find?: boolean };
   /** Names for the built-in tools when the job wants its own words (default `draft` and `save`). */
@@ -339,6 +382,7 @@ export interface AuthoringAgent<S, D> {
 export function authoringAgent<S, D>(def: AuthoringAgentInput<S, D>): AuthoringAgent<S, D> {
   const fixCap = def.fixes ?? authoringEnv.get('HARNESS_AUTHORING_FIXES');
   const rounds = def.rounds ?? authoringEnv.get('HARNESS_AUTHORING_ROUNDS');
+  const maxTokens = def.maxTokens ?? authoringEnv.get('HARNESS_AUTHORING_MAX_TOKENS');
   const names = { draft: def.toolNames?.draft ?? 'draft', save: def.toolNames?.save ?? 'save' };
   const guide = stageGuide(names);
   const skip: SkippableStage[] = def.stages?.find === false ? ['find'] : [];
@@ -413,7 +457,8 @@ export function authoringAgent<S, D>(def: AuthoringAgentInput<S, D>): AuthoringA
         dynamic: true,
         // until something is saved (or reused) every round must call a tool: a model that answers in words mid-way (a
         // clean draft and no `save`) otherwise ends the run with nothing kept
-        config: () => (session.going ? { toolChoice: 'required' } : {}),
+        // and no step writes past the cap: a stuck model ends there, its call failing back to it (the hub's stream guard)
+        config: () => (session.going ? { maxTokens, toolChoice: 'required' } : { maxTokens }),
         toolIterations: rounds,
         toolExecution: 'sequential',
         // no model named: the hub picks (its stand-in has every capability), never aeye among the hub's whole list,

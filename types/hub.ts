@@ -815,7 +815,16 @@ export type MessagePart =
   /** What a system's hook added. Shown dimmed; the LLM sees it tagged. */
   | { type: 'hook'; hook: QualifiedName; blocks: Json[] }
   | { type: 'attachment'; attachment: QualifiedName; data: Json; title: string }
-  | { type: 'link'; link: Link };
+  | { type: 'link'; link: Link }
+  /**
+   * What the suggestions chooser loaded for the message (its action `load`): the fns that joined the tools and the
+   * context brought in as its text, with the fns it brings. Hidden in the chat; the LLM reads it as `<loaded_for_you>`.
+   */
+  | {
+    type: 'loaded-for-you'; by: 'decision' | 'llm'; toolset?: 'tools' | 'static';
+    fns: Array<{ fn: QualifiedName; label: string; why?: string; broughtBy?: QualifiedName }>;
+    context: Array<{ context: QualifiedName; title?: string; why?: string; text: string; fns?: QualifiedName[] }>;
+  };
 
 /** What the session's controls can do, given what's running. */
 export interface SessionControls {

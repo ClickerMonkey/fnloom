@@ -34,11 +34,42 @@ export const SKIP_REASON_LABELS = {
 } as const satisfies Record<SkipReason, string>;
 
 /**
+ * What a chooser does with what it picks: `suggest` (cards the model may load: `<suggested_fns>`,
+ * `<suggested_context>`) or `load` (loaded for the turn, as `hub/load_fns` and `hub/load_context` load: the fns join
+ * the model's tools from its first step, and context is brought into the user message as its text, with the fns it
+ * brings; the message says so in `<loaded_for_you>`). Phil (2026-11-22): "options to not only allow a decision model
+ * or llm to suggest context or fns but actually have them automatically add them".
+ */
+export const CHOOSER_ACTIONS = ['suggest', 'load'] as const;
+export const ChooserAction = z.enum(CHOOSER_ACTIONS);
+export type ChooserAction = z.infer<typeof ChooserAction>;
+
+/** What a setting's chooser does: its `action`, else `suggest` (as every setting stored before 2026-11-22 did). No model, no loading. */
+export function actionOf(setting: { readonly by: string; readonly action?: ChooserAction | undefined }): ChooserAction {
+  return setting.by === 'none' ? 'suggest' : setting.action ?? 'suggest';
+}
+
+/**
+ * What became of a pick a chooser with action `load` loaded, or meant to. `loaded`: loaded for the turn. `budget`:
+ * its text didn't fit the room the prompt has for it, so it was suggested instead. `blocked`: it can't be loaded now
+ * (a fn that can't be used here, a context item with no text of its own yet), so it was suggested instead.
+ */
+export const LOAD_OUTCOMES = ['loaded', 'budget', 'blocked'] as const;
+export const LoadOutcome = z.enum(LOAD_OUTCOMES);
+export type LoadOutcome = z.infer<typeof LoadOutcome>;
+
+/** What a load outcome reads as in the chat and the admin's try-out. */
+export const LOAD_OUTCOME_LABELS = {
+  loaded: 'Loaded for the turn', budget: 'No room to load it, so suggested', blocked: 'Can\'t be loaded now, so suggested',
+} as const satisfies Record<LoadOutcome, string>;
+
+/**
  * One candidate fn or context item and what became of it. `note`: the decision model's reason, in its words.
- * `broughtBy`: a fn suggested because a suggested context brings it, at that context's score.
+ * `broughtBy`: a fn suggested because a suggested context brings it, at that context's score. `load`: with action
+ * `load`, what became of a pick (absent: it was suggested, as the action `suggest` does).
  */
 export const SuggestionOutcome = z.discriminatedUnion('used', [
-  z.object({ used: z.literal(true), kind: z.enum(['fn', 'context']), name: QualifiedName, score: z.number().optional(), broughtBy: QualifiedName.optional(), note: z.string().optional() }),
+  z.object({ used: z.literal(true), kind: z.enum(['fn', 'context']), name: QualifiedName, score: z.number().optional(), broughtBy: QualifiedName.optional(), note: z.string().optional(), load: LoadOutcome.optional() }),
   z.object({ used: z.literal(false), kind: z.enum(['fn', 'context']), name: QualifiedName, score: z.number().optional(), broughtBy: QualifiedName.optional(), reason: SkipReason, note: z.string().optional() }),
 ]);
 export type SuggestionOutcome = z.infer<typeof SuggestionOutcome>;
@@ -53,6 +84,8 @@ export const SuggestionRecord = z.object({
   threshold: z.number().optional(),
   /** The model's calls, in order, for the model calls page: more than one when its questions were split across calls. */
   calls: z.array(ModelCallId).min(1).optional(),
+  /** `load` when the chooser's action loads what it picks (each used item's `load` says what became of it); absent when it suggests. */
+  action: z.literal('load').optional(),
   items: z.array(SuggestionOutcome),
 });
 export type SuggestionRecord = z.infer<typeof SuggestionRecord>;
@@ -89,11 +122,16 @@ export type SuggestionChooser = z.infer<typeof SuggestionChooser>;
  *   at or over the decide role's threshold are picked, most likely first. Calls are split by the model's `maxQuestions`.
  * - `llm`: a chat model (`model`) reads the candidates and answers which to pick, as JSON, with reasons.
  * The picks and refusals become the message's `SuggestionRecord`. If the model fails, the score threshold decides.
+ *
+ * A model chooser's `action` (`ChooserAction`, default `suggest`) says whether its picks are suggested or loaded for
+ * the turn. `none` only suggests: similarity alone is too weak a sign to put things in the prompt unasked (a clearly
+ * relevant fn scores 0.2 to 0.3, near the median item), and nothing would say why each was loaded. If the model
+ * fails, the score's picks are suggested, never loaded.
  */
 export const SuggestDecision = z.discriminatedUnion('by', [
   z.object({ by: z.literal('none') }),
-  SuggestPicking.extend({ by: z.literal('decision'), model: RoleModel.optional() }),
-  SuggestPicking.extend({ by: z.literal('llm'), model: RoleModel }),
+  SuggestPicking.extend({ by: z.literal('decision'), model: RoleModel.optional(), action: ChooserAction.optional() }),
+  SuggestPicking.extend({ by: z.literal('llm'), model: RoleModel, action: ChooserAction.optional() }),
 ]);
 export type SuggestDecision = z.infer<typeof SuggestDecision>;
 
@@ -130,11 +168,16 @@ export type SearchJudge = z.infer<typeof SearchJudge>;
  * - `llm`: a chat model (`model`) reads the hits and the search and answers which to keep, as JSON, with reasons.
  * What the search was for is its text and, inside a turn, the turn's latest user message. If the model fails, every
  * hit is kept and the page says so (`SearchFiltered.failed`).
+ *
+ * A model's `action` (default `suggest`: the kept hits are returned, for the model to load) may be `load`: when
+ * `hub/fns_search` runs in a chat, the best kept hits that can be used there are loaded too (fns into the tools,
+ * context into the session, as `hub/load_fns` and `hub/load_context` load them), up to `HARNESS_SEARCH_LOAD_MAX` of each
+ * kind, and the page says what (`FnSearchPage.loaded`). The web's search only filters; a failed filter loads nothing.
  */
 export const SearchDecision = z.discriminatedUnion('by', [
   z.object({ by: z.literal('none') }),
-  z.object({ by: z.literal('decision'), model: RoleModel.optional() }),
-  z.object({ by: z.literal('llm'), model: RoleModel }),
+  z.object({ by: z.literal('decision'), model: RoleModel.optional(), action: ChooserAction.optional() }),
+  z.object({ by: z.literal('llm'), model: RoleModel, action: ChooserAction.optional() }),
 ]);
 export type SearchDecision = z.infer<typeof SearchDecision>;
 

@@ -14,10 +14,14 @@
  * search is filtered (by text, not by name or for named items). Every model call is a `ModelCall` (purpose
  * `fns-search` or `context-search`) charged to the asker's run when there is one. If the model fails, every hit is
  * kept and the page says so (`SearchFiltered.failed`).
+ *
+ * A decision whose action is `load` marks its record so (`SearchFiltered.action`); the filter itself loads nothing
+ * (the web's search only filters). `hub/fns_search`, which runs in a chat, then loads the best kept hits it may use
+ * (`loadKept` in `boot/hub-fns.ts`) and says what in its page (`FnSearchPage.loaded`).
  */
 import type { Logger } from '@ayepi/log';
 import {
-  messageOf, SEARCH_DECISION_DEFAULT, SEARCH_DECISION_OPTIONS, SearchDecision, yesProbability, type ActorId, type DecisionQuestions, type FnSearchHit,
+  actionOf, messageOf, SEARCH_DECISION_DEFAULT, SEARCH_DECISION_OPTIONS, SearchDecision, yesProbability, type ActorId, type DecisionQuestions, type FnSearchHit,
   type FnSearchPage, type FnSearchQuery, type LlmMessage, type ModelCallId, type MessagePart, type RunId, type SearchDecisionsView, type SearchDecisionView,
   type SearchFiltered, type SearchItemKind, type SessionId, type Timestamp,
 } from '@harness/core';
@@ -183,8 +187,9 @@ export class SearchDecisions {
         const note = judged.notes.get(hit);
         return { name: hit.name, ...(note === undefined ? {} : { note }) };
       });
-      this.#deps.log.info('fns.search-decision.filtered', { item, by: setting.by, hits: hits.length, dropped: dropped.length, calls });
-      return { kept: judged.kept, filtered: { item, by: setting.by, dropped, ...withCalls() } };
+      const action = actionOf(setting);
+      this.#deps.log.info('fns.search-decision.filtered', { item, by: setting.by, action, hits: hits.length, dropped: dropped.length, calls });
+      return { kept: judged.kept, filtered: { item, by: setting.by, dropped, ...withCalls(), ...(action === 'load' ? { action } : {}) } };
     } catch (error) {
       this.#deps.log.warn('fns.search-decision.failed', { item, by: setting.by, error: messageOf(error) });
       return { filtered: { item, by: setting.by, dropped: [], ...withCalls(), failed: `The ${setting.by === 'llm' ? 'LLM' : 'decision model'} failed (${messageOf(error)}), so every hit was kept.` } };

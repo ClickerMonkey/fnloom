@@ -4,6 +4,8 @@
  * fsmonitor, hooks, a pager, an external diff), and a write to `.git/config` must never turn into code fs runs.
  */
 import type { CommandRun, Exec, Git, GitStatus } from './index.ts';
+import { realpath } from 'node:fs/promises';
+import { isAbsolute, relative, resolve } from 'node:path';
 import { commandEnv } from './shell.ts';
 
 /** Where fs's own git looks for hooks: a path that is never a folder, so no planted hook runs. */
@@ -56,6 +58,19 @@ export function parseStatus(output: string): GitStatus {
   return { branch, tracking, changes };
 }
 
+/** A path as compared: real (links followed) when it exists, resolved, and case-folded where the file system ignores case. */
+async function comparable(path: string): Promise<string> {
+  const real = await realpath(path).catch(() => resolve(path));
+  return process.platform === 'win32' || process.platform === 'darwin' ? real.toLowerCase() : real;
+}
+
+/** Whether a repository's top level (as git prints it) is the folder or inside it. */
+export async function within(top: string, folder: string): Promise<boolean> {
+  if (top === '') { return false; }
+  const rel = relative(await comparable(folder), await comparable(top));
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
 /** Git through its command line. */
 export class CliGit implements Git {
   private readonly exec: Exec;
@@ -66,6 +81,9 @@ export class CliGit implements Git {
   }
 
   async status(folder: string, signal?: AbortSignal): Promise<GitStatus | undefined> {
+    // a folder inside a repository rooted above it is not that repository: its branch and changes are another's
+    const top = await runGit(this.exec, folder, ['rev-parse', '--show-toplevel'], { timeout: this.timeout, signal });
+    if (top.exitCode !== 0 || top.ended !== 'exit' || !(await within(top.stdout.trim(), folder))) { return undefined; }
     const run = await runGit(this.exec, folder, ['status', '--porcelain=v1', '--branch'], { timeout: this.timeout, signal });
     return run.exitCode === 0 && run.ended === 'exit' ? parseStatus(run.stdout) : undefined;
   }
