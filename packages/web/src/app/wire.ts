@@ -23,6 +23,7 @@ import { ResourcesStore } from '../resources/state/resources.ts';
 import { ContextStore } from '../context/state/context.ts';
 import { FnInfoStore } from '../fns/state/fn-info.ts';
 import { FnNotices } from '../fns/state/fn-notices.ts';
+import { ModelNamesStore } from '../fns/state/model-names.ts';
 import { IdentityStore } from '../state/identity.ts';
 import { OutsideImagesStore } from '../state/outside-images.ts';
 import { GraphStore } from '../graph/state/graph.ts';
@@ -99,6 +100,7 @@ export function createStores(win: Window): Stores {
     context: new ContextStore({ api: api.context, events: api.contextEvents }),
     fns: new FnInfoStore(api.fns, api.userEvents),
     fnNotices: new FnNotices(api.fns),
+    modelNames: new ModelNamesStore(api.fns),
     graph: () => new GraphStore(api.graph),
     data: new DataStore(api.data),
     pages,

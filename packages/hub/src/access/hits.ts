@@ -30,7 +30,7 @@ export async function seesHit(access: AccessScope, lookups: HitLookups, hit: Pic
     const parent = QualifiedName.safeParse(hit.parent);
     return parent.success && seesContextNamed(access, lookups.context, parent.data, session);
   }
-  // messages carry no session the person could be checked against; examples are read through their fn (`hub/fn_examples`);
+  // messages carry no session the person could be checked against; examples are read through their fn (`hub/fns_examples`);
   // records are searched only through the data system, which checks their type and owner
   if (hit.kind === 'message' || hit.kind === 'example' || hit.kind === 'record') return false;
   const name = QualifiedName.safeParse(hit.key);

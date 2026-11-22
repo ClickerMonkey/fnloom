@@ -1,5 +1,5 @@
 /**
- * `hub/context_crawl`'s walk (plan item 7) over a catalog of context, through the real hub decider (questions split by
+ * `hub/ctx_crawl`'s walk (plan item 7) over a catalog of context, through the real hub decider (questions split by
  * the model's cap, each call's id kept): levels with imports always pulled, one question per `choices` link, the
  * threshold, the token budget, and each reason it stops.
  */
@@ -13,7 +13,7 @@ import { ContextCrawler, crawlTokens, type CrawlPlan } from './crawl.ts';
 const q = (name: string): QualifiedName => QualifiedName.parse(name);
 /** 400 characters: 100 tokens at the default 4 characters per token. */
 const TEXT = 'x'.repeat(400);
-const SITE: ModelSite = { purpose: 'context_crawl' };
+const SITE: ModelSite = { purpose: 'ctx_crawl' };
 
 /** A catalog of `fs/` context, each 100 tokens, with the imports and choices given. */
 function graph(items: Record<string, { imports?: string[]; choices?: Record<string, string>; content?: string }>): TestCatalog {
@@ -182,7 +182,7 @@ describe('crawling context by decision', () => {
   });
 
   it('sizes dynamic context by its summary until its system writes it', () => {
-    expect(crawlTokens({ decl: { name: 'x', description: 'twelve chars', content: TEXT, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: [] } })).toBe(100);
-    expect(crawlTokens({ decl: { name: 'x', description: 'twelve chars', imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: [] } })).toBe(3);
+    expect(crawlTokens({ decl: { name: 'x', description: 'twelve chars', content: TEXT, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', tags: [] } })).toBe(100);
+    expect(crawlTokens({ decl: { name: 'x', description: 'twelve chars', imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', tags: [] } })).toBe(3);
   });
 });

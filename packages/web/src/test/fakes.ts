@@ -24,6 +24,7 @@ import { fakeContext } from '../context/test/fakes.ts';
 import { fakeFnsApi } from '../fns/test/fakes.ts';
 import { FnInfoStore } from '../fns/state/fn-info.ts';
 import { FnNotices } from '../fns/state/fn-notices.ts';
+import { ModelNamesStore } from '../fns/state/model-names.ts';
 import { DataStore } from '../data/state/data.ts';
 import { fakeDataApi } from '../data/test/fakes.ts';
 import { IdentityStore } from '../state/identity.ts';
@@ -237,6 +238,7 @@ export function fakeStores(options: { signedIn?: boolean; api?: ReturnType<typeo
     context: context.context,
     fns: new FnInfoStore(fns, events.subscribe),
     fnNotices: new FnNotices(fns),
+    modelNames: new ModelNamesStore(fns),
     graph: () => new GraphStore(fakeGraphApi()),
     data: new DataStore(data),
     pages: pages.pages,

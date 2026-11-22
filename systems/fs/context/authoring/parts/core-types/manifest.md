@@ -195,6 +195,7 @@ type Manifest = {
         action: "create" | "update" | "remove";
         kind?: `${string}/${string}` | "native" | undefined;
       }[] | undefined;
+      keeps?: "resources"[] | undefined;
     } | undefined;
     promptExamples?: number | undefined;
     group?: string | undefined;
@@ -214,7 +215,6 @@ type Manifest = {
     suggestFns: `${string}/${string}`[];
     suggest: "user" | "llm" | "none" | "both";
     visible: "user" | "llm" | "none" | "both";
-    alwaysFor: `${string}/${string}`[];
     tags: string[];
     title?: string | undefined;
     content?: string | undefined;
@@ -225,6 +225,12 @@ type Manifest = {
         hint: string;
         required: boolean;
       }[];
+    } | undefined;
+    inject?: {
+      into: string[];
+      order: number;
+      requires: `${string}/${string}`[];
+      mode?: "tools" | "static" | undefined;
     } | undefined;
     niche?: "admin" | "developer" | "reference" | undefined;
     weight?: number | undefined;
@@ -259,6 +265,7 @@ type Manifest = {
     description: string;
     order: number;
     timeout: number;
+    explains?: string | undefined;
   }[];
   mentions: {
     name: string;

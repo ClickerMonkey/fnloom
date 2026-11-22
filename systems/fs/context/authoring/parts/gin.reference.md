@@ -16,11 +16,13 @@ niche: "developer"
 
 const · `import { g } from '@harness/sdk'`
 
-The gin type builder: gin's registry, shared by every contract in this process.
+The gin type builder: gin's registry, shared by every contract in this process, with `fnName` (`HarnessGin`).
 
 ```ts
-const g: Registry;
+const g: Registry & HarnessGin;
 ```
+
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `GinType`
 

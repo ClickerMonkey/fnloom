@@ -3,7 +3,7 @@
  * A decision model may cap the questions per call (aeye's `ModelInfo.maxQuestions`; Ollama's System One models take
  * 64) and the bytes of input and questions per call (`ModelInfo.maxRequestBytes`; System One takes 64 KiB), and aeye
  * refuses a call over a cap without splitting it (`DecisionLimitError`). So every hub caller that asks questions
- * (suggestions, systems' `decide`, `context_crawl`) goes through `HubDecider.ask`, which splits them here, in order,
+ * (suggestions, systems' `decide`, `ctx_crawl`) goes through `HubDecider.ask`, which splits them here, in order,
  * one call per batch, and gets every answer back by name. The model is the `decide` role's unless the job chose one,
  * and the role's threshold says how likely a yes/no answer must be to count as yes.
  */

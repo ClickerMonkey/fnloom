@@ -1,6 +1,6 @@
 import { PromptSuspend, type Request } from '@aeye/core';
 import { fn, g } from '@harness/sdk';
-import type { LlmMessage, TableReading } from '@harness/core';
+import { modelFnName, type LlmMessage, type TableReading } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { Channel } from './channel.ts';
@@ -11,17 +11,17 @@ import { agentTools, PendingCalls } from './tools.ts';
 import { TestCatalog } from './testing.ts';
 import {
   chunkFromWire, chunkToWire, descriptorsOf, isObjectSchema, messageFromWire, messageToWire, replyText, requestFromWire, requestToWire, responseToWire, tokensOf,
-  toolName, usageToWire,
+  usageToWire,
 } from './wire.ts';
 
 /** A run a person watches, reading five rows of a table. */
 const SHOWN: TableReading = { rows: 5, watched: true };
 
 describe('tool names', () => {
-  it('fit what providers allow', () => {
-    expect(toolName('fs/read')).toBe('fs__read');
-    expect(toolName('fs/Entry.reveal')).toBe('fs__Entry--reveal');
-    expect(toolName(`fs/${'x'.repeat(80)}`)).toHaveLength(64);
+  it('are the one model name, which fits what providers allow', () => {
+    expect(modelFnName('fs/read')).toBe('fs__read');
+    expect(modelFnName('fs/Entry.reveal')).toBe('fs__Entry__reveal');
+    expect(modelFnName(`fs/${'x'.repeat(80)}`)).toHaveLength(64);
   });
 });
 
@@ -48,7 +48,7 @@ describe('messages', () => {
   it('gives a hub load as its XML cards, never its name lists; another result with a cards field stays JSON', () => {
     const cards = '<loaded_fns>\nIn your tools from your next step:\n<fn name="fs/read" label="Read" available="yes">Read.</fn>\n</loaded_fns>';
     expect(replyText({ loaded: ['fs/read'], refused: [], cards }, SHOWN)).toBe(cards);
-    expect(replyText({ loaded: [], fns: [], fnsRefused: [], refused: [], cards: '<loaded_context />' }, SHOWN)).toBe('<loaded_context />');
+    expect(replyText({ loaded: [], fns: [], fnsRefused: [], refused: [], cards: '<loaded_ctx />' }, SHOWN)).toBe('<loaded_ctx />');
     expect(replyText({ cards: 'a deck', loaded: ['fs/read'], refused: [], shuffled: true }, SHOWN)).toBe('{"cards":"a deck","loaded":["fs/read"],"refused":[],"shuffled":true}');
   });
 

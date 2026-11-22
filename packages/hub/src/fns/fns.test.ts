@@ -262,6 +262,21 @@ describe('fns search in the hub database', () => {
     expect((await search.search({ text: 'secret trip plans', items: ['context'] }, { actor: ActorId.parse('act_them'), access: openScope(ActorId.parse('act_them')) })).items.map((h) => h.name)).toContain('hub/memory-theirs');
   });
 
+  it('keeps to the memory scopes asked for (hub/ctx_search\'s scopes), which leave fns and other context out', async () => {
+    const { store, catalog, indexer, search, asker } = await setup();
+    const travel = await catalog.context(q('notes/travel'));
+    if (travel === undefined) throw new Error('no travel context');
+    const ours: ContextRecord = {
+      ...travel, name: q('hub/memory-ours'), system: SystemName.parse('hub'), decl: { ...travel.decl, name: 'memory-ours', description: 'Everyone likes trips to the sea.' },
+      origin: { type: 'memory', scope: { to: 'everyone' }, author: asker.actor },
+    };
+    await store.table('context').put(ours);
+    await indexer.upsert([{ kind: 'context', key: ours.name, text: contextText(ours.name, ours.decl), system: ours.system }]);
+    const everyone = await search.search({ text: 'trips', scopes: ['everyone'] }, asker);
+    expect(everyone.items.map((h) => h.name)).toEqual(['hub/memory-ours']);
+    expect((await search.search({ text: 'trips', scopes: ['user'] }, asker)).items).toEqual([]);
+  });
+
   // iteration 1 (2026-11-22): ordinary requests found authoring guides, API listings and admin fns before the fns they needed
   it('ranks developer, admin and reference material below the rest unless the search names its niche', async () => {
     const { store, catalog, indexer, search, asker } = await setup();

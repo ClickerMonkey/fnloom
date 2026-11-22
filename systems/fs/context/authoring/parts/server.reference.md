@@ -82,19 +82,6 @@ Where the MCP face listens: stdin/stdout, or MCP Streamable HTTP on a port (any 
 type McpServe = { stdio: true } | { http: { port: number; host?: string } };
 ```
 
-#### `mcpToolNameOf`
-
-function · `import { mcpToolNameOf } from '@harness/sdk/server'`
-
-A fn's MCP tool name: `<system>_<local>` in the characters MCP allows (`mcpToolName`; a system name never holds
-`_`). One name for a fn wherever an MCP offers it: a system's own MCP face and the hub's MCPs.
-
-```ts
-function mcpToolNameOf(fn: QualifiedName): string;
-```
-
-Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
-
 #### `RunningSystem`
 
 interface · `import { RunningSystem } from '@harness/sdk/server'`

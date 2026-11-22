@@ -107,7 +107,7 @@ describe('the MCP face: resources and prompts', () => {
   it('advertises tools, resources with subscriptions, and prompts', async () => {
     const { client: mcp } = await start();
     expect(mcp.server.capabilities).toEqual({ tools: { listChanged: true }, resources: { subscribe: true, listChanged: false }, prompts: { listChanged: false } });
-    expect((await mcp.listTools()).map((t) => t.name)).toEqual(['notes_count']);
+    expect((await mcp.listTools()).map((t) => t.name)).toEqual(['notes__count']);
   });
 
   it('lists roots, then each root\'s children page by page, and offers a template per root', async () => {

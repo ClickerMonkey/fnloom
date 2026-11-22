@@ -178,19 +178,19 @@ describe('the text the LLM gets', () => {
       '<fn name="fs/ls" label="Ls" available="yes" />',
       '</suggested_fns>',
     ].join('\n'));
-    expect(w.chat.enrich.block('suggested_context', [{ type: 'suggest-context', items: [{ context: 'fs/guide', title: 'Files & folders', why: 'How files work.' }] }]))
-      .toBe(`<suggested_context>\n${SUGGESTED_CONTEXT_LINES.tools}\n<context key="fs/guide" title="Files &amp; folders">How files work.</context>\n</suggested_context>`);
+    expect(w.chat.enrich.block('suggested_ctx', [{ type: 'suggest-context', items: [{ context: 'fs/guide', title: 'Files & folders', why: 'How files work.' }] }]))
+      .toBe(`<suggested_ctx>\n${SUGGESTED_CONTEXT_LINES.tools}\n<ctx key="fs/guide" title="Files &amp; folders">How files work.</ctx>\n</suggested_ctx>`);
     // a hook's suggestions sit in its own tag
     expect(w.chat.enrich.block('crm_ticket', [{ type: 'suggest-context', toolset: 'static', items: [{ context: 'crm/guide' }] }]))
-      .toBe(`<crm_ticket>\n<suggested_context>\n${SUGGESTED_CONTEXT_LINES.static}\n<context key="crm/guide" />\n</suggested_context>\n</crm_ticket>`);
+      .toBe(`<crm_ticket>\n<suggested_ctx>\n${SUGGESTED_CONTEXT_LINES.static}\n<ctx key="crm/guide" />\n</suggested_ctx>\n</crm_ticket>`);
   });
 
   it('says how to use a suggestion only in the ways the toolset it was sent in can (regression: "or call one by name")', () => {
     // tools mode: a fn must be loaded before it is called; nothing is called by name
-    expect(SUGGESTED_FNS_LINES.tools).toContain('hub/load_fns');
+    expect(SUGGESTED_FNS_LINES.tools).toContain('hub/fns_load');
     expect(SUGGESTED_FNS_LINES.tools).not.toMatch(/by (its )?name/);
-    expect(SUGGESTED_CONTEXT_LINES.tools).toContain('hub/load_context');
-    // the static toolset runs any fn by name, and has no hub/load_fns or hub/load_context (its load replaces them)
+    expect(SUGGESTED_CONTEXT_LINES.tools).toContain('hub/ctx_load');
+    // the static toolset runs any fn by name, and has no hub/fns_load or hub/ctx_load (its load replaces them)
     expect(SUGGESTED_FNS_LINES.static).toContain('run one by its name');
     expect(SUGGESTED_FNS_LINES.static).not.toContain('hub/load');
     expect(SUGGESTED_CONTEXT_LINES.static).not.toContain('hub/load');
@@ -246,7 +246,7 @@ describe('suggestions as sent', () => {
       '<fn name="fs/read" label="Read" mode="read" available="yes">', 'Read a text file.', '<args>obj{path: text}</args>', '<returns>text</returns>',
       '<instructions>Read whole files under 2000 lines.</instructions>',
       '<example note="a small file">{"path":"notes.txt"} → "buy milk"</example>',
-      '<more_examples count="1">Read them with hub/fn_examples {"fn":"fs/read","query":"what you are about to do"}</more_examples>',
+      '<more_examples count="1">Read them with hub/fns_examples {"fn":"fs/read","query":"what you are about to do"}</more_examples>',
       '</fn>', '</suggested_fns>',
     ].join('\n'));
     // the fn changes after the message was sent: the message still reads as it was sent
@@ -358,7 +358,7 @@ describe('a suggestions chooser that loads what it picks', () => {
       runs: [], status: 'done', replyAll: false, answerers: [], createdAt: 0,
     });
     expect(text).toContain(`<loaded_for_you>\n${LOADED_FOR_YOU_LINES.tools('the hub\'s decision model')}\n<fn name="fs/read" label="Read">100% likely</fn>`);
-    expect(text).toContain('<context key="fs/guide" title="Files">');
+    expect(text).toContain('<ctx key="fs/guide" title="Files">');
     expect(text).toContain('Paths are relative to the root.');
     expect(text).toContain('<brought_fns in_tools="yes">In your tools now: fs/tree</brought_fns>');
   });

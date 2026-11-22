@@ -5,7 +5,7 @@
  * The `ask_*` fns are the quick ones (a line of text, a choice, yes or no, a number, a date). Every input fn returns the
  * form and the model ends its turn: the person's answers come back as the next user message, in `<input-answer>` tags
  * the chat hides. A quick form the person liked is kept in the hub as an `input/form` fn (`save_form` through
- * `hub/save_fn`), so it is found next time.
+ * `hub/fns_save`), so it is found next time.
  */
 import { ActorId, GinObjTypeDef, Visibility } from '@harness/core';
 import { type Infer, context, fn, g, ginAs, hub, kind, system } from '@harness/sdk';
@@ -159,7 +159,7 @@ export const input = system('input', {
     { name: 'forms', title: 'Forms', description: 'Find or write a form for what is needed, check it and keep it in the hub for next time.' },
   ],
   // get_input's authoring agent is on a model; saved forms are hub fns it searches (the link's search), reads and saves
-  grants: { hub: ['ai', 'fns', 'search'], calls: ['hub/fn_get', 'hub/save_fn'] },
+  grants: { hub: ['ai', 'fns', 'search'], calls: ['hub/fns_get', 'hub/fns_save'] },
 })
   .with({
     kinds: {
@@ -279,7 +279,7 @@ export const input = system('input', {
           with: g.field(g.optional(ginAs(z.array(ActorId))), { docs: 'With `shared`: the people and groups (actor ids) who may use it.' }),
         }),
         returns: SavedForm,
-        deps: { saveFn: hub.fns.save_fn },
+        deps: { saveFn: hub.fns.fns_save },
         examples: [{
           args: { name: 'Trip details', description: 'Asks for a trip\'s city, first day, nights and travellers.', form: TRIP_FORM, askedFor: 'the trip: city, first day, nights and who is coming' },
           result: { fn: 'input/trip_details', name: 'Trip details' },
@@ -305,7 +305,7 @@ export const input = system('input', {
         instructions: GET_INPUT_USAGE,
         args: g.obj({ detailedDescription: g.field(g.text({ minLength: 1 }), { docs: 'What to ask for: each field, its kind, and whether it is required.' }) }),
         returns: Asked,
-        deps: { getFn: hub.fns.fn_get, saveFn: hub.fns.save_fn },
+        deps: { getFn: hub.fns.fns_get, saveFn: hub.fns.fns_save },
         examples: [
           {
             args: { detailedDescription: 'The trip: destination city (required), first day (date), number of nights (whole number, 1 to 60) and who is coming (optional list of names).' },

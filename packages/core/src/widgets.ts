@@ -4,7 +4,7 @@
  * source argument (a control, pinned or hidden), presets, the range args a chart drives, the paging args its buffered
  * pager drives, a drill and the row actions it narrows.
  *
- * The bundled `widgets` system owns the kind (`WIDGET_KIND`), saved widgets (fns of that kind, kept with `hub/save_fn`),
+ * The bundled `widgets` system owns the kind (`WIDGET_KIND`), saved widgets (fns of that kind, kept with `hub/fns_save`),
  * the authoring fn (`widgets/make_widget`, which proposes; the person presses Save, which runs `widgets/save_widget`)
  * and runs: a run calls its source as a child run, checks the bindings against the real columns and returns a
  * `WidgetResult`. The hub keeps only its `native` and `llm` kinds, the visual registry (`HUB_VISUALS`), row actions

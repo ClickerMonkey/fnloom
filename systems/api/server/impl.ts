@@ -178,7 +178,7 @@ export function createApiImpl(deps: ApiDeps): SystemImpl<ApiContract['defs']> {
           return KindDescription.parse({
             args: spec.args,
             returns: spec.returns,
-            deps: check.calls.length === 0 ? [] : [...check.calls, hub.fns.fn_get.name],
+            deps: check.calls.length === 0 ? [] : [...check.calls, hub.fns.fns_get.name],
             operations: { cancel: true, pause: false, undo: false, background: false },
             // a mode past read makes the hub's policies ask before it runs
             effects: { mode },

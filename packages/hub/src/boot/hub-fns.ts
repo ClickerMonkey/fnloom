@@ -5,7 +5,7 @@
  * typed and checked by the contract's gin types. Services are read when a fn runs, never while registering. Every one
  * keeps to what the run's person may see and use (their `AccessScope`): search hits, loads and results alike.
  */
-import { ContextCrawlArgs, contextOff, effectCovered, effectsLine, FnExamplesQuery, FnRouting, FnSearchArgs, QualifiedName, qualify, splitName, SystemName, type FnRefusal, type ContextCrawlResult, type ContextRecord, type CrawledContext, type FnSearchPage, type LoadContextResult, type LoadFnsResult, type SearchItemKind, type ActorId, type FnDecl, type FnExample, type Json, type IndexedKind, type RegistryEffect, type Run, type Session, type SessionId } from '@harness/core';
+import { ContextCrawlArgs, contextOff, effectCovered, effectsLine, CtxSearchArgs, ctxSearchQuery, FnExamplesQuery, FnRouting, FnSearchArgs, fnsSearchQuery, QualifiedName, qualify, splitName, SystemName, type FnRefusal, type ContextCrawlResult, type ContextRecord, type CrawledContext, type FnSearchPage, type FnSearchQuery, type LoadContextResult, type LoadFnsResult, type SearchItemKind, type ActorId, type FnDecl, type FnExample, type Json, type IndexedKind, type RegistryEffect, type Run, type Session, type SessionId } from '@harness/core';
 import { hub, parseValue, SAVE_FN_TAKEN, wireType } from '@harness/sdk';
 import type { AccessService } from '../access/index.ts';
 import type { FnFactsService, FnsServices } from '../fns/index.ts';
@@ -61,7 +61,7 @@ export interface HubFnDeps {
   readonly views: () => Pick<FnViewSource, 'view'>;
   /** What fns declare they change in the hub (build 6), so a change a run's fn did not declare is refused. */
   readonly facts: () => Pick<FnFactsService, 'registry'>;
-  /** Plan item 7: the hub's decisions (the `decide` role's model), for `hub/context_crawl`. */
+  /** Plan item 7: the hub's decisions (the `decide` role's model), for `hub/ctx_crawl`. */
   readonly decider: () => Pick<Decider, 'model' | 'ask'>;
   /** The scope of the hub MCP a run's caller is, so `fns_search` keeps to it (none: no MCP). */
   readonly mcpScope?: (caller: ActorId) => Promise<Pick<FnScope, 'fns' | 'context'> | undefined>;
@@ -74,7 +74,7 @@ export const UNDECLARED_CHANGE = 'undeclared-change';
 
 /**
  * Refuse a change to the hub's registry that the fn of the run asking for it did not declare: its own effects or, worked
- * out deeply, those of what it uses (`FnFacts.registry`). Declaring `hub/save_fn` as a dep declares its effects.
+ * out deeply, those of what it uses (`FnFacts.registry`). Declaring `hub/fns_save` as a dep declares its effects.
  */
 async function checkDeclared(deps: HubFnDeps, caller: Pick<Run, 'fn'>, change: RegistryEffect): Promise<void> {
   const declared = (await deps.facts().registry([caller.fn])).get(caller.fn) ?? [];
@@ -128,7 +128,7 @@ function names(given: readonly string[]): { valid: QualifiedName[]; invalid: str
 export const NO_DECISION_MODEL = 'no-decision-model';
 
 /** What a crawl's decide calls are recorded as (`ModelSite.purpose`), on the crawl's run. */
-export const CONTEXT_CRAWL_PURPOSE = 'context_crawl';
+export const CONTEXT_CRAWL_PURPOSE = 'ctx_crawl';
 
 /** Whether the asker may load a context item by name now: switched on, of a system the session uses, and visible to them. */
 async function mayLoad(deps: Pick<HubFnDeps, 'catalog'>, { session, access }: Asker, record: ContextRecord): Promise<boolean> {
@@ -152,7 +152,7 @@ async function askedContext(deps: HubFnDeps, asker: Asker, ctx: HubFnCtx, given:
 }
 
 /**
- * Load context into the asker's session as `hub/load_context` does: each name with what it imports (a switched-off or
+ * Load context into the asker's session as `hub/ctx_load` does: each name with what it imports (a switched-off or
  * unseen item left out), and the fns they bring into its tools; a brought fn that can't be added is reported with what
  * blocks it, one that reads as missing (unseen, not for the model) left out.
  */
@@ -176,7 +176,7 @@ async function loadIntoSession(deps: HubFnDeps, asker: Asker, names: readonly Qu
     if (blocked === undefined) { brought.push(name); } else if (!readsAsMissing(blocked)) { fnsRefused.push(refusalOf(name, blocked)); }
   }
   if (loaded.length > 0) {
-    // read again: a load_fns in the same step may have changed the tools meanwhile
+    // read again: a fns_load in the same step may have changed the tools meanwhile
     const now = (await deps.store().table('sessions').get(session.id)) ?? session;
     await deps.sessions().load(session.id, {
       context: [...new Set([...now.context, ...loaded])], ...(brought.length === 0 ? {} : { tools: [...new Set([...now.tools, ...brought])] }),
@@ -193,7 +193,7 @@ export const SEARCH_LOADED_NOTE = 'Loaded for you because the hub\'s search deci
 
 /**
  * The page of a search whose decision's action is `load` (`SearchFiltered.action`, not failed), with the best kept
- * hits of that kind loaded into the asker's session, up to `max` of each, as `hub/load_fns` and `hub/load_context` load
+ * hits of that kind loaded into the asker's session, up to `max` of each, as `hub/fns_load` and `hub/ctx_load` load
  * them: a fn the session may use joins its tools; a context item loads with its imports and the fns it brings. What
  * the session has loaded already is left as it is. The page says what was loaded (`loaded`), so the model doesn't load
  * it again.
@@ -225,10 +225,10 @@ export async function loadKept(deps: HubFnDeps, asker: Asker, page: FnSearchPage
 /** Register the hub fns. */
 export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
 
-  fns.register(hub.fns.load_fns, async (args, ctx): Promise<LoadFnsResult> => {
+  fns.register(hub.fns.fns_load, async (args, ctx): Promise<LoadFnsResult> => {
     const { session, access } = await askerOf(deps, ctx);
     const { valid, invalid } = names(args.fns);
-    const refused: FnRefusal[] = invalid.map((fn) => ({ fn, code: 'not-a-name', reason: 'not a qualified fn name (system/name)' }));
+    const refused: FnRefusal[] = invalid.map((fn) => ({ fn, code: 'not-a-name', reason: 'not the name of a fn' }));
     const loaded: QualifiedName[] = [];
     // the same check as hub/load and the static run: usable here and meant for the model
     for (const name of valid) {
@@ -239,7 +239,7 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
     return { loaded, refused, cards: loadedFnsCards(await viewsOf(deps, loaded), refused) };
   });
 
-  fns.register(hub.fns.drop_fns, async (args, ctx) => {
+  fns.register(hub.fns.fns_drop, async (args, ctx) => {
     const { session } = await askerOf(deps, ctx);
     const drop = new Set<string>(args.fns);
     const dropped = session.tools.filter((fn) => drop.has(fn));
@@ -247,14 +247,22 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
     return { dropped };
   });
 
-  fns.register(hub.fns.load_context, async (args, ctx): Promise<LoadContextResult> => {
+  fns.register(hub.fns.ctx_drop, async (args, ctx) => {
+    const { session } = await askerOf(deps, ctx);
+    const drop = new Set<string>(args.context.map((line) => line.split(/:\s/, 1)[0]?.trim() ?? line));
+    const dropped = session.context.filter((name) => drop.has(name));
+    if (dropped.length > 0) { await deps.sessions().load(session.id, { context: session.context.filter((name) => !drop.has(name)) }); }
+    return { dropped };
+  });
+
+  fns.register(hub.fns.ctx_load, async (args, ctx): Promise<LoadContextResult> => {
     const asker = await askerOf(deps, ctx);
     const { asked, refused } = await askedContext(deps, asker, ctx, args.context);
     const { loaded, records, brought, fnsRefused } = await loadIntoSession(deps, asker, asked);
     return { loaded, fns: brought, fnsRefused, refused, cards: loadedContextCards(records, { added: brought, blocked: fnsRefused }, refused) };
   });
 
-  fns.register(hub.fns.context_crawl, async (args, ctx): Promise<ContextCrawlResult> => {
+  fns.register(hub.fns.ctx_crawl, async (args, ctx): Promise<ContextCrawlResult> => {
     const asker = await askerOf(deps, ctx);
     const plan = ContextCrawlArgs.parse(args);
     // the catalog keeps it unavailable while the decide role has no model; one that can't be used now fails here
@@ -265,7 +273,7 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
       start: asked, guidance: plan.guidance, maxDepth: plan.maxDepth, maxDecisions: plan.maxDecisions, maxTokens: plan.maxTokens,
       model, site: { purpose: CONTEXT_CRAWL_PURPOSE, run: ctx.request.run.id }, signal: ctx.signal,
     });
-    // what it took loads as hub/load_context loads it, unless only its metadata was asked for
+    // what it took loads as hub/ctx_load loads it, unless only its metadata was asked for
     const load = plan.metadataOnly ? undefined : await loadIntoSession(deps, asker, outcome.taken.map((item) => item.name));
     const brought = load?.brought ?? [];
     const fnsRefused = load?.fnsRefused ?? [];
@@ -292,7 +300,12 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
       }));
   });
 
-  fns.register(hub.fns.fns_search, async (args, ctx) => {
+  /**
+   * The one search for the model, fns or context: in a session only its systems' items, through a hub MCP only what it
+   * exposes. The admin's search decision for the item kind the query asks for judges its hits (fns for
+   * `hub/fns_search`, context for `hub/ctx_search`), and one whose action is `load` loads the best kept hits.
+   */
+  const searchForModel = async (query: FnSearchQuery, ctx: HubFnCtx): Promise<FnSearchPage> => {
     const actor = ctx.request.run.user.id;
     const id = ctx.request.run.session;
     const [session, scope, access] = await Promise.all([
@@ -305,21 +318,26 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
       && (scope === undefined || (item === 'fn' ? scope.fns.has(name) : scope.context.has(name)));
     // the model sees what it can't use too, each hit marked with what blocks it, unless it asks for usable ones only;
     // never a fn not for the model; the admin's search decisions judge hits against the turn's latest user message
-    const query = FnSearchArgs.parse(args);
     const latest = await latestUserText(deps.store(), id);
     const page = await deps.fns().search.search({ ...query, available: query.available ?? false }, {
       actor, access, keep, forModel: true, run: ctx.request.run.id, ...(latest === undefined ? {} : { latest }),
     });
     // a search decision whose action is `load` has the best kept hits loaded into the chat
     return session === undefined ? page : loadKept(deps, { session, access }, page, deps.searchLoadMax ?? DEFAULT_SEARCH_LOAD_MAX);
-  });
+  };
 
-  fns.register(hub.fns.fn_examples, async (args, ctx) => {
+  // fns only: context is `hub/ctx_search`'s
+  fns.register(hub.fns.fns_search, (args, ctx) => searchForModel(fnsSearchQuery(FnSearchArgs.parse(args)), ctx));
+
+  // context only (guides, memories, pieces of files), by origin, a memory's scope and tags
+  fns.register(hub.fns.ctx_search, (args, ctx) => searchForModel(ctxSearchQuery(CtxSearchArgs.parse(args)), ctx));
+
+  fns.register(hub.fns.fns_examples, async (args, ctx) => {
     const actor = ctx.request.run.user.id;
     return deps.fns().examples.page(FnExamplesQuery.parse(args), { actor, access: await deps.access(actor) });
   });
 
-  fns.register(hub.fns.fn_get, async (args, ctx) => {
+  fns.register(hub.fns.fns_get, async (args, ctx) => {
     const name = QualifiedName.safeParse(args.fn);
     const access = await deps.access(ctx.request.run.user.id);
     const fn = name.success ? await deps.catalog().fn(name.data) : undefined;
@@ -339,7 +357,7 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
     };
   });
 
-  fns.register(hub.fns.save_fn, async (args, ctx) => {
+  fns.register(hub.fns.fns_save, async (args, ctx) => {
     const kind = QualifiedName.safeParse(args.kind);
     if (!kind.success) throw new InvalidArgs([{ path: 'kind', message: 'a kind is a qualified name, like input/form' }]);
     const system = SystemName.parse(splitName(kind.data).system);

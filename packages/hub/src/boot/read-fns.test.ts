@@ -64,7 +64,7 @@ describe('read fns', () => {
       expect(decl.tags).toContain(READ_TAG);
       expect(decl.tags).not.toContain(ADMIN_TAG);
     }
-    const foreign = ['resource_list', 'resource_read', 'context_get', 'model_limits'];
+    const foreign = ['resource_list', 'resource_read', 'ctx_get', 'model_limits'];
     expect([...HUB_READ_NAMES, ...foreign].sort()).toEqual([...reads].sort());
   });
 
@@ -93,7 +93,7 @@ const READ_EXAMPLES: { readonly [N in (typeof HUB_READ_NAMES)[number]]: ArgsOf<(
   run_tree: { turn: 'trn_1' },
   llm_call: { id: 'llm_1' },
   model_calls: {},
-  fn_metrics: {},
+  fns_metrics: {},
   sessions_list: {},
   session_messages: { session: 'ses_1' },
   systems_list: {},

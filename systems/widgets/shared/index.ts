@@ -4,7 +4,7 @@
  * argument (a chip, pinned or hidden), presets, the range args a chart drives, the paging args its buffered pager
  * drives, a drill and the row actions it narrows (`WidgetSpec` in `@harness/core`).
  *
- * - **The kind** `widgets/widget`: a saved widget is a fn of this kind, kept in the hub (`hub/save_fn`), never here. A
+ * - **The kind** `widgets/widget`: a saved widget is a fn of this kind, kept in the hub (`hub/fns_save`), never here. A
  *   run calls its source as a child run with the resolved args and the first window, checks the bindings against the
  *   real columns, and returns a `WidgetResult` the app draws.
  * - **make_widget** is an authoring fn: an agent on `ctx.ai()` reads the source and a real sample, then proposes a
@@ -71,7 +71,7 @@ export const widgets = system(WIDGETS_SYSTEM, {
   ].join(' '),
   groups: [{ name: 'widgets', title: 'Widgets', description: 'Propose a widget over a fn that returns a table, and keep it when the person presses Save.' }],
   // make_widget's agent is on a model; saved widgets are hub fns; runs read sources, the visual registry and row actions
-  grants: { hub: ['ai', 'fns'], calls: ['hub/fn_get', 'hub/save_fn', 'hub/read_table', 'hub/visuals', 'hub/row_actions'] },
+  grants: { hub: ['ai', 'fns'], calls: ['hub/fns_get', 'hub/fns_save', 'hub/read_table', 'hub/visuals', 'hub/row_actions'] },
   // the saved widgets, searched by the hub, each opened in a new chat (was the Data page's Widgets tab, /data/widgets)
   pages: [{ segment: WIDGETS_PAGE, title: 'Widgets', description: 'Saved views of data. Open one in a chat to run it with its controls and actions.', icon: 'grid', component: 'WidgetsPage' }],
 })
@@ -93,7 +93,7 @@ export const widgets = system(WIDGETS_SYSTEM, {
         instructions: MAKE_USAGE,
         args: ginAs(MakeWidgetArgs),
         returns: ginAs(WidgetProposal),
-        deps: { getFn: hub.fns.fn_get, readTable: hub.fns.read_table, visuals: hub.fns.visuals, rowActions: hub.fns.row_actions },
+        deps: { getFn: hub.fns.fns_get, readTable: hub.fns.read_table, visuals: hub.fns.visuals, rowActions: hub.fns.row_actions },
         examples: [
           {
             args: { source: 'database/main.sales_by_month', request: 'Sales by month as a line chart, with a control for the region and presets for this year and last year.', show: true },
@@ -128,7 +128,7 @@ export const widgets = system(WIDGETS_SYSTEM, {
         instructions: 'The person presses Save under a proposal; the model never calls it. `replace` saves over that widget (its owner only).',
         args: ginAs(SaveWidgetArgs),
         returns: SavedWidget,
-        deps: { saveFn: hub.fns.save_fn, getFn: hub.fns.fn_get },
+        deps: { saveFn: hub.fns.fns_save, getFn: hub.fns.fns_get },
         examples: [{
           args: { name: 'open_tasks_by_stage', description: 'Open tasks counted by stage, as bars.', spec: TASKS_BY_STAGE },
           result: { fn: 'widgets/open_tasks_by_stage', version: 1, created: true },

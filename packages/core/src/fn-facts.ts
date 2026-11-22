@@ -6,7 +6,7 @@
  *   paged. The web (`searchFns`), the system link (`searchFns`, so `get_input` and `get_query` find saved fns) and the
  *   LLM (`hub/fns_search`) all ask the same search.
  * - **Examples** (`FnExampleRecord`): every example of every fn in its own table, embedded and searchable, so a fn
- *   can carry many. The prompt takes the few most relevant to the turn (`FnDecl.promptExamples`); `hub/fn_examples`
+ *   can carry many. The prompt takes the few most relevant to the turn (`FnDecl.promptExamples`); `hub/fns_examples`
  *   pages through the rest.
  * - **Facts** (`FnFacts`): the types a fn reads and writes and its mode, worked out deeply through what it uses,
  *   whether it is free, its cost estimate (min, typical, max) and its run times, with a notice when it usually runs
@@ -19,10 +19,12 @@ import { z } from 'zod';
 import { FnDecl, FnExample, FnMode, Niche, REGISTRY_ACTIONS, RegistryAction, RegistryEffect, RegistryThing, TypeDecl } from './manifest.ts';
 import { RoleModel, type ModelRole } from './model-calls.ts';
 import { FnBlock } from './fn-block.ts';
-import { ActorId, Duration, FnKindName, IDS, InstanceName, Json, LocalName, ModelCallId, QualifiedName, SystemName, Timestamp, Usd } from './primitives.ts';
+import { ActorId, Duration, FnKindName, IDS, InstanceName, Json, LocalName, ModelCallId, QualifiedName, type Same, SystemName, Timestamp, Usd } from './primitives.ts';
+import { FnNameValue } from './model-names.ts';
 import { ResourceUri, SectionKey } from './resources.ts';
 import { Filter } from './query.ts';
 import { ContextRecord } from './records/systems.ts';
+import { CONTEXT_ORIGIN_TYPES, type MemoryScope } from './context-graph.ts';
 import { SearchMatchedBy } from './records/content.ts';
 
 /** A fn example's id. */
@@ -62,7 +64,7 @@ export type FnExamplesPatch = z.infer<typeof FnExamplesPatch>;
 
 /** What `fnExamples` asks for: one fn's examples, the most relevant to `query` first (declared order without one). */
 export const FnExamplesQuery = z.object({
-  fn: QualifiedName,
+  fn: FnNameValue,
   query: z.string().optional(),
   offset: z.number().int().min(0).optional(),
   limit: z.number().int().min(1).max(50).optional(),
@@ -91,6 +93,10 @@ export type FnExamplesPage = z.infer<typeof FnExamplesPage>;
 export const SEARCH_MATCHES = ['text', 'semantic', 'hybrid'] as const;
 export const SearchMatch = z.enum(SEARCH_MATCHES);
 export type SearchMatch = z.infer<typeof SearchMatch>;
+
+/** Who a memory can be for (`MemoryScope.to`), for search filters. */
+export const MEMORY_SCOPE_KINDS = ['session', 'user', 'everyone'] as const;
+true satisfies Same<(typeof MEMORY_SCOPE_KINDS)[number], MemoryScope['to']>;
 
 /** What a fn and context search returns: fns, context items, or both. */
 export const SearchItemKind = z.enum(['fn', 'context']);
@@ -127,6 +133,8 @@ export const FnSearchQuery = z.object({
   filters: z.array(Filter).max(20).optional(),
   /** Context items switched off are hits too (the context page lists them, marked); left out by default. */
   off: z.boolean().optional(),
+  /** Only memories of these scopes (`MemoryScope.to`); only context matches a query with them. */
+  scopes: z.array(z.enum(MEMORY_SCOPE_KINDS)).min(1).optional(),
   /** Only fns that can be used now (default true; `hub/fns_search` for the model defaults to false); false keeps the rest too, each marked with what blocks it (`FnSearchHit.blocked`). */
   available: z.boolean().optional(),
   /**
@@ -141,12 +149,55 @@ export const FnSearchQuery = z.object({
 });
 export type FnSearchQuery = z.infer<typeof FnSearchQuery>;
 
+/** What a `kinds` filter tells the model: leave it out unless the person names a kind. */
+export const FN_SEARCH_KINDS_DOCS = 'Leave `kinds` out unless the person asks for a kind of fn by name: you can\'t know how a fn was made, and a search by what it does finds every kind.';
+
 /**
- * What the model may ask `hub/fns_search` (static mode's `find`): the query without the context page's own `filters`
- * and `off`, which are the page's, so the tool's spec in every prompt stays small.
+ * What the model may ask `hub/fns_search` (static mode's `find`): fns only. The query without `items` (it finds fns,
+ * never context: that is `hub/ctx_search`), the context-only filters, the context page's own `filters` and `off`, and
+ * `match` (the search merges words and meaning itself), so the tool's spec in every prompt stays small.
  */
-export const FnSearchArgs = FnSearchQuery.omit({ filters: true, off: true });
+export const FnSearchArgs = FnSearchQuery.omit({ items: true, match: true, filters: true, off: true, scopes: true }).extend({
+  kinds: FnSearchQuery.shape.kinds.describe(FN_SEARCH_KINDS_DOCS),
+});
 export type FnSearchArgs = z.infer<typeof FnSearchArgs>;
+
+/**
+ * What the model may ask `hub/ctx_search` (static mode's `find_ctx`): context only (guides, memories, pieces of
+ * files), by words or meaning, filtered by system, origin (`system`, `memory`, `resource`), a memory's scope and tags.
+ * It is the one search too: `ctxSearchQuery` turns it into a `FnSearchQuery` of context items.
+ */
+export const CtxSearchArgs = z.object({
+  text: FnSearchQuery.shape.text,
+  systems: FnSearchQuery.shape.systems,
+  /** Where the items come from: a system's own, a memory, or made from a resource. */
+  origins: z.array(z.enum(CONTEXT_ORIGIN_TYPES)).min(1).optional(),
+  /** Only memories for these: this chat, the person, or everyone. */
+  scopes: FnSearchQuery.shape.scopes,
+  /** Only items with any of these tags. */
+  tags: z.array(z.string().min(1)).min(1).max(20).optional(),
+  names: FnSearchQuery.shape.names,
+  niches: FnSearchQuery.shape.niches,
+  order: FnSearchQuery.shape.order,
+  offset: FnSearchQuery.shape.offset,
+  limit: FnSearchQuery.shape.limit,
+});
+export type CtxSearchArgs = z.infer<typeof CtxSearchArgs>;
+
+/** A `hub/fns_search` ask as the one search's query: fns only. */
+export function fnsSearchQuery(args: FnSearchArgs): FnSearchQuery {
+  return { ...args, items: ['fn'] };
+}
+
+/** A `hub/ctx_search` ask as the one search's query: context only, its origins and tags as the context list's filters. */
+export function ctxSearchQuery(args: CtxSearchArgs): FnSearchQuery {
+  const { origins, tags, ...rest } = args;
+  const filters: Filter[] = [
+    ...(origins === undefined ? [] : [{ field: 'origin', op: 'in' as const, values: [...origins] }]),
+    ...(tags === undefined ? [] : [{ field: 'tags', op: 'in' as const, values: [...tags] }]),
+  ];
+  return { ...rest, items: ['context'], ...(filters.length === 0 ? {} : { filters }) };
+}
 
 /** The heading section of a context item a search hit was found by. */
 export const SearchSection = z.object({ key: SectionKey, path: z.array(z.string()), title: z.string() });
@@ -201,13 +252,13 @@ export const SearchFiltered = z.object({
   dropped: z.array(z.object({ name: QualifiedName, note: z.string().optional() })),
   calls: z.array(ModelCallId).min(1).optional(),
   failed: z.string().optional(),
-  /** `load` when the decision's action loads the kept hits (`SearchDecision.action`): `hub/fns_search` in a chat loads them. */
+  /** `load` when the decision's action loads the kept hits (`SearchDecision.action`): `hub/fns_search` and `hub/ctx_search` in a chat load them. */
   action: z.literal('load').optional(),
 });
 export type SearchFiltered = z.infer<typeof SearchFiltered>;
 
 /**
- * What `hub/fns_search` loaded because a search decision's action is `load`: the fns now in the session's tools, the
+ * What `hub/fns_search` or `hub/ctx_search` loaded because a search decision's action is `load`: the fns now in the session's tools, the
  * context now in the session (with the fns it brings), and a line telling the model so, so it doesn't load them again.
  */
 export const SearchLoaded = z.object({
@@ -220,7 +271,7 @@ export type SearchLoaded = z.infer<typeof SearchLoaded>;
 /**
  * A page of hits; `next` is the offset of the next page, absent on the last. `filtered`: what the admin's search
  * decisions dropped from this page (a page can then hold fewer hits than its limit while another follows).
- * `loaded`: what `hub/fns_search` loaded of the kept hits (a decision whose action is `load`).
+ * `loaded`: what `hub/fns_search` or `hub/ctx_search` loaded of the kept hits (a decision whose action is `load`).
  */
 export const FnSearchPage = z.object({ items: z.array(FnSearchHit), next: z.number().int().min(0).optional(), filtered: z.array(SearchFiltered).optional(), loaded: SearchLoaded.optional() });
 export type FnSearchPage = z.infer<typeof FnSearchPage>;
@@ -369,7 +420,7 @@ export const FnUse = z.object({ fn: QualifiedName, uses: QualifiedName });
 export type FnUse = z.infer<typeof FnUse>;
 
 /**
- * An earlier version of a saved fn (the `fnVersions` table, `hub/save_fn` with `replace`): its declaration as it was,
+ * An earlier version of a saved fn (the `fnVersions` table, `hub/fns_save` with `replace`): its declaration as it was,
  * numbered from 1, so a saved form or query that is changed can be looked back on.
  */
 export const FnVersionRecord = z.object({

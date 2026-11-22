@@ -1,9 +1,10 @@
 /**
  * A hub MCP's tools (`HubMcpTools`, an `McpToolSource` over `@ayepi/mcp`'s `McpToolSet`). Two ways to offer fns:
  *
- * - `each`: one tool per exposed fn, named `<system>_<local>` (`fs_read`), its input the fn's args as JSON Schema,
+ * - `each`: one tool per exposed fn, named by its model name (`fs__read`: the one name a chat model sees, core's
+ *   `modelFnName`), its input the fn's args as JSON Schema,
  *   `readOnlyHint` for fns tagged `read`. The fn checks its own args (a misfit is refused input the model reads).
- * - `static`: the chat's static toolset scoped to the MCP: `find` and `inspect` are the hub fns of those names (the
+ * - `static`: the chat's static toolset scoped to the MCP: `find`, `find_ctx` and `inspect` are the hub fns they stand for (the
  *   same args, runs and metrics as in a chat; the hub fns keep their answers inside the MCP's scope), and `run` takes
  *   the chat's `RunArgs` (a fleet's `on` included) and runs any exposed fn by name.
  *
@@ -12,23 +13,22 @@
  */
 import { errorResult, McpToolSet, type McpCaller, type McpToolResult, type McpToolSource } from '@ayepi/mcp';
 import type { Logger } from '@ayepi/log';
-import { type InstanceName, Json, QualifiedName, READ_TAG, type FnRecord, type HubMcp, type HubMcpId } from '@harness/core';
-import { mcpToolNameOf } from '@harness/sdk/server';
+import { type InstanceName, Json, modelFnName, READ_TAG, type FnRecord, type HubMcp, type HubMcpId, type ModelFnNames, type QualifiedName } from '@harness/core';
 import { z } from 'zod';
 import type { AccessService } from '../access/index.ts';
 import type { Catalog } from '../catalog/index.ts';
-import { RunArgs, STATIC_HUB_FNS, staticToolOf } from '../contextor/modes.ts';
+import { modeNames, RunArgs, STATIC_HUB_FNS, staticToolOf } from '../contextor/modes.ts';
 import type { McpRunner } from './calls.ts';
 import type { McpRegistry, McpScopes } from './index.ts';
 
 /** The static tools an MCP serves: the chat's, less `load` and `unload` (an MCP client keeps no hub session to load into). */
-export const MCP_STATIC_TOOLS = ['find', 'inspect', 'run'] as const;
+export const MCP_STATIC_TOOLS = ['find', 'find_ctx', 'inspect', 'run'] as const;
 
 /** What the tools use. */
 export interface HubMcpToolsDeps {
   readonly registry: () => Pick<McpRegistry, 'record'>;
   readonly scopes: () => Pick<McpScopes, 'scope'>;
-  readonly catalog: () => Pick<Catalog, 'fns' | 'signature'>;
+  readonly catalog: () => Pick<Catalog, 'fns' | 'signature' | 'modelNames'>;
   readonly runner: Pick<McpRunner, 'call'>;
   /** Visibility: only fns the MCP's person may use are listed. */
   readonly access: () => Pick<AccessService, 'scope'>;
@@ -87,7 +87,7 @@ export class HubMcpTools implements McpToolSource {
       set.clear();
       for (const { fn, inputSchema } of defined) {
         set.define({
-          name: mcpToolNameOf(fn.name), title: fn.name, description: fn.decl.description, inputSchema, validate: false,
+          name: modelFnName(fn.name), title: fn.name, description: fn.decl.description, inputSchema, validate: false,
           annotations: { title: fn.name, readOnlyHint: fn.decl.tags.includes(READ_TAG) },
           run: (args, { signal, caller }) => this.#run(fn.name, args, signal, caller),
         });
@@ -96,10 +96,10 @@ export class HubMcpTools implements McpToolSource {
     this.#deps.log.info('mcp.tools.listed', { mcp: this.#mcp, tools: defined.length });
   }
 
-  /** The static toolset: the hub fns `find` and `inspect`, and `run` over the exposed fns. */
+  /** The static toolset: the hub fns `find`, `find_ctx` and `inspect`, and `run` over the exposed fns. */
   #defineStatic(): void {
     this.#set.batch((set) => {
-      for (const name of ['find', 'inspect'] as const) {
+      for (const name of ['find', 'find_ctx', 'inspect'] as const) {
         const { ref, def } = STATIC_HUB_FNS[name];
         const tool = staticToolOf(name);
         set.define({
@@ -121,21 +121,31 @@ export class HubMcpTools implements McpToolSource {
     if (record?.enabled !== true) return errorResult('This MCP is switched off.');
     const parsed = Json.safeParse(args);
     if (!parsed.success) return errorResult('The args are not plain JSON.');
-    return this.#deps.runner.call(record, fn, parsed.data, caller, signal);
+    const names = await this.#names();
+    const def = (await this.#deps.catalog().fns({ names: [fn] }))[0]?.decl.args;
+    return spokenResult(await this.#deps.runner.call(record, fn, def === undefined ? parsed.data : names.read(parsed.data, def), caller, signal), names);
+  }
+
+  /** The fn names this MCP's client reads and writes: the names a chat model does (static ones in the static toolset). */
+  async #names(): Promise<ModelFnNames> {
+    return modeNames(this.#mode === 'static' ? 'static' : 'tools', await this.#deps.catalog().modelNames());
   }
 
   /** Run an exposed fn, refusing one the scope doesn't hold now. */
   async #run(fn: string, args: Readonly<Record<string, unknown>>, signal: AbortSignal, caller: McpCaller, on?: InstanceName): Promise<McpToolResult> {
     const [record, scope] = await Promise.all([this.#deps.registry().record(this.#mcp), this.#deps.scopes().scope(this.#mcp)]);
     if (record?.enabled !== true) return errorResult('This MCP is switched off.');
-    const name = QualifiedName.safeParse(fn);
-    if (!name.success || !scope.fns.has(name.data)) {
+    // `run` names a fn by its model name (a qualified name is tolerated), read back among the fns the scope exposes
+    const name = [...scope.fns].find((exposed) => exposed === fn || modelFnName(exposed) === fn);
+    if (name === undefined) {
       this.#deps.log.warn('mcp.call.refused', { mcp: this.#mcp, tool: fn, reason: 'not exposed' });
       return errorResult(`${fn} is not available through this MCP.`);
     }
     const parsed = Json.safeParse(args);
     if (!parsed.success) return errorResult('The args are not plain JSON.');
-    return this.#deps.runner.call(record, name.data, parsed.data, caller, signal, on);
+    const names = await this.#names();
+    const def = (await this.#deps.catalog().fns({ names: [name] }))[0]?.decl.args;
+    return spokenResult(await this.#deps.runner.call(record, name, def === undefined ? parsed.data : names.read(parsed.data, def), caller, signal, on), names);
   }
 
   /** The exposed fns' records the MCP's person may use (visibility, and a connection for a per-person fn), by name. */
@@ -146,4 +156,11 @@ export class HubMcpTools implements McpToolSource {
     const access = await this.#deps.access().scope(record.user);
     return (await this.#deps.catalog().fns({ names })).filter((fn) => access.mayUse(fn)).sort((a, b) => a.name.localeCompare(b.name));
   }
+}
+
+/** A result as an MCP client reads it: every fn its text names spelled as the client calls it (`ModelFnNames.text`). */
+export function spokenResult(result: McpToolResult, names: ModelFnNames): McpToolResult {
+  const content = result.content.map((part) => (part.type === 'text' ? { ...part, text: names.text(part.text) } : part));
+  const structured = result.structuredContent === undefined ? undefined : names.value(Json.parse(result.structuredContent), undefined);
+  return { ...result, content, ...(structured === undefined || typeof structured !== 'object' || structured === null || Array.isArray(structured) ? {} : { structuredContent: structured }) };
 }

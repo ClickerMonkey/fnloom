@@ -52,6 +52,9 @@ type MessagePart = {
     mime: string;
   };
   name: string;
+  uri?: `${string}://${string}` | undefined;
+  text?: string | undefined;
+  truncated?: boolean | undefined;
 } | {
   type: "input-answer";
   run: string;
@@ -193,5 +196,22 @@ type MessagePart = {
       fn: `${string}/${string}`;
     }[];
   }[];
+} | {
+  type: "loaded-for-you";
+  by: "llm" | "decision";
+  fns: {
+    fn: `${string}/${string}`;
+    label: string;
+    why?: string | undefined;
+    broughtBy?: `${string}/${string}` | undefined;
+  }[];
+  context: {
+    context: `${string}/${string}`;
+    text: string;
+    title?: string | undefined;
+    why?: string | undefined;
+    fns?: `${string}/${string}`[] | undefined;
+  }[];
+  toolset?: "tools" | "static" | undefined;
 };
 ```

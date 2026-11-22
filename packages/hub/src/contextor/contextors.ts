@@ -13,9 +13,8 @@
  *   they hard-link, and the greedy chooser picks the detail of each under the budget. History is rebuilt: the newest
  *   selected exchanges in a row are real messages, older selected ones are summaries in the system prompt.
  */
-import { contextOff, Detail, QualifiedName, seesOrigin, type ContextRecord, type GraphContextor, type PlainContextor, type PoolUse, type SelectedItem, type SelectionReport, type SuggestContextor, type SuggestionOutcome } from '@harness/core';
+import { contextOff, Detail, modelFnName, QualifiedName, seesOrigin, type ContextRecord, type GraphContextor, type PlainContextor, type PoolUse, type SelectedItem, type SelectionReport, type SuggestContextor, type SuggestionOutcome } from '@harness/core';
 import { allowsSystem, searchSystems } from '../chat/support.ts';
-import { toolName } from '../execution/wire.ts';
 import type { Pool, PoolTokens } from './budget.ts';
 import { choose, type Cut, type Level, type Unit } from './choose.ts';
 import { contiguousTail, shortenResults, summarise, type Exchange } from './history.ts';
@@ -492,7 +491,7 @@ export function hardClosure(record: ContextRecord, byName: ReadonlyMap<string, C
 function lastUses(history: readonly Exchange[], candidates: readonly Candidate[]): Map<string, number[]> {
   const uses = new Map<string, number[]>();
   const aliases = new Map<string, string>();
-  for (const candidate of candidates) { aliases.set(candidate.name, candidate.name); if (candidate.kind === 'fn') aliases.set(toolName(candidate.name), candidate.name); }
+  for (const candidate of candidates) { aliases.set(candidate.name, candidate.name); if (candidate.kind === 'fn') aliases.set(modelFnName(candidate.name), candidate.name); }
   for (const exchange of history) {
     for (const name of [...exchange.used, ...exchange.mentioned]) {
       const known = aliases.get(name);

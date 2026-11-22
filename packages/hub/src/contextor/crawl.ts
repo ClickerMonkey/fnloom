@@ -1,5 +1,5 @@
 /**
- * `hub/context_crawl`'s walk (plan item 7): from starting context, level by level, imports always and `choices` links by
+ * `hub/ctx_crawl`'s walk (plan item 7): from starting context, level by level, imports always and `choices` links by
  * decision. Each level's unloaded links become one yes/no question each, asked together through the hub's decider (the
  * `decide` role's model, split into calls of at most `crawlBatchSize` questions, each recorded as a model call); the
  * links answered at or above the role's threshold load, most likely first, with their imports, while they fit the token

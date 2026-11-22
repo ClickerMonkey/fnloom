@@ -198,7 +198,7 @@ type PreviewAnswer = {
         removed: number;
       }[];
       flags: {
-        flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns";
+        flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns" | "injects";
         line: string;
         items: string[];
         lead?: string | undefined;
@@ -383,6 +383,7 @@ type PreviewAnswer = {
           action: "create" | "update" | "remove";
           kind?: `${string}/${string}` | "native" | undefined;
         }[] | undefined;
+        keeps?: "resources"[] | undefined;
       } | undefined;
       promptExamples?: number | undefined;
       group?: string | undefined;
@@ -402,7 +403,6 @@ type PreviewAnswer = {
       suggestFns: `${string}/${string}`[];
       suggest: "user" | "llm" | "none" | "both";
       visible: "user" | "llm" | "none" | "both";
-      alwaysFor: `${string}/${string}`[];
       tags: string[];
       title?: string | undefined;
       content?: string | undefined;
@@ -413,6 +413,12 @@ type PreviewAnswer = {
           hint: string;
           required: boolean;
         }[];
+      } | undefined;
+      inject?: {
+        into: string[];
+        order: number;
+        requires: `${string}/${string}`[];
+        mode?: "tools" | "static" | undefined;
       } | undefined;
       niche?: "admin" | "developer" | "reference" | undefined;
       weight?: number | undefined;
@@ -447,6 +453,7 @@ type PreviewAnswer = {
       description: string;
       order: number;
       timeout: number;
+      explains?: string | undefined;
     }[];
     mentions: {
       name: string;

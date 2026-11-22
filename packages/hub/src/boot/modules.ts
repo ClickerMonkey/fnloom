@@ -50,6 +50,7 @@ import { registerDataFns } from '../data/fns.ts';
 import { registerTableFns, tableServiceOf } from '../tables/fns.ts';
 import type { TableService } from '../tables/index.ts';
 import { migrateWidgets } from '../tables/migrate.ts';
+import { migrateFnNames } from '../store/migrate-fn-names.ts';
 import { connectionsModule } from '../connections/create.ts';
 import { fnsModule } from '../fns/create.ts';
 
@@ -92,7 +93,7 @@ function systemsModules(seams: ModuleSeams): Pick<HubModules, 'catalog' | 'link'
       secrets: () => hub.api.secrets,
       // the index embeds through the hub's AI, so its calls are priced and recorded with every other embed
       ai: () => hub.execution.llm,
-      // plan item 7: fns that need a model role (`hub/context_crawl` needs `decide`) are off while it has no model
+      // plan item 7: fns that need a model role (`hub/ctx_crawl` needs `decide`) are off while it has no model
       roleSet: (role) => hub.models.roles.isSet(role),
     });
     builds.set(context, built);
@@ -107,6 +108,8 @@ function systemsModules(seams: ModuleSeams): Pick<HubModules, 'catalog' | 'link'
       const up = async (): Promise<void> => {
         await migrateOldVersions(context.hub.store, context.hub.log);
         await migrateWidgets(context.hub.store, context.hub.log);
+        // the one fn name: stored tool calls and renamed fns, before anything reads them
+        await migrateFnNames(context.hub.store, context.hub.log);
         await catalog.indexStoredFns();
         await importHubContract(catalog, context.hub.log);
         // a role set or cleared turns the fns that need it on or off

@@ -130,7 +130,7 @@ describe('ViteBuilder', () => {
       "export const lookalike = { name: 'x', defs: {}, with() {} };",
       'export const n = 1;',
     ].join('\n'));
-    expect(await builder.contracts(module)).toEqual([{ name: 'notes', fns: ['notes/add'], context: ['notes/guide'], requires: [], references: [] }]);
+    expect(await builder.contracts(module)).toEqual([{ name: 'notes', fns: ['notes/add'], context: ['notes/guide'], requires: [], references: [], agents: [] }]);
   });
 
   it('reads a contract in a sandboxed child: its code can\'t write files or start processes, and an edit is read afresh', async () => {

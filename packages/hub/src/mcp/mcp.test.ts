@@ -144,7 +144,7 @@ describe('hub MCPs', () => {
     const client = await h.connect('claude', secret);
     expect(client.server.instructions).toBe('Use fs.');
     const tools = await client.listTools();
-    expect(tools.map((t) => t.name)).toEqual(['fs_read', 'fs_write']);
+    expect(tools.map((t) => t.name)).toEqual(['fs__read', 'fs__write']);
     expect(tools[0]).toMatchObject({ title: 'fs/read', description: 'Read a file.', annotations: { readOnlyHint: true }, inputSchema: { type: 'object' } });
     expect(tools[1]?.annotations?.readOnlyHint).toBe(false);
   });
@@ -153,7 +153,7 @@ describe('hub MCPs', () => {
     const h = await hub();
     const { mcp, secret } = await h.create();
     const client = await h.connect('claude', secret);
-    const result = await client.callTool('fs_read', { path: 'README.md' });
+    const result = await client.callTool('fs__read', { path: 'README.md' });
     expect(result).toMatchObject({ structuredContent: { read: { path: 'README.md' } } });
     expect(result.isError).not.toBe(true);
     expect(h.runs.started).toMatchObject([{ fn: 'fs/read', args: { path: 'README.md' }, actor: ALICE, caller: mcp.actor, priority: 'interactive' }]);
@@ -170,10 +170,10 @@ describe('hub MCPs', () => {
     const { secret } = await h.create();
     const client = await h.connect('claude', secret);
     h.runs.plan = () => ({ status: 'invalid-input', invalid: { source: 'schema', problems: [{ path: 'path', message: 'Expected string' }] } });
-    const refused = await client.callTool('fs_read', { path: 3 });
-    expect(refused).toMatchObject({ isError: true, content: [{ type: 'text', text: 'The input for fs/read was refused; fix it and call again:\n- path: Expected string' }] });
+    const refused = await client.callTool('fs__read', { path: 3 });
+    expect(refused).toMatchObject({ isError: true, content: [{ type: 'text', text: 'The input for fs__read was refused; fix it and call again:\n- path: Expected string' }] });
     h.runs.plan = () => ({ status: 'failed', error: { class: 'fatal', message: 'disk on fire' } });
-    expect(await client.callTool('fs_write', { path: 'a', text: 'b' })).toMatchObject({ isError: true, content: [{ text: 'disk on fire' }] });
+    expect(await client.callTool('fs__write', { path: 'a', text: 'b' })).toMatchObject({ isError: true, content: [{ text: 'disk on fire' }] });
   });
 
   it('keep a call open while it waits for approval, and end it when approval takes too long', async () => {
@@ -181,7 +181,7 @@ describe('hub MCPs', () => {
     const { secret } = await h.create();
     const client = await h.connect('claude', secret);
     h.runs.plan = () => 'hold';
-    expect(await client.callTool('fs_write', { path: 'a', text: 'b' })).toMatchObject({ isError: true, content: [{ text: 'The call was not approved in time.' }] });
+    expect(await client.callTool('fs__write', { path: 'a', text: 'b' })).toMatchObject({ isError: true, content: [{ text: 'The call was not approved in time.' }] });
     expect(h.runs.cancelled).toHaveLength(1);
   });
 
@@ -191,7 +191,7 @@ describe('hub MCPs', () => {
     const client = await h.connect('claude', secret);
     h.runs.plan = () => 'hold';
     const stop = new AbortController();
-    const call = client.callTool('fs_write', { path: 'a', text: 'b' }, { signal: stop.signal });
+    const call = client.callTool('fs__write', { path: 'a', text: 'b' }, { signal: stop.signal });
     await settle(20);
     stop.abort();
     // the client hears the cancel at once (or the answer saying so); either way the run is cancelled
@@ -204,23 +204,23 @@ describe('hub MCPs', () => {
     const h = await hub();
     const { mcp, secret } = await h.create();
     const client = await h.connect('claude', secret);
-    expect((await client.listTools()).map((t) => t.name)).toEqual(['fs_read', 'fs_write']);
+    expect((await client.listTools()).map((t) => t.name)).toEqual(['fs__read', 'fs__write']);
     await h.registry.update(mcp.id, { rules: { include: { systems: [SystemName.parse('fs')] }, exclude: { fns: [{ fn: 'fs/bash' }, { fn: 'fs/write' }] } } }, ALICE);
     await h.endpoints.settled();
     // a change to an MCP remounts it, which ends its sessions: the open client's next call is refused, so it reconnects
     await expect(client.listTools()).rejects.toThrow('unknown or ended session');
-    await expect(client.callTool('fs_write', { path: 'a', text: 'b' })).rejects.toThrow('unknown or ended session');
+    await expect(client.callTool('fs__write', { path: 'a', text: 'b' })).rejects.toThrow('unknown or ended session');
     expect(h.runs.started).toEqual([]);
     const again = await h.connect('claude', secret);
-    expect((await again.listTools()).map((t) => t.name)).toEqual(['fs_read']);
-    expect(await again.callTool('fs_write', { path: 'a', text: 'b' }).catch((error: unknown) => (error instanceof Error ? error.message : ''))).toMatch(/unknown tool/);
+    expect((await again.listTools()).map((t) => t.name)).toEqual(['fs__read']);
+    expect(await again.callTool('fs__write', { path: 'a', text: 'b' }).catch((error: unknown) => (error instanceof Error ? error.message : ''))).toMatch(/unknown tool/);
     // a catalog change refreshes the list on the open session
     const next = again.nextNotification('notifications/tools/list_changed');
     h.catalog.add('fs', 'stat', fn({ description: 'Stat a file.', args: g.obj({ path: g.text() }), returns: g.text(), tags: ['read'] }));
     h.bus.publish('catalog.changed', { added: ['fs/stat'], removed: [], fns: [] });
     await h.endpoints.settled();
     await next;
-    expect((await again.listTools()).map((t) => t.name)).toEqual(['fs_read', 'fs_stat']);
+    expect((await again.listTools()).map((t) => t.name)).toEqual(['fs__read', 'fs__stat']);
   });
 
   it('refuse a missing or wrong bearer, an old secret after rotating, and a switched-off MCP', async () => {
@@ -247,7 +247,7 @@ describe('hub MCPs', () => {
     const { token, expiresAt } = await h.tokens.mint({ mcp: mcp.id, label: 'session 1', ttl: 60_000, system: CLAUDE });
     expect(expiresAt).toBeGreaterThan(Date.now());
     const client = await h.connect('claude', token);
-    await client.callTool('fs_read', { path: 'a' });
+    await client.callTool('fs__read', { path: 'a' });
     expect(await h.endpoints.sessions(mcp.id)).toMatchObject([{ label: 'token:session 1' }]);
     const secret = await h.store.ports.work.store.get('mcp:token-secret');
     const expired = signJwt({ mcp: mcp.id, label: 'old' }, { secret: secret ?? '', expiresIn: -60, audience: MCP_TOKEN_AUDIENCE }).token;
@@ -269,32 +269,40 @@ describe('hub MCPs', () => {
     const quiet = await McpClient.connect(new McpHttpClientTransport('http://hub/mcp/claude', {
       fetch: (input, init) => h.endpoints.handle(new Request(input, init)), headers: { authorization: `Bearer ${secret}` }, events: false,
     }), { clientInfo: { name: 'gone', version: '1' } });
-    await quiet.callTool('fs_read', { path: 'a' });
+    await quiet.callTool('fs__read', { path: 'a' });
     expect(await h.endpoints.sessions(mcp.id)).toMatchObject([{ client: { name: 'gone' }, calls: 1 }]);
     await expect.poll(() => h.endpoints.sessionCount(mcp.id)).toBe(0);
     expect(h.records).toContainEqual(expect.objectContaining({ msg: 'mcp.session.ended', mcp: mcp.id, reason: 'idle' }));
     await expect(quiet.ping()).rejects.toThrow('unknown or ended session');
   });
 
-  it('serve the static toolset: find and inspect as runs of the hub fns, run over the exposed fns', async () => {
+  it('serve the static toolset: find, find_ctx and inspect as runs of the hub fns, run over the exposed fns', async () => {
     const h = await hub();
     const { mcp, secret } = await h.create({ toolMode: 'static', slug: McpSlug.parse('small') });
     const client = await h.connect('small', secret);
     const tools = await client.listTools();
-    expect(tools.map((t) => t.name)).toEqual(['find', 'inspect', 'run']);
+    expect(tools.map((t) => t.name)).toEqual(['find', 'find_ctx', 'inspect', 'run']);
     // the args are the hub fns' own and the chat's `run` args, so a fleet's `on` is there too
     expect(tools[0]?.inputSchema).toMatchObject({ properties: { text: {}, kinds: {}, limit: {} } });
-    expect(tools[1]?.inputSchema).toMatchObject({ properties: { name: {}, detail: {} } });
-    expect(tools[2]?.inputSchema).toMatchObject({ properties: { fn: {}, args: {}, on: {} } });
+    expect(tools[0]?.inputSchema).not.toMatchObject({ properties: { items: {} } });
+    expect(tools[1]?.inputSchema).toMatchObject({ properties: { text: {}, origins: {}, scopes: {}, tags: {}, limit: {} } });
+    expect(tools[2]?.inputSchema).toMatchObject({ properties: { name: {}, detail: {} } });
+    expect(tools[3]?.inputSchema).toMatchObject({ properties: { fn: {}, args: {}, on: {} } });
     expect(await client.callTool('find', { text: 'write a file' })).toMatchObject({ structuredContent: { read: { text: 'write a file' } } });
-    expect(await client.callTool('inspect', { name: 'fs/read' })).toMatchObject({ structuredContent: { read: { name: 'fs/read' } } });
-    expect(await client.callTool('run', { fn: 'fs/read', args: { path: 'x' }, on: 'laptop' })).toMatchObject({ structuredContent: { read: { path: 'x' } } });
-    expect(await client.callTool('run', { fn: 'fs/bash', args: { command: 'rm -rf /' } })).toMatchObject({ isError: true, content: [{ text: 'fs/bash is not available through this MCP.' }] });
+    expect(await client.callTool('find_ctx', { text: 'how files work' })).toMatchObject({ structuredContent: { read: { text: 'how files work' } } });
+    // the one fn name: what the client reads names fns as a chat model's tools do
+    expect(await client.callTool('inspect', { name: 'fs/read' })).toMatchObject({ structuredContent: { read: { name: 'fs__read' } } });
+    expect(await client.callTool('run', { fn: 'fs__read', args: { path: 'x' }, on: 'laptop' })).toMatchObject({ structuredContent: { read: { path: 'x' } } });
+    // a qualified name is tolerated
+    expect(await client.callTool('run', { fn: 'fs/read', args: { path: 'y' } })).toMatchObject({ structuredContent: { read: { path: 'y' } } });
+    expect(await client.callTool('run', { fn: 'fs__bash', args: { command: 'rm -rf /' } })).toMatchObject({ isError: true, content: [{ text: 'fs__bash is not available through this MCP.' }] });
     expect(await client.callTool('run', { fn: 'hub/create_mcp', args: {} })).toMatchObject({ isError: true });
     expect(h.runs.started).toMatchObject([
       { fn: 'hub/fns_search', args: { text: 'write a file' }, caller: mcp.actor },
+      { fn: 'hub/ctx_search', args: { text: 'how files work' }, caller: mcp.actor },
       { fn: 'hub/inspect', args: { name: 'fs/read' }, caller: mcp.actor },
       { fn: 'fs/read', args: { path: 'x' }, on: 'laptop', caller: mcp.actor },
+      { fn: 'fs/read', args: { path: 'y' }, caller: mcp.actor },
     ]);
   });
 
@@ -302,8 +310,8 @@ describe('hub MCPs', () => {
     const h = await hub({ rate: 1 });
     const { secret } = await h.create();
     const client = await h.connect('claude', secret);
-    await client.callTool('fs_read', { path: 'a' });
-    const limited = await client.callTool('fs_read', { path: 'b' });
+    await client.callTool('fs__read', { path: 'a' });
+    const limited = await client.callTool('fs__read', { path: 'b' });
     expect(limited.isError).toBe(true);
     expect(limited.content[0]?.type === 'text' ? limited.content[0].text : '').toContain('Too many calls');
     expect(h.runs.started).toHaveLength(1);

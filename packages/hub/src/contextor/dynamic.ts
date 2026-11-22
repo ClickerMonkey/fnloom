@@ -3,7 +3,7 @@
  * `fs/system-authoring`). The hub asks the owning system's `context` link endpoint, as the person it is for and with
  * the args of the `/command` that pulled it in, and keeps the text for `HARNESS_DYNAMIC_CONTEXT_TTL` per session,
  * person and item, so every iteration of a turn sees the same text and a later load reuses the command's args.
- * Everything that shows context text (the contextors, `hub/inspect`, `hub/context_get`) reads it through here.
+ * Everything that shows context text (the contextors, `hub/inspect`, `hub/ctx_get`) reads it through here.
  */
 import type { Logger } from '@ayepi/log';
 import { messageOf, type ContextRecord, type QualifiedName, type SystemName, type systemLinkSpec, type UserInfo } from '@harness/core';

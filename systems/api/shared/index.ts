@@ -79,7 +79,7 @@ const declared = system(API_SYSTEM, {
   groups: [{ name: 'requests', title: 'Requests', description: 'Write a request to a web API service as a fn, find the services, read their operations, and try a GET.' }],
   // the authoring agent is a model; api fns are hub fns it searches, reads and saves; services are records it reads and
   // adds; requests go to each service's base URL, known only from its record
-  grants: { hub: ['ai', 'fns', 'search', 'connections', 'data'], calls: [hub.fns.fn_get.name, hub.fns.save_fn.name], network: ['*'] },
+  grants: { hub: ['ai', 'fns', 'search', 'connections', 'data'], calls: [hub.fns.fns_get.name, hub.fns.fns_save.name], network: ['*'] },
 })
   .with({
     types: {
@@ -122,7 +122,7 @@ const declared = system(API_SYSTEM, {
           service: g.field(g.optional(serviceName()), { docs: 'The service to write it for, by name; left out, the agent picks or adds one.' }),
         }),
         returns: authoredFn,
-        deps: { getFn: hub.fns.fn_get, saveFn: hub.fns.save_fn },
+        deps: { getFn: hub.fns.fns_get, saveFn: hub.fns.fns_save },
         // GETs sent while writing act through the person's connection to the service named
         connectKey: { arg: 'service' },
         examples: [

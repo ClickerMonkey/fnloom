@@ -2177,7 +2177,7 @@ export const manifest = {
         "tags",
         "fns",
         "suggestFns",
-        "alwaysFor",
+        "inject",
         "command",
         "visible",
         "suggest"
@@ -2251,7 +2251,7 @@ export const manifest = {
         "tags",
         "fns",
         "suggestFns",
-        "alwaysFor",
+        "inject",
         "command",
         "visible",
         "suggest",
@@ -2283,7 +2283,7 @@ export const manifest = {
         "tags",
         "fns",
         "suggestFns",
-        "alwaysFor",
+        "inject",
         "command",
         "visible",
         "suggest",
@@ -3398,6 +3398,7 @@ export const manifest = {
         "names",
         "filters",
         "off",
+        "scopes",
         "available",
         "niches",
         "order",
@@ -3447,6 +3448,26 @@ export const manifest = {
       "b": [
         "fn",
         "args"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "fnsOfModelNames": {
+      "method": "POST",
+      "path": "/fnsOfModelNames",
+      "ws": "fnsOfModelNames",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "names"
       ],
       "f": [],
       "hasBody": true,

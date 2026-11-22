@@ -272,7 +272,7 @@ export class FakeHub {
   readonly sections = new Map<string, Section[]>();
 
   // ─── Scripted behaviour ─────────────────────────────────────────────────────
-  /** The hub's kept fns (`hub/save_fn`, `hub/fn_get`, `searchFns`, `fnExamples`), in memory. */
+  /** The hub's kept fns (`hub/fns_save`, `hub/fns_get`, `searchFns`, `fnExamples`), in memory. */
   readonly fns = new FakeHubFns();
   /**
    * The data system in memory (`ctx.data`): records of the stored types the system declared, or of another system's
@@ -288,7 +288,7 @@ export class FakeHub {
   /** The hub's widget fns (`hub/read_table`, `hub/visuals`, `hub/row_actions`), in memory. */
   readonly widgets = new FakeHubWidgets();
   /**
-   * Settles a child call. Default: `hub/save_fn` and `hub/fn_get` by `fns`, the widget fns by `widgets`, anything else
+   * Settles a child call. Default: `hub/fns_save` and `hub/fns_get` by `fns`, the widget fns by `widgets`, anything else
    * done with `null`.
    */
   onCall: (call: FakeHub['calls'][number]) => Promise<RunSettled> = (call) => Promise.resolve(this.fns.settle(call) ?? this.widgets.settle(call) ?? { status: 'done', result: null });

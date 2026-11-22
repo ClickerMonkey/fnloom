@@ -35,7 +35,7 @@ export const SKIP_REASON_LABELS = {
 
 /**
  * What a chooser does with what it picks: `suggest` (cards the model may load: `<suggested_fns>`,
- * `<suggested_context>`) or `load` (loaded for the turn, as `hub/load_fns` and `hub/load_context` load: the fns join
+ * `<suggested_ctx>`) or `load` (loaded for the turn, as `hub/fns_load` and `hub/ctx_load` load: the fns join
  * the model's tools from its first step, and context is brought into the user message as its text, with the fns it
  * brings; the message says so in `<loaded_for_you>`). Phil (2026-11-22): "options to not only allow a decision model
  * or llm to suggest context or fns but actually have them automatically add them".
@@ -161,7 +161,7 @@ export type SearchJudge = z.infer<typeof SearchJudge>;
 
 /**
  * A search decision setting (admins), one per item kind (`SEARCH_DECISION_OPTIONS`): who filters the hits of
- * `hub/fns_search` and of the web's search of fns and context (one operation) before they are returned.
+ * `hub/fns_search` / `hub/ctx_search` and of the web's search of fns and context (one operation) before they are returned.
  * - `none`: nobody; the hits are returned as ranked (the default).
  * - `decision`: a decision model (`model`, else the `decide` role's) answers one yes/no question per hit, "does it fit
  *   what the search is for?"; those at or over the decide role's threshold are kept, in their order.
@@ -170,8 +170,8 @@ export type SearchJudge = z.infer<typeof SearchJudge>;
  * hit is kept and the page says so (`SearchFiltered.failed`).
  *
  * A model's `action` (default `suggest`: the kept hits are returned, for the model to load) may be `load`: when
- * `hub/fns_search` runs in a chat, the best kept hits that can be used there are loaded too (fns into the tools,
- * context into the session, as `hub/load_fns` and `hub/load_context` load them), up to `HARNESS_SEARCH_LOAD_MAX` of each
+ * `hub/fns_search` / `hub/ctx_search` runs in a chat, the best kept hits that can be used there are loaded too (fns into the tools,
+ * context into the session, as `hub/fns_load` and `hub/ctx_load` load them), up to `HARNESS_SEARCH_LOAD_MAX` of each
  * kind, and the page says what (`FnSearchPage.loaded`). The web's search only filters; a failed filter loads nothing.
  */
 export const SearchDecision = z.discriminatedUnion('by', [

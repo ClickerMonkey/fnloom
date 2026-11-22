@@ -95,7 +95,7 @@ export function greetFiles(options: GreetOptions): Record<string, string> {
       "  log.warn('greet.ai.failed', { error: error instanceof Error ? error.message : String(error) });",
       '}',
       'await running.patch({',
-      "  upsert: { context: [{ name: 'note', title: 'A note on greetings', description: 'A note on saying hello, written by a model when greet started.', content: note, imports: [], fns: ['greet/hello'], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: ['greet'] }] },",
+      "  upsert: { context: [{ name: 'note', title: 'A note on greetings', description: 'A note on saying hello, written by a model when greet started.', content: note, imports: [], fns: ['greet/hello'], suggestFns: [], suggest: 'both', visible: 'both', tags: ['greet'] }] },",
       "  lists: { contributes: [{ registry: 'hub/visuals', name: 'greeting', label: 'Greeting' }] },",
       '});',
       "log.info('greet.ready', { note });",

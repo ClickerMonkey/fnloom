@@ -3,7 +3,7 @@
  * made from a few fields, a catalog over them, and the contextor's services built over a test store. Tests only.
  */
 import { fn, fnDecl, g, type AnyFnDef } from '@harness/sdk';
-import { noFnStats, SystemName, type ManifestSection, type ContextDecl, type ContextRecord, type FnRecord, type ModelInfo, type QualifiedName, type SearchHit } from '@harness/core';
+import { FnNameIndex, noFnStats, SystemName, type ManifestSection, type ContextDecl, type ContextRecord, type FnRecord, type ModelInfo, type QualifiedName, type SearchHit } from '@harness/core';
 import { z } from 'zod';
 import type { Catalog, CatalogEntry, FnSignature } from '../catalog/index.ts';
 import type { SessionService } from '../chat/index.ts';
@@ -35,13 +35,13 @@ export function contextRecord(name: QualifiedName, fields: Partial<ContextDecl> 
     name, system: SystemName.parse(name.slice(0, slash)), stale: false, updatedAt: 0, mentions: mentions ?? { context: [], fns: [] },
     ...(origin === undefined ? {} : { origin }), ...(disabled === undefined ? {} : { disabled }),
     decl: {
-      name: name.slice(slash + 1), description: `About ${name}.`, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: [], ...decl,
+      name: name.slice(slash + 1), description: `About ${name}.`, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', tags: [], ...decl,
     },
   };
 }
 
 /** A catalog over context records and fns declared in the test. */
-export class ContextCatalog implements Pick<Catalog, 'fn' | 'fns' | 'context' | 'availability' | 'entries' | 'signature' | 'typeClosure' | 'type'> {
+export class ContextCatalog implements Pick<Catalog, 'fn' | 'fns' | 'context' | 'availability' | 'entries' | 'signature' | 'typeClosure' | 'type' | 'modelNames'> {
   readonly contexts = new Map<QualifiedName, ContextRecord>();
   readonly records = new Map<QualifiedName, FnRecord>();
   readonly #defs = new Map<QualifiedName, AnyFnDef>();
@@ -66,6 +66,11 @@ export class ContextCatalog implements Pick<Catalog, 'fn' | 'fns' | 'context' | 
 
   fn(name: QualifiedName): Promise<FnRecord | undefined> {
     return Promise.resolve(this.records.get(name));
+  }
+
+  /** The test fns' model names; no named types here. */
+  modelNames(): ReturnType<Catalog['modelNames']> {
+    return Promise.resolve({ index: FnNameIndex.of(this.records.keys()), types: () => undefined });
   }
 
   fns(filter: { names?: readonly QualifiedName[] }): Promise<FnRecord[]> {

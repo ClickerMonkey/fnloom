@@ -29,7 +29,6 @@ type ContextDecl = {
   suggestFns: `${string}/${string}`[];
   suggest: "user" | "llm" | "none" | "both";
   visible: "user" | "llm" | "none" | "both";
-  alwaysFor: `${string}/${string}`[];
   tags: string[];
   title?: string | undefined;
   content?: string | undefined;
@@ -40,6 +39,12 @@ type ContextDecl = {
       hint: string;
       required: boolean;
     }[];
+  } | undefined;
+  inject?: {
+    into: string[];
+    order: number;
+    requires: `${string}/${string}`[];
+    mode?: "tools" | "static" | undefined;
   } | undefined;
   niche?: "admin" | "developer" | "reference" | undefined;
   weight?: number | undefined;
@@ -176,6 +181,7 @@ type FnDecl = {
       action: "create" | "update" | "remove";
       kind?: `${string}/${string}` | "native" | undefined;
     }[] | undefined;
+    keeps?: "resources"[] | undefined;
   } | undefined;
   promptExamples?: number | undefined;
   group?: string | undefined;
@@ -208,6 +214,7 @@ type FnEffects = {
     action: "create" | "update" | "remove";
     kind?: `${string}/${string}` | "native" | undefined;
   }[] | undefined;
+  keeps?: "resources"[] | undefined;
 };
 ```
 
@@ -438,6 +445,7 @@ type KindDescription = {
       action: "create" | "update" | "remove";
       kind?: `${string}/${string}` | "native" | undefined;
     }[] | undefined;
+    keeps?: "resources"[] | undefined;
   } | undefined;
   readable?: {
     language: string;

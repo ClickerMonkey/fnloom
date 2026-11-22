@@ -18,10 +18,11 @@ everyday requests ("help me keep track of groceries"). A chat model answers, and
 - **Run**: one call of a fn. Runs form a tree: a fn may call other fns. **Turn**: one user message and everything it
   caused. **Session**: one chat.
 - **The model does not start with every fn.** In this setup (chat mode "tools", contextor "plain") the model starts
-  with six hub tools only: `hub/fns_search` (search fns and context), `hub/load_fns` (add fns to its tools from the
-  next step on), `hub/load_context` (load a guide or group into the prompt; the fns it brings join the tools),
-  `hub/fn_examples` (a fn's example calls), `hub/run_status`, and `hub/ask_user` (ask a plain question and wait).
-  Everything else has to be found with `hub/fns_search` and loaded first. A fn that isn't loaded can't be called.
+  with ten hub tools only: `hub/fns_search` (search fns), `hub/fns_load` (add fns to its tools from the next step
+  on), `hub/fns_drop`, `hub/ctx_search` (search context: guides, memories, pieces of files), `hub/ctx_load` (load a
+  guide or group into the prompt; the fns it brings join the tools), `hub/ctx_drop`, `hub/fns_examples` (a fn's
+  example calls), `hub/run_status`, `hub/run_wait` and `hub/ask_user` (ask a plain question and wait). Everything
+  else has to be found with `hub/fns_search` (fns) or `hub/ctx_search` (context) and loaded first. A fn that isn't loaded can't be called.
 - **Context** is text for the model: guides (`database/guide`, `input/guide`, `widgets/guide`, `code/guide`,
   `api/guide`, `web/guide`, `fs/guide`), API groups (`database/api.tables`, `input/api.forms`, ...: a list of a
   system's fns by topic; loading one brings those fns into the tools), memories (`memory/...`), and pieces of files
@@ -31,10 +32,10 @@ everyday requests ("help me keep track of groceries"). A chat model answers, and
 - **Added blocks**: each user message may carry tagged blocks the person didn't type: `<local_time>` (the person's
   time and zone), `<fs_git>` (the files system's git state), `<systems_changed>`, `<input-answer>` (answers to a
   form), suggestion cards. They are information for the model.
-- **Search ranks everything together.** `hub/fns_search` searches every fn and context item of every system,
-  including the admin and developer ones (system authoring guides, hub API reference). An everyday request can get
-  developer docs back first. Its args include `items` (fn / context), `kinds`, `systems`, `match` (text, semantic,
-  hybrid).
+- **Two searches over one index.** `hub/fns_search` searches every fn and `hub/ctx_search` every context item of
+  every system, including the admin and developer ones (system authoring guides, hub API reference), which rank
+  lower unless asked for (`niches`). `fns_search`'s args include `kinds` (only when the person names a kind),
+  `systems`, `match` (text, semantic, hybrid); `ctx_search`'s `origins` (system, memory, resource), `scopes`, `tags`.
 
 ## Fn kinds, and authoring a fn
 
@@ -59,7 +60,7 @@ Every fn has a **kind**, which says what its definition is and how it runs.
   - `api/request`: a request to a web API service, made by `api/make_api`.
   Authoring means: call the maker fn with a plain description of what is wanted; it writes, checks and saves the fn,
   and gives its name; then call that new fn by name (after loading it if it isn't in the tools yet).
-- `hub/save_fn` saves a fn of a system's kind directly; normally systems call it, not the chat model.
+- `hub/fns_save` saves a fn of a system's kind directly; normally systems call it, not the chat model.
 
 ## The systems and what they do
 
@@ -99,7 +100,7 @@ Every fn has a **kind**, which says what its definition is and how it runs.
 - `hub/remember` saves a memory (a fact for later) for this session, the person, or everyone; `hub/forget` and
   `hub/memory_update` change it. Memories are context items (`memory/...`) found by search in later chats. There is no
   automatic recall: a later chat finds a memory only through search or suggestions.
-- `hub/load_context` / `hub/context_get` / `hub/context_crawl` load or read context.
+- `hub/ctx_load` / `hub/ctx_get` / `hub/ctx_crawl` load or read context.
 
 ## Approvals and undo
 
@@ -121,7 +122,7 @@ Every fn has a **kind**, which says what its definition is and how it runs.
 
 ## What the chat model's system prompt says (in these runs)
 
-A short paragraph: be helpful, use tools, find fns and context with `hub/fns_search`, loading context brings its fns,
+A short paragraph: be helpful, use tools, find fns with `hub/fns_search` and context with `hub/ctx_search`, loading context brings its fns,
 load one choice at a time, and stop and say what blocks you when something is refused or keeps failing. Then the
 `<systems>` list, one line per system. It does not explain fns, kinds, authoring, forms vs `ask_user`, widgets, or what
 can't be done. Whatever else the model knows, it got from tool descriptions, search results and loaded guides.

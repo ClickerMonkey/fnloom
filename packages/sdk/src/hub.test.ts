@@ -27,9 +27,9 @@ describe('the hub contract', () => {
     const fns: Readonly<Record<string, AnyFnDef | undefined>> = hub.defs.fns;
     for (const name of Object.keys(HUB_READ_ENDPOINTS)) { expect(fns[name]?.tags, name).toEqual([READ_TAG]); }
     for (const name of Object.keys(ADMIN_ENDPOINTS)) { expect(fns[name]?.tags, name).toEqual([ADMIN_TAG]); }
-    // a system keeping what it fetched (resource_import) or saving a fn of its own kind (save_fn) is `own`: a system's call asks nobody
+    // a system keeping what it fetched (resource_import) or saving a fn of its own kind (fns_save) is `own`: a system's call asks nobody
     for (const name of Object.keys(HUB_WRITE_ENDPOINTS)) { expect(fns[name]?.tags, name).toEqual(name === 'resource_import' ? [OWN_TAG] : []); }
-    expect(hub.defs.fns.save_fn.tags).toEqual([OWN_TAG]);
+    expect(hub.defs.fns.fns_save.tags).toEqual([OWN_TAG]);
     for (const name of ['fns_search', 'inspect', 'load', 'unload', 'resource_outline', 'resource_send', ...Object.keys(HUB_EXPLORE_ENDPOINTS)]) { expect(fns[name]?.tags, name).toEqual([READ_TAG]); }
     for (const name of Object.keys(HUB_PERSON_ENDPOINTS)) { expect(fns[name]?.tags, name).toEqual([]); }
     for (const name of Object.keys(ADMIN_READ_ENDPOINTS)) { expect(fns[name]?.tags, name).toEqual([ADMIN_TAG, READ_TAG]); }

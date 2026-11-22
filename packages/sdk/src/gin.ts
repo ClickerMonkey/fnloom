@@ -5,10 +5,27 @@
  * references (`references`). Named types a contract declares are registered in `g`, so they serialize by name.
  */
 import { createRegistry, Type, type Infer, type Registry } from '@aeye/gin';
-import { GinTypeDef, Json, QualifiedName, type TypeDefinitions } from '@harness/core';
+import { FN_NAME_PATTERN, GinTypeDef, Json, QualifiedName, type TypeDefinitions } from '@harness/core';
 
-/** The gin type builder: gin's registry, shared by every contract in this process. */
-export const g: Registry = createRegistry();
+/** What the harness adds to gin's builder. */
+export interface HarnessGin {
+  /**
+   * A text that holds a fn's qualified name. Code and people see `fs/read`; the model sees and writes `fs__read`, and the
+   * hub converts it both ways at the boundary (core's `modelFnNames`). Its JSON schema says "a fn's name, as your tools
+   * spell it". Use it for every field that names a fn (a fn to load, run or look at; a hit's or a result's fn).
+   */
+  fnName(): GinType<QualifiedName>;
+}
+
+const registry: Registry = createRegistry();
+
+/** The gin type builder: gin's registry, shared by every contract in this process, with `fnName` (`HarnessGin`). */
+export const g: Registry & HarnessGin = Object.assign(registry, {
+  fnName: (): GinType<QualifiedName> => {
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the boundary reads every value of this text back to a qualified name before a fn gets it
+    return registry.text({ pattern: FN_NAME_PATTERN }) as GinType<QualifiedName>;
+  },
+});
 
 /** A gin type whose values are `T`. */
 export type GinType<T = unknown> = Type<T>;

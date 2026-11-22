@@ -1004,8 +1004,8 @@ export interface ContextDef<A, Dynamic extends boolean> {
   readonly suggest: Audience;
   /** Who can find it in searches. Default `both`. */
   readonly visible: Audience;
-  /** Always loaded for these agents. */
-  readonly alwaysFor: readonly AnyFnRef[];
+  /** Put it in these agents' system prompts (see "Injected context" below); `alwaysFor` is gone. */
+  readonly inject: InjectInput | undefined;
   readonly tags: readonly string[];
   readonly [phantom]?: A;
 }
@@ -1020,7 +1020,8 @@ export interface ContextInput<Args extends Record<string, ArgDef<boolean>>> {
   suggestFns?: AnyFnRef[];
   suggest?: Audience;
   visible?: Audience;
-  alwaysFor?: AnyFnRef[];
+  /** Put it in these agents' system prompts (see "Injected context" below). */
+  inject?: InjectInput;
   tags?: string[];
   /** How much it counts when the graph contextor scores it (0 leaves it out; 1 when absent). */
   weight?: number;
@@ -1910,3 +1911,53 @@ export interface CliIo {
   readonly files: { read(path: string): Promise<Uint8Array>; write(path: string, data: Uint8Array | string): Promise<void>; list(dir: string): Promise<string[]> };
   readonly cwd: string;
 }
+
+// ═══ Injected context (2026-11-22): the declaration ═══
+//
+// From docs/plans/injected-context-2026-11-22.md §7, as approved. A context item may be injected into agents' system
+// prompts (`{{injectedContext}}`); `alwaysFor` is gone. Built in `packages/sdk/src/declare.ts`, `refs.ts`, `agent.ts`.
+
+/** An agent fn's ref: only `hub/llm` fns fit, so a plain fn can't be a target. */
+export type AgentRef<N extends QualifiedName = QualifiedName> = FnRef<N, unknown, unknown, Handlers> & { readonly kind: 'hub/llm' };
+
+/**
+ * Agents by a pattern over their qualified names. `*` alone is every agent; any other pattern is `system/local`, where
+ * each `*` stands for any run of characters (none included) on its own side of the `/`: it crosses `.`, never `/`.
+ * Case counts. A string without `*` doesn't compile: one agent is named by its ref.
+ */
+export type AgentPattern = '*' | `${string}*${string}/${string}` | `${string}/${string}*${string}`;
+
+/** One entry of `inject.into`: an agent's ref, or a pattern. */
+export type AgentTarget = AgentRef | AgentPattern;
+
+/** Patterns built from refs, so renaming an agent or a system breaks the build instead of the match. */
+export declare const agents: {
+  /** Every agent: `*`. */
+  readonly all: '*';
+  /** Every agent of a system: `agents.of(crm)` is `crm/*`. */
+  of<S extends string>(system: { readonly name: S }): `${S}/*`;
+  /** Every agent whose name starts with this one's: `agents.startingWith(hub.fns.chat)` is `hub/chat*`. */
+  startingWith<N extends QualifiedName>(agent: AgentRef<N>): `${N}*`;
+};
+
+/** Where an item of context is injected. It waits for an admin's approval like any change to the system's contract. */
+export interface InjectInput {
+  /** The agents it goes into. At least one. */
+  readonly into: readonly [AgentTarget, ...AgentTarget[]];
+  /** Lower comes first. Default 100; the hub's own items are 10 to 30. */
+  readonly order?: number;
+  /** Fns its text names without bringing them: it is left out unless they can be used. Its `fns` are required too. */
+  readonly requires?: readonly AnyFnRef[];
+  /** Only in this chat mode. Leave it out unless the text is true in one mode only. */
+  readonly mode?: 'tools' | 'static';
+}
+
+/** How an agent takes its injected section. Its instructions may hold `{{injectedContext}}`; without it the section follows them. */
+export interface AgentInjected {
+  /** `summary` gives each item at its summary, for a small window. Default `full`. */
+  readonly detail?: 'full' | 'summary';
+  /** The most tokens the section may take; items past it fall back to their summary, a listing, then out. */
+  readonly maxTokens?: number;
+}
+// agent({ …, injected?: AgentInjected | 'none' })   (and the same field on a `hub/llm` fn's payload)
+// context({ …, title?: string, inject?: InjectInput })   hook({ description, explains?: string, order?, timeout? })

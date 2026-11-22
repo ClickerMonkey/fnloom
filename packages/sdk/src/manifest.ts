@@ -3,12 +3,12 @@
  * disagree, and checked against core's `Manifest` schema before it leaves.
  */
 import {
-  owesExamples, DeclaredLink, GENERAL_GROUP, Json, LinkTarget, Manifest, SystemName, splitName, SYSTEM_EVENT_TYPES,
+  fnLocalNameProblem, owesExamples, DeclaredLink, InjectDecl, GENERAL_GROUP, Json, LinkTarget, Manifest, SystemName, splitName, SYSTEM_EVENT_TYPES,
   type ActionDecl, type ClientAssets, type ConnectDecl, type ContextDecl, type FnDecl, type HandlerDecl, type QualifiedName, type SystemEventType,
   type TypeDecl, type ApiGroupDecl, GinTypeDef,
 } from '@harness/core';
 import { z } from 'zod';
-import type { AnyContextDef, AnyTypeDef, ContextLinkTarget } from './declare.ts';
+import type { AnyContextDef, AnyTypeDef, ContextLinkTarget, InjectInput } from './declare.ts';
 import { progressDecl, validationOf, type AnyFnDef, type Handlers } from './fn.ts';
 import { encodeValue, referencesOf, wireType } from './gin.ts';
 import { providerDecl } from './providers.ts';
@@ -106,6 +106,7 @@ function typeDecl(name: string, def: AnyTypeDef): TypeDecl {
 function contextDecl(name: string, def: AnyContextDef): ContextDecl {
   return {
     name,
+    ...(def.title === undefined ? {} : { title: def.title }),
     description: def.description,
     ...(def.content === undefined ? {} : { content: def.content }),
     ...(def.command === undefined ? {} : {
@@ -116,7 +117,7 @@ function contextDecl(name: string, def: AnyContextDef): ContextDecl {
     suggestFns: def.suggestFns.map((f) => f.name),
     suggest: def.suggest,
     visible: def.visible,
-    alwaysFor: def.alwaysFor.map((f) => f.name),
+    ...(def.inject === undefined ? {} : { inject: injectDecl(def.inject) }),
     tags: [...def.tags],
     ...(def.weight === undefined ? {} : { weight: def.weight }),
     ...(def.summary === undefined ? {} : { summary: def.summary }),
@@ -128,6 +129,16 @@ function contextDecl(name: string, def: AnyContextDef): ContextDecl {
   };
 }
 
+/** An injection on the wire: refs as their qualified names, patterns as written, the defaults filled in. */
+function injectDecl(inject: InjectInput): InjectDecl {
+  return InjectDecl.parse({
+    into: inject.into.map((target) => (typeof target === 'string' ? target : target.name)),
+    order: inject.order ?? 100,
+    requires: (inject.requires ?? []).map((ref) => ref.name),
+    ...(inject.mode === undefined ? {} : { mode: inject.mode }),
+  });
+}
+
 /** Every qualified name a contract refers to that belongs to another system. */
 function referencedSystems(system: string, defs: ContractShape): string[] {
   const names = new Set<QualifiedName>();
@@ -136,7 +147,8 @@ function referencedSystems(system: string, defs: ContractShape): string[] {
     if (def.kind !== 'native') { names.add(def.kind.name); }
   }
   for (const def of Object.values(defs.context)) {
-    for (const ref of [...def.imports, ...def.fns, ...def.suggestFns, ...def.alwaysFor]) { names.add(ref.name); }
+    for (const ref of [...def.imports, ...def.fns, ...def.suggestFns, ...(def.inject?.requires ?? [])]) { names.add(ref.name); }
+    for (const target of def.inject?.into ?? []) { if (typeof target !== 'string') { names.add(target.name); } }
     for (const ref of [def.parent, def.next]) { if (ref !== undefined) { names.add(ref.name); } }
     for (const link of def.links) { if ('ref' in link.to) { names.add(link.to.name); } }
   }
@@ -185,9 +197,9 @@ export function manifestBody(contract: AnyContract, options: ManifestOptions): O
       ...(def.status === undefined ? {} : { status: def.status }),
       ...(def.estimates ? { estimates: true } : {}),
     })),
-    fns,
+    fns: checkedFnNames(contract.name, fns),
     context: entriesOf(defs.context).map(([name, def]) => contextDecl(name, def)),
-    hooks: entriesOf(defs.hooks).map(([name, def]) => ({ name, description: def.description, order: def.order, timeout: def.timeout })),
+    hooks: entriesOf(defs.hooks).map(([name, def]) => ({ name, description: def.description, ...(def.explains === undefined ? {} : { explains: def.explains }), order: def.order, timeout: def.timeout })),
     mentions: entriesOf(defs.mentions).map(([name, def]) => ({
       name, title: def.title, description: def.description, target: wireType(def.target), ...(def.of === undefined ? {} : { of: def.of.name }),
     })),
@@ -258,6 +270,16 @@ function unwrapped(def: GinTypeDef): GinTypeDef {
   let at = def;
   while ((at.name === 'optional' || at.name === 'nullable') && at.generic?.['T'] !== undefined) { at = at.generic['T']; }
   return at;
+}
+
+/**
+ * A contract's fns, checked: every fn's local name must carry its model name (core's `FnLocalName`: no `__`, no part
+ * starting or ending with `_`), so the name the model calls it by reads back. The build refuses one that doesn't.
+ */
+function checkedFnNames(system: string, fns: FnDecl[]): FnDecl[] {
+  const problems = fns.flatMap((decl) => { const problem = fnLocalNameProblem(decl.name); return problem === undefined ? [] : [problem]; });
+  if (problems.length > 0) { throw new Error(`system ${system}: ${problems.join('; ')}`); }
+  return fns;
 }
 
 /** A `connect` declaration, checked: every fn it switches must be one of the system's fns. */

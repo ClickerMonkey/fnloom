@@ -9,7 +9,7 @@
 import type { Type } from '@aeye/gin';
 import type {
   ActorId, Availability, InstanceName, ContextRecord, GinTypeDef, Json, FnDecl, FnRecord, ImportReport, KindDescription, KindRecord, Manifest, ManifestPatch, ManifestSection,
-  ModelRole, QualifiedName, SectionDecl, SystemName, TypeRecord,
+  ModelFnNameIndex, ModelRole, QualifiedName, SectionDecl, SystemName, TypeRecord,
 } from '@harness/core';
 import type { z } from 'zod';
 
@@ -29,6 +29,15 @@ export interface FnSignature {
 export interface KindDescriber {
   /** Describe a payload of a kind; `instance` is the fleet instance the fn belongs to (`routing.to = 'instance'`), which knows its tables. */
   describe(kind: QualifiedName, payload: Json, instance?: InstanceName): Promise<{ problems: string[]; description?: KindDescription | undefined }>;
+}
+
+/**
+ * The fn name registry for prompts (`catalog/fn-names.ts`): every fn's model name and the names of fns that are gone,
+ * with the stored types' definitions, so a value's named types are walked for its fn-name fields (`modelFnNames`).
+ */
+export interface CatalogFnNames {
+  readonly index: ModelFnNameIndex;
+  readonly types: (name: string) => GinTypeDef | undefined;
 }
 
 /** One entry of a manifest section, qualified by its system. */
@@ -90,6 +99,9 @@ export interface Catalog {
   signature(fn: QualifiedName): Promise<FnSignature>;
   /** Check a value against a gin type definition in a system's scope; returns the problems, empty when valid. */
   check(system: SystemName, type: GinTypeDef, value: unknown): Promise<string[]>;
+
+  /** The one fn name: every fn's model name, read back by lookup, with the stored types (`CatalogFnNames`). */
+  modelNames(): Promise<CatalogFnNames>;
 
   /** Declare a fn while running (`hub/declare_fn` or a system's `add`). Fns of a kind are described by the kind's system. */
   declare(system: SystemName, decl: FnDecl, by: ActorId): Promise<ImportReport>;

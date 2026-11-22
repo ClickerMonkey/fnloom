@@ -66,7 +66,7 @@ describe('the hub\'s own mentions', () => {
     w.catalog.addFn('fs', { name: 'read', description: 'Read a file.', tags: ['read'] });
     const guide: ContextRecord = {
       name: 'fs/guide', system: SystemName.parse('fs'), stale: false, updatedAt: 0, mentions: { context: [], fns: [] },
-      decl: { name: 'guide', description: 'How files work.', imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: [] },
+      decl: { name: 'guide', description: 'How files work.', imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', tags: [] },
     };
     w.catalog.contexts.set(guide.name, guide);
     expect(await w.chat.mentions.hover(w.ask('hub/fns'), { fn: 'fs/read' })).toEqual({

@@ -185,6 +185,11 @@ interface KnownNames {
   readonly fns: ReadonlySet<string>;
   /** Context it may link to besides its own files, qualified (its contract's and others'). */
   readonly context: ReadonlySet<string>;
+  /**
+   * The agents (`hub/llm` fns) an `inject.into` may name exactly. Absent, any fn it may link to is taken; the hub
+   * refuses one that is no agent when the system declares it.
+   */
+  readonly agents?: ReadonlySet<string>;
 }
 ```
 

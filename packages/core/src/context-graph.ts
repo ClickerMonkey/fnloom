@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import { ActorId, Audience, QualifiedName, RunId, type Same, SessionId, Timestamp } from './primitives.ts';
 import { ResourceUri, SectionKey } from './resources.ts';
+import { InjectDecl } from './inject.ts';
 
 // ─── Where context comes from ─────────────────────────────────────────────────
 
@@ -31,7 +32,7 @@ export const ContextOrigin = z.discriminatedUnion('type', [
   z.object({ type: z.literal('system') }),
   /** Written by a person or an agent (`hub/remember`), for a scope. Named `memory/<slug>-<hash>`. */
   z.object({ type: z.literal('memory'), scope: MemoryScope, author: ActorId, run: RunId.optional() }),
-  /** Made from a resource or one of its sections (`hub/context_from_resource`). Named `resource/<slug>-<hash>`. */
+  /** Made from a resource or one of its sections (`hub/ctx_from_resource`). Named `resource/<slug>-<hash>`. */
   z.object({ type: z.literal('resource'), uri: ResourceUri, section: SectionKey.optional(), version: z.string(), copy: ContextCopy }),
 ]);
 export type ContextOrigin = z.infer<typeof ContextOrigin>;
@@ -151,8 +152,11 @@ export const ContextOptions = z.object({
   fns: z.array(QualifiedName).optional(),
   /** Fns suggested alongside it. */
   suggestFns: z.array(QualifiedName).optional(),
-  /** Agent fns whose prompts always carry it. */
-  alwaysFor: z.array(QualifiedName).optional(),
+  /**
+   * Put it in these agents' system prompts (`InjectDecl`). On hub-made context (a memory, context made from a
+   * resource) only an admin sets it, by hand (`guardReach`): a model never writes text that lands in later prompts.
+   */
+  inject: InjectDecl.optional(),
   /** A `/command` name that loads it. */
   command: z.string().regex(/^[a-z][a-z0-9-]*$/).optional(),
   /** Who sees it listed, and who it is suggested to. */
@@ -181,7 +185,7 @@ export const UpdateMemoryArgs = RememberArgs.omit({ scope: true }).partial().ext
 export type UpdateMemoryArgs = z.infer<typeof UpdateMemoryArgs>;
 export type RememberArgs = z.infer<typeof RememberArgs>;
 
-/** `hub/context_from_resource`: make context items from a resource or chosen sections. */
+/** `hub/ctx_from_resource`: make context items from a resource or chosen sections. */
 export const ContextFromResourceArgs = z.object({
   uri: ResourceUri,
   /** Which sections; all of them when absent. */
@@ -198,7 +202,7 @@ export const ContextFromResourceResult = z.object({
 });
 export type ContextFromResourceResult = z.infer<typeof ContextFromResourceResult>;
 
-// ─── Crawling context by decision (`hub/context_crawl`, plan item 7) ───────────
+// ─── Crawling context by decision (`hub/ctx_crawl`, plan item 7) ───────────
 
 /**
  * How a crawl walks the graph, level by level: what a level loads brings what it imports, always (transitively, cycles

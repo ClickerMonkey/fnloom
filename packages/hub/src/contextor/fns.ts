@@ -58,7 +58,7 @@ export function registerContextorFns(fns: HubFns, deps: ContextorFnDeps): void {
     const scope = await deps.mcpScope(ctx.request.run.caller);
     const detail = args.detail ?? 'full';
     const name = QualifiedName.safeParse(args.name);
-    if (!name.success) throw new InvalidArgs([{ path: 'name', message: `${args.name} is not a name (system/name); use find to look for one` }]);
+    if (!name.success) throw new InvalidArgs([{ path: 'name', message: `${args.name} names no fn or context item; use find to look for one` }]);
     const nothing = new InvalidArgs([{ path: 'name', message: `there is no fn, context or type named ${name.data}; use find to look for one` }]);
     if (scope !== undefined && !scope.fns.has(name.data) && !scope.context.has(name.data) && !scope.types.has(name.data)) throw nothing;
     const access = await deps.access(ctx.request.run.user.id);
@@ -90,7 +90,7 @@ export function registerContextorFns(fns: HubFns, deps: ContextorFnDeps): void {
     const context: QualifiedName[] = [];
     for (const given of args.names) {
       const name = QualifiedName.safeParse(given);
-      if (!name.success) { refused.push({ name: given, code: 'not-a-name', reason: 'not a name (system/name)' }); continue; }
+      if (!name.success) { refused.push({ name: given, code: 'not-a-name', reason: 'names no fn or context item' }); continue; }
       const { system } = splitName(name.data);
       if (!allowsSystem(session, system)) { refused.push({ name: given, code: 'other-system', reason: `this session does not use ${system}` }); continue; }
       const fn = await deps.catalog().fn(name.data);
@@ -104,7 +104,7 @@ export function registerContextorFns(fns: HubFns, deps: ContextorFnDeps): void {
       if (item !== undefined && visible(item, { session, user: ctx.request.run.user.id, access })) context.push(name.data);
       else refused.push({ name: given, code: 'no-such-fn', reason: 'no fn or context has that name' });
     }
-    // context loads with what it imports, and brings its fns (`broughtFns`), as hub/load_context does
+    // context loads with what it imports, and brings its fns (`broughtFns`), as hub/ctx_load does
     const user = ctx.request.run.user.id;
     const records: ContextRecord[] = [];
     for (const name of await withImports(deps.catalog(), context)) {
@@ -112,7 +112,7 @@ export function registerContextorFns(fns: HubFns, deps: ContextorFnDeps): void {
       const item = parsed.success ? await deps.catalog().context(parsed.data) : undefined;
       if (item !== undefined && visible(item, { session, user, access })) records.push(item);
     }
-    // a brought fn that can't be added is refused with what blocks it, as hub/load_context reports it; one that reads as missing is left out
+    // a brought fn that can't be added is refused with what blocks it, as hub/ctx_load reports it; one that reads as missing is left out
     for (const name of broughtFns(records)) {
       const blocked = fnRefusal(await deps.catalog().fn(name), session, access);
       if (blocked === undefined) tools.push(name);

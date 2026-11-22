@@ -1,10 +1,11 @@
 /**
  * Fn metrics: every run records how long it waited and ran, what it cost and used, how it ended and how often it was
- * retried; the hub rolls them up per fn and per day. The admin's fn pages show the rollups, and `hub/fn_metrics` gives
+ * retried; the hub rolls them up per fn and per day. The admin's fn pages show the rollups, and `hub/fns_metrics` gives
  * them to the LLM (a slow or often-refused fn is worth knowing about when choosing one).
  */
 import { z } from 'zod';
 import { Duration, QualifiedName, SystemName, Timestamp, Usd } from './primitives.ts';
+import { FnNameValue } from './model-names.ts';
 import type { SettledRunStatus } from './run.ts';
 
 /** How a run ended, for metrics: the settled statuses a run reaches on its own (`undone` comes later, by a person). */
@@ -86,5 +87,5 @@ export const FnMetrics = z.object({
 export type FnMetrics = z.infer<typeof FnMetrics>;
 
 /** What a metrics query narrows by: one fn or system, over the last `days` days (7 by default). */
-export const FnMetricsQuery = z.object({ fn: QualifiedName.optional(), system: SystemName.optional(), days: z.number().int().min(1).max(365).optional() });
+export const FnMetricsQuery = z.object({ fn: FnNameValue.optional(), system: SystemName.optional(), days: z.number().int().min(1).max(365).optional() });
 export type FnMetricsQuery = z.infer<typeof FnMetricsQuery>;

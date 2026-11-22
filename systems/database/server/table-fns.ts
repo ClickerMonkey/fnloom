@@ -3,7 +3,7 @@
  * table's columns, keys and relations make possible (CRUD, column helpers, relation-derived fields and normalized
  * comparisons), each a checked query with its args and signature; no model is involved, so the same tables always give
  * the same fns. Here they are checked against this instance's tables, marked with how they stand in the hub (new,
- * current, or made for an older schema), and kept as `database/query` fns of the instance (`hub/save_fn`), named
+ * current, or made for an older schema), and kept as `database/query` fns of the instance (`hub/fns_save`), named
  * `<instance>.<table>_<name>`, with instructions and examples. Saving is idempotent by name: an unchanged fn is left
  * alone, a changed one becomes a new version (the hub keeps the old). A generated fn's payload records the op it was
  * built from and the table's schema hash, so its query is rebuilt from the tables as they are now (`refreshPayload`).

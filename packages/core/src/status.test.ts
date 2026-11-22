@@ -36,6 +36,9 @@ describe('labels', () => {
     expect(humanize('Entry.reveal')).toBe('Entry reveal');
     expect(humanize('')).toBe('');
     expect(fnLabel('fs/read_file')).toBe('Read file');
+    // the hub's context fns read in full
+    expect(fnLabel('hub/ctx_search')).toBe('Context search');
+    expect(humanize('more_ctx')).toBe('More context');
     expect(lowerFirst('Read file')).toBe('read file');
     expect(lowerFirst('URL fetch')).toBe('URL fetch');
     expect(upperFirst('read')).toBe('Read');

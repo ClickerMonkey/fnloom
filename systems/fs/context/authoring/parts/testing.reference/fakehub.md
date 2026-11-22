@@ -77,7 +77,7 @@ class FakeHub {
   readonly content: Map<string, Uint8Array<ArrayBufferLike>>;
   /** A resource's outline by URI (`resourceSections`); a URI not here has no sections. */
   readonly sections: Map<string, { key: SectionKey; path: string[]; title: string; start: number; end: number; embedText?: string | undefined; form?: "code" | "description" | "table" | "text" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined; }[]>;
-  /** The hub's kept fns (`hub/save_fn`, `hub/fn_get`, `searchFns`, `fnExamples`), in memory. */
+  /** The hub's kept fns (`hub/fns_save`, `hub/fns_get`, `searchFns`, `fnExamples`), in memory. */
   readonly fns: FakeHubFns;
   /**
   * The data system in memory (`ctx.data`): records of the stored types the system declared, or of another system's
@@ -93,7 +93,7 @@ class FakeHub {
   /** The hub's widget fns (`hub/read_table`, `hub/visuals`, `hub/row_actions`), in memory. */
   readonly widgets: FakeHubWidgets;
   /**
-  * Settles a child call. Default: `hub/save_fn` and `hub/fn_get` by `fns`, the widget fns by `widgets`, anything else
+  * Settles a child call. Default: `hub/fns_save` and `hub/fns_get` by `fns`, the widget fns by `widgets`, anything else
   * done with `null`.
   */
   onCall: (call: FakeHub['calls'][number]) => Promise<RunSettled>;
@@ -393,12 +393,12 @@ The hub's kept fns in memory.
 ```ts
 class FakeHubFns {
   readonly kept: Map<string, KeptFn>;
-  /** The hub fns called and link searches made, in order (`hub/save_fn`, `searchFns`, …). */
+  /** The hub fns called and link searches made, in order (`hub/fns_save`, `searchFns`, …). */
   readonly called: string[];
-  /** Settle a call to `hub/save_fn` or `hub/fn_get`; `undefined` for any other fn. */
+  /** Settle a call to `hub/fns_save` or `hub/fns_get`; `undefined` for any other fn. */
   settle(call: HubCall): RunSettled | undefined;
-  /** Keep a fn as `hub/save_fn` does; a taken name without `replace` throws with `SAVE_FN_TAKEN`. */
-  save(args: Infer<typeof SaveFnArgs>): Infer<typeof hub.fns.save_fn.returns>;
+  /** Keep a fn as `hub/fns_save` does; a taken name without `replace` throws with `SAVE_FN_TAKEN`. */
+  save(args: Infer<typeof SaveFnArgs>): Infer<typeof hub.fns.fns_save.returns>;
   /** Search the kept fns as the link's `searchFns` does, by words, with the kind, system, instance and name filters. */
   search(query: FnSearchQuery): FnSearchPage;
   /** A page of a kept fn's examples, as the link's `fnExamples` gives it (in their saved order). */
@@ -416,10 +416,12 @@ A fn kept in the fake hub: the latest save, its version and the saves before it.
 
 ```ts
 interface KeptFn {
-  readonly fn: string;
+  readonly fn: QualifiedName;
   readonly saved: Infer<typeof SaveFnArgs>;
   readonly version: number;
   /** Every earlier save, oldest first. */
   readonly history: ReadonlyArray<Infer<typeof SaveFnArgs>>;
 }
 ```
+
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).

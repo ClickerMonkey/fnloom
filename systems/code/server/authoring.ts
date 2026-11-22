@@ -8,7 +8,7 @@
  *   `signature` (the new fn's args and result).
  * - **set → check → fix:** the draft (name, description, program, sample args) is checked with `checkProgram`; a
  *   program that calls no fn is run with the sample args, so the agent sees what a caller gets. `test` tries other args.
- * - **return:** the clean draft is kept with `hub/save_fn` as a `code/program` fn (a new version when changing one).
+ * - **return:** the clean draft is kept with `hub/fns_save` as a `code/program` fn (a new version when changing one).
  */
 import type { ExprDef } from '@aeye/gin';
 import { CODE_KIND, CodeFnSpec, GinExprDef, Json, QualifiedName, splitName } from '@harness/core';
@@ -36,7 +36,7 @@ export interface EditedCode {
 /** What a code authoring run needs from its run besides the program host: reading and saving fns in the hub. */
 export interface CodeAuthoringDeps {
   getFn(name: QualifiedName): Promise<Infer<typeof StoredFn>>;
-  /** `hub/save_fn` with these args; the saved fn and its version. */
+  /** `hub/fns_save` with these args; the saved fn and its version. */
   saveFn(args: { name: string; description: string; payload: Json; examples: Array<{ args: Json; result?: Json }>; replace: boolean }): Promise<{ fn: string; version: number }>;
 }
 

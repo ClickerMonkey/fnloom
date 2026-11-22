@@ -189,7 +189,7 @@ export {
   NETWORK_ALLOW_VAR, endpointOf, endpointText, endpointsText, guardNetwork, hostKey, networkRefusedLine, parseEndpoints, refusedOfLine, type Endpoint, type GuardOptions, type Refused,
 } from './socket-guard.ts';
 export { StateConflict } from './state.ts';
-export { McpFace, mcpToolNameOf, type McpLimits } from './mcp.ts';
+export { McpFace, type McpLimits } from './mcp.ts';
 export {
   LogPairingDisplay, TerminalPairingDisplay, PAIRING_QR_MODES, codeBanner, pairingDisplayFor, terminalQr,
   type PairingDisplay, type PairingShown, type PairingQrMode, type QrRenderer,

@@ -1,6 +1,6 @@
 /**
  * The widgets system's implementation: the `widget` kind (check, describe and run), `make_widget` (the authoring agent
- * in `authoring.ts`, which proposes) and `save_widget` (the person's Save, through `hub/save_fn`). Nothing is stored
+ * in `authoring.ts`, which proposes) and `save_widget` (the person's Save, through `hub/fns_save`). Nothing is stored
  * here: saved widgets, who may use them and their versions are the hub's; every run reads its source fresh.
  */
 import {
@@ -33,14 +33,14 @@ function argsObject(args: Json): Record<string, Json> {
   return parsed.success ? parsed.data : {};
 }
 
-/** A fn as `hub/fn_get` gives it, as the source a widget reads: its args type and whether its rows change on their own. */
+/** A fn as `hub/fns_get` gives it, as the source a widget reads: its args type and whether its rows change on their own. */
 function sourceDecl(stored: Infer<typeof StoredFn>): SourceDecl {
   const fn = QualifiedName.parse(stored.fn);
   if (stored.args === undefined) { throw new Error(`The hub gave no args type for ${fn}.`); }
   return { fn, description: stored.description, args: stored.args, ...(stored.live === undefined ? {} : { live: stored.live }) };
 }
 
-/** How a widget's source and drill are declared, wherever they are looked up (the kind's own lookups or `hub/fn_get`). */
+/** How a widget's source and drill are declared, wherever they are looked up (the kind's own lookups or `hub/fns_get`). */
 interface DeclaredFn {
   readonly args: GinTypeDef;
   readonly returns: GinTypeDef;
@@ -78,11 +78,11 @@ function runOptions(run: RunInfo, settings: WidgetsSettings): { now: Date; zone:
 
 /** The hub fns a run of `save_widget` calls. */
 type SaveFns = FnCtx<TypesOf<WidgetsContract['defs']['fns']['save_widget']>>['fns'];
-/** `hub/save_fn` as a run of `save_widget` calls it. */
+/** `hub/fns_save` as a run of `save_widget` calls it. */
 type SaveFn = SaveFns['saveFn'];
 
 /**
- * Every problem with a widget about to be saved, against its source and drill as `hub/fn_get` declares them to the
+ * Every problem with a widget about to be saved, against its source and drill as `hub/fns_get` declares them to the
  * person (the kind's check sees them as the system): a source the person can't read, or that the hub gives no types
  * for, is a problem too. Whether the source only reads is the hub's to refuse when the widget runs (`hub/read_table`).
  */
@@ -220,7 +220,7 @@ export function createWidgetsImpl(deps: WidgetsDeps): SystemImpl<WidgetsContract
           const args: GinTypeDef = source === undefined ? { name: 'any' } : widgetArgs(source.args, spec);
           return KindDescription.parse({
             args, returns: wireType(ginAs(WidgetResult)),
-            deps: [spec.source, ...(spec.drill === undefined ? [] : [spec.drill.fn]), hub.fns.fn_get.name, hub.fns.read_table.name, hub.fns.visuals.name, hub.fns.row_actions.name],
+            deps: [spec.source, ...(spec.drill === undefined ? [] : [spec.drill.fn]), hub.fns.fns_get.name, hub.fns.read_table.name, hub.fns.visuals.name, hub.fns.row_actions.name],
             operations: { cancel: true, pause: false, undo: false, background: false },
             display: 'card',
             effects: { mode: 'read' },
@@ -230,7 +230,7 @@ export function createWidgetsImpl(deps: WidgetsDeps): SystemImpl<WidgetsContract
         },
         async run(payload, args, ctx) {
           const spec = WidgetSpec.parse(payload);
-          const source = sourceDecl(parseValue(hub.fns.fn_get.returns, await ctx.call(hub.fns.fn_get.name, { fn: spec.source })));
+          const source = sourceDecl(parseValue(hub.fns.fns_get.returns, await ctx.call(hub.fns.fns_get.name, { fn: spec.source })));
           const widgetHub: WidgetHub = {
             async read(fn, given) {
               // through hub/read_table, which refuses a source that writes or doesn't return a table (a saved widget's

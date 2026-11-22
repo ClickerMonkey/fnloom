@@ -16,6 +16,7 @@ import type { ResourcesStore } from '../resources/state/resources.ts';
 import type { ContextStore } from '../context/state/context.ts';
 import type { FnInfoStore } from '../fns/state/fn-info.ts';
 import type { FnNotices } from '../fns/state/fn-notices.ts';
+import type { ModelNamesStore } from '../fns/state/model-names.ts';
 import type { GraphStore } from '../graph/state/graph.ts';
 import type { DataStore } from '../data/state/data.ts';
 import type { SystemPagesStore } from '../system-pages/store.ts';
@@ -57,6 +58,8 @@ export interface Stores {
   readonly fns: FnInfoStore;
   /** Each fn's notice ("This usually takes about 3 minutes."), for the approval and running cards. */
   readonly fnNotices: FnNotices;
+  /** Tool names in stored model calls read back to fns (cut names asked of the hub), for the LLM call view. */
+  readonly modelNames: ModelNamesStore;
   /** A new graph view (the graph page, a system's Graph tab), each with its own query and page. */
   readonly graph: () => GraphStore;
   /** The Data pages (build 8): stored types, their records, saved widgets and the actions rows offer. */

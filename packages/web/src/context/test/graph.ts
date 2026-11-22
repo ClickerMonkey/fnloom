@@ -30,7 +30,7 @@ export function contextRecord(name: string, input: RecordInput = {}, at = T_CONT
   const record: z.input<typeof ContextRecord> = {
     name: QualifiedName.parse(name), system: name.split('/')[0] ?? 'hub',
     decl: {
-      name: local, description: description ?? `About ${name}`, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: [],
+      name: local, description: description ?? `About ${name}`, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', tags: [],
       ...(content === undefined ? {} : { content }), ...(command === undefined ? {} : { command: { name: command, args: [] } }), ...decl,
     },
     mentions: { context: [], fns: [] }, stale: false, updatedAt: at, ...rest,
@@ -144,7 +144,7 @@ export class ContextGraphDouble {
     const decl = {
       ...record.decl, description,
       ...(o.weight === undefined ? {} : { weight: o.weight }), ...(o.summary === undefined ? {} : { summary: o.summary }), ...(o.tags === undefined ? {} : { tags: o.tags }),
-      ...(o.fns === undefined ? {} : { fns: o.fns }), ...(o.suggestFns === undefined ? {} : { suggestFns: o.suggestFns }), ...(o.alwaysFor === undefined ? {} : { alwaysFor: o.alwaysFor }),
+      ...(o.fns === undefined ? {} : { fns: o.fns }), ...(o.suggestFns === undefined ? {} : { suggestFns: o.suggestFns }), ...(o.inject === undefined ? {} : { inject: o.inject }),
       ...(o.visible === undefined ? {} : { visible: o.visible }), ...(o.suggest === undefined ? {} : { suggest: o.suggest }), ...(o.parent === undefined ? {} : { parent: o.parent }),
       ...(text === undefined ? {} : { content: text }), ...(command === undefined ? {} : { command: { name: command, args: [] } }),
     };

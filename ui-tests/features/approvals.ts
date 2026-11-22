@@ -6,7 +6,7 @@ export default feature({
   async run(ctx) {
     const { page } = ctx;
     await newChat(ctx);
-    await compose(page, 'Load the fs/bash fn with hub/load_fns, then call it to run exactly this command: echo approved-in-ui. Then tell me what it printed.');
+    await compose(page, 'Load the fs/bash fn with hub/fns_load, then call it to run exactly this command: echo approved-in-ui. Then tell me what it printed.');
     await sendComposer(ctx);
     await find(page, 'approval-card', 240_000);
     await settle(page);

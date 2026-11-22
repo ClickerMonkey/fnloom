@@ -273,7 +273,7 @@ describe('a change of image space', () => {
         name: q('shop/album'), system: SHOP, origin: { type: 'memory', scope: { to: 'everyone' }, author: ActorId.parse('act_admin') }, stale: false, updatedAt: 0, mentions: { context: [], fns: [] },
         tokens: { full: 2, summary: 1 },
         decl: ContextDecl.parse({
-          name: 'album', description: 'Our pictures', imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: [],
+          name: 'album', description: 'Our pictures', imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', tags: [],
           content: '![a red car](https://pics.test/red-car.png)',
         }),
       });

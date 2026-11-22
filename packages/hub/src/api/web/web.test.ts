@@ -197,8 +197,8 @@ describe('chat', () => {
             { name: QualifiedName.parse('off/x'), system: off, decl: { name: 'x', title: 'X', description: '', target: { name: 'text' } } },
           ],
           context: [
-            { name: QualifiedName.parse('fs/guide'), system: fs, decl: ContextDecl.parse({ name: 'guide', description: 'Guide', command: { name: 'guide', args: [] }, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: [] }) },
-            { name: QualifiedName.parse('off/notes'), system: off, decl: ContextDecl.parse({ name: 'notes', description: 'Notes', command: { name: 'notes', args: [] }, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: [] }) },
+            { name: QualifiedName.parse('fs/guide'), system: fs, decl: ContextDecl.parse({ name: 'guide', description: 'Guide', command: { name: 'guide', args: [] }, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', tags: [] }) },
+            { name: QualifiedName.parse('off/notes'), system: off, decl: ContextDecl.parse({ name: 'notes', description: 'Notes', command: { name: 'notes', args: [] }, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', tags: [] }) },
           ],
         }),
         fns: () => Promise.resolve([]),
@@ -215,7 +215,7 @@ describe('chat', () => {
     // a memory with a /command is the hub's own: always offered, never waiting on a system called memory
     await r.store.table('context').insert({
       name: QualifiedName.parse('memory/gollum-1a2b'), system: SystemName.parse('hub'), origin: { type: 'memory', scope: { to: 'everyone' }, author: me }, stale: false, updatedAt: 0,
-      decl: ContextDecl.parse({ name: 'gollum-1a2b', description: 'Gollum', command: { name: 'gollum', args: [] }, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: [] }), mentions: { context: [], fns: [] }, tokens: { full: 1, summary: 1 },
+      decl: ContextDecl.parse({ name: 'gollum-1a2b', description: 'Gollum', command: { name: 'gollum', args: [] }, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', tags: [] }), mentions: { context: [], fns: [] }, tokens: { full: 1, summary: 1 },
     });
     const caps = await web.client.call('capabilities', { session: sessionId }, as);
     expect(caps.mentions).toEqual([{ provider: 'fs/file', title: 'Files' }]);

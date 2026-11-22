@@ -266,8 +266,11 @@ export interface ContextOptionsDraft {
   readonly fns: readonly QualifiedName[];
   /** Fns suggested alongside it. */
   readonly suggestFns: readonly QualifiedName[];
-  /** Agent fns whose prompts always carry it. */
-  readonly alwaysFor: readonly QualifiedName[];
+  /**
+   * The agents whose system prompts it is injected into (`inject.into`: agents' names or patterns such as `hub/chat*`)
+   * and its place among their injected items; no targets, not injected. Only an admin sets it, by hand.
+   */
+  readonly inject: { readonly into: readonly string[]; readonly order: number };
   /** A `/command` that loads it; blank for none. */
   readonly command: string;
   readonly visible: Audience;
@@ -277,7 +280,7 @@ export interface ContextOptionsDraft {
 }
 
 /** The options a new memory starts with: what the hub gives one when none are said. */
-export const PLAIN_OPTIONS: ContextOptionsDraft = { weight: 1, summary: '', tags: [], fns: [], suggestFns: [], alwaysFor: [], command: '', visible: 'both', suggest: 'both', parent: '' };
+export const PLAIN_OPTIONS: ContextOptionsDraft = { weight: 1, summary: '', tags: [], fns: [], suggestFns: [], inject: { into: [], order: 100 }, command: '', visible: 'both', suggest: 'both', parent: '' };
 
 /** Who sees an item listed and who it is suggested to, in words. */
 export const AUDIENCE_WORDS: Readonly<Record<Audience, string>> = { both: 'People and agents', user: 'People', llm: 'Agents', none: 'No one' };
@@ -287,7 +290,7 @@ export function changedOptions(draft: ContextOptionsDraft): number {
   return OPTION_KEYS.filter((key) => differs(draft, key)).length;
 }
 
-const OPTION_KEYS = ['weight', 'summary', 'tags', 'fns', 'suggestFns', 'alwaysFor', 'command', 'visible', 'suggest', 'parent'] as const satisfies readonly (keyof ContextOptionsDraft)[];
+const OPTION_KEYS = ['weight', 'summary', 'tags', 'fns', 'suggestFns', 'inject', 'command', 'visible', 'suggest', 'parent'] as const satisfies readonly (keyof ContextOptionsDraft)[];
 
 /** Does an option differ from a plain memory's? */
 function differs(draft: ContextOptionsDraft, key: keyof ContextOptionsDraft): boolean {
@@ -300,7 +303,7 @@ export function memoryDraft(record?: Pick<ContextRecord, 'origin' | 'decl'>): Me
   const { decl } = record;
   const options: ContextOptionsDraft = {
     weight: decl.weight ?? 1, summary: decl.summary === decl.description ? '' : decl.summary ?? '', tags: decl.tags, fns: decl.fns, suggestFns: decl.suggestFns,
-    alwaysFor: decl.alwaysFor, command: decl.command?.name ?? '', visible: decl.visible, suggest: decl.suggest, parent: decl.parent ?? '',
+    inject: { into: decl.inject?.into ?? [], order: decl.inject?.order ?? 100 }, command: decl.command?.name ?? '', visible: decl.visible, suggest: decl.suggest, parent: decl.parent ?? '',
   };
   return { title: decl.description, text: decl.content ?? '', share: record.origin.scope.to === 'everyone' ? { visibility: 'public', with: [] } : ONLY_ME, options };
 }
@@ -320,7 +323,7 @@ export function optionsRequest(draft: ContextOptionsDraft, every: boolean): Outc
     ok: true,
     value: ContextOptions.parse({
       ...(send('weight') ? { weight: draft.weight } : {}), ...(send('tags') ? { tags: draft.tags } : {}), ...(send('fns') ? { fns: draft.fns } : {}),
-      ...(send('suggestFns') ? { suggestFns: draft.suggestFns } : {}), ...(send('alwaysFor') ? { alwaysFor: draft.alwaysFor } : {}),
+      ...(send('suggestFns') ? { suggestFns: draft.suggestFns } : {}), ...(send('inject') && draft.inject.into.length > 0 ? { inject: { into: draft.inject.into, order: draft.inject.order } } : {}),
       ...(send('visible') ? { visible: draft.visible } : {}), ...(send('suggest') ? { suggest: draft.suggest } : {}),
       ...(summary === '' ? {} : { summary }), ...(command === '' ? {} : { command }), ...(parent === '' ? {} : { parent }),
     }),
@@ -347,7 +350,7 @@ export function memoryUpdate(name: QualifiedName, draft: MemoryDraft): Outcome<U
   const options = optionsRequest(draft.options, true);
   if (!options.ok) { return options; }
   // the text options left blank are removed; the rest are always sent
-  const clear = (['summary', 'command', 'parent'] as const).filter((key) => options.value[key] === undefined);
+  const clear = (['summary', 'command', 'parent', 'inject'] as const).filter((key) => options.value[key] === undefined);
   return { ok: true, value: UpdateMemoryArgs.parse({ name, text, title: draft.title.trim(), ...options.value, ...(clear.length === 0 ? {} : { clear }) }) };
 }
 

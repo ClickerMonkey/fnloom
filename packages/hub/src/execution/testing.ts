@@ -11,7 +11,7 @@ import { memoryStore as rateMemory } from '@ayepi/rate';
 import { memoryBackend } from '@ayepi/work';
 import { fnDecl, type AnyFnDef } from '@harness/sdk';
 import {
-  ActorId, MAIN_INSTANCE, MessageId, SystemName, mintId, noFnStats, systemLinkSpec,
+  ActorId, FnNameIndex, MAIN_INSTANCE, MessageId, SystemName, mintId, noFnStats, systemLinkSpec,
   type ApprovalId, type RunId, type Approver, type ChatMessage, type ConfigValue, type FnRecord, type GinTypeDef, type HubLinkSpec, type Json, type MessagePart,
   type OutcomeWire, type ProviderKind, type QualifiedName, type ResolvedLimits, type RunRequest, type Session, type SessionId, type Turn,
   type TurnId, type TurnStatus, type UndoOutcome, type UserInfo, type RunControlAction, type SuggestionRecord,
@@ -189,7 +189,7 @@ export class TestCatalog implements Catalog {
     const { system, local } = { system: name.slice(0, name.indexOf('/')), local: name.slice(name.indexOf('/') + 1) };
     return Promise.resolve({
       name, system: SystemName.parse(system), stale: false, updatedAt: 0, mentions: { context: [], fns: [] }, ...(this.contextsOff.has(name) ? { disabled: true } : {}),
-      decl: { name: local, description: local, content, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: [], ...this.contextDecls.get(name) },
+      decl: { name: local, description: local, content, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', tags: [], ...this.contextDecls.get(name) },
     });
   }
 
@@ -214,9 +214,11 @@ export class TestCatalog implements Catalog {
   typesOf(): ReturnType<Catalog['typesOf']> { return Promise.resolve([]); }
   typeClosure(names: readonly QualifiedName[]): ReturnType<Catalog['typeClosure']> { return Promise.resolve({ order: [], missing: [...names] }); }
   declare(): never { throw new Error('not in execution tests'); }
+  /** The test fns' model names; no named types here. */
+  modelNames(): ReturnType<Catalog['modelNames']> { return Promise.resolve({ index: FnNameIndex.of(this.records.keys()), types: () => undefined }); }
   reimport(): never { throw new Error('not in execution tests'); }
   manifest(): never { throw new Error('not in execution tests'); }
-  /** No manifest entries here (no context names an agent in `alwaysFor`). */
+  /** No manifest entries here (no context is injected into an agent). */
   entries(): Promise<never[]> { return Promise.resolve([]); }
 }
 

@@ -32,7 +32,7 @@ export function modelMayUse(record: FnRecord, session: Pick<Session, 'systems'> 
 
 /**
  * What blocks the model from loading or running a fn by name, or undefined when nothing does: the one check
- * `hub/load`, `hub/load_fns`, `hub/load_context`, the static `run`, `inspect` and the prompt's context blocks share.
+ * `hub/load`, `hub/fns_load`, `hub/ctx_load`, the static `run`, `inspect` and the prompt's context blocks share.
  * An unavailable fn says why in the hub's own words (its availability's `detail`, "database/create_table changed and
  * waits for an admin to approve it"), never a bare "unavailable". A fn the person can't see reads as missing.
  */

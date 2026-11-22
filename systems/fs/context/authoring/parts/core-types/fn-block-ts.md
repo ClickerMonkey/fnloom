@@ -17,8 +17,8 @@ niche: "developer"
 
 const, type · declared in `packages/core/src/fn-block.ts`
 
-What blocks a fn, as every place that refuses one says it (`hub/load_fns`, `hub/load`, the static `run`,
-`hub/load_context`'s brought fns, `hub/fns_search`'s unavailable hits, the prompt's context blocks): its code, the
+What blocks a fn, as every place that refuses one says it (`hub/fns_load`, `hub/load`, the static `run`,
+`hub/ctx_load`'s brought fns, `hub/fns_search`'s unavailable hits, the prompt's context blocks): its code, the
 hub's reason in words (the availability's `detail` when it is unavailable, "database/create_table changed and waits
 for an admin to approve it"), and the fn's system when the name has one, so the web can point at what holds it.
 

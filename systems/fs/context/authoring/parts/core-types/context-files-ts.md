@@ -17,7 +17,7 @@ niche: "developer"
 
 const, type · declared in `packages/core/src/context-files.ts`
 
-`hub/context_crawl`'s args (see `CRAWL_DEFAULTS` for how a crawl walks the graph).
+`hub/ctx_crawl`'s args (see `CRAWL_DEFAULTS` for how a crawl walks the graph).
 
 ```ts
 type ContextCrawlArgs = {
@@ -34,8 +34,8 @@ type ContextCrawlArgs = {
 
 const, type · declared in `packages/core/src/context-files.ts`
 
-What `hub/context_crawl` did: the items it took (`crawled`, in the order taken), those loaded into the session as
-`hub/load_context` loads them (none when metadata only) with the fns they brought, the starting names it refused,
+What `hub/ctx_crawl` did: the items it took (`crawled`, in the order taken), those loaded into the session as
+`hub/ctx_load` loads them (none when metadata only) with the fns they brought, the starting names it refused,
 the links it skipped, why it stopped, and what it spent: the decide calls (`calls`, each a model call), the questions
 asked and the tokens gathered. The model reads only its `cards` (`LoadCards`).
 
@@ -91,7 +91,8 @@ const, type · declared in `packages/core/src/context-files.ts`
 
 The YAML header of a context file: `ContextDecl` without its content (the body is the content), with `key` for its
 name and the lists optional. A summary is required, so every item has a short form for small models. Every link
-(`fns`, `imports`, `choices`, `links`, `parent`, `next`, `alwaysFor`) is a qualified name.
+(`fns`, `imports`, `choices`, `links`, `parent`, `next`) is a qualified name; `inject.into` holds exact agent names
+or patterns (`inject: { into: ['hub/chat*'], order: 40 }`).
 
 ```ts
 type ContextFileHeader = {
@@ -103,7 +104,6 @@ type ContextFileHeader = {
   suggestFns: `${string}/${string}`[];
   suggest: "user" | "llm" | "none" | "both";
   visible: "user" | "llm" | "none" | "both";
-  alwaysFor: `${string}/${string}`[];
   tags: string[];
   title?: string | undefined;
   links?: {
@@ -127,6 +127,12 @@ type ContextFileHeader = {
   weight?: number | undefined;
   niche?: "admin" | "developer" | "reference" | undefined;
   next?: `${string}/${string}` | undefined;
+  inject?: {
+    into: string[];
+    order: number;
+    requires: `${string}/${string}`[];
+    mode?: "tools" | "static" | undefined;
+  } | undefined;
   command?: {
     name: string;
     args: {
@@ -171,7 +177,7 @@ type ContextFileProblemCode = "header" | "duplicate-key" | "broken-link" | "cycl
 
 const, type · declared in `packages/core/src/context-files.ts`
 
-What `hub/load_context` did: the context it loaded (with what each loads with it, every time), the fns that context
+What `hub/ctx_load` did: the context it loaded (with what each loads with it, every time), the fns that context
 brings that went into the session's tools, the fns it brings that could not (`fnsRefused`, each with what blocks it), and
 what it refused, each with the closest names it knows. The model reads only its `cards` (`LoadCards`).
 
@@ -198,7 +204,7 @@ type LoadContextResult = {
 
 const, type · declared in `packages/core/src/context-files.ts`
 
-What `hub/load_fns` did: the fns that went into the session's tools, and the names it refused, each with what blocks
+What `hub/fns_load` did: the fns that went into the session's tools, and the names it refused, each with what blocks
 it. The model reads only its `cards` (`LoadCards`).
 
 ```ts

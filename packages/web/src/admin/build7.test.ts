@@ -163,6 +163,25 @@ describe('review components', () => {
     expect(wrapper.findAll('.line.remove').map((line) => line.text())).toEqual(['−   "a": 1']);
   });
 
+  it('lists an injection’s targets on its card, each with the agents it hits now, or that it hits none yet', () => {
+    const after = { name: 'deals', description: 'Deals.', content: 'Look it up.', imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', tags: [], inject: { into: ['hub/chat*', 'billing/*'], order: 40, requires: [] } };
+    const wrapper = mount(ChangeList, {
+      props: {
+        changes: [{ section: 'context', name: 'notes/deals', change: 'added', origin: 'contract', after }],
+        injections: [{
+          section: 'context', name: 'notes/deals', title: 'Deals', change: 'added', tokens: 3,
+          targets: [{ target: 'hub/chat*', agents: ['hub/chat', 'hub/chat_small'] }, { target: 'billing/*', agents: [] }], agents: ['hub/chat', 'hub/chat_small'],
+        }],
+      },
+      global: { stubs },
+    });
+    const targets = wrapper.findAll('[data-testid="inject-target"]');
+    expect(targets.map((target) => target.find('code').text())).toEqual(['hub/chat*', 'billing/*']);
+    expect(targets[0]?.find('[data-testid="inject-no-agent"]').exists()).toBe(false);
+    expect(targets[1]?.find('[data-testid="inject-no-agent"]').text()).toBe('hits no agent yet');
+    expect(wrapper.find('[data-testid="inject-targets"]').text()).toContain('Will be told to');
+  });
+
   it('shows one kind of part at a time, each with its switch', async () => {
     const groups = partGroups(SystemParts.parse({
       parts: [

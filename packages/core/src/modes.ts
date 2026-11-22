@@ -62,8 +62,11 @@ export type ChatModeConfig = z.infer<typeof ChatModeConfig>;
 export const ChatModeType = z.enum(ChatModeConfig.options.map((option) => option.shape.type.value));
 export type ChatModeType = z.infer<typeof ChatModeType>;
 
-/** The static toolset's tool names. `run` is not a fn: its calls become runs of the named fn. */
-export const STATIC_TOOLS = ['find', 'inspect', 'load', 'unload', 'run'] as const;
+/**
+ * The static toolset's tool names: `find` is `hub/fns_search`, `find_ctx` is `hub/ctx_search`, `inspect`, `load` and
+ * `unload` the hub fns of those names. `run` is not a fn: its calls become runs of the named fn.
+ */
+export const STATIC_TOOLS = ['find', 'find_ctx', 'inspect', 'load', 'unload', 'run'] as const;
 export const StaticTool = z.enum(STATIC_TOOLS);
 export type StaticTool = z.infer<typeof StaticTool>;
 

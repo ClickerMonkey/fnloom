@@ -1,7 +1,7 @@
 /**
  * Where a program's fns and named types come from, in each place a program kind meets one: an authoring run (the
- * hub's search, `hub/fn_get` as a dep and `ctx.types`), a kind's check and describe (`KindCheckCtx`), and a kind's run
- * (`ctx.types` and `hub/fn_get` as one of the deps its `describe` gave).
+ * hub's search, `hub/fns_get` as a dep and `ctx.types`), a kind's check and describe (`KindCheckCtx`), and a kind's run
+ * (`ctx.types` and `hub/fns_get` as one of the deps its `describe` gave).
  */
 import type { TypeDef } from '@aeye/gin';
 import { Json, strongerMode, type FnMode, type FnSearchPage, type FnSearchQuery, type QualifiedName, type TypeDefinitions } from '@harness/core';
@@ -12,14 +12,14 @@ import { hub } from '../hub.ts';
 import { typeClosure, type ProgramFn, type ProgramLookups } from './runtime.ts';
 import { modeOf, type ProgramHost } from './tools.ts';
 
-/** A fn as `hub/fn_get` declares it: what a program needs of a callee. */
+/** A fn as `hub/fns_get` declares it: what a program needs of a callee. */
 export interface DeclaredFn {
   readonly description: string;
   readonly args?: TypeDef | undefined;
   readonly returns?: TypeDef | undefined;
 }
 
-/** What an authoring run reaches the hub through: its search, its types and `hub/fn_get` (a dep of the fn). */
+/** What an authoring run reaches the hub through: its search, its types and `hub/fns_get` (a dep of the fn). */
 export interface AuthoringHub {
   searchFns(query: FnSearchQuery): Promise<FnSearchPage>;
   readonly types: { definitions(names: readonly QualifiedName[]): Promise<TypeDefinitions> };
@@ -49,19 +49,19 @@ export function kindCheckLookups(ctx: KindCheckCtx): ProgramLookups {
   };
 }
 
-/** What a kind's run reaches: named types, and calls by name (`hub/fn_get` must be among its described deps). */
+/** What a kind's run reaches: named types, and calls by name (`hub/fns_get` must be among its described deps). */
 export interface KindRunHub {
   readonly types: { definitions(names: readonly QualifiedName[]): Promise<TypeDefinitions> };
   call(fn: QualifiedName, args: Json): FnCall<Json>;
 }
 
-/** A kind's run: types from `ctx.types`, each callee's signature from `hub/fn_get`. */
+/** A kind's run: types from `ctx.types`, each callee's signature from `hub/fns_get`. */
 export function kindRunLookups(ctx: KindRunHub): ProgramLookups {
   return {
     types: (names) => ctx.types.definitions(names),
     async fn(name): Promise<ProgramFn | undefined> {
       try {
-        const stored = parseValue(hub.fns.fn_get.returns, await ctx.call(hub.fns.fn_get.name, Json.parse({ fn: name })));
+        const stored = parseValue(hub.fns.fns_get.returns, await ctx.call(hub.fns.fns_get.name, Json.parse({ fn: name })));
         if (stored.args === undefined || stored.returns === undefined) return undefined;
         return { name, description: stored.description, args: stored.args, returns: stored.returns };
       } catch (error) {

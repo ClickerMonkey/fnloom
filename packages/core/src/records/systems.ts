@@ -255,6 +255,17 @@ export type TypeRecord = z.infer<typeof TypeRecord>;
 export const TypeDefinitions = z.object({ types: z.array(TypeRecord), missing: z.array(QualifiedName) });
 export type TypeDefinitions = z.infer<typeof TypeDefinitions>;
 
+/**
+ * A context declaration as a stored row holds it: `ContextDecl`, plus the `alwaysFor` rows written before injected
+ * context replaced it, kept readable only so the store migration (`alwaysForToInject`) can turn them into `inject`.
+ */
+export const StoredContextDecl = ContextDecl.extend({
+  /** @deprecated Replaced by `inject`; read only by the store migration, which removes it. */
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- the legacy field is declared here, for the migration to read
+  alwaysFor: z.array(QualifiedName).optional(),
+});
+export type StoredContextDecl = z.infer<typeof StoredContextDecl>;
+
 /** The hub's row for context: declared by a system, written as memory, or made from a resource. */
 export const ContextRecord = z.object({
   name: QualifiedName,
@@ -266,7 +277,7 @@ export const ContextRecord = z.object({
   declaredBy: DeclaredBy.optional(),
   /** Hash of its declaration, so a change reads as a new version. */
   version: z.string().optional(),
-  decl: ContextDecl,
+  decl: StoredContextDecl,
   /** Estimated tokens of the full content and of the summary; absent until the contextor sizes it. */
   tokens: ContextTokens.optional(),
   /** Turned off by a person (`hub/forget` disables memory); left out of every selection and search. */

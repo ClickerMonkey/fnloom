@@ -4,9 +4,10 @@
  * description as a prose diff, a type or the config type as a type diff, a context item's markdown as a rendered word
  * diff, the grants as a delta. Each says what it is (added, changed or removed) and where it came from, has its own
  * Approve and Decline, and a "Show raw diff" toggle for the declaration's JSON. Parts with no view of their own show
- * the raw diff at once.
+ * the raw diff at once. A change to what agents are told (an injection, or a hook's `explains`) also lists each target
+ * with the agents it hits now (`InjectTargets`).
  */
-import type { ContractChange, FnChangeFacts } from '@harness/core';
+import type { ContractChange, FnChangeFacts, InjectionChangeView } from '@harness/core';
 import { computed, ref } from 'vue';
 import TypeDiff from '../../../components/approvals/TypeDiff.vue';
 import { DECLARED_WORDS } from '../../../context/logic/context.ts';
@@ -16,6 +17,7 @@ import GrantsView from '../GrantsView.vue';
 import FnFactsDiff from './FnFactsDiff.vue';
 import MarkdownDiff from './MarkdownDiff.vue';
 import FnPill from '../../../fns/components/FnPill.vue';
+import InjectTargets from './InjectTargets.vue';
 import ProseDiff from './ProseDiff.vue';
 import RawDiff from './RawDiff.vue';
 
@@ -23,11 +25,13 @@ const props = withDefaults(defineProps<{
   change: ContractChange;
   /** Its facts, for a fn. */
   facts?: FnChangeFacts | undefined;
+  /** What it changes in what agents are told, when it does. */
+  injection?: InjectionChangeView | undefined;
   /** This change is being decided now. */
   busy?: boolean;
   /** Another decision is under way. */
   disabled?: boolean;
-}>(), { facts: undefined, busy: false, disabled: false });
+}>(), { facts: undefined, injection: undefined, busy: false, disabled: false });
 const emit = defineEmits<{ approve: []; decline: [] }>();
 
 const view = computed(() => changeView(props.change));
@@ -71,6 +75,7 @@ const look = computed(() => CHANGE_LOOK[props.change.change]);
       </template>
       <GrantsView v-else-if="view === 'grants'" :grants="grantsOf(change.after)" :before="change.change === 'added' ? undefined : grantsOf(change.before)" :delta="change.change !== 'added'" />
     </div>
+    <InjectTargets v-if="injection" :injection="injection" />
     <RawDiff v-if="showRaw" :before="change.before" :after="change.after" />
   </article>
 </template>

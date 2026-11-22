@@ -65,14 +65,14 @@ describe('the MCP face', () => {
       result: { protocolVersion: '2025-06-18', serverInfo: { name: 'calc', version: '2.0.0' }, capabilities: { tools: { listChanged: true } }, instructions: 'Arithmetic.' },
     });
     expect(await client.rpc('tools/list')).toMatchObject({
-      result: { tools: [{ name: 'calc_add', description: 'Add two numbers.', inputSchema: { type: 'object', properties: { a: { type: 'number', description: 'The first number.' } } } }] },
+      result: { tools: [{ name: 'calc__add', description: 'Add two numbers.', inputSchema: { type: 'object', properties: { a: { type: 'number', description: 'The first number.' } } } }] },
     });
-    expect(await client.rpc('tools/call', { name: 'calc_add', arguments: { a: 2, b: 3 } })).toMatchObject({ result: { content: [{ type: 'text', text: '5' }] } });
-    const refused = await client.rpc('tools/call', { name: 'calc_add', arguments: { a: 'x' } });
+    expect(await client.rpc('tools/call', { name: 'calc__add', arguments: { a: 2, b: 3 } })).toMatchObject({ result: { content: [{ type: 'text', text: '5' }] } });
+    const refused = await client.rpc('tools/call', { name: 'calc__add', arguments: { a: 'x' } });
     expect(refused).toMatchObject({ result: { isError: true } });
     // refused input says what was wrong, by field, so the client's model can fix it
     expect(JSON.stringify(refused)).toMatch(/The input was refused: a: /);
-    expect(await client.rpc('tools/call', { name: 'calc_secret', arguments: {} })).toMatchObject({ error: { code: -32602 } });
+    expect(await client.rpc('tools/call', { name: 'calc__secret', arguments: {} })).toMatchObject({ error: { code: -32602 } });
     expect(await client.rpc('nope')).toMatchObject({ error: { code: -32601 } });
   });
 
@@ -88,13 +88,13 @@ describe('the MCP face', () => {
     let heard = '';
     while (!heard.includes('list_changed')) { heard += new TextDecoder().decode((await reader.read()).value); }
     expect(heard).toContain('notifications/tools/list_changed');
-    expect(await client.rpc('tools/call', { name: 'calc_twice', arguments: { n: 4 } })).toMatchObject({ result: { content: [{ text: '8' }] } });
+    expect(await client.rpc('tools/call', { name: 'calc__twice', arguments: { n: 4 } })).toMatchObject({ result: { content: [{ text: '8' }] } });
 
     await running.remove(twice);
-    expect(await client.rpc('tools/call', { name: 'calc_twice', arguments: { n: 4 } })).toMatchObject({ error: { code: -32602 } });
+    expect(await client.rpc('tools/call', { name: 'calc__twice', arguments: { n: 4 } })).toMatchObject({ error: { code: -32602 } });
     await running.add('twice', fn({ description: 'Triple it, now.', args: g.obj({ n: g.num() }), returns: g.num() }), { async run(args, ctx) { return ctx.done(args.n * 3); } });
-    expect(await client.rpc('tools/list')).toMatchObject({ result: { tools: [{ name: 'calc_add' }, { name: 'calc_twice', description: 'Triple it, now.' }] } });
-    expect(await client.rpc('tools/call', { name: 'calc_twice', arguments: { n: 4 } })).toMatchObject({ result: { content: [{ text: '12' }] } });
+    expect(await client.rpc('tools/list')).toMatchObject({ result: { tools: [{ name: 'calc__add' }, { name: 'calc__twice', description: 'Triple it, now.' }] } });
+    expect(await client.rpc('tools/call', { name: 'calc__twice', arguments: { n: 4 } })).toMatchObject({ result: { content: [{ text: '12' }] } });
     await reader.cancel();
   });
 

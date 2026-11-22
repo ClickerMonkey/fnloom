@@ -14,10 +14,15 @@ export const ACRONYMS: ReadonlySet<string> = new Set([
   'sku', 'sms', 'otp', 'jwt', 'utc', 'iso', 'gmt', 'ssn', 'vat', 'faq', 'crm', 'rgb', 'db', 'mime', 'ttl', 'oauth', 'sso', 'mfa',
 ]);
 
-/** One word of a label: an acronym (or its plural) in capitals, any other word lowered unless it is the first. */
+/** Short words of names people read in full: the hub's `ctx_*` fns read "Context …". */
+const SPELLED_OUT: ReadonlyMap<string, string> = new Map([['ctx', 'context']]);
+
+/** One word of a label: an acronym (or its plural) in capitals, a short word spelled out, any other word lowered unless it is the first. */
 function word(text: string, first: boolean): string {
   const lower = text.toLowerCase();
   if (ACRONYMS.has(lower)) { return lower.toUpperCase(); }
+  const spelled = SPELLED_OUT.get(lower);
+  if (spelled !== undefined) { return first ? upperFirst(spelled) : spelled; }
   if (lower.endsWith('s') && ACRONYMS.has(lower.slice(0, -1))) { return `${lower.slice(0, -1).toUpperCase()}s`; }
   return first ? text : lower;
 }

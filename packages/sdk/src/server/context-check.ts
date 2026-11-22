@@ -1,14 +1,15 @@
 /**
- * The check of a system's context folder (the build's, and the test kit's `contextFolder`). On top of what the SDK's reader checks in each file (the header
- * against `ContextFileHeader`, a missing summary, duplicate keys), it follows every link: the header's `fns`,
- * `suggestFns`, `alwaysFor`, `imports`, `choices`, `links`, `parent` and `next`, and `[text](context:key)` / `fn:name`
- * references in the body, against the names the system knows (its own contract and context, and the hub's catalog or
- * the systems it requires), and refuses a context that loads itself through `imports`. An anchor link in the body
- * (`[text](#anchor)`, or `context:key#anchor` to another file of the folder) must name an anchor that file has: an
- * `<a id>` or a heading. Every problem has a file, line and column.
+ * The check of a system's context folder (the build's, and the test kit's `contextFolder`). On top of what the SDK's
+ * reader checks in each file (the header against `ContextFileHeader`, a missing summary, duplicate keys), it follows
+ * every link: the header's `fns`, `suggestFns`, `inject.requires`, `imports`, `choices`, `links`, `parent` and `next`,
+ * each exact agent name in `inject.into` (a pattern, holding `*`, may hit no agent yet), and `[text](context:key)` /
+ * `fn:name` references in the body, against the names the system knows (its own contract and context, and the hub's
+ * catalog or the systems it requires), and refuses a context that loads itself through `imports`. An anchor link in
+ * the body (`[text](#anchor)`, or `context:key#anchor` to another file of the folder) must name an anchor that file
+ * has: an `<a id>` or a heading. Every problem has a file, line and column.
  */
 import { didYouMean } from '@aeye/gin';
-import { CONTEXT_BODY_REFERENCE, qualify, type ContextFileProblem } from '@harness/core';
+import { CONTEXT_BODY_REFERENCE, isAgentPattern, qualify, type ContextFileProblem } from '@harness/core';
 import { contextProblem, positionOf, readContextFolder, type ContextFile } from './context-files.ts';
 
 /** The names a context folder may link to. */
@@ -19,6 +20,11 @@ export interface KnownNames {
   readonly fns: ReadonlySet<string>;
   /** Context it may link to besides its own files, qualified (its contract's and others'). */
   readonly context: ReadonlySet<string>;
+  /**
+   * The agents (`hub/llm` fns) an `inject.into` may name exactly. Absent, any fn it may link to is taken; the hub
+   * refuses one that is no agent when the system declares it.
+   */
+  readonly agents?: ReadonlySet<string>;
 }
 
 /** A checked folder: its files, and every problem in it. */
@@ -30,7 +36,7 @@ export interface CheckedContext {
 /** One link a file makes, with the header key it is under (`undefined` for the body) and what it must name. */
 interface FileLink {
   readonly to: string;
-  readonly kind: 'fn' | 'context';
+  readonly kind: 'fn' | 'context' | 'agent';
   readonly key: string | undefined;
 }
 
@@ -42,7 +48,8 @@ function headerLinks(file: ContextFile): FileLink[] {
   return [
     ...fns('fns', header.fns),
     ...fns('suggestFns', header.suggestFns),
-    ...fns('alwaysFor', header.alwaysFor),
+    ...fns('requires', header.inject?.requires ?? []),
+    ...(header.inject?.into ?? []).filter((target) => !isAgentPattern(target)).map((to): FileLink => ({ to, kind: 'agent', key: 'into' })),
     ...context('imports', header.imports),
     ...context('choices', (header.choices ?? []).map((choice) => choice.to)),
     ...context('parent', header.parent === undefined ? [] : [header.parent]),
@@ -140,8 +147,8 @@ function anchorProblems(file: ContextFile, own: ReadonlyMap<string, ContextFile>
 export async function contextFolderLinks(dir: string): Promise<{ fns: string[]; context: string[] }> {
   const read = await readContextFolder(dir);
   const links = read.files.flatMap((file) => [...headerLinks(file), ...bodyLinks(file)]);
-  const named = (kind: FileLink['kind']) => [...new Set(links.filter((link) => link.kind === kind).map((link) => link.to))];
-  return { fns: named('fn'), context: named('context') };
+  const named = (...kinds: Array<FileLink['kind']>) => [...new Set(links.filter((link) => kinds.includes(link.kind)).map((link) => link.to))];
+  return { fns: named('fn', 'agent'), context: named('context') };
 }
 
 /**
@@ -152,7 +159,7 @@ export async function checkContextFolder(dir: string, known: KnownNames, label?:
   const read = await readContextFolder(dir, label);
   const problems: ContextFileProblem[] = [...read.problems];
   const own = new Map(read.files.map((file) => [qualify(known.system, file.header.key), file]));
-  const names = { fn: known.fns, context: new Set([...known.context, ...own.keys()]) };
+  const names = { fn: known.fns, context: new Set([...known.context, ...own.keys()]), agent: known.agents ?? known.fns };
   const anchorCache = new Map<ContextFile, Set<string>>();
   const anchors = (file: ContextFile): Set<string> => {
     const found = anchorCache.get(file) ?? anchorsOf(file);
@@ -166,6 +173,10 @@ export async function checkContextFolder(dir: string, known: KnownNames, label?:
     ];
     for (const link of links) {
       if (names[link.kind].has(link.to)) { continue; }
+      if (link.kind === 'agent') {
+        problems.push(contextProblem(file.file, link.line, link.column, 'broken-link', `inject.into names ${link.to}, which is not an agent: name a hub/llm fn, or a pattern with *${didYouMean(link.to, [...names.agent], { max: 2 })}`));
+        continue;
+      }
       const where = link.key === undefined ? 'the body' : link.key;
       problems.push(contextProblem(file.file, link.line, link.column, 'broken-link', `${where} links to ${link.kind} ${link.to}, which doesn't exist${didYouMean(link.to, [...names[link.kind]], { max: 2 })}`));
     }

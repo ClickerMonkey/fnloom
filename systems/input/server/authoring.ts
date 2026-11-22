@@ -19,7 +19,7 @@ import { InputFormSchema, FIELD_GUIDE, FORM_KIND, TRIP_FORM, type InputFormValue
 import { fieldsOf, formProblems, type FIELD_TYPES } from '../shared/forms.ts';
 
 
-/** A saved form as `hub/fn_get` gives it (the parts the agent reads). */
+/** A saved form as `hub/fns_get` gives it (the parts the agent reads). */
 export interface StoredForm {
   readonly fn: string;
   readonly kind: string;

@@ -311,7 +311,7 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
       run: ctx.run, log: ctx.log,
       propose: (fn, args, options) => ctx.propose(fn, args, options),
       attach: (table, title) => { ctx.attach(database.attachments.result, table, title); },
-      getFn: async (fn) => await ctx.fns.getFn({ fn }),
+      getFn: async (fn) => await ctx.fns.getFn({ fn: QualifiedName.parse(fn) }),
       saveFn: async (save) => await ctx.fns.saveFn(save),
     };
   }
@@ -320,7 +320,7 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
   function tableFnsReadCtx(ctx: ReadCtx): TableFnsReadCtx {
     return {
       log: ctx.log,
-      getFn: async (fn) => await ctx.fns.getFn({ fn }),
+      getFn: async (fn) => await ctx.fns.getFn({ fn: QualifiedName.parse(fn) }),
       existing: async (names) => {
         const found = new Set<string>();
         for (let at = 0; at < names.length; at += 100) {
@@ -354,7 +354,7 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
         return 'groups' in list ? { op: 'table-fns', list } : list;
       }
       case 'drill': {
-        const table = await queries.drill(here, op.drill, { getFn: async (fn) => await ctx.fns.getFn({ fn }) });
+        const table = await queries.drill(here, op.drill, { getFn: async (fn) => await ctx.fns.getFn({ fn: QualifiedName.parse(fn) }) });
         return 'columns' in table ? { op: 'drill', table } : table;
       }
     }
@@ -436,7 +436,7 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
     if (!('db' in here)) { return here; }
     let editing: EditedQuery | undefined;
     if (args.edit !== undefined) {
-      const stored = await ctx.fns.getFn({ fn: args.edit });
+      const stored = await ctx.fns.getFn({ fn: QualifiedName.parse(args.edit) });
       const payload = QueryPayload.safeParse(stored.payload);
       const local = localName(stored.fn);
       if (stored.kind !== QUERY_KIND || !payload.success || local === undefined) { return { invalid: `${args.edit} is not a saved database query.` }; }

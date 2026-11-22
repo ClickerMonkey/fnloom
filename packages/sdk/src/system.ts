@@ -13,7 +13,7 @@ import { kindFn, type AnyFnDef, type FnDef, type FnTypes, type TypesOf } from '.
 import type { FnImpl } from './impl.ts';
 import { g, type GinType, type Infer } from './gin.ts';
 import type {
-  ActionRef, AttachmentRef, ContextRef, FnRef, HookRef, KindRef, MentionRef, Methods, MethodRefs, ProviderRef, SectionerRef, SettingRef, TypeRef,
+  ActionRef, AttachmentRef, ContextRef, FnRefOf, HookRef, KindRef, MentionRef, Methods, MethodRefs, ProviderRef, SectionerRef, SettingRef, TypeRef,
 } from './refs.ts';
 import { entriesOf, mapValues, type Simplify } from './util.ts';
 import type { ResourceProvider } from './resources.ts';
@@ -73,7 +73,8 @@ export interface SystemRefs<N extends string, C extends ContractShape> {
   readonly settings: { readonly [K in keyof C['settings']]: C['settings'][K] extends SettingDef<infer T> ? SettingRef<Q<N, K>, T> : never };
   readonly attachments: { readonly [K in keyof C['attachments']]: C['attachments'][K] extends AttachmentDef<infer T> ? AttachmentRef<Q<N, K>, T> : never };
   readonly kinds: { readonly [K in keyof C['kinds']]: C['kinds'][K] extends KindDef<infer P> ? KindRef<Q<N, K>, P> : never };
-  readonly fns: { readonly [K in keyof C['fns']]: C['fns'][K] extends FnDef<infer T> ? FnRef<Q<N, K>, T['args'], T['result'], T['handlers']> : never };
+  /** Fn refs; an agent's (a `hub/llm` fn's) is an `AgentRef`, so it can be an injection's target. */
+  readonly fns: { readonly [K in keyof C['fns']]: C['fns'][K] extends FnDef<infer T> ? FnRefOf<Q<N, K>, T> : never };
   readonly context: { readonly [K in keyof C['context']]: C['context'][K] extends ContextDef<infer A, boolean> ? ContextRef<Q<N, K>, A> : never };
   readonly hooks: { readonly [K in keyof C['hooks']]: HookRef<Q<N, K>> };
   readonly mentions: { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T, unknown> ? MentionRef<Q<N, K>, T> : never };
@@ -214,6 +215,9 @@ function kindRef(system: string, local: string, def: KindDef<unknown>): KindRef<
   return ref;
 }
 
+/** The hub's agent kind: its fns' refs are `AgentRef`s. */
+const AGENT_KIND = 'hub/llm';
+
 /** Make the refs for one part of a contract. */
 function refsOf(system: string, part: Partial<ContractShape>): AnyRefs {
   const out = EMPTY_SECTIONS();
@@ -223,7 +227,11 @@ function refsOf(system: string, part: Partial<ContractShape>): AnyRefs {
     settings: part.settings === undefined ? out.settings : mapValues(part.settings, (def, key) => ({ ref: 'setting', name: q(key), type: def.type })),
     attachments: part.attachments === undefined ? out.attachments : mapValues(part.attachments, (def, key) => ({ ref: 'attachment', name: q(key), data: def.data })),
     kinds: part.kinds === undefined ? out.kinds : mapValues(part.kinds, (def, key) => kindRef(system, key, def)),
-    fns: part.fns === undefined ? out.fns : mapValues(part.fns, (def, key) => ({ ref: 'fn', name: q(key), args: def.args, returns: def.returns, handlers: def.handlers })),
+    fns: part.fns === undefined ? out.fns : mapValues(part.fns, (def, key) => ({
+      ref: 'fn', name: q(key), args: def.args, returns: def.returns, handlers: def.handlers,
+      // an agent's ref carries its kind, so only agents fit where an agent is asked for (`AgentRef`)
+      ...(def.kind !== 'native' && def.kind.name === AGENT_KIND ? { kind: AGENT_KIND } : {}),
+    })),
     context: part.context === undefined ? out.context : mapValues(part.context, (_def, key) => ({ ref: 'context', name: q(key) })),
     hooks: part.hooks === undefined ? out.hooks : mapValues(part.hooks, (_def, key) => ({ ref: 'hook', name: q(key) })),
     mentions: part.mentions === undefined ? out.mentions : mapValues(part.mentions, (def, key) => ({ ref: 'mention', name: q(key), target: def.target })),

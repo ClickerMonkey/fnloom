@@ -22,7 +22,7 @@ export const InstallResult = g.obj({
   instance: g.text(),
   version: g.text(),
   status: g.field(g.enum(['connected', 'needs-config']), { docs: '`needs-config`: it runs but waits for its config, set on its page or asked for in the chat.' }),
-  fns: g.field(g.list(g.text()), { docs: 'Its fns, by qualified name: load them with hub/load_fns to call them.' }),
+  fns: g.field(g.list(g.text()), { docs: 'Its fns, by qualified name: load them with hub/fns_load to call them.' }),
   folder: g.field(g.text(), { docs: 'The source folder it was built from.' }),
 });
 

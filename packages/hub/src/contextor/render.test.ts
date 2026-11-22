@@ -62,7 +62,7 @@ It ${RESULT_TABLE_ROUTING}.`);
     const full = fnCard(view, 'full');
     expect(full).toContain('<example>{"path":"."}</example>');
     expect(full).not.toContain('"src"');
-    expect(full).toContain('<more_examples count="1">Read them with hub/fn_examples {"fn":"fs/ls","query":"what you are about to do"}</more_examples>');
+    expect(full).toContain('<more_examples count="1">Read them with hub/fns_examples {"fn":"fs/ls","query":"what you are about to do"}</more_examples>');
   });
 
   it('carry what a fn changes and its long-running warning beside its description', async () => {
@@ -92,7 +92,7 @@ It ${RESULT_TABLE_ROUTING}.`);
   it('list fns the model can load as listed cards', async () => {
     const view = await readView();
     expect(moreFns([])).toBe('');
-    expect(moreFns([view])).toBe('<more_fns>\nLoad any of these with hub/load_fns to use it:\n<fn name="fs/read" label="Read" mode="write" available="yes">Read a text file.</fn>\n</more_fns>');
+    expect(moreFns([view])).toBe('<more_fns>\nLoad any of these with hub/fns_load to use it:\n<fn name="fs/read" label="Read" mode="write" available="yes">Read a text file.</fn>\n</more_fns>');
   });
 });
 
@@ -100,19 +100,19 @@ describe('prompt text', () => {
   it('lists, blocks and summaries', () => {
     expect(listedLine('fs/guide', 'How to use fs.\nMore.')).toBe('fs/guide — How to use fs.');
     expect(listedLine('x/y', 'z'.repeat(400)).length).toBeLessThan(170);
-    expect(contextBlock({ name: 'fs/guide', detail: 'full', text: 'All of it.' })).toBe('<context key="fs/guide">All of it.</context>');
-    expect(contextBlock({ name: 'fs/guide', title: 'Files "guide"', detail: 'signature', text: 'Short.' })).toBe('<context key="fs/guide" title="Files &quot;guide&quot;" detail="summary">Short.</context>');
+    expect(contextBlock({ name: 'fs/guide', detail: 'full', text: 'All of it.' })).toBe('<ctx key="fs/guide">All of it.</ctx>');
+    expect(contextBlock({ name: 'fs/guide', title: 'Files "guide"', detail: 'signature', text: 'Short.' })).toBe('<ctx key="fs/guide" title="Files &quot;guide&quot;" detail="summary">Short.</ctx>');
     // a context's brought fns, each for what it is: in the tools, not this step, or blocked with the hub's reason
     const held = (fn: string) => ({ fn, code: 'held' as const, reason: `${fn} changed and waits for an admin to approve it`, system: SystemName.parse('database') });
     expect(contextBlock({ name: 'database/guide', detail: 'full', text: 'Tables.', fns: {
       added: ['database/list_tables'], waiting: ['database/drop_table'],
       blocked: [held('database/create_table'), held('database/insert_rows'), { fn: 'fs/read', code: 'system-disconnected', reason: 'fs is not connected' }],
     } })).toBe([
-      '<context key="database/guide">', 'Tables.',
+      '<ctx key="database/guide">', 'Tables.',
       '<brought_fns in_tools="yes">In your tools now: database/list_tables</brought_fns>',
       '<brought_fns in_tools="no">Not in your tools this step: database/drop_table</brought_fns>',
       '<brought_fns in_tools="no" available="no">You can\'t use these now: database/create_table, database/insert_rows (changed and waits for an admin to approve it); fs/read (fs is not connected). If you need one, tell the person what blocks it.</brought_fns>',
-      '</context>',
+      '</ctx>',
     ].join('\n'));
     // in the static toolset's words nothing joins the tools: the cards are run by name
     const staticBlock = contextBlock({ name: 'database/guide', detail: 'full', text: 'Tables.', fns: { added: ['database/list_tables'], waiting: ['database/drop_table'], words: broughtWords('static', 'native') } });
@@ -123,12 +123,12 @@ describe('prompt text', () => {
     // nothing added says nothing is in the tools
     expect(contextBlock({ name: 'database/guide', detail: 'full', text: 'Tables.', fns: { added: [], blocked: [held('database/create_table')] } })).not.toContain('in_tools="yes"');
     expect(contextBlock({ name: 'fs/guide', detail: 'full', text: 'Start.', choices: [{ to: 'fs/git', when: 'for commits', tokens: 40 }] })).toBe([
-      '<context key="fs/guide">', 'Start.', '<choices>', 'Where to go next: load the one that fits by its key, or none.', '<choice key="fs/git" tokens="40">for commits</choice>', '</choices>', '</context>',
+      '<ctx key="fs/guide">', 'Start.', '<choices>', 'Where to go next: load the one that fits by its key, or none.', '<choice key="fs/git" tokens="40">for commits</choice>', '</choices>', '</ctx>',
     ].join('\n'));
     expect(blockedFnsLine([{ fn: 'x/a', code: 'paused', reason: 'x/a is paused' }])).toBe('x/a (is paused)');
     expect(blockedLine('fs/off', { reason: 'fs/off is switched off' })).toBe('fs/off can\'t be used now: fs/off is switched off');
     expect(moreContext([])).toBe('');
-    expect(moreContext([contextRecord('fs/git', { title: 'Git', description: 'Commits.\nMore.' })])).toBe('<more_context>\nLoad any of these by name if it helps:\n<context key="fs/git" title="Git">Commits.</context>\n</more_context>');
+    expect(moreContext([contextRecord('fs/git', { title: 'Git', description: 'Commits.\nMore.' })])).toBe('<more_ctx>\nLoad any of these by name if it helps:\n<ctx key="fs/git" title="Git">Commits.</ctx>\n</more_ctx>');
     expect(earlierBlock({ turn: 3, user: 'q', answer: 'a', used: ['fs/read'] })).toBe('<earlier turn="3">\nUser: q\nAnswer: a\nUsed: fs/read\n</earlier>');
     expect(resultText('fs/read', 'done', '3 lines')).toBe('<result fn="fs/read" status="done">\n3 lines\n</result>');
   });
@@ -169,7 +169,7 @@ describe('history', () => {
     { role: 'tool', toolCallId: '1', content: 'x'.repeat(2_000) },
     { role: 'assistant', content: 'It has 88 lines. That is all. Anything else?' },
     { role: 'user', content: 'Load fs/guide please' },
-    { role: 'assistant', content: '', toolCalls: [{ id: '2', name: 'hub__load_fns', arguments: '{"fns":["fs/bash"]}' }] },
+    { role: 'assistant', content: '', toolCalls: [{ id: '2', name: 'hub__fns_load', arguments: '{"fns":["fs/bash"]}' }] },
     { role: 'tool', toolCallId: '2', content: '### fs/grep — Search files.' },
     { role: 'assistant', content: '<run fn="fs/bash">{"command":"ls"}</run>' },
     { role: 'user', content: '<result fn="fs/bash" status="done">\na b\n</result>' },
@@ -182,7 +182,7 @@ describe('history', () => {
     expect(cut[0]?.user).toBe('How many lines in README.md?');
     expect(cut[0]?.answer).toBe('It has 88 lines. That is all. Anything else?');
     expect(cut[0]?.used).toEqual(['fs/read']);
-    expect(cut[1]?.used).toEqual(['hub__load_fns', 'fs/bash']);
+    expect(cut[1]?.used).toEqual(['hub__fns_load', 'fs/bash']);
     expect(cut[1]?.mentioned).toEqual(expect.arrayContaining(['fs/guide', 'fs/bash', 'fs/grep']));
     expect(isPersonMessage({ role: 'user', content: '<result fn="x" status="done">\n</result>' })).toBe(false);
   });
@@ -217,7 +217,7 @@ describe('history', () => {
 
   it('read a person\'s own words and the names they give', () => {
     expect(personWords('run fs/bash ls\n\n<suggested_fns>\n- fn fs/read\n</suggested_fns>')).toBe('run fs/bash ls');
-    expect(namedIn('please run fs/bash and hub/load_fns, not a/b/c?')).toEqual(['fs/bash', 'hub/load_fns', 'a/b']);
+    expect(namedIn('please run fs/bash and hub/fns_load, not a/b/c?')).toEqual(['fs/bash', 'hub/fns_load', 'a/b']);
   });
 });
 

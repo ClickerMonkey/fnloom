@@ -62,8 +62,8 @@ export function personOperations(hub: HubServices): PersonOperations {
       return report;
     },
     memory_update: (data, user) => hub.resources.context.update(data, { actor: user.id, admin: user.role === 'admin' }),
-    context_link: (data, user) => hub.resources.context.link(data, { actor: user.id }),
-    context_unlink: async (data, user) => ({ ok: await hub.resources.context.unlink(data, { actor: user.id }) }),
+    ctx_link: (data, user) => hub.resources.context.link(data, { actor: user.id }),
+    ctx_unlink: async (data, user) => ({ ok: await hub.resources.context.unlink(data, { actor: user.id }) }),
     access_set: (data, user) => hub.access.set(user.id, data.target, data.sharing),
     connection_update: (data, user) => hub.connections.update(user.id, data),
     connection_disconnect: async (data, user) => ({ ok: await hub.connections.disconnect(user.id, data.connection) }),

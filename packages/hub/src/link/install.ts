@@ -7,7 +7,7 @@
  * The card also gets what the install's contract changes over the one the hub has (`ApprovalPreview.summary`), worked
  * out as a pending review's is, from the contract the host sent with it, which must be the one the subject binds.
  */
-import { instanceLabel, type ApprovalPreview, type InstallSubject, type InstanceRecord, type InstanceRef, type Json, type Manifest, type PreviewAnswer, type SystemName } from '@harness/core';
+import { instanceLabel, type ApprovalPreview, type InstallSubject, type InstanceRecord, type InstanceRef, type Json, type Manifest, type PreviewAnswer, type QualifiedName, type SystemName } from '@harness/core';
 import { contractHash } from '@harness/sdk';
 import { contractChanges } from './lifecycle.ts';
 import { reviewSummary } from './review-summary.ts';
@@ -68,7 +68,9 @@ export async function checkedInstall(preview: ApprovalPreview, args: Json | unde
  * system), as the review page would list it once paired. The contract the host sent must be the one the subject
  * binds; it is never stored. A card without a subject, or without a contract (a host from before), is as it came.
  */
-export async function summarizedInstall(preview: ApprovalPreview, contract: Manifest | undefined, manifestOf: ManifestLookup): Promise<{ preview: ApprovalPreview } | { refused: string }> {
+export async function summarizedInstall(
+  preview: ApprovalPreview, contract: Manifest | undefined, manifestOf: ManifestLookup, agents?: () => Promise<QualifiedName[]>,
+): Promise<{ preview: ApprovalPreview } | { refused: string }> {
   const subject = preview.subject;
   if (subject?.kind !== 'system-install' || contract === undefined) return { preview };
   // the hub hashes the contract itself (`contractHash`, what the pairing grant binds), so a host can't send another
@@ -76,12 +78,15 @@ export async function summarizedInstall(preview: ApprovalPreview, contract: Mani
     return { refused: `The contract sent with the card is not the one it installs (${subject.system}, ${subject.manifestHash}): call install_system again.` };
   }
   const before = await manifestOf(subject.system);
-  return { preview: { ...preview, summary: reviewSummary(contractChanges(before, contract)) } };
+  // the agents the hub has now, so the card says what a new injection reaches
+  return { preview: { ...preview, summary: reviewSummary(contractChanges(before, contract), agents === undefined ? [] : await agents()) } };
 }
 
 /** The install checks of a preview answer, in order: the instance it pairs (`checkedInstall`), then its summary (`summarizedInstall`). */
-export async function installCard(answer: PreviewAnswer, args: Json | undefined, lookups: { readonly instance: InstanceLookup; readonly manifest: ManifestLookup }): Promise<{ preview: ApprovalPreview } | { refused: string }> {
+export async function installCard(
+  answer: PreviewAnswer, args: Json | undefined, lookups: { readonly instance: InstanceLookup; readonly manifest: ManifestLookup; readonly agents?: () => Promise<QualifiedName[]> },
+): Promise<{ preview: ApprovalPreview } | { refused: string }> {
   if (!('preview' in answer)) return answer;
   const checked = await checkedInstall(answer.preview, args, lookups.instance);
-  return 'preview' in checked ? await summarizedInstall(checked.preview, answer.contract, lookups.manifest) : checked;
+  return 'preview' in checked ? await summarizedInstall(checked.preview, answer.contract, lookups.manifest, lookups.agents) : checked;
 }

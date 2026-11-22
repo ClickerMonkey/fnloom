@@ -74,7 +74,7 @@ export const claude = system(CLAUDE_SYSTEM, {
   ],
   configSecrets: [...CLAUDE_CONFIG_SECRETS],
   // sessions are person-owned records; approvals and questions are proposed runs; agents are saved as fns
-  grants: { hub: ['data', 'approvals', 'fns'], calls: ['hub/save_fn', 'hub/add_instance', 'hub/system_get'] },
+  grants: { hub: ['data', 'approvals', 'fns'], calls: ['hub/fns_save', 'hub/add_instance', 'hub/system_get'] },
   // the fleet in the sidebar while the system is live, and one session's page reached from it (client/ draws both)
   pages: [
     { segment: CLAUDE_PAGES.fleet, title: 'Claude', description: 'Your Claude Code sessions on every machine: what each is doing, and what waits on you.', icon: 'code', nav: 'main', component: 'FleetPage' },
@@ -228,7 +228,7 @@ export const claude = system(CLAUDE_SYSTEM, {
         instructions: 'Name each item as claude/importables lists it (its kind, name and folder).',
         args: ginAs(ClaudeImport),
         returns: ginAs(ImportOutcome),
-        deps: { saveFn: hub.fns.save_fn, addInstance: hub.fns.add_instance },
+        deps: { saveFn: hub.fns.fns_save, addInstance: hub.fns.add_instance },
         examples: [{ args: { items: [{ kind: 'skill', name: 'release-notes', folder: 'C:/code/shop' }, { kind: 'agent', name: 'code-reviewer' }] } }],
         // the card shows what each item is: an MCP server's command, args, folder and env names (never their values)
         approval: { preview: true, remember: false, approver: 'admins' },

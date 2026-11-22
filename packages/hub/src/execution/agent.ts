@@ -14,7 +14,7 @@
 import { Prompt, type Context, type Message, type PromptInput, type Request, type Usage } from '@aeye/core';
 import { LlmPayloadType, parseValue } from '@harness/sdk';
 import {
-  InstanceName, isSettled, Json, LlmInteractionId, LlmMessage, MessageId, ModelChoice, QualifiedName, RunId, SelectionReport, splitName, type ActorId, type FnError, type FnRecord, type InvalidInput,
+  InstanceName, isSettled, Json, LlmInteractionId, LlmMessage, MessageId, ModelChoice, modelFnName, QualifiedName, RunId, SelectionReport, splitName, type ActorId, type FnError, type FnRecord, type InvalidInput,
   type OutcomeWire, type Run, type RunSettled, type Session, type RunControlAction, type TableReading, type UserInfo,
 } from '@harness/core';
 import { z } from 'zod';
@@ -37,7 +37,7 @@ import { DECLINED_CODE, PROPOSED_KEY, settledOf, type HubRunService } from './ru
 import { LlmCallScope, type HubCallContext, type HubCallMetadata } from './scope.ts';
 import { stepWaits } from './claims.ts';
 import { agentTools, PendingCalls } from './tools.ts';
-import { isObjectSchema, messageFromWire, messageToWire, replyText, toolName } from './wire.ts';
+import { isObjectSchema, messageFromWire, messageToWire, replyText } from './wire.ts';
 
 /**
  * A call held back until earlier calls of its iteration have settled, since they claim the same things (`claims.ts`):
@@ -112,9 +112,9 @@ export function backgroundReply(run: RunId): string {
 }
 
 /** What the model reads for a settled tool run; a table result shows its first `reading.rows` rows, said to be shown or not. */
-export function settledReply(settled: RunSettled, reading: TableReading): string {
+export function settledReply(settled: RunSettled, reading: TableReading, encode?: (value: Json) => Json): string {
   switch (settled.status) {
-    case 'done': return replyText(settled.result, reading);
+    case 'done': return replyText(settled.result, reading, encode);
     case 'failed': return `Error: ${settled.error.message}`;
     case 'cancelled': return settled.error === undefined ? 'The run was cancelled before it finished.' : settled.error.message;
     case 'background': return backgroundReply(settled.run);
@@ -194,7 +194,7 @@ export interface AgentLoopDeps extends ExecutionDeps {
   /** How a chat message reads to the LLM (mentions, extras and hooks as tagged blocks). */
   readonly enrich: Pick<MessageEnricher, 'render'>;
   /** What each prompt holds, within the model's limits, and what the model's calls mean. */
-  readonly planner: Pick<PromptPlanner, 'plan' | 'interpret' | 'exposed' | 'settled'>;
+  readonly planner: Pick<PromptPlanner, 'plan' | 'interpret' | 'exposed' | 'settled' | 'names'>;
 }
 
 /** An agent's prompt; it logs when aeye's `forget` drops messages, which the planner's budget should never let happen. */
@@ -342,7 +342,7 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     }
     const calls = new PendingCalls();
     // an agent never calls itself: a session that loaded its fn would otherwise offer it back to it
-    const own = toolName(fn.name);
+    const own = modelFnName(fn.name);
     const tools = agentTools(planned.tools.filter((tool) => tool.name !== own), calls);
     const blocks = planned.rendered.protocol === 'text' ? new RunBlockFilter() : undefined;
     const signature = await catalog.signature(fn.name);
@@ -844,10 +844,13 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
   async #replies(pending: readonly PendingCall[], prompt: ExposedTo | undefined): Promise<{ messages: LlmMessage[]; allFailed: boolean; stopped?: FnError }> {
     let stopped: FnError | undefined;
     let failed = 0;
+    // out to the model: every fn a reply names is spelled as the model calls it in this session's mode
+    const names = prompt === undefined ? undefined : await this.#deps.planner.names(prompt);
+    const spoken = (text: string): string => (names === undefined ? text : names.text(text));
     const messages = await Promise.all(pending.map(async (call): Promise<LlmMessage> => {
       const reply = (status: string, content: string): LlmMessage => (call.block === true
-        ? { role: 'user', content: resultText(call.fn, status, content) }
-        : { role: 'tool', toolCallId: call.toolCallId, content });
+        ? { role: 'user', content: spoken(resultText(call.fn, status, content)) }
+        : { role: 'tool', toolCallId: call.toolCallId, content: spoken(content) });
       if (call.invalid !== undefined) return reply('invalid-input', call.invalid);
       // a held call the agent stopped waiting for never ran; that isn't the call failing
       if (call.run === undefined && call.held !== undefined) return reply('skipped', heldReply({ ...call, held: call.held }, pending));
@@ -860,10 +863,13 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       if (outcome?.status === 'invalid-input') return reply('invalid-input', invalidReply(outcome.invalid));
       const settled: RunSettled = child === undefined ? { status: 'failed', error: fnError('fatal', 'the run is gone') }
         : isSettled(child.status) ? settledOf(outcome, child.id) : { status: 'background', run: child.id };
+      // a result read as JSON has its fn-name fields (`g.fnName()` in its fn's result type) as the model calls those fns
+      const returns = names === undefined || child === undefined || settled.status !== 'done' ? undefined : (await this.#deps.catalog.fn(child.fn))?.decl.returns;
+      const encode = names === undefined ? undefined : (value: Json): Json => names.value(value, returns);
       if (settled.status === 'failed') failed += 1;
       if (settled.status === 'failed' && settled.error.code === OUTPUT_REFUSED) stopped ??= settled.error;
       const exposed = outcome?.status === 'done' && outcome.expose !== undefined && prompt !== undefined ? await this.#deps.planner.exposed(outcome.expose, prompt) : '';
-      const text = settledReply(settled, child === undefined ? { rows: this.#deps.settings.execution.HARNESS_HEADLESS_RESULT_ROWS, watched: false } : await this.#reading(child));
+      const text = settledReply(settled, child === undefined ? { rows: this.#deps.settings.execution.HARNESS_HEADLESS_RESULT_ROWS, watched: false } : await this.#reading(child), encode);
       const content = exposed === '' ? text : `${text}\n\n${exposed}`;
       // with citations on, the model reads each result's id first: what its cites name
       return reply(settled.status, prompt?.session?.citations === true ? withCiteId(call.run, content) : content);

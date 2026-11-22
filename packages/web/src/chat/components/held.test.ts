@@ -22,8 +22,8 @@ function answer(results: ReadonlyArray<{ fn: string; result: Json }>, canReview:
 
 describe('held-system banner on a turn', () => {
   const turn = [
-    { fn: 'hub/load_fns', result: { loaded: [], refused: [held('database/create_table'), held('database/insert_rows')] } },
-    { fn: 'hub/load_fns', result: { loaded: [], refused: [held('database/create_table'), { fn: 'fs/write', code: 'disabled', reason: 'fs/write is switched off', system: 'fs' }] } },
+    { fn: 'hub/fns_load', result: { loaded: [], refused: [held('database/create_table'), held('database/insert_rows')] } },
+    { fn: 'hub/fns_load', result: { loaded: [], refused: [held('database/create_table'), { fn: 'fs/write', code: 'disabled', reason: 'fs/write is switched off', system: 'fs' }] } },
   ];
 
   it('shows one banner per held system, linking an admin to its pending review', () => {
@@ -44,6 +44,6 @@ describe('held-system banner on a turn', () => {
   });
 
   it('shows none on a turn that hit nothing held', () => {
-    expect(answer([{ fn: 'hub/load_fns', result: { loaded: ['fs/read'], refused: [] } }], true).find('[data-testid=held-banner]').exists()).toBe(false);
+    expect(answer([{ fn: 'hub/fns_load', result: { loaded: ['fs/read'], refused: [] } }], true).find('[data-testid=held-banner]').exists()).toBe(false);
   });
 });

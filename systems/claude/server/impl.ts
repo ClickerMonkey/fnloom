@@ -96,7 +96,7 @@ export function skillContext(skill: { readonly name: string; readonly descriptio
   return {
     name: localNameOf('skill', skill.name), title: `Claude skill: ${skill.name}`, description: skill.description || `The ${skill.name} skill from Claude Code.`,
     content: skill.content, command: { name: skill.name, args: [] },
-    imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: ['claude', 'skill'],
+    imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', tags: ['claude', 'skill'],
   };
 }
 

@@ -80,6 +80,22 @@ export async function factsFor(hub: FnsHub, fn: QualifiedName, args: Json | unde
   return { ...facts, reads: await seen(facts.reads), writes: await seen(facts.writes) };
 }
 
+/**
+ * The fns model names mean (the one fn name's registry, which reads cut names and those of fns now gone), for the LLM
+ * call view: only fns the person may see, or gone ones (whose names are all that is left).
+ */
+export async function fnsOfModelNames(hub: Pick<HubServices, 'access' | 'catalog'>, names: readonly string[], user: Viewer): Promise<Record<string, QualifiedName>> {
+  const [{ index }, access] = await Promise.all([hub.catalog.modelNames(), hub.access.scope(user.id)]);
+  const out: Record<string, QualifiedName> = {};
+  for (const name of new Set(names)) {
+    const fn = index.fnOf(name);
+    if (fn === undefined) { continue; }
+    const record = await hub.catalog.fn(fn);
+    if (record === undefined || access.seesFn(record)) { out[name] = fn; }
+  }
+  return out;
+}
+
 /** The build 5 plugins. Require the systems plugin, which binds `hubAuth`. */
 export function build5Plugins(hub: HubServices, systems: ReturnType<typeof systemsPlugin>) {
   return [
@@ -88,6 +104,7 @@ export function build5Plugins(hub: HubServices, systems: ReturnType<typeof syste
         searchFns: async ({ data, user }) => hub.fns.search.search(data, await askerOf(hub, user)),
         fnExamples: async ({ data, user }) => hub.fns.examples.page(data, await askerOf(hub, user)),
         fnFacts: ({ data, user }) => factsFor(hub, data.fn, data.args, user),
+        fnsOfModelNames: ({ data, user }) => fnsOfModelNames(hub, data.names, user),
         clientLogs: ({ data, user }) => hub.fns.clientLogs.write(user.id, data),
         autoClassifier: () => hub.fns.classifier.setting(),
         setAutoClassifier: ({ data, user }) => hub.fns.classifier.set(data, user.id),

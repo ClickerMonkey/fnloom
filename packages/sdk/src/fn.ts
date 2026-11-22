@@ -117,7 +117,7 @@ export interface FnTypes {
 }
 
 /**
- * One example call of a fn, shown on its card at `full` detail, in its invalid-input replies and by `hub/fn_examples`:
+ * One example call of a fn, shown on its card at `full` detail, in its invalid-input replies and by `hub/fns_examples`:
  * args of the fn's own args type (a wrong example does not compile), optionally the result it gave (of its returns
  * type), and what the example shows. The hub keeps every example in its own table, embedded, so the ones closest to
  * the turn go into the prompt with the fn.
@@ -290,7 +290,7 @@ export interface FnInput<
    * work is free (reading a file). The hub works out the rest and folds in what it uses (`FnFacts`).
    */
   effects?: FnEffects;
-  /** How many of its examples go into the model's prompt with it (the hub's default when absent); the rest page with `hub/fn_examples`. */
+  /** How many of its examples go into the model's prompt with it (the hub's default when absent); the rest page with `hub/fns_examples`. */
   promptExamples?: number;
   /** The API group it is listed in: one of the system's `groups` (`system(name, { groups })`); the general group when absent. */
   group?: string;
@@ -402,7 +402,7 @@ export interface KindFnInput<P, A, R, T extends StatusTemplates = StatusTemplate
    * work is free (reading a file). The hub works out the rest and folds in what it uses (`FnFacts`).
    */
   effects?: FnEffects;
-  /** How many of its examples go into the model's prompt with it (the hub's default when absent); the rest page with `hub/fn_examples`. */
+  /** How many of its examples go into the model's prompt with it (the hub's default when absent); the rest page with `hub/fns_examples`. */
   promptExamples?: number;
   /** The API group it is listed in (`SystemInfo.groups`); the general group when absent. */
   group?: string;

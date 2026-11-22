@@ -7,8 +7,11 @@
  */
 import { z } from 'zod';
 
-/** The risk flags, most serious first. */
-export const REVIEW_FLAGS = ['delete-fns', 'write-fns', 'effects', 'capabilities', 'secrets', 'hosts', 'files', 'calls', 'models'] as const;
+/**
+ * The risk flags, most serious first. `injects`: a new or changed injection changes what agents are told ("Changes
+ * what hub/chat and hub/chat_small are told: + Forms (input/asking, 310 tokens)"); its items are the agents.
+ */
+export const REVIEW_FLAGS = ['delete-fns', 'write-fns', 'injects', 'effects', 'capabilities', 'secrets', 'hosts', 'files', 'calls', 'models'] as const;
 export const ReviewFlagKind = z.enum(REVIEW_FLAGS);
 export type ReviewFlagKind = z.infer<typeof ReviewFlagKind>;
 

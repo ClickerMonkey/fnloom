@@ -62,6 +62,16 @@ function fnOnly(query: FnSearchQuery): boolean {
   return query.kinds !== undefined || query.instance !== undefined || query.modes !== undefined || query.types !== undefined || query.visibility !== undefined || query.effects !== undefined;
 }
 
+/** Whether a query filters on anything only context has (so fns can't match it). */
+function contextOnly(query: FnSearchQuery): boolean {
+  return query.filters !== undefined || query.scopes !== undefined;
+}
+
+/** Whether a context item is a memory of one of the query's scopes, when the query names any. */
+function inScopes(query: FnSearchQuery, record: ContextRecord): boolean {
+  return query.scopes === undefined || (record.origin?.type === 'memory' && query.scopes.includes(record.origin.scope.to));
+}
+
 /** Whether a fn's registry effects meet a query's `effects` filter (one of them, with its action and kind when given). */
 function changesAsAsked(query: FnSearchQuery, registry: readonly RegistryEffect[] | undefined): boolean {
   if (query.effects === undefined) return true;
@@ -80,8 +90,8 @@ export class StoreFnSearch implements FnSearch {
   async search(query: FnSearchQuery, asker: Asker): Promise<FnSearchPage> {
     const limit = query.limit ?? this.#deps.tuning.HARNESS_FN_SEARCH_LIMIT;
     const offset = query.offset ?? 0;
-    // the context list's filters match context only, and the fn-only filters fns only
-    const items: SearchItemKind[] = (query.items ?? ['fn', 'context']).filter((item) => (item === 'fn' ? query.filters === undefined : !fnOnly(query)));
+    // the context list's filters and memory scopes match context only, and the fn-only filters fns only
+    const items: SearchItemKind[] = (query.items ?? ['fn', 'context']).filter((item) => (item === 'fn' ? !contextOnly(query) : !fnOnly(query)));
     if (items.length === 0) return { items: [] };
     const candidates = await this.#candidates(query, items);
     const text = query.text?.trim() ?? '';
@@ -231,7 +241,7 @@ export class StoreFnSearch implements FnSearch {
     const catalog = this.#deps.catalog();
     if (candidate.kind === 'context') {
       const record = await catalog.context(candidate.key);
-      if (record === undefined || (query.off !== true && contextOff(record)) || !seesContextAs(asker.access, record, asker.session)) return undefined;
+      if (record === undefined || (query.off !== true && contextOff(record)) || !inScopes(query, record) || !seesContextAs(asker.access, record, asker.session)) return undefined;
       return contextHit(record, found);
     }
     const record = await catalog.fn(candidate.key);

@@ -11,6 +11,7 @@ export function fnsApi(hub: Hub) {
     searchFns: hub.caller('searchFns', { cache: { ttl: 30_000 }, dedupe: true }),
     fnFacts: hub.caller('fnFacts', { dedupe: true }),
     fnExamples: hub.caller('fnExamples', { dedupe: true }),
+    fnsOfModelNames: hub.caller('fnsOfModelNames', { dedupe: true }),
   };
 }
 

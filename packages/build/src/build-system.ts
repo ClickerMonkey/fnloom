@@ -113,6 +113,7 @@ export async function buildSystem(dir: string, deps: BuildDeps, options: BuildOp
       system: manifest.name,
       fns: new Set([...contract.fns, ...known.fns]),
       context: new Set([...contract.context, ...known.context]),
+      agents: await agentNames(contract, known.fns),
     });
     if (checked.problems.length > 0) { return { ok: false, stage: 'context', problems: checked.problems.map(formatContextProblem) }; }
   }
@@ -128,6 +129,19 @@ export async function buildSystem(dir: string, deps: BuildDeps, options: BuildOp
   await files.write(join(dist, CONTRACT_FILE), `${JSON.stringify(written, null, 2)}
 `);
   return { ok: true, manifest: built, contract: written, dist, scan: scanBundle(await files.readText(server)) };
+}
+
+/**
+ * The agents an injection in the context folder may name exactly: the system's own and the hub's (both known here to
+ * be `hub/llm` fns), and the other systems' fns it may link to, whose kind the build can't see (the hub refuses one
+ * that is no agent when the system declares it).
+ */
+async function agentNames(contract: ContractSummary, known: readonly string[]): Promise<Set<string>> {
+  const ofHub = contract.requires.includes(hub.name) ? await summaryOf(hub) : undefined;
+  const hubFns = new Set<string>(ofHub?.fns ?? []);
+  const own = new Set<string>(contract.fns);
+  const elsewhere = known.filter((name) => !hubFns.has(name) && !own.has(name) && !name.startsWith(`${hub.name}/`));
+  return new Set([...(contract.agents ?? []), ...(ofHub?.agents ?? []), ...elsewhere]);
 }
 
 /** What a context folder may link to: what the system requires, and the names it links to that the catalog has. */

@@ -7,11 +7,12 @@
  *   and context search decisions `none`, and the decide role unset.
  * - `on`: the decide role set to the decision model (`HARNESS_SCENARIOS_DECISION_MODEL`, GPT-6 Luna Decisions), the
  *   suggestions chooser `decision` (it uses the decide role's model), and `hubOptions.fnsSearchDecision` and
- *   `hubOptions.contextSearchDecision` set to the decision model, so `hub/fns_search` hits are filtered by it.
+ *   `hubOptions.contextSearchDecision` set to the decision model, so `hub/fns_search` and `hub/ctx_search` hits are
+ *   filtered by it (each search by its own decision).
  * - `load`: as `on`, with each chooser's action `load` (Phil, 2026-11-22: "options to not only allow a decision model
  *   or llm to suggest context or fns but actually have them automatically add them"): what the suggestions chooser
- *   picks is loaded for the turn (fns into the tools, context into the message), and `hub/fns_search` loads the best
- *   kept hits.
+ *   picks is loaded for the turn (fns into the tools, context into the message), and `hub/fns_search` and
+ *   `hub/ctx_search` load the best kept hits.
  *
  * Before any stack boots, an `on` run proves the model answers (`proveDecisionModel`: one tiny decide call through
  * aeye's OpenRouter provider, as the hub makes it). After applying `on`, the rep reads every setting back and asks the

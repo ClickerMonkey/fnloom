@@ -149,7 +149,7 @@ export type ModelForwardResult = z.infer<typeof ModelForwardResult>;
  * The jobs the hub picks a model for itself. `chat`: the default agent model (an agent's own `model` wins).
  * `transcribe`: audio resources and recordings. `dictate`: the composer's voice input. `speak`: reading answers aloud.
  * `describe`: describing images. `ocr`: reading the text in images and scanned pages. `decide`: a decision model
- * (aeye's `ai.decide`) for typed answers: suggestions when set to it, `context_crawl`'s links, and systems' `decide`.
+ * (aeye's `ai.decide`) for typed answers: suggestions when set to it, `ctx_crawl`'s links, and systems' `decide`.
  */
 export const MODEL_ROLES = ['chat', 'transcribe', 'dictate', 'speak', 'describe', 'ocr', 'decide'] as const;
 export const ModelRole = z.enum(MODEL_ROLES);
@@ -183,7 +183,7 @@ export type ModelOnlyRole = z.infer<typeof ModelOnlyRole>;
 
 /**
  * The decide role's setting: its decision model, and the probability (0 to 1) a yes/no answer must reach to count as
- * yes in the hub's own decisions (`context_crawl`'s links, suggestions by decision model, systems' `decide`).
+ * yes in the hub's own decisions (`ctx_crawl`'s links, suggestions by decision model, systems' `decide`).
  */
 export const DecideRoleChoice = RoleModel.extend({ role: z.literal('decide'), threshold: z.number().min(0).max(1).default(DEFAULT_DECIDE_THRESHOLD) });
 export type DecideRoleChoice = z.infer<typeof DecideRoleChoice>;

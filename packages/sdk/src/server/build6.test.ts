@@ -54,7 +54,7 @@ async function start(hub: FakeHub): Promise<RunningSystem<'notes'>> {
 }
 
 const guide = (content: string): ContextDecl => ({
-  name: 'guide', title: 'The guide', description: 'The guide.', content, imports: [], fns: ['notes/ask'], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: [],
+  name: 'guide', title: 'The guide', description: 'The guide.', content, imports: [], fns: ['notes/ask'], suggestFns: [], suggest: 'both', visible: 'both', tags: [],
 });
 
 describe('runtime patches', () => {

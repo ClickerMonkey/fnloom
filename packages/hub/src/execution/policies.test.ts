@@ -15,7 +15,7 @@ const TRN = TurnId.parse('trn_1');
 const catalog = new TestCatalog();
 const SHOP_ACTOR = ActorId.parse('act_shop');
 const write = catalog.add('fs', 'write', fn({ description: 'Write.', args: g.obj({ path: g.text() }), returns: g.bool(), tags: ['files'] }));
-const save = catalog.add('hub', 'save_fn', fn({ description: 'Save a fn of the kind the calling system owns.', args: g.obj({ name: g.text() }), returns: g.bool(), tags: [OWN_TAG] }));
+const save = catalog.add('hub', 'fns_save', fn({ description: 'Save a fn of the kind the calling system owns.', args: g.obj({ name: g.text() }), returns: g.bool(), tags: [OWN_TAG] }));
 const query = catalog.add('shop', 'orders', fn({ description: 'Orders.', args: g.obj({}), returns: g.text(), effects: { mode: 'read' } }));
 const read = catalog.add('fs', 'read', fn({ description: 'Read.', args: g.obj({ path: g.text() }), returns: g.text(), tags: ['read', 'files'] }));
 

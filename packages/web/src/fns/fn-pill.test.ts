@@ -3,7 +3,7 @@
  * app-wide fn modal bound to `?fn=` (so any page with a fn open is a shareable link), and a glob or a whole system
  * links to the fns list filtered instead. A model's tool name (`hub__fns_search`) reads back to its fn.
  */
-import { fnOfToolName, QualifiedName, RunId, toolName, type LlmInteraction } from '@harness/core';
+import { fnOfStoredToolName, modelFnName, QualifiedName, RunId, type LlmInteraction } from '@harness/core';
 import { flushPromises, mount, RouterLinkStub } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defineComponent, h } from 'vue';
@@ -53,14 +53,19 @@ describe('what a pill stands for', () => {
 });
 
 describe('model tool names', () => {
-  it('reads a tool name back to its fn, and only when it encodes back the same', () => {
-    expect(fnOfToolName('hub__fns_search')).toBe('hub/fns_search');
-    expect(fnOfToolName('fs__Entry--reveal')).toBe('fs/Entry.reveal');
-    expect(fnOfToolName('fs/read_file')).toBe('fs/read_file');
-    for (const name of ['hub/fns_search', 'fs/Entry.reveal', 'database/run_query']) { expect(fnOfToolName(toolName(fn(name)))).toBe(name); }
+  it('reads a stored tool name back to its fn: the one model name, a cut one the hub read, and the spelling of old records', () => {
+    expect(fnOfStoredToolName('hub__fns_search')).toBe('hub/fns_search');
+    expect(fnOfStoredToolName('fs__Entry__reveal')).toBe('fs/Entry.reveal');
+    // the legacy spelling of stored model calls (a method's `.` as `--`), read for display only
+    expect(fnOfStoredToolName('fs__Entry--reveal')).toBe('fs/Entry.reveal');
+    expect(fnOfStoredToolName('fs/read_file')).toBe('fs/read_file');
+    for (const name of ['hub/fns_search', 'fs/Entry.reveal', 'database/main.run_query']) { expect(fnOfStoredToolName(modelFnName(fn(name)))).toBe(name); }
+    const long = fn(`database/${'x'.repeat(80)}`);
+    expect(fnOfStoredToolName(modelFnName(long))).toBeUndefined();
+    expect(fnOfStoredToolName(modelFnName(long), (name) => (name === modelFnName(long) ? long : undefined))).toBe(long);
     // a static tool, or a name that wasn't encoded from a fn, is no fn
-    expect(fnOfToolName('run')).toBeUndefined();
-    expect(fnOfToolName('fs__a b')).toBeUndefined();
+    expect(fnOfStoredToolName('run')).toBeUndefined();
+    expect(fnOfStoredToolName('fs__a b')).toBeUndefined();
   });
 
   const call = (): LlmInteraction => llmCall({

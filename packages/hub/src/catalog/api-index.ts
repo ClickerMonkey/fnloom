@@ -36,7 +36,7 @@ function groupsOf(system: SystemName, fns: readonly FnDecl[], declared: readonly
  */
 function item(name: string, description: string, content: string, extra: Partial<ContextDecl>): ContextDecl {
   return {
-    name, description, content, imports: [], fns: [], suggestFns: [], suggest: 'none', visible: 'both', alwaysFor: [], tags: ['api'], niche: 'reference', ...extra,
+    name, description, content, imports: [], fns: [], suggestFns: [], suggest: 'none', visible: 'both', tags: ['api'], niche: 'reference', ...extra,
   };
 }
 

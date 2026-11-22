@@ -29,14 +29,14 @@ async function start(script: readonly ScriptStep[]): Promise<Kit> {
   return kit;
 }
 
-/** Answer child calls as the hub does: `hub/fn_get` of weather/forecast with its signature, the forecast itself, else the kit's fns. */
+/** Answer child calls as the hub does: `hub/fns_get` of weather/forecast with its signature, the forecast itself, else the kit's fns. */
 function scriptHub(running: Kit): Array<{ fn: string; args: Json }> {
   const seen: Array<{ fn: string; args: Json }> = [];
   running.hub.onFnShape = (name) => Promise.resolve(name === 'weather/forecast' ? { fn: { ...FORECAST, description: 'The forecast for a city.', mode: 'read' as const } } : {});
   running.hub.onCall = async (call) => {
     seen.push({ fn: call.fn, args: call.args });
     await running.hub.peer().call('child', { parent: call.parent, key: call.key, run: mintId('run') });
-    if (call.fn === hub.fns.fn_get.name && JSON.stringify(call.args).includes('weather/forecast')) {
+    if (call.fn === hub.fns.fns_get.name && JSON.stringify(call.args).includes('weather/forecast')) {
       return done(Json.parse({ fn: 'weather/forecast', kind: 'native', description: 'The forecast for a city.', version: 1, available: true, ...FORECAST }));
     }
     if (call.fn === 'weather/forecast') return done({ summary: 'Sunny' });
@@ -111,10 +111,10 @@ describe('make_code over another fn', () => {
     const seen = scriptHub(running);
     const fake = running.hub;
     fake.fns.save({ kind: CODE_KIND, name: 'price_with_tax', description: 'A price with tax at a percentage rate.', payload: encodeValue(CodePayload, PRICE) });
-    // the hub's declaration of the saved fn (`hub/fn_get`), and its answer when the sample runs
+    // the hub's declaration of the saved fn (`hub/fns_get`), and its answer when the sample runs
     const inner = running.hub.onCall;
     running.hub.onCall = async (call) => {
-      const getsPrice = call.fn === hub.fns.fn_get.name && JSON.stringify(call.args).includes('code/price_with_tax');
+      const getsPrice = call.fn === hub.fns.fns_get.name && JSON.stringify(call.args).includes('code/price_with_tax');
       if (call.fn !== 'code/price_with_tax' && !getsPrice) { return inner(call); }
       seen.push({ fn: call.fn, args: call.args });
       await running.hub.peer().call('child', { parent: call.parent, key: call.key, run: mintId('run') });
@@ -128,7 +128,7 @@ describe('make_code over another fn', () => {
     expect(JSON.stringify(fake.forwards[2]?.request.messages)).toContain('shop/discount was not listed');
     expect(JSON.stringify(fake.forwards[3]?.request.messages)).toContain('code/price_with_tax');
     // the hub was asked for the callee's declaration, and the saved program calls it
-    expect(seen.some((call) => call.fn === hub.fns.fn_get.name && JSON.stringify(call.args).includes('code/price_with_tax'))).toBe(true);
+    expect(seen.some((call) => call.fn === hub.fns.fns_get.name && JSON.stringify(call.args).includes('code/price_with_tax'))).toBe(true);
     expect(JSON.stringify(fake.fns.kept.get('code/total_with_tax')?.saved.payload)).toContain('price_with_tax');
   });
 });
@@ -141,7 +141,7 @@ describe('the program kind', () => {
     scriptHub(running);
     const props = await running.kindProps('program', CALLS);
     expect(props.problems).toEqual([]);
-    expect(props.description).toMatchObject({ deps: ['weather/forecast', hub.fns.fn_get.name], args: CALLS.args, returns: CALLS.returns, readable: { language: 'ts' }, effects: { mode: 'read' } });
+    expect(props.description).toMatchObject({ deps: ['weather/forecast', hub.fns.fns_get.name], args: CALLS.args, returns: CALLS.returns, readable: { language: 'ts' }, effects: { mode: 'read' } });
     expect(props.description?.examples).toEqual([{ args: sampleArgs(CALLS.args), note: 'Runs the program with sample values: use real ones.' }]);
     const loop: CodeFnSpec = { ...CALLS, program: { kind: 'loop', over: { kind: 'new', type: { name: 'bool' }, value: true }, body: { kind: 'get', path: [{ prop: 'args' }] } } };
     expect((await running.kindProps('program', loop)).problems.join('\n')).toContain('while-loop');
@@ -152,6 +152,6 @@ describe('the program kind', () => {
     const seen = scriptHub(running);
     const outcome = await running.hub.run(QualifiedName.parse('code/city_forecast'), { city: 'Paris' }, { kind: CODE_KIND, payload: encodeValue(CodePayload, CALLS) });
     expect(outcome).toMatchObject({ status: 'done', result: 'Paris: Sunny' });
-    expect(seen.map((call) => call.fn)).toEqual([hub.fns.fn_get.name, 'weather/forecast']);
+    expect(seen.map((call) => call.fn)).toEqual([hub.fns.fns_get.name, 'weather/forecast']);
   });
 });

@@ -23,14 +23,15 @@ export {
   type ProgressDef, type NoProgress, type LinearProgress, type StepsProgress, type ProgressReporter, type ProgressState, type Outcome,
 } from './fn.ts';
 export {
-  type, setting, attachment, kind, arg, context, hook, hookBlock, mention, sectioner, sectionKeys, action,
+  type, setting, attachment, kind, arg, context, hook, hookBlock, mention, sectioner, sectionKeys, action, agents,
+  type AgentPattern, type AgentTarget, type InjectInput,
   type TypeDef, type AnyTypeDef, type ValueOf, type NamingKeys, type TextKeys, type RecordsInput, type ContextLinkDef, type ContextLinkTarget, type MethodImpl, type SettingDef, type AttachmentDef, type KindDef, type KindImpl, type KindEstimateInput,
   type KindCheckCtx, type KindRunCtx, type ArgDef, type ArgsOf, type ContextDef, type AnyContextDef, type ContextInput, type ContextImpl,
   type HookDef, type HookContribution, type HookImpl, type MentionDef, type MentionOption, type MentionCtx, type MentionImpl,
   type SectionerDef, type SectionerImpl, type ActionDef, type ActionImpl,
 } from './declare.ts';
 export type {
-  FnRef, AnyFnRef, TypeRef, AnyTypeRef, Methods, MethodName, MethodArgs, MethodRefs, KindRef, AnyKindRef, ContextRef, AnyContextRef,
+  FnRef, AnyFnRef, AgentRef, FnRefOf, TypeRef, AnyTypeRef, Methods, MethodName, MethodArgs, MethodRefs, KindRef, AnyKindRef, ContextRef, AnyContextRef,
   SettingRef, AttachmentRef, HookRef, AnyHookRef, MentionRef, SectionerRef, ActionRef, ProviderRef,
 } from './refs.ts';
 export {
@@ -55,7 +56,7 @@ export {
   type AdminFnName, type AdminReadFnName, type HubReadFnName, type HubWriteFnName, type HubPersonFnName, type HubExploreFnName, type HubContract,
 } from './hub.ts';
 export { APP_PATH, safeHref, RESOURCE_LINK } from './links.ts';
-export { agent, type AgentInput, type AgentFnTypes, type LlmPayload, type LlmKind } from './agent.ts';
+export { agent, type AgentInput, type AgentFnTypes, type AgentInjected, type LlmPayload, type LlmKind } from './agent.ts';
 export {
   manifestOf, manifestBody, fnDecl, canonicalJson, contractHash, sha256, fnsMissingExamples, checkExamples, MissingExamplesError, type ManifestOptions,
 } from './manifest.ts';

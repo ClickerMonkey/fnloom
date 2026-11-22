@@ -470,7 +470,8 @@ describe('an agent and fns that change under it', () => {
     expect((await runTo(r, run)).settled).toEqual({ status: 'done', result: 'It is switched off.' });
     expect(fs.requests).toEqual([]);
     const tool = (await r.store.table('sessions').get(SESSION))?.transcript.find((m) => m.role === 'tool');
-    expect(tool?.content).toBe('Error: fs/read is turned off.');
+    // the reply names the fn as the model calls it
+    expect(tool?.content).toBe('Error: fs__read is turned off.');
     expect(r.provider.requests[1]?.tools?.map((t) => t.name)).toEqual(['fs__write']);
   });
 

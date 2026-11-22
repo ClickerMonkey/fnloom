@@ -31,6 +31,29 @@ type CostEstimate = {
 };
 ```
 
+#### <a id="core-ctxsearchargs"></a>`CtxSearchArgs`
+
+const, type · declared in `packages/core/src/fn-facts.ts`
+
+What the model may ask `hub/ctx_search` (static mode's `find_ctx`): context only (guides, memories, pieces of
+files), by words or meaning, filtered by system, origin (`system`, `memory`, `resource`), a memory's scope and tags.
+It is the one search too: `ctxSearchQuery` turns it into a `FnSearchQuery` of context items.
+
+```ts
+type CtxSearchArgs = {
+  text?: string | undefined;
+  systems?: SystemName[] | undefined;
+  origins?: ("system" | "memory" | "resource")[] | undefined;
+  scopes?: ("user" | "session" | "everyone")[] | undefined;
+  tags?: string[] | undefined;
+  names?: `${string}/${string}`[] | undefined;
+  niches?: ("admin" | "developer" | "reference")[] | undefined;
+  order?: "name" | "rank" | undefined;
+  offset?: number | undefined;
+  limit?: number | undefined;
+};
+```
+
 #### <a id="core-fnexamplespage"></a>`FnExamplesPage`
 
 const, type · declared in `packages/core/src/fn-facts.ts`
@@ -91,8 +114,9 @@ type FnExamplesQuery = {
 
 const, type · declared in `packages/core/src/fn-facts.ts`
 
-What the model may ask `hub/fns_search` (static mode's `find`): the query without the context page's own `filters`
-and `off`, which are the page's, so the tool's spec in every prompt stays small.
+What the model may ask `hub/fns_search` (static mode's `find`): fns only. The query without `items` (it finds fns,
+never context: that is `hub/ctx_search`), the context-only filters, the context page's own `filters` and `off`, and
+`match` (the search merges words and meaning itself), so the tool's spec in every prompt stays small.
 
 ```ts
 type FnSearchArgs = {
@@ -104,12 +128,9 @@ type FnSearchArgs = {
   visibility?: "shared" | "public" | "mine" | undefined;
   text?: string | undefined;
   names?: `${string}/${string}`[] | undefined;
-  items?: ("fn" | "context")[] | undefined;
   offset?: number | undefined;
   limit?: number | undefined;
-  kinds?: (`${string}/${string}` | "native")[] | undefined;
   systems?: SystemName[] | undefined;
-  match?: "text" | "semantic" | "hybrid" | undefined;
   modes?: ("read" | "write" | "delete")[] | undefined;
   effects?: {
     thing: "types" | "records" | "fns" | "context" | "examples" | "kinds" | "resources" | "components" | "approvals" | "secrets" | "connections";
@@ -119,6 +140,7 @@ type FnSearchArgs = {
   available?: boolean | undefined;
   niches?: ("admin" | "developer" | "reference")[] | undefined;
   order?: "name" | "rank" | undefined;
+  kinds?: (`${string}/${string}` | "native")[] | undefined;
 };
 ```
 
@@ -128,6 +150,7 @@ const, type · declared in `packages/core/src/fn-facts.ts`
 
 A page of hits; `next` is the offset of the next page, absent on the last. `filtered`: what the admin's search
 decisions dropped from this page (a page can then hold fewer hits than its limit while another follows).
+`loaded`: what `hub/fns_search` or `hub/ctx_search` loaded of the kept hits (a decision whose action is `load`).
 
 ```ts
 type FnSearchPage = {
@@ -167,7 +190,13 @@ type FnSearchPage = {
     }[];
     calls?: string[] | undefined;
     failed?: string | undefined;
+    action?: "load" | undefined;
   }[] | undefined;
+  loaded?: {
+    fns: `${string}/${string}`[];
+    context: `${string}/${string}`[];
+    note: string;
+  } | undefined;
 };
 ```
 
@@ -222,6 +251,7 @@ type FnSearchQuery = {
     op: "empty" | "notEmpty";
   })[] | undefined;
   off?: boolean | undefined;
+  scopes?: ("user" | "session" | "everyone")[] | undefined;
   available?: boolean | undefined;
   niches?: ("admin" | "developer" | "reference")[] | undefined;
   order?: "name" | "rank" | undefined;

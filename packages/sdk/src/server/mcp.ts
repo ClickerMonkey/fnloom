@@ -1,7 +1,8 @@
 /**
  * A system as an MCP server, with no extra code, served by `@ayepi/mcp` over stdio or Streamable HTTP:
  *
- * - its native fns the LLM may see are MCP tools (`<system>_<fn>`). `McpFace` is the `McpToolSource`: a tool's input
+ * - its native fns the LLM may see are MCP tools, each named by its model name (`fs__read`, core's `modelFnName`: the
+ *   one name a chat model sees too). `McpFace` is the `McpToolSource`: a tool's input
  *   schema is the fn's args as gin's value schema with every field's docs, as JSON schema; fns added or removed at
  *   runtime change the list, and clients hear `notifications/tools/list_changed`.
  * - its resources, when it serves any, are MCP resources (`McpResources`): roots and their children, a URI template
@@ -15,10 +16,10 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import { createInterface } from 'node:readline';
 import { createRequestListener } from '@ayepi/node';
 import {
-  errorResult, mcpHttp, mcpSourceServer, mcpToolName, serveStdio, textResult,
+  errorResult, mcpHttp, mcpSourceServer, serveStdio, textResult,
   type McpHttpHandler, type McpServer, type McpTool, type McpToolResult, type McpToolSource,
 } from '@ayepi/mcp';
-import { Json, MAIN_INSTANCE, mintId, qualify, splitName, type QualifiedName, type RunRequest } from '@harness/core';
+import { Json, MAIN_INSTANCE, mintId, modelFnName, qualify, type RunRequest } from '@harness/core';
 import { z } from 'zod';
 import type { AnyFnDef } from '../fn.ts';
 import type { McpServe } from './index.ts';
@@ -28,15 +29,6 @@ import { McpResources } from './mcp-resources.ts';
 import { ActiveRun, type RunEnvironment } from './run.ts';
 import type { SystemTable } from './table.ts';
 import { messageOf, problemsText } from './wire.ts';
-
-/**
- * A fn's MCP tool name: `<system>_<local>` in the characters MCP allows (`mcpToolName`; a system name never holds
- * `_`). One name for a fn wherever an MCP offers it: a system's own MCP face and the hub's MCPs.
- */
-export function mcpToolNameOf(fn: QualifiedName): string {
-  const { system, local } = splitName(fn);
-  return mcpToolName(`${system}_${local}`);
-}
 
 /** How long an MCP call may run, and the largest HTTP request body in bytes (from the SDK's env slice). */
 export interface McpLimits {
@@ -136,7 +128,8 @@ export class McpFace implements McpToolSource {
     });
     if (same) { return built.byTool; }
     const byTool = new Map(fns.map(([local, def]): [string, Offered] => {
-      const name = mcpToolNameOf(qualify(this.#table.contract.name, local));
+      // the one fn name: an MCP client sees the name a chat model does
+      const name = modelFnName(qualify(this.#table.contract.name, local));
       const inputSchema = z.toJSONSchema(def.args.toValueSchema({ includeDocs: 'all' }), { io: 'input', unrepresentable: 'any' });
       return [name, { local, tool: { name, description: def.description, inputSchema } }];
     }));

@@ -742,7 +742,8 @@ interface SystemRefs<N extends string, C extends ContractShape> {
   readonly settings: { readonly [K in keyof C['settings']]: C['settings'][K] extends SettingDef<infer T> ? SettingRef<Q<N, K>, T> : never };
   readonly attachments: { readonly [K in keyof C['attachments']]: C['attachments'][K] extends AttachmentDef<infer T> ? AttachmentRef<Q<N, K>, T> : never };
   readonly kinds: { readonly [K in keyof C['kinds']]: C['kinds'][K] extends KindDef<infer P> ? KindRef<Q<N, K>, P> : never };
-  readonly fns: { readonly [K in keyof C['fns']]: C['fns'][K] extends FnDef<infer T> ? FnRef<Q<N, K>, T['args'], T['result'], T['handlers']> : never };
+  /** Fn refs; an agent's (a `hub/llm` fn's) is an `AgentRef`, so it can be an injection's target. */
+  readonly fns: { readonly [K in keyof C['fns']]: C['fns'][K] extends FnDef<infer T> ? FnRefOf<Q<N, K>, T> : never };
   readonly context: { readonly [K in keyof C['context']]: C['context'][K] extends ContextDef<infer A, boolean> ? ContextRef<Q<N, K>, A> : never };
   readonly hooks: { readonly [K in keyof C['hooks']]: HookRef<Q<N, K>> };
   readonly mentions: { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T, unknown> ? MentionRef<Q<N, K>, T> : never };
@@ -1045,11 +1046,13 @@ field is a `Date` in code but a string on the wire. Never hand-write a TypeScrip
 
 const · `import { g } from '@harness/sdk'`
 
-The gin type builder: gin's registry, shared by every contract in this process.
+The gin type builder: gin's registry, shared by every contract in this process, with `fnName` (`HarnessGin`).
 
 ```ts
-const g: Registry;
+const g: Registry & HarnessGin;
 ```
+
+Refers to: [`QualifiedName`](#core-qualifiedname).
 
 #### `GinType`
 
@@ -2191,7 +2194,7 @@ interface FnInput<
    * work is free (reading a file). The hub works out the rest and folds in what it uses (`FnFacts`).
    */
   effects?: FnEffects;
-  /** How many of its examples go into the model's prompt with it (the hub's default when absent); the rest page with `hub/fn_examples`. */
+  /** How many of its examples go into the model's prompt with it (the hub's default when absent); the rest page with `hub/fns_examples`. */
   promptExamples?: number;
   /** The API group it is listed in: one of the system's `groups` (`system(name, { groups })`); the general group when absent. */
   group?: string;
@@ -2230,7 +2233,7 @@ Refers to: [`Audience`](#core-audience), [`Display`](#core-display), [`FnConnect
 
 interface · `import { FnExampleOf } from '@harness/sdk'`
 
-One example call of a fn, shown on its card at `full` detail, in its invalid-input replies and by `hub/fn_examples`:
+One example call of a fn, shown on its card at `full` detail, in its invalid-input replies and by `hub/fns_examples`:
 args of the fn's own args type (a wrong example does not compile), optionally the result it gave (of its returns
 type), and what the example shows. The hub keeps every example in its own table, embedded, so the ones closest to
 the turn go into the prompt with the fn.
@@ -3744,7 +3747,7 @@ const model = mockModel([
 ]);
 const kit = await testHub(input, createInputImpl({ settings: inputEnv.parse() }), { config: {}, model });
 try {
-  const watched = kit.hub.runInfo(QualifiedName.parse('input/get_input'), { watched: true });
+  const watched = kit.hub.runInfo(QualifiedName.parse('input/get_input'), { watched: true, inChat: true });
   const made = await kit.call('get_input', { detailedDescription: 'The trip: the city and how many nights.' }, { run: watched });
   expect(made.result).toMatchObject({ form: { title: 'Trip details' }, saved: 'input/trip_details', call: 'input/trip_details({})', next: WAIT_FOR_ANSWERS });
   expect(kit.hub.fns.kept.get('input/trip_details')?.saved).toMatchObject({ kind: FORM_KIND, payload: TRIP, share: { visibility: 'private', with: [] } });
@@ -3936,7 +3939,7 @@ interface KindFnInput<P, A, R, T extends StatusTemplates = StatusTemplates> {
    * work is free (reading a file). The hub works out the rest and folds in what it uses (`FnFacts`).
    */
   effects?: FnEffects;
-  /** How many of its examples go into the model's prompt with it (the hub's default when absent); the rest page with `hub/fn_examples`. */
+  /** How many of its examples go into the model's prompt with it (the hub's default when absent); the rest page with `hub/fns_examples`. */
   promptExamples?: number;
   /** The API group it is listed in (`SystemInfo.groups`); the general group when absent. */
   group?: string;
@@ -4017,7 +4020,7 @@ interface AgentInput<A, R, T extends StatusTemplates = StatusTemplates> {
   mode?: NonNullable<LlmPayload['mode']>;
   /** What goes into each prompt: plain (the hub's default), suggest, or graph (for small local models). */
   contextor?: NonNullable<LlmPayload['contextor']>;
-  /** The most tokens one answer may take; the model's own limit when absent. */
+  /** The most tokens one answer may take (never past the model's own limit); the hub's `HARNESS_AGENT_MAX_OUTPUT` when absent. */
   maxOutput?: number;
   visibility?: Audience;
   tags?: string[];
@@ -4033,6 +4036,8 @@ interface AgentInput<A, R, T extends StatusTemplates = StatusTemplates> {
   routing?: FnRouting;
   /** What it does to data and the registry: its mode, the types it reads and writes, and the fns it creates (`FnFacts`). */
   effects?: FnEffects;
+  /** How it takes the context injected into it (`{ detail: 'summary', maxTokens: 600 }`), or `none`. Default: every item in full. */
+  injected?: AgentInjected | 'none';
 }
 ```
 
@@ -4046,6 +4051,21 @@ The types of an agent fn.
 
 ```ts
 type AgentFnTypes<A, R> = KindFnTypes<LlmKind, LlmPayload, A, R>;
+```
+
+#### `AgentInjected`
+
+interface · `import { AgentInjected } from '@harness/sdk'`
+
+How an agent takes its injected section. Its instructions may hold `{{injectedContext}}`; without it the section follows them.
+
+```ts
+interface AgentInjected {
+  /** `summary` gives each item at its summary, for a small window. Default `full`. */
+  readonly detail?: 'full' | 'summary';
+  /** The most tokens the section may take; items past it fall back to their summary, a listing, then out. */
+  readonly maxTokens?: number;
+}
 ```
 
 #### `LlmPayload`
@@ -4067,6 +4087,33 @@ The ref type of the hub's `llm` kind.
 ```ts
 type LlmKind = typeof hub.kinds.llm;
 ```
+
+#### `AgentRef`
+
+type · `import { AgentRef } from '@harness/sdk'`
+
+An agent fn's ref: a fn of the hub's `llm` kind (`agent()`, `hub.kinds.llm.fn()`), marked with its kind so only
+agents fit where an agent is asked for (an injection's target). A plain fn's ref has no `kind` and doesn't compile.
+
+```ts
+type AgentRef<N extends QualifiedName = QualifiedName, A = unknown, R = unknown, H extends Handlers = Handlers> = FnRef<N, A, R, H> & { readonly kind: 'hub/llm' };
+```
+
+Refers to: [`QualifiedName`](#core-qualifiedname).
+
+#### `FnRefOf`
+
+type · `import { FnRefOf } from '@harness/sdk'`
+
+The ref of a fn as its contract declares it: an agent's carries its kind (`AgentRef`), any other fn's is a `FnRef`.
+
+```ts
+type FnRefOf<N extends QualifiedName, T extends FnTypes> = T['kind'] extends { readonly name: 'hub/llm' }
+? AgentRef<N, T['args'], T['result'], T['handlers']>
+: FnRef<N, T['args'], T['result'], T['handlers']>;
+```
+
+Refers to: [`QualifiedName`](#core-qualifiedname).
 
 #### `authoringAgent`
 
@@ -4122,6 +4169,8 @@ interface AuthoringAgentInput<S, D> {
   readonly fixes?: number;
   /** Model rounds; `HARNESS_AUTHORING_ROUNDS` when absent. */
   readonly rounds?: number;
+  /** The most tokens one model step may write; `HARNESS_AUTHORING_MAX_TOKENS` when absent. */
+  readonly maxTokens?: number;
   /** `find: false`: the agent is handed what it builds on, so it starts in `inspect` (no find tools, no `reuse`). */
   readonly stages?: { readonly find?: boolean };
   /** Names for the built-in tools when the job wants its own words (default `draft` and `save`). */
@@ -4332,7 +4381,7 @@ const · `import { authoringEnv } from '@harness/sdk/server'`
 The authoring agents' tunables.
 
 ```ts
-const authoringEnv: Env<EnvOutput<{}, { readonly HARNESS_AUTHORING_FIXES: z.ZodDefault<z.ZodCoercedNumber<unknown>>; readonly HARNESS_AUTHORING_ROUNDS: z.ZodDefault<z.ZodCoercedNumber<unknown>>; }>>;
+const authoringEnv: Env<EnvOutput<{}, { readonly HARNESS_AUTHORING_FIXES: z.ZodDefault<z.ZodCoercedNumber<unknown>>; readonly HARNESS_AUTHORING_ROUNDS: z.ZodDefault<z.ZodCoercedNumber<unknown>>; readonly HARNESS_AUTHORING_MAX_TOKENS: z.ZodDefault<z.ZodCoercedNumber<unknown>>; }>>;
 ```
 
 ## 12. Settings and attachments
@@ -4463,8 +4512,8 @@ Refers to: [`QualifiedName`](#core-qualifiedname).
 ## 13. Context and commands
 
 **Context** is text for the LLM: a guide, a skill, a reference, the state of something. The hub suggests it when a
-message is about it, an agent can always have it (`alwaysFor`, `agent({ context })`), and a person loads it with a
-`/command`. `context({ description, … })`:
+message is about it, an agent can always have it (`agent({ context })`), it can be injected into agents' system
+prompts (`inject`), and a person loads it with a `/command`. `context({ description, … })`:
 
 - **Static** when it has `content`: the text is in the contract. `{{name}}` in the content is filled from the
   command's args.
@@ -4475,7 +4524,20 @@ message is about it, an agent can always have it (`alwaysFor`, `agent({ context 
 - `fns`: fns that come with it, loaded into the toolset when it is loaded; `suggestFns`: fns suggested with it.
 - `imports`: other context it brings along.
 - `suggest` and `visible`: who it may be suggested to and who can find it in searches (`both`, `user`, `llm`, `none`).
-- `alwaysFor`: agents that always have it loaded. `tags`: free labels.
+- `title`: what people (and an injected item's heading) call it; its description when absent. `tags`: free labels.
+- `inject: { into, order?, requires?, mode? }` puts it in the system prompts of the agents it targets, in their
+  `{{injectedContext}}` section, once an admin approves it (a new or changed injection waits in the system's Pending
+  review as its own card, flagged `injects`); an admin can switch it off per agent. Each `into` entry is an agent's ref
+  (`crm.fns.reviewer`; only `hub/llm` fns compile) or a pattern holding `*`: `*` alone is every agent, otherwise
+  `system/local` where each `*` is any run of characters on its own side of the `/` (it crosses `.`, never `/`; case
+  counts; `**` is refused). Build patterns from refs so a rename breaks the build: `agents.startingWith(hub.fns.chat)`
+  is `hub/chat*`, `agents.of(crm)` is `crm/*`, `agents.all` is `*`. A string without `*` doesn't compile. An exact name
+  that is no agent is refused when the system declares it; a pattern that hits no agent yet is accepted, with a warning
+  on its review card. `order`: lower comes first (default 100; the hub's own items are 10 to 30). Its `fns` join the
+  agents' starting tools; `requires` names fns its text mentions without bringing, and it is left out while they can't
+  be used. `mode: 'tools' | 'static'` only when the text is true in one chat mode.
+- An agent says how it takes its injected section: `agent({ injected: { detail: 'summary', maxTokens: 600 } })`, or
+  `injected: 'none'`. A hook says what its block means with `hook({ explains })`, injected with its system's items.
 - For the graph contextor (the one small local models use): `weight` (0 to 2, default 1) is how much it counts,
   `summary` a short form sent when the budget allows only a little, `parent` and `next` place it in a hierarchy or a
   chain of pieces, and `links` are weighted edges (`{ to, relation, weight? }`) to other context, fns, named types or
@@ -4522,7 +4584,7 @@ beats a long manual, and the hub budgets what it sends to small models.
 
 **A context folder.** Static context can live in markdown files under the system's `context/` folder instead of the
 contract: each file starts with a YAML header between `---` lines holding any context option (`ContextFileHeader`:
-`key`, `title`, `description`, `summary` (required), `fns`, `imports`, `choices`, `parent`, `next`, `alwaysFor`, `tags`,
+`key`, `title`, `description`, `summary` (required), `fns`, `imports`, `choices`, `parent`, `next`, `inject`, `tags`,
 `visible`, …), and the rest of the file is the content. `key` is a stable, readable name people never see
 (`notes.guide.adding`); it is never taken from the path, so a file can move or be renamed and the hub keeps updating the
 same record with its links, stats and embeddings.
@@ -4756,6 +4818,8 @@ What `context()` takes.
 ```ts
 interface ContextInput<Args extends Record<string, ArgDef<boolean>>> {
   description: string;
+  /** What people (and the injected section's heading) call it; its description when absent. */
+  title?: string;
   /** Makes it a `/name` command. Args fill `{{name}}` in the content (or are passed to a dynamic implementation). */
   command?: { name: string; args?: Args };
   imports?: AnyContextRef[];
@@ -4763,7 +4827,8 @@ interface ContextInput<Args extends Record<string, ArgDef<boolean>>> {
   suggestFns?: AnyFnRef[];
   suggest?: Audience;
   visible?: Audience;
-  alwaysFor?: AnyFnRef[];
+  /** Put it in these agents' system prompts (`{ into: [agents.startingWith(hub.fns.chat)], order: 40 }`). Its `fns` join their starting tools. */
+  inject?: InjectInput;
   tags?: string[];
   /** How much it counts when scored, from 0 (left out) to 2. Default 1. */
   weight?: number;
@@ -4787,6 +4852,8 @@ Content for the LLM. Static content is written in the contract; dynamic content 
 ```ts
 interface ContextDef<A, Dynamic extends boolean> {
   readonly description: string;
+  /** What people (and the injected section's heading) call it; its description when absent. */
+  readonly title: string | undefined;
   readonly dynamic: Dynamic;
   readonly content: string | undefined;
   readonly command: { readonly name: string; readonly args: Readonly<Record<string, ArgDef<boolean>>> } | undefined;
@@ -4797,8 +4864,8 @@ interface ContextDef<A, Dynamic extends boolean> {
   readonly suggest: Audience;
   /** Who can find it in searches. Default `both`. */
   readonly visible: Audience;
-  /** Always loaded for these agents. */
-  readonly alwaysFor: readonly AnyFnRef[];
+  /** Put it in these agents' system prompts; its `fns` join their starting tools. */
+  readonly inject: InjectInput | undefined;
   readonly tags: readonly string[];
   /** How much it counts when the graph contextor scores it: 0 leaves it out, 2 doubles it. Default 1. */
   readonly weight: number | undefined;
@@ -4925,6 +4992,61 @@ type AnyContextRef = ContextRef<QualifiedName, unknown>;
 
 Refers to: [`QualifiedName`](#core-qualifiedname).
 
+#### `InjectInput`
+
+interface · `import { InjectInput } from '@harness/sdk'`
+
+Where an item of context is injected: the system prompts of the agents it targets, in their `{{injectedContext}}`
+section. It waits for an admin's approval like any change to the system's contract, and an admin can switch it off
+for any agent.
+
+```ts
+interface InjectInput {
+  /** The agents it goes into: refs and patterns (`agents.startingWith(hub.fns.chat)`, `'crm/*'`). At least one. */
+  readonly into: readonly [AgentTarget, ...AgentTarget[]];
+  /** Lower comes first. Default 100; the hub's own items are 10 to 30. */
+  readonly order?: number;
+  /** Fns its text names without bringing them: it is left out unless they can be used. Its `fns` are required too. */
+  readonly requires?: readonly AnyFnRef[];
+  /** Only in this chat mode. Leave it out unless the text is true in one mode only. */
+  readonly mode?: 'tools' | 'static';
+}
+```
+
+#### `AgentTarget`
+
+type · `import { AgentTarget } from '@harness/sdk'`
+
+One entry of `inject.into`: an agent's ref (`hub.fns.chat`; only `hub/llm` fns fit), or a pattern.
+
+```ts
+type AgentTarget = AgentRef | AgentPattern;
+```
+
+#### `AgentPattern`
+
+type · `import { AgentPattern } from '@harness/sdk'`
+
+Agents by a pattern over their qualified names. `*` alone is every agent; any other pattern is `system/local`, where
+each `*` stands for any run of characters (none included) on its own side of the `/`: it crosses `.`, never `/`.
+Case counts, and `**` is refused. A string without `*` doesn't compile: one agent is named by its ref.
+
+```ts
+type AgentPattern = '*' | `${string}*${string}/${string}` | `${string}/${string}*${string}`;
+```
+
+#### `agents`
+
+const · `import { agents } from '@harness/sdk'`
+
+Patterns built from refs, so renaming an agent or a system breaks the build instead of the match.
+
+```ts
+const agents: { readonly all: "*"; readonly of: <const S extends string>(system: { readonly name: S extends `${string}/${string}` ? never : S; }) => `${S}/*`; readonly startingWith: <const N extends QualifiedName>(agent: AgentRef<N>) => `${N}*`; };
+```
+
+Refers to: [`QualifiedName`](#core-qualifiedname).
+
 ## 14. Hooks
 
 A **hook** adds information to each user message before the LLM sees it (the git branch, the pinned notes, the open
@@ -4968,10 +5090,11 @@ hooks: {
 
 function · `import { hook } from '@harness/sdk'`
 
-Declare a hook. Defaults: order 100, timeout 1000 ms.
+Declare a hook. Defaults: order 100, timeout 1000 ms. `explains` says what its block (`<fs_git>`) means to the model;
+a new or changed `explains` waits for an admin's review like any injection.
 
 ```ts
-function hook(def: { description: string; order?: number; timeout?: Duration; }): HookDef;
+function hook(def: { description: string; explains?: string; order?: number; timeout?: Duration; }): HookDef;
 ```
 
 Refers to: [`Duration`](#core-duration).
@@ -4985,6 +5108,8 @@ A system's user-message hook: adds information to a message before the LLM sees 
 ```ts
 interface HookDef {
   readonly description: string;
+  /** What its block means to the model: injected with its system's items into the agents that get its blocks. */
+  readonly explains: string | undefined;
   /** Lower runs first. */
   readonly order: number;
   /** After this the message goes on without it. */
@@ -5566,26 +5691,35 @@ This is the hub contract as the SDK declares it now:
 
 #### Fns of `hub`
 
-- `hub/load_fns`: Add fns to your tools for the rest of this chat, by their full names (`system/name`): each becomes a tool you can call from your next step. Tags: `read`.
-
-  ```text
-  (obj{fns: list<text>{minLength=1}}) => obj{ loaded, refused, cards … }
-  ```
-- `hub/drop_fns`: Remove fns from your toolset. Tags: `read`.
-
-  ```text
-  (obj{fns: list<text>{minLength=1}}) => obj{dropped: list<text>}
-  ```
-- `hub/fns_search`: Search fns and context in the hub by words, meaning or both, best first or by name, filtered by kind, system, instance, who shares them, the types they read or write and their mode, a page at a time. Tags: `read`.
-
-  ```text
-  (obj{ text?, match?, items?, kinds?, systems?, instance?, visibility?, types?, modes?, effects?, names?, available?, niches?, order?, offset?, limit? … }) => obj{ items, next?, filtered? … }
-  ```
-- `hub/fn_examples`: A page of one fn's example calls (its args, the result when kept, and what each shows), the closest to what you are about to do first. Tags: `read`.
+- `hub/fns_load`: Add fns to your tools for the rest of this chat, by their full names (`system/name`): each becomes a tool you can call from your next step. Tags: `read`.
 
   ```text
   (obj{
-    fn: text,
+    fns: list<text{pattern="^[a-z]\\S*$"}>{minLength=1}
+  }) => obj{ loaded, refused, cards … }
+  ```
+- `hub/fns_drop`: Remove fns from your tools. Tags: `read`.
+
+  ```text
+  (obj{
+    fns: list<text{pattern="^[a-z]\\S*$"}>{minLength=1}
+  }) => obj{dropped: list<text>}
+  ```
+- `hub/fns_search`: Search fns in the hub by words, meaning or both, best first or by name, filtered by system, instance, who shares them, the types they read or write and their mode, a page at a time. Tags: `read`.
+
+  ```text
+  (obj{ text?, kinds?, systems?, instance?, visibility?, types?, modes?, effects?, names?, available?, niches?, order?, offset?, limit? … }) => obj{ items, next?, filtered?, loaded? … }
+  ```
+- `hub/ctx_search`: Search context (guides, memories, pieces of files) by words or meaning, a page at a time. Tags: `read`.
+
+  ```text
+  (obj{ text?, systems?, origins?, scopes?, tags?, names?, niches?, order?, offset?, limit? … }) => obj{ items, next?, filtered?, loaded? … }
+  ```
+- `hub/fns_examples`: A page of one fn's example calls (its args, the result when kept, and what each shows), the closest to what you are about to do first. Tags: `read`.
+
+  ```text
+  (obj{
+    /* A fn's name, as your tools spell it. */ fn: text{pattern="^[a-z]\\S*$"},
     query?: text,
     offset?: num{whole=true, min=0},
     limit?: num{whole=true, min=1, max=50}
@@ -5596,24 +5730,27 @@ This is the hub contract as the SDK declares it now:
     next?: num{whole=true, min=0}
   }
   ```
-- `hub/fn_get`: One fn as the hub keeps it: its kind, description, instructions, payload (for a fn of a kind), version and where it runs. Tags: `read`.
+- `hub/fns_get`: One fn as the hub keeps it: its kind, description, instructions, payload (for a fn of a kind), version and where it runs. Tags: `read`.
 
   ```text
-  (obj{
-    /* The qualified fn name. */ fn: text{minLength=1}
-  }) => obj{ fn, kind, description, instructions?, payload?, version, owner?, routing?, available, blocked?, args?, returns?, live? … }
+  (obj{fn: text{pattern="^[a-z]\\S*$"}}) => obj{ fn, kind, description, instructions?, payload?, version, owner?, routing?, available, blocked?, args?, returns?, live? … }
   ```
-- `hub/save_fn`: Keep a fn of one of the calling system's kinds in the hub (a saved form, a saved query), owned by the run's person and shared as asked. Saving a name again keeps the old version in its history. Tags: `own`.
+- `hub/fns_save`: Keep a fn of one of the calling system's kinds in the hub (a saved form, a saved query), owned by the run's person and shared as asked. Saving a name again keeps the old version in its history. Tags: `own`.
 
   ```text
-  (obj{ kind, name, description, instructions?, payload, examples?, tags?, share?, routing?, replace? … }) => obj{fn: text, version: num{min=1, whole=true}, created: bool}
+  (obj{ kind, name, description, instructions?, payload, examples?, tags?, share?, routing?, replace? … }) => obj{fn: text{pattern="^[a-z]\\S*$"}, version: num{min=1, whole=true}, created: bool}
   ```
-- `hub/load_context`: Load context items (guides, memories, pieces of files) into this chat by their full names: their text is in your prompt from your next step, with what they import, and the fns they bring join your tools. Tags: `read`.
+- `hub/ctx_load`: Load context items (guides, memories, pieces of files) into this chat by their full names: their text is in your prompt from your next step, with what they import, and the fns they bring join your tools. Tags: `read`.
 
   ```text
   (obj{context: list<text>{minLength=1}}) => obj{ loaded, fns, fnsRefused, refused, cards … }
   ```
-- `hub/context_crawl`: Gather the context a task needs by following context links from starting keys, a level at a time, with the decision model choosing which links to follow. Tags: `read`.
+- `hub/ctx_drop`: Take context items out of this chat: their text leaves your prompt from your next step. Tags: `read`.
+
+  ```text
+  (obj{context: list<text>{minLength=1}}) => obj{dropped: list<text>}
+  ```
+- `hub/ctx_crawl`: Gather the context a task needs by following context links from starting keys, a level at a time, with the decision model choosing which links to follow. Tags: `read`.
 
   ```text
   (obj{
@@ -5697,7 +5834,7 @@ This is the hub contract as the SDK declares it now:
 
   ```text
   (obj{
-    name: text{minLength=1},
+    name: text{pattern="^[a-z]\\S*$"},
     detail?: enum<text>{listed, signature, full}
   }) => obj{
     name: text,
@@ -5710,14 +5847,16 @@ This is the hub contract as the SDK declares it now:
 
   ```text
   (obj{
-    names: list<text>{minLength=1},
+    names: list<text{pattern="^[a-z]\\S*$"}>{minLength=1},
     detail?: enum<text>{listed, signature, full}
   }) => obj{ loaded, refused … }
   ```
 - `hub/unload`: Take fns and context out of what you keep in front of you. Tags: `read`.
 
   ```text
-  (obj{names: list<text>{minLength=1}}) => obj{
+  (obj{
+    names: list<text{pattern="^[a-z]\\S*$"}>{minLength=1}
+  }) => obj{
     unloaded: list<text>,
     refused: list<obj{name: text, reason: text}>
   }
@@ -5777,7 +5916,7 @@ This is the hub contract as the SDK declares it now:
     rows?: obj{table: text, from: num{whole=true, min=0}, to: num{whole=true, min=0}}
   }) => obj{ uri, form, text, offset, total, truncated, forms, offers … }
   ```
-- `hub/context_get`: One context item (a guide, skill, memory or piece of a resource) with its text and its links both ways. Tags: `read`.
+- `hub/ctx_get`: One context item (a guide, skill, memory or piece of a resource) with its text and its links both ways. Tags: `read`.
 
   ```text
   (obj{name: text}) => obj{ record, links, backlinks, text? … }
@@ -5812,11 +5951,11 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{ cursor?, limit?, run?, query? … }) => obj{ items, cursor? … }
   ```
-- `hub/fn_metrics`: How fns have been doing: runs, outcomes, retries, durations (p50, p95), queue waits, cost and tokens. Tags: `read`.
+- `hub/fns_metrics`: How fns have been doing: runs, outcomes, retries, durations (p50, p95), queue waits, cost and tokens. Tags: `read`.
 
   ```text
   (obj{
-    fn?: text,
+    fn?: text{pattern="^[a-z]\\S*$"},
     system?: text,
     days?: num{whole=true, min=1, max=365}
   }) => list<obj{ fn, system, from, to, runs, outcomes, p50?, p95?, averageQueued?, averageCost, cost, tokens, retries, lastRunAt? … }>
@@ -5947,27 +6086,15 @@ This is the hub contract as the SDK declares it now:
     referencedBy: num{whole=true, min=0}
   }
   ```
-- `hub/context_from_resource`: Make context items from a resource (one per section, under an outline parent), or update the ones made before.
+- `hub/ctx_from_resource`: Make context items from a resource (one per section, under an outline parent), or update the ones made before.
 
   ```text
-  (obj{
-    uri: text,
-    sections?: list<text{minLength=1}>,
-    copy?: enum<text>{live, snapshot},
-    weight?: num{min=0, max=2},
-    tags?: list<text{minLength=1}>,
-    fns?: list<text>,
-    suggestFns?: list<text>,
-    alwaysFor?: list<text>,
-    command?: text,
-    visible?: enum<text>{user, llm, both, none},
-    suggest?: enum<text>{user, llm, both, none}
-  }) => obj{created: list<text>, updated: list<text>, links: num{whole=true, min=0}}
+  (obj{ uri, sections?, copy?, weight?, tags?, fns?, suggestFns?, inject?, command?, visible?, suggest? … }) => obj{created: list<text>, updated: list<text>, links: num{whole=true, min=0}}
   ```
 - `hub/remember`: Keep a fact for later as a memory (a context item): for this chat, for the person in all their chats, or for everyone.
 
   ```text
-  (obj{ text, title?, scope?, about?, weight?, summary?, tags?, fns?, suggestFns?, alwaysFor?, command?, visible?, suggest?, parent? … }) => obj{name: text}
+  (obj{ text, title?, scope?, about?, weight?, summary?, tags?, fns?, suggestFns?, inject?, command?, visible?, suggest?, parent? … }) => obj{name: text}
   ```
 - `hub/forget`: Forget a memory.
 
@@ -6006,14 +6133,14 @@ This is the hub contract as the SDK declares it now:
 - `hub/memory_update`: Change a memory: its text, title, weight, tags, the fns it brings or where it applies.
 
   ```text
-  (obj{ text?, title?, about?, weight?, summary?, tags?, fns?, suggestFns?, alwaysFor?, command?, visible?, suggest?, parent?, name, clear? … }) => obj{name: text}
+  (obj{ text?, title?, about?, weight?, summary?, tags?, fns?, suggestFns?, inject?, command?, visible?, suggest?, parent?, name, clear? … }) => obj{name: text}
   ```
-- `hub/context_link`: Link a context item to another item (context, fn, type or resource), with a relation and weight.
+- `hub/ctx_link`: Link a context item to another item (context, fn, type or resource), with a relation and weight.
 
   ```text
   (obj{ from, to, relation, weight … }) => obj{ from, to, toKey, relation, weight, source, uses?, by?, updatedAt … }
   ```
-- `hub/context_unlink`: Remove one link from a context item.
+- `hub/ctx_unlink`: Remove one link from a context item.
 
   ```text
   (obj{
@@ -6521,12 +6648,12 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{system: text, instance: text}) => obj{ok: bool}
   ```
-- `hub/suggest_decision_set`: Choose who picks what each message is offered: none (no model: the best by similarity over the threshold), a decision model (one yes/no question per candidate, the decide role's threshold), or an LLM; and how many candidates it sees and picks. Tags: `admin`.
+- `hub/suggest_decision_set`: Choose who picks what each message is offered: none (no model: the best by similarity over the threshold), a decision model (one yes/no question per candidate, the decide role's threshold), or an LLM; how many candidates it sees and picks; and a model's action: suggest (cards the chat model may load, the default) or load (what it picks is loaded for the turn: fns join the tools, context is brought into the message). Tags: `admin`.
 
   ```text
-  (obj{ by, messages?, candidates?, cap?, floor?, model? … }) => obj{ value, setBy?, updatedAt? … }
+  (obj{ by, messages?, candidates?, cap?, floor?, model?, action? … }) => obj{ value, setBy?, updatedAt? … }
   ```
-- `hub/search_decision_set`: Choose who filters search hits before they are returned, for fns or for context: none (as ranked), a decision model (one yes/no question per hit, kept at the decide role's threshold) or an LLM. Tags: `admin`.
+- `hub/search_decision_set`: Choose who filters search hits before they are returned, for fns or for context: none (as ranked), a decision model (one yes/no question per hit, kept at the decide role's threshold) or an LLM; and a model's action: suggest (the kept hits are returned, the default) or load (hub/fns_search, for fns, and hub/ctx_search, for context, in a chat also load the best kept hits, up to the hub's limit, and say so). Tags: `admin`.
 
   ```text
   (obj{ item, value … }) => obj{ fn, context … }
@@ -6734,7 +6861,11 @@ This is the hub contract as the SDK declares it now:
       threshold?: num{min=0},
       evaluate?: enum<text>{perMessage, perIteration}
     }>,
-    maxOutput?: num{whole=true, min=16}
+    maxOutput?: num{whole=true, min=16},
+    injected?: or<literal<text>{value="none"}, obj{
+      detail?: enum<text>{full, summary},
+      maxTokens?: num{whole=true, min=1}
+    }>
   }
   ```
 
@@ -6774,7 +6905,7 @@ The hub's contract.
 const hub: typeof hub; // too large to print: see its section
 ```
 
-Refers to: [`ContextCrawlArgs`](#core-contextcrawlargs), [`ContextCrawlResult`](#core-contextcrawlresult), [`ContributionView`](#core-contributionview), [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnSearchArgs`](#core-fnsearchargs), [`FnSearchPage`](#core-fnsearchpage), [`LoadContextResult`](#core-loadcontextresult), [`LoadFnsResult`](#core-loadfnsresult), [`MintMcpTokenArgs`](#core-mintmcptokenargs), [`NameRefusal`](#core-namerefusal), [`ReadTableArgs`](#core-readtableargs), [`ResourceOutlineArgs`](#core-resourceoutlineargs), [`ResourceSendArgs`](#core-resourcesendargs), [`ResultTable`](#core-resulttable), [`RowActionsQuery`](#core-rowactionsquery), [`Section`](#core-section), [`WidgetActionOption`](#core-widgetactionoption).
+Refers to: [`ContextCrawlArgs`](#core-contextcrawlargs), [`ContextCrawlResult`](#core-contextcrawlresult), [`ContributionView`](#core-contributionview), [`CtxSearchArgs`](#core-ctxsearchargs), [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnSearchArgs`](#core-fnsearchargs), [`FnSearchPage`](#core-fnsearchpage), [`LoadContextResult`](#core-loadcontextresult), [`LoadFnsResult`](#core-loadfnsresult), [`MintMcpTokenArgs`](#core-mintmcptokenargs), [`NameRefusal`](#core-namerefusal), [`ReadTableArgs`](#core-readtableargs), [`ResourceOutlineArgs`](#core-resourceoutlineargs), [`ResourceSendArgs`](#core-resourcesendargs), [`ResultTable`](#core-resulttable), [`RowActionsQuery`](#core-rowactionsquery), [`Section`](#core-section), [`WidgetActionOption`](#core-widgetactionoption).
 
 #### `HubContract`
 
@@ -6862,14 +6993,14 @@ endpoint. Each is tagged `read`; the hub runs the same operation as the endpoint
 const HUB_READ_ENDPOINTS = {
   resource_list: resourcesSlice.endpoints.browseResources,
   resource_read: resourcesSlice.endpoints.readResource,
-  context_get: contextSlice.endpoints.contextItem,
+  ctx_get: contextSlice.endpoints.contextItem,
   types_get: chatSlice.endpoints.types,
   runs_list: adminSlice.endpoints.runs,
   run_get: runsSlice.endpoints.run,
   run_tree: runsSlice.endpoints.tree,
   llm_call: runsSlice.endpoints.llmCall,
   model_calls: metricsSlice.endpoints.modelCalls,
-  fn_metrics: metricsSlice.endpoints.fnMetrics,
+  fns_metrics: metricsSlice.endpoints.fnMetrics,
   sessions_list: chatSlice.endpoints.sessions,
   session_messages: chatSlice.endpoints.messages,
   systems_list: systemsSlice.endpoints.systems,
@@ -6910,7 +7041,7 @@ const HUB_WRITE_ENDPOINTS = {
   resource_import: resourcesSlice.endpoints.importResource,
   resource_rename: resourcesSlice.endpoints.renameResource,
   resource_delete: resourcesSlice.endpoints.deleteResource,
-  context_from_resource: resourcesSlice.endpoints.contextFromResource,
+  ctx_from_resource: resourcesSlice.endpoints.contextFromResource,
   remember: contextSlice.endpoints.remember,
   forget: contextSlice.endpoints.forget,
 } as const satisfies Record<string, EndpointLike>;
@@ -6943,8 +7074,8 @@ const HUB_PERSON_ENDPOINTS = {
   run_background: runsSlice.endpoints.background,
   turn_undo: runsSlice.endpoints.undoTurn,
   memory_update: contextSlice.endpoints.updateMemory,
-  context_link: contextSlice.endpoints.linkContext,
-  context_unlink: contextSlice.endpoints.unlinkContext,
+  ctx_link: contextSlice.endpoints.linkContext,
+  ctx_unlink: contextSlice.endpoints.unlinkContext,
   access_set: accessSlice.endpoints.setAccess,
   connection_update: connectionsSlice.endpoints.updateConnection,
   connection_disconnect: connectionsSlice.endpoints.disconnect,
@@ -7080,8 +7211,16 @@ const LlmPayloadType = g.obj({
   mode: g.optional(ChatModeType),
   /** What goes into each prompt (plain, suggest or graph); the hub's default (`plain`) when absent. A session may override it. */
   contextor: g.optional(ContextorType),
-  /** The most tokens one answer may take (as core's `ModelLimits.maxOutputTokens`); the model's own limit when absent. */
+  /**
+   * The most tokens one answer may take (as core's `ModelLimits.maxOutputTokens`, and never past the model's own
+   * limit); the hub's `HARNESS_AGENT_MAX_OUTPUT` when absent.
+   */
   maxOutput: g.optional(ginAs(ModelLimits.shape.maxOutputTokens.unwrap())),
+  /**
+   * How it takes its injected section (`{{injectedContext}}`): `none`, or its detail (`summary` for a small window) and
+   * a cap on the section's tokens. Absent: every item in full, uncapped.
+   */
+  injected: g.optional(ginAs(AgentInjected)),
 });
 ```
 
@@ -7135,11 +7274,11 @@ const FnErrorType: ObjType<{ class: "retry" | "caller" | "fatal"; message: strin
 
 const · `import { StoredFn } from '@harness/sdk'`
 
-A fn as `hub/fn_get` gives it.
+A fn as `hub/fns_get` gives it.
 
 ```ts
 const StoredFn = g.obj({
-  fn: g.text(),
+  fn: g.fnName(),
   kind: g.text(),
   description: g.text(),
   instructions: g.optional(g.text()),
@@ -7167,7 +7306,7 @@ Refers to: [`FnBlock`](#core-fnblock), [`FnLive`](#core-fnlive), [`FnRouting`](#
 
 const · `import { SaveFnArgs } from '@harness/sdk'`
 
-`hub/save_fn`'s args.
+`hub/fns_save`'s args.
 
 ```ts
 const SaveFnArgs = g.obj({
@@ -7190,7 +7329,7 @@ Refers to: [`FnExample`](#core-fnexample), [`FnRouting`](#core-fnrouting), [`Sha
 
 const · `import { SAVE_FN_TAKEN } from '@harness/sdk'`
 
-The error code `hub/save_fn` fails with (class `caller`) when the name is taken and `replace` is not set.
+The error code `hub/fns_save` fails with (class `caller`) when the name is taken and `replace` is not set.
 
 ```ts
 const SAVE_FN_TAKEN: "fn-taken";
@@ -7368,19 +7507,6 @@ Where the MCP face listens: stdin/stdout, or MCP Streamable HTTP on a port (any 
 ```ts
 type McpServe = { stdio: true } | { http: { port: number; host?: string } };
 ```
-
-#### `mcpToolNameOf`
-
-function · `import { mcpToolNameOf } from '@harness/sdk/server'`
-
-A fn's MCP tool name: `<system>_<local>` in the characters MCP allows (`mcpToolName`; a system name never holds
-`_`). One name for a fn wherever an MCP offers it: a system's own MCP face and the hub's MCPs.
-
-```ts
-function mcpToolNameOf(fn: QualifiedName): string;
-```
-
-Refers to: [`QualifiedName`](#core-qualifiedname).
 
 #### `RunningSystem`
 
@@ -12302,7 +12428,7 @@ class FakeHub {
   readonly content: Map<string, Uint8Array<ArrayBufferLike>>;
   /** A resource's outline by URI (`resourceSections`); a URI not here has no sections. */
   readonly sections: Map<string, { key: SectionKey; path: string[]; title: string; start: number; end: number; embedText?: string | undefined; form?: "code" | "description" | "table" | "text" | "markdown" | "pages" | "ocr" | "transcript" | "thumbnail" | undefined; }[]>;
-  /** The hub's kept fns (`hub/save_fn`, `hub/fn_get`, `searchFns`, `fnExamples`), in memory. */
+  /** The hub's kept fns (`hub/fns_save`, `hub/fns_get`, `searchFns`, `fnExamples`), in memory. */
   readonly fns: FakeHubFns;
   /**
   * The data system in memory (`ctx.data`): records of the stored types the system declared, or of another system's
@@ -12318,7 +12444,7 @@ class FakeHub {
   /** The hub's widget fns (`hub/read_table`, `hub/visuals`, `hub/row_actions`), in memory. */
   readonly widgets: FakeHubWidgets;
   /**
-  * Settles a child call. Default: `hub/save_fn` and `hub/fn_get` by `fns`, the widget fns by `widgets`, anything else
+  * Settles a child call. Default: `hub/fns_save` and `hub/fns_get` by `fns`, the widget fns by `widgets`, anything else
   * done with `null`.
   */
   onCall: (call: FakeHub['calls'][number]) => Promise<RunSettled>;
@@ -12618,12 +12744,12 @@ The hub's kept fns in memory.
 ```ts
 class FakeHubFns {
   readonly kept: Map<string, KeptFn>;
-  /** The hub fns called and link searches made, in order (`hub/save_fn`, `searchFns`, …). */
+  /** The hub fns called and link searches made, in order (`hub/fns_save`, `searchFns`, …). */
   readonly called: string[];
-  /** Settle a call to `hub/save_fn` or `hub/fn_get`; `undefined` for any other fn. */
+  /** Settle a call to `hub/fns_save` or `hub/fns_get`; `undefined` for any other fn. */
   settle(call: HubCall): RunSettled | undefined;
-  /** Keep a fn as `hub/save_fn` does; a taken name without `replace` throws with `SAVE_FN_TAKEN`. */
-  save(args: Infer<typeof SaveFnArgs>): Infer<typeof hub.fns.save_fn.returns>;
+  /** Keep a fn as `hub/fns_save` does; a taken name without `replace` throws with `SAVE_FN_TAKEN`. */
+  save(args: Infer<typeof SaveFnArgs>): Infer<typeof hub.fns.fns_save.returns>;
   /** Search the kept fns as the link's `searchFns` does, by words, with the kind, system, instance and name filters. */
   search(query: FnSearchQuery): FnSearchPage;
   /** A page of a kept fn's examples, as the link's `fnExamples` gives it (in their saved order). */
@@ -12641,13 +12767,15 @@ A fn kept in the fake hub: the latest save, its version and the saves before it.
 
 ```ts
 interface KeptFn {
-  readonly fn: string;
+  readonly fn: QualifiedName;
   readonly saved: Infer<typeof SaveFnArgs>;
   readonly version: number;
   /** Every earlier save, oldest first. */
   readonly history: ReadonlyArray<Infer<typeof SaveFnArgs>>;
 }
 ```
+
+Refers to: [`QualifiedName`](#core-qualifiedname).
 
 #### `FakeHubWidgets`
 
@@ -12821,6 +12949,11 @@ interface KnownNames {
   readonly fns: ReadonlySet<string>;
   /** Context it may link to besides its own files, qualified (its contract's and others'). */
   readonly context: ReadonlySet<string>;
+  /**
+   * The agents (`hub/llm` fns) an `inject.into` may name exactly. Absent, any fn it may link to is taken; the hub
+   * refuses one that is no agent when the system declares it.
+   */
+  readonly agents?: ReadonlySet<string>;
 }
 ```
 
@@ -13867,6 +14000,63 @@ reason given. If you see one of these errors, the fix is in the reason.
 
   ```ts
   void runningFs.add('bad', fn({ description: 'Bad.', args: g.obj({}), returns: g.num() }), { async run(_a, ctx) { return ctx.done('x'); } });
+  ```
+- **A target without `*` is a string, not a pattern: name one agent by its ref.**
+
+  ```ts
+  const exact: AgentPattern = 'crm/reviewer';
+  ```
+- **A target without `*` as a string doesn't compile.**
+
+  ```ts
+  context({ description: 'Wrong.', content: 'x', inject: { into: ['crm/reviewer'] } });
+  ```
+- **A plain fn's ref is not an agent, so it can't be a target.**
+
+  ```ts
+  context({ description: 'Wrong.', content: 'x', inject: { into: [crm.fns.lookup] } });
+  ```
+- **A context ref is not an agent either.**
+
+  ```ts
+  context({ description: 'Wrong.', content: 'x', inject: { into: [crm.context.deals] } });
+  ```
+- **At least one target.**
+
+  ```ts
+  context({ description: 'Wrong.', content: 'x', inject: { into: [] } });
+  ```
+- **A mode is tools or static.**
+
+  ```ts
+  context({ description: 'Wrong.', content: 'x', inject: { into: ['*'], mode: 'graph' } });
+  ```
+- **Requires takes fn refs, not names.**
+
+  ```ts
+  context({ description: 'Wrong.', content: 'x', inject: { into: ['*'], requires: ['crm/lookup'] } });
+  ```
+- **A plain fn's ref is not an agent for startingWith.**
+
+  ```ts
+  agents.startingWith(crm.fns.lookup);
+  ```
+- **Agents.of takes a system, not a fn.**
+
+  ```ts
+  agents.of(crm.fns.reviewer);
+  ```
+- **A detail is full or summary.**
+
+  ```ts
+  // an agent's injected section: a detail and a cap, or none
+  agent({ description: 'x', args: g.obj({}), returns: g.text(), instructions: 'x', injected: { detail: 'brief' } });
+  ```
+- **Explains is text.**
+
+  ```ts
+  // a hook's explains is text
+  hook({ description: 'x', explains: 42 });
   ```
 - **`paht` is not one of the args.**
 
@@ -15432,7 +15622,7 @@ export const fs = system('fs', {
           'Before anything is asked, the folder is typechecked with its own tsconfig.json, bundled and scanned. When that fails the call comes back as invalid input with `file:line:col message` lines: fix each one with fs/edit and call again.',
           'A good build becomes a card for an admin with what the system adds, its scan and its hashes; nothing runs until they approve. If it exits before it connects, the call comes back with its exit code and the end of its output, so you can fix the crash.',
           'The name in system.json must be the contract\'s name. `hub`, and the name of a system that runs somewhere else, are refused unless `replace` is set (the card then says what it replaces).',
-          'Once it is running, load its fns with hub/load_fns to call them. When it needs config, ask the person for it (its page has the form).',
+          'Once it is running, load its fns with hub/fns_load to call them. When it needs config, ask the person for it (its page has the form).',
         ].join(' '),
         examples: [
           {
@@ -15459,7 +15649,7 @@ export const fs = system('fs', {
       }),
 ```
 
-#### `systems/fs/shared/index.ts`, lines 371-513
+#### `systems/fs/shared/index.ts`, lines 371-512
 
 ```ts
       system_status: fn({
@@ -15549,7 +15739,6 @@ export const fs = system('fs', {
         command: { name: 'new-system' },
         imports: [{ ref: 'context', name: 'fs/authoring' }],
         fns: [fns.read, fns.write, fns.edit, fns.bash, fns.install_system, fns.system_status],
-        alwaysFor: [],
       }),
     },
   }))
@@ -17362,7 +17551,7 @@ type ApprovalPreview = {
       removed: number;
     }[];
     flags: {
-      flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns";
+      flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns" | "injects";
       line: string;
       items: string[];
       lead?: string | undefined;
@@ -17539,7 +17728,7 @@ type ApprovedRun = {
         removed: number;
       }[];
       flags: {
-        flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns";
+        flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns" | "injects";
         line: string;
         items: string[];
         lead?: string | undefined;
@@ -17906,7 +18095,7 @@ type RunConnection = {
 
 const, type · declared in `packages/core/src/context-files.ts`
 
-`hub/context_crawl`'s args (see `CRAWL_DEFAULTS` for how a crawl walks the graph).
+`hub/ctx_crawl`'s args (see `CRAWL_DEFAULTS` for how a crawl walks the graph).
 
 ```ts
 type ContextCrawlArgs = {
@@ -17923,8 +18112,8 @@ type ContextCrawlArgs = {
 
 const, type · declared in `packages/core/src/context-files.ts`
 
-What `hub/context_crawl` did: the items it took (`crawled`, in the order taken), those loaded into the session as
-`hub/load_context` loads them (none when metadata only) with the fns they brought, the starting names it refused,
+What `hub/ctx_crawl` did: the items it took (`crawled`, in the order taken), those loaded into the session as
+`hub/ctx_load` loads them (none when metadata only) with the fns they brought, the starting names it refused,
 the links it skipped, why it stopped, and what it spent: the decide calls (`calls`, each a model call), the questions
 asked and the tokens gathered. The model reads only its `cards` (`LoadCards`).
 
@@ -17980,7 +18169,8 @@ const, type · declared in `packages/core/src/context-files.ts`
 
 The YAML header of a context file: `ContextDecl` without its content (the body is the content), with `key` for its
 name and the lists optional. A summary is required, so every item has a short form for small models. Every link
-(`fns`, `imports`, `choices`, `links`, `parent`, `next`, `alwaysFor`) is a qualified name.
+(`fns`, `imports`, `choices`, `links`, `parent`, `next`) is a qualified name; `inject.into` holds exact agent names
+or patterns (`inject: { into: ['hub/chat*'], order: 40 }`).
 
 ```ts
 type ContextFileHeader = {
@@ -17992,7 +18182,6 @@ type ContextFileHeader = {
   suggestFns: `${string}/${string}`[];
   suggest: "user" | "llm" | "none" | "both";
   visible: "user" | "llm" | "none" | "both";
-  alwaysFor: `${string}/${string}`[];
   tags: string[];
   title?: string | undefined;
   links?: {
@@ -18016,6 +18205,12 @@ type ContextFileHeader = {
   weight?: number | undefined;
   niche?: "admin" | "developer" | "reference" | undefined;
   next?: `${string}/${string}` | undefined;
+  inject?: {
+    into: string[];
+    order: number;
+    requires: `${string}/${string}`[];
+    mode?: "tools" | "static" | undefined;
+  } | undefined;
   command?: {
     name: string;
     args: {
@@ -18060,7 +18255,7 @@ type ContextFileProblemCode = "header" | "duplicate-key" | "broken-link" | "cycl
 
 const, type · declared in `packages/core/src/context-files.ts`
 
-What `hub/load_context` did: the context it loaded (with what each loads with it, every time), the fns that context
+What `hub/ctx_load` did: the context it loaded (with what each loads with it, every time), the fns that context
 brings that went into the session's tools, the fns it brings that could not (`fnsRefused`, each with what blocks it), and
 what it refused, each with the closest names it knows. The model reads only its `cards` (`LoadCards`).
 
@@ -18087,7 +18282,7 @@ type LoadContextResult = {
 
 const, type · declared in `packages/core/src/context-files.ts`
 
-What `hub/load_fns` did: the fns that went into the session's tools, and the names it refused, each with what blocks
+What `hub/fns_load` did: the fns that went into the session's tools, and the names it refused, each with what blocks
 it. The model reads only its `cards` (`LoadCards`).
 
 ```ts
@@ -18382,8 +18577,8 @@ type DecideCandidate = {
 
 const, type · declared in `packages/core/src/fn-block.ts`
 
-What blocks a fn, as every place that refuses one says it (`hub/load_fns`, `hub/load`, the static `run`,
-`hub/load_context`'s brought fns, `hub/fns_search`'s unavailable hits, the prompt's context blocks): its code, the
+What blocks a fn, as every place that refuses one says it (`hub/fns_load`, `hub/load`, the static `run`,
+`hub/ctx_load`'s brought fns, `hub/fns_search`'s unavailable hits, the prompt's context blocks): its code, the
 hub's reason in words (the availability's `detail` when it is unavailable, "database/create_table changed and waits
 for an admin to approve it"), and the fn's system when the name has one, so the web can point at what holds it.
 
@@ -18427,6 +18622,29 @@ type CostEstimate = {
   max: number;
   basis: "unknown" | "history" | "payload" | "free";
   runs: number;
+};
+```
+
+#### <a id="core-ctxsearchargs"></a>`CtxSearchArgs`
+
+const, type · declared in `packages/core/src/fn-facts.ts`
+
+What the model may ask `hub/ctx_search` (static mode's `find_ctx`): context only (guides, memories, pieces of
+files), by words or meaning, filtered by system, origin (`system`, `memory`, `resource`), a memory's scope and tags.
+It is the one search too: `ctxSearchQuery` turns it into a `FnSearchQuery` of context items.
+
+```ts
+type CtxSearchArgs = {
+  text?: string | undefined;
+  systems?: SystemName[] | undefined;
+  origins?: ("system" | "memory" | "resource")[] | undefined;
+  scopes?: ("user" | "session" | "everyone")[] | undefined;
+  tags?: string[] | undefined;
+  names?: `${string}/${string}`[] | undefined;
+  niches?: ("admin" | "developer" | "reference")[] | undefined;
+  order?: "name" | "rank" | undefined;
+  offset?: number | undefined;
+  limit?: number | undefined;
 };
 ```
 
@@ -18490,8 +18708,9 @@ type FnExamplesQuery = {
 
 const, type · declared in `packages/core/src/fn-facts.ts`
 
-What the model may ask `hub/fns_search` (static mode's `find`): the query without the context page's own `filters`
-and `off`, which are the page's, so the tool's spec in every prompt stays small.
+What the model may ask `hub/fns_search` (static mode's `find`): fns only. The query without `items` (it finds fns,
+never context: that is `hub/ctx_search`), the context-only filters, the context page's own `filters` and `off`, and
+`match` (the search merges words and meaning itself), so the tool's spec in every prompt stays small.
 
 ```ts
 type FnSearchArgs = {
@@ -18503,12 +18722,9 @@ type FnSearchArgs = {
   visibility?: "shared" | "public" | "mine" | undefined;
   text?: string | undefined;
   names?: `${string}/${string}`[] | undefined;
-  items?: ("fn" | "context")[] | undefined;
   offset?: number | undefined;
   limit?: number | undefined;
-  kinds?: (`${string}/${string}` | "native")[] | undefined;
   systems?: SystemName[] | undefined;
-  match?: "text" | "semantic" | "hybrid" | undefined;
   modes?: ("read" | "write" | "delete")[] | undefined;
   effects?: {
     thing: "types" | "records" | "fns" | "context" | "examples" | "kinds" | "resources" | "components" | "approvals" | "secrets" | "connections";
@@ -18518,6 +18734,7 @@ type FnSearchArgs = {
   available?: boolean | undefined;
   niches?: ("admin" | "developer" | "reference")[] | undefined;
   order?: "name" | "rank" | undefined;
+  kinds?: (`${string}/${string}` | "native")[] | undefined;
 };
 ```
 
@@ -18527,6 +18744,7 @@ const, type · declared in `packages/core/src/fn-facts.ts`
 
 A page of hits; `next` is the offset of the next page, absent on the last. `filtered`: what the admin's search
 decisions dropped from this page (a page can then hold fewer hits than its limit while another follows).
+`loaded`: what `hub/fns_search` or `hub/ctx_search` loaded of the kept hits (a decision whose action is `load`).
 
 ```ts
 type FnSearchPage = {
@@ -18566,7 +18784,13 @@ type FnSearchPage = {
     }[];
     calls?: string[] | undefined;
     failed?: string | undefined;
+    action?: "load" | undefined;
   }[] | undefined;
+  loaded?: {
+    fns: `${string}/${string}`[];
+    context: `${string}/${string}`[];
+    note: string;
+  } | undefined;
 };
 ```
 
@@ -18621,6 +18845,7 @@ type FnSearchQuery = {
     op: "empty" | "notEmpty";
   })[] | undefined;
   off?: boolean | undefined;
+  scopes?: ("user" | "session" | "everyone")[] | undefined;
   available?: boolean | undefined;
   niches?: ("admin" | "developer" | "reference")[] | undefined;
   order?: "name" | "rank" | undefined;
@@ -18889,7 +19114,7 @@ type PreviewAnswer = {
         removed: number;
       }[];
       flags: {
-        flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns";
+        flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns" | "injects";
         line: string;
         items: string[];
         lead?: string | undefined;
@@ -19074,6 +19299,7 @@ type PreviewAnswer = {
           action: "create" | "update" | "remove";
           kind?: `${string}/${string}` | "native" | undefined;
         }[] | undefined;
+        keeps?: "resources"[] | undefined;
       } | undefined;
       promptExamples?: number | undefined;
       group?: string | undefined;
@@ -19093,7 +19319,6 @@ type PreviewAnswer = {
       suggestFns: `${string}/${string}`[];
       suggest: "user" | "llm" | "none" | "both";
       visible: "user" | "llm" | "none" | "both";
-      alwaysFor: `${string}/${string}`[];
       tags: string[];
       title?: string | undefined;
       content?: string | undefined;
@@ -19104,6 +19329,12 @@ type PreviewAnswer = {
           hint: string;
           required: boolean;
         }[];
+      } | undefined;
+      inject?: {
+        into: string[];
+        order: number;
+        requires: `${string}/${string}`[];
+        mode?: "tools" | "static" | undefined;
       } | undefined;
       niche?: "admin" | "developer" | "reference" | undefined;
       weight?: number | undefined;
@@ -19138,6 +19369,7 @@ type PreviewAnswer = {
       description: string;
       order: number;
       timeout: number;
+      explains?: string | undefined;
     }[];
     mentions: {
       name: string;
@@ -19475,6 +19707,7 @@ type RunRequest = {
     parent?: string | undefined;
     session?: string | undefined;
     watched?: boolean | undefined;
+    inChat?: boolean | undefined;
   };
   fn: string;
   kind: `${string}/${string}` | "native";
@@ -19679,7 +19912,7 @@ type RunRequest = {
           removed: number;
         }[];
         flags: {
-          flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns";
+          flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns" | "injects";
           line: string;
           items: string[];
           lead?: string | undefined;
@@ -19933,7 +20166,6 @@ type ContextDecl = {
   suggestFns: `${string}/${string}`[];
   suggest: "user" | "llm" | "none" | "both";
   visible: "user" | "llm" | "none" | "both";
-  alwaysFor: `${string}/${string}`[];
   tags: string[];
   title?: string | undefined;
   content?: string | undefined;
@@ -19944,6 +20176,12 @@ type ContextDecl = {
       hint: string;
       required: boolean;
     }[];
+  } | undefined;
+  inject?: {
+    into: string[];
+    order: number;
+    requires: `${string}/${string}`[];
+    mode?: "tools" | "static" | undefined;
   } | undefined;
   niche?: "admin" | "developer" | "reference" | undefined;
   weight?: number | undefined;
@@ -20080,6 +20318,7 @@ type FnDecl = {
       action: "create" | "update" | "remove";
       kind?: `${string}/${string}` | "native" | undefined;
     }[] | undefined;
+    keeps?: "resources"[] | undefined;
   } | undefined;
   promptExamples?: number | undefined;
   group?: string | undefined;
@@ -20112,6 +20351,7 @@ type FnEffects = {
     action: "create" | "update" | "remove";
     kind?: `${string}/${string}` | "native" | undefined;
   }[] | undefined;
+  keeps?: "resources"[] | undefined;
 };
 ```
 
@@ -20342,6 +20582,7 @@ type KindDescription = {
       action: "create" | "update" | "remove";
       kind?: `${string}/${string}` | "native" | undefined;
     }[] | undefined;
+    keeps?: "resources"[] | undefined;
   } | undefined;
   readable?: {
     language: string;
@@ -20550,6 +20791,7 @@ type Manifest = {
         action: "create" | "update" | "remove";
         kind?: `${string}/${string}` | "native" | undefined;
       }[] | undefined;
+      keeps?: "resources"[] | undefined;
     } | undefined;
     promptExamples?: number | undefined;
     group?: string | undefined;
@@ -20569,7 +20811,6 @@ type Manifest = {
     suggestFns: `${string}/${string}`[];
     suggest: "user" | "llm" | "none" | "both";
     visible: "user" | "llm" | "none" | "both";
-    alwaysFor: `${string}/${string}`[];
     tags: string[];
     title?: string | undefined;
     content?: string | undefined;
@@ -20580,6 +20821,12 @@ type Manifest = {
         hint: string;
         required: boolean;
       }[];
+    } | undefined;
+    inject?: {
+      into: string[];
+      order: number;
+      requires: `${string}/${string}`[];
+      mode?: "tools" | "static" | undefined;
     } | undefined;
     niche?: "admin" | "developer" | "reference" | undefined;
     weight?: number | undefined;
@@ -20614,6 +20861,7 @@ type Manifest = {
     description: string;
     order: number;
     timeout: number;
+    explains?: string | undefined;
   }[];
   mentions: {
     name: string;
@@ -20981,6 +21229,7 @@ type ManifestPatch = {
           action: "create" | "update" | "remove";
           kind?: `${string}/${string}` | "native" | undefined;
         }[] | undefined;
+        keeps?: "resources"[] | undefined;
       } | undefined;
       promptExamples?: number | undefined;
       group?: string | undefined;
@@ -21000,7 +21249,6 @@ type ManifestPatch = {
       suggestFns: `${string}/${string}`[];
       suggest: "user" | "llm" | "none" | "both";
       visible: "user" | "llm" | "none" | "both";
-      alwaysFor: `${string}/${string}`[];
       tags: string[];
       title?: string | undefined;
       content?: string | undefined;
@@ -21011,6 +21259,12 @@ type ManifestPatch = {
           hint: string;
           required: boolean;
         }[];
+      } | undefined;
+      inject?: {
+        into: string[];
+        order: number;
+        requires: `${string}/${string}`[];
+        mode?: "tools" | "static" | undefined;
       } | undefined;
       niche?: "admin" | "developer" | "reference" | undefined;
       weight?: number | undefined;
@@ -21045,6 +21299,7 @@ type ManifestPatch = {
       description: string;
       order: number;
       timeout: number;
+      explains?: string | undefined;
     }[] | undefined;
     mentions?: {
       name: string;
@@ -22037,7 +22292,7 @@ type Approval = {
         removed: number;
       }[];
       flags: {
-        flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns";
+        flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns" | "injects";
         line: string;
         items: string[];
         lead?: string | undefined;
@@ -22128,6 +22383,9 @@ type MessagePart = {
     mime: string;
   };
   name: string;
+  uri?: `${string}://${string}` | undefined;
+  text?: string | undefined;
+  truncated?: boolean | undefined;
 } | {
   type: "input-answer";
   run: string;
@@ -22269,6 +22527,23 @@ type MessagePart = {
       fn: `${string}/${string}`;
     }[];
   }[];
+} | {
+  type: "loaded-for-you";
+  by: "llm" | "decision";
+  fns: {
+    fn: `${string}/${string}`;
+    label: string;
+    why?: string | undefined;
+    broughtBy?: `${string}/${string}` | undefined;
+  }[];
+  context: {
+    context: `${string}/${string}`;
+    text: string;
+    title?: string | undefined;
+    why?: string | undefined;
+    fns?: `${string}/${string}`[] | undefined;
+  }[];
+  toolset?: "tools" | "static" | undefined;
 };
 ```
 
@@ -23292,6 +23567,7 @@ type RunInfo = {
   parent?: string | undefined;
   session?: string | undefined;
   watched?: boolean | undefined;
+  inChat?: boolean | undefined;
 };
 ```
 

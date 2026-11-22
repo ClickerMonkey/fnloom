@@ -19,6 +19,7 @@ import {
 import { z } from 'zod';
 import { HUB_SYSTEM, systemAvailability } from '../catalog/availability.ts';
 import { installCard } from '../link/install.ts';
+import { agentNames } from '../catalog/injections.ts';
 import { DeadlineTimers, deadlineError, runDeadline, type RunDeadline } from './deadlines.ts';
 import { fnError, HubStopping, messageOf, notConnected, RunRefused, RunStopped, RunTimedOut } from './errors.ts';
 import { rows } from '../store/rows.ts';
@@ -413,7 +414,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
         ...(fn.decl.payload === undefined ? {} : { payload: fn.decl.payload }),
       }, { signal: connection.signal });
       // an install card is checked against the hub's own instances, which the system can't see
-      const checked = await installCard(answer, run.args, { instance: (ref) => this.#deps.store.table('instances').get(ref), manifest: (name) => this.#deps.catalog.manifest(name) });
+      const checked = await installCard(answer, run.args, { instance: (ref) => this.#deps.store.table('instances').get(ref), manifest: (name) => this.#deps.catalog.manifest(name), agents: () => agentNames(this.#deps.store) });
       if ('preview' in checked) return checked;
       return { refused: { status: 'invalid-input', invalid: { source: 'validation', problems: [{ path: '', message: checked.refused }] } } };
     } catch (error) {

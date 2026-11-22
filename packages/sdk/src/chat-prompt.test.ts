@@ -12,7 +12,7 @@ import { system } from './system.ts';
 
 /** Every tag the hub can put in a user message (chat/enrich.ts, chat/files.ts, chat/announce.ts, chat/cite-rule.ts, execution/agent.ts, the fs hook). */
 const MESSAGE_TAGS = [
-  'local_time', 'systems_changed', 'fs_git', 'loaded_for_you', 'suggested_fns', 'suggested_context', 'mention', 'command', 'invocation', 'attachment', 'link',
+  'local_time', 'systems_changed', 'fs_git', 'loaded_for_you', 'suggested_fns', 'suggested_ctx', 'mention', 'command', 'invocation', 'attachment', 'link',
   'input-answer', 'background-result', 'approval-result', 'citations_changed',
 ];
 
@@ -29,7 +29,7 @@ describe('the chat system prompts', () => {
 
   it('explain fns as tools, their tool spelling, loading, modes, approvals, undo and kinds', () => {
     for (const words of [
-      'A **fn** is what you know as a tool', '`hub__fns_search`', 'hub/load_fns', 'has `loaded`', 'ranked closest to what you say', 'Every fn has a **mode**',
+      'A **fn** is what you know as a tool', '`hub__fns_search`', 'hub/fns_load', 'has `loaded`', 'ranked closest to what you say', 'Every fn has a **mode**',
       'approval', 'Don\'t promise an undo a result doesn\'t offer', '**kind**', '`<systems>`',
     ]) {
       expect(CHAT_BASE).toContain(words);
@@ -97,8 +97,8 @@ describe('the chat system prompts', () => {
 
   it('give the small agent the static toolset\'s five tools', () => {
     for (const tool of ['find', 'inspect', 'load', 'unload', 'run']) expect(CHAT_SMALL_BASE).toContain(tool);
-    expect(CHAT_SMALL_BASE).not.toContain('hub/load_fns');
-    expect(CHAT_SMALL_BASE).not.toContain('hub/load_context');
+    expect(CHAT_SMALL_BASE).not.toContain('hub/fns_load');
+    expect(CHAT_SMALL_BASE).not.toContain('hub/ctx_load');
   });
 
   it('keep the substance in the small prompt: grounding, no invented setup, undo, forms, the three ways to ask, files and loaded blocks', () => {

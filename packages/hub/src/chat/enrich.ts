@@ -33,7 +33,7 @@ import { cardList, contextElement, element, fnElement } from '../contextor/xml.t
 import { LlmPayloadType, parseValue, type LlmPayload } from '@harness/sdk';
 
 /** The tags the hub's own extras carry for the LLM. */
-export const EXTRA_TAGS = { 'local-time': 'local_time', 'suggested-context': 'suggested_context', 'suggested-fns': 'suggested_fns' } as const;
+export const EXTRA_TAGS = { 'local-time': 'local_time', 'suggested-context': 'suggested_ctx', 'suggested-fns': 'suggested_fns' } as const;
 
 /** The tag each kind of suggestion block is written in. */
 const SUGGESTION_TAGS = { 'suggest-context': EXTRA_TAGS['suggested-context'], 'suggest-fns': EXTRA_TAGS['suggested-fns'] } as const;
@@ -42,11 +42,11 @@ const SUGGESTION_TAGS = { 'suggest-context': EXTRA_TAGS['suggested-context'], 's
 const ONCE = 'Nothing is suggested twice in a chat, so what was suggested earlier still stands.';
 
 /**
- * The line at the top of `<suggested_context>`, by the toolset the message was sent in: the tools mode loads context
- * with `hub/load_context`, the static toolset with its `load` tool.
+ * The line at the top of `<suggested_ctx>`, by the toolset the message was sent in: the tools mode loads context
+ * with `hub/ctx_load`, the static toolset with its `load` tool.
  */
 export const SUGGESTED_CONTEXT_LINES: Readonly<Record<ChatModeType, string>> = {
-  tools: `Context that may help: load what fits with hub/load_context (the fns it brings join your tools). ${ONCE}`,
+  tools: `Context that may help: load what fits with hub/ctx_load (the fns it brings join your tools). ${ONCE}`,
   static: `Context that may help: load what fits with load (the fns it brings come with it). ${ONCE}`,
 };
 
@@ -55,7 +55,7 @@ export const SUGGESTED_CONTEXT_LINES: Readonly<Record<ChatModeType, string>> = {
  * fn by name (its `run`); in the tools mode a fn must be loaded into the tools before it can be called.
  */
 export const SUGGESTED_FNS_LINES: Readonly<Record<ChatModeType, string>> = {
-  tools: `Fns that may help. They are not in your tools yet: load the ones you will call with hub/load_fns, then call them. One marked available="no" can't be used now: tell the person what its reason says instead. ${ONCE}`,
+  tools: `Fns that may help. They are not in your tools yet: load the ones you will call with hub/fns_load, then call them. One marked available="no" can't be used now: tell the person what its reason says instead. ${ONCE}`,
   static: `Fns that may help: run one by its name with the args its card shows. One marked available="no" can't be used now: tell the person what its reason says instead. ${ONCE}`,
 };
 
@@ -193,7 +193,7 @@ export class HubMessageEnricher implements MessageEnricher {
   }
 
   /**
-   * What a chooser with the action `load` picked, loaded for the turn as `hub/load_fns` and `hub/load_context` load:
+   * What a chooser with the action `load` picked, loaded for the turn as `hub/fns_load` and `hub/ctx_load` load:
    * each fn the session may use joins its tools (`#loads` in `chat/turns.ts` adds the part's fns when the message is
    * sent); each context item is brought into the message as its text, with its imports and the fns it brings (into
    * the tools too), best first while its text fits the room (`#contextRoom`). What was suggested or loaded before, what
@@ -221,7 +221,7 @@ export class HubMessageEnricher implements MessageEnricher {
       const main = seen.has(item.name) ? undefined : await this.#deps.catalog.context(item.name);
       if (main === undefined || contextOff(main) || !seesContextAs(access, main, session.id)) { rest.push(item); continue; }
       if (main.decl.content === undefined) { rest.push(item); outcomes.set(`context:${item.name}`, 'blocked'); continue; }
-      // it comes with what it imports, each once in the message, as hub/load_context loads it
+      // it comes with what it imports, each once in the message, as hub/ctx_load loads it
       const records: ContextRecord[] = [];
       for (const name of await withImports(this.#deps.catalog, [item.name])) {
         if (name !== item.name && (seen.has(name) || taken.context.has(name))) continue;

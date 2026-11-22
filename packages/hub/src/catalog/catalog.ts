@@ -6,7 +6,7 @@
 import type { Type } from '@aeye/gin';
 import type { Logger } from '@ayepi/log';
 import {
-  apiContextName, Json, MANIFEST_SECTION_NAMES, noFnStats, QualifiedName, qualify, roleLinkTo, runtimeNames, splitName, type ModelRole,
+  apiContextName, injectTargetProblems, Json, MANIFEST_SECTION_NAMES, noFnStats, QualifiedName, qualify, roleLinkTo, runtimeNames, splitName, type ModelRole,
   type ActorId, type Availability, type ContextDecl, type ContextRecord, type FnDecl, type FnRecord, type GinTypeDef, type ImportReport,
   type KindDecl, type KindRecord, type Manifest, type ManifestPatch, type ManifestSection, type SectionDecl,
   type InstanceName, SystemName, type TypeDecl, type TypeRecord, type DeclaredBy, type FnLink, type ApiGroupDecl,
@@ -18,12 +18,14 @@ import { removeLinksFrom, writeDerivedLinks } from '../contextor/graph.ts';
 import { contextTokens } from '../contextor/tokens.ts';
 import type { HubStore } from '../store/index.ts';
 import { AvailabilityRules, heldFns, sameAvailability, systemAvailability, systemOf, unavailable } from './availability.ts';
-import type { Catalog, CatalogEntry, FnFilter, FnSignature, KindDescriber } from './index.ts';
+import type { Catalog, CatalogEntry, CatalogFnNames, FnFilter, FnSignature, KindDescriber } from './index.ts';
+import { StoreFnNames } from './fn-names.ts';
 import { allRows, rows } from '../store/rows.ts';
 import { GinScopes, messageOf, type TypeLookup } from './scope.ts';
 import { Serial } from './serial.ts';
 import { itemChanges, writeItemVersions } from './versions.ts';
 import { apiIndexDecls, isApiIndexName } from './api-index.ts';
+import { AGENT_KIND, agentNames } from './injections.ts';
 
 /** What the catalog needs. */
 export interface CatalogOptions {
@@ -113,7 +115,7 @@ export async function manifestHashOf(manifest: Omit<Manifest, 'hash'> & { hash?:
 }
 
 /**
- * A stored fn's declaration as it was authored, for describing it again. A fn saved at runtime (`hub/save_fn`) was
+ * A stored fn's declaration as it was authored, for describing it again. A fn saved at runtime (`hub/fns_save`) was
  * declared with `any` args and result for its kind to work out, so a kind whose result changed (a saved query now
  * giving a table) describes it afresh instead of being held to the signature it worked out before.
  */
@@ -137,6 +139,10 @@ interface ImportWork {
   readonly described: Map<string, FnDecl>;
   /** The named types each described fn's payload references, from its kind's description. */
   readonly describedTypes: Map<string, readonly string[]>;
+  /** The model names this import gave out so far, so two of its fns can't share one. */
+  readonly claimed: Map<string, QualifiedName>;
+  /** The agents an injection may target: the stored ones and this import's, worked out at the first injection checked. */
+  agents?: QualifiedName[];
 }
 
 /** The catalog, kept in the hub store. */
@@ -147,12 +153,15 @@ export class StoreCatalog implements Catalog {
   readonly #manifests = new Map<string, Manifest>();
   readonly #signatures = new Map<string, { version: string; signature: FnSignature }>();
   #loaded: Promise<void> | undefined;
+  /** Every fn's model name, kept in step with what this catalog writes. */
+  readonly #names: StoreFnNames;
 
   private readonly options: CatalogOptions;
 
   constructor(options: CatalogOptions) {
     this.options = options;
     this.#scopes = options.scopes ?? new GinScopes();
+    this.#names = new StoreFnNames({ store: options.store, log: options.log, clock: options.clock });
   }
 
   // ─── Reading ──────────────────────────────────────────────────────────────
@@ -259,6 +268,11 @@ export class StoreCatalog implements Catalog {
   async check(_system: SystemName, type: GinTypeDef, value: unknown): Promise<string[]> {
     await this.#load();
     return this.#checkValue(type, value, this.#storedLookup);
+  }
+
+  async modelNames(): Promise<CatalogFnNames> {
+    await this.#load();
+    return { index: await this.#names.index(), types: this.#storedLookup };
   }
 
   // ─── Importing ────────────────────────────────────────────────────────────
@@ -745,6 +759,7 @@ export class StoreCatalog implements Catalog {
 
   /** Publish what changed, with the fn records that changed. */
   #announce(added: QualifiedName[], removed: QualifiedName[], records: FnRecord[]): void {
+    this.#names.changed(removed, records);
     this.options.bus.publish('catalog.changed', { added, removed, fns: records });
   }
 
@@ -757,13 +772,28 @@ export class StoreCatalog implements Catalog {
       attachments: (d) => this.#scopes.problems([d.data], work.lookup),
       kinds: (d) => this.#scopes.problems([d.payload], work.lookup),
       fns: async (d) => this.#checkFn(work, d, await this.fn(qualify(work.system, d.name))),
-      context: () => [],
+      context: (d) => this.#checkInject(work, d),
       hooks: () => [],
       mentions: (d) => this.#scopes.problems([d.target], work.lookup),
       sectioners: () => [],
       actions: (d) => this.#scopes.problems([d.input, d.returns, ...(d.state === undefined ? [] : [d.state])], work.lookup),
     };
     return Promise.resolve(checks[section](decl));
+  }
+
+  /**
+   * An injection's targets: an exact name must be an agent the hub has now (a stored `hub/llm` fn, or one this import
+   * declares), or the item is refused; a pattern that hits no agent yet is accepted and logged (its review card says so).
+   */
+  async #checkInject(work: ImportWork, decl: ContextDecl): Promise<string[]> {
+    if (decl.inject === undefined) { return []; }
+    work.agents ??= [...new Set([
+      ...await agentNames(this.options.store),
+      ...[...work.described.values()].filter((fn) => fn.kind === AGENT_KIND).map((fn) => qualify(work.system, fn.name)),
+    ])];
+    const { problems, warnings } = injectTargetProblems(decl.inject.into, work.agents);
+    if (warnings.length > 0) { this.options.log.warn('catalog.inject.no-agent', { context: qualify(work.system, decl.name), warnings }); }
+    return problems;
   }
 
   /** A type parses, and a change stays compatible with what other systems rely on. */
@@ -796,6 +826,9 @@ export class StoreCatalog implements Catalog {
 
   /** A fn's types parse, its kind accepts and describes its payload, and a change keeps faith with its dependents. */
   async #checkFn(work: ImportWork, decl: FnDecl, existing: FnRecord | undefined): Promise<string[]> {
+    // the name the model will call it by must read back, and be its own
+    const named = await this.#names.problem(qualify(work.system, decl.name), work.claimed);
+    if (named !== undefined) { return [named]; }
     const defs = [
       decl.args, decl.returns,
       ...[decl.undo, decl.resume, decl.state, decl.form].filter((d) => d !== undefined),
@@ -953,7 +986,7 @@ export class StoreCatalog implements Catalog {
   // ─── Loading ──────────────────────────────────────────────────────────────
 
   #work(system: SystemName, force: boolean, lookup: TypeLookup, kinds: Map<string, KindDecl>): ImportWork {
-    return { system, force, lookup, kinds, described: new Map(), describedTypes: new Map() };
+    return { system, force, lookup, kinds, described: new Map(), describedTypes: new Map(), claimed: new Map() };
   }
 
   async #storedKinds(): Promise<Map<string, KindDecl>> {

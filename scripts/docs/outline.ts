@@ -59,7 +59,7 @@ export const OUTLINE: readonly Topic[] = [
     title: 'Kinds and agents',
     exports: [
       'kind', 'KindDef', 'KindImpl', 'KindEstimateInput', 'KindCheckCtx', 'KindRunCtx', 'KindRef', 'AnyKindRef', 'kindFn', 'KindFnInput', 'KindFnTypes', 'UntypedFn',
-      'agent', 'AgentInput', 'AgentFnTypes', 'LlmPayload', 'LlmKind',
+      'agent', 'AgentInput', 'AgentFnTypes', 'AgentInjected', 'LlmPayload', 'LlmKind', 'AgentRef', 'FnRefOf',
       'authoringAgent', 'AuthoringAgent', 'AuthoringAgentInput', 'authoringTool', 'AuthoringTool', 'AuthoringToolInput', 'AuthoringSession', 'AuthoringStage', 'AUTHORING_STAGES',
       'ToolStage', 'SkippableStage', 'DraftCheck', 'Disclosure', 'authoredFn', 'AuthoredFn', 'AuthoringError', 'authoringEnv',
     ],
@@ -71,7 +71,8 @@ export const OUTLINE: readonly Topic[] = [
     exports: [
       'CONTEXT_FOLDER', 'readContextFolder', 'parseContextFile', 'ContextFile', 'ContextFolder', 'ContextFolderError', 'formatContextProblem', 'contextProblem', 'positionOf',
       'contextChange', 'watchContextFolder', 'ContextWatchEvents', 'ContextWatchOptions',
-      'context', 'ContextInput', 'ContextDef', 'AnyContextDef', 'ContextImpl', 'ContextLinkDef', 'ContextLinkTarget', 'arg', 'ArgDef', 'ArgsOf', 'ContextRef', 'AnyContextRef'],
+      'context', 'ContextInput', 'ContextDef', 'AnyContextDef', 'ContextImpl', 'ContextLinkDef', 'ContextLinkTarget', 'arg', 'ArgDef', 'ArgsOf', 'ContextRef', 'AnyContextRef',
+      'InjectInput', 'AgentTarget', 'AgentPattern', 'agents'],
   },
   { id: 'hooks', title: 'Hooks', exports: ['hook', 'HookDef', 'HookImpl', 'HookContribution', 'hookBlock', 'HookRef', 'AnyHookRef'] },
   { id: 'mentions', title: 'Mentions', exports: ['mention', 'MentionDef', 'MentionImpl', 'MentionOption', 'MentionCtx', 'MentionRef'] },
@@ -94,7 +95,7 @@ export const OUTLINE: readonly Topic[] = [
     id: 'server',
     title: 'The server: serve and the implementation',
     exports: [
-      'serve', 'ServeOptions', 'McpServe', 'mcpToolNameOf', 'RunningSystem', 'RunningStatus', 'SystemImpl', 'FnImpl', 'ConnectImpl', 'loggedHost', 'LoggedHost', 'systemFields', 'systemState', 'defaultStateFolder', 'SYSTEM_ENV', 'placeFolders', 'sdkEnv', 'SdkEnv',
+      'serve', 'ServeOptions', 'McpServe', 'RunningSystem', 'RunningStatus', 'SystemImpl', 'FnImpl', 'ConnectImpl', 'loggedHost', 'LoggedHost', 'systemFields', 'systemState', 'defaultStateFolder', 'SYSTEM_ENV', 'placeFolders', 'sdkEnv', 'SdkEnv',
       'RESTART_CODE', 'SystemHost', 'LinkHost', 'LinkHostDeps', 'SystemStopped', 'SystemPatch',
       'PairingDisplay', 'PairingShown', 'pairingDisplayFor', 'LogPairingDisplay', 'TerminalPairingDisplay', 'PAIRING_QR_MODES', 'PairingQrMode', 'codeBanner', 'terminalQr', 'QrRenderer',
     ],

@@ -21,7 +21,7 @@
  */
 import type {
   ActorId, BudgetReport, ChatModeConfig, ChatModeType, ContextLink, ContextorConfig, ContextorType, ContextRecord, DeclarableRelation, Detail, Exposure, FnExample, FnRecord,
-  InstanceName, InvalidInput, Json, LinkTarget, LlmMessage, LlmToolSpec, ModelLimits, ModelLimitsView, QualifiedName, ResolvedModelLimits, SelectionReport,
+  InstanceName, InvalidInput, Json, LinkTarget, LlmMessage, LlmToolSpec, ModelFnNames, ModelLimits, ModelLimitsView, QualifiedName, ResolvedModelLimits, SelectionReport,
   Session, SuggestionRecord, SessionId, Turn, TurnId, UserInfo,
 } from '@harness/core';
 import type { Logger } from '@ayepi/log';
@@ -172,6 +172,8 @@ export interface RenderedIteration {
   readonly fns: ReadonlyMap<string, QualifiedName>;
   /** Tools whose args carry an `on` choice (a fleet's fn in tools mode), taken out before the fn's args are checked. */
   readonly fleet: ReadonlySet<string>;
+  /** The fn names this prompt speaks (`ModeContext.names`): its calls are read back, and its results written, through them. */
+  readonly names: ModelFnNames;
 }
 
 /** A call the model made: a native tool call, or a `<run fn="…">{…}</run>` block from its text. */
@@ -196,6 +198,11 @@ export type CallProtocol = 'native' | 'text';
 export interface ModeContext {
   readonly estimator: TokenEstimator;
   readonly protocol: CallProtocol;
+  /**
+   * The one fn name (core's `modelFnNames`): every fn this prompt names, as the model calls it in this mode, read back
+   * through the hub's registry. The planner always sets it; a mode given none names fns by the rule alone.
+   */
+  readonly names?: ModelFnNames;
 }
 
 /** Who a call is checked for: the session (its systems) and the person. */
@@ -255,7 +262,7 @@ export interface ContextorInput {
   readonly history: readonly Exchange[];
   /** The current exchange's messages so far: always sent, and charged to the fixed part. */
   readonly current: readonly LlmMessage[];
-  /** What the agent always has: its payload's context and tools, and context that names it in `alwaysFor`. */
+  /** What the agent always has: its payload's context and tools, and context injected into it (`inject`). */
   readonly always: Names;
   /** What the session loaded (`session.context`, `session.tools`). */
   readonly loaded: Names;
@@ -381,6 +388,8 @@ export interface PromptPlanner {
   settled(input: { model: string; estimate: number; actual: number | undefined; used: readonly QualifiedName[] }): Promise<void>;
   /** What a message would get, without calling the model (`previewSelection`). */
   preview(session: SessionId, text: string, by: ActorId): Promise<SelectionReport>;
+  /** The fn names a run's results are written in for this session's mode and model (its tool replies go through them). */
+  names(to: ExposedTo): Promise<ModelFnNames>;
 }
 
 /** Who a run's exposed fns are shown to: the session, its agent and the model. */
@@ -430,7 +439,7 @@ export interface ContextorServices {
   readonly graph: ContextGraph;
   /** Fns as modes show them (cards, tools), for the contextor's hub fns. */
   readonly views: FnViewSource;
-  /** Dynamic context's text, for everything that shows context (`hub/inspect`, `hub/context_get`). */
+  /** Dynamic context's text, for everything that shows context (`hub/inspect`, `hub/ctx_get`). */
   readonly dynamic: DynamicContext;
 }
 

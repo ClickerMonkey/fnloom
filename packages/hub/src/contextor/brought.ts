@@ -1,6 +1,6 @@
 /**
  * What a context item brings with it, every time it is loaded: the context it imports (recursively, cycles cut) and
- * the fns it and they bring (`ContextDecl.fns`). The plain, suggest and graph contextors and `hub/load_context` all go
+ * the fns it and they bring (`ContextDecl.fns`). The plain, suggest and graph contextors and `hub/ctx_load` all go
  * through here, so a context's work always has its fns and its linked context, however it got into the prompt.
  */
 import { contextOff, QualifiedName, type ContextChoice, type ContextRecord } from '@harness/core';

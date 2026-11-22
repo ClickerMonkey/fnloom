@@ -60,7 +60,11 @@ niche: "developer"
       threshold?: num{min=0},
       evaluate?: enum<text>{perMessage, perIteration}
     }>,
-    maxOutput?: num{whole=true, min=16}
+    maxOutput?: num{whole=true, min=16},
+    injected?: or<literal<text>{value="none"}, obj{
+      detail?: enum<text>{full, summary},
+      maxTokens?: num{whole=true, min=1}
+    }>
   }
   ```
 

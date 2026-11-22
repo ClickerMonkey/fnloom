@@ -11,7 +11,7 @@
  * - **set → check → fix:** the draft's request program (and output program) is checked: the request type, a literal
  *   method, one body slot, the output over `response`. A clean GET that calls no fn is sent with the sample args, so the
  *   agent sees the real response; any other request is prepared and shown, never sent. `test` tries other args.
- * - **return:** the clean draft is kept with `hub/save_fn` as an `api/request` fn of its service (`<service>.<name>`).
+ * - **return:** the clean draft is kept with `hub/fns_save` as an `api/request` fn of its service (`<service>.<name>`).
  */
 import type { ExprDef, TypeDef } from '@aeye/gin';
 import { API_KIND, ApiFnSpec, GinExprDef, GinTypeDef, Json, QualifiedName, type ApiService } from '@harness/core';

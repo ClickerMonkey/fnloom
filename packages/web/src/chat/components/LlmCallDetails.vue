@@ -6,16 +6,24 @@
  * (text, reasoning, tool calls); and the raw JSON. Read-only and copyable. A tool that is a fn (`hub__fns_search` read
  * back to `hub/fns_search`), offered or called, and the fn a static `run` call names, is a `FnPill` that opens the fn modal.
  */
-import { fnOfToolName, type LlmInteraction } from '@harness/core';
-import { computed } from 'vue';
+import { fnOfStoredToolName, type LlmInteraction, type LlmToolCall, type QualifiedName } from '@harness/core';
+import { computed, watchEffect } from 'vue';
 import { UiBadge, UiCodeBlock, UiTabs, fullTime, type TabItem } from '../../ui/index.ts';
 import { formatCost, formatDuration, formatTokens } from '../logic/format.ts';
 import { humanize } from '../logic/labels.ts';
-import { messageContent, taggedBlocks, toolCallFn, type LlmCallTab as Tab } from '../logic/inspect.ts';
+import { callToolNames, messageContent, taggedBlocks, toolCallFn as callFn, type LlmCallTab as Tab } from '../logic/inspect.ts';
+import { useStoresIfAny } from '../../state/stores.ts';
 import FnPill from '../../fns/components/FnPill.vue';
 import SelectionReportView from './SelectionReportView.vue';
 
 const props = defineProps<{ call: LlmInteraction }>();
+
+// a tool's name read back to its fn (the raw JSON keeps the model's name); a cut name is asked of the hub once
+const stores = useStoresIfAny();
+watchEffect(() => { void stores?.modelNames.resolve(callToolNames(props.call)); });
+const cut = (name: string): QualifiedName | undefined => stores?.modelNames.known.value.get(name);
+const fnOfToolName = (name: string): QualifiedName | undefined => fnOfStoredToolName(name, cut);
+const toolCallFn = (tool: Pick<LlmToolCall, 'name' | 'arguments'>): QualifiedName | undefined => callFn(tool, cut);
 
 /** The tab shown; a parent binds it to the URL so a refresh keeps it. */
 const tab = defineModel<Tab>('tab', { default: 'saw' });

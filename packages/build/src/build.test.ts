@@ -49,7 +49,7 @@ describe('scanBundle', () => {
 });
 
 const header = (fields: string, body = 'Text.') => `---\n${fields}\n---\n${body}\n`;
-const KNOWN = { system: 'notes', fns: new Set(['notes/add', 'hub/load_context']), context: new Set(['fs/system-authoring']) };
+const KNOWN = { system: 'notes', fns: new Set(['notes/add', 'hub/ctx_load']), context: new Set(['fs/system-authoring']) };
 
 describe('checkContextFolder', () => {
   it('passes a folder whose links all resolve, own keys included, and skips examples in fenced code', async () => {

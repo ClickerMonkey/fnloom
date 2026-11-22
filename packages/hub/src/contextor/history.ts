@@ -5,7 +5,7 @@
  * selected ones become short summaries made without a model call (the question, the first and last sentence of the
  * answer, and what it used).
  */
-import { QualifiedName, type LlmMessage } from '@harness/core';
+import { fnOfModelNameByRule, QualifiedName, type LlmMessage } from '@harness/core';
 import type { ExchangeSummary } from './index.ts';
 import { parseRunBlocks, RESULT_TAG } from './render.ts';
 
@@ -30,16 +30,18 @@ export interface Exchange {
   readonly mentioned: readonly string[];
 }
 
-/** Qualified names in a text (`fs/read`, `hub/load_fns`). */
+/** Qualified names in a text (`fs/read`, `hub/fns_load`). */
 const QUALIFIED = /\b[a-z][a-z0-9_-]*\/[A-Za-z_][\w.-]*\b/g;
 /** A `/command` part as the enricher renders it. */
 const COMMAND = /<command context="([^"]+)"/g;
 /** A hook's load block as the enricher renders it. */
 const LOADED = /^Loaded: (.+)$/gm;
-/** A fn card's heading in a tool reply. */
-const CARD = /^### ([a-z][a-z0-9_-]*\/[A-Za-z_][\w.-]*)(?: —|$)/gm;
+/** A fn card's heading in a tool reply (its model name, or a qualified name in transcripts from before the one name). */
+const CARD = /^### ([a-z][a-z0-9_-]*(?:\/|__)[A-Za-z0-9_][\w.-]*)(?: —|$)/gm;
+/** Model names in a text (`fs__read`): what the model reads and writes in place of a fn's qualified name. */
+const MODEL_NAMES = /\b[a-z][a-z0-9-]*__[A-Za-z0-9][A-Za-z0-9_-]*\b/g;
 /** Tool names of calls that load items. */
-const LOAD_TOOLS = /(^|__)(load|load_fns|load_context)$/;
+const LOAD_TOOLS = /(^|__)(load|fns_load|ctx_load)$/;
 
 /** A block the hub adds after a person's words (local time, suggestions, hook blocks): `<tag>` and `</tag>` on lines of their own. */
 const HUB_BLOCK = /(?:^|\n)<([A-Za-z_][\w-]*)>\n[\s\S]*?\n<\/\1>(?=\n|$)/g;
@@ -64,7 +66,7 @@ function mentionsOf(messages: readonly LlmMessage[]): string[] {
       for (const match of text.matchAll(LOADED)) found.push(...(match[1] ?? '').split(',').map((name) => name.trim()));
     }
     if (message.role === 'tool' || (message.role === 'user' && !isPersonMessage(message))) found.push(...[...text.matchAll(CARD)].flatMap((m) => (m[1] === undefined ? [] : [m[1]])));
-    for (const call of message.toolCalls ?? []) if (LOAD_TOOLS.test(call.name)) found.push(...namedIn(call.arguments));
+    for (const call of message.toolCalls ?? []) if (LOAD_TOOLS.test(call.name)) found.push(...namedIn(call.arguments), ...(call.arguments.match(MODEL_NAMES) ?? []));
   }
   return [...new Set(found.filter((name) => name !== ''))];
 }
@@ -153,7 +155,8 @@ export function shortenResults(messages: readonly LlmMessage[], max: number): Ll
  * clipped so the rendered block's text fits `maxChars`, and the fns it used (by qualified name).
  */
 export function summarise(exchange: Exchange, maxChars: number): ExchangeSummary {
-  const used = exchange.used.flatMap((name) => { const parsed = QualifiedName.safeParse(name); return parsed.success ? [parsed.data] : []; });
+  // a call's name is the model's (`fs__read`, read back by rule) or, in older transcripts, a qualified name
+  const used = exchange.used.flatMap((name) => { const parsed = QualifiedName.safeParse(name); const fn = parsed.success ? parsed.data : fnOfModelNameByRule(name); return fn === undefined ? [] : [fn]; });
   const usedChars = used.length === 0 ? 0 : `\nUsed: ${used.join(', ')}`.length;
   const room = Math.max(40, maxChars - usedChars - 'User: \nAnswer: '.length);
   const user = clip(exchange.user.replace(/\s+/g, ' ').trim(), Math.ceil(room * 0.45));

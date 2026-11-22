@@ -1,6 +1,6 @@
 /**
  * The metrics slice (admins): every model call of every modality, and fn metrics rolled up per day, through
- * `hub.metrics` (`metrics/index.ts`). The hub's read fns `hub/model_calls` and `hub/fn_metrics` answer the same reads.
+ * `hub.metrics` (`metrics/index.ts`). The hub's read fns `hub/model_calls` and `hub/fns_metrics` answer the same reads.
  */
 import { plugin } from '@ayepi/plugin';
 import { metricsSlice } from '@harness/core';
@@ -18,7 +18,7 @@ export function metricsPlugin(hub: HubServices, systems: ReturnType<typeof syste
     .handlers((): FullHandlers<typeof metricsSlice> => ({
       modelCalls: ({ data, user }) => reads.model_calls(data, user),
       modelCall: ({ data }) => reads.modelCall(data.id),
-      fnMetrics: ({ data, user }) => reads.fn_metrics(data, user),
+      fnMetrics: ({ data, user }) => reads.fns_metrics(data, user),
       fnMetricsDays: ({ data }) => hub.metrics.fns.days(data.fn, data.days ?? CHART_DAYS),
     }));
 }

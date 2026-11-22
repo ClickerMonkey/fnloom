@@ -479,6 +479,7 @@ export function grantDeltaRows(before: SystemGrants | undefined, after: SystemGr
 export const FLAG_LOOK = {
   'delete-fns': { tone: 'danger', icon: 'trash' },
   'write-fns': { tone: 'warn', icon: 'edit' },
+  injects: { tone: 'warn', icon: 'chat' },
   effects: { tone: 'warn', icon: 'layers' },
   capabilities: { tone: 'warn', icon: 'shield' },
   secrets: { tone: 'danger', icon: 'key' },

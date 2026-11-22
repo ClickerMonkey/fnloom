@@ -80,7 +80,7 @@ export class MockExplorer {
 export function contextFolderSamples(at: number): ContextRecord[] {
   const item = (key: string, title: string, description: string, extra: Partial<ContextDecl> = {}): ContextRecord => ContextRecord.parse({
     name: `fs/${key}`, system: 'fs', updatedAt: at, stale: false, mentions: { context: [], fns: [] }, tokens: { full: 640, summary: 40 },
-    decl: { name: key, title, description, content: `# ${title}\n\n${description}\n\nRead the parts this work needs, one at a time; each brings the fns it is about.`, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: ['authoring'], ...extra },
+    decl: { name: key, title, description, content: `# ${title}\n\n${description}\n\nRead the parts this work needs, one at a time; each brings the fns it is about.`, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', tags: ['authoring'], ...extra },
   });
   return [
     item('authoring.index', 'Writing a system', 'Where to start when a person wants a new system: pick the part they need next.', {

@@ -1,5 +1,5 @@
 /**
- * The hub's fns in memory, for tests of systems that keep and find fns through the hub: `hub/save_fn` and `hub/fn_get`
+ * The hub's fns in memory, for tests of systems that keep and find fns through the hub: `hub/fns_save` and `hub/fns_get`
  * (calls), and the link's `searchFns` and `fnExamples` (`ctx.searchFns`, `ctx.fnExamples`). `FakeHub` holds one as
  * `fns`. It matches by words only and scores by the share of the query's words found: the real hub searches its
  * database by meaning and words.
@@ -12,7 +12,7 @@ import { SAVE_FN_TAKEN, SaveFnArgs, StoredFn, hub } from '../hub.ts';
 
 /** A fn kept in the fake hub: the latest save, its version and the saves before it. */
 export interface KeptFn {
-  readonly fn: string;
+  readonly fn: QualifiedName;
   readonly saved: Infer<typeof SaveFnArgs>;
   readonly version: number;
   /** Every earlier save, oldest first. */
@@ -39,25 +39,25 @@ function wordsOf(text: string): string[] {
 /** The hub's kept fns in memory. */
 export class FakeHubFns {
   readonly kept = new Map<string, KeptFn>();
-  /** The hub fns called and link searches made, in order (`hub/save_fn`, `searchFns`, …). */
+  /** The hub fns called and link searches made, in order (`hub/fns_save`, `searchFns`, …). */
   readonly called: string[] = [];
 
-  /** Settle a call to `hub/save_fn` or `hub/fn_get`; `undefined` for any other fn. */
+  /** Settle a call to `hub/fns_save` or `hub/fns_get`; `undefined` for any other fn. */
   settle(call: HubCall): RunSettled | undefined {
-    if (call.fn !== hub.fns.save_fn.name && call.fn !== hub.fns.fn_get.name) { return undefined; }
+    if (call.fn !== hub.fns.fns_save.name && call.fn !== hub.fns.fns_get.name) { return undefined; }
     this.called.push(call.fn);
     try {
-      return call.fn === hub.fns.save_fn.name
-        ? this.#done(hub.fns.save_fn.returns, this.save(parseValue(SaveFnArgs, call.args)))
-        : this.#get(parseValue(hub.fns.fn_get.args, call.args).fn);
+      return call.fn === hub.fns.fns_save.name
+        ? this.#done(hub.fns.fns_save.returns, this.save(parseValue(SaveFnArgs, call.args)))
+        : this.#get(parseValue(hub.fns.fns_get.args, call.args).fn);
     } catch (error) {
       const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : undefined;
       return { status: 'failed', error: { class: 'caller', message: error instanceof Error ? error.message : String(error), ...(code === undefined ? {} : { code }) } };
     }
   }
 
-  /** Keep a fn as `hub/save_fn` does; a taken name without `replace` throws with `SAVE_FN_TAKEN`. */
-  save(args: Infer<typeof SaveFnArgs>): Infer<typeof hub.fns.save_fn.returns> {
+  /** Keep a fn as `hub/fns_save` does; a taken name without `replace` throws with `SAVE_FN_TAKEN`. */
+  save(args: Infer<typeof SaveFnArgs>): Infer<typeof hub.fns.fns_save.returns> {
     const fn = qualify(splitName(QualifiedName.parse(args.kind)).system, args.name);
     const prior = this.kept.get(fn);
     if (prior !== undefined && args.replace !== true) { throw Object.assign(new Error(`${fn} is taken.`), { code: SAVE_FN_TAKEN }); }

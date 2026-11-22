@@ -42,7 +42,7 @@ const declined = computed(() => props.review.declined.slice(0, DECLINED_SHOWN));
           <UiButton variant="primary" size="sm" icon="check" :disabled="busy" data-testid="approve-all" @click="emit('approveAll')">Approve all {{ pending.changes.length }}</UiButton>
         </div>
       </div>
-      <ChangeList :changes="pending.changes" :facts="pending.fns" :deciding="deciding" :busy="busy" @approve="(change) => emit('approve', change)" @decline="(change) => emit('decline', change)" />
+      <ChangeList :changes="pending.changes" :facts="pending.fns" :injections="pending.injections" :deciding="deciding" :busy="busy" @approve="(change) => emit('approve', change)" @decline="(change) => emit('decline', change)" />
     </template>
     <UiEmpty v-else icon="check" title="Nothing waits" :body="review.stage === 'installed' ? 'It isn’t live yet: everything is under review.' : 'What is live is what was reviewed.'" />
     <section v-if="declined.length > 0" class="declined" data-testid="review-declined">

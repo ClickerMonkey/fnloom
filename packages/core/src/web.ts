@@ -767,6 +767,11 @@ export const fnsSlice = mergeSpecs(
       fnExamples: { body: FnExamplesQuery, response: FnExamplesPage, ws: 'fnExamples' },
       /** A fn's facts; with `args`, the cost estimate is for that call. */
       fnFacts: { body: z.object({ fn: QualifiedName, args: Json.optional() }), response: FnFacts, ws: 'fnFacts' },
+      /**
+       * The fns model names mean, by the hub's registry (cut names can't be read back by rule): for the LLM call view's
+       * tool names. A name that means no fn the person may see is left out.
+       */
+      fnsOfModelNames: { body: z.object({ names: z.array(z.string().min(1).max(64)).min(1).max(200) }), response: z.record(z.string(), QualifiedName), ws: 'fnsOfModelNames' },
       clientLogs: { body: ClientLogBatch, response: ClientLogReceipt, ws: 'clientLogs' },
     }),
   }),

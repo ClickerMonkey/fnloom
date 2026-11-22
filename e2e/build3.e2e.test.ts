@@ -81,7 +81,7 @@ describe('list queries', () => {
 
 describe('suggestions and the decision model', () => {
   it('a turn records what it suggested and what it did not use, with a reason, and the LLM can call hub/query', async () => {
-    const { turn, answer } = await ask('Use the hub/query tool (load it with hub/load_fns if needed) to list the 3 newest runs of the list "runs", then tell me their fn names.');
+    const { turn, answer } = await ask('Use the hub/query tool (load it with hub/fns_load if needed) to list the 3 newest runs of the list "runs", then tell me their fn names.');
     expect(answer.status).toBe('done');
     const sent = await userMessageOf(turn);
     expect(sent?.suggestions?.by).toBe('score');

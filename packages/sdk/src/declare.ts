@@ -13,7 +13,7 @@ import { RecordStorage, SectionKey as SectionKeySchema } from '@harness/core';
 import type { ActionCtx, AskerCtx, FnCall, FnCtx, PreviewCtx, SystemCtx, UndoCtx } from './ctx.ts';
 import type { FnTypes, Outcome, UntypedFn } from './fn.ts';
 import { g, type GinType } from './gin.ts';
-import type { AnyContextRef, AnyFnRef, AnyTypeRef, Methods, TypeRef } from './refs.ts';
+import type { AgentRef, AnyContextRef, AnyFnRef, AnyTypeRef, Methods, TypeRef } from './refs.ts';
 import { orDefault, type Simplify } from './util.ts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -207,9 +207,53 @@ export interface ContextLinkDef {
   readonly weight?: number;
 }
 
+// ─── Injected context ─────────────────────────────────────────────────────────
+
+/**
+ * Agents by a pattern over their qualified names. `*` alone is every agent; any other pattern is `system/local`, where
+ * each `*` stands for any run of characters (none included) on its own side of the `/`: it crosses `.`, never `/`.
+ * Case counts, and `**` is refused. A string without `*` doesn't compile: one agent is named by its ref.
+ */
+export type AgentPattern = '*' | `${string}*${string}/${string}` | `${string}/${string}*${string}`;
+
+/** One entry of `inject.into`: an agent's ref (`hub.fns.chat`; only `hub/llm` fns fit), or a pattern. */
+export type AgentTarget = AgentRef | AgentPattern;
+
+/** Patterns built from refs, so renaming an agent or a system breaks the build instead of the match. */
+export const agents = {
+  /** Every agent: `*`. */
+  all: '*',
+  /** Every agent of a system: `agents.of(crm)` is `crm/*`. */
+  of<const S extends string>(system: { readonly name: S extends `${string}/${string}` ? never : S }): `${S}/*` {
+    return `${system.name}/*`;
+  },
+  /** Every agent whose name starts with this one's: `agents.startingWith(hub.fns.chat)` is `hub/chat*`. */
+  startingWith<const N extends QualifiedName>(agent: AgentRef<N>): `${N}*` {
+    return `${agent.name}*`;
+  },
+} as const;
+
+/**
+ * Where an item of context is injected: the system prompts of the agents it targets, in their `{{injectedContext}}`
+ * section. It waits for an admin's approval like any change to the system's contract, and an admin can switch it off
+ * for any agent.
+ */
+export interface InjectInput {
+  /** The agents it goes into: refs and patterns (`agents.startingWith(hub.fns.chat)`, `'crm/*'`). At least one. */
+  readonly into: readonly [AgentTarget, ...AgentTarget[]];
+  /** Lower comes first. Default 100; the hub's own items are 10 to 30. */
+  readonly order?: number;
+  /** Fns its text names without bringing them: it is left out unless they can be used. Its `fns` are required too. */
+  readonly requires?: readonly AnyFnRef[];
+  /** Only in this chat mode. Leave it out unless the text is true in one mode only. */
+  readonly mode?: 'tools' | 'static';
+}
+
 /** Content for the LLM. Static content is written in the contract; dynamic content is produced by the system. */
 export interface ContextDef<A, Dynamic extends boolean> {
   readonly description: string;
+  /** What people (and the injected section's heading) call it; its description when absent. */
+  readonly title: string | undefined;
   readonly dynamic: Dynamic;
   readonly content: string | undefined;
   readonly command: { readonly name: string; readonly args: Readonly<Record<string, ArgDef<boolean>>> } | undefined;
@@ -220,8 +264,8 @@ export interface ContextDef<A, Dynamic extends boolean> {
   readonly suggest: Audience;
   /** Who can find it in searches. Default `both`. */
   readonly visible: Audience;
-  /** Always loaded for these agents. */
-  readonly alwaysFor: readonly AnyFnRef[];
+  /** Put it in these agents' system prompts; its `fns` join their starting tools. */
+  readonly inject: InjectInput | undefined;
   readonly tags: readonly string[];
   /** How much it counts when the graph contextor scores it: 0 leaves it out, 2 doubles it. Default 1. */
   readonly weight: number | undefined;
@@ -240,6 +284,8 @@ export type AnyContextDef = ContextDef<unknown, boolean>;
 /** What `context()` takes. */
 export interface ContextInput<Args extends Record<string, ArgDef<boolean>>> {
   description: string;
+  /** What people (and the injected section's heading) call it; its description when absent. */
+  title?: string;
   /** Makes it a `/name` command. Args fill `{{name}}` in the content (or are passed to a dynamic implementation). */
   command?: { name: string; args?: Args };
   imports?: AnyContextRef[];
@@ -247,7 +293,8 @@ export interface ContextInput<Args extends Record<string, ArgDef<boolean>>> {
   suggestFns?: AnyFnRef[];
   suggest?: Audience;
   visible?: Audience;
-  alwaysFor?: AnyFnRef[];
+  /** Put it in these agents' system prompts (`{ into: [agents.startingWith(hub.fns.chat)], order: 40 }`). Its `fns` join their starting tools. */
+  inject?: InjectInput;
   tags?: string[];
   /** How much it counts when scored, from 0 (left out) to 2. Default 1. */
   weight?: number;
@@ -266,6 +313,7 @@ export function context<const Args extends Record<string, ArgDef<boolean>> = {}>
 export function context<const Args extends Record<string, ArgDef<boolean>>>(def: ContextInput<Args> & { content?: string }): ContextDef<ArgsOf<Args>, boolean> {
   return {
     description: def.description,
+    title: def.title,
     dynamic: def.content === undefined,
     content: def.content,
     command: def.command === undefined ? undefined : { name: def.command.name, args: { ...def.command.args } },
@@ -274,7 +322,7 @@ export function context<const Args extends Record<string, ArgDef<boolean>>>(def:
     suggestFns: [...(def.suggestFns ?? [])],
     suggest: def.suggest ?? 'both',
     visible: def.visible ?? 'both',
-    alwaysFor: [...(def.alwaysFor ?? [])],
+    inject: def.inject === undefined ? undefined : { ...def.inject, into: [...def.inject.into], ...(def.inject.requires === undefined ? {} : { requires: [...def.inject.requires] }) },
     tags: [...(def.tags ?? [])],
     weight: def.weight,
     summary: def.summary,
@@ -292,15 +340,20 @@ export type ContextImpl<A, Cfg = unknown> = (args: A, ctx: SystemCtx<Cfg> & Part
 /** A system's user-message hook: adds information to a message before the LLM sees it. */
 export interface HookDef {
   readonly description: string;
+  /** What its block means to the model: injected with its system's items into the agents that get its blocks. */
+  readonly explains: string | undefined;
   /** Lower runs first. */
   readonly order: number;
   /** After this the message goes on without it. */
   readonly timeout: Duration;
 }
 
-/** Declare a hook. Defaults: order 100, timeout 1000 ms. */
-export function hook(def: { description: string; order?: number; timeout?: Duration }): HookDef {
-  return { description: def.description, order: def.order ?? 100, timeout: def.timeout ?? 1_000 };
+/**
+ * Declare a hook. Defaults: order 100, timeout 1000 ms. `explains` says what its block (`<fs_git>`) means to the model;
+ * a new or changed `explains` waits for an admin's review like any injection.
+ */
+export function hook(def: { description: string; explains?: string; order?: number; timeout?: Duration }): HookDef {
+  return { description: def.description, explains: def.explains, order: def.order ?? 100, timeout: def.timeout ?? 1_000 };
 }
 
 /** What a hook adds, with refs (the wire form, `HookBlock`, carries names). */

@@ -250,7 +250,7 @@ export class StoreContextLibrary implements ContextLibrary {
       const still = [...live.keys()].filter((key) => kept.some((section) => section.key === key));
       if (still.length > 0) {
         await this.fromResource(ContextFromResourceArgs.parse({
-          uri, sections: still, copy: 'live', ...(sample?.decl.weight === undefined ? {} : { weight: sample.decl.weight }), ...(sample === undefined || sample.decl.alwaysFor.length === 0 ? {} : { alwaysFor: sample.decl.alwaysFor }),
+          uri, sections: still, copy: 'live', ...(sample?.decl.weight === undefined ? {} : { weight: sample.decl.weight }), ...(sample?.decl.inject === undefined ? {} : { inject: sample.decl.inject }),
         }), who);
       }
     }
@@ -300,7 +300,7 @@ export class StoreContextLibrary implements ContextLibrary {
   #decl(name: QualifiedName, fields: Partial<ContextDecl> & Pick<ContextDecl, 'description'>): ContextDecl {
     const local = name.slice(name.indexOf('/') + 1);
     return {
-      name: local, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: [], ...fields,
+      name: local, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', tags: [], ...fields,
       ...(fields.content === undefined ? {} : { summary: fields.summary ?? fields.description }),
     };
   }
@@ -357,22 +357,24 @@ export class StoreContextLibrary implements ContextLibrary {
 }
 
 /**
- * Refuse the options that load or offer context without anyone asking, where they would reach too far: a model (a
- * run) never sets `alwaysFor`, since an injected prompt could plant text in every later prompt; and on context that
- * everyone sees (a memory for everyone, context made from a resource) only an admin sets `alwaysFor` or a `/command`,
- * and never through a model.
+ * Refuse the options that load or offer context without anyone asking, where they would reach too far. Hub-made
+ * context (a memory, context made from a resource) is injected into agents' system prompts (`inject`) only when an
+ * admin sets it by hand, never through a model: text a model wrote (or a prompt planted in a page it read) must never
+ * land in every later prompt. On context everyone sees, only an admin, by hand, offers a `/command`.
  */
 export function guardReach(options: ContextOptions, wide: boolean, who: Asking): void {
-  const always = options.alwaysFor !== undefined && options.alwaysFor.length > 0;
-  if (always && who.run !== undefined) { throw reject(403, 'ALWAYS_FOR_BY_HAND', 'a model cannot make context always load; set "Always for" on the context page'); }
-  if (wide && (always || options.command !== undefined) && (who.admin !== true || who.run !== undefined)) {
-    throw reject(403, 'ADMIN_ONLY', 'only an admin, by hand, can make context everyone sees always load or offer a /command');
+  if (options.inject !== undefined) {
+    if (who.run !== undefined) { throw reject(403, 'INJECT_BY_HAND', 'a model cannot inject context into prompts; an admin sets "Inject into" on the context page'); }
+    if (who.admin !== true) { throw reject(403, 'ADMIN_ONLY', 'only an admin, by hand, can inject context into agents’ prompts'); }
+  }
+  if (wide && options.command !== undefined && (who.admin !== true || who.run !== undefined)) {
+    throw reject(403, 'ADMIN_ONLY', 'only an admin, by hand, can give context everyone sees a /command');
   }
 }
 
 /**
  * The context the hub made (memory, context made from resources) that is on and that a viewer may see, for what
- * system manifests can't list: `alwaysFor` in the planner and `/command`s in the composer.
+ * system manifests can't list: injections (`inject`) in the planner and `/command`s in the composer.
  */
 export async function visibleMade(store: HubStore, viewer: ContextViewer): Promise<ContextRecord[]> {
   return (await allRows(store.table('context'), { where: { system: HUB_SYSTEM } }))
@@ -388,7 +390,7 @@ export function declOptions(options: ContextOptions): Partial<ContextDecl> {
   if (rest.tags !== undefined) { fields.tags = rest.tags; }
   if (rest.fns !== undefined) { fields.fns = rest.fns; }
   if (rest.suggestFns !== undefined) { fields.suggestFns = rest.suggestFns; }
-  if (rest.alwaysFor !== undefined) { fields.alwaysFor = rest.alwaysFor; }
+  if (rest.inject !== undefined) { fields.inject = rest.inject; }
   if (rest.visible !== undefined) { fields.visible = rest.visible; }
   if (rest.suggest !== undefined) { fields.suggest = rest.suggest; }
   if (rest.parent !== undefined) { fields.parent = rest.parent; }

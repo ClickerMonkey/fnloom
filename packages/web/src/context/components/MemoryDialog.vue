@@ -88,8 +88,8 @@ function save(): void {
         />
         <HubPicker :model-value="options.suggestFns" source="fn" label="Suggested fns" hint="Suggested alongside it." placeholder="Search fns" @update:model-value="set('suggestFns', fnNames($event))" />
         <HubPicker
-          :model-value="options.alwaysFor" source="fn" label="Always for" hint="Agent fns whose prompts always carry it." placeholder="Search agent fns"
-          @update:model-value="set('alwaysFor', fnNames($event))"
+          :model-value="options.inject.into" source="fn" label="Inject into" hint="Agents whose system prompts carry it (admins only)." placeholder="Search agent fns"
+          testid="memory-inject" @update:model-value="set('inject', { ...options.inject, into: fnNames($event) })"
         />
         <UiChipInput :model-value="options.tags" label="Tags" placeholder="style" :read="readTag" @update:model-value="set('tags', $event)" />
         <UiInput :model-value="options.command" label="Command" placeholder="/tabs" hint="Loads it from the composer." data-testid="memory-command" @update:model-value="set('command', $event)" />

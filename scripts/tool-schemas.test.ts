@@ -35,9 +35,9 @@ const SYSTEMS: readonly AnyContract[] = [api, claude, code, database, embedderSy
  * names (a record of the type named, a system's config): the hub checks the value against that type when the fn runs.
  */
 const ANY_JSON: Readonly<Record<string, string>> = {
-  'hub/save_fn payload': "the payload of the kind named; that kind's system checks and describes it before it is saved",
-  'hub/save_fn examples.[].args': "values of the saved fn's own args type, checked against it on save",
-  'hub/save_fn examples.[].result': "values of the saved fn's own returns type, checked against it on save",
+  'hub/fns_save payload': "the payload of the kind named; that kind's system checks and describes it before it is saved",
+  'hub/fns_save examples.[].args': "values of the saved fn's own args type, checked against it on save",
+  'hub/fns_save examples.[].result': "values of the saved fn's own returns type, checked against it on save",
   'hub/connection_update settings': "the connection's system's settings type, checked against it",
   'hub/connection_update fns': "options keyed by fn name: a record over open keys, which a gin obj cannot say",
   'hub/record_save value': "a record of the type named, checked against that type",

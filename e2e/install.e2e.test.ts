@@ -6,7 +6,7 @@
  * running (a fn, a type, a context entry) is stored and listed as added while running, with a version, and waits as a
  * pending review until approved; the context entry holds a hub model's answer made outside any run (`hubAi`). A code
  * change installs again with the change on the card and waits for approval too; a context folder with a broken link
- * fails the build; `load_context` brings what a context imports and the fns it brings; `fns_search` filters and pages.
+ * fails the build; `ctx_load` brings what a context imports and the fns it brings; `fns_search` filters and pages.
  * The folder is removed after.
  */
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -94,7 +94,7 @@ describe('installing from the chat', () => {
     expect(run.outcome).toMatchObject({ status: 'done', result: { system: 'greet', status: 'connected' } });
     // installed, not live: nothing is offered until an admin reviews it and goes live
     expect((await me.hub.call('system', { system: GREET })).stage).toBe('installed');
-    const search = await invoke(me, session, QualifiedName.parse('hub/fns_search'), { systems: ['greet'], items: ['fn'] });
+    const search = await invoke(me, session, QualifiedName.parse('hub/fns_search'), { systems: ['greet'] });
     expect(JSON.stringify(search.outcome)).not.toContain('greet/hello');
     const early = await invoke(me, session, QualifiedName.parse('greet/hello'), { name: 'Ana' }).then((got) => got.status, () => 'refused');
     expect(early).not.toBe('done');
@@ -157,16 +157,16 @@ describe('installing from the chat', () => {
 });
 
 describe('context and search', () => {
-  it('load_context brings the context an item imports and the fns they bring', async () => {
-    const run = await invoke(me, session, QualifiedName.parse('hub/load_context'), { context: ['fs/system-authoring'] });
+  it('ctx_load brings the context an item imports and the fns they bring', async () => {
+    const run = await invoke(me, session, QualifiedName.parse('hub/ctx_load'), { context: ['fs/system-authoring'] });
     expect(run.outcome).toMatchObject({ status: 'done', result: { loaded: ['fs/system-authoring', 'fs/authoring'], refused: [] } });
     const { fns } = z.object({ fns: z.array(z.string()) }).parse(run.outcome?.status === 'done' ? run.outcome.result : undefined);
     expect(fns).toContain('fs/write');
     expect(fns).toContain('fs/install_system');
   }, TURN);
 
-  it('fns_search filters by system, mode and kind of item, and pages', async () => {
-    const query = { systems: ['fs'], modes: ['read'], items: ['fn'], limit: 3 };
+  it('fns_search finds fns only, filters by system and mode, and pages', async () => {
+    const query = { systems: ['fs'], modes: ['read'], limit: 3 };
     const first = await invoke(me, session, QualifiedName.parse('hub/fns_search'), query);
     const second = await invoke(me, session, QualifiedName.parse('hub/fns_search'), { ...query, offset: 3 });
     const Page = z.object({ items: z.array(z.object({ name: z.string() })), next: z.number().optional() });

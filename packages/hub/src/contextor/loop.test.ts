@@ -128,7 +128,7 @@ describe('tools mode with the plain contextor (build 1)', () => {
     const [request] = requests;
     expect(request?.tools?.map((t) => t.name)).toEqual(['fs__read']);
     expect(request?.messages).toEqual([
-      { role: 'system', content: `${instructions}\n\n<context key="fs/guide">Use fs/read for files.</context>` },
+      { role: 'system', content: `${instructions}\n\n<ctx key="fs/guide">Use fs__read for files.</ctx>` },
       { role: 'user', content: 'Hello?' },
     ]);
     expect(request?.maxTokens).toBe(1_024);
@@ -147,17 +147,17 @@ describe('tools mode with the plain contextor (build 1)', () => {
 });
 
 describe('the static toolset', () => {
-  it('sends exactly the five tools, shows loaded fns as cards, and runs the fn run() names, not a wrapper', async () => {
+  it('sends exactly the six tools, shows loaded fns as cards, and runs the fn run() names, not a wrapper', async () => {
     const { r, fs } = await started();
     await r.session({ agent: 'tools/small', tools: ['fs/read'] });
     r.provider.script(calls([['run', { fn: 'fs/read', args: { path: 'README.md' } }]]), says('It has 3 lines.'));
     const { settled, run } = await answer(r, 'tools/small', 'How many lines does README.md have?');
     expect(settled).toEqual({ status: 'done', result: 'It has 3 lines.' });
     const first = r.provider.requests[0];
-    expect(first?.tools?.map((t) => t.name)).toEqual(['find', 'inspect', 'load', 'unload', 'run']);
+    expect(first?.tools?.map((t) => t.name)).toEqual(['find', 'find_ctx', 'inspect', 'load', 'unload', 'run']);
     const system = aeyeText(first?.messages[0]);
     expect(system).toContain('## Loaded fns');
-    expect(system).toContain('<fn name="fs/read" label="Read"');
+    expect(system).toContain('<fn name="fs__read" label="Read"');
     expect(system).toContain('Read a text file.\n<args>');
     expect(system).toContain('## Loaded fns — call one with run({ fn, args })');
     expect(fs.requests.map((q) => [q.fn, q.args])).toEqual([['read', { path: 'README.md' }]]);
@@ -182,7 +182,7 @@ describe('the static toolset', () => {
     ]);
     const transcript = (await r.store.table('sessions').get(SESSION))?.transcript ?? [];
     const replies = transcript.filter((m) => m.role === 'tool').map((m) => say(m));
-    expect(replies[0]).toContain('The args don\'t fit fs/read');
+    expect(replies[0]).toContain('The args don\'t fit fs__read');
     expect(replies[0]).toContain('<example>{"path":"README.md"}</example>');
     expect(replies[1]).toContain('There is no fn fs/reed you can run here.');
     expect(r.records.filter((rec) => rec.msg === 'agent.invalid-input')).toHaveLength(2);
@@ -193,8 +193,8 @@ describe('the static toolset', () => {
     await r.session({ agent: 'tools/small' });
     r.provider.script(calls([['load', { names: ['fs/grep'] }]]), says('Loaded.'));
     await answer(r, 'tools/small', 'Get grep ready');
-    expect(aeyeText(r.provider.requests[0]?.messages[0])).not.toContain('<fn name="fs/grep"');
-    expect(aeyeText(r.provider.requests[1]?.messages[0])).toContain('<fn name="fs/grep" label="Grep"');
+    expect(aeyeText(r.provider.requests[0]?.messages[0])).not.toContain('<fn name="fs__grep"');
+    expect(aeyeText(r.provider.requests[1]?.messages[0])).toContain('<fn name="fs__grep" label="Grep"');
     expect((await r.store.table('sessions').get(SESSION))?.tools).toEqual(['fs/grep']);
   });
 
@@ -205,7 +205,7 @@ describe('the static toolset', () => {
     r.provider.script(calls([['run', { fn: 'fs/grep', args: { pattern: 'x' } }]]), says('Found two.'));
     await answer(r, 'tools/small', 'grep for x');
     const reply = (await r.store.table('sessions').get(SESSION))?.transcript.find((m) => m.role === 'tool');
-    expect(say(reply)).toMatch(/^found 2\n\n<fn name="fs\/read" label="Read" mode="\w+" available="yes">\nRead a text file\.\n<args>obj\{path: text\}<\/args>\n<returns>text<\/returns>\n<\/fn>$/);
+    expect(say(reply)).toMatch(/^found 2\n\n<fn name="fs__read" label="Read" mode="\w+" available="yes">\nRead a text file\.\n<args>obj\{path: text\}<\/args>\n<returns>text<\/returns>\n<\/fn>$/);
   });
 
   it('speaks the text protocol to a model without tools: blocks become runs, results come back as text, blocks never stream', async () => {
@@ -225,7 +225,7 @@ describe('the static toolset', () => {
     expect(streamed).not.toContain('<run');
     const result = requests[1]?.messages.at(-1);
     expect(result).toMatchObject({ role: 'user' });
-    expect(say(result)).toBe('<result fn="fs/read" status="done">\nline 1\nline 2\nline 3\n</result>');
+    expect(say(result)).toBe('<result fn="fs__read" status="done">\nline 1\nline 2\nline 3\n</result>');
   });
 
   it('answers a block with bad JSON as invalid input, softly', async () => {
@@ -238,7 +238,7 @@ describe('the static toolset', () => {
     const { settled } = await answer(r, 'tools/small', 'Read it');
     expect(settled).toEqual({ status: 'done', result: 'Oops.' });
     expect(fs.requests).toEqual([]);
-    expect(say(requests[1]?.messages.at(-1))).toMatch(/^<result fn="fs\/read" status="invalid-input">\nThe args of that fs\/read block are not JSON/);
+    expect(say(requests[1]?.messages.at(-1))).toMatch(/^<result fn="fs__read" status="invalid-input">\nThe args of that fs__read block are not JSON/);
   });
 });
 
@@ -271,11 +271,11 @@ describe('what static `run` may run', () => {
     expect(replies).toHaveLength(names.length);
     // one that exists says what blocks it, in the hub's words (regression: "You there?"); one not for the model reads as missing
     const said = [
-      'fs/off can\'t be used now: fs/off is switched off. Don\'t call it again; tell the person what blocks it.',
-      'fs/gone can\'t be used now: fs is not connected. Don\'t call it again; tell the person what blocks it.',
-      'git/status can\'t be used now: this session does not use git.',
-      'There is no fn web/fetch_raw you can run here.',
-      'There is no fn fs/mine you can run here.',
+      'fs__off can\'t be used now: fs__off is switched off. Don\'t call it again; tell the person what blocks it.',
+      'fs__gone can\'t be used now: fs is not connected. Don\'t call it again; tell the person what blocks it.',
+      'git__status can\'t be used now: this session does not use git.',
+      'There is no fn web__fetch_raw you can run here.',
+      'There is no fn fs__mine you can run here.',
     ];
     said.forEach((line, i) => { expect(replies[i]).toContain(line); });
     expect(r.records.filter((rec) => rec.msg === 'agent.invalid-input')).toHaveLength(names.length);
@@ -289,7 +289,7 @@ describe('what static `run` may run', () => {
     await answer(r, 'tools/small', 'Load the raw fetch');
     const replies = ((await r.store.table('sessions').get(SESSION))?.transcript ?? []).filter((m) => m.role === 'tool').map((m) => say(m));
     expect(replies[0]).toContain('not for the model');
-    expect(replies[1]).toContain('web/fetch_raw can\'t be used now: not for the model');
+    expect(replies[1]).toContain('web__fetch_raw can\'t be used now: not for the model');
     expect((await r.store.table('sessions').get(SESSION))?.tools).toEqual([]);
   });
 });

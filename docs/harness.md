@@ -133,8 +133,8 @@ and every fn it depends on is available. A fn whose system has changes waiting f
 **held** until the review is approved. That is its own reason (`held`), apart from a fn an admin switched off
 (`disabled`).
 
-**The model always gets the reason.** Whenever the hub won't let the model use a fn (`hub/load_fns`, `hub/load`,
-`hub/load_context`, `hub/inspect`, static `run`, or a native tool call in tools mode), it answers with the hub's own
+**The model always gets the reason.** Whenever the hub won't let the model use a fn (`hub/fns_load`, `hub/load`,
+`hub/ctx_load`, `hub/inspect`, static `run`, or a native tool call in tools mode), it answers with the hub's own
 words, for example "database/create_table changed and waits for an admin to approve it", and tells the model not to
 call it again but to tell the person what blocks it. Refusals are structured (a code, the reason, and the fn's
 system), so the web can act on them. For the model, `hub/fns_search` returns fns it can't use now marked with what
@@ -169,7 +169,8 @@ The system surface is deliberately a superset of MCP: fns ↔ MCP tools, resourc
 commands ↔ MCP prompts. So:
 
 - **Every system can also serve MCP** (stdio or HTTP) with no extra code. Claude Code or any MCP client
-  can use a system directly.
+  can use a system directly. Its tools are named by their fns' model names (`fs__read`), the names a chat model sees
+  (see [One name for the model](#g/one-name-for-the-model)); a hub MCP's are the same.
 - **An MCP bridge system** connects any MCP server to the hub and presents it as a system.
 - The **Claude Code system** is a wrapper: it runs Claude Code sessions and exposes them (list, read,
   send, interrupt) and imports Claude's agents, skills and MCP servers as context and fns.
@@ -336,6 +337,40 @@ the fn and recomputes it when the payload, or anything it references, changes. T
 that defines its kind, because that system owns the payload's handler. Native fns are the exception: their
 author declares everything, because the code is the payload.
 
+### One name for the model
+
+A fn has one name the model sees, everywhere it meets one (its tool list, static mode's `run`, cards, search hits,
+results, refusals and errors, and an MCP client's tool list): its **model name**, the qualified name with every `/` and
+`.` written `__` (`database/main.expenses_create` → `database__main__expenses_create`, `fs/Entry.reveal` →
+`fs__Entry__reveal`). It is a valid tool name for every provider (letters, digits, `_` and `-`, at most 64, starting
+with its system's first letter). Past 64 characters it is cut to 54 (no trailing `_`) and ended with `_x` and 8 hex of
+the qualified name's sha-256. People see the friendly label; admins see the qualified name on hover. Only fns have
+model names: context keys (`fs/guide`), types (`fs/Entry`) and hook tags (`<fs_git>`) keep their forms.
+
+- **The rule a fn's name keeps** (core `FnLocalName`): dot-separated parts, none holding `__` or starting or ending
+  with `_`, so `__` always separates parts. The SDK's build refuses a contract with one that breaks it, and the hub
+  refuses such a fn (declared or saved) with the reason. Context keys and types keep `LocalName`.
+- **The registry.** The hub never reads a model name back by rule: the catalog keeps a registry of every fn's model
+  name (`catalog/fn-names.ts`, filled from the `fns` table), and a fn whose model name another fn has (only possible
+  through a cut name's hash) is refused when it is declared or saved. A fn that goes leaves its name in the
+  `modelFnNameHistory` table, so an old call still reads back for people.
+- **One module, three boundaries.** Core's `model-names.ts` owns the encoder, the rule and `modelFnNames`, the names
+  for one prompt; nothing else spells a model name. In static mode the hub fns the static tools do the jobs of read as
+  the tools (`hub/fns_search` is `find`, `hub/ctx_search` `find_ctx`, `hub/fns_load` and `hub/ctx_load` `load`, …);
+  every other fn reads as its model name. **Out, prompt text:** the planner spells every fn the system region, the
+  tools' descriptions and the trailing card message name (`text`: `fn:` refs, and each known fn's qualified name
+  standing alone; a `context:` ref is written as its key). **Out, results:** each tool reply goes through `text`, and a
+  result read as JSON has its fn-name fields written as model names (`value`). **In, calls:** a tool name, `run`'s `fn`
+  and every fn-name field of the args are read back through the registry; a qualified name the model writes anyway is
+  accepted.
+- **A fn's name as a value** is `g.fnName()` in gin (core's `FnNameValue` in zod): code and people see `fs/read`, the
+  model sees and writes `fs__read`, and its tool schema says "A fn's name, as your tools spell it." Every field that
+  names a fn uses it (`hub/fns_load`'s `fns`, `hub/inspect`'s `name`, `hub/fns_get`'s `fn`, …).
+- **Stored data.** One store migration (`store/migrate-fn-names.ts`, run at start) rewrites the tool calls in stored
+  transcripts (read back by the old rule, renamed, written by the new one) and the renamed fns in sessions and every
+  other table that holds a fn's name. Model call records stay as they were; the LLM call view reads their old spelling
+  with core's display-only `fnOfStoredToolName`, and asks the hub (`fnsOfModelNames`) for a cut name.
+
 ### Session state
 
 Each system has a scratch pad per session: data its fns pass to each other without the LLM seeing it (the
@@ -475,7 +510,7 @@ export const fs = system('fs', { description: 'Files and a shell over chosen fol
         handlers: { confirm: handler({ description: 'Run this command?', args: g.obj({ command: g.text(), reason: g.text() }), returns: g.bool(), required: false }) } }),
       …
     },
-    hooks: { git: hook({ description: 'Adds the current branch and changed files.' }) },
+    hooks: { git: hook({ description: 'Adds the current branch and changed files.', explains: 'The branch and the files changed since the last commit.' }) },
   })
   .with(({ fns }) => ({
     context: {
@@ -781,7 +816,8 @@ right viewer: `<ResourceViewer :uri="uri" compact />`.
 Two choices shape an agent's prompt, each set on the agent fn and changeable per session:
 
 - **The chat mode** says how fns reach the model. **Tools** (strict) sends every selected fn as a native tool, as in
-  build 1. **Static** sends five fixed tools whatever is loaded: `find`, `inspect`, `load`, `unload` and `run`.
+  build 1. **Static** sends six fixed tools whatever is loaded: `find` (`hub/fns_search`), `find_ctx` (`hub/ctx_search`),
+  `inspect`, `load`, `unload` and `run`.
   Loaded fns are shown as text cards at the end of the prompt (name and line, then the call signature, then
   instructions, examples and the types they use, as the budget allows), and the model runs any fn the session may
   use with `run(fn, args)`; the run is of that fn itself, with its policy, card and record. A fn's result can show
@@ -811,11 +847,11 @@ native tool calls. A fn that isn't loaded this step is one to inspect for its ar
 **Tools carry their examples.** In tools mode each native tool's description is the fn's description, its instructions and its example args (the turn's chosen examples, and at least the first declared one when it has any); that whole text is the aeye tool's description, since the agent prompt has no tools section for separate tool instructions. The schema goes at aeye's default strictness (strict where the model takes it). The static toolset's five tools carry their description and first example only, to stay small.
 
 **One card format.** Every fn and context the model reads about, in every mode and every place (static cards, the
-`more_fns` and `more_context` lists, `inspect`, a fn's exposed fns, a refused call, suggestions), is the same XML card,
+`more_fns` and `more_ctx` lists, `inspect`, a fn's exposed fns, a refused call, suggestions), is the same XML card,
 written by one renderer: `<fn name label mode available reason>` with its description, args, returns, instructions,
-examples and types as the room allows, and `<context key title>` with its text, the fns it brings and its choices.
+examples and types as the room allows, and `<ctx key title>` with its text, the fns it brings and its choices.
 Every value is escaped, so text inside a card can never pass for a tag. A fn the person can't use now still gets its
-card, marked `available="no"` with the reason. What `hub/load_fns` and `hub/load_context` give back reaches the model
+card, marked `available="no"` with the reason. What `hub/fns_load` and `hub/ctx_load` give back reaches the model
 as cards too: the fns loaded and those refused with their reasons, and the context loaded with the fns it brought.
 The run's record keeps the names as well, which the chat's held banner reads.
 
@@ -847,7 +883,7 @@ Before the LLM sees a user message, two things may add to it:
   while the embedder can't answer in time, nothing is suggested rather than the best word matches.
 
   Suggestions are cards in the one XML format, under a line written for the session's mode: in tools mode the model
-  loads them with `hub/load_fns` or `hub/load_context` and then calls them; in static mode it runs one by its name.
+  loads them with `hub/fns_load` or `hub/ctx_load` and then calls them; in static mode it runs one by its name.
   Each card is fixed when the message is sent (in static mode with its instructions and examples), so the message
   reads the same later even if the fn changes. Fns the person can't see, or that aren't for the model, are left out;
   fns they can't use now are shown with `available="no"` and the reason. **Nothing is suggested twice in a chat:** what
@@ -865,7 +901,7 @@ Before the LLM sees a user message, two things may add to it:
   **What it does** with its picks is a second choice for a model chooser (Phil, 2026-11-22: "There should also be
   options to not only allow a decision model or llm to suggest context or fns but actually have them automatically
   add them making the fn available or the context is brought into the user message"): **suggest** (the default, the
-  cards above) or **load**. With load, what it picks is loaded for the turn as `hub/load_fns` and `hub/load_context`
+  cards above) or **load**. With load, what it picks is loaded for the turn as `hub/fns_load` and `hub/ctx_load`
   load: each fn the session may use joins its tools from the model's first step (in static mode its card is in the
   prompt, run by name), and each context item is brought into the user message as its text, with its imports and the
   fns it brings (which join the tools too). The message tells the model so in a `<loaded_for_you>` block (who picked,
@@ -881,8 +917,9 @@ Before the LLM sees a user message, two things may add to it:
   is too weak a sign to put things in the prompt unasked. When the model fails, the score's picks are suggested, not
   loaded.
 
-  The **fn and context search decisions** (who filters `hub/fns_search` hits, set apart for fns and for context) take
-  the same action. With load, `hub/fns_search` in a chat also loads the best kept hits of that kind it may use, up to
+  The **fn and context search decisions** (who filters `hub/fns_search` and `hub/ctx_search` hits: the fn decision
+  judges `fns_search`'s, the context decision `ctx_search`'s) take the same action. With load, either search in a chat
+  also loads the best kept hits it may use, up to
   `HARNESS_SEARCH_LOAD_MAX` (5) each: fns into the tools, context into the session (with its imports and the fns it
   brings), and its page says so (`loaded`, with a line telling the model not to load them again). The web's search
   only filters, and a filter that failed loads nothing.
@@ -1073,7 +1110,7 @@ set in the admin's model settings (a model, optionally the provider that serves 
 The **decide** role takes only models with the `decision` capability, and has a **threshold** (0 to 1, default 0.5)
 instead of a language: an answer counts as yes when its probability is at or above it. A decision model may cap how
 many questions one call takes (`maxQuestions` on the model, 64 for Ollama). aeye never splits a call; it refuses one
-over the cap before sending it. The hub's own callers (suggestions, systems' `decide`, `hub/context_crawl`, the search decisions) go through
+over the cap before sending it. The hub's own callers (suggestions, systems' `decide`, `hub/ctx_crawl`, the search decisions) go through
 one decider that picks the model (the job's own or the role's) and sends the questions in batches that fit both the
 model's question cap and its request size (`maxRequestBytes`), one call after another. A question too large to fit
 alone is refused before anything is sent. Every decide call is a model call with modality `decide`, budgeted and priced like the others.
@@ -1099,7 +1136,7 @@ Ollama's `/v1/systemone`.
 
 Every run records how long it waited in the queue, waited for approval and ran, what it cost and used, how it ended
 (done, invalid input, failed, cancelled) and how often it was retried. The hub rolls these up per fn and per day;
-the admin's fn pages show them and `hub/fn_metrics` gives them to the LLM.
+the admin's fn pages show them and `hub/fns_metrics` gives them to the LLM.
 
 ### Invalid input is not an error
 
@@ -1284,7 +1321,8 @@ What the security review of 2026-11-21 changed (findings in `docs/plans/security
   results by rank. Changing the space re-embeds the pictures there; a model that goes away and comes back keeps its
   vectors. Pictures over `HARNESS_INDEX_IMAGE_MAX` (5 MB) are skipped. Who may see a picture follows its resource or
   its context item.
-- **Searching context** goes through the one hub search, the same one the model's `find` uses: by words and meaning
+- **Searching context** goes through the one hub search, the same one the model's `hub/ctx_search` (static mode's
+  `find_ctx`) uses, as `hub/fns_search` (`find`) does for fns: by words and meaning
   when an embedder is up, by words alone when not. Each context item is indexed whole and by its heading sections, so
   a long item is found by the part that matches, and counts once at its best. The Context page's search uses it, with
   the page's filters (origin, tags, switched off, size, updated…) run as SQL in the same query, and its sorting and
@@ -1308,10 +1346,44 @@ What the security review of 2026-11-21 changed (findings in `docs/plans/security
   role's), which answers one yes/no question per hit, "does it fit what the search is for?", and keeps those at or
   over the decide role's threshold in their order, or an **LLM**, which reads the hits and answers which to keep, with
   reasons. What the search is for is its text and, inside a turn, the turn's latest user message. It applies to the
-  one operation wherever it is asked (`hub/fns_search`, the web's and the system link's `searchFns`), only to searches
+  one operation wherever it is asked (`hub/fns_search`, `hub/ctx_search`, the web's and the system link's `searchFns`), only to searches
   by text (not by name or for named items). The calls go through the one decider, each a model call (purpose
   `fns-search` or `context-search`) charged to the run that searched; the page lists what was dropped and why
   (`filtered`). If the model fails, every hit is kept and the page says so.
+
+### Injected context (the declaration)
+
+Design: `docs/plans/injected-context-2026-11-22.md` §4 and §6. What is built so far is the declaration; the
+injected section in the prompt (the planner) and the admin's Injected tab come after it.
+
+- **A context item may declare `inject`** (`InjectDecl`: `into`, `order` default 100, `requires`, `mode`), in the
+  contract (`context({ inject })`) or a context file's header (`inject: { into: ['hub/chat*'], order: 40 }`). It goes
+  into the system prompts of the agents (`hub/llm` fns, saved ones included) it targets, once approved, unless an
+  admin switches it off for an agent. `alwaysFor` is gone: the store migration turns a hub-made item's `alwaysFor` into
+  `inject` with the same agents as exact names and drops a system's (it declares `inject` now): `store/always-for.ts`,
+  a step of the one migration (`store/migrate-fn-names.ts`).
+- **Targets** (`AgentTargetDecl`, matched only by core's `targetHits`): an agent's exact qualified name, or a pattern
+  holding `*`. `*` alone is every agent; otherwise `system/local`, where each `*` is any run of characters on its own
+  side of the `/`: it crosses `.` (`crm/*` takes a saved `crm/main.reviewer`), never `/`. Case counts; `**` is refused
+  ("write one *"). In TypeScript one agent is named by its ref (`AgentRef`: only `hub/llm` fns carry `kind:
+  'hub/llm'`), a string without `*` doesn't compile, and `agents.startingWith(hub.fns.chat)` / `agents.of(crm)` /
+  `agents.all` build patterns from refs.
+- **Checked at manifest time.** The catalog refuses an item whose exact target is no agent the hub has (stored, or
+  declared in the same contract): "`crm/reviewr` is not an agent"; a pattern that hits no agent yet is accepted and
+  logged (`catalog.inject.no-agent`), and its review card says "hits no agent yet". The SDK's context-folder check
+  refuses an exact name that is no agent it knows (`KnownNames.agents`).
+- **Review.** A new, changed (text, summary, title, targets, order, mode, fns) or removed injection, and a hook's new or
+  changed `explains`, raise the review flag `injects` ("Changes what hub/chat and hub/chat_small are told: + Forms
+  (input/asking, 310 tokens)"), and each such change's card on the Pending tab lists its targets with the agents each
+  hits now (`PendingReviewView.injections`, `injectionChanges`).
+- **Hub-made context** (a memory, context made from a resource) injects only when an admin sets it by hand
+  (`guardReach`: `ADMIN_ONLY` for anyone else, `INJECT_BY_HAND` for any model's run, an admin's included).
+- **An agent** says how it takes its section: `injected: { detail: 'full' | 'summary', maxTokens? } | 'none'`
+  (`AgentInjected`, on `agent()` and the `hub/llm` payload). **A hook** says what its block means: `explains`.
+- **What the catalog lists** (`catalog/injections.ts`): `agentNames` (every agent now), `listInjections` (each item's
+  `ContextInjection`: its targets resolved to agents, the agents it reaches, review state `approved` / `pending` /
+  `declined`, whether it is off or dynamic) and `listHookExplains`. Until the planner builds the injected section, an
+  item injected into an agent is loaded for it as `alwaysFor` items were.
 
 ### Context as a graph
 
@@ -1324,7 +1396,7 @@ finds edges in the text (mentions) and learns them from use (two things used in 
 ones and fading when unused. A person can draw edges in the context view. The graph contextor walks the edges, so
 a skill's fns reach the prompt without the model asking.
 
-**Crawling context.** `hub/context_crawl(keys, guidance, maxDepth, maxDecisions, maxTokens, metadataOnly)` walks the
+**Crawling context.** `hub/ctx_crawl(keys, guidance, maxDepth, maxDecisions, maxTokens, metadataOnly)` walks the
 graph level by level with a decision model. Level 0 is the starting keys and everything they import. At each later
 level, every `choices` link from what the last level took, to an item not taken yet, becomes one yes/no question
 ("Load X when: <condition>?"), with the guidance as the input. Only choices are conditional: imports always come along,
@@ -1332,7 +1404,7 @@ transitively, all or nothing with the item that imports them. A level's question
 when the model's `maxQuestions` says so), each a recorded model call charged to the crawl's run. Answers at or above the
 decide role's threshold are taken highest first while they fit `maxTokens`. The crawl stops when nothing is left
 (`complete`), at `max-depth`, `max-decisions` or `max-tokens`, or `failed` when a decide call fails (what was taken is
-kept); a cancelled run just ends. It loads what it took into the session as `load_context` does and returns it with its
+kept); a cancelled run just ends. It loads what it took into the session as `ctx_load` does and returns it with its
 content, or with `metadataOnly` loads nothing and returns keys, titles, sizes and why each was taken; skipped items are
 listed with why. The model reads the result as XML cards. The fn is unavailable (`role-unset`) until the decide role
 has a model, and comes on when an admin sets one.
@@ -1550,9 +1622,11 @@ Already checked: type-checking all of the types and examples takes about two sec
     - Fns (saved queries and forms included), types, examples, embeddings and enrichment results live in the hub.
     - Systems keep only their connection config and keys.
     - Search runs in the hub's database. No system or browser loads a whole set or does vector math in memory.
-    - The hub has one fns/context search endpoint, available on the web API, the system link and as an LLM fn. It
+    - The hub has one fns/context search endpoint, available on the web API, the system link and as two LLM fns:
+      `hub/fns_search` finds fns only and `hub/ctx_search` context only (fns do things; context holds information). It
       does text and semantic search, can order by score, filters by kind, system, instance, visibility, types and
-      mode, and pages its results.
+      mode (fns) or origin, a memory's scope and tags (context), and pages its results. The model's `kinds` filter is
+      for a person who asks for a kind by name: a search by what a fn does finds every kind.
   - **Anything a contract declares can also be added at runtime:**
     - This covers fns, types, kinds, resources and roots, context, commands, components (including contributions to
       another system's registry), examples and providers.
@@ -1563,7 +1637,7 @@ Already checked: type-checking all of the types and examples takes about two sec
   - **Fns:**
     - Fns carry real instructions for the model.
     - Fns can have any number of examples, in their own searchable table. A setting picks how many go into the prompt,
-      and `fn_examples` pages through the rest.
+      and `fns_examples` pages through the rest.
     - Agent-like fns (`get_input`, `get_query`, `edit_query`) are a prompt with tools, as product's agent kind is.
   - **Fn facts:**
     - Each fn records the types it reads and writes, worked out deeply through the fns it uses.
@@ -1584,7 +1658,7 @@ Already checked: type-checking all of the types and examples takes about two sec
   - **Context folders:** a system's `context/` folder holds markdown files, each with a YAML header (any context
     metadata) and then its content. The build checks them and fails on broken fn or context links. They are served to
     the hub keyed by a stable, readable key that people never see. Context links (loads, next choices) always load
-    through `load_context`, so a small model can walk a large choose-your-own-adventure graph. The API is organised the
+    through `ctx_load`, so a small model can walk a large choose-your-own-adventure graph. The API is organised the
     same way: grouped, indexed and searchable, never one huge flat list.
   - **A system page shows everything the system contributed** (fns, context, types, kinds, resources, commands,
     components, examples, providers) with origin, version and visibility. It has a switch per item and a switch for all
@@ -1714,7 +1788,7 @@ Already checked: type-checking all of the types and examples takes about two sec
 - **Dynamic context is written when it is used** (build 2 review): an item declared without `content` (`fs/tree`,
   `/new-system`) gets its text from its system's `context` endpoint, as the person and with the `/command`'s args,
   whenever a prompt shows it whole (commanded, loaded, always, or a graph pick of those), `hub/inspect` shows it or
-  `hub/context_get` reads it. The hub keeps each text a while (`HARNESS_DYNAMIC_CONTEXT_TTL`) per session and person,
+  `hub/ctx_get` reads it. The hub keeps each text a while (`HARNESS_DYNAMIC_CONTEXT_TTL`) per session and person,
   so a later load reuses the command's args.
 - **The model runs only fns meant for it** (build 2 review): static `run`, `load` and `inspect` refuse, as invalid
   input, a fn that is switched off, unavailable, outside the session's systems, or of visibility `none` or `user`
@@ -1808,7 +1882,7 @@ Already checked: type-checking all of the types and examples takes about two sec
   - one XML card format for fns and context, and never suggest the same fn or context twice
   - the suggestions setting is a decision model, an LLM, or none
   - `ModelInfo.maxQuestions` is respected by callers
-  - context_crawl returns content or metadata only by a flag, with its threshold on the decide role
+  - ctx_crawl returns content or metadata only by a flag, with its threshold on the decide role
   - SSO is generic OIDC, configured by env vars, with first sign-in set by the admin
 
   Full list in `docs/plans/todo-2026-11-18.md` § Phil's decisions.
@@ -1824,7 +1898,7 @@ Already checked: type-checking all of the types and examples takes about two sec
     context); the old on/off setting reads as LLM or none.
   - A system declares embedders only as providers' embedding models: the old `embedders` section, `embedder()` and
     the link's `embed` are gone, and the SDK refuses a contract or implementation that still has them.
-  - `hub/context_crawl` stays unavailable until the decide role is set.
+  - `hub/ctx_crawl` stays unavailable until the decide role is set.
   - aeye's `EmbeddingRequest.inputs` takes text and `{image}`, with `imageEmbedding` and `crossModalEmbedding`
     capabilities. Pictures get a second vector space, or share the text space when one model serves both.
 - **SSO** (to-do phase 6, 2026-11-19): built as Phil decided.

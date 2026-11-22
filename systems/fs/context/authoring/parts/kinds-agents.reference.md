@@ -188,7 +188,7 @@ interface KindFnInput<P, A, R, T extends StatusTemplates = StatusTemplates> {
    * work is free (reading a file). The hub works out the rest and folds in what it uses (`FnFacts`).
    */
   effects?: FnEffects;
-  /** How many of its examples go into the model's prompt with it (the hub's default when absent); the rest page with `hub/fn_examples`. */
+  /** How many of its examples go into the model's prompt with it (the hub's default when absent); the rest page with `hub/fns_examples`. */
   promptExamples?: number;
   /** The API group it is listed in (`SystemInfo.groups`); the general group when absent. */
   group?: string;
@@ -269,7 +269,7 @@ interface AgentInput<A, R, T extends StatusTemplates = StatusTemplates> {
   mode?: NonNullable<LlmPayload['mode']>;
   /** What goes into each prompt: plain (the hub's default), suggest, or graph (for small local models). */
   contextor?: NonNullable<LlmPayload['contextor']>;
-  /** The most tokens one answer may take; the model's own limit when absent. */
+  /** The most tokens one answer may take (never past the model's own limit); the hub's `HARNESS_AGENT_MAX_OUTPUT` when absent. */
   maxOutput?: number;
   visibility?: Audience;
   tags?: string[];
@@ -285,6 +285,8 @@ interface AgentInput<A, R, T extends StatusTemplates = StatusTemplates> {
   routing?: FnRouting;
   /** What it does to data and the registry: its mode, the types it reads and writes, and the fns it creates (`FnFacts`). */
   effects?: FnEffects;
+  /** How it takes the context injected into it (`{ detail: 'summary', maxTokens: 600 }`), or `none`. Default: every item in full. */
+  injected?: AgentInjected | 'none';
 }
 ```
 
@@ -298,6 +300,21 @@ The types of an agent fn.
 
 ```ts
 type AgentFnTypes<A, R> = KindFnTypes<LlmKind, LlmPayload, A, R>;
+```
+
+#### `AgentInjected`
+
+interface · `import { AgentInjected } from '@harness/sdk'`
+
+How an agent takes its injected section. Its instructions may hold `{{injectedContext}}`; without it the section follows them.
+
+```ts
+interface AgentInjected {
+  /** `summary` gives each item at its summary, for a small window. Default `full`. */
+  readonly detail?: 'full' | 'summary';
+  /** The most tokens the section may take; items past it fall back to their summary, a listing, then out. */
+  readonly maxTokens?: number;
+}
 ```
 
 #### `LlmPayload`
@@ -319,6 +336,33 @@ The ref type of the hub's `llm` kind.
 ```ts
 type LlmKind = typeof hub.kinds.llm;
 ```
+
+#### `AgentRef`
+
+type · `import { AgentRef } from '@harness/sdk'`
+
+An agent fn's ref: a fn of the hub's `llm` kind (`agent()`, `hub.kinds.llm.fn()`), marked with its kind so only
+agents fit where an agent is asked for (an injection's target). A plain fn's ref has no `kind` and doesn't compile.
+
+```ts
+type AgentRef<N extends QualifiedName = QualifiedName, A = unknown, R = unknown, H extends Handlers = Handlers> = FnRef<N, A, R, H> & { readonly kind: 'hub/llm' };
+```
+
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
+
+#### `FnRefOf`
+
+type · `import { FnRefOf } from '@harness/sdk'`
+
+The ref of a fn as its contract declares it: an agent's carries its kind (`AgentRef`), any other fn's is a `FnRef`.
+
+```ts
+type FnRefOf<N extends QualifiedName, T extends FnTypes> = T['kind'] extends { readonly name: 'hub/llm' }
+? AgentRef<N, T['args'], T['result'], T['handlers']>
+: FnRef<N, T['args'], T['result'], T['handlers']>;
+```
+
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `authoringAgent`
 
@@ -374,6 +418,8 @@ interface AuthoringAgentInput<S, D> {
   readonly fixes?: number;
   /** Model rounds; `HARNESS_AUTHORING_ROUNDS` when absent. */
   readonly rounds?: number;
+  /** The most tokens one model step may write; `HARNESS_AUTHORING_MAX_TOKENS` when absent. */
+  readonly maxTokens?: number;
   /** `find: false`: the agent is handed what it builds on, so it starts in `inspect` (no find tools, no `reuse`). */
   readonly stages?: { readonly find?: boolean };
   /** Names for the built-in tools when the job wants its own words (default `draft` and `save`). */
@@ -584,5 +630,5 @@ const · `import { authoringEnv } from '@harness/sdk/server'`
 The authoring agents' tunables.
 
 ```ts
-const authoringEnv: Env<EnvOutput<{}, { readonly HARNESS_AUTHORING_FIXES: z.ZodDefault<z.ZodCoercedNumber<unknown>>; readonly HARNESS_AUTHORING_ROUNDS: z.ZodDefault<z.ZodCoercedNumber<unknown>>; }>>;
+const authoringEnv: Env<EnvOutput<{}, { readonly HARNESS_AUTHORING_FIXES: z.ZodDefault<z.ZodCoercedNumber<unknown>>; readonly HARNESS_AUTHORING_ROUNDS: z.ZodDefault<z.ZodCoercedNumber<unknown>>; readonly HARNESS_AUTHORING_MAX_TOKENS: z.ZodDefault<z.ZodCoercedNumber<unknown>>; }>>;
 ```

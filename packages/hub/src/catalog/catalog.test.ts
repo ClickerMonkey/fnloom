@@ -312,7 +312,7 @@ describe('availability', () => {
     const name = q('memory/gollum-1a2b');
     await store.table('context').put({
       name, system: SystemName.parse('hub'), origin: { type: 'memory', scope: { to: 'everyone' }, author: ADMIN }, stale: false, updatedAt: 0,
-      decl: ContextDecl.parse({ name: 'gollum-1a2b', description: 'Gollum', command: { name: 'gollum', args: [] }, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: [], content: 'precious' }),
+      decl: ContextDecl.parse({ name: 'gollum-1a2b', description: 'Gollum', command: { name: 'gollum', args: [] }, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', tags: [], content: 'precious' }),
       mentions: { context: [], fns: [] }, tokens: { full: 2, summary: 1 },
     });
     expect(await catalog.availability(name)).toBe(true);

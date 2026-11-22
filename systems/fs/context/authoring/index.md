@@ -39,4 +39,4 @@ The steps, in order:
    Tell the person so, with the review page (`/admin/systems/<name>/review`). A later change to its contract waits
    for the same review; the live version keeps serving meanwhile.
 
-Pick one group below and load it with `hub/load_context`; each group lists its parts as choices with their sizes.
+Pick one group below and load it with `hub/ctx_load`; each group lists its parts as choices with their sizes.

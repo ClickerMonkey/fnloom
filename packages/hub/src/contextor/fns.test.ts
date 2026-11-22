@@ -73,7 +73,8 @@ describe('the contextor\'s hub fns', () => {
     expect((await r.store.table('runs').find({ where: { fn: 'hub/inspect', status: 'invalid-input' }, limit: 5 })).items).toHaveLength(1);
     const notAName = await call('hub/inspect', { name: 'not a name' });
     expect(notAName).toMatchObject({ error: { code: INVALID_INPUT_CODE } });
-    expect(notAName.status === 'failed' ? notAName.error.message : '').toContain('is not a name');
+    // a fn's name field (`g.fnName()`) refuses text with spaces before the fn sees it
+    expect(notAName.status === 'failed' ? notAName.error.message : '').toMatch(/^name: /);
     expect(await call('hub/inspect', { name: 'fs/off' })).toMatchObject({ error: { code: INVALID_INPUT_CODE, message: "name: fs/off can't be used now: fs/off is switched off" } });
   });
 
@@ -84,7 +85,7 @@ describe('the contextor\'s hub fns', () => {
         loaded: ['fs/guide'],
         refused: [
           { name: 'fs/off', code: 'disabled', reason: 'fs/off is switched off', system: 'fs' },
-          { name: 'nope', code: 'not-a-name', reason: 'not a name (system/name)' },
+          { name: 'nope', code: 'not-a-name', reason: 'names no fn or context item' },
           { name: 'fs/missing', code: 'no-such-fn', reason: 'no fn or context has that name' },
         ],
       },

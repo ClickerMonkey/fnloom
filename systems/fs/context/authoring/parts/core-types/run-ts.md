@@ -269,6 +269,7 @@ type RunInfo = {
   parent?: string | undefined;
   session?: string | undefined;
   watched?: boolean | undefined;
+  inChat?: boolean | undefined;
 };
 ```
 

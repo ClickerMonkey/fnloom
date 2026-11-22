@@ -3,7 +3,7 @@ import { openScope } from '../access/index.ts';
 import { describe, expect, it } from 'vitest';
 import { contextorEnv } from './env.ts';
 import type { ContextorDeps, FnView, RenderedIteration, Selection } from './index.ts';
-import { fleetArgs, fnModeTool, machinesOf, StaticChatMode, ToolsChatMode } from './modes.ts';
+import { fleetArgs, fnModeTool, machinesOf, modeNames, StaticChatMode, ToolsChatMode } from './modes.ts';
 import { contextorRig } from './testing.ts';
 
 const READ = QualifiedName.parse('fs/read');
@@ -97,7 +97,7 @@ describe('fleet choices in the chat modes', () => {
   it('in static mode, pass run’s `on` to the run of the fn it names', async () => {
     const two = await rig([LAPTOP, DESK]);
     const mode = new StaticChatMode({ type: 'static', protocol: 'native', placement: 'system-end', loadDetail: 'signature' }, two.deps);
-    const rendered: RenderedIteration = { tools: [], systemEnd: '', tail: undefined, protocol: 'native', fns: new Map(), fleet: new Set() };
+    const rendered: RenderedIteration = { tools: [], systemEnd: '', tail: undefined, protocol: 'native', fns: new Map(), fleet: new Set(), names: modeNames('static') };
     const plan = await mode.interpret({ type: 'tool', id: 'c1', name: 'run', args: { fn: 'fs/read', args: { path: 'a' }, on: 'laptop' } }, rendered, { session: undefined, access: openScope(mintId('actor')) });
     expect(plan).toEqual({ type: 'run', fn: READ, args: { path: 'a' }, on: LAPTOP });
   });

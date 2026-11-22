@@ -1,7 +1,7 @@
 /**
  * The input system over the SDK's real link runtime and an in-memory hub: `get_input` declared as an authoring fn
  * (the agent itself is tested in `authoring.test.ts`), `check_form`, the quick forms, saving a form in
- * the hub (`hub/save_fn`, a taken name tried again), and running a saved form through its kind. Nothing is kept here.
+ * the hub (`hub/fns_save`, a taken name tried again), and running a saved form through its kind. Nothing is kept here.
  */
 import { readFileSync } from 'node:fs';
 import { QualifiedName, SystemPackageManifest, type Json, type OutcomeWire } from '@harness/core';
@@ -56,7 +56,7 @@ describe('input over the link', () => {
     expect(manifest?.kinds.map((k) => k.name)).toEqual(['form']);
     expect(manifest?.fns.map((f) => f.name).sort()).toEqual(['ask_choice', 'ask_confirm', 'ask_date', 'ask_number', 'ask_text', 'check_form', 'get_input', 'save_form']);
     const getInput = manifest?.fns.find((f) => f.name === 'get_input');
-    expect(getInput).toMatchObject({ kind: 'native', deps: [hubContract.fns.fn_get.name, hubContract.fns.save_fn.name], effects: { mode: 'write', registry: [{ thing: 'fns', action: 'create', kind: FORM_KIND }] } });
+    expect(getInput).toMatchObject({ kind: 'native', deps: [hubContract.fns.fns_get.name, hubContract.fns.fns_save.name], effects: { mode: 'write', registry: [{ thing: 'fns', action: 'create', kind: FORM_KIND }] } });
     expect(getInput?.examples?.[0]).toMatchObject({ result: { form: { title: 'Trip details' }, saved: 'input/trip_details', next: WAIT_FOR_ANSWERS } });
     for (const decl of manifest?.fns ?? []) {
       expect(decl.instructions, decl.name).toBeTruthy();

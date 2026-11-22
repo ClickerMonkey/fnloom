@@ -193,6 +193,7 @@ type ManifestPatch = {
           action: "create" | "update" | "remove";
           kind?: `${string}/${string}` | "native" | undefined;
         }[] | undefined;
+        keeps?: "resources"[] | undefined;
       } | undefined;
       promptExamples?: number | undefined;
       group?: string | undefined;
@@ -212,7 +213,6 @@ type ManifestPatch = {
       suggestFns: `${string}/${string}`[];
       suggest: "user" | "llm" | "none" | "both";
       visible: "user" | "llm" | "none" | "both";
-      alwaysFor: `${string}/${string}`[];
       tags: string[];
       title?: string | undefined;
       content?: string | undefined;
@@ -223,6 +223,12 @@ type ManifestPatch = {
           hint: string;
           required: boolean;
         }[];
+      } | undefined;
+      inject?: {
+        into: string[];
+        order: number;
+        requires: `${string}/${string}`[];
+        mode?: "tools" | "static" | undefined;
       } | undefined;
       niche?: "admin" | "developer" | "reference" | undefined;
       weight?: number | undefined;
@@ -257,6 +263,7 @@ type ManifestPatch = {
       description: string;
       order: number;
       timeout: number;
+      explains?: string | undefined;
     }[] | undefined;
     mentions?: {
       name: string;

@@ -313,6 +313,63 @@ reason given. If you see one of these errors, the fix is in the reason.
   ```ts
   void runningFs.add('bad', fn({ description: 'Bad.', args: g.obj({}), returns: g.num() }), { async run(_a, ctx) { return ctx.done('x'); } });
   ```
+- **A target without `*` is a string, not a pattern: name one agent by its ref.**
+
+  ```ts
+  const exact: AgentPattern = 'crm/reviewer';
+  ```
+- **A target without `*` as a string doesn't compile.**
+
+  ```ts
+  context({ description: 'Wrong.', content: 'x', inject: { into: ['crm/reviewer'] } });
+  ```
+- **A plain fn's ref is not an agent, so it can't be a target.**
+
+  ```ts
+  context({ description: 'Wrong.', content: 'x', inject: { into: [crm.fns.lookup] } });
+  ```
+- **A context ref is not an agent either.**
+
+  ```ts
+  context({ description: 'Wrong.', content: 'x', inject: { into: [crm.context.deals] } });
+  ```
+- **At least one target.**
+
+  ```ts
+  context({ description: 'Wrong.', content: 'x', inject: { into: [] } });
+  ```
+- **A mode is tools or static.**
+
+  ```ts
+  context({ description: 'Wrong.', content: 'x', inject: { into: ['*'], mode: 'graph' } });
+  ```
+- **Requires takes fn refs, not names.**
+
+  ```ts
+  context({ description: 'Wrong.', content: 'x', inject: { into: ['*'], requires: ['crm/lookup'] } });
+  ```
+- **A plain fn's ref is not an agent for startingWith.**
+
+  ```ts
+  agents.startingWith(crm.fns.lookup);
+  ```
+- **Agents.of takes a system, not a fn.**
+
+  ```ts
+  agents.of(crm.fns.reviewer);
+  ```
+- **A detail is full or summary.**
+
+  ```ts
+  // an agent's injected section: a detail and a cap, or none
+  agent({ description: 'x', args: g.obj({}), returns: g.text(), instructions: 'x', injected: { detail: 'brief' } });
+  ```
+- **Explains is text.**
+
+  ```ts
+  // a hook's explains is text
+  hook({ description: 'x', explains: 42 });
+  ```
 - **`paht` is not one of the args.**
 
   ```ts

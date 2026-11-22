@@ -4,7 +4,7 @@
  * of what it offers, then everything it added while running, together and a page at a time (a running system can add
  * many). Each change is a card drawn the way its tab draws it (`PendingChange`), with its own Approve and Decline.
  */
-import type { ContractChange, FnChangeFacts } from '@harness/core';
+import type { ContractChange, FnChangeFacts, InjectionChangeView } from '@harness/core';
 import { computed, ref } from 'vue';
 import { UiButton } from '../../ui/index.ts';
 import { changeGroups, changeKey, RUNTIME_PAGE } from '../logic/review.ts';
@@ -14,15 +14,18 @@ const props = withDefaults(defineProps<{
   changes: readonly ContractChange[];
   /** Each changed fn's facts before and after, by name. */
   facts?: readonly FnChangeFacts[];
+  /** Each change to what agents are told, with its targets and the agents they hit now. */
+  injections?: readonly InjectionChangeView[];
   /** The key (`changeKey`) of the change being decided now. */
   deciding?: string | undefined;
   /** A decision is under way (one change, or all of them). */
   busy?: boolean;
-}>(), { facts: () => [], deciding: undefined, busy: false });
+}>(), { facts: () => [], injections: () => [], deciding: undefined, busy: false });
 const emit = defineEmits<{ approve: [change: ContractChange]; decline: [change: ContractChange] }>();
 
 const groups = computed(() => changeGroups(props.changes));
 const factsOf = computed(() => new Map(props.facts.map((facts) => [facts.name, facts])));
+const injectionOf = computed(() => new Map(props.injections.map((injection) => [`${injection.section}:${injection.name}`, injection])));
 /** How many runtime changes are shown. */
 const shown = ref(RUNTIME_PAGE);
 const visible = (changes: readonly ContractChange[], runtime: boolean): readonly ContractChange[] => (runtime ? changes.slice(0, shown.value) : changes);
@@ -35,6 +38,7 @@ const visible = (changes: readonly ContractChange[], runtime: boolean): readonly
       <TransitionGroup tag="div" name="change" class="list">
         <PendingChange
           v-for="change in visible(group.changes, group.runtime)" :key="changeKey(change)" :change="change" :facts="factsOf.get(change.name)"
+          :injection="injectionOf.get(`${change.section}:${change.name}`)"
           :busy="deciding === changeKey(change)" :disabled="busy" @approve="emit('approve', change)" @decline="emit('decline', change)"
         />
       </TransitionGroup>

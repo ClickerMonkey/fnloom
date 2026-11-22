@@ -43,7 +43,7 @@ function compiled(instance: DatabaseInstance, query: unknown): CompiledQuery {
   return result;
 }
 
-/** A query service over the instance, with saved queries read from `saved` (as `hub/fn_get` gives them). */
+/** A query service over the instance, with saved queries read from `saved` (as `hub/fns_get` gives them). */
 function service(instance: DatabaseInstance, saved: Record<string, unknown>) {
   const queries = new QueryService({ instance: () => instance, settings: databaseEnv.parse(), refresh: (_here, payload) => payload });
   const getFn = (fn: string): Promise<StoredQuery> => {

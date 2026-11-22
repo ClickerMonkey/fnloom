@@ -180,6 +180,7 @@ export function contextorPorts(hub: Pick<HubServices, 'contextor'>): Pick<Execut
       plan: (input) => hub.contextor.planner.plan(input),
       interpret: (call, prompt) => hub.contextor.planner.interpret(call, prompt),
       exposed: (exposures, to) => hub.contextor.planner.exposed(exposures, to),
+      names: (to) => hub.contextor.planner.names(to),
       settled: (input) => hub.contextor.planner.settled(input),
     },
   };

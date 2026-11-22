@@ -68,7 +68,7 @@ describe('the static toolset on a free OpenRouter model (live)', () => {
       const children = (await r.store.table('runs').find({ where: { parent: run }, limit: 10 })).items;
       expect(children.map((c) => c.fn)).toContain('vault/open');
       const [first] = (await r.store.table('llmInteractions').find({ where: { run }, limit: 10 })).items;
-      expect(first?.request.tools?.map((t) => t.name)).toEqual(['find', 'inspect', 'load', 'unload', 'run']);
+      expect(first?.request.tools?.map((t) => t.name)).toEqual(['find', 'find_ctx', 'inspect', 'load', 'unload', 'run']);
       console.info('live.static.answered', { model, children: children.map((c) => c.fn) });
       return;
     }

@@ -2,7 +2,7 @@
  * The admin's search decisions (`SearchDecision`, the `hubOptions` rows `fnsSearchDecision` and
  * `contextSearchDecision`): who filters a ranked search's hits before they are returned, for fns and for context
  * apart. `DecidedFnSearch` wraps the database search with them, so every caller of the one operation gets the same
- * hits: `hub/fns_search`, the web's `searchFns` and the system link's `searchFns`.
+ * hits: `hub/fns_search` and `hub/ctx_search`, the web's `searchFns` and the system link's `searchFns`.
  *
  * - `none`: the hits as ranked.
  * - `decision`: the models module's `Decider` asks a decision model (its own, else the `decide` role's) one yes/no
@@ -16,8 +16,8 @@
  * kept and the page says so (`SearchFiltered.failed`).
  *
  * A decision whose action is `load` marks its record so (`SearchFiltered.action`); the filter itself loads nothing
- * (the web's search only filters). `hub/fns_search`, which runs in a chat, then loads the best kept hits it may use
- * (`loadKept` in `boot/hub-fns.ts`) and says what in its page (`FnSearchPage.loaded`).
+ * (the web's search only filters). `hub/fns_search` and `hub/ctx_search`, which run in a chat, then load the best kept hits they may use
+ * (`loadKept` in `boot/hub-fns.ts`) and say what in their page (`FnSearchPage.loaded`).
  */
 import type { Logger } from '@ayepi/log';
 import {

@@ -6,7 +6,7 @@
 import { check, feature, openSession, settle, show, tid } from '../kit.ts';
 
 /** The hub fns whose finished runs never show as cards. */
-const HIDDEN = ['hub/load_fns', 'hub/drop_fns', 'hub/load_context', 'hub/run_status', 'hub/run_wait'];
+const HIDDEN = ['hub/fns_load', 'hub/fns_drop', 'hub/ctx_load', 'hub/run_status', 'hub/run_wait'];
 /** The hub fns whose finished runs read as a line. */
 const LINES = ['hub/search_fns', 'hub/search_context'];
 

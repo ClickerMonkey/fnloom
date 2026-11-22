@@ -122,7 +122,8 @@ export interface ContextDecl {
   suggestFns: QualifiedName[];
   suggest: Audience;
   visible: Audience;
-  alwaysFor: QualifiedName[];
+  /** Injected into these agents' system prompts: exact agent names or `*` patterns (2026-11-22; `alwaysFor` is gone). */
+  inject?: { into: string[]; order: number; requires: QualifiedName[]; mode?: 'tools' | 'static' };
   tags: string[];
 }
 

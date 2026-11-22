@@ -1,7 +1,8 @@
 /**
  * The hub's side of the LLM wire. The mapping between aeye's in-memory LLM shapes and their JSON projections in core
- * is `@harness/sdk/server`'s, shared with systems; this module adds what only the hub needs: tool names for fns, the
- * text of a tool reply, token totals, and the lenient mapping it saves transcripts and interactions with.
+ * is `@harness/sdk/server`'s, shared with systems; this module adds what only the hub needs: the text of a tool reply,
+ * token totals, and the lenient mapping it saves transcripts and interactions with. (A fn's tool name is core's
+ * `modelFnName`, the one name the model sees.)
  */
 import type { Message, Request } from '@aeye/core';
 import { ChangeSet, LoadCards, ResultTable, rowsLine, tableModelView, WidgetProposal, WidgetResult, type Json, type LlmMessage, type TableModelView, type TableReading, type LlmRequest, type LlmUsage } from '@harness/core';
@@ -10,9 +11,6 @@ import { LlmWire } from '@harness/sdk/server';
 export {
   ChunkReader, ChunkWriter, chunkFromWire, chunkToWire, descriptorsOf, isObjectSchema, messageFromWire, requestFromWire, responseToWire, usageToWire,
 } from '@harness/sdk/server';
-
-/** A fn's name as an LLM tool name (core's, so the web reads one back the same way). */
-export { toolName } from '@harness/core';
 
 /**
  * What the hub saves: a record never fails over something the wire can't carry; the part is kept as a placeholder
@@ -37,18 +35,20 @@ export function requestToWire(request: Request): LlmRequest {
  * result (a widget run, a fn returning a `ResultTable`) is drawn for the person when someone watches the run, so the
  * model reads its summary and the first `reading.rows` rows (`tableModelView`), told who sees the rest; a widget
  * proposal (`widgets/make_widget`) the same of its preview, with a line saying it waits for the person's Save. A hub load
- * (`hub/load_fns`, `hub/load_context`) is read as its XML cards (`LoadCards`), never its record's name lists.
+ * (`hub/fns_load`, `hub/ctx_load`) is read as its XML cards (`LoadCards`), never its record's name lists. `encode` is
+ * how a value read as JSON goes to the model (the one fn name's `ModelFnNames.value`: its fn-name fields as the model
+ * calls those fns); the shapes above are read from the value as the fn gave it.
  */
-export function replyText(value: Json, reading: TableReading): string {
+export function replyText(value: Json, reading: TableReading, encode: (value: Json) => Json = (plain) => plain): string {
   if (typeof value === 'string') return value;
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return JSON.stringify(value);
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return JSON.stringify(encode(value));
   const load = LoadCards.safeParse(value);
   if (load.success) return load.data.cards;
   const table = tableReply(value, reading);
   if (table !== undefined) return JSON.stringify(table);
   const { changes, ...rest } = value;
   const set = ChangeSet.safeParse(changes);
-  return set.success ? `${JSON.stringify(rest)}\n${changeSummary(set.data)}` : JSON.stringify(value);
+  return set.success ? `${JSON.stringify(encode(rest))}\n${changeSummary(set.data)}` : JSON.stringify(encode(value));
 }
 
 /** A widget proposal as the model reads it: its preview's view plus a line saying it waits for the person's Save. */

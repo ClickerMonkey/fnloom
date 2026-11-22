@@ -10,7 +10,8 @@ import { mintId, reviewSlice, type ActorId, type FnFacts, type PreviewShot, type
 import type { HubServices } from '../../boot/index.ts';
 import type { ContentStore } from '../index.ts';
 import { messageOf } from '../../catalog/scope.ts';
-import { fnChangeFacts, reviewSummary } from '../../link/review-summary.ts';
+import { fnChangeFacts, injectionChanges, reviewSummary } from '../../link/review-summary.ts';
+import { agentNames } from '../../catalog/injections.ts';
 import { timeInfo } from '../../execution/time.ts';
 import type { Where } from '../../store/index.ts';
 import { userInfo, type FullHandlers } from './access.ts';
@@ -26,9 +27,9 @@ export async function systemReview(
   hub: Pick<HubServices, 'store' | 'catalog' | 'fns' | 'log'> & { readonly link: Pick<HubServices['link'], 'lifecycle'>; readonly api: { readonly content: Pick<ContentStore, 'presignDownload'> } },
   system: SystemName,
 ): Promise<SystemReview> {
-  const [record, manifest, fns, review, off, approved] = await Promise.all([
+  const [record, manifest, fns, review, off, approved, agents] = await Promise.all([
     hub.store.table('systems').get(system), hub.catalog.manifest(system), hub.catalog.fns({ system }), hub.link.lifecycle.review(system), hub.link.lifecycle.offItems(system),
-    hub.link.lifecycle.approvedClient(system),
+    hub.link.lifecycle.approvedClient(system), agentNames(hub.store),
   ]);
   if (record === undefined || manifest === undefined) { throw reject(404, 'NO_SYSTEM', `${system} hasn't sent its contract yet`); }
   const facts: FnFacts[] = [];
@@ -48,7 +49,13 @@ export async function systemReview(
     ...(Object.keys(previewUrls).length === 0 ? {} : { previewUrls }),
     ...(review?.checks === undefined ? {} : { checks: review.checks }),
     ...(review?.live === undefined ? {} : { live: review.live }),
-    ...(review?.pending === undefined ? {} : { pending: { ...review.pending, summary: reviewSummary(review.pending.changes), fns: fnChangeFacts(review.pending.changes) } }),
+    ...(review?.pending === undefined ? {} : {
+      pending: {
+        ...review.pending, summary: reviewSummary(review.pending.changes, agents), fns: fnChangeFacts(review.pending.changes),
+        // each change to what agents are told, with its targets and the agents they hit now
+        injections: injectionChanges(review.pending.changes, agents),
+      },
+    }),
     declined: review?.declined ?? [],
     clientApproved: approved !== undefined && approved.hash === manifest.client?.hash,
   };

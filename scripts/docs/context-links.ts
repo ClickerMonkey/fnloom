@@ -2,7 +2,7 @@
  * The guide's links, made to work once it is split into context items. In the single file a type is linked by its
  * anchor (`[ConfigComponentDecl](#core-configcomponentdecl)`) and a section is named in bold (`**Testing**`). In the
  * context folder the anchor may live in another item, and a bold name is no link at all, so a model reading through
- * `hub/load_context` could follow neither. Here an anchor in another item becomes a `context:` link to that item (with
+ * `hub/ctx_load` could follow neither. Here an anchor in another item becomes a `context:` link to that item (with
  * the anchor), and a bold section title becomes a `context:` link to its part. Fenced code is left alone.
  */
 

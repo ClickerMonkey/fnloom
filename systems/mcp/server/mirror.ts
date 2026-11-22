@@ -116,7 +116,7 @@ export function promptDecl(instance: InstanceName, label: string, prompt: McpPro
     content: text,
     command: { name, args },
     imports: [], fns: [], suggestFns: [],
-    suggest: 'user', visible: 'both', alwaysFor: [],
+    suggest: 'user', visible: 'both',
     tags: ['mcp', instance],
   };
 }

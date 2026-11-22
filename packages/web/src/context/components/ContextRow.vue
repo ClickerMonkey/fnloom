@@ -41,7 +41,7 @@ const seenBy = computed(() => (props.detailed || props.record.decl.visible !== '
       <span class="top">
         <span class="name">{{ label }}</span>
         <UiBadge v-if="command !== undefined">/{{ command }}</UiBadge>
-        <UiBadge v-if="record.decl.alwaysFor.length > 0" tone="accent">Always given</UiBadge>
+        <UiBadge v-if="record.decl.inject" tone="accent">Injected</UiBadge>
         <UiBadge v-if="seenBy !== ''" data-testid="context-seen-by">{{ seenBy }}</UiBadge>
         <UiBadge v-if="choices > 0">{{ choices }} {{ choices === 1 ? 'choice' : 'choices' }}</UiBadge>
         <UiBadge v-if="!detailed && record.declaredBy === 'runtime' && !shared.runtime" tone="accent" :title="record.version === undefined ? undefined : `Version ${record.version.slice(0, 8)}`" data-testid="context-runtime">Added while running</UiBadge>

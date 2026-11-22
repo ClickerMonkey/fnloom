@@ -13,13 +13,17 @@ import { chatModel, contextorRig, contextRecord, seeded } from './testing.ts';
 
 const SESSION = mintId('session', () => 'plan');
 const small = agent({ description: 'Small.', args: g.obj({}), returns: g.text(), instructions: 'Be brief.', tools: [], mode: { type: 'static' }, contextor: { type: 'graph' } });
+/** A small model's window that holds the static toolset's six tools and a short message. */
+const SMALL = 2_560;
+/** What the reply and the margin leave of it for the prompt: a quarter for the reply, a 6% margin. */
+const SMALL_PROMPT = SMALL - SMALL / 4 - Math.ceil(0.06 * SMALL);
 /** A small window that still holds the static toolset's tools, history and some context. */
-const ROOMY = 2_560;
+const ROOMY = 3_072;
 const plain = agent({ description: 'Plain.', args: g.obj({}), returns: g.text(), instructions: 'Be brief.', tools: [] });
 
 /** A rig with the graph agent, a session and a turn. */
 async function planning(transcript: LlmMessage[] = [], patch: Partial<Session> = {}, options: Parameters<typeof contextorRig>[0] = {}) {
-  const r = await contextorRig(options);
+  const r = await contextorRig({ models: [chatModel('small', { contextWindow: SMALL })], ...options });
   const agentRecord = r.catalog.addFn('hub/chat_small', small);
   r.catalog.addFn('hub/chat', plain);
   const session = await r.store.table('sessions').insert({
@@ -80,9 +84,9 @@ describe('the graph contextor', () => {
     expect(planned.report.context.map((c) => [c.name, c.detail])).toEqual([['fs/git-skill', 'full']]);
     expect(planned.report.fns.map((f) => f.name)).toEqual(['fs/git_status']);
     expect(planned.report.fns[0]?.detail).not.toBe('listed');
-    expect(planned.context).toContain('<context key="fs/git-skill">');
-    expect(planned.context).toContain('<fn name="fs/git_status" label="Git status"');
-    expect(planned.tools.map((t) => t.name)).toEqual(['find', 'inspect', 'load', 'unload', 'run']);
+    expect(planned.context).toContain('<ctx key="fs/git-skill">');
+    expect(planned.context).toContain('<fn name="fs__git_status" label="Git status"');
+    expect(planned.tools.map((t) => t.name)).toEqual(['find', 'find_ctx', 'inspect', 'load', 'unload', 'run']);
   });
 
   it('keeps the agent\'s own fns callable: native tools in tools mode, offered in static mode', async () => {
@@ -101,7 +105,7 @@ describe('the graph contextor', () => {
     const listed = await planFor({ type: 'static', protocol: 'auto', placement: 'system-end', loadDetail: 'full' });
     expect(listed.report.fns.map((f) => f.name)).toEqual(['hub/run_status']);
     expect(listed.context).not.toContain('hub/fns_search');
-    expect(listed.tools.map((t) => t.name)).toEqual(['find', 'inspect', 'load', 'unload', 'run']);
+    expect(listed.tools.map((t) => t.name)).toEqual(['find', 'find_ctx', 'inspect', 'load', 'unload', 'run']);
   });
 
   it('takes a large item in a short form when only that fits, and never goes over the budget', async () => {
@@ -110,8 +114,8 @@ describe('the graph contextor', () => {
     r.search.hits = [{ kind: 'context', key: 'fs/manual', rank: 1, similarity: 1, text: '' }];
     const planned = await plan('what does the fs manual say?');
     expect(planned.report.context).toEqual([expect.objectContaining({ name: 'fs/manual', detail: 'signature' })]);
-    expect(planned.estimate).toBeLessThanOrEqual(2_048 - 512 - Math.ceil(0.06 * 2_048));
-    expect(planned.maxTokens).toBe(512);
+    expect(planned.estimate).toBeLessThanOrEqual(SMALL_PROMPT);
+    expect(planned.maxTokens).toBe(SMALL / 4);
   });
 
   it('bounds an agent that declares no maxOutput by HARNESS_AGENT_MAX_OUTPUT, and 0 leaves the model\'s own limit', async () => {
@@ -189,9 +193,9 @@ describe('the graph contextor', () => {
     const { plan } = await planning();
     await expect(plan('word '.repeat(3_000))).rejects.toThrow(PromptTooLarge);
     await expect(plan('word '.repeat(3_000))).rejects.toThrow(/^This message is about [\d,]+ tokens; small takes [\d,]+ here/);
-    // the report carries the budget's real reserve: a quarter of the 2,048 window for the reply, a 6% margin
+    // the report carries the budget's real reserve: a quarter of the 2,560 window for the reply, a 6% margin
     const refused = await plan('word '.repeat(3_000)).then(() => undefined, (error: unknown) => error);
-    expect(refused instanceof PromptTooLarge ? refused.report : undefined).toMatchObject({ window: 2_048, output: 512, reasoning: 0, margin: 123 });
+    expect(refused instanceof PromptTooLarge ? refused.report : undefined).toMatchObject({ window: SMALL, output: 640, reasoning: 0, margin: 154 });
   });
 
   it('keeps choosing with less room while the whole prompt comes out over budget, and fits', async () => {
@@ -206,7 +210,7 @@ describe('the graph contextor', () => {
       for (let i = 0; i < 12; i++) r.catalog.addContext(contextRecord(`fs/item-${i}`, { content: 'c'.repeat(600) }));
       r.search.hits = Array.from({ length: 12 }, (_, i) => ({ kind: 'context' as const, key: `fs/item-${i}`, rank: 1 - i / 20, similarity: 1 - i / 20, text: '' }));
       const planned = await plan('item details please');
-      expect(planned.estimate).toBeLessThanOrEqual(ROOMY - 512 - Math.ceil(0.06 * ROOMY));
+      expect(planned.estimate).toBeLessThanOrEqual(ROOMY - ROOMY / 4 - Math.ceil(0.06 * ROOMY));
       expect(planned.report.context.length).toBeGreaterThan(0);
     } finally {
       spy.mockRestore();
@@ -224,7 +228,7 @@ describe('the graph contextor', () => {
       }
       r.search.hits = Array.from({ length: 10 }, (_, i) => ({ kind: random() < 0.5 ? 'context' as const : 'fn' as const, key: random() < 0.5 ? `fs/item-${i}` : `fs/fn-${i}`, rank: random(), similarity: random(), text: '' }));
       const planned = await plan('item details please');
-      expect(planned.estimate).toBeLessThanOrEqual(2_048 - 512 - Math.ceil(0.06 * 2_048));
+      expect(planned.estimate).toBeLessThanOrEqual(SMALL_PROMPT);
     }
   });
 });
@@ -236,7 +240,7 @@ describe('static mode calls', () => {
     r.search.hits = [{ kind: 'fn', key: 'fs/read', rank: 1, similarity: 1, text: '' }];
     const planned = await plan('read it');
     const unknown = await r.planner.interpret({ type: 'tool', id: '1', name: 'run', args: { fn: 'fs/raed', args: { path: 'a' } } }, planned);
-    expect(unknown).toMatchObject({ type: 'invalid', reply: 'There is no fn fs/raed you can run here. The nearest: fs/read.' });
+    expect(unknown).toMatchObject({ type: 'invalid', reply: 'There is no fn fs/raed you can run here. The nearest: fs__read.' });
     const bad = await r.planner.interpret({ type: 'block', id: 'b1', fn: 'fs/read', json: '{"path": 3}' }, planned);
     expect(bad).toMatchObject({ type: 'invalid', fn: 'fs/read', invalid: { source: 'schema', problems: [{ path: 'path' }] } });
     const good = await r.planner.interpret({ type: 'block', id: 'b2', fn: 'fs/read', json: '{"path": "a"}' }, planned);
@@ -245,6 +249,8 @@ describe('static mode calls', () => {
     expect(await r.planner.interpret({ type: 'block', id: 'b4', fn: 'fs/read', on: 'laptop', json: '{"path": "a"}' }, planned)).toEqual({ type: 'run', fn: 'fs/read', args: { path: 'a' }, on: 'laptop' });
     expect(await r.planner.interpret({ type: 'block', id: 'b5', fn: 'fs/read', on: 'Not A Machine!', json: '{"path": "a"}' }, planned)).toMatchObject({ type: 'invalid', invalid: { problems: [{ path: 'on' }] } });
     expect(await r.planner.interpret({ type: 'tool', id: '2', name: 'find', args: { text: 'x' } }, planned)).toEqual({ type: 'run', fn: 'hub/fns_search', args: { text: 'x' } });
+    // find_ctx is the context search
+    expect(await r.planner.interpret({ type: 'tool', id: '3', name: 'find_ctx', args: { text: 'x' } }, planned)).toEqual({ type: 'run', fn: 'hub/ctx_search', args: { text: 'x' } });
     expect(await r.planner.interpret({ type: 'block', id: 'b3', fn: undefined, json: '{}' }, planned)).toMatchObject({ type: 'invalid', invalid: { source: 'schema' } });
   });
 
@@ -253,9 +259,9 @@ describe('static mode calls', () => {
     const { r, plan } = await planning([], { mode: tail, tools: ['fs/read'] });
     r.catalog.addFn('fs/read');
     const planned = await plan('read');
-    expect(planned.context).not.toContain('<fn name="fs/read"');
+    expect(planned.context).not.toContain('<fn name="fs__read"');
     expect(planned.messages.at(-1)).toMatchObject({ role: 'system' });
-    expect(textOf(planned.messages.at(-1) ?? { role: 'system', content: '' })).toContain('<fn name="fs/read"');
+    expect(textOf(planned.messages.at(-1) ?? { role: 'system', content: '' })).toContain('<fn name="fs__read"');
   });
 });
 
@@ -290,7 +296,7 @@ describe('the plain contextor (build 6: a context brings its fns)', () => {
     expect(planned.report.context.map((c) => c.name)).toEqual(['fs/authoring', 'fs/authoring.layout']);
     expect(planned.tools.map((t) => t.name).sort()).toEqual(['fs__install_system', 'fs__read']);
     const system = planned.context;
-    expect(system).toContain('<brought_fns in_tools="yes">In your tools now: fs/install_system</brought_fns>');
+    expect(system).toContain('<brought_fns in_tools="yes">In your tools now: fs__install_system</brought_fns>');
     expect(system).toMatch(/<choice key="fs\/authoring\.kinds" tokens="\d+">pick this when the system declares a kind/);
   });
 
@@ -307,8 +313,8 @@ describe('the plain contextor (build 6: a context brings its fns)', () => {
     r.catalog.addFn('database/list_tables', fn({ description: 'List tables.', args: g.obj({}), returns: g.text() }));
     const planned = await r.planner.plan({ session, turn, agent: chat, model: 'small', instructions: 'Be brief.', transcript: [{ role: 'user', content: 'track my tasks' }] });
     expect(planned.tools.map((t) => t.name)).toEqual(['database__list_tables']);
-    expect(planned.context).toContain('<brought_fns in_tools="yes">In your tools now: database/list_tables</brought_fns>\n');
-    expect(planned.context).toContain('<brought_fns in_tools="no" available="no">You can\'t use these now: database/create_table, database/insert_rows (changed and waits for an admin to approve it).');
+    expect(planned.context).toContain('<brought_fns in_tools="yes">In your tools now: database__list_tables</brought_fns>\n');
+    expect(planned.context).toContain('<brought_fns in_tools="no" available="no">You can\'t use these now: database__create_table, database__insert_rows (changed and waits for an admin to approve it).');
     // a fn that doesn't exist (or that the person can't see) is not named
     expect(planned.context).not.toContain('database/gone');
   });
@@ -325,9 +331,9 @@ describe('the plain contextor (build 6: a context brings its fns)', () => {
     expect(planned.report.mode).toBe('static');
     expect(planned.context).not.toContain('in_tools');
     expect(planned.context).not.toContain('In your tools');
-    expect(planned.context).toContain('<brought_fns loaded="yes">Their cards are in this prompt; run one with run({ fn, args }): database/list_tables</brought_fns>');
-    expect(planned.context).toContain('<fn name="database/list_tables"');
-    expect(planned.context).toContain('<brought_fns loaded="no" available="no">You can\'t use these now: database/create_table (changed and waits for an admin to approve it).');
+    expect(planned.context).toContain('<brought_fns loaded="yes">Their cards are in this prompt; run one with run({ fn, args }): database__list_tables</brought_fns>');
+    expect(planned.context).toContain('<fn name="database__list_tables"');
+    expect(planned.context).toContain('<brought_fns loaded="no" available="no">You can\'t use these now: database__create_table (changed and waits for an admin to approve it).');
     // the text protocol says to write a block
     const text = await planning([], { agent: 'hub/chat', context: ['database/guide'], mode: { ...mode, protocol: 'text' } });
     text.r.catalog.addContext(contextRecord('database/guide', { description: 'Tables.', content: 'Make a table.', fns: ['database/list_tables'] }));
@@ -335,7 +341,7 @@ describe('the plain contextor (build 6: a context brings its fns)', () => {
     const textChat = await text.r.catalog.fn('hub/chat');
     if (textChat === undefined) throw new Error('no hub/chat');
     const written = await text.r.planner.plan({ session: text.session, turn: text.turn, agent: textChat, model: 'small', instructions: 'Be brief.', transcript: [{ role: 'user', content: 'tables' }] });
-    expect(written.context).toContain('<brought_fns loaded="yes">Their cards are in this prompt; run one with a &lt;run fn="…"&gt;{…}&lt;/run&gt; block: database/list_tables</brought_fns>');
+    expect(written.context).toContain('<brought_fns loaded="yes">Their cards are in this prompt; run one with a &lt;run fn="…"&gt;{…}&lt;/run&gt; block: database__list_tables</brought_fns>');
   });
 });
 

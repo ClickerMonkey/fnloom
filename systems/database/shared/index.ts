@@ -1,7 +1,7 @@
 /**
  * The database system's contract (`shared/`). One instance per database (SQLite, Postgres or SQL Server). Every table
  * is a type in the hub (`<instance>.<table>`); every query the chat asks for is kept in the hub as a `database/query`
- * fn of its instance (`<instance>.<name>`, through `hub/save_fn`), so the next request finds it with `hub/fns_search`.
+ * fn of its instance (`<instance>.<name>`, through `hub/fns_save`), so the next request finds it with `hub/fns_search`.
  * `get_query` and `edit_query` are authoring fns: the chat describes what it wants, and a query authoring agent on
  * `ctx.ai()` (`server/authoring.ts`) finds or writes the saved query through a forced workflow with progressive
  * disclosure, then it runs. The chat gets the saved fn and its run, never the working context. Rows go to the person as a
@@ -116,7 +116,7 @@ export const database = system('database', {
   configSecrets: [...CONFIG_SECRETS],
   // the query authoring agent and enrichment use models; writes and schema changes wait for approval; get_query asks
   // the decision model to pick a database; saved queries are hub fns it searches (the link's search), reads and saves
-  grants: { hub: ['ai', 'approvals', 'decide', 'search', 'fns'], calls: ['hub/fn_get', 'hub/save_fn'] },
+  grants: { hub: ['ai', 'approvals', 'decide', 'search', 'fns'], calls: ['hub/fns_get', 'hub/fns_save'] },
 })
   .with({
     config: ginAs(DatabaseConfig),
@@ -142,7 +142,7 @@ export const database = system('database', {
         instructions: 'Called by this system\'s own tools only.',
         args: ginAs(InstanceOp),
         returns: ginAs(InstanceAnswer),
-        deps: { getFn: hub.fns.fn_get, saveFn: hub.fns.save_fn },
+        deps: { getFn: hub.fns.fns_get, saveFn: hub.fns.fns_save },
         examples: [{ args: { op: 'run', fn: 'database/main.orders_by_status', args: { status: 'paid' } }, note: 'Run a saved query on the instance it runs on.' }],
         visibility: 'none',
         display: 'hidden',
@@ -156,7 +156,7 @@ export const database = system('database', {
         instructions: 'Called by this system\'s own read tools only.',
         args: ginAs(ReadInstanceOp),
         returns: ginAs(InstanceAnswer),
-        deps: { getFn: hub.fns.fn_get },
+        deps: { getFn: hub.fns.fns_get },
         examples: [{ args: { op: 'tables' }, note: 'The tables of the instance it runs on.' }],
         visibility: 'none',
         display: 'hidden',
@@ -322,7 +322,7 @@ export const database = system('database', {
         instructions: 'Called by get_query and edit_query only: they pick the database and forward the request (and, for an edit, the saved query).',
         args: ginAs(AuthorArgs),
         returns: ginAs(QueryAnswer),
-        deps: { getFn: hub.fns.fn_get, saveFn: hub.fns.save_fn },
+        deps: { getFn: hub.fns.fns_get, saveFn: hub.fns.fns_save },
         examples: [{ args: { request: 'Paid orders, biggest first, with the customer.' } }, { args: { request: 'Also show the order date.', edit: 'database/main.orders_by_status' } }],
         visibility: 'none',
         display: 'hidden',

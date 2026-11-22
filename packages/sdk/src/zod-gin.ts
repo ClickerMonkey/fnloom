@@ -12,7 +12,7 @@
  * expression: any JSON would refuse a program whose root is a `new` (gin reads that as a misplaced expression).
  */
 import type { FieldsInput } from '@aeye/gin';
-import { GinExprDef, GinObjTypeDef, GinTypeDef } from '@harness/core';
+import { FN_NAME_DESCRIPTION, GinExprDef, GinObjTypeDef, GinTypeDef } from '@harness/core';
 import { z } from 'zod';
 import { g, json, type GinType } from './gin.ts';
 
@@ -67,7 +67,8 @@ export function ginOf(schema: z.core.$ZodType): GinType {
     });
   }
   if (schema instanceof z.ZodBoolean) return g.bool();
-  if (schema instanceof z.ZodTemplateLiteral) return g.text();
+  // core's `FnNameValue` (a qualified name the boundary speaks as a model name) is told apart by its description
+  if (schema instanceof z.ZodTemplateLiteral) return schema.description === FN_NAME_DESCRIPTION ? g.fnName() : g.text();
   // every string format (`z.email()`, `z.url()`, branded ids) has def type `string`, whatever its class
   if (schema instanceof z.ZodString || schema._zod.def.type === 'string') {
     const length = schema instanceof z.ZodString ? { min: schema.minLength, max: schema.maxLength } : { min: null, max: null };

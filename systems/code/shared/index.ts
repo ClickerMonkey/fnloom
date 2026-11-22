@@ -7,7 +7,7 @@
  *   deps); running it binds `args` and those fns and runs it within the program runtime's limits (`programEnv`).
  * - **make_code** is an authoring fn: an agent on `ctx.ai()` searches the fns it may call, loads what it needs, declares
  *   the signature, writes the program against gin's typed schema, has it checked (and run with sample args when it
- *   calls no fn), and saves it with `hub/save_fn`. The chat gets the saved fn, never the working context.
+ *   calls no fn), and saves it with `hub/fns_save`. The chat gets the saved fn, never the working context.
  */
 import { CODE_KIND, CODE_SYSTEM, CodeFnSpec } from '@harness/core';
 import { context, fn, g, ginAs, hub, kind, system } from '@harness/sdk';
@@ -52,7 +52,7 @@ export const code = system(CODE_SYSTEM, {
   groups: [{ name: 'code', title: 'Code', description: 'Write a code fn for a calculation or small piece of logic, and keep it to run again.' }],
   // the authoring agent is a model; code fns are hub fns it searches, reads and saves; a saved program calls fns by
   // name (its kind's deps), which the hub checks per call
-  grants: { hub: ['ai', 'fns', 'search'], calls: [hub.fns.fn_get.name, hub.fns.save_fn.name] },
+  grants: { hub: ['ai', 'fns', 'search'], calls: [hub.fns.fns_get.name, hub.fns.fns_save.name] },
 })
   .with({
     kinds: {
@@ -72,7 +72,7 @@ export const code = system(CODE_SYSTEM, {
         instructions: MAKE_USAGE,
         args: MakeCodeArgs,
         returns: authoredFn,
-        deps: { getFn: hub.fns.fn_get, saveFn: hub.fns.save_fn },
+        deps: { getFn: hub.fns.fns_get, saveFn: hub.fns.fns_save },
         examples: [
           { args: { request: 'A price with tax: args amount (num) and rate (num, a percentage); returns the total rounded to cents. 100 at 8.25 gives 108.25.' }, note: 'A calculation with no other fns.' },
           { args: { request: 'Split a bill: args total (number, dollars), people (whole number, at least 1) and tipPercent (optional number, default 0); returns each person\'s share rounded to cents. 90 for 3 people with 10% tip gives 33.' }, note: 'An optional arg with a default.' },
@@ -101,7 +101,7 @@ export const code = system(CODE_SYSTEM, {
           '2. Otherwise call code/make_code with `request`: the args (names and kinds), what it returns, any fns it should call, and one example with the expected result. Example args:',
           '   {"request":"A price with tax: args amount (num) and rate (num, a percentage); returns the total rounded to cents. 100 at 8.25 gives 108.25."}',
           '3. It answers with the saved fn: {"fn":"code/price_with_tax","signature":"code/price_with_tax(amount: num, rate: num) → num","call":"…","reused":false,…}. Writing takes up to a minute.',
-          '4. Load that fn (hub/load_fns) and call it with the person\'s values, then give them the result. Never redo its work by hand.',
+          '4. Load that fn (hub/fns_load) and call it with the person\'s values, then give them the result. Never redo its work by hand.',
           '',
           'To change a code fn, call code/make_code with `fn` set to its name and `request` saying what to change; a new version is saved under the same name.',
           'If code/make_code fails, tell the person it could not be written and the reason it gave; don\'t send the same request again.',

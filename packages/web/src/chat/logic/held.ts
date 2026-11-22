@@ -1,7 +1,7 @@
 /**
  * The systems a turn found held for review: every place the hub refuses a fn to the model says what blocks it as a
- * structured `FnBlock` (`hub/load_fns` and `hub/load` in `refused`, `hub/load_context` in `fnsRefused`, `hub/fns_search`
- * on each hit and `hub/fn_get` as `blocked`), and a direct call of a blocked fn (a tool, a static `run`) is kept as a
+ * structured `FnBlock` (`hub/fns_load` and `hub/load` in `refused`, `hub/ctx_load` in `fnsRefused`, `hub/fns_search`
+ * on each hit and `hub/fns_get` as `blocked`), and a direct call of a blocked fn (a tool, a static `run`) is kept as a
  * run settled invalid-input with that same block (`InvalidInput.blocked`). A block with code `held` means the fn's
  * system has changes (or a whole install) waiting for an admin's review. The chat shows one banner per held system on
  * that turn, from these runs alone. Pure, so it is tested alone.
@@ -30,10 +30,10 @@ function reader<T>(schema: z.ZodType<T>, blocks: (result: T) => readonly Blocked
 
 /** The hub fns whose results carry blocks, and where in each result they are. */
 const BLOCKS_BY_FN: ReadonlyMap<string, (result: Json) => readonly Blocked[]> = new Map([
-  [hub.fns.load_fns.name, reader(z.object({ refused: z.array(FnRefusal) }), (r) => r.refused.map(({ fn, ...block }) => ({ ...block, name: fn })))],
+  [hub.fns.fns_load.name, reader(z.object({ refused: z.array(FnRefusal) }), (r) => r.refused.map(({ fn, ...block }) => ({ ...block, name: fn })))],
   [hub.fns.load.name, reader(z.object({ refused: z.array(NameRefusal) }), (r) => r.refused)],
-  [hub.fns.load_context.name, reader(LoadContextResult.pick({ fnsRefused: true }), (r) => r.fnsRefused.map(({ fn, ...block }) => ({ ...block, name: fn })))],
-  [hub.fns.fn_get.name, reader(z.object({ fn: z.string(), blocked: FnBlock.optional() }), (r) => (r.blocked === undefined ? [] : [{ ...r.blocked, name: r.fn }]))],
+  [hub.fns.ctx_load.name, reader(LoadContextResult.pick({ fnsRefused: true }), (r) => r.fnsRefused.map(({ fn, ...block }) => ({ ...block, name: fn })))],
+  [hub.fns.fns_get.name, reader(z.object({ fn: z.string(), blocked: FnBlock.optional() }), (r) => (r.blocked === undefined ? [] : [{ ...r.blocked, name: r.fn }]))],
   [hub.fns.fns_search.name, reader(z.object({ items: z.array(FnSearchHit.pick({ name: true, blocked: true })) }), (r) => r.items.flatMap((hit) => (hit.blocked === undefined ? [] : [{ ...hit.blocked, name: hit.name }])))],
 ]);
 

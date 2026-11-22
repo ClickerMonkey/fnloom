@@ -17,7 +17,7 @@ import type { Decider, ModelSite } from '../models/index.ts';
 const reads = (settled: { status: string; result?: Json }): string => (settled.status === 'done' && settled.result !== undefined ? replyText(settled.result, { rows: 5, watched: true }) : '');
 
 let rig: ExecutionRig | undefined;
-/** The decider `hub/context_crawl` asks (none set by default). */
+/** The decider `hub/ctx_crawl` asks (none set by default). */
 const NO_DECIDER: Pick<Decider, 'model' | 'ask'> = { model: () => Promise.resolve({ problem: 'No decision model is set (an admin sets the Decide role).' }), ask: () => Promise.reject(new Error('no decision model')) };
 let decider = NO_DECIDER;
 /** What the admin's search decisions did to the fake search's page (none by default). */
@@ -36,8 +36,8 @@ function addHubFn<A, R>(r: ExecutionRig, ref: FnRef<QualifiedName, A, R>): void 
 async function started(hits: SearchHit[] = [], session: Partial<Session> = {}, access: (actor: ActorId) => AccessScope = openScope) {
   const r = await executionRig();
   rig = r;
-  const { fns_search, load_fns, drop_fns, load_context, context_crawl, search_resources, ask_user } = hub.fns;
-  addHubFn(r, fns_search); addHubFn(r, load_fns); addHubFn(r, drop_fns); addHubFn(r, load_context); addHubFn(r, context_crawl);
+  const { fns_search, fns_load, fns_drop, ctx_search, ctx_load, ctx_drop, ctx_crawl, search_resources, ask_user } = hub.fns;
+  addHubFn(r, fns_search); addHubFn(r, fns_load); addHubFn(r, fns_drop); addHubFn(r, ctx_search); addHubFn(r, ctx_load); addHubFn(r, ctx_drop); addHubFn(r, ctx_crawl);
   addHubFn(r, search_resources); addHubFn(r, ask_user);
   r.catalog.add('fs', 'read', fn({ description: 'Read a file.', args: g.obj({ path: g.text() }), returns: g.text(), tags: ['read'] }));
   r.catalog.add('shop', 'buy', fn({ description: 'Buy.', args: g.obj({}), returns: g.text() }), { available: { unavailable: 'system-disconnected', detail: 'shop is offline' } });
@@ -75,8 +75,10 @@ async function started(hits: SearchHit[] = [], session: Partial<Session> = {}, a
     sharing: () => ({ sharing: () => Promise.reject(new Error('no sharing here')), own: () => Promise.reject(new Error('no sharing here')) }),
     fns: () => ({ search: { search: (query, asker) => {
       fnSearches.push(query);
-      const items = known.filter((hit) => (query.items ?? ['fn']).includes(hit.item) && (asker.keep === undefined || asker.keep(hit.item, hit.name)));
-      return Promise.resolve(filtered === undefined ? { items } : { items, filtered });
+      const items = known.filter((hit) => (query.items ?? ['fn', 'context']).includes(hit.item) && (asker.keep === undefined || asker.keep(hit.item, hit.name)));
+      // as the real search: a decision judges only the item kinds the page holds
+      const judged = filtered?.filter((f) => items.some((hit) => hit.item === f.item));
+      return Promise.resolve(judged === undefined || judged.length === 0 ? { items } : { items, filtered: judged });
     } }, examples: { sync: () => Promise.resolve(), page: () => Promise.reject(new Error('no examples here')), patch: () => Promise.reject(new Error('no examples here')), forPrompt: () => Promise.resolve([]) } }),
   });
   await r.session({ systems: [SystemName.parse('fs'), SystemName.parse('shop')], ...session });
@@ -98,55 +100,83 @@ describe('finding and loading fns', () => {
     expect(fnSearches[0]).toMatchObject({ text: 'open a file' });
   });
 
-  it('loads the best kept hits it may use when a search decision\'s action is load, and says so', async () => {
+  it('fns_search finds fns only and ctx_search context only, on the one search', async () => {
+    const { r, turn, fnSearches } = await started();
+    const fns = await call(r, turn, 'fns_search', { text: 'read' });
+    expect(fns).toMatchObject({ status: 'done', result: { items: [{ name: 'fs/read' }, { name: 'shop/buy' }] } });
+    expect(fns.status === 'done' && JSON.stringify(fns.result)).not.toContain('fs/guide');
+    const context = await call(r, turn, 'ctx_search', { text: 'read', origins: ['system'], scopes: ['user'], tags: ['files'] });
+    expect(context).toEqual({ status: 'done', result: { items: [{ item: 'context', name: 'fs/guide', system: 'fs', description: 'guide', available: true }] } });
+    // one search, asked for one kind of item each: ctx_search's origins and tags are the context list's filters
+    expect(fnSearches).toEqual([
+      { text: 'read', items: ['fn'], available: false },
+      { text: 'read', items: ['context'], scopes: ['user'], available: false, filters: [{ field: 'origin', op: 'in', values: ['system'] }, { field: 'tags', op: 'in', values: ['files'] }] },
+    ]);
+  });
+
+  it('drops context items with ctx_drop, leaving the fns they brought', async () => {
+    const { r, turn } = await started([], { context: [QualifiedName.parse('fs/guide'), QualifiedName.parse('fs/paths')], tools: [QualifiedName.parse('fs/read')] });
+    expect(await call(r, turn, 'ctx_drop', { context: ['fs/guide: how to work with files', 'fs/other'] })).toEqual({ status: 'done', result: { dropped: ['fs/guide'] } });
+    const session = await r.store.table('sessions').get(SESSION);
+    expect(session?.context).toEqual(['fs/paths']);
+    expect(session?.tools).toEqual(['fs/read']);
+  });
+
+  it('applies each search decision to its own search: the fn one to fns_search, the context one to ctx_search', async () => {
     const { r, turn } = await started();
     r.catalog.contexts.set(QualifiedName.parse('fs/guide'), 'How to work with files.');
-    // a filter that loads fns only: the usable fn loads, the offline one doesn't, and context hits are only returned
-    filtered = [{ item: 'fn', by: 'decision', dropped: [], action: 'load' }, { item: 'context', by: 'decision', dropped: [] }];
-    const fnsOnly = await call(r, turn, 'fns_search', { text: 'read', items: ['fn', 'context'] });
-    expect(fnsOnly).toMatchObject({ status: 'done', result: { loaded: { fns: ['fs/read'], context: [], note: SEARCH_LOADED_NOTE } } });
-    expect((await r.store.table('sessions').get(SESSION))?.tools).toEqual(['fs/read']);
-    // context too, with what it brings; what is loaded already is left as it is
+    // both decisions load: fns_search loads the usable fn (not the offline one) and never context
     filtered = [{ item: 'fn', by: 'decision', dropped: [], action: 'load' }, { item: 'context', by: 'decision', dropped: [], action: 'load' }];
-    const both = await call(r, turn, 'fns_search', { text: 'read', items: ['fn', 'context'] });
-    expect(both).toMatchObject({ status: 'done', result: { loaded: { fns: [], context: ['fs/guide'] } } });
-    expect((await r.store.table('sessions').get(SESSION))?.context).toEqual(['fs/guide']);
-    // a filter that failed loads nothing, and neither does a decision that only filters
+    const fnsOnly = await call(r, turn, 'fns_search', { text: 'read' });
+    expect(fnsOnly).toMatchObject({ status: 'done', result: { filtered: [{ item: 'fn' }], loaded: { fns: ['fs/read'], context: [], note: SEARCH_LOADED_NOTE } } });
+    expect((await r.store.table('sessions').get(SESSION))?.context).toEqual([]);
+    // ctx_search loads the context, with what it brings, and never fns; what is loaded already is left as it is
+    const ctxOnly = await call(r, turn, 'ctx_search', { text: 'read' });
+    expect(ctxOnly).toMatchObject({ status: 'done', result: { filtered: [{ item: 'context' }], loaded: { fns: [], context: ['fs/guide'] } } });
+    const session = await r.store.table('sessions').get(SESSION);
+    expect(session?.tools).toEqual(['fs/read']);
+    expect(session?.context).toEqual(['fs/guide']);
+    // the context decision alone loading leaves fns_search to only return its hits
     await r.store.table('sessions').update(SESSION, { tools: [], context: [] });
+    filtered = [{ item: 'fn', by: 'decision', dropped: [] }, { item: 'context', by: 'decision', dropped: [], action: 'load' }];
+    const fnsFiltered = await call(r, turn, 'fns_search', { text: 'read' });
+    expect(fnsFiltered.status === 'done' && typeof fnsFiltered.result === 'object' && fnsFiltered.result !== null && 'loaded' in fnsFiltered.result).toBe(false);
+    expect((await r.store.table('sessions').get(SESSION))?.tools).toEqual([]);
+    // a filter that failed loads nothing, and neither does a decision that only filters
     filtered = [{ item: 'fn', by: 'decision', dropped: [], action: 'load', failed: 'The decision model failed (down), so every hit was kept.' }, { item: 'context', by: 'llm', dropped: [] }];
-    const failed = await call(r, turn, 'fns_search', { text: 'read', items: ['fn', 'context'] });
+    const failed = await call(r, turn, 'fns_search', { text: 'read' });
     expect(failed.status === 'done' && typeof failed.result === 'object' && failed.result !== null && 'loaded' in failed.result).toBe(false);
     expect((await r.store.table('sessions').get(SESSION))?.tools).toEqual([]);
   });
 
   it('loads usable fns into the session and says why the rest were refused', async () => {
     const { r, turn } = await started([], { systems: [SystemName.parse('fs')] });
-    const settled = await call(r, turn, 'load_fns', { fns: ['fs/read', 'shop/buy', 'fs/nothing', 'not a name'] });
+    const settled = await call(r, turn, 'fns_load', { fns: ['fs/read', 'shop/buy', 'fs/nothing', 'nothing'] });
     // the model reads the XML cards, not the name lists: the loaded fn's card, then each refused name with why
     expect(reads(settled)).toBe([
       '<loaded_fns>', 'In your tools from your next step:', '<fn name="fs/read" label="Read" mode="read" available="yes">Read a file.</fn>', '</loaded_fns>',
       '<refused_fns>', 'Not loaded. Don\'t load these again; if you need one, tell the person what blocks it:',
-      '<refused name="not a name" code="not-a-name" available="no">not a qualified fn name (system/name)</refused>',
+      '<refused name="nothing" code="not-a-name" available="no">not the name of a fn</refused>',
       '<refused name="shop/buy" code="other-system" available="no">this session does not use shop</refused>',
       '<refused name="fs/nothing" code="no-such-fn" available="no">no such fn</refused>', '</refused_fns>',
     ].join('\n'));
     expect(settled).toMatchObject({ status: 'done', result: {
       loaded: ['fs/read'],
       refused: [
-        { fn: 'not a name', code: 'not-a-name', reason: 'not a qualified fn name (system/name)' },
+        { fn: 'nothing', code: 'not-a-name', reason: 'not the name of a fn' },
         { fn: 'shop/buy', code: 'other-system', reason: 'this session does not use shop', system: 'shop' },
         { fn: 'fs/nothing', code: 'no-such-fn', reason: 'no such fn' },
       ],
     } });
     expect((await r.store.table('sessions').get(SESSION))?.tools).toEqual(['fs/read']);
-    expect(await call(r, turn, 'drop_fns', { fns: ['fs/read', 'fs/other'] })).toEqual({ status: 'done', result: { dropped: ['fs/read'] } });
+    expect(await call(r, turn, 'fns_drop', { fns: ['fs/read', 'fs/other'] })).toEqual({ status: 'done', result: { dropped: ['fs/read'] } });
     expect((await r.store.table('sessions').get(SESSION))?.tools).toEqual([]);
   });
 
   it('refuses a fn not meant for the model, as hub/load does', async () => {
     const { r, turn } = await started();
     r.catalog.add('fs', 'raw', fn({ description: 'Raw.', args: g.obj({}), returns: g.text(), visibility: 'user' }));
-    expect(await call(r, turn, 'load_fns', { fns: ['fs/raw'] })).toMatchObject({ status: 'done', result: { loaded: [], refused: [{ fn: 'fs/raw', code: 'not-for-model', reason: 'not for the model', system: 'fs' }] } });
+    expect(await call(r, turn, 'fns_load', { fns: ['fs/raw'] })).toMatchObject({ status: 'done', result: { loaded: [], refused: [{ fn: 'fs/raw', code: 'not-for-model', reason: 'not for the model', system: 'fs' }] } });
   });
 
   it('refuses a held fn with the hub\'s reason, not a bare "unavailable" (regression: "You there?")', async () => {
@@ -154,7 +184,7 @@ describe('finding and loading fns', () => {
     const held = { unavailable: 'held' as const, detail: 'database/create_table changed and waits for an admin to approve it' };
     r.catalog.add('database', 'create_table', fn({ description: 'Create a table.', args: g.obj({}), returns: g.text() }), { available: held });
     await r.store.table('sessions').update(SESSION, { systems: 'all' });
-    const settled = await call(r, turn, 'load_fns', { fns: ['database/create_table'] });
+    const settled = await call(r, turn, 'fns_load', { fns: ['database/create_table'] });
     expect(settled).toMatchObject({ status: 'done', result: {
       loaded: [], refused: [{ fn: 'database/create_table', code: 'held', reason: held.detail, system: 'database' }],
     } });
@@ -162,15 +192,15 @@ describe('finding and loading fns', () => {
     expect(reads(settled)).not.toContain('<loaded_fns');
   });
 
-  it('gives a held fn from hub/fn_get with what blocks it, as fns_search hits say it, not a bare available: false', async () => {
+  it('gives a held fn from hub/fns_get with what blocks it, as fns_search hits say it, not a bare available: false', async () => {
     const { r, turn } = await started();
-    addHubFn(r, hub.fns.fn_get);
+    addHubFn(r, hub.fns.fns_get);
     const held = { unavailable: 'held' as const, detail: 'database/create_table changed and waits for an admin to approve it' };
     r.catalog.add('database', 'create_table', fn({ description: 'Create a table.', args: g.obj({}), returns: g.text() }), { available: held });
-    expect(await call(r, turn, 'fn_get', { fn: 'database/create_table' })).toMatchObject({ status: 'done', result: {
+    expect(await call(r, turn, 'fns_get', { fn: 'database/create_table' })).toMatchObject({ status: 'done', result: {
       fn: 'database/create_table', available: false, blocked: { code: 'held', reason: held.detail, system: 'database' },
     } });
-    const usable = await call(r, turn, 'fn_get', { fn: 'fs/read' });
+    const usable = await call(r, turn, 'fns_get', { fn: 'fs/read' });
     expect(usable).toMatchObject({ status: 'done', result: { fn: 'fs/read', available: true } });
     expect(usable.status === 'done' ? usable.result : undefined).not.toHaveProperty('blocked');
   });
@@ -199,7 +229,7 @@ describe('finding and loading fns', () => {
   it('refuses outside a chat session', async () => {
     const { r } = await started();
     const loose = await r.turn();
-    const input: RunInput = { fn: QualifiedName.parse('hub/load_fns'), args: { fns: ['fs/read'] }, turn: loose.id, key: 'k', actor: ALICE, caller: ALICE, priority: 'interactive', background: false, handlers: [] };
+    const input: RunInput = { fn: QualifiedName.parse('hub/fns_load'), args: { fns: ['fs/read'] }, turn: loose.id, key: 'k', actor: ALICE, caller: ALICE, priority: 'interactive', background: false, handlers: [] };
     expect(await (await r.module.runs.start(input)).settled).toMatchObject({ status: 'failed', error: { message: 'this fn only works inside a chat session' } });
   });
 });
@@ -210,12 +240,12 @@ describe('context and resources', () => {
     r.catalog.contexts.set(QualifiedName.parse('fs/guide'), 'How to work with files.');
     r.catalog.contexts.set(QualifiedName.parse('fs/guide.paths'), 'Paths are relative to the root.');
     r.catalog.contextDecls.set(QualifiedName.parse('fs/guide'), { imports: [QualifiedName.parse('fs/guide.paths')], fns: [QualifiedName.parse('fs/read')] });
-    const settled = await call(r, turn, 'load_context', { context: ['fs/guide: how to work with files', 'fs/missing'] });
+    const settled = await call(r, turn, 'ctx_load', { context: ['fs/guide: how to work with files', 'fs/missing'] });
     expect(reads(settled)).toBe([
-      '<loaded_context>', 'Their text is in front of you from your next step:',
-      '<context key="fs/guide">guide</context>', '<context key="fs/guide.paths">guide.paths</context>', '</loaded_context>',
+      '<loaded_ctx>', 'Their text is in front of you from your next step:',
+      '<ctx key="fs/guide">guide</ctx>', '<ctx key="fs/guide.paths">guide.paths</ctx>', '</loaded_ctx>',
       '<brought_fns in_tools="yes">In your tools from your next step: fs/read</brought_fns>',
-      '<refused_context>', 'Not loaded:', '<refused name="fs/missing" available="no">no context you can load has that name. The closest: fs/guide.</refused>', '</refused_context>',
+      '<refused_ctx>', 'Not loaded:', '<refused name="fs/missing" available="no">no context you can load has that name. The closest: fs/guide.</refused>', '</refused_ctx>',
     ].join('\n'));
     expect(settled).toMatchObject({ status: 'done', result: {
       loaded: ['fs/guide', 'fs/guide.paths'], fns: ['fs/read'], fnsRefused: [],
@@ -232,7 +262,7 @@ describe('context and resources', () => {
     r.catalog.add('database', 'raw', fn({ description: 'Raw.', args: g.obj({}), returns: g.text(), visibility: 'user' }));
     r.catalog.contexts.set(QualifiedName.parse('database/guide'), 'How to make tables.');
     r.catalog.contextDecls.set(QualifiedName.parse('database/guide'), { fns: [QualifiedName.parse('database/create_table'), QualifiedName.parse('fs/read'), QualifiedName.parse('database/raw'), QualifiedName.parse('database/gone')] });
-    const settled = await call(r, turn, 'load_context', { context: ['database/guide'] });
+    const settled = await call(r, turn, 'ctx_load', { context: ['database/guide'] });
     expect(reads(settled)).toContain('<brought_fns in_tools="no" available="no">You can\'t use these now: database/create_table (changed and waits for an admin to approve it).');
     expect(reads(settled)).not.toContain('database/gone');
     expect(settled).toMatchObject({ status: 'done', result: {
@@ -251,7 +281,7 @@ describe('context and resources', () => {
     r.catalog.contextDecls.set(QualifiedName.parse('fs/guide'), { imports: [QualifiedName.parse('fs/old')] });
     r.catalog.contextDecls.set(QualifiedName.parse('fs/old'), { imports: [QualifiedName.parse('fs/old.more')], fns: [QualifiedName.parse('fs/read')] });
     r.catalog.contextsOff.add(QualifiedName.parse('fs/old'));
-    expect(await call(r, turn, 'load_context', { context: ['fs/guide', 'fs/old'] })).toMatchObject({ status: 'done', result: {
+    expect(await call(r, turn, 'ctx_load', { context: ['fs/guide', 'fs/old'] })).toMatchObject({ status: 'done', result: {
       loaded: ['fs/guide'], fns: [], refused: [{ context: 'fs/old', reason: 'no context you can load has that name' }],
     } });
     expect(await r.store.table('sessions').get(SESSION)).toMatchObject({ context: ['fs/guide'], tools: [] });
@@ -287,18 +317,18 @@ describe('context and resources', () => {
     return { sites };
   }
 
-  it('crawls from a guide by the decision model, loads what it took like load_context, and says what it skipped and why it stopped (plan item 7)', async () => {
+  it('crawls from a guide by the decision model, loads what it took like ctx_load, and says what it skipped and why it stopped (plan item 7)', async () => {
     const { r, turn } = await started();
     const { sites } = crawlable(r);
-    const settled = await call(r, turn, 'context_crawl', { context: ['fs/guide: how to work with files', 'fs/missing'], guidance: 'Declare a new kind.' });
+    const settled = await call(r, turn, 'ctx_crawl', { context: ['fs/guide: how to work with files', 'fs/missing'], guidance: 'Declare a new kind.' });
     expect(reads(settled)).toBe([
-      '<crawled_context decisions="2" tokens="30">', 'Their text is in front of you from your next step:',
-      '<context key="fs/guide" depth="0" via="start" tokens="10">guide</context>',
-      '<context key="fs/guide.paths" depth="0" via="import" from="fs/guide" tokens="10">guide.paths</context>',
-      '<context key="fs/kinds" depth="1" via="choice" from="fs/guide" yes="0.90" tokens="10">kinds</context>', '</crawled_context>',
+      '<crawled_ctx decisions="2" tokens="30">', 'Their text is in front of you from your next step:',
+      '<ctx key="fs/guide" depth="0" via="start" tokens="10">guide</ctx>',
+      '<ctx key="fs/guide.paths" depth="0" via="import" from="fs/guide" tokens="10">guide.paths</ctx>',
+      '<ctx key="fs/kinds" depth="1" via="choice" from="fs/guide" yes="0.90" tokens="10">kinds</ctx>', '</crawled_ctx>',
       '<brought_fns in_tools="yes">In your tools from your next step: fs/read</brought_fns>',
-      '<skipped_context>', 'Not taken:', '<skipped key="fs/tables" from="fs/guide" depth="1" reason="declined" yes="0.10" />', '</skipped_context>',
-      '<refused_context>', 'Not loaded:', '<refused name="fs/missing" available="no">no context you can load has that name. The closest: fs/guide.</refused>', '</refused_context>',
+      '<skipped_ctx>', 'Not taken:', '<skipped key="fs/tables" from="fs/guide" depth="1" reason="declined" yes="0.10" />', '</skipped_ctx>',
+      '<refused_ctx>', 'Not loaded:', '<refused name="fs/missing" available="no">no context you can load has that name. The closest: fs/guide.</refused>', '</refused_ctx>',
       '<crawl_stop reason="complete">It followed every choice there was.</crawl_stop>',
     ].join('\n'));
     expect(settled).toMatchObject({ status: 'done', result: {
@@ -314,15 +344,15 @@ describe('context and resources', () => {
     } });
     expect(await r.store.table('sessions').get(SESSION)).toMatchObject({ context: ['fs/guide', 'fs/guide.paths', 'fs/kinds'], tools: ['fs/read'] });
     // the decide call is the crawl's: charged to its run, for its purpose
-    const run = (await r.store.table('runs').find({ where: { fn: hub.fns.context_crawl.name }, limit: 1 })).items[0];
+    const run = (await r.store.table('runs').find({ where: { fn: hub.fns.ctx_crawl.name }, limit: 1 })).items[0];
     expect(sites).toEqual([{ purpose: CONTEXT_CRAWL_PURPOSE, run: run?.id }]);
   });
 
   it('with metadataOnly, says what a crawl would take without loading it or giving its content (plan item 7)', async () => {
     const { r, turn } = await started();
     crawlable(r);
-    const settled = await call(r, turn, 'context_crawl', { context: ['fs/guide'], guidance: 'Declare a new kind.', metadataOnly: true });
-    expect(reads(settled)).toContain('<crawled_context decisions="2" tokens="30">\nNot loaded (metadata only): load what fits with hub/load_context.\n<context key="fs/guide"');
+    const settled = await call(r, turn, 'ctx_crawl', { context: ['fs/guide'], guidance: 'Declare a new kind.', metadataOnly: true });
+    expect(reads(settled)).toContain('<crawled_ctx decisions="2" tokens="30">\nNot loaded (metadata only): load what fits with hub/ctx_load.\n<ctx key="fs/guide"');
     expect(reads(settled)).not.toContain('<brought_fns');
     expect(settled).toMatchObject({ status: 'done', result: { loaded: [], fns: [], metadataOnly: true } });
     const crawled = settled.status === 'done' ? ContextCrawlResult.parse(settled.result).crawled : [];
@@ -332,13 +362,13 @@ describe('context and resources', () => {
 
   it('refuses a crawl while no decision model can be used, with the hub\'s reason (plan item 7)', async () => {
     const { r, turn } = await started();
-    expect(await call(r, turn, 'context_crawl', { context: ['fs/guide'], guidance: 'Anything.' })).toMatchObject({
+    expect(await call(r, turn, 'ctx_crawl', { context: ['fs/guide'], guidance: 'Anything.' })).toMatchObject({
       status: 'failed', error: { class: 'caller', code: NO_DECISION_MODEL, message: 'No decision model is set (an admin sets the Decide role).' },
     });
   });
 
-  it('declares that hub/context_crawl needs the decide role, so the catalog keeps it off until one is set (plan item 7)', async () => {
-    const decl = (await manifestOf(hub, { version: '0.0.0' })).fns.find((fn) => fn.name === 'context_crawl');
+  it('declares that hub/ctx_crawl needs the decide role, so the catalog keeps it off until one is set (plan item 7)', async () => {
+    const decl = (await manifestOf(hub, { version: '0.0.0' })).fns.find((fn) => fn.name === 'ctx_crawl');
     expect(decl?.roles).toEqual(['decide']);
     expect(decl?.examples?.length).toBeGreaterThan(0);
     expect(decl?.instructions).toContain('levels');
@@ -374,9 +404,9 @@ describe('keeping to what the person may see', () => {
     r.catalog.contexts.set(QualifiedName.parse('fs/guide'), 'How to work with files.');
     r.catalog.contexts.set(QualifiedName.parse('fs/secret'), 'Private notes.');
     r.catalog.contextDecls.set(QualifiedName.parse('fs/guide'), { imports: [QualifiedName.parse('fs/secret')], fns: [QualifiedName.parse('fs/secret')] });
-    expect(await call(r, turn, 'load_fns', { fns: ['fs/secret'] })).toMatchObject({ status: 'done', result: { loaded: [], refused: [{ fn: 'fs/secret', code: 'no-such-fn', reason: 'no such fn' }] } });
+    expect(await call(r, turn, 'fns_load', { fns: ['fs/secret'] })).toMatchObject({ status: 'done', result: { loaded: [], refused: [{ fn: 'fs/secret', code: 'no-such-fn', reason: 'no such fn' }] } });
     // what it imports and brings is still kept to what the person may see
-    expect(await call(r, turn, 'load_context', { context: ['fs/guide', 'fs/secret'] })).toMatchObject({ status: 'done', result: { loaded: ['fs/guide'], fns: [], fnsRefused: [] } });
+    expect(await call(r, turn, 'ctx_load', { context: ['fs/guide', 'fs/secret'] })).toMatchObject({ status: 'done', result: { loaded: ['fs/guide'], fns: [], fnsRefused: [] } });
     expect(await call(r, turn, 'search_resources', { query: 'x' })).toMatchObject({ status: 'done', result: [{ uri: 'file:///repo/README.md' }] });
   });
 });
@@ -398,7 +428,7 @@ describe('asking a person', () => {
 function chatAgent(maxTools = 32) {
   return agent({
     description: 'Chats.', args: g.obj({}), returns: g.text(), instructions: 'Help with files.', maxTools,
-    tools: [hub.fns.fns_search, hub.fns.load_fns, hub.fns.load_context],
+    tools: [hub.fns.fns_search, hub.fns.fns_load, hub.fns.ctx_load],
   });
 }
 
@@ -428,16 +458,16 @@ describe('the chat agent reaching system fns', () => {
     // the scripted model reuses its tool call ids each iteration (call_1, call_2), as some real models do
     r.provider.script(
       calls([['hub__fns_search', { text: 'read a file' }]]),
-      calls([['hub__load_fns', { fns: ['fs/read'] }], ['hub__load_context', { context: ['fs/guide'] }]]),
+      calls([['hub__fns_load', { fns: ['fs/read'] }], ['hub__ctx_load', { context: ['fs/guide'] }]]),
       calls([['fs__read', { path: 'a.txt' }]]),
       says('It says hello.'),
     );
     expect(await answer(r, turn)).toEqual({ status: 'done', result: 'It says hello.' });
 
-    expect(sent(r, 0).tools).toEqual(['hub__fns_search', 'hub__load_context', 'hub__load_fns']);
-    expect(sent(r, 0).system).not.toContain('<context');
-    expect(sent(r, 2).tools).toEqual(['fs__read', 'hub__fns_search', 'hub__load_context', 'hub__load_fns']);
-    expect(sent(r, 2).system).toContain('<context key="fs/guide">How to work with files.</context>');
+    expect(sent(r, 0).tools).toEqual(['hub__ctx_load', 'hub__fns_load', 'hub__fns_search']);
+    expect(sent(r, 0).system).not.toContain('<ctx');
+    expect(sent(r, 2).tools).toEqual(['fs__read', 'hub__ctx_load', 'hub__fns_load', 'hub__fns_search']);
+    expect(sent(r, 2).system).toContain('<ctx key="fs/guide">How to work with files.</ctx>');
     expect(files.requests.map((q) => [q.fn, q.args])).toEqual([['read', { path: 'a.txt' }]]);
     expect(await r.store.table('sessions').get(SESSION)).toMatchObject({ tools: ['fs/read'], context: ['fs/guide'] });
   });
@@ -451,7 +481,7 @@ describe('the chat agent reaching system fns', () => {
     r.provider.script(says('ok'));
     expect(await answer(r, turn)).toEqual({ status: 'done', result: 'ok' });
     // shop/buy is unavailable, fs/off switched off, other/peek of a system the session doesn't use; the cap of 4 drops fs/read
-    expect(sent(r, 0).tools).toEqual(['fs__write', 'hub__fns_search', 'hub__load_context', 'hub__load_fns']);
+    expect(sent(r, 0).tools).toEqual(['fs__write', 'hub__ctx_load', 'hub__fns_load', 'hub__fns_search']);
   });
 });
 
@@ -459,12 +489,12 @@ describe('saved fns (build 5)', () => {
   it('lets a kind\'s system save fns of it, refuses a taken name, keeps the old version, and reads one back', async () => {
     const r = await executionRig();
     rig = r;
-    addHubFn(r, hub.fns.save_fn);
-    addHubFn(r, hub.fns.fn_get);
+    addHubFn(r, hub.fns.fns_save);
+    addHubFn(r, hub.fns.fns_get);
     const asker = r.catalog.add('input', 'ask', fn({ description: 'Ask.', args: g.obj({}), returns: g.bool(), tags: ['read'] }));
     // it declares that it creates and updates input/form fns (build 6): the hub refuses what it did not declare
     const declares = (registry: RegistryEffect[]): void => {
-      r.catalog.set(asker.name, { decl: { ...asker.decl, deps: [hub.fns.save_fn.name, hub.fns.fn_get.name], effects: { registry } } });
+      r.catalog.set(asker.name, { decl: { ...asker.decl, deps: [hub.fns.fns_save.name, hub.fns.fns_get.name], effects: { registry } } });
     };
     declares([{ thing: 'fns', action: 'create', kind: 'input/form' }, { thing: 'fns', action: 'update', kind: 'input/form' }]);
     const owned: Array<{ fn: string; owner: string; visibility: string }> = [];
@@ -501,14 +531,14 @@ describe('saved fns (build 5)', () => {
     const save = { kind: 'input/form', name: 'trip', description: 'Asks for a trip.', payload: { title: 'Trip' }, examples: [{ args: { to: 'Oslo' } }] };
     input.behaviour.run = async (request) => {
       const callHub = async (name: string, args: Json) => r.module.linkHandlers.call(linkPayload({ parent: request.run.id, fn: `hub/${name}`, args, key: `${name}-${results.length}`, handlers: [], background: false }, LinkSession.parse({ system: 'input', instance: 'main', boot: 'b' })));
-      results.push(await callHub('save_fn', save));
-      results.push(await callHub('save_fn', save));
-      results.push(await callHub('save_fn', { ...save, description: 'Asks for a trip and who goes.', replace: true }));
-      results.push(await callHub('fn_get', { fn: 'input/trip' }));
-      results.push(await callHub('save_fn', { ...save, kind: 'database/query' }));
+      results.push(await callHub('fns_save', save));
+      results.push(await callHub('fns_save', save));
+      results.push(await callHub('fns_save', { ...save, description: 'Asks for a trip and who goes.', replace: true }));
+      results.push(await callHub('fns_get', { fn: 'input/trip' }));
+      results.push(await callHub('fns_save', { ...save, kind: 'database/query' }));
       // now it only declares creating: saving over its fn is an update it did not declare
       declares([{ thing: 'fns', action: 'create', kind: 'input/form' }]);
-      results.push(await callHub('save_fn', { ...save, replace: true }));
+      results.push(await callHub('fns_save', { ...save, replace: true }));
       return { status: 'done', result: true };
     };
     const turn = await r.turn();

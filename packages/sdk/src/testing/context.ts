@@ -7,6 +7,12 @@ import { qualify, type ContextDecl, type QualifiedName } from '@harness/core';
 import { checkContextFolder } from '../server/context-check.ts';
 import { formatContextProblem } from '../server/context-files.ts';
 import type { AnyContract } from '../system.ts';
+import { hub } from '../hub.ts';
+
+/** A contract's agents (`hub/llm` fns), qualified. */
+function agentsOf(contract: AnyContract): QualifiedName[] {
+  return Object.entries(contract.defs.fns).flatMap(([name, def]) => (def.kind !== 'native' && def.kind.name === 'hub/llm' ? [qualify(contract.name, name)] : []));
+}
 
 /** Names a folder may link to beyond its own system: other systems' or the hub's fns and context, qualified. */
 export interface OtherNames {
@@ -31,6 +37,8 @@ export async function contextFolder(dir: string, contract: AnyContract, other: O
     system,
     fns: new Set([...Object.keys(contract.defs.fns).map((name) => qualify(system, name)), ...(other.fns ?? [])]),
     context: new Set([...Object.keys(contract.defs.context).map((name) => qualify(system, name)), ...(other.context ?? [])]),
+    // its own agents, the hub's, and the other names it uses (their kind is the hub's to check)
+    agents: new Set([...agentsOf(contract), ...agentsOf(hub), ...(other.fns ?? [])]),
   });
   return {
     context: new Map(checked.files.map((file) => [qualify(system, file.header.key), file.decl])),

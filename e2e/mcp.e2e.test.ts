@@ -48,9 +48,9 @@ describe('hub MCPs', () => {
   it('serve the exposed fns to an MCP client, and run a call as a real run', async () => {
     const client = await connect(secret);
     const tools = (await client.listTools()).map((t) => t.name);
-    expect(tools).toContain('fs_read');
-    expect(tools).not.toContain('fs_bash');
-    const result = await client.callTool('fs_read', { path: 'README.md' });
+    expect(tools).toContain('fs__read');
+    expect(tools).not.toContain('fs__bash');
+    const result = await client.callTool('fs__read', { path: 'README.md' });
     expect(result.isError).not.toBe(true);
     const mcp = await me.hub.call('mcp', { mcp: mcpId });
     const runs = await me.hub.call('runs', { query: { filters: [{ field: 'fn', op: 'is' as const, value: 'fs/read' }], limit: 20 } });

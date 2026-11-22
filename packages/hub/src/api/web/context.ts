@@ -34,8 +34,8 @@ export function contextPlugin(hub: HubServices, auth: ReturnType<typeof authPlug
         remember: ({ data, user }) => context.remember({ ...data, scope: data.scope === 'session' ? 'user' : data.scope }, { actor: user.id, admin: user.role === 'admin' }),
         updateMemory: ({ data, user }) => person.memory_update(data, user),
         forget: async ({ data, user }) => ({ ok: await context.forget(data.name, { actor: user.id }) }),
-        linkContext: ({ data, user }) => person.context_link(data, user),
-        unlinkContext: ({ data, user }) => person.context_unlink(data, user),
+        linkContext: ({ data, user }) => person.ctx_link(data, user),
+        unlinkContext: ({ data, user }) => person.ctx_unlink(data, user),
       };
     });
 }

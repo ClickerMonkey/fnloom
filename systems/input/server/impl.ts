@@ -1,11 +1,11 @@
 /**
  * The input system's implementation. `get_input` runs the form authoring agent (`authoring.ts`) on the run's
  * `ctx.ai()` and keeps a new form as the person's own `input/form` fn; here too are `check_form`, the `ask_*` fns that make quick forms, `save_form`, which keeps a form in the hub as
- * an `input/form` fn of its person (`hub/save_fn`), and the `form` kind that runs those fns. Nothing is stored here:
+ * an `input/form` fn of its person (`hub/fns_save`), and the `form` kind that runs those fns. Nothing is stored here:
  * saved forms, their embeddings and who may use them are the hub's. Every input fn returns the form, which the chat
  * draws; nothing here waits for the answers.
  */
-import type { ActorId, Json, RunInfo, ShareRule } from '@harness/core';
+import { QualifiedName, type ActorId, type Json, type RunInfo, type ShareRule } from '@harness/core';
 import { CallFailed, SAVE_FN_TAKEN, encodeValue, g, parseValue, sampleOf, wireType, type FnCtx, type SystemImpl, type TypesOf } from '@harness/sdk';
 import { AuthoringError } from '@harness/sdk/server';
 import { Asked, FORM_KIND, WAIT_FOR_ANSWERS, input, nextAfterAsking, type AskedValue, type InputContract, type InputFormValue } from '../shared/index.ts';
@@ -37,7 +37,7 @@ export function nameFor(base: string, attempt: number): string {
 /** An input fn's answer: the form, the saved form it came from, and what the caller does next (by whether anyone watches). */
 const asked = (ctx: { run: RunInfo }, form: InputFormValue, saved?: string): AskedValue => ({ form, next: nextAfterAsking(ctx.run), ...(saved === undefined ? {} : { saved }) });
 
-/** `hub/save_fn` as a run of `save_form` or `get_input` calls it. */
+/** `hub/fns_save` as a run of `save_form` or `get_input` calls it. */
 type SaveFn = FnCtx<TypesOf<InputContract['defs']['fns']['save_form']>>['fns']['saveFn'];
 
 /** What keeping a form needs: its name, what it asks, the form, what it was made for and who may use it. */
@@ -132,7 +132,7 @@ export function createInputImpl(deps: InputDeps): SystemImpl<InputContract['defs
         async run(args, ctx) {
           const state = new FormAuthoring({
             search: (query) => ctx.searchFns(query),
-            getFn: async (fn) => await ctx.fns.getFn({ fn }),
+            getFn: async (fn) => await ctx.fns.getFn({ fn: QualifiedName.parse(fn) }),
             readForm,
             maxFields: s.INPUT_MAX_FIELDS,
             keep: async (form, askedFor) => {

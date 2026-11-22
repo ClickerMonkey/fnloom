@@ -3,7 +3,7 @@
  * the parts of a request "what the model saw" shows, and the tabs the inspectors open on (kept in the URL). Pure, so
  * it is tested alone.
  */
-import { fnOfToolName, QualifiedName, RunArgs, type LlmInteraction, type LlmInteractionId, type LlmMessage, type LlmToolCall, type RunId, type StaticTool, type TreeNode } from '@harness/core';
+import { fnOfStoredToolName, RunArgs, type QualifiedName, type LlmInteraction, type LlmInteractionId, type LlmMessage, type LlmToolCall, type RunId, type StaticTool, type TreeNode } from '@harness/core';
 import { z } from 'zod';
 
 /** The tabs of an LLM call's details. */
@@ -72,17 +72,30 @@ export function turnUsage(calls: readonly LlmInteraction[]): TurnUsage {
 const RUN_TOOL: StaticTool = 'run';
 
 /**
- * The fn a tool call runs: a fn's own tool (`hub__fns_search` read back to `hub/fns_search`), or the fn the static
- * `run` tool names in its args. Other static tools (find, load, …) and args that don't parse run no fn.
+ * The fn a tool call runs: a fn's own tool (`hub__fns_search` read back to `hub/fns_search`, by core's display-only
+ * `fnOfStoredToolName`, which also reads old records' spelling), or the fn the static `run` tool names in its args.
+ * `cut` reads back a cut name the hub was asked for (`ModelNamesStore`). Other static tools (find, load, …) and args
+ * that don't parse run no fn.
  */
-export function toolCallFn(tool: Pick<LlmToolCall, 'name' | 'arguments'>): QualifiedName | undefined {
-  const own = fnOfToolName(tool.name);
+export function toolCallFn(tool: Pick<LlmToolCall, 'name' | 'arguments'>, cut?: (name: string) => QualifiedName | undefined): QualifiedName | undefined {
+  const own = fnOfStoredToolName(tool.name, cut);
   if (own !== undefined || tool.name !== RUN_TOOL) { return own; }
   try {
-    return QualifiedName.safeParse(RunArgs.safeParse(JSON.parse(tool.arguments)).data?.fn).data;
+    const named = RunArgs.safeParse(JSON.parse(tool.arguments)).data?.fn;
+    return named === undefined ? undefined : fnOfStoredToolName(named, cut);
   } catch {
     return undefined;
   }
+}
+
+/** Every tool name a call offered or called, and every `run` target, for asking the hub about cut names. */
+export function callToolNames(call: LlmInteraction): string[] {
+  const calls = [...call.request.messages.flatMap((message) => message.toolCalls ?? []), ...(call.response?.toolCalls ?? [])];
+  const runs = calls.flatMap((tool) => {
+    if (tool.name !== RUN_TOOL) { return []; }
+    try { const fn = RunArgs.safeParse(JSON.parse(tool.arguments)).data?.fn; return fn === undefined ? [] : [fn]; } catch { return []; }
+  });
+  return [...(call.request.tools ?? []).map((tool) => tool.name), ...calls.map((tool) => tool.name), ...runs];
 }
 
 /** The fns a turn's LLM calls called, each once, in the order first called (a fn's tool, or the static `run` naming it). */

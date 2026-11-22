@@ -5,10 +5,14 @@
  * can now write or delete, new effects on the hub, and new hub calls, secrets, hosts, paths, fns or models granted.
  */
 import {
-  effectsLine, FnDecl, isKept, ITEM_SECTIONS, registryMode, REVIEW_FLAGS, reviewFlag, strongerMode, SystemGrants,
-  type ContractChange, type DeclaredFnFacts, type FnChangeFacts, type FnMode, type GrantsMove, type Json, type RegistryEffect, type ReviewCount, type ReviewFlag, type ReviewFlagKind, type ReviewSummary,
+  ContextDecl, effectsLine, FnDecl, HookDecl, isKept, Json, ITEM_SECTIONS, QualifiedName, registryMode, REVIEW_FLAGS, reviewFlag, strongerMode, SystemGrants,
+  type ContractChange, type DeclaredFnFacts, type FnChangeFacts, type FnMode, type GrantsMove, type InjectionChangeView, type RegistryEffect, type ReviewCount, type ReviewFlag,
+  type ReviewFlagKind, type ReviewSummary,
 } from '@harness/core';
+import { canonicalJson } from '@harness/sdk';
+import { AGENT_KIND, targetViews } from '../catalog/injections.ts';
 import { declaredMode } from '../fns/facts.ts';
+import { estimateTokens } from '../resources/rules.ts';
 
 /** Each section's words, one and many, in the order the line lists them. */
 const NOUNS: Readonly<Record<ContractChange['section'], readonly [string, string]>> = {
@@ -67,6 +71,92 @@ function fnFlags(changes: readonly ContractChange[]): ReviewFlag[] {
   const words = effectsLine([...effects.values()]);
   if (words !== undefined) { flags.push(reviewFlag('effects', 'New effects in', effectFns, words.replace(/\.$/, ''))); }
   return flags;
+}
+
+const contextOf = (value: Json | undefined): ContextDecl | undefined => (value === undefined ? undefined : ContextDecl.safeParse(value).data);
+const hookOf = (value: Json | undefined): HookDecl | undefined => (value === undefined ? undefined : HookDecl.safeParse(value).data);
+
+/** What of a context item reaches the agents it is injected into: a change to any of it is a change to what they are told. */
+const injectedPart = (decl: ContextDecl): string => canonicalJson(Json.parse({
+  inject: decl.inject ?? null, title: decl.title ?? null, description: decl.description, content: decl.content ?? null, summary: decl.summary ?? null, fns: decl.fns,
+}));
+
+/**
+ * The agents the changes may inject into: those the hub has now, and the agents the changes themselves add (a new
+ * system's, on its install card), in name order.
+ */
+function agentsWith(changes: readonly ContractChange[], agents: readonly QualifiedName[]): QualifiedName[] {
+  const declared = changes.flatMap((change) => {
+    if (change.section !== 'fns' || change.change === 'removed') { return []; }
+    const decl = fnOf(change.after);
+    return decl?.kind === AGENT_KIND ? [QualifiedName.parse(change.name)] : [];
+  });
+  return [...new Set([...agents, ...declared])].sort();
+}
+
+/**
+ * The changes that change what agents are told, each with its targets and the agents they hit now: a context item
+ * whose injection is new, changed (text, summary, title, targets, order, mode or fns) or gone, and a hook whose
+ * `explains` is (it goes into the agents that get the hook's blocks, so it names no targets).
+ */
+export function injectionChanges(changes: readonly ContractChange[], agents: readonly QualifiedName[] = []): InjectionChangeView[] {
+  const known = agentsWith(changes, agents);
+  return changes.flatMap((change): InjectionChangeView[] => {
+    if (change.section === 'context') {
+      const before = contextOf(change.before);
+      const after = contextOf(change.after);
+      const was = before?.inject === undefined ? undefined : before;
+      const now = after?.inject === undefined ? undefined : after;
+      if (was === undefined && now === undefined) { return []; }
+      if (was !== undefined && now !== undefined && injectedPart(was) === injectedPart(now)) { return []; }
+      const shown = now ?? was;
+      if (shown?.inject === undefined) { return []; }
+      const targets = targetViews(shown.inject.into, known);
+      const text = shown.content ?? shown.summary ?? shown.description;
+      return [{
+        section: 'context', name: QualifiedName.parse(change.name), title: shown.title ?? shown.description,
+        change: now === undefined ? 'removed' : was === undefined ? 'added' : 'changed',
+        ...(shown.content === undefined ? {} : { tokens: estimateTokens(text) }),
+        targets, agents: [...new Set(targets.flatMap((target) => target.agents))].sort(),
+      }];
+    }
+    if (change.section === 'hooks') {
+      const was = hookOf(change.before)?.explains;
+      const now = hookOf(change.after)?.explains;
+      if (was === now || (was === undefined && now === undefined)) { return []; }
+      const text = now ?? was ?? '';
+      return [{
+        section: 'hooks', name: QualifiedName.parse(change.name), title: `What ${change.name}'s block means`,
+        change: now === undefined ? 'removed' : was === undefined ? 'added' : 'changed', tokens: estimateTokens(text), targets: [], agents: [],
+      }];
+    }
+    return [];
+  });
+}
+
+/** Names in a sentence: "a", "a and b", "a, b and c". */
+function andList(items: readonly string[]): string {
+  return items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1] ?? ''}`;
+}
+
+/** The marks of a change in the `injects` line. */
+const CHANGE_MARK = { added: '+', changed: '~', removed: '−' } as const;
+
+/**
+ * The `injects` flag: "Changes what hub/chat and hub/chat_small are told: + Forms (input/asking, 310 tokens)". Its
+ * items are the agents; an injection that hits no agent yet says so.
+ */
+function injectsFlag(injections: readonly InjectionChangeView[]): ReviewFlag | undefined {
+  if (injections.length === 0) { return undefined; }
+  const agents = [...new Set(injections.flatMap((item) => item.agents))].sort();
+  const items = injections.map((item) => {
+    const facts = [item.name, ...(item.tokens === undefined ? [] : [`${item.tokens.toLocaleString('en-US')} tokens`]), ...(item.section === 'context' && item.agents.length === 0 ? ['hits no agent yet'] : [])];
+    return `${CHANGE_MARK[item.change]} ${item.title} (${facts.join(', ')})`;
+  }).join('; ');
+  const tail = `${agents.length === 1 ? 'is' : 'are'} told: ${items}`;
+  const lead = 'Changes what';
+  const who = agents.length === 0 ? 'agents' : andList(agents);
+  return { flag: 'injects', line: `${lead} ${who} ${tail}`, items: agents.length === 0 ? ['agents'] : agents, lead, tail };
 }
 
 /** How the grants moved, and the flags for what they newly allow. */
@@ -134,14 +224,18 @@ function countWords(count: ReviewCount): string {
   return parts.join(', ');
 }
 
-/** What a system's contract changes amount to. */
-export function reviewSummary(changes: readonly ContractChange[]): ReviewSummary {
+/**
+ * What a system's contract changes amount to. `agents` are the agents the hub has now, which the `injects` flag says
+ * a new or changed injection reaches (with the agents the changes add themselves).
+ */
+export function reviewSummary(changes: readonly ContractChange[], agents: readonly QualifiedName[] = []): ReviewSummary {
   const all = counts(changes);
   const grants = changes.find((change) => change.section === 'grants');
   const moved = grants === undefined ? { move: undefined, flags: [] } : grantsMove(grantsOf(grants.before), grantsOf(grants.after));
   const configType = changes.find((change) => change.section === 'config' && !change.name.includes(' '));
   const otherConfig = changes.filter((change) => change.section === 'config' && change.name.includes(' '));
-  const flags = [...fnFlags(changes), ...moved.flags].sort((a, b) => REVIEW_FLAGS.indexOf(a.flag) - REVIEW_FLAGS.indexOf(b.flag));
+  const injects = injectsFlag(injectionChanges(changes, agents));
+  const flags = [...fnFlags(changes), ...(injects === undefined ? [] : [injects]), ...moved.flags].sort((a, b) => REVIEW_FLAGS.indexOf(a.flag) - REVIEW_FLAGS.indexOf(b.flag));
   const line = [
     ...all.filter((count) => count.section !== 'grants' && count.section !== 'config').map(countWords),
     ...(moved.move === undefined ? [] : [`grants ${moved.move}`]),

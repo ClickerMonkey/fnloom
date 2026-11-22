@@ -13,7 +13,7 @@ import type { HubFnCtx, HubFns } from '../execution/executors.ts';
 
 /** Every read fn answered here, in declaration order (the compiler checks the list is whole and each has an implementation below). */
 export const HUB_READ_NAMES = [
-  'types_get', 'runs_list', 'run_get', 'run_tree', 'llm_call', 'model_calls', 'fn_metrics', 'sessions_list', 'session_messages',
+  'types_get', 'runs_list', 'run_get', 'run_tree', 'llm_call', 'model_calls', 'fns_metrics', 'sessions_list', 'session_messages',
   'systems_list', 'system_get', 'system_fns', 'system_logs', 'model_roles', 'query', 'graph', 'item_versions',
 ] as const satisfies readonly HubReadName[];
 
@@ -57,7 +57,7 @@ export function registerReadFns(fns: HubFns, reads: () => HubReads): void {
     run_tree: run(HUB_READ_ENDPOINTS.run_tree, (r) => r.run_tree),
     llm_call: run(HUB_READ_ENDPOINTS.llm_call, (r) => r.llm_call),
     model_calls: run(HUB_READ_ENDPOINTS.model_calls, (r) => r.model_calls),
-    fn_metrics: run(HUB_READ_ENDPOINTS.fn_metrics, (r) => r.fn_metrics),
+    fns_metrics: run(HUB_READ_ENDPOINTS.fns_metrics, (r) => r.fns_metrics),
     sessions_list: run(HUB_READ_ENDPOINTS.sessions_list, (r) => r.sessions_list),
     session_messages: run(HUB_READ_ENDPOINTS.session_messages, (r) => r.session_messages),
     systems_list: run(HUB_READ_ENDPOINTS.systems_list, (r) => r.systems_list),

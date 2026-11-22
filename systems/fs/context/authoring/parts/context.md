@@ -19,8 +19,8 @@ choices:
 ## 13. Context and commands
 
 **Context** is text for the LLM: a guide, a skill, a reference, the state of something. The hub suggests it when a
-message is about it, an agent can always have it (`alwaysFor`, `agent({ context })`), and a person loads it with a
-`/command`. `context({ description, … })`:
+message is about it, an agent can always have it (`agent({ context })`), it can be injected into agents' system
+prompts (`inject`), and a person loads it with a `/command`. `context({ description, … })`:
 
 - **Static** when it has `content`: the text is in the contract. `{{name}}` in the content is filled from the
   command's args.
@@ -31,7 +31,20 @@ message is about it, an agent can always have it (`alwaysFor`, `agent({ context 
 - `fns`: fns that come with it, loaded into the toolset when it is loaded; `suggestFns`: fns suggested with it.
 - `imports`: other context it brings along.
 - `suggest` and `visible`: who it may be suggested to and who can find it in searches (`both`, `user`, `llm`, `none`).
-- `alwaysFor`: agents that always have it loaded. `tags`: free labels.
+- `title`: what people (and an injected item's heading) call it; its description when absent. `tags`: free labels.
+- `inject: { into, order?, requires?, mode? }` puts it in the system prompts of the agents it targets, in their
+  `{{injectedContext}}` section, once an admin approves it (a new or changed injection waits in the system's Pending
+  review as its own card, flagged `injects`); an admin can switch it off per agent. Each `into` entry is an agent's ref
+  (`crm.fns.reviewer`; only `hub/llm` fns compile) or a pattern holding `*`: `*` alone is every agent, otherwise
+  `system/local` where each `*` is any run of characters on its own side of the `/` (it crosses `.`, never `/`; case
+  counts; `**` is refused). Build patterns from refs so a rename breaks the build: `agents.startingWith(hub.fns.chat)`
+  is `hub/chat*`, `agents.of(crm)` is `crm/*`, `agents.all` is `*`. A string without `*` doesn't compile. An exact name
+  that is no agent is refused when the system declares it; a pattern that hits no agent yet is accepted, with a warning
+  on its review card. `order`: lower comes first (default 100; the hub's own items are 10 to 30). Its `fns` join the
+  agents' starting tools; `requires` names fns its text mentions without bringing, and it is left out while they can't
+  be used. `mode: 'tools' | 'static'` only when the text is true in one chat mode.
+- An agent says how it takes its injected section: `agent({ injected: { detail: 'summary', maxTokens: 600 } })`, or
+  `injected: 'none'`. A hook says what its block means with `hook({ explains })`, injected with its system's items.
 - For the graph contextor (the one small local models use): `weight` (0 to 2, default 1) is how much it counts,
   `summary` a short form sent when the budget allows only a little, `parent` and `next` place it in a hierarchy or a
   chain of pieces, and `links` are weighted edges (`{ to, relation, weight? }`) to other context, fns, named types or
@@ -78,7 +91,7 @@ beats a long manual, and the hub budgets what it sends to small models.
 
 **A context folder.** Static context can live in markdown files under the system's `context/` folder instead of the
 contract: each file starts with a YAML header between `---` lines holding any context option (`ContextFileHeader`:
-`key`, `title`, `description`, `summary` (required), `fns`, `imports`, `choices`, `parent`, `next`, `alwaysFor`, `tags`,
+`key`, `title`, `description`, `summary` (required), `fns`, `imports`, `choices`, `parent`, `next`, `inject`, `tags`,
 `visible`, …), and the rest of the file is the content. `key` is a stable, readable name people never see
 (`notes.guide.adding`); it is never taken from the path, so a file can move or be renamed and the hub keeps updating the
 same record with its links, stats and embeddings.

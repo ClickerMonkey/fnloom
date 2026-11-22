@@ -24,6 +24,7 @@ import { ApiGroupDecl } from './api-index.ts';
 import { ChatModeType } from './modes.ts';
 import { ModelRole } from './model-calls.ts';
 import { ClaimTemplate } from './claims.ts';
+import { InjectDecl } from './inject.ts';
 
 
 /** How values of a named type are shown: in mention chips, hover cards and inputs. */
@@ -282,7 +283,7 @@ export const FnDecl = z.object({
   effects: FnEffects.optional(),
   /**
    * How many of its examples go into the model's prompt with it, the most relevant to the turn first (the
-   * hub's `HARNESS_FN_PROMPT_EXAMPLES` when absent). The rest are a `hub/fn_examples` call away.
+   * hub's `HARNESS_FN_PROMPT_EXAMPLES` when absent). The rest are a `hub/fns_examples` call away.
    */
   promptExamples: z.number().int().min(0).max(20).optional(),
   /** Build 8: the API group it is listed in (`Manifest.groups`, `api-index.ts`); `general` when absent. */
@@ -293,7 +294,7 @@ export const FnDecl = z.object({
    */
   flags: z.boolean().optional(),
   /**
-   * Plan item 7: the hub model roles it needs set (`hub/context_crawl` needs `decide`). While one has no model, the fn
+   * Plan item 7: the hub model roles it needs set (`hub/ctx_crawl` needs `decide`). While one has no model, the fn
    * is unavailable (`role-unset`) with the role named, so it is never offered until an admin sets it.
    */
   roles: z.array(ModelRole).optional(),
@@ -316,7 +317,7 @@ export type CommandArg = z.infer<typeof CommandArg>;
 
 /**
  * One choice a context offers the model next, in a choose-your-own-adventure graph: the context to load and a
- * one-line "pick this when…" written as a decision. The hub shows each with its token size; `hub/load_context` loads it.
+ * one-line "pick this when…" written as a decision. The hub shows each with its token size; `hub/ctx_load` loads it.
  */
 export const ContextChoice = z.object({ to: QualifiedName, when: z.string().min(1).max(200) });
 export type ContextChoice = z.infer<typeof ContextChoice>;
@@ -338,7 +339,8 @@ export const ContextDecl = z.object({
   suggestFns: z.array(QualifiedName),
   suggest: Audience,
   visible: Audience,
-  alwaysFor: z.array(QualifiedName),
+  /** Put it in these agents' system prompts, in their `{{injectedContext}}` section (see `InjectDecl`). */
+  inject: InjectDecl.optional(),
   tags: z.array(z.string()),
   /** Material only some searches are for (`Niche`): the authoring guides are `developer`, API listings `reference`. */
   niche: Niche.optional(),
@@ -356,7 +358,17 @@ export const ContextDecl = z.object({
 });
 export type ContextDecl = z.infer<typeof ContextDecl>;
 
-export const HookDecl = z.object({ name: LocalName, description: z.string(), order: z.number(), timeout: Duration });
+export const HookDecl = z.object({
+  name: LocalName,
+  description: z.string(),
+  /**
+   * What its block means to the model. The hub injects it, as an item of the hook's system, into the agents that get
+   * the hook's blocks; a new or changed `explains` waits for review like any injection, with its own switch.
+   */
+  explains: z.string().min(1).max(2000).optional(),
+  order: z.number(),
+  timeout: Duration,
+});
 export type HookDecl = z.infer<typeof HookDecl>;
 
 export const MentionDecl = z.object({
@@ -591,7 +603,7 @@ export const SuggestedFnCard = z.object({
   returns: z.string().optional(),
   instructions: z.string().optional(),
   examples: z.array(FnExample).optional(),
-  /** How many more examples it has than the card shows (a `hub/fn_examples` call away). */
+  /** How many more examples it has than the card shows (a `hub/fns_examples` call away). */
   moreExamples: z.number().int().positive().optional(),
 });
 export type SuggestedFnCard = z.infer<typeof SuggestedFnCard>;

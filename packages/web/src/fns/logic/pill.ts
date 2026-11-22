@@ -2,7 +2,7 @@
  * What a `FnPill` shows and where it leads, from the name it is given: a qualified fn name opens the fn modal; a glob
  * (`hub/*`, `hub/search_*`) or a whole system (`database`, as grants and policies name them) can't open as one fn, so
  * it links to the fns list filtered to what it matches. (A model's tool name, `hub__fns_search`, reads back to its fn
- * with core's `fnOfToolName` before it is given to a pill.)
+ * with core's display-only `fnOfStoredToolName` before it is given to a pill.)
  * The off look comes from the structured block (`FnBlock`) where the caller has one, or a fn's availability.
  */
 import { fnLabel, humanize, QualifiedName, SystemName, type Availability, type FnBlock, type FnBlockCode } from '@harness/core';

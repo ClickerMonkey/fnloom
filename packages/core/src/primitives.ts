@@ -205,26 +205,6 @@ export function splitName(name: QualifiedName): { system: string; local: string 
   return { system: name.slice(0, at), local: name.slice(at + 1) };
 }
 
-/**
- * A fn's name as an LLM tool name. Providers allow only letters, digits, `_` and `-` (at most 64), so `/` becomes
- * `__` and `.` (methods) becomes `--`. The prompt keeps a map back to the fn; `fnOfToolName` reads one back for people
- * (an LLM call's tools) and for refusals.
- */
-export function toolName(fn: QualifiedName): string {
-  return fn.replaceAll('/', '__').replaceAll('.', '--').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64);
-}
-
-/**
- * The fn a tool name means: the model's own `system/name`, else `toolName` undone, kept only when it encodes back to
- * the same tool name (a lossy name means none).
- */
-export function fnOfToolName(name: string): QualifiedName | undefined {
-  const given = QualifiedName.safeParse(name);
-  if (given.success) { return given.data; }
-  const guess = QualifiedName.safeParse(name.replaceAll('__', '/').replaceAll('--', '.'));
-  return guess.success && toolName(guess.data) === name ? guess.data : undefined;
-}
-
 /** How urgent queued work is, most urgent first. */
 export const PRIORITIES = ['urgent', 'interactive', 'normal', 'background'] as const;
 export const Priority = z.enum(PRIORITIES);
@@ -256,7 +236,7 @@ export function messageOf(error: unknown): string {
 export const READ_TAG = 'read';
 
 /**
- * The tag that marks a hub fn that only adds or changes what the calling system makes for a run (`hub/save_fn` keeps
+ * The tag that marks a hub fn that only adds or changes what the calling system makes for a run (`hub/fns_save` keeps
  * a fn of the caller's own kind, `hub/resource_import` keeps a page or result it fetched as a new resource): with no
  * policy that matches, a system's call runs without asking, since it does what the person's run asked of that system.
  */

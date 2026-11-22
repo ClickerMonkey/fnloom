@@ -2,7 +2,7 @@
  * `@harness/core`: the wire contracts every part of harness shares. zod schemas come first and every type is derived
  * from them, so changing a schema breaks, at compile time, everything that relies on it.
  *
- * - `primitives`: JSON, ids, units, names, priorities.
+ * - `primitives`: JSON, ids, units, names, priorities; `model-names`: the one name the model sees for a fn.
  * - `ports`: the port schema, default ports and the shared `HARNESS_PORT` env field.
  * - `gin`: gin types on the wire.
  * - `run`: who a run is for, progress, outcomes.
@@ -10,7 +10,7 @@
  * - `status`: what a run says it is doing (status templates and their resolution).
  * - `resources`: resources, sections, content refs, links.
  * - `llm`: LLM requests and chunks on the wire.
- * - `manifest`: a system's contract as JSON, hooks and mentions.
+ * - `manifest`: a system's contract as JSON, hooks and mentions; `inject`: injected context's targets and patterns.
  * - `link`: the system link specs (`hubLinkSpec`, `systemLinkSpec`).
  * - `records/*`: what the hub stores, and `HUB_TABLES`.
  * - `system-events`: the hub events systems subscribe to.
@@ -46,6 +46,7 @@
  *   search tied to a mention request).
  */
 export * from './primitives.ts';
+export * from './model-names.ts';
 export * from './urls.ts';
 export * from './modes.ts';
 export * from './context-graph.ts';
@@ -62,6 +63,7 @@ export * from './llm.ts';
 export * from './model-calls.ts';
 export * from './metrics.ts';
 export * from './manifest.ts';
+export * from './inject.ts';
 export * from './context-files.ts';
 export * from './system-parts.ts';
 export * from './link.ts';
@@ -74,6 +76,7 @@ export * from './records/chat.ts';
 export * from './compare.ts';
 export * from './records/content.ts';
 export * from './records/mcps.ts';
+export * from './records/injections.ts';
 export * from './package.ts';
 export * from './records/tables.ts';
 export * from './system-events.ts';
@@ -94,6 +97,7 @@ export * from './approvals.ts';
 export * from './decisions.ts';
 export * from './config-secrets.ts';
 export * from './fn-facts.ts';
+export * from './fn-renames.ts';
 export * from './checks.ts';
 export * from './grants.ts';
 export * from './system-pages.ts';

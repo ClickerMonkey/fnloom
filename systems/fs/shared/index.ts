@@ -343,7 +343,7 @@ export const fs = system('fs', {
           'Before anything is asked, the folder is typechecked with its own tsconfig.json, bundled and scanned. When that fails the call comes back as invalid input with `file:line:col message` lines: fix each one with fs/edit and call again.',
           'A good build becomes a card for an admin with what the system adds, its scan and its hashes; nothing runs until they approve. If it exits before it connects, the call comes back with its exit code and the end of its output, so you can fix the crash.',
           'The name in system.json must be the contract\'s name. `hub`, and the name of a system that runs somewhere else, are refused unless `replace` is set (the card then says what it replaces).',
-          'Once it is running, load its fns with hub/load_fns to call them. When it needs config, ask the person for it (its page has the form).',
+          'Once it is running, load its fns with hub/fns_load to call them. When it needs config, ask the person for it (its page has the form).',
         ].join(' '),
         examples: [
           {
@@ -455,7 +455,6 @@ export const fs = system('fs', {
         command: { name: 'new-system' },
         imports: [{ ref: 'context', name: 'fs/authoring' }],
         fns: [fns.read, fns.write, fns.edit, fns.bash, fns.install_system, fns.system_status],
-        alwaysFor: [],
       }),
     },
   }))

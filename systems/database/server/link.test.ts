@@ -108,9 +108,9 @@ describe('the database system over the link', () => {
     // get_query and edit_query are native fns that forward to the authoring agent on the instance with the database
     expect(manifest?.fns.find((item) => item.name === 'get_query')).toMatchObject({ kind: 'native', deps: ['database/author_query'], effects: { mode: 'write' } });
     expect(manifest?.fns.find((item) => item.name === 'edit_query')).toMatchObject({ kind: 'native', deps: ['database/author_query'] });
-    expect(manifest?.fns.find((item) => item.name === 'author_query')).toMatchObject({ visibility: 'none', deps: [hubContract.fns.fn_get.name, hubContract.fns.save_fn.name] });
+    expect(manifest?.fns.find((item) => item.name === 'author_query')).toMatchObject({ visibility: 'none', deps: [hubContract.fns.fns_get.name, hubContract.fns.fns_save.name] });
     expect(manifest?.fns.find((item) => item.name === 'run_query')?.effects).toMatchObject({ mode: 'write' });
-    expect(manifest?.fns.find((item) => item.name === 'at_instance')).toMatchObject({ visibility: 'none', deps: ['hub/fn_get', 'hub/save_fn'] });
+    expect(manifest?.fns.find((item) => item.name === 'at_instance')).toMatchObject({ visibility: 'none', deps: ['hub/fns_get', 'hub/fns_save'] });
     for (const decl of manifest?.fns ?? []) {
       expect(decl.instructions, decl.name).toBeTruthy();
       expect(decl.examples?.length ?? 0, decl.name).toBeGreaterThan(0);

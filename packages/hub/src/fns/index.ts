@@ -6,7 +6,7 @@
  *   reciprocal rank. Served on the web (`searchFns`), the system link (`searchFns`) and as `hub/fns_search`, through
  *   the admin's search decisions (`decided.ts`), which may filter a page's hits with a decision model or an LLM.
  * - `FnExamples` (`examples.ts`): every fn's examples in the `fnExamples` table, indexed like everything else, so the
- *   prompt takes the most relevant few and `hub/fn_examples` pages through the rest.
+ *   prompt takes the most relevant few and `hub/fns_examples` pages through the rest.
  * - `FnFactsService` (`facts.ts`): a fn's mode and the types it reads and writes, worked out deeply; whether it is
  *   free; its cost estimate from the `CostEstimator` of its kind (`costs.ts`); its run times.
  * - `FnModeGate` (`gate.ts`): what a chat's fn mode (`none` … `delete`, `auto`) lets its agent run, with the auto

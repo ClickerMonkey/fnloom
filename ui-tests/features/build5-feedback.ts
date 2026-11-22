@@ -104,7 +104,7 @@ export default feature({
     // (no second press); one cursor while it streams ───
     if (!isPhone(ctx)) {
       chat = await newChat(ctx);
-      await compose(page, 'Load fs/read and fs/bash with hub/load_fns. Use fs/read to read package.json, then fs/read to read tsconfig.json, then fs/bash to run exactly: echo approved-once. Then say in one sentence what this project is.');
+      await compose(page, 'Load fs/read and fs/bash with hub/fns_load. Use fs/read to read package.json, then fs/read to read tsconfig.json, then fs/bash to run exactly: echo approved-once. Then say in one sentence what this project is.');
       const carets: number[] = [];
       const sample = setInterval(() => {
         void page.evaluate(() => document.querySelectorAll('.caret, [data-testid="answer-typing"]').length).then((n) => { carets.push(n); }, () => undefined);

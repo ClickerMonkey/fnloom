@@ -1,8 +1,8 @@
 /**
  * The hub fns of the resources module, implemented against the hub contract's refs: reading (`hub/resource_list`,
- * `hub/resource_read`, `hub/resource_outline`, `hub/resource_send`, `hub/context_get`) and writing
+ * `hub/resource_read`, `hub/resource_outline`, `hub/resource_send`, `hub/ctx_get`) and writing
  * (`hub/resource_convert`, `hub/resource_import`, `hub/resource_rename`, `hub/resource_delete`,
- * `hub/context_from_resource`, `hub/remember`, `hub/forget`). The fns that mirror a web endpoint read their args with
+ * `hub/ctx_from_resource`, `hub/remember`, `hub/forget`). The fns that mirror a web endpoint read their args with
  * that endpoint's body schema (`HUB_READ_ENDPOINTS`, `HUB_WRITE_ENDPOINTS`, through `toolArgsOf`, which flattens a
  * union body, such as an import's URL-or-content, into plain args) and run the same operation as its
  * handler, as the run's person, so the chat LLM sees and does what the browser does. Called through a hub MCP, each
@@ -102,14 +102,14 @@ export function registerResourceFns(fns: HubFns, deps: ResourceFnDeps): void {
   const read = {
     list: toolArgsOf(HUB_READ_ENDPOINTS.resource_list.cfg.body).read,
     read: toolArgsOf(HUB_READ_ENDPOINTS.resource_read.cfg.body).read,
-    context: toolArgsOf(HUB_READ_ENDPOINTS.context_get.cfg.body).read,
+    context: toolArgsOf(HUB_READ_ENDPOINTS.ctx_get.cfg.body).read,
   };
   const write = {
     convert: toolArgsOf(HUB_WRITE_ENDPOINTS.resource_convert.cfg.body).read,
     import: toolArgsOf(HUB_WRITE_ENDPOINTS.resource_import.cfg.body).read,
     rename: toolArgsOf(HUB_WRITE_ENDPOINTS.resource_rename.cfg.body).read,
     delete: toolArgsOf(HUB_WRITE_ENDPOINTS.resource_delete.cfg.body).read,
-    fromResource: toolArgsOf(HUB_WRITE_ENDPOINTS.context_from_resource.cfg.body).read,
+    fromResource: toolArgsOf(HUB_WRITE_ENDPOINTS.ctx_from_resource.cfg.body).read,
     remember: toolArgsOf(HUB_WRITE_ENDPOINTS.remember.cfg.body).read,
     forget: toolArgsOf(HUB_WRITE_ENDPOINTS.forget.cfg.body).read,
   };
@@ -124,7 +124,7 @@ export function registerResourceFns(fns: HubFns, deps: ResourceFnDeps): void {
     (await reachOf(deps, ctx)).needResource(body.uri);
     return deps.resources().reader.read(body, askingOf(ctx));
   });
-  fns.register(refs.context_get, async (args, ctx) => {
+  fns.register(refs.ctx_get, async (args, ctx) => {
     const reach = await reachOf(deps, ctx);
     const item = await deps.resources().context.item(await reach.needContext(read.context(args).name), askingOf(ctx));
     // a link names its other end: only the ends the caller may reach are shown
@@ -157,7 +157,7 @@ export function registerResourceFns(fns: HubFns, deps: ResourceFnDeps): void {
     return deps.resources().library.rename((await reachOf(deps, ctx)).needResource(body.uri), body.name, askingOf(ctx));
   });
   fns.register(refs.resource_delete, async (args, ctx) => deps.resources().library.remove((await reachOf(deps, ctx)).needResource(write.delete(args).uri), askingOf(ctx)));
-  fns.register(refs.context_from_resource, async (args, ctx) => {
+  fns.register(refs.ctx_from_resource, async (args, ctx) => {
     const body = write.fromResource(args);
     (await reachOf(deps, ctx)).needResource(body.uri);
     return deps.resources().context.fromResource(body, askingOf(ctx));

@@ -266,7 +266,7 @@ Each runs the same read as its web endpoint, as the run's person (`boot/read-fns
 | `hub/resource_import` | Import a URL or uploaded content as a hub resource. | `{url, render?, name?, folder?}` or `{content: ContentRef, name, path?}` (a union, taken as plain args) | `ResourceRecord` |
 | `hub/resource_rename` | Rename a hub resource. | `uri`, `name` | `ResourceRecord` |
 | `hub/resource_delete` | Delete a hub resource; says how many messages, context items and runs still point at it. | `uri` | `{deleted, referencedBy}` |
-| `hub/context_from_resource` | Make context items from a resource (one per section, under an outline parent), or update the earlier ones. | `uri`, `sections?`, `copy?` (default `live`), `weight?`, `tags?`, `fns?`, `suggestFns?`, `alwaysFor?`, `command?`, `visible?`, `suggest?` | `{created, updated, links}` |
+| `hub/context_from_resource` | Make context items from a resource (one per section, under an outline parent), or update the earlier ones. | `uri`, `sections?`, `copy?` (default `live`), `weight?`, `tags?`, `fns?`, `suggestFns?`, `inject?` (admins, by hand), `command?`, `visible?`, `suggest?` | `{created, updated, links}` |
 | `hub/remember` | Remember something as a memory: for this session, the person, or everyone. | `text`, `title?`, `scope?: 'session'\|'user'\|'everyone'` (default session), `about?: LinkTarget[]`, plus the context options | `{name}` |
 | `hub/forget` | Forget a memory. | `name` | `{ok}` |
 

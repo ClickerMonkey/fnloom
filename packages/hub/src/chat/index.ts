@@ -41,7 +41,7 @@ export interface SessionService {
   presence(presence: Omit<Presence, 'lastActiveAt'>): Promise<void>;
   /** Whether a person is active in a session now (for the tool-timeout rule). */
   active(session: SessionId): Promise<boolean>;
-  /** Set the fns and context the session's agent has loaded (`hub/load_fns`, `hub/drop_fns`, `hub/load_context`). */
+  /** Set the fns and context the session's agent has loaded (`hub/fns_load`, `hub/fns_drop`, `hub/ctx_load`). */
   load(session: SessionId, loaded: { tools?: readonly QualifiedName[]; context?: readonly QualifiedName[] }): Promise<Session>;
 }
 

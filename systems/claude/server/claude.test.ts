@@ -261,7 +261,7 @@ describe('claude system', () => {
     expect(added[0]).toMatchObject({ system: 'mcp', instance: 'linear', description: 'Linear', config: { label: 'linear', transport: { type: 'http', url: 'https://mcp.linear.app/mcp' } } });
     expect(patches.at(-1)?.upsert?.context?.[0]).toMatchObject({ name: 'skill_release_notes', content: 'Read the merged changes and write notes.', command: { name: 'release-notes', args: [] } });
     expect(kit.records('Skill')[0]?.value).toMatchObject({ name: 'release-notes', folder: FOLDER });
-    expect(imported.hubCalls.calls.map((call) => call.fn)).toContain('hub/save_fn');
+    expect(imported.hubCalls.calls.map((call) => call.fn)).toContain('hub/fns_save');
 
     const listed = await kit.call('importables', { folder: FOLDER });
     expect(listed.result.items.map((item) => [item.name, item.imported])).toEqual([['release-notes', true], ['code-reviewer', true], ['linear', true], ['github', false]]);

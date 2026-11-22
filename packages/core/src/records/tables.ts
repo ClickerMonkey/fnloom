@@ -28,6 +28,7 @@ import { DataRecord, RecordVersion } from '../data.ts';
 import { ItemVersionRecord } from '../versions.ts';
 import { ResourceUri } from '../resources.ts';
 import { ExternalIdentity } from '../sso.ts';
+import { ModelFnNameHistory } from '../model-names.ts';
 
 /** A stored section: a resource's section at one version, with the hash of its text. */
 export const SectionRow = Section.extend({ uri: ResourceUri, version: z.string(), hash: z.string() });
@@ -144,6 +145,8 @@ export const HUB_TABLES = {
   recordVersions: byField(RecordVersion, 'id'),
   // SSO: a person's account at an outside provider
   externalIdentities: byFields(ExternalIdentity, 'issuer', 'sub'),
+  // the one fn name: model names given out whose fns are gone, so old calls still read back
+  modelFnNameHistory: byField(ModelFnNameHistory, 'model'),
 } as const;
 
 /** The table names. */

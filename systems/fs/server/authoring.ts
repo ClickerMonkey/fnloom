@@ -71,7 +71,7 @@ export function templateNote(folder: string | undefined): string {
     'Call fs/install_system with the folder (`{ "path": "systems/<name>" }`). It typechecks the folder with its own',
     '`tsconfig.json`, bundles and scans it; when that fails you get `file:line:col` lines to fix with fs/edit, then call it',
     'again. A good build becomes a card for an admin; once approved, it starts on this machine and connects to the hub, and',
-    'the answer lists its fns (load them with hub/load_fns to try them). After every change call fs/install_system again;',
+    'the answer lists its fns (load them with hub/fns_load to try them). After every change call fs/install_system again;',
     'fs/system_status shows whether it runs, and the end of its output after a crash.',
   ].join('\n');
 }
@@ -89,7 +89,7 @@ export function authoringStart(source: AuthoringSource): string {
     ].join('\n'),
     [
       'The guide comes with this as its index (`fs/authoring`), which offers its topic groups as choices. Load the group',
-      'the work needs with `hub/load_context` (`{ "context": ["fs/authoring.topics.begin"] }`), then the parts it offers,',
+      'the work needs with `hub/ctx_load` (`{ "context": ["fs/authoring.topics.begin"] }`), then the parts it offers,',
       'one at a time; each brings the same fns.',
     ].join('\n'),
     templateNote(source.template()),

@@ -19,6 +19,17 @@ export interface FnRef<N extends QualifiedName, A, R, H extends Handlers = {}> {
 }
 export type AnyFnRef = FnRef<QualifiedName, unknown, unknown, Handlers>;
 
+/**
+ * An agent fn's ref: a fn of the hub's `llm` kind (`agent()`, `hub.kinds.llm.fn()`), marked with its kind so only
+ * agents fit where an agent is asked for (an injection's target). A plain fn's ref has no `kind` and doesn't compile.
+ */
+export type AgentRef<N extends QualifiedName = QualifiedName, A = unknown, R = unknown, H extends Handlers = Handlers> = FnRef<N, A, R, H> & { readonly kind: 'hub/llm' };
+
+/** The ref of a fn as its contract declares it: an agent's carries its kind (`AgentRef`), any other fn's is a `FnRef`. */
+export type FnRefOf<N extends QualifiedName, T extends FnTypes> = T['kind'] extends { readonly name: 'hub/llm' }
+  ? AgentRef<N, T['args'], T['result'], T['handlers']>
+  : FnRef<N, T['args'], T['result'], T['handlers']>;
+
 /** A type's methods by name. Each is declared with `fn()` and implemented with the value it is called on. */
 export type Methods = Record<string, FnDef<FnTypes>>;
 

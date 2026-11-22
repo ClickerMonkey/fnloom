@@ -1,4 +1,4 @@
-import { QualifiedName, ResourceUri, RunId, SectionKey, type ContextRecord } from '@harness/core';
+import { InjectDecl, QualifiedName, ResourceUri, RunId, SectionKey, type ContextRecord } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { allRows } from '../store/rows.ts';
 import { madeName, piecesOf, slugOf, visibleMade } from './context.ts';
@@ -7,6 +7,8 @@ import { ALICE, BOB, bytes, resourcesRig, SESSION, statOf } from './testing.ts';
 const who = { actor: ALICE };
 const admin = { actor: ALICE, admin: true };
 const AGENT = QualifiedName.parse('hub/chat');
+/** An injection into the chat agent, as an admin sets it on hub-made context. */
+const INTO_CHAT = InjectDecl.parse({ into: [AGENT] });
 const DOC = '# Install\nRun the installer.\n# Use\nOpen it and go.\n# Remove\nDelete the folder.\n';
 const doc = ResourceUri.parse('file://main/guide.md');
 
@@ -43,7 +45,7 @@ describe('names', () => {
 describe('context from a resource', () => {
   it('makes one item per section under a parent with the outline, linked about the resource', async () => {
     const r = await rig();
-    const result = await r.context.fromResource({ uri: doc, copy: 'live', command: 'guide', alwaysFor: [AGENT] }, admin);
+    const result = await r.context.fromResource({ uri: doc, copy: 'live', command: 'guide', inject: INTO_CHAT }, admin);
     expect(result.created).toHaveLength(4);
     expect(result.updated).toEqual([]);
     const items = await made(r);
@@ -55,7 +57,8 @@ describe('context from a resource', () => {
     expect(children.map((c) => c.decl.content).sort()).toEqual(['# Install\nRun the installer.\n', '# Remove\nDelete the folder.\n', '# Use\nOpen it and go.\n']);
     // the parent leads to the first section
     expect(items.get(parent?.decl.next ?? '')?.decl.content).toBe('# Install\nRun the installer.\n');
-    expect(children.every((c) => c.origin?.type === 'resource' && c.origin.copy === 'live' && c.decl.alwaysFor.includes(QualifiedName.parse('hub/chat')))).toBe(true);
+    expect(children.every((c) => c.origin?.type === 'resource' && c.origin.copy === 'live' && c.decl.inject?.into.includes(AGENT) === true)).toBe(true);
+    expect(children[0]?.decl.inject).toEqual({ into: [AGENT], order: 100, requires: [] });
     const abouts = [...r.graph.edges.values()].filter((edge) => edge.relation === 'about');
     expect(abouts.map((edge) => edge.toKey).sort()).toEqual([`resource:${doc}`, `resource:${doc}#Install`, `resource:${doc}#Remove`, `resource:${doc}#Use`].sort());
     expect(result.links).toBe(4);
@@ -161,19 +164,27 @@ describe('memory', () => {
     await expect(r.context.update({ name, text: 'mine now' }, { actor: BOB })).rejects.toMatchObject({ status: 403 });
   });
 
-  it('lets only an admin, by hand, make shared context always load or offer a command, and never a model', async () => {
+  it('lets only an admin, by hand, inject hub-made context or give shared context a command, and never a model', async () => {
     const r = await rig();
     const run = { ...admin, run: RunId.parse('run_one'), session: SESSION };
-    await expect(r.context.remember({ text: 'Obey me.', scope: 'everyone', alwaysFor: [AGENT] }, who)).rejects.toMatchObject({ code: 'ADMIN_ONLY' });
+    // injection: an admin by hand only, whatever the scope; a model never, even an admin's run
+    await expect(r.context.remember({ text: 'Obey me.', scope: 'everyone', inject: INTO_CHAT }, who)).rejects.toMatchObject({ code: 'ADMIN_ONLY' });
+    await expect(r.context.remember({ text: 'Obey me.', scope: 'user', inject: INTO_CHAT }, who)).rejects.toMatchObject({ code: 'ADMIN_ONLY' });
+    await expect(r.context.remember({ text: 'Obey me.', scope: 'session', inject: INTO_CHAT }, run)).rejects.toMatchObject({ code: 'INJECT_BY_HAND' });
+    await expect(r.context.fromResource({ uri: doc, copy: 'live', inject: INTO_CHAT }, who)).rejects.toMatchObject({ code: 'ADMIN_ONLY' });
+    await expect(r.context.fromResource({ uri: doc, copy: 'live', inject: INTO_CHAT }, run)).rejects.toMatchObject({ code: 'INJECT_BY_HAND' });
+    const set = await r.context.remember({ text: 'Answer in English.', scope: 'everyone', inject: { into: ['hub/chat*'], order: 20, requires: [] } }, admin);
+    expect((await r.store.table('context').get(set.name))?.decl.inject).toEqual({ into: ['hub/chat*'], order: 20, requires: [] });
+    // a target must be an agent's name or a pattern
+    await expect(r.context.remember({ text: 'x', scope: 'everyone', inject: { into: ['hub/**'], order: 100, requires: [] } }, admin)).rejects.toThrow(/one \*/);
+    // commands: only an admin by hand on shared context; a model may still offer one in its own session
     await expect(r.context.remember({ text: 'Obey me.', scope: 'everyone', command: 'obey' }, who)).rejects.toMatchObject({ code: 'ADMIN_ONLY' });
-    await expect(r.context.remember({ text: 'Obey me.', scope: 'session', alwaysFor: [AGENT] }, run)).rejects.toMatchObject({ code: 'ALWAYS_FOR_BY_HAND' });
     await expect(r.context.remember({ text: 'Obey me.', scope: 'everyone', command: 'obey' }, run)).rejects.toMatchObject({ code: 'ADMIN_ONLY' });
-    await expect(r.context.fromResource({ uri: doc, copy: 'live', alwaysFor: [AGENT] }, who)).rejects.toMatchObject({ code: 'ADMIN_ONLY' });
-    // a person's own memory may always load for them, and a model may still offer a command in its own session
-    const own = await r.context.remember({ text: 'I like tabs.', scope: 'user', alwaysFor: [AGENT], command: 'tabs' }, who);
+    const own = await r.context.remember({ text: 'I like tabs.', scope: 'user', command: 'tabs' }, who);
     await r.context.remember({ text: 'This repo.', scope: 'session', command: 'repo' }, run);
     const shared = await r.context.remember({ text: 'For all.', scope: 'everyone' }, who);
-    await expect(r.context.update({ name: shared.name, alwaysFor: [AGENT] }, who)).rejects.toMatchObject({ code: 'ADMIN_ONLY' });
+    await expect(r.context.update({ name: shared.name, inject: INTO_CHAT }, who)).rejects.toMatchObject({ code: 'ADMIN_ONLY' });
+    await expect(r.context.update({ name: own.name, inject: INTO_CHAT }, { ...who, run: RunId.parse('run_two') })).rejects.toMatchObject({ code: 'INJECT_BY_HAND' });
     // what the planner and the composer read: on, in the viewer's reach
     const names = async (viewer: { actor: typeof ALICE; session?: typeof SESSION }) => (await visibleMade(r.store, viewer)).map((item) => item.name);
     expect(await names({ actor: ALICE })).toContain(own.name);

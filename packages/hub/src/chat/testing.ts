@@ -6,13 +6,13 @@
 import { StoreAccessService } from '../access/service.ts';
 import { ApiError, type CallReturn, type Peer, type PeerCallArgs, type PeerKeys, type WsConn } from '@ayepi/core';
 import {
-  GinTypeDef, IDS, MAIN_INSTANCE, noFnStats, SystemName, qualify, splitName, type ActorId, type Availability, type ContextDecl, type ContextRecord, type FnDecl, type FnRecord, type ManifestSection,
+  FnNameIndex, GinTypeDef, IDS, MAIN_INSTANCE, noFnStats, SystemName, qualify, splitName, type ActorId, type Availability, type ContextDecl, type ContextRecord, type FnDecl, type FnRecord, type ManifestSection,
   type Notification, type QualifiedName, type ResolvedLimits, type Run, type RunId, type RunSettled, type SearchHit, type SectionDecl,
   type Suggestion, type SystemLinkSpec, type TypeRecord, type UndoOutcome, type UserActor, type SessionControlAction, type ModelRole, type ModelRoleView, type RoleModel,
   type RoleResolution,
 } from '@harness/core';
 import type { DecisionResponse } from '@aeye/ai';
-import type { Catalog, CatalogEntry, FnFilter, FnSignature } from '../catalog/index.ts';
+import type { Catalog, CatalogEntry, CatalogFnNames, FnFilter, FnSignature } from '../catalog/index.ts';
 import { AGENT_KIND, type AgentKind, type AgentLoop, type LimitResolver, type RunInput, type RunService } from '../execution/index.ts';
 import type { Considered, Search, Suggester } from '../index/index.ts';
 import type { LlmGateway, Recorded } from '../execution/index.ts';
@@ -78,7 +78,7 @@ export class FixtureCatalog implements Catalog {
   addContext(system: string, decl: Partial<ContextDecl> & Pick<ContextDecl, 'name'>): ContextRecord {
     const record: ContextRecord = {
       name: qualify(system, decl.name), system: SystemName.parse(system), mentions: { context: [], fns: [] }, stale: false, updatedAt: 0,
-      decl: { description: '', imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', alwaysFor: [], tags: [], ...decl },
+      decl: { description: '', imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', tags: [], ...decl },
     };
     this.contexts.set(record.name, record);
     return record;
@@ -107,6 +107,8 @@ export class FixtureCatalog implements Catalog {
   async context(name: QualifiedName): Promise<ContextRecord | undefined> { return Promise.resolve(this.contexts.get(name)); }
   async availability(name: QualifiedName): Promise<Availability> { return Promise.resolve(this.unavailable.get(name) ?? true); }
   async check(system: SystemName, type: GinTypeDef, value: unknown): Promise<string[]> { return Promise.resolve(this.checker(system, type, value)); }
+  /** The fixture fns' model names, and its types. */
+  async modelNames(): Promise<CatalogFnNames> { return Promise.resolve({ index: FnNameIndex.of(this.fnRecords.keys()), types: (name) => [...this.typeRecords.values()].find((type) => type.name === name)?.def }); }
 
   importManifest = refuse; importPatch = refuse; forgetInstance = refuse; reimport = refuse; refreshAvailability = refuse; refreshRoles = refuse; indexStoredFns = refuse; manifest = refuse; kind = refuse; typeClosure = refuse; declare = refuse;
   signature = (): Promise<FnSignature> => refuse();

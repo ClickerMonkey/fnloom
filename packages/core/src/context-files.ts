@@ -13,7 +13,8 @@ import { FnRefusal } from './fn-block.ts';
 /**
  * The YAML header of a context file: `ContextDecl` without its content (the body is the content), with `key` for its
  * name and the lists optional. A summary is required, so every item has a short form for small models. Every link
- * (`fns`, `imports`, `choices`, `links`, `parent`, `next`, `alwaysFor`) is a qualified name.
+ * (`fns`, `imports`, `choices`, `links`, `parent`, `next`) is a qualified name; `inject.into` holds exact agent names
+ * or patterns (`inject: { into: ['hub/chat*'], order: 40 }`).
  */
 export const ContextFileHeader = ContextDecl.omit({ name: true, content: true }).extend({
   key: LocalName,
@@ -23,7 +24,6 @@ export const ContextFileHeader = ContextDecl.omit({ name: true, content: true })
   suggestFns: z.array(QualifiedName).default([]),
   suggest: Audience.default('both'),
   visible: Audience.default('both'),
-  alwaysFor: z.array(QualifiedName).default([]),
   tags: z.array(z.string()).default([]),
 }).strict();
 export type ContextFileHeader = z.infer<typeof ContextFileHeader>;
@@ -56,7 +56,7 @@ export const ContextFileProblem = z.object({
 export type ContextFileProblem = z.infer<typeof ContextFileProblem>;
 
 /**
- * What `hub/load_context` did: the context it loaded (with what each loads with it, every time), the fns that context
+ * What `hub/ctx_load` did: the context it loaded (with what each loads with it, every time), the fns that context
  * brings that went into the session's tools, the fns it brings that could not (`fnsRefused`, each with what blocks it), and
  * what it refused, each with the closest names it knows. The model reads only its `cards` (`LoadCards`).
  */
@@ -65,12 +65,12 @@ export const LoadContextResult = z.object({
   fns: z.array(QualifiedName),
   fnsRefused: z.array(FnRefusal),
   refused: z.array(z.object({ context: z.string(), reason: z.string().min(1), closest: z.array(QualifiedName) })),
-  /** The result as the model reads it: the hub's XML cards (`<loaded_context>`, `<brought_fns>`, `<refused_context>`). */
+  /** The result as the model reads it: the hub's XML cards (`<loaded_ctx>`, `<brought_fns>`, `<refused_ctx>`). */
   cards: z.string(),
 });
 export type LoadContextResult = z.infer<typeof LoadContextResult>;
 
-/** `hub/context_crawl`'s args (see `CRAWL_DEFAULTS` for how a crawl walks the graph). */
+/** `hub/ctx_crawl`'s args (see `CRAWL_DEFAULTS` for how a crawl walks the graph). */
 export const ContextCrawlArgs = z.object({
   /** The context to start from, by key; a line copied as `name: description` is fine. */
   context: z.array(z.string().min(1)).min(1),
@@ -140,8 +140,8 @@ export const CrawlStopReason = z.enum(CRAWL_STOPS);
 export type CrawlStopReason = z.infer<typeof CrawlStopReason>;
 
 /**
- * What `hub/context_crawl` did: the items it took (`crawled`, in the order taken), those loaded into the session as
- * `hub/load_context` loads them (none when metadata only) with the fns they brought, the starting names it refused,
+ * What `hub/ctx_crawl` did: the items it took (`crawled`, in the order taken), those loaded into the session as
+ * `hub/ctx_load` loads them (none when metadata only) with the fns they brought, the starting names it refused,
  * the links it skipped, why it stopped, and what it spent: the decide calls (`calls`, each a model call), the questions
  * asked and the tokens gathered. The model reads only its `cards` (`LoadCards`).
  */
@@ -159,7 +159,7 @@ export const ContextCrawlResult = LoadContextResult.extend({
 export type ContextCrawlResult = z.infer<typeof ContextCrawlResult>;
 
 /**
- * What `hub/load_fns` did: the fns that went into the session's tools, and the names it refused, each with what blocks
+ * What `hub/fns_load` did: the fns that went into the session's tools, and the names it refused, each with what blocks
  * it. The model reads only its `cards` (`LoadCards`).
  */
 export const LoadFnsResult = z.object({
@@ -171,7 +171,7 @@ export const LoadFnsResult = z.object({
 export type LoadFnsResult = z.infer<typeof LoadFnsResult>;
 
 /**
- * A hub load's result (`hub/load_fns`, `hub/load_context`, `hub/context_crawl`) exactly: the model's tool reply is its XML `cards`, the one
+ * A hub load's result (`hub/fns_load`, `hub/ctx_load`, `hub/ctx_crawl`) exactly: the model's tool reply is its XML `cards`, the one
  * XML every fn and context card is in, while the record keeps the names and refusals for people's views (the chat's
  * held banner). Exact, so no other fn's result is read as one.
  */

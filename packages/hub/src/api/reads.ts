@@ -26,7 +26,7 @@ import { itemVersionsPage } from '../catalog/versions.ts';
 import { systemView } from './web/systems.ts';
 
 /** The read fns other modules answer. */
-export type ForeignReadName = 'resource_list' | 'resource_read' | 'context_get' | 'model_limits';
+export type ForeignReadName = 'resource_list' | 'resource_read' | 'ctx_get' | 'model_limits';
 /** The read fns answered here. */
 export type HubReadName = Exclude<HubReadFnName, ForeignReadName>;
 
@@ -120,7 +120,7 @@ export function hubReads(hub: HubServices): HubReads {
       if (call === undefined) { throw reject(404, 'MODEL_CALL_NOT_FOUND', 'no such model call'); }
       return call;
     },
-    fn_metrics: (data) => hub.metrics.fns.metrics(compact(data)),
+    fns_metrics: (data) => hub.metrics.fns.metrics(compact(data)),
     sessions_list: (data, who) => (data.query === undefined ? chat.sessions.list(who.id, compact(data)) : lists.page('sessions', data.query, who)),
     session_messages: async ({ session, ...page }, who) => {
       await visibleSession(hub, session, who);

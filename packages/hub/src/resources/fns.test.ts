@@ -11,8 +11,8 @@ import { bytes, resourcesRig, statOf } from './testing.ts';
 
 /** The resource fns this module implements. */
 const NAMES = [
-  'resource_list', 'resource_read', 'context_get', 'resource_outline', 'resource_send', 'resource_convert', 'resource_import', 'resource_rename',
-  'resource_delete', 'context_from_resource', 'remember', 'forget',
+  'resource_list', 'resource_read', 'ctx_get', 'resource_outline', 'resource_send', 'resource_convert', 'resource_import', 'resource_rename',
+  'resource_delete', 'ctx_from_resource', 'remember', 'forget',
 ] as const satisfies ReadonlyArray<keyof typeof hub.fns>;
 
 let rig: ExecutionRig | undefined;
@@ -71,9 +71,9 @@ describe('the resource hub fns', () => {
     expect(remembered.status).toBe('done');
     const { name } = z.object({ name: QualifiedName }).parse(remembered.status === 'done' ? remembered.result : {});
     expect((await resources.store.table('context').get(name))?.origin).toMatchObject({ scope: { to: 'session', session: SESSION } });
-    expect(await call(r, turn, 'context_get', { name })).toMatchObject({ status: 'done', result: { text: 'Use tabs here.' } });
+    expect(await call(r, turn, 'ctx_get', { name })).toMatchObject({ status: 'done', result: { text: 'Use tabs here.' } });
     expect(await call(r, turn, 'forget', { name })).toEqual({ status: 'done', result: { ok: true } });
-    expect(await call(r, turn, 'context_from_resource', { uri })).toMatchObject({ status: 'done', result: { links: 2 } });
+    expect(await call(r, turn, 'ctx_from_resource', { uri })).toMatchObject({ status: 'done', result: { links: 2 } });
   });
 
   it('refuses bad args before running the operation', async () => {
@@ -92,15 +92,15 @@ describe('context made from a resource', () => {
       ...openScope(actor), seesUri: sees, seesContext: (record) => record.origin?.type !== 'resource' || sees(record.origin.uri),
     }));
     resources.raw.serve({ stat: statOf(uri, { format: 'markdown' }), bytes: bytes('# Plan\nsecret plan\n') });
-    const made = await call(r, turn, 'context_from_resource', { uri });
+    const made = await call(r, turn, 'ctx_from_resource', { uri });
     const { created } = z.object({ created: z.array(QualifiedName) }).parse(made.status === 'done' ? made.result : {});
     const name = created[0];
     if (name === undefined) throw new Error('no context made');
     // the run reads records from the hub store; this rig keeps the resource module's apart
     for (const made of created) { const record = await resources.store.table('context').get(made); if (record !== undefined) await r.store.table('context').insert(record); }
-    expect(await call(r, turn, 'context_get', { name })).toMatchObject({ status: 'done' });
+    expect(await call(r, turn, 'ctx_get', { name })).toMatchObject({ status: 'done' });
     hide.private = true;
-    const hidden = await call(r, turn, 'context_get', { name });
+    const hidden = await call(r, turn, 'ctx_get', { name });
     expect(hidden.status).not.toBe('done');
     expect(JSON.stringify(hidden)).not.toContain('secret plan');
   });
@@ -118,7 +118,7 @@ describe('through a hub MCP', () => {
     expect(await call(r, turn, 'resource_read', { uri: open })).toMatchObject({ status: 'done' });
     expect(await call(r, turn, 'resource_read', { uri: hidden })).toMatchObject({ status: 'done' });
     mcp.scope = { context: new Set(), allowsResource: (uri) => !uri.startsWith('file://main/private') };
-    for (const name of ['resource_read', 'resource_outline', 'resource_send', 'context_from_resource'] as const) {
+    for (const name of ['resource_read', 'resource_outline', 'resource_send', 'ctx_from_resource'] as const) {
       const settled = await call(r, turn, name, { uri: hidden });
       expect(settled.status, name).not.toBe('done');
       expect(JSON.stringify(settled), name).not.toContain('Secret');
@@ -129,7 +129,7 @@ describe('through a hub MCP', () => {
     expect(JSON.stringify(listed)).not.toContain(hidden);
     const remembered = await call(r, turn, 'remember', { text: 'Use tabs here.' });
     const { name } = z.object({ name: QualifiedName }).parse(remembered.status === 'done' ? remembered.result : {});
-    expect((await call(r, turn, 'context_get', { name })).status).not.toBe('done');
+    expect((await call(r, turn, 'ctx_get', { name })).status).not.toBe('done');
   });
 });
 

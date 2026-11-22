@@ -95,8 +95,8 @@ export function createCodeImpl(_deps: CodeDeps): SystemImpl<CodeContract['defs']
           return KindDescription.parse({
             args: spec.args,
             returns: spec.returns,
-            // the fns it calls, and hub/fn_get to read their signatures when it runs
-            deps: check.calls.length === 0 ? [] : [...check.calls, hub.fns.fn_get.name],
+            // the fns it calls, and hub/fns_get to read their signatures when it runs
+            deps: check.calls.length === 0 ? [] : [...check.calls, hub.fns.fns_get.name],
             operations: { cancel: true, pause: false, undo: false, background: false },
             // its own work is free and only reads; calling fns, it does what the strongest of them does
             effects: check.calls.length === 0 ? { mode: 'read', free: true } : { mode: await calleesMode(check.calls, lookups) },

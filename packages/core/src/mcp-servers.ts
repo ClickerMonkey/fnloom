@@ -12,7 +12,8 @@
  */
 import { z } from 'zod';
 import { GinTypeDef } from './gin.ts';
-import { InstanceName, Json, LocalName, Timestamp } from './primitives.ts';
+import { InstanceName, Json, Timestamp } from './primitives.ts';
+import { FnLocalName } from './model-names.ts';
 import { RemoteAuth, REMOTE_AUTH_SECRETS } from './remote-auth.ts';
 import type { ConfigPath } from './config-secrets.ts';
 
@@ -118,9 +119,13 @@ export const McpToolSpec = z.object({
 });
 export type McpToolSpec = z.infer<typeof McpToolSpec>;
 
-/** The fn name of an MCP tool: `<instance>_<tool>`, with characters a fn name can't hold made `_`. */
+/**
+ * The fn name of an MCP tool: `<instance>_<tool>`, with characters a fn name can't hold made `_`, and runs of `_` (and
+ * a part's leading or trailing ones) folded, so its model name reads back (`FnLocalName`).
+ */
 export function mcpToolFnName(instance: InstanceName, tool: string): string {
-  return LocalName.parse(`${instance}_${tool.replace(/[^A-Za-z0-9_.-]/g, '_')}`.replace(/-/g, '_'));
+  const raw = `${instance}_${tool.replace(/[^A-Za-z0-9_.-]/g, '_')}`.replace(/-/g, '_');
+  return FnLocalName.parse(raw.split('.').map((part) => part.replace(/_+/g, '_').replace(/^_+|_+$/g, '') || 'x').join('.'));
 }
 
 /** The resource root of an MCP instance's resources: `mcp://<instance>/`. */

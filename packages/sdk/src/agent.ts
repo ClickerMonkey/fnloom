@@ -16,6 +16,14 @@ export type LlmKind = typeof hub.kinds.llm;
 /** The types of an agent fn. */
 export type AgentFnTypes<A, R> = KindFnTypes<LlmKind, LlmPayload, A, R>;
 
+/** How an agent takes its injected section. Its instructions may hold `{{injectedContext}}`; without it the section follows them. */
+export interface AgentInjected {
+  /** `summary` gives each item at its summary, for a small window. Default `full`. */
+  readonly detail?: 'full' | 'summary';
+  /** The most tokens the section may take; items past it fall back to their summary, a listing, then out. */
+  readonly maxTokens?: number;
+}
+
 /** What `agent()` takes. */
 export interface AgentInput<A, R, T extends StatusTemplates = StatusTemplates> {
   description: string;
@@ -61,6 +69,8 @@ export interface AgentInput<A, R, T extends StatusTemplates = StatusTemplates> {
   routing?: FnRouting;
   /** What it does to data and the registry: its mode, the types it reads and writes, and the fns it creates (`FnFacts`). */
   effects?: FnEffects;
+  /** How it takes the context injected into it (`{ detail: 'summary', maxTokens: 600 }`), or `none`. Default: every item in full. */
+  injected?: AgentInjected | 'none';
 }
 
 /**
@@ -99,6 +109,13 @@ export function agent<A, R, const T extends StatusTemplates = StatusTemplates>(d
       ...(def.mode === undefined ? {} : { mode: def.mode }),
       ...(def.contextor === undefined ? {} : { contextor: def.contextor }),
       ...(def.maxOutput === undefined ? {} : { maxOutput: def.maxOutput }),
+      ...(def.injected === undefined ? {} : { injected: injectedPayload(def.injected) }),
     },
   });
+}
+
+/** An agent's `injected` as its payload holds it: `none`, or its detail (default `full`) and cap. */
+function injectedPayload(injected: AgentInjected | 'none'): NonNullable<LlmPayload['injected']> {
+  if (injected === 'none') { return 'none'; }
+  return { detail: injected.detail ?? 'full', ...(injected.maxTokens === undefined ? {} : { maxTokens: injected.maxTokens }) };
 }

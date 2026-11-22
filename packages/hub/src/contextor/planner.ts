@@ -9,7 +9,7 @@
  */
 import type { Logger } from '@ayepi/log';
 import {
-  ChatModeConfig, ContextorConfig, DEFAULT_CHAT_MODE, DEFAULT_CONTEXTOR, ModelChoice, namesModel, QualifiedName, type ActorId, type AnnouncedSystem, type ContextViewer, type Exposure, type FnBlock, type FnRecord, type FnRefusal, type LlmMessage, type ModelInfo,
+  ChatModeConfig, ContextorConfig, DEFAULT_CHAT_MODE, DEFAULT_CONTEXTOR, ModelChoice, namesModel, QualifiedName, targetHits, type ActorId, type AnnouncedSystem, type ContextViewer, type Exposure, type FnBlock, type FnRecord, type FnRefusal, type LlmMessage, type ModelFnNames, type ModelInfo,
   type Session, type SessionId, type SelectionReport, type Turn, type TurnId,
 } from '@harness/core';
 import { LlmPayloadType, parseValue, type LlmPayload } from '@harness/sdk';
@@ -25,10 +25,10 @@ import { CONTEXTORS } from './contextors.ts';
 import { exchanges, isPersonMessage, namedIn, personWords, shorten, textOf } from './history.ts';
 import type {
   BudgetPlan, CallPlan, ChatMode, ChosenContext, ChosenFn, Contextor, ContextorDeps, ContextorInput, ExposedTo, ModeChoice, ModeContext, ModelCallOut, ModelLimitsService, Overflow,
-  PlanInput, PlannedPrompt, PromptPlanner, Selection, TokenEstimates, TokenEstimator,
+  ModeTool, PlanInput, PlannedPrompt, PromptPlanner, RenderedIteration, Selection, TokenEstimates, TokenEstimator,
 } from './index.ts';
 import { AUTO_MODEL } from './limits.ts';
-import { CHAT_MODES } from './modes.ts';
+import { CHAT_MODES, modeNames } from './modes.ts';
 import { broughtWords, contextBlock, earlierBlock, moreContext, type BroughtFnLines, type BroughtWords } from './render.ts';
 import { MESSAGE_FRAMING } from './tokens.ts';
 import { fnRefusal, readsAsMissing, refusalOf, usable } from './views.ts';
@@ -136,7 +136,7 @@ export function fixedRegion(systems: readonly AnnouncedSystem[], guide: string, 
 /** What the planner uses. */
 export interface PlannerDeps extends ContextorDeps {
   readonly store: HubStore;
-  readonly catalog: ContextorDeps['catalog'] & Pick<Catalog, 'entries'>;
+  readonly catalog: ContextorDeps['catalog'] & Pick<Catalog, 'entries' | 'modelNames'>;
   readonly limits: Pick<ModelLimitsService, 'resolve'>;
   readonly tokens: TokenEstimates;
   /** The chat models the hub AI can call now (for whether a model takes native tools). */
@@ -196,7 +196,14 @@ export class HubPromptPlanner implements PromptPlanner {
     const choice = modeChoice(session, payload);
     const mode = chatModeOf(choice.mode, this.#deps);
     const nativeTools = (await this.#deps.models()).find((m) => namesModel(model, m))?.capabilities.includes('tools') ?? true;
-    return { mode, ctx: { estimator: await this.#deps.tokens.forModel(model), protocol: mode.protocol(nativeTools) }, payload, choice };
+    // the one fn name: every fn this prompt names is spelled as the model calls it in this mode
+    const names = modeNames(mode.type, await this.#deps.catalog.modelNames());
+    return { mode, ctx: { estimator: await this.#deps.tokens.forModel(model), protocol: mode.protocol(nativeTools), names }, payload, choice };
+  }
+
+  async names(to: ExposedTo): Promise<ModelFnNames> {
+    const { ctx } = await this.#mode(to.session, to.agent, to.model);
+    return ctx.names ?? modeNames('tools');
   }
 
   async settled(input: { model: string; estimate: number; actual: number | undefined; used: readonly QualifiedName[] }): Promise<void> {
@@ -244,13 +251,13 @@ export class HubPromptPlanner implements PromptPlanner {
 
     const input = {
       session, user: planning.user, access, turn: planning.turn?.id, agent, payload, query, history, current: fitted.messages,
-      always: { context: [...payload.context, ...(await this.#alwaysFor(agent.name, { actor: planning.user, session: session?.id }))], fns: shown(payload.tools) },
+      always: { context: [...payload.context, ...(await this.#injected(agent.name, { actor: planning.user, session: session?.id }))], fns: shown(payload.tools) },
       loaded: { context: session?.context ?? [], fns: shown(session?.tools ?? []) },
       ...asked, asked: { ...asked.asked, fns: shown(asked.asked.fns) }, person: planning.turn?.user,
       mode, ctx, plan, cached: planning.cached,
     };
     let selection = await this.#forTurn(await contextor.select(input), session, query);
-    let rendered = await mode.render(selection, ctx);
+    let rendered = spoken(await mode.render(selection, ctx));
     let assembled = this.#assemble(planning.instructions, guide, selection, mode, rendered, estimator, await this.#held(selection, session, access));
     // the parts' estimates can add up to less than the whole's: choose again with less room for the optional parts
     // (the overshoot taken off, at least doubling each time) until it fits; refused only once no optional room is left
@@ -261,7 +268,7 @@ export class HubPromptPlanner implements PromptPlanner {
       taken = Math.min(room, Math.max(taken * 2, taken + assembled.estimate - plan.available));
       const tighter: BudgetPlan = { ...plan, flexible: plan.flexible - taken };
       selection = await this.#forTurn(await contextor.select({ ...input, plan: tighter }), session, query);
-      rendered = await mode.render(selection, ctx);
+      rendered = spoken(await mode.render(selection, ctx));
       assembled = this.#assemble(planning.instructions, guide, selection, mode, rendered, estimator, await this.#held(selection, session, access));
     }
     const report: SelectionReport = {
@@ -313,7 +320,8 @@ export class HubPromptPlanner implements PromptPlanner {
 
   /** The system region, the messages and the request's estimate. */
   #assemble(instructions: string, guide: string, selection: Selection, mode: ChatMode, rendered: Awaited<ReturnType<ChatMode['render']>>, estimator: TokenEstimator, held: BroughtBlocks) {
-    const context = contextRegion(guide, selection, rendered.systemEnd, held, broughtWords(mode.type, rendered.protocol));
+    // out to the model: every fn the region names, as the model calls it here (the tail and tools already are, `spoken`)
+    const context = rendered.names.text(contextRegion(guide, selection, rendered.systemEnd, held, broughtWords(mode.type, rendered.protocol)));
     const messages: LlmMessage[] = [...selection.linear, ...(rendered.tail === undefined ? [] : [{ role: 'system' as const, content: rendered.tail }])];
     const system = context === '' ? instructions : `${instructions}\n\n${context}`;
     const estimate = estimator.message({ role: 'system', content: system }) + rendered.tools.reduce((sum, t) => sum + estimator.tool(t.spec), 0) + estimator.messages(messages);
@@ -363,10 +371,14 @@ export class HubPromptPlanner implements PromptPlanner {
     });
   }
 
-  /** Context that names this agent in `alwaysFor`: systems' context, and the hub-made context (memory, from resources) the viewer may see. */
-  async #alwaysFor(agent: QualifiedName, viewer: ContextViewer): Promise<QualifiedName[]> {
+  /**
+   * Context injected into this agent (an `inject` target hits it): systems' context, and the hub-made context (memory,
+   * from resources) the viewer may see. Until the injected section is built into the fixed region, these are always
+   * loaded, as `alwaysFor` was; held (pending) and switched-off items are left out as for any loaded context.
+   */
+  async #injected(agent: QualifiedName, viewer: ContextViewer): Promise<QualifiedName[]> {
     const [declared, made] = await Promise.all([this.#deps.catalog.entries('context'), visibleMade(this.#deps.store, viewer)]);
-    return [...new Set([...declared, ...made].filter((item) => item.decl.alwaysFor.includes(agent)).map((item) => item.name))];
+    return [...new Set([...declared, ...made].filter((item) => item.decl.inject?.into.some((target) => targetHits(target, agent)) === true).map((item) => item.name))];
   }
 
   /** What the current message asks for: its `/command` context (with each command's args), and the fns its person names (`fs/bash`, `@` mentions). */
@@ -388,6 +400,21 @@ export class HubPromptPlanner implements PromptPlanner {
   async #keep(session: SessionId, turn: TurnId, report: SelectionReport): Promise<void> {
     await this.#deps.store.table('sessions').update(session, { selection: { turn, items: [...report.context, ...report.fns], at: this.#deps.clock() } });
   }
+}
+
+/**
+ * A rendered iteration as the model reads it: its tools' descriptions and its trailing card message with every fn they
+ * name spelled as the model calls it here (`ModelFnNames.text`). The system region is spelled when it is assembled.
+ */
+export function spoken(rendered: RenderedIteration): RenderedIteration {
+  const { names } = rendered;
+  const tools = rendered.tools.map((tool): ModeTool => ({
+    ...tool,
+    description: names.text(tool.description),
+    ...(tool.instructions === undefined ? {} : { instructions: names.text(tool.instructions) }),
+    spec: { ...tool.spec, ...(tool.spec.description === undefined ? {} : { description: names.text(tool.spec.description) }) },
+  }));
+  return { ...rendered, tools, ...(rendered.tail === undefined ? {} : { tail: names.text(rendered.tail) }) };
 }
 
 /** A message with its text shortened to `max` characters (string content only). */

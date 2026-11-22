@@ -329,7 +329,7 @@ describe('held calls and the agent run around them', () => {
     expect(fs.started).toEqual(['first']);
     expect((await children(r, run)).has('0:call_2')).toBe(false);
     const said = await replies(r);
-    expect(said.get('call_2')).toMatch(/^Not run: it works on the same things as an earlier call \(fs\/write\)/);
+    expect(said.get('call_2')).toMatch(/^Not run: it works on the same things as an earlier call \(fs__write\)/);
   });
 
   it('skips its held calls when the person is there and the tools take too long, and answers with what it has', async () => {
@@ -345,7 +345,8 @@ describe('held calls and the agent run around them', () => {
     const pending = stateOf(await agentRun(r, run));
     expect(pending.pending).toEqual([]);
     const said = await replies(r);
-    expect(said.get('call_2')).toBe(heldReply({ toolCallId: 'call_2', fn: 'fs/write', held: { after: ['call_1'], args: {} } }, [{ toolCallId: 'call_1', fn: 'fs/write' }]));
+    // as the model reads it: the fn by its model name
+    expect(said.get('call_2')).toBe(heldReply({ toolCallId: 'call_2', fn: 'fs/write', held: { after: ['call_1'], args: {} } }, [{ toolCallId: 'call_1', fn: 'fs/write' }]).replaceAll('fs/write', 'fs__write'));
     // the first write finishing later doesn't start the second
     fs.finish('first');
     await until(async () => isSettled((await children(r, run)).get('0:call_1')?.status ?? 'running'), 'the first write to settle');

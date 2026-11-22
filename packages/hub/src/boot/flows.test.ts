@@ -109,7 +109,7 @@ describe('records from chat', () => {
   it('refuses values that don\'t fit the type before anyone is asked, then saves once approved', async () => {
     const asked = await approvals();
     const { turn, results } = await chat('Add a task to pay the rent', [
-      calls([['hub__load_fns', { fns: ['hub/record_save', 'hub/record_update', 'hub/records_table'] }]]),
+      calls([['hub__fns_load', { fns: ['hub/record_save', 'hub/record_update', 'hub/records_table'] }]]),
       // the shapes models send wrongly: a number as words, the value as a JSON string, a field the type doesn't have
       calls([['hub__record_save', { type: TASK, value: { title: 'Pay rent', stars: 'many', done: false } }]]),
       calls([['hub__record_save', { type: TASK, value: '{"title":"Pay rent","stars":3,"done":false}' }]]),
@@ -125,7 +125,7 @@ describe('records from chat', () => {
     expect(results[3]).toContain('due');
     expect(results[4]).toContain('no stored type shop/Nothing');
     expect(await runsOf(turn)).toEqual([
-      { fn: 'hub/load_fns', status: 'done' },
+      { fn: 'hub/fns_load', status: 'done' },
       { fn: 'hub/record_save', status: 'invalid-input' },
       { fn: 'hub/record_save', status: 'invalid-input' },
       { fn: 'hub/record_save', status: 'invalid-input' },
@@ -140,7 +140,7 @@ describe('records from chat', () => {
     const id = (await running.services.store.table('records').find({ where: { type: QualifiedName.parse(TASK) }, limit: 1 })).items[0]?.id ?? '';
     const asked = await approvals();
     const { turn, results } = await chat('Mark the rent task done', [
-      calls([['hub__load_fns', { fns: ['hub/record_update', 'hub/records_table'] }]]),
+      calls([['hub__fns_load', { fns: ['hub/record_update', 'hub/records_table'] }]]),
       calls([['hub__record_update', { type: TASK, id, set: { done: 'yes' } }]]),
       calls([['hub__record_update', { type: TASK, id, set: { finished: true } }]]),
       calls([['hub__record_update', { type: TASK, id, set: { done: true } }]]),
@@ -159,19 +159,19 @@ describe('records from chat', () => {
   it('tells the model why a person declined a write, and keeps nothing', async () => {
     const before = await tasks();
     const { turn, results } = await chat('Add a task to call mum', [
-      calls([['hub__load_fns', { fns: ['hub/record_save'] }]]),
+      calls([['hub__fns_load', { fns: ['hub/record_save'] }]]),
       calls([['hub__record_save', { type: TASK, value: { title: 'Call mum', stars: 1, done: false } }]]),
       says('Fine, I left it.'),
     ], [{ approve: false, reason: 'I did it already' }]);
     expect(results[1]).toContain('I did it already');
-    expect(await runsOf(turn)).toEqual([{ fn: 'hub/load_fns', status: 'done' }, { fn: 'hub/record_save', status: 'cancelled' }]);
+    expect(await runsOf(turn)).toEqual([{ fn: 'hub/fns_load', status: 'done' }, { fn: 'hub/record_save', status: 'cancelled' }]);
     expect(await tasks()).toEqual(before);
   });
 
   // records have `type` and `value` keys; gin once read them as value envelopes (fixed in gin's parseValue)
   it('lists the records with hub/records_find', async () => {
     const { results } = await chat('List my tasks', [
-      calls([['hub__load_fns', { fns: ['hub/records_find'] }]]),
+      calls([['hub__fns_load', { fns: ['hub/records_find'] }]]),
       calls([['hub__records_find', { type: TASK }]]),
       says('One task.'),
     ]);
@@ -185,12 +185,13 @@ describe('a fn switched off', () => {
     const find = QualifiedName.parse('hub/records_table');
     await link.admin.switchItem({ section: 'fns', name: find, on: false }, ADA);
     const off = await chat('What tasks are there?', [
-      calls([['hub__load_fns', { fns: ['hub/records_table'] }]]),
+      calls([['hub__fns_load', { fns: ['hub/records_table'] }]]),
       calls([['hub__records_table', { type: TASK }]]),
       says('I can\'t list them now.'),
     ]);
     expect(off.results[0]).toContain('<refused_fns>');
-    expect(off.results[0]).toContain('hub/records_table');
+    // the refusal names the fn as the model calls it
+    expect(off.results[0]).toContain('hub__records_table');
     expect(off.results[0]).not.toContain('<loaded_fns>');
     expect(off.results[1]).toMatch(/turned off|switched off|unavailable|not/i);
     // nothing of it ran
@@ -198,11 +199,11 @@ describe('a fn switched off', () => {
 
     await link.admin.switchItem({ section: 'fns', name: find, on: true }, ADA);
     const on = await chat('What tasks are there now?', [
-      calls([['hub__load_fns', { fns: ['hub/records_table'] }]]),
+      calls([['hub__fns_load', { fns: ['hub/records_table'] }]]),
       calls([['hub__records_table', { type: TASK }]]),
       says('One task.'),
     ]);
-    expect(on.results[0]).toMatch(/<loaded_fns>[\s\S]*name="hub\/records_table"/);
+    expect(on.results[0]).toMatch(/<loaded_fns>[\s\S]*name="hub__records_table"/);
     expect(on.results[1]).toContain('Pay rent');
   });
 });
@@ -210,9 +211,9 @@ describe('a fn switched off', () => {
 describe('the hub\'s own fns as the chat calls them', () => {
   // each group of hub fns reaches its module through the lazy accessors `registerHubContract` gives it
   it('runs a fn of every module the chat can call, each answered by the module that owns it', async () => {
-    const names = ['fns_search', 'inspect', 'model_limits', 'resource_list', 'budgets_list', 'explore_roots', 'search_resources', 'remember', 'load', 'context_get'];
+    const names = ['fns_search', 'inspect', 'model_limits', 'resource_list', 'budgets_list', 'explore_roots', 'search_resources', 'remember', 'load', 'ctx_get'];
     const { turn, results } = await chat('Remember that rent is due on the 1st, and show me what you can do', [
-      calls([['hub__load_fns', { fns: names.map((name) => `hub/${name}`) }]]),
+      calls([['hub__fns_load', { fns: names.map((name) => `hub/${name}`) }]]),
       calls([
         ['hub__fns_search', { text: 'records of tasks' }],
         ['hub__inspect', { name: 'shop/Task' }],
@@ -223,7 +224,7 @@ describe('the hub\'s own fns as the chat calls them', () => {
         ['hub__search_resources', { query: 'rent' }],
       ]),
       calls([['hub__remember', { text: 'Rent is due on the 1st.', scope: 'user', title: 'Rent day' }]]),
-      calls([['hub__load', { names: ['shop/guide'] }], ['hub__context_get', { name: 'shop/guide' }]]),
+      calls([['hub__load', { names: ['shop/guide'] }], ['hub__ctx_get', { name: 'shop/guide' }]]),
       says('Noted.'),
       // a memory for the person is a write: it may wait for Ada's approval
     ], [{ approve: true }]);
@@ -232,7 +233,7 @@ describe('the hub\'s own fns as the chat calls them', () => {
     for (const result of results) { expect(result).not.toMatch(/has no implementation|not-implemented/); }
     // every call was answered, each from the module behind it: the catalog, the contextor, the models, the reads, the
     // person and admin reads, the index and the memories
-    expect(await runsOf(turn)).toEqual(['load_fns', ...names].map((name) => ({ fn: `hub/${name}`, status: 'done' })));
+    expect(await runsOf(turn)).toEqual(['fns_load', ...names].map((name) => ({ fn: `hub/${name}`, status: 'done' })));
     expect(results[1]).toMatch(/^\{"items":\[/);
     expect(results[2]).toContain('type shop/Task = obj{title: text, stars: num, done: bool}');
     expect(results[3]).toContain(TEST_MODEL.id);

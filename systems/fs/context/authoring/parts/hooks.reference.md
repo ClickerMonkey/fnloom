@@ -16,10 +16,11 @@ niche: "developer"
 
 function · `import { hook } from '@harness/sdk'`
 
-Declare a hook. Defaults: order 100, timeout 1000 ms.
+Declare a hook. Defaults: order 100, timeout 1000 ms. `explains` says what its block (`<fs_git>`) means to the model;
+a new or changed `explains` waits for an admin's review like any injection.
 
 ```ts
-function hook(def: { description: string; order?: number; timeout?: Duration; }): HookDef;
+function hook(def: { description: string; explains?: string; order?: number; timeout?: Duration; }): HookDef;
 ```
 
 Refers to: [`Duration`](context:fs/authoring.core-types.primitives-ts#core-duration).
@@ -33,6 +34,8 @@ A system's user-message hook: adds information to a message before the LLM sees 
 ```ts
 interface HookDef {
   readonly description: string;
+  /** What its block means to the model: injected with its system's items into the agents that get its blocks. */
+  readonly explains: string | undefined;
   /** Lower runs first. */
   readonly order: number;
   /** After this the message goes on without it. */

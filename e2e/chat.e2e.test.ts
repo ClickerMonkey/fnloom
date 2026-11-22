@@ -140,7 +140,7 @@ describe('the chat agent', () => {
   });
 
   it('asks before a fn that is not read-only, then runs the command and shows its card', async () => {
-    const { result, approvals } = await approving(ask('Load the fs/bash fn with hub/load_fns, then call it to run exactly this command: echo harness-e2e-ok. Then tell me what it printed.'));
+    const { result, approvals } = await approving(ask('Load the fs/bash fn with hub/fns_load, then call it to run exactly this command: echo harness-e2e-ok. Then tell me what it printed.'));
     expect(approvals.map((a) => a.fn)).toContain(fsFn('bash'));
     expect(result.answer.status).toBe('done');
     const tree = await me.hub.call('tree', { turn: result.turn });

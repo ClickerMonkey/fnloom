@@ -5,7 +5,7 @@ title: "Worked examples: systems/fs/shared/index.ts, lines 190-370"
 description: "Worked examples, the part on systems/fs/shared/index.ts, lines 190-370."
 summary: "Worked examples: systems/fs/shared/index.ts, lines 190-370."
 parent: "fs/authoring.examples"
-next: "fs/authoring.examples.systems-fs-shared-index-ts-lines-371-513"
+next: "fs/authoring.examples.systems-fs-shared-index-ts-lines-371-512"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash"]
 tags: ["authoring"]
 niche: "developer"
@@ -172,7 +172,7 @@ niche: "developer"
           'Before anything is asked, the folder is typechecked with its own tsconfig.json, bundled and scanned. When that fails the call comes back as invalid input with `file:line:col message` lines: fix each one with fs/edit and call again.',
           'A good build becomes a card for an admin with what the system adds, its scan and its hashes; nothing runs until they approve. If it exits before it connects, the call comes back with its exit code and the end of its output, so you can fix the crash.',
           'The name in system.json must be the contract\'s name. `hub`, and the name of a system that runs somewhere else, are refused unless `replace` is set (the card then says what it replaces).',
-          'Once it is running, load its fns with hub/load_fns to call them. When it needs config, ask the person for it (its page has the form).',
+          'Once it is running, load its fns with hub/fns_load to call them. When it needs config, ask the person for it (its page has the form).',
         ].join(' '),
         examples: [
           {

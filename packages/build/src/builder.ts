@@ -36,12 +36,17 @@ export interface ContractSummary {
   readonly requires: readonly string[];
   /** The other systems' fns its fns depend on (they exist, or the contract wouldn't work). */
   readonly references: readonly QualifiedName[];
+  /** Its agents (`hub/llm` fns), which an injection may name exactly. */
+  readonly agents?: readonly QualifiedName[];
 }
 
 /** What a build needs of a contract: its manifest's names, qualified. */
 export async function summaryOf(contract: Parameters<typeof manifestOf>[0]): Promise<ContractSummary> {
   return summaryOfManifest(await manifestOf(contract, { version: '0.0.0' }));
 }
+
+/** The hub's agent kind. */
+const AGENT_KIND = 'hub/llm';
 
 /** What a build needs of a contract's manifest: its names, qualified. */
 export function summaryOfManifest(manifest: Manifest): ContractSummary {
@@ -51,6 +56,7 @@ export function summaryOfManifest(manifest: Manifest): ContractSummary {
     context: manifest.context.map((decl) => qualify(manifest.name, decl.name)),
     requires: manifest.requires,
     references: [...new Set(manifest.fns.flatMap((decl) => decl.deps))],
+    agents: manifest.fns.filter((decl) => decl.kind === AGENT_KIND).map((decl) => qualify(manifest.name, decl.name)),
   };
 }
 

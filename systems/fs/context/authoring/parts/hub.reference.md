@@ -22,7 +22,7 @@ The hub's contract.
 const hub: typeof hub; // too large to print: see its section
 ```
 
-Refers to: [`ContextCrawlArgs`](context:fs/authoring.core-types.context-files-ts#core-contextcrawlargs), [`ContextCrawlResult`](context:fs/authoring.core-types.context-files-ts#core-contextcrawlresult), [`ContributionView`](context:fs/authoring.core-types.registries-ts#core-contributionview), [`FnExamplesPage`](context:fs/authoring.core-types.fn-facts-ts#core-fnexamplespage), [`FnExamplesQuery`](context:fs/authoring.core-types.fn-facts-ts#core-fnexamplesquery), [`FnSearchArgs`](context:fs/authoring.core-types.fn-facts-ts#core-fnsearchargs), [`FnSearchPage`](context:fs/authoring.core-types.fn-facts-ts#core-fnsearchpage), [`LoadContextResult`](context:fs/authoring.core-types.context-files-ts#core-loadcontextresult), [`LoadFnsResult`](context:fs/authoring.core-types.context-files-ts#core-loadfnsresult), [`MintMcpTokenArgs`](context:fs/authoring.core-types.records-mcps-ts#core-mintmcptokenargs), [`NameRefusal`](context:fs/authoring.core-types.fn-block-ts#core-namerefusal), [`ReadTableArgs`](context:fs/authoring.core-types.widgets-ts#core-readtableargs), [`ResourceOutlineArgs`](context:fs/authoring.core-types.resource-forms-ts#core-resourceoutlineargs), [`ResourceSendArgs`](context:fs/authoring.core-types.resource-forms-ts#core-resourcesendargs), [`ResultTable`](context:fs/authoring.core-types.registries-ts#core-resulttable), [`RowActionsQuery`](context:fs/authoring.core-types.widgets-ts#core-rowactionsquery), [`Section`](context:fs/authoring.core-types.resources-ts#core-section), [`WidgetActionOption`](context:fs/authoring.core-types.widgets-ts#core-widgetactionoption).
+Refers to: [`ContextCrawlArgs`](context:fs/authoring.core-types.context-files-ts#core-contextcrawlargs), [`ContextCrawlResult`](context:fs/authoring.core-types.context-files-ts#core-contextcrawlresult), [`ContributionView`](context:fs/authoring.core-types.registries-ts#core-contributionview), [`CtxSearchArgs`](context:fs/authoring.core-types.fn-facts-ts#core-ctxsearchargs), [`FnExamplesPage`](context:fs/authoring.core-types.fn-facts-ts#core-fnexamplespage), [`FnExamplesQuery`](context:fs/authoring.core-types.fn-facts-ts#core-fnexamplesquery), [`FnSearchArgs`](context:fs/authoring.core-types.fn-facts-ts#core-fnsearchargs), [`FnSearchPage`](context:fs/authoring.core-types.fn-facts-ts#core-fnsearchpage), [`LoadContextResult`](context:fs/authoring.core-types.context-files-ts#core-loadcontextresult), [`LoadFnsResult`](context:fs/authoring.core-types.context-files-ts#core-loadfnsresult), [`MintMcpTokenArgs`](context:fs/authoring.core-types.records-mcps-ts#core-mintmcptokenargs), [`NameRefusal`](context:fs/authoring.core-types.fn-block-ts#core-namerefusal), [`ReadTableArgs`](context:fs/authoring.core-types.widgets-ts#core-readtableargs), [`ResourceOutlineArgs`](context:fs/authoring.core-types.resource-forms-ts#core-resourceoutlineargs), [`ResourceSendArgs`](context:fs/authoring.core-types.resource-forms-ts#core-resourcesendargs), [`ResultTable`](context:fs/authoring.core-types.registries-ts#core-resulttable), [`RowActionsQuery`](context:fs/authoring.core-types.widgets-ts#core-rowactionsquery), [`Section`](context:fs/authoring.core-types.resources-ts#core-section), [`WidgetActionOption`](context:fs/authoring.core-types.widgets-ts#core-widgetactionoption).
 
 #### `HubContract`
 
@@ -110,14 +110,14 @@ endpoint. Each is tagged `read`; the hub runs the same operation as the endpoint
 const HUB_READ_ENDPOINTS = {
   resource_list: resourcesSlice.endpoints.browseResources,
   resource_read: resourcesSlice.endpoints.readResource,
-  context_get: contextSlice.endpoints.contextItem,
+  ctx_get: contextSlice.endpoints.contextItem,
   types_get: chatSlice.endpoints.types,
   runs_list: adminSlice.endpoints.runs,
   run_get: runsSlice.endpoints.run,
   run_tree: runsSlice.endpoints.tree,
   llm_call: runsSlice.endpoints.llmCall,
   model_calls: metricsSlice.endpoints.modelCalls,
-  fn_metrics: metricsSlice.endpoints.fnMetrics,
+  fns_metrics: metricsSlice.endpoints.fnMetrics,
   sessions_list: chatSlice.endpoints.sessions,
   session_messages: chatSlice.endpoints.messages,
   systems_list: systemsSlice.endpoints.systems,
@@ -158,7 +158,7 @@ const HUB_WRITE_ENDPOINTS = {
   resource_import: resourcesSlice.endpoints.importResource,
   resource_rename: resourcesSlice.endpoints.renameResource,
   resource_delete: resourcesSlice.endpoints.deleteResource,
-  context_from_resource: resourcesSlice.endpoints.contextFromResource,
+  ctx_from_resource: resourcesSlice.endpoints.contextFromResource,
   remember: contextSlice.endpoints.remember,
   forget: contextSlice.endpoints.forget,
 } as const satisfies Record<string, EndpointLike>;
@@ -191,8 +191,8 @@ const HUB_PERSON_ENDPOINTS = {
   run_background: runsSlice.endpoints.background,
   turn_undo: runsSlice.endpoints.undoTurn,
   memory_update: contextSlice.endpoints.updateMemory,
-  context_link: contextSlice.endpoints.linkContext,
-  context_unlink: contextSlice.endpoints.unlinkContext,
+  ctx_link: contextSlice.endpoints.linkContext,
+  ctx_unlink: contextSlice.endpoints.unlinkContext,
   access_set: accessSlice.endpoints.setAccess,
   connection_update: connectionsSlice.endpoints.updateConnection,
   connection_disconnect: connectionsSlice.endpoints.disconnect,
@@ -328,8 +328,16 @@ const LlmPayloadType = g.obj({
   mode: g.optional(ChatModeType),
   /** What goes into each prompt (plain, suggest or graph); the hub's default (`plain`) when absent. A session may override it. */
   contextor: g.optional(ContextorType),
-  /** The most tokens one answer may take (as core's `ModelLimits.maxOutputTokens`); the model's own limit when absent. */
+  /**
+   * The most tokens one answer may take (as core's `ModelLimits.maxOutputTokens`, and never past the model's own
+   * limit); the hub's `HARNESS_AGENT_MAX_OUTPUT` when absent.
+   */
   maxOutput: g.optional(ginAs(ModelLimits.shape.maxOutputTokens.unwrap())),
+  /**
+   * How it takes its injected section (`{{injectedContext}}`): `none`, or its detail (`summary` for a small window) and
+   * a cap on the section's tokens. Absent: every item in full, uncapped.
+   */
+  injected: g.optional(ginAs(AgentInjected)),
 });
 ```
 
@@ -383,11 +391,11 @@ const FnErrorType: ObjType<{ class: "retry" | "caller" | "fatal"; message: strin
 
 const · `import { StoredFn } from '@harness/sdk'`
 
-A fn as `hub/fn_get` gives it.
+A fn as `hub/fns_get` gives it.
 
 ```ts
 const StoredFn = g.obj({
-  fn: g.text(),
+  fn: g.fnName(),
   kind: g.text(),
   description: g.text(),
   instructions: g.optional(g.text()),
@@ -415,7 +423,7 @@ Refers to: [`FnBlock`](context:fs/authoring.core-types.fn-block-ts#core-fnblock)
 
 const · `import { SaveFnArgs } from '@harness/sdk'`
 
-`hub/save_fn`'s args.
+`hub/fns_save`'s args.
 
 ```ts
 const SaveFnArgs = g.obj({
@@ -438,7 +446,7 @@ Refers to: [`FnExample`](context:fs/authoring.core-types.contextdecl#core-fnexam
 
 const · `import { SAVE_FN_TAKEN } from '@harness/sdk'`
 
-The error code `hub/save_fn` fails with (class `caller`) when the name is taken and `replace` is not set.
+The error code `hub/fns_save` fails with (class `caller`) when the name is taken and `replace` is not set.
 
 ```ts
 const SAVE_FN_TAKEN: "fn-taken";

@@ -176,7 +176,7 @@ type ApprovalPreview = {
       removed: number;
     }[];
     flags: {
-      flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns";
+      flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns" | "injects";
       line: string;
       items: string[];
       lead?: string | undefined;
@@ -353,7 +353,7 @@ type ApprovedRun = {
         removed: number;
       }[];
       flags: {
-        flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns";
+        flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns" | "injects";
         line: string;
         items: string[];
         lead?: string | undefined;

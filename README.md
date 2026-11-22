@@ -202,7 +202,7 @@ in [`docs/architecture.md`](docs/architecture.md).
 writing, saving and reusing a query fn with the free model, paging and sorting a saved query, a write approved and one
 declined, and a table made through approval. Build 6's `install` suite (API-level) writes a small system and calls
 `fs/install_system`: an admin approves the card, fs builds, hosts and connects it and its fn runs; runtime additions are
-stored with versions; a broken context folder fails the build; `load_context` and `fns_search` are checked. Build 9's `build9` suite (local servers on `HARNESS_E2E_SERVICE_PORT`, 4332 and 4333) adds a stdio MCP server and an HTTP one behind a bearer token from the web API and runs their tools from chat after an approval, writes and runs a code fn, and writes and runs an api fn for a service added the same way; its Claude test starts one real Haiku session and runs only with `HARNESS_E2E_CLAUDE=true`. Set `HARNESS_E2E_URL`
+stored with versions; a broken context folder fails the build; `ctx_load` and `fns_search` are checked. Build 9's `build9` suite (local servers on `HARNESS_E2E_SERVICE_PORT`, 4332 and 4333) adds a stdio MCP server and an HTTP one behind a bearer token from the web API and runs their tools from chat after an approval, writes and runs a code fn, and writes and runs an api fn for a service added the same way; its Claude test starts one real Haiku session and runs only with `HARNESS_E2E_CLAUDE=true`. Set `HARNESS_E2E_URL`
   to test a stack that is already running instead.
 - `npm run ui-tests` boots nothing. Start a stack (a fresh one is best: `HARNESS_DATA=.harness/ui npm run dev`), then
   point it there: `HARNESS_UI_URL=http://127.0.0.1:4300 HARNESS_UI_EMAIL=… HARNESS_UI_PASSWORD=… npm run ui-tests`

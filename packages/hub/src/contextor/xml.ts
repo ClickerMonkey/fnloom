@@ -1,7 +1,7 @@
 /**
  * The one XML the model reads fns and context in. Every fn card it sees (a suggestion, a loaded fn in the static
  * toolset, `inspect`, a `<more_fns>` entry, the fns a tool reply exposes, an invalid call's reply) is a `<fn>` element,
- * and every context card (a suggestion, a loaded block, a `<more_context>` entry) a `<context>` element, so it is
+ * and every context card (a suggestion, a loaded block, a `<more_ctx>` entry) a `<ctx>` element, so it is
  * always clear where one thing ends and the next begins. An element's text comes first, then its parts as child
  * elements. Attribute values and text are escaped; only elements made here go into a body as they are.
  */
@@ -94,7 +94,7 @@ function exampleElement(example: FnExample): Markup {
 /** A fn's card. */
 export function fnElement(card: FnCardParts): Markup {
   const moreExamples = card.moreExamples === undefined || card.moreExamples < 1 ? undefined
-    : element('more_examples', { count: card.moreExamples }, [`Read them with hub/fn_examples ${JSON.stringify({ fn: card.name, query: 'what you are about to do' })}`]);
+    : element('more_examples', { count: card.moreExamples }, [`Read them with hub/fns_examples ${JSON.stringify({ fn: card.name, query: 'what you are about to do' })}`]);
   return element('fn', {
     name: card.name, label: card.label, mode: card.mode, available: card.blocked === undefined ? AVAILABLE.yes : AVAILABLE.no, reason: card.blocked,
   }, [
@@ -110,7 +110,7 @@ export function fnElement(card: FnCardParts): Markup {
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 
-/** What a `<context>` card shows. */
+/** What a `<ctx>` card shows. */
 export interface ContextCardParts {
   readonly key: string;
   /** What people call it, when it has a title of its own. */
@@ -127,5 +127,5 @@ export interface ContextCardParts {
 
 /** A context item's card. */
 export function contextElement(card: ContextCardParts): Markup {
-  return element('context', { key: card.key, title: card.title, detail: card.detail, ...card.about }, [card.text, ...(card.parts ?? [])]);
+  return element('ctx', { key: card.key, title: card.title, detail: card.detail, ...card.about }, [card.text, ...(card.parts ?? [])]);
 }

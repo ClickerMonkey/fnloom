@@ -1,7 +1,7 @@
 /**
  * Queries on one instance, as the query tools and the query authoring agent use them: the tables to write against, checking a draft, keeping
- * a checked one in the hub as a `database/query` fn of this instance (`hub/save_fn`), and running a saved one into
- * what the model reads. Saved queries are the hub's: their payload is read back with `hub/fn_get`, as the run's
+ * a checked one in the hub as a `database/query` fn of this instance (`hub/fns_save`), and running a saved one into
+ * what the model reads. Saved queries are the hub's: their payload is read back with `hub/fns_get`, as the run's
  * person, so who may use one is always the hub's to say. Reads run straight away, their rows attached for the person;
  * a write is proposed as a run of its fn that waits for the person's approval, with a preview of what it would do.
  */
@@ -24,7 +24,7 @@ import type { DatabaseSettings } from './env.ts';
 import type { DatabaseInstance } from './instance.ts';
 import { resultTable } from './results.ts';
 
-/** A saved fn as `hub/fn_get` gives it (the parts a query needs). */
+/** A saved fn as `hub/fns_get` gives it (the parts a query needs). */
 export interface StoredQuery {
   readonly fn: string;
   readonly kind: string;
@@ -32,7 +32,7 @@ export interface StoredQuery {
   readonly version: number;
 }
 
-/** What `hub/save_fn` is given for a query. */
+/** What `hub/fns_save` is given for a query. */
 export interface SaveQuery {
   readonly kind: string;
   readonly name: string;
@@ -53,9 +53,9 @@ export interface QueryRunCtx {
   propose(fn: string, args: Json, options: { preview: ApprovalPreview; approver?: 'person' | 'admins' }): Promise<ProposedRun>;
   /** Attach rows for the person. */
   attach(table: ResultTable, title: string): void;
-  /** `hub/fn_get`: a saved fn, as the run's person may see it. */
+  /** `hub/fns_get`: a saved fn, as the run's person may see it. */
   getFn(fn: string): Promise<StoredQuery>;
-  /** `hub/save_fn`. */
+  /** `hub/fns_save`. */
   saveFn(save: SaveQuery): Promise<{ fn: string; version: number; created: boolean }>;
 }
 
@@ -252,7 +252,7 @@ export class QueryService {
 
   /**
    * `drill_down`: the rows behind one group of a saved grouped read, a page at a time. The saved query is read as the
-   * person (`hub/fn_get`), its args checked as a call's are, its select un-ravelled (`drillOf`) with each group key
+   * person (`hub/fns_get`), its args checked as a call's are, its select un-ravelled (`drillOf`) with each group key
    * pinned to the clicked group's value; a query that can't be drilled into, or a group without a value for a key
    * (NULL included: it pins no rows), is the caller's to fix.
    */

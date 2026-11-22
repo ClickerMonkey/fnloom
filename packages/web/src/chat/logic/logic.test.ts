@@ -483,7 +483,8 @@ describe('run statuses, the drawer and fn display', () => {
     const found = run({ fn: 'hub/search_fns', status: 'done', outcome: { status: 'done', result: 'fs/read_file and fs/write' } });
     expect(runMessage(found)).toBe('Search fns done: fs/read_file and fs/write');
     expect(runMessage(run({ fn: 'hub/search_fns', status: 'done', outcome: { status: 'done', result: [{ fn: 'fs/read' }, { fn: 'fs/edit' }] } }))).toBe('Search fns done: 2 found');
-    expect(runMessage(run({ fn: 'hub/load_fns', status: 'done' }))).toBe('Load fns done');
+    expect(runMessage(run({ fn: 'hub/fns_load', status: 'done' }))).toBe('Fns load done');
+    expect(runMessage(run({ fn: 'hub/ctx_load', status: 'done' }))).toBe('Context load done');
   });
 });
 

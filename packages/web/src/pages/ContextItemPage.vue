@@ -121,7 +121,7 @@ async function save(draft: MemoryDraft): Promise<void> {
               <div v-if="fromResource"><dt>Made from</dt><dd><RouterLink :to="links.resources({ uri: fromResource.uri })" class="uri">{{ fromResource.uri }}</RouterLink><template v-if="fromResource.section"> § {{ fromResource.section }}</template></dd></div>
               <div v-if="fromResource"><dt>Text</dt><dd>{{ fromResource.copy === 'live' ? 'Live: read when loaded' : 'A snapshot' }}</dd></div>
               <div v-if="record.decl.command"><dt>Command</dt><dd><code>/{{ record.decl.command.name }}</code></dd></div>
-              <div v-if="record.decl.alwaysFor.length > 0"><dt>Always given to</dt><dd class="chips"><code v-for="agent in record.decl.alwaysFor" :key="agent">{{ agent }}</code></dd></div>
+              <div v-if="record.decl.inject"><dt>Injected into</dt><dd class="chips"><code v-for="target in record.decl.inject.into" :key="target">{{ target }}</code></dd></div>
               <div v-if="record.tokens" class="wide"><dt>Size</dt><dd>{{ sizeText(record) }}<template v-if="record.decl.content !== undefined || record.tokens.full > 0">, {{ record.tokens.summary.toLocaleString() }} as a summary</template></dd></div>
               <div><dt>Weight</dt><dd>{{ (record.decl.weight ?? 1).toFixed(2) }}</dd></div>
               <div v-if="record.decl.tags.length > 0"><dt>Tags</dt><dd class="chips"><UiBadge v-for="tag in record.decl.tags" :key="tag">{{ tag }}</UiBadge></dd></div>

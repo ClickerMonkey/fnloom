@@ -67,7 +67,7 @@ export function toolExampleLines(record: FnRecord, chosen?: readonly FnExample[]
     const result = example.result === undefined ? '' : ` → result ${JSON.stringify(example.result)}`;
     return `Example args: ${JSON.stringify(example.args)}${result}${example.note === undefined ? '' : ` — ${example.note}`}`;
   });
-  if (more > 0) lines.push(`It has ${more} more example${more === 1 ? '' : 's'}: hub/fn_examples ({"fn":"${record.name}","query":"what you are about to do"}) gives the closest.`);
+  if (more > 0) lines.push(`It has ${more} more example${more === 1 ? '' : 's'}: hub/fns_examples ({"fn":"${record.name}","query":"what you are about to do"}) gives the closest.`);
   return lines;
 }
 
@@ -217,7 +217,7 @@ export function listedContextElement(record: Pick<ContextRecord, 'name' | 'decl'
 
 /** Listed context items, loadable by name. */
 export function moreContext(records: readonly Pick<ContextRecord, 'name' | 'decl'>[]): string {
-  return cardList('more_context', 'Load any of these by name if it helps:', records.map(listedContextElement));
+  return cardList('more_ctx', 'Load any of these by name if it helps:', records.map(listedContextElement));
 }
 
 /** A refused name's card: the name as given, the hub's code, and why. */
@@ -229,7 +229,7 @@ function refusedElement(name: string, reason: string, attributes: Record<string,
 const LOADED_BROUGHT: BroughtWords = { attribute: 'in_tools', added: 'In your tools from your next step', waiting: 'Not in your tools' };
 
 /**
- * What `hub/load_fns` answers the model: the loaded fns' cards (`<loaded_fns>`, each listed: its name, label, mode and
+ * What `hub/fns_load` answers the model: the loaded fns' cards (`<loaded_fns>`, each listed: its name, label, mode and
  * first line; its tool has the rest from the next step), then each refused name with the hub's reason (`<refused_fns>`).
  */
 export function loadedFnsCards(loaded: readonly FnView[], refused: readonly FnRefusal[]): string {
@@ -239,7 +239,7 @@ export function loadedFnsCards(loaded: readonly FnView[], refused: readonly FnRe
   ].filter((part) => part !== '').join('\n') || '<loaded_fns />';
 }
 
-/** A context name `hub/load_context` refused: as given, why, and the closest names it knows. */
+/** A context name `hub/ctx_load` refused: as given, why, and the closest names it knows. */
 export interface RefusedContext {
   readonly context: string;
   readonly reason: string;
@@ -247,24 +247,24 @@ export interface RefusedContext {
 }
 
 /**
- * What `hub/load_context` answers the model: the loaded items' cards (`<loaded_context>`, each listed: its text is in
+ * What `hub/ctx_load` answers the model: the loaded items' cards (`<loaded_ctx>`, each listed: its text is in
  * the prompt from the next step), the fns they brought for what they are (`<brought_fns>`, as a context block says
- * them), and each refused name with the closest names (`<refused_context>`).
+ * them), and each refused name with the closest names (`<refused_ctx>`).
  */
 export function loadedContextCards(loaded: readonly Pick<ContextRecord, 'name' | 'decl'>[], brought: Pick<BroughtFnLines, 'added' | 'blocked'>, refused: readonly RefusedContext[]): string {
   return [
-    cardList('loaded_context', 'Their text is in front of you from your next step:', loaded.map(listedContextElement)),
+    cardList('loaded_ctx', 'Their text is in front of you from your next step:', loaded.map(listedContextElement)),
     ...broughtParts({ ...brought, words: LOADED_BROUGHT }).map((part) => part.toString()),
-    cardList('refused_context', 'Not loaded:', refused.map((r) => refusedElement(r.context, r.closest.length === 0 ? r.reason : `${r.reason}. The closest: ${r.closest.join(', ')}.`))),
-  ].filter((part) => part !== '').join('\n') || '<loaded_context />';
+    cardList('refused_ctx', 'Not loaded:', refused.map((r) => refusedElement(r.context, r.closest.length === 0 ? r.reason : `${r.reason}. The closest: ${r.closest.join(', ')}.`))),
+  ].filter((part) => part !== '').join('\n') || '<loaded_ctx />';
 }
 
 /** Why a crawl stopped, as the model reads it. */
 const CRAWL_STOP_WORDS = {
   complete: 'It followed every choice there was.',
-  'max-depth': 'It reached maxDepth: the choices past the last level are under <skipped_context>.',
-  'max-decisions': 'It ran out of questions (maxDecisions): the choices it could not ask about are under <skipped_context>.',
-  'max-tokens': 'It reached maxTokens: what did not fit is under <skipped_context>.',
+  'max-depth': 'It reached maxDepth: the choices past the last level are under <skipped_ctx>.',
+  'max-decisions': 'It ran out of questions (maxDecisions): the choices it could not ask about are under <skipped_ctx>.',
+  'max-tokens': 'It reached maxTokens: what did not fit is under <skipped_ctx>.',
   failed: 'The decision model failed, so it stopped; what it took before is kept.',
 } as const satisfies Record<CrawlStopReason, string>;
 
@@ -282,31 +282,31 @@ export interface CrawlCards extends Pick<ContextCrawlResult, 'stop' | 'decisions
 const chance = (probability: number | undefined): string | undefined => (probability === undefined ? undefined : probability.toFixed(2));
 
 /**
- * What `hub/context_crawl` answers the model: what it took (`<crawled_context>`, each a listed context card with its
+ * What `hub/ctx_crawl` answers the model: what it took (`<crawled_ctx>`, each a listed context card with its
  * level, how it was reached and its size; loaded, or metadata only), the fns that brought (`<brought_fns>`), the
- * choices it skipped and why (`<skipped_context>`), the starting names it refused (`<refused_context>`), and why it
+ * choices it skipped and why (`<skipped_ctx>`), the starting names it refused (`<refused_ctx>`), and why it
  * stopped (`<crawl_stop>`).
  */
 export function crawledContextCards(cards: CrawlCards): string {
   const intro = cards.loaded
     ? 'Their text is in front of you from your next step:'
-    : 'Not loaded (metadata only): load what fits with hub/load_context.';
+    : 'Not loaded (metadata only): load what fits with hub/ctx_load.';
   const taken = cards.taken.map((item) => contextElement({
     key: item.name, title: item.title, text: firstLine(item.description),
     about: { depth: item.depth, via: item.via, from: item.from, yes: chance(item.probability), tokens: item.tokens },
   }));
   return [
-    element('crawled_context', { decisions: cards.decisions, tokens: cards.tokens }, taken.length === 0 ? ['Nothing was taken.'] : [intro, ...taken]).toString(),
+    element('crawled_ctx', { decisions: cards.decisions, tokens: cards.tokens }, taken.length === 0 ? ['Nothing was taken.'] : [intro, ...taken]).toString(),
     ...broughtParts({ ...cards.brought, words: LOADED_BROUGHT }).map((part) => part.toString()),
-    cardList('skipped_context', 'Not taken:', cards.skipped.map((skip) => element('skipped', { key: skip.context, from: skip.from, depth: skip.depth, reason: skip.reason, yes: chance(skip.probability) }))),
-    cardList('refused_context', 'Not loaded:', cards.refused.map((r) => refusedElement(r.context, r.closest.length === 0 ? r.reason : `${r.reason}. The closest: ${r.closest.join(', ')}.`))),
+    cardList('skipped_ctx', 'Not taken:', cards.skipped.map((skip) => element('skipped', { key: skip.context, from: skip.from, depth: skip.depth, reason: skip.reason, yes: chance(skip.probability) }))),
+    cardList('refused_ctx', 'Not loaded:', cards.refused.map((r) => refusedElement(r.context, r.closest.length === 0 ? r.reason : `${r.reason}. The closest: ${r.closest.join(', ')}.`))),
     element('crawl_stop', { reason: cards.stop.reason }, [cards.stop.detail === undefined ? CRAWL_STOP_WORDS[cards.stop.reason] : `${CRAWL_STOP_WORDS[cards.stop.reason]} ${cards.stop.detail}`]).toString(),
   ].filter((part) => part !== '').join('\n');
 }
 
 /** Listed fns, loadable by name (tools mode, where only loaded fns are native tools). */
 export function moreFns(views: readonly FnView[]): string {
-  return cardList('more_fns', 'Load any of these with hub/load_fns to use it:', views.map((view) => fnCardElement(view, 'listed')));
+  return cardList('more_fns', 'Load any of these with hub/fns_load to use it:', views.map((view) => fnCardElement(view, 'listed')));
 }
 
 /** An earlier exchange's summary. */
@@ -331,7 +331,7 @@ export function textProtocolInstructions(): string {
     'Answer from the context below when it holds the answer.',
     'You can use tools: reading files, running commands and more. You use one by writing a block, and the hub runs it for you and sends back its result. Never say you cannot access something a tool reaches; write the block instead.',
     `To use a tool, write only the block, on its own line, then stop and wait for the result:\n${read}`,
-    `find, inspect, load and unload are tools too: ${callText('find', '{"text": "git status"}', 'text')}`,
+    `find (fns), find_ctx (context), inspect, load and unload are tools too: ${callText('find', '{"text": "git status"}', 'text')}`,
     `When a system has several machines connected, say which one runs it with on: <${RUN_TAG} fn="fs/read" on="laptop">{"path": "notes.txt"}</${RUN_TAG}>`,
     `Each result comes back as <${RESULT_TAG} fn="…" status="…">…</${RESULT_TAG}>. Write no block when you are ready to answer.`,
     summaryHint(callText('inspect', '{"name": "<its name>", "detail": "full"}', 'text')),

@@ -48,7 +48,7 @@ const SPEC: WidgetSpec = {
 const done = (result: Json): RunSettled => ({ status: 'done', result });
 
 /**
- * Script the hub: every child run reported as the real hub does, the source's declaration (`hub/fn_get`), its rows
+ * Script the hub: every child run reported as the real hub does, the source's declaration (`hub/fns_get`), its rows
  * (through `hub/read_table`), and the task's close method; the visual registry and
  * row actions are the kit's own (`kit.hub.widgets`).
  */
@@ -60,7 +60,7 @@ function scriptHub(kit: TestSystem<'widgets', typeof widgets.defs>, table: () =>
   kit.hub.onCall = async (call) => {
     seen.push({ fn: call.fn, args: call.args });
     await kit.hub.peer().call('child', { parent: call.parent, key: call.key, run: mintId('run') });
-    if (call.fn === hub.fns.fn_get.name) { return done(Json.parse(stored)); }
+    if (call.fn === hub.fns.fns_get.name) { return done(Json.parse(stored)); }
     return kit.hub.widgets.settle(call) ?? kit.hub.fns.settle(call) ?? done(null);
   };
   return seen;
@@ -110,7 +110,7 @@ describe('the widget kind', () => {
     kit = await testHub(widgets, createWidgetsImpl({ settings: widgetsEnv.parse() }), { config: {} });
     const props = await kit.kindProps('widget', SPEC);
     expect(props.problems).toEqual([]);
-    expect(props.description?.deps).toEqual([SOURCE, 'hub/fn_get', 'hub/read_table', 'hub/visuals', 'hub/row_actions']);
+    expect(props.description?.deps).toEqual([SOURCE, 'hub/fns_get', 'hub/read_table', 'hub/visuals', 'hub/row_actions']);
     expect(props.description?.effects).toEqual({ mode: 'read' });
     const args: unknown = expect.any(Object);
     expect(props.description?.examples).toEqual([{ args, note: `Draws "${SPEC.title}" from ${SOURCE}.` }]);
@@ -137,7 +137,7 @@ describe('make_widget', () => {
     expect(made.result.preview.visuals.map((v) => v.visual)).toEqual(['category', 'table']);
     // the sample is a small window; nothing was kept
     expect(seen.find((call) => call.fn === hub.fns.read_table.name)?.args).toEqual({ fn: SOURCE, args: { since: '2026-03-01', offset: 0, limit: 2 } });
-    expect(seen.some((call) => call.fn === hub.fns.save_fn.name)).toBe(false);
+    expect(seen.some((call) => call.fn === hub.fns.fns_save.name)).toBe(false);
     // a required arg with no sample value is refused before the agent starts
     await expect(kit.call('make_widget', { source: SOURCE, request: 'tasks by stage', show: false })).rejects.toThrow(/needs since/);
     const forwards = made.hubCalls.forwards;
@@ -177,7 +177,7 @@ describe('make_widget with the shapes models send wrongly', () => {
     expect(told(4)).toMatch(/owner/);
     for (const at of [2, 3, 4]) { expect(offered(forwards[at]), String(at)).not.toContain('offer'); }
     expect(offered(forwards[5])).toContain('offer');
-    expect(seen.some((call) => call.fn === hub.fns.save_fn.name)).toBe(false);
+    expect(seen.some((call) => call.fn === hub.fns.fns_save.name)).toBe(false);
     // the call itself, as a chat model sends it wrongly: a source that isn't a fn name, the sample args as a JSON string
     for (const args of [{ source: 'tasks by stage', request: 'tasks', args: { since: '2026-03-01' }, show: true }, { source: SOURCE, request: 'tasks', args: '{"since":"2026-03-01"}', show: true }]) {
       const before = kit.hub.forwards.length;

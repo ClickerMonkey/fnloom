@@ -26,14 +26,14 @@ describe('the system-authoring context', () => {
     expect(def.command?.name).toBe('new-system');
     expect(def.fns.map((f) => f.name)).toEqual(START_FNS);
     expect(def.imports.map((ref) => ref.name)).toEqual(['fs/authoring']);
-    expect(def.alwaysFor).toEqual([]);
+    expect(def.inject).toBeUndefined();
   });
 
   it('names the fns it brings, how to walk the guide and where the template is, and ends with installing', () => {
     const text = authoringStart(FAKE);
     expect(text).toContain('This brings fs/read, fs/write, fs/edit and fs/bash');
-    expect(text).toContain('with `hub/load_context`');
-    expect(text).not.toContain('context_get');
+    expect(text).toContain('with `hub/ctx_load`');
+    expect(text).not.toContain('ctx_get');
     expect(text).toContain('The template system is at `/repo/systems/template/`');
     expect(text).toContain('so never\n`mkdir` first');
     expect(text.trimEnd().endsWith('the end of its output after a crash.')).toBe(true);

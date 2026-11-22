@@ -13,6 +13,7 @@ import { SystemGrants, SystemStage } from './grants.ts';
 import { FnMode, Manifest } from './manifest.ts';
 import { ActorId, IDS, InstanceName, InstanceRef, Json, QualifiedName, RunId, SystemName, Timestamp, Usd } from './primitives.ts';
 import { DeclaredBy } from './records/systems.ts';
+import { InjectionChangeView } from './records/injections.ts';
 import { ReviewSummary } from './review-summary.ts';
 import { SYSTEM_PART_SECTIONS } from './system-parts.ts';
 
@@ -119,9 +120,10 @@ export type FnChangeFacts = z.infer<typeof FnChangeFacts>;
 
 /**
  * A pending review as the review page reads it, with what the hub works out on each read: what its changes amount to
- * (`summary`) and each changed fn's facts before and after.
+ * (`summary`), each changed fn's facts before and after, and each change to what agents are told (`injections`: the
+ * targets of each new, changed or gone injection with the agents they hit now).
  */
-export const PendingReviewView = PendingReview.extend({ summary: ReviewSummary, fns: z.array(FnChangeFacts) });
+export const PendingReviewView = PendingReview.extend({ summary: ReviewSummary, fns: z.array(FnChangeFacts), injections: z.array(InjectionChangeView).default([]) });
 export type PendingReviewView = z.infer<typeof PendingReviewView>;
 
 /** The rule a refused call broke. */

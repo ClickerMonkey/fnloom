@@ -36,5 +36,6 @@ export function fakeFnsApi() {
       const next = offset + limit < SAMPLE_EXAMPLES.length ? offset + limit : undefined;
       return Promise.resolve({ fn: SAMPLE_FN, items: [...items], total: SAMPLE_EXAMPLES.length, ...(next === undefined ? {} : { next }) });
     }),
+    fnsOfModelNames: fakeCaller<'fnsOfModelNames'>(() => Promise.resolve({})),
   };
 }
