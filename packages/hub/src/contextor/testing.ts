@@ -44,6 +44,8 @@ export function contextRecord(name: QualifiedName, fields: Partial<ContextDecl> 
 export class ContextCatalog implements Pick<Catalog, 'fn' | 'fns' | 'context' | 'availability' | 'entries' | 'signature' | 'typeClosure' | 'type' | 'modelNames'> {
   readonly contexts = new Map<QualifiedName, ContextRecord>();
   readonly records = new Map<QualifiedName, FnRecord>();
+  /** Kinds and types the test names (with the context keys, they keep their `/` in text). */
+  readonly reserved = new Set<string>();
   readonly #defs = new Map<QualifiedName, AnyFnDef>();
 
   /** Add context. */
@@ -68,9 +70,10 @@ export class ContextCatalog implements Pick<Catalog, 'fn' | 'fns' | 'context' | 
     return Promise.resolve(this.records.get(name));
   }
 
-  /** The test fns' model names; no named types here. */
+  /** The test fns' model names, the systems of its fns and context installed; no named types here. */
   modelNames(): ReturnType<Catalog['modelNames']> {
-    return Promise.resolve({ index: FnNameIndex.of(this.records.keys()), types: () => undefined });
+    const systems = [...this.records.values(), ...this.contexts.values()].map((record) => record.system);
+    return Promise.resolve({ index: FnNameIndex.of(this.records.keys(), [], { systems, reserved: [...this.contexts.keys(), ...this.reserved] }), types: () => undefined });
   }
 
   fns(filter: { names?: readonly QualifiedName[] }): Promise<FnRecord[]> {

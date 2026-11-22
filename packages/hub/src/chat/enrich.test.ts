@@ -1,9 +1,6 @@
 import { ChatModeConfig, IDS, QualifiedName, READ_TAG, SuggestDecision, SystemName, type ChatMessage, type HookDecl, type Session, type UserInfo } from '@harness/core';
-import { fn, g } from '@harness/sdk';
 import { describe, expect, it } from 'vitest';
 import { hookTag, HubMessageEnricher, loadedFnsIn, LOADED_FOR_YOU_LINES, SUGGESTED_CONTEXT_LINES, SUGGESTED_FNS_LINES, suggestedAfter, suggestedIn } from './enrich.ts';
-import { ContextCatalog } from '../contextor/testing.ts';
-import { CatalogFnViews } from '../contextor/views.ts';
 import { hiddenMessage } from './turns.ts';
 import { chatWorld, CLIENT, gin } from './testing.ts';
 
@@ -45,8 +42,8 @@ describe('what the hub adds to a message', () => {
         { fn: 'fs/write', why: 'Write a file.', score: 0.7, card: { label: 'Write', mode: 'write' } },
       ] }] },
     ]);
-    // the fixture catalog has no signatures: the cards go without, and the log says why
-    expect(w.logs.filter((l) => l.msg === 'chat.suggest.signature-unreadable')).toHaveLength(2);
+    // a suggested fn is a brief card: no signature is read for it (its full args come when it is loaded)
+    expect(w.logs.filter((l) => l.msg === 'chat.suggest.signature-unreadable')).toHaveLength(0);
   });
 
   it('adds no suggestions in a session whose prompts the graph contextor chooses', async () => {
@@ -168,12 +165,13 @@ describe('the text the LLM gets', () => {
     );
   });
 
-  it('writes suggestions as cards in their block, escaped, not wrapped twice', async () => {
+  it('writes suggestions as brief cards in their block, escaped, not wrapped twice', async () => {
     const w = await world();
-    const card = { label: 'Read', mode: 'read' as const, args: 'obj{path: text}', returns: 'text' };
+    // a card snapshotted whole (before brief cards) reads brief: no args, returns or instructions, one example's args
+    const card = { label: 'Read', mode: 'read' as const, args: 'obj{path: text}', returns: 'text', instructions: 'Whole files.', examples: [{ args: { path: 'a.md' }, note: 'a note' }, { args: { path: 'b.md' } }], moreExamples: 2 };
     expect(w.chat.enrich.block('suggested_fns', [{ type: 'suggest-fns', toolset: 'tools', items: [{ fn: 'fs/read', why: 'Read <files>.', card }, { fn: 'fs/ls' }] }])).toBe([
       '<suggested_fns>', SUGGESTED_FNS_LINES.tools,
-      '<fn name="fs/read" label="Read" mode="read" available="yes">', 'Read &lt;files&gt;.', '<args>obj{path: text}</args>', '<returns>text</returns>', '</fn>',
+      '<fn name="fs/read" label="Read" mode="read" available="yes">', 'Read &lt;files&gt;.', '<example>{"path":"a.md"}</example>', '</fn>',
       // a suggestion written before cards were snapshotted shows what it has
       '<fn name="fs/ls" label="Ls" available="yes" />',
       '</suggested_fns>',
@@ -183,6 +181,22 @@ describe('the text the LLM gets', () => {
     // a hook's suggestions sit in its own tag
     expect(w.chat.enrich.block('crm_ticket', [{ type: 'suggest-context', toolset: 'static', items: [{ context: 'crm/guide' }] }]))
       .toBe(`<crm_ticket>\n<suggested_ctx>\n${SUGGESTED_CONTEXT_LINES.static}\n<ctx key="crm/guide" />\n</suggested_ctx>\n</crm_ticket>`);
+  });
+
+  it('suggests context as a brief card: its title and its summary (its description when it has none)', async () => {
+    const w = await world();
+    w.catalog.addContext('fs', { name: 'guide', title: 'Files', description: 'How files work, at length: reading, writing, moving and more.', summary: 'How files work.' });
+    w.catalog.addContext('fs', { name: 'tips', description: 'Tips.' });
+    w.index.suggestions = [
+      { kind: 'context', name: 'fs/guide', description: 'How files work, at length: reading, writing, moving and more.', score: 0.9 },
+      { kind: 'context', name: 'fs/tips', description: 'Tips.', score: 0.8 },
+    ];
+    const { parts } = await new HubMessageEnricher(w.deps, w.chat.suggestions).enrich({ session: w.session, turn, text: 'files', user: w.user });
+    const rendered = w.chat.enrich.render({
+      id: IDS.message.parse('msg_1'), session: w.session.id, turn, author: IDS.actor.parse('act_ada'), role: 'user', parts, runs: [], status: 'done', replyAll: false, answerers: [], createdAt: 0,
+    });
+    expect(rendered).toContain('<ctx key="fs/guide" title="Files">How files work.</ctx>');
+    expect(rendered).toContain('<ctx key="fs/tips">Tips.</ctx>');
   });
 
   it('says how to use a suggestion only in the ways the toolset it was sent in can (regression: "or call one by name")', () => {
@@ -208,17 +222,15 @@ describe('the text the LLM gets', () => {
 });
 
 describe('suggestions as sent', () => {
-  /** A world whose enricher reads signatures from a contextor catalog holding `fs/read`, with instructions and examples. */
+  /** A world whose catalog holds `fs/read`, with instructions and examples. */
   async function carded(mode: 'tools' | 'static') {
     const w = await world();
     const described = {
       description: 'Read a text file.', instructions: 'Read whole files under 2000 lines.', tags: [READ_TAG], promptExamples: 1,
       examples: [{ args: { path: 'notes.txt' }, result: 'buy milk', note: 'a small file' }, { args: { path: 'big.md' } }],
     };
-    const signatures = new ContextCatalog();
-    signatures.addFn('fs/read', fn({ ...described, args: g.obj({ path: g.text() }), returns: g.text() }));
     w.catalog.addFn('fs', { ...described, name: 'read' });
-    const enrich = new HubMessageEnricher(w.deps, w.chat.suggestions, new CatalogFnViews(signatures));
+    const enrich = new HubMessageEnricher(w.deps, w.chat.suggestions);
     const session: Session = { ...w.session, mode: ChatModeConfig.parse({ type: mode }) };
     w.index.suggestions = [{ kind: 'fn', name: 'fs/read', description: 'Read a text file.', score: 0.9 }];
     return { ...w, enrich, session };
@@ -229,24 +241,23 @@ describe('suggestions as sent', () => {
     answerers: [], createdAt: 0,
   });
 
-  it('in tools mode, carry the signature but not the instructions: the native tool carries those once loaded', async () => {
-    const w = await carded('tools');
-    const { parts } = await w.enrich.enrich({ session: w.session, turn, text: 'read notes', user: w.user });
-    expect(parts[1]).toEqual({ type: 'extra', extra: 'suggested-fns', blocks: [{ type: 'suggest-fns', toolset: 'tools', items: [
-      { fn: 'fs/read', why: 'Read a text file.', score: 0.9, card: { label: 'Read', mode: 'read', args: 'obj{path: text}', returns: 'text' } },
-    ] }] });
+  it('in either toolset, carry a brief card: label, mode and the args of its first example; the full args come with loading', async () => {
+    for (const mode of ['tools', 'static'] as const) {
+      const w = await carded(mode);
+      const { parts } = await w.enrich.enrich({ session: w.session, turn, text: 'read notes', user: w.user });
+      expect(parts[1]).toEqual({ type: 'extra', extra: 'suggested-fns', blocks: [{ type: 'suggest-fns', toolset: mode, items: [
+        { fn: 'fs/read', why: 'Read a text file.', score: 0.9, card: { label: 'Read', mode: 'read', examples: [{ args: { path: 'notes.txt' } }] } },
+      ] }] });
+    }
   });
 
-  it('in the static toolset, snapshot the instructions and examples into the part, so later prompts read the same card', async () => {
+  it('in the static toolset, snapshot the brief card into the part, so later prompts read the same card', async () => {
     const w = await carded('static');
     const { parts } = await w.enrich.enrich({ session: w.session, turn, text: 'read notes', user: w.user });
     const before = w.enrich.render(message(parts.slice(1)));
     expect(before).toBe([
       '<suggested_fns>', SUGGESTED_FNS_LINES.static,
-      '<fn name="fs/read" label="Read" mode="read" available="yes">', 'Read a text file.', '<args>obj{path: text}</args>', '<returns>text</returns>',
-      '<instructions>Read whole files under 2000 lines.</instructions>',
-      '<example note="a small file">{"path":"notes.txt"} → "buy milk"</example>',
-      '<more_examples count="1">Read them with hub/fns_examples {"fn":"fs/read","query":"what you are about to do"}</more_examples>',
+      '<fn name="fs/read" label="Read" mode="read" available="yes">', 'Read a text file.', '<example>{"path":"notes.txt"}</example>',
       '</fn>', '</suggested_fns>',
     ].join('\n'));
     // the fn changes after the message was sent: the message still reads as it was sent

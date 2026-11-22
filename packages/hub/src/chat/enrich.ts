@@ -11,7 +11,7 @@
 import {
   compact, contextOff, DEFAULT_CHAT_MODE, type AnnouncedSystems, fnLabel, INPUT_ANSWER_TAG, splitName, type ActorId, type ChatMessage, type ChatModeType, type ContextRecord, type HookBlock, type HookInput,
   type Link, type LoadedForYouPart, type LoadOutcome, type MessagePart, QualifiedName, type Session, type SuggestedFnCard, type Suggestion, type SuggestionOutcome, type SuggestionRecord, type TurnId,
-  type UserInfo,
+  type FnExample, type UserInfo,
 } from '@harness/core';
 import { withImports } from '../contextor/brought.ts';
 import { DEFAULT_CHARS_PER_TOKEN } from '../contextor/tokens.ts';
@@ -25,10 +25,10 @@ import { allowsSystem, callSystem, escapeAttribute, escapeBody } from './support
 import { timeInfo, weekday } from '../execution/time.ts';
 import type { AccessScope } from '../access/index.ts';
 import { seesContextAs } from '../access/scope.ts';
-import type { FnView, FnViewSource, ModeChoice } from '../contextor/index.ts';
+import type { ModeChoice } from '../contextor/index.ts';
 import { modeChoice } from '../contextor/planner.ts';
 import { fnHead, promptExamples } from '../contextor/render.ts';
-import { CatalogFnViews, fnRefusal, readsAsMissing } from '../contextor/views.ts';
+import { fnRefusal, readsAsMissing } from '../contextor/views.ts';
 import { cardList, contextElement, element, fnElement } from '../contextor/xml.ts';
 import { LlmPayloadType, parseValue, type LlmPayload } from '@harness/sdk';
 
@@ -52,11 +52,12 @@ export const SUGGESTED_CONTEXT_LINES: Readonly<Record<ChatModeType, string>> = {
 
 /**
  * The line at the top of `<suggested_fns>`, by the toolset the message was sent in. Only the static toolset can run a
- * fn by name (its `run`); in the tools mode a fn must be loaded into the tools before it can be called.
+ * fn by name (its `run`); in the tools mode a fn must be loaded into the tools before it can be called. A suggested fn is a
+ * brief card (name, label, description, its first example's args): its full args come when it is loaded or inspected.
  */
 export const SUGGESTED_FNS_LINES: Readonly<Record<ChatModeType, string>> = {
-  tools: `Fns that may help. They are not in your tools yet: load the ones you will call with hub/fns_load, then call them. One marked available="no" can't be used now: tell the person what its reason says instead. ${ONCE}`,
-  static: `Fns that may help: run one by its name with the args its card shows. One marked available="no" can't be used now: tell the person what its reason says instead. ${ONCE}`,
+  tools: `Fns that may help, each with what it does and an example's args. They are not in your tools yet: load the ones you will call with hub/fns_load (their full args come with them), then call them. One marked available="no" can't be used now: tell the person what its reason says instead. ${ONCE}`,
+  static: `Fns that may help, each with what it does and an example's args: run one by its name (inspect it first for its full args). One marked available="no" can't be used now: tell the person what its reason says instead. ${ONCE}`,
 };
 
 /** The toolset a suggestion block written before blocks said theirs is read in (build 1's default). */
@@ -71,9 +72,17 @@ function suggestionList(block: Extract<HookBlock, { type: 'suggest-context' | 's
   if (block.type === 'suggest-context') {
     return cardList(SUGGESTION_TAGS[block.type], SUGGESTED_CONTEXT_LINES[toolset], block.items.map((item) => contextElement({ key: item.context, title: item.title, text: item.why ?? '' })));
   }
+  // a brief card (Phil 2026-11-22, "Brief cards"): a card snapshotted whole before reads as brief too
   return cardList(SUGGESTION_TAGS[block.type], SUGGESTED_FNS_LINES[toolset], block.items.map((item) => fnElement({
-    name: item.fn, label: item.card?.label ?? fnLabel(item.fn), description: item.why ?? '', ...(item.card === undefined ? {} : item.card),
+    name: item.fn, label: item.card?.label ?? fnLabel(item.fn), description: item.why ?? '',
+    ...(item.card === undefined ? {} : { mode: item.card.mode, blocked: item.card.blocked, examples: briefExample(item.card.examples ?? []) }),
   })));
+}
+
+/** A suggestion's one example: the first one's args, without its result or note. */
+function briefExample(examples: readonly FnExample[]): FnExample[] | undefined {
+  const [first] = examples;
+  return first === undefined ? undefined : [{ args: first.args }];
 }
 
 /**
@@ -165,13 +174,10 @@ export function suggestedAfter(session: Pick<Session, 'suggested'>, parts: reado
 export class HubMessageEnricher implements MessageEnricher {
   readonly #deps: Pick<ChatDeps, 'clock' | 'log' | 'settings' | 'catalog' | 'link' | 'access' | 'store' | 'promptRoom'>;
   readonly #decider: Pick<SuggestionDecider, 'decide'>;
-  readonly #views: FnViewSource;
 
-  /** `views` shows suggested fns' signatures; by default straight from the catalog. */
-  constructor(deps: Pick<ChatDeps, 'clock' | 'log' | 'settings' | 'catalog' | 'link' | 'access' | 'store' | 'promptRoom'>, decider: Pick<SuggestionDecider, 'decide'>, views: FnViewSource = new CatalogFnViews(deps.catalog)) {
+  constructor(deps: Pick<ChatDeps, 'clock' | 'log' | 'settings' | 'catalog' | 'link' | 'access' | 'store' | 'promptRoom'>, decider: Pick<SuggestionDecider, 'decide'>) {
     this.#deps = deps;
     this.#decider = decider;
-    this.#views = views;
   }
 
   async enrich(input: { session: Session; turn: TurnId; text: string; user: UserInfo }): Promise<{ parts: MessagePart[]; suggestions?: SuggestionRecord; announcedSystems?: AnnouncedSystems }> {
@@ -433,7 +439,9 @@ export class HubMessageEnricher implements MessageEnricher {
           if (record === undefined || !seesContextAs(await at.scope(), record, at.session.id)) continue;
           seen.add(item.context);
           const title = item.title ?? record.decl.title;
-          items.push(title === undefined ? item : { ...item, title });
+          // a brief card: title and summary (the hub's own suggestion carries the description, its summary when it has one)
+          const why = item.why === record.decl.description && record.decl.summary !== undefined ? record.decl.summary : item.why;
+          items.push({ ...item, ...(title === undefined ? {} : { title }), ...(why === undefined ? {} : { why }) });
         }
         return items.length === 0 ? undefined : { ...block, toolset: at.toolset, items };
       }
@@ -441,7 +449,7 @@ export class HubMessageEnricher implements MessageEnricher {
         const items: typeof block.items = [];
         for (const item of block.items) {
           if (seen.has(item.fn)) continue;
-          const card = item.card ?? await this.#card(item.fn, { session: at.session, access: await at.scope(), toolset: at.toolset });
+          const card = item.card ?? await this.#card(item.fn, { session: at.session, access: await at.scope() });
           if (card === undefined) continue;
           seen.add(item.fn);
           items.push({ ...item, card });
@@ -452,28 +460,17 @@ export class HubMessageEnricher implements MessageEnricher {
   }
 
   /**
-   * A suggested fn's card as of now: its label, mode, what blocks it (the Phase 1 refusal, in the hub's words) and
-   * signature; in the static toolset, which runs it by name, its instructions and examples too. Undefined for a fn
-   * that reads as missing (gone, unseen, not for the model). A signature that can't be read is left off, logged.
+   * A suggested fn's brief card as of now (Phil 2026-11-22, "Brief cards"): its label, mode, what blocks it (the
+   * Phase 1 refusal, in the hub's words) and its first example's args; with the item's description that is the whole
+   * card. Its full args and returns come when it is loaded (or inspected). Undefined for a fn that reads as missing
+   * (gone, unseen, not for the model).
    */
-  async #card(name: QualifiedName, at: { session: Session; access: AccessScope; toolset: ChatModeType }): Promise<SuggestedFnCard | undefined> {
+  async #card(name: QualifiedName, at: { session: Session; access: AccessScope }): Promise<SuggestedFnCard | undefined> {
     const record = await this.#deps.catalog.fn(name);
     const blocked = fnRefusal(record, at.session, at.access);
     if (record === undefined || (blocked !== undefined && readsAsMissing(blocked))) return undefined;
-    let view: FnView | undefined;
-    try {
-      view = await this.#views.view(name);
-    } catch (error) {
-      this.#deps.log.warn('chat.suggest.signature-unreadable', { fn: name, error: messageOf(error) });
-    }
     const head = fnHead(record, blocked?.reason);
-    const examples = at.toolset === 'static' ? promptExamples(record) : undefined;
-    return compact({
-      label: head.label, mode: head.mode, blocked: head.blocked, args: view?.args, returns: view?.returns,
-      instructions: at.toolset === 'static' ? record.decl.instructions : undefined,
-      examples: examples === undefined || examples.shown.length === 0 ? undefined : [...examples.shown],
-      moreExamples: examples === undefined || examples.more === 0 ? undefined : examples.more,
-    });
+    return compact({ label: head.label, mode: head.mode, blocked: head.blocked, examples: briefExample(promptExamples(record).shown) });
   }
 
   async #hooks(input: { session: Session; turn: TurnId; text: string; user: UserInfo }): Promise<MessagePart[]> {

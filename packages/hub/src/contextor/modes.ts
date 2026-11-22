@@ -137,18 +137,34 @@ export function fleetArgs(args: Json): { args: Json; on?: InstanceName } | { pro
  * A tool from a contract fn (the static toolset's hub fns): its description and its first example. The static toolset
  * is for small windows, so its fixed tools stay short: the fns' longer instructions are left to the mode's guide.
  */
-function contractTool(name: string, ref: AnyFnRef, def: StaticToolDef): ModeTool {
+function contractTool(name: string, ref: AnyFnRef, def: StaticToolDef, description = def.description): ModeTool {
   const schema = ref.args.toValueSchema();
   if (!isObjectSchema(schema)) throw new Error(`${ref.name} takes no object, so it can't be a tool`);
   const [first] = def.examples ?? [];
   const example = first === undefined ? undefined : `Example args: ${JSON.stringify(first.args)}`;
-  return modeTool(name, def.description, schema, z.toJSONSchema(schema, { unrepresentable: 'any' }), example);
+  return modeTool(name, description, schema, z.toJSONSchema(schema, { unrepresentable: 'any' }), example);
 }
 
-/** A static tool that is a hub fn, as a native tool: its args are the hub fn's gin type (the one shape a chat and an MCP share). */
-export function staticToolOf(name: keyof typeof STATIC_HUB_FNS): ModeTool {
+/**
+ * The static tools' short descriptions, for an agent that takes summaries (`ModeContext.brief`: a small window, Phil
+ * 2026-11-22 "The systems list follows the agent's detail"). Their examples stay.
+ */
+export const STATIC_TOOL_BRIEF: Readonly<Record<StaticTool, string>> = {
+  find: 'Search fns by what they do.',
+  find_ctx: 'Search context (guides, memories, parts of files) by what it says.',
+  inspect: 'See a fn\'s card or a context item\'s text, by its name.',
+  load: 'Keep fns and context in your prompt, by their names.',
+  unload: 'Take fns and context out of your prompt.',
+  run: 'Run any fn by its name with its args as one JSON object; its result comes back.',
+};
+
+/**
+ * A static tool that is a hub fn, as a native tool: its args are the hub fn's gin type (the one shape a chat and an
+ * MCP share). `brief`: its short description.
+ */
+export function staticToolOf(name: keyof typeof STATIC_HUB_FNS, brief = false): ModeTool {
   const { ref, def } = STATIC_HUB_FNS[name];
-  return contractTool(name, ref, def);
+  return contractTool(name, ref, def, brief ? STATIC_TOOL_BRIEF[name] : def.description);
 }
 
 /** The problems of a zod failure, by dotted path. */
@@ -284,8 +300,8 @@ export class StaticChatMode implements ChatMode {
   fixedTools(ctx: ModeContext): Promise<readonly ModeTool[]> {
     if (ctx.protocol === 'text') return Promise.resolve([]);
     const tools = STATIC_TOOLS.map((name): ModeTool => {
-      if (name === 'run') return modeTool('run', RUN_TOOL_DESCRIPTION, RunArgs, z.toJSONSchema(RunArgs, { io: 'input' }), RUN_TOOL_INSTRUCTIONS);
-      return staticToolOf(name);
+      if (name === 'run') return modeTool('run', ctx.brief === true ? STATIC_TOOL_BRIEF.run : RUN_TOOL_DESCRIPTION, RunArgs, z.toJSONSchema(RunArgs, { io: 'input' }), RUN_TOOL_INSTRUCTIONS);
+      return staticToolOf(name, ctx.brief === true);
     });
     return Promise.resolve(tools);
   }

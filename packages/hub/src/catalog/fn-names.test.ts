@@ -2,7 +2,7 @@ import { modelFnName, modelFnNames, QualifiedName, SystemName, type Manifest } f
 import { describe, expect, it } from 'vitest';
 import { StoreCatalog } from './catalog.ts';
 import { StoreFnNames } from './fn-names.ts';
-import { ADMIN, declOf, manifestFor, shop } from './fixtures.ts';
+import { ADMIN, declOf, manifestFor, shop, systemRow } from './fixtures.ts';
 import { RecordingBus, memoryLog, testStore } from '../testing.ts';
 import type { HubStore, Table } from '../store/index.ts';
 import { allRows } from '../store/rows.ts';
@@ -49,6 +49,21 @@ describe('the fn name registry, in the store', () => {
     const read = await index.fnsOf(['shop__get', 'shop__Product__discount', 'shop__nope', 'not a name']);
     expect(Object.fromEntries(read)).toEqual({ shop__get: 'shop/get', shop__Product__discount: 'shop/Product.discount' });
     expect([...await index.fnsAmong([q('shop/get'), q('shop/guide'), q('shop/Product.discount')])].sort()).toEqual(['shop/Product.discount', 'shop/get']);
+  });
+
+  it('answers the rule for names no fn holds: installed systems (the hub always), and context keys, kinds and types', async () => {
+    const { catalog, store } = await setup();
+    await catalog.importManifest(await manifestFor(shop));
+    await store.table('systems').put(systemRow('shop', 'connected'));
+    const { index } = await catalog.modelNames();
+    const shapes = await index.shapesAmong?.([q('shop/guide'), q('shop/report'), q('shop/Product'), q('shop/main.sales_by_week'), q('hub/llm'), q('other/x')]);
+    expect([...shapes?.systems ?? []].sort()).toEqual(['hub', 'shop']);
+    expect([...shapes?.reserved ?? []].sort()).toEqual(['shop/Product', 'shop/guide', 'shop/report']);
+    // so an example fn name of an installed system reads as the model would call it, and the guide keeps its `/`
+    const names = modelFnNames({ index, mode: { type: 'tools' } });
+    const text = 'Save it as shop/main.sales_by_week (see shop/guide, a shop/report); other/x stays.';
+    await names.learn([text]);
+    expect(names.text(text)).toBe('Save it as shop__main__sales_by_week (see shop/guide, a shop/report); other/x stays.');
   });
 
   it('moves a fn that goes to the history table in the same transaction, so an old call still reads back', async () => {

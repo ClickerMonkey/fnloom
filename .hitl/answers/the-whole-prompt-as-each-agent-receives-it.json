@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "kind": "review",
+  "seq": 2,
+  "readSeq": 2,
+  "overall": {
+    "verdict": "ok",
+    "note": "I think overall I just want things to be clear and we adjust what's in context based on what does and doesn't work. I am opinionated but because I want evidence based development done.",
+    "at": "2026-11-22T21:02:03.853Z",
+    "seq": 2
+  },
+  "items": {},
+  "comments": [
+    {
+      "id": "c1",
+      "item": "hub-chat-tools-mode-gpt-6-luna",
+      "body": "I think so - does communicating the returns   make sense all the time? Just wondering if that should be conditional or optional or something. That can be a big part of the tokens it seems?",
+      "from": "owner",
+      "at": "2026-11-22T21:00:51.775Z",
+      "seq": 1,
+      "status": "open",
+      "replies": [],
+      "rev": "r4cghr"
+    }
+  ]
+}

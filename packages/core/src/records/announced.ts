@@ -9,8 +9,11 @@ import { SystemName } from '../primitives.ts';
 export const SystemOffReason = z.enum(['chat', 'admin', 'disconnected', 'needs-config', 'held', 'removed']);
 export type SystemOffReason = z.infer<typeof SystemOffReason>;
 
-/** A system as the model is told about it: its name, its label for people, and what it does. */
-export const AnnouncedSystem = z.object({ name: SystemName, label: z.string(), description: z.string() });
+/**
+ * A system as the model is told about it: its name, its label for people, and what it does (its contract's `about`
+ * when it has one); `summary`, its one-line description, when that differs, for an agent that takes summaries.
+ */
+export const AnnouncedSystem = z.object({ name: SystemName, label: z.string(), description: z.string(), summary: z.string().optional() });
 export type AnnouncedSystem = z.infer<typeof AnnouncedSystem>;
 
 /**

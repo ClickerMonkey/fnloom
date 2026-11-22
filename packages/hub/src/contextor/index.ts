@@ -203,6 +203,11 @@ export interface ModeContext {
    * through the hub's registry. The planner always sets it; a mode given none names fns by the rule alone.
    */
   readonly names?: ModelFnNames;
+  /**
+   * The agent takes summaries (its injected section's `detail` is `summary`: a small window): the `<systems>` list is
+   * one line a system and the static tools carry their short descriptions (Phil 2026-11-22).
+   */
+  readonly brief?: boolean;
 }
 
 /** Who a call is checked for: the session (its systems) and the person. */

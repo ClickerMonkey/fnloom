@@ -112,7 +112,7 @@ describe('the suggest contextor\'s auto-injected context', () => {
     const { plan } = await rig({ items: 3, tokens: 2_000 });
     const planned = await plan([{ role: 'user', content: 'how do I commit?' }]);
     expect(planned.report.context.map((c) => c.name)).toEqual(['fs/git', 'fs/style']);
-    expect(planned.context).toContain('<ctx key="fs/git">Commit with fs/git_commit.</ctx>');
+    expect(planned.context).toContain('<ctx key="fs/git">Commit with fs__git_commit.</ctx>'); // an example fn name, spelled by the rule
   });
 
   it('keeps to its number of items and its tokens', async () => {

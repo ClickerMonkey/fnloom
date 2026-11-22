@@ -83,7 +83,10 @@ export async function systemsNow(store: Pick<HubStore, 'table'>, access: Pick<Ac
     if (row.name === HUB_SYSTEM || !access.seesSystem(row.name)) continue;
     const why = offReason(row, session);
     // the model reads the system's longer `about` when its contract has one (what sort of fns, its kinds, when to use it)
-    if (why === undefined) on.push({ name: row.name, label: labelFor(row), description: row.about ?? row.description });
+    if (why === undefined) {
+      const brief = row.about !== undefined && row.about !== row.description ? { summary: row.description } : {};
+      on.push({ name: row.name, label: labelFor(row), description: row.about ?? row.description, ...brief });
+    }
     else off.push({ name: row.name, why });
   }
   return { on, off };
@@ -120,8 +123,16 @@ export function announce(previous: AnnouncedSystems | undefined, now: SystemsNow
   };
 }
 
-/** The system prompt's `<systems>` list; empty with no systems. */
-export function systemsPrompt(systems: readonly AnnouncedSystem[]): string {
+/** The line at the top of `<systems>` for an agent that takes summaries, whose list is one line a system. */
+export const SYSTEMS_BRIEF_INTRO = `The systems in this chat besides the hub, one line each; find their fns with a search. <${SYSTEMS_CHANGED_TAG}> in a message says one went on or off.`;
+
+/**
+ * The system prompt's `<systems>` list; empty with no systems. At `summary` (an agent whose injected section takes
+ * summaries: a small window, Phil 2026-11-22 "The systems list follows the agent's detail") each system is one line,
+ * its name and its short description, not its `about`.
+ */
+export function systemsPrompt(systems: readonly AnnouncedSystem[], detail: 'full' | 'summary' = 'full'): string {
+  if (detail === 'summary') return cardList(SYSTEMS_TAG, SYSTEMS_BRIEF_INTRO, systems.map((s) => element('system', { name: s.name }, [s.summary ?? s.description])));
   return cardList(SYSTEMS_TAG, SYSTEMS_INTRO, systems.map((s) => element('system', { name: s.name, label: s.label }, [s.description])));
 }
 

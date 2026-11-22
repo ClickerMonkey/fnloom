@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   FN_NAME_PATTERN, FnLocalName, FnNameIndex, fnLocalNameProblem, fnOfModelNameByRule, fnOfStoredToolName, isCutModelName, legacyFnOfToolName, ModelFnName, modelFnName,
-  modelFnNames, RULE_ONLY_NAMES, sha256Hex, bareNamesIn, cutNamesIn, unresolvedNamesIn, type ModelFnNameRegistry,
+  modelFnNames, RULE_ONLY_NAMES, sha256Hex, bareNamesIn, cutNamesIn, isFnShaped, unresolvedNamesIn, type ModelFnNameRegistry,
 } from './model-names.ts';
 import { JsonObject, QualifiedName } from './primitives.ts';
 import type { GinTypeDef } from './gin.ts';
@@ -139,6 +139,32 @@ describe('the boundary', () => {
     expect(tools.text(tools.text(text))).toBe(tools.text(text));
     // with no registry only refs are rendered
     expect(modelFnNames({ index: RULE_ONLY_NAMES, mode: { type: 'tools' } }).text('fn:fs/read and fs/read')).toBe('fs__read and fs/read');
+  });
+
+  it('spells fn-shaped names no fn holds by the rule (Encode by rule), and keeps context keys, kinds and types', async () => {
+    const shaped = FnNameIndex.of([fn('fs/read')], [], {
+      systems: ['database', 'input', 'code', 'api', 'hub', 'fs'], reserved: ['database/guide', 'database/query', 'input/form', 'hub/llm', 'fs/Entry'],
+    });
+    const names = modelFnNames({ index: shaped, mode: { type: 'tools' } });
+    const text = [
+      'Saved as database/main.overdue_invoices, input/trip_details, code/price_with_tax or api/github.open_issues.',
+      'Kinds and keys stay: database/query, input/form, hub/llm, database/guide, database/guide.md, fs/Entry and fs/Entry.size.',
+      'A family stays: input/ask_; other systems and paths too: shop/get, docs/fs/read.md. A known fn: fs/read.',
+    ].join('\n');
+    await names.learn([text]);
+    expect(names.text(text)).toBe([
+      'Saved as database__main__overdue_invoices, input__trip_details, code__price_with_tax or api__github__open_issues.',
+      'Kinds and keys stay: database/query, input/form, hub/llm, database/guide, database/guide.md, fs/Entry and fs/Entry.size.',
+      'A family stays: input/ask_; other systems and paths too: shop/get, docs/fs/read.md. A known fn: fs__read.',
+    ].join('\n'));
+    // an attribute's value is spelled only when it is a known fn (a mention's provider keeps its `/`)
+    await names.learn(['<mention provider="fs/files"> <run fn="fs/read">']);
+    expect(names.text('<mention provider="fs/files"> <run fn="fs/read">')).toBe('<mention provider="fs/files"> <run fn="fs__read">');
+    // the rule's names read back by the rule, like any fn's
+    expect(names.fn('database__main__overdue_invoices')).toBe('database/main.overdue_invoices');
+    expect(isFnShaped(fn('database/main.x'), new Set(['database']), new Set())).toBe(true);
+    expect(isFnShaped(fn('database/Expense'), new Set(['database']), new Set())).toBe(false);
+    expect(isFnShaped(fn('database/x'), new Set(), new Set())).toBe(false);
   });
 
   it('writes fn-name fields of a value out, other text through text, and reads them back in', async () => {

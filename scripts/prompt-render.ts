@@ -13,9 +13,10 @@
  * any fn spelled `system/name`, and any installable system the core text names). Stops the stack after.
  */
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { QualifiedName, SystemName, type PromptPreview, type SessionId } from '@harness/core';
+import { isFnShaped, QualifiedName, SystemName, type PromptPreview, type SessionId } from '@harness/core';
 import { goLiveAll } from '../e2e/review.ts';
 import { ROOT, startStack, type ComponentName } from './stack.ts';
 import { loadSettings } from './scenarios/env.ts';
@@ -70,7 +71,7 @@ async function main(): Promise<void> {
       { file: 'hub-chat_small.luna', agent: QualifiedName.parse('hub/chat_small'), label: `hub/chat_small, static mode, ${settings.HARNESS_SCENARIOS_MODEL}` },
     ];
     const fns = await knownFns(admin);
-    const keys = await contextKeys(admin);
+    const keys = new Set([...await contextKeys(admin), ...storedKindsAndTypes()]);
     const systemNames = (await admin.hub.call('systems', {})).map((s): string => s.name);
     const sections: string[] = [];
     for (const target of targets) {
@@ -127,6 +128,16 @@ async function contextKeys(admin: Awaited<ReturnType<typeof startStack>>['admin'
     cursor = page.cursor;
   } while (cursor !== undefined);
   return keys;
+}
+
+/** The kinds and types the hub stores (read from its database, read-only): with the context keys, they keep their `/`. */
+function storedKindsAndTypes(): string[] {
+  const db = new DatabaseSync(join(DATA, 'hub.sqlite'), { readOnly: true });
+  try {
+    return ['kinds', 'types'].flatMap((table) => db.prepare(`select name from ${table}`).all().map((row) => String(row['name'])));
+  } finally {
+    db.close();
+  }
 }
 
 /** What a 2,048-token window leaves the prompt, against the fixed parts the planner must place whole. */
@@ -207,13 +218,16 @@ function tokenTable(preview: PromptPreview): string {
 function check(preview: PromptPreview, fns: ReadonlySet<string>, keys: ReadonlySet<string>, systems: readonly string[]): string {
   const text = [preview.system, ...preview.tools.flatMap((t) => [t.description, JSON.stringify(t.parameters)]), ...preview.messages.map((m) => m.content)].join('\n');
   const hits = new Map<string, number>();
-  // a slash name of an installed system that is no fn, context key or type (capitalised): an example fn name, a path…
+  // a fn-shaped name of an installed system no fn holds (an example name: `isFnShaped`, the rule the hub spells them by);
+  // context keys, kinds and types keep their `/`, as does an attribute's value that is no fn (a mention's provider)
   const other = new Map<string, number>();
+  const installed = new Set([...systems, 'hub']);
   for (const match of text.matchAll(/(?<![\w/.:-])([a-z][a-z0-9-]*\/[A-Za-z0-9_][A-Za-z0-9_.-]*)/g)) {
-    const name = (match[1] ?? '').replace(/[.]+$/, '');
-    const [system = '', local = ''] = name.split('/');
+    const name = (match[1] ?? '').replace(/[.-]+$/, '');
+    const parsed = QualifiedName.safeParse(name);
+    const inAttribute = text.slice(Math.max(0, match.index - 2), match.index) === '="';
     if (fns.has(name)) hits.set(name, (hits.get(name) ?? 0) + 1);
-    else if (!keys.has(name) && !/^[A-Z]/.test(local) && (systems.includes(system) || system === 'hub')) other.set(name, (other.get(name) ?? 0) + 1);
+    else if (parsed.success && !inAttribute && isFnShaped(parsed.data, installed, keys)) other.set(name, (other.get(name) ?? 0) + 1);
   }
   const named = systems.filter((s) => s !== 'hub').flatMap((system) => {
     const lines = preview.parts.instructions.split('\n').filter((line) => new RegExp(`(?<![\\w/-])${system}(?![\\w-])`).test(line));
@@ -221,7 +235,7 @@ function check(preview: PromptPreview, fns: ReadonlySet<string>, keys: ReadonlyS
   });
   return [
     `Fns spelled \`system/name\` in the rendered prompt, tools and messages: ${hits.size === 0 ? 'none' : [...hits].map(([n, c]) => `\`${n}\` ×${c}`).join(', ')}.`,
-    `Other \`system/name\` spellings of an installed system that name no fn, context key or type (example fn names, not real fns): ${other.size === 0 ? 'none' : [...other].map(([n, c]) => `\`${n}\` ×${c}`).join(', ')}.`,
+    `Example fn names (fn-shaped, of an installed system, no fn holds them) still spelled \`system/name\`: ${other.size === 0 ? 'none' : [...other].map(([n, c]) => `\`${n}\` ×${c}`).join(', ')}.`,
     `Installable systems the core instructions name (word matches; \`input\` and \`web\` are also English words):${named.length === 0 ? 'none' : `\n${named.join('\n')}`}`,
   ].join('\n\n');
 }

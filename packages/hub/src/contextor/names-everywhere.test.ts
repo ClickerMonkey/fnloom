@@ -2,10 +2,11 @@
  * The one fn name everywhere the model reads (plan `injected-context-2026-11-22`, slice D): a full chat prompt (the
  * chat agent's instructions, its tools, the systems list and guide), a person's message carrying every block the hub
  * and hooks add, a tool reply and a background result, in tools mode and in static mode, hold no fn in its `system/name`
- * form. Context keys (`database/guide`), types and hook tags keep theirs.
+ * form, example fn names no fn holds included (`database/main.overdue_invoices`, by the rule). Context keys
+ * (`database/guide`), kinds, types and hook tags keep theirs.
  */
 import { agent, g, hub, manifestOf, type AnyFnDef } from '@harness/sdk';
-import { bareNamesIn, IDS, SystemName, mintId, modelFnName, QualifiedName, type ChatMessage, type LlmMessage, type Session, type Turn } from '@harness/core';
+import { IDS, isFnShaped, SystemName, mintId, modelFnName, QualifiedName, type ChatMessage, type LlmMessage, type Session, type Turn } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { ALICE, ALICE_INFO, OPEN_LIMITS } from '../execution/testing.ts';
 import { chatWorld } from '../chat/testing.ts';
@@ -36,7 +37,7 @@ async function everyBlock(): Promise<string> {
     replyAll: false, answerers: [], createdAt: 0,
     parts: [
       { type: 'systems-changed', on: [{ name: SystemName.parse('fs'), reason: 'installed', description: 'Files: read them with fs/read.' }], off: [] },
-      { type: 'text', text: 'Please save it with fs/write, then ' },
+      { type: 'text', text: 'Please save it with fs/write, like database/main.overdue_invoices or input/trip_details, then ' },
       { type: 'mention', provider: 'fs/files', label: 'a.md', target: { path: 'a.md' }, text: 'The file a.md.' },
       { type: 'command', context: 'fs/plan', args: {} },
       { type: 'invocation', run: IDS.run.parse('run_1'), fn: 'fs/read' },
@@ -67,6 +68,7 @@ async function planning(agentName: 'hub/chat' | 'hub/chat_small', instructions: 
     mode: agentName === 'hub/chat_small' ? { type: 'static' } : { type: 'tools' },
     tools: agentName === 'hub/chat_small' ? [] : [hub.fns.fns_search, hub.fns.fns_load, hub.fns.fns_drop, hub.fns.ctx_search, hub.fns.ctx_load, hub.fns.ctx_drop],
   }));
+  for (const name of RESERVED) r.catalog.reserved.add(name);
   r.catalog.addContext(contextRecord(q('database/guide'), { description: 'Tables: make one with database/create_table.', content: 'Use fn:database/create_table, then hub/fns_load it. See context:database/guide.' }));
   const session = await r.store.table('sessions').insert({
     id: SESSION, title: 'T', owner: ALICE, agent: q(agentName), participants: [], systems: 'all', tools: [], context: [q('database/guide')], status: 'idle', transcript,
@@ -88,10 +90,30 @@ function promptTexts(planned: Awaited<ReturnType<typeof planning>>): string[] {
   ];
 }
 
-/** The fns still written in their qualified form, or as an unrendered `fn:` ref. */
+/** The systems the rig has installed, and the context keys, kinds and hook and mention names, which keep their `/`. */
+const SYSTEMS = new Set(['hub', 'fs', 'database', 'input', 'widgets']);
+const RESERVED = ['database/guide', 'fs/guide', 'fs/plan', 'hub/llm', 'database/query', 'input/form', 'widgets/widget'];
+
+/** A `system/name` token standing alone (as `ModelFnNames.text` reads them). */
+const SLASH_NAME = /(?<![A-Za-z0-9_./:-])([a-z][a-z0-9-]*\/[A-Za-z0-9_][A-Za-z0-9_.-]*)/g;
+
+/**
+ * The fn names still written in their `system/name` form, known fns and example ones alike (any fn-shaped name of an
+ * installed system that is no context key, kind or hook), or as an unrendered `fn:` ref.
+ */
 function leftovers(texts: readonly string[]): string[] {
   const fns = new Set<string>([...HUB_FNS.map(([name]) => name), ...SYSTEM_FNS]);
-  return texts.flatMap((text) => [...bareNamesIn(text).filter((name) => fns.has(name)), ...(text.match(/\bfn:[a-z][\w-]*\/\S+/g) ?? [])]);
+  const reserved = new Set(RESERVED);
+  return texts.flatMap((text) => [
+    ...[...text.matchAll(SLASH_NAME)].flatMap((match) => {
+      const name = (match[1] ?? '').replace(/[.-]+$/, '');
+      const parsed = QualifiedName.safeParse(name);
+      // an attribute's value (a mention's `provider="fs/files"`) is a fn only when it is a known one
+      const inAttribute = text.slice(Math.max(0, match.index - 2), match.index) === '="';
+      return parsed.success && (fns.has(name) || (!inAttribute && isFnShaped(parsed.data, SYSTEMS, reserved))) ? [name] : [];
+    }),
+    ...(text.match(/\bfn:[a-z][\w-]*\/\S+/g) ?? []),
+  ]);
 }
 
 describe('no fn reaches the model in its system/name form', () => {
@@ -118,6 +140,9 @@ describe('no fn reaches the model in its system/name form', () => {
     expect(all).toContain(modelFnName(hub.fns.resource_read.name));
     expect(all).toContain('database__create_table');
     expect(all).toContain('database/guide');
+    // example fn names no fn holds read the same way
+    expect(all).toContain('database__main__overdue_invoices');
+    expect(all).toContain('input__trip_details');
     expect(planned.tools.map((tool) => tool.name)).toContain('hub__fns_search');
   });
 

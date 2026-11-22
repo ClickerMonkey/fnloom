@@ -6,12 +6,14 @@
  * history table (`modelFnNameHistory`), so an old call in a transcript still reads back for people.
  *
  * Nothing is held in memory: a prompt asks about the names it meets in one batch (`fnsAmong`, `fnsOf`), answered by
- * indexed `in` queries a chunk at a time, however many fns the hub holds. The catalog asks `problem` before it stores a
+ * indexed `in` queries a chunk at a time, however many fns the hub holds; `shapesAmong` answers the rule for names no
+ * fn holds (the installed systems by the `systems` table's key, the context keys, kinds and types by theirs). The catalog asks `problem` before it stores a
  * fn (a local name the model name can't carry, or a model name another fn already holds: one lookup by key).
  */
-import { fnLocalNameProblem, ModelFnName, modelFnName, splitName, type FnRecord, type ModelFnNameRegistry, type QualifiedName } from '@harness/core';
+import { fnLocalNameProblem, ModelFnName, modelFnName, splitName, SystemName, type FnRecord, type ModelFnNameRegistry, type NameShapes, type QualifiedName } from '@harness/core';
 import type { HubStore } from '../store/index.ts';
 import { allRows, rows } from '../store/rows.ts';
+import { HUB_SYSTEM } from './availability.ts';
 
 /** How many names one `in` query carries. */
 const CHUNK = 500;
@@ -31,6 +33,26 @@ export class StoreFnNames implements ModelFnNameRegistry {
       for (const row of await allRows(this.#store().table('modelFnNames'), { where: { fn: { in: chunk } } })) found.add(row.fn);
     }
     return found;
+  }
+
+  async shapesAmong(names: readonly QualifiedName[]): Promise<NameShapes> {
+    const store = this.#store();
+    const unique = [...new Set(names)];
+    const asked = [...new Set(unique.map((name) => splitName(name).system))].flatMap((system) => { const parsed = SystemName.safeParse(system); return parsed.success && parsed.data !== HUB_SYSTEM ? [parsed.data] : []; });
+    const systems = new Set<string>(unique.some((name) => splitName(name).system === HUB_SYSTEM) ? [HUB_SYSTEM] : []);
+    const reserved = new Set<string>();
+    for (const chunk of chunks(asked)) {
+      for (const row of await allRows(store.table('systems'), { where: { name: { in: chunk } } })) systems.add(row.name);
+    }
+    for (const chunk of chunks(unique)) {
+      const [context, kinds, types] = await Promise.all([
+        allRows(store.table('context'), { where: { name: { in: chunk } } }),
+        allRows(store.table('kinds'), { where: { name: { in: chunk } } }),
+        allRows(store.table('types'), { where: { name: { in: chunk } } }),
+      ]);
+      for (const row of [...context, ...kinds, ...types]) reserved.add(row.name);
+    }
+    return { systems, reserved };
   }
 
   async fnsOf(models: readonly string[]): Promise<ReadonlyMap<string, QualifiedName>> {

@@ -2,7 +2,7 @@ import { isHiddenPart, SystemName, type AnnouncedSystems, type ChatMessage, type
 import { describe, expect, it } from 'vitest';
 import { systemRow } from '../catalog/fixtures.ts';
 import { isPersonMessage, personWords } from '../contextor/history.ts';
-import { announce, OFF_REASONS, ON_REASONS, systemsChanged, systemsNow, systemsPrompt, SYSTEMS_INTRO } from './announce.ts';
+import { announce, OFF_REASONS, ON_REASONS, systemsChanged, systemsNow, systemsPrompt, SYSTEMS_BRIEF_INTRO, SYSTEMS_INTRO } from './announce.ts';
 import { chatWorld, CLIENT } from './testing.ts';
 
 const name = (s: string): SystemName => SystemName.parse(s);
@@ -32,6 +32,8 @@ describe('the systems as they are now', () => {
     await w.store.table('systems').put(systemRow('git', 'connected', { description: 'Git repositories.' }));
     const now = await systemsNow(w.store, ALL, { systems: 'all' });
     expect(now.on.map((s) => s.description)).toEqual(['Files and a shell over chosen folders; load fs/guide first.', 'Git repositories.']);
+    // the one-line description is kept beside it, for an agent that takes summaries
+    expect(now.on.map((s) => s.summary)).toEqual(['Files.', undefined]);
   });
 });
 
@@ -92,6 +94,12 @@ describe('what a message tells the model about the systems', () => {
     expect(systemsPrompt([{ name: name('fs'), label: 'Files', description: 'Reads <files> & folders.' }])).toBe(
       `<systems>\n${SYSTEMS_INTRO.replace('<systems_changed>', '&lt;systems_changed&gt;')}\n<system name="fs" label="Files">Reads &lt;files&gt; &amp; folders.</system>\n</systems>`,
     );
+    // at summary (a small agent): one line a system, its short description, no label
+    const brief = systemsPrompt([
+      { name: name('fs'), label: 'Files', description: 'Files and a shell over chosen folders, at length.', summary: 'Files & a shell.' },
+      { name: name('git'), label: 'Git', description: 'Git repositories.' },
+    ], 'summary');
+    expect(brief).toBe(`<systems>\n${SYSTEMS_BRIEF_INTRO.replace('<systems_changed>', '&lt;systems_changed&gt;')}\n<system name="fs">Files &amp; a shell.</system>\n<system name="git">Git repositories.</system>\n</systems>`);
     expect(systemsChanged({ on: [{ name: name('crm'), reason: 'installed', label: 'CRM', description: 'Tickets.' }], off: [{ name: name('fs'), reason: 'switched off by an admin' }] })).toBe(
       '<systems_changed>\n<on name="crm" label="CRM" reason="installed">Tickets.</on>\n<off name="fs" reason="switched off by an admin" />\n</systems_changed>',
     );

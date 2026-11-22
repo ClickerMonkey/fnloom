@@ -347,6 +347,15 @@ with its system's first letter). Past 64 characters it is cut to 54 (no trailing
 the qualified name's sha-256. People see the friendly label; admins see the qualified name on hover. Only fns have
 model names: context keys (`fs/guide`), types (`fs/Entry`) and hook tags (`<fs_git>`) keep their forms.
 
+- **Encode by rule** (Phil, 2026-11-22). The format is computable from the name, so text spells every name shaped like
+  a fn's by it, even one no fn holds: an example in a description (`database/main.overdue_invoices`,
+  `input/trip_details`, `code/price_with_tax`, `api/github.open_issues`) reads `database__main__overdue_invoices`, so the
+  model never meets the `/` form of a fn name. Fn-shaped (core `isFnShaped`): its system is installed (the `systems`
+  table, the hub always), its local name is a `FnLocalName` and not a type's (one capitalised part), and neither it nor
+  a name it ends in at a `.` is a context key, kind or type (`database/guide`, `database/query`, `input/form`,
+  `hub/llm`, `database/guide.md`). A family (`input/ask_`) and an attribute's value that is no fn (a mention's
+  `provider="fs/files"`) keep their `/`. Only reading a cut name back needs the registry.
+
 - **The rule a fn's name keeps** (core `FnLocalName`): dot-separated parts, none holding `__` or starting or ending
   with `_`, so `__` always separates parts. The SDK's build refuses a contract with one that breaks it, and the hub
   refuses such a fn (declared or saved) with the reason. Context keys and types keep `LocalName`.
@@ -357,7 +366,8 @@ model names: context keys (`fs/guide`), types (`fs/Entry`) and hook tags (`<fs_g
   possible through a cut name's hash) is refused when it is declared or saved: one lookup by key. A fn that goes moves
   its name to the `modelFnNameHistory` table, so an old call still reads back for people. Core's
   `ModelFnNameRegistry` is the batched interface (`fnsAmong`: which of these qualified names are fns; `fnsOf`: which
-  fn each of these model names was given out for), answered with indexed `in` queries 500 names at a time.
+  fn each of these model names was given out for; `shapesAmong`: which of their systems are installed and which are
+  context keys, kinds or types, for the rule), answered with indexed `in` queries 500 names at a time.
 - **One module, three boundaries.** Core's `model-names.ts` owns the encoder, the rule and `modelFnNames`, the names
   for one prompt; nothing else spells a model name. A prompt's names object first `learn`s everything it will spell
   or read: it pulls the candidate `system/name` tokens and the cut-shaped model names out of the texts and values, asks
@@ -857,7 +867,14 @@ order and reported, never cut silently by the provider. The run inspector shows 
 ("4,096 window: 1,024 reply, 246 margin, 612 fixed, 1,230 history, 640 context, 344 fns"). An admin can set a
 model's limits; token estimates calibrate themselves against what the provider reports.
 
-Static plus graph is the setup for small local models; `hub/chat_small` is the chat agent with it.
+Static plus graph is the setup for small local models; `hub/chat_small` is the chat agent with it. **The systems
+list follows the agent's detail** (Phil, 2026-11-22): an agent whose injected section takes summaries
+(`injected: { detail: 'summary' }`, as `hub/chat_small` does) gets `<systems>` at one line a system (its name and
+one-line description, not its `about`; the snapshot keeps both, `AnnouncedSystem.summary`), and the static tools'
+short descriptions (`STATIC_TOOL_BRIEF`; their examples stay). That brought its fixed part from ~5,250 to ~2,990
+tokens for the scenario stacks' systems on a 2,048-token `qwen2.5:3b` (core 969, systems 431, guide 126, tools
+1,462, mostly their JSON schemas), still over the 1,413 the window leaves; `scripts/chat-small-fit.test.ts` holds the
+target (fits 2k with room for a short message and some injected summaries) as an expected failure until it does.
 
 **Seeing the whole prompt.** An admin can ask for the request a session's agent would send for a message without
 calling any model (`previewPrompt`, the contextor slice: the message enriched with the hub's and hooks' blocks as
@@ -911,10 +928,13 @@ Before the LLM sees a user message, two things may add to it:
   decides. Searches still order hits by fusing the word and meaning ranks. Suggestions are found by meaning only:
   while the embedder can't answer in time, nothing is suggested rather than the best word matches.
 
-  Suggestions are cards in the one XML format, under a line written for the session's mode: in tools mode the model
-  loads them with `hub/fns_load` or `hub/ctx_load` and then calls them; in static mode it runs one by its name.
-  Each card is fixed when the message is sent (in static mode with its instructions and examples), so the message
-  reads the same later even if the fn changes. Fns the person can't see, or that aren't for the model, are left out;
+  Suggestions are **brief cards** in the one XML format (Phil, 2026-11-22: "Brief cards"), under a line written for
+  the session's mode: in tools mode the model loads them with `hub/fns_load` or `hub/ctx_load` and then calls them;
+  in static mode it runs one by its name (inspecting it first for its full args). A suggested fn is its name, label,
+  mode, description and its first example's args; its full args and returns come when it is loaded (or with
+  `inspect`). A suggested context item is its title and summary (its description when it has none). A card stored
+  whole before brief cards reads brief too. `<loaded_for_you>` is unchanged: what is loaded is there in full. Each
+  card is fixed when the message is sent, so the message reads the same later even if the fn changes. Fns the person can't see, or that aren't for the model, are left out;
   fns they can't use now are shown with `available="no"` and the reason. **Nothing is suggested twice in a chat:** what
   was suggested is kept on the session in the hub database, and neither the hub nor a hook suggests it again, nor
   anything the session already has loaded. The search query itself leaves those keys out, in the word, meaning and

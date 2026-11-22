@@ -134,8 +134,8 @@ export function contextRegion(fixed: string, selection: Pick<Selection, 'context
  * the set snapshotted at the chat's first turn (`Session.announcedSystems.prompt`), in name order, never the set as it
  * is now, so the prompt stays the same and caches; what changes later is told in the person's messages.
  */
-export function fixedRegion(systems: readonly AnnouncedSystem[], guide: string, citations = ''): string {
-  return [systemsPrompt(systems), guide, citations].filter((part) => part !== '').join('\n\n');
+export function fixedRegion(systems: readonly AnnouncedSystem[], guide: string, citations = '', detail: 'full' | 'summary' = 'full'): string {
+  return [systemsPrompt(systems, detail), guide, citations].filter((part) => part !== '').join('\n\n');
 }
 
 /** What the planner uses. */
@@ -220,7 +220,9 @@ export class HubPromptPlanner implements PromptPlanner {
     const nativeTools = (await this.#deps.models()).find((m) => namesModel(model, m))?.capabilities.includes('tools') ?? true;
     // the one fn name: every fn this prompt names is spelled as the model calls it in this mode
     const names = modeNames(mode.type, await this.#deps.catalog.modelNames());
-    return { mode, ctx: { estimator: await this.#deps.tokens.forModel(model), protocol: mode.protocol(nativeTools), names }, payload, choice };
+    // an agent that takes its injected section at summary (a small window) takes the systems list and static tools brief too
+    const brief = payload.injected !== undefined && payload.injected !== 'none' && payload.injected.detail === 'summary';
+    return { mode, ctx: { estimator: await this.#deps.tokens.forModel(model), protocol: mode.protocol(nativeTools), names, ...(brief ? { brief } : {}) }, payload, choice };
   }
 
   async names(to: ExposedTo): Promise<ModelFnNames> {
@@ -261,7 +263,7 @@ export class HubPromptPlanner implements PromptPlanner {
     const currentExchange = all.at(-1);
     const history = all.slice(0, -1);
     const access = await this.#deps.access(planning.user);
-    const guide = fixedRegion(await this.#systems(session, access), mode.guide(ctx), citationsPrompt(session));
+    const guide = fixedRegion(await this.#systems(session, access), mode.guide(ctx), citationsPrompt(session), ctx.brief === true ? 'summary' : 'full');
     const tools = await mode.fixedTools(ctx);
     const rest = MESSAGE_FRAMING + (guide === '' ? 0 : estimator.text(`\n\n${guide}`)) + tools.reduce((sum, t) => sum + estimator.tool(t.spec), 0);
     // an agent that declares no `maxOutput` still gets a bound (`HARNESS_AGENT_MAX_OUTPUT`): a stuck model stops there

@@ -2,7 +2,9 @@
  * The one name the model sees for a fn (plan `injected-context-2026-11-22`, section 1). A fn's **model name** is its
  * qualified name with every `/` and `.` written `__` (`database/main.expenses_create` → `database__main__expenses_create`),
  * a valid tool name for every provider; past 64 characters it is cut to 54 and ended with `_x` and 8 hex of the
- * qualified name's sha-256. Only fns have model names: context keys, types and hook tags keep their own forms.
+ * qualified name's sha-256. Only fns have model names: context keys, types and hook tags keep their own forms. The
+ * format is computable from the name, so text spells every fn-shaped name of an installed system by it, an example name
+ * no fn holds included (`isFnShaped`); only reading a cut name back needs the registry.
  *
  * This module owns the encoder, the rule a fn's local name keeps so its model name reads back (`FnLocalName`), the
  * registry's interface (`ModelFnNameRegistry`, batched: the hub's answers from its `modelFnNames` and history tables
@@ -144,6 +146,37 @@ export interface ModelFnNameRegistry {
   fnsAmong(names: readonly QualifiedName[]): Promise<ReadonlySet<QualifiedName>>;
   /** The fns these model names were given out for: a fn's now, else one that is gone. A name it never gave out is absent. */
   fnsOf(models: readonly string[]): Promise<ReadonlyMap<string, QualifiedName>>;
+  /**
+   * What the rule needs for names no fn holds (`ModelFnNames.text`, Phil 2026-11-22 "Encode by rule"): of these names,
+   * the systems that are installed, and the names that are context keys, kinds or types (which keep their `/`). Absent,
+   * only fns are spelled as model names.
+   */
+  shapesAmong?(names: readonly QualifiedName[]): Promise<NameShapes>;
+}
+
+/** What a registry knows of names no fn holds: the installed systems among theirs, and which are context keys, kinds or types. */
+export interface NameShapes {
+  readonly systems: ReadonlySet<string>;
+  readonly reserved: ReadonlySet<string>;
+}
+
+/**
+ * Whether a name no fn holds is still a fn's name in shape, and so spelled as a model name by rule: its system is
+ * installed (`systems`), its local name is one a model name carries (`FnLocalName`) and is not a type's (one
+ * capitalised part, `fs/Entry`), and neither it nor a name it ends in at a `.` is a context key, kind or type
+ * (`reserved`: `database/guide`, `database/query`, `database/guide.md`). Example names (`database/main.overdue_invoices`,
+ * `input/trip_details`) are fn-shaped; their model name is computable without any fn holding it.
+ */
+export function isFnShaped(name: QualifiedName, systems: ReadonlySet<string>, reserved: ReadonlySet<string>): boolean {
+  const { system, local } = splitName(name);
+  if (!systems.has(system) || !FN_LOCAL_NAME_PATTERN.test(local)) return false;
+  if (!local.includes('.') && /^[A-Z]/.test(local)) return false;
+  for (let candidate: string = name; ; ) {
+    if (reserved.has(candidate)) return false;
+    const cut = candidate.lastIndexOf('.');
+    if (cut <= candidate.indexOf('/')) return true;
+    candidate = candidate.slice(0, cut);
+  }
 }
 
 /**
@@ -154,13 +187,25 @@ export class FnNameIndex implements ModelFnNameRegistry {
   readonly #byModel = new Map<string, QualifiedName>();
   readonly #fns = new Set<string>();
   readonly #gone = new Map<string, ModelFnNameHistory>();
+  readonly #systems = new Set<string>();
+  readonly #reserved = new Set<string>();
 
-  /** A registry of these fns, with the names of fns that are gone. */
-  static of(fns: Iterable<QualifiedName>, history: Iterable<ModelFnNameHistory> = []): FnNameIndex {
+  /**
+   * A registry of these fns, with the names of fns that are gone; `shapes`, the installed systems and the context keys,
+   * kinds and types, for the rule that spells names no fn holds (absent: only fns are spelled).
+   */
+  static of(fns: Iterable<QualifiedName>, history: Iterable<ModelFnNameHistory> = [], shapes?: { systems?: Iterable<string>; reserved?: Iterable<string> }): FnNameIndex {
     const index = new FnNameIndex();
     for (const entry of history) index.#gone.set(entry.model, entry);
     for (const fn of fns) index.add(fn);
+    for (const system of shapes?.systems ?? []) index.#systems.add(system);
+    for (const name of shapes?.reserved ?? []) index.#reserved.add(name);
     return index;
+  }
+
+  shapesAmong(names: readonly QualifiedName[]): Promise<NameShapes> {
+    const systems = new Set(names.map((name) => splitName(name).system).filter((system) => this.#systems.has(system)));
+    return Promise.resolve({ systems, reserved: new Set(names.filter((name) => this.#reserved.has(name))) });
   }
 
   /** The fn a model name was given out for: a fn's now, else one that is gone; undefined when it names none. */
@@ -255,14 +300,19 @@ export type ModelNamesMode = { readonly type: 'tools' } | { readonly type: 'stat
 export interface ModelFnNames {
   /**
    * Ask the registry, in one batch, about every name these texts and values may hold that this object hasn't met: the
-   * bare `system/name` tokens (is each a fn?) and the cut-shaped model names (which fn was each given out for?).
+   * bare `system/name` tokens (is each a fn? is its system installed? is it a context key, kind or type?) and the
+   * cut-shaped model names (which fn was each given out for?).
    */
   learn(sources: Iterable<Json | undefined>): Promise<void>;
   /** The name the model calls this fn by here: its model name, or in static mode the static tool that does its job. */
   name(fn: QualifiedName): string;
   /** The fn a name from the model means (a model name, a static tool's name, or, tolerated, a qualified name); undefined when it names none. */
   fn(name: string): QualifiedName | undefined;
-  /** Text for the model: each `fn:` ref and each known fn's qualified name standing alone, as `name` gives it; `context:` refs as the plain key. */
+  /**
+   * Text for the model: each `fn:` ref and each known fn's qualified name standing alone, as `name` gives it; each other
+   * fn-shaped name (`isFnShaped`: an example such as `database/main.overdue_invoices`) by the rule; `context:` refs as
+   * the plain key. Context keys, kinds and types keep their `/`.
+   */
   text(text: string): string;
   /** A value for the model: `g.fnName()` fields as `name` gives them, text fields through `text`. */
   value(value: Json, type: GinTypeDef | undefined): Json;
@@ -342,6 +392,9 @@ export function modelFnNames(input: ModelFnNamesInput): ModelFnNames {
   const fns = new Set<string>();
   const asked = new Set<string>();
   const byModel = new Map<string, QualifiedName>();
+  // for the rule: the installed systems and the context keys, kinds and types among the names met
+  const systems = new Set<string>();
+  const reserved = new Set<string>();
   const isFn = (candidate: string): boolean => fns.has(candidate);
   const learn = async (sources: Iterable<Json | undefined>): Promise<void> => {
     const bare = new Set<QualifiedName>();
@@ -353,14 +406,18 @@ export function modelFnNames(input: ModelFnNamesInput): ModelFnNames {
       }
     }
     if (bare.size === 0 && cut.size === 0) return;
-    const [among, of] = await Promise.all([
+    const none: NameShapes = { systems: new Set(), reserved: new Set() };
+    const [among, of, shapes] = await Promise.all([
       bare.size === 0 ? new Set<QualifiedName>() : index.fnsAmong([...bare]),
       cut.size === 0 ? new Map<string, QualifiedName>() : index.fnsOf([...cut]),
+      bare.size === 0 || index.shapesAmong === undefined ? none : index.shapesAmong([...bare]),
     ]);
     for (const candidate of bare) asked.add(candidate);
     for (const model of cut) asked.add(model);
     for (const found of among) fns.add(found);
     for (const [model, found] of of) byModel.set(model, found);
+    for (const system of shapes.systems) systems.add(system);
+    for (const name of shapes.reserved) reserved.add(name);
   };
   const name = (fn: QualifiedName): string => {
     const stood = standIn.get(fn);
@@ -379,9 +436,10 @@ export function modelFnNames(input: ModelFnNamesInput): ModelFnNames {
     if (qualified.success) return qualified.data;
     return fnOfModelNameByRule(given);
   };
-  const text = (source: string): string => source.replace(NAME_IN_TEXT, (whole, ref: string | undefined, found: string) => {
+  const text = (source: string): string => source.replace(NAME_IN_TEXT, (whole, ref: string | undefined, found: string, at: number) => {
     if (ref === 'context:') return found;
-    let { name: candidate, rest } = trimmed(found);
+    const given = trimmed(found);
+    let { name: candidate, rest } = given;
     // a bare name that isn't a fn may still end in one (`fs/read.` at a sentence's end): the longest known one wins
     while (ref === undefined && !isFn(candidate) && candidate.lastIndexOf('.') > candidate.indexOf('/')) {
       const cut = candidate.lastIndexOf('.');
@@ -389,8 +447,13 @@ export function modelFnNames(input: ModelFnNamesInput): ModelFnNames {
       candidate = candidate.slice(0, cut);
     }
     const qualified = QualifiedName.safeParse(candidate);
-    if (!qualified.success || (ref === undefined && !isFn(candidate))) return whole;
-    return `${name(qualified.data)}${rest}`;
+    if (qualified.success && (ref !== undefined || isFn(candidate))) return `${name(qualified.data)}${rest}`;
+    // no fn holds it, but it has a fn name's shape (an example name, a saved fn yet to be made): spelled by the rule,
+    // except as an attribute's value (`provider="fs/files"`), where only a known fn is a fn
+    const shaped = QualifiedName.safeParse(given.name);
+    const inAttribute = source.slice(Math.max(0, at - 2), at) === '="';
+    if (ref === undefined && !inAttribute && shaped.success && isFnShaped(shaped.data, systems, reserved)) return `${modelFnName(shaped.data)}${given.rest}`;
+    return whole;
   });
   const walker = { name, fn, text, types };
   return {
