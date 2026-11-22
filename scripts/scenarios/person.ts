@@ -1,5 +1,5 @@
 /**
- * The simulated person: an LLM (called on OpenRouter, not through the hub) playing Alex Parker, a non-technical
+ * The simulated person: a cheaper LLM than the chat's, from another family (HARNESS_SCENARIOS_PERSON_MODEL, called on OpenRouter, not through the hub) playing Alex Parker, a non-technical
  * parent. It sees what a person sees in the chat (the agent's words, the forms it shows, the cards asking for a yes
  * or no), never the tool calls. It answers briefly and plainly, says what it knows only when asked, says when it is
  * done or would give up, fills forms, and decides approval cards when its case says to. It keeps its own cost.

@@ -13,7 +13,7 @@ export const scenariosEnv = env({
   HARNESS_SCENARIOS_VIEW_PORT: z.coerce.number().int().min(4341).max(65535).default(4351),
   /** The chat model, the simulated person's and the judge's (OpenRouter ids). */
   HARNESS_SCENARIOS_MODEL: z.string().default('openai/gpt-6-luna'),
-  HARNESS_SCENARIOS_PERSON_MODEL: z.string().default('openai/gpt-6-luna'),
+  HARNESS_SCENARIOS_PERSON_MODEL: z.string().default('deepseek/deepseek-v4.1-flash'),
   HARNESS_SCENARIOS_JUDGE_MODEL: z.string().default('openai/gpt-6-luna'),
   /** The diagnostician's model (`diagnose.ts`: why each step of a case went the way it did). */
   HARNESS_SCENARIOS_DIAGNOSE_MODEL: z.string().default('openai/gpt-6-luna'),
