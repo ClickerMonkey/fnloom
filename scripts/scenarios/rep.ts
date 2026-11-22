@@ -139,9 +139,10 @@ export interface Rep {
 /** The hub's log lines worth keeping: warnings and errors (`[time] warn …`, `[time] error …`), and anything on stderr. */
 const PROBLEM = /^\[[^\]]+\] (warn|error|fatal) /;
 
-/** Boot a repetition on a clean slate. */
-export async function startRep(settings: ScenariosSettings, iteration: string, rep: number, log: (line: string) => void): Promise<Rep> {
-  const folder = repFolder(iteration, rep);
+/** Boot a repetition on a clean slate (in `options.folder` when given: a restart after the hub crashed). */
+export async function startRep(settings: ScenariosSettings, iteration: string, rep: number, log: (line: string) => void, options: { readonly folder?: string } = {}): Promise<Rep> {
+  // a restart after a crash gets a folder of its own inside the rep's, so the crashed hub's database stays readable
+  const folder = options.folder ?? repFolder(iteration, rep);
   rmSync(folder, { recursive: true, force: true });
   mkdirSync(folder, { recursive: true });
   const home = join(folder, 'home');

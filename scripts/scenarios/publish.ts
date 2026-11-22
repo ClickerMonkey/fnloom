@@ -3,6 +3,7 @@
  * case, titled with its verdicts ("12. Heat pump — pass/weak/fail ×3"), its markdown holding the request, the Good
  * line, each repetition's verdict and reasons, where to open its chat, and its transcript folded away. He gives a
  * verdict and comments per case, which the next iteration reads back (`npx hitloop feedback scenarios-<iteration>`).
+ * When the iteration has a diagnosis (`diagnosis.md`), it is the first item, and each repetition shows its own.
  * Publishing again replaces the items and keeps the review (and so his verdicts, by item id).
  */
 import { execFileSync } from 'node:child_process';
@@ -11,7 +12,9 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { CASES } from './cases.ts';
 import type { JudgedCase } from './records.ts';
-import { buildReport, loadIteration, type CaseSummary } from './report.ts';
+import { loadDiagnosis } from './diagnose.ts';
+import { buildReport, iterationFolder, loadIteration, type CaseSummary } from './report.ts';
+import { repFolder } from './rep.ts';
 import { ROOT } from '../stack.ts';
 import { clip, statsLine, transcriptMarkdown, usd } from './transcript.ts';
 
@@ -33,6 +36,17 @@ function verdictTitle(summary: CaseSummary): string {
   return same ? `${verdicts[0]} ×${verdicts.length}` : verdicts.join('/');
 }
 
+/** A repetition's diagnosis in short: its root cause and fixes (empty when it has none). */
+function diagnosisSection(judged: JudgedCase): string {
+  const saved = loadDiagnosis(repFolder(judged.iteration, judged.rep), judged.case);
+  const d = saved?.diagnosis;
+  if (d === undefined || d === null) { return ''; }
+  return [
+    `**Diagnosis:** ${d.rootCause}`,
+    d.fixes.map((f) => `- \`${f.where}\` (${f.confidence.toFixed(2)}): ${f.problem}\n  > ${clip(f.proposedText, 800).split('\n').join('\n  > ')}`).join('\n'),
+  ].join('\n\n');
+}
+
 /** One repetition, as the item shows it. */
 function repSection(judged: JudgedCase): string {
   const j = judged.judgement;
@@ -45,9 +59,25 @@ function repSection(judged: JudgedCase): string {
     j === null || j.cause === null ? '' : `Cause **${j.cause}**, layer **${j.layer ?? '—'}**. Fix: ${j.fix}`,
     judged.checks.some((c) => !c.ok) ? `**Checks failed:** ${judged.checks.filter((c) => !c.ok).map((c) => `${c.name} (${c.detail})`).join('; ')}` : '',
     statsLine(judged),
+    diagnosisSection(judged),
     `Open the chat: ${judged.sessions.map((s) => `[${s.url}](${s.url})`).join(' · ')} — sign in as \`${judged.person.email}\` / \`${judged.person.password}\` while \`npm run scenarios -- --view ${judged.iteration} --rep ${judged.rep}\` runs.`,
     `<details><summary>Transcript, rep ${judged.rep}</summary>\n\n${transcript}\n\n</details>`,
   ].filter((part) => part !== '').join('\n\n');
+}
+
+/** The most of diagnosis.md the first item holds. */
+const MAX_DIAGNOSIS = 40_000;
+
+/** The iteration's diagnosis as the review's first item (none when it hasn't been diagnosed). */
+function diagnosisItem(iteration: string): Array<{ id: string; title: string; ask: string; md: string }> {
+  const file = join(iterationFolder(iteration), 'diagnosis.md');
+  if (!existsSync(file)) { return []; }
+  return [{
+    id: 'diagnosis',
+    title: 'Diagnosis: what the model was shown, why it went that way, and the fixes ranked',
+    ask: 'Are these the right fixes, in the right order? Which would you make first?',
+    md: clip(readFileSync(file, 'utf8'), MAX_DIAGNOSIS),
+  }];
 }
 
 /** Write the review and give its links (LAN and Tailscale), or why there are none. */
@@ -84,7 +114,7 @@ export function publish(iteration: string): { file: string; links: string[] } {
     from: 'harness scenarios runner',
     created: saved.created ?? new Date().toISOString(),
     updated: new Date().toISOString(),
-    items,
+    items: [...diagnosisItem(iteration), ...items],
   };
   writeFileSync(file, `${JSON.stringify(review, null, 2)}\n`);
   return { file, links: hitlLinks(id) };

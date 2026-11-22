@@ -15,6 +15,8 @@ export const scenariosEnv = env({
   HARNESS_SCENARIOS_MODEL: z.string().default('openai/gpt-6-luna'),
   HARNESS_SCENARIOS_PERSON_MODEL: z.string().default('openai/gpt-6-luna'),
   HARNESS_SCENARIOS_JUDGE_MODEL: z.string().default('openai/gpt-6-luna'),
+  /** The diagnostician's model (`diagnose.ts`: why each step of a case went the way it did). */
+  HARNESS_SCENARIOS_DIAGNOSE_MODEL: z.string().default('openai/gpt-6-luna'),
   /** The EmbeddingGemma service the embedder system wraps; when it doesn't answer, the embedder isn't run. */
   HARNESS_SCENARIOS_EMBEDDER: z.string().default('http://127.0.0.1:8760'),
   /** How long one agent turn may take before the case gives up waiting (ms). */

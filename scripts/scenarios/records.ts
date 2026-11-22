@@ -52,7 +52,8 @@ export type Entry = z.infer<typeof Entry>;
 
 /** How the case ended. */
 export const Ending = z.object({
-  by: z.enum(['satisfied', 'gave-up', 'turn-limit', 'error', 'timeout']),
+  /** harness-crash: the hub stopped answering while the case ran (or before it could start). */
+  by: z.enum(['satisfied', 'gave-up', 'turn-limit', 'error', 'timeout', 'harness-crash']),
   reason: z.string(),
 });
 export type Ending = z.infer<typeof Ending>;
@@ -70,6 +71,8 @@ export const CaseRecord = z.object({
   good: z.string(),
   person: z.object({ email: z.string(), password: z.string() }),
   sessions: z.array(z.object({ id: z.string(), url: z.string() })),
+  /** The folder of the stack it ran on, from the rep's folder (absent: the rep's own; `restart-1` after a crash). */
+  stack: z.string().optional(),
   entries: z.array(Entry),
   ending: Ending,
   stats: z.object({
@@ -114,6 +117,6 @@ export type JudgedCase = z.infer<typeof JudgedCase>;
 /** The people a repetition made, for `--view`. */
 export const RepPeople = z.object({
   admin: z.object({ email: z.string(), password: z.string() }),
-  cases: z.array(z.object({ case: z.number().int(), email: z.string(), password: z.string(), sessions: z.array(z.string()) })),
+  cases: z.array(z.object({ case: z.number().int(), email: z.string(), password: z.string(), sessions: z.array(z.string()), stack: z.string().optional() })),
 });
 export type RepPeople = z.infer<typeof RepPeople>;

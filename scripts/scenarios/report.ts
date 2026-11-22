@@ -12,6 +12,18 @@ import { JudgedCase, Verdict, type Cause, type Layer } from './records.ts';
 import { SCENARIOS_DIR } from './rep.ts';
 import { usd } from './transcript.ts';
 
+/** The hub stopping in the middle of a rep. */
+export const RepCrash = z.object({
+  at: z.string(),
+  error: z.string(),
+  /** The cases marked harness-crash. */
+  cases: z.array(z.number().int()),
+  logTail: z.array(z.string()),
+  /** The stack folder (from the rep's) the remaining cases went on in, or absent when they didn't. */
+  restartedIn: z.string().optional(),
+});
+export type RepCrash = z.infer<typeof RepCrash>;
+
 /** What a repetition says about itself. */
 export const RepMeta = z.object({
   rep: z.number().int(),
@@ -24,6 +36,8 @@ export const RepMeta = z.object({
   index: z.object({
     caughtUp: z.boolean(), waitedMs: z.number(), items: z.number(), pending: z.number(), meaning: z.boolean(), lastError: z.string().optional(),
   }).optional(),
+  /** Each time the hub stopped answering during the rep: when, the cases it took down, the log's end, and the stack folder the rest went on in. */
+  crashes: z.array(RepCrash).default([]),
 });
 export type RepMeta = z.infer<typeof RepMeta>;
 
@@ -70,7 +84,7 @@ export function loadIteration(iteration: string): { reps: RepMeta[]; cases: Judg
     if (existsSync(meta)) { reps.push(RepMeta.parse(JSON.parse(readFileSync(meta, 'utf8')))); }
     const dir = join(folder, name, 'cases');
     if (!existsSync(dir)) { continue; }
-    for (const file of readdirSync(dir).filter((n) => n.endsWith('.json')).sort()) {
+    for (const file of readdirSync(dir).filter((n) => /^case-\d+\.json$/.test(n)).sort()) {
       cases.push(JudgedCase.parse(JSON.parse(readFileSync(join(dir, file), 'utf8'))));
     }
   }
@@ -135,9 +149,14 @@ export function reportMarkdown(report: Report): string {
     : `; **index NOT caught up** after ${Math.round(r.index.waitedMs / 1000)}s: ${r.index.pending} of ${r.index.items} waiting${r.index.meaning ? '' : ', no embedder set up'}${r.index.lastError === undefined ? '' : ` (last failure: ${r.index.lastError})`}`);
   const repsLine = report.reps.map((r) => `rep ${r.rep}: ${r.systems.join(', ')}${r.skipped.length === 0 ? '' : ` (not run: ${r.skipped.join('; ')})`}${indexNote(r)}`).join('\n- ');
   const behind = report.reps.filter((r) => r.index?.caughtUp === false).map((r) => r.rep);
+  const crashes = report.reps.flatMap((r) => r.crashes.map((c) => ({ rep: r.rep, ...c })));
+  const crashed = report.cases.flatMap((c) => c.reps).filter((r) => r.ended === 'harness-crash').length;
+  const diagnosed = existsSync(join(iterationFolder(report.iteration), 'diagnosis.md'));
   return [
     `# Scenarios: ${report.iteration}`,
-    `Written ${report.writtenAt}. ${report.cases.length} cases × ${report.reps.length} rep(s). Verdicts: ${count('pass')} pass, ${count('weak')} weak, ${count('fail')} fail. Cost: ${usd(report.cost.total)} (hub ${usd(report.cost.hub)}, person ${usd(report.cost.person)}, judge ${usd(report.cost.judge)}). Model: ${report.reps[0]?.model ?? '—'}.`,
+    `Written ${report.writtenAt}. ${report.cases.length} cases × ${report.reps.length} rep(s). Verdicts: ${count('pass')} pass, ${count('weak')} weak, ${count('fail')} fail${crashed === 0 ? '' : `, ${crashed} lost to a harness crash`}. Cost: ${usd(report.cost.total)} (hub ${usd(report.cost.hub)}, person ${usd(report.cost.person)}, judge ${usd(report.cost.judge)}). Model: ${report.reps[0]?.model ?? '—'}.`,
+    ...(crashes.length === 0 ? [] : [`**The hub crashed ${crashes.length} time(s):**\n${crashes.map((c) => `- rep ${c.rep} at ${c.at}: ${c.error.slice(0, 200)}. Cases marked harness-crash: ${c.cases.join(', ') || 'none'}. ${c.restartedIn === undefined ? 'The rest of the rep did not run.' : `The rest ran on a fresh stack in rep-${c.rep}/${c.restartedIn}.`}${c.logTail.length === 0 ? '' : `\n\n  \`\`\`\n  ${c.logTail.slice(-12).map((l) => l.slice(0, 240)).join('\n  ')}\n  \`\`\``}`).join('\n')}`]),
+    ...(diagnosed ? ['**Why it went that way, step by step, and the fixes ranked: [diagnosis.md](diagnosis.md).**'] : []),
     ...(behind.length === 0 ? [] : [`**The index never caught up in rep(s) ${behind.join(', ')}: suggestions and search by meaning were off or partial there, so read those verdicts with that in mind.**`]),
     `Stacks:\n- ${repsLine || '—'}`,
     'Open a rep\'s chats: `npm run scenarios -- --view ' + report.iteration + ' --rep <n>`, then the session links below (sign in as the case\'s person, password `scenario-person-password`).',
