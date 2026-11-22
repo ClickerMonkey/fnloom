@@ -22,7 +22,7 @@ import {
 import type { Logger } from '@ayepi/log';
 import type { EventBus } from '../bus.ts';
 import type { Catalog } from '../catalog/index.ts';
-import { chunkFromWire, decisionInputToWire, usageFromWire, wireRequest } from '@harness/sdk/server';
+import { ChunkReader, decisionInputToWire, usageFromWire, wireRequest } from '@harness/sdk/server';
 import type { ProviderSource } from '../execution/providers.ts';
 import type { LinkService, SystemConnection } from '../link/index.ts';
 import type { SystemLifecycle } from '../link/lifecycle.ts';
@@ -205,10 +205,11 @@ export class RemoteProvider implements Provider<SystemProviderDecl> {
     const connection = this.#connection();
     const body: ProviderChat = { provider: this.config.name, model, request: wireRequest(request), stream: true };
     const chunks: Chunk[] = [];
+    const reader = new ChunkReader();
     for await (const item of connection.peer.call('providerChat', body, this.#options(connection, signal))) {
       switch (item.type) {
         case 'chunk': {
-          const chunk = chunkFromWire(item.chunk);
+          const chunk = reader.read(item.chunk);
           chunks.push(chunk);
           yield chunk;
           break;

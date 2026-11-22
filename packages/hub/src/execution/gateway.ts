@@ -22,7 +22,7 @@ import type { ModelResolver } from './models.ts';
 import type { EngineModel, ExecutionDeps, LlmEngine } from './ports.ts';
 import { transientDelay, type ExecutionQueues } from './queues.ts';
 import { CallReceipts, LlmCallScope, type HubCallContext } from './scope.ts';
-import { chunkToWire, descriptorsOf, requestFromWire } from './wire.ts';
+import { ChunkWriter, descriptorsOf, requestFromWire } from './wire.ts';
 
 /** What the gateway uses. */
 export interface GatewayDeps extends Pick<ExecutionDeps, 'store' | 'clock' | 'log' | 'settings'> {
@@ -80,6 +80,7 @@ export class HubLlmGateway implements LlmGateway {
     }
     const metadata = await this.#deps.models.resolve(input.model);
     const channel = new Channel<LlmForwardChunk>();
+    const writer = new ChunkWriter();
     let sent = false;
     /** One attempt, holding an LLM slot only while it calls. */
     const attempt = () => this.#deps.queues.llm(scope.priority, async () => {
@@ -87,7 +88,7 @@ export class HubLlmGateway implements LlmGateway {
         if (!sent) channel.push({ type: 'descriptors', ...descriptorsOf(request) });
         sent = true;
         scope.markFirstToken(this.#deps.clock());
-        channel.push({ type: 'chunk', chunk: chunkToWire(chunk) });
+        channel.push({ type: 'chunk', chunk: writer.write(chunk) });
       }
       const last = scope.last;
       if (last === undefined) throw new Error('the call finished without being recorded');

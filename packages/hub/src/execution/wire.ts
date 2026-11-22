@@ -8,7 +8,7 @@ import { ChangeSet, LoadCards, ResultTable, rowsLine, tableModelView, WidgetProp
 import { LlmWire } from '@harness/sdk/server';
 
 export {
-  chunkFromWire, chunkToWire, descriptorsOf, isObjectSchema, messageFromWire, requestFromWire, responseToWire, usageToWire,
+  ChunkReader, ChunkWriter, chunkFromWire, chunkToWire, descriptorsOf, isObjectSchema, messageFromWire, requestFromWire, responseToWire, usageToWire,
 } from '@harness/sdk/server';
 
 /** A fn's name as an LLM tool name (core's, so the web reads one back the same way). */

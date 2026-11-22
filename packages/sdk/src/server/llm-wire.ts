@@ -313,6 +313,57 @@ export function chunkFromWire(chunk: LlmChunk): Chunk {
   };
 }
 
+/**
+ * A stream's chunks as they travel, one writer per stream: a tool call's growing arguments go as `toolCallMore`, only
+ * the text since the call's last chunk, so a call of n bytes costs n on the link, not n² (aeye's `toolCallArguments`
+ * holds the whole so far on every chunk). Arguments that don't extend what was sent go whole, as `toolCallArguments`.
+ */
+export class ChunkWriter {
+  /** How much of each call's arguments went out, by call id. */
+  readonly #sent = new Map<string, number>();
+
+  write(chunk: Chunk): LlmChunk {
+    const { toolCallArguments: growing, ...rest } = chunk;
+    const wire = chunkToWire(rest);
+    if (chunk.toolCallNamed !== undefined) this.#sent.set(chunk.toolCallNamed.id, chunk.toolCallNamed.arguments.length);
+    if (growing === undefined) return wire;
+    const sent = this.#sent.get(growing.id);
+    this.#sent.set(growing.id, growing.arguments.length);
+    if (sent === undefined || sent > growing.arguments.length) return { ...wire, toolCallArguments: callToWire(growing) };
+    return { ...wire, toolCallMore: { id: growing.id, name: growing.name, arguments: growing.arguments.slice(sent) } };
+  }
+}
+
+/**
+ * A stream's chunks from the wire as aeye's, one reader per stream: `toolCallMore` is added onto the call's
+ * arguments, and every chunk of a call holds the same call object (as aeye's providers do), so the chunks a stream
+ * keeps share one copy of the arguments.
+ */
+export class ChunkReader {
+  readonly #calls = new Map<string, ToolCall>();
+
+  read(wire: LlmChunk): Chunk {
+    const { toolCallMore, ...rest } = wire;
+    const chunk = chunkFromWire(rest);
+    if (chunk.toolCallNamed !== undefined) chunk.toolCallNamed = this.#call(chunk.toolCallNamed, chunk.toolCallNamed.arguments);
+    if (chunk.toolCallArguments !== undefined) chunk.toolCallArguments = this.#call(chunk.toolCallArguments, chunk.toolCallArguments.arguments);
+    if (toolCallMore !== undefined) {
+      const call = this.#calls.get(toolCallMore.id);
+      chunk.toolCallArguments = this.#call(toolCallMore, (call?.arguments ?? '') + toolCallMore.arguments);
+    }
+    return chunk;
+  }
+
+  /** The stream's one object for a call, holding `args`. */
+  #call(wire: LlmToolCall, args: string): ToolCall {
+    const call = this.#calls.get(wire.id) ?? { id: wire.id, name: wire.name, arguments: '' };
+    call.name = wire.name || call.name;
+    call.arguments = args;
+    this.#calls.set(wire.id, call);
+    return call;
+  }
+}
+
 /** A whole response as it is saved with its interaction. An unfinished response is saved as stopped. */
 export function responseToWire(response: Response, finished: boolean): LlmResponse {
   const reasoning = response.reasoning?.content;

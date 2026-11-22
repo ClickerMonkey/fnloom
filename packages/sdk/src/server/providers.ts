@@ -13,7 +13,7 @@ import {
 } from '@harness/core';
 import type { SystemCtx } from '../ctx.ts';
 import type { ProviderDef } from '../providers.ts';
-import { chunkToWire, decisionInputFromWire, requestFromWire, usageToWire } from './llm-wire.ts';
+import { ChunkWriter, chunkToWire, decisionInputFromWire, requestFromWire, usageToWire } from './llm-wire.ts';
 import { messageOf } from './wire.ts';
 
 /** What the provider server needs. */
@@ -60,6 +60,7 @@ export class ProviderServer {
       const streamer = provider.createStreamer?.();
       if (streamer !== undefined) {
         const stream: AsyncGenerator<Chunk, Response> = streamer(request, {}, metadata, signal);
+        const writer = new ChunkWriter();
         let usage: Chunk['usage'];
         for (;;) {
           const next = await stream.next();
@@ -68,7 +69,7 @@ export class ProviderServer {
             return;
           }
           if (next.value.usage !== undefined) { usage = next.value.usage; }
-          yield { type: 'chunk', chunk: chunkToWire(next.value) };
+          yield { type: 'chunk', chunk: writer.write(next.value) };
         }
       }
       const executor = provider.createExecutor?.();

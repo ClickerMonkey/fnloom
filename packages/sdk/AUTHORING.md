@@ -13123,6 +13123,11 @@ type ModelRecording = {
         name: string;
         arguments: string;
       } | undefined;
+      toolCallMore?: {
+        id: string;
+        name: string;
+        arguments: string;
+      } | undefined;
       toolCall?: {
         id: string;
         name: string;
@@ -16863,6 +16868,34 @@ A streamed chunk from the wire as an aeye chunk.
 function chunkFromWire(chunk: LlmChunk): Chunk;
 ```
 
+#### `ChunkWriter`
+
+class · `import { ChunkWriter } from '@harness/sdk/server'`
+
+A stream's chunks as they travel, one writer per stream: a tool call's growing arguments go as `toolCallMore`, only
+the text since the call's last chunk, so a call of n bytes costs n on the link, not n² (aeye's `toolCallArguments`
+holds the whole so far on every chunk). Arguments that don't extend what was sent go whole, as `toolCallArguments`.
+
+```ts
+class ChunkWriter {
+  write(chunk: Chunk): LlmChunk;
+}
+```
+
+#### `ChunkReader`
+
+class · `import { ChunkReader } from '@harness/sdk/server'`
+
+A stream's chunks from the wire as aeye's, one reader per stream: `toolCallMore` is added onto the call's
+arguments, and every chunk of a call holds the same call object (as aeye's providers do), so the chunks a stream
+keeps share one copy of the arguments.
+
+```ts
+class ChunkReader {
+  read(wire: LlmChunk): Chunk;
+}
+```
+
 #### `responseToWire`
 
 function · `import { responseToWire } from '@harness/sdk/server'`
@@ -19716,6 +19749,11 @@ type LlmForwardChunk = {
       arguments: string;
     } | undefined;
     toolCallArguments?: {
+      id: string;
+      name: string;
+      arguments: string;
+    } | undefined;
+    toolCallMore?: {
       id: string;
       name: string;
       arguments: string;

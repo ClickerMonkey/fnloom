@@ -94,6 +94,11 @@ type LlmForwardChunk = {
       name: string;
       arguments: string;
     } | undefined;
+    toolCallMore?: {
+      id: string;
+      name: string;
+      arguments: string;
+    } | undefined;
     toolCall?: {
       id: string;
       name: string;

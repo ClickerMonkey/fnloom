@@ -66,8 +66,14 @@ export const LlmChunk = z.object({
   reasoning: z.string().optional(),
   /** A tool call whose name is known (arguments may still stream). */
   toolCallNamed: LlmToolCall.optional(),
-  /** More of a tool call's arguments. */
+  /** A tool call's arguments so far, whole (what aeye's chunk holds; a stream sends `toolCallMore` instead). */
   toolCallArguments: LlmToolCall.optional(),
+  /**
+   * More of a tool call's arguments: `arguments` is only the text that came since its last chunk, for the reader to
+   * add on (`ChunkReader`). Sending the whole so far on every chunk made a long call quadratic on the link: a model
+   * looping on a 130 KB argument sent gigabytes and ran the hub out of memory.
+   */
+  toolCallMore: LlmToolCall.optional(),
   /** A tool call that is complete. */
   toolCall: LlmToolCall.optional(),
   finishReason: FinishReason.optional(),

@@ -178,7 +178,7 @@ export const OUTLINE: readonly Topic[] = [
       'AccessDeniedReader', 'AccessDenied', 'AllowlistProxy', 'AllowlistProxyOptions', 'ProxyRefusal', 'hostAllowed', 'proxyEnv', 'NETWORK_GUARD', 'NETWORK_GUARD_FILES', 'guardedEnv', 'NetworkGate', 'NETWORK_ALLOW_VAR', 'endpointOf', 'endpointText', 'endpointsText', 'guardNetwork', 'hostKey', 'networkRefusedLine', 'parseEndpoints', 'refusedOfLine', 'Endpoint', 'GuardOptions', 'Refused',
       'McpFace', 'McpLimits', 'readClientBundle', 'CLIENT_ENTRY', 'ClientBundle',
       'LlmWire', 'LlmWireOptions', 'LlmDescriptors', 'UNSENDABLE_CONTENT', 'messageFromWire', 'requestFromWire', 'isObjectSchema', 'descriptorsOf', 'applyDescriptors',
-      'usageToWire', 'usageFromWire', 'chunkToWire', 'chunkFromWire', 'responseToWire', 'decisionInputToWire', 'decisionInputFromWire',
+      'usageToWire', 'usageFromWire', 'chunkToWire', 'chunkFromWire', 'ChunkWriter', 'ChunkReader', 'responseToWire', 'decisionInputToWire', 'decisionInputFromWire',
       'addressVerdict', 'followRedirects', 'isLocalName', 'isPrivateAddress', 'systemLookup', 'REDIRECT_STATUSES', 'AddressRefusal', 'AddressRules', 'AddressVerdict',
       'FollowedResponse', 'HostLookup', 'RedirectOptions', 'RedirectProblems',
     ],

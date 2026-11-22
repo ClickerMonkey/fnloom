@@ -4,7 +4,7 @@ import { LlmRequest } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
-  applyDescriptors, chunkFromWire, chunkToWire, descriptorsOf, LlmWire, messageFromWire, requestFromWire, UNSENDABLE_CONTENT, usageFromWire, usageToWire,
+  applyDescriptors, ChunkReader, ChunkWriter, chunkFromWire, chunkToWire, descriptorsOf, LlmWire, messageFromWire, requestFromWire, UNSENDABLE_CONTENT, usageFromWire, usageToWire,
 } from './llm-wire.ts';
 import { LinkGap } from './wire.ts';
 
@@ -117,6 +117,39 @@ describe('descriptors, usage and chunks', () => {
       toolCall: { id: 't', name: 'n', arguments: '{}' }, finishReason: 'tool_calls' as const, refusal: 'no', usage: { input: 1, output: 2 },
     };
     expect(chunkToWire(chunkFromWire(chunk))).toEqual(chunk);
+  });
+
+  it('streams a tool call’s growing arguments as what is new, and reads them back whole on one call object', () => {
+    const call = { id: 't', name: 'set', arguments: '{"a"' };
+    const writer = new ChunkWriter();
+    const wire = [writer.write({ toolCallNamed: call })];
+    call.arguments += ':1';
+    wire.push(writer.write({ toolCallArguments: call }));
+    call.arguments += '}';
+    wire.push(writer.write({ toolCallArguments: call }));
+    wire.push(writer.write({ toolCall: call, finishReason: 'tool_calls' }));
+    expect(wire).toEqual([
+      { toolCallNamed: { id: 't', name: 'set', arguments: '{"a"' } },
+      { toolCallMore: { id: 't', name: 'set', arguments: ':1' } },
+      { toolCallMore: { id: 't', name: 'set', arguments: '}' } },
+      { toolCall: { id: 't', name: 'set', arguments: '{"a":1}' }, finishReason: 'tool_calls' },
+    ]);
+    const reader = new ChunkReader();
+    const read = wire.map((chunk) => reader.read(chunk));
+    expect(read[2]?.toolCallArguments?.arguments).toBe('{"a":1}');
+    // one object per call, as aeye's providers give it, so kept chunks share its arguments
+    expect(read[1]?.toolCallArguments).toBe(read[0]?.toolCallNamed);
+    expect(read[3]?.toolCall?.arguments).toBe('{"a":1}');
+  });
+
+  it('sends arguments whole when they don’t extend what went out, and reads a whole one as it is', () => {
+    const writer = new ChunkWriter();
+    writer.write({ toolCallNamed: { id: 't', name: 'n', arguments: '{"long"' } });
+    expect(writer.write({ toolCallArguments: { id: 't', name: 'n', arguments: '{' } })).toEqual({ toolCallArguments: { id: 't', name: 'n', arguments: '{' } });
+    expect(writer.write({ toolCallArguments: { id: 'u', name: 'm', arguments: '{}' } })).toEqual({ toolCallArguments: { id: 'u', name: 'm', arguments: '{}' } });
+    const reader = new ChunkReader();
+    reader.read({ toolCallNamed: { id: 't', name: 'n', arguments: '{"x"' } });
+    expect(reader.read({ toolCallArguments: { id: 't', name: 'n', arguments: '{"y"' } }).toolCallArguments?.arguments).toBe('{"y"');
   });
 });
 

@@ -13,8 +13,8 @@ choices:
     when: "Pick this for manifestOf, manifestBody, fnDecl, validationOf, providerDecl, canonicalJson, contractHash, sha256, ManifestOptions, ProviderServer, ProviderServerParts, providerErrorKind, KeyStore,…"
   - to: "fs/authoring.internals.crashpolicy"
     when: "Pick this for CrashPolicy, CrashPolicyOptions, ExitDecision, STATUS_LOG, statusOfLine, AccessDeniedReader, AccessDenied, AllowlistProxy, AllowlistProxyOptions, ProxyRefusal, hostAllowed, proxyEnv,…"
-  - to: "fs/authoring.internals.redirectoptions"
-    when: "Pick this for RedirectOptions, RedirectProblems."
+  - to: "fs/authoring.internals.addressverdict"
+    when: "Pick this for AddressVerdict, FollowedResponse, HostLookup, RedirectOptions, RedirectProblems."
   - to: "fs/authoring.core-types"
     when: "Pick this to go on in order: Core types."
 ---
@@ -34,5 +34,5 @@ back (`refusedOfLine`) and reports to the hub; `setAllowed` changes what a runni
 This part is in 3 pieces; load the one you need:
 
 - [manifestOf … ProcessGrants](context:fs/authoring.internals.manifestof)
-- [CrashPolicy … HostLookup](context:fs/authoring.internals.crashpolicy)
-- [RedirectOptions … RedirectProblems](context:fs/authoring.internals.redirectoptions)
+- [CrashPolicy … AddressRules](context:fs/authoring.internals.crashpolicy)
+- [AddressVerdict … RedirectProblems](context:fs/authoring.internals.addressverdict)

@@ -27,7 +27,7 @@ import type { ForwardModality, Llm, ModelInput, ModelOutput } from '../ctx.ts';
 import type { GinType } from '../gin.ts';
 import { HubContent, type ContentTransfer } from './content.ts';
 import type { HubAccess } from './link.ts';
-import { applyDescriptors, chunkFromWire, decisionInputToWire, LlmWire, usageFromWire } from './llm-wire.ts';
+import { applyDescriptors, ChunkReader, decisionInputToWire, LlmWire, usageFromWire } from './llm-wire.ts';
 import { decodeOrThrow } from './wire.ts';
 import { expectType, type Equal } from '../util.ts';
 
@@ -273,12 +273,13 @@ export class HarnessProvider implements Provider<HarnessProviderConfig> {
       ...(model === undefined ? {} : { model }),
     };
     const chunks: Chunk[] = [];
+    const reader = new ChunkReader();
     let served = 'hub';
     for await (const item of this.#link.llm(forward, signal)) {
       switch (item.type) {
         case 'descriptors': applyDescriptors(request, item); break;
         case 'chunk': {
-          const chunk = chunkFromWire(item.chunk);
+          const chunk = reader.read(item.chunk);
           chunks.push(chunk);
           yield chunk;
           break;

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { testStore, memoryLog } from '../testing.ts';
 import { LlmRateLimited } from './errors.ts';
 import { abortableSleep, HubLlmGateway } from './gateway.ts';
+import { ChunkReader } from './wire.ts';
 import type { HubCallContext, HubCallMetadata } from './scope.ts';
 import { ALICE, ALICE_INFO, OPEN_LIMITS, testSettings } from './testing.ts';
 
@@ -14,7 +15,7 @@ const FS = SystemName.parse('fs');
 const forward: LlmForward & { system: string } = { run: RUN, request: { messages: [{ role: 'user', content: 'hi' }] }, stream: true, system: FS };
 
 /** A gateway over a stored run, a streamer that is rate limited `limited` times first, and a recording LLM doer. */
-async function gateway(limited: number, retryAfter = 40) {
+async function gateway(limited: number, retryAfter = 40, streamed: () => Iterable<Chunk> = () => [{ content: 'hello' }]) {
   const store = await testStore();
   await store.table('turns').insert({
     id: TURN, actor: ALICE, user: ALICE_INFO, time: { now: 0, timeZone: 'UTC', local: '' }, status: 'running', limits: OPEN_LIMITS, cost: 0, errors: 'feed-back', createdAt: 0,
@@ -33,7 +34,7 @@ async function gateway(limited: number, retryAfter = 40) {
     if (calls <= limited) throw new LlmRateLimited('test-model', retryAfter);
     context.call?.record({ interaction: LlmInteractionId.parse('llm_1'), modelCall: ModelCallId.parse('mdl_1'), model: 'test-model', cost: 0.001, usage: { input: 1, output: 1 } });
     context.receipts?.record({ modelCall: ModelCallId.parse('mdl_3'), model: 'test-model', cost: 0.001 });
-    yield { content: 'hello' };
+    yield* streamed();
     return { content: 'hello', finishReason: 'stop', model: 'test-model' };
   };
   const heard: Array<{ bytes: number; ctx: HubCallContext }> = [];
@@ -145,6 +146,33 @@ describe('the forwarded-LLM retry', () => {
     expect(calls()).toBe(1);
     // the minute-long wait was cut short
     expect(Date.now() - started).toBeLessThan(5_000);
+  });
+});
+
+/** A tool call whose arguments stream a character at a time, as aeye's providers give it: one call object, growing. */
+function* growingCall(args: string): Iterable<Chunk> {
+  const call = { id: 'call_set', name: 'set', arguments: '' };
+  for (const [i, char] of [...args].entries()) {
+    call.arguments += char;
+    yield i === 0 ? { toolCallNamed: call } : { toolCallArguments: call };
+  }
+  yield { toolCall: call, finishReason: 'tool_calls' };
+}
+
+describe('a forwarded tool call’s streamed arguments', () => {
+  // scenarios iter-1 rep 2: GPT-6 Luna looped whitespace into a `set` call for minutes; every chunk carried the
+  // arguments so far, so the link carried n² bytes and the hub died at its 4 GB heap
+  it('cross the link once, not whole on every chunk, and read back whole', async () => {
+    const args = `{"draft":${' \n'.repeat(10_000)}}`;
+    const { hub } = await gateway(0, 40, () => growingCall(args));
+    const out = await collect(hub.forward(forward, new AbortController().signal));
+    const bytes = out.reduce((sum, item) => sum + JSON.stringify(item).length, 0);
+    // linear: the arguments twice (streamed, then the finished call) plus a small frame per chunk
+    expect(bytes).toBeLessThan(args.length * 2 + out.length * 100);
+    const reader = new ChunkReader();
+    const read = out.flatMap((item) => (item.type === 'chunk' ? [reader.read(item.chunk)] : []));
+    expect(read.at(-2)?.toolCallArguments?.arguments).toBe(args);
+    expect(read.at(-1)?.toolCall?.arguments).toBe(args);
   });
 });
 
