@@ -5,7 +5,7 @@ title: "Core types: From packages/core/src/model-calls.ts"
 description: "Core types, the part on From packages/core/src/model-calls.ts."
 summary: "Core types: From packages/core/src/model-calls.ts."
 parent: "fs/authoring.core-types"
-next: "fs/authoring.core-types.modes-ts"
+next: "fs/authoring.core-types.model-names-ts"
 suggest: "none"
 tags: ["authoring", "reference"]
 niche: "developer"

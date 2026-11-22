@@ -10,7 +10,7 @@
  */
 import {
   compact, contextOff, DEFAULT_CHAT_MODE, type AnnouncedSystems, fnLabel, INPUT_ANSWER_TAG, splitName, type ActorId, type ChatMessage, type ChatModeType, type ContextRecord, type HookBlock, type HookInput,
-  type Link, type LoadedForYouPart, type LoadOutcome, type MessagePart, type QualifiedName, type Session, type SuggestedFnCard, type Suggestion, type SuggestionOutcome, type SuggestionRecord, type TurnId,
+  type Link, type LoadedForYouPart, type LoadOutcome, type MessagePart, QualifiedName, type Session, type SuggestedFnCard, type Suggestion, type SuggestionOutcome, type SuggestionRecord, type TurnId,
   type UserInfo,
 } from '@harness/core';
 import { withImports } from '../contextor/brought.ts';
@@ -226,7 +226,7 @@ export class HubMessageEnricher implements MessageEnricher {
       const records: ContextRecord[] = [];
       for (const name of await withImports(this.#deps.catalog, [item.name])) {
         if (name !== item.name && (seen.has(name) || taken.context.has(name))) continue;
-        const record = name === item.name ? main : await this.#deps.catalog.context(name as QualifiedName);
+        const record = name === item.name ? main : await this.#deps.catalog.context(QualifiedName.parse(name));
         if (record?.decl.content === undefined || contextOff(record) || !allowsSystem(session, record.system) || !seesContextAs(access, record, session.id)) continue;
         records.push(record);
       }

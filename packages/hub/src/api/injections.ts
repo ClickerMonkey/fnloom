@@ -15,7 +15,7 @@
  */
 import { reject } from '@ayepi/core';
 import {
-  AgentInjected, InjectionSetting, InjectionView, InjectTargetView, mintId, type ActorId, type ChatFnMode, type ChatModeType, type FnRecord, type InjectionLeftOut,
+  AgentInjected, InjectionSetting, InjectionView, InjectTargetView, mintId, ModelChoice, type ActorId, type ChatFnMode, type ChatModeType, type FnRecord, type InjectionLeftOut,
   type InjectionsPage, type InjectionsQuery, type QualifiedName, type SetInjection,
 } from '@harness/core';
 import { LlmPayloadType, parseValue, type LlmPayload } from '@harness/sdk';
@@ -130,12 +130,17 @@ export function injectionDeps(hub: Pick<HubServices, 'store' | 'catalog' | 'cont
   };
 }
 
+/** An agent fn's payload, or nothing known when it doesn't parse. */
+function payloadOf(fn: FnRecord): Pick<LlmPayload, 'injected' | 'mode' | 'contextor' | 'model'> {
+  try { return parseValue(LlmPayloadType, fn.decl.payload); } catch { return {}; }
+}
+
 /** An agent's facts, read off its fn's payload; the chat mode is the query's when it names one. */
 function agentFacts(fn: FnRecord, mode: ChatModeType | undefined): AgentFacts {
-  let payload: Pick<LlmPayload, 'injected' | 'mode' | 'contextor' | 'model'> = {};
-  try { payload = parseValue(LlmPayloadType, fn.decl.payload); } catch { payload = {}; }
+  const payload = payloadOf(fn);
   const injected = AgentInjected.safeParse(payload.injected);
-  const model = payload.model !== undefined && 'model' in payload.model ? payload.model.model : undefined;
+  const choice = ModelChoice.optional().safeParse(payload.model);
+  const model = choice.success && choice.data !== undefined && 'model' in choice.data ? choice.data.model : undefined;
   return { name: fn.name, injected: injected.success ? injected.data : undefined, mode: mode ?? modeChoice(undefined, payload).mode.type, model };
 }
 

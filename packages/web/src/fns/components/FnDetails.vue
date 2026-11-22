@@ -103,37 +103,37 @@ onBeforeUnmount(() => { store.close(); fns.close(); injected.close(); });
         :busy="injected.busyKey.value" :now="now" data-testid="fn-injected" @switch="switchInjected" @reorder="reorderInjected" @retry="injected.refresh()"
       />
       <template v-else>
-      <UiCard v-if="isWidget" title="The widget" data-testid="fn-widget">
-        <template #actions>
-          <UiButton size="sm" icon="play" :loading="opening === name" data-testid="fn-widget-open" @click="openWidget(name)">Open in chat</UiButton>
-        </template>
-        <WidgetView v-if="widgetFrame && shownRun" :key="shownRun.id" :frame="widgetFrame" :args="shownRun.args" :view-key="`fn:${shownRun.id}`" :show-title="false" />
-        <UiEmpty v-else icon="grid" title="Not run yet" body="Open it in a chat to run it; its latest run shows here." />
-      </UiCard>
-      <FnOverview
-        :name="name" :about="fns.about.value.value" :facts="fns.facts.value.value" :loading="fns.facts.loading.value" :problem="fns.facts.problem.value" :describe="describe"
-        :examples="fns.examples.value" :examples-total="fns.examplesTotal.value" :more-examples="fns.examplesNext.value !== undefined" :examples-loading="fns.examplesLoading.value"
-        :examples-problem="fns.examplesProblem.value" @more="fns.moreExamples()" @retry="fns.open(name)"
-      >
-        <template #badges>
-          <UiSwitch :model-value="!record.disabled" label="In use" :disabled="store.switching.busy.value" data-testid="fn-on" @update:model-value="switchOn" />
-          <UiBadge v-if="record.paused">Paused</UiBadge>
-          <UiBadge v-for="tag in record.decl.tags" :key="tag">{{ tag }}</UiBadge>
-        </template>
-        <template v-if="slots.runs" #runs><slot name="runs" /></template>
-      </FnOverview>
-      <FnStats
-        v-model:days="days" :metrics="store.metrics.value.value" :daily="store.daily.value.value ?? []" :loading="store.metrics.loading.value"
-        :problem="store.metrics.problem.value || store.daily.problem.value" :now="now" :compact="compact" @retry="store.open(name, days)"
-      />
-      <FnPayload v-model:form="form" :payload="record.decl.payload" :readable="record.decl.readable" :max-height="compact ? 240 : 360" />
-      <AccessControl :target="{ kind: 'fn', fn: name }" />
-      <ItemHistory :item="{ system: record.system, section: 'fns', name }" />
-      <FnRuns
-        :runs="recent" :now="now" title="Latest runs" :loading="store.recent.loading.value" :problem="store.recent.problem.value" @open="emit('run', $event)"
-      >
-        <template #actions><UiButton size="sm" variant="ghost" icon="arrow-right" data-testid="fn-runs" @click="emit('runs', name)">All its runs</UiButton></template>
-      </FnRuns>
+        <UiCard v-if="isWidget" title="The widget" data-testid="fn-widget">
+          <template #actions>
+            <UiButton size="sm" icon="play" :loading="opening === name" data-testid="fn-widget-open" @click="openWidget(name)">Open in chat</UiButton>
+          </template>
+          <WidgetView v-if="widgetFrame && shownRun" :key="shownRun.id" :frame="widgetFrame" :args="shownRun.args" :view-key="`fn:${shownRun.id}`" :show-title="false" />
+          <UiEmpty v-else icon="grid" title="Not run yet" body="Open it in a chat to run it; its latest run shows here." />
+        </UiCard>
+        <FnOverview
+          :name="name" :about="fns.about.value.value" :facts="fns.facts.value.value" :loading="fns.facts.loading.value" :problem="fns.facts.problem.value" :describe="describe"
+          :examples="fns.examples.value" :examples-total="fns.examplesTotal.value" :more-examples="fns.examplesNext.value !== undefined" :examples-loading="fns.examplesLoading.value"
+          :examples-problem="fns.examplesProblem.value" @more="fns.moreExamples()" @retry="fns.open(name)"
+        >
+          <template #badges>
+            <UiSwitch :model-value="!record.disabled" label="In use" :disabled="store.switching.busy.value" data-testid="fn-on" @update:model-value="switchOn" />
+            <UiBadge v-if="record.paused">Paused</UiBadge>
+            <UiBadge v-for="tag in record.decl.tags" :key="tag">{{ tag }}</UiBadge>
+          </template>
+          <template v-if="slots.runs" #runs><slot name="runs" /></template>
+        </FnOverview>
+        <FnStats
+          v-model:days="days" :metrics="store.metrics.value.value" :daily="store.daily.value.value ?? []" :loading="store.metrics.loading.value"
+          :problem="store.metrics.problem.value || store.daily.problem.value" :now="now" :compact="compact" @retry="store.open(name, days)"
+        />
+        <FnPayload v-model:form="form" :payload="record.decl.payload" :readable="record.decl.readable" :max-height="compact ? 240 : 360" />
+        <AccessControl :target="{ kind: 'fn', fn: name }" />
+        <ItemHistory :item="{ system: record.system, section: 'fns', name }" />
+        <FnRuns
+          :runs="recent" :now="now" title="Latest runs" :loading="store.recent.loading.value" :problem="store.recent.problem.value" @open="emit('run', $event)"
+        >
+          <template #actions><UiButton size="sm" variant="ghost" icon="arrow-right" data-testid="fn-runs" @click="emit('runs', name)">All its runs</UiButton></template>
+        </FnRuns>
       </template>
     </template>
   </LoadState>

@@ -44,49 +44,7 @@ web handler run the same operation. Each is tagged `admin`: never exposed throug
 and it waits for the person's approval unless a policy says otherwise.
 
 ```ts
-const ADMIN_ENDPOINTS = {
-  configure_provider: settingsSlice.endpoints.configureProvider,
-  set_model_category: settingsSlice.endpoints.setModelCategory,
-  set_budget: settingsSlice.endpoints.setBudget,
-  set_priority: settingsSlice.endpoints.setPriority,
-  set_policy: settingsSlice.endpoints.setPolicy,
-  set_actor_setting: settingsSlice.endpoints.setActorSetting,
-  add_user: settingsSlice.endpoints.addUser,
-  add_group: settingsSlice.endpoints.addGroup,
-  update_user: settingsSlice.endpoints.updateUser,
-  set_membership: settingsSlice.endpoints.setMembership,
-  set_sign_in_policy: settingsSlice.endpoints.setSignInPolicy,
-  set_sign_in_limits: settingsSlice.endpoints.setSignInLimits,
-  set_proxy_trust: settingsSlice.endpoints.setProxyTrust,
-  remove_rule: adminSlice.endpoints.removeRule,
-  approve_pairing: systemsSlice.endpoints.approvePairing,
-  create_pairing_token: systemsSlice.endpoints.createPairingToken,
-  configure_system: systemsSlice.endpoints.configureSystem,
-  enable_system: systemsSlice.endpoints.enableSystem,
-  switch_item: systemsSlice.endpoints.switchItem,
-  remove_system: systemsSlice.endpoints.removeSystem,
-  install_system: systemsSlice.endpoints.installSystem,
-  start_system: systemsSlice.endpoints.startSystem,
-  stop_system: systemsSlice.endpoints.stopSystem,
-  restart_system: systemsSlice.endpoints.restartSystem,
-  upgrade_system: systemsSlice.endpoints.upgradeSystem,
-  set_model_role: modelsSlice.endpoints.setModelRole,
-  clear_model_role: modelsSlice.endpoints.clearModelRole,
-  set_model_limits: contextorSlice.endpoints.setModelLimits,
-  create_mcp: mcpsSlice.endpoints.createMcp,
-  update_mcp: mcpsSlice.endpoints.updateMcp,
-  rotate_mcp_secret: mcpsSlice.endpoints.rotateMcpSecret,
-  delete_mcp: mcpsSlice.endpoints.deleteMcp,
-  preview_mcp: mcpsSlice.endpoints.previewMcp,
-  install_package: packagingSlice.endpoints.installPackage,
-  add_instance: packagingSlice.endpoints.addInstance,
-  remove_instance: packagingSlice.endpoints.removeInstance,
-  export_system_data: packagingSlice.endpoints.exportSystemData,
-  suggest_decision_set: suggestionsSlice.endpoints.setSuggestDecision,
-  search_decision_set: suggestionsSlice.endpoints.setSearchDecision,
-  auto_pair_revoke: autoPairSlice.endpoints.revokeAutoPair,
-  system_reimport: systemsSlice.endpoints.reimport,
-} as const satisfies Record<string, EndpointLike>;
+const ADMIN_ENDPOINTS: typeof ADMIN_ENDPOINTS; // too large to print: see its section
 ```
 
 #### `AdminFnName`
@@ -276,6 +234,7 @@ const ADMIN_READ_ENDPOINTS = {
   instances_list: packagingSlice.endpoints.instances,
   suggest_decision_get: suggestionsSlice.endpoints.suggestDecision,
   search_decision_get: suggestionsSlice.endpoints.searchDecisions,
+  ctx_injections_list: injectionsSlice.endpoints.injections,
 } as const satisfies Record<string, EndpointLike>;
 ```
 

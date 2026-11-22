@@ -13,7 +13,7 @@
 import type {
   ActorId, Approval, FnError, Json, LlmForward, LlmForwardChunk, LlmInteractionId, Priority, QualifiedName, ResolvedLimits, Run, RunId, RunSettled,
   SessionId, TurnId, UndoOutcome, UserInfo, Usd, ApprovalId, Remember, ProgressReport, AllowedOperations, LedgerEntry, BudgetId, ReservationId,
-  ModelCallId, InvalidInput, InstanceName, LlmRequest, ModelChoice, Approver, ApprovalPreview, ProposalAsk, ProposedRun, ProposeRun, SystemName, OutcomeWire, CompareFork,
+  ModelCallId, InvalidInput, InstanceName, LlmRequest, ModelChoice, Approver, ApprovalPreview, ProposalAsk, ProposedRun, ProposeRun, SystemName, OutcomeWire, CompareFork, PromptPreview, Session,
 } from '@harness/core';
 import { hub } from '@harness/sdk';
 import type { ModelSite } from '../models/index.ts';
@@ -222,4 +222,6 @@ export interface AgentLoop {
   interrupt(run: RunId): Promise<void>;
   /** Carry on an agent run that stopped at its step limit or was cancelled: the same run, a fresh step budget (Continue). */
   continue(run: RunId, by: ActorId): Promise<void>;
+  /** The request a session's agent would send for a new message, with no model called and nothing kept (admins' prompt preview). */
+  preview(input: { session: Session; user: ActorId; message: string; model?: string | undefined; count?: readonly string[] | undefined }): Promise<PromptPreview>;
 }

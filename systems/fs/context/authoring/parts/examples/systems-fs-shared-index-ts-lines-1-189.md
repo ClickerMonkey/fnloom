@@ -27,7 +27,7 @@ progress and handlers, a hook, a mention provider, static and dynamic context, a
  * implements it and its client draws it.
  */
 import { ChangeSet, SensitivityRule } from '@harness/core';
-import { type Infer, type ValueOf, agent, arg, attachment, context, fn, ginAs, g, handler, hook, hub, linear, mention, setting, system, type } from '@harness/sdk';
+import { type Infer, type ValueOf, agent, agents, arg, attachment, context, fn, ginAs, g, handler, hook, hub, linear, mention, setting, system, type } from '@harness/sdk';
 import { HostedState, HostedStatus, InstallArgs, InstallResult, RestartArgs, StatusArgs, StopArgs, StopResult } from './hosting.ts';
 
 export * from './hosting.ts';

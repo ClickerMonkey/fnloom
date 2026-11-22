@@ -122,6 +122,28 @@ describe('finding and loading fns', () => {
     expect(session?.tools).toEqual(['fs/read']);
   });
 
+  it('marks the context hits already in the prompt, injected or loaded, and never loads them again', async () => {
+    const { r, turn } = await started();
+    r.catalog.contexts.set(QualifiedName.parse('fs/guide'), 'How to work with files.');
+    const guide = QualifiedName.parse('fs/guide');
+    filtered = [{ item: 'context', by: 'decision', dropped: [], action: 'load' }];
+    // in the agent's injected section (the fixed region's stamp): marked so, and the load decision leaves it
+    await r.store.table('sessions').update(SESSION, { fixed: { hash: 'h', injected: [guide], at: turn.id } });
+    const injected = await call(r, turn, 'ctx_search', { text: 'files' });
+    expect(injected).toEqual({ status: 'done', result: { items: [{ item: 'context', name: 'fs/guide', system: 'fs', description: 'guide', available: true, inPrompt: 'injected' }], filtered } });
+    expect((await r.store.table('sessions').get(SESSION))?.context).toEqual([]);
+    // in neither: loaded by the decision, and the hit says it is loaded now
+    await r.store.table('sessions').update(SESSION, { fixed: { hash: 'h', injected: [], at: turn.id } });
+    const loadedNow = await call(r, turn, 'ctx_search', { text: 'files' });
+    expect(loadedNow).toMatchObject({ status: 'done', result: { items: [{ name: 'fs/guide', inPrompt: 'loaded' }], loaded: { context: ['fs/guide'] } } });
+    // loaded in the chat before: marked loaded, nothing loaded again
+    const again = await call(r, turn, 'ctx_search', { text: 'files' });
+    expect(again).toEqual({ status: 'done', result: { items: [{ item: 'context', name: 'fs/guide', system: 'fs', description: 'guide', available: true, inPrompt: 'loaded' }], filtered } });
+    // fns are never marked
+    const fns = await call(r, turn, 'fns_search', { text: 'read' });
+    expect(fns.status === 'done' && JSON.stringify(fns.result)).not.toContain('inPrompt');
+  });
+
   it('applies each search decision to its own search: the fn one to fns_search, the context one to ctx_search', async () => {
     const { r, turn } = await started();
     r.catalog.contexts.set(QualifiedName.parse('fs/guide'), 'How to work with files.');

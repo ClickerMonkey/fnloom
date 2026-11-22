@@ -353,7 +353,7 @@ describe('a suggestions chooser that loads what it picks', () => {
       context: [{ context: 'fs/guide', title: 'Files', why: '100% likely', text: 'Paths are relative to the root.', fns: ['fs/tree'] }],
     }]);
     expect(suggestions?.action).toBe('load');
-    expect(suggestions?.items.filter((i) => i.used).map((i) => [i.name, i.used ? i.load : undefined])).toEqual([['fs/read', 'loaded'], ['fs/guide', 'loaded'], ['fs/write', 'loaded'], ['fs/tree', 'loaded']]);
+    expect(suggestions?.items.filter((i) => i.used).map((i) => [i.name, i.load])).toEqual([['fs/read', 'loaded'], ['fs/guide', 'loaded'], ['fs/write', 'loaded'], ['fs/tree', 'loaded']]);
     // what was loaded is never suggested again in the chat, and its fns join the tools when the message is sent
     expect(suggestedIn(parts)).toEqual(['fs/read', 'fs/tree', 'fs/write', 'fs/guide']);
     expect(loadedFnsIn(parts)).toEqual(['fs/read', 'fs/tree', 'fs/write']);

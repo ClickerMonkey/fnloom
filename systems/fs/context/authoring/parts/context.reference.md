@@ -370,7 +370,7 @@ Simplify<{ -readonly [K in keyof A as A[K]['required'] extends true ? K : never]
 
 interface · `import { ContextRef } from '@harness/sdk'`
 
-A typed handle to context. A `/command`'s args are typed.
+A typed handle to context. A `/command`'s args are typed. In a template string it writes `context:<its key>`, rendered as the key.
 
 ```ts
 interface ContextRef<N extends QualifiedName, A> {
@@ -378,6 +378,8 @@ interface ContextRef<N extends QualifiedName, A> {
   readonly name: N;
   /** Phantom: the command's args. Never set at runtime. */
   readonly args?: A;
+  /** `context:<its key>`, for model-facing text (`withRefText`). */
+  toString(): string;
 }
 ```
 

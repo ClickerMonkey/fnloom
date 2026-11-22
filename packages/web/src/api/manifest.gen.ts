@@ -2424,6 +2424,29 @@ export const manifest = {
       "multi": false,
       "bodyEnc": "json"
     },
+    "previewPrompt": {
+      "method": "POST",
+      "path": "/previewPrompt",
+      "ws": "previewPrompt",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "session",
+        "text",
+        "model",
+        "count"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
     "modelRoles": {
       "method": "POST",
       "path": "/modelRoles",

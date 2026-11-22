@@ -45,8 +45,8 @@ choices:
     when: "Pick this for systems/fs/shared/index.ts, lines 1-189."
   - to: "fs/authoring.examples.systems-fs-shared-index-ts-lines-190-370"
     when: "Pick this for systems/fs/shared/index.ts, lines 190-370."
-  - to: "fs/authoring.examples.systems-fs-shared-index-ts-lines-371-512"
-    when: "Pick this for systems/fs/shared/index.ts, lines 371-512."
+  - to: "fs/authoring.examples.systems-fs-shared-index-ts-lines-371-533"
+    when: "Pick this for systems/fs/shared/index.ts, lines 371-533."
 ---
 
 ## 30. Worked examples
@@ -71,6 +71,6 @@ This part is in 19 pieces; load the one you need:
 - [scripts/docs/example/tsconfig.json](context:fs/authoring.examples.tsconfig-json)
 - [systems/fs/shared/index.ts, lines 1-189](context:fs/authoring.examples.systems-fs-shared-index-ts-lines-1-189)
 - [systems/fs/shared/index.ts, lines 190-370](context:fs/authoring.examples.systems-fs-shared-index-ts-lines-190-370)
-- [systems/fs/shared/index.ts, lines 371-512](context:fs/authoring.examples.systems-fs-shared-index-ts-lines-371-512)
+- [systems/fs/shared/index.ts, lines 371-533](context:fs/authoring.examples.systems-fs-shared-index-ts-lines-371-533)
 
 Fns for this: fn:fs/read, fn:fs/write, fn:fs/edit, fn:fs/bash.

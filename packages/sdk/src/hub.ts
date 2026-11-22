@@ -625,7 +625,7 @@ const FNS_SEARCH_EXAMPLES = [
 const CTX_SEARCH_GUIDE = [
   'It searches context (guides, memories, pieces of files) of every system you can use; fns are found with hub/fns_search. Use it for a system\'s guide before you first use the system, or for memories about the person.',
   'Put what you need in plain words in `text`; narrow only when you know how (`origins: ["memory"]` for what was remembered). Hits come best first; keep only those whose description fits. Page with `offset` set to `next`.',
-  'Load a hit with hub/ctx_load. When the page has `loaded`, the hub loaded those hits for you.',
+  'Load a hit with hub/ctx_load. A hit with `inPrompt` is in front of you already (`injected`: in your instructions; `loaded`: loaded in this chat), so don\'t load it again. When the page has `loaded`, the hub loaded those hits for you.',
 ].join(' ');
 
 const CTX_SEARCH_EXAMPLES = [

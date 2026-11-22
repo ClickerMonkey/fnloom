@@ -214,12 +214,33 @@ export async function loadKept(deps: HubFnDeps, asker: Asker, page: FnSearchPage
     if (fns.length > 0) await deps.sessions().load(session.id, { tools: [...new Set([...session.tools, ...fns])] });
   }
   const names = kinds.has('context')
-    ? [...new Set(page.items.filter((hit) => hit.item === 'context' && !session.context.includes(hit.name)).map((hit) => hit.name))].slice(0, max)
+    ? [...new Set(page.items.filter((hit) => hit.item === 'context' && inPromptAs(hit.name, session) === undefined).map((hit) => hit.name))].slice(0, max)
     : [];
   const context = names.length === 0 ? undefined : await loadIntoSession(deps, { session, access }, names);
   const loaded = { fns: [...fns, ...(context?.brought ?? []).filter((name) => !fns.includes(name))], context: context?.loaded ?? [] };
   if (loaded.fns.length + loaded.context.length === 0) return page;
   return { ...page, loaded: { ...loaded, note: SEARCH_LOADED_NOTE } };
+}
+
+/** Whether a context item is in a session's prompt already: in its agent's injected section, or loaded in the chat. */
+export function inPromptAs(name: QualifiedName, session: Pick<Session, 'context' | 'fixed'>): 'injected' | 'loaded' | undefined {
+  if (session.fixed?.injected.includes(name) === true) return 'injected';
+  return session.context.includes(name) ? 'loaded' : undefined;
+}
+
+/**
+ * A search page with each context hit that is in the session's prompt already marked so (`inPrompt`), what the page
+ * itself loaded included, so the model doesn't load it again.
+ */
+export function markInPrompt(page: FnSearchPage, session: Pick<Session, 'context' | 'fixed'>): FnSearchPage {
+  const now = { context: [...session.context, ...(page.loaded?.context ?? [])], fixed: session.fixed };
+  return {
+    ...page,
+    items: page.items.map((hit) => {
+      const where = hit.item === 'context' ? inPromptAs(hit.name, now) : undefined;
+      return where === undefined ? hit : { ...hit, inPrompt: where };
+    }),
+  };
 }
 
 /** Register the hub fns. */
@@ -323,7 +344,8 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
       actor, access, keep, forModel: true, run: ctx.request.run.id, ...(latest === undefined ? {} : { latest }),
     });
     // a search decision whose action is `load` has the best kept hits loaded into the chat
-    return session === undefined ? page : loadKept(deps, { session, access }, page, deps.searchLoadMax ?? DEFAULT_SEARCH_LOAD_MAX);
+    // each context hit already in front of the model says so: injected into its instructions, or loaded in the chat
+    return session === undefined ? page : markInPrompt(await loadKept(deps, { session, access }, page, deps.searchLoadMax ?? DEFAULT_SEARCH_LOAD_MAX), session);
   };
 
   // fns only: context is `hub/ctx_search`'s

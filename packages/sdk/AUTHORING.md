@@ -2379,7 +2379,8 @@ type Deps = Record<string, AnyFnRef>;
 
 interface · `import { FnRef } from '@harness/sdk'`
 
-A typed handle to a fn: declare it as a dep, then call it with checked args, result and handlers.
+A typed handle to a fn: declare it as a dep, then call it with checked args, result and handlers. In a template
+string it writes `fn:<its name>` (`withRefText`), which the hub renders as the name the model calls it by.
 
 ```ts
 interface FnRef<N extends QualifiedName, A, R, H extends Handlers = {}> {
@@ -2388,6 +2389,8 @@ interface FnRef<N extends QualifiedName, A, R, H extends Handlers = {}> {
   readonly args: GinType<A>;
   readonly returns: GinType<R>;
   readonly handlers: H;
+  /** `fn:<its name>`, for model-facing text (`withRefText`). */
+  toString(): string;
 }
 ```
 
@@ -4969,7 +4972,7 @@ Simplify<{ -readonly [K in keyof A as A[K]['required'] extends true ? K : never]
 
 interface · `import { ContextRef } from '@harness/sdk'`
 
-A typed handle to context. A `/command`'s args are typed.
+A typed handle to context. A `/command`'s args are typed. In a template string it writes `context:<its key>`, rendered as the key.
 
 ```ts
 interface ContextRef<N extends QualifiedName, A> {
@@ -4977,6 +4980,8 @@ interface ContextRef<N extends QualifiedName, A> {
   readonly name: N;
   /** Phantom: the command's args. Never set at runtime. */
   readonly args?: A;
+  /** `context:<its key>`, for model-facing text (`withRefText`). */
+  toString(): string;
 }
 ```
 
@@ -6108,12 +6113,12 @@ This is the hub contract as the SDK declares it now:
     agent?: text,
     systems?: or<list<text>, literal<text>{value="all"}>,
     title?: text
-  }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, systems, instructions?, citations?, selection?, participants, forkOf?, fork?, tools, context, suggested?, announcedSystems?, citationsTold?, status, transcript, createdAt, updatedAt, archived … }
+  }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, systems, instructions?, citations?, selection?, participants, forkOf?, fork?, tools, context, suggested?, announcedSystems?, citationsTold?, fixed?, status, transcript, createdAt, updatedAt, archived … }
   ```
 - `hub/session_update`: Change a session: its title, systems, agent, priority, model, chat mode or contextor, or archive it.
 
   ```text
-  (obj{ title?, systems?, agent?, archived?, priority?, notify?, model?, mode?, contextor?, fnMode?, instructions?, citations?, session … }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, systems, instructions?, citations?, selection?, participants, forkOf?, fork?, tools, context, suggested?, announcedSystems?, citationsTold?, status, transcript, createdAt, updatedAt, archived … }
+  (obj{ title?, systems?, agent?, archived?, priority?, notify?, model?, mode?, contextor?, fnMode?, instructions?, citations?, session … }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, systems, instructions?, citations?, selection?, participants, forkOf?, fork?, tools, context, suggested?, announcedSystems?, citationsTold?, fixed?, status, transcript, createdAt, updatedAt, archived … }
   ```
 - `hub/session_delete`: Delete a session and its messages.
 
@@ -6678,6 +6683,16 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{system: text, instance: text, withSecrets?: bool}) => obj{hash: text, size: num{whole=true, min=0}, mime: text, url: text}
   ```
+- `hub/ctx_injection_set`: Switch one injected item off or back on for one agent, or move it earlier or later in that agent's instructions. Other agents keep it as they had it. Tags: `admin`.
+
+  ```text
+  (obj{
+    agent: text,
+    context: text,
+    on?: bool,
+    order?: nullable<num{whole=true, min=0, max=1000}>
+  }) => obj{ agent, context, source, system, via, title, detail, text, tokens, order, on, leftOut?, switched? … }
+  ```
 - `hub/budgets_list`: Every budget rule with what it has spent so far. Tags: `admin`, `read`.
 
   ```text
@@ -6810,6 +6825,16 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj) => obj{ fn, context … }
   ```
+- `hub/ctx_injections_list`: What is injected into agents' system prompts: for each agent (a fn that runs a model, such as hub/chat), the context items and hook notes the hub puts into its instructions, in order, each with its text as the model reads it, its tokens, whether an admin left it on for that agent, and why it is left out if it is (switched off, waiting for review, declined, its system off, its fns unusable, the other chat mode, or no room). Tags: `admin`, `read`.
+
+  ```text
+  (obj{
+    agent?: text,
+    context?: text,
+    mode?: enum<text>{tools, static},
+    fnMode?: enum<text>{none, read, write, delete, auto}
+  }) => obj{ injections, targets … }
+  ```
 
 #### Kinds of `hub`
 
@@ -6927,49 +6952,7 @@ web handler run the same operation. Each is tagged `admin`: never exposed throug
 and it waits for the person's approval unless a policy says otherwise.
 
 ```ts
-const ADMIN_ENDPOINTS = {
-  configure_provider: settingsSlice.endpoints.configureProvider,
-  set_model_category: settingsSlice.endpoints.setModelCategory,
-  set_budget: settingsSlice.endpoints.setBudget,
-  set_priority: settingsSlice.endpoints.setPriority,
-  set_policy: settingsSlice.endpoints.setPolicy,
-  set_actor_setting: settingsSlice.endpoints.setActorSetting,
-  add_user: settingsSlice.endpoints.addUser,
-  add_group: settingsSlice.endpoints.addGroup,
-  update_user: settingsSlice.endpoints.updateUser,
-  set_membership: settingsSlice.endpoints.setMembership,
-  set_sign_in_policy: settingsSlice.endpoints.setSignInPolicy,
-  set_sign_in_limits: settingsSlice.endpoints.setSignInLimits,
-  set_proxy_trust: settingsSlice.endpoints.setProxyTrust,
-  remove_rule: adminSlice.endpoints.removeRule,
-  approve_pairing: systemsSlice.endpoints.approvePairing,
-  create_pairing_token: systemsSlice.endpoints.createPairingToken,
-  configure_system: systemsSlice.endpoints.configureSystem,
-  enable_system: systemsSlice.endpoints.enableSystem,
-  switch_item: systemsSlice.endpoints.switchItem,
-  remove_system: systemsSlice.endpoints.removeSystem,
-  install_system: systemsSlice.endpoints.installSystem,
-  start_system: systemsSlice.endpoints.startSystem,
-  stop_system: systemsSlice.endpoints.stopSystem,
-  restart_system: systemsSlice.endpoints.restartSystem,
-  upgrade_system: systemsSlice.endpoints.upgradeSystem,
-  set_model_role: modelsSlice.endpoints.setModelRole,
-  clear_model_role: modelsSlice.endpoints.clearModelRole,
-  set_model_limits: contextorSlice.endpoints.setModelLimits,
-  create_mcp: mcpsSlice.endpoints.createMcp,
-  update_mcp: mcpsSlice.endpoints.updateMcp,
-  rotate_mcp_secret: mcpsSlice.endpoints.rotateMcpSecret,
-  delete_mcp: mcpsSlice.endpoints.deleteMcp,
-  preview_mcp: mcpsSlice.endpoints.previewMcp,
-  install_package: packagingSlice.endpoints.installPackage,
-  add_instance: packagingSlice.endpoints.addInstance,
-  remove_instance: packagingSlice.endpoints.removeInstance,
-  export_system_data: packagingSlice.endpoints.exportSystemData,
-  suggest_decision_set: suggestionsSlice.endpoints.setSuggestDecision,
-  search_decision_set: suggestionsSlice.endpoints.setSearchDecision,
-  auto_pair_revoke: autoPairSlice.endpoints.revokeAutoPair,
-  system_reimport: systemsSlice.endpoints.reimport,
-} as const satisfies Record<string, EndpointLike>;
+const ADMIN_ENDPOINTS: typeof ADMIN_ENDPOINTS; // too large to print: see its section
 ```
 
 #### `AdminFnName`
@@ -7159,6 +7142,7 @@ const ADMIN_READ_ENDPOINTS = {
   instances_list: packagingSlice.endpoints.instances,
   suggest_decision_get: suggestionsSlice.endpoints.suggestDecision,
   search_decision_get: suggestionsSlice.endpoints.searchDecisions,
+  ctx_injections_list: injectionsSlice.endpoints.injections,
 } as const satisfies Record<string, EndpointLike>;
 ```
 
@@ -12224,6 +12208,58 @@ interface BuiltEntries {
 }
 ```
 
+#### `authoredNameWarnings`
+
+function · `import { authoredNameWarnings } from '@harness/sdk/server'`
+
+Warnings for the names in a manifest's model-facing text that resolve to nothing `known` holds, one line each:
+`fns.add.description: fn:notes/ad names no fn — did you mean notes/add?`. A ref that names nothing always warns; a
+bare name only when it is near a name the build knows (a misspelling): a text may name fns that are only examples
+(`code/price_with_tax`, a fn a person might make).
+
+```ts
+function authoredNameWarnings(manifest: Manifest, known: AuthoredNames): string[];
+```
+
+Refers to: [`AuthoredNames`](#core-authorednames), [`Manifest`](#core-manifest).
+
+#### `authoredTexts`
+
+function · `import { authoredTexts } from '@harness/sdk/server'`
+
+Every piece of text in a manifest the model reads.
+
+```ts
+function authoredTexts(manifest: Manifest): AuthoredText[];
+```
+
+Refers to: [`Manifest`](#core-manifest).
+
+#### `declaredNames`
+
+function · `import { declaredNames } from '@harness/sdk/server'`
+
+The names a manifest itself declares, qualified (`types` holds its kinds too).
+
+```ts
+function declaredNames(manifest: Manifest): { fns: string[]; context: string[]; types: string[]; };
+```
+
+Refers to: [`Manifest`](#core-manifest).
+
+#### `AuthoredText`
+
+interface · `import { AuthoredText } from '@harness/sdk/server'`
+
+One piece of model-facing text, with where it is (`fns.add.description`).
+
+```ts
+interface AuthoredText {
+  readonly where: string;
+  readonly text: string;
+}
+```
+
 ## 28. Testing
 
 Every system tests itself with the SDK's **test kit** (`@harness/sdk/testing`), in vitest, with no setup:
@@ -15279,7 +15315,7 @@ progress and handlers, a hook, a mention provider, static and dynamic context, a
  * implements it and its client draws it.
  */
 import { ChangeSet, SensitivityRule } from '@harness/core';
-import { type Infer, type ValueOf, agent, arg, attachment, context, fn, ginAs, g, handler, hook, hub, linear, mention, setting, system, type } from '@harness/sdk';
+import { type Infer, type ValueOf, agent, agents, arg, attachment, context, fn, ginAs, g, handler, hook, hub, linear, mention, setting, system, type } from '@harness/sdk';
 import { HostedState, HostedStatus, InstallArgs, InstallResult, RestartArgs, StatusArgs, StopArgs, StopResult } from './hosting.ts';
 
 export * from './hosting.ts';
@@ -15649,7 +15685,7 @@ export const fs = system('fs', {
       }),
 ```
 
-#### `systems/fs/shared/index.ts`, lines 371-512
+#### `systems/fs/shared/index.ts`, lines 371-533
 
 ```ts
       system_status: fn({
@@ -15703,7 +15739,15 @@ export const fs = system('fs', {
         tags: ['systems'],
       }),
     },
-    hooks: { git: hook({ description: 'Adds the current branch and the changed files.', order: 50, timeout: 500 }) },
+    hooks: {
+      git: hook({
+        description: 'Adds the current branch and the changed files.',
+        // what `<fs_git>` means to the model: injected with fs's items into the agents that get the block
+        explains: '`<fs_git>` is the git state of each folder the files system serves that is a git repository: its branch, and the files changed since the last commit. The person didn\'t type it. Mention it only when it matters to the request.',
+        order: 50,
+        timeout: 500,
+      }),
+    },
   })
   // mentions, context and the agent use the types and fns declared above
   .with(({ fns, types }) => ({
@@ -15727,6 +15771,19 @@ export const fs = system('fs', {
         ].join('\n'),
         // the guide brings the fns it is about, so finding it finds them
         fns: [fns.read, fns.list, fns.glob, fns.grep, fns.edit, fns.write, fns.bash, fns.cd, fns.remove],
+      }),
+      // what every chat agent is told about files, in its system prompt (plan injected-context, section 5)
+      basics: context({
+        title: 'Files',
+        description: 'Where the files system works (its roots), how paths are written, what can be undone, and that an attached file is not one of its files.',
+        summary: 'The files system works only in folders an admin chose: paths are relative to the first root, never `/`. Load fs/guide first.',
+        content: [
+          'The **files system** (`fs`) works only inside a few folders of the person\'s machine an admin chose (its roots). Paths are relative to the first root (`notes/todo.md`) or start with a root\'s name; `/` is outside the roots and is refused. Look before you guess a path: fs/list on `.` shows the first root, fs/glob finds files by name, and fs/read reads one.',
+          'fs/write, fs/edit and fs/remove may ask the person first, and what they change can be undone with the turn; what fs/bash changes can\'t. To keep a document for the person (a note, a list, a recipe), write a markdown file and tell them its path.',
+          'A file the person attached to a message is not an fs file: it is kept by the hub, not under the roots. Load fs/guide before the first change.',
+        ].join('\n'),
+        fns: [fns.list, fns.read],
+        inject: { into: [agents.startingWith(hub.fns.chat)] },
       }),
       tree: context({
         description: 'The folder tree of a root, as it is now.',
@@ -18773,6 +18830,7 @@ type FnSearchPage = {
       reason: string;
       system?: SystemName | undefined;
     } | undefined;
+    inPrompt?: "injected" | "loaded" | undefined;
   }[];
   next?: number | undefined;
   filtered?: {
@@ -21750,6 +21808,25 @@ const, type · declared in `packages/core/src/model-calls.ts`
 
 ```ts
 type ModelRole = "ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide";
+```
+
+### From `packages/core/src/model-names.ts`
+
+#### <a id="core-authorednames"></a>`AuthoredNames`
+
+interface · declared in `packages/core/src/model-names.ts`
+
+The names authored text may name, qualified, for the build's check (`unresolvedNamesIn`).
+
+```ts
+interface AuthoredNames {
+  readonly fns: ReadonlySet<string>;
+  readonly context: ReadonlySet<string>;
+  /** Named types and kinds (the other names a text may give). */
+  readonly types: ReadonlySet<string>;
+  /** The systems whose names are checked: a bare `x/y` whose `x` is none of these (a path, `src/index.ts`) is left alone. */
+  readonly systems: ReadonlySet<string>;
+}
 ```
 
 ### From `packages/core/src/modes.ts`

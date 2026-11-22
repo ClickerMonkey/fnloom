@@ -34,7 +34,8 @@ export const WHERE = /^(system-prompt|systems-list|suggestions|hub-behaviour|new
 const CONFIDENCE_WORDS: Record<string, number> = { high: 0.8, medium: 0.5, low: 0.25 };
 
 export const Fix = z.object({
-  where: z.string().trim().transform((w) => w.replace(/^hub-behavior$/, 'hub-behaviour').replace(/__/, '/')).pipe(z.string().regex(WHERE, 'system-prompt | systems-list | suggestions | hub-behaviour | new-mechanism | tool-description:<fn> | fn-instructions:<fn> | kind-instructions:<kind> | context:<key>')),
+  // a fn written as the model's tool name reads back as its qualified name (`database__main__x` is `database/main.x`)
+  where: z.string().trim().transform((w) => w.replace(/^hub-behavior$/, 'hub-behaviour').replace(/__/, '/').replace(/^((?:tool-description|fn-instructions):[^/]+\/.*)$/, (place) => place.replaceAll('__', '.'))).pipe(z.string().regex(WHERE, 'system-prompt | systems-list | suggestions | hub-behaviour | new-mechanism | tool-description:<fn> | fn-instructions:<fn> | kind-instructions:<kind> | context:<key>')),
   /** The steps it would have changed. */
   steps: z.array(z.coerce.number().int()).default([]),
   problem: z.string().min(1),
@@ -144,9 +145,10 @@ If a fact is not on that page, the model does not know it. Judge each step only 
 3b. Audit the model's messages to the person. List each claim of fact or of action in them (a date, a price, a link, "I checked…", "I saved…", "I set up…") and find the tool result that backs it. A claim no tool result backs (a link that appears in no result, "I checked the pages" when no page was read) is the worst failure in a case, whatever the judge said: file the step that wrote it as model-error unless the prompt invited it, and add a fix (usually system-prompt) that makes the rule plain: say only what tool results show, and say what was not checked.
 4. rootCause: one paragraph. Name the step numbers, quote the exact text that was missing, misleading or confusing (or say exactly what was absent), and explain how that led to the outcome. If the case went well, say what made it work.
 5. fixes: 2 to 6 changes, the most useful first (fix the earliest cause in the chain before its consequences). Every step you filed as anything but fine must be covered by at least one fix; list the steps a fix covers in its "steps". Each changes ONE place ("where"):
-   - system-prompt: the chat agent's system prompt (shown in full at step 1).
+   - system-prompt: the core of the chat agent's system prompt (shown in full at step 1): what is true of every chat whatever is installed.
    - systems-list: the <systems> block inside that prompt (one line per system).
-   - tool-description:<fn>: one tool's description, by its name with a slash (tool-description:database/create_table, not database__create_table).
+   - context:<key> also names an injected item: after the core, the system prompt holds sections under a "## Title" heading (the hub's own, such as hub/asking or hub/saved_fns, and each system's, such as input/basics or database/basics); each is a context item injected into the prompt, so fix one by its key. What one system should say goes in that system's item, never in the core.
+   - tool-description:<fn>: one tool's description, by its qualified name: the tool's name with its first __ written / and any later __ written . (tool-description:database/create_table for the tool database__create_table).
    - fn-instructions:<fn>: the longer usage text of a fn, shown when it is loaded or looked at.
    - kind-instructions:<kind>: the text that explains a fn kind (kind-instructions:input/form).
    - context:<key>: a guide or group the model can load (context:input/guide), or a new one you name.

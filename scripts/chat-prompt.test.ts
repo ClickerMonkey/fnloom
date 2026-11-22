@@ -8,8 +8,11 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { hub, isSystemContract, manifestBody, manifestOf, type AnyContract } from '@harness/sdk';
+import { hub, isSystemContract, manifestBody, manifestOf } from '@harness/sdk';
 import { qualify, type ContextDecl, type Manifest } from '@harness/core';
+
+/** A system's manifest before it is hashed: all these tests read. */
+type Body = Omit<Manifest, 'hash'>;
 import { describe, expect, it } from 'vitest';
 import { CHAT_BASE, CHAT_CORE_TAGS } from '../packages/sdk/src/chat-prompt.ts';
 import { hubContext } from '../packages/hub/src/boot/hub-context.ts';
@@ -25,18 +28,18 @@ const folders = readdirSync(systems, { withFileTypes: true })
 const SPEAKING = ['input', 'database', 'widgets', 'code', 'api', 'web', 'fs'];
 
 /** Every system's manifest, by name. */
-async function manifests(): Promise<Map<string, Manifest>> {
-  const out = new Map<string, Manifest>();
+async function manifests(): Promise<Map<string, Body>> {
+  const out = new Map<string, Body>();
   for (const folder of folders) {
     const loaded: unknown = await import(pathToFileURL(join(systems, folder, 'shared', 'index.ts')).href);
     const contracts = typeof loaded === 'object' && loaded !== null ? Object.values(loaded).filter(isSystemContract) : [];
-    for (const contract of contracts as AnyContract[]) out.set(contract.name, manifestBody(contract, { version: '0.0.0' }) as Manifest);
+    for (const contract of contracts) out.set(contract.name, manifestBody(contract, { version: '0.0.0' }));
   }
   return out;
 }
 
 /** A manifest's injected context items. */
-function injected(manifest: Manifest): ContextDecl[] {
+function injected(manifest: Body): ContextDecl[] {
   return manifest.context.filter((decl) => decl.inject !== undefined);
 }
 

@@ -179,6 +179,7 @@ type FnSearchPage = {
       reason: string;
       system?: SystemName | undefined;
     } | undefined;
+    inPrompt?: "injected" | "loaded" | undefined;
   }[];
   next?: number | undefined;
   filtered?: {

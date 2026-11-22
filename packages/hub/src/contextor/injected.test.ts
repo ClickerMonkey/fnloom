@@ -1,5 +1,5 @@
 import { ActorId, ContextorConfig, mintId, QualifiedName, SystemName, type ContextRecord, type ContractChange, type KindDescription, type LlmMessage, type Session, type Turn } from '@harness/core';
-import { agent, context, fn, g, hook, kind, LlmPayloadType, system, wireType, type LlmPayload } from '@harness/sdk';
+import { agent, context, fn, g, hook, kind, LlmPayloadType, system, wireType, parseValue, type LlmPayload } from '@harness/sdk';
 import { describe, expect, it } from 'vitest';
 import { StoreCatalog } from '../catalog/catalog.ts';
 import { manifestFor, systemRow } from '../catalog/fixtures.ts';
@@ -91,7 +91,7 @@ async function rig(patch: Partial<Session> = {}, window = 16_384) {
   const plan = async (agentName: string, turn = turnOf('one'), text = 'Hello.', transcript: LlmMessage[] = []) => {
     const record = await catalog.fn(q(agentName));
     if (record === undefined) throw new Error(`no ${agentName}`);
-    const payload = LlmPayloadType.toValueSchema().parse(record.decl.payload) as LlmPayload;
+    const payload = parseValue(LlmPayloadType, record.decl.payload);
     const now = await store.table('sessions').get(SESSION);
     return services.planner.plan({ session: now, turn, agent: record, model: 'm', instructions: payload.instructions, transcript: [...transcript, { role: 'user', content: text }] });
   };

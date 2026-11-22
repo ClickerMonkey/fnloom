@@ -117,6 +117,24 @@ describe('a session agent', () => {
     expect(system).not.toContain('Be helpful.');
   });
 
+  it('previews the request its next step would send, calling no model and keeping nothing', async () => {
+    const r = await started();
+    await r.session();
+    const before = await r.store.table('sessions').get(SESSION);
+    const preview = await r.module.agents.preview({ session: before ?? await r.session(), user: ALICE, message: 'Hi there', count: ['one two three'] });
+    expect(preview.agent).toBe('tools/helper');
+    expect(preview.system).toContain('Be helpful.');
+    expect(preview.parts.instructions).toContain('Be helpful.');
+    expect(preview.tools.map((tool) => tool.name)).toEqual(['fs__read', 'fs__write']);
+    expect(preview.tools[0]?.parameters).toMatchObject({ type: 'object' });
+    expect(preview.messages.at(-1)).toMatchObject({ role: 'user', content: 'Hi there' });
+    expect(preview.counts).toHaveLength(1);
+    expect(preview.estimate).toBeGreaterThan(0);
+    // no model was called, and the session is as it was
+    expect(r.provider.requests).toHaveLength(0);
+    expect(await r.store.table('sessions').get(SESSION)).toEqual(before);
+  });
+
   it('with citations on from the start: the rule is in the system prompt, and each tool result starts with its id', async () => {
     const r = await started();
     const fs = r.connect('fs');

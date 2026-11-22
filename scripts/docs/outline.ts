@@ -149,7 +149,7 @@ export const OUTLINE: readonly Topic[] = [
     title: 'Packaging: system.json, build, pack, install',
     exports: [
       'readPackageManifest', 'findPackageManifest', 'parsePackageManifest', 'checkPackage', 'packageProblems', 'PackageManifestError', 'builtPackageManifest',
-      'packedPackageManifest', 'packageFileProblems', 'packageManifestText', 'BuiltEntries',
+      'packedPackageManifest', 'packageFileProblems', 'packageManifestText', 'BuiltEntries', 'authoredNameWarnings', 'authoredTexts', 'declaredNames', 'AuthoredText',
     ],
   },
   {

@@ -30,7 +30,7 @@ import { ContextFromResourceArgs, ContextFromResourceResult, ContextLink, Declar
 import { FnMetrics, FnMetricsDay, FnMetricsQuery } from './metrics.ts';
 import { ModelCall, ModelRole, ModelRoleView, RoleChoice } from './model-calls.ts';
 import { ConfigSecrets } from './config-secrets.ts';
-import { ChatFnMode, ChatModeType, ModelLimits, ModelLimitsView, SelectionReport } from './modes.ts';
+import { ChatFnMode, ChatModeType, ModelLimits, ModelLimitsView, PromptPreview, PromptPreviewQuery, SelectionReport } from './modes.ts';
 import { AddInstance, InstanceRecord } from './package.ts';
 import { FormOffer, FormRecord, ResourceFacet, ResourceImportArgs, ResourceQuery, ResourceReadArgs, ResourceReadResult } from './resource-forms.ts';
 import { HubMcpInput, HubMcpView, McpRules, McpScopePreview, McpSessionView } from './records/mcps.ts';
@@ -556,6 +556,8 @@ export const contextorSlice = mergeSpecs(
     endpoints: use(tel, hubAuth, adminOnly).group({
       /** Set (or, with every field absent, clear) the limits of one model. */
       setModelLimits: { body: z.object({ model: z.string().min(1), limits: ModelLimits }), response: ModelLimitsView, ws: 'setModelLimits' },
+      /** The whole request a session's agent would send for a new message (system prompt, tools, messages), without calling the model or keeping anything. */
+      previewPrompt: { body: PromptPreviewQuery, response: PromptPreview, ws: 'previewPrompt' },
     }),
   }),
 );

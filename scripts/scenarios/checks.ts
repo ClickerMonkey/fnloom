@@ -14,10 +14,11 @@ const CLAIMS_SAVED = /\b(i'?ve|i have|i)\s+(saved|added|logged|created|set up|st
 
 /**
  * A tool reply that says the call went wrong: aeye's own replies when a tool threw, its arguments didn't parse or it
- * doesn't exist, and a refusal. An agent's own tools (an authoring agent's `services`, `search`, `set`) aren't hub
+ * doesn't exist, the hub's for a tool name it doesn't know ("There is no tool named …") or a call it stopped before it
+ * ran ("Stopped by the hub: …"), and a refusal. An agent's own tools (an authoring agent's `services`, `search`, `set`) aren't hub
  * runs, so their reply is all there is to tell.
  */
-const TOOL_ERROR = /^(Error (executing|parsing|transforming|working out) tool|Tool not found|Refused|.{0,80}was refused)/i;
+const TOOL_ERROR = /^(Error (executing|parsing|transforming|working out) tool|Tool not found|There is no tool named|Stopped by the hub|Refused\b|.{0,80}\bwas refused\b)/i;
 
 /** Whether a tool call's reply says it went wrong. */
 export function toolReplyFailed(reply: string): boolean {

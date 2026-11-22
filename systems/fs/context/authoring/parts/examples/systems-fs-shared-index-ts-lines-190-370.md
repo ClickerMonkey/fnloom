@@ -5,7 +5,7 @@ title: "Worked examples: systems/fs/shared/index.ts, lines 190-370"
 description: "Worked examples, the part on systems/fs/shared/index.ts, lines 190-370."
 summary: "Worked examples: systems/fs/shared/index.ts, lines 190-370."
 parent: "fs/authoring.examples"
-next: "fs/authoring.examples.systems-fs-shared-index-ts-lines-371-512"
+next: "fs/authoring.examples.systems-fs-shared-index-ts-lines-371-533"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash"]
 tags: ["authoring"]
 niche: "developer"

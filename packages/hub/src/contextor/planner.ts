@@ -28,7 +28,7 @@ import { budgetPlan } from './budget.ts';
 import { CONTEXTORS } from './contextors.ts';
 import { exchanges, isPersonMessage, namedIn, personWords, shorten, textOf } from './history.ts';
 import type {
-  BudgetPlan, CallPlan, ChatMode, ChosenContext, ChosenFn, Contextor, ContextorDeps, ContextorInput, ExposedTo, ModeChoice, ModeContext, ModelCallOut, ModelLimitsService, Overflow,
+  BudgetPlan, CallPlan, ChatMode, ChosenContext, ChosenFn, Contextor, ContextorDeps, ContextorInput, DraftInput, ExposedTo, ModeChoice, ModeContext, ModelCallOut, ModelLimitsService, Overflow,
   ModeTool, PlanInput, PlannedPrompt, PromptPlanner, RenderedIteration, Selection, TokenEstimates, TokenEstimator,
 } from './index.ts';
 import { AUTO_MODEL } from './limits.ts';
@@ -247,6 +247,10 @@ export class HubPromptPlanner implements PromptPlanner {
     return planned.report;
   }
 
+  draft(input: DraftInput): Promise<PlannedPrompt> {
+    return this.#plan({ ...input, turn: undefined, cached: undefined, keep: false });
+  }
+
   async #plan(planning: Planning): Promise<PlannedPrompt> {
     const { session, agent, model } = planning;
     const { mode, ctx, payload, choice } = await this.#mode(session, agent, model);
@@ -432,7 +436,7 @@ export class HubPromptPlanner implements PromptPlanner {
     );
     // the stamp is the session's own agent's: another agent run in the chat (a sub-agent) works its section out alone
     const own = key !== undefined && session?.agent === agent.name;
-    const stamp = own ? session?.fixed : undefined;
+    const stamp = own ? session.fixed : undefined;
     const sameTurn = stamp !== undefined && turn !== undefined && stamp.at === turn.id;
     const items = sameTurn ? gathered.items.filter((item) => stamp.injected.includes(item.name)) : gathered.items;
     const names = at.ctx.names ?? modeNames(at.mode.type);
@@ -443,7 +447,7 @@ export class HubPromptPlanner implements PromptPlanner {
     });
     const placed = fitted.placed.map((p) => p.item.name);
     let rebuilt: InjectedReport['rebuilt'];
-    if (own && session !== undefined && turn !== undefined) {
+    if (own && turn !== undefined) {
       const hash = fixedHash(`${placeInjected(planning.instructions, fitted.text)}\n\n${at.guide}`);
       if (stamp?.hash !== hash) {
         await this.#deps.store.table('sessions').update(session.id, { fixed: { hash, injected: placed, at: turn.id } });

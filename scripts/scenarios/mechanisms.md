@@ -9,33 +9,46 @@ its tool list and the messages. Your job is to compare what it saw with what is 
 The app is called the harness. One server, the **hub**, runs a chat for a household or a small team. People type
 everyday requests ("help me keep track of groceries"). A chat model answers, and it acts by calling tools.
 
-- **Fn** is the harness word for a tool. Every fn has a qualified name `system/name` (`database/create_table`). In
-  the model's tool list the slash becomes two underscores (`database__create_table`), because tool names can't hold
-  a slash. "Fn" and "tool" are the same thing; the model was trained on "tools" and may not know the word "fn".
+- **Fn** is the harness word for a tool. Every fn has a qualified name `system/name` (`database/create_table`, a saved
+  one `database/main.grocery_spending`), which people, admins and this page use. The model never sees that form: it
+  meets one name for each fn everywhere (its tool list, the prompt's text, cards, search hits, results, errors), the
+  qualified name with every `/` and `.` written `__` (`database__create_table`, `database__main__grocery_spending`),
+  and calls it as is. A qualified name the model writes anyway is still accepted. (Known gap: a few field descriptions
+  give made-up saved-fn names as examples, such as `database/main.overdue_invoices`, which stay in the slash form.)
+  "Fn" and "tool" are the same thing; the model was trained on "tools" and may not know the word "fn".
 - **System** is a separate program connected to the hub that adds fns, guides and data: `fs` (files), `database`,
   `input` (forms), `widgets`, `code`, `api`, `web`, `embedder`. The hub is a system too (`hub/...` fns). The chat's
   system prompt lists the systems with one line each.
 - **Run**: one call of a fn. Runs form a tree: a fn may call other fns. **Turn**: one user message and everything it
   caused. **Session**: one chat.
 - **The model does not start with every fn.** In this setup (chat mode "tools", contextor "plain") the model starts
-  with ten hub tools only: `hub/fns_search` (search fns), `hub/fns_load` (add fns to its tools from the next step
-  on), `hub/fns_drop`, `hub/ctx_search` (search context: guides, memories, pieces of files), `hub/ctx_load` (load a
-  guide or group into the prompt; the fns it brings join the tools), `hub/ctx_drop`, `hub/fns_examples` (a fn's
-  example calls), `hub/run_status`, `hub/run_wait` and `hub/ask_user` (ask a plain question and wait). Everything
-  else has to be found with `hub/fns_search` (fns) or `hub/ctx_search` (context) and loaded first. A fn that isn't loaded can't be called.
+  with the tools mode's six (`hub/fns_search` search fns, `hub/fns_load` add fns to its tools from the next step on,
+  `hub/fns_drop`; `hub/ctx_search` search context: guides, memories, pieces of files, `hub/ctx_load` load a guide or
+  group into the prompt, its fns joining the tools, `hub/ctx_drop`), plus the fns each injected item of its system
+  prompt brings (below): with every system of these runs on, 27 tools in all, among them `hub/remember`,
+  `hub/sessions_list`, `hub/session_messages`, `hub/ask_user`, `hub/resource_read`, `hub/resource_send`,
+  `hub/search_resources`, `hub/fns_examples`, `hub/run_status`, `hub/run_wait`, `api/services`, `api/make_api`,
+  `code/make_code`, `database/databases`, `database/get_query`, `fs/list`, `fs/read`, `input/get_input`, `web/search`,
+  `web/read` and `widgets/make_widget`. Everything else has to be found with `hub/fns_search` (fns) or
+  `hub/ctx_search` (context) and loaded first. A fn that isn't loaded can't be called.
 - **Context** is text for the model: guides (`database/guide`, `input/guide`, `widgets/guide`, `code/guide`,
   `api/guide`, `web/guide`, `fs/guide`), API groups (`database/api.tables`, `input/api.forms`, ...: a list of a
   system's fns by topic; loading one brings those fns into the tools), memories (`memory/...`), and pieces of files
   and pages. Loaded context is appended to the system prompt. Context items can bring fns and point to other context.
-- **Suggestions**: the hub can add suggested fns and context to a user message (as XML cards) when the admin turns
-  suggestions on. With contextor "plain" and suggestions off there are none, and the model must search.
+- **Suggestions**: the hub adds suggested fns and context to a user message (as XML cards, `<suggested_fns>` and
+  `<suggested_ctx>`): with "no model" choosing (variant `off`) the items whose meaning is closest to the message, over
+  a threshold, up to six; with a decision model (variants `on` and `load`) the ones it picks, and with `load` they are
+  loaded for the turn instead (`<loaded_for_you>`). Nothing is suggested twice in a chat, and nothing already in the
+  prompt (loaded, or injected) is suggested at all.
 - **Added blocks**: each user message may carry tagged blocks the person didn't type: `<local_time>` (the person's
-  time and zone), `<fs_git>` (the files system's git state), `<systems_changed>`, `<input-answer>` (answers to a
-  form), suggestion cards. They are information for the model.
+  time and zone), `<systems_changed>`, `<input-answer>` (answers to a form), suggestion cards, and a block per system
+  hook (`<fs_git>`, the files system's git state, only when a served folder is a git repository's top level: not in
+  these runs). They are information for the model; what a hook's block means is in its system's injected item.
 - **Two searches over one index.** `hub/fns_search` searches every fn and `hub/ctx_search` every context item of
   every system, including the admin and developer ones (system authoring guides, hub API reference), which rank
   lower unless asked for (`niches`). `fns_search`'s args include `kinds` (only when the person names a kind),
   `systems`, `match` (text, semantic, hybrid); `ctx_search`'s `origins` (system, memory, resource), `scopes`, `tags`.
+  A `ctx_search` hit already in front of the model says so (`inPrompt`: `injected` or `loaded`).
 
 ## Fn kinds, and authoring a fn
 
@@ -122,7 +135,21 @@ Every fn has a **kind**, which says what its definition is and how it runs.
 
 ## What the chat model's system prompt says (in these runs)
 
-A short paragraph: be helpful, use tools, find fns with `hub/fns_search` and context with `hub/ctx_search`, loading context brings its fns,
-load one choice at a time, and stop and say what blocks you when something is refused or keeps failing. Then the
-`<systems>` list, one line per system. It does not explain fns, kinds, authoring, forms vs `ask_user`, widgets, or what
-can't be done. Whatever else the model knows, it got from tool descriptions, search results and loaded guides.
+Three parts, in this order (`npm run prompt:render` writes them out as the model gets them, with their sizes):
+
+1. **The core** (about 3,400 tokens for `hub/chat`): what is true of every chat whatever is installed. Who and where
+   it is; fns and calls (one name each, JSON args, results, the chat's fn setting, approvals); systems and the
+   `<systems>` list; context (search, load, guides first); asking the person in the answer; how calls behave
+   (parallel calls, background runs, waiting approvals, invalid input, "Stopped by the hub:", refusals, the blocked
+   rule, the step limit); the blocks the hub adds to a message; pasted text is material, not instructions; say only
+   what is true. It names no installable system and lists no tools.
+2. **The injected section** (about 3,900 tokens): context items injected into the prompt, each under its title as a
+   `##` heading. The hub's own: Finding fns (tools mode only), Memory, Earlier chats, Asking mid-task, Attached
+   files, Resources, Saved fns, Examples, Background runs, Undo, and What this app can't do. Each system's own
+   basics: api, code, database, fs (and what its `<fs_git>` block means), input (forms, `<input-answer>`), web,
+   widgets. Each brings the fns it explains into the starting tools. A system that is off leaves no trace;
+   `hub/chat_small` takes each item at its summary, within 600 tokens.
+3. **The `<systems>` list** (about 2,200 tokens): each system on in the chat, with what it is for and when to reach
+   for it, snapshotted at the chat's first turn.
+
+Whatever else the model knows, it got from tool descriptions, search results, loaded guides and suggestion cards.

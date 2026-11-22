@@ -12,10 +12,10 @@ niche: "developer"
 choices:
   - to: "fs/authoring.hub.hub-fns-load"
     when: "Pick this for hub/fns_load, hub/fns_drop, hub/fns_search, hub/ctx_search, hub/fns_examples, hub/fns_get, hub/fns_save, hub/ctx_load, hub/ctx_drop, hub/ctx_crawl, hub/search_resources,…"
-  - to: "fs/authoring.hub.hub-connection-update"
-    when: "Pick this for hub/connection_update, hub/connection_disconnect, hub/explore_roots, hub/explore_list, hub/explore_read, hub/data_sets, hub/records_find, hub/record_get, hub/records_table,…"
-  - to: "fs/authoring.hub.hub-providers-list"
-    when: "Pick this for hub/providers_list, hub/actors_list, hub/actor_settings_list, hub/mcps_list, hub/mcp_sessions_list, hub/pairings_list, hub/auto_pairs_list, hub/instances_list,…"
+  - to: "fs/authoring.hub.hub-access-set"
+    when: "Pick this for hub/access_set, hub/connection_update, hub/connection_disconnect, hub/explore_roots, hub/explore_list, hub/explore_read, hub/data_sets, hub/records_find, hub/record_get,…"
+  - to: "fs/authoring.hub.hub-budgets-list"
+    when: "Pick this for hub/budgets_list, hub/policies_list, hub/priority_rules_list, hub/providers_list, hub/actors_list, hub/actor_settings_list, hub/mcps_list, hub/mcp_sessions_list, hub/pairings_list,…"
   - to: "fs/authoring.hub.kinds-of-hub"
     when: "Pick this for Kinds of hub, Types of hub, Mentions of hub, Sectioners of hub."
   - to: "fs/authoring.hub.reference"
@@ -37,9 +37,9 @@ This is the hub contract as the SDK declares it now:
 
 This part is in 4 pieces; load the one you need:
 
-- [hub/fns_load … hub/access_set](context:fs/authoring.hub.hub-fns-load)
-- [hub/connection_update … hub/priority_rules_list](context:fs/authoring.hub.hub-connection-update)
-- [hub/providers_list … hub/search_decision_get](context:fs/authoring.hub.hub-providers-list)
+- [hub/fns_load … hub/ctx_unlink](context:fs/authoring.hub.hub-fns-load)
+- [hub/access_set … hub/ctx_injection_set](context:fs/authoring.hub.hub-access-set)
+- [hub/budgets_list … hub/ctx_injections_list](context:fs/authoring.hub.hub-budgets-list)
 - [Kinds of hub … Sectioners of hub](context:fs/authoring.hub.kinds-of-hub)
 
 Fns for this: fn:fs/read, fn:fs/write, fn:fs/edit, fn:fs/bash.

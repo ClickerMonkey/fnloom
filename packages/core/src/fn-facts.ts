@@ -230,6 +230,11 @@ export const FnSearchHit = z.object({
   /** Whether the asker can use it now; what blocks it when false. */
   available: z.boolean(),
   blocked: FnBlock.optional(),
+  /**
+   * A context hit already in the prompt, so the model doesn't load it again: `injected` (in the agent's system prompt,
+   * its injected section) or `loaded` (loaded in this chat). Absent for one that isn't, and for fns.
+   */
+  inPrompt: z.enum(['injected', 'loaded']).optional(),
 });
 export type FnSearchHit = z.infer<typeof FnSearchHit>;
 

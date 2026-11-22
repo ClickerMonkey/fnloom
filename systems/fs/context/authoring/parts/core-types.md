@@ -59,6 +59,8 @@ choices:
     when: "Pick this for From packages/core/src/mention-search.ts."
   - to: "fs/authoring.core-types.model-calls-ts"
     when: "Pick this for From packages/core/src/model-calls.ts."
+  - to: "fs/authoring.core-types.model-names-ts"
+    when: "Pick this for From packages/core/src/model-names.ts."
   - to: "fs/authoring.core-types.modes-ts"
     when: "Pick this for From packages/core/src/modes.ts."
   - to: "fs/authoring.core-types.package-ts"
@@ -110,7 +112,7 @@ choices:
 The wire shapes from `@harness/core` that the SDK's declarations refer to, each resolved to plain TypeScript. Each is a
 zod schema in core with its type inferred from it; import the type (and the schema, to parse) from `@harness/core`.
 
-This part is in 47 pieces; load the one you need:
+This part is in 48 pieces; load the one you need:
 
 - [From packages/core/src/access.ts](context:fs/authoring.core-types.access-ts)
 - [From packages/core/src/admin.ts](context:fs/authoring.core-types.admin-ts)
@@ -137,6 +139,7 @@ This part is in 47 pieces; load the one you need:
 - [ManifestPatch … TypeDisplay](context:fs/authoring.core-types.manifestpatch)
 - [From packages/core/src/mention-search.ts](context:fs/authoring.core-types.mention-search-ts)
 - [From packages/core/src/model-calls.ts](context:fs/authoring.core-types.model-calls-ts)
+- [From packages/core/src/model-names.ts](context:fs/authoring.core-types.model-names-ts)
 - [From packages/core/src/modes.ts](context:fs/authoring.core-types.modes-ts)
 - [From packages/core/src/package.ts](context:fs/authoring.core-types.package-ts)
 - [From packages/core/src/primitives.ts](context:fs/authoring.core-types.primitives-ts)

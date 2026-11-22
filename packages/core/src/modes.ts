@@ -7,7 +7,7 @@
  * may be overridden per session. Every shape here is a zod schema; the agent payload's gin fields are made from them.
  */
 import { z } from 'zod';
-import { ActorId, InstanceName, QualifiedName, Timestamp, TurnId } from './primitives.ts';
+import { ActorId, InstanceName, QualifiedName, SessionId, Timestamp, TurnId } from './primitives.ts';
 import { InjectionLeftOut } from './records/injections.ts';
 
 // ─── Detail ───────────────────────────────────────────────────────────────────
@@ -266,6 +266,48 @@ export const SelectionReport = z.object({
   injected: InjectedReport.optional(),
 });
 export type SelectionReport = z.infer<typeof SelectionReport>;
+
+/** What an admin's prompt preview asks: a session's agent's next request for a new message (`previewPrompt`). */
+export const PromptPreviewQuery = z.object({
+  session: SessionId,
+  text: z.string().min(1),
+  /** Plan for this model instead of the one the chat would use (its limits as the hub resolves them). */
+  model: z.string().min(1).optional(),
+  /** Texts to count with the model's token estimator, answered in `counts` in the same order. */
+  count: z.array(z.string()).max(200).optional(),
+});
+export type PromptPreviewQuery = z.infer<typeof PromptPreviewQuery>;
+
+/**
+ * The request a session's agent would send for a new message, built exactly as a turn's first step builds it (the
+ * message enriched with the hub's and hooks' blocks, the planner's prompt, the aeye request), with no model called and
+ * nothing kept. `system` and `tools` are the request's own; the parts are the pieces the planner joined, with the
+ * model's token estimates.
+ */
+export const PromptPreview = z.object({
+  agent: QualifiedName,
+  model: z.string(),
+  window: z.number().int().min(0),
+  /** What the planner reserves for the reply (output and reasoning). */
+  maxTokens: z.number().int().min(0),
+  estimate: z.number().int().min(0),
+  system: z.string(),
+  tools: z.array(z.object({ name: z.string(), description: z.string(), parameters: z.json(), tokens: z.number().int().min(0) })),
+  messages: z.array(z.object({ role: z.string(), content: z.string(), tokens: z.number().int().min(0) })),
+  parts: z.object({
+    /** The instructions with the injected section left out ({{injectedContext}} empty). */
+    instructions: z.string(),
+    injected: z.string(),
+    /** What follows the instructions: the systems list, the mode's guide, context, fn cards. */
+    context: z.string(),
+    /** The chat mode's guide, as it reads inside `context`. */
+    guide: z.string(),
+    tokens: z.object({ instructions: z.number().int(), injected: z.number().int(), context: z.number().int(), guide: z.number().int(), system: z.number().int() }),
+  }),
+  counts: z.array(z.number().int().min(0)),
+  report: SelectionReport,
+});
+export type PromptPreview = z.infer<typeof PromptPreview>;
 
 /**
  * The graph contextor's memory of its last cycle in a session: what it chose (for the `selectedBefore` metric and a

@@ -280,7 +280,8 @@ type Deps = Record<string, AnyFnRef>;
 
 interface · `import { FnRef } from '@harness/sdk'`
 
-A typed handle to a fn: declare it as a dep, then call it with checked args, result and handlers.
+A typed handle to a fn: declare it as a dep, then call it with checked args, result and handlers. In a template
+string it writes `fn:<its name>` (`withRefText`), which the hub renders as the name the model calls it by.
 
 ```ts
 interface FnRef<N extends QualifiedName, A, R, H extends Handlers = {}> {
@@ -289,6 +290,8 @@ interface FnRef<N extends QualifiedName, A, R, H extends Handlers = {}> {
   readonly args: GinType<A>;
   readonly returns: GinType<R>;
   readonly handlers: H;
+  /** `fn:<its name>`, for model-facing text (`withRefText`). */
+  toString(): string;
 }
 ```
 

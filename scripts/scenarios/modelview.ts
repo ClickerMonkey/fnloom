@@ -10,6 +10,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
+import { fnOfStoredToolName } from '@harness/core';
 import { z } from 'zod';
 import { clip } from './transcript.ts';
 
@@ -92,9 +93,13 @@ function cut(text: string, max: number): string {
   return `${text.slice(0, head)}\n[… ${text.length - max} characters cut …]\n${text.slice(-tail)}`;
 }
 
-/** The fn name as the hub writes it (`database/create_table`) from a tool name (`database__create_table`). */
+/**
+ * The fn name as the hub writes it (`database/create_table`, `database/main.expenses`) from a tool name as the model
+ * got it (`database__create_table`, `database__main__expenses`; an older record's `database__main--expenses` too), by
+ * core's display reader; a name it can't read (a cut one, a static tool) as it is.
+ */
 export function fnName(tool: string): string {
-  return tool.replace('__', '/');
+  return fnOfStoredToolName(tool) ?? tool;
 }
 
 /** A tool's definition as the model got it, without the schema boilerplate. */

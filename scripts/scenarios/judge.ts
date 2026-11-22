@@ -26,7 +26,7 @@ Causes (pick the main one when it isn't a clean pass; null for a clean pass): ${
 - gave-up: stopped short. overpromised: said it would/could do what it can't. hallucinated: made up facts or results.
 - tool-error: a tool failed. harness-bug: the app itself misbehaved (a stuck turn, a broken card). prompt-unclear: the model was confused by its own instructions or tool docs. slow: far too many steps or too long.
 Layers (where the fix belongs; null for a clean pass): ${LAYERS.join(', ')}.
-- fn: a tool's behavior or its arguments. context: the docs/context items the model reads about the tools. kind: a kind of fn (how authored fns are made). instructions: a tool's usage text. chat-prompt: the chat agent's system prompt. ui: how the web app shows it. hub: the hub's own logic.
+- fn: a tool's behavior or its arguments. context: the docs/context items the model reads about the tools. kind: a kind of fn (how authored fns are made). instructions: a tool's usage text. chat-prompt: the chat agent's system prompt (its core text; the hub's and each system's injected items in it are context). ui: how the web app shows it. hub: the hub's own logic.
 
 Read the run lines: they show what really happened (a "saved" claim with no saving run is a false claim). The hard checks are code checks of the same transcript.
 

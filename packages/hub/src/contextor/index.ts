@@ -390,6 +390,17 @@ export interface PlanInput {
   readonly cached?: SelectionReport | undefined;
 }
 
+/** What a draft prompt is planned for (`PromptPlanner.draft`): a turn's first step with no turn. */
+export interface DraftInput {
+  readonly session: Session | undefined;
+  readonly agent: FnRecord;
+  readonly model: string;
+  readonly instructions: string;
+  readonly transcript: readonly LlmMessage[];
+  /** The person it is planned for. */
+  readonly user: ActorId;
+}
+
 /** Builds each prompt within the model's limits, and interprets the model's calls. */
 export interface PromptPlanner {
   /** Refused (`PromptTooLarge`) with a plain message when even the instructions and the person's own words don't fit. */
@@ -401,6 +412,11 @@ export interface PromptPlanner {
   settled(input: { model: string; estimate: number; actual: number | undefined; used: readonly QualifiedName[] }): Promise<void>;
   /** What a message would get, without calling the model (`previewSelection`). */
   preview(session: SessionId, text: string, by: ActorId): Promise<SelectionReport>;
+  /**
+   * The whole prompt a session's agent would be sent for this transcript, planned as a turn's first step is but
+   * keeping nothing (no stamp, no selection): the admins' prompt preview (`previewPrompt`). No model is called.
+   */
+  draft(input: DraftInput): Promise<PlannedPrompt>;
   /** The fn names a run's results are written in for this session's mode and model (its tool replies go through them). */
   names(to: ExposedTo): Promise<ModelFnNames>;
 }

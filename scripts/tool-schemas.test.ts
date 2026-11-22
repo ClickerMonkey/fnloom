@@ -192,7 +192,7 @@ describe('tool examples', () => {
           if (tool === undefined) { continue; }
           checked += 1;
           const sent = agentTool(tool, new PendingCalls()).input.description;
-          if (!sent.includes(`Example args: ${JSON.stringify(first.args)}`) || tool.spec.parameters === undefined) { unsent.push(name); }
+          if (!sent.includes(`Example args: ${JSON.stringify(first.args)}`)) { unsent.push(name); }
         }
       }
     }

@@ -14,7 +14,7 @@
 import { Prompt, type Context, type Message, type PromptInput, type Request, type Usage } from '@aeye/core';
 import { LlmPayloadType, parseValue } from '@harness/sdk';
 import {
-  InstanceName, isSettled, Json, LlmInteractionId, LlmMessage, MessageId, ModelChoice, modelFnName, QualifiedName, RunId, SelectionReport, splitName, type ActorId, type FnError, type FnRecord, type InvalidInput,
+  InstanceName, isSettled, Json, LlmInteractionId, LlmMessage, MessageId, ModelChoice, modelFnName, QualifiedName, RunId, SelectionReport, type PromptPreview, splitName, type ActorId, type FnError, type FnRecord, type InvalidInput,
   type OutcomeWire, type Run, type RunSettled, type Session, type RunControlAction, type TableReading, type UserInfo,
 } from '@harness/core';
 import { z } from 'zod';
@@ -194,7 +194,7 @@ export interface AgentLoopDeps extends ExecutionDeps {
   /** How a chat message reads to the LLM (mentions, extras and hooks as tagged blocks). */
   readonly enrich: Pick<MessageEnricher, 'render'>;
   /** What each prompt holds, within the model's limits, and what the model's calls mean. */
-  readonly planner: Pick<PromptPlanner, 'plan' | 'interpret' | 'exposed' | 'settled' | 'names'>;
+  readonly planner: Pick<PromptPlanner, 'plan' | 'interpret' | 'exposed' | 'settled' | 'names' | 'draft'>;
 }
 
 /** An agent's prompt; it logs when aeye's `forget` drops messages, which the planner's budget should never let happen. */
@@ -293,6 +293,77 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       signal.removeEventListener('abort', stop);
       this.#iterating.delete(id);
     }
+  }
+
+  /**
+   * The request a session's agent would send for a new message (`message`: as the model reads it, the hub's and hooks'
+   * blocks added), built as a turn's first step builds it: the planner's draft (which keeps nothing) and the same aeye
+   * prompt, whose request is caught before it reaches any model. For the admins' prompt preview.
+   */
+  async preview(input: { session: Session; user: ActorId; message: string; model?: string | undefined; count?: readonly string[] | undefined }): Promise<PromptPreview> {
+    const { catalog } = this.#deps;
+    const { session } = input;
+    const fn = await catalog.fn(session.agent);
+    if (fn === undefined) throw new Error(`${session.agent} no longer exists`);
+    const payload = parseValue(LlmPayloadType, fn.decl.payload);
+    const metadata = await this.#deps.models.resolve(input.model === undefined ? session.model ?? ModelChoice.optional().parse(payload.model) : { model: input.model });
+    const model = metadata.model ?? AUTO_MODEL;
+    const instructions = session.instructions ?? payload.instructions;
+    const cites = citationsNotice(session.citationsTold, session.citations === true);
+    const message = cites.notice === undefined ? input.message : `${cites.notice}\n\n${input.message}`;
+    const planned = await this.#deps.planner.draft({
+      session, agent: fn, model, instructions, transcript: [...session.transcript, { role: 'user', content: message }], user: input.user,
+    });
+    const own = modelFnName(fn.name);
+    const tools = agentTools(planned.tools.filter((tool) => tool.name !== own), new PendingCalls());
+    const output = outputOf(await catalog.signature(fn.name));
+    const prompt = new AgentPrompt({
+      name: 'agent', description: fn.decl.description, content: `${planned.instructions}{{#if context}}\n\n{{{context}}}{{/if}}`,
+      input: (given) => ({ args: given?.args ?? null, context: given?.context ?? '', injectedContext: given?.injectedContext ?? '', maxIterations: given?.maxIterations ?? payload.maxIterations }),
+      schema: output.schema, schemaDelivery: tools.length > 0 ? 'prompt' : 'auto', config: { maxTokens: planned.maxTokens }, retool: () => tools, toolExecution: payload.toolExecution, metadata,
+    }, () => undefined);
+    let caught: Request | undefined;
+    const stop = new AbortController();
+    // the request is caught where a model would be called, and the prompt stopped there
+    const capture = async function* (request: Request): AsyncGenerator<never, never> {
+      caught = request;
+      stop.abort();
+      await Promise.resolve();
+      yield* [];
+      throw new Error('preview: no model is called');
+    };
+    const ctx = { messages: planned.messages.map(messageFromWire), signal: stop.signal, stream: capture, contextWindow: planned.contextWindow, maxOutputTokens: planned.maxTokens };
+    try {
+      for await (const _event of prompt.get('stream', { args: null, context: planned.context, injectedContext: planned.injectedContext, maxIterations: payload.maxIterations }, ctx)) { /* nothing streams */ }
+    } catch (error) {
+      if (caught === undefined) throw error;
+    }
+    if (caught === undefined) throw new Error('the prompt sent no request');
+    const request: Request = caught;
+    const { estimator } = planned.ctx;
+    const textOf = (content: Message['content']): string => (typeof content === 'string' ? content : content.map((part) => (part.type === 'text' && typeof part.content === 'string' ? part.content : `[${part.type}]`)).join('\n'));
+    const system = request.messages.filter((m) => m.role === 'system').map((m) => textOf(m.content)).join('\n\n');
+    // the instructions as rendered: the system message without what follows them and without the injected section
+    let instructionsText = planned.context !== '' && system.endsWith(planned.context) ? system.slice(0, system.length - planned.context.length).trimEnd() : system;
+    if (planned.injectedContext !== '') instructionsText = instructionsText.replace(planned.injectedContext, '').replace(/\n{3,}/g, '\n\n').trim();
+    const specs = new Map(planned.tools.map((tool) => [tool.name, tool.spec]));
+    const guide = planned.rendered.names.text(planned.mode.guide(planned.ctx));
+    return {
+      agent: fn.name, model, window: planned.contextWindow, maxTokens: planned.maxTokens, estimate: planned.estimate, system,
+      tools: (request.tools ?? []).map((tool) => {
+        const spec = specs.get(tool.name);
+        return { name: tool.name, description: tool.description ?? '', parameters: Json.parse(spec?.parameters ?? z.toJSONSchema(tool.parameters)), tokens: spec === undefined ? 0 : estimator.tool(spec) };
+      }),
+      messages: request.messages.filter((m) => m.role !== 'system').map((m) => ({ role: m.role, content: textOf(m.content), tokens: estimator.text(textOf(m.content)) })),
+      parts: {
+        instructions: instructionsText, injected: planned.injectedContext, context: planned.context, guide,
+        tokens: {
+          instructions: estimator.text(instructionsText), injected: estimator.text(planned.injectedContext), context: estimator.text(planned.context), guide: estimator.text(guide), system: estimator.text(system),
+        },
+      },
+      counts: (input.count ?? []).map((text) => estimator.text(text)),
+      report: SelectionReport.parse(planned.report),
+    };
   }
 
   async #iterate(run: Run, given: AgentState, signal: AbortSignal): Promise<IterationEnd> {

@@ -859,13 +859,21 @@ model's limits; token estimates calibrate themselves against what the provider r
 
 Static plus graph is the setup for small local models; `hub/chat_small` is the chat agent with it.
 
+**Seeing the whole prompt.** An admin can ask for the request a session's agent would send for a message without
+calling any model (`previewPrompt`, the contextor slice: the message enriched with the hub's and hooks' blocks as
+when it is sent, the planner's prompt planned as a turn's first step but keeping nothing (`PromptPlanner.draft`), and
+the agent's aeye request caught where a model would be called, `AgentLoop.preview`), with the parts and the model's
+token estimates, optionally planned for another model. `npm run prompt:render` boots a fresh stack the way the
+scenarios do (`.harness-test/prompt-render/`, port 4360) and writes `hub/chat` and `hub/chat_small` as their models
+read them, with a token table per part, against the chat model and a 2,048-token `qwen2.5:3b`.
+
 When a context item in the prompt brings fns, it says which of them are in the model's tools this step, which are
 not in its tools this step, and which it can't use now, with the reason (fns sharing a reason are named together).
 The wording follows the chat mode. In tools mode the fns are "in your tools now". In static mode they are loaded:
 their cards are in the prompt and the model runs one with `run`, or writes a `<run fn="…">` block when it has no
 native tool calls. A fn that isn't loaded this step is one to inspect for its args and then run by name.
 
-**Tools carry their examples.** In tools mode each native tool's description is the fn's description, its instructions and its example args (the turn's chosen examples, and at least the first declared one when it has any); that whole text is the aeye tool's description, since the agent prompt has no tools section for separate tool instructions. The schema goes at aeye's default strictness (strict where the model takes it). The static toolset's five tools carry their description and first example only, to stay small.
+**Tools carry their examples.** In tools mode each native tool's description is the fn's description, its instructions and its example args (the turn's chosen examples, and at least the first declared one when it has any); that whole text is the aeye tool's description, since the agent prompt has no tools section for separate tool instructions. The schema goes at aeye's default strictness (strict where the model takes it). The static toolset's six tools carry their description and first example only, to stay small.
 
 **One card format.** Every fn and context the model reads about, in every mode and every place (static cards, the
 `more_fns` and `more_ctx` lists, `inspect`, a fn's exposed fns, a refused call, suggestions), is the same XML card,
@@ -877,7 +885,7 @@ as cards too: the fns loaded and those refused with their reasons, and the conte
 The run's record keeps the names as well, which the chat's held banner reads.
 
 **The systems in the prompt.** The chat agent's system prompt lists the systems available when the chat started, as
-`<systems>` with each one's name, label and what the model is told about it: the contract's `about` (`system(name, { description, about })`: what it is for, the sort of fns it has, the kinds it defines and when to reach for it), else its one-line description. It comes after the fixed prompt text (`packages/sdk/src/chat-prompt.ts`, written for a model that knows tools and nothing of this app: fns, systems, kinds, context, asking, how calls behave, every tagged block a message can carry). The list is kept on the
+`<systems>` with each one's name, label and what the model is told about it: the contract's `about` (`system(name, { description, about })`: what it is for, the sort of fns it has, the kinds it defines and when to reach for it), else its one-line description. It comes after the agent's instructions (the core text, `packages/sdk/src/chat-prompt.ts`, written for a model that knows tools and nothing of this app: fns, systems, context, asking, how calls behave, the blocks the hub adds whatever is installed; it names no installable system and lists no tools) and its injected section (below), where the hub's features and each system's own guidance are. The list is kept on the
 session and never changes after the first turn, so prompt caching holds. When a system later goes on or off (the
 person turns it on or off in the chat, an admin switches it, it disconnects or reconnects, it needs config, it waits
 for approval, it is installed or removed), the next user message starts with a `<systems_changed>` block saying what
@@ -943,9 +951,13 @@ Before the LLM sees a user message, two things may add to it:
   also loads the best kept hits it may use, up to
   `HARNESS_SEARCH_LOAD_MAX` (5) each: fns into the tools, context into the session (with its imports and the fns it
   brings), and its page says so (`loaded`, with a line telling the model not to load them again). The web's search
-  only filters, and a filter that failed loads nothing.
+  only filters, and a filter that failed loads nothing. A `hub/ctx_search` hit already in the prompt says so
+  (`inPrompt`: `injected` for an item of the agent's injected section, `loaded` for one loaded in the chat, the page's
+  own loads included), and a load never loads it again.
 - **Systems' hooks**: a system can declare a hook and add its own information (the git branch, the open
-  ticket). A hook gets the message and the same who-and-when every run gets. fs's git hook reports a root only when
+  ticket). A hook gets the message and the same who-and-when every run gets. Its block is tagged after the hook
+  (`fs/git` → `<fs_git>`), and what the block means is the hook's `explains`, injected with its system's items (the
+  hub's prompt names no hook). fs's git hook reports a root only when
   the root is its repository's top level: a root inside another repository is not that repository, so its branch
   and changed files are left out.
 
@@ -1433,7 +1445,9 @@ The planner (`contextor/injected.ts`, called from `planner.ts`) puts what reache
   chat's fn setting and the mode as the payload's `tools` do. A `<more_ctx>` line brings none.
 - **Already loaded**: the shown items are in the prompt, so every contextor treats them as loaded (`ContextorInput
   .injected`): they are taken out of `always`, `loaded` and `asked`, never candidates for the graph contextor, never
-  auto-injected or brought in as an import, and the enricher never suggests them or loads them for you.
+  auto-injected or brought in as an import, and the enricher never suggests them or loads them for you. A
+  `hub/ctx_search` hit for one says it is in the prompt (`inPrompt: 'injected'`), and a search decision that loads
+  leaves it.
 - **Caching** (`FixedRegionStamp`, `Session.fixed`): the section is worked out at a turn's first step and kept in
   memory (`HARNESS_INJECTED_STEPS` turns) for every later step of the turn, whatever changes meanwhile. At that first
   step the planner hashes the fixed region (the instructions with the section, then the `<systems>` list, the mode's

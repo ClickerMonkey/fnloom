@@ -152,3 +152,55 @@ interface BuiltEntries {
   readonly client?: string;
 }
 ```
+
+#### `authoredNameWarnings`
+
+function · `import { authoredNameWarnings } from '@harness/sdk/server'`
+
+Warnings for the names in a manifest's model-facing text that resolve to nothing `known` holds, one line each:
+`fns.add.description: fn:notes/ad names no fn — did you mean notes/add?`. A ref that names nothing always warns; a
+bare name only when it is near a name the build knows (a misspelling): a text may name fns that are only examples
+(`code/price_with_tax`, a fn a person might make).
+
+```ts
+function authoredNameWarnings(manifest: Manifest, known: AuthoredNames): string[];
+```
+
+Refers to: [`AuthoredNames`](context:fs/authoring.core-types.model-names-ts#core-authorednames), [`Manifest`](context:fs/authoring.core-types.manifest#core-manifest).
+
+#### `authoredTexts`
+
+function · `import { authoredTexts } from '@harness/sdk/server'`
+
+Every piece of text in a manifest the model reads.
+
+```ts
+function authoredTexts(manifest: Manifest): AuthoredText[];
+```
+
+Refers to: [`Manifest`](context:fs/authoring.core-types.manifest#core-manifest).
+
+#### `declaredNames`
+
+function · `import { declaredNames } from '@harness/sdk/server'`
+
+The names a manifest itself declares, qualified (`types` holds its kinds too).
+
+```ts
+function declaredNames(manifest: Manifest): { fns: string[]; context: string[]; types: string[]; };
+```
+
+Refers to: [`Manifest`](context:fs/authoring.core-types.manifest#core-manifest).
+
+#### `AuthoredText`
+
+interface · `import { AuthoredText } from '@harness/sdk/server'`
+
+One piece of model-facing text, with where it is (`fns.add.description`).
+
+```ts
+interface AuthoredText {
+  readonly where: string;
+  readonly text: string;
+}
+```
