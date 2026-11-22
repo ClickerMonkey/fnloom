@@ -16,6 +16,7 @@ import type { Logger } from '@ayepi/log';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
 import type { Catalog } from '../catalog/index.ts';
 import type { LinkService } from '../link/index.ts';
+import { repairArgs } from './arg-repair.ts';
 import { messageOf } from './errors.ts';
 
 /** What working out claims uses. */
@@ -49,8 +50,8 @@ export interface ClaimingStep {
 export async function stepWaits(deps: ClaimsDeps, step: ClaimingStep, calls: readonly ClaimingCall[]): Promise<string[][]> {
   const fns = await Promise.all(calls.map((call) => takingPart(deps, call)));
   const taking = calls.flatMap((call, index) => {
-    const fn = fns[index];
-    return fn === undefined ? [] : [{ index, call, fn }];
+    const part = fns[index];
+    return part === undefined ? [] : [{ index, call: { ...call, args: part.args }, fn: part.fn }];
   });
   const waits: string[][] = calls.map(() => []);
   if (taking.length < 2) return waits;
@@ -62,13 +63,18 @@ export async function stepWaits(deps: ClaimsDeps, step: ClaimingStep, calls: rea
   return waits;
 }
 
-/** The fn of a call that takes part in claims: one that exists and whose args fit it (anything else settles at once). */
-async function takingPart(deps: ClaimsDeps, call: ClaimingCall): Promise<FnRecord | undefined> {
+/**
+ * The fn of a call that takes part in claims, with the args its run will have: one that exists and whose args fit it,
+ * once repaired as its run repairs them (`repairArgs`); anything else settles at once.
+ */
+async function takingPart(deps: ClaimsDeps, call: ClaimingCall): Promise<{ fn: FnRecord; args: Json } | undefined> {
   if (call.fn === undefined) return undefined;
   const fn = await deps.catalog.fn(call.fn);
   if (fn === undefined) return undefined;
   try {
-    return (await deps.catalog.signature(fn.name)).argsSchema.safeParse(call.args).success ? fn : undefined;
+    const { argsSchema } = await deps.catalog.signature(fn.name);
+    const { args } = repairArgs(argsSchema, call.args);
+    return argsSchema.safeParse(args).success ? { fn, args } : undefined;
   } catch {
     // a fn whose signature doesn't resolve (its kind gone) is refused when it starts
     return undefined;

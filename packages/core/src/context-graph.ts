@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { ActorId, Audience, QualifiedName, RunId, type Same, SessionId, Timestamp } from './primitives.ts';
 import { ResourceUri, SectionKey } from './resources.ts';
 import { InjectDecl } from './inject.ts';
+import { forModels, peopleOnly, peopleOnlyKeys } from './people-only.ts';
 
 // ─── Where context comes from ─────────────────────────────────────────────────
 
@@ -154,9 +155,10 @@ export const ContextOptions = z.object({
   suggestFns: z.array(QualifiedName).optional(),
   /**
    * Put it in these agents' system prompts (`InjectDecl`). On hub-made context (a memory, context made from a
-   * resource) only an admin sets it, by hand (`guardReach`): a model never writes text that lands in later prompts.
+   * resource) only an admin sets it, by hand (`guardReach`): a model never writes text that lands in later prompts,
+   * so it is people-only (`peopleOnly`): the hub fns that take these options leave it out of their args.
    */
-  inject: InjectDecl.optional(),
+  inject: peopleOnly(InjectDecl.optional(), 'a model never writes text that lands in later prompts'),
   /** A `/command` name that loads it. */
   command: z.string().regex(/^[a-z][a-z0-9-]*$/).optional(),
   /** Who sees it listed, and who it is suggested to. */
@@ -176,11 +178,17 @@ export const RememberArgs = z.object({
   about: z.array(LinkTarget).optional(),
 }).extend(ContextOptions.shape);
 
+/** The options a model may name to clear: every option but the people-only ones (`inject`), which it never sets. */
+const ModelClearable = ContextOptions.keyof().exclude(ContextOptions.keyof().options.filter((key) => peopleOnlyKeys(ContextOptions).includes(key)));
+
 /** Edit a memory: any of what `remember` takes; the scope is fixed once written. */
 export const UpdateMemoryArgs = RememberArgs.omit({ scope: true }).partial().extend({
   name: QualifiedName,
-  /** Options to remove; an option left out of the edit stays as it was. */
-  clear: z.array(ContextOptions.keyof()).optional(),
+  /**
+   * Options to remove; an option left out of the edit stays as it was. A model is offered only the options it may set
+   * (`forModels`): clearing `inject` is a person's, on the web.
+   */
+  clear: forModels(z.array(ContextOptions.keyof()).optional(), z.array(ModelClearable).optional()),
 });
 export type UpdateMemoryArgs = z.infer<typeof UpdateMemoryArgs>;
 export type RememberArgs = z.infer<typeof RememberArgs>;

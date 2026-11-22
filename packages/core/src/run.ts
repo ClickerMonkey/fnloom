@@ -172,6 +172,14 @@ export type InputProblemSource = z.infer<typeof InputProblemSource>;
 export const InputProblem = z.object({ path: z.string(), message: z.string() });
 export type InputProblem = z.infer<typeof InputProblem>;
 
+/**
+ * A part of a run's args the hub read other than as it was sent, so the call fits its fn (`repairArgs` in the hub):
+ * `json-string`, an object or list sent as a string holding its JSON (some models double-encode a nested arg). Where
+ * (a dotted path into the args) and how.
+ */
+export const ArgRepair = z.object({ path: z.string(), repair: z.enum(['json-string']) });
+export type ArgRepair = z.infer<typeof ArgRepair>;
+
 /** One problem as a reader sees it: `path: message`, or the message alone for the whole input. */
 export function problemLine(problem: InputProblem): string {
   return problem.path === '' ? problem.message : `${problem.path}: ${problem.message}`;

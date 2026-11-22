@@ -5,7 +5,7 @@
 import {
   fnLocalNameProblem, owesExamples, DeclaredLink, InjectDecl, GENERAL_GROUP, Json, LinkTarget, Manifest, SystemName, splitName, SYSTEM_EVENT_TYPES,
   type ActionDecl, type ClientAssets, type ConnectDecl, type ContextDecl, type FnDecl, type HandlerDecl, type QualifiedName, type SystemEventType,
-  type TypeDecl, type ApiGroupDecl, GinTypeDef,
+  type TypeDecl, type ApiGroupDecl, GinTypeDef, RecordType,
 } from '@harness/core';
 import { z } from 'zod';
 import type { AnyContextDef, AnyTypeDef, ContextLinkTarget, InjectInput } from './declare.ts';
@@ -240,14 +240,15 @@ function checkedGroups(system: string, groups: readonly ApiGroupDecl[], fns: rea
 }
 
 /**
- * The config's secret paths, checked: each must name a text field of the config type, or an `any` one (how gin reads a
- * record over open keys, such as environment or header values, which the hub seals whole); optional or nullable allowed.
+ * The config's secret paths, checked: each must name a text field of the config type, or a record of text (`record<text>`,
+ * how a record over open keys is read, such as environment or header values, which the hub seals whole), or an `any`
+ * one; optional or nullable allowed.
  */
 export function checkedSecrets(system: string, config: GinTypeDef, paths: readonly string[]): string[] {
   for (const path of paths) {
     let at: GinTypeDef[] = [config];
     for (const key of path.split('.')) { at = at.flatMap(variantsOf).flatMap((def) => { const type = def.props?.[key]?.type; return type === undefined ? [] : [type]; }); }
-    if (at.length === 0 || !at.flatMap(variantsOf).every((def) => def.name === 'text' || def.name === 'any')) {
+    if (at.length === 0 || !at.flatMap(variantsOf).every((def) => def.name === 'text' || def.name === 'any' || (def.name === RecordType.NAME && def.generic?.['V'] !== undefined && variantsOf(def.generic['V']).every((value) => value.name === 'text')))) {
       throw new Error(`system ${system}: config secret '${path}' must be a text field (or a record of text) of the config.`);
     }
   }

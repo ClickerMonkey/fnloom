@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { parseValue } from './gin.ts';
-import { ApiServiceConfig, McpServerConfig } from '@harness/core';
+import { ApiServiceConfig, forModels, harnessRegistry, isPeopleOnly, McpServerConfig, peopleOnly, UpdateMemoryArgs } from '@harness/core';
+import { g } from './gin.ts';
+import { hub } from './hub.ts';
 import { ginOf, toolArgsOf } from './zod-gin.ts';
 
 describe('gin types read off zod schemas', () => {
@@ -60,6 +62,41 @@ describe('gin types read off zod schemas', () => {
     const plain = toolArgsOf(z.object({ a: z.string() }));
     expect(plain.read({ a: 'x' })).toEqual({ a: 'x' });
   });
+
+  it('leaves people-only fields out of the args, through extend, partial and unions, while read keeps them', () => {
+    const Options = z.object({ note: z.string().optional(), secret: peopleOnly(z.string().optional(), 'set by hand') });
+    const Body = z.object({ text: z.string() }).extend(Options.shape);
+    const props = (args: { toJSON(): unknown }): string[] => Object.keys(z.object({ props: z.record(z.string(), z.unknown()) }).parse(args.toJSON()).props);
+    const tool = toolArgsOf(Body);
+    expect(props(tool.args)).toEqual(['text', 'note']);
+    expect(tool.read({ text: 'x', secret: 's' })).toEqual({ text: 'x', secret: 's' });
+    expect(props(toolArgsOf(Body.partial()).args)).toEqual(['text', 'note']);
+    expect(props(toolArgsOf(z.union([Body, z.object({ other: z.number() })])).args)).toEqual(['text', 'note', 'other']);
+    expect(isPeopleOnly(Body.partial().shape.secret)).toBe(true);
+    expect(isPeopleOnly(Body.shape.note)).toBe(false);
+  });
+
+  it('keeps a memory\'s inject out of the hub fns that take context options', () => {
+    for (const fn of [hub.fns.remember, hub.fns.memory_update, hub.fns.ctx_from_resource]) {
+      const props = z.object({ props: z.record(z.string(), z.unknown()) }).parse(fn.args.toJSON()).props;
+      expect(Object.keys(props)).not.toContain('inject');
+      expect(Object.keys(props)).toContain('weight');
+    }
+  });
+
+  it('offers a model only the options it may clear on a memory, while the web endpoint still clears inject', () => {
+    const args = hub.fns.memory_update.args;
+    expect(parseValue(args, { name: 'hub/memory.a', clear: ['tags', 'command'] })).toEqual({ name: 'hub/memory.a', clear: ['tags', 'command'] });
+    expect(() => parseValue(args, { name: 'hub/memory.a', clear: ['inject'] })).toThrow();
+    expect(JSON.stringify(args.toJSON())).not.toContain('inject');
+    expect(UpdateMemoryArgs.parse({ name: 'hub/memory.a', clear: ['inject'] }).clear).toEqual(['inject']);
+  });
+
+  it('gives a field its model form (forModels) in a hub fn\'s args', () => {
+    const Body = z.object({ pick: forModels(z.enum(['a', 'b']), z.enum(['a'])) });
+    expect(() => parseValue(toolArgsOf(Body).args, { pick: 'b' })).toThrow();
+    expect(toolArgsOf(Body).read({ pick: 'b' })).toEqual({ pick: 'b' });
+  });
 });
 
 describe('required fields', () => {
@@ -89,10 +126,25 @@ describe('records', () => {
     expect(() => parseValue(type, { embedding: 1 })).toThrow();
   });
 
-  it('reads a record over literal keys as an object, and one over open or loose keys as any JSON', () => {
+  it('reads a record over literal keys as an object, and a loose one as any JSON', () => {
     expect(parseValue(ginOf(z.record(z.literal(['a', 'b']), z.boolean())), { a: true, b: false })).toEqual({ a: true, b: false });
-    expect(ginOf(z.record(z.string(), z.number())).toJSON()).toEqual(ginOf(z.json()).toJSON());
     expect(ginOf(z.looseRecord(Metric, z.number())).toJSON()).toEqual(ginOf(z.json()).toJSON());
+  });
+
+  it('reads a record over open keys as record<V>: plain objects of checked values, an object in its JSON schema', () => {
+    const type = ginOf(z.record(z.string(), z.array(z.number())));
+    expect(type.toJSON()).toEqual({ name: 'record', generic: { V: { name: 'list', generic: { V: { name: 'num' } } } } });
+    expect(type.toCode()).toBe('record<list<num>>');
+    expect(parseValue(type, { a: [1, 2], b: [] })).toEqual({ a: [1, 2], b: [] });
+    expect(() => parseValue(type, { a: ['x'] })).toThrow(/a:/);
+    expect(() => parseValue(type, [1])).toThrow(/object/);
+    // a record inside an object, as fn args hold one
+    expect(parseValue(g.obj({ args: type }), { args: { a: [3] } })).toEqual({ args: { a: [3] } });
+    // it travels as its definition and reads back the same through the registry
+    expect(g.parse(type.toJSON()).toJSON()).toEqual(type.toJSON());
+    expect(z.toJSONSchema(type.toValueSchema())).toMatchObject({ type: 'object', additionalProperties: { type: 'array', items: { type: 'number' } } });
+    // the hub's registry knows it too (core's), as does a fresh harness registry
+    expect(harnessRegistry().parse(type.toJSON()).toCode()).toBe('record<list<num>>');
   });
 });
 

@@ -4,7 +4,7 @@
  *
  * - `primitives`: JSON, ids, units, names, priorities; `model-names`: the one name the model sees for a fn.
  * - `ports`: the port schema, default ports and the shared `HARNESS_PORT` env field.
- * - `gin`: gin types on the wire.
+ * - `gin`: gin types on the wire; `gin-record`: the harness's own `record<V>` type and the registries that define it.
  * - `run`: who a run is for, progress, outcomes.
  * - `labels`: friendly names for qualified names.
  * - `status`: what a run says it is doing (status templates and their resolution).
@@ -16,7 +16,7 @@
  * - `system-events`: the hub events systems subscribe to.
  * - `web`: the web API spec (`hubWebSpec`) and its events.
  * - `modes`: chat modes, contextors, model limits and what a prompt held.
- * - `context-graph`: context origins and weighted links.
+ * - `context-graph`: context origins and weighted links; `people-only`: fields only a person sets, by hand.
  * - `resource-forms`: raw content, converted and made forms, sources, families.
  * - `model-calls`: every model call of every modality, and model roles.
  * - `metrics`: fn metrics.
@@ -50,9 +50,11 @@ export * from './model-names.ts';
 export * from './urls.ts';
 export * from './modes.ts';
 export * from './context-graph.ts';
+export * from './people-only.ts';
 export * from './objects.ts';
 export * from './ports.ts';
 export * from './gin.ts';
+export * from './gin-record.ts';
 export * from './issues.ts';
 export * from './run.ts';
 export * from './labels.ts';

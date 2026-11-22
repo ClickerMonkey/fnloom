@@ -39,9 +39,8 @@ const ANY_JSON: Readonly<Record<string, string>> = {
   'hub/fns_save examples.[].args': "values of the saved fn's own args type, checked against it on save",
   'hub/fns_save examples.[].result': "values of the saved fn's own returns type, checked against it on save",
   'hub/connection_update settings': "the connection's system's settings type, checked against it",
-  'hub/connection_update fns': "options keyed by fn name: a record over open keys, which a gin obj cannot say",
   'hub/record_save value': "a record of the type named, checked against that type",
-  'hub/record_update set': "fields of the type named, checked against that type",
+  'hub/record_update set.*': "fields of the type named (an object of them by name), checked against that type",
   'hub/set_actor_setting value': "the named setting's own type, checked against it",
   'hub/approve_pairing config': "the system's config type, checked against it",
   'hub/configure_system config': "the system's config type, checked against it",
@@ -49,8 +48,8 @@ const ANY_JSON: Readonly<Record<string, string>> = {
   'hub/install_package config': "the package's config type, checked against it",
   'hub/add_instance config': "the system's config type, checked against it",
   'api/test_request params.[].value': "a parameter value serialised by the operation's style: text, a number, a list or an object",
-  'database/run_query args': "values of the saved query's own args, checked against them",
-  'widgets/make_widget args': "values of the widget's own args, checked against them",
+  'database/run_query args.*': "values of the saved query's own args (an object of them by name), checked against them",
+  'widgets/make_widget args.*': "values of the widget's own args (an object of them by name), checked against them",
 };
 
 /**

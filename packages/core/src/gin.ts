@@ -4,9 +4,10 @@
  * engine for expressions), which checks every key. These schemas only check the outer shape, because gin itself is the
  * full check. In the API documents (and MCP tool inputs) each one is gin's own strict JSON Schema for it.
  */
-import { buildSchemas, createRegistry, type ExprDef, type Registry, type SchemaOptions, type TypeDef } from '@aeye/gin';
+import { buildSchemas, type ExprDef, type Registry, type SchemaOptions, type TypeDef } from '@aeye/gin';
 import { jsonSchema, withJsonSchema, type JsonSchemaObject } from '@ayepi/core';
 import { z } from 'zod';
+import { harnessRegistry } from './gin-record.ts';
 
 /** A registry of gin's built-in types and the strict TypeDef / ExprDef schemas over it, made on first use. */
 let ginSchemas: { readonly registry: Registry; readonly bag: SchemaOptions } | undefined;
@@ -15,7 +16,7 @@ let ginSchemas: { readonly registry: Registry; readonly bag: SchemaOptions } | u
 function ginJsonSchema(pick: (registry: Registry, bag: SchemaOptions) => z.ZodType): () => JsonSchemaObject {
   return () => {
     if (ginSchemas === undefined) {
-      const registry = createRegistry();
+      const registry = harnessRegistry();
       ginSchemas = { registry, bag: buildSchemas(registry, { namedRefs: true }) };
     }
     return jsonSchema(pick(ginSchemas.registry, ginSchemas.bag));
@@ -39,7 +40,7 @@ export function isGinTypeDef(value: unknown): value is TypeDef {
  */
 export function ginTypeProblem(def: TypeDef): string | undefined {
   if (ginSchemas === undefined) {
-    const registry = createRegistry();
+    const registry = harnessRegistry();
     ginSchemas = { registry, bag: buildSchemas(registry, { namedRefs: true }) };
   }
   const problem = (candidate: unknown): string | undefined => {

@@ -548,6 +548,25 @@ describe('refused input', () => {
     expect(r.bus.of('approval')).toEqual([]);
   });
 
+  it('runs an object arg sent as a string holding its JSON, recording the repair on the run', async () => {
+    const r = await started();
+    const fs = r.connect('fs');
+    r.catalog.add('fs', 'find', fn({ description: 'Find files.', args: g.obj({ where: g.obj({ under: g.text() }), note: g.optional(g.text()) }), returns: g.text(), tags: ['read'] }));
+    const turn = await r.turn();
+    const { run, settled } = await r.module.runs.start({ ...input(turn, 'fs/find', { where: '{"under":"docs"}', note: '{"kept":"as text"}' }), caller: AGENT });
+    await settled;
+    const row = await r.module.runs.get(run);
+    expect(row?.status).not.toBe('invalid-input');
+    expect(row?.args).toEqual({ where: { under: 'docs' }, note: '{"kept":"as text"}' });
+    expect(row?.repairs).toEqual([{ path: 'where', repair: 'json-string' }]);
+    expect(fs.requests[0]?.args).toEqual({ where: { under: 'docs' }, note: '{"kept":"as text"}' });
+    // a string that isn't JSON is still refused input, with nothing repaired
+    const refused = await r.module.runs.start({ ...input(turn, 'fs/find', { where: ':{' }), key: 'k2', caller: AGENT });
+    const bad = await r.module.runs.get(refused.run);
+    expect(bad?.status).toBe('invalid-input');
+    expect(bad?.repairs).toBeUndefined();
+  });
+
   it('settles input its caller couldn’t read as invalid input, keeping what the model wrote', async () => {
     const r = await started();
     r.connect('fs');

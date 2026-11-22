@@ -158,7 +158,7 @@ interface BuiltEntries {
 function · `import { authoredNameWarnings } from '@harness/sdk/server'`
 
 Warnings for the names in a manifest's model-facing text that resolve to nothing `known` holds, one line each:
-`fns.add.description: fn:notes/ad names no fn — did you mean notes/add?`. A ref that names nothing always warns; a
+`fns.add.description: <a fn ref to notes/ad> names no fn — did you mean notes/add?`. A ref that names nothing always warns; a
 bare name only when it is near a name the build knows (a misspelling): a text may name fns that are only examples
 (`code/price_with_tax`, a fn a person might make).
 

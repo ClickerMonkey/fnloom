@@ -16,7 +16,7 @@ niche: "developer"
 
 const · `import { g } from '@harness/sdk'`
 
-The gin type builder: gin's registry, shared by every contract in this process, with `fnName` (`HarnessGin`).
+The gin type builder: gin's registry, shared by every contract in this process, with `fnName` and `record` (`HarnessGin`).
 
 ```ts
 const g: Registry & HarnessGin;
@@ -168,7 +168,9 @@ function · `import { toolArgsOf } from '@harness/sdk'`
 A fn's args read off a zod schema. Tool args are always an object: an object schema is taken as it is, and a union
 of objects (an import from a URL or from an upload, one provider of several) is flattened into one object with
 every member's fields, so the model passes plain args either way; the schema itself picks the member when `read`
-parses them. Any other schema is taken as the field `input`.
+parses them. Any other schema is taken as the field `input`. Fields only a person sets (core's `peopleOnly`, such as
+a memory's `inject`) are left out of the args, and a field with a narrower model form (`forModels`) takes it, so a
+model is never shown them and the hub refuses them as unknown args; `read` parses with the whole schema, which the web endpoint's body keeps.
 
 ```ts
 function toolArgsOf<S extends z.ZodType>(schema: S): { readonly args: GinType<ToolArgs<S>>; readonly read: (args: unknown) => z.output<S>; };

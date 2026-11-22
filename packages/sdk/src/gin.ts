@@ -4,8 +4,8 @@
  * JSON definition (`toJSON`), value parsing (`parse`), a zod value schema (`toValueSchema`) and the named types it
  * references (`references`). Named types a contract declares are registered in `g`, so they serialize by name.
  */
-import { createRegistry, Type, type Infer, type Registry } from '@aeye/gin';
-import { FN_NAME_PATTERN, GinTypeDef, Json, QualifiedName, type TypeDefinitions } from '@harness/core';
+import { Type, type Infer, type Registry } from '@aeye/gin';
+import { FN_NAME_PATTERN, GinTypeDef, harnessRegistry, Json, QualifiedName, RecordType, type TypeDefinitions } from '@harness/core';
 
 /** What the harness adds to gin's builder. */
 export interface HarnessGin {
@@ -15,15 +15,24 @@ export interface HarnessGin {
    * spell it". Use it for every field that names a fn (a fn to load, run or look at; a hit's or a result's fn).
    */
   fnName(): GinType<QualifiedName>;
+  /**
+   * An object with any text keys, each value a `V` (core's `RecordType`): params by name, counts by label. Its JSON
+   * schema is an object whose `additionalProperties` are `V`; values stay plain objects.
+   */
+  record<V>(value: GinType<V>): GinType<Record<string, V>>;
 }
 
-const registry: Registry = createRegistry();
+const registry: Registry = harnessRegistry();
 
-/** The gin type builder: gin's registry, shared by every contract in this process, with `fnName` (`HarnessGin`). */
+/** The gin type builder: gin's registry, shared by every contract in this process, with `fnName` and `record` (`HarnessGin`). */
 export const g: Registry & HarnessGin = Object.assign(registry, {
   fnName: (): GinType<QualifiedName> => {
     // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the boundary reads every value of this text back to a qualified name before a fn gets it
     return registry.text({ pattern: FN_NAME_PATTERN }) as GinType<QualifiedName>;
+  },
+  record: <V>(value: GinType<V>): GinType<Record<string, V>> => {
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- a record's values are checked by `value` and kept as plain JSON objects
+    return registry.parse({ name: RecordType.NAME, generic: { V: value.toJSON() } }) as GinType<Record<string, V>>;
   },
 });
 

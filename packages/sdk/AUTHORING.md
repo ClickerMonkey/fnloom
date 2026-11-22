@@ -1046,7 +1046,7 @@ field is a `Date` in code but a string on the wire. Never hand-write a TypeScrip
 
 const · `import { g } from '@harness/sdk'`
 
-The gin type builder: gin's registry, shared by every contract in this process, with `fnName` (`HarnessGin`).
+The gin type builder: gin's registry, shared by every contract in this process, with `fnName` and `record` (`HarnessGin`).
 
 ```ts
 const g: Registry & HarnessGin;
@@ -1198,7 +1198,9 @@ function · `import { toolArgsOf } from '@harness/sdk'`
 A fn's args read off a zod schema. Tool args are always an object: an object schema is taken as it is, and a union
 of objects (an import from a URL or from an upload, one provider of several) is flattened into one object with
 every member's fields, so the model passes plain args either way; the schema itself picks the member when `read`
-parses them. Any other schema is taken as the field `input`.
+parses them. Any other schema is taken as the field `input`. Fields only a person sets (core's `peopleOnly`, such as
+a memory's `inject`) are left out of the args, and a field with a narrower model form (`forModels`) takes it, so a
+model is never shown them and the hub refuses them as unknown args; `read` parses with the whole schema, which the web endpoint's body keeps.
 
 ```ts
 function toolArgsOf<S extends z.ZodType>(schema: S): { readonly args: GinType<ToolArgs<S>>; readonly read: (args: unknown) => z.output<S>; };
@@ -5939,7 +5941,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/run_get`: One run: its fn, args, status, result or error, cost and timings. Tags: `read`.
 
   ```text
-  (obj{/* run id */ run: text}) => obj{ id, fn, fnVersion, kind, system, instance?, parent?, root, turn, session?, key, actor, caller, connection?, llmCall?, toolCallId?, args, test?, status, text?, outcome?, progress?, allowed, cost, totalCost, priority, background, attempt, errors, undo?, resume?, stateChanges, tokens?, createdAt, approvedAt?, startedAt?, endedAt? … }
+  (obj{/* run id */ run: text}) => obj{ id, fn, fnVersion, kind, system, instance?, parent?, root, turn, session?, key, actor, caller, connection?, llmCall?, toolCallId?, args, repairs?, test?, status, text?, outcome?, progress?, allowed, cost, totalCost, priority, background, attempt, errors, undo?, resume?, stateChanges, tokens?, createdAt, approvedAt?, startedAt?, endedAt? … }
   ```
 - `hub/run_tree`: The tree of runs a turn made: each run with the runs it called. Tags: `read`.
 
@@ -6094,12 +6096,23 @@ This is the hub contract as the SDK declares it now:
 - `hub/ctx_from_resource`: Make context items from a resource (one per section, under an outline parent), or update the ones made before.
 
   ```text
-  (obj{ uri, sections?, copy?, weight?, tags?, fns?, suggestFns?, inject?, command?, visible?, suggest? … }) => obj{created: list<text>, updated: list<text>, links: num{whole=true, min=0}}
+  (obj{
+    uri: text,
+    sections?: list<text{minLength=1}>,
+    copy?: enum<text>{live, snapshot},
+    weight?: num{min=0, max=2},
+    tags?: list<text{minLength=1}>,
+    fns?: list<text>,
+    suggestFns?: list<text>,
+    command?: text,
+    visible?: enum<text>{user, llm, both, none},
+    suggest?: enum<text>{user, llm, both, none}
+  }) => obj{created: list<text>, updated: list<text>, links: num{whole=true, min=0}}
   ```
 - `hub/remember`: Keep a fact for later as a memory (a context item): for this chat, for the person in all their chats, or for everyone.
 
   ```text
-  (obj{ text, title?, scope?, about?, weight?, summary?, tags?, fns?, suggestFns?, inject?, command?, visible?, suggest?, parent? … }) => obj{name: text}
+  (obj{ text, title?, scope?, about?, weight?, summary?, tags?, fns?, suggestFns?, command?, visible?, suggest?, parent? … }) => obj{name: text}
   ```
 - `hub/forget`: Forget a memory.
 
@@ -6138,7 +6151,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/memory_update`: Change a memory: its text, title, weight, tags, the fns it brings or where it applies.
 
   ```text
-  (obj{ text?, title?, about?, weight?, summary?, tags?, fns?, suggestFns?, inject?, command?, visible?, suggest?, parent?, name, clear? … }) => obj{name: text}
+  (obj{ text?, title?, about?, weight?, summary?, tags?, fns?, suggestFns?, command?, visible?, suggest?, parent?, name, clear? … }) => obj{name: text}
   ```
 - `hub/ctx_link`: Link a context item to another item (context, fn, type or resource), with a relation and weight.
 
@@ -6165,7 +6178,7 @@ This is the hub contract as the SDK declares it now:
   (obj{
     /* connection id */ connection: text,
     settings?: any,
-    fns?: any,
+    fns?: record<obj{on: bool, ask: bool}>,
     share?: obj{
       visibility: enum<text>{private, shared, public},
       with: list<text>
@@ -6317,7 +6330,7 @@ This is the hub contract as the SDK declares it now:
   (obj{
     type: text,
     /* record id */ id: text,
-    set: any,
+    set: record<any>,
     expect?: num{whole=true, min=1},
     run?: text
   }) => obj{
@@ -6342,7 +6355,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/read_table`: Run a read fn that returns a table, as a child run of the caller, as its person, and give the table. Tags: `read`.
 
   ```text
-  (obj{fn: text, args: any}) => obj{ columns, rows, offset, limit?, total?, truncated, sort, write?, records?, drill? … }
+  (obj{fn: text, args: record<any>}) => obj{ columns, rows, offset, limit?, total?, truncated, sort, write?, records?, drill? … }
   ```
 - `hub/visuals`: Every visual of the hub's visual registry (hub/visuals), with its declared shape and the system that draws it, in registry order. Tags: `read`.
 
@@ -6358,7 +6371,7 @@ This is the hub contract as the SDK declares it now:
       fn: text,
       label?: text{minLength=1},
       confirm?: literal<bool>{value=true},
-      bind: any,
+      bind: record<text{minLength=1}>,
       then?: enum<text>{open, refresh, status}
     }>
   }) => list<obj{
@@ -6366,7 +6379,7 @@ This is the hub contract as the SDK declares it now:
     label: text{minLength=1},
     mode: enum<text>{read, write, delete},
     confirm: bool,
-    bind: any,
+    bind: record<text{minLength=1}>,
     form?: typ<any>,
     then: enum<text>{open, refresh, status}
   }>
@@ -12213,7 +12226,7 @@ interface BuiltEntries {
 function · `import { authoredNameWarnings } from '@harness/sdk/server'`
 
 Warnings for the names in a manifest's model-facing text that resolve to nothing `known` holds, one line each:
-`fns.add.description: fn:notes/ad names no fn — did you mean notes/add?`. A ref that names nothing always warns; a
+`fns.add.description: <a fn ref to notes/ad> names no fn — did you mean notes/add?`. A ref that names nothing always warns; a
 bare name only when it is near a name the build knows (a misspelling): a text may name fns that are only examples
 (`code/price_with_tax`, a fn a person might make).
 

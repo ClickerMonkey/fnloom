@@ -20,6 +20,7 @@ import { z } from 'zod';
 import { HUB_SYSTEM, systemAvailability } from '../catalog/availability.ts';
 import { installCard } from '../link/install.ts';
 import { agentNames } from '../catalog/injections.ts';
+import { repairArgs } from './arg-repair.ts';
 import { DeadlineTimers, deadlineError, runDeadline, type RunDeadline } from './deadlines.ts';
 import { fnError, HubStopping, messageOf, notConnected, RunRefused, RunStopped, RunTimedOut } from './errors.ts';
 import { rows } from '../store/rows.ts';
@@ -221,8 +222,9 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     this.#executors.set(kind, executor);
   }
 
-  async start(input: RunInput): Promise<{ run: RunId; settled: Promise<RunSettled> }> {
+  async start(given: RunInput): Promise<{ run: RunId; settled: Promise<RunSettled> }> {
     const { catalog, store, clock } = this.#deps;
+    let input = given;
     const fn = await catalog.fn(input.fn);
     if (fn === undefined) throw new RunRefused(fnError('caller', `There is no fn ${input.fn}.`, 'not-found'));
     // a call its caller already refused because the fn is blocked (held, off, offline, an account to connect) is still
@@ -237,6 +239,13 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     // a fn the turn's person may not see is as good as missing to them; a per-person fn needs a connection to act as
     const access = await this.#deps.access.scope(turn.user.id);
     if (!access.seesFn(fn)) throw new RunRefused(fnError('caller', `There is no fn ${input.fn}.`, 'not-found'));
+    // an object or list sent as a string holding its JSON is read as that JSON, and the run says so (`repairArgs`);
+    // input already refused is not read (a blocked fn's signature may not even resolve, its kind gone)
+    const { args: repairedArgs, repairs } = input.invalid === undefined ? repairArgs((await catalog.signature(fn.name)).argsSchema, input.args) : { args: input.args, repairs: [] };
+    if (repairs.length > 0) {
+      input = { ...input, args: repairedArgs };
+      this.#deps.log.info('run.args-repaired', { fn: fn.name, turn: input.turn, repairs: repairs.map((repair) => `${repair.path || '(args)'}: ${repair.repair}`) });
+    }
     const connection = access.connection(fn, input.args);
     if (connection?.state === 'missing' && !blockedCall) throw new RunRefused(fnError('retry', `${input.fn} acts as you: connect your account on the ${connection.page} page first.`, 'unavailable'));
     // a call through a key that signs in, with no connection to it, could only fail in the run: refused before any
@@ -288,6 +297,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       ...(input.llmCall === undefined ? {} : { llmCall: input.llmCall }),
       ...(input.toolCallId === undefined ? {} : { toolCallId: input.toolCallId }),
       args,
+      ...(repairs.length === 0 ? {} : { repairs: [...repairs] }),
       ...(test ? { test: true } : {}),
       status: 'queued',
       allowed: { cancel: operations.cancel, pause: operations.pause, background: operations.background },

@@ -16,8 +16,8 @@
  * programs plain: no while-loops (a loop over a `bool`, re-evaluated each round), no loop over a value of unknown type,
  * no `recurse`, a complexity cap; and at run time a cap on fn calls.
  */
-import { buildSchemas, createEngine, createRegistry, typeReferences, val, type Engine, type SchemaOptions, type Expr, type ExprDef, type LocalScope, type Type, type TypeDef, type Value } from '@aeye/gin';
-import { Json, QualifiedName, isGinExprDef, isGinTypeDef, type FnMode } from '@harness/core';
+import { buildSchemas, createEngine, typeReferences, val, type Engine, type SchemaOptions, type Expr, type ExprDef, type LocalScope, type Type, type TypeDef, type Value } from '@aeye/gin';
+import { harnessRegistry, Json, QualifiedName, isGinExprDef, isGinTypeDef, type FnMode } from '@harness/core';
 import { g } from '../gin.ts';
 import { z } from 'zod';
 import { programEnv } from './env.ts';
@@ -133,7 +133,7 @@ export class ProgramScope {
   schemas(): SchemaOptions {
     const kept = this.#schemas;
     if (kept !== undefined && kept.count === this.#named.length) return kept.schemas;
-    const registry = createRegistry();
+    const registry = harnessRegistry();
     for (const { name, def } of this.#named) {
       const type = registry.parse(def);
       registry.register(type.name === name ? type : registry.extend(type, { name }));

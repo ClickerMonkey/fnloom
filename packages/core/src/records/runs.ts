@@ -5,7 +5,7 @@ import { LlmChunk, LlmRequest, LlmUsage } from '../llm.ts';
 import {
   ActorId, ConnectionId, DeliveryId, FnKindName, HandlerCallId, InstanceName, Json, LlmInteractionId, MessageId, ModelCallId, Priority, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId, Usd,
 } from '../primitives.ts';
-import { AllowedOperations, ClientInfo, FnError, OutcomeWire, ProgressWire, RunStatus, TimeInfo, UserInfo } from '../run.ts';
+import { AllowedOperations, ArgRepair, ClientInfo, FnError, OutcomeWire, ProgressWire, RunStatus, TimeInfo, UserInfo } from '../run.ts';
 import { RunText } from '../status.ts';
 import { GraphSelection, SelectionReport } from '../modes.ts';
 import { ResolvedLimits } from './spend.ts';
@@ -43,6 +43,8 @@ export const Run = z.object({
   llmCall: LlmInteractionId.optional(),
   toolCallId: z.string().optional(),
   args: Json,
+  /** What the hub read other than as sent so the args fit (a list sent as a string holding its JSON); absent when nothing. */
+  repairs: z.array(ArgRepair).optional(),
   /** An admin's test call of an installed system or an item waiting for review; the calls it makes are tests too. */
   test: z.boolean().optional(),
   status: RunStatus,

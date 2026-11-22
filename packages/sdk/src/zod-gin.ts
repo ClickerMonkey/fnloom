@@ -6,13 +6,14 @@
  * Covered: objects (with field descriptions), strings and string formats, template literals, numbers (with bounds and
  * whole numbers), booleans, literals, enums, arrays, unions (discriminated or not), optional, nullable,
  * defaults (optional on input), pipes (their input side), and records over a closed set of keys (an enum or literals),
- * which become an object with one field per key (optional for `z.partialRecord`). JSON, records over open keys,
- * `unknown` and lazy schemas become any JSON. A gin type (`GinTypeDef`, `GinObjTypeDef`) becomes gin's `typ`, whose
+ * which become an object with one field per key (optional for `z.partialRecord`); records over open keys become the
+ * harness's `record<V>` (`g.record`: an object of values by key). JSON, loose records, `unknown` and lazy schemas
+ * become any JSON. A gin type (`GinTypeDef`, `GinObjTypeDef`) becomes gin's `typ`, whose
  * value schema is gin's strict TypeDef schema (a model is told the shape, not sent an empty schema). A gin program (`GinExprDef`) becomes gin's `fn` type, whose value is an
  * expression: any JSON would refuse a program whose root is a `new` (gin reads that as a misplaced expression).
  */
 import type { FieldsInput } from '@aeye/gin';
-import { FN_NAME_DESCRIPTION, GinExprDef, GinObjTypeDef, GinTypeDef } from '@harness/core';
+import { FN_NAME_DESCRIPTION, GinExprDef, GinObjTypeDef, GinTypeDef, isPeopleOnly, MODEL_FACING } from '@harness/core';
 import { z } from 'zod';
 import { g, json, type GinType } from './gin.ts';
 
@@ -99,13 +100,25 @@ export function ginAs<S extends z.ZodType>(schema: S): GinType<z.input<S>> {
  * A fn's args read off a zod schema. Tool args are always an object: an object schema is taken as it is, and a union
  * of objects (an import from a URL or from an upload, one provider of several) is flattened into one object with
  * every member's fields, so the model passes plain args either way; the schema itself picks the member when `read`
- * parses them. Any other schema is taken as the field `input`.
+ * parses them. Any other schema is taken as the field `input`. Fields only a person sets (core's `peopleOnly`, such as
+ * a memory's `inject`) are left out of the args, and a field with a narrower model form (`forModels`) takes it, so a
+ * model is never shown them and the hub refuses them as unknown args; `read` parses with the whole schema, which the web endpoint's body keeps.
  */
 export function toolArgsOf<S extends z.ZodType>(schema: S): { readonly args: GinType<ToolArgs<S>>; readonly read: (args: unknown) => z.output<S> } {
-  if (schema instanceof z.ZodObject) return { args: typedAs<ToolArgs<S>>(ginOf(schema)), read: (args) => schema.parse(args) };
+  if (schema instanceof z.ZodObject) return { args: typedAs<ToolArgs<S>>(ginOf(modelFacing(schema))), read: (args) => schema.parse(args) };
   const members = objectMembers(schema);
-  if (members !== undefined) return { args: typedAs<ToolArgs<S>>(ginOf(flattened(members))), read: (args) => schema.parse(args) };
+  if (members !== undefined) return { args: typedAs<ToolArgs<S>>(ginOf(flattened(members.map(modelFacing)))), read: (args) => schema.parse(args) };
   return { args: typedAs<ToolArgs<S>>(g.obj({ input: ginOf(schema) })), read: (args) => schema.parse(Wrapped.parse(args).input) };
+}
+
+/**
+ * An object schema as a model is shown it: without its people-only fields (`isPeopleOnly`), and each field given a
+ * narrower model form (`forModels`) in that form. The args a model is shown and may send.
+ */
+function modelFacing(schema: z.ZodObject): z.ZodObject {
+  const shape: Readonly<Record<string, z.core.$ZodType>> = schema.shape;
+  const kept = Object.entries(shape).filter(([, field]) => !isPeopleOnly(field)).map(([key, field]): [string, z.core.$ZodType] => [key, MODEL_FACING.get(field)?.schema ?? field]);
+  return kept.length === Object.keys(shape).length && kept.every(([key, field]) => shape[key] === field) ? schema : z.object(Object.fromEntries(kept));
 }
 
 /** The keys of any member of a union. */
@@ -160,13 +173,15 @@ const Wrapped = z.object({ input: z.unknown() });
 
 /**
  * A record as gin types it: over a closed set of keys (an enum, literals) in strict mode, an object with a field per key,
- * each optional when the record is partial (zod requires every key otherwise); over open keys, any JSON, checked by
- * zod after (a gin map is a list of pairs, not an object).
+ * each optional when the record is partial (zod requires every key otherwise); over open keys, `record<V>` of the
+ * values' type (a gin map is a list of pairs, not an object), its keys' own checks left to zod after; a loose record,
+ * which keeps keys its key schema refuses, any JSON.
  */
 function recordOf(schema: z.ZodRecord): GinType {
   const keys = schema.keyType._zod.values;
   const { partial, mode } = schema._zod.def;
-  if (keys === undefined || mode === 'loose') return json();
+  if (mode === 'loose') return json();
+  if (keys === undefined) return g.record(ginOf(schema.valueType));
   const names = [...keys].flatMap((key) => typeof key === 'string' || typeof key === 'number' ? [String(key)] : []);
   if (names.length !== keys.size) return json();
   const value = ginOf(schema.valueType);

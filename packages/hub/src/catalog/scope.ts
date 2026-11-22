@@ -5,8 +5,8 @@
  * overlay keeps every name a reference (`{ name }`), so nothing the hub parses is registered process-wide. gin takes
  * qualified names (`fs/Entry`) as they stand.
  */
-import { createRegistry, typeClosure, typeReferences, type LocalScope, type Registry, type Type, type TypeDef } from '@aeye/gin';
-import { messageOf, QualifiedName, type GinTypeDef } from '@harness/core';
+import { typeClosure, typeReferences, type LocalScope, type Registry, type Type, type TypeDef } from '@aeye/gin';
+import { harnessRegistry, messageOf, QualifiedName, type GinTypeDef } from '@harness/core';
 
 /** Looks up the definition of a named type by its qualified name (`fs/Entry`), or undefined when none is known. */
 export type TypeLookup = (name: string) => GinTypeDef | undefined;
@@ -28,7 +28,7 @@ export { messageOf };
 export class GinScopes {
   readonly registry: Registry;
 
-  constructor(registry: Registry = createRegistry()) {
+  constructor(registry: Registry = harnessRegistry()) {
     this.registry = registry;
   }
 

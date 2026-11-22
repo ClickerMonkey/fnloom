@@ -13,10 +13,28 @@ export interface ChatTurn {
   readonly content: string;
 }
 
+/**
+ * What a call cost, as OpenRouter's usage accounting (`usage: { include: true }`) reports it. `cost` is what OpenRouter
+ * charged; a call it routed through the account's own provider key (BYOK, `is_byok`: OpenAI's models here, some of
+ * the time) has only OpenRouter's fee there (often 0) and the provider's bill in `cost_details.upstream_inference_cost`.
+ */
+export const OpenRouterUsage = z.object({
+  cost: z.number().nullish(),
+  is_byok: z.boolean().nullish(),
+  cost_details: z.object({ upstream_inference_cost: z.number().nullish() }).nullish(),
+});
+export type OpenRouterUsage = z.infer<typeof OpenRouterUsage>;
+
+/** What a call cost in all (USD): OpenRouter's charge, plus the provider's bill when it went through BYOK (as aeye counts it). */
+export function costOf(usage: OpenRouterUsage | null | undefined): number {
+  if (usage === null || usage === undefined) { return 0; }
+  return (usage.cost ?? 0) + (usage.is_byok === true ? usage.cost_details?.upstream_inference_cost ?? 0 : 0);
+}
+
 /** What OpenRouter answers (the parts read here). */
-const Completion = z.object({
+export const Completion = z.object({
   choices: z.array(z.object({ message: z.object({ content: z.string().nullable() }) })).min(1),
-  usage: z.object({ cost: z.number().optional() }).optional(),
+  usage: OpenRouterUsage.nullish(),
 });
 
 /** A JSON answer and what getting it cost (USD), retries included. */
@@ -57,7 +75,7 @@ export class OpenRouter {
       }
       if (!response.ok) { throw new Error(`OpenRouter answered HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`); }
       const body = Completion.parse(await response.json());
-      return { text: body.choices[0]?.message.content ?? '', cost: body.usage?.cost ?? 0 };
+      return { text: body.choices[0]?.message.content ?? '', cost: costOf(body.usage) };
     }
   }
 

@@ -11,6 +11,7 @@ import {
   FN_NAME_DESCRIPTION, FN_NAME_PATTERN, InstanceName, Json, RunArgs, JsonObject, modelFnName, modelFnNames, RULE_ONLY_NAMES, type ModelFnNames, type StaticToolFns, messageOf, problemLine, QualifiedName, STATIC_TOOLS, SystemName, type Detail, type FnBlock, type FnExample, type InputProblem, type InvalidInput, type StaticMode, type StaticTool,
 } from '@harness/core';
 import { z } from 'zod';
+import { repairArgs } from '../execution/arg-repair.ts';
 import { executingSystem } from '../execution/runs.ts';
 import { isObjectSchema } from '../execution/wire.ts';
 import type { CatalogFnNames } from '../catalog/index.ts';
@@ -348,12 +349,16 @@ export class StaticChatMode implements ChatMode {
       const hint = near.length === 0 ? 'Use find to look for one.' : `The nearest: ${near.join(', ')}.`;
       return invalid(qualified.success ? qualified.data : undefined, 'schema', [{ path: 'fn', message: `no fn named ${name} can run here` }], `There is no fn ${name} you can run here. ${hint}`);
     }
-    const checked = view.signature.argsSchema.safeParse(rendered.names.read(args, view.record.decl.args));
+    const read = rendered.names.read(args, view.record.decl.args);
+    // an object or list sent as a string holding its JSON fits once read as that JSON (`repairArgs`)
+    const repaired = repairArgs(view.signature.argsSchema, read);
+    const checked = view.signature.argsSchema.safeParse(repaired.args);
     if (!checked.success) {
       const problems = problemsOf(checked.error);
       return invalid(view.record.name, 'schema', problems, `The args don't fit ${view.record.name}:\n${problemLines(problems)}\n\n${fnCard(view, 'full')}`, { args });
     }
-    return { type: 'run', fn: view.record.name, args: Json.parse(checked.data), ...(on === undefined ? {} : { on }) };
+    // repaired args go to the run as sent, so the run repairs them again and records what it repaired
+    return { type: 'run', fn: view.record.name, args: repaired.repairs.length === 0 ? Json.parse(checked.data) : read, ...(on === undefined ? {} : { on }) };
   }
 
   /** The fns whose names or descriptions are nearest an unknown name. */
