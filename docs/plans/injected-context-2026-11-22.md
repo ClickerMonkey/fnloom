@@ -784,3 +784,9 @@ An `explains` field on `hook()`
 ### caching: When a system goes off, or an admin switches an injection mid-chat, when does the prompt change?
 
 Rebuild at the next turn, only when something changed
+
+## Decided after the prompt render (Phil, hitloop set prompt-render-2026-11-22, 2026-11-22)
+
+- example-names: Encode by rule
+- small-fit: The systems list follows the agent's detail
+- suggestion-cards: Brief cards

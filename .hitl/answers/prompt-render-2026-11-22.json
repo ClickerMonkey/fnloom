@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "seq": 4,
+  "readSeq": 3,
+  "answers": {
+    "example-names": {
+      "status": "answered",
+      "picked": [
+        "rule"
+      ],
+      "labels": [
+        "Encode by rule"
+      ],
+      "rev": "1dj5o6l",
+      "at": "2026-11-22T20:49:13.742Z",
+      "seq": 1,
+      "ack": {
+        "at": "2026-11-22T20:50:42.667Z",
+        "note": "Building all three now; then a fresh prompt render checks chat_small fits 2k and no slash-form fn names remain, then iteration 2."
+      }
+    },
+    "small-fit": {
+      "status": "answered",
+      "picked": [
+        "follow-detail"
+      ],
+      "labels": [
+        "The systems list follows the agent's detail"
+      ],
+      "rev": "1mq5g13",
+      "at": "2026-11-22T20:49:59.771Z",
+      "seq": 2,
+      "ack": {
+        "at": "2026-11-22T20:50:42.667Z",
+        "note": "Building all three now; then a fresh prompt render checks chat_small fits 2k and no slash-form fn names remain, then iteration 2."
+      }
+    },
+    "suggestion-cards": {
+      "status": "answered",
+      "picked": [
+        "brief"
+      ],
+      "labels": [
+        "Brief cards"
+      ],
+      "rev": "g9bwn7",
+      "at": "2026-11-22T20:50:17.514Z",
+      "seq": 3,
+      "ack": {
+        "at": "2026-11-22T20:50:42.667Z",
+        "note": "Building all three now; then a fresh prompt render checks chat_small fits 2k and no slash-form fn names remain, then iteration 2."
+      }
+    }
+  },
+  "threads": {}
+}
