@@ -1,0 +1,291 @@
+{
+  "$schema": "https://unpkg.com/hitloop/schema/questions.schema.json",
+  "title": "Injected context, one fn name, ctx fns: the decisions",
+  "created": "2026-11-22T15:55:53.689Z",
+  "sections": [
+    {
+      "id": "decisions",
+      "title": "Decisions before the types are written up for approval",
+      "intro": "The design is in docs/plans/injected-context-2026-11-22.md under **## Design**, with the proposed types in section 7. Nothing is built. Each question names the section it belongs to. The ones marked blocking shape the types.",
+      "content": {
+        "file": "docs/plans/injected-context-2026-11-22.md"
+      },
+      "questions": [
+        {
+          "id": "name-format",
+          "header": "1. The model's one fn name",
+          "priority": "blocking",
+          "question": "Which spelling does the model see for every fn, everywhere (tools, `run`, cards, search hits, errors)?",
+          "content": {
+            "md": "| Qualified | A (recommended) | B | C (today) |\n|---|---|---|---|\n| `hub/fns_search` | `hub__fns_search` | `fns_search` | `hub__fns_search` |\n| `database/main.expenses_create` | `database__main__expenses_create` | `database__main__expenses_create` | `database__main--expenses_create` |\n| `fs/Entry.reveal` | `fs__Entry__reveal` | `fs__Entry__reveal` | `fs__Entry--reveal` |\n| an 85-character saved query | `database__household_budget__monthly_grocery_spending_b_xf34e264b` | same | cut at 64, can't be read back |\n\nAll of them are valid for OpenAI, Anthropic, Bedrock and Gemini (letters, digits, `_` and `-`, at most 64, starting with a letter). The hub reads a name back through a registry, so names over 64 characters work too."
+          },
+          "options": [
+            {
+              "id": "double-underscore",
+              "label": "A: `__` between every part",
+              "recommended": true,
+              "description": "One rule: `__` separates the parts. Models know it from MCP names (`mcp__server__tool`). A local name may not contain `__` or start or end a part with `_` (no name today does). The MCP faces use the same name, so today's `system_local` goes too."
+            },
+            {
+              "id": "hub-bare",
+              "label": "B: like A, but the hub's own fns without `hub__`",
+              "description": "`fns_search`, `ctx_search`, `ask_user` read best and can't clash, because every other name contains `__`. The cost is one exception to explain, and a hub fn looks different from every other fn."
+            },
+            {
+              "id": "today",
+              "label": "C: keep today's `__` and `--`",
+              "description": "Nothing to migrate. Two separators, it isn't one-to-one (`--` in a local name reads back as `.`), and long names stay lossy."
+            }
+          ],
+          "why": "This is the name in every tool call, card, test and stored transcript, and changing it twice is expensive. Sections 1 and 7."
+        },
+        {
+          "id": "which-names",
+          "header": "2. Which names use it",
+          "question": "Should context keys, types and hook tags use the model format too, or only fns?",
+          "options": [
+            {
+              "id": "all",
+              "label": "Every name the model reads",
+              "recommended": true,
+              "description": "`fs__guide__paths`, `fs__Entry`, `<fs__git>`. The model never sees a `/` name anywhere, and \"context is named like a fn\" stays true."
+            },
+            {
+              "id": "fns-only",
+              "label": "Fns only",
+              "description": "Context keys and types stay `fs/guide.paths`. That is less to change, but the model then meets two formats again: fns one way, the things it loads another."
+            }
+          ],
+          "why": "Phil: \"the llm should just see the one valid format\". Context keys go into `load_ctx` args, so they are names the model writes."
+        },
+        {
+          "id": "static-tools",
+          "header": "3. The static toolset's names",
+          "question": "In static mode (the small models), should `find`, `inspect`, `load` and `unload` be called by their real fn names?",
+          "options": [
+            {
+              "id": "real-names",
+              "label": "Real names: `hub__fns_search`, `hub__ctx_search`, `hub__inspect`, `hub__load`, `hub__unload`, plus `run`",
+              "recommended": true,
+              "description": "One vocabulary in both modes, so an injected item's text works unchanged in each, and `find` stops being a second name for `hub__fns_search`. It is six tools instead of five, because of the ctx split."
+            },
+            {
+              "id": "short",
+              "label": "Keep short names (`find`, `find_ctx`, `inspect`, `load`, `unload`, `run`)",
+              "description": "Fewer tokens for tiny models. These are mode words that aren't fn names, so text that names hub fns has to be rendered differently for each mode."
+            }
+          ],
+          "why": "This decides whether injected text needs per-mode variants (question 10). Section 2."
+        },
+        {
+          "id": "authored-names",
+          "header": "4. How authored text names fns",
+          "question": "About 2,600 `system/name` mentions sit in descriptions, instructions and context. How should they become model names?",
+          "options": [
+            {
+              "id": "auto-plus-refs",
+              "label": "Detect known names automatically, plus typed refs",
+              "recommended": true,
+              "description": "At prompt time the hub rewrites any qualified name it knows that stands alone (not inside a URI or path), and any `fn:`/`context:` ref. In TypeScript, `${fns.read}` writes a ref, so a rename becomes a compile error. The build warns about a bare name that resolves to nothing. No text needs rewriting by hand."
+            },
+            {
+              "id": "refs-only",
+              "label": "Explicit refs only",
+              "description": "Only `fn:x/y` and `${ref}` are rewritten. Nothing is ever rewritten by surprise, but all 2,600 mentions have to be converted, and a missed one shows the model a `/` name."
+            }
+          ],
+          "why": "Whether the model ever sees a stray `/` name, and how much text the build has to touch. Section 1."
+        },
+        {
+          "id": "rename-strategy",
+          "header": "5. Renames and stored data",
+          "priority": "high",
+          "question": "How should we roll out the renames (`load_context`→`load_ctx`, `context_crawl`→`ctx_crawl`, `context_get`/`_from_resource`/`_link`/`_unlink`→`ctx_*`, the new `ctx_search` and `drop_ctx`, the `<ctx…>` card tags) and the new name format?",
+          "options": [
+            {
+              "id": "clean-migrate",
+              "label": "Clean rename with one store migration",
+              "recommended": true,
+              "description": "No aliases. TypeScript refs break at compile time and get fixed. A migration rewrites the dev hub's transcripts (tool-call names), sessions, policies, grants, item switches, MCP rules, examples and runs. Raw model-call records stay as history and are shown through a display-only legacy reader. Nothing has been pushed or published (130 local commits)."
+            },
+            {
+              "id": "clean-wipe",
+              "label": "Clean rename, wipe the dev data",
+              "description": "The least code. Earlier scenario runs and chats are lost."
+            },
+            {
+              "id": "aliases",
+              "label": "Keep the old names as aliases for a release",
+              "description": "Old policies and saved references keep working. The model or a policy could still meet a second name, which is what Phil wants gone."
+            }
+          ],
+          "why": "Whether existing chats, scenario history and admin rules survive. Sections 1 and 3. The memory fns (`remember`, `forget`, `memory_update`) keep their names, since they don't say \"context\"."
+        },
+        {
+          "id": "approval",
+          "header": "6. Approving injections",
+          "priority": "high",
+          "question": "How does an admin approve a system's injected context?",
+          "options": [
+            {
+              "id": "per-change",
+              "label": "Each new or changed injection is its own card in the system's Pending review",
+              "recommended": true,
+              "description": "It waits like any contract change and is approved or declined on its own. A new `injects` risk flag reads: \"Changes what hub/chat and hub/chat_small are told: + Forms (310 tokens)\". Once approved it is on for every agent it targets, and the admin can switch it off per agent afterwards."
+            },
+            {
+              "id": "per-agent",
+              "label": "Per change and per agent",
+              "description": "Every target agent is approved separately. That gives the most control, but there are more cards, and a new item meant for every chat agent needs several clicks."
+            },
+            {
+              "id": "auto",
+              "label": "No approval: on by default, switchable",
+              "description": "The least friction. Any system could then change what every agent is told without an admin seeing it first."
+            }
+          ],
+          "why": "Phil: \"admins need to approve this\". This decides how much review work each system update creates. Section 4."
+        },
+        {
+          "id": "targeting",
+          "header": "7. Naming the target agents",
+          "priority": "blocking",
+          "question": "How does an injection name the agents it goes into?",
+          "options": [
+            {
+              "id": "refs-and-chat",
+              "label": "Agent refs, plus `'chat'` for every chat agent",
+              "recommended": true,
+              "description": "`into: ['chat']` reaches every agent tagged `chat` (the hub's `hub/chat` and `hub/chat_small`, and any system agent that opts in). `into: [crm.fns.reviewer]` reaches one agent, and the types only accept `hub/llm` fns. A target can ask for `detail: 'summary'` (for the small agent)."
+            },
+            {
+              "id": "refs-only",
+              "label": "Agent refs only",
+              "description": "Fully explicit. Every system has to list `hub.fns.chat` and `hub.fns.chat_small`, and a new chat agent gets nothing until every system adds it."
+            },
+            {
+              "id": "any-tag",
+              "label": "Refs, or any tag",
+              "description": "`{ tag: 'reviewer' }` and so on. The most flexible, but tags become an informal API between systems."
+            }
+          ],
+          "why": "This is the `InjectTarget` type in section 7 and part of the DX."
+        },
+        {
+          "id": "brings",
+          "header": "8. What an injected item brings",
+          "priority": "blocking",
+          "question": "Does `inject` replace `alwaysFor`, and do an injected item's fns join the agent's starting tools?",
+          "options": [
+            {
+              "id": "replace-and-bring",
+              "label": "Replace `alwaysFor`; its fns join the starting tools",
+              "recommended": true,
+              "description": "There is one concept. Because a tool and its explanation travel together, the prompt can't go stale: switching off \"Asking mid-task\" removes both the text and `hub__ask_user`. hub/chat's own tool list shrinks to search and load. An item whose fns can't be used is left out, with the reason."
+            },
+            {
+              "id": "replace-text-only",
+              "label": "Replace `alwaysFor`; text only",
+              "description": "Injection is only text, and the starting tools stay in the agent's payload. Text and tools can then disagree when an admin hides a tool."
+            },
+            {
+              "id": "keep-both",
+              "label": "Keep `alwaysFor` as well",
+              "description": "`alwaysFor` keeps loading context into the variable part of the prompt, and `inject` puts text into the fixed part. That leaves two near-identical concepts."
+            }
+          ],
+          "why": "This is Phil's first point: the starting tools should be dynamic. Sections 2 and 4."
+        },
+        {
+          "id": "core-location",
+          "header": "9. Where the hub's own text lives",
+          "priority": "high",
+          "question": "What stays as the chat agent's own instructions, and in what form?",
+          "options": [
+            {
+              "id": "core-code-items-files",
+              "label": "Minimal core in code; the hub's features as hub context files",
+              "recommended": true,
+              "description": "The core (where you are, fns and calls, systems, context, how calls behave, the hub's blocks, grounding: about half of today's text) stays in `chat-prompt.ts` and is shown read-only on the agent's page. Memory, Resources, Attached files, Asking mid-task, Saved fns, Background runs, Undo, Examples, Earlier chats and What this app can't do become markdown files in a hub `context/` folder, each injected and switchable."
+            },
+            {
+              "id": "all-injected",
+              "label": "Everything is injected; instructions are just `{{injectedContext}}`",
+              "description": "The most transparent option. An admin could also switch off \"how calls behave\" and break the agent."
+            },
+            {
+              "id": "core-as-context",
+              "label": "Core as a hub context file too, but not switchable",
+              "description": "All of the text is editable as files, with a version history, and the core is locked on."
+            }
+          ],
+          "why": "How much of the prompt an admin can see and switch, and how hard the agent is to break. Section 5 has the table."
+        },
+        {
+          "id": "mode-text",
+          "header": "10. Text that differs by chat mode",
+          "question": "How should an item whose text has to differ between tools mode and static mode do it?",
+          "options": [
+            {
+              "id": "one-text-mode-filter",
+              "label": "One text by default; an item may say `mode: 'tools' | 'static'`",
+              "recommended": true,
+              "description": "Names render the same in both modes, so most items need nothing. A rare mode-specific item ships as two items, each with a `mode`. The small agent gets each item's `summary` through `detail: 'summary'`."
+            },
+            {
+              "id": "variants",
+              "label": "`variants: { tools, static }` on each item",
+              "description": "One item with two texts, which reviews as one card. Every author has to think about both modes."
+            },
+            {
+              "id": "templating",
+              "label": "Handlebars inside the text (`{{#if static}}`)",
+              "description": "The most flexible. The text is harder to read on the Injected tab and in review."
+            }
+          ],
+          "why": "How heavy the authoring surface gets. Section 4."
+        },
+        {
+          "id": "hook-docs",
+          "header": "11. How a hook explains its block",
+          "question": "Where does a system say what its hook's block (such as `<fs__git>`) means to the model?",
+          "options": [
+            {
+              "id": "field",
+              "label": "An `explains` field on `hook()`",
+              "recommended": true,
+              "description": "The hub renders it as one of the system's injected items, approved with the hook and switchable on the Injected tab (the hook keeps running). The doc can't drift from the hook, and if the system is absent the doc is absent too."
+            },
+            {
+              "id": "context-item",
+              "label": "A context item the system writes, with `inject`",
+              "description": "No new field. Nothing ties the doc to the hook, so it can be forgotten or go out of date."
+            }
+          ],
+          "why": "Phil: fs_git shouldn't be hard coded in the hub. The mechanism is already generic; only the prompt text names fs. Section 6."
+        },
+        {
+          "id": "caching",
+          "header": "12. When the fixed region changes in a chat",
+          "question": "When a system goes off, or an admin switches an injection mid-chat, when does the prompt change?",
+          "options": [
+            {
+              "id": "rebuild-on-change",
+              "label": "Rebuild at the next turn, only when something changed",
+              "recommended": true,
+              "description": "The instructions, injected section and `<systems>` list are rebuilt once per real change. That costs one prompt-cache miss, and the message still carries `<systems_changed>`. An absent system then truly leaves no trace. This replaces today's first-turn snapshot of the systems list."
+            },
+            {
+              "id": "snapshot",
+              "label": "Keep the first turn's region for the whole chat",
+              "description": "Caches forever, as the systems list does today. The text of a system that went away stays in the prompt, with only `<systems_changed>` saying it is gone."
+            }
+          ],
+          "why": "The trade-off between prompt caching and \"if they are not installed they don't appear to exist at all\". Section 4, Caching."
+        }
+      ]
+    }
+  ],
+  "from": "harness design (injected-context-2026-11-22)",
+  "updated": "2026-11-22T15:55:53.689Z"
+}

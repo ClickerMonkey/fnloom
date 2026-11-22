@@ -6,10 +6,10 @@ Written by hitl; the data is in the .json next to this file. What's new: `npx hi
 
 ## 1. Weather heads-up — weak ×1
 
-**needs changes**: It shouldn't have made tool call errors. Is json schema sent along? Is it strict? Are there examples?
+**needs changes**: It shouldn't have made tool call errors. Is json schema sent along? Is it strict? Are there examples? — done: The tool-call errors were a hub bug (strict-schema nulls came back undefined and were refused), fixed in b987a9f with a test. Schemas are sent strict (aeye adapts per model), and since 656caa4 every tool carries its instructions and at least one example (before that they never reached the model in tools mode).
 
 
 ## 13. Note about the barking dog — pass ×1
 
-**looks good**
+**looks good** — done: The tool-call errors were a hub bug (strict-schema nulls came back undefined and were refused), fixed in b987a9f with a test. Schemas are sent strict (aeye adapts per model), and since 656caa4 every tool carries its instructions and at least one example (before that they never reached the model in tools mode).
 
