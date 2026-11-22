@@ -7,6 +7,7 @@ summary: "Signatures and options for testing."
 parent: "fs/authoring.testing"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 choices:
   - to: "fs/authoring.testing.reference.fakehub"
     when: "Pick this for FakeHub, FakeHubOptions, FakeProcess, TEST_USER, TEST_PLACE, NO_ASKS, HubBody, SystemBody, streamOf, liveEnv, liveModels, expectType, Equal, Simplify, MemoryKeyStore, MemoryJournal,…"

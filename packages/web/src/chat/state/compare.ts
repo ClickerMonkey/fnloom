@@ -124,7 +124,7 @@ export class CompareStore {
       }
       // a fork's answer, runs and approvals change what the view shows; the chat's own only matter through `compare`
       case 'message': case 'approval': case 'run': if (session !== this.#session) { this.#refresh(); } return;
-      case 'controls': case 'state': case 'delivery': case 'handler': case 'budget': case 'presence': case 'session': return;
+      case 'controls': case 'state': case 'delivery': case 'handler': case 'budget': case 'presence': case 'session': case 'cite': return;
     }
   }
 

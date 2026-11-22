@@ -30,6 +30,8 @@ export interface PlayContext {
   readonly rep: Rep;
   readonly iteration: string;
   readonly repNumber: number;
+  /** The variant folder the rep is in (absent: a run of one variant). */
+  readonly variant?: string;
   readonly router: OpenRouter;
   readonly personModel: string;
   readonly turnTimeout: number;
@@ -73,7 +75,7 @@ interface Chat {
 export async function playCase(ctx: PlayContext, played: Case): Promise<CaseRecord> {
   const started = Date.now();
   const errors: string[] = [];
-  const { client, credentials } = await ctx.rep.person(played.id);
+  const { client, credentials, shed } = await ctx.rep.person(played.id);
   const person = new Person(ctx.router, ctx.personModel, played);
   const seen: Seen[] = [];
   const chats: Chat[] = [];
@@ -158,7 +160,8 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
     for (const file of files) {
       const entry = FIXTURES[file];
       const name = basename(entry.path);
-      const ref = await uploadBytes(client, ctx.rep.stack.url, { name, mime: entry.mime, bytes: readFileSync(join(FIXTURES_DIR, entry.path)) });
+      // the presigned PUT is plain fetch, so a shed upload (HTTP 503) is tried again here
+      const ref = await ctx.rep.patient(`upload ${name}`, () => uploadBytes(client, ctx.rep.stack.url, { name, mime: entry.mime, bytes: readFileSync(join(FIXTURES_DIR, entry.path)) }));
       parts.push({ type: 'file', ref, name });
     }
     const sent = await client.hub.call('send', { session: chat.id, parts, client: clientInfo() });
@@ -291,13 +294,16 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
   state.live = false;
   await responder;
 
-  const record = await readBack(ctx, client, played, {
-    chats, turns, decisions, questions, errors, credentials, started, personTurns, personCost: person.cost,
-    ending: ending ?? { by: 'satisfied', reason: 'the steps ran out' },
-  });
-  for (const chat of chats) { chat.watch.stop(); }
-  client.close();
-  return record;
+  try {
+    return await readBack(ctx, client, played, {
+      chats, turns, decisions, questions, errors, credentials, started, personTurns, personCost: person.cost, shed: shed(),
+      ending: ending ?? { by: 'satisfied', reason: 'the steps ran out' },
+    });
+  } finally {
+    // whatever happened, the case's watches and its signed-in client end with it
+    for (const chat of chats) { chat.watch.stop(); }
+    client.close();
+  }
 }
 
 /** A model's form values as the JSON values a form checks. */
@@ -363,6 +369,8 @@ interface Played {
   readonly started: number;
   readonly personTurns: number;
   readonly personCost: number;
+  /** Calls of the case's client the hub shed before taking them. */
+  readonly shed: number;
   readonly ending: Ending;
 }
 
@@ -448,9 +456,9 @@ async function readBack(ctx: PlayContext, client: SignedIn, played: Case, data: 
   const ended = Date.now();
   const stackErrors = ctx.rep.problems.filter((p) => p.at >= data.started && p.at <= ended).map((p) => p.line);
   const record: CaseRecord = {
-    iteration: ctx.iteration, rep: ctx.repNumber, case: played.id, title: played.title, good: played.good,
+    iteration: ctx.iteration, rep: ctx.repNumber, ...(ctx.variant === undefined ? {} : { variant: ctx.variant }), case: played.id, title: played.title, good: played.good,
     person: data.credentials, sessions, entries, ending: data.ending,
-    stats: { personTurns: data.personTurns, turns: turnIds.size, toolRuns: allRuns.length, modelCalls, hubCost, personCost: data.personCost, wallMs: ended - data.started },
+    stats: { personTurns: data.personTurns, turns: turnIds.size, toolRuns: allRuns.length, modelCalls, hubCost, personCost: data.personCost, wallMs: ended - data.started, shed: data.shed },
     errors: data.errors, stackErrors: stackErrors.slice(0, 60), checks: [],
     startedAt: new Date(data.started).toISOString(), endedAt: new Date(ended).toISOString(),
   };

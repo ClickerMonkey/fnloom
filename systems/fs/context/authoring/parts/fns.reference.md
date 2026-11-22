@@ -7,6 +7,7 @@ summary: "Signatures and options for fns."
 parent: "fs/authoring.fns"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: fns

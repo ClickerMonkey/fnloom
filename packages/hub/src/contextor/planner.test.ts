@@ -13,6 +13,8 @@ import { chatModel, contextorRig, contextRecord, seeded } from './testing.ts';
 
 const SESSION = mintId('session', () => 'plan');
 const small = agent({ description: 'Small.', args: g.obj({}), returns: g.text(), instructions: 'Be brief.', tools: [], mode: { type: 'static' }, contextor: { type: 'graph' } });
+/** A small window that still holds the static toolset's tools, history and some context. */
+const ROOMY = 2_560;
 const plain = agent({ description: 'Plain.', args: g.obj({}), returns: g.text(), instructions: 'Be brief.', tools: [] });
 
 /** A rig with the graph agent, a session and a turn. */
@@ -132,7 +134,8 @@ describe('the graph contextor', () => {
   it('rebuilds history: the newest exchanges as messages, the relevant older ones as summaries', async () => {
     // the newest exchange looks its topic up too, so the linear part has a tool call however few exchanges fit
     const transcript = talk(30, (i) => i % 3 === 0 || i === 29);
-    const { plan } = await planning(transcript);
+    // a window with room for the static toolset's tools (each carries its first example) and some history
+    const { plan } = await planning(transcript, {}, { models: [chatModel('small', { contextWindow: ROOMY })] });
     const planned = await plan('remind me about zeta3');
     expect(planned.report.linear).toBeGreaterThanOrEqual(1);
     expect(planned.report.linear).toBeLessThan(30);
@@ -188,11 +191,11 @@ describe('the graph contextor', () => {
       return { type: real.type, select: (input) => real.select({ ...input, plan: { ...input.plan, flexible: input.plan.flexible + 300 } }) };
     });
     try {
-      const { r, plan } = await planning(talk(20));
+      const { r, plan } = await planning(talk(20), {}, { models: [chatModel('small', { contextWindow: ROOMY })] });
       for (let i = 0; i < 12; i++) r.catalog.addContext(contextRecord(`fs/item-${i}`, { content: 'c'.repeat(600) }));
       r.search.hits = Array.from({ length: 12 }, (_, i) => ({ kind: 'context' as const, key: `fs/item-${i}`, rank: 1 - i / 20, similarity: 1 - i / 20, text: '' }));
       const planned = await plan('item details please');
-      expect(planned.estimate).toBeLessThanOrEqual(2_048 - 512 - Math.ceil(0.06 * 2_048));
+      expect(planned.estimate).toBeLessThanOrEqual(ROOMY - 512 - Math.ceil(0.06 * ROOMY));
       expect(planned.report.context.length).toBeGreaterThan(0);
     } finally {
       spy.mockRestore();

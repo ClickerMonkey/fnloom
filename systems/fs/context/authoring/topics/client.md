@@ -7,6 +7,7 @@ summary: "Vue renderers, inputs and resource views typed by the contract, and th
 parent: "fs/authoring"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash"]
 tags: ["authoring"]
+niche: "developer"
 choices:
   - to: "fs/authoring.client"
     when: "Pick this when you write client/ components."

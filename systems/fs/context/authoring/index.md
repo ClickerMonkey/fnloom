@@ -6,6 +6,7 @@ description: "How to write, test and install a harness system: start at a topic 
 summary: "How to write, test and install a harness system: start at a topic group, then load only the parts the work needs."
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash", "fs/install_system", "fs/system_status"]
 tags: ["authoring"]
+niche: "developer"
 choices:
   - to: "fs/authoring.topics.begin"
     when: "Pick this first when you make a new system or install, test or fix one."

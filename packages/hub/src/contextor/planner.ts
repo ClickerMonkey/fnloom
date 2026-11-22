@@ -17,6 +17,7 @@ import type { Catalog } from '../catalog/index.ts';
 import type { ModelResolver } from '../execution/models.ts';
 import { visibleMade } from '../resources/context.ts';
 import { systemsNow, systemsPrompt } from '../chat/announce.ts';
+import { citationsPrompt } from '../chat/cite-rule.ts';
 import { MODE_RANK } from '../fns/index.ts';
 import type { HubStore } from '../store/index.ts';
 import { budgetPlan } from './budget.ts';
@@ -123,12 +124,13 @@ export function contextRegion(fixed: string, selection: Pick<Selection, 'context
 }
 
 /**
- * What the system message always has after the instructions: the `<systems>` list, then the mode's guide. The list is
+ * What the system message always has after the instructions: the `<systems>` list, then the mode's guide, then the
+ * citation rule when the chat had citations on at its first turn (`citations`, from `chat/cite-rule.ts`). The list is
  * the set snapshotted at the chat's first turn (`Session.announcedSystems.prompt`), in name order, never the set as it
  * is now, so the prompt stays the same and caches; what changes later is told in the person's messages.
  */
-export function fixedRegion(systems: readonly AnnouncedSystem[], guide: string): string {
-  return [systemsPrompt(systems), guide].filter((part) => part !== '').join('\n\n');
+export function fixedRegion(systems: readonly AnnouncedSystem[], guide: string, citations = ''): string {
+  return [systemsPrompt(systems), guide, citations].filter((part) => part !== '').join('\n\n');
 }
 
 /** What the planner uses. */
@@ -226,7 +228,7 @@ export class HubPromptPlanner implements PromptPlanner {
     const currentExchange = all.at(-1);
     const history = all.slice(0, -1);
     const access = await this.#deps.access(planning.user);
-    const guide = fixedRegion(await this.#systems(session, access), mode.guide(ctx));
+    const guide = fixedRegion(await this.#systems(session, access), mode.guide(ctx), citationsPrompt(session));
     const tools = await mode.fixedTools(ctx);
     const head = estimator.text(planning.instructions) + MESSAGE_FRAMING + (guide === '' ? 0 : estimator.text(`\n\n${guide}`)) + tools.reduce((sum, t) => sum + estimator.tool(t.spec), 0);
     const reserve = budgetPlan(view.limits, 0, this.#deps.settings.HARNESS_PROMPT_MARGIN, payload.maxOutput);

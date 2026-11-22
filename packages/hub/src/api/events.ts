@@ -41,6 +41,7 @@ export const ROUTES: { readonly [E in HubEventName]?: Route<E> } = {
   'message': ({ message }, to) => { to.session(message.session, { type: 'message', message }); },
   'message.token': ({ session, message, text }, to) => { to.session(session, { type: 'token', message, text }); },
   'message.reasoning': ({ session, message, text }, to) => { to.session(session, { type: 'reasoning', message, text }); },
+  'message.cite': ({ session, message, cite }, to) => { to.session(session, { type: 'cite', message, cite }); },
   'session.changed': ({ session, participants }, to) => {
     to.session(session.id, { type: 'session', session });
     to.people(participants, { type: 'session', session });

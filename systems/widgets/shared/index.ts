@@ -44,13 +44,16 @@ const status = {
 
 /** What callers of `make_widget` read. */
 const MAKE_USAGE = [
-  'Use it when the person wants to keep a chart, table or calendar of a fn\'s rows to look at again, or to change a widget they have.',
-  '`source` is a read fn that returns a table (a saved query, hub/records_table, a table fn); find it first with hub/fns_search.',
-  '`request` says what to show in the person\'s words: the measure, what it is grouped by, the filters they want to change, the presets.',
-  '`args` are sample args to read the source with (the source\'s own args by name): give one for every required arg.',
-  '`fns` names any other fns the person wants bound as a row action or the drill (a fn that is not a method of the rows\' type).',
-  'Set `show` to true when the person asked to see something now ("show me", "chart my …"): the proposal opens drawn; else it opens collapsed.',
-  'It proposes and never saves: the person presses Save under the proposal. To change a widget, pass it as `widget`.',
+  'Use it when the person wants to keep a chart, table, calendar or cards of some rows to look at again ("a chart of my spending by month I can open any time"), or to change a widget they have.',
+  'Not needed just to show rows once: a fn that returns a table is already drawn for the person when it runs.',
+  '`source` is the full name of a fn that only reads and returns a table: a saved query (`database/main.expenses_by_month`), a table\'s generated selectPage fn, or hub/records_table. Find it first (a search, or database/get_query to make the query); if none exists, make it first.',
+  'A chart of totals or counts by something needs a source that already groups and totals (a query that does the sum or count): a source that gives one row per item can\'t be charted as totals.',
+  '`request` says what to show in the person\'s words: the measure, what it is grouped by, the chart type, the filters they want to change and any named presets ("This month").',
+  '`args` is ONE JSON object (never a list or a string) of the source\'s own args by name, used to read a sample: give a value for every required arg, and leave out optional ones such as `sort`, `limit` and `offset` (the widget plans them).',
+  '`fns` lists other fns to offer as a row action or a click-through, only when the person asks for one. `widget` is the widget to change (`widgets/spending_by_month`).',
+  'Set `show` to true when the person asked to see it now ("show me", "chart my …"): the proposal opens drawn; false opens it collapsed.',
+  'What comes back is a proposal (its name, title, what it shows and a preview), not a saved widget: the person presses Save under it in the chat. Tell them to press Save; don\'t say it is saved. Once saved it is a fn `widgets/<name>` they can open again from the Widgets page or by running it.',
+  'If it fails, read the reason (a source that does not read or return a table, a required arg missing from `args`) and fix that, or tell the person.',
 ].join(' ');
 
 /** The saved widgets' page segment (`/s/widgets/saved`). */
@@ -59,6 +62,13 @@ export const WIDGETS_PAGE = 'saved';
 /** The widgets system's contract. */
 export const widgets = system(WIDGETS_SYSTEM, {
   description: 'Saved views of a fn\'s table (charts, calendars, cards, tables) with their controls, presets, drill and row actions, proposed in the chat and kept by the person.',
+  about: [
+    'Widgets: lasting views of rows (a chart, a table, a calendar or cards) the person can open again, with chips to change filters and dates.',
+    'Its one fn for you is widgets/make_widget: give it a fn that returns a table (a saved query, a table\'s list fn, hub/records_table) and what to show, and it proposes a widget with a preview; the person keeps it by pressing Save in the chat.',
+    'It defines the fn kind `widgets/widget`: a saved widget is a fn `widgets/<name>` that reads its source again each time it runs, so the view stays current; saved ones are listed on the person\'s Widgets page.',
+    'Reach for it when the person wants a chart or view to keep and come back to. Never draw a chart yourself (no ASCII art or text bars): a fn\'s table is drawn for the person when it runs, and widgets keep such a view.',
+    'It only reads: changing data is the source system\'s fns. Load the context item `widgets/guide` before the first use.',
+  ].join(' '),
   groups: [{ name: 'widgets', title: 'Widgets', description: 'Propose a widget over a fn that returns a table, and keep it when the person presses Save.' }],
   // make_widget's agent is on a model; saved widgets are hub fns; runs read sources, the visual registry and row actions
   grants: { hub: ['ai', 'fns'], calls: ['hub/fn_get', 'hub/save_fn', 'hub/read_table', 'hub/visuals', 'hub/row_actions'] },
@@ -68,8 +78,8 @@ export const widgets = system(WIDGETS_SYSTEM, {
   .with({
     kinds: {
       widget: kind({
-        description: 'A saved widget: running it reads its source fn\'s table with the widget\'s args and draws it with its visuals, controls, presets, drill and row actions.',
-        applicability: 'A view of a fn\'s rows the person will look at again (open tasks by stage, sales by month, this week\'s events), made by widgets/make_widget.',
+        description: 'A saved widget, kept as a fn (`widgets/<name>`): running it reads its source fn\'s table again with the widget\'s args and draws it for the person, with its chart types, chips, presets, click-through and row actions.',
+        applicability: 'A view of a fn\'s rows the person will look at again (open tasks by stage, spending by month, this week\'s events). Proposed by widgets/make_widget and kept when the person presses Save; never written by hand.',
         payload: WidgetPayload,
         // a widget only reads; its row actions ask for themselves
         approveChanges: false,
@@ -79,7 +89,7 @@ export const widgets = system(WIDGETS_SYSTEM, {
     fns: {
       make_widget: fn({
         group: 'widgets',
-        description: 'Propose a widget (a chart, calendar, cards or table with its controls and presets) over a fn that returns a table; the person saves it.',
+        description: 'Propose a widget, a lasting chart, calendar, cards or table view with its controls and presets, over a fn that returns a table. It shows the person a preview with a Save button; it saves nothing itself.',
         instructions: MAKE_USAGE,
         args: ginAs(MakeWidgetArgs),
         returns: ginAs(WidgetProposal),
@@ -96,6 +106,10 @@ export const widgets = system(WIDGETS_SYSTEM, {
           {
             args: { source: 'database/main.sales_by_region', request: 'Same widget, but over sales by region as a pie.', widget: 'widgets/sales_by_month', show: true },
             note: 'Changing a widget to another source: allowed when every arg it plans exists in the new source.',
+          },
+          {
+            args: { source: 'database/main.spending_by_category', request: 'Spending per category as bars, with chips for the start and end dates, opening on this month.', args: { from: '2026-11-01', to: '2026-11-30' }, show: true },
+            note: 'A source with required date params: `args` gives one value for each, to read a sample; optional ones like sort are left out.',
           },
         ],
         status: {
@@ -135,12 +149,25 @@ export const widgets = system(WIDGETS_SYSTEM, {
   .with(({ fns }) => ({
     context: {
       guide: context({
-        description: 'How to keep a chart or table of a fn\'s rows as a widget.',
+        description: 'How to keep a chart, table, calendar or cards of some rows as a widget the person can open again.',
         content: [
-          'A fn that returns a table is drawn for the person as a chart, calendar, cards or a table chosen from its columns; never write a chart yourself.',
-          'When the person wants to keep such a view, call widgets/make_widget with that fn and what they want; set `show` when they asked to see it now.',
-          'The proposal waits for the person to press Save. Running a saved widget (`widgets/<name>`) draws it again with its controls.',
-        ].join(' '),
+          '# Widgets',
+          '',
+          'When a fn that returns a table runs, the app draws its rows for the person (a table, or a chart that fits the columns). Never draw a chart yourself in text. A widget keeps such a view: it is saved as a fn `widgets/<name>` that reads its source again each time, so it stays current.',
+          '',
+          '## Making one',
+          '',
+          '1. Find the source: a fn that only reads and returns a table. Usually a saved database query (search with kinds ["database/query"], or make one with database/get_query), a table\'s generated selectPage fn, or hub/records_table.',
+          '   For totals or counts by something (spending per month, chores per person), the source must already do the sum or count: ask database/get_query for "total amount per month between a start date and an end date". A source that gives one row per item can only be shown as a list, table, cards or calendar.',
+          '2. Call widgets/make_widget with `source`, `request` (what to show, in the person\'s words), `args` (one JSON object with a sample value for each required arg of the source, such as {"from": "2026-11-01", "to": "2026-11-30"}; leave out sort, limit and offset), and `show` (true when they want to see it now).',
+          '   Example: {"source": "database/main.spending_by_month", "request": "Spending per month as a line chart, opening on this year", "args": {"from": "2026-01-01", "to": "2026-12-31"}, "show": true}',
+          '3. It comes back as a proposal with a preview and a Save button. Tell the person to press Save if they want to keep it; until they do, nothing is saved.',
+          '',
+          '## Afterwards',
+          '',
+          'A saved widget is listed on the person\'s Widgets page, and running `widgets/<name>` draws it again with its chips. To change one, call widgets/make_widget again with `widget` set to it and what to change.',
+          'A widget only reads. Its rows may offer actions (mark done, edit) that are the source table\'s own fns, and those ask for approval as usual. A widget does not refresh or notify anyone on its own when it is not open.',
+        ].join('\n'),
         fns: [fns.make_widget],
         tags: ['widgets'],
       }),

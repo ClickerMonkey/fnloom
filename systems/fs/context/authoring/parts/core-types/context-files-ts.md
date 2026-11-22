@@ -8,6 +8,7 @@ parent: "fs/authoring.core-types"
 next: "fs/authoring.core-types.context-graph-ts"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### From `packages/core/src/context-files.ts`
@@ -124,6 +125,7 @@ type ContextFileHeader = {
     weight: number;
   }[] | undefined;
   weight?: number | undefined;
+  niche?: "admin" | "developer" | "reference" | undefined;
   next?: `${string}/${string}` | undefined;
   command?: {
     name: string;

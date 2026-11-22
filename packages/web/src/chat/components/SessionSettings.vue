@@ -4,7 +4,8 @@
  * each the agent's or this chat's own, and a dry run of what a message would get), its system prompt (the agent's
  * instructions, or this chat's own, as an A/B compare's "Keep its settings" may set), (the agent's own choice, or one model for this chat), how urgent its turns are (its priority, as the hub resolved it), how you hear
  * about it (every message, replies to you, nothing), which systems it uses (each with its status, names, switches
- * and badges in fixed columns), and who is in it. Changes save as they are made.
+ * and badges in fixed columns), whether the agent cites its tool results ("Use citations"), and who is in it. Changes
+ * save as they are made.
  */
 import {
   PRIORITIES, type ChatCapabilities, type ChatModeConfig, type ContextorConfig, type NotifyChoice, type Priority, type QualifiedName, type SelectionReport, type Session, type SystemName,
@@ -47,6 +48,8 @@ const emit = defineEmits<{
   instructions: [text: string | null];
   /** Ask what a message would get from the contextor now. */
   preview: [text: string];
+  /** "Use citations" on or off. */
+  citations: [on: boolean];
 }>();
 
 /** The system prompt being edited, saved with Save (long text, so not on every key). */
@@ -115,6 +118,14 @@ function toggle(name: SystemName, on: boolean): void {
         <summary>What would a message get?</summary>
         <SelectionPreview :report="preview.report" :loading="preview.loading" :problem="preview.problem" @preview="emit('preview', $event)" />
       </details>
+    </section>
+    <section class="section">
+      <h3 class="heading">Citations</h3>
+      <UiSwitch
+        :model-value="session.citations === true" label="Use citations" :disabled="saving" data-testid="session-citations"
+        description="The agent marks each claim with the tool result it came from: a numbered chip that shows the value and opens the result."
+        @update:model-value="emit('citations', $event)"
+      />
     </section>
     <section v-if="priority" class="section">
       <h3 class="heading">Priority</h3>

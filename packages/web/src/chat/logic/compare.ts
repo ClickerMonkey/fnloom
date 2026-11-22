@@ -104,6 +104,7 @@ export function settingsWords(settings: CompareSettings, models: ChatCapabilitie
     settings.fnMode === undefined ? undefined : FN_MODE_WORDS[settings.fnMode].label,
     settings.systems === undefined ? undefined : settings.systems === 'all' ? 'All systems' : `${settings.systems.length} system${settings.systems.length === 1 ? '' : 's'}`,
     settings.instructions === undefined ? undefined : 'Own prompt',
+    settings.citations === undefined ? undefined : settings.citations ? 'Citations' : 'No citations',
   ].filter((word): word is string => word !== undefined);
 }
 

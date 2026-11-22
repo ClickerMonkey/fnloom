@@ -22,6 +22,7 @@ import { HUB_SYSTEM } from '../catalog/availability.ts';
 import type { FnSignature } from '../catalog/index.ts';
 import type { MessageEnricher } from '../chat/index.ts';
 import { ensureAgentActor } from '../chat/support.ts';
+import { citationsNotice, withCiteId } from '../chat/cite-rule.ts';
 import type { CallPlan, ExposedTo, ModelCallOut, PromptPlanner } from '../contextor/index.ts';
 import { AUTO_MODEL } from '../contextor/limits.ts';
 import { parseRunBlocks, problemLines, resultText, RunBlockFilter, splitThinking, ThinkingFilter } from '../contextor/render.ts';
@@ -306,7 +307,7 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     const turn = await store.table('turns').get(run.turn);
     if (turn === undefined) throw new Error(`run ${run.id} names no turn ${run.turn}`);
     if (session !== undefined && state.seeded !== true) {
-      await this.#seed(conversation, turn.message);
+      await this.#seed(conversation, turn.message, session);
       state = { ...state, seeded: true };
       await store.table('runs').update(run.id, { resume: Json.parse(state) });
     }
@@ -537,12 +538,19 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     return session === undefined ? new RunConversation(state.messages ?? []) : new SessionConversation(this.#deps, session.id);
   }
 
-  /** Put the turn's user message, as the LLM reads it, into the session transcript. */
-  async #seed(conversation: Conversation, message: MessageId | undefined): Promise<void> {
+  /**
+   * Put the turn's user message, as the LLM reads it, into the session transcript. When the chat's "Use citations"
+   * changed since the model was last told (a compare variant's own setting too), it starts with a hidden
+   * `<citations_changed>` block, once per change; what was told is kept on the session (and put back by undo).
+   */
+  async #seed(conversation: Conversation, message: MessageId | undefined, session: Session): Promise<void> {
     if (message === undefined) return;
     const row = await this.#deps.store.table('messages').get(message);
     if (row === undefined) return;
-    await conversation.append([{ role: 'user', content: this.#deps.enrich.render(row) }]);
+    const cites = citationsNotice(session.citationsTold, session.citations === true);
+    if (cites.told !== session.citationsTold) await this.#deps.store.table('sessions').update(session.id, { citationsTold: cites.told });
+    const text = this.#deps.enrich.render(row);
+    await conversation.append([{ role: 'user', content: cites.notice === undefined ? text : `${cites.notice}\n\n${text}` }]);
   }
 
   async control(run: Run, action: RunControlAction): Promise<ControlAnswer> {
@@ -600,7 +608,8 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     const session = await this.#deps.store.table('sessions').get(run.session);
     if (session?.agent !== parent.fn) return;
     const reading = await this.#reading(run);
-    const content = proposed ? proposedResult(run, settled, reading) : backgroundResult(run, settled, reading);
+    const result = proposed ? proposedResult(run, settled, reading) : backgroundResult(run, settled, reading);
+    const content = session.citations === true ? withCiteId(run.id, result) : result;
     await new SessionConversation(this.#deps, session.id).append([{ role: 'user', content }]);
     const turn = await this.#deps.turns.followUp({ turn: run.turn, agent: await this.#agentActor(parent) });
     this.#deps.log.info('agent.reported-back', { run: run.id, fn: run.fn, parent: parent.id, status: settled.status, followUp: turn ?? null });
@@ -855,7 +864,9 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       if (settled.status === 'failed' && settled.error.code === OUTPUT_REFUSED) stopped ??= settled.error;
       const exposed = outcome?.status === 'done' && outcome.expose !== undefined && prompt !== undefined ? await this.#deps.planner.exposed(outcome.expose, prompt) : '';
       const text = settledReply(settled, child === undefined ? { rows: this.#deps.settings.execution.HARNESS_HEADLESS_RESULT_ROWS, watched: false } : await this.#reading(child));
-      return reply(settled.status, exposed === '' ? text : `${text}\n\n${exposed}`);
+      const content = exposed === '' ? text : `${text}\n\n${exposed}`;
+      // with citations on, the model reads each result's id first: what its cites name
+      return reply(settled.status, prompt?.session?.citations === true ? withCiteId(call.run, content) : content);
     }));
     return { messages, allFailed: pending.length > 0 && failed === pending.length, ...(stopped === undefined ? {} : { stopped }) };
   }

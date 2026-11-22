@@ -8,6 +8,7 @@ parent: "fs/authoring.examples"
 next: "fs/authoring.examples.client-notecard-vue"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash"]
 tags: ["authoring"]
+niche: "developer"
 ---
 
 ### The notes system, whole

@@ -7,6 +7,7 @@ summary: "Visuals and widgets: reference: sourceCompatible, SourceCompatibleOpti
 parent: "fs/authoring.widgets.reference"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: visuals and widgets

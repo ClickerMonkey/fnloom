@@ -7,6 +7,7 @@ summary: "The client: renderers, inputs, resource views and pages: reference: Ap
 parent: "fs/authoring.client.reference"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: the client: renderers, inputs, resource views and pages

@@ -8,6 +8,7 @@ parent: "fs/authoring.topics.server"
 next: "fs/authoring.core-types"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 choices:
   - to: "fs/authoring.internals.manifestof"
     when: "Pick this for manifestOf, manifestBody, fnDecl, validationOf, providerDecl, canonicalJson, contractHash, sha256, ManifestOptions, ProviderServer, ProviderServerParts, providerErrorKind, KeyStore,…"

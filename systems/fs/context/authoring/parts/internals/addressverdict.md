@@ -7,6 +7,7 @@ summary: "Runtime internals: AddressVerdict, FollowedResponse, HostLookup, Redir
 parent: "fs/authoring.internals"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: runtime internals

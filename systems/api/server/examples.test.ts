@@ -9,7 +9,7 @@ import { ApiFnSpec } from '@harness/core';
 import { ProgramScope } from '@harness/sdk/program';
 import { describe, expect, it } from 'vitest';
 import { HTTP_TYPES } from '../shared/index.ts';
-import { API_EXAMPLES } from './authoring.ts';
+import { API_EXAMPLES, SET_EXAMPLE } from './authoring.ts';
 import { checkApi } from './program.ts';
 
 const text = { name: 'text' } as const;
@@ -35,4 +35,14 @@ describe('the api examples the agent is shown', () => {
       expect(checkApi(program, ApiFnSpec.parse({ service: 'tracker', ...example.spec })).problems).toEqual([]);
     });
   }
+});
+
+describe('the set call the instructions show', () => {
+  it('is one `draft` arg holding every part, its request fitting the set schema and its sample every arg', () => {
+    const program = new ProgramScope();
+    program.addOwn(HTTP_TYPES.map((name) => `api/${name}`));
+    expect(Object.keys(SET_EXAMPLE)).toEqual(['draft']);
+    expect(program.schemas().Expr.safeParse(SET_EXAMPLE.draft.request).success).toBe(true);
+    expect(Object.keys(SET_EXAMPLE.draft.sample).sort()).toEqual(Object.keys(API_EXAMPLES.openIssues.signature.args.props).sort());
+  });
 });

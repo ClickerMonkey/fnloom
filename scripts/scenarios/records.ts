@@ -66,6 +66,8 @@ export type HardCheck = z.infer<typeof HardCheck>;
 export const CaseRecord = z.object({
   iteration: z.string(),
   rep: z.number().int().min(1),
+  /** The household variant it ran in (`variants.ts`); absent: a run of one variant, in `<iteration>/rep-<n>/`. */
+  variant: z.string().optional(),
   case: z.number().int().min(1),
   title: z.string(),
   good: z.string(),
@@ -83,6 +85,8 @@ export const CaseRecord = z.object({
     hubCost: z.number(),
     personCost: z.number(),
     wallMs: z.number(),
+    /** Calls of the case's own client the hub shed (HTTP 503) before taking them (`busy.ts`). */
+    shed: z.number().int().optional(),
   }),
   /** What went wrong running the case itself (a timeout, a refused call). */
   errors: z.array(z.string()),

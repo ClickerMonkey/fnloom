@@ -8,17 +8,21 @@
  * renders as markdown as it arrives, with one soft caret while streaming. Attachments draw through their system's renderer, links as cards. While the turn is in flight the status line sits at the foot of the
  * bubble; before anything arrives, a typing indicator stands in its place, and the message actions wait until there is
  * something to act on. A turn that hit a system held for review gets a banner per such system (`heldSystems`), linking
- * to its review for someone who can review.
+ * to its review for someone who can review. With citations on, each cite in the words is a `[n]` chip (`CiteChip`) whose
+ * "Show in result" brings the cited run's card into view (opening its group); an answer that cited nothing says so at
+ * its foot.
  */
 import type { ChatMessage, Display, Link, MessagePart, RunId } from '@harness/core';
-import { computed, ref } from 'vue';
-import { UiAvatar, UiMarkdown, fullTime, relativeTime } from '../../ui/index.ts';
+import { computed, h, ref, watch, type VNode } from 'vue';
+import { UiAvatar, UiIcon, UiMarkdown, fullTime, relativeTime } from '../../ui/index.ts';
 import { groupPieces, mergeReasoning, type GroupedPiece } from '../logic/groups.ts';
 import { heldSystems } from '../logic/held.ts';
 import { lineHasNews, runResult, runShows, type RunView, type StatusLine as Line } from '../logic/runs.ts';
 import { showsRows } from '../../components/widgets/widgets.ts';
 import { answerPieces, type AnswerPiece, type AnswerSegment } from '../logic/thread.ts';
 import AttachmentCard from './AttachmentCard.vue';
+import CiteChip from './CiteChip.vue';
+import { citesByIndex, citesNothing, type ChatCite } from '../logic/cites.ts';
 import HeldBanner from './HeldBanner.vue';
 import LinkCard from './LinkCard.vue';
 import MessageActions from './MessageActions.vue';
@@ -56,7 +60,15 @@ const props = withDefaults(defineProps<{
   grouped?: boolean;
   /** The person can review a system's pending changes (an admin): a held-system banner links to its review. */
   canReview?: boolean;
-}>(), { grouped: true, canReview: false, displayOf: () => (): Display => 'card', liveOf: (): undefined => undefined, statusLine: undefined, waiting: false, flash: false, navigate: undefined });
+  /** A message's cites: its own once settled, else those streamed so far. */
+  citesOf?: (message: ChatMessage) => readonly ChatCite[];
+  /** Any run the thread holds, for a cite of an earlier turn's run. */
+  runOf?: (run: RunId) => RunView | undefined;
+  /** A run the person asked to see (a cite's "Show in result"): a group holding it opens. */
+  reveal?: { readonly run: RunId; readonly at: number } | undefined;
+}>(), {
+  citesOf: (message: ChatMessage): readonly ChatCite[] => message.citations ?? [], runOf: (): undefined => undefined, reveal: undefined,
+  grouped: true, canReview: false, displayOf: () => (): Display => 'card', liveOf: (): undefined => undefined, statusLine: undefined, waiting: false, flash: false, navigate: undefined });
 
 const emit = defineEmits<{
   action: [action: MessageAction];
@@ -66,6 +78,8 @@ const emit = defineEmits<{
   background: [run: RunId];
   tree: [];
   link: [link: Link];
+  /** A cite's "Show in result": bring its run's card into view. */
+  showRun: [run: RunId];
 }>();
 
 /** Each message's pieces, reasoning next to reasoning (nothing shown between) merged into one block. */
@@ -118,6 +132,30 @@ function setGroup(id: string, open: boolean): void {
   openGroups.value = next;
 }
 
+/** Each message's cite chips by marker index, drawn in its words. */
+const cites = computed(() => new Map(props.messages.map((m) => [m.id, citesByIndex(props.citesOf(m))])));
+/** The answer cited nothing although citations were on: said at its foot. */
+const uncited = computed(() => !props.streaming && citesNothing(props.messages));
+/** How a message's words draw a cite marker: its chip, or nothing for a marker with no cite yet. */
+function citeOf(message: ChatMessage): (index: number) => VNode | undefined {
+  return (index) => {
+    const cite = cites.value.get(message.id)?.get(index);
+    if (cite === undefined) { return undefined; }
+    const run = 'run' in cite && cite.run !== undefined ? cite.run : undefined;
+    return h(CiteChip, { cite, run: run === undefined ? undefined : runsById.value.get(run) ?? props.runOf(run), onShow: (id: RunId) => { emit('showRun', id); } });
+  };
+}
+
+// a cite's "Show in result" for a run folded into a group here: the group opens, so its card can come into view
+watch(() => props.reveal, (reveal) => {
+  if (reveal === undefined) { return; }
+  for (const message of props.messages) {
+    for (const piece of groupedOf(message)) {
+      if (piece.kind === 'group' && piece.steps.some((step) => step.kind === 'runs' && step.runs.includes(reveal.run))) { setGroup(keyOf(message, piece), true); }
+    }
+  }
+});
+
 function setReasoning(id: string, open: boolean): void {
   const next = new Set(openReasoning.value);
   if (open) { next.add(id); } else { next.delete(id); }
@@ -146,7 +184,7 @@ function setReasoning(id: string, open: boolean): void {
               :open="openReasoning.has(keyOf(message, piece))" @update:open="setReasoning(keyOf(message, piece), $event)"
             />
             <div v-else-if="piece.kind === 'text'" class="text" :class="{ caret: caretKey === keyOf(message, piece) }" data-testid="answer-text">
-              <UiMarkdown :source="piece.text" :navigate="navigate" />
+              <UiMarkdown :source="piece.text" :navigate="navigate" :cite="citeOf(message)" />
             </div>
             <RunGroup
               v-else-if="piece.kind === 'group'" :open="openGroups.has(keyOf(message, piece))" :steps="stepsOf(piece)" :now="now" :collapsed="collapsed"
@@ -164,6 +202,7 @@ function setReasoning(id: string, open: boolean): void {
         <HeldBanner v-for="system in held" :key="system.system" :held="system" :can-review="canReview" />
         <StatusLine v-if="statusLine && lineHasNews(statusLine)" :line="statusLine" @tree="emit('tree')" />
         <TypingDots v-else-if="pending" :label="`${authorName} is working`" data-testid="answer-typing" />
+        <p v-if="uncited" class="uncited" data-testid="answer-uncited"><UiIcon name="info" :size="14" /><span>No citations: this answer doesn’t point to any tool result.</span></p>
       </div>
       <div v-if="!pending" class="meta">
         <MessageActions class="actions" :actions="actions" @action="emit('action', $event)" />
@@ -193,6 +232,11 @@ function setReasoning(id: string, open: boolean): void {
 }
 @keyframes caret { 50% { opacity: 0; } }
 .meta { display: flex; min-height: 32px; }
+.uncited {
+  display: inline-flex; align-items: center; gap: var(--space-2); justify-self: start; margin: 0; padding: 2px var(--space-2); border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-full); color: var(--text-dim); font-size: var(--text-xs);
+}
+.uncited :deep(svg) { flex: none; color: var(--warn); }
 .actions { opacity: 0; transition: opacity var(--fast) var(--ease); }
 .answer:hover .actions, .answer:focus-within .actions { opacity: 1; }
 @media (hover: none) { .actions { opacity: 1; } }

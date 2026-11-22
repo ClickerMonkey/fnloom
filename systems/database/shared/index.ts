@@ -53,7 +53,12 @@ export const EditArgs = g.obj({
 
 const databaseArg = () => g.field(g.text({ minLength: 1 }), { docs: 'The database instance (`main`), as `databases` lists it.' });
 
-const RESULT_GUIDE = 'You get the columns, counts and the first rows. When a person is watching, the rows are also shown to them (as a table or another visual) and the result\'s `shown` says so: don\'t repeat them, summarize or point out what matters. Page with `limit` and `offset`.';
+const RESULT_GUIDE = [
+  'What comes back for a read: the columns, how many rows there are, and the first rows.',
+  'When a person is watching, the app also shows them the rows (as a table or a chart) and the result\'s `shown` says so: don\'t copy the rows into your answer; say what matters in them.',
+  'For more rows, call again with `offset` (and `limit`).',
+  'A query that changes rows (insert, update, delete) does not run at once: the person sees an approval card and the call finishes when they approve or decline; until the result says it ran, nothing has changed, so never say it is done before that.',
+].join(' ');
 
 /** A query over the shop example's tables, as the examples write it. */
 const ORDERS_BY_STATUS = {
@@ -94,6 +99,13 @@ function exampleAnswer(how: QueryHow, why: string, status: string, rows: { id: n
 /** The database system's contract. */
 export const database = system('database', {
   description: 'Query and change SQL databases (SQLite, Postgres, SQL Server): every table is a type, and every query asked for is kept in the hub as a fn for next time.',
+  about: [
+    'Databases: tables of rows that last, for anything the person wants to keep and look up again (expenses, chores, readings, a pantry, a reading list), and for questions about data already in a database.',
+    'Its fns list the databases and their tables (database/databases, database/tables), find or write a query and run it (database/get_query, database/edit_query, database/run_query), make a table and change it (database/create_table, database/alter_table, which wait for the person\'s approval), and make a table\'s ready-made fns to add, change, remove, list, count and sum its rows (database/table_fns_available, database/table_fns_generate).',
+    'It defines the fn kind `database/query`: every query it writes or generates is saved as a fn named `database/<database>.<name>` (such as `database/main.expenses_create`), which the person can run again by name later, in any chat; a search with kinds ["database/query"] finds the saved ones.',
+    'Reach for it when the person wants a list or log of their own kept for later (make a table, then generate its fns), or asks about rows in a database. Not for one fact to recall later (a memory) or for asking the person questions (the input system\'s forms), though a form\'s answers can be saved into a table with its fns.',
+    'Load the context item `database/guide` before the first use: it walks through making a table and its fns, with the exact shapes.',
+  ].join(' '),
   // its API groups: the hub indexes its fns by them (`database/api`, `database/api.<group>`)
   groups: [
     { name: 'queries', title: 'Queries', description: 'Find, write, change and run saved queries: get_query for anything new, then call the saved query fn directly.' },
@@ -113,8 +125,8 @@ export const database = system('database', {
     },
     kinds: {
       query: kind({
-        description: 'A saved query over one database: running it reads (or, after approval, writes) rows. Its args are the query\'s params, `limit` / `offset` for a list, and `sort`.',
-        applicability: 'A question about the data in a database the chat will ask again (overdue invoices, sales by month).',
+        description: 'A saved query over one database, kept as a fn (`database/<database>.<name>`): running it reads rows, or, after the person approves, adds, changes or removes them. Its args are the query\'s params by name, plus `limit` / `offset` for a list and `sort` ([{ "column": "total", "dir": "desc" }]).',
+        applicability: 'A question about the data in a database, or a change to it, that will come up again (overdue invoices, sales by month, log an expense). Made by database/get_query, database/edit_query or database/table_fns_generate, never written by hand.',
         payload: ginAs(QueryPayload),
         // get_query keeps every query it makes; a saved query that writes still waits for approval on every run
         approveChanges: false,
@@ -198,8 +210,8 @@ export const database = system('database', {
       }),
       databases: fn({
         group: 'tables',
-        description: 'The databases this system serves: each instance, its label and its tables.',
-        instructions: 'Call it when the database is not given, to pick the one whose tables answer the request. Only databases the person may use are listed.',
+        description: 'The databases this system serves: each one\'s instance name (such as `main`, which other database fns take as `database`), its label for people, and its tables.',
+        instructions: 'Call it first when you don\'t know which database to use, or whether a table for the request exists already. It takes no args: {}. Only databases the person may use are listed. An empty `tables` list means the database has no tables yet: make one with database/create_table.',
         args: g.obj({}),
         returns: g.list(ginAs(DatabaseSummary)),
         examples: [{ args: {}, result: [{ instance: 'main', label: 'Shop', tables: ['customers (people who buy)', 'orders (one per checkout)'] }] }],
@@ -215,8 +227,8 @@ export const database = system('database', {
     fns: {
       tables: fn({
         group: 'tables',
-        description: 'One database\'s tables as types: columns, their choices, formats and ranges, relations, and how to write queries against them.',
-        instructions: 'Call it before writing or changing a query, and write only against what it lists.',
+        description: 'One database\'s tables in full: each table\'s columns with their types, choices, formats and ranges, and the relations between tables.',
+        instructions: 'Call it to see what a database holds before you describe a query, change a table, or tell the person what is there. `database` is the instance name from database/databases (`main`). Describe queries only in terms of the tables and columns it lists.',
         args: g.obj({ database: databaseArg() }),
         returns: ginAs(TablesInfo),
         deps: { at: fns.read_at_instance },
@@ -244,7 +256,7 @@ export const database = system('database', {
       table_fns_available: fn({
         group: 'tables',
         description: 'Every fn that could be generated for a table, grouped (CRUD, column helpers, the whole table, and each relation), the most useful first: its name, what it does, its signature, whether it writes, and whether it exists already (with its version).',
-        instructions: 'Use it to offer a table\'s ready-made fns (create, update, selectPage, counts, sums, a parent\'s child counts, a row\'s rank among its siblings) before writing a query by hand. Pass the names you want to database/table_fns_generate. `stale` means the table changed since it was made: generate it again.',
+        instructions: 'Use it right after making a table, and whenever the person wants to add, change, remove, list, count or total the rows of one table: these ready-made fns (create, update, remove, selectPage, counts, sums, a parent\'s child counts, a row\'s rank among its siblings) are simpler and safer than a query written for the purpose. `table` is the table\'s name (`expenses`, with `database` when there are several databases) or its type (`database/main.expenses`). It only lists them: pass the `name`s you want to database/table_fns_generate to make them. One already made (state `current`) is a fn you can call by its `fn` name now; `stale` means the table changed since it was made: generate it again.',
         args: ginAs(TableFnsArgs),
         returns: ginAs(TableFnsList),
         deps: { at: fns.read_at_instance },
@@ -260,8 +272,8 @@ export const database = system('database', {
       }),
       table_fns_generate: fn({
         group: 'tables',
-        description: 'Make (or bring up to date) a table\'s generated fns by name, as saved query fns of its database with instructions and examples. Unchanged ones are left as they are; changed ones get a new version.',
-        instructions: 'Give the names table_fns_available lists. Fns that write wait for the person\'s approval every time they run. `derived` adds derived fields (projectCount) to selectPage, to show, sort and filter on. The answer names each fn: call it directly.',
+        description: 'Make (or bring up to date) some of a table\'s ready-made fns, by the names database/table_fns_available lists, as saved query fns of its database. Unchanged ones are left as they are; changed ones get a new version.',
+        instructions: 'Give `table` (as for table_fns_available) and `names` exactly as table_fns_available listed them (such as ["create", "update", "remove", "selectPage"]). The answer lists each fn made with its full name and signature (`database/main.expenses_create(amount: num, …)`): those are new fns, so load them before you call them, then call each by that name with the args its signature shows (or run it with database/run_query). A fn that writes (create, update, remove) waits for the person\'s approval every time it runs. `derived` adds derived fields (projectCount) to selectPage, to show, sort and filter on.',
         args: ginAs(TableFnsGenerateArgs),
         returns: ginAs(TableFnsGenerated),
         deps: { at: fns.at_instance },
@@ -279,8 +291,15 @@ export const database = system('database', {
       }),
       run_query: fn({
         group: 'queries',
-        description: 'Run a saved query fn with args: a read gives you the columns, counts and first rows (and shows the rows to the person when one is watching); a write waits for the person\'s approval.',
-        instructions: `Give the args by the fn's signature (its params, and \`limit\`, \`offset\`, \`sort\` for a list). ${RESULT_GUIDE}`,
+        description: 'Run a saved query fn (`database/<database>.<name>`) by its name with its args, without loading it into your tools first. A read gives you its rows; a write waits for the person\'s approval.',
+        instructions: [
+          '`fn` is the saved query\'s full name, as a search, get_query or table_fns_generate gave it.',
+          '`args` is ONE JSON object holding the query\'s params by name, exactly as its signature lists them: `database/main.orders_by_status(status: text, limit?: num, offset?: num, sort?: …)` takes {"status": "paid"}.',
+          'Never a list, never a string holding JSON; leave out the params you don\'t need (those marked ? are optional), and leave `args` out only when the query has no required params.',
+          '`sort` is a list of {"column": <a column>, "dir": "asc" or "desc"}.',
+          'If the result says the input was invalid, it names the param that was wrong: fix that one and call again.',
+          RESULT_GUIDE,
+        ].join(' '),
         args: g.obj({
           fn: g.field(g.text({ minLength: 1 }), { docs: 'The saved query fn (`database/main.orders_by_status`).' }),
           args: g.field(g.optional(ginAs(ParamValues)), { docs: PARAM_VALUES_DOCS }),
@@ -317,8 +336,17 @@ export const database = system('database', {
     fns: {
       get_query: fn({
         group: 'queries',
-        description: 'Read or change data in a database: describe in detail what you want, and a saved query that does it is reused, or a new one is written, kept and run.',
-        instructions: `Say which rows, columns, filters, grouping and order you want, and any values (as params, e.g. "for a customer given by name"). The answer names the query's fn and how to call it: call it directly next time. ${RESULT_GUIDE} A write (insert, update, delete) waits for the person to approve it. When the answer asks which database, do what its "next" says.`,
+        description: 'Read or change data in a database by describing what you want in words: a saved query that already does it is reused, or a new one is written, saved as a fn, and run once with the values you gave.',
+        instructions: [
+          'Use it when no saved query you know of does the job (search first, with kinds ["database/query"]).',
+          '`detailedDescription` says in plain words: which table(s), which rows (the filters), which columns, any grouping or totals, the order, and this request\'s values, saying which ones should be params that vary next time.',
+          'Examples: "expenses between a start date and an end date, newest first; this time from 2026-11-01 to 2026-11-30"; "total spent per category between two dates"; "add one expense: amount, category and the day; this time 12.50, food, 2026-11-22".',
+          'For a time window name both ends, and check the result: a query that only says "on or after" today finds nothing from the past.',
+          'To add, change or remove rows of one table, its ready-made fns (database/table_fns_available) are often simpler.',
+          'The answer names the saved query\'s fn and its signature: next time call that fn (or database/run_query with it) instead of asking get_query again.',
+          RESULT_GUIDE,
+          'When the answer asks which database, do what its "next" says. If it fails, read the reason: a missing table or column means the table must be made or changed first (create_table / alter_table); don\'t send the same request again.',
+        ].join(' '),
         args: QueryArgs,
         returns: ginAs(QueryAgentAnswer),
         deps: { author: fns.author_query },
@@ -332,6 +360,8 @@ export const database = system('database', {
             result: exampleAnswer('reused', 'The saved orders_by_status query does this with status "open".', 'open', [{ id: 9, total: 120, customer: 'Cy' }], 1),
           },
           { args: { detailedDescription: 'Total sales per month in 2025, by month.' }, note: 'A grouped query with the year as a param.' },
+          { args: { detailedDescription: 'Add one row to the expenses table: the amount, the category and the day it was spent, all as params; this time 12.50, food, 2026-11-22.', database: 'main' }, note: 'An insert: it is saved as a fn and waits for the person\'s approval each time it runs.' },
+          { args: { detailedDescription: 'Expenses spent between a start date and an end date, newest first, with amount, category and day; this time from 2026-10-23 to 2026-11-22.', database: 'main' }, note: '"The last 30 days" as two date params, so both ends are checked.' },
           {
             args: { detailedDescription: 'Every invoice that is overdue.' },
             result: { ask: 'Which database: Shop or Billing?', databases: ['main', 'billing'], next: 'Ask the person with input/ask_choice (question "Which database: Shop or Billing?", options "Shop" and "Billing"), end your turn, then call get_query again with the database they pick.' },
@@ -346,8 +376,8 @@ export const database = system('database', {
       }),
       edit_query: fn({
         group: 'queries',
-        description: 'Change a saved query fn by instructions (add a column, another filter, a different order). The old version is kept; the new one runs.',
-        instructions: `Name the saved query fn and say exactly what to change and the values to run it with. ${RESULT_GUIDE}`,
+        description: 'Change a saved query fn by instructions (add a column, another filter, a different order). The old version is kept in its history; the new one is saved under the same name and run.',
+        instructions: `\`name\` is the saved query's full name (\`database/main.orders_by_status\`); \`instructions\` says exactly what to change and the values to run it with this time. Use it when a saved query is close but not right, rather than writing a second one with get_query. ${RESULT_GUIDE}`,
         args: EditArgs,
         returns: ginAs(QueryAnswer),
         deps: { author: fns.author_query },
@@ -362,14 +392,42 @@ export const database = system('database', {
       }),
       create_table: fn({
         group: 'schema',
-        description: 'Make a table from a row type (on a database whose schema may change). Runs only after the person approves the DDL.',
-        instructions: 'Give the table name and the row type, a gin obj type whose props are the columns; `id` is the primary key. Say what it is for; the person sees the DDL before it runs.',
+        description: 'Make a new table in a database from a row type: a description of its columns. Runs only after the person approves it (they see the SQL that will run).',
+        instructions: [
+          'Use it when the person wants to keep a new kind of list or log (expenses, chores, readings) and no table for it exists yet (check with database/databases).',
+          '`table`: the new table\'s name, lowercase with underscores (`expenses`). `database`: the instance name (`main`); leave it out when there is only one.',
+          '`type` is the row type, always in this shape: {"name": "obj", "props": {<column>: {"type": <column type>}, …}}. Its "name" is always the word "obj", never the table\'s name, and each column is an object holding its type under "type", never the type itself.',
+          'Column types: {"name": "text"}; {"name": "num"} (any number); {"name": "num", "options": {"whole": true}} (a whole number); {"name": "bool"}; {"name": "date"}; {"name": "timestamp"} (a date and time);',
+          'a fixed set of choices {"name": "enum", "generic": {"V": {"name": "text"}}, "options": {"values": {"food": "food", "rent": "rent"}}}; and a column that may be left empty {"name": "optional", "generic": {"T": <column type>}}.',
+          'Give an `id` column of whole numbers: it becomes the key, filled in by itself for each new row.',
+          'Worked example, an expenses table: {"table": "expenses", "type": {"name": "obj", "props": {"id": {"type": {"name": "num", "options": {"whole": true}}}, "amount": {"type": {"name": "num"}}, "category": {"type": {"name": "enum", "generic": {"V": {"name": "text"}}, "options": {"values": {"food": "food", "rent": "rent", "other": "other"}}}}, "spent_on": {"type": {"name": "date"}}, "note": {"type": {"name": "optional", "generic": {"T": {"name": "text"}}}}}}}.',
+          'Say in a sentence what table you will make before calling; the call waits for the person\'s approval and nothing exists until it comes back.',
+          'What comes back: the database, the SQL steps that ran, and the table types now in the hub (`database/main.expenses`). Next, make the table\'s fns: database/table_fns_available, then database/table_fns_generate.',
+          'If it is refused (the database allows no schema changes, the table exists already, a type it can\'t read), tell the person the reason it gives; to change an existing table use database/alter_table.',
+        ].join(' '),
         args: ginAs(TableArgs),
         returns: ginAs(SchemaChanged),
         deps: { change_schema: fns.change_schema },
         approval: { preview: true, remember: false },
         examples: [
           { args: { table: 'notes', type: { name: 'obj', props: { id: { type: { name: 'num', options: { whole: true } } }, text: { type: { name: 'text' } }, due: { type: { name: 'optional', generic: { T: { name: 'date' } } } } } } }, note: 'A whole-number id, a text column, and a date that may be empty.' },
+          {
+            args: {
+              table: 'expenses',
+              database: 'main',
+              type: {
+                name: 'obj',
+                props: {
+                  id: { type: { name: 'num', options: { whole: true } } },
+                  amount: { type: { name: 'num' } },
+                  category: { type: { name: 'enum', generic: { V: { name: 'text' } }, options: { values: { food: 'food', rent: 'rent', other: 'other' } } } },
+                  spent_on: { type: { name: 'date' } },
+                  note: { type: { name: 'optional', generic: { T: { name: 'text' } } } },
+                },
+              },
+            },
+            note: 'An expenses log: an amount, a category from fixed choices, the day it was spent and an optional note.',
+          },
         ],
         status: status('Creating {args.table}…', 'Created {args.table}', 'Creating {args.table} failed'),
         // changes to one table in the same step run in the model's order (saved queries that write claim it too)
@@ -381,13 +439,37 @@ export const database = system('database', {
       }),
       alter_table: fn({
         group: 'schema',
-        description: 'Change a table to match a row type: add, drop and change columns (on a database whose schema may change). Runs only after the person approves the steps.',
-        instructions: 'Give the whole row type as it should be; dropping a column or narrowing one can lose data and is marked so in the approval.',
+        description: 'Change an existing table to match a row type: add, drop and change columns. Runs only after the person approves the steps.',
+        instructions: [
+          'Give `table` and the WHOLE row type as the table should be afterwards, in the same shape as database/create_table ({"name": "obj", "props": {<column>: {"type": <column type>}}}): every column you keep, plus the new ones.',
+          'A column left out is dropped; dropping or narrowing a column can lose data, and the approval marks it so. Read the current columns first with database/tables.',
+          'A column added to a table that has rows should be optional ({"name": "optional", "generic": {"T": …}}).',
+          'Saved queries that read a narrowed table may break; the approval lists them. It waits for the person\'s approval, then gives the SQL steps that ran.',
+          'Afterwards, generate the table\'s fns again (database/table_fns_generate) so they know the new columns.',
+        ].join(' '),
         args: ginAs(TableArgs),
         returns: ginAs(SchemaChanged),
         deps: { change_schema: fns.change_schema },
         approval: { preview: true, remember: false },
-        examples: [{ args: { table: 'notes', type: { name: 'obj', props: { id: { type: { name: 'num', options: { whole: true } } }, text: { type: { name: 'text' } }, done: { type: { name: 'bool' } } } } }, note: 'Adds `done`, drops `due`.' }],
+        examples: [
+          { args: { table: 'notes', type: { name: 'obj', props: { id: { type: { name: 'num', options: { whole: true } } }, text: { type: { name: 'text' } }, done: { type: { name: 'bool' } } } } }, note: 'Adds `done`, drops `due`.' },
+          {
+            args: {
+              table: 'expenses',
+              type: {
+                name: 'obj',
+                props: {
+                  id: { type: { name: 'num', options: { whole: true } } },
+                  amount: { type: { name: 'num' } },
+                  spent_on: { type: { name: 'date' } },
+                  note: { type: { name: 'optional', generic: { T: { name: 'text' } } } },
+                  shop: { type: { name: 'optional', generic: { T: { name: 'text' } } } },
+                },
+              },
+            },
+            note: 'Keeps every column it lists and adds an optional `shop`, which existing rows leave empty (a column it leaves out, like `category`, is dropped).',
+          },
+        ],
         status: status('Changing {args.table}…', 'Changed {args.table}', 'Changing {args.table} failed'),
         // changes to one table in the same step run in the model's order (saved queries that write claim it too)
         parallelClaims: ['table:{args.table}'],
@@ -401,15 +483,36 @@ export const database = system('database', {
   .with(({ fns }) => ({
     context: {
       guide: context({
-        description: 'How to work with the databases.',
+        description: 'How to keep a list or log of the person\'s own in a database table, and how to read and change data in the databases.',
         content: [
-          'Each table of each database is a type (`<database>.<table>`), and saved queries are fns (`database/<database>.<name>`).',
-          'To read or change data, call a saved query fn when one fits, else get_query with a detailed description; edit_query changes one.',
-          "For a table's everyday fns (create, update, remove, selectPage, counts and sums, a parent's child counts), list them with table_fns_available and make them with table_fns_generate.",
+          '# Databases',
+          '',
+          'A database holds tables of rows that last. Each table is also a type in the hub (`database/<database>.<table>`, such as `database/main.expenses`), and every query is kept as a fn of the kind `database/query`, named `database/<database>.<name>`, so it can be run again later by name.',
+          '',
+          '## Keeping something new (expenses, chores, readings, a pantry)',
+          '',
+          '1. Call database/databases ({}) to see the databases (their instance names, such as `main`) and the tables they have. If a fitting table exists, skip to step 3.',
+          '2. Call database/create_table with the table\'s name and its row type. The row type is always {"name": "obj", "props": {<column>: {"type": <column type>}}}: "name" is the word "obj", and each column holds its type under "type". For example:',
+          '   {"table": "chores", "type": {"name": "obj", "props": {"id": {"type": {"name": "num", "options": {"whole": true}}}, "chore": {"type": {"name": "text"}}, "who": {"type": {"name": "optional", "generic": {"T": {"name": "text"}}}}, "due": {"type": {"name": "date"}}, "done": {"type": {"name": "bool"}}}}}',
+          '   Column types: text, num (add "options": {"whole": true} for whole numbers), bool, date, timestamp, enum for fixed choices ({"name": "enum", "generic": {"V": {"name": "text"}}, "options": {"values": {"a": "a", "b": "b"}}}), and optional ({"name": "optional", "generic": {"T": …}}) for a column that may be empty. A whole-number `id` is the key and fills itself in.',
+          '   The call waits for the person to approve; say what you are making and don\'t say it exists until the result comes back.',
+          '3. Call database/table_fns_available with the table (`database/main.chores`) to see its ready-made fns, then database/table_fns_generate with the names you need, usually ["create", "update", "remove", "selectPage"]. They are saved fns such as `database/main.chores_create`.',
+          '4. Load the new fns (they are not in your tools yet) and call them with the args the signature table_fns_generate gave shows. `database/main.chores_create` adds a row (its args are the columns, such as {"chore": "Bins out", "due": "2026-11-24", "done": false}); `database/main.chores_selectPage` lists rows. Or run any of them without loading with database/run_query {"fn": "database/main.chores_create", "args": {…}}.',
+          '',
+          '## Reading and changing data',
+          '',
+          '- Search for a saved query first (kinds ["database/query"]); when one fits, call it with its params.',
+          '- Else call database/get_query with a detailed description in words (tables, filters, columns, grouping, order, and this time\'s values). It reuses or writes a query, saves it and runs it. For a time window give both ends ("between a start date and an end date").',
+          '- database/edit_query changes a saved query that is close but not right.',
+          '- database/alter_table changes a table\'s columns: give the whole row type as it should be afterwards.',
+          '',
+          '## What to expect',
+          '',
           RESULT_GUIDE,
-          'Writes and schema changes (create_table, alter_table) wait for the person to approve them: say what will happen and wait.',
-        ].join(' '),
-        fns: [fns.get_query, fns.edit_query, fns.table_fns_available, fns.table_fns_generate, fns.create_table, fns.alter_table],
+          'Making or changing a table, and every query that writes, wait for the person\'s approval each time. If something is refused, tell the person the reason it gives.',
+          'To draw rows as a chart to keep, see the widgets system (widgets/make_widget); never draw a chart yourself.',
+        ].join('\n'),
+        fns: [fns.databases, fns.tables, fns.get_query, fns.edit_query, fns.run_query, fns.table_fns_available, fns.table_fns_generate, fns.create_table, fns.alter_table],
         tags: ['database'],
       }),
     },

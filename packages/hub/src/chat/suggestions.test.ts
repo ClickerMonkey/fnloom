@@ -17,17 +17,37 @@ async function world() {
 }
 
 describe('suggestions for a sent message', () => {
-  // regression: `none` was "no model, the score threshold decides"; Phil's choice is that it means no suggestions at all
-  it('suggests nothing at all when none picks: no fns, no context, no record, and the index is not asked', async () => {
+  // Phil, 2026-11-22: "suggestions should work with none by relying on semantic similarity and grabbing the top K and
+  // also applying a threshold" (it had meant no suggestions at all, so a fresh hub suggested nothing)
+  it('with none, suggests the best by similarity at or over the threshold, up to the cap, and asks no model', async () => {
     const w = await world();
     expect((await w.chat.suggestions.setting()).value).toEqual({ by: 'none' });
     const decided = await w.chat.suggestions.decide({ session: w.session.id, text: 'read the readme', actor: w.admin.id });
-    expect(decided).toEqual({ suggestions: [] });
-    expect(w.index.considered).toEqual([]);
+    // the threshold is 0.3: fs/read (0.9) and fs/guide (0.5) are over it, fs/write (0.1) is not
+    expect(decided.suggestions.map((s) => s.name)).toEqual(['fs/read', 'fs/guide']);
+    expect(decided.record).toEqual({
+      by: 'score', threshold: 0.3, items: [
+        { used: true, kind: 'fn', name: 'fs/read', score: 0.9 },
+        { used: true, kind: 'context', name: 'fs/guide', score: 0.5 },
+        { used: false, kind: 'fn', name: 'fs/write', score: 0.1, reason: 'below-threshold' },
+        { used: false, kind: 'fn', name: 'web/search', score: 0.8, reason: 'rule' },
+      ],
+    });
+    // the cap is HARNESS_SUGGESTIONS, and the index is asked for twice it
+    expect(w.index.considered.at(-1)).toMatchObject({ pool: 12 });
     const { message } = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, parts: [{ type: 'text', text: 'read the readme' }], client: CLIENT });
-    expect(message.suggestions).toBeUndefined();
+    expect(message.suggestions?.by).toBe('score');
     expect(w.llm.asked).toHaveLength(0);
     expect(w.decisions.asked).toEqual([]);
+  });
+
+  it('with none, keeps to the cap and says the rest were outscored', async () => {
+    const w = await world();
+    w.index.suggestions = Array.from({ length: 8 }, (_, i): Suggestion => ({ kind: 'fn', name: `fs/f${String(i)}` as Suggestion['name'], description: 'A fn.', score: 0.9 - i * 0.01 }));
+    w.index.hidden = [];
+    const decided = await w.chat.suggestions.decide({ session: w.session.id, text: 'files', actor: w.admin.id });
+    expect(decided.suggestions).toHaveLength(6);
+    expect(decided.record?.items.filter((item) => !item.used).map((item) => (item.used ? '' : item.reason))).toEqual(['top-n', 'top-n']);
   });
 
   it('by an LLM: its picks are used, the rest declined with its reasons, its call linked', async () => {

@@ -7,6 +7,7 @@ summary: "Fns, handlers and progress, session state and forms, outcomes, kinds a
 parent: "fs/authoring"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash"]
 tags: ["authoring"]
+niche: "developer"
 choices:
   - to: "fs/authoring.fns"
     when: "Pick this when you declare a fn."

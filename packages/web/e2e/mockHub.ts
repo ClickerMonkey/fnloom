@@ -22,7 +22,7 @@ import { mockHandlers } from '@ayepi/mock';
 import { createRequestListener, handleUpgrade } from '@ayepi/node';
 import { telemetry } from '@ayepi/otel/server';
 import {
-  AccessClaims, DEFAULT_PORTS, IDS, Port, Notification, ResourceQuery, ResourceReadArgs, UserView, adminOnly, hubAuth, mintId, tel,
+  AccessClaims, DEFAULT_PORTS, IDS, Port, Notification, ResourceQuery, ResourceReadArgs, UserView, adminOnly, hubAuth, mintId, ownEvents, sessionWatch, tel,
   type ActorId, type NotificationReason, type Tokens, type UserEvent,
 } from '@harness/core';
 import { z } from 'zod';
@@ -177,6 +177,9 @@ export function mockHub(options: { needsAdmin: boolean; logger?: Logger }): Mock
       toUser: (claims) => (state.account !== undefined && claims.actor === state.account.user.id ? state.account.user : null),
     }))
     .middleware(adminOnly, async (io) => io.next())
+    // the mock has one person, who hears every event
+    .middleware(ownEvents, async (io) => io.next())
+    .middleware(sessionWatch, async (io) => io.next())
     .handlers({
       setup: () => ({ needsAdmin: state.account === undefined, name: identity().name, version: identity().version, sso: [] }),
       identity: () => identity(),

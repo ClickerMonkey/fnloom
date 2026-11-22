@@ -28,7 +28,7 @@ export const SYSTEMS_TAG = 'systems';
 export const SYSTEMS_CHANGED_TAG = 'systems_changed';
 
 /** The line at the top of the system prompt's `<systems>`. */
-export const SYSTEMS_INTRO = `The systems you can use in this chat and what each does. When one is turned on or off later, the person's message starts with <${SYSTEMS_CHANGED_TAG}> saying which and why.`;
+export const SYSTEMS_INTRO = `The systems you can use in this chat besides the hub itself: for each, what it is for, the sort of fns it has, the fn kinds it defines and when to reach for it. Their fns are found with a search and loaded before use. When one is turned on or off later, the person's message starts with <${SYSTEMS_CHANGED_TAG}> saying which and why.`;
 
 /** Why a system is off, as the model reads it. */
 export const OFF_REASONS: Readonly<Record<SystemOffReason, string>> = {
@@ -82,7 +82,8 @@ export async function systemsNow(store: Pick<HubStore, 'table'>, access: Pick<Ac
   for (const row of rows) {
     if (row.name === HUB_SYSTEM || !access.seesSystem(row.name)) continue;
     const why = offReason(row, session);
-    if (why === undefined) on.push({ name: row.name, label: labelFor(row), description: row.description });
+    // the model reads the system's longer `about` when its contract has one (what sort of fns, its kinds, when to use it)
+    if (why === undefined) on.push({ name: row.name, label: labelFor(row), description: row.about ?? row.description });
     else off.push({ name: row.name, why });
   }
   return { on, off };

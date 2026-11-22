@@ -146,5 +146,6 @@ export function adminReadOperations(hub: HubServices): AdminReadOperations {
       return rows.sort((a, b) => a.instance.localeCompare(b.instance)).map((row) => InstanceView.parse(maskedInstance(row)));
     },
     suggest_decision_get: (_data, user) => { needAdmin(user); return hub.chat.suggestions.setting(); },
+    search_decision_get: (_data, user) => { needAdmin(user); return hub.fns.decisions.settings(); },
   };
 }

@@ -27,6 +27,8 @@ export function build3Plugins(hub: HubServices, systems: ReturnType<typeof syste
       .handlers((): FullHandlers<typeof suggestionsSlice> => ({
         suggestDecision: ({ data, user }) => adminReads.suggest_decision_get(data, user),
         setSuggestDecision: ({ data, user }) => ops.suggest_decision_set(data, user.id),
+        searchDecisions: ({ data, user }) => adminReads.search_decision_get(data, user),
+        setSearchDecision: ({ data, user }) => ops.search_decision_set(data, user.id),
         previewSuggestions: async ({ data, user }) => {
           await visibleSession(hub, data.session, user);
           const decided = await suggestions.decide({ session: data.session, text: data.text, actor: user.id });

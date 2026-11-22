@@ -8,6 +8,7 @@ parent: "fs/authoring.topics.begin"
 next: "fs/authoring.testing"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash", "fs/install_system", "fs/system_status"]
 tags: ["authoring"]
+niche: "developer"
 choices:
   - to: "fs/authoring.packaging.reference"
     when: "Pick this when you need the exact signatures and options."

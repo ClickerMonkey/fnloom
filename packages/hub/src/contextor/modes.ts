@@ -17,7 +17,7 @@ import { searchSystems } from '../chat/support.ts';
 import type {
   CallPlan, CallProtocol, CallScope, ChatMode, ChatModeFactories, ChosenFn, ContextorDeps, FnView, ModeContext, ModelCallOut, ModeTool, RenderedIteration, Selection,
 } from './index.ts';
-import { blockedLine, cardsSection, describedWithEffects, exampleLines, fnCard, moreFns, problemLines, summaryHint, tableInstruction, textProtocolInstructions } from './render.ts';
+import { blockedLine, cardsSection, describedWithEffects, fnCard, toolExampleLines, moreFns, problemLines, summaryHint, tableInstruction, textProtocolInstructions } from './render.ts';
 import { fnRefusal, readsAsMissing } from './views.ts';
 
 /** The static toolset's hub fns, by tool name, with their declarations. `run` is not among them: it runs the fn it names. */
@@ -27,7 +27,14 @@ export const STATIC_HUB_FNS = {
   inspect: { ref: hub.fns.inspect, def: hub.defs.fns.inspect },
   load: { ref: hub.fns.load, def: hub.defs.fns.load },
   unload: { ref: hub.fns.unload, def: hub.defs.fns.unload },
-} as const satisfies Record<Exclude<StaticTool, 'run'>, { readonly ref: AnyFnRef; readonly def: { readonly description: string } }>;
+} as const satisfies Record<Exclude<StaticTool, 'run'>, { readonly ref: AnyFnRef; readonly def: StaticToolDef }>;
+
+/** What a static tool's hub fn says of itself: its description, instructions and examples, all of which its tool carries. */
+interface StaticToolDef {
+  readonly description: string;
+  readonly instructions?: string | undefined;
+  readonly examples?: ReadonlyArray<{ readonly args: unknown; readonly note?: string | undefined }> | undefined;
+}
 
 /** The search and load fns whose jobs `find`, `inspect`, `load` and `unload` do in static mode, so it never shows them. */
 export const REPLACED_BY_STATIC: ReadonlySet<string> = new Set<string>([
@@ -36,6 +43,10 @@ export const REPLACED_BY_STATIC: ReadonlySet<string> = new Set<string>([
 
 /** The `run` tool's args (core's, so the web reads a call's fn the same way). */
 export { RunArgs } from '@harness/core';
+
+/** What the static `run` tool says of itself: it is not a fn, it runs the fn it names. */
+const RUN_TOOL_DESCRIPTION = 'Run any fn by its full name (`system/name`) with the args its card shows, as one JSON object. Its result, or what was wrong with the args, comes back as this call\'s result.';
+const RUN_TOOL_INSTRUCTIONS = 'Example args: {"fn":"database/tables","args":{"database":"main"}}';
 
 /** How many near names an unknown fn's reply offers. */
 const NEAR_NAMES = 3;
@@ -63,7 +74,7 @@ export function fnModeTool(view: FnView, machines: readonly InstanceName[] = [],
   if (!isObjectSchema(schema)) return undefined;
   const name = toolName(view.record.name);
   const [first, ...rest] = machines;
-  const shown = exampleLines(view.record, 'native', examples);
+  const shown = toolExampleLines(view.record, examples);
   const instructions = [view.record.decl.instructions, ...shown].filter((line) => line !== undefined && line.trim() !== '').join('\n') || undefined;
   const description = describedWithEffects(view);
   if (first === undefined || !(schema instanceof z.ZodObject)) return modeTool(name, description, schema, view.signature.argsJsonSchema, instructions);
@@ -82,17 +93,22 @@ export function fleetArgs(args: Json): { args: Json; on?: InstanceName } | { pro
   return named.success ? { args: rest, on: named.data } : { problem: { path: 'on', message: 'on must name one of the machines the tool lists' } };
 }
 
-/** A tool from a contract fn (the static toolset's hub fns). */
-function contractTool(name: string, ref: AnyFnRef, description: string): ModeTool {
+/**
+ * A tool from a contract fn (the static toolset's hub fns): its description and its first example. The static toolset
+ * is for small windows, so its fixed tools stay short: the fns' longer instructions are left to the mode's guide.
+ */
+function contractTool(name: string, ref: AnyFnRef, def: StaticToolDef): ModeTool {
   const schema = ref.args.toValueSchema();
   if (!isObjectSchema(schema)) throw new Error(`${ref.name} takes no object, so it can't be a tool`);
-  return modeTool(name, description, schema, z.toJSONSchema(schema, { unrepresentable: 'any' }));
+  const [first] = def.examples ?? [];
+  const example = first === undefined ? undefined : `Example args: ${JSON.stringify(first.args)}`;
+  return modeTool(name, def.description, schema, z.toJSONSchema(schema, { unrepresentable: 'any' }), example);
 }
 
 /** A static tool that is a hub fn, as a native tool: its args are the hub fn's gin type (the one shape a chat and an MCP share). */
 export function staticToolOf(name: keyof typeof STATIC_HUB_FNS): ModeTool {
   const { ref, def } = STATIC_HUB_FNS[name];
-  return contractTool(name, ref, def.description);
+  return contractTool(name, ref, def);
 }
 
 /** The problems of a zod failure, by dotted path. */
@@ -225,7 +241,7 @@ export class StaticChatMode implements ChatMode {
   fixedTools(ctx: ModeContext): Promise<readonly ModeTool[]> {
     if (ctx.protocol === 'text') return Promise.resolve([]);
     const tools = STATIC_TOOLS.map((name): ModeTool => {
-      if (name === 'run') return modeTool('run', 'Run any fn by its qualified name with its args. A loaded fn\'s card shows its args.', RunArgs, z.toJSONSchema(RunArgs, { io: 'input' }));
+      if (name === 'run') return modeTool('run', RUN_TOOL_DESCRIPTION, RunArgs, z.toJSONSchema(RunArgs, { io: 'input' }), RUN_TOOL_INSTRUCTIONS);
       return staticToolOf(name);
     });
     return Promise.resolve(tools);

@@ -8,6 +8,7 @@ parent: "fs/authoring.core-types"
 next: "fs/authoring.core-types.manifest"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### From `packages/core/src/manifest.ts`
@@ -40,6 +41,7 @@ type ContextDecl = {
       required: boolean;
     }[];
   } | undefined;
+  niche?: "admin" | "developer" | "reference" | undefined;
   weight?: number | undefined;
   summary?: string | undefined;
   parent?: `${string}/${string}` | undefined;
@@ -140,6 +142,7 @@ type FnDecl = {
   resume?: TypeDef<any> | undefined;
   state?: TypeDef<any> | undefined;
   form?: TypeDef<any> | undefined;
+  niche?: "admin" | "developer" | "reference" | undefined;
   examples?: {
     args: z.core.util.JSONType;
     result?: z.core.util.JSONType | undefined;

@@ -56,6 +56,7 @@ function yaml(header: ContextFileHeader): string {
   names('imports', header.imports);
   if (header.suggest !== 'both') { scalar('suggest', header.suggest); }
   names('tags', header.tags);
+  scalar('niche', header.niche);
   if (header.choices !== undefined && header.choices.length > 0) {
     lines.push('choices:');
     for (const choice of header.choices) { lines.push(`  - to: ${JSON.stringify(choice.to)}`, `    when: ${JSON.stringify(choice.when)}`); }
@@ -73,7 +74,8 @@ interface Draft {
 
 /** A file from its header (checked against the schema, so the generator can't write a header the build refuses). */
 function file(path: string, header: Partial<ContextFileHeader> & Pick<ContextFileHeader, 'key' | 'description' | 'summary'>, body: string): Draft {
-  return { path, header: ContextFileHeader.parse(header), body };
+  // every piece of the guide is for people writing systems: a search ranks it below what an ordinary request needs
+  return { path, header: ContextFileHeader.parse({ ...header, niche: 'developer' }), body };
 }
 
 /** The drafts as files, each body's anchors and section titles linked across the folder. */

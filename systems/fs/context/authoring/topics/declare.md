@@ -7,6 +7,7 @@ summary: "Settings and attachments, context and commands, hooks, mentions, actio
 parent: "fs/authoring"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash"]
 tags: ["authoring"]
+niche: "developer"
 choices:
   - to: "fs/authoring.settings-attachments"
     when: "Pick this when the system has a setting or attaches data to a run."

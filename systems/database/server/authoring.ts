@@ -118,6 +118,34 @@ export const EXAMPLE_DRAFT = {
   args: { status: 'paid' },
 };
 
+/** An insert the examples write: one new customer, its name and email as params and a fixed tier. */
+export const EXAMPLE_INSERT_DRAFT = {
+  name: 'add_customer', title: 'Add a customer', description: 'Adds one customer with a name and an email; the tier starts as basic.', sorters: [],
+  query: {
+    kind: 'insert',
+    into: 'customers',
+    rows: [{ name: { kind: 'param', name: 'name' }, email: { kind: 'param', name: 'email' }, tier: { kind: 'literal', value: 'basic' } }],
+  },
+  args: { name: 'Dee', email: 'dee@example.com' },
+};
+
+/** A date window the examples write: orders placed between two date params, so both ends are checked. */
+export const EXAMPLE_RANGE_DRAFT = {
+  name: 'orders_placed_between', title: 'Orders placed between two days', description: 'Orders placed from a start day to an end day (both included), newest first; the two days are params.', sorters: ['placed', 'total'],
+  query: {
+    kind: 'select',
+    fields: [
+      { expr: { kind: 'field-ref', source: 'orders', field: 'id' }, as: 'id' },
+      { expr: { kind: 'field-ref', source: 'orders', field: 'placed' }, as: 'placed' },
+      { expr: { kind: 'field-ref', source: 'orders', field: 'total' }, as: 'total' },
+    ],
+    from: { kind: 'type', type: 'orders' },
+    where: [{ kind: 'between', value: { kind: 'field-ref', source: 'orders', field: 'placed' }, lower: { kind: 'param', name: 'from' }, upper: { kind: 'param', name: 'to' } }],
+    order: [{ expr: { kind: 'field-ref', source: 'orders', field: 'placed' }, dir: 'desc' }],
+  },
+  args: { from: '2026-10-01', to: '2026-10-31' },
+};
+
 /** The agent's job, step by step, with a worked example. */
 const INSTRUCTIONS = [
   'You write one saved database query for the request below, and nothing else. Work through the tools in order; each step unlocks the next.',
@@ -132,12 +160,18 @@ const INSTRUCTIONS = [
   '   - Every value the request leaves open (a name, a date, a status) is a { "kind": "param", "name": "<name>" }, so the query is reused with other values; give this request\'s values in "args". Fixed values are literals.',
   '   - Name output fields with "as". No "limit" for a list (callers page it); only a fixed top-N ("the 5 largest") has its own limit.',
   '   - "name" is snake_case, "title" a few words, "description" one sentence on what it returns and what its params are for (later requests are matched against it). "sorters" lists output fields a caller may sort by.',
-  '   - Inserts, updates and deletes only when the request asks to change data; each run waits for the person\'s approval.',
-  '4. The draft is checked at once. Fix every problem listed and draft again, whole.',
+  '   - Inserts, updates and deletes only when the request asks to change data; each run waits for the person\'s approval. An insert is { "kind": "insert", "into": "<table>", "rows": [{ "<field>": <value or param>, ... }] }: leave out the id (it fills itself in) and give every required field.',
+  '   - A time window ("last 30 days", "this month", "between May and June") needs both ends: a "between" with a "from" and a "to" param (or two comparisons). Give this request\'s dates in "args" as "YYYY-MM-DD", as the request states them. Look at the preview rows: if a window that should hold rows holds none, the condition is probably wrong.',
+  '4. The draft is checked at once (and a read is run on a few rows for a preview). Fix every problem listed and draft again, whole.',
+  '   A problem names where it is (a path such as "query.where.0.right"): change only what it names and keep the rest. Never send the same draft twice; if the same problem comes back, try another way of writing that part (query_syntax shows each one).',
   '5. Once it is clean, call save. Then answer in one line.',
   '',
   'Example. For "orders with a given status (paid now), biggest first, with the customer\'s name", after loading orders and customers, the draft is:',
   JSON.stringify(EXAMPLE_DRAFT),
+  'Example. For "add a customer with a name and an email (Dee, dee@example.com)", after loading customers, the draft is:',
+  JSON.stringify(EXAMPLE_INSERT_DRAFT),
+  'Example. For "orders placed in October 2026, newest first", after loading orders, the draft is:',
+  JSON.stringify(EXAMPLE_RANGE_DRAFT),
 ].join('\n');
 
 /** `find_queries`: the saved queries of this database that may fit, and its tables by name. */

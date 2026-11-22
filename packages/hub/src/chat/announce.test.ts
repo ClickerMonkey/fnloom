@@ -25,6 +25,14 @@ describe('the systems as they are now', () => {
       { name: 'crm', why: 'admin' }, { name: 'db', why: 'needs-config' }, { name: 'mail', why: 'chat' }, { name: 'new', why: 'held' }, { name: 'web', why: 'disconnected' },
     ]);
   });
+
+  it('tells the model a system\'s longer `about` from its contract instead of its one-line description, when it has one', async () => {
+    const w = await chatWorld();
+    await w.store.table('systems').put(systemRow('fs', 'connected', { description: 'Files.', about: 'Files and a shell over chosen folders; load fs/guide first.' }));
+    await w.store.table('systems').put(systemRow('git', 'connected', { description: 'Git repositories.' }));
+    const now = await systemsNow(w.store, ALL, { systems: 'all' });
+    expect(now.on.map((s) => s.description)).toEqual(['Files and a shell over chosen folders; load fs/guide first.', 'Git repositories.']);
+  });
 });
 
 describe('what a message tells the model about the systems', () => {

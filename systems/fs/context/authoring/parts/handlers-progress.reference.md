@@ -7,6 +7,7 @@ summary: "Signatures and options for handlers and progress."
 parent: "fs/authoring.handlers-progress"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: handlers and progress

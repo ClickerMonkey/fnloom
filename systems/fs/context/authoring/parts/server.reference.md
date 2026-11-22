@@ -7,6 +7,7 @@ summary: "Signatures and options for the server: serve and the implementation."
 parent: "fs/authoring.server"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: the server: serve and the implementation

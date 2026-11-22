@@ -128,11 +128,12 @@ export interface DecidedSuggestions {
 
 /**
  * Which fns and context a sent message is offered: by the admin's choice (`hubOptions['suggestDecision']`): a decision
- * model, an LLM, or none (nothing is suggested). Its picks and refusals, with reasons, become the message's record.
+ * model, an LLM, or none (no model: the best by similarity over the threshold). Its picks and refusals, with reasons,
+ * become the message's record.
  */
 export interface SuggestionDecider {
   decide(input: { session: SessionId; text: string; actor: ActorId }): Promise<DecidedSuggestions>;
-  /** The suggestions setting: who picks (none by default: no suggestions). */
+  /** The suggestions setting: who picks (none by default: the score alone). */
   setting(): Promise<SuggestDecisionView>;
   set(value: SuggestDecision, by: ActorId): Promise<SuggestDecisionView>;
   /**

@@ -7,6 +7,7 @@ summary: "Signatures and options for context and commands."
 parent: "fs/authoring.context"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: context and commands

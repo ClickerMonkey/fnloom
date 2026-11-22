@@ -750,6 +750,8 @@ export interface Session {
   context: QualifiedName[];
   /** The session's priority and budgets are `PriorityRule`s and `BudgetRule`s scoped to it: a default and a ceiling, a per-turn cap, and a total for the whole session. */
   status: 'idle' | 'running' | 'paused';
+  /** "Use citations": the model cites the tool results its claims come from, drawn as [n] chips. */
+  citations?: boolean;
   /** The aeye conversation for the next iteration. */
   transcript: Message[];
   createdAt: Timestamp;
@@ -773,7 +775,27 @@ export interface ChatMessage {
   replyAll: boolean;
   /** The agents the hub woke for this message, from the rule on `Session`. */
   answerers: ActorId[];
+  /** Assistant messages answered with citations on: their cites, parsed once when the message settled (empty: it cited nothing). */
+  citations?: Citation[];
   createdAt: Timestamp;
+}
+
+/**
+ * One cite of an answer: the model wrote <cite tool="run_…" path="rows.3">why</cite>; the text keeps a marker in its
+ * place. Resolved when problem is absent.
+ */
+export interface Citation {
+  /** Its place among the message's cites, from 1, and its number in the chat ([n]). */
+  index: number;
+  number: number;
+  tool: string;
+  path: string;
+  note: string;
+  run?: RunId;
+  fn?: QualifiedName;
+  value?: Json;
+  large?: true;
+  problem?: string;
 }
 
 /** A piece of a message. */

@@ -8,6 +8,7 @@ parent: "fs/authoring.core-types"
 next: "fs/authoring.core-types.contextdecl"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### From `packages/core/src/llm.ts`

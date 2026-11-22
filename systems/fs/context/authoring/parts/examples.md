@@ -7,6 +7,7 @@ summary: "Complete compiled example systems to copy from."
 parent: "fs/authoring.topics.examples"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash"]
 tags: ["authoring"]
+niche: "developer"
 choices:
   - to: "fs/authoring.examples.client-findview-vue"
     when: "Pick this for scripts/docs/example/client/FindView.vue."
@@ -40,12 +41,12 @@ choices:
     when: "Pick this for scripts/docs/example/system.json."
   - to: "fs/authoring.examples.tsconfig-json"
     when: "Pick this for scripts/docs/example/tsconfig.json."
-  - to: "fs/authoring.examples.systems-fs-shared-index-ts-lines-1-212"
-    when: "Pick this for systems/fs/shared/index.ts, lines 1-212."
-  - to: "fs/authoring.examples.systems-fs-shared-index-ts-lines-213-416"
-    when: "Pick this for systems/fs/shared/index.ts, lines 213-416."
-  - to: "fs/authoring.examples.systems-fs-shared-index-ts-lines-417-499"
-    when: "Pick this for systems/fs/shared/index.ts, lines 417-499."
+  - to: "fs/authoring.examples.systems-fs-shared-index-ts-lines-1-189"
+    when: "Pick this for systems/fs/shared/index.ts, lines 1-189."
+  - to: "fs/authoring.examples.systems-fs-shared-index-ts-lines-190-370"
+    when: "Pick this for systems/fs/shared/index.ts, lines 190-370."
+  - to: "fs/authoring.examples.systems-fs-shared-index-ts-lines-371-513"
+    when: "Pick this for systems/fs/shared/index.ts, lines 371-513."
 ---
 
 ## 30. Worked examples
@@ -68,8 +69,8 @@ This part is in 19 pieces; load the one you need:
 - [scripts/docs/example/shared/index.ts](context:fs/authoring.examples.shared-index-ts)
 - [scripts/docs/example/system.json](context:fs/authoring.examples.system-json)
 - [scripts/docs/example/tsconfig.json](context:fs/authoring.examples.tsconfig-json)
-- [systems/fs/shared/index.ts, lines 1-212](context:fs/authoring.examples.systems-fs-shared-index-ts-lines-1-212)
-- [systems/fs/shared/index.ts, lines 213-416](context:fs/authoring.examples.systems-fs-shared-index-ts-lines-213-416)
-- [systems/fs/shared/index.ts, lines 417-499](context:fs/authoring.examples.systems-fs-shared-index-ts-lines-417-499)
+- [systems/fs/shared/index.ts, lines 1-189](context:fs/authoring.examples.systems-fs-shared-index-ts-lines-1-189)
+- [systems/fs/shared/index.ts, lines 190-370](context:fs/authoring.examples.systems-fs-shared-index-ts-lines-190-370)
+- [systems/fs/shared/index.ts, lines 371-513](context:fs/authoring.examples.systems-fs-shared-index-ts-lines-371-513)
 
 Fns for this: fn:fs/read, fn:fs/write, fn:fs/edit, fn:fs/bash.

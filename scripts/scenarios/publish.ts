@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { CASES } from './cases.ts';
 import type { JudgedCase } from './records.ts';
 import { loadDiagnosis } from './diagnose.ts';
-import { buildReport, iterationFolder, loadIteration, type CaseSummary } from './report.ts';
+import { buildReport, comparisonMarkdown, iterationFolder, loadIteration, variantLabel, type CaseSummary, type Report } from './report.ts';
 import { repFolder } from './rep.ts';
 import { ROOT } from '../stack.ts';
 import { clip, statsLine, transcriptMarkdown, usd } from './transcript.ts';
@@ -31,14 +31,18 @@ export function reviewId(iteration: string): string {
 
 /** A case's verdicts as a title: "pass/weak/fail ×3", or "pass ×3" when they agree. */
 function verdictTitle(summary: CaseSummary): string {
-  const verdicts = summary.reps.map((r) => r.verdict ?? 'unjudged');
-  const same = new Set(verdicts).size === 1;
-  return same ? `${verdicts[0]} ×${verdicts.length}` : verdicts.join('/');
+  const line = (reps: CaseSummary['reps']): string => {
+    const verdicts = reps.map((r) => r.verdict ?? 'unjudged');
+    return new Set(verdicts).size === 1 ? `${verdicts[0]} ×${verdicts.length}` : verdicts.join('/');
+  };
+  const variants = [...new Set(summary.reps.flatMap((r) => (r.variant === undefined ? [] : [r.variant])))];
+  // with variants: "off pass ×3 · on weak/pass/pass"
+  return variants.length < 2 ? line(summary.reps) : variants.map((v) => `${v} ${line(summary.reps.filter((r) => r.variant === v))}`).join(' · ');
 }
 
 /** A repetition's diagnosis in short: its root cause and fixes (empty when it has none). */
 function diagnosisSection(judged: JudgedCase): string {
-  const saved = loadDiagnosis(repFolder(judged.iteration, judged.rep), judged.case);
+  const saved = loadDiagnosis(repFolder(judged.iteration, judged.rep, judged.variant), judged.case);
   const d = saved?.diagnosis;
   if (d === undefined || d === null) { return ''; }
   return [
@@ -53,15 +57,15 @@ function repSection(judged: JudgedCase): string {
   const verdict = j === null ? `not judged (${judged.judgeError ?? '—'})` : `${j.verdict} ${j.score}/10`;
   const transcript = clip(transcriptMarkdown(judged, 'short'), MAX_REP_TRANSCRIPT);
   return [
-    `### Rep ${judged.rep}: ${verdict}`,
+    `### ${judged.variant === undefined ? '' : `${variantLabel(judged.variant)}, `}rep ${judged.rep}: ${verdict}`,
     j === null ? '' : j.summary,
     j === null ? '' : [...j.wentWell.map((w) => `- ✓ ${w}`), ...j.wentWrong.map((w) => `- ✗ ${w}`)].join('\n'),
     j === null || j.cause === null ? '' : `Cause **${j.cause}**, layer **${j.layer ?? '—'}**. Fix: ${j.fix}`,
     judged.checks.some((c) => !c.ok) ? `**Checks failed:** ${judged.checks.filter((c) => !c.ok).map((c) => `${c.name} (${c.detail})`).join('; ')}` : '',
     statsLine(judged),
     diagnosisSection(judged),
-    `Open the chat: ${judged.sessions.map((s) => `[${s.url}](${s.url})`).join(' · ')} — sign in as \`${judged.person.email}\` / \`${judged.person.password}\` while \`npm run scenarios -- --view ${judged.iteration} --rep ${judged.rep}\` runs.`,
-    `<details><summary>Transcript, rep ${judged.rep}</summary>\n\n${transcript}\n\n</details>`,
+    `Open the chat: ${judged.sessions.map((s) => `[${s.url}](${s.url})`).join(' · ')} — sign in as \`${judged.person.email}\` / \`${judged.person.password}\` while \`npm run scenarios -- --view ${judged.iteration} --rep ${judged.rep}${judged.variant === undefined ? '' : ` --variant ${judged.variant}`}\` runs.`,
+    `<details><summary>Transcript, ${judged.variant === undefined ? '' : `${judged.variant} `}rep ${judged.rep}</summary>\n\n${transcript}\n\n</details>`,
   ].filter((part) => part !== '').join('\n\n');
 }
 
@@ -80,6 +84,20 @@ function diagnosisItem(iteration: string): Array<{ id: string; title: string; as
   }];
 }
 
+/** The variants compared, as the review's first item (none for a run of one variant). */
+function comparisonItem(report: Report): Array<{ id: string; title: string; ask: string; md: string }> {
+  const c = report.comparison;
+  if (c === undefined) { return []; }
+  const [a, b] = c.variants;
+  const score = (n: number | null | undefined): string => (n === null || n === undefined ? '—' : n.toFixed(1));
+  return [{
+    id: 'variants',
+    title: `Decision models on vs off: mean ${a?.variant ?? '?'} ${score(a?.meanScore)} · ${b?.variant ?? '?'} ${score(b?.meanScore)}`,
+    ask: 'Do decision models earn their cost? Which cases should decide it?',
+    md: clip(comparisonMarkdown(report), MAX_DIAGNOSIS),
+  }];
+}
+
 /** Write the review and give its links (LAN and Tailscale), or why there are none. */
 export function publish(iteration: string): { file: string; links: string[] } {
   const report = buildReport(iteration);
@@ -91,7 +109,7 @@ export function publish(iteration: string): { file: string; links: string[] } {
   const saved = existsSync(file) ? SavedReview.parse(JSON.parse(readFileSync(file, 'utf8'))) : {};
   const items = report.cases.map((summary) => {
     const played = CASES.find((c) => c.id === summary.case);
-    const reps = cases.filter((c) => c.case === summary.case).sort((a, b) => a.rep - b.rep);
+    const reps = cases.filter((c) => c.case === summary.case).sort((a, b) => (a.variant ?? '').localeCompare(b.variant ?? '') || a.rep - b.rep);
     return {
       id: `case-${String(summary.case).padStart(2, '0')}`,
       title: `${summary.case}. ${summary.title} — ${verdictTitle(summary)}`,
@@ -108,13 +126,13 @@ export function publish(iteration: string): { file: string; links: string[] } {
   const review = {
     $schema: 'https://unpkg.com/hitloop/schema/reviews.schema.json',
     title: `Scenarios ${iteration}: ${verdicts.filter((v) => v === 'pass').length} pass, ${verdicts.filter((v) => v === 'weak').length} weak, ${verdicts.filter((v) => v === 'fail').length} fail`,
-    intro: `The 40 everyday requests played against a fresh hub with GPT-6 Luna, ${report.reps.length} rep(s) each, a simulated non-technical person answering, judged by a model on each request's Good line. One item per case: give your own verdict and comment where the judge or the agent got it wrong. Total cost ${usd(report.cost.total)}. The full report is .harness-test/scenarios/${iteration}/report.md.`,
+    intro: `The 40 everyday requests played against a fresh hub with GPT-6 Luna, ${report.reps.length} rep(s) each, a simulated non-technical person answering, judged by a model on each request's Good line.${report.comparison === undefined ? '' : ` Each case ran in two households, decision models off and on (${report.comparison.variants.map((v) => v.variant).join(' vs ')}); the first item compares them.`} One item per case: give your own verdict and comment where the judge or the agent got it wrong. Total cost ${usd(report.cost.total)}. The full report is .harness-test/scenarios/${iteration}/report.md.`,
     mode: 'review',
     status: 'open',
     from: 'harness scenarios runner',
     created: saved.created ?? new Date().toISOString(),
     updated: new Date().toISOString(),
-    items: [...diagnosisItem(iteration), ...items],
+    items: [...comparisonItem(report), ...diagnosisItem(iteration), ...items],
   };
   writeFileSync(file, `${JSON.stringify(review, null, 2)}\n`);
   return { file, links: hitlLinks(id) };

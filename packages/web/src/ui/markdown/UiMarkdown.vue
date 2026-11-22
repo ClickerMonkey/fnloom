@@ -5,7 +5,7 @@
  * that is still streaming in. Images from outside the hub wait for a click while the admin's setting says to ask
  * (`images.ts`).
  */
-import { computed, inject, reactive, ref, type FunctionalComponent } from 'vue';
+import { computed, inject, reactive, ref, type FunctionalComponent, type VNode } from 'vue';
 import UiImageViewer from '../UiImageViewer.vue';
 import { DEFAULT_OUTSIDE_IMAGES, OUTSIDE_IMAGES, outsideHost } from './images.ts';
 import { parseMarkdown } from './parse.ts';
@@ -15,7 +15,9 @@ const props = withDefaults(defineProps<{
   source: string;
   /** Handle links inside the app (`/…`), such as with the router. */
   navigate?: ((href: string) => void) | undefined;
-}>(), { navigate: undefined });
+  /** Draw a cite's marker in an answer, by its index among the message's cites (a chat's `[n]` chip). */
+  cite?: ((index: number) => VNode | undefined) | undefined;
+}>(), { navigate: undefined, cite: undefined });
 
 const emit = defineEmits<{ copied: [ok: boolean] }>();
 const blocks = computed(() => parseMarkdown(props.source));
@@ -27,7 +29,7 @@ const released = reactive(new Set<string>());
 const held = (src: string): string | undefined => (outsideImages() === 'always' || released.has(src) ? undefined : outsideHost(src, window.location.origin));
 const Blocks: FunctionalComponent = () => renderBlocks(blocks.value, {
   navigate: props.navigate, copied: (ok) => { emit('copied', ok); }, view: (src, alt) => { viewing.value = { src, alt }; },
-  held, release: (src) => { released.add(src); },
+  held, release: (src) => { released.add(src); }, cite: props.cite,
 });
 </script>
 

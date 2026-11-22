@@ -4,7 +4,7 @@
  * text of a message (for copying and reply quotes) and the parts to send again when retrying or editing. Pure, so it
  * is tested alone.
  */
-import { INPUT_ANSWER_TAG, isHiddenPart, type ActorId, type ChatMessage, type Link, type MessageId, type MessagePart, type ModelCallId, type OutgoingPart, type RunId, type TurnId } from '@harness/core';
+import { citeMarkersAsText, INPUT_ANSWER_TAG, isHiddenPart, type ActorId, type ChatMessage, type Link, type MessageId, type MessagePart, type ModelCallId, type OutgoingPart, type RunId, type TurnId } from '@harness/core';
 
 /** A mention in a message. */
 export type MentionPart = Extract<MessagePart, { type: 'mention' }>;
@@ -162,11 +162,14 @@ export function threadItems(messages: readonly ChatMessage[], me: ActorId | unde
   return items;
 }
 
-/** A message as plain text: its words, `@label` for mentions, `/context args` for commands. Added parts are left out. */
-export function messageText(parts: readonly MessagePart[]): string {
+/**
+ * A message as plain text: its words, `@label` for mentions, `/context args` for commands, a cite as `[n]` by the
+ * message's `citations` (left out without them). Added parts are left out.
+ */
+export function messageText(parts: readonly MessagePart[], citations: ChatMessage['citations'] = []): string {
   return parts.map((part) => {
     switch (part.type) {
-      case 'text': return part.text;
+      case 'text': return citeMarkersAsText(part.text, citations);
       case 'mention': return `@${part.label}`;
       case 'command': return [`/${part.context}`, ...Object.values(part.args)].join(' ');
       case 'file': return `[${part.name}]`;

@@ -7,6 +7,7 @@ summary: "Signatures and options for visuals and widgets."
 parent: "fs/authoring.widgets"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 choices:
   - to: "fs/authoring.widgets.reference.hub-visuals"
     when: "Pick this for HUB_VISUALS, BUILT_IN_CONTRIBUTIONS, visual, VisualInput, channel, ChannelOptions, resultFacts, ginTypeFacts, rankedVisuals, VisualContribution, RankedVisual, VisualView, VisualEntry,…"

@@ -8,6 +8,7 @@ parent: "fs/authoring.widgets.reference"
 next: "fs/authoring.widgets.reference.sourcecompatible"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: visuals and widgets

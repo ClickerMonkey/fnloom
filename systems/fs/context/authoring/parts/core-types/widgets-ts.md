@@ -7,6 +7,7 @@ summary: "Core types: From packages/core/src/widgets.ts."
 parent: "fs/authoring.core-types"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### From `packages/core/src/widgets.ts`

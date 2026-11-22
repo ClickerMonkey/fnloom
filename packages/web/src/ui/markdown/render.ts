@@ -37,6 +37,8 @@ export interface RenderHooks {
   readonly held?: ((src: string) => string | undefined) | undefined;
   /** Load a held image (its placeholder was clicked). */
   readonly release?: ((src: string) => void) | undefined;
+  /** Draw a cite's marker (its index among the message's cites); without it, or when it draws nothing, the marker is left out. */
+  readonly cite?: ((index: number) => VNode | undefined) | undefined;
 }
 
 /** An image, or a placeholder that loads it when clicked while it is held. Images never send a referrer. */
@@ -75,6 +77,7 @@ function inline(nodes: readonly MdInline[], hooks: RenderHooks): VNodeArrayChild
         ? h('a', { href: node.text, class: 'md-resource', onClick: handled(hooks.navigate, node.text) }, [h('code', { class: 'md-code' }, node.text)])
         : h('code', { class: 'md-code' }, node.text);
       case 'break': return h('br');
+      case 'cite': return hooks.cite?.(node.index) ?? '';
       case 'math': return math(node.tex, false);
       case 'image': return image(node.src, node.alt, hooks);
       case 'link': {

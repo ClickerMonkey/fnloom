@@ -1,7 +1,8 @@
 /**
  * Builds the fns module: search, examples, facts, the chat mode gate with its auto classifier, and browser logs. As
  * the hub starts it gives the run service the gate, keeps examples and facts in step with the catalog (every
- * `catalog.changed`), and catches up on fns stored before (those with no facts or no stored examples yet). It serves `searchFns` and
+ * `catalog.changed`), and catches up on fns stored before (those with no facts or no stored examples yet). Search goes
+ * through the admin's search decisions (`decided.ts`) whoever asks. It serves `searchFns` and
  * `fnExamples` on the system link; the web slice is served by `api/web/build5.ts`.
  */
 import { reject, spec } from '@ayepi/core';
@@ -18,6 +19,7 @@ import { StoreFnFacts } from './facts.ts';
 import { SessionModeGate } from './gate.ts';
 import type { Asker, FnsServices } from './index.ts';
 import { StoreFnSearch } from './search.ts';
+import { DecidedFnSearch, latestUserText, SearchDecisions } from './decided.ts';
 
 /** The slice of `hubLinkSpec` this module answers. */
 export const FNS_LINK_SPEC = spec({ endpoints: { searchFns: hubLinkSpec.endpoints.searchFns, fnExamples: hubLinkSpec.endpoints.fnExamples, examples: hubLinkSpec.endpoints.examples } });
@@ -26,9 +28,10 @@ export const FNS_LINK_SPEC = spec({ endpoints: { searchFns: hubLinkSpec.endpoint
 export function fnsServices(hub: HubServices): FnsServices {
   const tuning = hub.settings.fnsEnv;
   const store = () => hub.store;
-  const search = new StoreFnSearch({
+  const decisions = new SearchDecisions({ store, decider: () => hub.models.decider, llm: () => hub.execution.llm, clock: () => hub.clock(), log: hub.log, tuning });
+  const search = new DecidedFnSearch(new StoreFnSearch({
     store, catalog: () => hub.catalog, search: () => hub.index.search, views: () => hub.contextor.views, access: () => hub.access, tuning,
-  });
+  }), decisions);
   const examples = new StoreFnExamples({ store, catalog: () => hub.catalog, indexer: () => hub.index.indexer, search: () => hub.index.search, clock: () => hub.clock(), tuning });
   const facts = new StoreFnFacts({
     store, catalog: () => hub.catalog, metrics: () => hub.metrics.fns, clock: () => hub.clock(), tuning,
@@ -59,7 +62,7 @@ export function fnsServices(hub: HubServices): FnsServices {
   const clientLogs = new ResourceClientLogs({
     content: () => hub.api.content, library: () => hub.resources.library, access: () => hub.access, clock: () => hub.clock(), log: hub.log, tuning,
   });
-  return { search, examples, facts, gate, classifier, clientLogs };
+  return { search, decisions, examples, facts, gate, classifier, clientLogs };
 }
 
 /** Keep examples and facts in step with what changed in the catalog. */
@@ -88,13 +91,18 @@ export async function catchUp(hub: Pick<HubServices, 'store'>, services: Pick<Fn
   return done;
 }
 
-/** The asker a system's search is for: the person of its run, or the system itself. */
+/**
+ * The asker a system's search is for: the person of its run, or the system itself. A run of the system's own is
+ * charged the search decisions' calls, and its session's latest user message is what they judge hits against.
+ */
 async function linkAsker(hub: HubServices, system: SystemName, run: RunId | undefined): Promise<Asker> {
   const record = run === undefined ? undefined : await hub.store.table('runs').get(run);
   // a run of another system is no one's to ask for: the system asks as itself
-  const actor = (record?.system === system ? record.actor : undefined) ?? (await hub.store.table('systems').get(system))?.actor;
+  const own = record?.system === system ? record : undefined;
+  const actor = own?.actor ?? (await hub.store.table('systems').get(system))?.actor;
   if (actor === undefined) throw reject(404, 'NO_SYSTEM', `${system} has no actor`);
-  return { actor, access: await hub.access.scope(actor) };
+  const latest = await latestUserText(hub.store, own?.session);
+  return { actor, access: await hub.access.scope(actor), ...(own === undefined ? {} : { run: own.id }), ...(latest === undefined ? {} : { latest }) };
 }
 
 /** The fns module's factory. */

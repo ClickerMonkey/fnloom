@@ -7,6 +7,7 @@ summary: "Signatures and options for the client: renderers, inputs, resource vie
 parent: "fs/authoring.client"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 choices:
   - to: "fs/authoring.client.reference.client"
     when: "Pick this for client, ClientRenderers, ClientModule, Renderer, FnView, FnViewOf, AttachmentView, AttachmentViewOf, InputView, InputViewOf, MentionView, ResourceView, SystemClient, WithSystem,…"

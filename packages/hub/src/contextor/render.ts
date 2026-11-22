@@ -46,22 +46,28 @@ export function callText(fn: string, args: string, protocol: Protocol): string {
 
 /**
  * The examples of a fn a prompt shows: those chosen for this turn (`ChosenFn.examples`), else its first declared ones
- * up to its `promptExamples`; and how many more it has.
+ * up to its `promptExamples`; and how many more it has. A fn that has examples always shows at least one (Phil: "if
+ * examples are available are sending at least one"): when none was chosen for the turn its first declared one goes,
+ * unless the fn itself asks for none (`promptExamples: 0`).
  */
 export function promptExamples(record: Pick<FnRecord, 'decl'>, chosen?: readonly FnExample[]): { readonly shown: readonly FnExample[]; readonly more: number } {
   const declared = record.decl.examples ?? [];
-  const shown = chosen ?? (record.decl.promptExamples === undefined ? declared : declared.slice(0, record.decl.promptExamples));
+  const picked = chosen ?? (record.decl.promptExamples === undefined ? declared : declared.slice(0, record.decl.promptExamples));
+  const shown = picked.length === 0 && record.decl.promptExamples !== 0 ? declared.slice(0, 1) : picked;
   return { shown, more: Math.max(0, declared.length - shown.length) };
 }
 
-/** A fn's example lines for its native tool's instructions (`promptExamples`), then where the rest are when it has more. */
-export function exampleLines(record: FnRecord, protocol: Protocol, chosen?: readonly FnExample[]): string[] {
+/**
+ * A fn's example lines as a native tool's description ends with them (`promptExamples`): the args of each example as the
+ * JSON the tool takes (the tool is the fn, so there is nothing else to write), then where the rest are when it has more.
+ */
+export function toolExampleLines(record: FnRecord, chosen?: readonly FnExample[]): string[] {
   const { shown, more } = promptExamples(record, chosen);
   const lines = shown.map((example) => {
-    const result = example.result === undefined ? '' : ` → ${JSON.stringify(example.result)}`;
-    return `Example: ${callText(record.name, JSON.stringify(example.args), protocol)}${result}${example.note === undefined ? '' : ` — ${example.note}`}`;
+    const result = example.result === undefined ? '' : ` → result ${JSON.stringify(example.result)}`;
+    return `Example args: ${JSON.stringify(example.args)}${result}${example.note === undefined ? '' : ` — ${example.note}`}`;
   });
-  if (more > 0) lines.push(`More examples: ${callText('hub/fn_examples', JSON.stringify({ fn: record.name, query: 'what you are about to do' }), protocol)}`);
+  if (more > 0) lines.push(`It has ${more} more example${more === 1 ? '' : 's'}: hub/fn_examples ({"fn":"${record.name}","query":"what you are about to do"}) gives the closest.`);
   return lines;
 }
 

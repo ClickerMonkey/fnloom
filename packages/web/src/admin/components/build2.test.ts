@@ -84,14 +84,14 @@ describe('model roles and limits', () => {
     dialog.unmount();
   });
 
-  it('DecisionDialog chooses who picks suggestions: a decision model (the role’s or its own), an LLM, or none (no suggestions)', async () => {
+  it('DecisionDialog chooses who picks suggestions: a decision model (the role’s or its own), an LLM, or none (no model: the score alone)', async () => {
     const judge = model({ id: 'judge', name: 'Judge', provider: 'ollama', capabilities: ['decision'] });
     const mini = model({ id: 'gpt-4o-mini', name: 'Mini', capabilities: ['chat'] });
     const dialog = mount(DecisionDialog, { ...inBody, props: { open: false, view: undefined, models: [judge, mini], sessions: [] } });
     await reveal(dialog);
     const offered = (): (string | null)[] => [...document.body.querySelectorAll('[data-testid=decision-model] [data-model]')].map((o) => o.getAttribute('data-model'));
-    // none: no suggestions at all, nothing to pick, and saving says so
-    expect(find('[data-testid=decision-about]').textContent).toContain('Nothing is suggested');
+    // none: no model, nothing to pick, and saving says so
+    expect(find('[data-testid=decision-about]').textContent).toContain('closest in meaning');
     expect(document.body.querySelector('[data-testid=decision-model]')).toBeNull();
     await click('[data-testid=decision-save]');
     expect(dialog.emitted('save')?.[0]).toEqual([{ by: 'none' }]);
@@ -100,10 +100,10 @@ describe('model roles and limits', () => {
     expect(offered()).toEqual(['judge']);
     expect(find('[data-testid=decision-model]').textContent).toContain('The Decisions role’s model');
     await click('[data-testid=decision-save]');
-    expect(dialog.emitted('save')?.[1]).toEqual([{ by: 'decision', messages: 3, candidates: 20, cap: 6, floor: 0.35 }]);
+    expect(dialog.emitted('save')?.[1]).toEqual([{ by: 'decision', messages: 3, candidates: 20, cap: 6, floor: 0.2 }]);
     await click('[data-testid=decision-model] [data-model=judge]');
     await click('[data-testid=decision-save]');
-    expect(dialog.emitted('save')?.[2]).toEqual([{ by: 'decision', model: { model: { model: 'judge' } }, messages: 3, candidates: 20, cap: 6, floor: 0.35 }]);
+    expect(dialog.emitted('save')?.[2]).toEqual([{ by: 'decision', model: { model: { model: 'judge' } }, messages: 3, candidates: 20, cap: 6, floor: 0.2 }]);
     // an LLM offers chat models and needs one
     await click('[data-testid=decision-by] [role=radio]:nth-child(2)');
     expect(offered()).toEqual(['gpt-4o-mini']);
@@ -111,7 +111,7 @@ describe('model roles and limits', () => {
     expect(document.body.textContent).toContain('Pick the LLM that picks the suggestions.');
     await click('[data-testid=decision-model] [data-model="gpt-4o-mini"]');
     await click('[data-testid=decision-save]');
-    expect(dialog.emitted('save')?.[3]).toEqual([{ by: 'llm', model: { model: { model: 'gpt-4o-mini' } }, messages: 3, candidates: 20, cap: 6, floor: 0.35 }]);
+    expect(dialog.emitted('save')?.[3]).toEqual([{ by: 'llm', model: { model: { model: 'gpt-4o-mini' } }, messages: 3, candidates: 20, cap: 6, floor: 0.2 }]);
     dialog.unmount();
   });
 

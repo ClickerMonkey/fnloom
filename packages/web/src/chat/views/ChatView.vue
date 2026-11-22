@@ -370,6 +370,7 @@ onBeforeUnmount(() => {
           :priority="thread.limits.value?.priority" :name-of="nameOf" :preview="previewView" @notify="thread.update({ notify: $event })" @systems="thread.update({ systems: $event })"
           @priority="thread.update({ priority: $event })" @agent="thread.update({ agent: $event })" @pick-model="url.open('panel', 'model')"
           @mode="thread.update({ mode: $event })" @contextor="thread.update({ contextor: $event })" @instructions="thread.update({ instructions: $event })" @preview="preview?.preview($event)"
+          @citations="thread.update({ citations: $event })"
         />
       </PanelFrame>
     </PanelHost>

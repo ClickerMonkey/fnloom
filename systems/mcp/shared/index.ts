@@ -42,6 +42,12 @@ export const MCP_CONNECT: ConnectDecl = ConnectDecl.parse({
 
 const declared = system(MCP_SYSTEM, {
   description: 'Use the tools, prompts and resources of MCP servers: each server added is an instance, its tools are fns, its prompts are /commands and its resources are browsable.',
+  about: [
+    'Outside services an admin connected through MCP (Model Context Protocol) servers, such as an issue tracker or a document store. Each server is one instance of this system, named for it (`linear`).',
+    'Its fn kind is mcp/tool: every tool a server offers becomes a fn of that kind, named after the server and the tool; nobody writes them by hand. Find them with hub/fns_search like any fn (narrow with `kinds: ["mcp/tool"]`); a server\'s prompts are /commands the person types, and its files are resources.',
+    'Its own fns say where a server is (mcp/server_status: connected, needs a sign-in, unreachable) and list its tools again (mcp/refresh). Some servers need the person to sign in with their own account first, on the MCP sign-ins page in the app\'s menu.',
+    'Reach for it when the person\'s request is about one of the connected services; when a server\'s tool fails, call mcp/server_status to say why.',
+  ].join(' '),
   groups: [
     { name: 'servers', title: 'Servers', description: 'Where each MCP server is (connected, needs sign-in, unreachable) and listing its tools again.' },
     { name: 'instances', title: 'Instances', description: 'Work forwarded to the instance that holds a server; called by this system\'s own fns only.' },
@@ -55,8 +61,8 @@ const declared = system(MCP_SYSTEM, {
     config: ginAs(McpServerConfig),
     kinds: {
       tool: kind({
-        description: 'One tool of an MCP server, mirrored into the hub: its args and result are the server\'s JSON Schemas read as gin types, and a run calls the tool on the server.',
-        applicability: 'Made by an MCP server instance from its server\'s tool list; never written by hand.',
+        description: 'One tool of an MCP server (an outside service an admin connected), mirrored into the hub as a fn: its args and result are the server\'s own, and running it calls the tool on the server.',
+        applicability: 'Made by an MCP server instance from its server\'s tool list; never written by hand. Use one like any fn when the request is about that service.',
         payload: ginAs(McpToolSpec),
         // the instance adds and changes its tools as the server lists them; calls still ask by the server's policy
         approveChanges: false,
@@ -93,7 +99,7 @@ const declared = system(MCP_SYSTEM, {
       server_status: fn({
         group: 'servers',
         description: 'Where an MCP server is: connected, needs sign-in, unreachable or failed, what it said about itself, and how many tools, prompts and resources it offers.',
-        instructions: 'Call it when a server\'s tools fail, to say why in plain words.',
+        instructions: 'Call it when a server\'s tools fail or seem missing, to tell the person why in plain words (it needs them to sign in, it is unreachable, it failed). Give the server\'s instance name.',
         args: ginAs(ServerTarget),
         returns: ginAs(McpServerStatus),
         deps: { at: fns.at_server },
@@ -105,7 +111,7 @@ const declared = system(MCP_SYSTEM, {
       refresh: fn({
         group: 'servers',
         description: 'List an MCP server\'s tools, prompts and resources again and mirror them into the hub, then say where it is.',
-        instructions: 'Servers say when their lists change, so call it only when a person asks or a tool is missing.',
+        instructions: 'Servers say when their lists change, so call it only when a person asks or a tool you expected is missing; then search again with hub/fns_search.',
         args: ginAs(ServerTarget),
         returns: ginAs(McpServerStatus),
         deps: { at: fns.at_server },

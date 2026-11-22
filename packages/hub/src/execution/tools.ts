@@ -60,12 +60,17 @@ export function acceptObject(raw: unknown): object | Error {
 /** An agent tool. */
 export type AgentTool = Tool<HubCallContext, HubCallMetadata, string, object, never, [], object>;
 
-/** The aeye tool for a mode's tool: it records its calls and suspends. */
+/**
+ * The aeye tool for a mode's tool: it records its calls and suspends. Its description is the whole of what the model
+ * reads about the tool (`spec.description`: the fn's description, then its instructions and examples), because the
+ * agent's prompt has no `{{tools}}` section for aeye to put tool instructions in: an `instructions` given to aeye
+ * apart would never reach the model. The schema is sent as aeye's default strictness (strict where the model takes
+ * it, adapted per model).
+ */
 export function agentTool(tool: ModeTool, calls: PendingCalls): AgentTool {
   return new Tool<HubCallContext, HubCallMetadata, string, object, never, [], object>({
     name: tool.name,
-    description: tool.description,
-    ...(tool.instructions === undefined ? {} : { instructions: tool.instructions }),
+    description: tool.spec.description ?? tool.description,
     schema: tool.schema,
     parse: acceptObject,
     call: (input, _refs, ctx) => {

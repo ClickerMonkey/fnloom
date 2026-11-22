@@ -7,6 +7,7 @@ summary: "Testing: reference: RecordingOptions, realModel, RealModelTest, liveTu
 parent: "fs/authoring.testing.reference"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: testing

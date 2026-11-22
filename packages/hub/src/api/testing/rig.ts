@@ -228,7 +228,7 @@ export function fakeServices(fakes: Fakes = {}): Pick<HubServices, ModuleKey> {
     models: group('models', keysOf<HubServices['models']>({ roles: true, gateway: true, decider: true }), fakes.models),
     access: fake<HubServices['access']>('access', { scope: (actor) => Promise.resolve(openScope(actor)), ...fakes.access }),
     connections: fake<HubServices['connections']>('connections', fakes.connections),
-    fns: group('fns', keysOf<HubServices['fns']>({ search: true, examples: true, facts: true, gate: true, classifier: true, clientLogs: true }), fakes.fns),
+    fns: group('fns', keysOf<HubServices['fns']>({ search: true, decisions: true, examples: true, facts: true, gate: true, classifier: true, clientLogs: true }), fakes.fns),
     data: fake<HubServices['data']>('data', fakes.data),
   };
 }

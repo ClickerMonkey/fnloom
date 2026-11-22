@@ -7,6 +7,7 @@ summary: "Signatures and options for kinds and agents."
 parent: "fs/authoring.kinds-agents"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: kinds and agents

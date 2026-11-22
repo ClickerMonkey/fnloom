@@ -7,6 +7,7 @@ summary: "The hub contract: Kinds of hub, Types of hub, Mentions of hub, Section
 parent: "fs/authoring.hub"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash"]
 tags: ["authoring"]
+niche: "developer"
 ---
 
 #### Kinds of `hub`

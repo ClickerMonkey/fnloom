@@ -7,6 +7,7 @@ summary: "Signatures and options for the run context and services."
 parent: "fs/authoring.ctx"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 choices:
   - to: "fs/authoring.ctx.reference.fnctx"
     when: "Pick this for FnCtx, Services, SystemCtx, SystemPlace, UndoCtx, AskerCtx, BudgetInfo, RunStatusView, Llm, ForwardModality, ModelInput, ModelOutput, Files, Resources, Types, Log, Proposals,…"

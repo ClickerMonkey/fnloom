@@ -3,10 +3,10 @@
  * Providers and models, the tab in the URL: the configured providers (add or replace one, remove one), every model
  * they offer, the model categories agents choose from, the model roles (which model transcribes, dictates, speaks,
  * describes images, reads text in them and makes decisions; `?role=` opens one), who picks suggestions (a decision
- * model, an LLM, or none for no suggestions; `?decision=1` opens it), the auto mode classifier that checks a chat's calls in auto mode (`?classifier=1` opens it),
+ * model, an LLM, or none for the score alone; `?decision=1` opens it), who filters search hits (fns and context, `?search=fn` opens one), the auto mode classifier that checks a chat's calls in auto mode (`?classifier=1` opens it),
  * where the index embeds pictures (off, the text model's space, or a model of their own; `?images=1` opens it) and each model's limits (`?model=` opens one).
  */
-import { ModelRole, type AutoClassifier, type ImageEmbedding, type ModelCategory, type SessionId, type SuggestDecision, type ModelLimits, type ProviderInput, type RoleChoice } from '@harness/core';
+import { ModelRole, SearchItemKind, type AutoClassifier, type SearchDecision, type ImageEmbedding, type ModelCategory, type SessionId, type SuggestDecision, type ModelLimits, type ProviderInput, type RoleChoice } from '@harness/core';
 import { computed, onMounted, ref, shallowRef, watch } from 'vue';
 import AppPage from '../../app/AppPage.vue';
 import { useParamChoice, useRouteQuery } from '../../app/url.ts';
@@ -15,6 +15,7 @@ import { useStores } from '../../state/stores.ts';
 import { UiBadge, UiButton, UiEmpty, UiTabs, type TabItem } from '../../ui/index.ts';
 import CategoryDialog from '../components/CategoryDialog.vue';
 import DecisionDialog from '../components/DecisionDialog.vue';
+import SearchDecisionDialog from '../components/SearchDecisionDialog.vue';
 import ClassifierDialog from '../components/ClassifierDialog.vue';
 import ImageEmbeddingDialog from '../components/ImageEmbeddingDialog.vue';
 import { IMAGE_USE_WORDS, imageSettingText, spaceText } from '../logic/images.ts';
@@ -29,7 +30,7 @@ import RuleList from '../components/RuleList.vue';
 import RuleRow from '../components/RuleRow.vue';
 import type { ModelInfo } from '@harness/core';
 import { modelProviderName, PROVIDER_NAME, type CategoryBody } from '../logic/forms.ts';
-import { CHOOSER_WORDS, decisionModelText } from '../logic/suggestions.ts';
+import { CHOOSER_WORDS, decisionModelText, SEARCH_ITEM_WORDS, SEARCH_JUDGE_WORDS, searchDecisionText } from '../logic/suggestions.ts';
 import { LIMIT_FIELDS, LIMIT_SOURCE_WORDS, LIMIT_WORDS, resolvedText, ROLE_FROM_WORDS, ROLE_WORDS, roleLanguage, roleWorks, rolesByModel } from '../logic/roles.ts';
 import type { IconName } from '../../ui/index.ts';
 import { ModelsTab } from '../sections.ts';
@@ -52,6 +53,12 @@ const openModel = query.text('model', { push: true });
 const roleOpen = computed({ get: () => openRole.value !== undefined, set: (isOpen) => { if (!isOpen) { roleParam.value = ''; } } });
 const decisionParam = query.text('decision', { push: true });
 const decisionOpen = computed({ get: () => decisionParam.value === '1', set: (isOpen) => { decisionParam.value = isOpen ? '1' : ''; } });
+/** The item kind whose search setting is open (`?search=fn` or `context`). */
+const searchParam = query.text('search', { push: true });
+const searchItem = computed(() => { const parsed = SearchItemKind.safeParse(searchParam.value); return parsed.success ? parsed.data : undefined; });
+const searchOpen = computed({ get: () => searchItem.value !== undefined, set: (isOpen) => { if (!isOpen) { searchParam.value = ''; } } });
+/** Who filters each item kind's search hits now (nobody until the settings are loaded or set). */
+const searchJudge = (item: SearchItemKind) => suggestions.search.value.value?.[item].value.by ?? 'none';
 const classifierParam = query.text('classifier', { push: true });
 const classifierOpen = computed({ get: () => classifierParam.value === '1', set: (isOpen) => { classifierParam.value = isOpen ? '1' : ''; } });
 const imagesParam = query.text('images', { push: true });
@@ -82,12 +89,12 @@ const ready = computed(() => models.providers.value.value !== undefined);
 const providerName = (model: ModelInfo): string => modelProviderName(model.provider);
 /** The roles each model fills, shown beside it: systems' `ctx.ai()` sees the same list with the same roles. */
 const modelRoles = computed(() => rolesByModel(roles.roles.value.value ?? []));
-/** Who picks suggestions now (none, so no suggestions, until the setting is loaded or set). */
+/** Who picks suggestions now (none, the score alone, until the setting is loaded or set). */
 const chooser = computed(() => suggestions.decision.value.value?.value.by ?? 'none');
 
 onMounted(() => { void models.load(ready.value); });
 watch(tab, (current) => {
-  if (current === 'roles') { void roles.loadRoles(roles.roles.value.value !== undefined); void suggestions.load(suggestions.decision.value.value !== undefined); void classifier.load(classifier.setting.value.value !== undefined); void images.load(images.setting.value.value !== undefined); }
+  if (current === 'roles') { void roles.loadRoles(roles.roles.value.value !== undefined); void suggestions.load(suggestions.decision.value.value !== undefined); void suggestions.loadSearch(suggestions.search.value.value !== undefined); void classifier.load(classifier.setting.value.value !== undefined); void images.load(images.setting.value.value !== undefined); }
   if (current === 'models') { void roles.loadRoles(roles.roles.value.value !== undefined); }
   if (current === 'limits') { void roles.loadLimits(roles.limits.value.value !== undefined); }
 }, { immediate: true });
@@ -115,6 +122,18 @@ async function saveDecision(value: SuggestDecision): Promise<void> {
   if (!result.ok) { return; }
   decisionOpen.value = false;
   toasts.ok('Suggestions saved', decisionModelText(result.value));
+}
+
+// opened from a link on another tab, the settings are loaded too
+watch(searchOpen, (isOpen) => { if (isOpen) { void suggestions.loadSearch(suggestions.search.value.value !== undefined); } }, { immediate: true });
+
+async function saveSearch(value: SearchDecision): Promise<void> {
+  const item = searchItem.value;
+  if (item === undefined) { return; }
+  const result = await suggestions.saveSearch(item, value);
+  if (!result.ok) { return; }
+  searchOpen.value = false;
+  toasts.ok(`${SEARCH_ITEM_WORDS[item].title} saved`, searchDecisionText(result.value[item]));
 }
 
 async function saveClassifier(value: AutoClassifier): Promise<void> {
@@ -230,7 +249,14 @@ async function confirmRemove(): Promise<void> {
             <template #badges><UiBadge :tone="chooser === 'none' ? 'neutral' : 'accent'">{{ CHOOSER_WORDS[chooser].label }}</UiBadge></template>
           </RuleRow>
         </RuleList>
-        <RuleList title="Search" description="What the index embeds, so search finds it by meaning." testid="search-settings">
+        <RuleList title="Search" description="What the index embeds, so search finds it by meaning, and who filters search hits before they are returned." testid="search-settings">
+          <RuleRow
+            v-for="item in SearchItemKind.options" :key="item" :icon="SEARCH_JUDGE_WORDS[searchJudge(item)].icon" :title="SEARCH_ITEM_WORDS[item].title"
+            :detail="searchDecisionText(suggestions.search.value.value?.[item])" :label="SEARCH_ITEM_WORDS[item].label" :removable="false"
+            :data-testid="`search-decision-row-${item}`" :data-by="searchJudge(item)" @edit="searchParam = item"
+          >
+            <template #badges><UiBadge :tone="searchJudge(item) === 'none' ? 'neutral' : 'accent'">{{ SEARCH_JUDGE_WORDS[searchJudge(item)].label }}</UiBadge></template>
+          </RuleRow>
           <RuleRow
             :icon="IMAGE_USE_WORDS[imageUse].icon" title="Pictures" :detail="imageSettingText(images.setting.value.value)" label="Where pictures are embedded" :removable="false"
             data-testid="images-row" :data-use="imageUse" @edit="imagesOpen = true"
@@ -279,6 +305,10 @@ async function confirmRemove(): Promise<void> {
       v-model:open="decisionOpen" :view="suggestions.decision.value.value" :models="models.models.value.value ?? []" :sessions="chat.sessions.items.value"
       :busy="suggestions.saving.busy.value" :problem="suggestions.saving.problem.value" :preview="suggestions.preview.value.value" :previewing="suggestions.preview.loading.value"
       :preview-problem="suggestions.preview.problem.value" @save="saveDecision" @try="tryDecision"
+    />
+    <SearchDecisionDialog
+      v-if="searchItem" v-model:open="searchOpen" :item="searchItem" :view="suggestions.search.value.value?.[searchItem]" :models="models.models.value.value ?? []"
+      :busy="suggestions.searchSaving.busy.value" :problem="suggestions.searchSaving.problem.value" @save="saveSearch"
     />
     <ClassifierDialog
       v-model:open="classifierOpen" :view="classifier.setting.value.value" :models="models.models.value.value ?? []" :busy="classifier.saving.busy.value"

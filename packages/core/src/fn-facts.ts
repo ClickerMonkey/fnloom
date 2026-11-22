@@ -16,10 +16,10 @@
  *   person, rolled over by size and after a quiet spell.
  */
 import { z } from 'zod';
-import { FnDecl, FnExample, FnMode, REGISTRY_ACTIONS, RegistryAction, RegistryEffect, RegistryThing, TypeDecl } from './manifest.ts';
+import { FnDecl, FnExample, FnMode, Niche, REGISTRY_ACTIONS, RegistryAction, RegistryEffect, RegistryThing, TypeDecl } from './manifest.ts';
 import { RoleModel, type ModelRole } from './model-calls.ts';
 import { FnBlock } from './fn-block.ts';
-import { ActorId, Duration, FnKindName, IDS, InstanceName, Json, LocalName, QualifiedName, SystemName, Timestamp, Usd } from './primitives.ts';
+import { ActorId, Duration, FnKindName, IDS, InstanceName, Json, LocalName, ModelCallId, QualifiedName, SystemName, Timestamp, Usd } from './primitives.ts';
 import { ResourceUri, SectionKey } from './resources.ts';
 import { Filter } from './query.ts';
 import { ContextRecord } from './records/systems.ts';
@@ -129,6 +129,11 @@ export const FnSearchQuery = z.object({
   off: z.boolean().optional(),
   /** Only fns that can be used now (default true; `hub/fns_search` for the model defaults to false); false keeps the rest too, each marked with what blocks it (`FnSearchHit.blocked`). */
   available: z.boolean().optional(),
+  /**
+   * Developer, admin or reference material (`Niche`) ranks below everything else unless named here: name the ones the
+   * search is about (writing a system, running the hub, the API itself).
+   */
+  niches: z.array(Niche).min(1).optional(),
   /** `rank` (best first, the default with `text`) or `name` (the default without). */
   order: z.enum(['rank', 'name']).optional(),
   offset: z.number().int().min(0).optional(),
@@ -169,6 +174,8 @@ export const FnSearchHit = z.object({
   matched: SearchMatchedBy.optional(),
   /** A context item found by one of its heading sections: which (its key, heading path and title). */
   section: SearchSection.optional(),
+  /** Material only some searches are for (`Niche`): ranked below the rest unless the query named it. */
+  niche: Niche.optional(),
   /** Whether the asker can use it now; what blocks it when false. */
   available: z.boolean(),
   blocked: FnBlock.optional(),
@@ -183,8 +190,25 @@ export type SearchFound = z.infer<typeof SearchFound>;
 export const ContextListItem = ContextRecord.extend({ found: SearchFound.optional() });
 export type ContextListItem = z.infer<typeof ContextListItem>;
 
-/** A page of hits; `next` is the offset of the next page, absent on the last. */
-export const FnSearchPage = z.object({ items: z.array(FnSearchHit), next: z.number().int().min(0).optional() });
+/**
+ * How the admin's search decision (`SearchDecision`) filtered a page's hits of one item kind: who judged (a decision
+ * model or an LLM), the hits it dropped with why, and its model calls. `failed`: the model failed, so every hit of
+ * the kind was kept, and why.
+ */
+export const SearchFiltered = z.object({
+  item: SearchItemKind,
+  by: z.enum(['decision', 'llm']),
+  dropped: z.array(z.object({ name: QualifiedName, note: z.string().optional() })),
+  calls: z.array(ModelCallId).min(1).optional(),
+  failed: z.string().optional(),
+});
+export type SearchFiltered = z.infer<typeof SearchFiltered>;
+
+/**
+ * A page of hits; `next` is the offset of the next page, absent on the last. `filtered`: what the admin's search
+ * decisions dropped from this page (a page can then hold fewer hits than its limit while another follows).
+ */
+export const FnSearchPage = z.object({ items: z.array(FnSearchHit), next: z.number().int().min(0).optional(), filtered: z.array(SearchFiltered).optional() });
 export type FnSearchPage = z.infer<typeof FnSearchPage>;
 
 // ─── Facts ────────────────────────────────────────────────────────────────────

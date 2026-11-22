@@ -14,8 +14,10 @@ import { RunStatus } from '../run.ts';
 import { Display } from '../run.ts';
 import { AnnouncedSystems, SystemChange } from './announced.ts';
 import { CompareFork, KeptVariant, SessionSettings } from './compare.ts';
+import { Citation, CitationsTold } from './citations.ts';
 
 export * from './announced.ts';
+export * from './citations.ts';
 export * from './compare.ts';
 
 /** How a person wants to hear about a session's messages. */
@@ -56,6 +58,8 @@ export const Session = z.object({
   suggested: z.array(QualifiedName).optional(),
   /** What the model has been told about the systems: absent until the first turn takes the snapshot. */
   announcedSystems: AnnouncedSystems.optional(),
+  /** What the model has been told about citations: absent until the first turn takes the snapshot. */
+  citationsTold: CitationsTold.optional(),
   status: SessionStatus,
   /** The conversation the next agent iteration continues. */
   transcript: z.array(LlmMessage),
@@ -157,6 +161,11 @@ export const ChatMessage = z.object({
    * did, in full-history mode with a model that caches; the chat draws a wavy rule above it with `at`.
    */
   cacheMiss: z.object({ call: ModelCallId, at: Timestamp }).optional(),
+  /**
+   * Assistant messages answered with citations on: their cites in order (empty when the answer cited nothing, which the
+   * chat says). Parsed once when the message settles; the text keeps a marker in each cite's place (`citeMarker`).
+   */
+  citations: z.array(Citation).optional(),
   createdAt: Timestamp,
 });
 export type ChatMessage = z.infer<typeof ChatMessage>;

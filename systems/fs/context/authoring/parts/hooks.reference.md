@@ -7,6 +7,7 @@ summary: "Signatures and options for hooks."
 parent: "fs/authoring.hooks"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: hooks

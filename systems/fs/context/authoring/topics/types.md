@@ -7,6 +7,7 @@ summary: "How every shape is written with gin, named types with methods, and sto
 parent: "fs/authoring"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash"]
 tags: ["authoring"]
+niche: "developer"
 choices:
   - to: "fs/authoring.gin"
     when: "Pick this when you write args, results or config with g."

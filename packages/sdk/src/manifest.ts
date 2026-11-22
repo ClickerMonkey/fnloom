@@ -174,6 +174,7 @@ export function manifestBody(contract: AnyContract, options: ManifestOptions): O
     name: SystemName.parse(contract.name),
     version: options.version,
     description: contract.description,
+    ...(contract.about === undefined ? {} : { about: contract.about }),
     types: entriesOf(defs.types).map(([name, def]) => typeDecl(name, def)),
     settings: entriesOf(defs.settings).map(([name, def]) => ({
       name, description: def.description, type: wireType(def.type), appliesTo: [...def.appliesTo], merge: def.merge, editableBy: [...def.editableBy],

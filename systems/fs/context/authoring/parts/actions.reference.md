@@ -7,6 +7,7 @@ summary: "Signatures and options for actions."
 parent: "fs/authoring.actions"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: actions

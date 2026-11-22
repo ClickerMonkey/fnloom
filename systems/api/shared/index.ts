@@ -58,15 +58,24 @@ const serviceArg = (docs: string) => g.field(serviceName(), { docs });
 
 /** How callers of `make_api` use it. */
 const MAKE_USAGE = [
-  'Use it when the person wants something from a web API that has no fn yet: it writes the request as an api fn and saves it.',
-  'Name the service when you know it (api/services lists them); left out, the agent picks one or adds it from the base URL in the request.',
-  'Describe the request in `request`: the service or its base URL, the operation (method and path when known), the args, what the result should hold, and an example.',
-  'It reuses an api fn that already does it. Call the saved fn afterwards by its name with the args its signature shows; a request that changes something waits for approval.',
+  'Use it when the person wants something from a web API service (fresh data, or an action on that service) and no saved api fn does it yet: look first with hub/fns_search and kinds ["api/request"].',
+  'Find the service first with api/services and name it in `service`. When none is set up, it can add one only from a base URL you give in `request` (the person\'s, or the service\'s documented one): never make up a service or its URL.',
+  'Describe the request in `request`: the service or its base URL, the operation (method and path when known, from api/operations), the args, what the result should hold, and an example.',
+  'Another agent writes the request, checks it (a GET is sent once to try it) and saves it as an api/request fn named for its service (such as api/github.open_issues). It reuses an api fn that already does it.',
+  'It returns `fn`, `signature`, `call` and `preview`: the preview is only the trial while writing it. To answer the person, load the saved fn and call it by name with their args; a request that changes something (anything but GET) asks the person to approve each run.',
+  'A service that needs a sign-in uses the person\'s connection to it; if the result says it is not connected, tell the person to connect that service on the Connections page. Don\'t invent other steps or links.',
 ].join(' ');
 
 /** The contract's declarations, before its `connect` (which names these fns). */
 const declared = system(API_SYSTEM, {
   description: 'Web API requests kept as fns, like code: one instance authors api fns (code that calls an external service), each sent to one of its services, whose base URL and sign-in it keeps as records.',
+  about: [
+    'Requests to web API services: outside services with an API, such as a weather service or an issue tracker. Each service is a record with its base URL and how it signs in.',
+    'Its fns: api/services lists the services set up, api/operations lists what one offers (from its OpenAPI document), api/test_request tries one GET, and api/make_api writes a request as a fn of the kind api/request and saves it, named for its service (such as api/github.open_issues).',
+    'A saved request is the person\'s to call again by name for fresh data each time; one that changes something on the service (anything but a GET) asks the person to approve each run.',
+    'You can\'t connect accounts: a service that needs a sign-in is connected by the person (or an admin, for everyone) on the app\'s Connections page. Never invent links, keys or setup steps, and never promise access to a service that api/services does not list.',
+    'Reach for it for a web API; to search the web or read an ordinary page, use the web system instead. Load api/guide before first use.',
+  ].join(' '),
   groups: [{ name: 'requests', title: 'Requests', description: 'Write a request to a web API service as a fn, find the services, read their operations, and try a GET.' }],
   // the authoring agent is a model; api fns are hub fns it searches, reads and saves; services are records it reads and
   // adds; requests go to each service's base URL, known only from its record
@@ -95,8 +104,8 @@ const declared = system(API_SYSTEM, {
     },
     kinds: {
       request: kind({
-        description: 'An api fn: a request program (giving an api/HttpRequest) sent to its service, and an optional output program over the response.',
-        applicability: 'Something read from or done on a web API service the person will ask for again, written by api/make_api.',
+        description: 'An api fn: a saved request to one web API service (a program that builds the HTTP request from the args, and optionally one that turns the response into the result). Calling it by name sends the request through the person\'s connection to the service and returns the result.',
+        applicability: 'Something read from or done on a web API service the person will ask for again, written by api/make_api and then called by its name.',
         payload: ApiPayload,
         // make_api keeps every fn it writes; a request that changes something asks by its mode on every run
         approveChanges: false,
@@ -106,7 +115,7 @@ const declared = system(API_SYSTEM, {
     fns: {
       make_api: fn({
         group: 'requests',
-        description: 'Write a request to a web API service as an api fn (or reuse one that does it) and save it; the service is picked, or added from its base URL.',
+        description: 'Have a request to a web API service written, tried and saved as an api/request fn the person can call again (or reuse one that already does it); it gives back the new fn\'s name and signature.',
         instructions: MAKE_USAGE,
         args: g.obj({
           request: g.field(g.text({ minLength: 1 }), { docs: 'What the request does: the service or its base URL, the operation, its args, what the result holds, and an example.' }),
@@ -126,8 +135,8 @@ const declared = system(API_SYSTEM, {
       }),
       services: fn({
         group: 'requests',
-        description: 'The web API services api fns are sent to, found by words of their name, label, description or base URL: how each signs in, a page at a time.',
-        instructions: 'Narrow with `text`. Page with `cursor` set to the last page\'s `cursor`.',
+        description: 'The web API services set up for api fns: each one\'s name, label, base URL, how it signs in and whether it has an OpenAPI document, found by words, a page at a time.',
+        instructions: 'Use it to check whether a service the person means is set up before you write or promise anything: an empty answer means it isn\'t, so say so. Narrow with `text` (words of its name, label or base URL). Page with `cursor` set to the last page\'s `cursor`. Its `name` is what api/make_api, api/operations and api/test_request take as `service`.',
         args: g.obj({ text: g.optional(g.text()), limit: g.optional(g.num({ min: 1, max: 50, whole: true })), cursor: g.optional(g.text()) }),
         returns: ginAs(ServicesPage),
         examples: [{ args: { text: 'github', limit: 5 } }],
@@ -137,8 +146,8 @@ const declared = system(API_SYSTEM, {
       }),
       operations: fn({
         group: 'requests',
-        description: 'The operations of a service\'s OpenAPI document: method, path and summary, a page at a time.',
-        instructions: 'Narrow with `text` (words of the path or summary). Page with `offset` set to `next`.',
+        description: 'What a service offers, from its OpenAPI document: each operation\'s method, path and summary, a page at a time.',
+        instructions: 'Use it to find the method and path to describe to api/make_api. It works only for a service with an OpenAPI document (api/services says which); for one without, it fails, so describe the request from what the person or the service\'s docs say. Narrow with `text` (words of the path or summary). Page with `offset` set to `next`.',
         args: g.obj({
           service: serviceArg('The service, by name.'),
           text: g.optional(g.text()), offset: g.optional(g.num({ min: 0, whole: true })), limit: g.optional(g.num({ min: 1, max: 100, whole: true })),
@@ -151,8 +160,8 @@ const declared = system(API_SYSTEM, {
       }),
       test_request: fn({
         group: 'requests',
-        description: 'Send one GET (or HEAD) to a service and show the exchange, with credentials masked.',
-        instructions: 'Use it to see what an endpoint gives before writing an api fn. The url is relative to the service\'s base URL.',
+        description: 'Send one GET (or HEAD) to a service and show the request and response, with credentials masked. Nothing is saved.',
+        instructions: 'Use it to see what an endpoint gives before describing it to api/make_api, or to answer a one-off question. The url is relative to the service\'s base URL (start it with /); query parameters go in `params` as {"key","value"} items.',
         args: g.obj({
           service: serviceArg('The service, by name.'),
           method: g.optional(g.enum(['GET', 'HEAD'])),
@@ -173,12 +182,22 @@ const declared = system(API_SYSTEM, {
   .with(({ fns }) => ({
     context: {
       guide: context({
-        description: 'How to reach a web API service: its saved requests, or a new one written as a fn.',
+        description: 'How to get data from (or act on) a web API service: its saved requests, or a new one written as a fn.',
         content: [
-          'The api system writes requests to web API services as fns, the way code writes programs. api/services lists the services (each a base URL and a sign-in).',
-          'Find the saved requests with hub/fns_search (kinds ["api/request"]) and call them by name (<service>.<name>).',
-          'When none does what is asked, call api/make_api with what the request should do (and the service, when known); api/operations lists what a service offers.',
-        ].join(' '),
+          '# Web API services',
+          '',
+          'A service is an outside system with a web API (a weather service, an issue tracker). Each is a record: a name, a base URL, how it signs in. A saved request to one is an api/request fn, named api/<service>.<name>.',
+          '',
+          'Steps:',
+          '1. Is the service set up? api/services {"text":"weather"}. If nothing comes back, it isn\'t: tell the person, and offer to add it only if they give its base URL. Never invent a service, a URL, a key or setup steps.',
+          '2. Is there a saved request already? hub/fns_search with kinds ["api/request"] and a few words. If one fits, load it and call it by name.',
+          '3. Otherwise api/make_api. Example args: {"request":"The open issues of a repository: GET /repos/{owner}/{repo}/issues?state=open; args owner and repo; give each issue\'s number and title.","service":"github"}. api/operations {"service":"github","text":"issues"} helps you find the method and path first.',
+          '4. It answers with the saved fn ({"fn":"api/github.open_issues","signature":…,"preview":…}). The preview was only a trial: load the fn and call it with the person\'s values to get the real answer.',
+          '',
+          'Sign-ins: a service that needs one uses each person\'s own connection (or an admin\'s, shared). If a call says it is not connected, tell the person to connect that service on the Connections page; you can\'t do it for them.',
+          'Requests other than GET change something on the service, so each run asks the person to approve it first. Until they approve, it has not happened.',
+          'To search the web or read an ordinary page, use the web system, not this one.',
+        ].join('\n'),
         fns: [fns.make_api, fns.services, fns.operations, fns.test_request],
         tags: ['api'],
       }),

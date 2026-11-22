@@ -6,7 +6,7 @@
 import { z } from 'zod';
 import { DeclaredLink } from './context-graph.ts';
 import { GinTypeDef } from './gin.ts';
-import { ActorKind, Audience, LocalName, Duration, FnKindName, InstanceName, Json, QualifiedName, SessionId, SystemName, TurnId } from './primitives.ts';
+import { ADMIN_TAG, ActorKind, Audience, LocalName, Duration, FnKindName, InstanceName, Json, QualifiedName, SessionId, SystemName, TurnId } from './primitives.ts';
 import { SectionMatch, Link } from './resources.ts';
 import { Display, FnLimits, Operations, ProgressDecl, TimeInfo, UserInfo } from './run.ts';
 import { StatusTemplates } from './status.ts';
@@ -195,6 +195,21 @@ export const FnLive = z.object({ every: Duration.min(1000) });
 export type FnLive = z.infer<typeof FnLive>;
 
 /**
+ * Material only some searches are for: `developer` (writing systems: the authoring guides and the SDK's reference),
+ * `admin` (running the hub: its admin fns and settings) or `reference` (API listings, whose fns are hits of their
+ * own). A search ranks it below everything else unless the query names it (`FnSearchQuery.niches`), so an ordinary
+ * request finds what it needs first. Absent: anyone's.
+ */
+export const NICHES = ['developer', 'admin', 'reference'] as const;
+export const Niche = z.enum(NICHES);
+export type Niche = z.infer<typeof Niche>;
+
+/** A fn's or context item's niche: the one it declares, else `admin` for a fn tagged `admin` (`ADMIN_TAG`). */
+export function nicheOf(decl: { readonly niche?: Niche | undefined; readonly tags: readonly string[] }): Niche | undefined {
+  return decl.niche ?? (decl.tags.includes(ADMIN_TAG) ? 'admin' : undefined);
+}
+
+/**
  * A fn. Native fns carry their signature, deps and handlers as declared. Fns of other kinds carry a payload; the hub
  * asks the kind's system to describe it and checks the result against the declared signature.
  */
@@ -224,6 +239,8 @@ export const FnDecl = z.object({
   limits: FnLimits,
   visibility: Audience,
   tags: z.array(z.string()),
+  /** Material only some searches are for (`Niche`); a fn tagged `admin` is `admin` when it says none. */
+  niche: Niche.optional(),
   /**
    * Example calls, shown on the fn's card at `full` detail and in its invalid-input replies. The SDK checks each
    * example's args against the fn's own args type when the contract is built, so a wrong example does not build.
@@ -302,6 +319,8 @@ export const ContextDecl = z.object({
   visible: Audience,
   alwaysFor: z.array(QualifiedName),
   tags: z.array(z.string()),
+  /** Material only some searches are for (`Niche`): the authoring guides are `developer`, API listings `reference`. */
+  niche: Niche.optional(),
   /** How much it counts when scored (0 leaves it out; 1 when absent). */
   weight: z.number().min(0).max(2).optional(),
   /** A short form shown at `signature` detail; its description when absent. */
@@ -395,6 +414,8 @@ export const Manifest = z.object({
   name: SystemName,
   version: z.string(),
   description: z.string(),
+  /** What the chat model is told about it in its `<systems>` list (`SystemInfo.about`); absent, its description. */
+  about: z.string().optional(),
   /** Hash of everything else; sent in `Hello`. */
   hash: z.string(),
   ...sections,

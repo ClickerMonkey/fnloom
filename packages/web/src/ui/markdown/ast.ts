@@ -14,6 +14,8 @@ export type MdInline =
   | { readonly type: 'image'; readonly src: string; readonly alt: string }
   /** TeX math in a line: `$x^2$`. */
   | { readonly type: 'math'; readonly tex: string }
+  /** A cite's marker in an answer (`citeMarker`): its index among the message's cites, drawn by the host's `cite` hook. */
+  | { readonly type: 'cite'; readonly index: number }
   | { readonly type: 'break' };
 
 /** How a table column lines up. */

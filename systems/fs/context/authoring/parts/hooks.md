@@ -8,6 +8,7 @@ parent: "fs/authoring.topics.declare"
 next: "fs/authoring.mentions"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash"]
 tags: ["authoring"]
+niche: "developer"
 choices:
   - to: "fs/authoring.hooks.reference"
     when: "Pick this when you need the exact signatures and options."

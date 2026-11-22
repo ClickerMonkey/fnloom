@@ -10,6 +10,10 @@
  * are marked `harness-crash` too and the next rep starts).
  *
  *   --cases 1,5,12        which cases (default: all 40)
+ *   --variants off,on     the household variants (`variants.ts`; default `off`): with more than one, each rep of each
+ *                         variant gets its own fresh stack, in `<iteration>/<variant>/rep-<n>/`, reps interleaved
+ *                         (rep 1 off, rep 1 on, rep 2 off, …), and the report compares them case by case
+ *   --variant <name>      with --diagnose or --view: the variant folder to read (a run of several variants)
  *   --reps 3              repetitions of each case, each on its own fresh stack (default 3)
  *   --iteration <name>    the results folder's name (default: the date and time); a rerun of a name replaces its reps
  *   --concurrency 3       cases played (or diagnosed) at once (default 3)
@@ -18,12 +22,14 @@
  *                         already diagnosed is kept unless --force; then diagnosis.md and the report are written again
  *   --report-only         rebuild report.md / report.json (and diagnosis.md from saved diagnoses) of --iteration
  *   --publish             write the hitl review (on by default after a run of all 40 cases); --no-publish to skip
- *   --view <iteration> --rep <n>   serve that repetition's saved hub (and the web app) on the view port (4351) to
+ *   --view <iteration> --rep <n> [--variant <v>]   serve that repetition's saved hub (and the web app) on the view port (4351) to
  *                         the network, systems offline, until Ctrl+C, listing each case's sign-in and chats
  *   --fixtures            make the fixtures again first
  *
  * Settings (environment): HARNESS_SCENARIOS_PORT (4350), HARNESS_SCENARIOS_VIEW_PORT (4351), HARNESS_SCENARIOS_MODEL,
- * _PERSON_MODEL, _JUDGE_MODEL and _DIAGNOSE_MODEL (openai/gpt-6-luna), HARNESS_SCENARIOS_EMBEDDER, OPENROUTER_API_KEY
+ * _PERSON_MODEL, _JUDGE_MODEL and _DIAGNOSE_MODEL (openai/gpt-6-luna), HARNESS_SCENARIOS_DECISION_MODEL (the `on`
+ * variant's, typesafe/jev-1.14), HARNESS_SCENARIOS_BUSY_* (patience with a hub that sheds load, `busy.ts`),
+ * HARNESS_SCENARIOS_HOME_ROOT (the fake home folders, outside any git repository), HARNESS_SCENARIOS_EMBEDDER, OPENROUTER_API_KEY
  * and TAVILY_API_KEY (on Windows read from the user environment when missing). See `env.ts`.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -39,11 +45,15 @@ import { OpenRouter } from './openrouter.ts';
 import { playCase, type PlayContext } from './play.ts';
 import { publish } from './publish.ts';
 import { RepPeople, type Ending, type JudgedCase } from './records.ts';
-import { iterationFolder, loadIteration, writeReport, type RepCrash, type RepMeta } from './report.ts';
+import { iterationFolder, loadIteration, savedVariants, writeReport, type RepCrash, type RepMeta } from './report.ts';
 import { ADMIN, FIXTURES_DIR, PERSON_PASSWORD, portTaken, repFolder, startRep, tailscaleBase, viewBase, viewRep, type Rep } from './rep.ts';
 import { caseMarkdown, usd } from './transcript.ts';
+import { noShedding, shedOf, type Shedding } from './busy.ts';
+import { checkVariantSupport, parseVariants, proveDecisionModel, VARIANT_LABELS, VariantName, type VariantRecord } from './variants.ts';
 
 const Flags = z.object({
+  variants: z.string().optional(),
+  variant: VariantName.optional(),
   cases: z.string().optional().transform((list) => (list === undefined ? undefined : list.split(',').map((id) => z.coerce.number().int().min(1).parse(id.trim())))),
   reps: z.coerce.number().int().min(1).max(10).default(3),
   iteration: z.string().regex(/^[\w.-]+$/, 'letters, digits, dots, dashes and underscores').optional(),
@@ -63,7 +73,7 @@ type Flags = z.infer<typeof Flags>;
 function flags(): Flags {
   const { values } = parseArgs({
     options: {
-      cases: { type: 'string' }, reps: { type: 'string' }, iteration: { type: 'string' }, concurrency: { type: 'string' },
+      variants: { type: 'string' }, variant: { type: 'string' }, cases: { type: 'string' }, reps: { type: 'string' }, iteration: { type: 'string' }, concurrency: { type: 'string' },
       'report-only': { type: 'boolean' }, publish: { type: 'boolean' }, 'no-publish': { type: 'boolean' }, view: { type: 'string' }, rep: { type: 'string' }, fixtures: { type: 'boolean' },
       diagnose: { type: 'boolean' }, 'no-diagnose': { type: 'boolean' }, force: { type: 'boolean' },
     },
@@ -86,14 +96,43 @@ async function pool<T>(items: readonly T[], limit: number, work: (item: T) => Pr
   }));
 }
 
-/** Whether the hub still answers. */
+/** Whether the hub still answers (one that sheds load, HTTP 503, is busy, not dead). */
 async function hubAnswers(url: string): Promise<boolean> {
   try {
     const response = await fetch(`${url}/readyz`, { signal: AbortSignal.timeout(10_000) });
-    return response.ok;
+    return response.ok || response.status === 503;
   } catch {
     return false;
   }
+}
+
+/** Several stacks' shedding as one. */
+function sumShedding(tallies: readonly Shedding[]): Shedding {
+  const total = noShedding();
+  for (const t of tallies) {
+    total.calls += t.calls; total.sheds += t.sheds; total.gaveUp += t.gaveUp; total.waitedMs += t.waitedMs;
+    if (t.first !== undefined && (total.first === undefined || t.first < total.first)) { total.first = t.first; }
+    if (t.last !== undefined && (total.last === undefined || t.last > total.last)) { total.last = t.last; }
+    for (const [call, n] of Object.entries(t.byCall)) { total.byCall[call] = (total.byCall[call] ?? 0) + n; }
+  }
+  return total;
+}
+
+/** Where one rep of one variant goes. */
+interface RepPlace {
+  readonly iteration: string;
+  readonly rep: number;
+  readonly variant: VariantName;
+  /** Whether it has its variant's folder (`<iteration>/<variant>/rep-<n>/`): the run has several variants. */
+  readonly variantFolder: boolean;
+}
+
+/** The variant folder a rep's records name, or undefined for a run of one variant. */
+const folderVariant = (place: RepPlace): string | undefined => (place.variantFolder ? place.variant : undefined);
+
+/** The folder a saved case rep lives in. */
+function folderOf(judged: { iteration: string; rep: number; variant?: string | undefined }): string {
+  return repFolder(judged.iteration, judged.rep, judged.variant);
 }
 
 /** The last lines of a stack's log. */
@@ -109,10 +148,11 @@ async function stopQuietly(handle: Rep): Promise<void> {
 }
 
 /** A case that never got a transcript (the hub crashed, or the runner failed on it), saved as such. */
-function unplayed(iteration: string, rep: number, played: Case, ending: Ending, detail: string[], stack: string | undefined): JudgedCase {
+function unplayed(place: RepPlace, played: Case, ending: Ending, detail: string[], stack: string | undefined): JudgedCase {
   const now = new Date().toISOString();
+  const variant = folderVariant(place);
   return {
-    iteration, rep, case: played.id, title: played.title, good: played.good,
+    iteration: place.iteration, rep: place.rep, ...(variant === undefined ? {} : { variant }), case: played.id, title: played.title, good: played.good,
     person: { email: `case-${String(played.id).padStart(2, '0')}@parker.family`, password: PERSON_PASSWORD },
     sessions: [], ...(stack === undefined ? {} : { stack }), entries: [], ending,
     stats: { personTurns: 0, turns: 0, toolRuns: 0, modelCalls: 0, hubCost: 0, personCost: 0, wallMs: 0 },
@@ -129,14 +169,23 @@ function saveCase(folder: string, judged: JudgedCase, diagnosis: CaseDiagnosis |
 }
 
 /** Play, judge and (unless told not to) diagnose every case of one repetition, starting fresh stacks after a crash. */
-async function runRep(settings: ScenariosSettings, router: OpenRouter, iteration: string, rep: number, cases: readonly Case[], concurrency: number, diagnose: boolean): Promise<void> {
-  const folder = repFolder(iteration, rep);
+async function runRep(settings: ScenariosSettings, router: OpenRouter, place: RepPlace, cases: readonly Case[], concurrency: number, diagnose: boolean): Promise<void> {
+  const { iteration, rep } = place;
+  const folder = repFolder(iteration, rep, folderVariant(place));
   const people: RepPeople = { admin: { ...ADMIN }, cases: [] };
   const crashes: RepCrash[] = [];
+  /** Each stack's shedding (a restart has its own), summed into rep.json. */
+  const sheddings: Shedding[] = [];
+  const homes: string[] = [];
+  let variantRecord: VariantRecord | undefined;
   let meta: RepMeta | undefined;
   const writeMeta = (ended: boolean): void => {
     if (meta === undefined) { return; }
-    writeFileSync(join(folder, 'rep.json'), `${JSON.stringify({ ...meta, crashes, ...(ended ? { endedAt: new Date().toISOString() } : {}) }, null, 2)}\n`);
+    const saved: RepMeta = {
+      ...meta, crashes, shedding: sumShedding(sheddings), homes,
+      ...(variantRecord === undefined ? {} : { variant: variantRecord }), ...(ended ? { endedAt: new Date().toISOString() } : {}),
+    };
+    writeFileSync(join(folder, 'rep.json'), `${JSON.stringify(saved, null, 2)}\n`);
   };
   const keep = (judged: JudgedCase, diagnosis: CaseDiagnosis | undefined): void => {
     saveCase(folder, judged, diagnosis);
@@ -153,25 +202,28 @@ async function runRep(settings: ScenariosSettings, router: OpenRouter, iteration
     }
     let handle: Rep;
     try {
-      handle = await startRep(settings, iteration, rep, log, stackName === undefined ? {} : { folder: stackFolder });
+      handle = await startRep(settings, iteration, rep, log, { variant: place.variant, variantFolder: place.variantFolder, ...(stackName === undefined ? {} : { stack: stackName }) });
     } catch (error) {
       const reason = `the stack didn't start: ${error instanceof Error ? error.message : String(error)}`;
       log(`rep ${rep}: ${reason}`);
       mkdirSync(join(folder, 'cases'), { recursive: true });
-      meta ??= { rep, systems: [], skipped: [], startedAt: new Date().toISOString(), model: settings.HARNESS_SCENARIOS_MODEL, crashes: [] };
+      meta ??= { rep, systems: [], skipped: [], startedAt: new Date().toISOString(), model: settings.HARNESS_SCENARIOS_MODEL, crashes: [], homes: [] };
       const tail = logTail(stackFolder);
-      for (const played of remaining) { keep(unplayed(iteration, rep, played, { by: 'harness-crash', reason }, tail, stackName), undefined); }
+      for (const played of remaining) { keep(unplayed(place, played, { by: 'harness-crash', reason }, tail, stackName), undefined); }
       crashes.push({ at: new Date().toISOString(), error: reason, cases: remaining.map((c) => c.id), logTail: tail });
       writeMeta(true);
       return;
     }
     if (meta === undefined) {
       meta = {
-        rep, systems: [...handle.systems], skipped: [...handle.skipped], startedAt: new Date().toISOString(), model: settings.HARNESS_SCENARIOS_MODEL, crashes: [],
+        rep, systems: [...handle.systems], skipped: [...handle.skipped], startedAt: new Date().toISOString(), model: settings.HARNESS_SCENARIOS_MODEL, crashes: [], homes: [],
         ...(handle.index === undefined ? {} : { index: handle.index }),
       };
       mkdirSync(join(folder, 'cases'), { recursive: true });
     }
+    variantRecord ??= handle.variant;
+    sheddings.push(handle.shedding);
+    homes.push(handle.home);
     writeMeta(false);
     const url = handle.stack.url;
     let crash: { at: string; error: string } | undefined;
@@ -181,7 +233,7 @@ async function runRep(settings: ScenariosSettings, router: OpenRouter, iteration
     process.once('SIGINT', stop);
     try {
       const context: PlayContext = {
-        rep: handle, iteration, repNumber: rep, router, personModel: settings.HARNESS_SCENARIOS_PERSON_MODEL,
+        rep: handle, iteration, repNumber: rep, ...(place.variantFolder ? { variant: place.variant } : {}), router, personModel: settings.HARNESS_SCENARIOS_PERSON_MODEL,
         turnTimeout: settings.HARNESS_SCENARIOS_TURN_TIMEOUT, viewPort: settings.HARNESS_SCENARIOS_VIEW_PORT, log,
       };
       /** Save a case the hub took down, and note the crash. */
@@ -189,7 +241,7 @@ async function runRep(settings: ScenariosSettings, router: OpenRouter, iteration
         crash ??= { at: new Date().toISOString(), error };
         crashed.push(played.id);
         finished.add(played.id);
-        keep(unplayed(iteration, rep, played, { by: 'harness-crash', reason: `the hub stopped answering: ${error}`.slice(0, 400) }, logTail(stackFolder), stackName), undefined);
+        keep(unplayed(place, played, { by: 'harness-crash', reason: `the hub stopped answering: ${error}`.slice(0, 400) }, logTail(stackFolder), stackName), undefined);
         log(`rep ${rep}: case ${played.id} lost to a harness crash (${error.slice(0, 200)})`);
       };
       await pool(remaining, concurrency, async (played) => {
@@ -203,8 +255,10 @@ async function runRep(settings: ScenariosSettings, router: OpenRouter, iteration
           const text = error instanceof Error ? error.message : String(error);
           if (!(await hubAnswers(url))) { lost(played, text); return; }
           finished.add(played.id);
-          keep(unplayed(iteration, rep, played, { by: 'error', reason: `the runner failed: ${text}`.slice(0, 400) }, [], stackName), undefined);
-          log(`rep ${rep}: case ${played.id} failed in the runner: ${text.slice(0, 200)}`);
+          // still shed when the patience ran out: the hub's load shedding failed the case (a finding: rep.json's shedding)
+          const busy = shedOf(error) !== undefined;
+          keep(unplayed(place, played, { by: 'error', reason: `${busy ? 'the hub stayed busy (HTTP 503) past the runner\'s patience' : 'the runner failed'}: ${text}`.slice(0, 400) }, [], stackName), undefined);
+          log(`rep ${rep}: case ${played.id} failed in the runner${busy ? ' (the hub stayed busy)' : ''}: ${text.slice(0, 200)}`);
           return;
         }
         // a case that ended badly because the hub died is the crash's, not the agent's
@@ -215,7 +269,7 @@ async function runRep(settings: ScenariosSettings, router: OpenRouter, iteration
         finished.add(played.id);
         keep(result, diagnosis);
         const j = result.judgement;
-        log(`rep ${rep}: case ${played.id} ${j === null ? 'not judged' : `${j.verdict} ${j.score}/10`} · ended ${result.ending.by} · ${Math.round(result.stats.wallMs / 1000)}s · ${usd(result.stats.hubCost + result.stats.personCost + result.judgeCost + (diagnosis?.cost ?? 0))}${diagnosis === undefined ? '' : diagnosis.diagnosis === null ? ' · diagnosis failed' : ` · ${diagnosis.diagnosis.fixes.length} fixes`}`);
+        log(`rep ${rep}: case ${played.id} ${j === null ? 'not judged' : `${j.verdict} ${j.score}/10`} · ended ${result.ending.by} · ${Math.round(result.stats.wallMs / 1000)}s · ${usd(result.stats.hubCost + result.stats.personCost + result.judgeCost + (diagnosis?.cost ?? 0))}${diagnosis === undefined ? '' : diagnosis.diagnosis === null ? ' · diagnosis failed' : ` · ${diagnosis.diagnosis.fixes.length} fixes`}${(result.stats.shed ?? 0) === 0 ? '' : ` · ${result.stats.shed} call(s) shed by a busy hub`}`);
       });
     } finally {
       process.off('SIGINT', stop);
@@ -226,7 +280,7 @@ async function runRep(settings: ScenariosSettings, router: OpenRouter, iteration
     const again = remaining.length > 0 && restart < MAX_RESTARTS;
     if (!again) {
       const tail = logTail(stackFolder);
-      for (const played of remaining) { crashed.push(played.id); keep(unplayed(iteration, rep, played, { by: 'harness-crash', reason: `not played: the hub crashed (${crash.error})`.slice(0, 400) }, tail, stackName), undefined); }
+      for (const played of remaining) { crashed.push(played.id); keep(unplayed(place, played, { by: 'harness-crash', reason: `not played: the hub crashed (${crash.error})`.slice(0, 400) }, tail, stackName), undefined); }
       remaining = [];
     }
     crashes.push({ at: crash.at, error: crash.error, cases: crashed, logTail: logTail(stackFolder), ...(again ? { restartedIn: `restart-${restart + 1}` } : {}) });
@@ -237,13 +291,16 @@ async function runRep(settings: ScenariosSettings, router: OpenRouter, iteration
 }
 
 /** Serve a saved repetition until Ctrl+C. */
-async function view(settings: ScenariosSettings, iteration: string, rep: number): Promise<void> {
+async function view(settings: ScenariosSettings, iteration: string, rep: number, variant: VariantName | undefined): Promise<void> {
   if (await portTaken(settings.HARNESS_SCENARIOS_VIEW_PORT)) { throw new Error(`port ${settings.HARNESS_SCENARIOS_VIEW_PORT} is taken`); }
-  const stack = await viewRep(settings, iteration, rep);
-  const people = RepPeople.parse(JSON.parse(readFileSync(join(repFolder(iteration, rep), 'people.json'), 'utf8')));
+  // a run of several variants keeps its reps in variant folders: one has to be named
+  const variants = savedVariants(iteration);
+  if (variant === undefined && variants.length > 0 && !existsSync(repFolder(iteration, rep))) { throw new Error(`${iteration} ran variants ${variants.join(', ')}: add --variant <name>`); }
+  const stack = await viewRep(settings, iteration, rep, variant);
+  const people = RepPeople.parse(JSON.parse(readFileSync(join(repFolder(iteration, rep, variant), 'people.json'), 'utf8')));
   const base = viewBase(settings.HARNESS_SCENARIOS_VIEW_PORT);
   const tailscale = tailscaleBase(settings.HARNESS_SCENARIOS_VIEW_PORT);
-  console.log(`\n${iteration} rep ${rep} is open at ${base}${tailscale === undefined ? '' : ` (Tailscale ${tailscale})`}; systems are offline.\n`);
+  console.log(`\n${iteration}${variant === undefined ? '' : ` (${VARIANT_LABELS[variant]})`} rep ${rep} is open at ${base}${tailscale === undefined ? '' : ` (Tailscale ${tailscale})`}; systems are offline.\n`);
   for (const person of [...people.cases].sort((a, b) => a.case - b.case)) {
     const title = CASES.find((c) => c.id === person.case)?.title ?? '';
     if (person.stack !== undefined) { console.log(`case ${person.case}. ${title}: ran on the stack in ${person.stack} after a crash, not served here`); continue; }
@@ -259,18 +316,18 @@ async function view(settings: ScenariosSettings, iteration: string, rep: number)
 /** Diagnose saved case reps of an iteration (`--diagnose`), then write diagnosis.md and the report again. */
 async function diagnoseSaved(settings: ScenariosSettings, router: OpenRouter, iteration: string, options: Flags): Promise<void> {
   const { cases } = loadIteration(iteration);
-  const targets = cases.filter((c) => (options.cases === undefined || options.cases.includes(c.case)) && (options.rep === undefined || c.rep === options.rep));
-  if (targets.length === 0) { throw new Error(`no saved case reps of ${iteration} match --cases / --rep`); }
+  const targets = cases.filter((c) => (options.cases === undefined || options.cases.includes(c.case)) && (options.rep === undefined || c.rep === options.rep) && (options.variant === undefined || c.variant === options.variant));
+  if (targets.length === 0) { throw new Error(`no saved case reps of ${iteration} match --cases / --rep / --variant`); }
   const model = settings.HARNESS_SCENARIOS_DIAGNOSE_MODEL;
   let cost = 0;
   log(`diagnosing ${targets.length} case rep(s) of ${iteration} with ${model}`);
   await pool(targets, options.concurrency, async (judged) => {
-    const folder = repFolder(iteration, judged.rep);
+    const folder = folderOf(judged);
     const kept = options.force ? undefined : loadDiagnosis(folder, judged.case);
     const diagnosis = kept?.diagnosis === null || kept === undefined ? await diagnoseCase(router, model, folder, judged) : kept;
     if (diagnosis !== kept) { cost += diagnosis.cost; }
     saveCase(folder, judged, diagnosis);
-    log(`case ${judged.case} rep ${judged.rep}: ${diagnosis === kept ? 'kept' : `diagnosed (${diagnosis.modelSteps} steps, ${Math.round(diagnosis.promptChars / 1000)}k chars, ${usd(diagnosis.cost)})`} ${diagnosis.diagnosis === null ? `failed: ${diagnosis.error ?? '—'}` : `${diagnosis.diagnosis.fixes.length} fixes`}`);
+    log(`case ${judged.case}${judged.variant === undefined ? '' : ` ${judged.variant}`} rep ${judged.rep}: ${diagnosis === kept ? 'kept' : `diagnosed (${diagnosis.modelSteps} steps, ${Math.round(diagnosis.promptChars / 1000)}k chars, ${usd(diagnosis.cost)})`} ${diagnosis.diagnosis === null ? `failed: ${diagnosis.error ?? '—'}` : `${diagnosis.diagnosis.fixes.length} fixes`}`);
   });
   const { path, result } = await aggregate(iterationFolder(iteration), iteration, router, model, options.force);
   log(`diagnosis: ${path} (${result.fixes.length} fixes from ${result.diagnosed} case reps; this run ${usd(cost)}, merging ${usd(result.cost.merge)})`);
@@ -285,14 +342,14 @@ async function main(): Promise<void> {
   // a stray rejection (a watch on a dead hub) is logged, never the end of the run
   process.on('unhandledRejection', (error: unknown) => { log(`unhandled: ${error instanceof Error ? error.message : String(error)}`); });
   if (options.view !== undefined) {
-    await view(settings, options.view, options.rep ?? 1);
+    await view(settings, options.view, options.rep ?? 1, options.variant);
     return;
   }
   if (options['report-only']) {
     if (options.iteration === undefined) { throw new Error('--report-only needs --iteration <name>'); }
     const folder = iterationFolder(options.iteration);
     if (loadDiagnoses(folder).length > 0) {
-      for (const judged of loadIteration(options.iteration).cases) { const d = loadDiagnosis(repFolder(options.iteration, judged.rep), judged.case); if (d !== undefined) { saveCase(repFolder(options.iteration, judged.rep), judged, d); } }
+      for (const judged of loadIteration(options.iteration).cases) { const d = loadDiagnosis(folderOf(judged), judged.case); if (d !== undefined) { saveCase(folderOf(judged), judged, d); } }
       const router = settings.OPENROUTER_API_KEY === undefined ? undefined : new OpenRouter(settings.OPENROUTER_API_KEY);
       const { path } = await aggregate(folder, options.iteration, router, settings.HARNESS_SCENARIOS_DIAGNOSE_MODEL, options.force);
       log(`diagnosis: ${path}`);
@@ -310,6 +367,13 @@ async function main(): Promise<void> {
     return;
   }
   if (await portTaken(settings.HARNESS_SCENARIOS_PORT)) { throw new Error(`port ${settings.HARNESS_SCENARIOS_PORT} is taken; stop what runs there or set HARNESS_SCENARIOS_PORT`); }
+  const variants = parseVariants(options.variants);
+  // a variant the hub can't set up, or a decision model that doesn't answer, stops the run before anything boots
+  checkVariantSupport(variants);
+  if (variants.includes('on')) {
+    const proof = await proveDecisionModel(settings.OPENROUTER_API_KEY, settings.HARNESS_SCENARIOS_DECISION_MODEL);
+    log(`decision model ${proof.model} answers (${proof.ms}ms, ${proof.cost === undefined ? 'cost not reported' : usd(proof.cost)}): ${JSON.stringify(proof.answers)}`);
+  }
   if (options.fixtures || !fixturesReady(FIXTURES_DIR)) {
     log(`making fixtures in ${FIXTURES_DIR}`);
     await makeFixtures(FIXTURES_DIR);
@@ -318,9 +382,14 @@ async function main(): Promise<void> {
   const iteration = options.iteration ?? new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
   mkdirSync(iterationFolder(iteration), { recursive: true });
   const diagnose = !options['no-diagnose'];
-  log(`iteration ${iteration}: cases ${cases.map((c) => c.id).join(',')} × ${options.reps} rep(s), ${options.concurrency} at a time, model ${settings.HARNESS_SCENARIOS_MODEL}${diagnose ? '' : ', no diagnosis'}`);
+  const variantFolder = variants.length > 1;
+  log(`iteration ${iteration}: cases ${cases.map((c) => c.id).join(',')} × ${options.reps} rep(s)${variantFolder ? ` × variants ${variants.join(', ')}` : variants[0] === 'off' ? '' : ` (variant ${variants[0]})`}, ${options.concurrency} at a time, model ${settings.HARNESS_SCENARIOS_MODEL}${diagnose ? '' : ', no diagnosis'}`);
+  // reps interleave the variants (rep 1 off, rep 1 on, rep 2 off, …) so both see the same hours of the providers
   for (let rep = 1; rep <= options.reps; rep++) {
-    await runRep(settings, router, iteration, rep, cases, options.concurrency, diagnose);
+    for (const variant of variants) {
+      if (variantFolder) { log(`rep ${rep}, ${VARIANT_LABELS[variant]}`); }
+      await runRep(settings, router, { iteration, rep, variant, variantFolder }, cases, options.concurrency, diagnose);
+    }
   }
   if (diagnose) {
     const { path, result } = await aggregate(iterationFolder(iteration), iteration, router, settings.HARNESS_SCENARIOS_DIAGNOSE_MODEL);
@@ -336,7 +405,18 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error: unknown) => {
+/**
+ * The run is over: every rep's stack and clients are stopped, so exit, saying what (if anything) was still open.
+ * Iteration 1 kept running after its report, a client renewing against a dead hub forever; never again.
+ */
+function finish(code: number): never {
+  // sockets and child processes are what kept iteration 1 alive; stdio writes and timers end with the process
+  const open = process.getActiveResourcesInfo().filter((kind) => /TCP|Process|UDP|Socket/.test(kind));
+  if (open.length > 0) { log(`exiting with ${open.length} handle(s) still open: ${[...new Set(open)].join(', ')}`); }
+  process.exit(code);
+}
+
+main().then(() => finish(0), (error: unknown) => {
   console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
-  process.exit(1);
+  finish(1);
 });

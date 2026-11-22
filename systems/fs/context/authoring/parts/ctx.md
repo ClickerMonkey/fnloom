@@ -8,6 +8,7 @@ parent: "fs/authoring.topics.server"
 next: "fs/authoring.calling"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash"]
 tags: ["authoring"]
+niche: "developer"
 choices:
   - to: "fs/authoring.ctx.reference"
     when: "Pick this when you need the exact signatures and options."

@@ -8,6 +8,7 @@ parent: "fs/authoring.topics.begin"
 next: "fs/authoring.examples"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash"]
 tags: ["authoring"]
+niche: "developer"
 choices:
   - to: "fs/authoring.examples"
     when: "Pick this to go on in order: Worked examples."

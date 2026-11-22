@@ -8,6 +8,7 @@ parent: "fs/authoring.topics.fns"
 next: "fs/authoring.outcomes"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash"]
 tags: ["authoring"]
+niche: "developer"
 choices:
   - to: "fs/authoring.state-forms.reference"
     when: "Pick this when you need the exact signatures and options."

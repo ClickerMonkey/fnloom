@@ -744,6 +744,35 @@ right viewer: `<ResourceViewer :uri="uri" compact />`.
   system prompt is in its settings (System prompt), so a kept variant's prompt can be seen, changed or given back to the agent. The variant dialog is built from the chat's own pickers
   (model, mode, agent, fn mode, systems, system prompt), warns when two variants are the same, and shows each one's
   share of the budget.
+- **Use citations** (a chat setting, `Session.citations`, off by default; in the chat's settings and a variant field in
+  A/B compare). Phil: "add chat option "Use citations" and the system prompt or next user message is told that it needs
+  to cite it's work with `<cite tool="tool ID" path="results.0">how the citation provides evidence</cite>` … In the chat
+  UI it renders as [#] where # is the citation in the chat history. Citations are stored in chat metadata so this
+  computation isn't done all the time." How it works:
+  - *Telling the model.* On from a chat's first turn, the rule (`chat/cite-rule.ts`, its own text, kept apart from the
+    base prompt) is in the fixed part of the system prompt, after the mode's guide, so the prompt caches. Turned on or off
+    later, the next user message starts with a hidden `<citations_changed>` block, once per change (a compare variant
+    whose setting differs from the chat's is told the same way); what was told is `Session.citationsTold`, kept in the
+    turn's start, so an undo or retry tells it again. The rule says what a cite is, its syntax, that `tool` is the id
+    on the tool result's first line and `path` a JSON path into that result (`results.0.title`, `rows.3`, `""` for all),
+    with an example, and that every claim from a tool result carries one.
+  - *The id it cites.* A tool call id is not text the model reads (a recorded tools-mode request shows only the result
+    JSON in the tool message), so while citations are on every tool result it reads, in both chat modes, starts with
+    `tool id: run_…`, the run's id; background results too. A cite naming a tool call id instead is found by it.
+  - *Streaming.* From an opening `<cite` the text is held back until `</cite>` (at most `HARNESS_CITE_HOLD_CHARS`, then
+    it was no cite and shows as text), so the browser never sees half a cite; the whole cite streams as a `cite` event
+    and its marker as a token.
+  - *Stored once.* When the answer settles the hub parses its cites, resolves each to its run (in the chat, or the chat
+    a fork is of) and the value at its path (in the result, else in the result as the model read it, such as a table's
+    rows), numbers them in chat order (an undone turn's numbers are given again) and keeps them on the message
+    (`ChatMessage.citations`; the value only up to `HARNESS_CITE_VALUE_CHARS`). A cite that doesn't resolve is kept
+    with why. The text keeps a marker in each cite's place. A variant's cites live on its messages, so they join the
+    chat with "Use this" and go with a discarded fork.
+  - *In the chat.* Each cite is a small raised `[n]` chip. Hovering or pressing it opens a popover with the model's
+    reason, the fn, the value in readable form (fields, items or text; JSON behind a toggle) and **Show in result**,
+    which opens and lights up the run's card (opening its group), or the run panel when no card is on screen. One that
+    doesn't resolve is dashed and says why. An answer given with citations on that cites nothing says "No citations" at
+    its foot. Copying an answer gives `[n]` for each cite.
 - **A held system shows a banner.** When a turn's runs show a fn refused because its system waits for a review, the
   answer shows one warning per held system, naming its fns. Admins get a link to the system's pending review.
 
@@ -779,6 +808,8 @@ The wording follows the chat mode. In tools mode the fns are "in your tools now"
 their cards are in the prompt and the model runs one with `run`, or writes a `<run fn="…">` block when it has no
 native tool calls. A fn that isn't loaded this step is one to inspect for its args and then run by name.
 
+**Tools carry their examples.** In tools mode each native tool's description is the fn's description, its instructions and its example args (the turn's chosen examples, and at least the first declared one when it has any); that whole text is the aeye tool's description, since the agent prompt has no tools section for separate tool instructions. The schema goes at aeye's default strictness (strict where the model takes it). The static toolset's five tools carry their description and first example only, to stay small.
+
 **One card format.** Every fn and context the model reads about, in every mode and every place (static cards, the
 `more_fns` and `more_context` lists, `inspect`, a fn's exposed fns, a refused call, suggestions), is the same XML card,
 written by one renderer: `<fn name label mode available reason>` with its description, args, returns, instructions,
@@ -789,7 +820,7 @@ as cards too: the fns loaded and those refused with their reasons, and the conte
 The run's record keeps the names as well, which the chat's held banner reads.
 
 **The systems in the prompt.** The chat agent's system prompt lists the systems available when the chat started, as
-`<systems>` with each one's name, label and description, first in the fixed part of the prompt. The list is kept on the
+`<systems>` with each one's name, label and what the model is told about it: the contract's `about` (`system(name, { description, about })`: what it is for, the sort of fns it has, the kinds it defines and when to reach for it), else its one-line description. It comes after the fixed prompt text (`packages/sdk/src/chat-prompt.ts`, written for a model that knows tools and nothing of this app: fns, systems, kinds, context, asking, how calls behave, every tagged block a message can carry). The list is kept on the
 session and never changes after the first turn, so prompt caching holds. When a system later goes on or off (the
 person turns it on or off in the chat, an admin switches it, it disconnects or reconnects, it needs config, it waits
 for approval, it is installed or removed), the next user message starts with a `<systems_changed>` block saying what
@@ -802,13 +833,18 @@ chat several people share, the change is worked out for the person sending.
 Before the LLM sees a user message, two things may add to it:
 
 - **The hub itself**, whenever it can, with no system involved: the person's local time and time zone, and
-  suggested context and fns (from the index), unless the admin's suggestions setting is none.
+  suggested context and fns (from the index).
 
-  A suggestion's score is its similarity of meaning to the message (cosine, measured in the database), not its rank:
-  related items score about 0.7, unrelated text about 0.2 to 0.4. The admin's chooser (a decision model or an LLM)
-  picks among the candidates over its floor; when it fails, an item needs `HARNESS_SUGGEST_THRESHOLD` (0.45) to be
-  suggested. Searches still order hits by fusing the word and meaning ranks. Suggestions are found by
-  meaning only: while the embedder can't answer in time, nothing is suggested rather than the best word matches.
+  A suggestion's score is its similarity of meaning to the message (cosine, measured in the database), not its rank.
+  With EmbeddingGemma the scale is low: measured on 2026-11-22 over a scenario hub's 262 fns and context items and 42
+  ordinary requests, a close fit (a saved query, a memory, a matching form) scores 0.35 to 0.7, a clearly relevant
+  general fn only 0.2 to 0.3 (`widgets/make_widget` 0.23 and `database/create_table` 0.13 for "I keep forgetting
+  what I spend on groceries"), the median item 0.09 to 0.19 and the 90th percentile at most 0.27. With no model, an
+  item needs `HARNESS_SUGGEST_THRESHOLD` (0.3, past nearly all of that noise) to be suggested, the best first, up to
+  `HARNESS_SUGGESTIONS` (6); the old 0.45 let almost nothing through. A chooser (a decision model or an LLM) picks
+  among the candidates over its floor (0.2 by default, so it sees the near misses); when it fails, the threshold
+  decides. Searches still order hits by fusing the word and meaning ranks. Suggestions are found by meaning only:
+  while the embedder can't answer in time, nothing is suggested rather than the best word matches.
 
   Suggestions are cards in the one XML format, under a line written for the session's mode: in tools mode the model
   loads them with `hub/load_fns` or `hub/load_context` and then calls them; in static mode it runs one by its name.
@@ -819,8 +855,9 @@ Before the LLM sees a user message, two things may add to it:
   anything the session already has loaded. The search query itself leaves those keys out, in the word, meaning and
   combined searches alike, so a page of suggestions is still full. Undoing a turn gives its suggestions back.
 
-  **Who picks** is one admin setting (Models page, "Who picks"): **no model** (the default: the best candidates over
-  the threshold are suggested), a **decision model** (its own, or the decide role's), which answers one yes/no question
+  **Who picks** is one admin setting (Models page, "Who picks"): **no model** (the default: the best candidates by
+  similarity at or over the threshold are suggested, up to the cap; until 2026-11-22 it meant no suggestions at all),
+  a **decision model** (its own, or the decide role's), which answers one yes/no question
   per candidate and picks those at or above the decide role's threshold, most likely first, or an **LLM** (a chat
   model), which reads the candidates and answers which to pick, with reasons. If the model fails, the score decides.
   A system's `decide` link call uses the same choice.
@@ -978,7 +1015,7 @@ set in the admin's model settings (a model, optionally the provider that serves 
 The **decide** role takes only models with the `decision` capability, and has a **threshold** (0 to 1, default 0.5)
 instead of a language: an answer counts as yes when its probability is at or above it. A decision model may cap how
 many questions one call takes (`maxQuestions` on the model, 64 for Ollama). aeye never splits a call; it refuses one
-over the cap before sending it. The hub's own callers (suggestions, systems' `decide`, `hub/context_crawl`) go through
+over the cap before sending it. The hub's own callers (suggestions, systems' `decide`, `hub/context_crawl`, the search decisions) go through
 one decider that picks the model (the job's own or the role's) and sends the questions in batches that fit both the
 model's question cap and its request size (`maxRequestBytes`), one call after another. A question too large to fit
 alone is refused before anything is sent. Every decide call is a model call with modality `decide`, budgeted and priced like the others.
@@ -1190,6 +1227,24 @@ What the security review of 2026-11-21 changed (findings in `docs/plans/security
   matches, and the database sorts and pages them. The search box says whether it searches meaning as well as words,
   and changes as soon as an embedder comes or goes. A search hit's place in the order is its `rank`. "Score" means
   only a suggestion's similarity.
+- **Niche material ranks last for ordinary requests.** A fn or context item may declare a **niche** (`niche` on its
+  declaration): `developer` (the authoring guides, which the generator marks), `admin` (running the hub; a fn tagged
+  `admin` is admin material without saying so) or `reference` (the API listings the catalog writes, whose fns are hits
+  of their own). A search multiplies a niche hit's rank by `HARNESS_FN_SEARCH_NICHE_WEIGHT` (0.5) unless the query
+  names its niche (`niches: ["developer"]`, for a search about writing a system), so "help me keep track of
+  groceries" finds `database/create_table` before `fs/authoring.*`; niche material is still found, and each hit says
+  its niche. A model's search (`hub/fns_search`) never finds a fn whose visibility leaves the model out (`web/fetch_raw`,
+  which the hub calls while importing a URL): it could never load it.
+- **Search decisions** (Models page, "Search"): an admin may have the hits of a search filtered before they are
+  returned, fns and context apart (`hubOptions` `fnsSearchDecision` and `contextSearchDecision`, or
+  `hub/search_decision_set` in chat): **none** (the default, as ranked), a **decision model** (its own or the decide
+  role's), which answers one yes/no question per hit, "does it fit what the search is for?", and keeps those at or
+  over the decide role's threshold in their order, or an **LLM**, which reads the hits and answers which to keep, with
+  reasons. What the search is for is its text and, inside a turn, the turn's latest user message. It applies to the
+  one operation wherever it is asked (`hub/fns_search`, the web's and the system link's `searchFns`), only to searches
+  by text (not by name or for named items). The calls go through the one decider, each a model call (purpose
+  `fns-search` or `context-search`) charged to the run that searched; the page lists what was dropped and why
+  (`filtered`). If the model fails, every hit is kept and the page says so.
 
 ### Context as a graph
 

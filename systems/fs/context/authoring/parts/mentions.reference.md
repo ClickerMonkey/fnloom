@@ -7,6 +7,7 @@ summary: "Signatures and options for mentions."
 parent: "fs/authoring.mentions"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: mentions

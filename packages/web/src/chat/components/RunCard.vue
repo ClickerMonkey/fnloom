@@ -75,7 +75,7 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
 
 <template>
   <article
-    class="run-card" :class="[`status-${status}`, { active, collapsed, asking: run.asking === true, stopped: stopped !== undefined }]" data-testid="run-card" :data-run="run.id" :data-fn="run.fn" :data-status="status"
+    :id="`r-${run.id}`" class="run-card" :class="[`status-${status}`, { active, collapsed, asking: run.asking === true, stopped: stopped !== undefined }]" data-testid="run-card" :data-run="run.id" :data-fn="run.fn" :data-status="status"
     :aria-label="`${label}: ${words}`"
   >
     <header class="line">
@@ -156,4 +156,6 @@ const canBackground = computed(() => props.run.allowed?.background === true && !
   margin: 0; max-height: 200px; overflow: auto; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--code-bg);
   font-family: var(--mono); font-size: var(--text-xs); white-space: pre-wrap; overflow-wrap: anywhere;
 }
+/* a cite's "Show in result" brought it here: lit for a moment */
+.run-card.cite-target { animation: ui-flash 1.6s var(--ease); box-shadow: var(--ring); }
 </style>

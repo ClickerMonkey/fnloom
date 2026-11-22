@@ -15,6 +15,7 @@ import {
   FnBlock, FnExample, FnExamplesPage, FnExamplesQuery, FnRouting, FnSearchArgs, FnSearchPage, LoadContextResult, LoadFnsResult, ContextCrawlArgs, ContextCrawlResult, CRAWL_BATCH_MAX, NameRefusal, ShareRule, type RegistryEffect,
 } from '@harness/core';
 import { z } from 'zod';
+import { CHAT_BASE, CHAT_SMALL_BASE } from './chat-prompt.ts';
 import { fn, type FnExampleOf } from './fn.ts';
 import { kind, mention, sectioner, type } from './declare.ts';
 import { g, json, type GinType } from './gin.ts';
@@ -147,6 +148,7 @@ export const ADMIN_READ_ENDPOINTS = {
   auto_pairs_list: autoPairSlice.endpoints.autoPairs,
   instances_list: packagingSlice.endpoints.instances,
   suggest_decision_get: suggestionsSlice.endpoints.suggestDecision,
+  search_decision_get: suggestionsSlice.endpoints.searchDecisions,
 } as const satisfies Record<string, EndpointLike>;
 
 /** An admin read fn's name. */
@@ -197,6 +199,7 @@ export const ADMIN_ENDPOINTS = {
   remove_instance: packagingSlice.endpoints.removeInstance,
   export_system_data: packagingSlice.endpoints.exportSystemData,
   suggest_decision_set: suggestionsSlice.endpoints.setSuggestDecision,
+  search_decision_set: suggestionsSlice.endpoints.setSearchDecision,
   auto_pair_revoke: autoPairSlice.endpoints.revokeAutoPair,
   system_reimport: systemsSlice.endpoints.reimport,
 } as const satisfies Record<string, EndpointLike>;
@@ -265,17 +268,17 @@ function adminFn<E extends EndpointLike>(description: string, instructions: stri
 /** The hub's read fns (`HUB_READ_ENDPOINTS`), each described for the agent that offers them. */
 const readFns = {
   resource_list: readFn('List resources (files, pages, uploads) from every system and the hub, filtered, grouped and paged.', 'Use it to browse what exists (the files of a root, the pages a crawl kept, the uploads of a session) when you know where to look; to find something by what it says use hub/search_resources. Filter by root, system or kind and page on rather than asking for everything.', HUB_READ_ENDPOINTS.resource_list, [{ args: { system: 'fs', under: 'file:///repo/docs', limit: 20 }, note: 'The first 20 files under one folder.' }, { args: { source: 'upload', group: 'date' }, note: 'Uploads, grouped by day.' }]),
-  resource_read: readFn('Read a resource as text: its primary form (markdown for pages, tables for spreadsheets) or a chosen form, whole or by sections.', 'Use it to read a resource you have the uri of. For a long one, read its outline first (hub/resource_outline) and then one section, or a window, so the answer fits; it says when the text was cut. Images and audio are read through their text forms (description, transcript); to look at the image itself use hub/resource_send.', HUB_READ_ENDPOINTS.resource_read, [{ args: { uri: 'file:///repo/docs/guide.md', section: 'Install' }, note: 'One section of a long file.' }, { args: { uri: 'upload://s1/report.pdf', maxChars: 4000 }, note: 'The start of a long upload.' }]),
+  resource_read: readFn('Read a resource as text: its primary form (markdown for pages, tables for spreadsheets) or a chosen form, whole or by sections.', 'Use it to read a resource you have the uri of: a file the person attached (uploads are `hub://resources/uploads/<day>/<name>`; find one with hub/search_resources or hub/resource_list), a page the web system read, a file a system serves. Read it before you say anything about what it holds. For a long one, read its outline first (hub/resource_outline) and then one section, or a window, so the answer fits; it says when the text was cut. Images and audio are read through their text forms (description, transcript); to look at an image itself, use hub/resource_send. A resource with no text form (a scanned PDF, say) is refused with why: try hub/resource_send, or hub/explore_read for a file a system serves.', HUB_READ_ENDPOINTS.resource_read, [{ args: { uri: 'file:///repo/docs/guide.md', section: 'Install' }, note: 'One section of a long file.' }, { args: { uri: 'hub://resources/uploads/2026-11-22/report.pdf', maxChars: 4000 }, note: 'The start of a long upload.' }]),
   context_get: readFn('One context item (a guide, skill, memory or piece of a resource) with its text and its links both ways.', 'Use it to read one context item in full, with what links to it and what it links to, after a search or a mention named it. To keep it in front of you for the rest of the session use hub/load instead.', HUB_READ_ENDPOINTS.context_get, [{ args: { name: 'fs/authoring' }, note: 'A guide and what it brings.' }]),
   types_get: readFn('The definitions of named types and of every type they refer to, dependencies first.', 'Use it before writing args or a payload that use a named type (a table type, fs/Entry): it gives each type\'s fields and every type they refer to, so you need one call. Ask for several names at once.', HUB_READ_ENDPOINTS.types_get, [{ args: { names: ['fs/Entry'] }, note: 'A type and the types it uses.' }]),
   runs_list: readFn('Runs, newest first, filtered by fn, status, session or system. A member sees their own runs.', 'Use it to find earlier runs (what ran, when, how it ended), for example to see why something failed. Filter by fn, status or session, newest first, and page; then hub/run_get for one run.', HUB_READ_ENDPOINTS.runs_list, [{ args: { limit: 10 }, note: 'The ten newest runs.' }]),
   run_get: readFn('One run: its fn, args, status, result or error, cost and timings.', 'Use it to see one run in full: its args, result or error, cost and how long it took. For a run still going use hub/run_status or hub/run_wait.', HUB_READ_ENDPOINTS.run_get, [{ args: { run: 'run_01HZX3' } }]),
   run_tree: readFn('The tree of runs a turn made: each run with the runs it called.', 'Use it to see everything one turn did, as a tree: each run with the runs it called. Good for explaining what happened or where a chain failed.', HUB_READ_ENDPOINTS.run_tree, [{ args: { turn: 'trn_01HZX3' }, note: 'Every run one message started.' }]),
   llm_call: readFn('One LLM call: its whole request and response, tokens, cost and timings.', 'Use it to look at one model call exactly as sent and received (messages, tools, tokens, cost) when a run\'s behaviour needs explaining. It can be long: read it only when the summary in hub/run_get is not enough.', HUB_READ_ENDPOINTS.llm_call, [{ args: { id: 'llm_01HZX3' }, note: 'What the model was sent and answered.' }]),
-  model_calls: readFn('Model calls of every kind (chat, embeddings, images, transcription, speech), newest first, with cost and timings.', 'Use it for spending and timing questions across models (what cost the most today, which calls were slow). Filter and page; one call\'s detail is hub/llm_call.', HUB_READ_ENDPOINTS.model_calls, [{ args: { run: 'run_01HZX3' }, note: 'What one run spent on models.' }]),
+  model_calls: readFn('Model calls of every kind (chat, embeddings, images, transcription, speech), newest first, with cost and timings.', 'Use it for spending and timing questions across models (what cost the most today, which calls were slow). Narrow with `run` (one run\'s calls), or with `query`: its filters and sort take only these fields: modality, model, provider, system, status, session, cost, tokens, duration and createdAt (the start; `startedAt` in a result is not a filter field). Page on; one call\'s detail is hub/llm_call. Leave out an arg you don\'t use rather than sending null.', HUB_READ_ENDPOINTS.model_calls, [{ args: { run: 'run_01HZX3' }, note: 'What one run spent on models.' }]),
   fn_metrics: readFn('How fns have been doing: runs, outcomes, retries, durations (p50, p95), queue waits, cost and tokens.', 'Use it to say how a fn usually behaves: how often it fails, how long it usually takes (p50) and when it is slow (p95), and what it costs. Quote these numbers rather than guessing.', HUB_READ_ENDPOINTS.fn_metrics, [{ args: { fn: 'fs/read', days: 7 }, note: 'A week of one fn.' }]),
-  sessions_list: readFn('Chat sessions, most recent first.', 'Use it to find a person\'s earlier chats, most recent first; then hub/session_messages to read one.', HUB_READ_ENDPOINTS.sessions_list, [{ args: { limit: 20 } }]),
-  session_messages: readFn('A session\'s messages, newest first, paged backwards.', 'Use it to read what was said in a session, newest first; page backwards for older messages. Read only as far back as the question needs.', HUB_READ_ENDPOINTS.session_messages, [{ args: { session: 'ses_01HZX3', limit: 30 }, note: 'The last 30 messages.' }]),
+  sessions_list: readFn('The person\'s chats (sessions), most recent first, each with its id, title and when it was last used.', 'Use it when the person refers to an earlier conversation ("what did we decide about the trip?"): look for a title that fits, then read that chat with hub/session_messages. Memories are another place earlier facts may be kept (hub/fns_search with `items: ["context"]`).', HUB_READ_ENDPOINTS.sessions_list, [{ args: { limit: 20 } }]),
+  session_messages: readFn('A session\'s messages, newest first, paged backwards.', 'Use it to read what was said in an earlier chat, with the session id hub/sessions_list gave. It comes newest first; page backwards for older messages, and read only as far back as the question needs. Quote or sum up what the messages say; don\'t fill gaps from memory.', HUB_READ_ENDPOINTS.session_messages, [{ args: { session: 'ses_01HZX3', limit: 30 }, note: 'The last 30 messages.' }]),
   systems_list: readFn('Every system: whether it is connected, its version, instances and what it offers.', 'Use it to see which systems are installed, connected and configured before relying on one; a system that is not connected has no usable fns.', HUB_READ_ENDPOINTS.systems_list, [{ args: {}, note: 'Every system and its status.' }]),
   system_get: readFn('One system: its status, version, instances, config state and what it offers.', 'Use it for one system\'s state: whether it is connected, its instances and whether its config is set. When a fn of it is unavailable this usually says why.', HUB_READ_ENDPOINTS.system_get, [{ args: { system: 'fs' } }]),
   system_fns: readFn('A system\'s fns, with whether each can be used now and its running numbers.', 'Use it to list what one system offers and which of its fns can be used now, with how they have been doing.', HUB_READ_ENDPOINTS.system_fns, [{ args: { system: 'database' }, note: 'Everything one system offers.' }]),
@@ -368,12 +371,12 @@ const dataFns = {
 
 /** The hub's write fns on resources, context and memory (`HUB_WRITE_ENDPOINTS`). */
 const writeFns = {
-  resource_convert: writeFn('Make a form of a resource now (convert it, describe an image, read the text in it, transcribe audio); it may cost a model call.', 'Use it when a resource\'s form you need is missing (an image never described, audio not transcribed): it makes that form now, which may cost a model call, so make only the form you will read.', HUB_WRITE_ENDPOINTS.resource_convert, [{ args: { uri: 'upload://s1/report.pdf', kind: 'markdown' }, note: 'A PDF as markdown.' }]),
+  resource_convert: writeFn('Make another form of a resource now (a document as markdown, a description of an image, the text read from an image, a transcript of audio); it may cost a model call.', 'Use it only when hub/resource_read says the form you need is missing (an image never described, audio not transcribed). It is not needed to look at an image: hub/resource_send shows you the image itself. Some forms need a model an admin has set up (describing images, reading text in them); when one is not set up it is refused with why: use hub/resource_send for an image instead, or tell the person.', HUB_WRITE_ENDPOINTS.resource_convert, [{ args: { uri: 'hub://resources/uploads/2026-11-22/report.pdf', kind: 'markdown' }, note: 'An uploaded PDF as markdown.' }]),
   resource_import: writeFn('Import a URL or uploaded content as a hub resource, kept and converted by the hub.', 'Use it to keep a URL or an upload as a hub resource so it can be read, searched and linked later. It returns the uri; read it with hub/resource_read.', HUB_WRITE_ENDPOINTS.resource_import, [{ args: { url: 'https://example.com/docs', render: 'auto' }, note: 'A web page, kept as a hub resource.' }], [OWN_TAG], changes('create', 'resources')),
   resource_rename: writeFn('Rename a hub resource.', 'Use it when the person asks to rename a hub resource. Only hub resources (imports, uploads) can be renamed; a system\'s files are renamed through that system (fs).', HUB_WRITE_ENDPOINTS.resource_rename, [{ args: { uri: 'hub://resources/notes.md', name: 'meeting-notes.md' } }], [], changes('update', 'resources')),
   resource_delete: writeFn('Delete a hub resource; says how many messages, context items and runs still point at it.', 'Use it only when the person asks to delete a hub resource. It reports how many messages, context items and runs still point at it: tell the person, since those links will show as gone.', HUB_WRITE_ENDPOINTS.resource_delete, [{ args: { uri: 'hub://resources/old.md' } }], [], changes('remove', 'resources')),
   context_from_resource: writeFn('Make context items from a resource (one per section, under an outline parent), or update the ones made before.', 'Use it to turn a document the person wants kept as knowledge (a guide, a spec) into context items, one per section; run it again after the document changes to update them.', HUB_WRITE_ENDPOINTS.context_from_resource, [{ args: { uri: 'file:///repo/STYLE.md', copy: 'live', tags: ['style'] }, note: 'A style guide kept in step with its file.' }], [], [...changes('create', 'context'), ...changes('update', 'context')]),
-  remember: writeFn('Remember something for later as a memory: for this session, the person, or everyone.', 'Use it when the person asks you to remember something, or states a lasting preference. Choose the scope: this session, the person (the default for preferences), or everyone (only when they say so). Keep one fact per memory, in a plain sentence.', HUB_WRITE_ENDPOINTS.remember, [{ args: { text: 'Reports go out on Fridays.', scope: 'user', title: 'Report day' }, note: 'A fact about the person, for every session of theirs.' }], [], changes('create', 'context')),
+  remember: writeFn('Keep a fact for later as a memory (a context item): for this chat, for the person in all their chats, or for everyone.', 'Use it when the person asks you to remember something, or tells you a lasting fact or preference that will matter again. Choose `scope`: `session` (this chat only), `user` (the person, in every chat of theirs: the usual choice for their preferences) or `everyone` (only when they say so). One fact per memory, in a plain sentence, with a short `title`; never a password or other secret. Leave out the other args unless you need them: `about` links the memory to an item it is about (`{ "kind": "fn", "name": "database/main.expenses_create" }`; for a resource `{ "kind": "resource", "uri": … }`, with `section` only to point at one section), and `alwaysFor` takes full names of agent fns (such as `hub/chat`) whose prompt should always carry it, never trigger words. A memory is not shown in a new chat by itself: it is found by search (hub/fns_search with `items: ["context"]`). It answers with the memory\'s name.', HUB_WRITE_ENDPOINTS.remember, [{ args: { text: 'Reports go out on Fridays.', scope: 'user', title: 'Report day' }, note: 'A fact about the person, for every session of theirs.' }], [], changes('create', 'context')),
   forget: writeFn('Forget a memory.', 'Use it when the person asks you to forget something, or a memory is wrong. Find the memory first (hub/fns_search with `items: ["context"]`) and forget it by its name.', HUB_WRITE_ENDPOINTS.forget, [{ args: { name: 'hub/memory.report-day' } }], [], changes('update', 'context')),
 } satisfies Record<HubWriteFnName, unknown>;
 
@@ -383,7 +386,7 @@ const personFns = {
   session_update: writeFn('Change a session: its title, systems, agent, priority, model, chat mode or contextor, or archive it.', 'Use it when the person asks to rename, archive or reconfigure a session. Give only the fields that change.', HUB_PERSON_ENDPOINTS.session_update, [{ args: { session: 'ses_01HZX3', title: 'Q3 report' } }, { args: { session: 'ses_01HZX3', archived: true }, note: 'Archive it.' }]),
   session_delete: writeFn('Delete a session and its messages.', 'Use it only when the person asks to delete a session by name; it can\'t be undone, so say which session first.', HUB_PERSON_ENDPOINTS.session_delete, [{ args: { session: 'ses_01HZX3' } }]),
   run_background: writeFn('Move a running run to the background, so the chat can go on while it works.', 'Use it for a long run the person need not wait for; check on it later with hub/run_status.', HUB_PERSON_ENDPOINTS.run_background, [{ args: { run: 'run_01HZX3' } }]),
-  turn_undo: writeFn('Undo what one message\'s runs did, where their fns can undo.', 'Use it when the person asks to take back what a message did. It reports what was undone and what could not be.', HUB_PERSON_ENDPOINTS.turn_undo, [{ args: { turn: 'trn_01HZX3' } }]),
+  turn_undo: writeFn('Undo what one message\'s runs did, where their fns can undo, and take the message out of the chat.', 'Messages are undone newest first: one can only be undone while no later message in its chat stands, so from inside a chat this can\'t undo an earlier message of the same chat (the message you are answering is later). When the person asks to take back an earlier message, tell them to use Undo on that message in the chat (it undoes what came after it too), or reverse the one change with the fn that changes it back. It reports what was undone and what could not be.', HUB_PERSON_ENDPOINTS.turn_undo, [{ args: { turn: 'trn_01HZX3' } }]),
   memory_update: writeFn('Change a memory: its text, title, weight, tags, the fns it brings or where it applies.', 'Use it to correct or narrow a memory rather than forgetting it and remembering again. Give its name and only what changes.', HUB_PERSON_ENDPOINTS.memory_update, [{ args: { name: 'hub/memory.report-day', text: 'Reports go out on Thursdays.' } }], [], changes('update', 'context')),
   context_link: writeFn('Link a context item to another item (context, fn, type or resource), with a relation and weight.', 'Use it to say what a context item imports, brings or relates to, so it loads with its context and fns. `imports` and `brings` always load with it.', HUB_PERSON_ENDPOINTS.context_link, [{ args: { from: 'hub/memory.report-day', to: { kind: 'fn', name: 'database/sales_by_month' }, relation: 'brings', weight: 1 }, note: 'A memory that brings the fn its work needs.' }], [], changes('update', 'context')),
   context_unlink: writeFn('Remove one link from a context item.', 'Use it when a link is wrong or no longer needed; give the link\'s target key and relation as hub/context_get shows them.', HUB_PERSON_ENDPOINTS.context_unlink, [{ args: { from: 'hub/memory.report-day', toKey: 'fn:database/sales_by_month', relation: 'brings' } }], [], changes('update', 'context')),
@@ -396,7 +399,7 @@ const personFns = {
 const exploreFns = {
   explore_roots: readFn('The roots one system instance serves files from (folders, sites), live.', 'Use it first to see where a system keeps its files, then list a root with hub/explore_list. Nothing is copied into the hub.', HUB_EXPLORE_ENDPOINTS.explore_roots, [{ args: { system: 'fs', instance: 'main' } }]),
   explore_list: readFn('What a folder holds, live from the system that serves it, a page at a time.', 'Use it to walk a folder you got from hub/explore_roots or an earlier listing; page with `cursor`. To find files by what they say, use hub/search_resources.', HUB_EXPLORE_ENDPOINTS.explore_list, [{ args: { uri: 'file:///repo/docs' } }]),
-  explore_read: readFn('One file\'s text (or its bytes by content ref) or its links, live, without keeping it in the hub.', 'Use it to look at a file while browsing; to keep and search it later, import it with hub/resource_import.', HUB_EXPLORE_ENDPOINTS.explore_read, [{ args: { uri: 'file:///repo/README.md', want: ['text'] } }]),
+  explore_read: readFn('One file\'s text (or its bytes by content ref) or its links, live from the system that serves it, without keeping it in the hub.', 'Use it to look at a file a system serves while browsing, or when hub/resource_read has no text form of it (a PDF on disk): it asks the serving system for the text. To keep and search it later, import it with hub/resource_import.', HUB_EXPLORE_ENDPOINTS.explore_read, [{ args: { uri: 'file:///repo/README.md', want: ['text'] } }]),
 };
 
 /** The admin pages' reads (`ADMIN_READ_ENDPOINTS`), tagged `admin` and `read`. */
@@ -412,7 +415,8 @@ const adminReadFns = {
   pairings_list: adminReadFn('Pairing requests, newest first, optionally of one status.', 'Use it to find a waiting pairing to approve with hub/approve_pairing.', ADMIN_READ_ENDPOINTS.pairings_list, [{ args: { status: 'pending' } }]),
   auto_pairs_list: adminReadFn('The auto-pair secrets granted, optionally for one system.', 'Use it before revoking one with hub/auto_pair_revoke.', ADMIN_READ_ENDPOINTS.auto_pairs_list, [{ args: { system: 'fs' } }]),
   instances_list: adminReadFn('One system\'s instances, with their status, version, config (secrets masked) and host.', 'Use it to see every copy of a system and who hosts each.', ADMIN_READ_ENDPOINTS.instances_list, [{ args: { system: 'database' } }]),
-  suggest_decision_get: adminReadFn('The suggestions setting: who picks what each message is offered (a decision model, an LLM, or none for no suggestions), and its limits.', 'Use it before changing it with hub/suggest_decision_set.', ADMIN_READ_ENDPOINTS.suggest_decision_get, [{ args: {} }]),
+  suggest_decision_get: adminReadFn('The suggestions setting: who picks what each message is offered (a decision model, an LLM, or none: the best by similarity over the threshold), and its limits.', 'Use it before changing it with hub/suggest_decision_set.', ADMIN_READ_ENDPOINTS.suggest_decision_get, [{ args: {} }]),
+  search_decision_get: adminReadFn('The search decisions: who filters search hits before they are returned, for fns and for context (none, a decision model or an LLM).', 'Use it before changing one with hub/search_decision_set.', ADMIN_READ_ENDPOINTS.search_decision_get, [{ args: {} }]),
 };
 
 /** The hub's admin fns (`ADMIN_ENDPOINTS`), each described for the agent that offers them. */
@@ -421,7 +425,7 @@ const adminFns = {
   set_model_category: adminFn('Add a model category (a named, ordered list of models), or change the one with this id.', 'Use it to group models for a purpose (fast, cheap, best). Order matters: the first available model is tried first.', ADMIN_ENDPOINTS.set_model_category, [{ args: { name: 'small', description: 'Fast local models.', models: ['qwen2.5:3b'] } }]),
   set_budget: adminFn('Add a spending budget for the hub, a group, a user, a session, a system, a fn or a model, or change the one with this id.', 'Use it when an admin sets a spending limit. Say the scope and period back in plain words, since a low budget stops runs.', ADMIN_ENDPOINTS.set_budget, [{ args: { target: { scope: 'system', system: 'web' }, period: 'per-turn', maxCost: 0.5, onLimit: 'ask' }, note: 'Fifty cents a message for one system.' }]),
   set_priority: adminFn('Add a priority rule (the default and highest priority of turns at a level), or change the one with this id.', 'Use it when an admin wants some turns to run before others (a group\'s work first).', ADMIN_ENDPOINTS.set_priority, [{ args: { target: { scope: 'hub' }, default: 'normal', max: 'interactive' } }]),
-  set_policy: adminFn('Add a policy saying whether actors may run fns (allow, deny, or ask an approver), or change the one with this id.', 'Use it when an admin decides who may run which fns. Prefer ask over allow for fns that write or delete, and check what the rule covers with the person first.', ADMIN_ENDPOINTS.set_policy, [{ args: { description: 'Members may read files without asking.', subject: { kind: 'user' }, target: { fn: 'fs/read' }, decision: { effect: 'allow' }, priority: 10 } }]),
+  set_policy: adminFn('Add a policy saying whether actors may run fns (allow, deny, or ask an approver), or change the one with this id.', 'Use it when an admin decides who may run which fns. `subject` is who: `{ "actor": … }`, `{ "group": … }`, `{ "kind": "user" }` or `{ "everyone": true }`. `target` is which fns, and every field given must match: `fn` (a full name or a glob such as `fs/*`), `system`, `kind` (`native` or a system\'s kind such as `database/query`; `*` is not a kind: leave `kind` out to cover every kind), `tags` (fns carrying all of these tags, such as `["admin"]`). There is no target for "every fn that deletes" or "everything that costs money": name the fns or systems. `decision` is `{ "effect": "allow" }`, `{ "effect": "deny", "reason": … }` or `{ "effect": "ask", "approver": { "by": "turn-user" } }`. Deny beats ask beats allow, and a narrower match beats a broader one; with no policy, fns tagged read run and the rest ask the person. Prefer ask over allow for fns that write or delete. Before saving, tell the person in plain words exactly which fns the rule covers (a glob or a system also covers fns added later that match it, a full name only that fn).', ADMIN_ENDPOINTS.set_policy, [{ args: { description: 'Members may read files without asking.', subject: { kind: 'user' }, target: { fn: 'fs/read' }, decision: { effect: 'allow' }, priority: 10 } }]),
   set_actor_setting: adminFn('Set a setting a system declares for a user, group or agent.', 'Use it to set a system\'s declared setting for a user, group or agent. Read the setting\'s type first (hub/system_get) so the value fits.', ADMIN_ENDPOINTS.set_actor_setting, [{ args: { setting: 'fs/editor', actor: 'act_01HZX3', value: 'vim' } }]),
   add_user: adminFn('Add a person who can sign in, with their role and groups.', 'Use it when an admin adds a person. Give the lowest role that does the job, and say what the role allows.', ADMIN_ENDPOINTS.add_user, [{ args: { email: 'ann@example.com', name: 'Ann', role: 'member' } }]),
   add_group: adminFn('Add a group of people.', 'Use it to make a group before adding people or rules to it.', ADMIN_ENDPOINTS.add_group, [{ args: { name: 'Finance', about: 'The finance team.' } }]),
@@ -453,9 +457,13 @@ const adminFns = {
   install_package: adminFn('Install a system package zip (made by `harness system pack`), pair it, configure it and start it.', 'Use it with a package zip made by `harness system pack`: it installs, pairs, configures and starts the system in one step.', ADMIN_ENDPOINTS.install_package, [{ args: { zip: { hash: '0000000000000000000000000000000000000000000000000000000000000000', size: 2048, mime: 'application/zip' } } }], changes('create', 'fns', 'types', 'context', 'kinds', 'components')),
   add_instance: adminFn('Add an instance of a bundled fleet system (an MCP server, an API service) with its config: installed, paired and started on the hub machine.', 'Use it when an admin asks to add an MCP server or an API service. Ask for the secret fields only when the server needs them, and never repeat them back.', ADMIN_ENDPOINTS.add_instance, [{ args: { system: 'mcp', instance: 'linear', description: 'Linear issues', config: { label: 'Linear', transport: { type: 'http', url: 'https://mcp.linear.app/mcp' }, auth: { kind: 'oauth', per: 'person' } } }, note: 'A remote MCP server people sign in to.' }], changes('create', 'fns', 'types', 'context')),
   remove_instance: adminFn('Remove one instance of a system.', 'Use it only when an admin asks to remove one instance of a system. Offer hub/export_system_data first so its data can be kept.', ADMIN_ENDPOINTS.remove_instance, [{ args: { system: 'database', instance: 'old' } }], changes('remove', 'fns', 'types')),
-  suggest_decision_set: adminFn('Choose who picks what each message is offered: none (no suggestions at all), a decision model (one yes/no question per candidate, the decide role\'s threshold), or an LLM; and how many candidates it sees and picks.', 'Use it when an admin wants a model to pick what each message is offered, or to turn suggestions off. An LLM needs a model; a decision model uses the decide role\'s unless one is named.', ADMIN_ENDPOINTS.suggest_decision_set, [
+  suggest_decision_set: adminFn('Choose who picks what each message is offered: none (no model: the best by similarity over the threshold), a decision model (one yes/no question per candidate, the decide role\'s threshold), or an LLM; and how many candidates it sees and picks.', 'Use it when an admin wants a model to pick what each message is offered, or to let the score alone decide. An LLM needs a model; a decision model uses the decide role\'s unless one is named.', ADMIN_ENDPOINTS.suggest_decision_set, [
     { args: { by: 'none' }, note: 'Let the score decide again.' },
-    { args: { by: 'decision', messages: 3, candidates: 20, cap: 6, floor: 0.35 }, note: 'The decide role\'s decision model picks.' },
+    { args: { by: 'decision', messages: 3, candidates: 20, cap: 6, floor: 0.2 }, note: 'The decide role\'s decision model picks.' },
+  ]),
+  search_decision_set: adminFn('Choose who filters search hits before they are returned, for fns or for context: none (as ranked), a decision model (one yes/no question per hit, kept at the decide role\'s threshold) or an LLM.', 'Use it when an admin wants searches (hub/fns_search and the web\'s) to drop hits that don\'t fit what was searched for. Set fns and context apart; an LLM needs a model, a decision model uses the decide role\'s unless one is named. Each filter call is a model call charged to the run that searched.', ADMIN_ENDPOINTS.search_decision_set, [
+    { args: { item: 'fn', value: { by: 'decision' } }, note: 'The decide role\'s decision model filters fn hits.' },
+    { args: { item: 'context', value: { by: 'none' } }, note: 'Context hits as ranked again.' },
   ]),
   auto_pair_revoke: adminFn('Revoke an auto-pair secret, so its instance must pair again by code or token.', 'Use it when a machine is lost or retired; find the secret with hub/auto_pairs_list.', ADMIN_ENDPOINTS.auto_pair_revoke, [{ args: { id: 'apk_01HZX3' } }]),
   system_reimport: adminFn('Import a system\'s stored contract again, re-checking every entry.', 'Use it after a hub upgrade or when a system\'s fns look stale; it reports what was added, updated, removed or refused.', ADMIN_ENDPOINTS.system_reimport, [{ args: { system: 'database' } }], changes('update', 'fns', 'types', 'context', 'kinds')),
@@ -565,15 +573,17 @@ export const SAVE_FN_TAKEN = 'fn-taken';
 
 /** How a model should use `hub/fns_search`. */
 const FNS_SEARCH_GUIDE = [
-  'Use it to find a fn before writing one: describe what it should do in plain words as `text`, and narrow with filters when you know them',
-  '(`kinds: ["database/query"], instance: "main"` for the saved queries of one database; `kinds: ["input/form"]` for saved forms).',
+  'It searches every fn and context item (guides, memories, pieces of files) of every system you can use. Use it whenever you need a fn that is not in your tools, a guide, or a memory about the person, and before making a new fn, to reuse a saved one that already does the job.',
+  'Put what you need in plain words in `text` (what it should do, not a fn name you guess). Leave out every filter you don\'t need. Narrow when you know how: `items: ["fn"]` or `items: ["context"]` (memories and guides are context), `systems: ["database"]`, and `kinds` for saved fns of a kind (`kinds: ["database/query"], instance: "main"` for the saved queries of one database; `kinds: ["input/form"]` for saved forms).',
   'With `text`, hits come best first: `rank` is a hit\'s place in that order (1 = first, whatever it is), and `similarity`, when given, is how close its meaning is (0 to 1; under about 0.45 is likely unrelated);',
-  'compare a hit\'s description with what you need before reusing it. Without `text` it lists alphabetically.',
-  'Page with `offset` set to `next`. Call a hit by its name with the args its `signature` shows, or load it with hub/load_fns first.',
+  'read each hit\'s description and keep only those that fit what you need: the first hit is not always right. If nothing fits, search again with other words or another filter, at most once or twice, then say what you could not find. Without `text` it lists by name.',
+  'Page with `offset` set to the `next` it gave. A fn hit must be loaded (hub/load_fns) before you can call it, with the args its `signature` shows; a context hit is loaded with hub/load_context. In the static toolset (find, inspect, load, unload, run) you run a fn hit by its name with run.',
   'A hit with `available: false` can\'t be used now: `blocked.reason` says why, in the hub\'s words. Don\'t load or call it; if you need it, tell the person what blocks it.',
 ].join(' ');
 
 const FNS_SEARCH_EXAMPLES = [
+  { args: { text: 'keep a list of household chores and who does them' }, note: 'Fns and guides for a request in plain words.' },
+  { args: { text: 'the person\'s diet, allergies and food preferences', items: ['context' as const] }, note: 'Memories (and guides) about the person, before tailoring a meal plan.' },
   { args: { text: 'invoices that are overdue', kinds: ['database/query' as const], instance: 'main', limit: 5 }, note: 'The saved queries of one database closest to a question.' },
   { args: { text: 'ask for trip dates and travellers', kinds: ['input/form' as const] }, note: 'Saved forms that might already ask this.' },
   { args: { systems: ['fs'], modes: ['read' as const], order: 'name' as const }, note: 'Every fs fn that only reads, by name.' },
@@ -591,33 +601,6 @@ const CONTEXT_CRAWL_GUIDE = [
   'It stops when no choice is left, or at `maxDepth` levels, `maxDecisions` questions in all, or `maxTokens`. Write `guidance` as the task in one or two plain sentences: it is all the decision model reads.',
   'It answers with what it took (`<crawled_context>`, each with how it was reached), the fns that context brings (`<brought_fns>`), the choices it skipped and why (`<skipped_context>`: declined, over the token budget, out of questions or past the last level), and why it stopped.',
   'Without `metadataOnly` what it took is loaded into this session like hub/load_context, its text in front of you from your next step. With `metadataOnly: true` nothing is loaded: you get each item\'s key, title, description and size, and load what fits with hub/load_context.',
-].join(' ');
-
-/**
- * The chat agents' rule for being blocked (Phil, 2026-11-18: a prompt rule, no hub guard): stop and say what blocks
- * them, with the hub's reason, rather than retrying or guessing.
- */
-const CHAT_BLOCKED_RULE = [
-  'When something you need is unavailable or refused, or the same call keeps failing or returning nothing, stop:',
-  'tell the person what blocks you and why, with the reason the hub gave (such as "database/create_table changed and waits for an admin to approve it"),',
-  'instead of retrying, guessing or working around it.',
-].join(' ');
-
-/**
- * The chat agent's base prompt: one search, and loading context brings its imports and fns, a choice at a time.
- */
-const CHAT_BASE = [
-  'You are a helpful assistant inside harness. Use tools when they help, say what you did, and keep answers short.',
-  'Find fns and context with hub/fns_search. Loading a context (hub/load_context) loads what it imports too, and the fns it brings join your tools.',
-  'When a context lists where to go next, load the one choice that fits, one step at a time, and only what the request needs.',
-  CHAT_BLOCKED_RULE,
-].join(' ');
-
-/** The small-model chat agent's base prompt: the same, in the static toolset's words. */
-const CHAT_SMALL_BASE = [
-  'You are a helpful assistant inside harness. Find, inspect and run fns when they help, say what you did, and keep answers short.',
-  'Loading a context brings what it imports and its fns. When it lists where to go next, load the one choice that fits, a step at a time.',
-  CHAT_BLOCKED_RULE,
 ].join(' ');
 
 /** The hub's contract. */
@@ -657,8 +640,8 @@ export const hub = system('hub', {
     },
     fns: {
       load_fns: fn({
-        description: 'Add fns to your toolset for this session.',
-        instructions: 'Use it after hub/fns_search, with the names you will call; they can be called from your next step. It answers with the cards of what it loaded (`<loaded_fns>`) and of each name it refused (`<refused_fns>`) with why, in the hub\'s words (no such fn, another system, waits for an admin to approve it): do not load a refused one again; tell the person what blocks it. Load only what you need: every loaded fn takes room in the prompt.',
+        description: 'Add fns to your tools for the rest of this chat, by their full names (`system/name`): each becomes a tool you can call from your next step.',
+        instructions: 'Use it after hub/fns_search or a suggestion, with the full names of the fns you will call (`database/main.expenses_create`, not the tool spelling); they can be called from your next step. It answers with the cards of what it loaded (`<loaded_fns>`) and of each name it refused (`<refused_fns>`) with why, in the hub\'s words (no such fn, another system, waits for an admin to approve it): do not load a refused one again; tell the person what blocks it. Load only what you need: every loaded fn takes room in the prompt.',
         examples: [{ args: { fns: ['fs/read', 'fs/edit'] }, note: 'Two fns for a file change.' }],
         args: g.obj({ fns: g.list(g.text(), { minLength: 1 }) }),
         returns: ginAs(LoadFnsResult),
@@ -684,8 +667,8 @@ export const hub = system('hub', {
         display: 'message',
       }),
       fn_examples: fn({
-        description: 'A page of a fn\'s examples (args, the result when kept, and what each shows), the closest to a query first.',
-        instructions: 'Use it before calling a fn whose args are long or easy to get wrong (a saved query, a form, code): give what you are about to do as `query` and follow the shape of the closest example. Page with `offset` set to `next` until `next` is absent.',
+        description: 'A page of one fn\'s example calls (its args, the result when kept, and what each shows), the closest to what you are about to do first.',
+        instructions: 'Use it before calling a fn whose args are long or easy to get wrong (a saved query, a form, a table\'s fns): give the fn\'s full name as `fn` (it needn\'t be loaded) and what you are about to do as `query`, then follow the shape of the closest example exactly. Page with `offset` set to `next` until `next` is absent.',
         args: ginAs(FnExamplesQuery),
         returns: ginAs(FnExamplesPage),
         examples: [
@@ -719,15 +702,15 @@ export const hub = system('hub', {
         effects: { registry: [{ thing: 'fns', action: 'create' }, { thing: 'fns', action: 'update' }] },
       }),
       load_context: fn({
-        description: 'Load context into this session.',
+        description: 'Load context items (guides, memories, pieces of files) into this chat by their full names: their text is in your prompt from your next step, with what they import, and the fns they bring join your tools.',
         instructions: [
-          'Use it after hub/fns_search (or a choice under "Where to go next" in a context), with the names that fit; their text is in front of you from the next step.',
+          'Use it with names a search (hub/fns_search) or a suggestion gave you, or a choice under "Where to go next" in a loaded context, copied exactly; load a system\'s guide before you first use the system. Their text is in front of you from the next step.',
           'Each loads with the context it imports, and the fns it brings go into your tools; it answers with the cards of both (`<loaded_context>`, `<brought_fns>`). A brought fn that could not be added is named with the reason the hub gave (`available="no"`): it is not in your tools. A name you got wrong is refused with the closest names (`<refused_context>`).',
           'A line copied as `name: description` is fine. Load only what the task needs, one step at a time.',
         ].join(' '),
         examples: [
-          { args: { context: ['fs/authoring'] }, note: 'The index of a guide: it offers choices to load next.' },
-          { args: { context: ['fs/authoring.kinds: how to declare a kind'] }, note: 'A choice copied with its line.' },
+          { args: { context: ['database/guide'] }, note: 'A system\'s guide before its first use: its text, and the fns it brings join your tools.' },
+          { args: { context: ['fs/authoring.kinds: how to declare a kind'] }, note: 'A choice under "Where to go next", copied with its line.' },
         ],
         args: g.obj({ context: g.list(g.text(), { minLength: 1 }) }),
         returns: ginAs(LoadContextResult),
@@ -758,8 +741,8 @@ export const hub = system('hub', {
         tags: [READ_TAG],
       }),
       run_status: fn({
-        description: 'The status of a run, with its progress or result.',
-        instructions: 'Use it to check on a run that went to the background or is waiting (for approval, for input). It does not wait: to wait for the end, use hub/run_wait.',
+        description: 'The status of one run (one call of a fn): running, waiting (for approval or for a form), done with its result, failed with its error, or cancelled, with its progress.',
+        instructions: 'Use it to check on a call that went to the background: its result said "Running in the background as run <id>", and `run` is that id (such as `run_01HZX3`), never a fn name. It answers at once and does not wait: to wait for the end, use hub/run_wait. You don\'t need it to learn that a background run finished: its result comes to you by itself as a `<background-result>` message.',
         examples: [{ args: { run: 'run_01HZX3' } }],
         args: g.obj({ run: g.text() }),
         returns: g.obj({ status: RunStatusType, progress: g.optional(json()), result: g.optional(json()), error: g.optional(FnErrorType) }),
@@ -767,8 +750,8 @@ export const hub = system('hub', {
         display: 'hidden',
       }),
       run_wait: fn({
-        description: 'Wait for a run (for example one moved to the background) to finish.',
-        instructions: 'Use it when you need the result of a background run before you can go on. Give a timeout when the person is waiting; if it comes back still running, say so and how long such runs usually take (hub/fn_metrics) rather than waiting again and again.',
+        description: 'Wait for one run (such as a call that went to the background) to finish, up to a timeout, and give its result.',
+        instructions: 'Use it when you can\'t go on without the result of a background run (`run` is the id its result named). Give a `timeout` when the person is waiting (30000 is 30 seconds). If it comes back still running, say so and how long such runs usually take (hub/fn_metrics) rather than waiting again and again; its result will still reach you as a `<background-result>` message when it ends.',
         examples: [{ args: { run: 'run_01HZX3', timeout: 30000 }, note: 'Wait up to 30 seconds.' }],
         args: g.obj({ run: g.text(), timeout: g.field(g.optional(g.duration()), { docs: 'How long to wait, in milliseconds (30000 is 30 seconds). Leave empty to wait as long as this call may run.' }) }),
         returns: g.obj({ status: RunStatusType, result: g.optional(json()), error: g.optional(FnErrorType) }),
@@ -776,17 +759,17 @@ export const hub = system('hub', {
         display: 'hidden',
       }),
       ask_user: fn({
-        description: 'Ask a person a question and wait for the answer.',
-        instructions: 'Use it only when you cannot go on without an answer that only a person has (a choice between options, a missing detail). Ask one short, specific question; for several fields at once use input/get_input. Leave `user` empty to ask the person in the chat.',
-        examples: [{ args: { question: 'Should the report cover only this quarter, or the whole year?' } }],
+        description: 'Ask a person one plain question and wait for their answer: your call stays open until they reply, and the reply is its result.',
+        instructions: 'Use it in the middle of a task when one detail only the person has decides what you do next (which of two options, how many people), and you will carry on as soon as you have it. For a question you can simply put in your answer (and end your turn), just ask there. For several typed fields at once, use a form (input/get_input). Ask one short, specific question, with the options when there are some. Leave `user` out to ask the person in the chat.',
+        examples: [{ args: { question: 'Should the report cover only this quarter, or the whole year?' }, note: 'One detail that decides the next step.' }],
         args: g.obj({ question: g.text(), user: g.optional(g.text()) }),
         returns: g.obj({ answer: g.text() }),
         tags: [READ_TAG],
       }),
       // ─── The static toolset's fns (`run` is not a fn: its calls become runs of the named fn) ───
       inspect: fn({
-        description: 'Look at one item at a detail: a fn\'s card, a context item\'s text, a type\'s definition, or a resource\'s outline.',
-        instructions: 'Use it to look at one hit from hub/fns_search before using it. `signature` shows a fn\'s args; `full` adds its instructions and examples. It does not keep the item: use hub/load for that.',
+        description: 'Look at one item by its full name, at a detail: a fn\'s card, a context item\'s text, a type\'s definition, or a resource\'s outline.',
+        instructions: 'Use it on a hit from a search (hub/fns_search, or find) before you run it, to see the exact args it takes. `signature` shows a fn\'s args and result; `full` adds its instructions and examples (use it for a fn whose args are long). It shows the item once and does not keep it: use hub/load to keep it in your prompt.',
         examples: [{ args: { name: 'fs/edit', detail: 'full' }, note: 'A fn card with its examples.' }, { args: { name: 'fs/Entry' } }],
         args: g.obj({ name: g.text({ minLength: 1 }), detail: g.optional(DetailType) }),
         returns: g.obj({ name: g.text(), kind: g.enum(FIND_KINDS), detail: DetailType, text: g.text() }),
@@ -794,9 +777,9 @@ export const hub = system('hub', {
         display: 'message',
       }),
       load: fn({
-        description: 'Keep fns (as cards) and context (as text) in front of you from the next step on.',
-        instructions: 'Use it to keep fns and context you will use in front of you from the next step on. Use the lowest detail that is enough (`signature` for a fn you know how to call), since everything loaded takes room in the prompt.',
-        examples: [{ args: { names: ['fs/read', 'fs/edit'], detail: 'signature' } }],
+        description: 'Keep fns (as cards) and context items (as text) in your prompt from the next step on, by their full names.',
+        instructions: 'Use it for fns you will run more than once and for guides you need while you work (load a system\'s guide before you first use it). A context item brings the items it imports and its fns along. Use the lowest detail that is enough (`signature` for a fn you know how to call), since everything loaded takes room in the prompt.',
+        examples: [{ args: { names: ['fs/read', 'fs/edit'], detail: 'signature' }, note: 'Two fns for a file change.' }, { args: { names: ['database/guide'] }, note: 'A system\'s guide, before its first use.' }],
         args: g.obj({ names: g.list(g.text(), { minLength: 1 }), detail: g.optional(DetailType) }),
         returns: g.obj({ loaded: g.list(g.text()), refused: g.list(ginAs(NameRefusal)) }),
         tags: [READ_TAG],
@@ -805,7 +788,7 @@ export const hub = system('hub', {
       unload: fn({
         description: 'Take fns and context out of what you keep in front of you.',
         instructions: 'Use it when you are done with fns or context you loaded, to keep the prompt small.',
-        examples: [{ args: { names: ['fs/edit'] } }],
+        examples: [{ args: { names: ['fs/edit'] }, note: 'Done editing files.' }],
         args: g.obj({ names: g.list(g.text(), { minLength: 1 }) }),
         returns: g.obj({ unloaded: g.list(g.text()), refused: g.list(RefusedName) }),
         tags: [READ_TAG],
@@ -822,9 +805,9 @@ export const hub = system('hub', {
         display: 'message',
       }),
       resource_send: fn({
-        description: 'Show a resource (or one section) to yourself at the next step as the model can take it: text, an image, audio or a file.',
-        instructions: 'Use it to look at a resource the way it is (an image, a chart, a PDF page) when its text is not enough. It costs prompt room, so send one section when you can.',
-        examples: [{ args: { uri: 'upload://s1/photo.jpg' }, note: 'Look at an uploaded photo.' }],
+        description: 'Show yourself a resource (or one section of it) as it is, at your next step: an image you can see, audio, a PDF page or text.',
+        instructions: 'Use it to look at a photo, a screenshot, a chart or a scanned page the person attached, or any resource whose text form is not enough. You see it yourself at your next step: describe what you see then, with no other tool. It costs prompt room, so send one section (a page) of a long document when you can.',
+        examples: [{ args: { uri: 'hub://resources/uploads/2026-11-22/photo.jpg' }, note: 'Look at a photo the person attached.' }],
         args: ginAs(ResourceSendArgs),
         returns: g.obj({ parts: g.list(SentPart) }),
         tags: [READ_TAG],
@@ -866,8 +849,8 @@ export const hub = system('hub', {
   })
   .with({ fns: { ...readFns, ...writeFns, ...personFns, ...exploreFns, ...dataFns } })
   .with(({ fns, kinds }) => {
-    // one search (`fns_search`), loading fns (with the same check as `load`) and context, examples, runs and people
-    const tools = [fns.fns_search.name, fns.load_fns.name, fns.load_context.name, fns.fn_examples.name, fns.run_status.name, fns.ask_user.name];
+    // one search (`fns_search`), loading fns (with the same check as `load`) and context, examples, following and waiting for runs (the prompt tells the model to), and people
+    const tools = [fns.fns_search.name, fns.load_fns.name, fns.load_context.name, fns.fn_examples.name, fns.run_status.name, fns.run_wait.name, fns.ask_user.name];
     return {
       fns: {
         read_table: fn({

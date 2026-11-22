@@ -61,6 +61,11 @@ const status = (active: string, done: string, failed: string) => ({
 /** The contract's declarations, before its `connect` (which names these fns). */
 const declared = system('google-calendar', {
   description: 'Each person connects their Google Calendar; the chat can see their events and, as they allow, create, change and delete them.',
+  about: [
+    'The person\'s own Google Calendar, once they have connected their Google account to it (each person connects their own; a fn that says it needs a connection means they haven\'t yet, and they connect it on the Calendar page in the app\'s menu).',
+    'Its fns read events (google-calendar/list_events for a time range, search_events by words, get_event by id) and change them (create_event, update_event, delete_event), which ask the person first unless they allowed them.',
+    'Reach for it for what is on their calendar, finding a free time, and adding, moving or cancelling an appointment. It defines no fn kinds, and it does not remind anyone: Google Calendar\'s own notifications do that.',
+  ].join(' '),
   // its API groups: the hub indexes its fns by them (`google-calendar/api`, `google-calendar/api.<group>`)
   groups: [
     { name: 'events', title: 'Events', description: 'Read the person\'s calendar: events in a range, a search, one event.' },
@@ -79,7 +84,7 @@ const declared = system('google-calendar', {
       list_events: fn({
         group: 'events',
         description: 'List the person\'s calendar events in a time range (the next 7 days by default), earliest first.',
-        instructions: 'Use it for "what is on today / this week". Give times with the person\'s offset (see the time in your context); a date alone means its whole day. Use search_events to find events by words instead of listing a long range.',
+        instructions: 'Use it for "what is on today / this week" and to find a free time. Give times with the person\'s UTC offset (from the `<local_time>` block in their message); a date alone means its whole day. Use google-calendar/search_events to find events by words instead of listing a long range. `more: true` means more events matched than `limit`. Each event has an `id` for get_event, update_event and delete_event.',
         args: g.obj({ from: when('From'), to: when('Until'), calendar: calendar(), limit: limit() }),
         returns: Events,
         examples: [
@@ -94,7 +99,7 @@ const declared = system('google-calendar', {
       search_events: fn({
         group: 'events',
         description: 'Find the person\'s calendar events by words (title, description, location, attendees), from a month ago to a year ahead by default.',
-        instructions: 'Use a few distinctive words ("dentist", a person\'s name), not a sentence. Narrow with from and to when the person says when. Use the id of a hit with get_event, update_event or delete_event.',
+        instructions: 'Use a few distinctive words ("dentist", a person\'s name), not a sentence. Narrow with from and to when the person says when. Use the `id` of a hit with google-calendar/get_event, update_event or delete_event. No hits means no event matched those words in that range, not that the calendar is empty.',
         args: g.obj({ query: g.text({ minLength: 1 }), from: when('From'), to: when('Until'), calendar: calendar(), limit: limit() }),
         returns: Events,
         examples: [{ args: { query: 'dentist' } }, { args: { query: 'Ada', from: '2026-11-01', to: '2026-12-31' }, note: 'Meetings with Ada this year.' }],
@@ -104,7 +109,7 @@ const declared = system('google-calendar', {
       }),
       get_event: fn({
         group: 'events',
-        description: 'One calendar event by its id.',
+        description: 'One calendar event by its id: its title, times, place, description, guests and link.',
         instructions: 'Use the id from list_events or search_events, with the same calendar when the event is not on the person\'s own calendars.',
         args: g.obj({ id: g.text({ minLength: 1 }), calendar: calendar() }),
         returns: Event.shape,
@@ -116,7 +121,7 @@ const declared = system('google-calendar', {
       create_event: fn({
         group: 'changes',
         description: 'Add an event to the person\'s calendar. Without an end it lasts an hour (or the day, for a date).',
-        instructions: 'Say what you will add before you add it. Use the person\'s offset; give a date as start for an all-day event. Invite attendees only when the person named them, by email.',
+        instructions: 'Say what you will add before you add it; it may wait for the person\'s approval, so say it is added only once the result comes back. Use the person\'s UTC offset (from `<local_time>`); give a date as start for an all-day event. Invite attendees only when the person named them, by email; never guess an address. It adds an event: it does not send the person a reminder.',
         examples: [
           { args: { title: 'Dentist', start: '2026-11-12T15:30:00-05:00', end: '2026-11-12T16:15:00-05:00', location: '12 High St' } },
           { args: { title: 'Mum\'s birthday', start: '2026-12-02' }, note: 'All day.' },
@@ -130,8 +135,8 @@ const declared = system('google-calendar', {
       }),
       update_event: fn({
         group: 'changes',
-        description: 'Change a calendar event: only the fields given change.',
-        instructions: 'Find the event first (search_events) and say what will change. Move an event by giving both start and end; leave out every field that stays.',
+        description: 'Change a calendar event by its id: only the fields given change. Gives the event as it is now.',
+        instructions: 'Find the event first (google-calendar/search_events) and say what will change; it may wait for the person\'s approval. Move an event by giving both start and end; leave out every field that stays.',
         examples: [
           { args: { id: '5f2k9q8h1v0c3m7n', start: '2026-11-12T16:00:00-05:00', end: '2026-11-12T16:45:00-05:00' }, note: 'Moved half an hour later.' },
           { args: { id: '5f2k9q8h1v0c3m7n', location: 'Room 4' } },
@@ -144,7 +149,7 @@ const declared = system('google-calendar', {
       }),
       delete_event: fn({
         group: 'changes',
-        description: 'Delete a calendar event.',
+        description: 'Delete a calendar event by its id. Gives whether it was deleted and its title.',
         instructions: 'Only when the person asked for it, naming the event: find it first and say which one you will delete. Guests are told it is cancelled.',
         examples: [{ args: { id: '5f2k9q8h1v0c3m7n' }, result: { deleted: true, title: 'Dentist' } }],
         effects: { mode: 'delete' },

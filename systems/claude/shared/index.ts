@@ -61,6 +61,12 @@ export const Skill = type({
 /** The claude system's contract. */
 export const claude = system(CLAUDE_SYSTEM, {
   description: 'A fleet of Claude Code sessions: start them in folders, message them, answer what they ask, follow their tasks and workflows, and import Claude\'s agents, skills and MCP servers.',
+  about: [
+    'Claude Code: a separate coding agent that works on its own in a folder of a machine, for coding tasks that take many steps (fix a failing test, add a feature, review code). Each machine it runs on is an instance.',
+    'Its fns start a session in an allowed folder (claude/folders lists them, claude/start_session starts one), message it (claude/send), interrupt or stop it (claude/control) and read what it did (claude/transcript). A session keeps working after your turn ends; the tools it wants and the questions it asks go to the person as cards, never to you.',
+    'Its fn kind is claude/agent: a Claude agent imported with claude/import becomes a fn; running it starts a session as that agent with the task as its first message. claude/import also makes Claude skills into context with a /command, and is approved by an admin.',
+    'Reach for it to hand a whole coding task to Claude Code, not for reading or editing a file yourself (that is fs). Load its guide (claude/guide) first.',
+  ].join(' '),
   groups: [
     { name: 'sessions', title: 'Sessions', description: 'Start, message, interrupt and stop Claude Code sessions, and read their transcripts.' },
     { name: 'attention', title: 'Needs attention', description: 'The approvals and questions Claude waits on, answered by the session\'s person; never called by the model.' },
@@ -83,7 +89,7 @@ export const claude = system(CLAUDE_SYSTEM, {
     },
     kinds: {
       agent: kind({
-        description: 'An imported Claude agent: running it starts a Claude Code session as that agent with the task as its first message.',
+        description: 'An imported Claude agent (a Claude Code subagent such as a code reviewer), kept as a fn: running it starts a Claude Code session as that agent, with the task as its first message.',
         applicability: 'A Claude subagent definition (a code reviewer, a test writer) the harness should be able to hand work to, imported by claude/import.',
         payload: ginAs(AgentPayload),
         // starting a session is a write on the machine: every run asks unless a policy allows it
@@ -104,8 +110,8 @@ export const claude = system(CLAUDE_SYSTEM, {
       }),
       start_session: fn({
         group: 'sessions',
-        description: 'Start a Claude Code session in a folder with a first message; it keeps working on its own and asks the person when it needs approval or an answer.',
-        instructions: 'Use it to hand a coding task to Claude Code. `folder` must be under one of the instance\'s folders (claude/folders lists them). Leave `wait` off for long work: the session shows in the fleet and reports its tasks; set it to have this run wait for the first turn\'s answer. A `permissionMode` of acceptEdits, auto or dontAsk is asked of the person first (`modeAsked`): the session starts in default until they approve.',
+        description: 'Start a Claude Code session in a folder with a first message; it keeps working on its own and asks the person when it needs approval or an answer. Gives the session\'s instance, id and status (and Claude\'s reply with `wait`).',
+        instructions: 'Use it to hand a coding task to Claude Code; write `prompt` as the whole task, with what done looks like, since Claude does not see this chat. `folder` must be under one of the instance\'s folders (claude/folders lists them). Leave `wait` off for long work: the session shows in the fleet and reports its tasks; set it to have this run wait for the first turn\'s answer. A `permissionMode` of acceptEdits, auto or dontAsk is asked of the person first (`modeAsked`): the session starts in default until they approve.',
         args: ginAs(ClaudeStart),
         returns: ginAs(ClaudeTurn),
         progress: linear,
@@ -120,7 +126,7 @@ export const claude = system(CLAUDE_SYSTEM, {
       send: fn({
         group: 'sessions',
         description: 'Send a message to a Claude Code session (a closed one is resumed first).',
-        instructions: 'Use it to answer, redirect or continue a session the person names. With `wait` this run follows the turn (its tool uses and tasks as progress) and answers with Claude\'s reply.',
+        instructions: 'Use it to answer, redirect or continue a session the person names (its instance and id from claude/start_session or hub/records_find over claude/Session). With `wait` this run follows the turn (its tool uses and tasks as progress) and answers with Claude\'s reply.',
         args: ginAs(ClaudeSend),
         returns: ginAs(ClaudeTurn),
         progress: linear,
@@ -235,12 +241,17 @@ export const claude = system(CLAUDE_SYSTEM, {
   .with(({ fns }) => ({
     context: {
       guide: context({
-        description: 'How to work with the Claude Code sessions the harness runs.',
+        description: 'How to hand coding work to the Claude Code sessions the harness runs, follow them and read what they did.',
         content: [
-          'Claude Code sessions run on a machine (an instance of the claude system) in configured folders; the person\'s sessions are claude/Session records, listed with hub/records_find.',
-          'Start one with claude/start_session and message it with claude/send. Claude works on its own: the tools it wants and the questions it asks come to the person as approval cards; never answer them yourself.',
-          'Read what a session did with claude/transcript; interrupt or stop it with claude/control.',
-        ].join(' '),
+          'Claude Code is a separate coding agent. Its sessions run on a machine (an instance of the claude system, such as `main`) in folders an admin allowed; each session is a claude/Session record of its person, listed with hub/records_find.',
+          '',
+          'To hand over a task:',
+          '1. claude/folders gives the allowed folders. The session\'s folder must be one of them or under one.',
+          '2. claude/start_session with the folder and the whole task as `prompt` (Claude does not see this chat), for example {"folder":"C:/code/shop","prompt":"Fix the failing checkout test and explain the cause.","wait":false}.',
+          '3. Tell the person it started and that it keeps working on its own. The tools Claude wants and the questions it asks come to the person as cards in the chat and their inbox: never answer them yourself.',
+          '',
+          'Later: claude/transcript reads what a session did (page with `offset`), claude/send gives it another message (a closed session is resumed), claude/control interrupts or stops it, or changes its permission mode (a mode that lets it do more on its own asks the person first).',
+        ].join('\n'),
         fns: [fns.start_session, fns.send, fns.control, fns.transcript],
         tags: ['claude'],
       }),

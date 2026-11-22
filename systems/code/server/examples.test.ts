@@ -7,7 +7,7 @@
 import { GinExprDef, QualifiedName } from '@harness/core';
 import { checkProgram, ProgramScope } from '@harness/sdk/program';
 import { describe, expect, it } from 'vitest';
-import { CODE_EXAMPLES } from './authoring.ts';
+import { CODE_EXAMPLES, SET_EXAMPLE } from './authoring.ts';
 
 /** The weather fn example 3 calls, as the agent would have loaded it. */
 const FORECAST = { name: QualifiedName.parse('weather/forecast'), description: 'The forecast for a city.', args: { name: 'obj', props: { city: { type: { name: 'text' } } } }, returns: { name: 'obj', props: { summary: { type: { name: 'text' } } } }, mode: 'read' as const };
@@ -31,4 +31,14 @@ describe('the code examples the agent is shown', () => {
       expect(checkProgram(program, GinExprDef.parse(example.program), { args: example.signature.args, returns: example.signature.returns }).problems).toEqual([]);
     });
   }
+});
+
+describe('the set call the instructions show', () => {
+  it('is one `draft` arg holding every part, its program fitting the set schema and its sample every arg', () => {
+    const program = new ProgramScope();
+    expect(Object.keys(SET_EXAMPLE)).toEqual(['draft']);
+    expect(Object.keys(SET_EXAMPLE.draft).sort()).toEqual(['description', 'name', 'program', 'sample']);
+    expect(program.schemas().Expr.safeParse(SET_EXAMPLE.draft.program).success).toBe(true);
+    expect(Object.keys(SET_EXAMPLE.draft.sample).sort()).toEqual(Object.keys(CODE_EXAMPLES.priceWithTax.signature.args.props).sort());
+  });
 });

@@ -64,6 +64,7 @@ export function registerPersonFns(fns: HubFns, ops: PersonFnOps): void {
     auto_pairs_list: run(ADMIN_READ_ENDPOINTS.auto_pairs_list, () => ops.adminReads().auto_pairs_list),
     instances_list: run(ADMIN_READ_ENDPOINTS.instances_list, () => ops.adminReads().instances_list),
     suggest_decision_get: run(ADMIN_READ_ENDPOINTS.suggest_decision_get, () => ops.adminReads().suggest_decision_get),
+    search_decision_get: run(ADMIN_READ_ENDPOINTS.search_decision_get, () => ops.adminReads().search_decision_get),
   };
   for (const [name, impl] of Object.entries(person)) if (isName(name, HUB_PERSON_ENDPOINTS)) fns.register(hub.fns[name], impl);
   for (const [name, impl] of Object.entries(explore)) if (isName(name, HUB_EXPLORE_ENDPOINTS)) fns.register(hub.fns[name], impl);

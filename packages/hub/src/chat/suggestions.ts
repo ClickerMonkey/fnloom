@@ -2,7 +2,8 @@
  * What a sent message is offered (fns and context), and the record of what it was not and why. The admin's suggestions
  * setting (`hubOptions['suggestDecision']`, `SuggestDecision`) says who picks:
  *
- * - `none`: no suggestions: nothing is offered (no fns, no context), and the index is not even asked.
+ * - `none`: no model picks: the candidates most similar in meaning at or over `HARNESS_SUGGEST_THRESHOLD` are
+ *   suggested, best first, up to `HARNESS_SUGGESTIONS` (the record says `by: 'score'`).
  * - `decision`: a decision model (its own choice, else the `decide` role's) answers one yes/no question per candidate
  *   scoring at least the floor; those at or over the decide role's threshold are picked, most likely first, up to the
  *   cap. The questions go through the models module's `Decider`, split by the model's `maxQuestions`.
@@ -135,15 +136,21 @@ export class HubSuggestions implements SuggestionDecider {
     const limit = this.#deps.settings.model.HARNESS_SUGGESTIONS;
     if (limit === 0 || input.text.trim() === '') { return { suggestions: [] }; }
     const setting = (await this.setting()).value;
-    // no suggestions: nothing is offered, so nothing is looked for or recorded
-    if (setting.by === 'none') { return { suggestions: [] }; }
-    const found = await this.#deps.suggest.consider({ session: input.session, text: input.text, pool: Math.max(setting.candidates, limit) * 2 });
+    const found = await this.#deps.suggest.consider({ session: input.session, text: input.text, pool: (setting.by === 'none' ? limit : Math.max(setting.candidates, limit)) * 2 });
     // what the person may not see is never suggested, nor named among what was left out
     const access = await this.#deps.access.scope(input.actor);
     const sees = await this.#seen(access, [...found.offered, ...found.hidden], input.session);
     const hidden = found.hidden.filter((item) => sees.has(item.name)).map((item) => skipped(item, 'rule'));
     const offered = found.offered.filter((item) => sees.has(item.name)).sort((a, b) => b.score - a.score);
-    return this.#byModel(input, setting, offered, hidden);
+    return setting.by === 'none' ? this.#byScore(offered, hidden, limit) : this.#byModel(input, setting, offered, hidden);
+  }
+
+  /** No model picks: the best at or over the threshold, up to the cap; the rest say why they were left out. */
+  #byScore(offered: readonly Suggestion[], hidden: readonly SuggestionOutcome[], limit: number): DecidedSuggestions {
+    const threshold = this.#deps.settings.chat.HARNESS_SUGGEST_THRESHOLD;
+    const chosen = offered.filter((item) => item.score >= threshold).slice(0, limit);
+    const items = offered.map((item) => (chosen.includes(item) ? used(item) : skipped(item, item.score < threshold ? 'below-threshold' : 'top-n')));
+    return finish(chosen, { by: 'score', threshold, items: [...items, ...hidden] });
   }
 
   /** A model picks among the candidates over its floor; on failure the score decides. */

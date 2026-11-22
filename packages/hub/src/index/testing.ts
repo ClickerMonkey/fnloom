@@ -76,7 +76,7 @@ export function wordsFnSearch(store: HubStore, catalog: Pick<Catalog, 'fn' | 'co
   const access: Pick<AccessService, 'sharing'> = { sharing: () => Promise.resolve({ owner: ActorId.parse('act_hub'), visibility: 'public', with: [] }) };
   const search = new StoreFnSearch({
     store: () => store, catalog: () => catalog, search: () => index, views: () => views, access: () => access,
-    tuning: { HARNESS_FN_SEARCH_LIMIT: 20, HARNESS_FN_SEARCH_CANDIDATES: 100 },
+    tuning: { HARNESS_FN_SEARCH_LIMIT: 20, HARNESS_FN_SEARCH_CANDIDATES: 100, HARNESS_FN_SEARCH_NICHE_WEIGHT: 0.5 },
   });
   return { search, stop: () => batcher.stop() };
 }

@@ -13,7 +13,7 @@ const hookDecl = (name: string, order: number): HookDecl => ({ name, description
 async function world(systems: SystemName[] | 'all' = 'all') {
   const w = await chatWorld({ systems });
   const user: UserInfo = { id: w.admin.id, name: 'Ada', email: w.admin.email, role: 'admin', groups: [], timeZone: 'America/New_York', locale: 'en-US' };
-  // a decision model that takes every candidate, so the index's fixtures are what is suggested (no suggestions is the default)
+  // a decision model that takes every candidate, so the index's fixtures are what is suggested whatever their score
   w.decisions.role = { model: 'judge', threshold: 0.5 };
   w.decisions.answer = () => 1;
   await w.chat.suggestions.set(SuggestDecision.parse({ by: 'decision', floor: 0 }), w.admin.id);

@@ -29,7 +29,11 @@ function gemmaModel(task: GemmaTask): ProviderModelDecl {
 }
 
 /** The embedder system's contract. */
-export const embedderSystem = system('embedder', { description: 'Text embeddings from the local EmbeddingGemma service.', grants: { hub: [] } }).with({
+export const embedderSystem = system('embedder', {
+  description: 'Text embeddings from the local EmbeddingGemma service.',
+  about: 'Turns text into numbers (embeddings) for the hub\'s search by meaning, on a local EmbeddingGemma service. It has no fns for the chat to call and no fn kinds; it works behind hub/fns_search and the resource search. Nothing to reach for.',
+  grants: { hub: [] },
+}).with({
   config: g.obj({
     // the service's base URL; when absent, the system's HARNESS_EMBEDDER_URL (default http://127.0.0.1:8760)
     url: g.field(g.optional(g.text({ pattern: '^https?://' })), { docs: 'The EmbeddingGemma service, `http://127.0.0.1:8760`. Leave empty for the system\'s default.' }),

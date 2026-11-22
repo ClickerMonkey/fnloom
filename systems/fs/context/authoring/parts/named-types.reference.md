@@ -7,6 +7,7 @@ summary: "Signatures and options for named types and methods."
 parent: "fs/authoring.named-types"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: named types and methods

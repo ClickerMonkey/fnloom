@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * The suggestions setting, one choice: no suggestions (nothing is offered), a decision model (its own or the
+ * The suggestions setting, one choice: no model (the closest in meaning over the threshold are suggested), a decision model (its own or the
  * Decisions role's; one yes/no question per candidate, picked at the role's threshold), or an LLM (asked for its picks
  * with reasons). A model chooser also sets how many of the person's recent messages it reads, how many candidates above
  * which score it sees, and the most it picks. "Try it" shows what would be suggested for a message in a session now:

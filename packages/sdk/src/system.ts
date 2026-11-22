@@ -94,6 +94,8 @@ export interface SystemRefs<N extends string, C extends ContractShape> {
  */
 export interface SystemContract<N extends string, C extends ContractShape> extends SystemRefs<N, C> {
   readonly description: string;
+  /** What the chat model is told about it in its `<systems>` list (`SystemInfo.about`); absent, its description. */
+  readonly about: string | undefined;
   /** Registries it hosts, by local name. */
   readonly registries: Readonly<Record<string, RegistryDef>>;
   /** Entries it adds to registries, its own or another system's. */
@@ -137,6 +139,13 @@ export interface RegistryDef {
 export interface SystemInfo {
   description: string;
   /**
+   * What a chat model that has never seen this app is told about the system in its system prompt's `<systems>` list,
+   * in place of the one-line `description`: what it is for, what sort of fns it has, whether it defines fn kinds and
+   * what authoring one gives the person, and when to reach for it (and when not). A few plain sentences; the hub
+   * shows it as written. Absent, the list shows `description`.
+   */
+  about?: string;
+  /**
    * Registries this system hosts, by local name. Any system, this one included, adds entries from its client bundle
    * (`client({ visuals })`) and lists them in `contributes`.
    */
@@ -177,7 +186,7 @@ export interface SystemInfo {
 }
 
 /** The parts of a contract that are not declaration sections. */
-type ContractExtras = Pick<SystemContract<string, ContractShape>, 'description' | 'registries' | 'contributes' | 'configSecrets' | 'grants' | 'configComponent' | 'pages' | 'groups'>;
+type ContractExtras = Pick<SystemContract<string, ContractShape>, 'description' | 'about' | 'registries' | 'contributes' | 'configSecrets' | 'grants' | 'configComponent' | 'pages' | 'groups'>;
 
 /** The ref of a named type: a gin extension registered in `g` under its qualified name, carrying display and methods. */
 function typeRef(system: string, local: string, def: AnyTypeDef): TypeRef<QualifiedName, unknown, Methods> {
@@ -309,6 +318,7 @@ export function system<const N extends string>(name: N, info: SystemInfo): Syste
   const defs: EmptyContract = { config: g.obj({}), connect: undefined, ...EMPTY_SECTIONS() };
   const extras: ContractExtras = {
     description: info.description,
+    about: info.about,
     registries: { ...info.registries },
     contributes: (info.contributes ?? []).map((c) => ContributionDecl.parse(c)),
     configSecrets: (info.configSecrets ?? []).map((p) => ConfigPath.parse(p)),

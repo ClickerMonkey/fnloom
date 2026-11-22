@@ -385,6 +385,7 @@ export function adminOperations(hub: HubServices): AdminOperations {
       return { ok: true };
     },
     suggest_decision_set: (data, by) => hub.chat.suggestions.set(data, by),
+    search_decision_set: (data, by) => hub.fns.decisions.set(data.item, data.value, by),
     auto_pair_revoke: async (data, by) => ({ ok: await link.autoPairs.revoke(data.id, by) }),
     system_reimport: async (data) => {
       await knownSystem(hub, data.system);

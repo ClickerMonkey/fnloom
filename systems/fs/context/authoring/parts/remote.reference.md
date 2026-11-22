@@ -7,6 +7,7 @@ summary: "Signatures and options for remote services: fleets, sign-in and connec
 parent: "fs/authoring.remote"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: remote services: fleets, sign-in and connections per instance

@@ -40,6 +40,11 @@ describe('the authoring guide as a context folder', () => {
     expect(files.find((file) => file.path === 'parts/start.md')?.text).toContain('to: "fs/authoring.start.reference"');
   });
 
+  // iteration 1 (2026-11-22): ordinary requests found these guides before the fns they needed
+  it('marks every piece as developer material, so a search ranks it below what an ordinary request needs', () => {
+    expect(files.filter((file) => !file.text.includes('niche: "developer"')).map((file) => file.path)).toEqual([]);
+  });
+
   it('links only to items it writes, apart from the fs fns it brings', () => {
     const keys = new Set(files.map((file) => linksOf(file.text).key));
     const broken = files.flatMap((file) => linksOf(file.text).links.filter((link) => !keys.has(link) && !/^fs\/(read|write|edit|bash|install_system|system_status)$/.test(link)).map((link) => `${file.path} → ${link}`));

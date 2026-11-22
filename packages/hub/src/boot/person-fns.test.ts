@@ -60,6 +60,7 @@ describe('the person fns', () => {
       auto_pairs_list: op('auto_pairs_list'),
       instances_list: op('instances_list'),
       suggest_decision_get: op('suggest_decision_get'),
+      search_decision_get: op('search_decision_get'),
     };
     registerPersonFns(r.module.hubFns, { person: () => person, explore: () => explore, adminReads: () => adminReads });
     await r.session();

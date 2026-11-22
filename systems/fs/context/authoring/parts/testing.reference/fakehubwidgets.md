@@ -8,6 +8,7 @@ parent: "fs/authoring.testing.reference"
 next: "fs/authoring.testing.reference.recordingoptions"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: testing

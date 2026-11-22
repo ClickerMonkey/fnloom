@@ -10,8 +10,13 @@
  * Context is searched by its own text and by each of its heading sections (`contextSection`, `index/context-sections.ts`):
  * an item found by several counts once, at its best, and says the section that found it. Every hit says which index
  * found it (`matched`: words, meaning or both).
+ *
+ * Developer, admin and reference material (`Niche`, `nicheOf`: the authoring guides, admin fns, API listings) ranks
+ * below the rest: its rank is multiplied by `HARNESS_FN_SEARCH_NICHE_WEIGHT` unless the query names its niche
+ * (`niches`), so an ordinary request finds the fns and guides it needs first; it stays searchable. A model's search
+ * (`Asker.forModel`) never finds a fn whose visibility leaves the model out, since it could never load it.
  */
-import { contextOff, effectsLine, QualifiedName, type ContextRecord, type Filter, type IndexedKind, type SearchSection, type RegistryEffect, type FnRecord, type FnSearchHit, type FnSearchPage, type FnSearchQuery, type RowOf, type SearchHit, type SearchItemKind } from '@harness/core';
+import { contextOff, effectsLine, nicheOf, QualifiedName, type ContextRecord, type Filter, type IndexedKind, type SearchSection, type RegistryEffect, type FnRecord, type FnSearchHit, type FnSearchPage, type FnSearchQuery, type RowOf, type SearchHit, type SearchItemKind } from '@harness/core';
 import type { Catalog } from '../catalog/index.ts';
 import type { AccessService } from '../access/index.ts';
 import { seesContextAs } from '../access/scope.ts';
@@ -19,7 +24,7 @@ import { contextSections, sectionKeyOf } from '../index/context-sections.ts';
 import { contextText } from '../index/indexer.ts';
 import { CONTEXT_COLUMNS } from '../query/columns.ts';
 import type { FnViewSource } from '../contextor/index.ts';
-import { unavailableBlock } from '../contextor/views.ts';
+import { forModel, unavailableBlock } from '../contextor/views.ts';
 import type { Search } from '../index/index.ts';
 import type { HubStore, Where } from '../store/index.ts';
 import { allRows, rows } from '../store/rows.ts';
@@ -33,7 +38,7 @@ export interface FnSearchDeps {
   readonly search: () => Pick<Search, 'search'>;
   readonly views: () => Pick<FnViewSource, 'view'>;
   readonly access: () => Pick<AccessService, 'sharing'>;
-  readonly tuning: Pick<FnsTuning, 'HARNESS_FN_SEARCH_LIMIT' | 'HARNESS_FN_SEARCH_CANDIDATES'>;
+  readonly tuning: Pick<FnsTuning, 'HARNESS_FN_SEARCH_LIMIT' | 'HARNESS_FN_SEARCH_CANDIDATES' | 'HARNESS_FN_SEARCH_NICHE_WEIGHT'>;
 }
 
 /** An item the filters let through. */
@@ -173,8 +178,11 @@ export class StoreFnSearch implements FnSearch {
     const out: FnSearchHit[] = [];
     // a context item found by its text and by its sections counts once, at its best
     const seen = new Set<string>();
+    const weight = this.#deps.tuning.HARNESS_FN_SEARCH_NICHE_WEIGHT;
+    // niche hits move down the order, so more are ranked than the page needs and the best kept after
+    const pool = weight < 1 ? wanted * NICHE_POOL : wanted;
     await this.#deps.search().search({
-      text, kinds: indexKinds(items), limit: wanted,
+      text, kinds: indexKinds(items), limit: pool,
       ...(candidates === undefined ? {} : { within: await this.#within(candidates) }),
       ...(query.match === undefined ? {} : { match: query.match }),
       ...(query.systems === undefined ? {} : { systems: query.systems }),
@@ -192,7 +200,7 @@ export class StoreFnSearch implements FnSearch {
         return true;
       },
     });
-    return out;
+    return pool === wanted ? out : nichesDown(out, query, weight).slice(0, wanted);
   }
 
   /** Listed by name: the candidates, or every fn (then context) in name order when nothing filters. */
@@ -228,6 +236,7 @@ export class StoreFnSearch implements FnSearch {
     }
     const record = await catalog.fn(candidate.key);
     if (record === undefined || record.disabled || !asker.access.seesFn(record)) return undefined;
+    if (asker.forModel === true && !forModel(record.decl.visibility)) return undefined;
     if (query.visibility !== undefined && !(await this.#visible(record, query.visibility, asker))) return undefined;
     // an unavailable fn is a hit too when the query keeps them (`available: false`), marked with what blocks it
     const blocked = unavailableBlock(record, asker.access);
@@ -237,6 +246,7 @@ export class StoreFnSearch implements FnSearch {
     if (!changesAsAsked(query, facts?.registry)) return undefined;
     const effects = effectsLine(facts?.registry ?? []);
     const view = await this.#deps.views().view(record.name);
+    const niche = nicheOf(record.decl);
     return {
       item: 'fn', name: record.name, system: record.system, description: record.decl.description, kind: record.decl.kind,
       ...(facts === undefined ? {} : { mode: facts.mode }),
@@ -244,6 +254,7 @@ export class StoreFnSearch implements FnSearch {
       ...(effects === undefined ? {} : { effects }),
       ...(facts?.instance === undefined ? {} : { instance: facts.instance }),
       ...scoresOf(found),
+      ...(niche === undefined ? {} : { niche }),
       available: blocked === undefined,
       ...(blocked === undefined ? {} : { blocked }),
     };
@@ -263,10 +274,24 @@ export class StoreFnSearch implements FnSearch {
 /** A context item as a hit, with the heading section that found it when one did. */
 function contextHit(record: ContextRecord, found: Scored | undefined): FnSearchHit {
   const section = found?.section === undefined ? undefined : sectionOf(record, found.section);
+  const niche = nicheOf(record.decl);
   return {
     item: 'context', name: record.name, system: record.system, description: record.decl.description, ...scoresOf(found),
-    ...(section === undefined ? {} : { section }), available: true,
+    ...(section === undefined ? {} : { section }), ...(niche === undefined ? {} : { niche }), available: true,
   };
+}
+
+/**
+ * Hits in rank order with niche material moved down: the rank of a hit whose niche the query doesn't name is
+ * multiplied by `weight`, and the hits are ordered by the ranks they end with (ties keep their order). A hit's
+ * `rank` stays its place in the order.
+ */
+export function nichesDown(hits: readonly FnSearchHit[], query: Pick<FnSearchQuery, 'niches'>, weight: number): FnSearchHit[] {
+  const asked = new Set(query.niches ?? []);
+  return hits
+    .map((hit, at) => ({ hit: hit.niche === undefined || asked.has(hit.niche) || hit.rank === undefined ? hit : { ...hit, rank: hit.rank * weight }, at }))
+    .sort((a, b) => (b.hit.rank ?? 0) - (a.hit.rank ?? 0) || a.at - b.at)
+    .map(({ hit }) => hit);
 }
 
 /** A context item's heading section by key, as its text is cut now (`contextSections`). */
@@ -289,3 +314,6 @@ function scoresOf(found: Scored | undefined): Pick<FnSearchHit, 'rank' | 'simila
 
 /** Context rows read per page while gathering the filters' candidates. */
 const CONTEXT_PAGE = 200;
+
+/** How many times the page's hits are ranked while niche hits move down, so ordinary hits ranked after them still make the page. */
+const NICHE_POOL = 2;

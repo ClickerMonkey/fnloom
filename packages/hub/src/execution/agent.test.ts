@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { backgroundReply, backgroundResult, INTERRUPTED, RunConversation, settledReply, stateOf } from './agent.ts';
 import { AGENT_KIND, type AgentKind, type RunInput } from './index.ts';
 import { agentActorId } from '../chat/support.ts';
+import { CITATION_RULE, CITATIONS_CHANGED_TAG, CITATIONS_ON, citeIdLine } from '../chat/cite-rule.ts';
 import { AGENT, ALICE, calls, executionRig, OPEN_LIMITS, says, SESSION, testSettings, until, type ExecutionRig } from './testing.ts';
 
 /** The helper agent's own actor: the caller of its tools and the author of its follow-ups. */
@@ -114,6 +115,39 @@ describe('a session agent', () => {
     const system = JSON.stringify(r.provider.requests[0]?.messages[0]);
     expect(system).toContain('Answer like a pirate.');
     expect(system).not.toContain('Be helpful.');
+  });
+
+  it('with citations on from the start: the rule is in the system prompt, and each tool result starts with its id', async () => {
+    const r = await started();
+    const fs = r.connect('fs');
+    fs.behaviour.run = () => Promise.resolve({ status: 'done', result: 'hello from a.txt' });
+    await r.session();
+    await r.store.table('sessions').update(SESSION, { citations: true });
+    const turn = await r.turn({ session: SESSION, text: 'What is in a.txt?' });
+    r.provider.script(calls([['fs__read', { path: 'a.txt' }]]), says('It says hello <cite tool="x" path="">it</cite>.'));
+    const { run } = await r.module.agents.start(agentInput(turn));
+    await runTo(r, run);
+    expect(JSON.stringify(r.provider.requests[0]?.messages[0])).toContain(JSON.stringify(CITATION_RULE).slice(1, -1));
+    const child = (await r.store.table('runs').find({ where: { parent: run }, limit: 10 })).items[0];
+    const session = await r.store.table('sessions').get(SESSION);
+    expect(session?.transcript[2]).toMatchObject({ role: 'tool', content: `${citeIdLine(child?.id ?? RunId.parse('run_none'))}\nhello from a.txt` });
+    // the first turn records what the prompt says; its message needs no notice
+    expect(session?.citationsTold).toEqual({ prompt: true, on: true });
+    expect(session?.transcript[0]?.content).toBe('What is in a.txt?');
+  });
+
+  it('turned on mid-chat: the next message starts with the rule, once, and the system prompt stays as it was', async () => {
+    const r = await started();
+    await r.session();
+    await r.store.table('sessions').update(SESSION, { citationsTold: { prompt: false, on: false }, citations: true });
+    const turn = await r.turn({ session: SESSION, text: 'Hi' });
+    r.provider.script(says('Hello.'));
+    const { run } = await r.module.agents.start(agentInput(turn));
+    await runTo(r, run);
+    const session = await r.store.table('sessions').get(SESSION);
+    expect(session?.transcript[0]?.content).toBe(`<${CITATIONS_CHANGED_TAG}>\n${CITATIONS_ON}\n</${CITATIONS_CHANGED_TAG}>\n\nHi`);
+    expect(session?.citationsTold).toEqual({ prompt: false, on: true });
+    expect(JSON.stringify(r.provider.requests[0]?.messages[0])).not.toContain('<citations>');
   });
 
   it('answers a tool call it could not start with the reason, and the model can recover', async () => {

@@ -8,6 +8,7 @@ parent: "fs/authoring.client.reference"
 next: "fs/authoring.client.reference.resultview"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: the client: renderers, inputs, resource views and pages

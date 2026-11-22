@@ -76,7 +76,7 @@ export const DiffData = g.obj({ path: g.text(), before: g.text(), after: g.text(
 export const FileTarget = g.obj({ root: g.text(), path: g.text() });
 
 /** How fns take a path: absolute inside a root, or relative to the first root (or to a root named first). */
-const PATH_DOCS = 'Absolute, or relative to a root: `docs/a.md` is in the first root, `<root name>/docs/a.md` in the named one.';
+const PATH_DOCS = 'A path inside one of the folders this system serves (its roots): relative to the first root (`docs/a.md`), starting with a root\'s name (`<root name>/docs/a.md`), or absolute inside a root. `/` and folders outside the roots are refused; `.` is the first root.';
 const path = () => g.field(g.text({ minLength: 1 }), { docs: PATH_DOCS });
 
 /** The shortest timeout `bash` accepts, in milliseconds; a shorter one is refused as invalid input. */
@@ -85,6 +85,13 @@ export const COMMAND_TIMEOUT_MIN = 1_000;
 /** The fs system's contract. */
 export const fs = system('fs', {
   description: 'Files and a shell over chosen folders, served as resources. Can restart itself.',
+  about: [
+    'Files and a shell over a few folders of the person\'s machine that an admin chose (its roots); nothing outside them can be reached, and `/` is not a root: paths are relative to the first root (`notes/todo.md`) or start with a root\'s name.',
+    'Its fns read, list and search files (fs/read, fs/list, fs/glob, fs/grep), change them (fs/write, fs/edit, fs/remove: each may ask the person first, and each can be undone) and run bash commands (fs/bash, fs/cd).',
+    'Reach for it to look at or change the person\'s files, and to keep a lasting document they can open later (a note, a recipe, a list) as a markdown file. It defines no fn kinds.',
+    'A file the person attached to a chat message is not an fs file: it is a hub resource, read with the hub\'s resource fns. Its fns for installing and hosting systems (fs/install_system, fs/system_status, fs/restart_system, fs/stop_system, fs/restart) are for admins and system authors.',
+    'Load its guide (fs/guide) before the first file change.',
+  ].join(' '),
   // its authoring agents use models; installs wait for an admin and pair what they start; it keeps each person's cwd,
   // reads the shell setting, serves and announces resources, and shares the fns it writes
   grants: { hub: ['ai', 'approvals', 'fns', 'state', 'settings', 'resources', 'search'], calls: ['hub/search_resources'] },
@@ -130,8 +137,8 @@ export const fs = system('fs', {
     fns: {
       read: fn({
         group: 'files',
-        description: 'Read a text file, or part of it by line.',
-        instructions: 'Read a file before you change or explain it. Paths are relative to a root (`src/app.ts`) or start with a root\'s name when there are several. For a long file read a window with `offset` (the first line, from 0) and `limit` (how many lines); `truncated` says more follows. Binary files are refused: use the resource tools for those.',
+        description: 'Read a text file under the roots, whole or a window of its lines. Gives its text, how many lines it has, and whether more follows.',
+        instructions: 'Read a file before you change it or say what is in it; never describe a file you have not read. Paths are relative to the first root (`src/app.ts`) or start with a root\'s name when there are several. For a long file read a window with `offset` (the first line, counted from 0) and `limit` (how many lines); `truncated: true` means more follows. Binary files (PDFs, images) are refused: read those with hub/resource_read or hub/resource_send. A file attached to a chat message is not here: it is a hub resource.',
         examples: [
           { args: { path: 'README.md' }, note: 'The whole file.' },
           { args: { path: 'src/server/main.ts', offset: 120, limit: 60 }, note: 'Lines 121 to 180 of a long file.' },
@@ -151,8 +158,8 @@ export const fs = system('fs', {
       }),
       write: fn({
         group: 'files',
-        description: 'Write a file, creating it if needed.',
-        instructions: 'Use it for a new file, or to replace a whole small file. For a change to an existing file use edit, so the rest stays as it is. Folders are made as needed. The old content is kept, so the write can be undone.',
+        description: 'Write a whole file under the roots, creating it (and its folders) if needed. Gives whether it was created or replaced.',
+        instructions: 'Use it for a new file (a note, a list, a recipe the person wants to keep as a document), or to replace a whole small file. To change part of an existing file use fs/edit, so the rest stays as it is. It may ask the person first; the old content is kept, so the write can be undone. Tell the person the path you wrote, so they can find it.',
         examples: [{ args: { path: 'notes/todo.md', text: '# To do\n\n- Write the tests\n' }, result: { created: true }, note: 'A new file.' }],
         effects: { mode: 'write', free: true },
         // the hub asks which sensitive files a call touches first (server/sensitive.ts)
@@ -171,8 +178,8 @@ export const fs = system('fs', {
       }),
       edit: fn({
         group: 'files',
-        description: 'Replace exact text in a file.',
-        instructions: 'Read the file first and copy `find` exactly as it is there, spaces and line breaks included, with enough around it to be unique; the edit fails when it matches nothing or (without `all`) more than once. Set `all` to replace every match (renaming a word). It can be undone.',
+        description: 'Change part of a file: replace exact text with new text. Gives how many places were replaced.',
+        instructions: 'Read the file first (fs/read) and copy `find` exactly as it is there, spaces and line breaks included, with enough around it to be unique; the edit fails when it matches nothing or (without `all`) more than once. Set `all` to replace every match (renaming a word). It can be undone.',
         examples: [
           { args: { path: 'src/config.ts', find: 'timeout: 30_000,', replace: 'timeout: 60_000,' }, result: { replacements: 1 } },
           { args: { path: 'docs/guide.md', find: 'colour', replace: 'color', all: true }, result: { replacements: 4 }, note: 'Every match.' },
@@ -194,8 +201,8 @@ export const fs = system('fs', {
       }),
       list: fn({
         group: 'files',
-        description: 'List a folder.',
-        instructions: 'Use it to see what a folder holds before guessing names. `depth` 2 or more lists inside subfolders too (up to 5); prefer glob to find files by name anywhere. `.` is the root.',
+        description: 'List what a folder under the roots holds: each file and folder with its type, size and when it changed.',
+        instructions: 'Use it to see what a folder holds before guessing names. `.` is the first root; `/` is not a folder you can list (it is outside the roots), so start from `.` or a root\'s name. `depth` 2 or more lists inside subfolders too (up to 5); to find files by name anywhere use fs/glob. `hidden` counts sensitive files left out.',
         examples: [{ args: { path: '.' }, note: 'The root\'s top level.' }, { args: { path: 'src', depth: 2 } }],
         effects: { mode: 'read', free: true },
         // the hub asks which sensitive files a call touches first (server/sensitive.ts)
@@ -212,8 +219,8 @@ export const fs = system('fs', {
       }),
       glob: fn({
         group: 'files',
-        description: 'Find paths matching a glob.',
-        instructions: 'Use it to find files by name or path. The pattern is relative to the root (every root when none is given); a pattern without `/`, like `*.md`, matches file names at any depth; `**` matches any folders. Folders the system ignores (node_modules, .git) are left out.',
+        description: 'Find files by name or path with a glob pattern (`*.md`, `src/**/*.ts`). Gives the matching paths.',
+        instructions: 'Use it to find files by name or path when you don\'t know where they are. The pattern is relative to the root (every root when none is given); a pattern without `/`, like `*.md`, matches file names at any depth; `**` matches any folders. Folders the system ignores (node_modules, .git) are left out.',
         examples: [
           { args: { pattern: '*.md' }, note: 'Every markdown file.' },
           { args: { pattern: 'src/**/*.test.ts', root: 'app' }, note: 'Tests under src in one root.' },
@@ -233,11 +240,12 @@ export const fs = system('fs', {
       }),
       grep: fn({
         group: 'files',
-        description: 'Search file contents with a regular expression.',
-        instructions: 'Use it to find where something is used or defined before reading files. The pattern is a JavaScript regular expression tested on each line (escape `.`, `(` and the like). Narrow big searches with `glob` (`*.ts`, `src/**/*.vue`) and `limit`. Each match gives the path and line, so read around it next.',
+        description: 'Search the text inside files for a regular expression, line by line. Gives each matching line with its path and line number.',
+        instructions: 'Use it to find which files mention something before reading them. The pattern is a JavaScript regular expression (the syntax of `new RegExp(pattern)`, no flags), tested on each line: escape `.`, `(`, `?` and the like with a backslash. It is case-sensitive, and inline flags such as `(?i)` are invalid in this syntax: for either case write a character class (`[Gg]rocer`) or both spellings (`Milk|milk`). A match never spans two lines. Narrow big searches with `glob` (`*.md`, `src/**/*.vue`) and `limit`. Each match gives the path and line, so read around it next with fs/read.',
         examples: [
           { args: { pattern: 'function createHub\\(', glob: '*.ts' }, note: 'Where a function is defined.' },
           { args: { pattern: 'TODO|FIXME', glob: 'src/**', limit: 50 } },
+          { args: { pattern: '[Ff]lour', glob: '*.md' }, note: 'Either case: a character class, since `(?i)` is not allowed.' },
         ],
         effects: { mode: 'read', free: true },
         // the hub asks which sensitive files a call touches first (server/sensitive.ts)
@@ -255,8 +263,8 @@ export const fs = system('fs', {
       }),
       cd: fn({
         group: 'shell',
-        description: 'Change the working folder for later commands in this chat.',
-        instructions: 'Set it once instead of passing `cwd` to every bash call; it lasts for this chat. The folder must be inside a root.',
+        description: 'Set the working folder that later fs/bash commands in this chat run in. Gives the folder now set.',
+        instructions: 'Set it once instead of passing `cwd` to every fs/bash call; it lasts for this chat (undoing the turn puts it back). The folder must be inside a root.',
         examples: [{ args: { path: 'packages/web' }, result: { cwd: 'packages/web' } }],
         effects: { mode: 'read', free: true },
         args: g.obj({ path: path() }),
@@ -267,8 +275,8 @@ export const fs = system('fs', {
       }),
       bash: fn({
         group: 'shell',
-        description: 'Run a shell command. It runs in the working folder set with cd unless cwd is given.',
-        instructions: 'Use it to build, test, run git or any tool the files need; prefer read, grep and glob to look at files. Commands your shell setting does not mark safe ask the person first. Give a `timeout` for long builds. Check `exitCode` and `stderr`: a non-zero exit is a failed command, not a failed call. `changes` lists the files the command changed (with diffs in git), so you need not run git diff to see them.',
+        description: 'Run a bash command on the machine fs runs on, in the working folder set with fs/cd unless `cwd` is given. Gives its exit code, what it printed (stdout, stderr) and the files it changed.',
+        instructions: 'The shell is bash (Git Bash on Windows when it is installed), not PowerShell or cmd: write POSIX commands (`ls`, `grep`, `&&`, forward slashes). Use it to build, test, run git or a program the files need; to look at files prefer fs/read, fs/grep and fs/glob, and to change them fs/write and fs/edit (those can be undone; what a command does cannot). Commands your shell setting does not mark safe ask the person first. Give a `timeout` for long builds. Check `exitCode` and `stderr`: a non-zero exit is a failed command, not a failed call. `changes` lists the files the command changed (with diffs in git), so you need not run git diff to see them.',
         examples: [
           { args: { command: 'git status --short' }, note: 'What changed.' },
           { args: { command: 'npm test -- --run src/app.test.ts', timeout: 120_000 }, note: 'One test file, with two minutes.' },
@@ -299,8 +307,8 @@ export const fs = system('fs', {
       }),
       remove: fn({
         group: 'files',
-        description: 'Delete a file.',
-        instructions: 'Only for a file the person asked to delete or one you made and no longer need. Folders are refused. The content is kept, so it can be undone.',
+        description: 'Delete one file under the roots. Gives whether it was removed.',
+        instructions: 'Only for a file the person asked to delete, or one you made and no longer need. Folders are refused. It may ask the person first; the content is kept, so undoing the turn puts the file back.',
         examples: [{ args: { path: 'notes/scratch.md' }, result: { removed: true } }],
         effects: { mode: 'delete', free: true },
         // the hub asks which sensitive files a call touches first (server/sensitive.ts)
@@ -421,12 +429,18 @@ export const fs = system('fs', {
     },
     context: {
       guide: context({
-        description: 'How to work with files here: read before editing, prefer edit over write.',
+        description: 'How to work with the person\'s files: find, read, then change; keeping notes and lists as files; running commands.',
         content: [
-          'Read a file before editing it. Use edit for small changes and write only for new files. Search with grep and glob before guessing paths, and list to see a folder.',
-          'Run builds, tests and git with bash (set the folder once with cd); a command your shell setting does not mark safe asks the person first.',
-          'Delete with remove only what the person asked for. Writes, edits and deletes can be undone.',
-        ].join(' '),
+          'The fs system works only inside the folders an admin chose (its roots). Paths are relative to the first root (`notes/todo.md`), or start with a root\'s name when there are several; `/` is outside the roots and is refused. Start with fs/list on `.` to see the first root.',
+          '',
+          'To find something: fs/glob finds files by name (`*.md`, `recipes/**`), fs/grep finds lines inside files by a regular expression (case-sensitive; write `[Ss]oup` for either case, never `(?i)`), fs/list shows one folder. Don\'t guess a path: look first.',
+          'To read: fs/read, a window at a time for long files (`offset`, `limit`). Say only what you read.',
+          'To change: fs/edit replaces exact text (copy `find` from what fs/read gave, spaces included); fs/write writes a whole new file; fs/remove deletes one file. Each may ask the person first, and each can be undone with the turn.',
+          'To keep a document for the person (a shopping list, a recipe, notes from this chat): write a markdown file, for example fs/write with {"path":"notes/shopping-list.md","text":"# Shopping list\\n\\n- Milk\\n- Eggs\\n"}, then tell them the path. Check the result (`created`) before saying it is saved.',
+          'To run a program, a build, tests or git: fs/bash runs a bash command (not PowerShell); set the folder once with fs/cd. Check `exitCode`: anything but 0 means the command failed. A command your shell setting does not mark safe asks the person first, and what it changes can\'t be undone.',
+          '',
+          'A file the person attached to a chat message is a hub resource, not an fs file: read it with hub/resource_read or look at it with hub/resource_send, not fs/read.',
+        ].join('\n'),
         // the guide brings the fns it is about, so finding it finds them
         fns: [fns.read, fns.list, fns.glob, fns.grep, fns.edit, fns.write, fns.bash, fns.cd, fns.remove],
       }),

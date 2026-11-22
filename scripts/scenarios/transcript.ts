@@ -50,7 +50,7 @@ export function usd(value: number): string {
 /** The numbers of a case in one line. */
 export function statsLine(record: CaseRecord): string {
   const s = record.stats;
-  return `${s.turns} turns · ${s.toolRuns} runs · ${s.modelCalls} model calls · hub ${usd(s.hubCost)} · person ${usd(s.personCost)} · ${Math.round(s.wallMs / 1000)}s · ended: ${record.ending.by} (${record.ending.reason})`;
+  return `${s.turns} turns · ${s.toolRuns} runs · ${s.modelCalls} model calls · hub ${usd(s.hubCost)} · person ${usd(s.personCost)} · ${Math.round(s.wallMs / 1000)}s${(s.shed ?? 0) === 0 ? '' : ` · ${s.shed} call(s) shed by a busy hub`}${record.variant === undefined ? '' : ` · variant ${record.variant}`} · ended: ${record.ending.by} (${record.ending.reason})`;
 }
 
 /** One judged case as a readable file: verdict, checks, numbers, sign-in, then the transcript. */

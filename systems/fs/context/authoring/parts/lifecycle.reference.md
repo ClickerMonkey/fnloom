@@ -7,6 +7,7 @@ summary: "Signatures and options for config, events, lifecycle and data."
 parent: "fs/authoring.lifecycle"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: config, events, lifecycle and data

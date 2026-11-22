@@ -7,6 +7,7 @@ summary: "Signatures and options for model providers."
 parent: "fs/authoring.providers"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: model providers

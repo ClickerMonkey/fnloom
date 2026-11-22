@@ -7,6 +7,7 @@ summary: "Complete compiled example systems, and every core type the SDK refers 
 parent: "fs/authoring"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash"]
 tags: ["authoring"]
+niche: "developer"
 choices:
   - to: "fs/authoring.examples"
     when: "Pick this to copy a whole working system."

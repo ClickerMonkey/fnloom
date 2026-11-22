@@ -110,6 +110,8 @@ export type InstanceMode = z.infer<typeof InstanceMode>;
 export const SystemRecord = z.object({
   name: SystemName,
   description: z.string(),
+  /** What the chat model is told about it in its `<systems>` list, from its contract (`Manifest.about`). */
+  about: z.string().optional(),
   /** Worked out from its instances: connected when one is, else needs config, else disconnected; removed when all are. */
   status: SystemStatus,
   enabled: SystemEnabled,

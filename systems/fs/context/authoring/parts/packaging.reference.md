@@ -7,6 +7,7 @@ summary: "Signatures and options for packaging: system.json, build, pack, instal
 parent: "fs/authoring.packaging"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: packaging: system.json, build, pack, install

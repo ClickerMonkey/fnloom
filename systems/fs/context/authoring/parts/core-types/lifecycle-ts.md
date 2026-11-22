@@ -8,6 +8,7 @@ parent: "fs/authoring.core-types"
 next: "fs/authoring.core-types.link-ts"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### From `packages/core/src/lifecycle.ts`
@@ -348,6 +349,7 @@ type PreviewAnswer = {
       resume?: TypeDef<any> | undefined;
       state?: TypeDef<any> | undefined;
       form?: TypeDef<any> | undefined;
+      niche?: "admin" | "developer" | "reference" | undefined;
       examples?: {
         args: z.core.util.JSONType;
         result?: z.core.util.JSONType | undefined;
@@ -412,6 +414,7 @@ type PreviewAnswer = {
           required: boolean;
         }[];
       } | undefined;
+      niche?: "admin" | "developer" | "reference" | undefined;
       weight?: number | undefined;
       summary?: string | undefined;
       parent?: `${string}/${string}` | undefined;
@@ -627,6 +630,7 @@ type PreviewAnswer = {
       title: string;
       description: string;
     }[] | undefined;
+    about?: string | undefined;
   } | undefined;
 } | {
   refused: string;

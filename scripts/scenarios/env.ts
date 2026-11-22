@@ -27,6 +27,25 @@ export const scenariosEnv = env({
   HARNESS_SCENARIOS_INDEX_TIMEOUT: z.coerce.number().int().min(10_000).default(600_000),
   /** How often the index's progress is asked for and logged while waiting (ms). */
   HARNESS_SCENARIOS_INDEX_POLL: z.coerce.number().int().min(500).default(5_000),
+  /**
+   * The decision model of the `on` variant (`variants.ts`): the decide role, the suggestions chooser and both search
+   * decisions. GPT-6 Luna Decisions (OpenAI's Decisions API), served through the OpenRouter provider the hub already has.
+   */
+  HARNESS_SCENARIOS_DECISION_MODEL: z.string().min(1).default('typesafe/jev-1.14'),
+  /** How many times a hub call the hub shed (HTTP 503, "the hub is busy") is tried in all before the case fails on it. */
+  HARNESS_SCENARIOS_BUSY_TRIES: z.coerce.number().int().min(1).max(100).default(12),
+  /** The first wait after a shed call (ms); each next wait doubles, never under the hub's retry-after. */
+  HARNESS_SCENARIOS_BUSY_WAIT: z.coerce.number().int().min(100).default(1_000),
+  /** The longest one wait may be (ms). */
+  HARNESS_SCENARIOS_BUSY_WAIT_MAX: z.coerce.number().int().min(100).default(30_000),
+  /** The most one call may wait in all for a busy hub (ms), whatever the tries left. */
+  HARNESS_SCENARIOS_BUSY_TOTAL: z.coerce.number().int().min(1_000).default(240_000),
+  /**
+   * Where each rep's fake home folder (the fs system's `home` root) is made: outside any git repository, so the fs
+   * git hook never reports this repository to a household person. Default: `<os temp>/harness-scenarios`. A root inside
+   * a git repository is refused when a rep starts.
+   */
+  HARNESS_SCENARIOS_HOME_ROOT: z.string().min(1).optional(),
   OPENROUTER_API_KEY: z.string().min(1).optional(),
   TAVILY_API_KEY: z.string().min(1).optional(),
   GOOGLE_CLIENT_ID: z.string().min(1).optional(),

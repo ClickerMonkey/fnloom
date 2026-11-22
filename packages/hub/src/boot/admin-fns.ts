@@ -68,6 +68,7 @@ export function registerAdminFns(fns: HubFns, ops: () => AdminOperations): void 
     add_instance: run(ADMIN_ENDPOINTS.add_instance, (o) => o.add_instance),
     remove_instance: run(ADMIN_ENDPOINTS.remove_instance, (o) => o.remove_instance),
     suggest_decision_set: run(ADMIN_ENDPOINTS.suggest_decision_set, (o) => o.suggest_decision_set),
+    search_decision_set: run(ADMIN_ENDPOINTS.search_decision_set, (o) => o.search_decision_set),
     auto_pair_revoke: run(ADMIN_ENDPOINTS.auto_pair_revoke, (o) => o.auto_pair_revoke),
     system_reimport: run(ADMIN_ENDPOINTS.system_reimport, (o) => o.system_reimport),
     export_system_data: run(ADMIN_ENDPOINTS.export_system_data, (o) => o.export_system_data),

@@ -8,6 +8,7 @@ parent: "fs/authoring.core-types"
 next: "fs/authoring.core-types.manifestpatch"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### From `packages/core/src/manifest.ts`
@@ -160,6 +161,7 @@ type Manifest = {
     resume?: TypeDef<any> | undefined;
     state?: TypeDef<any> | undefined;
     form?: TypeDef<any> | undefined;
+    niche?: "admin" | "developer" | "reference" | undefined;
     examples?: {
       args: z.core.util.JSONType;
       result?: z.core.util.JSONType | undefined;
@@ -224,6 +226,7 @@ type Manifest = {
         required: boolean;
       }[];
     } | undefined;
+    niche?: "admin" | "developer" | "reference" | undefined;
     weight?: number | undefined;
     summary?: string | undefined;
     parent?: `${string}/${string}` | undefined;
@@ -439,5 +442,6 @@ type Manifest = {
     title: string;
     description: string;
   }[] | undefined;
+  about?: string | undefined;
 };
 ```

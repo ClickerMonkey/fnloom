@@ -7,6 +7,7 @@ summary: "Signatures and options for the hub contract."
 parent: "fs/authoring.hub"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: the hub contract
@@ -82,6 +83,7 @@ const ADMIN_ENDPOINTS = {
   remove_instance: packagingSlice.endpoints.removeInstance,
   export_system_data: packagingSlice.endpoints.exportSystemData,
   suggest_decision_set: suggestionsSlice.endpoints.setSuggestDecision,
+  search_decision_set: suggestionsSlice.endpoints.setSearchDecision,
   auto_pair_revoke: autoPairSlice.endpoints.revokeAutoPair,
   system_reimport: systemsSlice.endpoints.reimport,
 } as const satisfies Record<string, EndpointLike>;
@@ -273,6 +275,7 @@ const ADMIN_READ_ENDPOINTS = {
   auto_pairs_list: autoPairSlice.endpoints.autoPairs,
   instances_list: packagingSlice.endpoints.instances,
   suggest_decision_get: suggestionsSlice.endpoints.suggestDecision,
+  search_decision_get: suggestionsSlice.endpoints.searchDecisions,
 } as const satisfies Record<string, EndpointLike>;
 ```
 

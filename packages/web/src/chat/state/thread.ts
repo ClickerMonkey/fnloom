@@ -7,7 +7,7 @@
  * On a reconnect `refresh` fetches what may have changed while events were lost, so nothing is left spinning.
  */
 import {
-  compositeKey, isSettled, type ActorId, type Approval, type ApprovalId, type ChatMessage, type ClientInfo, type DeliveryId, type DeliveryView, type HandlerCall,
+  compositeKey, isSettled, type ActorId, type Approval, type ApprovalId, type ChatMessage, type Citation, type StreamedCite, type ClientInfo, type DeliveryId, type DeliveryView, type HandlerCall,
   type HandlerCallId, type InstanceName, type Json, type MessageId, type NotifyChoice, type OutgoingPart, type Presence, type QualifiedName, type Remember,
   type ResolvedLimits, type RunId, type Session, type SessionControls, type SessionEvent, type SessionId, type SessionSummary, type StateFieldValue,
   type SystemName, type TurnId, type UndoReport,
@@ -175,6 +175,8 @@ export class ThreadStore {
    * `answerPieces`). A message never seen streaming shows in the order its parts keep.
    */
   readonly live = shallowRef<ReadonlyMap<MessageId, readonly AnswerSegment[]>>(new Map());
+  /** The cites of each answer streaming here, as each closed (citations on); a settled message carries its own. */
+  readonly liveCites = shallowRef<ReadonlyMap<MessageId, readonly StreamedCite[]>>(new Map());
   readonly runs = shallowRef<ReadonlyMap<RunId, RunView>>(new Map());
   /** Waiting on the person, oldest first. */
   readonly approvals = shallowRef<readonly Approval[]>([]);
@@ -704,6 +706,11 @@ export class ThreadStore {
     void this.#deps.api.presence.call({ session: this.id, typing, focused }).catch(() => undefined);
   }
 
+  /** A message's cites: its own once it settled, else those streamed so far. */
+  citesOf(message: Pick<ChatMessage, 'id' | 'citations'>): readonly (Citation | StreamedCite)[] {
+    return message.citations ?? this.liveCites.value.get(message.id) ?? [];
+  }
+
   /** An answer's segments in the order they streamed, when it was seen streaming here. */
   liveOf(message: Pick<ChatMessage, 'id'>): readonly AnswerSegment[] | undefined {
     return this.live.value.get(message.id);
@@ -805,6 +812,12 @@ export class ThreadStore {
         return;
       }
       case 'reasoning': this.#stream(event.message, { kind: 'reasoning', text: event.text }); return;
+      case 'cite': {
+        const cites = new Map(this.liveCites.value);
+        cites.set(event.message, [...(cites.get(event.message) ?? []).filter((c) => c.index !== event.cite.index), event.cite]);
+        this.liveCites.value = cites;
+        return;
+      }
       case 'run': {
         const known = this.runs.value.get(event.run) ?? emptyRun(event.run, event.fn);
         this.#upsertRun(applyRunUpdate(known, event.update, this.#deps.clock()));

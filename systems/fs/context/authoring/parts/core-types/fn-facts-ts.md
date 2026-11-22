@@ -8,6 +8,7 @@ parent: "fs/authoring.core-types"
 next: "fs/authoring.core-types.gin-ts"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### From `packages/core/src/fn-facts.ts`
@@ -116,6 +117,7 @@ type FnSearchArgs = {
     kind?: string | undefined;
   }[] | undefined;
   available?: boolean | undefined;
+  niches?: ("admin" | "developer" | "reference")[] | undefined;
   order?: "name" | "rank" | undefined;
 };
 ```
@@ -124,7 +126,8 @@ type FnSearchArgs = {
 
 const, type · declared in `packages/core/src/fn-facts.ts`
 
-A page of hits; `next` is the offset of the next page, absent on the last.
+A page of hits; `next` is the offset of the next page, absent on the last. `filtered`: what the admin's search
+decisions dropped from this page (a page can then hold fewer hits than its limit while another follows).
 
 ```ts
 type FnSearchPage = {
@@ -147,6 +150,7 @@ type FnSearchPage = {
       path: string[];
       title: string;
     } | undefined;
+    niche?: "admin" | "developer" | "reference" | undefined;
     blocked?: {
       code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
       reason: string;
@@ -154,6 +158,16 @@ type FnSearchPage = {
     } | undefined;
   }[];
   next?: number | undefined;
+  filtered?: {
+    item: "fn" | "context";
+    by: "llm" | "decision";
+    dropped: {
+      name: `${string}/${string}`;
+      note?: string | undefined;
+    }[];
+    calls?: string[] | undefined;
+    failed?: string | undefined;
+  }[] | undefined;
 };
 ```
 
@@ -209,6 +223,7 @@ type FnSearchQuery = {
   })[] | undefined;
   off?: boolean | undefined;
   available?: boolean | undefined;
+  niches?: ("admin" | "developer" | "reference")[] | undefined;
   order?: "name" | "rank" | undefined;
   offset?: number | undefined;
   limit?: number | undefined;

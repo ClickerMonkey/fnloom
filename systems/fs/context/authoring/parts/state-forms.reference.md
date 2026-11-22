@@ -7,6 +7,7 @@ summary: "Signatures and options for session state, forms and display."
 parent: "fs/authoring.state-forms"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: session state, forms and display

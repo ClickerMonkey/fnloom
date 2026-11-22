@@ -9,7 +9,7 @@ import { budgetAmount, budgetUse, periodText, resolvedText, scopeText } from './
 import { adminNav, adminNavGroups } from './nav.ts';
 import { decisionText, sortPolicies, subjectText, targetText } from './policies.ts';
 import { autoPairState, availabilityText, endsText, groupedCode, pendingPairings, sortSystems, systemActions, timeLeft } from './systems.ts';
-import { chooserModels, decisionDraft, decisionModelText, decisionOf, previewParts } from './suggestions.ts';
+import { chooserModels, decisionDraft, decisionModelText, decisionOf, previewParts, searchDecisionOf, searchDecisionText, searchDraft } from './suggestions.ts';
 
 const names: Record<string, string> = { act_eng: 'Engineering', act_ada: 'Ada' };
 const nameOf = (id: ActorId): string => names[id] ?? id;
@@ -209,21 +209,21 @@ describe('browsers and nav', () => {
 describe('build 3 admin forms', () => {
   it('reads the suggestions form (no model, a decision model or an LLM), says the setting in words and splits a try-out', () => {
     const none = decisionDraft(undefined);
-    expect(none).toMatchObject({ by: 'none', messages: '3', cap: '6', floor: '0.35' });
+    expect(none).toMatchObject({ by: 'none', messages: '3', cap: '6', floor: '0.2' });
     expect(decisionOf(none)).toEqual({ ok: true, value: { by: 'none' } });
-    expect(decisionModelText(undefined)).toBe('No suggestions: nothing is offered with a message');
+    expect(decisionModelText(undefined)).toBe('No model: the closest in meaning over the threshold are suggested');
     // an LLM needs its model; a decision model falls back to the Decisions role's
     expect(decisionOf({ ...none, by: 'llm' })).toMatchObject({ ok: false, at: 'model' });
     expect(decisionOf({ ...none, by: 'decision', cap: '99' })).toEqual({ ok: false, problem: 'Most it picks is out of range.', at: 'numbers' });
     const llm = decisionOf({ ...none, by: 'llm', llm: 'gpt-4o-mini', decision: 'judge' });
     if (!llm.ok) { throw new Error(llm.problem); }
-    expect(llm.value).toEqual({ by: 'llm', model: { model: { model: 'gpt-4o-mini' } }, messages: 3, candidates: 20, cap: 6, floor: 0.35 });
+    expect(llm.value).toEqual({ by: 'llm', model: { model: { model: 'gpt-4o-mini' } }, messages: 3, candidates: 20, cap: 6, floor: 0.2 });
     expect(decisionDraft({ value: llm.value })).toMatchObject({ by: 'llm', llm: 'gpt-4o-mini', decision: '' });
-    expect(decisionModelText({ value: llm.value })).toBe('gpt-4o-mini picks · last 3 messages · up to 6 of 20 above 0.35');
+    expect(decisionModelText({ value: llm.value })).toBe('gpt-4o-mini picks · last 3 messages · up to 6 of 20 above 0.2');
     const role = decisionOf({ ...none, by: 'decision' });
     if (!role.ok) { throw new Error(role.problem); }
-    expect(role.value).toEqual({ by: 'decision', messages: 3, candidates: 20, cap: 6, floor: 0.35 });
-    expect(decisionModelText({ value: role.value })).toBe('The Decisions role’s model decides · last 3 messages · up to 6 of 20 above 0.35');
+    expect(role.value).toEqual({ by: 'decision', messages: 3, candidates: 20, cap: 6, floor: 0.2 });
+    expect(decisionModelText({ value: role.value })).toBe('The Decisions role’s model decides · last 3 messages · up to 6 of 20 above 0.2');
     const own = decisionOf({ ...none, by: 'decision', decision: 'judge' });
     expect(own.ok && own.value.by === 'decision' ? own.value.model : undefined).toEqual({ model: { model: 'judge' } });
     // each chooser picks among the models able to: decision models, or chat models
@@ -234,6 +234,18 @@ describe('build 3 admin forms', () => {
     expect(chooserModels('decision', models).map((m) => m.id)).toEqual(['judge']);
     expect(chooserModels('llm', models).map((m) => m.id)).toEqual(['gpt-4o-mini']);
     expect(chooserModels('none', models)).toEqual([]);
+    // the search settings: as ranked by default; an LLM needs its model, a decision model falls back to the role's
+    const ranked = searchDraft(undefined);
+    expect(ranked).toEqual({ by: 'none', decision: '', llm: '' });
+    expect(searchDecisionOf(ranked)).toEqual({ ok: true, value: { by: 'none' } });
+    expect(searchDecisionText(undefined)).toBe('As ranked: every hit is returned');
+    expect(searchDecisionOf({ ...ranked, by: 'llm' })).toEqual({ ok: false, problem: 'Pick the LLM that filters the hits.' });
+    expect(searchDecisionOf({ ...ranked, by: 'decision' })).toEqual({ ok: true, value: { by: 'decision' } });
+    const filtering = searchDecisionOf({ ...ranked, by: 'llm', llm: 'gpt-4o-mini' });
+    expect(filtering).toEqual({ ok: true, value: { by: 'llm', model: { model: { model: 'gpt-4o-mini' } } } });
+    if (!filtering.ok) { throw new Error(filtering.problem); }
+    expect(searchDraft({ value: filtering.value })).toEqual({ by: 'llm', decision: '', llm: 'gpt-4o-mini' });
+    expect(searchDecisionText({ value: { by: 'decision' } })).toBe('The Decisions role’s model keeps the hits that fit what was searched for');
     const parts = previewParts({ by: 'decision', items: [
       { used: true, kind: 'fn', name: QualifiedName.parse('fs/read') },
       { used: false, kind: 'fn', name: QualifiedName.parse('fs/write'), reason: 'declined', note: 'only reads' },

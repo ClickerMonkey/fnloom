@@ -6,7 +6,7 @@
  * `finish`; `settle` closes the turn and tells people who are away.
  */
 import {
-  ACTIVE_RUN_STATUSES, isHiddenPart, mintId, splitName, type ActorId, type CompareVariantInput, type AgentActor, type Asker, type ChatMessage, type ClientInfo, type InstanceName, type Json, type MessageId, type MessagePart, type OutgoingPart, type SuggestionRecord,
+  ACTIVE_RUN_STATUSES, CITE_MARKER, isHiddenPart, type Citation, mintId, splitName, type ActorId, type CompareVariantInput, type AgentActor, type Asker, type ChatMessage, type ClientInfo, type InstanceName, type Json, type MessageId, type MessagePart, type OutgoingPart, type SuggestionRecord,
   type QualifiedName, type ResolvedLimits, type Run, type RunId, type RunSettled, type Session, type SessionId, type SystemName, type Turn, type TurnId, type TurnStart, type UserInfo,
 } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
@@ -14,6 +14,7 @@ import { seesContextNamed } from '../access/scope.ts';
 import { cacheMissOf } from './cache.ts';
 import { suggestedAfter } from './enrich.ts';
 import { finishedParts } from './streams.ts';
+import { citeParts, nextCiteNumber, resolveCites, streamedCite } from './cites.ts';
 import type { ChatDeps } from './deps.ts';
 import { ChatError, messageOf } from './errors.ts';
 import { AGENT_KIND } from '../execution/index.ts';
@@ -21,7 +22,7 @@ import { isAttached, type AttachedPart, type MentionService, type MessageEnriche
 import type { People } from './people.ts';
 import { continuableTurn, UNTITLED, type StoreSessionService } from './sessions.ts';
 import type { StoreCompareService } from './compare.ts';
-import type { StreamBuffer } from './streams.ts';
+import type { StreamBuffer, StreamedText } from './streams.ts';
 import { allowsSystem, clip, participantOf, peopleOf, unmark } from './support.ts';
 import { allRows } from '../store/rows.ts';
 import { timeInfo } from '../execution/time.ts';
@@ -33,7 +34,7 @@ const NOTIFICATION_BODY = 160;
 export function plainText(parts: readonly MessagePart[]): string {
   return parts.map((part) => {
     switch (part.type) {
-      case 'text': return part.text;
+      case 'text': return part.text.replace(CITE_MARKER, '');
       case 'mention': return `@${part.label}`;
       case 'command': return `/${splitName(part.context).local}${Object.values(part.args).map((a) => ` ${a}`).join('')}`;
       case 'invocation': return `!${part.fn}`;
@@ -51,11 +52,12 @@ export function hiddenMessage(message: Pick<ChatMessage, 'parts'>): boolean {
 }
 
 /** The session as a turn finds it, so undoing the turn can put it back. */
-export function startOf(session: Pick<Session, 'transcript' | 'tools' | 'context' | 'selection' | 'suggested' | 'announcedSystems'>): TurnStart {
+export function startOf(session: Pick<Session, 'transcript' | 'tools' | 'context' | 'selection' | 'suggested' | 'announcedSystems' | 'citationsTold'>): TurnStart {
   return {
     transcript: session.transcript.length, tools: [...session.tools], context: [...session.context], ...(session.selection === undefined ? {} : { selection: session.selection }),
     ...(session.suggested === undefined ? {} : { suggested: [...session.suggested] }),
     ...(session.announcedSystems === undefined ? {} : { announcedSystems: session.announcedSystems }),
+    ...(session.citationsTold === undefined ? {} : { citationsTold: session.citationsTold }),
   };
 }
 
@@ -193,7 +195,10 @@ export class StoreTurnService implements TurnService {
       ...(replyTo === undefined ? {} : { replyTo }), replyAll: false, answerers: [], createdAt: this.#deps.clock(),
     };
     await this.#deps.store.table('messages').insert(message);
-    this.#parts.streams.open(message.id, turn.session);
+    const session = await this.#deps.store.table('sessions').get(turn.session);
+    // with citations on, cites stream whole, numbered on from the chat's last one
+    const cites = session?.citations === true ? { hold: this.#deps.settings.chat.HARNESS_CITE_HOLD_CHARS, first: await nextCiteNumber(this.#deps.store, session, message.id) } : undefined;
+    this.#parts.streams.open(message.id, turn.session, cites);
     this.#deps.bus.publish('message', { message });
     return message;
   }
@@ -204,8 +209,34 @@ export class StoreTurnService implements TurnService {
       this.#deps.log.debug('chat.stream.closed', { message });
       return;
     }
-    if (delta.text !== undefined && delta.text !== '') { this.#deps.bus.publish('message.token', { session: streamed.session, message, text: delta.text }); }
+    if (delta.text !== undefined && delta.text !== '') { this.#publishText(streamed, message, delta.text); }
     if (delta.reasoning !== undefined && delta.reasoning !== '') { this.#deps.bus.publish('message.reasoning', { session: streamed.session, message, text: delta.reasoning }); }
+  }
+
+  /** Streamed text out to the browser: as it is, or with citations on, held back from a `<cite` until it closes and the whole cite sent first. */
+  #publishText(streamed: StreamedText, message: MessageId, text: string): void {
+    const { bus } = this.#deps;
+    const cites = streamed.cites;
+    if (cites === undefined) { bus.publish('message.token', { session: streamed.session, message, text }); return; }
+    for (const piece of cites.filter.push(text)) {
+      if (piece.type === 'cite') { bus.publish('message.cite', { session: streamed.session, message, cite: streamedCite(piece.cite, cites.first) }); }
+      bus.publish('message.token', { session: streamed.session, message, text: piece.text });
+    }
+  }
+
+  /**
+   * A finished message's body with its cites taken out (each marker in its place) and resolved, numbered on from the
+   * chat's last one, when citations were on as it streamed (or are on now, for a message that never streamed).
+   */
+  async #cite(row: ChatMessage, body: MessagePart[], streamed: StreamedText | undefined): Promise<{ parts: MessagePart[]; citations?: Citation[] }> {
+    const { store, settings } = this.#deps;
+    const session = await store.table('sessions').get(row.session);
+    const on = streamed === undefined ? session?.citations === true : streamed.cites !== undefined;
+    if (!on || session === undefined) { return { parts: body }; }
+    const { parts, cites } = citeParts(body, settings.chat.HARNESS_CITE_HOLD_CHARS);
+    const first = cites.length === 0 ? 1 : await nextCiteNumber(store, session, row.id);
+    const citations = await resolveCites({ store, valueChars: settings.chat.HARNESS_CITE_VALUE_CHARS }, cites, session, first);
+    return { parts, citations };
   }
 
   async suggested(message: MessageId, record: SuggestionRecord): Promise<void> {
@@ -265,12 +296,15 @@ export class StoreTurnService implements TurnService {
     if (row === undefined) { throw new ChatError('not-found', `No message ${message}.`); }
     if (row.role !== 'assistant') { throw new ChatError('conflict', 'Only an assistant message is finished.'); }
     const streamed = this.#parts.streams.close(message);
-    const body = streamed === undefined ? parts : finishedParts(streamed.parts, parts);
+    const cited = await this.#cite(row, streamed === undefined ? parts : finishedParts(streamed.parts, parts), streamed);
+    const body = cited.parts;
     const cacheMiss = await cacheMissOf(this.#deps, row).catch((error: unknown) => {
       this.#deps.log.warn('chat.cache-miss.failed', { message, error: messageOf(error) });
       return undefined;
     });
-    const finished = await this.#deps.store.table('messages').update(message, { parts: [...body, ...row.parts.filter(isAttached)], status, ...(cacheMiss === undefined ? {} : { cacheMiss }) });
+    const finished = await this.#deps.store.table('messages').update(message, {
+      parts: [...body, ...row.parts.filter(isAttached)], status, ...(cacheMiss === undefined ? {} : { cacheMiss }), ...(cited.citations === undefined ? {} : { citations: cited.citations }),
+    });
     this.#deps.bus.publish('message', { message: finished });
     const session = await this.#deps.store.table('sessions').get(row.session);
     const repliedTo = row.replyTo === undefined ? undefined : await this.#deps.store.table('messages').get(row.replyTo);

@@ -9,6 +9,8 @@ import { describe, expect, it } from 'vitest';
 import { FORM_KIND, HEADLESS_ASKED, WAIT_FOR_ANSWERS, input } from '../shared/index.ts';
 import { inputEnv } from './env.ts';
 import { createInputImpl } from './impl.ts';
+import { FormDraftSchema } from './authoring.ts';
+import { TRIP_FORM } from '../shared/index.ts';
 
 inputEnv.set({ INPUT_MAX_FIELDS: '3' });
 
@@ -66,5 +68,11 @@ describe('the form kind', () => {
     } finally {
       await kit.stop();
     }
+  });
+});
+
+describe('the draft call the instructions show', () => {
+  it('is a form the draft tool takes as is', () => {
+    expect(FormDraftSchema.safeParse(TRIP_FORM).success).toBe(true);
   });
 });

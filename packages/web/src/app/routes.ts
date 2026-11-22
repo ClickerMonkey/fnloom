@@ -6,7 +6,7 @@
  * renamed or misspelled key breaks both at compile time.
  */
 import {
-  type HubMcpId, type InstanceName, LlmInteractionId, ModelCallId, ModelRole, NotificationId, PairingId, splitName, ResourceUri, RunId, SessionId, TurnId, type MessageId, type NotificationLink, type QualifiedName, type SystemName,
+  type HubMcpId, type InstanceName, LlmInteractionId, ModelCallId, ModelRole, NotificationId, PairingId, SearchItemKind, splitName, ResourceUri, RunId, SessionId, TurnId, type MessageId, type NotificationLink, type QualifiedName, type SystemName,
 } from '@harness/core';
 import type { RouteLocationRaw, RouteRecordRaw } from 'vue-router';
 import { z } from 'zod';
@@ -124,7 +124,7 @@ export const QUERIES = {
   /** The section the Parts tab shows, and the Graph tab's filters. */
   [ROUTES.system]: GraphUrl.extend({ part: PartTab.optional() }),
   [ROUTES.review]: GraphUrl.extend({ part: PartTab.optional() }),
-  [ROUTES.models]: z.object({ q: z.string(), role: ModelRole, model: z.string(), decision: z.literal('1'), classifier: z.literal('1'), images: z.literal('1') }).partial(),
+  [ROUTES.models]: z.object({ q: z.string(), role: ModelRole, model: z.string(), decision: z.literal('1'), search: SearchItemKind, classifier: z.literal('1'), images: z.literal('1') }).partial(),
   [ROUTES.limits]: z.object({ user: z.string(), session: SessionId }).partial(),
   /** The list's words and filters, the person or group open beside it, the add dialog, and a test sign-in's result. */
   [ROUTES.people]: z.object({ q: z.string(), user: z.string(), group: z.string(), add: z.literal('1'), test: z.string() }).partial(),
@@ -199,7 +199,7 @@ export const links = {
   },
   /** Every fn of every system with its stats; `q` narrows and sorts it. */
   fns: (query: RouteQuery<typeof ROUTES.fns> = {}): RouteLocationRaw => ({ name: ROUTES.fns, ...queryOf(ROUTES.fns, query) }),
-  /** The providers and models page, on a tab; `query` opens a role (`role`), a model's limits (`model`), the decision model (`decision`), the auto classifier (`classifier`) or where pictures are embedded (`images`). */
+  /** The providers and models page, on a tab; `query` opens a role (`role`), a model's limits (`model`), the decision model (`decision`), a search setting (`search`: `fn` or `context`), the auto classifier (`classifier`) or where pictures are embedded (`images`). */
   models: (tab: ModelsTab = 'providers', query: RouteQuery<typeof ROUTES.models> = {}): RouteLocationRaw => ({
     name: ROUTES.models, params: tab === 'providers' ? {} : { tab }, ...queryOf(ROUTES.models, query),
   }),

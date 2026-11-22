@@ -8,6 +8,7 @@ parent: "fs/authoring.topics.begin"
 next: "fs/authoring.folder"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash"]
 tags: ["authoring"]
+niche: "developer"
 choices:
   - to: "fs/authoring.folder"
     when: "Pick this to go on in order: The system folder and the template."

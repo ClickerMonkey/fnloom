@@ -4,7 +4,7 @@
  * time estimates, the chat fn mode gate, the auto classifier, and browser logs rolled by size and quiet.
  */
 import {
-  ActorId, compositeKey, ModelCallId, QualifiedName, ResourceUri, RunId, SessionId, SystemName, noFnStats, noOutcomes,
+  ActorId, compositeKey, ModelCallId, nicheOf, QualifiedName, ResourceUri, RunId, SessionId, SystemName, noFnStats, noOutcomes, type FnSearchHit, type Niche,
   type ContextRecord, type FnMetricsDay, type FnRecord, type IndexedKind, type ModelInfo, type Session, type SystemStatus,
 } from '@harness/core';
 import { context, fn, g, hub, system, type as typeDecl } from '@harness/sdk';
@@ -31,7 +31,7 @@ import { StoreFnExamples } from './examples.ts';
 import { aboutDuration, StoreFnFacts } from './facts.ts';
 import { SessionModeGate } from './gate.ts';
 import type { Asker } from './index.ts';
-import { StoreFnSearch } from './search.ts';
+import { nichesDown, StoreFnSearch } from './search.ts';
 
 const DOCUMENT = QualifiedName.parse('vectors/document');
 const QUERY = QualifiedName.parse('vectors/query');
@@ -144,7 +144,7 @@ async function setup(options: { status?: SystemStatus } = {}) {
     store: () => store, catalog: () => catalog, search: () => index,
     views: () => views,
     access: () => ({ sharing: (target) => Promise.resolve({ owner: (target.kind === 'fn' ? owners.get(target.fn) : undefined) ?? ActorId.parse('act_hub'), visibility: target.kind === 'fn' && owners.has(target.fn) ? 'private' : 'public', with: [] }) }),
-    tuning: { HARNESS_FN_SEARCH_LIMIT: 20, HARNESS_FN_SEARCH_CANDIDATES: 100 },
+    tuning: { HARNESS_FN_SEARCH_LIMIT: 20, HARNESS_FN_SEARCH_CANDIDATES: 100, HARNESS_FN_SEARCH_NICHE_WEIGHT: 0.5 },
   });
   const asker: Asker = { actor: ME, access: openScope(ME) };
   return { store, catalog, indexer, index, facts, examples, search, asker, days, owners };
@@ -260,6 +260,54 @@ describe('fns search in the hub database', () => {
     await indexer.upsert([{ kind: 'context', key: theirs.name, text: contextText(theirs.name, theirs.decl), system: theirs.system }]);
     expect((await search.search({ text: 'secret trip plans', items: ['context'] }, asker)).items.map((h) => h.name)).not.toContain('hub/memory-theirs');
     expect((await search.search({ text: 'secret trip plans', items: ['context'] }, { actor: ActorId.parse('act_them'), access: openScope(ActorId.parse('act_them')) })).items.map((h) => h.name)).toContain('hub/memory-theirs');
+  });
+
+  // iteration 1 (2026-11-22): ordinary requests found authoring guides, API listings and admin fns before the fns they needed
+  it('ranks developer, admin and reference material below the rest unless the search names its niche', async () => {
+    const { store, catalog, indexer, search, asker } = await setup();
+    const travel = await catalog.context(q('notes/travel'));
+    if (travel === undefined) throw new Error('no travel context');
+    // a developer guide that matches the words better than the ordinary guide does
+    const authoring: ContextRecord = {
+      ...travel, name: q('notes/authoring.trips'), decl: { ...travel.decl, name: 'authoring.trips', description: 'Writing a trips system: trip and travel fns.', content: 'Trips, travel, trip.', niche: 'developer' },
+    };
+    await store.table('context').put(authoring);
+    await indexer.upsert([{ kind: 'context', key: authoring.name, text: contextText(authoring.name, authoring.decl), system: authoring.system }]);
+    const plain = await search.search({ text: 'trip travel', items: ['context'], systems: [SystemName.parse('notes')], match: 'text' }, asker);
+    expect(plain.items.map((h) => h.name)).toEqual(['notes/travel', 'notes/authoring.trips']);
+    expect(plain.items[1]).toMatchObject({ niche: 'developer' });
+    // ranks stay the place in the order, best first
+    expect((plain.items[0]?.rank ?? 0) > (plain.items[1]?.rank ?? 0)).toBe(true);
+    const asked = await search.search({ text: 'trip travel', items: ['context'], systems: [SystemName.parse('notes')], match: 'text', niches: ['developer'] }, asker);
+    expect(asked.items.map((h) => h.name)).toEqual(['notes/authoring.trips', 'notes/travel']);
+    // a fn tagged admin is admin material; the API listings the catalog writes are reference material
+    expect((await search.search({ names: [q('hub/budgets_list')] }, asker)).items[0]).toMatchObject({ niche: 'admin' });
+    expect((await search.search({ names: [q('hub/api')], items: ['context'] }, asker)).items[0]).toMatchObject({ niche: 'reference' });
+    expect((await search.search({ names: [q('books/overdue')] }, asker)).items[0]?.niche).toBeUndefined();
+  });
+
+  // iteration 1 (2026-11-22): the model's searches for web research found web/fetch_raw, which it can never load
+  it('never gives a model a fn whose visibility leaves the model out; people still find it', async () => {
+    const { store, catalog, search, asker } = await setup();
+    const trip = await catalog.fn(q('books/book_trip'));
+    if (trip === undefined) throw new Error('no book_trip');
+    await store.table('fns').put({ ...trip, decl: { ...trip.decl, visibility: 'none' } });
+    const query = { text: 'book travel for a trip', items: ['fn' as const] };
+    expect((await search.search(query, asker)).items.map((h) => h.name)).toContain('books/book_trip');
+    expect((await search.search(query, { ...asker, forModel: true })).items.map((h) => h.name)).not.toContain('books/book_trip');
+  });
+
+  it('moves niche hits down by the weight, keeping ties in order, and reads an admin tag as the admin niche', () => {
+    const at = (name: string, rank: number, niche?: Niche): FnSearchHit => ({
+      item: 'fn', name: q(name), system: SystemName.parse('a'), description: name, rank, available: true, ...(niche === undefined ? {} : { niche }),
+    });
+    const hits = [at('a/dev', 1, 'developer'), at('a/one', 0.9), at('a/admin', 0.8, 'admin'), at('a/two', 0.45)];
+    expect(nichesDown(hits, {}, 0.5).map((h) => [h.name, h.rank])).toEqual([['a/one', 0.9], ['a/dev', 0.5], ['a/two', 0.45], ['a/admin', 0.4]]);
+    expect(nichesDown(hits, { niches: ['developer'] }, 0.5).map((h) => h.name)).toEqual(['a/dev', 'a/one', 'a/two', 'a/admin']);
+    expect(nichesDown(hits, {}, 1).map((h) => h.name)).toEqual(['a/dev', 'a/one', 'a/admin', 'a/two']);
+    expect(nicheOf({ tags: ['admin'] })).toBe('admin');
+    expect(nicheOf({ tags: ['admin'], niche: 'reference' })).toBe('reference');
+    expect(nicheOf({ tags: ['read'] })).toBeUndefined();
   });
 
   it('ranks inside the database: a `within` list reaches the vector and text indexes', async () => {

@@ -25,16 +25,16 @@ describe('the query standard', () => {
 describe('the suggestions setting', () => {
   it('is one choice: no model, a decision model (its own or the decide role\'s) or an LLM, which needs a model', () => {
     expect(SUGGEST_DECISION_DEFAULT).toEqual({ by: 'none' });
-    expect(SuggestDecision.parse({ by: 'decision' })).toMatchObject({ by: 'decision', messages: 3, candidates: 20, cap: 6, floor: 0.35 });
+    expect(SuggestDecision.parse({ by: 'decision' })).toMatchObject({ by: 'decision', messages: 3, candidates: 20, cap: 6, floor: 0.2 });
     expect(SuggestDecision.safeParse({ by: 'llm' }).success).toBe(false);
     expect(SuggestDecision.parse({ by: 'llm', model: { model: { model: 'tiny' } } })).toMatchObject({ by: 'llm', model: { model: { model: 'tiny' } } });
   });
 
-  it('reads a setting stored before as today\'s: on with a model is an LLM, anything else none (no suggestions)', () => {
+  it('reads a setting stored before as today\'s: on with a model is an LLM, anything else none (no model)', () => {
     const legacy = { enabled: true, model: { model: { model: 'tiny' } }, messages: 2, candidates: 10, cap: 3, floor: 0.4 };
     expect(StoredSuggestDecision.parse(legacy)).toEqual({ by: 'llm', model: { model: { model: 'tiny' } }, messages: 2, candidates: 10, cap: 3, floor: 0.4 });
     expect(StoredSuggestDecision.parse({ ...legacy, enabled: false })).toEqual({ by: 'none' });
     expect(StoredSuggestDecision.parse({ enabled: true, messages: 3, candidates: 20, cap: 6, floor: 0.35 })).toEqual({ by: 'none' });
-    expect(StoredSuggestDecision.parse({ by: 'decision' })).toMatchObject({ by: 'decision', floor: 0.35 });
+    expect(StoredSuggestDecision.parse({ by: 'decision' })).toMatchObject({ by: 'decision', floor: 0.2 });
   });
 });

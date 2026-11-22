@@ -29,6 +29,7 @@ describe('adminReadOperations', () => {
       auto_pairs_list: () => ops.auto_pairs_list({ system: fs }, member),
       instances_list: () => ops.instances_list({ system: fs }, member),
       suggest_decision_get: () => ops.suggest_decision_get({}, member),
+      search_decision_get: () => ops.search_decision_get({}, member),
     };
     for (const [name, read] of Object.entries(reads)) {
       await expect(Promise.resolve().then(read), name).rejects.toMatchObject({ status: 403 });

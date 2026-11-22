@@ -110,8 +110,8 @@ export class StoreSessionService implements SessionService {
     by: ActorId,
   ): Promise<Session> {
     const session = await this.require(id, by);
-    const { notify, priority, model, mode, contextor, fnMode, instructions, ...owned } = patch;
-    const choices = model !== undefined || mode !== undefined || contextor !== undefined || fnMode !== undefined || instructions !== undefined;
+    const { notify, priority, model, mode, contextor, fnMode, instructions, citations, ...owned } = patch;
+    const choices = model !== undefined || mode !== undefined || contextor !== undefined || fnMode !== undefined || instructions !== undefined || citations !== undefined;
     if ((Object.keys(owned).length > 0 || priority !== undefined || choices) && session.owner !== by) { throw new ChatError('forbidden', 'Only the owner can change this session.'); }
     let participants = session.participants;
     if (notify !== undefined) { participants = participants.map((p) => (p.actor === by ? { ...p, notify } : p)); }
@@ -133,6 +133,8 @@ export class StoreSessionService implements SessionService {
       // the chat mode picker's choice (build 6 feedback: it was dropped here, so the picker never saved it)
       ...(fnMode === undefined || fnMode === null ? {} : { fnMode }),
       ...(instructions === undefined || instructions === null ? {} : { instructions }),
+      // "Use citations": the next message tells the model when it changed (`chat/cite-rule.ts`)
+      ...(citations === undefined ? {} : { citations }),
       participants,
     });
     const result = await this.#clear(updated, { model: model === null, mode: mode === null, contextor: contextor === null, fnMode: fnMode === null, instructions: instructions === null });

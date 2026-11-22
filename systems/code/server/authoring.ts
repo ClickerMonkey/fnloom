@@ -115,19 +115,27 @@ export const CODE_GUIDE = [
   `Example 3, signature (city: text) → text, after loading weather/forecast(city: text) → obj{summary: text}: ${JSON.stringify(CODE_EXAMPLES.callsFn.program)}`,
 ].join('\n');
 
+/** The `set` call the instructions show, whole: its one arg `draft` holds every part. */
+export const SET_EXAMPLE = { draft: { name: 'price_with_tax', description: 'The amount with tax at a percentage rate, and a note.', program: CODE_EXAMPLES.priceWithTax.program, sample: { amount: 100, rate: 8.25 } } };
+
 /** The agent's job, step by step. */
 const INSTRUCTIONS = [
-  'You write one code fn for the request below: a gin program over its args that may call other fns. Work through the tools in order; each step unlocks the next.',
+  'You write one code fn for the request below: a small program over its args that may call other fns, saved so a person can run it again. Programs are written in gin, a JSON expression language: you see how with the examples tool. You work only through your tools, in order; each step unlocks the next, and you finish by calling return (or reuse).',
   '',
-  '1. search with what the fn needs, in plain words: the fns it may call and code fns that may already do it. If a code fn already does the whole request, call reuse with its name and stop.',
-  '2. load the fns the program will call (only loaded fns can be called) and any named type you will build. Call examples once to see how programs are written.',
-  '3. signature: the args as an obj type (an optional arg wrapped as {"name":"optional","generic":{"T":…}}) and the result type.',
-  '4. set the whole draft: name (snake_case, after what it does), description (one sentence: what it gives and what its args are for), the program, and sample args with a value for every required arg.',
-  '   The draft is checked at once (and run with the sample when it calls no fn). Fix every problem listed and set it again, whole. A wrong result type means the program or the signature is wrong: fix the one that is.',
-  '5. When it is clean, test other args if an edge case matters, then call return. Answer in one line.',
+  '1. search {"text":"<what the fn needs, in a few words>"}: it lists fns the program may call and code fns that may already do it. If a code fn already does the whole request, call reuse {"fn":"<its name>"} and stop.',
+  '2. load {"fns":["<system/name>",…]} for each fn the program will call (only loaded fns can be called), and {"types":[…]} only for named types a load or search listed. Call examples ({}) once to see how programs are written.',
+  '3. signature {"args":<an obj type>,"returns":<a type>}: each arg a prop of the obj (an optional arg wrapped as {"name":"optional","generic":{"T":…}}). Keep it minimal: only the args the calculation needs, and a small result (a num or text is often enough).',
+  '4. set the whole draft. The set tool takes ONE arg, `draft`, holding all four parts: {"draft":{"name":…,"description":…,"program":…,"sample":…}}.',
+  '   name: snake_case, after what it does. description: one sentence, what it gives and what its args are for. program: one gin expression. sample: a value for every required arg, by name.',
+  '   The draft is checked at once (and run with the sample when it calls no fn). If it lists problems, each names a path: fix only that part and call set again with the whole draft. Never send the same draft twice.',
+  '   A wrong result type means the program or the signature is wrong: fix the one that is (declare the signature again if it changes).',
+  '5. When it is clean, test {"args":{…}} other args if an edge case matters (a missing optional arg), then call return ({}). Answer in one line.',
+  'If the request asks for something a program can\'t be (a page, a game, a screen, stored data) or the checks keep failing, stop and answer in one line saying what could not be written and why.',
   '',
-  'Example. For "a price with tax: amount and rate (a percentage), 100 at 8.25 gives 108.25": search "price with tax" finds nothing that fits, examples,',
-  `signature ${JSON.stringify(CODE_EXAMPLES.priceWithTax.signature)}, then set {"name":"price_with_tax","description":"The amount with tax at a percentage rate, and a note.","program":<example 1>,"sample":{"amount":100,"rate":8.25}}, then return.`,
+  'Example. For "a price with tax: amount and rate (a percentage), 100 at 8.25 gives 108.25": search {"text":"price with tax"} finds nothing that fits; examples {};',
+  `signature ${JSON.stringify(CODE_EXAMPLES.priceWithTax.signature)};`,
+  `set ${JSON.stringify(SET_EXAMPLE)};`,
+  'then return {}.',
 ].join('\n');
 
 /** The fn's call as the chat model writes it. */

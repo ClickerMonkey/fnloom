@@ -16,6 +16,9 @@ import { system } from '@harness/sdk';
 /** The template system's contract. */
 export const template = system('template', {
   description: 'TODO: what this system offers, in one sentence.',
+  // about: what the chat model is told about it in its <systems> list, in place of the description: what it is for,
+  // what sort of fns it has, its fn kinds and what authoring one gives the person, and when to reach for it. Write it
+  // for a model that has never seen this app. TODO: write it, or delete this comment.
   // TODO: what it may do through the hub (HUB_CAPABILITIES); the example agent uses a model and reads a setting
   grants: { hub: ['ai', 'settings'] },
   // groups: its API groups, each `{ name, title, description }`; the hub indexes its fns by them (`<system>/api`,

@@ -432,6 +432,9 @@ import { system } from '@harness/sdk';
 /** The template system's contract. */
 export const template = system('template', {
   description: 'TODO: what this system offers, in one sentence.',
+  // about: what the chat model is told about it in its <systems> list, in place of the description: what it is for,
+  // what sort of fns it has, its fn kinds and what authoring one gives the person, and when to reach for it. Write it
+  // for a model that has never seen this app. TODO: write it, or delete this comment.
   // TODO: what it may do through the hub (HUB_CAPABILITIES); the example agent uses a model and reads a setting
   grants: { hub: ['ai', 'settings'] },
   // groups: its API groups, each `{ name, title, description }`; the hub indexes its fns by them (`<system>/api`,
@@ -701,6 +704,8 @@ export const fs = system('fs', { description: 'Files and a shell.' })
 ```ts
 interface SystemContract<N extends string, C extends ContractShape> extends SystemRefs<N, C> {
   readonly description: string;
+  /** What the chat model is told about it in its `<systems>` list (`SystemInfo.about`); absent, its description. */
+  readonly about: string | undefined;
   /** Registries it hosts, by local name. */
   readonly registries: Readonly<Record<string, RegistryDef>>;
   /** Entries it adds to registries, its own or another system's. */
@@ -868,6 +873,13 @@ What `system()` takes besides its name.
 ```ts
 interface SystemInfo {
   description: string;
+  /**
+   * What a chat model that has never seen this app is told about the system in its system prompt's `<systems>` list,
+   * in place of the one-line `description`: what it is for, what sort of fns it has, whether it defines fn kinds and
+   * what authoring one gives the person, and when to reach for it (and when not). A few plain sentences; the hub
+   * shows it as written. Absent, the list shows `description`.
+   */
+  about?: string;
   /**
    * Registries this system hosts, by local name. Any system, this one included, adds entries from its client bundle
    * (`client({ visuals })`) and lists them in `contributes`.
@@ -5554,7 +5566,7 @@ This is the hub contract as the SDK declares it now:
 
 #### Fns of `hub`
 
-- `hub/load_fns`: Add fns to your toolset for this session. Tags: `read`.
+- `hub/load_fns`: Add fns to your tools for the rest of this chat, by their full names (`system/name`): each becomes a tool you can call from your next step. Tags: `read`.
 
   ```text
   (obj{fns: list<text>{minLength=1}}) => obj{ loaded, refused, cards … }
@@ -5567,9 +5579,9 @@ This is the hub contract as the SDK declares it now:
 - `hub/fns_search`: Search fns and context in the hub by words, meaning or both, best first or by name, filtered by kind, system, instance, who shares them, the types they read or write and their mode, a page at a time. Tags: `read`.
 
   ```text
-  (obj{ text?, match?, items?, kinds?, systems?, instance?, visibility?, types?, modes?, effects?, names?, available?, order?, offset?, limit? … }) => obj{ items, next? … }
+  (obj{ text?, match?, items?, kinds?, systems?, instance?, visibility?, types?, modes?, effects?, names?, available?, niches?, order?, offset?, limit? … }) => obj{ items, next?, filtered? … }
   ```
-- `hub/fn_examples`: A page of a fn's examples (args, the result when kept, and what each shows), the closest to a query first. Tags: `read`.
+- `hub/fn_examples`: A page of one fn's example calls (its args, the result when kept, and what each shows), the closest to what you are about to do first. Tags: `read`.
 
   ```text
   (obj{
@@ -5596,7 +5608,7 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{ kind, name, description, instructions?, payload, examples?, tags?, share?, routing?, replace? … }) => obj{fn: text, version: num{min=1, whole=true}, created: bool}
   ```
-- `hub/load_context`: Load context into this session. Tags: `read`.
+- `hub/load_context`: Load context items (guides, memories, pieces of files) into this chat by their full names: their text is in your prompt from your next step, with what they import, and the fns they bring join your tools. Tags: `read`.
 
   ```text
   (obj{context: list<text>{minLength=1}}) => obj{ loaded, fns, fnsRefused, refused, cards … }
@@ -5622,7 +5634,7 @@ This is the hub contract as the SDK declares it now:
     limit?: num{min=1, max=50, whole=true}
   }) => list<obj{uri: text, section?: text, title: text, preview: text, rank: num}>
   ```
-- `hub/run_status`: The status of a run, with its progress or result. Tags: `read`.
+- `hub/run_status`: The status of one run (one call of a fn): running, waiting (for approval or for a form), done with its result, failed with its error, or cancelled, with its progress. Tags: `read`.
 
   ```text
   (obj{run: text}) => obj{
@@ -5648,7 +5660,7 @@ This is the hub contract as the SDK declares it now:
     }
   }
   ```
-- `hub/run_wait`: Wait for a run (for example one moved to the background) to finish. Tags: `read`.
+- `hub/run_wait`: Wait for one run (such as a call that went to the background) to finish, up to a timeout, and give its result. Tags: `read`.
 
   ```text
   (obj{
@@ -5676,12 +5688,12 @@ This is the hub contract as the SDK declares it now:
     }
   }
   ```
-- `hub/ask_user`: Ask a person a question and wait for the answer. Tags: `read`.
+- `hub/ask_user`: Ask a person one plain question and wait for their answer: your call stays open until they reply, and the reply is its result. Tags: `read`.
 
   ```text
   (obj{question: text, user?: text}) => obj{answer: text}
   ```
-- `hub/inspect`: Look at one item at a detail: a fn's card, a context item's text, a type's definition, or a resource's outline. Tags: `read`.
+- `hub/inspect`: Look at one item by its full name, at a detail: a fn's card, a context item's text, a type's definition, or a resource's outline. Tags: `read`.
 
   ```text
   (obj{
@@ -5694,7 +5706,7 @@ This is the hub contract as the SDK declares it now:
     text: text
   }
   ```
-- `hub/load`: Keep fns (as cards) and context (as text) in front of you from the next step on. Tags: `read`.
+- `hub/load`: Keep fns (as cards) and context items (as text) in your prompt from the next step on, by their full names. Tags: `read`.
 
   ```text
   (obj{
@@ -5723,7 +5735,7 @@ This is the hub contract as the SDK declares it now:
     form?: enum<text>{markdown, text, code, pages, table, description, ocr, transcript, thumbnail}
   }>
   ```
-- `hub/resource_send`: Show a resource (or one section) to yourself at the next step as the model can take it: text, an image, audio or a file. Tags: `read`.
+- `hub/resource_send`: Show yourself a resource (or one section of it) as it is, at your next step: an image you can see, audio, a PDF page or text. Tags: `read`.
 
   ```text
   (obj{uri: text, section?: text{minLength=1}}) => obj{
@@ -5809,7 +5821,7 @@ This is the hub contract as the SDK declares it now:
     days?: num{whole=true, min=1, max=365}
   }) => list<obj{ fn, system, from, to, runs, outcomes, p50?, p95?, averageQueued?, averageCost, cost, tokens, retries, lastRunAt? … }>
   ```
-- `hub/sessions_list`: Chat sessions, most recent first. Tags: `read`.
+- `hub/sessions_list`: The person's chats (sessions), most recent first, each with its id, title and when it was last used. Tags: `read`.
 
   ```text
   (obj{ cursor?, limit?, query? … }) => obj{
@@ -5838,12 +5850,12 @@ This is the hub contract as the SDK declares it now:
 - `hub/systems_list`: Every system: whether it is connected, its version, instances and what it offers. Tags: `read`.
 
   ```text
-  (obj{ query? … }) => list<obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, stage?, keyFingerprint, config?, installed?, host?, pairedAt?, pairedBy?, lastSeenAt?, address?, counts, instanceMode, needsConfig, configType?, configSecrets?, instances … }>
+  (obj{ query? … }) => list<obj{ name, description, about?, status, enabled, version, manifestHash, defaultInstance?, actor, stage?, keyFingerprint, config?, installed?, host?, pairedAt?, pairedBy?, lastSeenAt?, address?, counts, instanceMode, needsConfig, configType?, configSecrets?, instances … }>
   ```
 - `hub/system_get`: One system: its status, version, instances, config state and what it offers. Tags: `read`.
 
   ```text
-  (obj{system: text}) => obj{ name, description, status, enabled, version, manifestHash, defaultInstance?, actor, stage?, keyFingerprint, config?, installed?, host?, pairedAt?, pairedBy?, lastSeenAt?, address?, counts, instanceMode, needsConfig, configType?, configSecrets?, instances … }
+  (obj{system: text}) => obj{ name, description, about?, status, enabled, version, manifestHash, defaultInstance?, actor, stage?, keyFingerprint, config?, installed?, host?, pairedAt?, pairedBy?, lastSeenAt?, address?, counts, instanceMode, needsConfig, configType?, configSecrets?, instances … }
   ```
 - `hub/system_fns`: A system's fns, with whether each can be used now and its running numbers. Tags: `read`.
 
@@ -5893,7 +5905,7 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{ cursor?, limit?, system, section, name … }) => obj{ items, cursor? … }
   ```
-- `hub/resource_convert`: Make a form of a resource now (convert it, describe an image, read the text in it, transcribe audio); it may cost a model call.
+- `hub/resource_convert`: Make another form of a resource now (a document as markdown, a description of an image, the text read from an image, a transcript of audio); it may cost a model call.
 
   ```text
   (obj{
@@ -5952,7 +5964,7 @@ This is the hub contract as the SDK declares it now:
     suggest?: enum<text>{user, llm, both, none}
   }) => obj{created: list<text>, updated: list<text>, links: num{whole=true, min=0}}
   ```
-- `hub/remember`: Remember something for later as a memory: for this session, the person, or everyone.
+- `hub/remember`: Keep a fact for later as a memory (a context item): for this chat, for the person in all their chats, or for everyone.
 
   ```text
   (obj{ text, title?, scope?, about?, weight?, summary?, tags?, fns?, suggestFns?, alwaysFor?, command?, visible?, suggest?, parent? … }) => obj{name: text}
@@ -5969,12 +5981,12 @@ This is the hub contract as the SDK declares it now:
     agent?: text,
     systems?: or<list<text>, literal<text>{value="all"}>,
     title?: text
-  }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, systems, instructions?, selection?, participants, forkOf?, fork?, tools, context, suggested?, announcedSystems?, status, transcript, createdAt, updatedAt, archived … }
+  }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, systems, instructions?, citations?, selection?, participants, forkOf?, fork?, tools, context, suggested?, announcedSystems?, citationsTold?, status, transcript, createdAt, updatedAt, archived … }
   ```
 - `hub/session_update`: Change a session: its title, systems, agent, priority, model, chat mode or contextor, or archive it.
 
   ```text
-  (obj{ title?, systems?, agent?, archived?, priority?, notify?, model?, mode?, contextor?, fnMode?, instructions?, session … }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, systems, instructions?, selection?, participants, forkOf?, fork?, tools, context, suggested?, announcedSystems?, status, transcript, createdAt, updatedAt, archived … }
+  (obj{ title?, systems?, agent?, archived?, priority?, notify?, model?, mode?, contextor?, fnMode?, instructions?, citations?, session … }) => obj{ id, title, owner, agent, model?, mode?, contextor?, fnMode?, systems, instructions?, citations?, selection?, participants, forkOf?, fork?, tools, context, suggested?, announcedSystems?, citationsTold?, status, transcript, createdAt, updatedAt, archived … }
   ```
 - `hub/session_delete`: Delete a session and its messages.
 
@@ -5986,7 +5998,7 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{/* run id */ run: text}) => obj{accepted: bool}
   ```
-- `hub/turn_undo`: Undo what one message's runs did, where their fns can undo.
+- `hub/turn_undo`: Undo what one message's runs did, where their fns can undo, and take the message out of the chat.
 
   ```text
   (obj{/* turn id */ turn: text}) => obj{ turn, undone, failed, notUndoable, kept?, session? … }
@@ -6064,7 +6076,7 @@ This is the hub contract as the SDK declares it now:
     cursor?: text
   }
   ```
-- `hub/explore_read`: One file's text (or its bytes by content ref) or its links, live, without keeping it in the hub. Tags: `read`.
+- `hub/explore_read`: One file's text (or its bytes by content ref) or its links, live from the system that serves it, without keeping it in the hub. Tags: `read`.
 
   ```text
   (obj{
@@ -6509,10 +6521,15 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{system: text, instance: text}) => obj{ok: bool}
   ```
-- `hub/suggest_decision_set`: Choose who picks what each message is offered: none (no suggestions at all), a decision model (one yes/no question per candidate, the decide role's threshold), or an LLM; and how many candidates it sees and picks. Tags: `admin`.
+- `hub/suggest_decision_set`: Choose who picks what each message is offered: none (no model: the best by similarity over the threshold), a decision model (one yes/no question per candidate, the decide role's threshold), or an LLM; and how many candidates it sees and picks. Tags: `admin`.
 
   ```text
   (obj{ by, messages?, candidates?, cap?, floor?, model? … }) => obj{ value, setBy?, updatedAt? … }
+  ```
+- `hub/search_decision_set`: Choose who filters search hits before they are returned, for fns or for context: none (as ranked), a decision model (one yes/no question per hit, kept at the decide role's threshold) or an LLM. Tags: `admin`.
+
+  ```text
+  (obj{ item, value … }) => obj{ fn, context … }
   ```
 - `hub/auto_pair_revoke`: Revoke an auto-pair secret, so its instance must pair again by code or token. Tags: `admin`.
 
@@ -6656,10 +6673,15 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{system: text}) => list<obj{ system, instance, description, status, keyFingerprint, version, manifestHash, config?, installed?, host?, dirs?, pairedAt?, pairedBy?, lastSeenAt?, address?, connect? … }>
   ```
-- `hub/suggest_decision_get`: The suggestions setting: who picks what each message is offered (a decision model, an LLM, or none for no suggestions), and its limits. Tags: `admin`, `read`.
+- `hub/suggest_decision_get`: The suggestions setting: who picks what each message is offered (a decision model, an LLM, or none: the best by similarity over the threshold), and its limits. Tags: `admin`, `read`.
 
   ```text
   (obj) => obj{ value, setBy?, updatedAt? … }
+  ```
+- `hub/search_decision_get`: The search decisions: who filters search hits before they are returned, for fns and for context (none, a decision model or an LLM). Tags: `admin`, `read`.
+
+  ```text
+  (obj) => obj{ fn, context … }
   ```
 
 #### Kinds of `hub`
@@ -6813,6 +6835,7 @@ const ADMIN_ENDPOINTS = {
   remove_instance: packagingSlice.endpoints.removeInstance,
   export_system_data: packagingSlice.endpoints.exportSystemData,
   suggest_decision_set: suggestionsSlice.endpoints.setSuggestDecision,
+  search_decision_set: suggestionsSlice.endpoints.setSearchDecision,
   auto_pair_revoke: autoPairSlice.endpoints.revokeAutoPair,
   system_reimport: systemsSlice.endpoints.reimport,
 } as const satisfies Record<string, EndpointLike>;
@@ -7004,6 +7027,7 @@ const ADMIN_READ_ENDPOINTS = {
   auto_pairs_list: autoPairSlice.endpoints.autoPairs,
   instances_list: packagingSlice.endpoints.instances,
   suggest_decision_get: suggestionsSlice.endpoints.suggestDecision,
+  search_decision_get: suggestionsSlice.endpoints.searchDecisions,
 } as const satisfies Record<string, EndpointLike>;
 ```
 
@@ -15055,7 +15079,7 @@ The fs system (`systems/fs`) gives agents files and a shell over chosen folders.
 real system's declarations: a named type with a method, a setting, an attachment, fns with status words, undo, state,
 progress and handlers, a hook, a mention provider, static and dynamic context, and an agent.
 
-#### `systems/fs/shared/index.ts`, lines 1-212
+#### `systems/fs/shared/index.ts`, lines 1-189
 
 ```ts
 /**
@@ -15136,7 +15160,7 @@ export const DiffData = g.obj({ path: g.text(), before: g.text(), after: g.text(
 export const FileTarget = g.obj({ root: g.text(), path: g.text() });
 
 /** How fns take a path: absolute inside a root, or relative to the first root (or to a root named first). */
-const PATH_DOCS = 'Absolute, or relative to a root: `docs/a.md` is in the first root, `<root name>/docs/a.md` in the named one.';
+const PATH_DOCS = 'A path inside one of the folders this system serves (its roots): relative to the first root (`docs/a.md`), starting with a root\'s name (`<root name>/docs/a.md`), or absolute inside a root. `/` and folders outside the roots are refused; `.` is the first root.';
 const path = () => g.field(g.text({ minLength: 1 }), { docs: PATH_DOCS });
 
 /** The shortest timeout `bash` accepts, in milliseconds; a shorter one is refused as invalid input. */
@@ -15145,6 +15169,13 @@ export const COMMAND_TIMEOUT_MIN = 1_000;
 /** The fs system's contract. */
 export const fs = system('fs', {
   description: 'Files and a shell over chosen folders, served as resources. Can restart itself.',
+  about: [
+    'Files and a shell over a few folders of the person\'s machine that an admin chose (its roots); nothing outside them can be reached, and `/` is not a root: paths are relative to the first root (`notes/todo.md`) or start with a root\'s name.',
+    'Its fns read, list and search files (fs/read, fs/list, fs/glob, fs/grep), change them (fs/write, fs/edit, fs/remove: each may ask the person first, and each can be undone) and run bash commands (fs/bash, fs/cd).',
+    'Reach for it to look at or change the person\'s files, and to keep a lasting document they can open later (a note, a recipe, a list) as a markdown file. It defines no fn kinds.',
+    'A file the person attached to a chat message is not an fs file: it is a hub resource, read with the hub\'s resource fns. Its fns for installing and hosting systems (fs/install_system, fs/system_status, fs/restart_system, fs/stop_system, fs/restart) are for admins and system authors.',
+    'Load its guide (fs/guide) before the first file change.',
+  ].join(' '),
   // its authoring agents use models; installs wait for an admin and pair what they start; it keeps each person's cwd,
   // reads the shell setting, serves and announces resources, and shares the fns it writes
   grants: { hub: ['ai', 'approvals', 'fns', 'state', 'settings', 'resources', 'search'], calls: ['hub/search_resources'] },
@@ -15190,8 +15221,8 @@ export const fs = system('fs', {
     fns: {
       read: fn({
         group: 'files',
-        description: 'Read a text file, or part of it by line.',
-        instructions: 'Read a file before you change or explain it. Paths are relative to a root (`src/app.ts`) or start with a root\'s name when there are several. For a long file read a window with `offset` (the first line, from 0) and `limit` (how many lines); `truncated` says more follows. Binary files are refused: use the resource tools for those.',
+        description: 'Read a text file under the roots, whole or a window of its lines. Gives its text, how many lines it has, and whether more follows.',
+        instructions: 'Read a file before you change it or say what is in it; never describe a file you have not read. Paths are relative to the first root (`src/app.ts`) or start with a root\'s name when there are several. For a long file read a window with `offset` (the first line, counted from 0) and `limit` (how many lines); `truncated: true` means more follows. Binary files (PDFs, images) are refused: read those with hub/resource_read or hub/resource_send. A file attached to a chat message is not here: it is a hub resource.',
         examples: [
           { args: { path: 'README.md' }, note: 'The whole file.' },
           { args: { path: 'src/server/main.ts', offset: 120, limit: 60 }, note: 'Lines 121 to 180 of a long file.' },
@@ -15211,8 +15242,8 @@ export const fs = system('fs', {
       }),
       write: fn({
         group: 'files',
-        description: 'Write a file, creating it if needed.',
-        instructions: 'Use it for a new file, or to replace a whole small file. For a change to an existing file use edit, so the rest stays as it is. Folders are made as needed. The old content is kept, so the write can be undone.',
+        description: 'Write a whole file under the roots, creating it (and its folders) if needed. Gives whether it was created or replaced.',
+        instructions: 'Use it for a new file (a note, a list, a recipe the person wants to keep as a document), or to replace a whole small file. To change part of an existing file use fs/edit, so the rest stays as it is. It may ask the person first; the old content is kept, so the write can be undone. Tell the person the path you wrote, so they can find it.',
         examples: [{ args: { path: 'notes/todo.md', text: '# To do\n\n- Write the tests\n' }, result: { created: true }, note: 'A new file.' }],
         effects: { mode: 'write', free: true },
         // the hub asks which sensitive files a call touches first (server/sensitive.ts)
@@ -15231,8 +15262,8 @@ export const fs = system('fs', {
       }),
       edit: fn({
         group: 'files',
-        description: 'Replace exact text in a file.',
-        instructions: 'Read the file first and copy `find` exactly as it is there, spaces and line breaks included, with enough around it to be unique; the edit fails when it matches nothing or (without `all`) more than once. Set `all` to replace every match (renaming a word). It can be undone.',
+        description: 'Change part of a file: replace exact text with new text. Gives how many places were replaced.',
+        instructions: 'Read the file first (fs/read) and copy `find` exactly as it is there, spaces and line breaks included, with enough around it to be unique; the edit fails when it matches nothing or (without `all`) more than once. Set `all` to replace every match (renaming a word). It can be undone.',
         examples: [
           { args: { path: 'src/config.ts', find: 'timeout: 30_000,', replace: 'timeout: 60_000,' }, result: { replacements: 1 } },
           { args: { path: 'docs/guide.md', find: 'colour', replace: 'color', all: true }, result: { replacements: 4 }, note: 'Every match.' },
@@ -15240,6 +15271,11 @@ export const fs = system('fs', {
         effects: { mode: 'write', free: true },
         // the hub asks which sensitive files a call touches first (server/sensitive.ts)
         flags: true,
+```
+
+#### `systems/fs/shared/index.ts`, lines 190-370
+
+```ts
         args: g.obj({ path: path(), find: g.text({ minLength: 1 }), replace: g.text(), all: g.optional(g.bool()) }),
         // two changes to one file in the same step run in the model's order (server/impl.ts fileClaims)
         dynamicClaims: true,
@@ -15254,8 +15290,8 @@ export const fs = system('fs', {
       }),
       list: fn({
         group: 'files',
-        description: 'List a folder.',
-        instructions: 'Use it to see what a folder holds before guessing names. `depth` 2 or more lists inside subfolders too (up to 5); prefer glob to find files by name anywhere. `.` is the root.',
+        description: 'List what a folder under the roots holds: each file and folder with its type, size and when it changed.',
+        instructions: 'Use it to see what a folder holds before guessing names. `.` is the first root; `/` is not a folder you can list (it is outside the roots), so start from `.` or a root\'s name. `depth` 2 or more lists inside subfolders too (up to 5); to find files by name anywhere use fs/glob. `hidden` counts sensitive files left out.',
         examples: [{ args: { path: '.' }, note: 'The root\'s top level.' }, { args: { path: 'src', depth: 2 } }],
         effects: { mode: 'read', free: true },
         // the hub asks which sensitive files a call touches first (server/sensitive.ts)
@@ -15270,15 +15306,10 @@ export const fs = system('fs', {
         },
         tags: ['read'],
       }),
-```
-
-#### `systems/fs/shared/index.ts`, lines 213-416
-
-```ts
       glob: fn({
         group: 'files',
-        description: 'Find paths matching a glob.',
-        instructions: 'Use it to find files by name or path. The pattern is relative to the root (every root when none is given); a pattern without `/`, like `*.md`, matches file names at any depth; `**` matches any folders. Folders the system ignores (node_modules, .git) are left out.',
+        description: 'Find files by name or path with a glob pattern (`*.md`, `src/**/*.ts`). Gives the matching paths.',
+        instructions: 'Use it to find files by name or path when you don\'t know where they are. The pattern is relative to the root (every root when none is given); a pattern without `/`, like `*.md`, matches file names at any depth; `**` matches any folders. Folders the system ignores (node_modules, .git) are left out.',
         examples: [
           { args: { pattern: '*.md' }, note: 'Every markdown file.' },
           { args: { pattern: 'src/**/*.test.ts', root: 'app' }, note: 'Tests under src in one root.' },
@@ -15298,11 +15329,12 @@ export const fs = system('fs', {
       }),
       grep: fn({
         group: 'files',
-        description: 'Search file contents with a regular expression.',
-        instructions: 'Use it to find where something is used or defined before reading files. The pattern is a JavaScript regular expression tested on each line (escape `.`, `(` and the like). Narrow big searches with `glob` (`*.ts`, `src/**/*.vue`) and `limit`. Each match gives the path and line, so read around it next.',
+        description: 'Search the text inside files for a regular expression, line by line. Gives each matching line with its path and line number.',
+        instructions: 'Use it to find which files mention something before reading them. The pattern is a JavaScript regular expression (the syntax of `new RegExp(pattern)`, no flags), tested on each line: escape `.`, `(`, `?` and the like with a backslash. It is case-sensitive, and inline flags such as `(?i)` are invalid in this syntax: for either case write a character class (`[Gg]rocer`) or both spellings (`Milk|milk`). A match never spans two lines. Narrow big searches with `glob` (`*.md`, `src/**/*.vue`) and `limit`. Each match gives the path and line, so read around it next with fs/read.',
         examples: [
           { args: { pattern: 'function createHub\\(', glob: '*.ts' }, note: 'Where a function is defined.' },
           { args: { pattern: 'TODO|FIXME', glob: 'src/**', limit: 50 } },
+          { args: { pattern: '[Ff]lour', glob: '*.md' }, note: 'Either case: a character class, since `(?i)` is not allowed.' },
         ],
         effects: { mode: 'read', free: true },
         // the hub asks which sensitive files a call touches first (server/sensitive.ts)
@@ -15320,8 +15352,8 @@ export const fs = system('fs', {
       }),
       cd: fn({
         group: 'shell',
-        description: 'Change the working folder for later commands in this chat.',
-        instructions: 'Set it once instead of passing `cwd` to every bash call; it lasts for this chat. The folder must be inside a root.',
+        description: 'Set the working folder that later fs/bash commands in this chat run in. Gives the folder now set.',
+        instructions: 'Set it once instead of passing `cwd` to every fs/bash call; it lasts for this chat (undoing the turn puts it back). The folder must be inside a root.',
         examples: [{ args: { path: 'packages/web' }, result: { cwd: 'packages/web' } }],
         effects: { mode: 'read', free: true },
         args: g.obj({ path: path() }),
@@ -15332,8 +15364,8 @@ export const fs = system('fs', {
       }),
       bash: fn({
         group: 'shell',
-        description: 'Run a shell command. It runs in the working folder set with cd unless cwd is given.',
-        instructions: 'Use it to build, test, run git or any tool the files need; prefer read, grep and glob to look at files. Commands your shell setting does not mark safe ask the person first. Give a `timeout` for long builds. Check `exitCode` and `stderr`: a non-zero exit is a failed command, not a failed call. `changes` lists the files the command changed (with diffs in git), so you need not run git diff to see them.',
+        description: 'Run a bash command on the machine fs runs on, in the working folder set with fs/cd unless `cwd` is given. Gives its exit code, what it printed (stdout, stderr) and the files it changed.',
+        instructions: 'The shell is bash (Git Bash on Windows when it is installed), not PowerShell or cmd: write POSIX commands (`ls`, `grep`, `&&`, forward slashes). Use it to build, test, run git or a program the files need; to look at files prefer fs/read, fs/grep and fs/glob, and to change them fs/write and fs/edit (those can be undone; what a command does cannot). Commands your shell setting does not mark safe ask the person first. Give a `timeout` for long builds. Check `exitCode` and `stderr`: a non-zero exit is a failed command, not a failed call. `changes` lists the files the command changed (with diffs in git), so you need not run git diff to see them.',
         examples: [
           { args: { command: 'git status --short' }, note: 'What changed.' },
           { args: { command: 'npm test -- --run src/app.test.ts', timeout: 120_000 }, note: 'One test file, with two minutes.' },
@@ -15364,8 +15396,8 @@ export const fs = system('fs', {
       }),
       remove: fn({
         group: 'files',
-        description: 'Delete a file.',
-        instructions: 'Only for a file the person asked to delete or one you made and no longer need. Folders are refused. The content is kept, so it can be undone.',
+        description: 'Delete one file under the roots. Gives whether it was removed.',
+        instructions: 'Only for a file the person asked to delete, or one you made and no longer need. Folders are refused. It may ask the person first; the content is kept, so undoing the turn puts the file back.',
         examples: [{ args: { path: 'notes/scratch.md' }, result: { removed: true } }],
         effects: { mode: 'delete', free: true },
         // the hub asks which sensitive files a call touches first (server/sensitive.ts)
@@ -15425,6 +15457,11 @@ export const fs = system('fs', {
         },
         tags: ['admin', 'systems'],
       }),
+```
+
+#### `systems/fs/shared/index.ts`, lines 371-513
+
+```ts
       system_status: fn({
         group: 'systems',
         description: 'The systems this machine hosts: each one\'s state, version, process, restarts in the last hour and the end of its output.',
@@ -15479,11 +15516,6 @@ export const fs = system('fs', {
     hooks: { git: hook({ description: 'Adds the current branch and the changed files.', order: 50, timeout: 500 }) },
   })
   // mentions, context and the agent use the types and fns declared above
-```
-
-#### `systems/fs/shared/index.ts`, lines 417-499
-
-```ts
   .with(({ fns, types }) => ({
     mentions: {
       // chips and cards show as Entry: its label, icon and color, and its reveal method on the card
@@ -15491,12 +15523,18 @@ export const fs = system('fs', {
     },
     context: {
       guide: context({
-        description: 'How to work with files here: read before editing, prefer edit over write.',
+        description: 'How to work with the person\'s files: find, read, then change; keeping notes and lists as files; running commands.',
         content: [
-          'Read a file before editing it. Use edit for small changes and write only for new files. Search with grep and glob before guessing paths, and list to see a folder.',
-          'Run builds, tests and git with bash (set the folder once with cd); a command your shell setting does not mark safe asks the person first.',
-          'Delete with remove only what the person asked for. Writes, edits and deletes can be undone.',
-        ].join(' '),
+          'The fs system works only inside the folders an admin chose (its roots). Paths are relative to the first root (`notes/todo.md`), or start with a root\'s name when there are several; `/` is outside the roots and is refused. Start with fs/list on `.` to see the first root.',
+          '',
+          'To find something: fs/glob finds files by name (`*.md`, `recipes/**`), fs/grep finds lines inside files by a regular expression (case-sensitive; write `[Ss]oup` for either case, never `(?i)`), fs/list shows one folder. Don\'t guess a path: look first.',
+          'To read: fs/read, a window at a time for long files (`offset`, `limit`). Say only what you read.',
+          'To change: fs/edit replaces exact text (copy `find` from what fs/read gave, spaces included); fs/write writes a whole new file; fs/remove deletes one file. Each may ask the person first, and each can be undone with the turn.',
+          'To keep a document for the person (a shopping list, a recipe, notes from this chat): write a markdown file, for example fs/write with {"path":"notes/shopping-list.md","text":"# Shopping list\\n\\n- Milk\\n- Eggs\\n"}, then tell them the path. Check the result (`created`) before saying it is saved.',
+          'To run a program, a build, tests or git: fs/bash runs a bash command (not PowerShell); set the folder once with fs/cd. Check `exitCode`: anything but 0 means the command failed. A command your shell setting does not mark safe asks the person first, and what it changes can\'t be undone.',
+          '',
+          'A file the person attached to a chat message is a hub resource, not an fs file: read it with hub/resource_read or look at it with hub/resource_send, not fs/read.',
+        ].join('\n'),
         // the guide brings the fns it is about, so finding it finds them
         fns: [fns.read, fns.list, fns.glob, fns.grep, fns.edit, fns.write, fns.bash, fns.cd, fns.remove],
       }),
@@ -17976,6 +18014,7 @@ type ContextFileHeader = {
     weight: number;
   }[] | undefined;
   weight?: number | undefined;
+  niche?: "admin" | "developer" | "reference" | undefined;
   next?: `${string}/${string}` | undefined;
   command?: {
     name: string;
@@ -18477,6 +18516,7 @@ type FnSearchArgs = {
     kind?: string | undefined;
   }[] | undefined;
   available?: boolean | undefined;
+  niches?: ("admin" | "developer" | "reference")[] | undefined;
   order?: "name" | "rank" | undefined;
 };
 ```
@@ -18485,7 +18525,8 @@ type FnSearchArgs = {
 
 const, type · declared in `packages/core/src/fn-facts.ts`
 
-A page of hits; `next` is the offset of the next page, absent on the last.
+A page of hits; `next` is the offset of the next page, absent on the last. `filtered`: what the admin's search
+decisions dropped from this page (a page can then hold fewer hits than its limit while another follows).
 
 ```ts
 type FnSearchPage = {
@@ -18508,6 +18549,7 @@ type FnSearchPage = {
       path: string[];
       title: string;
     } | undefined;
+    niche?: "admin" | "developer" | "reference" | undefined;
     blocked?: {
       code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
       reason: string;
@@ -18515,6 +18557,16 @@ type FnSearchPage = {
     } | undefined;
   }[];
   next?: number | undefined;
+  filtered?: {
+    item: "fn" | "context";
+    by: "llm" | "decision";
+    dropped: {
+      name: `${string}/${string}`;
+      note?: string | undefined;
+    }[];
+    calls?: string[] | undefined;
+    failed?: string | undefined;
+  }[] | undefined;
 };
 ```
 
@@ -18570,6 +18622,7 @@ type FnSearchQuery = {
   })[] | undefined;
   off?: boolean | undefined;
   available?: boolean | undefined;
+  niches?: ("admin" | "developer" | "reference")[] | undefined;
   order?: "name" | "rank" | undefined;
   offset?: number | undefined;
   limit?: number | undefined;
@@ -18987,6 +19040,7 @@ type PreviewAnswer = {
       resume?: TypeDef<any> | undefined;
       state?: TypeDef<any> | undefined;
       form?: TypeDef<any> | undefined;
+      niche?: "admin" | "developer" | "reference" | undefined;
       examples?: {
         args: z.core.util.JSONType;
         result?: z.core.util.JSONType | undefined;
@@ -19051,6 +19105,7 @@ type PreviewAnswer = {
           required: boolean;
         }[];
       } | undefined;
+      niche?: "admin" | "developer" | "reference" | undefined;
       weight?: number | undefined;
       summary?: string | undefined;
       parent?: `${string}/${string}` | undefined;
@@ -19266,6 +19321,7 @@ type PreviewAnswer = {
       title: string;
       description: string;
     }[] | undefined;
+    about?: string | undefined;
   } | undefined;
 } | {
   refused: string;
@@ -19889,6 +19945,7 @@ type ContextDecl = {
       required: boolean;
     }[];
   } | undefined;
+  niche?: "admin" | "developer" | "reference" | undefined;
   weight?: number | undefined;
   summary?: string | undefined;
   parent?: `${string}/${string}` | undefined;
@@ -19989,6 +20046,7 @@ type FnDecl = {
   resume?: TypeDef<any> | undefined;
   state?: TypeDef<any> | undefined;
   form?: TypeDef<any> | undefined;
+  niche?: "admin" | "developer" | "reference" | undefined;
   examples?: {
     args: z.core.util.JSONType;
     result?: z.core.util.JSONType | undefined;
@@ -20458,6 +20516,7 @@ type Manifest = {
     resume?: TypeDef<any> | undefined;
     state?: TypeDef<any> | undefined;
     form?: TypeDef<any> | undefined;
+    niche?: "admin" | "developer" | "reference" | undefined;
     examples?: {
       args: z.core.util.JSONType;
       result?: z.core.util.JSONType | undefined;
@@ -20522,6 +20581,7 @@ type Manifest = {
         required: boolean;
       }[];
     } | undefined;
+    niche?: "admin" | "developer" | "reference" | undefined;
     weight?: number | undefined;
     summary?: string | undefined;
     parent?: `${string}/${string}` | undefined;
@@ -20737,6 +20797,7 @@ type Manifest = {
     title: string;
     description: string;
   }[] | undefined;
+  about?: string | undefined;
 };
 ```
 
@@ -20886,6 +20947,7 @@ type ManifestPatch = {
       resume?: TypeDef<any> | undefined;
       state?: TypeDef<any> | undefined;
       form?: TypeDef<any> | undefined;
+      niche?: "admin" | "developer" | "reference" | undefined;
       examples?: {
         args: z.core.util.JSONType;
         result?: z.core.util.JSONType | undefined;
@@ -20950,6 +21012,7 @@ type ManifestPatch = {
           required: boolean;
         }[];
       } | undefined;
+      niche?: "admin" | "developer" | "reference" | undefined;
       weight?: number | undefined;
       summary?: string | undefined;
       parent?: `${string}/${string}` | undefined;

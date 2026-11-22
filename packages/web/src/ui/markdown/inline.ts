@@ -7,6 +7,11 @@ import { isHttpUrl } from '@harness/core';
 import { APP_PATH, safeHref } from '@harness/sdk';
 import type { MdInline } from './ast.ts';
 
+/** A cite's marker (`citeMarker` in core: two private-use characters around its index). */
+const CITE = /^\uE000(\d+)\uE001/;
+/** What opens a cite's marker. */
+const CITE_OPEN = '\uE000';
+
 const PUNCTUATION = /[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]/;
 const BARE_URL = /^https?:\/\/[^\s<>"]+/;
 /** A bare `file:///…` URI in text, linked like a web address so a file the agent names opens in the viewer. */
@@ -199,6 +204,11 @@ export function parseInline(text: string): MdInline[] {
       }
     }
 
+    if (ch === CITE_OPEN) {
+      const cite = CITE.exec(rest);
+      if (cite?.[1] !== undefined) { out.push({ type: 'cite', index: Number(cite[1]) }); i += cite[0].length; continue; }
+    }
+
     if (ch === '$') {
       const math = inlineMath(text, i);
       if (math !== undefined) { out.push({ type: 'math', tex: math.tex }); i = math.end; continue; }
@@ -215,7 +225,7 @@ export function parseInline(text: string): MdInline[] {
       }
     }
 
-    const plain = /^[^\\\n`![<*_~hHfF$]+/.exec(rest)?.[0];
+    const plain = /^[^\\\n`![<*_~hHfF$\uE000]+/.exec(rest)?.[0];
     if (plain !== undefined) { pushText(out, plain); i += plain.length; continue; }
     pushText(out, ch);
     i++;

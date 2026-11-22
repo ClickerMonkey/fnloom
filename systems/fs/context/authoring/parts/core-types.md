@@ -7,6 +7,7 @@ summary: "Every core type the SDK refers to, with its fields."
 parent: "fs/authoring.topics.examples"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 choices:
   - to: "fs/authoring.core-types.access-ts"
     when: "Pick this for From packages/core/src/access.ts."

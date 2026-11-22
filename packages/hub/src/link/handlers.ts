@@ -135,7 +135,7 @@ export class LinkHandshake {
       manifest: async ({ data, link }) => {
         if (data.name !== link.system) { throw refuse(403, 'WRONG_SYSTEM', `this link is ${link.system}, not ${data.name}`); }
         const report = await this.#imported(link, () => catalog.importManifest(data, link.instance));
-        await this.#contractChanged(link, report.refused.length === 0 ? data.hash : '', { description: data.description, version: data.version });
+        await this.#contractChanged(link, report.refused.length === 0 ? data.hash : '', { description: data.description, about: data.about, version: data.version });
         if (data.resources) { await resources.refresh(link.system, link.instance); }
         return report;
       },
@@ -276,7 +276,7 @@ export class LinkHandshake {
    * After a contract import: keep the hash the instance's contract matched (blank when something was refused, so it
    * is sent again), the system's description and newest version, and apply a config waiting for the contract.
    */
-  async #contractChanged(link: LinkSession, manifestHash: string, change: { description?: string; version?: string }): Promise<void> {
+  async #contractChanged(link: LinkSession, manifestHash: string, change: { description?: string; about?: string | undefined; version?: string }): Promise<void> {
     const { instances, config } = this.#options;
     await instances.sync(link, { manifestHash, ...(change.version === undefined ? {} : { version: change.version }) });
     const system = await instances.syncSystem(link.system, { manifestHash, ...change });

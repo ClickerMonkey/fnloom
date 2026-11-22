@@ -7,6 +7,7 @@ summary: "The hub contract, serve and the implementation, the run context, confi
 parent: "fs/authoring"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash"]
 tags: ["authoring"]
+niche: "developer"
 choices:
   - to: "fs/authoring.hub"
     when: "Pick this when the system calls hub fns."

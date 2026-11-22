@@ -12,7 +12,7 @@ import { fakeCaller } from '../../test/fakes.ts';
 import { approval, fakeSender, llmCall, run, T0 } from '../../chat/test/fakes.ts';
 import type { McpProbe, ProbeResult } from '../probe.ts';
 import type { SystemLogEvents } from '../api.ts';
-import { BudgetView, LlmSummary, OutputLine, ModelInfo, RecordId, SettingView, SUGGEST_DECISION_DEFAULT, SuggestDecision, type DataRecord, type ImageEmbeddingView } from '@harness/core';
+import { BudgetView, LlmSummary, OutputLine, ModelInfo, RecordId, SettingView, SEARCH_DECISION_DEFAULT, SUGGEST_DECISION_DEFAULT, SuggestDecision, type DataRecord, type ImageEmbeddingView } from '@harness/core';
 
 /** Where pictures are embedded, as a hub with a text-only embedder and no image model reads it. */
 export const IMAGE_VIEW: ImageEmbeddingView = {
@@ -195,6 +195,8 @@ export function fakeAdminApi() {
     revokeAutoPair: fakeCaller<'revokeAutoPair'>(() => Promise.resolve({ ok: true })),
     suggestDecision: fakeCaller<'suggestDecision'>(() => Promise.resolve({ value: SUGGEST_DECISION_DEFAULT })),
     setSuggestDecision: fakeCaller<'setSuggestDecision'>((value) => Promise.resolve({ value: SuggestDecision.parse(value) })),
+    searchDecisions: fakeCaller<'searchDecisions'>(() => Promise.resolve({ fn: { value: SEARCH_DECISION_DEFAULT }, context: { value: SEARCH_DECISION_DEFAULT } })),
+    setSearchDecision: fakeCaller<'setSearchDecision'>((body) => Promise.resolve({ fn: { value: body.item === 'fn' ? body.value : SEARCH_DECISION_DEFAULT }, context: { value: body.item === 'context' ? body.value : SEARCH_DECISION_DEFAULT } })),
     autoClassifier: fakeCaller<'autoClassifier'>(() => Promise.resolve({ value: AutoClassifier.parse({}) })),
     setAutoClassifier: fakeCaller<'setAutoClassifier'>((value) => Promise.resolve({ value: AutoClassifier.parse(value) })),
     imageEmbedding: fakeCaller<'imageEmbedding'>(() => Promise.resolve(IMAGE_VIEW)),

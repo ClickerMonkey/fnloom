@@ -61,8 +61,12 @@ export class OpenRouter {
     }
   }
 
-  /** A JSON object matching `schema`, asked for once more (with the problem) when the first reply doesn't match. */
-  async json<S extends z.ZodType>(model: string, schema: S, messages: readonly ChatTurn[]): Promise<Answered<z.infer<S>>> {
+  /**
+   * A JSON object matching `schema`, asked for again (with the problem, read from zod's issues) while a reply doesn't
+   * match, up to `tries` replies in all (default 2).
+   */
+  async json<S extends z.ZodType>(model: string, schema: S, messages: readonly ChatTurn[], options: { readonly tries?: number } = {}): Promise<Answered<z.infer<S>>> {
+    const tries = options.tries ?? 2;
     let cost = 0;
     let asked = [...messages];
     for (let attempt = 1; ; attempt++) {
@@ -71,9 +75,17 @@ export class OpenRouter {
       try {
         return { value: schema.parse(jsonIn(reply.text)), cost };
       } catch (error) {
-        if (attempt >= 2) { throw new Error(`the model's JSON didn't fit twice: ${error instanceof Error ? error.message : String(error)}`, { cause: error }); }
-        asked = [...asked, { role: 'assistant', content: reply.text }, { role: 'user', content: `That reply didn't fit the shape asked for (${error instanceof Error ? error.message.slice(0, 500) : String(error)}). Answer again with only the JSON object.` }];
+        if (attempt >= tries) { throw new Error(`the model's JSON didn't fit ${tries} times: ${problemOf(error)}`, { cause: error }); }
+        asked = [...asked, { role: 'assistant', content: reply.text }, { role: 'user', content: `That reply didn't fit the shape asked for: ${problemOf(error).slice(0, 1_500)}. Answer again with the whole JSON object, every field filled, and nothing else.` }];
       }
     }
   }
+}
+
+/** What was wrong with a reply, for the model to fix: zod's issues one per line (path: message), or the error's message. */
+function problemOf(error: unknown): string {
+  if (error instanceof z.ZodError) {
+    return error.issues.slice(0, 12).map((issue) => `${issue.path.length === 0 ? '(the object)' : issue.path.join('.')}: ${issue.message}`).join('; ');
+  }
+  return error instanceof Error ? error.message : String(error);
 }

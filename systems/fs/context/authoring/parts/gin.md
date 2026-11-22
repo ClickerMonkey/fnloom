@@ -8,6 +8,7 @@ parent: "fs/authoring.topics.types"
 next: "fs/authoring.named-types"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash"]
 tags: ["authoring"]
+niche: "developer"
 choices:
   - to: "fs/authoring.gin.reference"
     when: "Pick this when you need the exact signatures and options."

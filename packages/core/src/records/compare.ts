@@ -31,6 +31,11 @@ export const SessionSettings = z.object({
   systems: z.union([z.array(SystemName), z.literal('all')]),
   /** The agent's system prompt here, instead of its fn's instructions. */
   instructions: z.string().optional(),
+  /**
+   * "Use citations": the model cites the tool results its claims come from (`<cite tool path>`), and the chat draws each
+   * cite as a `[n]` chip (`records/citations.ts`). Absent reads as off.
+   */
+  citations: z.boolean().optional(),
 });
 export type SessionSettings = z.infer<typeof SessionSettings>;
 

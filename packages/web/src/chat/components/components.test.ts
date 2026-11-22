@@ -1,4 +1,4 @@
-import { ApprovalId, BudgetId, HookBlock, QualifiedName, RunId, SessionId, type ChatMessage, type RunStatus } from '@harness/core';
+import { ApprovalId, BudgetId, citeMarker, HookBlock, QualifiedName, RunId, SessionId, type ChatMessage, type RunStatus } from '@harness/core';
 import type { AnyViews } from '@harness/sdk';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -172,6 +172,39 @@ describe('UserMessage', () => {
     expect(view.text()).toContain('Bea');
     await view.get('[data-testid=reply-quote]').trigger('click');
     expect(view.emitted('quote')).toHaveLength(1);
+  });
+});
+
+describe('AssistantAnswer citations', () => {
+  const base = { authorName: 'Chat agent', now: T0, streaming: false, failed: false, runsOf: () => [], collapsed: () => false, viewOf: () => undefined, attachmentView: () => undefined, actions: [] };
+
+  it('draws each cite as its [n] chip, opens its reason and value on a press, and asks to show its run', async () => {
+    const cited = message({
+      role: 'assistant', author: 'act_agent', parts: [{ type: 'text', text: `Due Friday${citeMarker(1)} and${citeMarker(2)}.` }],
+      citations: [
+        { index: 1, number: 4, tool: 'run_1', path: 'due', note: 'the due date', run: RunId.parse('run_1'), fn: QualifiedName.parse('fs/read'), found: 'result', value: '2026-11-27' },
+        { index: 2, number: 5, tool: 'run_9', path: 'x', note: 'gone', problem: 'No tool call of this chat has the id run_9.' },
+      ],
+    });
+    const answer = mount(AssistantAnswer, { props: { ...base, messages: [cited] }, attachTo: document.body });
+    const chips = answer.findAll('[data-testid=cite-chip]');
+    expect(chips.map((c) => c.text())).toEqual(['[4]', '[5]']);
+    expect(chips[1]?.classes()).toContain('missing');
+    expect(answer.find('[data-testid=answer-uncited]').exists()).toBe(false);
+    await chips[0]?.trigger('click');
+    await flushPromises();
+    expect(document.querySelector('[data-testid=cite-note]')?.textContent).toBe('the due date');
+    expect(document.querySelector('[data-testid=cite-value]')?.textContent).toContain('2026-11-27');
+    document.querySelector<HTMLButtonElement>('[data-testid=cite-show]')?.click();
+    expect(answer.emitted('showRun')).toEqual([['run_1']]);
+    answer.unmount();
+  });
+
+  it('says so at its foot when it was answered with citations on and cites nothing', () => {
+    const plain = message({ role: 'assistant', author: 'act_agent', parts: [{ type: 'text', text: 'No idea.' }], citations: [] });
+    expect(mount(AssistantAnswer, { props: { ...base, messages: [plain] } }).find('[data-testid=answer-uncited]').text()).toContain('No citations');
+    const off = message({ role: 'assistant', author: 'act_agent', parts: [{ type: 'text', text: 'No idea.' }] });
+    expect(mount(AssistantAnswer, { props: { ...base, messages: [off] } }).find('[data-testid=answer-uncited]').exists()).toBe(false);
   });
 });
 

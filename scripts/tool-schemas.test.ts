@@ -11,6 +11,9 @@ import { describe, expect, it } from 'vitest';
 import { StoreCatalog } from '../packages/hub/src/catalog/catalog.ts';
 import type { KindDescriber } from '../packages/hub/src/catalog/index.ts';
 import { withHubGroups } from '../packages/hub/src/boot/hub-groups.ts';
+import { fnModeTool } from '../packages/hub/src/contextor/modes.ts';
+import { CatalogFnViews } from '../packages/hub/src/contextor/views.ts';
+import { agentTool, PendingCalls } from '../packages/hub/src/execution/tools.ts';
 import { RecordingBus, memoryLog, testStore } from '../packages/hub/src/testing.ts';
 import { api } from '../systems/api/shared/index.ts';
 import { claude } from '../systems/claude/shared/index.ts';
@@ -160,5 +163,41 @@ describe('tool schemas', () => {
     for (const type of [{ done: 'boolean' }, [{ name: 'done', type: 'bool' }], JSON.stringify(row), { name: 'obj', props: { done: { type: 'bool' } } }]) {
       expect(await check('database/alter_table', { table: 'Todo', type }), JSON.stringify(type)).toBe(false);
     }
+  });
+});
+
+/**
+ * Phil (2026-11-21): "Verify tool calls are sending json schema and if examples are available are sending at least
+ * one." Every fn the chat model can see has an example (docs/harness.md "Kinds"), and its native tool in tools mode
+ * ends its description with the first one, whether or not the turn chose any, and that description is what the model
+ * gets (`agentTool`).
+ */
+describe('tool examples', () => {
+  it('give every fn a model can see at least one example, and send the first with its native tool', async () => {
+    const { catalog, manifests } = await catalogOfEverything();
+    const views = new CatalogFnViews(catalog);
+    const missing: string[] = [];
+    const unsent: string[] = [];
+    let checked = 0;
+    for (const manifest of manifests) {
+      for (const fn of manifest.fns) {
+        if (fn.visibility !== 'llm' && fn.visibility !== 'both') { continue; }
+        const name = `${manifest.name}/${fn.name}`;
+        const [first] = fn.examples ?? [];
+        if (first === undefined) { missing.push(name); continue; }
+        const view = await views.view(QualifiedName.parse(name));
+        if (view === undefined) { continue; } // a kind's fn this test can't describe
+        for (const chosen of [undefined, []]) {
+          const tool = fnModeTool(view, [], chosen);
+          if (tool === undefined) { continue; }
+          checked += 1;
+          const sent = agentTool(tool, new PendingCalls()).input.description;
+          if (!sent.includes(`Example args: ${JSON.stringify(first.args)}`) || tool.spec.parameters === undefined) { unsent.push(name); }
+        }
+      }
+    }
+    expect(missing).toEqual([]);
+    expect(checked).toBeGreaterThan(100);
+    expect([...new Set(unsent)]).toEqual([]);
   });
 });

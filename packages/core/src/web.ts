@@ -20,6 +20,7 @@ import { ClientInfo, RunUpdate } from './run.ts';
 import { CompareChoose, CompareStart, CompareView } from './compare.ts';
 import { Actor, ActorSetting, Approval, Remember, UserRole, UserView, type AccessClaims } from './records/actors.ts';
 import { ChatCapabilities, ChatMessage, NotifyChoice, OutgoingPart, Presence, Session, SessionControlAction, SessionControls, SessionSummary } from './records/chat.ts';
+import { StreamedCite } from './records/citations.ts';
 import { Notification, PushSubscription, ResourceRecord } from './records/content.ts';
 import { DeliveryView, HandlerCall, LlmInteraction, Run, StateFieldValue, TreeNode, UndoReport } from './records/runs.ts';
 import { BudgetRule, ModelCategory, PriorityRule, ProviderKind, providerVariants, ResolvedLimits } from './records/spend.ts';
@@ -35,7 +36,7 @@ import { FormOffer, FormRecord, ResourceFacet, ResourceImportArgs, ResourceQuery
 import { HubMcpInput, HubMcpView, McpRules, McpScopePreview, McpSessionView } from './records/mcps.ts';
 import { FormKind } from './resources.ts';
 import { FieldValueOption, ListQuery, ListValuesQuery, QueryFnArgs, QueryFnResult } from './query.ts';
-import { SuggestDecision, SuggestDecisionView, SuggestionRecord } from './suggestions.ts';
+import { SearchDecisionsView, SetSearchDecision, SuggestDecision, SuggestDecisionView, SuggestionRecord } from './suggestions.ts';
 import { ImageEmbedding, ImageEmbeddingView } from './image-embeddings.ts';
 import { AutoPairChoice, AutoPairView } from './auto-pair.ts';
 import { AccessInfo, AccessTarget, AccessView, Sharing } from './access.ts';
@@ -145,6 +146,11 @@ export const SessionEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('token'), message: MessageId, text: z.string() }),
   /** Streaming reasoning of an assistant message. */
   z.object({ type: z.literal('reasoning'), message: MessageId, text: z.string() }),
+  /**
+   * A cite of an assistant message streaming in, once its closing tag arrived: the token after it carries its marker.
+   * Its run and value are worked out when the message settles.
+   */
+  z.object({ type: z.literal('cite'), message: MessageId, cite: StreamedCite }),
   z.object({ type: z.literal('controls'), controls: SessionControls }),
   z.object({ type: z.literal('run'), run: RunId, fn: QualifiedName, update: RunUpdate }),
   /** Session state changed; each renderer picks the fields it declared. */
@@ -245,6 +251,8 @@ export const SessionPatch = Session.pick({ title: true, systems: true, agent: tr
   fnMode: Session.shape.fnMode.unwrap().nullable().optional(),
   /** The system prompt here, instead of the agent fn's instructions. */
   instructions: Session.shape.instructions.unwrap().nullable().optional(),
+  /** "Use citations" here. */
+  citations: Session.shape.citations,
 });
 export type SessionPatch = z.infer<typeof SessionPatch>;
 
@@ -644,11 +652,18 @@ export const querySlice = mergeSpecs(
   }),
 );
 
-/** The suggestion decision model (admins): read and set it, and try it on a message without sending. */
+/**
+ * The suggestion decision model (admins): read and set it, and try it on a message without sending; and the search
+ * decisions, who filters the hits of a search of fns and of context.
+ */
 export const suggestionsSlice = spec({
   endpoints: use(tel, hubAuth, adminOnly).group({
     suggestDecision: { body: z.object({}), response: SuggestDecisionView, ws: 'suggestDecision' },
     setSuggestDecision: { body: SuggestDecision, response: SuggestDecisionView, ws: 'setSuggestDecision' },
+    /** Who filters search hits, for fns and for context. */
+    searchDecisions: { body: z.object({}), response: SearchDecisionsView, ws: 'searchDecisions' },
+    /** Set who filters one item kind's search hits; answers both settings. */
+    setSearchDecision: { body: SetSearchDecision, response: SearchDecisionsView, ws: 'setSearchDecision' },
     /** What would be suggested for `text` in `session` now, used and not, with reasons. */
     previewSuggestions: { body: z.object({ session: SessionId, text: z.string().min(1) }), response: SuggestionRecord, ws: 'previewSuggestions' },
   }),

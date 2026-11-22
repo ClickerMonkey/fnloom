@@ -75,9 +75,11 @@ const status = (what: string) => ({
 });
 
 const askUsage = (when: string, pitfall: string) => [
-  `Use it ${when}. Ask only what you can't work out from the conversation, and put the question in plain words the person reads as is.`,
+  `It shows the person a one-question form in the chat. Use it ${when}.`,
+  'Ask only what you can\'t work out from the conversation or look up with your tools, and write the question in plain words: the person reads it exactly as you write it.',
   pitfall,
-  `For several questions at once use get_input instead. ${WAIT_FOR_ANSWERS}`,
+  'For two or more questions at once use input/get_input instead (one form, not several in a row). A quick question you can also just ask in your reply, without a form.',
+  `It returns the form it showed and \`next\`, which says what to do now. ${WAIT_FOR_ANSWERS}`,
 ].join(' ');
 
 /** A trip form, as the examples write it. */
@@ -110,12 +112,15 @@ export const FIELD_GUIDE = [
   '- number: { "name": "num", "options": { "min": 0, "max": 10, "whole": true } } (options optional)',
   '- yes or no: { "name": "bool" }',
   '- a date: { "name": "date" }; a date and time: { "name": "timestamp" }; a length of time: { "name": "duration" }',
-  '- one of fixed options: { "name": "enum", "generic": { "V": { "name": "text" } }, "options": { "values": { "small": "small", "large": "large" } } }',
+  '- one of fixed options: { "name": "enum", "generic": { "V": { "name": "text" } }, "options": { "values": { "small": "Small", "large": "Large" } } }',
+  '  (each entry is "<key>": "<the words the person reads>"; the answer is the key, so use plain lowercase keys)',
   '- several of something: { "name": "list", "generic": { "V": <item type> }, "options": { "minLength": 1 } }',
   '- not required: { "name": "optional", "generic": { "T": <field type> } }',
   '- a group of fields: a nested obj.',
   'Rules: camelCase field names; a clear question as every field\'s "docs"; optional for anything the person may skip; enums for fixed choices;',
   'only the fields the description asks for, in the order a person would answer them; a title of a few words.',
+  'An amount or count the person may not know yet (a price, a budget, a quantity) is an optional number, its question saying it can be left empty:',
+  '{ "name": "optional", "generic": { "T": { "name": "num", "options": { "min": 0 } } } }',
   '',
   'Example. Asked for "the trip: destination city (required), first day, number of nights (whole, 1 to 60) and who is coming (optional names)":',
   JSON.stringify(TRIP_FORM),
@@ -123,15 +128,28 @@ export const FIELD_GUIDE = [
 
 /** What callers of `get_input` read. */
 const GET_INPUT_USAGE = [
-  'Use it when you need several pieces of information only the person has (trip details, a bug report, the fields of a record to add).',
-  'Describe every field: what it is, its kind (text, number with its range, date, yes or no, one of given options, a list) and whether it is required.',
-  'A saved form that asks the same is reused, so describe the information, not the wording. For one simple question use an ask_* fn instead.',
-  `Don't ask for what the conversation already says. ${WAIT_FOR_ANSWERS}`,
+  'Use it when you need two or more pieces of information that only the person has (trip details, a bug report, the fields of a row to add to a table) and they are easier to give as fields than in a reply.',
+  'Ask only the essentials first: the few answers you need for a useful first plan or entry, not every detail that could help. You can ask for more later.',
+  'In `detailedDescription`, describe every field: what it is, its kind (text, long text, a number with its range, a date, yes or no, one of fixed options you list, a list of things) and whether it is required.',
+  'Fixed choices (a vote, a size, low/medium/high) become an option field: list the options. An amount or quantity the person may not know yet is an optional number.',
+  'It first looks for a saved form that asks the same things and reuses it, so describe the information, not the wording. Otherwise it writes a form, checks it and saves it as an `input/form` fn of the person (named like input/trip_details), so the same form can be shown again later by calling that fn by name.',
+  'It returns the form it showed, `saved` (the saved form\'s fn), `call` (how to show it again) and `next` (what to do now).',
+  'Showing a form only asks: the answers come back to you, and nothing stores them, sends them on or reminds anyone unless you then do that with other fns.',
+  'If the person only wants a form ready for later, say it is saved and how to open it again rather than asking them to fill it now.',
+  `For one simple question use an input/ask_* fn instead. Don't ask for what the conversation already says. ${WAIT_FOR_ANSWERS}`,
 ].join(' ');
 
 /** The input system's contract. */
 export const input = system('input', {
   description: 'Ask the person for input with forms in the chat, made to fit what is needed, and keep good forms in the hub for next time.',
+  about: [
+    'Forms in the chat: when you need information only the person has, this system shows them a small form to fill in, right in the conversation.',
+    'Its fns: input/get_input shows a form with several typed fields, made from your description (or a saved form that already asks the same); input/ask_text, input/ask_choice, input/ask_confirm, input/ask_number and input/ask_date each ask one question.',
+    'Its fn kind is input/form: every form get_input makes is saved as a fn of that kind (such as input/trip_details), and calling that fn by name later shows the same form again, so the person can fill in the same thing each time (log a grocery trip, a weekly check-in).',
+    'After you show any form, end your turn: the answers come back as the person\'s next message, inside an <input-answer> block.',
+    'A form only asks: it stores the answers nowhere by itself (keep them with another system, such as a database table), it never sends itself or reminds anyone later, and it gives nobody else access to anything.',
+    'Not every question needs a form: a quick one you can just ask in your reply, and hub/ask_user asks a plain text question that pauses your run until it is answered. Load input/guide before your first form.',
+  ].join(' '),
   // its API groups: the hub indexes its fns by them (`input/api`, `input/api.<group>`)
   groups: [
     { name: 'ask', title: 'Ask', description: 'Ask the person one quick question: text, a choice, a yes or no, a number or a date.' },
@@ -143,8 +161,8 @@ export const input = system('input', {
   .with({
     kinds: {
       form: kind({
-        description: 'A saved form: running it shows the form to the person, and their answers arrive as the next user message.',
-        applicability: 'A form the person will be asked again (trip details, a bug report, a weekly check-in).',
+        description: 'A saved form: a title and a set of typed questions. Running it (by its name, with no args) shows the form to the person in the chat; their answers arrive as their next message, in an <input-answer> block. It stores, sends or schedules nothing by itself.',
+        applicability: 'A form the person will fill in again (trip details, a bug report, a weekly check-in). input/get_input makes one from a description and saves it; to show it again, call it by name.',
         payload: InputForm,
         // a form only asks; saving one needs no approval
         approveChanges: false,
@@ -156,8 +174,8 @@ export const input = system('input', {
     fns: {
       check_form: fn({
         group: 'forms',
-        description: 'Check a draft form: whether gin accepts its type and the chat can draw every field, and what to fix.',
-        instructions: 'Check a form before saving it with save_form (get_input checks its own). `ok` is true only with no problems; each problem says which field and how to fix it.',
+        description: 'Check a form object you wrote yourself, without showing it: whether its type is valid and the chat can draw every field, and what to fix.',
+        instructions: 'You rarely need it: input/get_input writes and checks its own forms. Use it only when you hold a form object (title, description, type) and want to know it is valid before saving it. `ok` is true only with no problems; each problem says which field is wrong and how to fix it.',
         args: g.obj({ form: InputForm }),
         returns: FormCheck,
         examples: [
@@ -175,8 +193,8 @@ export const input = system('input', {
       }),
       ask_text: fn({
         group: 'ask',
-        description: 'Ask the person one question they answer in words.',
-        instructions: askUsage('for a name, a description, an address or any free answer', 'Set `long` for a paragraph (a description, feedback), and a `placeholder` that shows the kind of answer wanted.'),
+        description: 'Show the person a one-question form they answer in words; the answer comes in their next message.',
+        instructions: askUsage('for one free answer in words (a name, an address, a description)', 'Set `long: true` for a paragraph (a description, feedback), and a `placeholder` that shows the kind of answer wanted.'),
         args: g.obj({
           question: question(),
           placeholder: g.optional(g.text()),
@@ -193,8 +211,8 @@ export const input = system('input', {
       }),
       ask_choice: fn({
         group: 'ask',
-        description: 'Ask the person to pick from options.',
-        instructions: askUsage('when the answer is one (or, with `multiple`, some) of options you can list', 'Give at least two different, short options in a sensible order; add "Something else" only when an answer outside them is fine.'),
+        description: 'Show the person a one-question form where they pick one (or several) of the options you give; the answer comes in their next message.',
+        instructions: askUsage('when the answer is one (or, with `multiple: true`, some) of options you can list', 'Give at least two different, short options in a sensible order; add "Something else" only when an answer outside them is fine. The answer is the option\'s words as you wrote them.'),
         args: g.obj({
           question: question(),
           options: g.list(g.text({ minLength: 1 }), { minLength: 2 }),
@@ -211,8 +229,8 @@ export const input = system('input', {
       }),
       ask_confirm: fn({
         group: 'ask',
-        description: 'Ask the person a yes or no question.',
-        instructions: askUsage('before something they should agree to that no approval covers, or for any yes or no fact', 'Word it so "yes" means go ahead.'),
+        description: 'Show the person a one-question yes-or-no form; the answer comes in their next message.',
+        instructions: askUsage('for one yes-or-no answer (a fact, or agreeing to something no approval card already asks about)', 'Word it so "yes" means go ahead. A fn that changes things asks for approval on its own when it needs to: don\'t ask again before calling it.'),
         args: g.obj({ question: question() }),
         returns: Asked,
         examples: [{ args: { question: 'Send the summary to the whole team?' } }],
@@ -222,8 +240,8 @@ export const input = system('input', {
       }),
       ask_number: fn({
         group: 'ask',
-        description: 'Ask the person for a number.',
-        instructions: askUsage('for a count, an amount or a rating', 'Give `min` and `max` when the answer has a range, and `whole` for counts.'),
+        description: 'Show the person a one-question form for a number; the answer comes in their next message.',
+        instructions: askUsage('for one number (a count, an amount, a rating)', 'Give `min` and `max` when the answer has a range, and `whole: true` for counts. Say the unit in the question ("in dollars").'),
         args: g.obj({ question: question(), min: g.optional(g.num()), max: g.optional(g.num()), whole: g.optional(g.bool()) }),
         returns: Asked,
         examples: [
@@ -236,8 +254,8 @@ export const input = system('input', {
       }),
       ask_date: fn({
         group: 'ask',
-        description: 'Ask the person for a date.',
-        instructions: askUsage('for a day (a deadline, a start date, a birthday)', 'Say what the date is for in the question.'),
+        description: 'Show the person a one-question form for a date; the answer comes in their next message.',
+        instructions: askUsage('for one day (a deadline, a start date, a birthday)', 'Say what the date is for in the question. When the date follows from the conversation and the person\'s local time (today, "last Saturday"), work it out instead of asking.'),
         args: g.obj({ question: question() }),
         returns: Asked,
         examples: [{ args: { question: 'When is the report due?' } }],
@@ -247,8 +265,8 @@ export const input = system('input', {
       }),
       save_form: fn({
         group: 'forms',
-        description: 'Keep a form in the hub as an `input/form` fn of its person, so get_input finds and reuses it next time.',
-        instructions: 'The person saves a form from under it. Give a short name, a description of what it asks and when to use it, and who may use it (only them by default).',
+        description: 'Keep a form in the hub as an `input/form` fn of its person, so input/get_input finds and reuses it next time and it can be shown again by its name.',
+        instructions: 'The person saves a quick form with the button under it; forms input/get_input makes are saved already. Give a short name, a description of what it asks and when to use it, and who may use it (only them by default).',
         args: g.obj({
           name: g.field(g.text({ minLength: 1, maxLength: 60 }), { docs: 'A short name for it ("Trip details").' }),
           description: g.field(g.text({ minLength: 1 }), { docs: 'What it asks for and when to use it.' }),
@@ -280,7 +298,7 @@ export const input = system('input', {
     fns: {
       get_input: fn({
         group: 'forms',
-        description: 'Ask the person for several pieces of information at once with a form made for it (or a saved one that fits): describe in detail what you need.',
+        description: 'Show the person one form with several typed fields, made for what you describe (or a saved form that already asks it), saved as an input/form fn for next time; the answers come in their next message.',
         instructions: GET_INPUT_USAGE,
         args: g.obj({ detailedDescription: g.field(g.text({ minLength: 1 }), { docs: 'What to ask for: each field, its kind, and whether it is required.' }) }),
         returns: Asked,
@@ -293,7 +311,11 @@ export const input = system('input', {
           },
           {
             args: { detailedDescription: 'A bug report: what happened (long text), what was expected (long text), how bad it is (low, medium or high) and whether it can be repeated (yes or no).' },
-            note: 'Enums for fixed choices, long text for descriptions.',
+            note: 'Fixed choices as options, long text for descriptions.',
+          },
+          {
+            args: { detailedDescription: 'A grocery trip to log: the store (text, required), the date (required), the total spent in dollars (optional number, 0 or more: they may not have the receipt) and a note (optional long text).' },
+            note: 'An amount that may be unknown is an optional number.',
           },
         ],
         status: status('for input'),
@@ -306,12 +328,28 @@ export const input = system('input', {
   .with(({ fns }) => ({
     context: {
       guide: context({
-        description: 'How to ask the person for input with forms.',
+        description: 'How to ask the person for information with forms in the chat, and how forms are saved and shown again.',
         content: [
-          'When you need information only the person has, ask with a form instead of a question in your reply.',
-          'Use an ask_* fn for one simple question, and get_input for several at once (describe each field in detail); a saved form that fits is reused.',
-          'After asking, end your turn: the answers arrive as the next user message in <input-answer> tags. Use them; never ask the same thing twice.',
-        ].join(' '),
+          '# Asking the person with forms',
+          '',
+          'A form is a small set of questions drawn in the chat, each with its own input (a text box, a number, a date picker, options to pick). Use one when you need information only the person has and it is easier to give as fields than in a reply.',
+          '',
+          'Pick the lightest way to ask:',
+          '- One quick question you can word in a sentence: just ask it in your reply.',
+          '- One question with a typed answer (a number, a date, one of some options, yes or no, a line of text): input/ask_number, input/ask_date, input/ask_choice, input/ask_confirm or input/ask_text.',
+          '- Two or more answers at once: input/get_input, with a detailed description of each field. Ask only the essentials first.',
+          '- hub/ask_user is not a form: it asks a plain text question and pauses your run until it is answered. Use it when you need the answer before your next step in the same turn.',
+          '',
+          'Steps with input/get_input:',
+          '1. Call it with `detailedDescription`: every field, its kind and whether it is required. Example args: {"detailedDescription":"The trip: destination city (required), first day (date), number of nights (whole number, 1 to 60) and who is coming (optional list of names)."}',
+          '2. It reuses a saved form that asks the same, or writes a new one and saves it as an input/form fn of the person (such as input/trip_details). The result has `saved` (that fn) and `call` (how to show it again).',
+          '3. End your turn, saying briefly what the form is for. Never answer it for the person or guess the answers.',
+          '4. Their answers arrive as their next message, in an <input-answer title="…"> block of `field: value` lines. Use them; never ask the same thing again.',
+          '',
+          'Showing a saved form again: call its fn by name with no args (input/trip_details with {}). Find saved forms with hub/fns_search and kinds ["input/form"].',
+          '',
+          'What a form does not do: it does not store the answers (put them in a database table or another system once they arrive, and say where), it does not send itself to anyone, it does not run or remind on a schedule, and it gives nobody else access.',
+        ].join('\n'),
         fns: [fns.get_input, fns.ask_text, fns.ask_choice, fns.ask_confirm, fns.ask_number, fns.ask_date],
         tags: ['input'],
       }),

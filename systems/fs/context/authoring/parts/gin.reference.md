@@ -7,6 +7,7 @@ summary: "Signatures and options for types with gin."
 parent: "fs/authoring.gin"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: types with gin

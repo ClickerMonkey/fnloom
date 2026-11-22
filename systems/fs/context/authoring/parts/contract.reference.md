@@ -7,6 +7,7 @@ summary: "Signatures and options for the contract."
 parent: "fs/authoring.contract"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: the contract
@@ -37,6 +38,8 @@ export const fs = system('fs', { description: 'Files and a shell.' })
 ```ts
 interface SystemContract<N extends string, C extends ContractShape> extends SystemRefs<N, C> {
   readonly description: string;
+  /** What the chat model is told about it in its `<systems>` list (`SystemInfo.about`); absent, its description. */
+  readonly about: string | undefined;
   /** Registries it hosts, by local name. */
   readonly registries: Readonly<Record<string, RegistryDef>>;
   /** Entries it adds to registries, its own or another system's. */
@@ -204,6 +207,13 @@ What `system()` takes besides its name.
 ```ts
 interface SystemInfo {
   description: string;
+  /**
+   * What a chat model that has never seen this app is told about the system in its system prompt's `<systems>` list,
+   * in place of the one-line `description`: what it is for, what sort of fns it has, whether it defines fn kinds and
+   * what authoring one gives the person, and when to reach for it (and when not). A few plain sentences; the hub
+   * shows it as written. Absent, the list shows `description`.
+   */
+  about?: string;
   /**
    * Registries this system hosts, by local name. Any system, this one included, adds entries from its client bundle
    * (`client({ visuals })`) and lists them in `contributes`.

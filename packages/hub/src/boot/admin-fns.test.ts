@@ -21,7 +21,7 @@ function recordingOps(asked: Array<{ op: string; data: unknown; by: string }>): 
     remove_rule: unused, approve_pairing: unused, create_pairing_token: unused, configure_system: unused, enable_system: unused, switch_item: unused, remove_system: unused,
     install_system: unused, start_system: unused, stop_system: unused, restart_system: unused, upgrade_system: unused, set_model_role: unused, clear_model_role: unused,
     set_model_limits: unused, create_mcp: unused, update_mcp: unused, rotate_mcp_secret: unused, delete_mcp: unused, preview_mcp: unused,
-    install_package: unused, add_instance: unused, remove_instance: unused, export_system_data: unused, suggest_decision_set: unused, auto_pair_revoke: unused, system_reimport: unused,
+    install_package: unused, add_instance: unused, remove_instance: unused, export_system_data: unused, suggest_decision_set: unused, search_decision_set: unused, auto_pair_revoke: unused, system_reimport: unused,
   };
 }
 
@@ -125,6 +125,7 @@ const ADMIN_EXAMPLES: { readonly [N in AdminFnName]: ArgsOf<(typeof hub.fns)[N]>
   stop_system: { system: 'fs' },
   restart_system: { system: 'fs', reason: 'stuck' },
   suggest_decision_set: { by: 'none' },
+  search_decision_set: { item: 'fn', value: { by: 'none' } },
   auto_pair_revoke: { id: 'apk_1' },
   system_reimport: { system: 'fs' },
   upgrade_system: { system: 'fs' },
@@ -160,7 +161,7 @@ describe('every admin fn', () => {
       upgrade_system: reached('upgrade_system'), set_model_role: reached('set_model_role'), clear_model_role: reached('clear_model_role'),
       set_model_limits: reached('set_model_limits'), create_mcp: reached('create_mcp'), update_mcp: reached('update_mcp'),
       rotate_mcp_secret: reached('rotate_mcp_secret'), delete_mcp: reached('delete_mcp'), preview_mcp: reached('preview_mcp'),
-      suggest_decision_set: reached('suggest_decision_set'), auto_pair_revoke: reached('auto_pair_revoke'), system_reimport: reached('system_reimport'),
+      suggest_decision_set: reached('suggest_decision_set'), search_decision_set: reached('search_decision_set'), auto_pair_revoke: reached('auto_pair_revoke'), system_reimport: reached('system_reimport'),
       install_package: reached('install_package'), add_instance: reached('add_instance'), remove_instance: reached('remove_instance'), export_system_data: reached('export_system_data'),
     };
     registerAdminFns(r.module.hubFns, () => ops);

@@ -9,6 +9,7 @@ import { ContextCrawlArgs, contextOff, effectCovered, effectsLine, FnExamplesQue
 import { hub, parseValue, SAVE_FN_TAKEN, wireType } from '@harness/sdk';
 import type { AccessService } from '../access/index.ts';
 import type { FnFactsService, FnsServices } from '../fns/index.ts';
+import { latestUserText } from '../fns/decided.ts';
 import { fnError, RunRefused } from '../execution/errors.ts';
 import { InvalidArgs } from '../execution/executors.ts';
 import type { Catalog } from '../catalog/index.ts';
@@ -263,9 +264,13 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
     // in a session only its systems' items; through a hub MCP only what it exposes
     const keep = (item: SearchItemKind, name: QualifiedName): boolean => (session === undefined || allowsSystem(session, splitName(name).system))
       && (scope === undefined || (item === 'fn' ? scope.fns.has(name) : scope.context.has(name)));
-    // the model sees what it can't use too, each hit marked with what blocks it, unless it asks for usable ones only
+    // the model sees what it can't use too, each hit marked with what blocks it, unless it asks for usable ones only;
+    // never a fn not for the model; the admin's search decisions judge hits against the turn's latest user message
     const query = FnSearchArgs.parse(args);
-    return deps.fns().search.search({ ...query, available: query.available ?? false }, { actor, access, keep });
+    const latest = await latestUserText(deps.store(), id);
+    return deps.fns().search.search({ ...query, available: query.available ?? false }, {
+      actor, access, keep, forModel: true, run: ctx.request.run.id, ...(latest === undefined ? {} : { latest }),
+    });
   });
 
   fns.register(hub.fns.fn_examples, async (args, ctx) => {

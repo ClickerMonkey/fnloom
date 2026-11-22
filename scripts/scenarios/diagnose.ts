@@ -20,6 +20,7 @@ import { inventory, LIMIT_STEPS, modelView, openHubDb } from './modelview.ts';
 import type { OpenRouter } from './openrouter.ts';
 import type { JudgedCase } from './records.ts';
 import { clip, transcriptMarkdown, usd } from './transcript.ts';
+import { VARIANT_NAMES } from './variants.ts';
 
 /** Why the model did what it did at a step. */
 export const STEP_CAUSES = ['missing-info', 'misleading-info', 'jargon-unexplained', 'wrong-mechanism', 'mechanism-missing', 'mechanism-too-hard', 'tool-bug', 'model-error', 'fine'] as const;
@@ -42,11 +43,27 @@ export const Fix = z.object({
 });
 export type Fix = z.infer<typeof Fix>;
 
+/** Words for a step's cause a model may give instead of the listed ones (iteration 1, case 4 rep 3 left one out). */
+const CAUSE_WORDS: Record<string, StepCause> = {
+  ok: 'fine', good: 'fine', correct: 'fine', right: 'fine', none: 'fine',
+  'missing-information': 'missing-info', missing: 'missing-info', 'misleading-information': 'misleading-info', misleading: 'misleading-info',
+  jargon: 'jargon-unexplained', 'unexplained-jargon': 'jargon-unexplained', 'bug': 'tool-bug', 'tool-error': 'tool-bug', error: 'model-error',
+  'missing-mechanism': 'mechanism-missing', 'too-hard': 'mechanism-too-hard',
+};
+
+/** A cause as the list spells it: lower case, dashes, and the obvious synonyms; anything else is left for zod to refuse. */
+function causeWord(value: unknown): unknown {
+  if (typeof value !== 'string') { return value; }
+  const word = value.trim().toLowerCase().replace(/[\s_]+/g, '-');
+  return (STEP_CAUSES as readonly string[]).includes(word) ? word : (CAUSE_WORDS[word] ?? word);
+}
+
 export const DiagnosedStep = z.object({
   step: z.coerce.number().int().min(0),
-  did: z.string(),
-  should: z.string(),
-  why: StepCause,
+  did: z.string().default(''),
+  // a fine step needs no "should"; a model sometimes leaves it out
+  should: z.string().default(''),
+  why: z.preprocess(causeWord, StepCause),
 });
 export type DiagnosedStep = z.infer<typeof DiagnosedStep>;
 
@@ -61,6 +78,8 @@ export type Diagnosis = z.infer<typeof Diagnosis>;
 export const CaseDiagnosis = z.object({
   iteration: z.string(),
   rep: z.number().int(),
+  /** The variant folder of the rep (absent: a run of one variant). */
+  variant: z.string().optional(),
   case: z.number().int(),
   title: z.string(),
   model: z.string(),
@@ -184,7 +203,7 @@ export function loadDiagnosis(repFolder: string, caseId: number): CaseDiagnosis 
 
 /** Diagnose one judged case rep from its rep folder's hub database, and save it. */
 export async function diagnoseCase(router: OpenRouter, model: string, repFolder: string, judged: JudgedCase): Promise<CaseDiagnosis> {
-  const base = { iteration: judged.iteration, rep: judged.rep, case: judged.case, title: judged.title, model, diagnosedAt: new Date().toISOString() };
+  const base = { iteration: judged.iteration, rep: judged.rep, ...(judged.variant === undefined ? {} : { variant: judged.variant }), case: judged.case, title: judged.title, model, diagnosedAt: new Date().toISOString() };
   let saved: CaseDiagnosis;
   try {
     if (judged.ending.by === 'harness-crash') { throw new Error('the harness crashed while it ran; nothing to diagnose'); }
@@ -204,7 +223,8 @@ export async function diagnoseCase(router: OpenRouter, model: string, repFolder:
       if (prompt.length <= MAX_PROMPT) { break; }
     }
     if (prompt.length > MAX_PROMPT) { prompt = `${prompt.slice(0, MAX_PROMPT / 2)}\n\n[… ${prompt.length - MAX_PROMPT} characters of the trace cut …]\n\n${prompt.slice(-MAX_PROMPT / 2)}`; }
-    const { value, cost } = await router.json(model, Diagnosis, [{ role: 'system', content: INSTRUCTIONS }, { role: 'user', content: prompt }]);
+    // three tries: a long diagnosis sometimes slips one field (a step with no "should"), and the problem is told back
+    const { value, cost } = await router.json(model, Diagnosis, [{ role: 'system', content: INSTRUCTIONS }, { role: 'user', content: prompt }], { tries: 3 });
     const dropped = value.fixes.filter((f) => TECHNICAL.test(`${f.problem} ${f.proposedText}`)).map((f) => `${f.where}: ${clip(f.proposedText, 200)}`);
     const diagnosis = { ...value, fixes: value.fixes.filter((f) => !TECHNICAL.test(`${f.problem} ${f.proposedText}`)) };
     saved = { ...base, cost, modelSteps: view.steps.length, promptChars: prompt.length, diagnosis, dropped };
@@ -231,6 +251,10 @@ export function diagnosisMarkdown(saved: CaseDiagnosis): string {
 
 // ── The iteration's aggregate ──
 
+/** A case rep a fix came from (and its variant folder, in a run of several variants). */
+export const Origin = z.object({ case: z.number().int(), rep: z.number().int(), variant: z.string().optional() });
+export type Origin = z.infer<typeof Origin>;
+
 /** One merged fix of the aggregate. */
 export const MergedFix = z.object({
   where: z.string(),
@@ -238,9 +262,12 @@ export const MergedFix = z.object({
   proposedText: z.string(),
   confidence: z.number(),
   /** The case reps it came from. */
-  from: z.array(z.object({ case: z.number().int(), rep: z.number().int() })),
+  from: z.array(Origin),
 });
 export type MergedFix = z.infer<typeof MergedFix>;
+
+/** The variants a fix came from, in order. */
+export const fixVariants = (fix: MergedFix): string[] => [...new Set(fix.from.flatMap((f) => (f.variant === undefined ? [] : [f.variant])))].sort();
 
 /** The iteration's diagnosis, as saved in `diagnosis.json`. */
 export const IterationDiagnosis = z.object({
@@ -248,30 +275,39 @@ export const IterationDiagnosis = z.object({
   writtenAt: z.string(),
   model: z.string(),
   diagnosed: z.number().int(),
-  failed: z.array(z.object({ case: z.number().int(), rep: z.number().int(), error: z.string() })),
+  failed: z.array(Origin.extend({ error: z.string() })),
   /** Every diagnosed step's cause, counted (fine included). */
   causes: z.record(z.string(), z.number()),
+  /** A run of several variants: per variant, the case reps diagnosed and their step causes counted. */
+  byVariant: z.array(z.object({ variant: z.string(), diagnosed: z.number().int(), failed: z.number().int(), causes: z.record(z.string(), z.number()), cost: z.number() })).default([]),
   fixes: z.array(MergedFix),
   /** Each group's merge, kept by a hash of its input so an unchanged group isn't merged again. */
   merges: z.array(z.object({ where: z.string(), hash: z.string(), fixes: z.array(MergedFix), cost: z.number() })),
   /** What every diagnosis cost, and the merges. */
   cost: z.object({ cases: z.number(), merge: z.number() }),
-  rootCauses: z.array(z.object({ case: z.number().int(), rep: z.number().int(), title: z.string(), rootCause: z.string() })),
+  rootCauses: z.array(Origin.extend({ title: z.string(), rootCause: z.string() })),
 });
 export type IterationDiagnosis = z.infer<typeof IterationDiagnosis>;
 
-/** Every saved diagnosis of an iteration. */
+/** Every saved diagnosis of an iteration: its own reps' and each variant folder's (`<variant>/rep-<n>/`). */
 export function loadDiagnoses(iterationFolder: string): CaseDiagnosis[] {
   const found: CaseDiagnosis[] = [];
-  for (const rep of readdirSync(iterationFolder).filter((n) => /^rep-\d+$/.test(n))) {
-    const dir = join(iterationFolder, rep, 'cases');
-    if (!existsSync(dir)) { continue; }
-    for (const file of readdirSync(dir).filter((n) => n.endsWith('.diagnosis.json'))) {
-      found.push(CaseDiagnosis.parse(JSON.parse(readFileSync(join(dir, file), 'utf8'))));
+  const places = [{ dir: iterationFolder, variant: undefined as string | undefined }, ...VARIANT_NAMES.filter((v) => existsSync(join(iterationFolder, v))).map((v) => ({ dir: join(iterationFolder, v), variant: v as string | undefined }))];
+  for (const { dir: base, variant } of places) {
+    for (const rep of readdirSync(base).filter((n) => /^rep-\d+$/.test(n))) {
+      const dir = join(base, rep, 'cases');
+      if (!existsSync(dir)) { continue; }
+      for (const file of readdirSync(dir).filter((n) => n.endsWith('.diagnosis.json'))) {
+        const saved = CaseDiagnosis.parse(JSON.parse(readFileSync(join(dir, file), 'utf8')));
+        found.push(variant === undefined ? saved : { ...saved, variant });
+      }
     }
   }
-  return found.sort((a, b) => a.case - b.case || a.rep - b.rep);
+  return found.sort((a, b) => a.case - b.case || (a.variant ?? '').localeCompare(b.variant ?? '') || a.rep - b.rep);
 }
+
+/** A diagnosis's origin. */
+const originOf = (d: Pick<CaseDiagnosis, 'case' | 'rep' | 'variant'>): Origin => ({ case: d.case, rep: d.rep, ...(d.variant === undefined ? {} : { variant: d.variant }) });
 
 /** What the merge model answers for one group. */
 const Merged = z.object({
@@ -283,15 +319,18 @@ Every input fix number must appear in exactly one output fix's "from".
 Answer with only one JSON object: {"fixes": [{"from": [input numbers], "problem": "...", "proposedText": "...", "confidence": 0.0}]}`;
 
 /** One fix as it stands alone (no merge). */
-const single = (fix: Fix, origin: { case: number; rep: number }, where: string): MergedFix => ({ where, problem: fix.problem, proposedText: fix.proposedText, confidence: fix.confidence, from: [origin] });
+const single = (fix: Fix, origin: Origin, where: string): MergedFix => ({ where, problem: fix.problem, proposedText: fix.proposedText, confidence: fix.confidence, from: [origin] });
+
+/** A case rep as the merge model and the markdown name it. */
+const originName = (origin: Origin): string => `case ${origin.case}${origin.variant === undefined ? '' : ` ${origin.variant}`} rep ${origin.rep}`;
 
 /** Merge one group's fixes with the model; on failure, keep them apart. */
-async function mergeGroup(router: OpenRouter | undefined, model: string, where: string, items: readonly { fix: Fix; origin: { case: number; rep: number } }[]): Promise<{ fixes: MergedFix[]; cost: number }> {
+async function mergeGroup(router: OpenRouter | undefined, model: string, where: string, items: readonly { fix: Fix; origin: Origin }[]): Promise<{ fixes: MergedFix[]; cost: number }> {
   const apart = { fixes: items.map((i) => single(i.fix, i.origin, where)), cost: 0 };
   if (router === undefined || items.length < 2) { return apart; }
-  const list = items.map((i, n) => `${n + 1}. (case ${i.origin.case} rep ${i.origin.rep}, confidence ${i.fix.confidence}) problem: ${i.fix.problem}\n   proposedText: ${i.fix.proposedText}`).join('\n\n');
+  const list = items.map((i, n) => `${n + 1}. (${originName(i.origin)}, confidence ${i.fix.confidence}) problem: ${i.fix.problem}\n   proposedText: ${i.fix.proposedText}`).join('\n\n');
   try {
-    const { value, cost } = await router.json(model, Merged, [{ role: 'system', content: MERGE_INSTRUCTIONS }, { role: 'user', content: `Place: ${where}\n\n${list}` }]);
+    const { value, cost } = await router.json(model, Merged, [{ role: 'system', content: MERGE_INSTRUCTIONS }, { role: 'user', content: `Place: ${where}\n\n${list}` }], { tries: 3 });
     const used = new Set<number>();
     const fixes: MergedFix[] = [];
     for (const merged of value.fixes) {
@@ -309,19 +348,30 @@ async function mergeGroup(router: OpenRouter | undefined, model: string, where: 
   }
 }
 
-/** Merge every diagnosis of an iteration into `diagnosis.json` and `diagnosis.md`; unchanged groups reuse their merge. */
+/** Every diagnosed step's cause, counted. */
+function countCauses(diagnoses: readonly CaseDiagnosis[]): Record<string, number> {
+  const causes: Record<string, number> = {};
+  for (const saved of diagnoses) {
+    for (const step of saved.diagnosis?.steps ?? []) { causes[step.why] = (causes[step.why] ?? 0) + 1; }
+  }
+  return causes;
+}
+
+/**
+ * Merge every diagnosis of an iteration into `diagnosis.json` and `diagnosis.md`; unchanged groups reuse their merge.
+ * With several variants, fixes are merged across them (the same fix found in both is one fix), each keeps the variants
+ * it came from, and the causes are counted per variant too, so the markdown can say which fixes only one variant needs.
+ */
 export async function aggregate(iterationFolder: string, iteration: string, router: OpenRouter | undefined, model: string, force = false): Promise<{ path: string; result: IterationDiagnosis }> {
   const diagnoses = loadDiagnoses(iterationFolder);
   const jsonFile = join(iterationFolder, 'diagnosis.json');
   const before = !force && existsSync(jsonFile) ? IterationDiagnosis.safeParse(JSON.parse(readFileSync(jsonFile, 'utf8'))) : undefined;
   const cached = new Map((before?.success === true ? before.data.merges : []).map((m) => [`${m.where}:${m.hash}`, m]));
-  const causes: Record<string, number> = {};
-  const groups = new Map<string, { fix: Fix; origin: { case: number; rep: number } }[]>();
+  const groups = new Map<string, { fix: Fix; origin: Origin }[]>();
   for (const saved of diagnoses) {
-    for (const step of saved.diagnosis?.steps ?? []) { causes[step.why] = (causes[step.why] ?? 0) + 1; }
     for (const fix of saved.diagnosis?.fixes ?? []) {
       const where = fix.where.toLowerCase();
-      groups.set(where, [...(groups.get(where) ?? []), { fix, origin: { case: saved.case, rep: saved.rep } }]);
+      groups.set(where, [...(groups.get(where) ?? []), { fix, origin: originOf(saved) }]);
     }
   }
   const merges: IterationDiagnosis['merges'] = [];
@@ -332,15 +382,20 @@ export async function aggregate(iterationFolder: string, iteration: string, rout
     const { fixes, cost } = await mergeGroup(router, model, where, items);
     merges.push({ where, hash, fixes, cost });
   }
-  const reps = (fix: MergedFix): number => new Set(fix.from.map((f) => `${f.case}:${f.rep}`)).size;
-  const fixes = merges.flatMap((m) => m.fixes).sort((a, b) => reps(b) - reps(a) || b.confidence - a.confidence);
+  const fixes = merges.flatMap((m) => m.fixes).sort((a, b) => repsOf(b) - repsOf(a) || b.confidence - a.confidence);
+  const variants = [...new Set(diagnoses.flatMap((d) => (d.variant === undefined ? [] : [d.variant])))].sort();
   const result: IterationDiagnosis = {
     iteration, writtenAt: new Date().toISOString(), model,
     diagnosed: diagnoses.filter((d) => d.diagnosis !== null).length,
-    failed: diagnoses.filter((d) => d.diagnosis === null).map((d) => ({ case: d.case, rep: d.rep, error: d.error ?? '—' })),
-    causes, fixes, merges,
+    failed: diagnoses.filter((d) => d.diagnosis === null).map((d) => ({ ...originOf(d), error: d.error ?? '—' })),
+    causes: countCauses(diagnoses),
+    byVariant: variants.length < 2 ? [] : variants.map((variant) => {
+      const of = diagnoses.filter((d) => d.variant === variant);
+      return { variant, diagnosed: of.filter((d) => d.diagnosis !== null).length, failed: of.filter((d) => d.diagnosis === null).length, causes: countCauses(of), cost: of.reduce((sum, d) => sum + d.cost, 0) };
+    }),
+    fixes, merges,
     cost: { cases: diagnoses.reduce((sum, d) => sum + d.cost, 0), merge: merges.reduce((sum, m) => sum + m.cost, 0) },
-    rootCauses: diagnoses.flatMap((d) => (d.diagnosis === null ? [] : [{ case: d.case, rep: d.rep, title: d.title, rootCause: d.diagnosis.rootCause }])),
+    rootCauses: diagnoses.flatMap((d) => (d.diagnosis === null ? [] : [{ ...originOf(d), title: d.title, rootCause: d.diagnosis.rootCause }])),
   };
   writeFileSync(jsonFile, `${JSON.stringify(result, null, 2)}\n`);
   const path = join(iterationFolder, 'diagnosis.md');
@@ -348,21 +403,39 @@ export async function aggregate(iterationFolder: string, iteration: string, rout
   return { path, result };
 }
 
+/** How many distinct case reps a fix came from. */
+const repsOf = (fix: MergedFix): number => new Set(fix.from.map((f) => `${f.case}:${f.variant ?? ''}:${f.rep}`)).size;
+
 /** A case rep's markdown file, from the iteration folder. */
-const caseLink = (origin: { case: number; rep: number }): string => `[${origin.case}/r${origin.rep}](rep-${origin.rep}/cases/case-${String(origin.case).padStart(2, '0')}.md)`;
+const caseLink = (origin: Origin): string => `[${origin.case}/${origin.variant === undefined ? '' : `${origin.variant}/`}r${origin.rep}](${origin.variant === undefined ? '' : `${origin.variant}/`}rep-${origin.rep}/cases/case-${String(origin.case).padStart(2, '0')}.md)`;
 
 /** The iteration's diagnosis as markdown: step causes, then the fixes ranked, then each case rep's root cause. */
 export function iterationDiagnosisMarkdown(result: IterationDiagnosis): string {
   const causes = Object.entries(result.causes).sort(([, a], [, b]) => b - a);
-  const reps = (fix: MergedFix): number => new Set(fix.from.map((f) => `${f.case}:${f.rep}`)).size;
+  const several = result.byVariant.length > 1;
+  const names = result.byVariant.map((v) => v.variant);
+  /** Which variants need a fix, as its heading says it. */
+  const need = (fix: MergedFix): string => {
+    if (!several) { return ''; }
+    const from = fixVariants(fix);
+    return from.length === names.length ? ' — both variants' : ` — **only ${from.join(', ')}**`;
+  };
+  const causeTable = several
+    ? ['| cause | all | ' + names.join(' | ') + ' |', `|---|---|${names.map(() => '---|').join('')}`, ...causes.map(([cause, n]) => `| ${cause} | ${n} | ${result.byVariant.map((v) => v.causes[cause] ?? 0).join(' | ')} |`)].join('\n')
+    : ['| cause | steps |', '|---|---|', ...causes.map(([cause, n]) => `| ${cause} | ${n} |`)].join('\n');
+  const onlyOne = several ? names.map((variant) => ({ variant, fixes: result.fixes.filter((f) => { const from = fixVariants(f); return from.length === 1 && from[0] === variant; }) })) : [];
   return [
     `# Diagnosis: ${result.iteration}`,
-    `Written ${result.writtenAt} by ${result.model} from ${result.diagnosed} case rep(s): what the chat model was shown at every step, and why it did what it did. Cost ${usd(result.cost.cases + result.cost.merge)} (cases ${usd(result.cost.cases)}, merging ${usd(result.cost.merge)}).${result.failed.length === 0 ? '' : ` Not diagnosed: ${result.failed.map((f) => `${f.case}/r${f.rep} (${clip(f.error, 120)})`).join(', ')}.`}`,
+    `Written ${result.writtenAt} by ${result.model} from ${result.diagnosed} case rep(s): what the chat model was shown at every step, and why it did what it did. Cost ${usd(result.cost.cases + result.cost.merge)} (cases ${usd(result.cost.cases)}, merging ${usd(result.cost.merge)}).${result.failed.length === 0 ? '' : ` Not diagnosed: ${result.failed.map((f) => `${f.case}/${f.variant === undefined ? '' : `${f.variant}/`}r${f.rep} (${clip(f.error, 120)})`).join(', ')}.`}`,
+    ...(several ? [
+      `Variants: ${result.byVariant.map((v) => `${v.variant} ${v.diagnosed} diagnosed${v.failed === 0 ? '' : `, ${v.failed} not`} (${usd(v.cost)})`).join('; ')}. Fixes are merged across variants; each says whether both variants' cases asked for it or only one's.`,
+      `**Fixes only one variant needs:** ${onlyOne.map((o) => `${o.variant}: ${o.fixes.length === 0 ? 'none' : o.fixes.map((f) => `#${result.fixes.indexOf(f) + 1} \`${f.where}\``).join(', ')}`).join(' · ')}.`,
+    ] : []),
     '## Why each step went the way it did',
-    causes.length === 0 ? '_none_' : ['| cause | steps |', '|---|---|', ...causes.map(([cause, n]) => `| ${cause} | ${n} |`)].join('\n'),
+    causes.length === 0 ? '_none_' : causeTable,
     '## Fixes, ranked by how many case reps they would help',
     ...result.fixes.map((fix, i) => [
-      `### ${i + 1}. \`${fix.where}\` — ${reps(fix)} case rep(s), confidence ${fix.confidence.toFixed(2)}`,
+      `### ${i + 1}. \`${fix.where}\` — ${repsOf(fix)} case rep(s), confidence ${fix.confidence.toFixed(2)}${need(fix)}`,
       `From ${fix.from.map(caseLink).join(', ')}.`,
       `**Problem:** ${fix.problem}`,
       `**Proposed:**\n\n> ${fix.proposedText.split('\n').join('\n> ')}`,

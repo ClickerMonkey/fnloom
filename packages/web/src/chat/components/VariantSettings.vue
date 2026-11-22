@@ -104,6 +104,10 @@ function toggleSystem(name: SystemName, on: boolean): void {
       label="System prompt" :rows="2" :max-rows="8" :model-value="s.instructions ?? ''" :placeholder="session.instructions ?? 'The agent’s own instructions'" :data-testid="`variant-prompt-${index}`"
       @update:model-value="set('instructions', $event.trim() === '' ? undefined : $event)"
     />
+    <UiSwitch
+      :model-value="s.citations ?? session.citations === true" label="Use citations" :data-testid="`variant-citations-${index}`"
+      @update:model-value="set('citations', $event === (session.citations === true) ? undefined : $event)"
+    />
     <div v-if="systems.length > 0" class="field" role="group" :aria-label="`Variant ${letter} systems`">
       <span class="name">Systems</span>
       <ul class="systems">

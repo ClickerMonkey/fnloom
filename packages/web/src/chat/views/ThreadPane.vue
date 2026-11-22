@@ -11,7 +11,7 @@ import {
   ResourceUri, splitName, type ChatFnMode, type Display, type QualifiedName, type ChatMessage, type Json, type Link, type LlmInteractionId, type MessageId, type MessagePart,
   type RunId, type SessionId, type TurnId,
 } from '@harness/core';
-import { computed, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useStores } from '../../state/stores.ts';
 import { copyText, UiButton, UiEmpty, UiIcon, UiPopover, UiSkeleton } from '../../ui/index.ts';
@@ -196,7 +196,7 @@ async function act(action: MessageAction, messages: readonly ChatMessage[]): Pro
   if (first === undefined) { return; }
   switch (action) {
     case 'copy': {
-      const ok = await copyText(messages.map((m) => messageText(m.parts)).join('\n\n'));
+      const ok = await copyText(messages.map((m) => messageText(m.parts, m.citations)).join('\n\n'));
       if (!ok) { toasts.error("Couldn't copy"); }
       return;
     }
@@ -508,6 +508,36 @@ const failedReason = computed(() => {
 /** What the foot-of-thread notice's turn, the latest that stands, can do. */
 const lastVerbs = computed(() => verbsOf(thread.lastTurn.value));
 
+// ── citations ─────────────────────────────────────────────────────────────────
+
+/** How long a cited run's card stays lit after "Show in result". */
+const CITE_FLASH = 1600;
+/** The run a cite's "Show in result" asked for last: the answer whose group holds it opens that group. */
+const revealing = ref<{ run: RunId; at: number } | undefined>(undefined);
+let citeTimer: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * A cite's "Show in result": its run's card opens (and the group it is folded into), comes into view and lights up.
+ * A run with no card on screen (an older turn not loaded, or a fn whose runs show no card) opens in the run panel.
+ */
+function showRun(run: RunId): void {
+  chat.collapse.set(run, false);
+  revealing.value = { run, at: Date.now() };
+  void nextTick(() => {
+    requestAnimationFrame(() => {
+      if (scroller.value?.reveal(`r-${run}`) !== true) { emit('run', run); return; }
+      const card = document.getElementById(`r-${run}`);
+      if (card === null) { return; }
+      card.classList.remove('cite-target');
+      // read its box, so the light starts over when it is lit again
+      card.getBoundingClientRect();
+      card.classList.add('cite-target');
+      clearTimeout(citeTimer);
+      citeTimer = setTimeout(() => { card.classList.remove('cite-target'); }, CITE_FLASH);
+    });
+  });
+}
+
 function retryLast(): void {
   retrying.value = thread.lastTurn.value;
 }
@@ -536,6 +566,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   clearTimeout(noteTimer);
   clearTimeout(hoverTimer);
+  clearTimeout(citeTimer);
 });
 
 defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
@@ -585,9 +616,10 @@ defineExpose({ focusComposer: () => { composerBox.value?.focus(); } });
           :runs-of="(m: ChatMessage) => thread.runsOf(m)" :live-of="(m: ChatMessage) => thread.liveOf(m)" :collapsed="(run: RunView) => chat.collapse.isCollapsed(run)"
           :view-of="viewOf" :display-of="displayOf" :attachment-view="attachmentView" :actions="answerActions(item.turn)" :flash="item.messages.some((m) => m.id === flash)"
           :status-line="item.turn === liveTurn ? liveLine : undefined" :navigate="navigate" :grouped="layout.groupRuns"
+          :cites-of="(m: ChatMessage) => thread.citesOf(m)" :run-of="(id: RunId) => thread.runs.value.get(id)" :reveal="revealing"
           :can-review="auth.user.value?.role === 'admin'" @action="act($event, item.messages)" @run-open="emit('run', $event)" @run-toggle="(id, collapsed) => chat.collapse.set(id, collapsed)"
           @collapse-all="(collapsed) => chat.collapse.setAll(item.messages.flatMap((m) => m.runs), collapsed)" @background="thread.toBackground($event)"
-          @tree="emit('tree', item.turn)" @link="openLink"
+          @tree="emit('tree', item.turn)" @link="openLink" @show-run="showRun"
         />
         <NoteRow v-else :message="item.message" :undone="item.undone" :flash="flash === item.message.id" />
       </template>

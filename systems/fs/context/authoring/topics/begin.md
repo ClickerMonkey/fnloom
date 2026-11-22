@@ -7,6 +7,7 @@ summary: "The folder and the template, the contract, packaging and installing, t
 parent: "fs/authoring"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash", "fs/install_system", "fs/system_status"]
 tags: ["authoring"]
+niche: "developer"
 choices:
   - to: "fs/authoring.start"
     when: "Pick this to see the whole path once, before anything else."

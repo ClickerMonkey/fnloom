@@ -8,6 +8,7 @@ parent: "fs/authoring.internals"
 next: "fs/authoring.internals.addressverdict"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: runtime internals

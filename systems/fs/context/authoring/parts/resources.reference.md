@@ -7,6 +7,7 @@ summary: "Signatures and options for resources, embedders and sectioners."
 parent: "fs/authoring.resources"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: resources, embedders and sectioners

@@ -44,6 +44,7 @@ export function variantLabel(input: CompareVariantInput, index: number): string 
   const model = s.model === undefined ? undefined : 'model' in s.model ? s.model.model : 'category' in s.model ? s.model.category : 'auto';
   const parts = [
     model, s.mode?.type, s.contextor?.type, s.fnMode, s.agent, s.instructions === undefined ? undefined : 'own prompt',
+    s.citations === undefined ? undefined : s.citations ? 'citations' : 'no citations',
     s.systems === undefined ? undefined : s.systems === 'all' ? 'all systems' : `${s.systems.length} systems`,
   ].filter((part): part is string => part !== undefined);
   return parts.length === 0 ? letterLabel(index) : parts.join(' · ');
@@ -193,7 +194,8 @@ export class StoreCompareService implements CompareService {
       await tx.table('sessions').update(chat.id, {
         transcript: [...chat.transcript, ...fork.transcript.slice(from)], tools: [...fork.tools], context: [...fork.context],
         ...(fork.selection === undefined ? {} : { selection: fork.selection }), ...(fork.suggested === undefined ? {} : { suggested: [...fork.suggested] }),
-        ...(fork.announcedSystems === undefined ? {} : { announcedSystems: fork.announcedSystems }), updatedAt: clock(),
+        ...(fork.announcedSystems === undefined ? {} : { announcedSystems: fork.announcedSystems }),
+        ...(fork.citationsTold === undefined ? {} : { citationsTold: fork.citationsTold }), updatedAt: clock(),
       });
       await this.#takeState(tx, fork.id, chat.id);
       // its runs, LLM calls and messages become the compared turn's, in the chat, so its tree, details and undo find them

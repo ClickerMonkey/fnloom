@@ -8,7 +8,7 @@
 import type {
   ActorId, Approval, AuthSessionId, BudgetRule, ChatMessage, DeliveryView, FnRecord, FnStats, HandlerCall, HubMcpId, MessageId, PairingRequest, Presence, QualifiedName, ResourceChange,
   FormKind, OutputLine, ResourceRoot, ResourceUri, RunId, RunUpdate, SessionControls, SessionId, SessionSummary, StateFieldValue, SystemName, SystemStatus, Notification,
-  HubIdentity, ModelRole, TurnId,
+  HubIdentity, ModelRole, StreamedCite, TurnId,
 } from '@harness/core';
 
 /** Every internal event, by name. */
@@ -16,6 +16,8 @@ export interface HubEvents {
   'message': { message: ChatMessage };
   'message.token': { session: SessionId; message: MessageId; text: string };
   'message.reasoning': { session: SessionId; message: MessageId; text: string };
+  /** A whole cite of an assistant message streaming in (citations on); the token after it carries its marker. */
+  'message.cite': { session: SessionId; message: MessageId; cite: StreamedCite };
   'session.changed': { session: SessionSummary; participants: readonly ActorId[] };
   /** A session was deleted for good. */
   'session.deleted': { session: SessionId; participants: readonly ActorId[] };

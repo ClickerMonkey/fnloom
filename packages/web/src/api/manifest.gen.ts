@@ -286,6 +286,7 @@ export const manifest = {
         "contextor",
         "fnMode",
         "instructions",
+        "citations",
         "session"
       ],
       "f": [],
@@ -2974,6 +2975,45 @@ export const manifest = {
       "multi": false,
       "bodyEnc": "json"
     },
+    "searchDecisions": {
+      "method": "POST",
+      "path": "/searchDecisions",
+      "ws": "searchDecisions",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "setSearchDecision": {
+      "method": "POST",
+      "path": "/setSearchDecision",
+      "ws": "setSearchDecision",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "item",
+        "value"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
     "previewSuggestions": {
       "method": "POST",
       "path": "/previewSuggestions",
@@ -3359,6 +3399,7 @@ export const manifest = {
         "filters",
         "off",
         "available",
+        "niches",
         "order",
         "offset",
         "limit"

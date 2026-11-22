@@ -7,6 +7,7 @@ summary: "Signatures and options for stored types and the data system."
 parent: "fs/authoring.data"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: stored types and the data system

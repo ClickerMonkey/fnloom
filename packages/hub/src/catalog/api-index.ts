@@ -30,10 +30,13 @@ function groupsOf(system: SystemName, fns: readonly FnDecl[], declared: readonly
   return [...described, ...rest];
 }
 
-/** A generated context item's fixed parts: hub-written, for the model, never suggested by itself. */
+/**
+ * A generated context item's fixed parts: hub-written, for the model, never suggested by itself, and `reference`
+ * material (`Niche`): its fns are hits of their own, so a search ranks the listing below them.
+ */
 function item(name: string, description: string, content: string, extra: Partial<ContextDecl>): ContextDecl {
   return {
-    name, description, content, imports: [], fns: [], suggestFns: [], suggest: 'none', visible: 'both', alwaysFor: [], tags: ['api'], ...extra,
+    name, description, content, imports: [], fns: [], suggestFns: [], suggest: 'none', visible: 'both', alwaysFor: [], tags: ['api'], niche: 'reference', ...extra,
   };
 }
 

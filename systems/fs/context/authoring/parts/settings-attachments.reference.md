@@ -7,6 +7,7 @@ summary: "Signatures and options for settings and attachments."
 parent: "fs/authoring.settings-attachments"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: settings and attachments

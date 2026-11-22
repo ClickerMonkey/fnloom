@@ -1,8 +1,10 @@
 /**
  * Assistant messages being streamed: their reasoning, text and fn calls so far, in the order the model produced them,
- * so a page of messages read mid-stream shows them as they came, and the finished message keeps that order.
+ * so a page of messages read mid-stream shows them as they came, and the finished message keeps that order. With
+ * citations on, the text also streams through a `CiteFilter`, so no one sees half a cite (`chat/cites.ts`).
  */
 import type { ChatMessage, MessageId, MessagePart, QualifiedName, RunId, SessionId } from '@harness/core';
+import { CiteFilter, streamingParts } from './cites.ts';
 
 /** One piece of a streamed answer, in order: a run of reasoning, a run of text, or a fn call. */
 export type StreamedPart = Extract<MessagePart, { type: 'reasoning' | 'text' | 'call' }>;
@@ -12,14 +14,24 @@ export interface StreamedText {
   readonly session: SessionId;
   /** The pieces in the order they came; consecutive reasoning or text deltas join one piece. */
   readonly parts: StreamedPart[];
+  /** While citations are on: the filter the text streams through, how long a cite may run, and the chat's next cite number when it began. */
+  readonly cites?: StreamCites;
+}
+
+/** How a message streams its cites. */
+export interface StreamCites {
+  readonly filter: CiteFilter;
+  readonly hold: number;
+  readonly first: number;
 }
 
 /** The pieces streamed into open assistant messages, kept until each is finished. */
 export class StreamBuffer {
   readonly #open = new Map<MessageId, StreamedText>();
 
-  open(message: MessageId, session: SessionId): void {
-    this.#open.set(message, { session, parts: [] });
+  /** Start a message's stream; `cites` when citations are on in its chat. */
+  open(message: MessageId, session: SessionId, cites?: { readonly hold: number; readonly first: number }): void {
+    this.#open.set(message, { session, parts: [], ...(cites === undefined ? {} : { cites: { ...cites, filter: new CiteFilter(cites.hold) } }) });
   }
 
   /** Add a delta (reasoning first when a delta carries both); undefined when the message isn't streaming. */
@@ -54,7 +66,9 @@ export class StreamBuffer {
   overlay(message: ChatMessage): ChatMessage {
     const streamed = message.status === 'streaming' ? this.#open.get(message.id) : undefined;
     if (streamed === undefined || streamed.parts.length === 0) { return message; }
-    return { ...message, parts: [...streamed.parts, ...message.parts] };
+    // with citations on, a whole cite reads as its marker and one still coming is left out, as the stream shows them
+    const parts = streamed.cites === undefined ? streamed.parts : streamingParts(streamed.parts, streamed.cites.hold);
+    return { ...message, parts: [...parts, ...message.parts] };
   }
 }
 

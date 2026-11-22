@@ -10,6 +10,7 @@ import { RunText } from '../status.ts';
 import { GraphSelection, SelectionReport } from '../modes.ts';
 import { ResolvedLimits } from './spend.ts';
 import { AnnouncedSystems } from './announced.ts';
+import { CitationsTold } from './citations.ts';
 import { KeptVariant, TurnCompare } from './compare.ts';
 
 /** A session state change a run made, with the value before, so undoing the turn can put it back. */
@@ -160,6 +161,8 @@ export const TurnStart = z.object({
   suggested: z.array(QualifiedName).optional(),
   /** What the model had been told about the systems (`Session.announcedSystems`), so an undone turn's changes are told again. */
   announcedSystems: AnnouncedSystems.optional(),
+  /** What the model had been told about citations (`Session.citationsTold`), so an undone turn's change is told again. */
+  citationsTold: CitationsTold.optional(),
 });
 export type TurnStart = z.infer<typeof TurnStart>;
 

@@ -7,6 +7,7 @@ summary: "Signatures and options for outcomes: done, invalid input, failed, paus
 parent: "fs/authoring.outcomes"
 suggest: "none"
 tags: ["authoring", "reference"]
+niche: "developer"
 ---
 
 ### Reference: outcomes: done, invalid input, failed, paused, cancelled, undo

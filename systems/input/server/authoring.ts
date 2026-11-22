@@ -70,16 +70,18 @@ export function checkForm(form: InputFormValue, maxFields: number): string[] {
 
 /** The agent's job, step by step, with a worked example. */
 const INSTRUCTIONS = [
-  'You make the one form that asks the person for what the request below describes, and nothing else. Work through the tools in order; each step unlocks the next.',
+  'You make the one form that asks a person for what the request below describes, and nothing else. A form is drawn in a chat: a title, a short description, and one input per question. You work only through your tools, in order; each step unlocks the next, and you finish by saving (or reusing) a form.',
   '',
-  '1. find_forms with a short plain description of what is asked. A saved form that asks for the same things (the same fields, not just a similar name) is the answer: call use_saved with it.',
-  '2. field_types to see how a form is written (and load_form to see a saved form you adapt).',
-  '3. draft the whole form: only the fields the request asks for, each with a clear question as its docs, optional where the person may skip it, enums for fixed choices.',
-  '4. The draft is checked at once. Fix every problem listed and draft again, whole.',
-  '5. Once it is clean, call save. Then answer in one line.',
+  '1. find_forms with a few plain words for what is asked: {"text":"trip details"}. A saved form that asks for the same things (the same fields, not just a similar name) is the answer: call use_saved with its name, {"fn":"input/trip_details"}, and stop.',
+  '2. field_types (args {}) to see how a form is written; load_form {"fn":"…"} shows a saved form find_forms listed, when you adapt it.',
+  '3. draft the whole form. The draft tool takes ONE arg, `draft`, holding the whole form: {"draft":{"title":…,"description":…,"submit":…,"type":{"name":"obj","props":{…}}}}.',
+  '   Only the fields the request asks for, each with a clear question as its "docs"; optional where the person may skip it; enums for fixed choices; an amount that may be unknown as an optional number.',
+  '4. The draft is checked at once. If it lists problems, each names the field and what is wrong: change only that, and call draft again with the whole form. Never send the same draft twice.',
+  '5. Once the check says it is clean, call save (args {}). Then answer in one line.',
+  'If the request can\'t be a form (it asks for no information), or the checks keep failing, stop and answer in one line saying why.',
   '',
-  'Example. For "the trip: destination city (required), first day, number of nights (whole, 1 to 60) and who is coming (optional names)" the draft is:',
-  JSON.stringify(TRIP_FORM),
+  'Example. For "the trip: destination city (required), first day, number of nights (whole, 1 to 60) and who is coming (optional names)" the draft call is:',
+  JSON.stringify({ draft: TRIP_FORM }),
 ].join('\n');
 
 // #region authoring-tool
@@ -178,7 +180,7 @@ const FieldType: z.ZodType<FieldTypeDraft> = z.lazy(() => z.union([
 ]));
 
 /** The draft's args: a form whose type is an obj of typed fields. */
-const FormDraftSchema = InputFormSchema.omit({ type: true }).extend({
+export const FormDraftSchema = InputFormSchema.omit({ type: true }).extend({
   type: z.object({ name: z.literal('obj'), props: z.record(z.string(), z.object({ docs: z.string().min(1).describe('The question the person reads.'), type: FieldType })) })
     .describe('The gin type of the answers: an obj whose props are the questions.'),
 });
