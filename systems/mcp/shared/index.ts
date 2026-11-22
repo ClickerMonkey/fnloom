@@ -44,7 +44,7 @@ const declared = system(MCP_SYSTEM, {
   description: 'Use the tools, prompts and resources of MCP servers: each server added is an instance, its tools are fns, its prompts are /commands and its resources are browsable.',
   about: [
     'Outside services an admin connected through MCP (Model Context Protocol) servers, such as an issue tracker or a document store. Each server is one instance of this system, named for it (`linear`).',
-    'Its fn kind is mcp/tool: every tool a server offers becomes a fn of that kind, named after the server and the tool; nobody writes them by hand. Find them with hub/fns_search like any fn (narrow with `kinds: ["mcp/tool"]`); a server\'s prompts are /commands the person types, and its files are resources.',
+    'Its fn kind is mcp/tool: every tool a server offers becomes a fn of that kind, named after the server and the tool; nobody writes them by hand. Find them with hub/fns_search like any fn, by what they do; a server\'s prompts are /commands the person types, and its files are resources.',
     'Its own fns say where a server is (mcp/server_status: connected, needs a sign-in, unreachable) and list its tools again (mcp/refresh). Some servers need the person to sign in with their own account first, on the MCP sign-ins page in the app\'s menu.',
     'Reach for it when the person\'s request is about one of the connected services; when a server\'s tool fails, call mcp/server_status to say why.',
   ].join(' '),

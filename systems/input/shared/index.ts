@@ -8,7 +8,7 @@
  * `hub/fns_save`), so it is found next time.
  */
 import { ActorId, GinObjTypeDef, Visibility } from '@harness/core';
-import { type Infer, context, fn, g, ginAs, hub, kind, system } from '@harness/sdk';
+import { type Infer, agents, context, fn, g, ginAs, hub, kind, system } from '@harness/sdk';
 import { z } from 'zod';
 import { FIELD_TYPES } from './forms.ts';
 
@@ -349,12 +349,28 @@ export const input = system('input', {
           '3. End your turn, saying briefly what the form is for. Never answer it for the person or guess the answers.',
           '4. Their answers arrive as their next message, in an <input-answer title="…"> block of `field: value` lines. Use them; never ask the same thing again.',
           '',
-          'Showing a saved form again: call its fn by name with no args (input/trip_details with {}). Find saved forms with hub/fns_search and kinds ["input/form"].',
+          'Showing a saved form again: call its fn by name with no args (input/trip_details with {}). Find a saved form with hub/fns_search and a few words of what it asks.',
           '',
           'What a form does not do: it does not store the answers (put them in a database table or another system once they arrive, and say where), it does not send itself to anyone, it does not run or remind on a schedule, and it gives nobody else access.',
         ].join('\n'),
         fns: [fns.get_input, fns.ask_text, fns.ask_choice, fns.ask_confirm, fns.ask_number, fns.ask_date],
         tags: ['input'],
+      }),
+      // what every chat agent is told about forms, in its system prompt (plan injected-context, section 5)
+      basics: context({
+        title: 'Forms',
+        description: 'When and how to ask the person with a form, and how their answers come back in <input-answer>.',
+        summary: 'For several typed details, show a form with input/get_input, then end your turn; the answers come back in <input-answer>.',
+        content: [
+          'A **form** (the input system) asks the person for several typed fields at once, drawn in the chat. Make one with input/get_input from a plain description of each field, or ask one typed question (a number, a date, a choice, yes or no, a line of text) with input/ask_number, input/ask_date, input/ask_choice, input/ask_confirm or input/ask_text.',
+          'Use a form when you need several details, or ones with a type (dates, amounts, choices); a quick question still goes in your answer.',
+          'Forms are saved fns of the person (such as input/trip_details): call one by its name with no args to show the same form again another time, such as a form to add an entry to something they keep.',
+          'After showing a form, end your turn without answering for the person; the result\'s `next` says the same. Their answers arrive as their next message, inside `<input-answer>`, whenever they send it, even if they are not in the chat now. The person filled them in: treat them as their reply.',
+          'A form only asks: it stores the answers nowhere by itself, sends nothing and reminds nobody. Load input/guide before your first form.',
+        ].join('\n'),
+        fns: [fns.get_input],
+        tags: ['input'],
+        inject: { into: [agents.startingWith(hub.fns.chat)] },
       }),
     },
   }));

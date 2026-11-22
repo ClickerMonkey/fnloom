@@ -29,7 +29,7 @@ import { wireType } from '../gin.ts';
 import { checkExamples, contractHash } from '../manifest.ts';
 import type { FnDef, FnTypes } from '../fn.ts';
 import type { FnImpl } from '../impl.ts';
-import type { AnyFnRef, FnRef } from '../refs.ts';
+import { withRefText, type AnyFnRef, type FnRef } from '../refs.ts';
 import { configTypeOf, type ConfigOf, type ContractShape, type SystemContract, type SystemImpl } from '../system.ts';
 import { isPlainOffMachine } from './address.ts';
 import { readClientBundle, uploadClientBundle, type ClientBundle } from './assets.ts';
@@ -316,7 +316,7 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
         throw error;
       }
     }
-    return { ref: 'fn', name: qualify(this.name, name), args: def.args, returns: def.returns, handlers: def.handlers };
+    return withRefText({ ref: 'fn' as const, name: qualify(this.name, name), args: def.args, returns: def.returns, handlers: def.handlers });
   }
 
   async remove(fn: AnyFnRef): Promise<void> {

@@ -230,6 +230,7 @@ export class ToolsChatMode implements ChatMode {
     const fn = rendered.fns.get(name);
     if (fn === undefined || call.type !== 'tool') {
       // a held or offline fn's tool (a context named it, the model called it anyway) says what blocks it, as static `run` does
+      await rendered.names.learn([name]);
       const meant = rendered.names.fn(name);
       const blocked = meant === undefined ? undefined : blockedCall(await this.#deps.views.view(meant), scope);
       return blocked ?? invalid(undefined, 'schema', [{ path: '', message: `no tool named ${name}` }], `There is no tool named ${name}.`);
@@ -336,6 +337,7 @@ export class StaticChatMode implements ChatMode {
     const own = rendered.fns.get(name);
     if (own !== undefined) return { type: 'run', fn: own, args: await readArgs(args, own, rendered, this.#deps.views), ...(on === undefined ? {} : { on }) };
     // the name as the model wrote it (its model name; a qualified name is tolerated), read back through the registry
+    await rendered.names.learn([name, args]);
     const qualified = QualifiedName.safeParse(rendered.names.fn(name));
     // a fn that exists but can't run says what blocks it, in the hub's words; a missing one (or one not for the model) gets the nearest names
     const view = qualified.success ? await this.#deps.views.view(qualified.data) : undefined;
@@ -369,7 +371,10 @@ export class StaticChatMode implements ChatMode {
 /** A call's args with their fn-name fields (`g.fnName()`) read back to qualified names, by the fn's declared args. */
 async function readArgs(args: Json, fn: QualifiedName, rendered: RenderedIteration, views: ContextorDeps['views']): Promise<Json> {
   const view = await views.view(fn);
-  return view === undefined ? args : rendered.names.read(args, view.record.decl.args);
+  if (view === undefined) return args;
+  // a cut model name in a fn-name field reads back only through the registry
+  await rendered.names.learn([args]);
+  return rendered.names.read(args, view.record.decl.args);
 }
 
 /** Every chat mode, by config type. */

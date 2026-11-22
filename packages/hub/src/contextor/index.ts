@@ -268,6 +268,12 @@ export interface ContextorInput {
   readonly loaded: Names;
   /** What the current message asked for: its `/command` context and the fns it names. */
   readonly asked: Names;
+  /**
+   * The context items the agent's injected section shows (full or summary): in the prompt already, as part of its fixed
+   * region, so a contextor treats them as loaded: never suggests, loads or chooses them again, and never counts them.
+   * `always`, `loaded` and `asked` never hold them. Absent: none.
+   */
+  readonly injected?: readonly QualifiedName[];
   /** The args of each of the current message's `/command`s, by context name (what its dynamic context is written with). */
   readonly commands: ReadonlyMap<string, Readonly<Record<string, string>>>;
   /** The person as systems see them (the turn's), for dynamic context; absent for previews, where the hub looks them up. */
@@ -340,6 +346,13 @@ export type ContextorFactories = { readonly [T in ContextorType]: (config: Extra
 /** One planned LLM call. */
 export interface PlannedPrompt {
   readonly model: string;
+  /**
+   * The agent's instructions as the system message's template: `{{injectedContext}}` made the raw value
+   * `{{{injectedContext}}}`, or the section put straight after them when they have no placeholder.
+   */
+  readonly instructions: string;
+  /** The agent's injected section as the model reads it ('' for none): filled in where `instructions` says. */
+  readonly injectedContext: string;
   /** What follows the agent's instructions in the system message: the mode's guide, context, earlier summaries, fn cards. */
   readonly context: string;
   /** The conversation the request carries (the linear history, the current exchange, a trailing card message). */

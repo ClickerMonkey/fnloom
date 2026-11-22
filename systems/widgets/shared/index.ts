@@ -15,7 +15,7 @@
  *   its Settings) through the result-renderer slot, and owns the saved widgets' page (`/s/widgets/saved`).
  */
 import { MakeWidgetArgs, SaveWidgetArgs, WIDGET_KIND, WIDGETS_SYSTEM, WidgetProposal, WidgetSpec } from '@harness/core';
-import { context, fn, g, ginAs, hub, kind, system, type Infer } from '@harness/sdk';
+import { agents, context, fn, g, ginAs, hub, kind, system, type Infer } from '@harness/sdk';
 
 /** A saved widget, as gin (`WidgetSpec`'s type). */
 export const WidgetPayload = ginAs(WidgetSpec);
@@ -157,7 +157,7 @@ export const widgets = system(WIDGETS_SYSTEM, {
           '',
           '## Making one',
           '',
-          '1. Find the source: a fn that only reads and returns a table. Usually a saved database query (search with kinds ["database/query"], or make one with database/get_query), a table\'s generated selectPage fn, or hub/records_table.',
+          '1. Find the source: a fn that only reads and returns a table. Usually a saved database query (search fns for one by what it reads, or make one with database/get_query), a table\'s generated selectPage fn, or hub/records_table.',
           '   For totals or counts by something (spending per month, chores per person), the source must already do the sum or count: ask database/get_query for "total amount per month between a start date and an end date". A source that gives one row per item can only be shown as a list, table, cards or calendar.',
           '2. Call widgets/make_widget with `source`, `request` (what to show, in the person\'s words), `args` (one JSON object with a sample value for each required arg of the source, such as {"from": "2026-11-01", "to": "2026-11-30"}; leave out sort, limit and offset), and `show` (true when they want to see it now).',
           '   Example: {"source": "database/main.spending_by_month", "request": "Spending per month as a line chart, opening on this year", "args": {"from": "2026-01-01", "to": "2026-12-31"}, "show": true}',
@@ -170,6 +170,20 @@ export const widgets = system(WIDGETS_SYSTEM, {
         ].join('\n'),
         fns: [fns.make_widget],
         tags: ['widgets'],
+      }),
+      // what every chat agent is told about widgets, in its system prompt (plan injected-context, section 5)
+      basics: context({
+        title: 'Widgets',
+        description: 'Keeping a chart, table, calendar or cards of some rows as a widget the person can open again.',
+        summary: 'To keep a chart or view of rows, call widgets/make_widget; the person keeps it by pressing Save.',
+        content: [
+          'A **widget** (the widgets system) is a lasting view of rows (a chart, a table, a calendar or cards) the person can open again. To keep one, call widgets/make_widget with a fn that returns a table as its `source` and what to show; it proposes the widget with a preview, and the person keeps it by pressing Save. Until they do, nothing is saved.',
+          'A saved widget is a fn `widgets/<name>`, listed on the person\'s Widgets page; it reads its source again each time, so it stays current. For something the person keeps track of, a widget is the way to see its entries.',
+          'A widget only reads, and it refreshes or notifies no one on its own. Never draw a chart in text. Load widgets/guide before the first one.',
+        ].join('\n'),
+        fns: [fns.make_widget],
+        tags: ['widgets'],
+        inject: { into: [agents.startingWith(hub.fns.chat)] },
       }),
     },
   }));

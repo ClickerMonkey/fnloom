@@ -35,6 +35,7 @@ import { registerHubFns } from './hub-fns.ts';
 import { HUB_INFO } from './info.ts';
 import { migrateOldVersions } from '../catalog/versions.ts';
 import { withHubGroups } from './hub-groups.ts';
+import { withHubContext } from './hub-context.ts';
 import { mentionSearchPlugin } from '../chat/mention-search.ts';
 import type { HubModules, HubServices, ModuleContext, ModuleFactory } from './index.ts';
 import { contextorModule } from '../contextor/create.ts';
@@ -66,8 +67,9 @@ export interface ModuleSeams {
 
 /** Import the hub's own contract, so its agent and fns resolve like any system's. Refused entries fail the start. */
 async function importHubContract(catalog: Catalog, log: Logger): Promise<void> {
-  // its fns in their API groups, so the catalog writes the hub's API index like any system's
-  const report = await catalog.importManifest(withHubGroups(await manifestOf(hub, { version: HUB_INFO.version })));
+  // its fns in their API groups, so the catalog writes the hub's API index like any system's; its context files
+  // (packages/hub/context/: the hub's features, injected into the chat agents) join its context
+  const report = await catalog.importManifest(withHubGroups(await withHubContext(await manifestOf(hub, { version: HUB_INFO.version }))));
   if (report.refused.length > 0) {
     throw new Error(`the hub's own contract was refused: ${report.refused.map((r) => `${r.name}: ${r.problems.join('; ')}`).join(' | ')}`);
   }

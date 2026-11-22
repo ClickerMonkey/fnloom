@@ -9,13 +9,29 @@ import type { FnDef, FnTypes, Handlers, KindFnInput, KindFnTypes } from './fn.ts
 import type { GinType } from './gin.ts';
 import type { Simplify } from './util.ts';
 
-/** A typed handle to a fn: declare it as a dep, then call it with checked args, result and handlers. */
+/**
+ * Give a fn or context ref the text it writes in model-facing text: `${fns.read}` is `fn:fs/read`, which the hub renders
+ * as the name the model calls the fn by (`fs__read`, or a static tool's name), and `${ctx.guide}` is `context:fs/guide`,
+ * rendered as the plain key. So a rename is a compile error, never a stale sentence. Not enumerable, so a ref's JSON
+ * and equality are unchanged.
+ */
+export function withRefText<T extends { readonly ref: 'fn' | 'context'; readonly name: string }>(ref: T): T {
+  Object.defineProperty(ref, 'toString', { value: () => `${ref.ref}:${ref.name}`, enumerable: false, configurable: true });
+  return ref;
+}
+
+/**
+ * A typed handle to a fn: declare it as a dep, then call it with checked args, result and handlers. In a template
+ * string it writes `fn:<its name>` (`withRefText`), which the hub renders as the name the model calls it by.
+ */
 export interface FnRef<N extends QualifiedName, A, R, H extends Handlers = {}> {
   readonly ref: 'fn';
   readonly name: N;
   readonly args: GinType<A>;
   readonly returns: GinType<R>;
   readonly handlers: H;
+  /** `fn:<its name>`, for model-facing text (`withRefText`). */
+  toString(): string;
 }
 export type AnyFnRef = FnRef<QualifiedName, unknown, unknown, Handlers>;
 
@@ -71,12 +87,14 @@ export interface KindRef<N extends QualifiedName, P> {
 }
 export type AnyKindRef = KindRef<QualifiedName, unknown>;
 
-/** A typed handle to context. A `/command`'s args are typed. */
+/** A typed handle to context. A `/command`'s args are typed. In a template string it writes `context:<its key>`, rendered as the key. */
 export interface ContextRef<N extends QualifiedName, A> {
   readonly ref: 'context';
   readonly name: N;
   /** Phantom: the command's args. Never set at runtime. */
   readonly args?: A;
+  /** `context:<its key>`, for model-facing text (`withRefText`). */
+  toString(): string;
 }
 export type AnyContextRef = ContextRef<QualifiedName, unknown>;
 

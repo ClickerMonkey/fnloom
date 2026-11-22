@@ -1,40 +1,52 @@
 /**
- * The hub's fn name registry (plan `injected-context-2026-11-22`, section 1): every fn the catalog holds (saved fns and
- * methods included), each encoded once as the name the model calls it by (`modelFnName`), so a model name reads back
- * by lookup, never by rule (a cut name can't be read by rule). Names whose fns are gone stay in the history table
- * (`modelFnNameHistory`), so an old call in a transcript still reads back for people.
+ * The hub's fn name registry (plan `injected-context-2026-11-22`, section 1), in its store: every fn the catalog holds
+ * (saved fns and methods included) has one row in `modelFnNames` with the name the model calls it by (`modelFnName`),
+ * keyed by that name and indexed by fn, written and removed in the transaction that writes or removes the fn. A model
+ * name reads back by lookup, never by rule (a cut name can't be read by rule). Names whose fns are gone move to the
+ * history table (`modelFnNameHistory`), so an old call in a transcript still reads back for people.
  *
- * The catalog owns it: it checks each fn it is asked to declare or save (`problem`: a local name the model name can't
- * carry, or a model name another fn already has), and tells it what each import or save added and removed (`changed`).
- * It holds names only, filled once from the store page by page.
+ * Nothing is held in memory: a prompt asks about the names it meets in one batch (`fnsAmong`, `fnsOf`), answered by
+ * indexed `in` queries a chunk at a time, however many fns the hub holds. The catalog asks `problem` before it stores a
+ * fn (a local name the model name can't carry, or a model name another fn already holds: one lookup by key).
  */
-import type { Logger } from '@ayepi/log';
-import { FnNameIndex, fnLocalNameProblem, modelFnName, splitName, type FnRecord, type ModelFnNameHistory, type QualifiedName } from '@harness/core';
+import { fnLocalNameProblem, ModelFnName, modelFnName, splitName, type FnRecord, type ModelFnNameRegistry, type QualifiedName } from '@harness/core';
 import type { HubStore } from '../store/index.ts';
-import { rows } from '../store/rows.ts';
+import { allRows, rows } from '../store/rows.ts';
 
-/** What the registry needs. */
-export interface FnNamesDeps {
-  readonly store: HubStore;
-  readonly log: Logger;
-  readonly clock: () => number;
-}
+/** How many names one `in` query carries. */
+const CHUNK = 500;
 
-/** The registry, kept in step with the catalog. */
-export class StoreFnNames {
-  readonly #deps: FnNamesDeps;
-  #index: FnNameIndex | undefined;
-  #loading: Promise<FnNameIndex> | undefined;
+/** The registry over the hub's store. */
+export class StoreFnNames implements ModelFnNameRegistry {
+  readonly #store: () => HubStore;
 
-  constructor(deps: FnNamesDeps) {
-    this.#deps = deps;
+  /** Over this store (a function, so the registry follows a store that is swapped, as in tests). */
+  constructor(store: HubStore | (() => HubStore)) {
+    this.#store = typeof store === 'function' ? store : () => store;
   }
 
-  /** The registry: every fn's model name and the history, read from the store on first use. */
-  index(): Promise<FnNameIndex> {
-    if (this.#index !== undefined) return Promise.resolve(this.#index);
-    this.#loading ??= this.#load();
-    return this.#loading;
+  async fnsAmong(names: readonly QualifiedName[]): Promise<ReadonlySet<QualifiedName>> {
+    const found = new Set<QualifiedName>();
+    for (const chunk of chunks([...new Set(names)])) {
+      for (const row of await allRows(this.#store().table('modelFnNames'), { where: { fn: { in: chunk } } })) found.add(row.fn);
+    }
+    return found;
+  }
+
+  async fnsOf(models: readonly string[]): Promise<ReadonlyMap<string, QualifiedName>> {
+    const found = new Map<string, QualifiedName>();
+    const store = this.#store();
+    // only a model name's shape can be one: anything else names no fn
+    const shaped = [...new Set(models)].flatMap((model) => { const parsed = ModelFnName.safeParse(model); return parsed.success ? [parsed.data] : []; });
+    for (const chunk of chunks(shaped)) {
+      for (const row of await allRows(store.table('modelFnNames'), { where: { model: { in: chunk } } })) found.set(row.model, row.fn);
+    }
+    // the names no fn holds now may be a gone fn's
+    const gone = shaped.filter((model) => !found.has(model));
+    for (const chunk of chunks(gone)) {
+      for (const row of await allRows(store.table('modelFnNameHistory'), { where: { model: { in: chunk } } })) found.set(row.model, row.fn);
+    }
+    return found;
   }
 
   /**
@@ -46,41 +58,49 @@ export class StoreFnNames {
     const local = fnLocalNameProblem(splitName(fn).local);
     if (local !== undefined) return local;
     const model = modelFnName(fn);
-    const holder = (await this.index()).collision(fn) ?? (claimed?.get(model) === fn ? undefined : claimed?.get(model));
+    const stored = (await this.#store().table('modelFnNames').get(model))?.fn;
+    const holder = (stored === fn ? undefined : stored) ?? (claimed?.get(model) === fn ? undefined : claimed?.get(model));
     if (holder !== undefined) return `${fn} would be called ${model} by the model, which is ${holder}'s name: pick another name`;
     claimed?.set(model, fn);
     return undefined;
   }
 
-  /**
-   * What an import or a save changed: the fns written join (an availability change re-adds, which changes nothing), a
-   * fn that went moves to the history. Names of other sections in `removed` are ignored.
-   */
-  changed(removed: readonly QualifiedName[], written: readonly FnRecord[]): void {
-    const index = this.#index;
-    if (index === undefined) return; // not read yet: the store already holds the change, so the first read has it
-    for (const fn of written) index.add(fn.name);
-    const gone: ModelFnNameHistory[] = [];
-    const now = this.#deps.clock();
-    for (const name of removed) {
-      if (!index.isFn(name)) continue;
-      const entry = index.remove(name, now);
-      if (entry !== undefined) gone.push(entry);
-    }
-    if (gone.length === 0) return;
-    this.#deps.store.table('modelFnNameHistory').putAll(gone).catch((error: unknown) => {
-      this.#deps.log.error('catalog.fn-names.history-failed', { fns: gone.map((entry) => entry.fn) }, error);
-    });
+  /** Keep a fn's model name, in the transaction that writes the fn (`tx`). */
+  async write(tx: HubStore, fn: FnRecord): Promise<void> {
+    const model = modelFnName(fn.name);
+    const table = tx.table('modelFnNames');
+    if ((await table.get(model))?.fn === fn.name) return;
+    await table.put({ model, fn: fn.name, system: fn.system });
   }
 
-  async #load(): Promise<FnNameIndex> {
-    const { store } = this.#deps;
-    const history: ModelFnNameHistory[] = [];
-    for await (const row of rows(store.table('modelFnNameHistory'))) history.push(row);
-    const fns: QualifiedName[] = [];
-    for await (const row of rows(store.table('fns'))) fns.push(row.name);
-    const index = FnNameIndex.of(fns, history);
-    this.#index = index;
-    return index;
+  /** Take a gone fn's model name out, in the transaction that removes the fn, and keep it in the history. */
+  async remove(tx: HubStore, fn: QualifiedName, until: number): Promise<void> {
+    const model = modelFnName(fn);
+    const table = tx.table('modelFnNames');
+    if ((await table.get(model))?.fn !== fn) return;
+    await table.remove(model);
+    await tx.table('modelFnNameHistory').put({ model, fn, until });
   }
+
+  /**
+   * Write the model names of every stored fn, once, on a hub whose fns were stored before the registry was a table: a
+   * migration, read page by page. Returns how many it wrote (none when the table already has rows).
+   */
+  async backfill(): Promise<number> {
+    const store = this.#store();
+    if ((await store.table('modelFnNames').count()) > 0) return 0;
+    let written = 0;
+    for await (const fn of rows(store.table('fns'))) {
+      await store.table('modelFnNames').put({ model: modelFnName(fn.name), fn: fn.name, system: fn.system });
+      written += 1;
+    }
+    return written;
+  }
+}
+
+/** A list in chunks of `CHUNK`. */
+function chunks<T>(items: readonly T[]): T[][] {
+  const out: T[][] = [];
+  for (let at = 0; at < items.length; at += CHUNK) out.push(items.slice(at, at + CHUNK));
+  return out;
 }

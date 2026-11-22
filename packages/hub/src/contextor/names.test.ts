@@ -88,13 +88,18 @@ describe('prompt text and tools out', () => {
     const index = FnNameIndex.of([METHOD, hub.fns.fns_search.name, hub.fns.ctx_load.name]);
     const tools = modeNames('tools', { index, types: registry.types });
     const statics = modeNames('static', { index, types: registry.types });
+    // the registry is asked once per prompt, before anything is spelled
+    await tools.learn(['Find with hub/fns_search, then call fs/Entry.reveal.']);
+    await statics.learn(['Find with hub/fns_search, load with hub/ctx_load, then fs/Entry.reveal.']);
     expect(tools.text('Find with hub/fns_search, then call fs/Entry.reveal.')).toBe('Find with hub__fns_search, then call fs__Entry__reveal.');
     expect(statics.text('Find with hub/fns_search, load with hub/ctx_load, then fs/Entry.reveal.')).toBe('Find with find, load with load, then fs__Entry__reveal.');
-    const tool = modeTool('x', 'Use fs/Entry.reveal.', z.object({}), {});
-    const out = spoken({ tools: [tool], systemEnd: '', tail: 'Then fs/Entry.reveal.', protocol: 'native', fns: new Map(), fleet: new Set(), names: tools });
+    const tool = modeTool('x', 'Use fs/Entry.reveal.', z.object({ a: z.string().describe('A name, like fs/Entry.reveal.') }), { type: 'object', properties: { a: { type: 'string', description: 'A name, like fs/Entry.reveal.', pattern: 'fs/Entry.reveal' } } });
+    const out = await spoken({ tools: [tool], systemEnd: '', tail: 'Then fs/Entry.reveal.', protocol: 'native', fns: new Map(), fleet: new Set(), names: tools });
     expect(out.tools[0]?.description).toBe('Use fs__Entry__reveal.');
     expect(out.tools[0]?.spec.description).toBe('Use fs__Entry__reveal.');
     expect(out.tail).toBe('Then fs__Entry__reveal.');
+    // a field's own words in the tool's schema too, never its pattern
+    expect(out.tools[0]?.spec.parameters).toMatchObject({ properties: { a: { description: 'A name, like fs__Entry__reveal.', pattern: 'fs/Entry.reveal' } } });
   });
 
   it('describes a fn-name field in a JSON schema only where its author said nothing', () => {
@@ -109,6 +114,7 @@ describe('results out', () => {
     const names = modeNames('tools', registry);
     const returns = (await r.catalog.fn(EXAMPLES))?.decl.returns;
     const result = { fn: SAVED, text: 'Call fs/Entry.reveal next.' };
+    await names.learn([result, 'Done with fs/Entry.reveal.']);
     const reply = replyText(result, { rows: 5, watched: true }, (value) => names.value(value, returns));
     expect(JSON.parse(reply)).toEqual({ fn: 'database__main__expenses_create', text: 'Call fs__Entry__reveal next.' });
     // a plain text result is spelled by the reply's text pass

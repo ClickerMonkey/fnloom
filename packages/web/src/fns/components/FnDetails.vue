@@ -7,11 +7,15 @@
  * runs. It loads the fn itself (its record, numbers and runs from the admin fn store, its overview from the fn info
  * store) and lets them go when it goes. A fn it uses opens in the app's fn modal (a `FnPill`); where it sits decides
  * where the rest opens: a run (`run`), all its runs (`runs`); `switched` says it was turned on or off. The `runs` slot adds the opener's own runs of it
- * (the chat's) under the overview. `compact` (a modal) stacks the charts and keeps the code short.
+ * (the chat's) under the overview. `compact` (a modal) stacks the charts and keeps the code short. An agent (a `hub/llm`
+ * fn) has two tabs (`v-model:tab`, URL-bound by the page or the modal): About (all of the above) and Injected (what is
+ * injected into its system prompt, each item with its per-agent switch and order, `InjectedList`).
  */
-import { WIDGET_KIND, type QualifiedName, type RunId } from '@harness/core';
+import { WIDGET_KIND, type InjectionView, type QualifiedName, type RunId } from '@harness/core';
 import { computed, onBeforeUnmount, watch } from 'vue';
+import InjectedList from '../../admin/components/InjectedList.vue';
 import LoadState from '../../admin/components/LoadState.vue';
+import { AGENT_KIND, fnTabs, type FnTab } from '../../admin/logic/injected.ts';
 import FnStats from '../../admin/components/FnStats.vue';
 import type { FnPeriod } from '../../admin/state/fn.ts';
 import { fnLabel } from '../../chat/logic/labels.ts';
@@ -21,7 +25,7 @@ import { frameOf } from '../../components/widgets/widget-source.ts';
 import WidgetView from '../../components/widgets/WidgetView.vue';
 import { useWidgetOpener } from '../../data/state/open-widget.ts';
 import { useStores } from '../../state/stores.ts';
-import { UiBadge, UiButton, UiCard, UiEmpty, UiSwitch } from '../../ui/index.ts';
+import { UiBadge, UiButton, UiCard, UiEmpty, UiSwitch, UiTabs } from '../../ui/index.ts';
 import { useNow } from '../../ui/now.ts';
 import type { PayloadForm } from '../logic/facts.ts';
 import FnOverview from './FnOverview.vue';
@@ -37,6 +41,7 @@ const props = withDefaults(defineProps<{
 }>(), { describe: true, compact: false });
 const days = defineModel<FnPeriod>('days', { required: true });
 const form = defineModel<PayloadForm>('form', { default: 'readable' });
+const tab = defineModel<FnTab>('tab', { default: 'about' });
 const emit = defineEmits<{ run: [run: RunId]; runs: [fn: QualifiedName]; switched: [fn: QualifiedName, on: boolean] }>();
 const slots = defineSlots<{ runs?: () => unknown }>();
 
@@ -58,6 +63,21 @@ const widgetFrame = computed(() => {
 });
 const { opening, open: openWidget } = useWidgetOpener();
 
+/** An agent: its Injected tab lists what goes into its system prompt. */
+const isAgent = computed(() => record.value?.decl.kind === AGENT_KIND);
+const injected = admin.injected;
+const injectedViews = computed(() => injected.page.value.value?.injections ?? []);
+const tabs = computed(() => fnTabs(isAgent.value, injected.page.value.value === undefined ? undefined : injectedViews.value.length));
+const shownTab = computed<FnTab>(() => (isAgent.value ? tab.value : 'about'));
+
+async function switchInjected(view: InjectionView, on: boolean): Promise<void> {
+  if (!(await injected.switchOn(view, on))) { toasts.error(injected.saving.problem.value); }
+}
+
+async function reorderInjected(view: InjectionView, order: number | null): Promise<void> {
+  if (!(await injected.reorder(view, order))) { toasts.error(injected.saving.problem.value); }
+}
+
 async function switchOn(on: boolean): Promise<void> {
   const name = record.value?.name;
   if (name === undefined) { return; }
@@ -66,7 +86,9 @@ async function switchOn(on: boolean): Promise<void> {
 
 watch(() => [props.name, days.value] as const, ([fn, d]) => { void store.open(fn, d); }, { immediate: true });
 watch(() => props.name, (fn) => { void fns.open(fn); }, { immediate: true });
-onBeforeUnmount(() => { store.close(); fns.close(); });
+// an agent's injections load with it, so its tab shows how many reach it
+watch(() => [props.name, isAgent.value] as const, ([fn, agent]) => { if (agent) { void injected.open({ agent: fn }); } else { injected.close(); } }, { immediate: true });
+onBeforeUnmount(() => { store.close(); fns.close(); injected.close(); });
 </script>
 
 <template>
@@ -75,6 +97,12 @@ onBeforeUnmount(() => { store.close(); fns.close(); });
     data-testid="fn-details" @retry="store.open(name, days)"
   >
     <template v-if="record">
+      <UiTabs v-if="isAgent" v-model="tab" :tabs="tabs" label="Fn" data-testid="fn-tabs" />
+      <InjectedList
+        v-if="shownTab === 'injected'" per="agent" :views="injectedViews" :loading="injected.page.loading.value" :problem="injected.page.problem.value"
+        :busy="injected.busyKey.value" :now="now" data-testid="fn-injected" @switch="switchInjected" @reorder="reorderInjected" @retry="injected.refresh()"
+      />
+      <template v-else>
       <UiCard v-if="isWidget" title="The widget" data-testid="fn-widget">
         <template #actions>
           <UiButton size="sm" icon="play" :loading="opening === name" data-testid="fn-widget-open" @click="openWidget(name)">Open in chat</UiButton>
@@ -106,6 +134,7 @@ onBeforeUnmount(() => { store.close(); fns.close(); });
       >
         <template #actions><UiButton size="sm" variant="ghost" icon="arrow-right" data-testid="fn-runs" @click="emit('runs', name)">All its runs</UiButton></template>
       </FnRuns>
+      </template>
     </template>
   </LoadState>
 </template>

@@ -2,7 +2,7 @@
 /**
  * One fn's page (`/admin/systems/:name/fns/:fn`): its header, the way back to its system (or the fleet instance it is
  * routed to), and everything about it in `FnDetails`, the same component the fn modal shows. The page keeps the
- * period (`?days=7|30|90`) and the payload form (`?form=`) in the URL; another fn, a run and all its runs open as pages.
+ * period (`?days=7|30|90`), the payload form (`?form=`) and, for an agent, its tab (`?tab=injected`) in the URL; another fn, a run and all its runs open as pages.
  */
 import { QualifiedName } from '@harness/core';
 import { computed } from 'vue';
@@ -16,6 +16,7 @@ import FnDetails from '../../fns/components/FnDetails.vue';
 import { PayloadForm } from '../../fns/logic/facts.ts';
 import { useStores } from '../../state/stores.ts';
 import { UiIcon } from '../../ui/index.ts';
+import { FnTab } from '../sections.ts';
 import { FN_PERIODS, type FnPeriod } from '../state/fn.ts';
 
 const { admin } = useStores();
@@ -30,6 +31,8 @@ const period = computed<FnPeriod>({
 });
 /** The payload as its kind writes it for people (a query's SQL, a program), with the stored JSON one switch away (`?form=stored`). */
 const form = query.choice('form', PayloadForm, 'readable');
+/** About, or (for an agent) Injected (`?tab=injected`). */
+const tab = query.choice('tab', FnTab, 'about');
 
 const name = computed(() => {
   const parsed = QualifiedName.safeParse(`${String(route.params['name'])}/${String(route.params['fn'])}`);
@@ -51,7 +54,7 @@ const back = computed(() => {
       </RouterLink>
     </template>
     <FnDetails
-      v-if="name" v-model:days="period" v-model:form="form" :name="name" :describe="false"
+      v-if="name" v-model:days="period" v-model:form="form" v-model:tab="tab" :name="name" :describe="false"
       @run="router.push(links.runs({ run: $event }))" @runs="router.push(links.fnRuns($event))"
     />
   </AppPage>

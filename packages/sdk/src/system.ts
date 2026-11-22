@@ -12,8 +12,9 @@ import type {
 import { kindFn, type AnyFnDef, type FnDef, type FnTypes, type TypesOf } from './fn.ts';
 import type { FnImpl } from './impl.ts';
 import { g, type GinType, type Infer } from './gin.ts';
-import type {
-  ActionRef, AttachmentRef, ContextRef, FnRefOf, HookRef, KindRef, MentionRef, Methods, MethodRefs, ProviderRef, SectionerRef, SettingRef, TypeRef,
+import {
+  withRefText, type ActionRef, type AttachmentRef, type ContextRef, type FnRefOf, type HookRef, type KindRef, type MentionRef, type Methods, type MethodRefs, type ProviderRef, type SectionerRef,
+  type SettingRef, type TypeRef,
 } from './refs.ts';
 import { entriesOf, mapValues, type Simplify } from './util.ts';
 import type { ResourceProvider } from './resources.ts';
@@ -193,7 +194,7 @@ type ContractExtras = Pick<SystemContract<string, ContractShape>, 'description' 
 function typeRef(system: string, local: string, def: AnyTypeDef): TypeRef<QualifiedName, unknown, Methods> {
   const name = qualify(system, local);
   const base = g.extend(def.shape, { name, docs: def.description });
-  const methods: MethodRefs<QualifiedName, unknown, Methods> = mapValues(def.methods, (method, key) => ({
+  const methods: MethodRefs<QualifiedName, unknown, Methods> = mapValues(def.methods, (method, key) => withRefText({
     ref: 'fn' as const,
     name: `${name}.${key}` as const,
     args: g.and([g.obj({ self: base }), method.args]),
@@ -227,12 +228,12 @@ function refsOf(system: string, part: Partial<ContractShape>): AnyRefs {
     settings: part.settings === undefined ? out.settings : mapValues(part.settings, (def, key) => ({ ref: 'setting', name: q(key), type: def.type })),
     attachments: part.attachments === undefined ? out.attachments : mapValues(part.attachments, (def, key) => ({ ref: 'attachment', name: q(key), data: def.data })),
     kinds: part.kinds === undefined ? out.kinds : mapValues(part.kinds, (def, key) => kindRef(system, key, def)),
-    fns: part.fns === undefined ? out.fns : mapValues(part.fns, (def, key) => ({
-      ref: 'fn', name: q(key), args: def.args, returns: def.returns, handlers: def.handlers,
+    fns: part.fns === undefined ? out.fns : mapValues(part.fns, (def, key) => withRefText({
+      ref: 'fn' as const, name: q(key), args: def.args, returns: def.returns, handlers: def.handlers,
       // an agent's ref carries its kind, so only agents fit where an agent is asked for (`AgentRef`)
       ...(def.kind !== 'native' && def.kind.name === AGENT_KIND ? { kind: AGENT_KIND } : {}),
     })),
-    context: part.context === undefined ? out.context : mapValues(part.context, (_def, key) => ({ ref: 'context', name: q(key) })),
+    context: part.context === undefined ? out.context : mapValues(part.context, (_def, key) => withRefText({ ref: 'context' as const, name: q(key) })),
     hooks: part.hooks === undefined ? out.hooks : mapValues(part.hooks, (_def, key) => ({ ref: 'hook', name: q(key) })),
     mentions: part.mentions === undefined ? out.mentions : mapValues(part.mentions, (def, key) => ({ ref: 'mention', name: q(key), target: def.target })),
     sectioners: part.sectioners === undefined ? out.sectioners : mapValues(part.sectioners, (_def, key) => ({ ref: 'sectioner', name: q(key) })),

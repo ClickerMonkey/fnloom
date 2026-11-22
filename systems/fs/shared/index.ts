@@ -5,7 +5,7 @@
  * implements it and its client draws it.
  */
 import { ChangeSet, SensitivityRule } from '@harness/core';
-import { type Infer, type ValueOf, agent, arg, attachment, context, fn, ginAs, g, handler, hook, hub, linear, mention, setting, system, type } from '@harness/sdk';
+import { type Infer, type ValueOf, agent, agents, arg, attachment, context, fn, ginAs, g, handler, hook, hub, linear, mention, setting, system, type } from '@harness/sdk';
 import { HostedState, HostedStatus, InstallArgs, InstallResult, RestartArgs, StatusArgs, StopArgs, StopResult } from './hosting.ts';
 
 export * from './hosting.ts';
@@ -419,7 +419,15 @@ export const fs = system('fs', {
         tags: ['systems'],
       }),
     },
-    hooks: { git: hook({ description: 'Adds the current branch and the changed files.', order: 50, timeout: 500 }) },
+    hooks: {
+      git: hook({
+        description: 'Adds the current branch and the changed files.',
+        // what `<fs_git>` means to the model: injected with fs's items into the agents that get the block
+        explains: '`<fs_git>` is the git state of each folder the files system serves that is a git repository: its branch, and the files changed since the last commit. The person didn\'t type it. Mention it only when it matters to the request.',
+        order: 50,
+        timeout: 500,
+      }),
+    },
   })
   // mentions, context and the agent use the types and fns declared above
   .with(({ fns, types }) => ({
@@ -443,6 +451,19 @@ export const fs = system('fs', {
         ].join('\n'),
         // the guide brings the fns it is about, so finding it finds them
         fns: [fns.read, fns.list, fns.glob, fns.grep, fns.edit, fns.write, fns.bash, fns.cd, fns.remove],
+      }),
+      // what every chat agent is told about files, in its system prompt (plan injected-context, section 5)
+      basics: context({
+        title: 'Files',
+        description: 'Where the files system works (its roots), how paths are written, what can be undone, and that an attached file is not one of its files.',
+        summary: 'The files system works only in folders an admin chose: paths are relative to the first root, never `/`. Load fs/guide first.',
+        content: [
+          'The **files system** (`fs`) works only inside a few folders of the person\'s machine an admin chose (its roots). Paths are relative to the first root (`notes/todo.md`) or start with a root\'s name; `/` is outside the roots and is refused. Look before you guess a path: fs/list on `.` shows the first root, fs/glob finds files by name, and fs/read reads one.',
+          'fs/write, fs/edit and fs/remove may ask the person first, and what they change can be undone with the turn; what fs/bash changes can\'t. To keep a document for the person (a note, a list, a recipe), write a markdown file and tell them its path.',
+          'A file the person attached to a message is not an fs file: it is kept by the hub, not under the roots. Load fs/guide before the first change.',
+        ].join('\n'),
+        fns: [fns.list, fns.read],
+        inject: { into: [agents.startingWith(hub.fns.chat)] },
       }),
       tree: context({
         description: 'The folder tree of a root, as it is now.',

@@ -100,6 +100,27 @@ describe('the context inspector', () => {
     expect(view.get('[data-testid=selected-fns]').text()).toContain('Name only');
     expect(view.get('[data-testid=budget-cuts]').text()).toContain('2 older exchanges');
     expect(view.text()).toContain('Static toolset');
+    expect(view.find('[data-testid=injected-section]').exists()).toBe(false);
+  });
+
+  it('SelectionReportView shows the injected section: its size in the fixed part, its items, what was left out and why, a rebuild', () => {
+    const report = selectionReport();
+    const view = mount(SelectionReportView, {
+      props: {
+        report: {
+          ...report,
+          injected: {
+            tokens: 420, items: [{ name: 'input/asking', detail: 'full', tokens: 300 }, { name: 'hub/memory', detail: 'summary', tokens: 120 }],
+            leftOut: [{ name: 'web/reading', why: 'system-off', reason: 'this chat does not use web' }], rebuilt: { added: [], dropped: ['web/reading'] },
+          },
+        },
+      },
+    });
+    const section = view.get('[data-testid=injected-section]');
+    expect(section.text()).toContain(`420 of the ${report.budget.fixed.toLocaleString()} fixed tokens · 2 items, 1 at summary`);
+    expect(section.text()).toContain('input/asking');
+    expect(view.get('[data-testid=injected-left-out]').text()).toContain('web/reading left out: system off (this chat does not use web)');
+    expect(view.get('[data-testid=injected-rebuilt]').text()).toContain('dropped web/reading');
   });
 });
 

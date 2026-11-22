@@ -8,6 +8,7 @@
  */
 import { z } from 'zod';
 import { ActorId, InstanceName, QualifiedName, Timestamp, TurnId } from './primitives.ts';
+import { InjectionLeftOut } from './records/injections.ts';
 
 // ─── Detail ───────────────────────────────────────────────────────────────────
 
@@ -236,6 +237,20 @@ export type BudgetReport = z.infer<typeof BudgetReport>;
 export const SelectedItem = z.object({ name: QualifiedName, detail: Detail, activation: z.number().min(0) });
 export type SelectedItem = z.infer<typeof SelectedItem>;
 
+/**
+ * The agent's injected section in one prompt (part of its fixed region): its size, each item in it at the detail it
+ * got (`listed` is a line under `<more_ctx>`, after a fallback), and each item that reaches the agent but was left
+ * out, with why. `rebuilt` says the fixed region changed at this turn (one cache miss), with the items it added and
+ * dropped. The run inspector shows it as the injected part of the fixed line.
+ */
+export const InjectedReport = z.object({
+  tokens: z.number().int().min(0),
+  items: z.array(z.object({ name: QualifiedName, detail: z.enum(['full', 'summary', 'listed']), tokens: z.number().int().min(0) })),
+  leftOut: z.array(z.object({ name: QualifiedName, why: InjectionLeftOut, reason: z.string() })),
+  rebuilt: z.object({ added: z.array(QualifiedName), dropped: z.array(QualifiedName) }).optional(),
+});
+export type InjectedReport = z.infer<typeof InjectedReport>;
+
 /** What one contextor cycle chose: saved with the LLM interaction and shown in the run inspector. */
 export const SelectionReport = z.object({
   contextor: ContextorType,
@@ -247,6 +262,8 @@ export const SelectionReport = z.object({
   /** Earlier exchanges summarised in the system prompt, by turn number. */
   earlier: z.array(z.number().int().min(0)),
   budget: BudgetReport,
+  /** The injected section (`{{injectedContext}}`), when the agent takes one. */
+  injected: InjectedReport.optional(),
 });
 export type SelectionReport = z.infer<typeof SelectionReport>;
 

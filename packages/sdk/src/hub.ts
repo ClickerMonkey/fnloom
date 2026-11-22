@@ -10,7 +10,7 @@
  */
 import {
   ADMIN_TAG, adminSlice, AgentInjected, chatSlice, CONTENT_HASH_PATTERN, ChatModeConfig, contextorSlice, contextSlice, ContextorConfig, DETAIL_LEVELS, ERROR_CLASSES,
-  graphSlice, versionsSlice, dataSlice, ContributionView, ReadTableArgs, ResultTable, RowActionsQuery, WidgetActionOption, mcpsSlice, metricsSlice, accessSlice, autoPairSlice, connectionsSlice, explorerSlice, suggestionsSlice, MintMcpTokenArgs, modelsSlice, OWN_TAG, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, RUN_STATUSES, runsSlice,
+  graphSlice, injectionsSlice, versionsSlice, dataSlice, ContributionView, ReadTableArgs, ResultTable, RowActionsQuery, WidgetActionOption, mcpsSlice, metricsSlice, accessSlice, autoPairSlice, connectionsSlice, explorerSlice, suggestionsSlice, MintMcpTokenArgs, modelsSlice, OWN_TAG, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, RUN_STATUSES, runsSlice,
   FnLive, GinTypeDef, LIST_NAMES, querySlice, Section, settingsSlice, systemsSlice, LlmContentPart, ModelLimits, LINK_TARGET_KINDS, type Display,
   FnBlock, FnExample, FnExamplesPage, FnExamplesQuery, FnRouting, FnSearchArgs, FnSearchPage, CtxSearchArgs, LoadContextResult, LoadFnsResult, ContextCrawlArgs, ContextCrawlResult, CRAWL_BATCH_MAX, NameRefusal, ShareRule, type RegistryEffect,
 } from '@harness/core';
@@ -149,6 +149,7 @@ export const ADMIN_READ_ENDPOINTS = {
   instances_list: packagingSlice.endpoints.instances,
   suggest_decision_get: suggestionsSlice.endpoints.suggestDecision,
   search_decision_get: suggestionsSlice.endpoints.searchDecisions,
+  ctx_injections_list: injectionsSlice.endpoints.injections,
 } as const satisfies Record<string, EndpointLike>;
 
 /** An admin read fn's name. */
@@ -202,6 +203,7 @@ export const ADMIN_ENDPOINTS = {
   search_decision_set: suggestionsSlice.endpoints.setSearchDecision,
   auto_pair_revoke: autoPairSlice.endpoints.revokeAutoPair,
   system_reimport: systemsSlice.endpoints.reimport,
+  ctx_injection_set: injectionsSlice.endpoints.setInjection,
 } as const satisfies Record<string, EndpointLike>;
 
 /** An admin fn's name. */
@@ -417,6 +419,16 @@ const adminReadFns = {
   instances_list: adminReadFn('One system\'s instances, with their status, version, config (secrets masked) and host.', 'Use it to see every copy of a system and who hosts each.', ADMIN_READ_ENDPOINTS.instances_list, [{ args: { system: 'database' } }]),
   suggest_decision_get: adminReadFn('The suggestions setting: who picks what each message is offered (a decision model, an LLM, or none: the best by similarity over the threshold), and its limits.', 'Use it before changing it with hub/suggest_decision_set.', ADMIN_READ_ENDPOINTS.suggest_decision_get, [{ args: {} }]),
   search_decision_get: adminReadFn('The search decisions: who filters search hits before they are returned, for fns and for context (none, a decision model or an LLM).', 'Use it before changing one with hub/search_decision_set.', ADMIN_READ_ENDPOINTS.search_decision_get, [{ args: {} }]),
+  ctx_injections_list: adminReadFn(
+    'What is injected into agents\' system prompts: for each agent (a fn that runs a model, such as hub/chat), the context items and hook notes the hub puts into its instructions, in order, each with its text as the model reads it, its tokens, whether an admin left it on for that agent, and why it is left out if it is (switched off, waiting for review, declined, its system off, its fns unusable, the other chat mode, or no room).',
+    'Use it when an admin asks what an agent is told, why an agent knows or does not know something, or before switching an item with hub/ctx_injection_set. Give `agent` for one agent\'s list, `context` for one item in every agent it reaches (the answer then also lists its targets and the agents each hits), or both. Each entry\'s `via` is the target that took it in (an agent\'s name or a pattern such as `hub/chat*`). It shows what a new chat with that agent would be told, every system on; give `mode` (`tools` or `static`) or `fnMode` (`read`, `write`, `delete`, `none`) to see it as a chat with that setting gets it. Tokens are estimates.',
+    ADMIN_READ_ENDPOINTS.ctx_injections_list,
+    [
+      { args: { agent: 'hub/chat' }, note: 'Everything the chat agent is told, in order.' },
+      { args: { context: 'input/asking' }, note: 'One item: which agents get it, and how it reads in each.' },
+      { args: { agent: 'hub/chat', fnMode: 'read' }, note: 'What the chat agent is told in a chat that may only read.' },
+    ],
+  ),
 };
 
 /** The hub's admin fns (`ADMIN_ENDPOINTS`), each described for the agent that offers them. */
@@ -471,6 +483,16 @@ const adminFns = {
   auto_pair_revoke: adminFn('Revoke an auto-pair secret, so its instance must pair again by code or token.', 'Use it when a machine is lost or retired; find the secret with hub/auto_pairs_list.', ADMIN_ENDPOINTS.auto_pair_revoke, [{ args: { id: 'apk_01HZX3' } }]),
   system_reimport: adminFn('Import a system\'s stored contract again, re-checking every entry.', 'Use it after a hub upgrade or when a system\'s fns look stale; it reports what was added, updated, removed or refused.', ADMIN_ENDPOINTS.system_reimport, [{ args: { system: 'database' } }], changes('update', 'fns', 'types', 'context', 'kinds')),
   export_system_data: adminFn('Zip an instance\'s data folder with its config (secret fields only when asked) and return the content.', 'Use it to back up an instance before removing or moving it. Include secret fields only when the admin asks.', ADMIN_ENDPOINTS.export_system_data, [{ args: { system: 'database', instance: 'main' } }]),
+  ctx_injection_set: adminFn(
+    'Switch one injected item off or back on for one agent, or move it earlier or later in that agent\'s instructions. Other agents keep it as they had it.',
+    'Use it when an admin asks to stop telling an agent something (or to tell it again), or to change where an item sits in what the agent is told. Find the agent and item names with hub/ctx_injections_list first. `on: false` leaves the item out of that agent\'s prompt from its next turn (its fns stop being added with it); `order` is a number from 0 to 1000, lower first (the hub\'s own items sit at 10 to 30, systems\' at 100 by default); `order: null` goes back to the item\'s own order. It answers the item as that agent now gets it.',
+    ADMIN_ENDPOINTS.ctx_injection_set,
+    [
+      { args: { agent: 'hub/chat', context: 'hub/limits', on: false }, note: 'Stop telling the chat agent what the app can\'t do.' },
+      { args: { agent: 'hub/chat_small', context: 'input/asking', order: 20 }, note: 'Move an item near the start for the small chat agent.' },
+      { args: { agent: 'hub/chat', context: 'input/asking', on: true, order: null }, note: 'Back on, at its own order.' },
+    ],
+  ),
 } satisfies Record<AdminFnName, unknown>;
 
 /** Which model an agent or an LLM call uses: a model id, a category, or automatic selection by weights. */
@@ -889,13 +911,9 @@ export const hub = system('hub', {
   })
   .with({ fns: { ...readFns, ...writeFns, ...personFns, ...exploreFns, ...dataFns } })
   .with(({ fns, kinds }) => {
-    // the tools mode's own six: search, load and drop for fns and for context. Until injected context brings the rest
-    // with the items that explain them, the prompt still names examples, following and waiting for runs, and asking
-    // people, so those start loaded too.
-    const tools = [
-      fns.fns_search.name, fns.fns_load.name, fns.fns_drop.name, fns.ctx_search.name, fns.ctx_load.name, fns.ctx_drop.name,
-      fns.fns_examples.name, fns.run_status.name, fns.run_wait.name, fns.ask_user.name,
-    ];
+    // the tools mode's own six: search, load and drop for fns and for context. Every other fn the chat starts with
+    // (examples, following runs, asking people…) comes with the injected item that explains it (packages/hub/context/)
+    const tools = [fns.fns_search.name, fns.fns_load.name, fns.fns_drop.name, fns.ctx_search.name, fns.ctx_load.name, fns.ctx_drop.name];
     return {
       fns: {
         read_table: fn({
@@ -946,6 +964,8 @@ export const hub = system('hub', {
             hooks: [],
             toolExecution: 'sequential',
             maxIterations: 16,
+            // a small window: each injected item at its summary, the section within 600 tokens
+            injected: { detail: 'summary', maxTokens: 600 },
             mode: { type: 'static' },
             contextor: { type: 'graph' },
           },

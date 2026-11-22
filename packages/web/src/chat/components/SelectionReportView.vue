@@ -3,7 +3,9 @@
  * The context inspector: what a contextor put in one prompt. The window as one bar split into its parts (what was
  * fixed, history, context, fns, and what was held back for the margin, reasoning and the reply), with a legend that is
  * also the table of numbers; the context items and fns it chose, each at its detail with its weight; how much history
- * went as messages and which earlier turns as summaries; and what was cut to fit.
+ * went as messages and which earlier turns as summaries; the agent's injected section (its size within the fixed part,
+ * each item at its detail, what was left out and why, and whether the fixed region was rebuilt this turn); and what was
+ * cut to fit.
  */
 import type { SelectionReport } from '@harness/core';
 import { computed } from 'vue';
@@ -29,6 +31,18 @@ const PART_FILL = {
 } as const satisfies Record<BudgetPart, string>;
 
 const percent = (share: number): string => `${(share * 100).toFixed(share < 0.1 ? 1 : 0)}%`;
+/** The injected section's line: its size within the fixed part, and how many items at which detail. */
+const injectedLine = computed((): string | undefined => {
+  const injected = props.report.injected;
+  if (injected === undefined) return undefined;
+  const at = (detail: string): number => injected.items.filter((item) => item.detail === detail).length;
+  const parts = [`${injected.items.length} ${injected.items.length === 1 ? 'item' : 'items'}`, at('summary') > 0 ? `${at('summary')} at summary` : '', at('listed') > 0 ? `${at('listed')} listed` : '']
+    .filter((part) => part !== '');
+  return `${injected.tokens.toLocaleString()} of the ${props.report.budget.fixed.toLocaleString()} fixed tokens · ${parts.join(', ')}`;
+});
+const LEFT_OUT_WORDS: Record<string, string> = {
+  off: 'switched off', pending: 'waiting for review', declined: 'declined', 'system-off': 'system off', 'fns-unusable': 'its fns can\'t be used', mode: 'the other chat mode', 'no-fit': 'didn\'t fit',
+};
 const itemTitle = (item: RankedItem): string => `${item.name}: ${DETAIL_WORDS[item.detail]}, activation ${item.activation.toFixed(2)}`;
 </script>
 
@@ -79,6 +93,23 @@ const itemTitle = (item: RankedItem): string => `${item.name}: ${DETAIL_WORDS[it
         </li>
       </ul>
       <p v-else class="dim">None chosen.</p>
+    </section>
+
+    <section v-if="report.injected !== undefined" class="items" data-testid="injected-section">
+      <h4 class="heading">Injected <span class="dim">{{ injectedLine }}</span></h4>
+      <p v-if="report.injected.rebuilt !== undefined" class="dim" data-testid="injected-rebuilt">
+        Fixed region rebuilt this turn<span v-if="report.injected.rebuilt.added.length > 0"> · added {{ report.injected.rebuilt.added.join(', ') }}</span><span v-if="report.injected.rebuilt.dropped.length > 0"> · dropped {{ report.injected.rebuilt.dropped.join(', ') }}</span>
+      </p>
+      <ul v-if="report.injected.items.length > 0" class="list">
+        <li v-for="item in report.injected.items" :key="item.name" class="item">
+          <code class="name">{{ item.name }}</code>
+          <UiBadge :tone="item.detail === 'full' ? 'accent' : 'neutral'">{{ item.detail }}</UiBadge>
+          <span class="num dim">{{ item.tokens.toLocaleString() }}</span>
+        </li>
+      </ul>
+      <ul v-if="report.injected.leftOut.length > 0" class="cuts" data-testid="injected-left-out">
+        <li v-for="left in report.injected.leftOut" :key="left.name"><strong>{{ left.name }}</strong> <span class="dim">left out: {{ LEFT_OUT_WORDS[left.why] ?? left.why }} ({{ left.reason }})</span></li>
+      </ul>
     </section>
 
     <section v-if="report.earlier.length > 0" class="items">

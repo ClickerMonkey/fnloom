@@ -61,6 +61,7 @@ describe('the person fns', () => {
       instances_list: op('instances_list'),
       suggest_decision_get: op('suggest_decision_get'),
       search_decision_get: op('search_decision_get'),
+      ctx_injections_list: op('ctx_injections_list'),
     };
     registerPersonFns(r.module.hubFns, { person: () => person, explore: () => explore, adminReads: () => adminReads });
     await r.session();

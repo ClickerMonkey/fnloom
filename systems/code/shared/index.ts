@@ -10,7 +10,7 @@
  *   calls no fn), and saves it with `hub/fns_save`. The chat gets the saved fn, never the working context.
  */
 import { CODE_KIND, CODE_SYSTEM, CodeFnSpec } from '@harness/core';
-import { context, fn, g, ginAs, hub, kind, system } from '@harness/sdk';
+import { agents, context, fn, g, ginAs, hub, kind, system } from '@harness/sdk';
 import { authoredFn } from '@harness/sdk/server';
 
 /** A code fn's payload, as gin (`CodeFnSpec`'s type). */
@@ -97,7 +97,7 @@ export const code = system(CODE_SYSTEM, {
           'It is not a way to keep data (use a database table), to show a page, game or app (it has no screen), or to do something later on its own (nothing runs by itself).',
           '',
           'Steps:',
-          '1. Look for one first: hub/fns_search with kinds ["code/program"] and a few words of what it does. If one fits, call it.',
+          '1. Look for one first: hub/fns_search with a few words of what it does. If one fits, call it.',
           '2. Otherwise call code/make_code with `request`: the args (names and kinds), what it returns, any fns it should call, and one example with the expected result. Example args:',
           '   {"request":"A price with tax: args amount (num) and rate (num, a percentage); returns the total rounded to cents. 100 at 8.25 gives 108.25."}',
           '3. It answers with the saved fn: {"fn":"code/price_with_tax","signature":"code/price_with_tax(amount: num, rate: num) → num","call":"…","reused":false,…}. Writing takes up to a minute.',
@@ -108,6 +108,20 @@ export const code = system(CODE_SYSTEM, {
         ].join('\n'),
         fns: [fns.make_code],
         tags: ['code'],
+      }),
+      // what every chat agent is told about code fns, in its system prompt (plan injected-context, section 5)
+      basics: context({
+        title: 'Calculations',
+        description: 'Keeping a calculation the person will repeat as a code fn, written by code/make_code.',
+        summary: 'For a calculation the person will repeat, code/make_code saves it as a fn; then call that fn with their values.',
+        content: [
+          'For a calculation the person will repeat (a price with tax, a bill split, a total over what another fn gives), code/make_code writes, checks and saves a small program as a fn of theirs (such as `code/price_with_tax`) from a plain description: its args, what it returns, and one example with the expected result.',
+          'Then call the saved fn with the person\'s values and give them its result; never redo its work by hand. Writing one takes up to a minute.',
+          'A code fn has no screen, keeps no data and never runs by itself. For a one-off answer, just work it out. Load code/guide before the first one.',
+        ].join('\n'),
+        fns: [fns.make_code],
+        tags: ['code'],
+        inject: { into: [agents.startingWith(hub.fns.chat)] },
       }),
     },
   }));

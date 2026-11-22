@@ -96,6 +96,10 @@ export const TABLE_INDEXES: { readonly [K in TableName]?: IndexSpec<K> } = {
   recordVersions: [['record', 'number']],
   // SSO
   externalIdentities: [['user']],
+  // the one fn name: a prompt's bare names are looked up by fn, a system's by system
+  modelFnNames: [['fn'], ['system']],
+  // injected context
+  injectionSettings: [['context']],
 };
 
 /** The columns of one table: field name → how it is stored. */

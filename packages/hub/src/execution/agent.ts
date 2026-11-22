@@ -217,6 +217,10 @@ class AgentPrompt extends Prompt<HubCallContext, HubCallMetadata, 'agent', Agent
 interface AgentInput {
   args: Json;
   context: string;
+  /** The agent's injected section (`PlannedPrompt.injectedContext`). */
+  injectedContext?: string;
+  /** The agent's step limit (`payload.maxIterations`), for instructions that tell the model how many steps it has. */
+  maxIterations?: number;
 }
 
 /** An agent's answer: text, or a structured value (wrapped in `result` when it isn't an object). */
@@ -358,8 +362,9 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     const prompt = new AgentPrompt({
       name: 'agent',
       description: fn.decl.description,
-      content: `${instructions}{{#if context}}\n\n{{{context}}}{{/if}}`,
-      input: (input) => ({ args: input?.args ?? null, context: input?.context ?? '' }),
+      // the injected section is the hub's own text, filled in raw where the instructions say (never read as a template)
+      content: `${planned.instructions}{{#if context}}\n\n{{{context}}}{{/if}}`,
+      input: (input) => ({ args: input?.args ?? null, context: input?.context ?? '', injectedContext: input?.injectedContext ?? '', maxIterations: input?.maxIterations ?? payload.maxIterations }),
       schema: output.schema,
       // with tools, the answer's schema goes in the prompt: a wire schema makes many models answer at once instead of calling them
       schemaDelivery: tools.length > 0 ? 'prompt' : 'auto',
@@ -383,7 +388,7 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     const ctx = {
       call: scope, messages: planned.messages.map(messageFromWire), signal, stream: this.#deps.llm.streamer, contextWindow: planned.contextWindow, maxOutputTokens: planned.maxTokens,
     };
-    for await (const event of prompt.get('stream', { args: run.args, context: planned.context }, ctx)) {
+    for await (const event of prompt.get('stream', { args: run.args, context: planned.context, injectedContext: planned.injectedContext, maxIterations: payload.maxIterations }, ctx)) {
       switch (event.type) {
         case 'textPartial':
           scope.markFirstToken(clock());
@@ -846,11 +851,9 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     let failed = 0;
     // out to the model: every fn a reply names is spelled as the model calls it in this session's mode
     const names = prompt === undefined ? undefined : await this.#deps.planner.names(prompt);
-    const spoken = (text: string): string => (names === undefined ? text : names.text(text));
-    const messages = await Promise.all(pending.map(async (call): Promise<LlmMessage> => {
-      const reply = (status: string, content: string): LlmMessage => (call.block === true
-        ? { role: 'user', content: spoken(resultText(call.fn, status, content)) }
-        : { role: 'tool', toolCallId: call.toolCallId, content: spoken(content) });
+    // each reply is written first, then every name the replies hold is looked up in one batch and spelled
+    const unspoken = await Promise.all(pending.map(async (call): Promise<{ readonly call: PendingCall; readonly text: string }> => {
+      const reply = (status: string, content: string) => ({ call, text: call.block === true ? resultText(call.fn, status, content) : content });
       if (call.invalid !== undefined) return reply('invalid-input', call.invalid);
       // a held call the agent stopped waiting for never ran; that isn't the call failing
       if (call.run === undefined && call.held !== undefined) return reply('skipped', heldReply({ ...call, held: call.held }, pending));
@@ -874,6 +877,11 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       // with citations on, the model reads each result's id first: what its cites name
       return reply(settled.status, prompt?.session?.citations === true ? withCiteId(call.run, content) : content);
     }));
+    await names?.learn(unspoken.map((reply) => reply.text));
+    const spoken = (text: string): string => (names === undefined ? text : names.text(text));
+    const messages = unspoken.map(({ call, text }): LlmMessage => (call.block === true
+      ? { role: 'user', content: spoken(text) }
+      : { role: 'tool', toolCallId: call.toolCallId, content: spoken(text) }));
     return { messages, allFailed: pending.length > 0 && failed === pending.length, ...(stopped === undefined ? {} : { stopped }) };
   }
 

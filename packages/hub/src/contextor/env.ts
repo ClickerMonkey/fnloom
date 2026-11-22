@@ -54,6 +54,8 @@ export const contextorEnv = env({
   HARNESS_METRIC_USED_TARGET: target('recent use', 1),
   HARNESS_METRIC_USED_K: steepness('recent use', 1.5),
   HARNESS_AGENT_MAX_OUTPUT: z.number().int().min(0).default(16_000).describe('The most tokens one answer of an agent fn (the chat\'s among them) may take when its payload declares no `maxOutput`, so a stuck model cannot write for minutes; 0 leaves it to the model\'s own limit.'),
+  HARNESS_INJECTED_SHARE: z.number().min(0.05).max(1).default(0.5).describe('The most of a prompt\'s room (after the instructions, the mode\'s guide and its tools) an agent\'s injected section may take, besides its own `injected.maxTokens`; past it, items fall back to their summary, a `<more_ctx>` line, then out. Worked out from the model alone, so the section stays the same from turn to turn and caches.'),
+  HARNESS_INJECTED_STEPS: z.number().int().min(1).default(256).describe('The most turns whose injected section the planner keeps in memory, so every step of a turn sends the same fixed region.'),
   HARNESS_PROMPT_MARGIN: z.number().min(0).max(0.5).default(0.06).describe('The share of a model\'s window kept free for estimate error (at least 64 tokens).'),
 });
 

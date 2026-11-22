@@ -33,6 +33,16 @@ export const SessionStatus = z.enum(['idle', 'running', 'paused']);
 export type SessionStatus = z.infer<typeof SessionStatus>;
 
 /**
+ * What the planner put in a session's fixed region (the agent's instructions, its injected section, the `<systems>`
+ * list) at a turn: a hash of the region's text and the injected items in it. The region is worked out at the start of
+ * a turn and kept for every step of it, so the cached prefix stays the same; at the next turn it is rebuilt, and the
+ * stamp rewritten, only when what it would say has changed (a system went off, an admin switched an item, an approval
+ * landed, a dynamic item's text changed). A change costs one cache miss.
+ */
+export const FixedRegionStamp = z.object({ hash: z.string(), injected: z.array(QualifiedName), at: TurnId });
+export type FixedRegionStamp = z.infer<typeof FixedRegionStamp>;
+
+/**
  * A chat. With one person in it, the session's agent answers every message. With more than one person, an agent
  * answers a message that replies to one of its own messages, and every agent answers a reply-all.
  */
@@ -60,6 +70,8 @@ export const Session = z.object({
   announcedSystems: AnnouncedSystems.optional(),
   /** What the model has been told about citations: absent until the first turn takes the snapshot. */
   citationsTold: CitationsTold.optional(),
+  /** The fixed region the planner last built (instructions, injected section, systems list): rebuilt at a turn only when it changes. */
+  fixed: FixedRegionStamp.optional(),
   status: SessionStatus,
   /** The conversation the next agent iteration continues. */
   transcript: z.array(LlmMessage),

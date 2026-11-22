@@ -30,7 +30,7 @@ import { ContextFromResourceArgs, ContextFromResourceResult, ContextLink, Declar
 import { FnMetrics, FnMetricsDay, FnMetricsQuery } from './metrics.ts';
 import { ModelCall, ModelRole, ModelRoleView, RoleChoice } from './model-calls.ts';
 import { ConfigSecrets } from './config-secrets.ts';
-import { ModelLimits, ModelLimitsView, SelectionReport } from './modes.ts';
+import { ChatFnMode, ChatModeType, ModelLimits, ModelLimitsView, SelectionReport } from './modes.ts';
 import { AddInstance, InstanceRecord } from './package.ts';
 import { FormOffer, FormRecord, ResourceFacet, ResourceImportArgs, ResourceQuery, ResourceReadArgs, ResourceReadResult } from './resource-forms.ts';
 import { HubMcpInput, HubMcpView, McpRules, McpScopePreview, McpSessionView } from './records/mcps.ts';
@@ -46,6 +46,7 @@ import { AutoClassifier, AutoClassifierView, ClientLogBatch, ClientLogReceipt, C
 import { ContributionView } from './registries.ts';
 import { SystemPageView } from './system-pages.ts';
 import { SystemParts, SystemPartsQuery } from './system-parts.ts';
+import { InjectionsPage, InjectionView, SetInjection } from './records/injections.ts';
 import { GoLiveRequest, ItemSection, RefusalPage, RefusalQuery, ReviewDecided, ReviewDecision, SystemReview, TestCallRequest } from './lifecycle.ts';
 import { SystemStage } from './grants.ts';
 import { GraphPage, GraphQuery } from './graph.ts';
@@ -823,6 +824,34 @@ export const graphSlice = spec({
   }),
 });
 
+/**
+ * What `hub/ctx_injections_list` takes: one agent's injections, one item's (with its targets), both, or every one; as a
+ * new chat in `mode` with `fnMode` would get them (defaults: the agent's own mode, no fn setting).
+ */
+export const InjectionsQuery = z.object({
+  agent: QualifiedName.optional(),
+  context: QualifiedName.optional(),
+  /** The chat mode to show it in (an item may be for one mode only, and fn names are spelled as that mode's tools). */
+  mode: ChatModeType.optional(),
+  /** The chat's fn setting (`read` leaves out items whose fns write). */
+  fnMode: ChatFnMode.optional(),
+});
+export type InjectionsQuery = z.infer<typeof InjectionsQuery>;
+
+/**
+ * Injected context (admins): what is injected into each agent (`hub/llm` fn) as the model would read it, each item's
+ * state and why it is left out, and for one item its targets and the agents each hits; and an admin's per-agent
+ * switch and order for one item (`injectionSettings`).
+ */
+export const injectionsSlice = spec({
+  endpoints: use(tel, hubAuth, adminOnly).group({
+    /** One agent's injections (`agent`), one item's in every agent it reaches with its targets (`context`), both, or all. */
+    injections: { body: InjectionsQuery, response: InjectionsPage, ws: 'injections' },
+    /** Switch one item on or off for one agent and/or give it another order there (`order: null` goes back to the declared one). */
+    setInjection: { body: SetInjection, response: InjectionView, ws: 'setInjection' },
+  }),
+});
+
 // ─── Build 8 ──────────────────────────────────────────────────────────────────
 
 /** The hub's display name: anyone may read it (the sign-in page shows it); admins set it. */
@@ -913,7 +942,7 @@ export const hubWebSpec = mergeSpecs(
   accessSlice, connectionsSlice, pickerSlice,
   approvalsSlice, registriesSlice, fnsSlice,
   explorerSlice,
-  reviewSlice, graphSlice,
+  reviewSlice, graphSlice, injectionsSlice,
   identitySlice, versionsSlice, dataSlice, rowActionsSlice, exportSlice, peopleSlice,
 );
 export type HubWebSpec = typeof hubWebSpec;

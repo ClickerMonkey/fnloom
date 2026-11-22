@@ -5,13 +5,14 @@
  * qualified name's sha-256. Only fns have model names: context keys, types and hook tags keep their own forms.
  *
  * This module owns the encoder, the rule a fn's local name keeps so its model name reads back (`FnLocalName`), the
- * registry's interface (`ModelFnNameIndex`, the hub's is built from its catalog and its history table), and the one
- * conversion every boundary uses (`modelFnNames`): text and values out to the model, names and values back in. Nothing
- * else spells a model name.
+ * registry's interface (`ModelFnNameRegistry`, batched: the hub's answers from its `modelFnNames` and history tables
+ * with indexed queries), the one conversion every boundary uses (`modelFnNames`: text and values out to the model,
+ * names and values back in, after one `learn` per prompt), and the build's check of names in authored text
+ * (`unresolvedNamesIn`). Nothing else spells a model name.
  */
 import { z } from 'zod';
 import type { GinTypeDef } from './gin.ts';
-import { type Json, QualifiedName, SYSTEM_NAME_PATTERN, splitName, Timestamp } from './primitives.ts';
+import { type Json, QualifiedName, SYSTEM_NAME_PATTERN, SystemName, splitName, Timestamp } from './primitives.ts';
 
 /** The longest tool name the strictest providers (OpenAI, Anthropic, Bedrock) take. */
 export const MODEL_FN_NAME_MAX = 64;
@@ -126,19 +127,30 @@ export function legacyFnOfToolName(name: string): QualifiedName | undefined {
 export const ModelFnNameHistory = z.object({ model: ModelFnName, fn: QualifiedName, until: Timestamp });
 export type ModelFnNameHistory = z.infer<typeof ModelFnNameHistory>;
 
-/** The registry of model names: every fn the hub has (saved fns and methods included), each encoded once, and history. */
-export interface ModelFnNameIndex {
-  /** The fn a model name was given out for: a fn's now, else one that is gone; undefined when it names none. */
-  fnOf(model: string): QualifiedName | undefined;
-  /** Whether a qualified name is a fn's now (for finding fns in text). */
-  isFn(name: string): boolean;
+/**
+ * One fn's model name as the hub stores it (the `modelFnNames` table, keyed by `model`, indexed by `fn` and `system`):
+ * written in the transaction that stores the fn, removed with it (its name moving to the history table).
+ */
+export const ModelFnNameRow = z.object({ model: ModelFnName, fn: QualifiedName, system: SystemName });
+export type ModelFnNameRow = z.infer<typeof ModelFnNameRow>;
+
+/**
+ * The registry of model names: every fn the hub has (saved fns and methods included), each encoded once, and the
+ * history of names whose fns are gone. Batched: a prompt collects the names it meets and asks once (`ModelFnNames.learn`),
+ * so the hub's answers with an indexed query or two however many fns it holds; nothing loads every name.
+ */
+export interface ModelFnNameRegistry {
+  /** Of these qualified names, the ones that are fns now (for finding fns in text). */
+  fnsAmong(names: readonly QualifiedName[]): Promise<ReadonlySet<QualifiedName>>;
+  /** The fns these model names were given out for: a fn's now, else one that is gone. A name it never gave out is absent. */
+  fnsOf(models: readonly string[]): Promise<ReadonlyMap<string, QualifiedName>>;
 }
 
 /**
- * The registry over a set of fn names, in memory: what the hub's is made of (filled from its catalog and history
- * table) and what tests and fixtures build from a list. A second fn whose model name is taken is a `collision`.
+ * The registry over a set of fn names, in memory: what tests and fixtures build from a list (the hub's is its store's
+ * `modelFnNames` table). A second fn whose model name is taken is a `collision`.
  */
-export class FnNameIndex implements ModelFnNameIndex {
+export class FnNameIndex implements ModelFnNameRegistry {
   readonly #byModel = new Map<string, QualifiedName>();
   readonly #fns = new Set<string>();
   readonly #gone = new Map<string, ModelFnNameHistory>();
@@ -151,12 +163,24 @@ export class FnNameIndex implements ModelFnNameIndex {
     return index;
   }
 
+  /** The fn a model name was given out for: a fn's now, else one that is gone; undefined when it names none. */
   fnOf(model: string): QualifiedName | undefined {
     return this.#byModel.get(model) ?? this.#gone.get(model)?.fn;
   }
 
+  /** Whether a qualified name is a fn's now. */
   isFn(name: string): boolean {
     return this.#fns.has(name);
+  }
+
+  fnsAmong(names: readonly QualifiedName[]): Promise<ReadonlySet<QualifiedName>> {
+    return Promise.resolve(new Set(names.filter((name) => this.#fns.has(name))));
+  }
+
+  fnsOf(models: readonly string[]): Promise<ReadonlyMap<string, QualifiedName>> {
+    const found = new Map<string, QualifiedName>();
+    for (const model of models) { const fn = this.fnOf(model); if (fn !== undefined) found.set(model, fn); }
+    return Promise.resolve(found);
   }
 
   /** The fn that already holds this fn's model name, if another does: two fns that encode the same are refused. */
@@ -189,7 +213,7 @@ export class FnNameIndex implements ModelFnNameIndex {
 }
 
 /** A registry that knows no fn: names read back by the rule alone, and text keeps only its `fn:` refs. */
-export const RULE_ONLY_NAMES: ModelFnNameIndex = { fnOf: () => undefined, isFn: () => false };
+export const RULE_ONLY_NAMES: ModelFnNameRegistry = { fnsAmong: () => Promise.resolve(new Set()), fnsOf: () => Promise.resolve(new Map()) };
 
 // ─── A fn's name as a value ───────────────────────────────────────────────────
 
@@ -222,8 +246,18 @@ export type StaticToolFns = Readonly<Record<string, { readonly fn: QualifiedName
 /** The chat mode names are for: tools mode, or static mode with its tools' hub fns. */
 export type ModelNamesMode = { readonly type: 'tools' } | { readonly type: 'static'; readonly tools: StaticToolFns };
 
-/** The hub's fn names for one prompt: built from its fn registry (every name it has given out) and the chat's mode. */
+/**
+ * The hub's fn names for one prompt (or one batch of replies): built from its fn registry and the chat's mode. The
+ * registry is asked in batches, so a caller first `learn`s what it will spell or read (one or two indexed queries for
+ * everything), then spells and reads synchronously. What it learns is kept for this object only: one prompt, one turn.
+ * A bare name it never learned is left as written, so learn every text before `text` (and every value before `value`).
+ */
 export interface ModelFnNames {
+  /**
+   * Ask the registry, in one batch, about every name these texts and values may hold that this object hasn't met: the
+   * bare `system/name` tokens (is each a fn?) and the cut-shaped model names (which fn was each given out for?).
+   */
+  learn(sources: Iterable<Json | undefined>): Promise<void>;
   /** The name the model calls this fn by here: its model name, or in static mode the static tool that does its job. */
   name(fn: QualifiedName): string;
   /** The fn a name from the model means (a model name, a static tool's name, or, tolerated, a qualified name); undefined when it names none. */
@@ -238,7 +272,7 @@ export interface ModelFnNames {
 
 /** What `modelFnNames` is built from. */
 export interface ModelFnNamesInput {
-  readonly index: ModelFnNameIndex;
+  readonly index: ModelFnNameRegistry;
   readonly mode: ModelNamesMode;
   /** Named types' definitions, for values whose type names one; absent, a named type's fields are left as they are. */
   readonly types?: ((name: string) => GinTypeDef | undefined) | undefined;
@@ -256,6 +290,42 @@ function trimmed(name: string): { name: string; rest: string } {
   return match === null ? { name, rest: '' } : { name: name.slice(0, match.index), rest: match[0] };
 }
 
+/** A cut model name in text (64 characters ending `_x` and 8 hex), standing alone. */
+const CUT_IN_TEXT = /(?<![A-Za-z0-9_-])[a-z][A-Za-z0-9_-]{53}_x[0-9a-f]{8}(?![A-Za-z0-9_-])/g;
+
+/**
+ * The bare `system/name` tokens of a text that `text` asks the registry about: each standing-alone name (no `fn:` or
+ * `context:` ref, which need no asking) with its trailing `.`/`-` taken off, and each shorter name it ends in at a `.`
+ * (`fs/read.` at a sentence's end, `fs/Entry.reveal.more`), as `text` tries them.
+ */
+export function bareNamesIn(text: string): QualifiedName[] {
+  const found = new Set<QualifiedName>();
+  for (const match of text.matchAll(NAME_IN_TEXT)) {
+    if (match[1] !== undefined || match[2] === undefined) continue;
+    let candidate = trimmed(match[2]).name;
+    for (;;) {
+      const qualified = QualifiedName.safeParse(candidate);
+      if (qualified.success) found.add(qualified.data);
+      const cut = candidate.lastIndexOf('.');
+      if (cut <= candidate.indexOf('/')) break;
+      candidate = candidate.slice(0, cut);
+    }
+  }
+  return [...found];
+}
+
+/** The cut-shaped model names in a text (or a text that is one), which read back only through the registry. */
+export function cutNamesIn(text: string): string[] {
+  return [...new Set(text.match(CUT_IN_TEXT) ?? [])];
+}
+
+/** Every string in a JSON value (keys left out). */
+function* stringsOf(value: Json | undefined): Generator<string> {
+  if (typeof value === 'string') { yield value; return; }
+  if (value === null || typeof value !== 'object') return;
+  for (const item of Array.isArray(value) ? value : Object.values(value)) yield* stringsOf(item);
+}
+
 /** The names for one prompt. */
 export function modelFnNames(input: ModelFnNamesInput): ModelFnNames {
   const { index, mode, types } = input;
@@ -268,11 +338,42 @@ export function modelFnNames(input: ModelFnNamesInput): ModelFnNames {
       for (const other of also ?? []) if (!standIn.has(other)) standIn.set(other, tool);
     }
   }
-  const name = (fn: QualifiedName): string => standIn.get(fn) ?? modelFnName(fn);
+  // what this object has learned: which bare names are fns (and which aren't), and which fn each model name means
+  const fns = new Set<string>();
+  const asked = new Set<string>();
+  const byModel = new Map<string, QualifiedName>();
+  const isFn = (candidate: string): boolean => fns.has(candidate);
+  const learn = async (sources: Iterable<Json | undefined>): Promise<void> => {
+    const bare = new Set<QualifiedName>();
+    const cut = new Set<string>();
+    for (const source of sources) {
+      for (const text of stringsOf(source)) {
+        for (const candidate of bareNamesIn(text)) if (!asked.has(candidate)) bare.add(candidate);
+        for (const model of cutNamesIn(text)) if (!asked.has(model) && !byModel.has(model)) cut.add(model);
+      }
+    }
+    if (bare.size === 0 && cut.size === 0) return;
+    const [among, of] = await Promise.all([
+      bare.size === 0 ? new Set<QualifiedName>() : index.fnsAmong([...bare]),
+      cut.size === 0 ? new Map<string, QualifiedName>() : index.fnsOf([...cut]),
+    ]);
+    for (const candidate of bare) asked.add(candidate);
+    for (const model of cut) asked.add(model);
+    for (const found of among) fns.add(found);
+    for (const [model, found] of of) byModel.set(model, found);
+  };
+  const name = (fn: QualifiedName): string => {
+    const stood = standIn.get(fn);
+    if (stood !== undefined) return stood;
+    const model = modelFnName(fn);
+    // a name given out here reads back here, a cut one too
+    if (!byModel.has(model)) byModel.set(model, fn);
+    return model;
+  };
   const fn = (given: string): QualifiedName | undefined => {
     const tool = toolFn.get(given);
     if (tool !== undefined) return tool;
-    const known = index.fnOf(given);
+    const known = byModel.get(given);
     if (known !== undefined) return known;
     const qualified = QualifiedName.safeParse(given);
     if (qualified.success) return qualified.data;
@@ -282,21 +383,77 @@ export function modelFnNames(input: ModelFnNamesInput): ModelFnNames {
     if (ref === 'context:') return found;
     let { name: candidate, rest } = trimmed(found);
     // a bare name that isn't a fn may still end in one (`fs/read.` at a sentence's end): the longest known one wins
-    while (ref === undefined && !index.isFn(candidate) && candidate.includes('.')) {
+    while (ref === undefined && !isFn(candidate) && candidate.lastIndexOf('.') > candidate.indexOf('/')) {
       const cut = candidate.lastIndexOf('.');
       rest = candidate.slice(cut) + rest;
       candidate = candidate.slice(0, cut);
     }
     const qualified = QualifiedName.safeParse(candidate);
-    if (!qualified.success || (ref === undefined && !index.isFn(candidate))) return whole;
+    if (!qualified.success || (ref === undefined && !isFn(candidate))) return whole;
     return `${name(qualified.data)}${rest}`;
   });
   const walker = { name, fn, text, types };
   return {
-    name, fn, text,
+    learn, name, fn, text,
     value: (value, type) => outward(value, type, walker),
     read: (value, type) => inward(value, type, walker),
   };
+}
+
+// ─── Authored text ────────────────────────────────────────────────────────────
+
+/** The names authored text may name, qualified, for the build's check (`unresolvedNamesIn`). */
+export interface AuthoredNames {
+  readonly fns: ReadonlySet<string>;
+  readonly context: ReadonlySet<string>;
+  /** Named types and kinds (the other names a text may give). */
+  readonly types: ReadonlySet<string>;
+  /** The systems whose names are checked: a bare `x/y` whose `x` is none of these (a path, `src/index.ts`) is left alone. */
+  readonly systems: ReadonlySet<string>;
+}
+
+/** A name in authored text that resolves to nothing the build knows. */
+export interface UnresolvedName {
+  /** As written, without its ref. */
+  readonly name: string;
+  /** The ref it was written with (`fn:`, `context:`), or none for a bare name. */
+  readonly ref: 'fn' | 'context' | undefined;
+  /** Where it starts in the text (0-based). */
+  readonly index: number;
+}
+
+/**
+ * The names in model-facing text (a description, instructions, an example's note, a context body) that name nothing
+ * the build knows: a `fn:` ref that is no fn, a `context:` ref that is no context item, and a bare `system/name` that
+ * is no fn, context item, type or kind (nor ends in one at a `.`), each of a system in `known.systems`. A saved fn's
+ * name (`database/main.expenses`) and a family (`input/ask_`) are examples the build can't know, so they are left
+ * alone. The hub renders refs and bare fns as model names (`ModelFnNames.text`); a name that resolves to nothing is
+ * a stale or misspelt sentence.
+ */
+export function unresolvedNamesIn(text: string, known: AuthoredNames): UnresolvedName[] {
+  const out: UnresolvedName[] = [];
+  const anything = (name: string): boolean => known.fns.has(name) || known.context.has(name) || known.types.has(name);
+  for (const match of text.matchAll(NAME_IN_TEXT)) {
+    const [, ref, found] = match;
+    if (found === undefined) continue;
+    let candidate = trimmed(found).name;
+    const qualified = QualifiedName.safeParse(candidate);
+    if (!qualified.success) continue;
+    const { system, local } = splitName(qualified.data);
+    if (!known.systems.has(system)) continue;
+    if (ref === 'fn:' || ref === 'context:') {
+      const kind = ref === 'fn:' ? 'fn' : 'context';
+      if (!(kind === 'fn' ? known.fns : known.context).has(candidate)) out.push({ name: candidate, ref: kind, index: match.index });
+      continue;
+    }
+    // a saved fn's name (`database/main.expenses`: an instance, then its name) is an example the build can't know,
+    // and a name ending in `_` is a family (`input/ask_…`)
+    const head = local.split('.')[0] ?? local;
+    if ((local.includes('.') && !known.types.has(`${system}/${head}`)) || local.endsWith('_')) continue;
+    while (!anything(candidate) && candidate.lastIndexOf('.') > candidate.indexOf('/')) candidate = candidate.slice(0, candidate.lastIndexOf('.'));
+    if (!anything(candidate)) out.push({ name: trimmed(found).name, ref: undefined, index: match.index });
+  }
+  return out;
 }
 
 /** What the value walkers use. */

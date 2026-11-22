@@ -18,7 +18,7 @@
  *   (or HEAD) to try one.
  */
 import { API_KIND, API_SERVICE_RECORDS, API_SERVICE_TYPE, API_SYSTEM, ApiFnSpec, ApiService, ConnectDecl, HttpExchange } from '@harness/core';
-import { context, fn, g, ginAs, hub, kind, system, type, wireType } from '@harness/sdk';
+import { agents, context, fn, g, ginAs, hub, kind, system, type, wireType } from '@harness/sdk';
 import { authoredFn } from '@harness/sdk/server';
 import { z } from 'zod';
 import { HttpBody, HttpHeader, HttpParam, HttpPart, HttpRequest, HttpResponse } from './http.ts';
@@ -58,7 +58,7 @@ const serviceArg = (docs: string) => g.field(serviceName(), { docs });
 
 /** How callers of `make_api` use it. */
 const MAKE_USAGE = [
-  'Use it when the person wants something from a web API service (fresh data, or an action on that service) and no saved api fn does it yet: look first with hub/fns_search and kinds ["api/request"].',
+  'Use it when the person wants something from a web API service (fresh data, or an action on that service) and no saved api fn does it yet: look first with hub/fns_search and a few words of what it should get or do.',
   'Find the service first with api/services and name it in `service`. When none is set up, it can add one only from a base URL you give in `request` (the person\'s, or the service\'s documented one): never make up a service or its URL.',
   'Describe the request in `request`: the service or its base URL, the operation (method and path when known, from api/operations), the args, what the result should hold, and an example.',
   'Another agent writes the request, checks it (a GET is sent once to try it) and saves it as an api/request fn named for its service (such as api/github.open_issues). It reuses an api fn that already does it.',
@@ -190,7 +190,7 @@ const declared = system(API_SYSTEM, {
           '',
           'Steps:',
           '1. Is the service set up? api/services {"text":"weather"}. If nothing comes back, it isn\'t: tell the person, and offer to add it only if they give its base URL. Never invent a service, a URL, a key or setup steps.',
-          '2. Is there a saved request already? hub/fns_search with kinds ["api/request"] and a few words. If one fits, load it and call it by name.',
+          '2. Is there a saved request already? hub/fns_search with a few words of what it should get. If one fits, load it and call it by name.',
           '3. Otherwise api/make_api. Example args: {"request":"The open issues of a repository: GET /repos/{owner}/{repo}/issues?state=open; args owner and repo; give each issue\'s number and title.","service":"github"}. api/operations {"service":"github","text":"issues"} helps you find the method and path first.',
           '4. It answers with the saved fn ({"fn":"api/github.open_issues","signature":…,"preview":…}). The preview was only a trial: load the fn and call it with the person\'s values to get the real answer.',
           '',
@@ -200,6 +200,20 @@ const declared = system(API_SYSTEM, {
         ].join('\n'),
         fns: [fns.make_api, fns.services, fns.operations, fns.test_request],
         tags: ['api'],
+      }),
+      // what every chat agent is told about web API services, in its system prompt (plan injected-context, section 5)
+      basics: context({
+        title: 'Web API services',
+        description: 'Saved requests to outside web API services, the services set up, and never inventing a service or how to connect one.',
+        summary: 'Web API requests are saved fns; api/services lists the services set up. Never invent a service, URL, key or connection step.',
+        content: [
+          'Requests to outside web API services (a weather service, an issue tracker) are saved fns (such as `api/github.open_issues`), each sent to a service set up with its base URL. api/services lists the services set up; when the one needed isn\'t there, say so, and add it only from a base URL the person gives you.',
+          'Never invent a service, a URL, a key, a link or the steps to connect one. A service that needs a sign-in uses the person\'s own connection: when a result says it isn\'t connected, tell them what the result says.',
+          'api/make_api writes and saves a new request from a description; its preview is only a trial: call the saved fn with the person\'s values for the answer. Requests other than GET change something on the service and ask the person to approve each run. Load api/guide before the first one.',
+        ].join('\n'),
+        fns: [fns.services, fns.make_api],
+        tags: ['api'],
+        inject: { into: [agents.startingWith(hub.fns.chat)] },
       }),
     },
   }));

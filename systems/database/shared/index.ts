@@ -10,7 +10,7 @@
  * aggregates, the table's key); the model gets a `ResultBlock` that says so. Writes and schema changes only run once a person approves them.
  */
 import { ResultTable, type FnEffects } from '@harness/core';
-import { attachment, context, fn, g, ginAs, hub, kind, system, type Infer } from '@harness/sdk';
+import { agents, attachment, context, fn, g, ginAs, hub, kind, system, type Infer } from '@harness/sdk';
 import {
   ApplyArgs, AuthorArgs, CONFIG_SECRETS, DatabaseConfig, DatabasePick, DrillArgs, DatabaseSummary, PickArgs, InstanceAnswer, InstanceOp, ReadInstanceOp, ParamValues, QueryAgentAnswer, QueryAnswer, QueryPayload, QueryRun,
   type QueryHow,
@@ -102,7 +102,7 @@ export const database = system('database', {
   about: [
     'Databases: tables of rows that last, for anything the person wants to keep and look up again (expenses, chores, readings, a pantry, a reading list), and for questions about data already in a database.',
     'Its fns list the databases and their tables (database/databases, database/tables), find or write a query and run it (database/get_query, database/edit_query, database/run_query), make a table and change it (database/create_table, database/alter_table, which wait for the person\'s approval), and make a table\'s ready-made fns to add, change, remove, list, count and sum its rows (database/table_fns_available, database/table_fns_generate).',
-    'It defines the fn kind `database/query`: every query it writes or generates is saved as a fn named `database/<database>.<name>` (such as `database/main.expenses_create`), which the person can run again by name later, in any chat; a search with kinds ["database/query"] finds the saved ones.',
+    'It defines the fn kind `database/query`: every query it writes or generates is saved as a fn named `database/<database>.<name>` (such as `database/main.expenses_create`), which the person can run again by name later, in any chat; a search for what it does finds the saved ones.',
     'Reach for it when the person wants a list or log of their own kept for later (make a table, then generate its fns), or asks about rows in a database. Not for one fact to recall later (a memory) or for asking the person questions (the input system\'s forms), though a form\'s answers can be saved into a table with its fns.',
     'Load the context item `database/guide` before the first use: it walks through making a table and its fns, with the exact shapes.',
   ].join(' '),
@@ -338,7 +338,7 @@ export const database = system('database', {
         group: 'queries',
         description: 'Read or change data in a database by describing what you want in words: a saved query that already does it is reused, or a new one is written, saved as a fn, and run once with the values you gave.',
         instructions: [
-          'Use it when no saved query you know of does the job (search first, with kinds ["database/query"]).',
+          'Use it when no saved query you know of does the job (search fns first, with a few words of what it should do).',
           '`detailedDescription` says in plain words: which table(s), which rows (the filters), which columns, any grouping or totals, the order, and this request\'s values, saying which ones should be params that vary next time.',
           'Examples: "expenses between a start date and an end date, newest first; this time from 2026-11-01 to 2026-11-30"; "total spent per category between two dates"; "add one expense: amount, category and the day; this time 12.50, food, 2026-11-22".',
           'For a time window name both ends, and check the result: a query that only says "on or after" today finds nothing from the past.',
@@ -501,7 +501,7 @@ export const database = system('database', {
           '',
           '## Reading and changing data',
           '',
-          '- Search for a saved query first (kinds ["database/query"]); when one fits, call it with its params.',
+          '- Search fns for a saved query first, with a few words of what it should do; when one fits, call it with its params.',
           '- Else call database/get_query with a detailed description in words (tables, filters, columns, grouping, order, and this time\'s values). It reuses or writes a query, saves it and runs it. For a time window give both ends ("between a start date and an end date").',
           '- database/edit_query changes a saved query that is close but not right.',
           '- database/alter_table changes a table\'s columns: give the whole row type as it should be afterwards.',
@@ -510,10 +510,26 @@ export const database = system('database', {
           '',
           RESULT_GUIDE,
           'Making or changing a table, and every query that writes, wait for the person\'s approval each time. If something is refused, tell the person the reason it gives.',
-          'To draw rows as a chart to keep, see the widgets system (widgets/make_widget); never draw a chart yourself.',
+          'Never draw a chart yourself: rows a query reads are drawn for the person, and a system for saved views (when this chat has one) keeps them as a chart.',
         ].join('\n'),
         fns: [fns.databases, fns.tables, fns.get_query, fns.edit_query, fns.run_query, fns.table_fns_available, fns.table_fns_generate, fns.create_table, fns.alter_table],
         tags: ['database'],
+      }),
+      // what every chat agent is told about databases, in its system prompt (plan injected-context, section 5)
+      basics: context({
+        title: 'Databases',
+        description: 'Tables that keep the person\'s rows, each also a type; saved queries; the exact row-type shape for a new table.',
+        summary: 'Keep lists and logs as database tables. Search for a saved query before database/get_query writes one. Load database/guide first.',
+        content: [
+          'A database (the database system) keeps **tables** of rows that last, for anything the person wants to keep and look up again (expenses, chores, a pantry, a reading list). Each table is also a type, named `database/<database>.<table>` (such as `database/main.expenses`).',
+          'Every query is saved as a fn the person can run again by name, named `database/<database>.<name>` (such as `database/main.expenses_by_month`). Before database/get_query writes a new one from your description, search fns for a saved query by what it does.',
+          'To keep something new: see the databases and their tables with database/databases; make a table with database/create_table (it waits for the person\'s approval); then make its ready-made fns to add, change, remove and list rows with database/table_fns_generate, and call those. The person can then add entries with those fns and see them as a table.',
+          'A row type is always {"name": "obj", "props": {<column>: {"type": <column type>}}}: "name" is the word "obj", and each column holds its type under "type", such as {"name": "obj", "props": {"chore": {"type": {"name": "text"}}, "due": {"type": {"name": "date"}}}}.',
+          'Load database/guide before the first use: it has the column types and each step with its args.',
+        ].join('\n'),
+        fns: [fns.databases, fns.get_query],
+        tags: ['database'],
+        inject: { into: [agents.startingWith(hub.fns.chat)] },
       }),
     },
   }));

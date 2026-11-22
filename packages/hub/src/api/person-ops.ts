@@ -14,6 +14,7 @@ import { knownSystem, modelsOf, providerRecords } from './admin-ops.ts';
 import { DEFAULT_AGENT } from '../chat/sessions.ts';
 import { visibleRun, visibleSession, visibleTurn } from './web/access.ts';
 import { maskedInstance, MAX_PAIRINGS } from './web/systems.ts';
+import { injectionDeps, injectionsPage } from './injections.ts';
 
 /** What an endpoint answers: its response schema's output, or nothing. */
 type ResultOf<E> = E extends { readonly cfg: { readonly response: infer R extends z.ZodType } } ? z.output<R> : void;
@@ -147,5 +148,6 @@ export function adminReadOperations(hub: HubServices): AdminReadOperations {
     },
     suggest_decision_get: (_data, user) => { needAdmin(user); return hub.chat.suggestions.setting(); },
     search_decision_get: (_data, user) => { needAdmin(user); return hub.fns.decisions.settings(); },
+    ctx_injections_list: async (data, user) => { needAdmin(user); return injectionsPage(injectionDeps(hub), data, user.id); },
   };
 }

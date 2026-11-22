@@ -109,6 +109,10 @@ export function adminApi(hub: Hub) {
     // who filters search hits, for fns and for context
     searchDecisions: hub.caller('searchDecisions', { dedupe: true }),
     setSearchDecision: hub.caller('setSearchDecision'),
+    /** What is injected into an agent, or one item in every agent it reaches (read fresh). */
+    injections: hub.caller('injections', { lastOnly: true }),
+    /** One injected item on or off, or another order, for one agent. */
+    setInjection: hub.caller('setInjection'),
     // the model a chat in auto mode asks about calls that write or delete
     autoClassifier: hub.caller('autoClassifier', { dedupe: true }),
     setAutoClassifier: hub.caller('setAutoClassifier'),

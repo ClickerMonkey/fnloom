@@ -27,7 +27,8 @@ export default tseslint.config(
       // a new variant in a source-of-truth union must break every switch over it, including void switches;
       // a `default` does not count as handling the variants it would swallow
       '@typescript-eslint/switch-exhaustiveness-check': ['error', { considerDefaultExhaustiveForUnions: false, allowDefaultCaseForExhaustiveSwitch: false }],
-      '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true, allowBoolean: true }],
+      // a fn or context ref writes its `fn:` / `context:` text in model-facing text (`${fns.read}`), which the hub renders
+      '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true, allowBoolean: true, allow: [{ from: 'file', name: ['FnRef', 'ContextRef'] }] }],
       '@typescript-eslint/no-empty-object-type': 'off',
       '@typescript-eslint/no-unnecessary-type-parameters': 'off',
       '@typescript-eslint/no-invalid-void-type': 'off',

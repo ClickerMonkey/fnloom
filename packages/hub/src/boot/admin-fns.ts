@@ -72,6 +72,7 @@ export function registerAdminFns(fns: HubFns, ops: () => AdminOperations): void 
     auto_pair_revoke: run(ADMIN_ENDPOINTS.auto_pair_revoke, (o) => o.auto_pair_revoke),
     system_reimport: run(ADMIN_ENDPOINTS.system_reimport, (o) => o.system_reimport),
     export_system_data: run(ADMIN_ENDPOINTS.export_system_data, (o) => o.export_system_data),
+    ctx_injection_set: run(ADMIN_ENDPOINTS.ctx_injection_set, (o) => o.ctx_injection_set),
   };
   for (const name of ADMIN_FN_NAMES) { fns.register(hub.fns[name], impls[name]); }
 }

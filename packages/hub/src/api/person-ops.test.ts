@@ -30,6 +30,7 @@ describe('adminReadOperations', () => {
       instances_list: () => ops.instances_list({ system: fs }, member),
       suggest_decision_get: () => ops.suggest_decision_get({}, member),
       search_decision_get: () => ops.search_decision_get({}, member),
+      ctx_injections_list: () => ops.ctx_injections_list({}, member),
     };
     for (const [name, read] of Object.entries(reads)) {
       await expect(Promise.resolve().then(read), name).rejects.toMatchObject({ status: 403 });

@@ -29,7 +29,7 @@ import { CatalogFnViews } from './views.ts';
 /** What the contextor's services are built from. */
 export interface ContextorModuleInput {
   readonly store: HubStore;
-  readonly catalog: Pick<Catalog, 'fn' | 'context' | 'entries' | 'signature' | 'typeClosure' | 'type' | 'modelNames'>;
+  readonly catalog: Pick<Catalog, 'fn' | 'context' | 'entries' | 'signature' | 'typeClosure' | 'type' | 'modelNames' | 'availability'>;
   readonly search: Pick<Search, 'search'>;
   readonly settings: ContextorEnv;
   /** The default model, for previews of a session whose agent names none. */
@@ -85,6 +85,7 @@ export const contextorModule: ModuleFactory<'contextor'> = ({ hub }) => ({
       fn: (name) => hub.catalog.fn(name), context: (name) => hub.catalog.context(name), signature: (fn) => hub.catalog.signature(fn),
       entries: <S extends ManifestSection>(section: S, filter?: { system?: SystemName }) => hub.catalog.entries(section, filter),
       typeClosure: (names) => hub.catalog.typeClosure(names), type: (name) => hub.catalog.type(name), modelNames: () => hub.catalog.modelNames(),
+      availability: (name) => hub.catalog.availability(name),
     },
     search: { search: (query) => hub.index.search.search(query) },
     settings: hub.settings.contextorEnv,

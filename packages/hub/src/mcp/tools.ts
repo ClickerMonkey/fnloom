@@ -83,11 +83,14 @@ export class HubMcpTools implements McpToolSource {
     const listed = JSON.stringify(defined.map(({ fn, inputSchema }) => [fn.name, fn.version, inputSchema]));
     if (listed === this.#listed) return;
     this.#listed = listed;
+    // each description names fns as the client calls them
+    const names = await this.#names();
+    await names.learn(defined.map(({ fn }) => fn.decl.description));
     this.#set.batch((set) => {
       set.clear();
       for (const { fn, inputSchema } of defined) {
         set.define({
-          name: modelFnName(fn.name), title: fn.name, description: fn.decl.description, inputSchema, validate: false,
+          name: modelFnName(fn.name), title: fn.name, description: names.text(fn.decl.description), inputSchema, validate: false,
           annotations: { title: fn.name, readOnlyHint: fn.decl.tags.includes(READ_TAG) },
           run: (args, { signal, caller }) => this.#run(fn.name, args, signal, caller),
         });
@@ -123,6 +126,7 @@ export class HubMcpTools implements McpToolSource {
     if (!parsed.success) return errorResult('The args are not plain JSON.');
     const names = await this.#names();
     const def = (await this.#deps.catalog().fns({ names: [fn] }))[0]?.decl.args;
+    await names.learn([parsed.data]);
     return spokenResult(await this.#deps.runner.call(record, fn, def === undefined ? parsed.data : names.read(parsed.data, def), caller, signal), names);
   }
 
@@ -145,6 +149,7 @@ export class HubMcpTools implements McpToolSource {
     if (!parsed.success) return errorResult('The args are not plain JSON.');
     const names = await this.#names();
     const def = (await this.#deps.catalog().fns({ names: [name] }))[0]?.decl.args;
+    await names.learn([parsed.data]);
     return spokenResult(await this.#deps.runner.call(record, name, def === undefined ? parsed.data : names.read(parsed.data, def), caller, signal, on), names);
   }
 
@@ -159,7 +164,9 @@ export class HubMcpTools implements McpToolSource {
 }
 
 /** A result as an MCP client reads it: every fn its text names spelled as the client calls it (`ModelFnNames.text`). */
-export function spokenResult(result: McpToolResult, names: ModelFnNames): McpToolResult {
+export async function spokenResult(result: McpToolResult, names: ModelFnNames): Promise<McpToolResult> {
+  // every name the result holds is looked up in one batch first
+  await names.learn([...result.content.map((part) => (part.type === 'text' ? part.text : undefined)), result.structuredContent === undefined ? undefined : Json.parse(result.structuredContent)]);
   const content = result.content.map((part) => (part.type === 'text' ? { ...part, text: names.text(part.text) } : part));
   const structured = result.structuredContent === undefined ? undefined : names.value(Json.parse(result.structuredContent), undefined);
   return { ...result, content, ...(structured === undefined || typeof structured !== 'object' || structured === null || Array.isArray(structured) ? {} : { structuredContent: structured }) };

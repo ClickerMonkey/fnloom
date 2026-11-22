@@ -5,7 +5,7 @@
  */
 import {
   Actor, ActorSetting, AutoClassifier, FnRecord, ImportReport, ModelCategory, PairingRequest, Policy, PriorityRule, ResourceRecord, SystemView,
-  InstanceName, SystemName, type LlmInteraction, type SystemCounts, type UserEvent,
+  InjectionView, InstanceName, QualifiedName, SystemName, type LlmInteraction, type SystemCounts, type UserEvent,
 } from '@harness/core';
 import { g, wireType } from '@harness/sdk';
 import { fakeCaller } from '../../test/fakes.ts';
@@ -148,6 +148,21 @@ export function llmSummary(overrides: Loose<LlmInteraction> = {}): LlmSummary {
   return LlmSummary.parse({ ...llmCall(overrides), request: undefined, response: undefined });
 }
 
+/** What is injected into the hub's chat agents: an item in, one at its summary, one waiting for review, a hook's note. */
+export function fakeInjections(): InjectionView[] {
+  const view = (agent: string, context: string, order: number, extra: Record<string, unknown> = {}): InjectionView => InjectionView.parse({
+    agent, context, source: { type: 'context' }, system: context.split('/')[0], via: 'hub/chat*', title: context, detail: 'full',
+    text: `**${context}** says: call \`input__get_input\` for a form.`, tokens: 120, order, on: true, ...extra,
+  });
+  return [
+    view('hub/chat', 'hub/memory', 20),
+    view('hub/chat', 'input/asking', 40),
+    view('hub/chat', 'crm/deals', 100, { leftOut: { why: 'pending', reason: 'waiting for an admin to review it' } }),
+    view('hub/chat', 'fs/git', 100, { source: { type: 'hook', hook: 'fs/git' }, via: 'hub/chat', title: 'The <fs_git> block', tokens: 30 }),
+    view('hub/chat_small', 'input/asking', 40, { detail: 'summary', tokens: 20 }),
+  ];
+}
+
 /** The fake admin callers. */
 export function fakeAdminApi() {
   return {
@@ -196,6 +211,8 @@ export function fakeAdminApi() {
     suggestDecision: fakeCaller<'suggestDecision'>(() => Promise.resolve({ value: SUGGEST_DECISION_DEFAULT })),
     setSuggestDecision: fakeCaller<'setSuggestDecision'>((value) => Promise.resolve({ value: SuggestDecision.parse(value) })),
     searchDecisions: fakeCaller<'searchDecisions'>(() => Promise.resolve({ fn: { value: SEARCH_DECISION_DEFAULT }, context: { value: SEARCH_DECISION_DEFAULT } })),
+    injections: fakeCaller<'injections'>((of = {}) => Promise.resolve({ injections: fakeInjections().filter((view) => (of.agent === undefined || view.agent === of.agent) && (of.context === undefined || view.context === of.context)), targets: of.context === undefined ? [] : [{ target: 'hub/chat*', agents: [QualifiedName.parse('hub/chat'), QualifiedName.parse('hub/chat_small')] }] })),
+    setInjection: fakeCaller<'setInjection'>((body) => { const view = fakeInjections().find((item) => item.agent === body.agent && item.context === body.context); if (view === undefined) { return Promise.reject(new Error('not injected')); } const on = body.on ?? view.on; return Promise.resolve(InjectionView.parse({ ...view, on, ...(typeof body.order === 'number' ? { order: body.order } : {}), ...(on ? {} : { leftOut: { why: 'off', reason: 'switched off for this agent by an admin' } }), switched: { by: 'act_admin', at: T0 } })); }),
     setSearchDecision: fakeCaller<'setSearchDecision'>((body) => Promise.resolve({ fn: { value: body.item === 'fn' ? body.value : SEARCH_DECISION_DEFAULT }, context: { value: body.item === 'context' ? body.value : SEARCH_DECISION_DEFAULT } })),
     autoClassifier: fakeCaller<'autoClassifier'>(() => Promise.resolve({ value: AutoClassifier.parse({}) })),
     setAutoClassifier: fakeCaller<'setAutoClassifier'>((value) => Promise.resolve({ value: AutoClassifier.parse(value) })),

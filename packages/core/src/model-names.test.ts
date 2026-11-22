@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   FN_NAME_PATTERN, FnLocalName, FnNameIndex, fnLocalNameProblem, fnOfModelNameByRule, fnOfStoredToolName, isCutModelName, legacyFnOfToolName, ModelFnName, modelFnName,
-  modelFnNames, RULE_ONLY_NAMES, sha256Hex,
+  modelFnNames, RULE_ONLY_NAMES, sha256Hex, bareNamesIn, cutNamesIn, unresolvedNamesIn, type ModelFnNameRegistry,
 } from './model-names.ts';
 import { JsonObject, QualifiedName } from './primitives.ts';
 import type { GinTypeDef } from './gin.ts';
@@ -102,7 +102,9 @@ describe('the boundary', () => {
   const tools = modelFnNames({ index, mode: { type: 'tools' } });
   const statics = modelFnNames({ index, mode: { type: 'static', tools: { find: { fn: fn('hub/fns_search') }, load: { fn: fn('hub/load'), also: [fn('hub/ctx_load')] } } } });
 
-  it('names fns as the model calls them in each mode, and reads every form back', () => {
+  it('names fns as the model calls them in each mode, and reads every form back', async () => {
+    // a cut name reads back only once it is learned (or given out by this object)
+    await tools.learn([modelFnName(LONG)]);
     expect(tools.name(fn('hub/fns_search'))).toBe('hub__fns_search');
     expect(statics.name(fn('hub/fns_search'))).toBe('find');
     expect(statics.name(fn('hub/ctx_load'))).toBe('load');
@@ -116,13 +118,16 @@ describe('the boundary', () => {
     expect(tools.fn('nothing')).toBeUndefined();
   });
 
-  it('finds fns in text: refs and known names standing alone, never paths, context keys or types', () => {
+  it('finds fns in text: refs and known names standing alone, never paths, context keys or types', async () => {
     const text = [
       'Read it with fn:fs/read, or call fs/read.',
       'See context:fs/guide and fs/Entry, then fs/Entry.reveal.',
       'Not file:///repo/fs/read nor docs/fs/read.md nor fs/readme.',
       `Long: ${LONG}`,
     ].join('\n');
+    // the registry is asked once, before anything is spelled
+    await tools.learn([text]);
+    await statics.learn(['Use hub/fns_search then hub/ctx_load.']);
     expect(tools.text(text)).toBe([
       'Read it with fs__read, or call fs__read.',
       'See fs/guide and fs/Entry, then fs__Entry__reveal.',
@@ -136,7 +141,7 @@ describe('the boundary', () => {
     expect(modelFnNames({ index: RULE_ONLY_NAMES, mode: { type: 'tools' } }).text('fn:fs/read and fs/read')).toBe('fs__read and fs/read');
   });
 
-  it('writes fn-name fields of a value out, other text through text, and reads them back in', () => {
+  it('writes fn-name fields of a value out, other text through text, and reads them back in', async () => {
     const type: GinTypeDef = {
       name: 'obj',
       props: {
@@ -150,11 +155,46 @@ describe('the boundary', () => {
     const types = (name: string): GinTypeDef | undefined => (name === 'x/Hit' ? { name: 'obj', props: { name: { type: FN_NAME } } } : undefined);
     const names = modelFnNames({ index, mode: { type: 'tools' }, types });
     const value = { fn: 'fs/read', fns: ['fs/Entry.reveal', 'gone/fn'], maybe: 'hub/fns_search', note: 'try fs/read', named: { name: 'fs/read' }, extra: 'fs/read' };
+    await names.learn([value]);
     const out = names.value(value, type);
     expect(out).toEqual({
       fn: 'fs__read', fns: ['fs__Entry__reveal', 'gone__fn'], maybe: 'hub__fns_search', note: 'try fs__read', named: { name: 'fs__read' }, extra: 'fs__read',
     });
     // in: only fn-name fields come back; the model's other text is its own
     expect(names.read({ ...JsonObject.parse(out), note: 'fs__read' }, type)).toEqual({ ...value, fns: ['fs/Entry.reveal', 'gone/fn'], note: 'fs__read', extra: 'fs__read' });
+  });
+});
+
+describe('learning a prompt\'s names', () => {
+  it('collects the bare names text asks about (and the shorter ones they end in), never refs or paths', () => {
+    expect(bareNamesIn('Call fs/Entry.reveal.more, or fn:fs/write, context:fs/guide, docs/fs/read.md and fs/read.')).toEqual(['fs/Entry.reveal.more', 'fs/Entry.reveal', 'fs/Entry', 'docs/fs', 'fs/read']);
+    expect(cutNamesIn(`Use ${modelFnName(LONG)} now, not fs__read.`)).toEqual([modelFnName(LONG)]);
+  });
+
+  it('asks the registry once per batch, only about names it hasn\'t met, and spells what it learned', async () => {
+    const asked: string[][] = [];
+    const registry: ModelFnNameRegistry = {
+      fnsAmong: (names) => { asked.push([...names]); return Promise.resolve(new Set(names.filter((name) => name === 'fs/read'))); },
+      fnsOf: (models) => { asked.push([...models]); return Promise.resolve(new Map(models.filter((model) => model === modelFnName(LONG)).map((model) => [model, LONG]))); },
+    };
+    const names = modelFnNames({ index: registry, mode: { type: 'tools' } });
+    await names.learn(['Use fs/read and fs/guide.', { nested: [`then ${modelFnName(LONG)}`] }, undefined]);
+    expect(asked).toEqual([['fs/read', 'fs/guide'], [modelFnName(LONG)]]);
+    await names.learn(['fs/read again, and fs/guide']);
+    expect(asked).toHaveLength(2);
+    expect(names.text('Use fs/read and fs/guide.')).toBe('Use fs__read and fs/guide.');
+    expect(names.fn(modelFnName(LONG))).toBe(LONG);
+    // a name it never learned is left as written
+    expect(names.text('and fs/write')).toBe('and fs/write');
+  });
+});
+
+describe('the build\'s check of names in authored text', () => {
+  const known = {
+    fns: new Set(['fs/read', 'fs/Entry.reveal']), context: new Set(['fs/guide']), types: new Set(['fs/Entry']), systems: new Set(['fs']),
+  };
+  it('finds refs and bare names of known systems that name nothing, and leaves paths and other systems alone', () => {
+    const text = 'Use fs/read, fs/Entry, fs/guide and fs/Entry.reveal. Not fs/raed, fn:fs/gone or context:fs/nope; src/index.ts and other/x are not checked.';
+    expect(unresolvedNamesIn(text, known).map((found) => [found.ref, found.name])).toEqual([[undefined, 'fs/raed'], ['fn', 'fs/gone'], ['context', 'fs/nope']]);
   });
 });

@@ -17,6 +17,10 @@ export type PeopleTab = z.infer<typeof PeopleTab>;
 export const McpServerTab = z.enum(['overview', 'tools', 'prompts', 'settings']);
 export type McpServerTab = z.infer<typeof McpServerTab>;
 
+/** A fn's tabs, on its page (`?tab=`) and in the fn modal (`?fnTab=`): everything about it, and for an agent what is injected into it. */
+export const FnTab = z.enum(['about', 'injected']);
+export type FnTab = z.infer<typeof FnTab>;
+
 /** Build 9: one API service's tabs. */
 export const ApiServiceTab = z.enum(['overview', 'settings']);
 export type ApiServiceTab = z.infer<typeof ApiServiceTab>;

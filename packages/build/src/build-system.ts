@@ -9,8 +9,8 @@
  */
 import { join } from 'node:path';
 import { Manifest, PACKAGE_MANIFEST_FILE, type SystemPackageManifest } from '@harness/core';
-import { CONTEXT_FOLDER, contextFolderLinks, formatContextProblem, packageManifestText } from '@harness/sdk/server';
-import { contractHash, hub } from '@harness/sdk';
+import { authoredNameWarnings, CONTEXT_FOLDER, contextFolderLinks, declaredNames, formatContextProblem, packageManifestText } from '@harness/sdk/server';
+import { contractHash, hub, manifestOf } from '@harness/sdk';
 import { z } from 'zod';
 import { ContractError, summaryOf, summaryOfManifest, type ContractSummary, type SystemBuilder } from './builder.ts';
 import { checkContextFolder } from './context.ts';
@@ -70,6 +70,11 @@ export interface Built {
   readonly contract: BuiltContract;
   readonly dist: string;
   readonly scan: ScanReport;
+  /**
+   * Names in the contract's model-facing text (descriptions, instructions, examples, context, hooks' `explains`) that
+   * resolve to nothing the build knows (`authoredNameWarnings`): a stale or misspelt sentence. Warnings, not problems.
+   */
+  readonly warnings: readonly string[];
 }
 
 /** A build that didn't: why, one line per problem (`file:line:col message` where there is a place). */
@@ -128,7 +133,22 @@ export async function buildSystem(dir: string, deps: BuildDeps, options: BuildOp
   const written: BuiltContract = { manifest: read, hash: await contractHash(read) };
   await files.write(join(dist, CONTRACT_FILE), `${JSON.stringify(written, null, 2)}
 `);
-  return { ok: true, manifest: built, contract: written, dist, scan: scanBundle(await files.readText(server)) };
+  return { ok: true, manifest: built, contract: written, dist, scan: scanBundle(await files.readText(server)), warnings: await textWarnings(read) };
+}
+
+/**
+ * The names in a contract's model-facing text that resolve to nothing: checked for the system's own names and, when it
+ * requires the hub, the hub's (the build knows every name of both; another system's are left alone).
+ */
+export async function textWarnings(manifest: Manifest): Promise<string[]> {
+  const own = declaredNames(manifest);
+  const ofHub = manifest.requires.some((name) => name === hub.name) || manifest.name === hub.name ? declaredNames(await manifestOf(hub, { version: '0.0.0' })) : undefined;
+  return authoredNameWarnings(manifest, {
+    fns: new Set([...own.fns, ...(ofHub?.fns ?? [])]),
+    context: new Set([...own.context, ...(ofHub?.context ?? [])]),
+    types: new Set([...own.types, ...(ofHub?.types ?? [])]),
+    systems: new Set([manifest.name, ...(ofHub === undefined ? [] : [hub.name])]),
+  });
 }
 
 /**

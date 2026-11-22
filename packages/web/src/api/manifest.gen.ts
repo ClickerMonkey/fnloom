@@ -3778,6 +3778,52 @@ export const manifest = {
       "multi": false,
       "bodyEnc": "json"
     },
+    "injections": {
+      "method": "POST",
+      "path": "/injections",
+      "ws": "injections",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "agent",
+        "context",
+        "mode",
+        "fnMode"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "setInjection": {
+      "method": "POST",
+      "path": "/setInjection",
+      "ws": "setInjection",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "agent",
+        "context",
+        "on",
+        "order"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
     "identity": {
       "method": "GET",
       "path": "/identity",

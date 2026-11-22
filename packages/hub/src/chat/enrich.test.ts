@@ -314,6 +314,10 @@ describe('suggestions as sent', () => {
     const session: Session = { ...w.session, tools: ['fs/read'], context: ['fs/guide'] };
     const { parts } = await new HubMessageEnricher(w.deps, w.chat.suggestions).enrich({ session, turn, text: 'files', user: w.user });
     expect(suggestedIn(parts)).toEqual(['fs/tips', 'fs/write']);
+    // what the agent's injected section holds (the fixed region's stamp) is in the prompt too: never suggested
+    const injected: Session = { ...session, fixed: { hash: 'h', injected: [QualifiedName.parse('fs/tips')], at: turn } };
+    const again = await new HubMessageEnricher(w.deps, w.chat.suggestions).enrich({ session: injected, turn, text: 'files', user: w.user });
+    expect(suggestedIn(again.parts)).toEqual(['fs/write']);
   });
 
   it('keep what a session was suggested when nothing new is', () => {

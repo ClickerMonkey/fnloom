@@ -9,7 +9,7 @@
 import type { Type } from '@aeye/gin';
 import type {
   ActorId, Availability, InstanceName, ContextRecord, GinTypeDef, Json, FnDecl, FnRecord, ImportReport, KindDescription, KindRecord, Manifest, ManifestPatch, ManifestSection,
-  ModelFnNameIndex, ModelRole, QualifiedName, SectionDecl, SystemName, TypeRecord,
+  ModelFnNameRegistry, ModelRole, QualifiedName, SectionDecl, SystemName, TypeRecord,
 } from '@harness/core';
 import type { z } from 'zod';
 
@@ -33,10 +33,11 @@ export interface KindDescriber {
 
 /**
  * The fn name registry for prompts (`catalog/fn-names.ts`): every fn's model name and the names of fns that are gone,
- * with the stored types' definitions, so a value's named types are walked for its fn-name fields (`modelFnNames`).
+ * looked up in the store in batches (never all loaded), with the stored types' definitions, so a value's named types
+ * are walked for its fn-name fields (`modelFnNames`).
  */
 export interface CatalogFnNames {
-  readonly index: ModelFnNameIndex;
+  readonly index: ModelFnNameRegistry;
   readonly types: (name: string) => GinTypeDef | undefined;
 }
 

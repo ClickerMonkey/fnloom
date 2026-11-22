@@ -10,7 +10,7 @@ import {
 } from '@harness/core';
 import type { RouteLocationRaw, RouteRecordRaw } from 'vue-router';
 import { z } from 'zod';
-import { ApiServiceTab, InstanceTab, LimitsTab, McpServerTab, McpTab, ModelsTab, PartTab, PeopleTab, ReviewTab, SystemTab } from '../admin/sections.ts';
+import { ApiServiceTab, FnTab, InstanceTab, LimitsTab, McpServerTab, McpTab, ModelsTab, PartTab, PeopleTab, ReviewTab, SystemTab } from '../admin/sections.ts';
 import { LlmCallTab, RunTab, TAB_KEYS } from '../chat/logic/inspect.ts';
 import { VariantParam } from '../chat/logic/compare.ts';
 import { BrowserQuery } from '../resources/logic/browse.ts';
@@ -147,7 +147,7 @@ export const QUERIES = {
   [ROUTES.mcpServers]: z.object({ add: z.literal('1') }).partial(),
   /** The services' words, and the add dialog, open (to-do phase 4: services are records of the one api instance). */
   [ROUTES.apiServices]: z.object({ q: z.string(), add: z.literal('1') }).partial(),
-  [ROUTES.fn]: z.object({ days: z.enum(['7', '30', '90']), form: z.enum(['readable', 'stored']) }).partial(),
+  [ROUTES.fn]: z.object({ days: z.enum(['7', '30', '90']), form: z.enum(['readable', 'stored']), tab: FnTab }).partial(),
   [ROUTES.pair]: z.object({ code: z.string() }).partial(),
   /** Why connecting failed, as the hub's redirect back from the provider says. */
   [ROUTES.connect]: z.object({ problem: z.string() }).partial(),

@@ -7,7 +7,7 @@
  */
 import type { RenderMode as LibraryRenderMode } from '@aeye/resources';
 import { RawPage as CoreRawPage, type FnEffects } from '@harness/core';
-import { type Infer, type ValueOf, context, fn, g, ginAs, hub, linear, mention, system, type } from '@harness/sdk';
+import { type Infer, type ValueOf, agents, context, fn, g, ginAs, hub, linear, mention, system, type } from '@harness/sdk';
 
 const renderModes = ['auto', 'always', 'never'] as const satisfies readonly LibraryRenderMode[];
 /**
@@ -290,6 +290,21 @@ export const web = system('web', {
         ].join('\n'),
         fns: [fns.search, fns.read, fns.crawl],
         tags: ['web'],
+      }),
+      // what every chat agent is told about the web, in its system prompt (plan injected-context, section 5)
+      basics: context({
+        title: 'The web',
+        description: 'Searching the web and reading pages: they are reads; a snippet is limited evidence; check details on the page.',
+        summary: 'web/search finds pages and web/read reads one (both are reads). Check a detail on the page, not the snippet, and give its URL.',
+        content: [
+          'web/search finds pages and gives titles, URLs and short snippets; web/read reads one page as text; web/crawl reads a site section. All three are reads: they keep the pages they fetch as resources, which doesn\'t count as a change, so a search for reads finds them and they work in a chat that allows only reads.',
+          'A snippet is a fragment of a page, often old or out of context: before you state a time, date, price, address or schedule, read the page it came from and find it there. Prefer the official source. Answer with the URL of each page you used, and say what you couldn\'t confirm.',
+          'For "what\'s on near me this weekend": take the place from what you know of the person, else ask; take the dates from `<local_time>`; search, then read the best one or two pages.',
+          'Load web/guide before your first search.',
+        ].join('\n'),
+        fns: [fns.search, fns.read],
+        tags: ['web'],
+        inject: { into: [agents.startingWith(hub.fns.chat)] },
       }),
     },
   }));

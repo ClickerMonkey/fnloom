@@ -14,6 +14,9 @@ import type { RunView } from '../../chat/logic/runs.ts';
 /** The query key the open fn is kept under, on every page. */
 export const FN_KEY = 'fn';
 
+/** The query key of the modal's tab (an agent's Injected tab), kept and dropped with the fn. */
+export const FN_TAB_KEY = 'fnTab';
+
 /** What the page under the modal adds to it. */
 export interface FnModalScope {
   /** The runs it knows of, in call order; those of the fn shown list under its overview. */
@@ -48,9 +51,9 @@ function one(value: LocationQuery[string] | undefined): string | undefined {
   return typeof first === 'string' ? first : undefined;
 }
 
-/** A query without the fn key. */
+/** A query without the fn key (and the modal's tab). */
 export function withoutFn(query: LocationQuery): LocationQuery {
-  return Object.fromEntries(Object.entries(query).filter(([key]) => key !== FN_KEY));
+  return Object.fromEntries(Object.entries(query).filter(([key]) => key !== FN_KEY && key !== FN_TAB_KEY));
 }
 
 /** The app's fn modal over a router. */

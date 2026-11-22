@@ -4,20 +4,23 @@
  * system, who sees it, `/command`, the agents it is always given to, tags, size in tokens, weight,
  * when it changed), its text (without the title and description the header shows), the choices it offers the model
  * (each worded as a decision, with the title and size of the item it loads, opening it),
- * and its links both ways, grouped by relation. A person
+ * and its links both ways, grouped by relation. An injected item (admins): each of its targets with the agents it hits
+ * now, and per agent how it reads there, its state and why it is left out, with that agent's switch and order. A person
  * adds a link (`?link=1`) and removes links they drew; a memory is edited (`?edit=1`, written anew) or forgotten.
  * Live: a change to this item or one it links with reloads it.
  */
 import AccessControl from '../components/access/AccessControl.vue';
 import ItemHistory from '../components/versions/ItemHistory.vue';
-import { QualifiedName, type ContextLink, type LinkTarget } from '@harness/core';
+import { QualifiedName, type ContextLink, type InjectionView, type LinkTarget } from '@harness/core';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AppPage from '../app/AppPage.vue';
 import { links, ROUTES } from '../app/routes.ts';
 import { useRouteQuery } from '../app/url.ts';
 import ConfirmDialog from '../admin/components/ConfirmDialog.vue';
+import InjectedList from '../admin/components/InjectedList.vue';
 import LoadState from '../admin/components/LoadState.vue';
+import FnPill from '../fns/components/FnPill.vue';
 import LinkDialog from '../context/components/LinkDialog.vue';
 import LinkGroups from '../context/components/LinkGroups.vue';
 import MemoryDialog from '../context/components/MemoryDialog.vue';
@@ -27,7 +30,7 @@ import { useStores } from '../state/stores.ts';
 import { fullTime, relativeTime, UiBadge, UiBanner, UiButton, UiCard, UiIcon, UiMarkdown } from '../ui/index.ts';
 import { useNow } from '../ui/now.ts';
 
-const { context, session, toasts, chat } = useStores();
+const { context, session, toasts, chat, admin: adminStores } = useStores();
 const item = context.item;
 const route = useRoute();
 const router = useRouter();
@@ -65,6 +68,21 @@ const fromResource = computed(() => (record.value?.origin?.type === 'resource' ?
 const admin = computed(() => session.user.value?.role === 'admin');
 const routeOf = (target: LinkTarget) => targetRoute(target, admin.value);
 const navigate = (href: string): void => { void router.push(href); };
+
+/** An injected item, for an admin: its targets with the agents each hits, and how it reads in each agent. */
+const injected = adminStores.itemInjected;
+const injects = computed(() => admin.value && record.value?.decl.inject !== undefined);
+const injectedPage = computed(() => injected.page.value.value);
+watch([name, injects], ([next, yes]) => { if (yes && next !== undefined) { void injected.open({ context: next }); } else { injected.close(); } }, { immediate: true });
+onBeforeUnmount(() => { injected.close(); });
+
+async function switchInjected(view: InjectionView, on: boolean): Promise<void> {
+  if (!(await injected.switchOn(view, on))) { toasts.error("Couldn't switch that", injected.saving.problem.value); }
+}
+
+async function reorderInjected(view: InjectionView, order: number | null): Promise<void> {
+  if (!(await injected.reorder(view, order))) { toasts.error("Couldn't change its order", injected.saving.problem.value); }
+}
 
 onMounted(() => { void chat.access.load(); });
 watch(name, (next) => { if (next !== undefined) { void item.open(next); } }, { immediate: true });
@@ -121,7 +139,7 @@ async function save(draft: MemoryDraft): Promise<void> {
               <div v-if="fromResource"><dt>Made from</dt><dd><RouterLink :to="links.resources({ uri: fromResource.uri })" class="uri">{{ fromResource.uri }}</RouterLink><template v-if="fromResource.section"> § {{ fromResource.section }}</template></dd></div>
               <div v-if="fromResource"><dt>Text</dt><dd>{{ fromResource.copy === 'live' ? 'Live: read when loaded' : 'A snapshot' }}</dd></div>
               <div v-if="record.decl.command"><dt>Command</dt><dd><code>/{{ record.decl.command.name }}</code></dd></div>
-              <div v-if="record.decl.inject"><dt>Injected into</dt><dd class="chips"><code v-for="target in record.decl.inject.into" :key="target">{{ target }}</code></dd></div>
+              <div v-if="record.decl.inject"><dt>Injected into</dt><dd class="chips"><code v-for="target in record.decl.inject.into" :key="target">{{ target }}</code><span class="dim-order">order {{ record.decl.inject.order }}</span></dd></div>
               <div v-if="record.tokens" class="wide"><dt>Size</dt><dd>{{ sizeText(record) }}<template v-if="record.decl.content !== undefined || record.tokens.full > 0">, {{ record.tokens.summary.toLocaleString() }} as a summary</template></dd></div>
               <div><dt>Weight</dt><dd>{{ (record.decl.weight ?? 1).toFixed(2) }}</dd></div>
               <div v-if="record.decl.tags.length > 0"><dt>Tags</dt><dd class="chips"><UiBadge v-for="tag in record.decl.tags" :key="tag">{{ tag }}</UiBadge></dd></div>
@@ -133,6 +151,20 @@ async function save(draft: MemoryDraft): Promise<void> {
           <UiCard v-if="body !== '' || record.decl.content === undefined" title="Text" compact>
             <div v-if="body !== ''" class="text" data-testid="context-text"><UiMarkdown :source="body" :navigate="navigate" /></div>
             <p v-else class="none">Its system writes this text when it is loaded.</p>
+          </UiCard>
+          <UiCard v-if="injects" title="Injected into" subtitle="The agents whose system prompts it goes into, and how it reads in each." compact data-testid="context-injected">
+            <ul v-if="injectedPage" class="targets">
+              <li v-for="target in injectedPage.targets" :key="target.target" class="target" data-testid="context-inject-target">
+                <code>{{ target.target }}</code>
+                <span class="arrow" aria-hidden="true">→</span>
+                <span v-if="target.agents.length > 0" class="chips"><FnPill v-for="agent in target.agents" :key="agent" :name="agent" /></span>
+                <span v-else class="none">hits no agent yet</span>
+              </li>
+            </ul>
+            <InjectedList
+              per="item" :views="injectedPage?.injections ?? []" :loading="injected.page.loading.value" :problem="injected.page.problem.value" :busy="injected.busyKey.value" :now="now"
+              @switch="switchInjected" @reorder="reorderInjected" @retry="name && injected.open({ context: name })"
+            />
           </UiCard>
           <ItemHistory :item="{ system: record.system, section: 'context', name: record.name }" />
         </div>
@@ -191,6 +223,12 @@ async function save(draft: MemoryDraft): Promise<void> {
 .choice-size { flex: none; color: var(--text-faint); font-size: var(--text-xs); white-space: nowrap; }
 .choice-when { color: var(--text-dim); }
 .none { margin: 0; color: var(--text-faint); font-size: var(--text-sm); }
+.dim-order { color: var(--text-faint); font-size: var(--text-xs); }
+.targets { display: grid; gap: var(--space-1); margin: 0 0 var(--space-3); padding: 0; list-style: none; font-size: var(--text-sm); }
+.target { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); min-width: 0; }
+.target code { overflow-wrap: anywhere; }
+.arrow { color: var(--text-faint); }
+.target .chips { display: flex; flex-wrap: wrap; }
 @media (min-width: 1100px) {
   .layout { grid-template-columns: minmax(0, 1fr) minmax(360px, 440px); }
 }

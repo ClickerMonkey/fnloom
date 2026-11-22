@@ -7,11 +7,12 @@
  * and its latest runs; everyone else its overview alone. The runs of it the page knows of (the chat's own, newest
  * first) list under the overview. "Open page" goes to the full fn page for admins; a fn it uses (a `FnPill`) opens in
  * its place; a run opens where the page opens runs, and All its runs goes to the runs browser. It mounts only while
- * open, so it is the newest layer and stacks over whatever sheet opened it.
+ * open, so it is the newest layer and stacks over whatever sheet opened it. An agent's tab (About or Injected) is in the
+ * URL as `?fnTab=`, and Open page keeps it.
  */
 import type { QualifiedName } from '@harness/core';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { links } from '../../app/routes.ts';
 import type { FnPeriod } from '../../admin/state/fn.ts';
 import { fnLabel } from '../../chat/logic/labels.ts';
@@ -19,7 +20,8 @@ import { useStores } from '../../state/stores.ts';
 import { UiButton, UiDialog } from '../../ui/index.ts';
 import { useNow } from '../../ui/now.ts';
 import type { PayloadForm } from '../logic/facts.ts';
-import type { FnModal } from '../state/fn-modal.ts';
+import { FN_TAB_KEY, type FnModal } from '../state/fn-modal.ts';
+import { FnTab } from '../../admin/sections.ts';
 import FnDetails from './FnDetails.vue';
 import FnOverview from './FnOverview.vue';
 import FnRuns from './FnRuns.vue';
@@ -28,6 +30,16 @@ const props = defineProps<{ modal: FnModal; fn: QualifiedName }>();
 
 const { fns, session } = useStores();
 const router = useRouter();
+const route = useRoute();
+/** The tab shown (an agent's Injected tab is `?fnTab=injected`), so a link opens the modal on it. */
+const tab = computed<FnTab>({
+  get: () => { const parsed = FnTab.safeParse(route.query[FN_TAB_KEY]); return parsed.success ? parsed.data : 'about'; },
+  set: (value) => {
+    const query = { ...route.query };
+    if (value === 'about') { Reflect.deleteProperty(query, FN_TAB_KEY); } else { query[FN_TAB_KEY] = value; }
+    void router.replace({ query, hash: route.hash });
+  },
+});
 const manage = computed(() => session.user.value?.role === 'admin');
 const days = ref<FnPeriod>(7);
 const payloadForm = ref<PayloadForm>('readable');
@@ -48,7 +60,7 @@ function go(to: Parameters<typeof router.push>[0]): void {
 <template>
   <UiDialog v-model:open="open" :title="fnLabel(fn)" :description="fn" width="720px">
     <FnDetails
-      v-if="manage" v-model:days="days" v-model:form="payloadForm" :name="fn" compact
+      v-if="manage" v-model:days="days" v-model:form="payloadForm" v-model:tab="tab" :name="fn" compact
       @run="modal.openRun($event)" @runs="go(links.fnRuns($event))" @switched="(name, on) => modal.scope.value.switched?.(name, on)"
     >
       <template v-if="shownRuns.length > 0" #runs><FnRuns :runs="shownRuns" :now="now" title="Its runs here" @open="modal.openRun($event)" /></template>
@@ -62,7 +74,7 @@ function go(to: Parameters<typeof router.push>[0]): void {
     </FnOverview>
     <template #footer>
       <UiButton variant="ghost" @click="modal.close()">Close</UiButton>
-      <UiButton v-if="manage" variant="secondary" icon="arrow-right" data-testid="fn-open-page" @click="go(links.fn(fn))">Open page</UiButton>
+      <UiButton v-if="manage" variant="secondary" icon="arrow-right" data-testid="fn-open-page" @click="go(links.fn(fn, tab === 'about' ? {} : { tab }))">Open page</UiButton>
     </template>
   </UiDialog>
 </template>

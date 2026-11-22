@@ -6,16 +6,20 @@
  * message, asks the contextor for a selection within what is left, renders it with the mode, and checks the request's
  * estimate against the budget. `maxTokens` and `contextWindow` go on every request. A session's system message lists,
  * after the instructions, the systems its first turn found available (`fixedRegion`), the same every step so it caches.
+ *
+ * The agent's injected section (`{{injectedContext}}`, `injected.ts`) is part of the fixed region: worked out once at
+ * the start of a turn and kept for every step of it, counted in the fixed part, its items treated as loaded by every
+ * contextor and their fns among the agent's starting tools. At each new turn it is worked out again, and the session's
+ * `FixedRegionStamp` rewritten, only when the region's text changed (a system off, an approval, an admin's switch).
  */
 import type { Logger } from '@ayepi/log';
 import {
-  ChatModeConfig, ContextorConfig, DEFAULT_CHAT_MODE, DEFAULT_CONTEXTOR, ModelChoice, namesModel, QualifiedName, targetHits, type ActorId, type AnnouncedSystem, type ContextViewer, type Exposure, type FnBlock, type FnRecord, type FnRefusal, type LlmMessage, type ModelFnNames, type ModelInfo,
-  type Session, type SessionId, type SelectionReport, type Turn, type TurnId,
+  ChatModeConfig, compositeKey, ContextorConfig, DEFAULT_CHAT_MODE, DEFAULT_CONTEXTOR, ModelChoice, namesModel, QualifiedName, type ActorId, type AnnouncedSystem, type Exposure, type InjectedReport, type FnBlock, type FnRecord, type FnRefusal, type LlmMessage, type ModelFnNames, type ModelInfo,
+  type Json, type Session, type SessionId, type SelectionReport, type Turn, type TurnId,
 } from '@harness/core';
 import { LlmPayloadType, parseValue, type LlmPayload } from '@harness/sdk';
 import type { Catalog } from '../catalog/index.ts';
 import type { ModelResolver } from '../execution/models.ts';
-import { visibleMade } from '../resources/context.ts';
 import { systemsNow, systemsPrompt } from '../chat/announce.ts';
 import { citationsPrompt } from '../chat/cite-rule.ts';
 import { MODE_RANK } from '../fns/index.ts';
@@ -28,6 +32,7 @@ import type {
   ModeTool, PlanInput, PlannedPrompt, PromptPlanner, RenderedIteration, Selection, TokenEstimates, TokenEstimator,
 } from './index.ts';
 import { AUTO_MODEL } from './limits.ts';
+import { fitInjected, fixedHash, gatherInjected, injectedFns, injectedShown, injectedTemplate, placeInjected } from './injected.ts';
 import { CHAT_MODES, modeNames } from './modes.ts';
 import { broughtWords, contextBlock, earlierBlock, moreContext, type BroughtFnLines, type BroughtWords } from './render.ts';
 import { MESSAGE_FRAMING } from './tokens.ts';
@@ -136,7 +141,7 @@ export function fixedRegion(systems: readonly AnnouncedSystem[], guide: string, 
 /** What the planner uses. */
 export interface PlannerDeps extends ContextorDeps {
   readonly store: HubStore;
-  readonly catalog: ContextorDeps['catalog'] & Pick<Catalog, 'entries' | 'modelNames'>;
+  readonly catalog: ContextorDeps['catalog'] & Pick<Catalog, 'entries' | 'modelNames' | 'availability'>;
   readonly limits: Pick<ModelLimitsService, 'resolve'>;
   readonly tokens: TokenEstimates;
   /** The chat models the hub AI can call now (for whether a model takes native tools). */
@@ -160,9 +165,26 @@ interface Planning {
   readonly keep: boolean;
 }
 
+/** An agent's injected section for one turn: its text, the context it shows and the fns it brings, and its report. */
+interface InjectedPart {
+  readonly text: string;
+  readonly tokens: number;
+  /** Context items the section shows: already in the prompt, for every contextor. */
+  readonly shown: readonly QualifiedName[];
+  /** The fns its shown items bring: among the agent's starting tools. */
+  readonly fns: readonly QualifiedName[];
+  readonly cut: ReadonlyArray<{ what: string; why: string }>;
+  readonly report: InjectedReport | undefined;
+}
+
+/** An agent that takes no injected section (`injected: 'none'`). */
+const NO_INJECTED: InjectedPart = { text: '', tokens: 0, shown: [], fns: [], cut: [], report: undefined };
+
 /** The planner. */
 export class HubPromptPlanner implements PromptPlanner {
   readonly #deps: PlannerDeps;
+  /** Each turn's injected section (by session, turn, agent and model), so every step of a turn sends the same fixed region. */
+  readonly #sections = new Map<string, InjectedPart>();
 
   constructor(deps: PlannerDeps) {
     this.#deps = deps;
@@ -237,28 +259,38 @@ export class HubPromptPlanner implements PromptPlanner {
     const access = await this.#deps.access(planning.user);
     const guide = fixedRegion(await this.#systems(session, access), mode.guide(ctx), citationsPrompt(session));
     const tools = await mode.fixedTools(ctx);
-    const head = estimator.text(planning.instructions) + MESSAGE_FRAMING + (guide === '' ? 0 : estimator.text(`\n\n${guide}`)) + tools.reduce((sum, t) => sum + estimator.tool(t.spec), 0);
+    const rest = MESSAGE_FRAMING + (guide === '' ? 0 : estimator.text(`\n\n${guide}`)) + tools.reduce((sum, t) => sum + estimator.tool(t.spec), 0);
     // an agent that declares no `maxOutput` still gets a bound (`HARNESS_AGENT_MAX_OUTPUT`): a stuck model stops there
     const cap = this.#deps.settings.HARNESS_AGENT_MAX_OUTPUT;
     const maxOutput = payload.maxOutput ?? (cap > 0 ? cap : undefined);
     const reserve = budgetPlan(view.limits, 0, this.#deps.settings.HARNESS_PROMPT_MARGIN, maxOutput);
+    // the injected section takes room from history and context, never from the current exchange: at most a share of what
+    // the model leaves after the rest of the fixed part, worked out from the model alone so it stays the same each turn
+    const bare = estimator.text(planning.instructions) + rest;
+    const share = Math.floor(this.#deps.settings.HARNESS_INJECTED_SHARE * Math.max(0, reserve.available - bare));
+    const injected = await this.#injectedPart(planning, { mode, ctx, payload, access, guide, room: share });
+    const instructions = placeInjected(planning.instructions, injected.text);
+    const head = estimator.text(instructions) + rest;
     const fitted = this.#fitCurrent(currentExchange?.messages ?? [], reserve, head, estimator, model);
     const plan = budgetPlan(view.limits, head + estimator.messages(fitted.messages), this.#deps.settings.HARNESS_PROMPT_MARGIN, maxOutput);
     const query = currentExchange?.user ?? '';
     // the fns the mode's own tools replace are never shown
     const shown = (names: readonly string[]): string[] => names.filter((name) => !mode.replaces.has(name));
     const asked = await this.#asked(planning.turn, currentExchange?.messages ?? []);
+    const inSection = new Set<string>(injected.shown);
+    const notInjected = (names: readonly string[]): string[] => names.filter((name) => !inSection.has(name));
 
     const input = {
       session, user: planning.user, access, turn: planning.turn?.id, agent, payload, query, history, current: fitted.messages,
-      always: { context: [...payload.context, ...(await this.#injected(agent.name, { actor: planning.user, session: session?.id }))], fns: shown(payload.tools) },
-      loaded: { context: session?.context ?? [], fns: shown(session?.tools ?? []) },
-      ...asked, asked: { ...asked.asked, fns: shown(asked.asked.fns) }, person: planning.turn?.user,
+      // injected items are in the prompt already, so no contextor shows them again; the fns they bring are starting tools
+      always: { context: notInjected(payload.context), fns: shown([...payload.tools, ...injected.fns]) },
+      loaded: { context: notInjected(session?.context ?? []), fns: shown(session?.tools ?? []) },
+      ...asked, asked: { context: notInjected(asked.asked.context), fns: shown(asked.asked.fns) }, person: planning.turn?.user, injected: injected.shown,
       mode, ctx, plan, cached: planning.cached,
     };
     let selection = await this.#forTurn(await contextor.select(input), session, query);
-    let rendered = spoken(await mode.render(selection, ctx));
-    let assembled = this.#assemble(planning.instructions, guide, selection, mode, rendered, estimator, await this.#held(selection, session, access));
+    let rendered = await spoken(await mode.render(selection, ctx));
+    let assembled = await this.#assemble(instructions, guide, selection, mode, rendered, estimator, await this.#held(selection, session, access));
     // the parts' estimates can add up to less than the whole's: choose again with less room for the optional parts
     // (the overshoot taken off, at least doubling each time) until it fits; refused only once no optional room is left
     const room = Math.max(0, plan.flexible);
@@ -268,18 +300,19 @@ export class HubPromptPlanner implements PromptPlanner {
       taken = Math.min(room, Math.max(taken * 2, taken + assembled.estimate - plan.available));
       const tighter: BudgetPlan = { ...plan, flexible: plan.flexible - taken };
       selection = await this.#forTurn(await contextor.select({ ...input, plan: tighter }), session, query);
-      rendered = spoken(await mode.render(selection, ctx));
-      assembled = this.#assemble(planning.instructions, guide, selection, mode, rendered, estimator, await this.#held(selection, session, access));
+      rendered = await spoken(await mode.render(selection, ctx));
+      assembled = await this.#assemble(instructions, guide, selection, mode, rendered, estimator, await this.#held(selection, session, access));
     }
     const report: SelectionReport = {
       ...selection.report, mode: choice.mode.type, contextor: choice.contextor.type,
-      budget: { ...selection.report.budget, estimate: assembled.estimate, cut: [...fitted.cut, ...selection.report.budget.cut] },
+      budget: { ...selection.report.budget, estimate: assembled.estimate, cut: [...injected.cut, ...fitted.cut, ...selection.report.budget.cut] },
+      ...(injected.report === undefined ? {} : { injected: injected.report }),
     };
     if (report.budget.cut.length > 0) this.#deps.log.info('contextor.cut', { model, cut: report.budget.cut.map((c) => `${c.what}: ${c.why}`) });
     this.#deps.log.debug('contextor.planned', { model, mode: choice.mode.type, contextor: choice.contextor.type, estimate: assembled.estimate, available: plan.available, window: view.limits.contextWindow });
     if (planning.keep && session !== undefined && planning.turn !== undefined && choice.contextor.type === 'graph') await this.#keep(session.id, planning.turn.id, report);
     return {
-      model, context: assembled.context, messages: assembled.messages, tools: rendered.tools, maxTokens: plan.output + plan.reasoning, contextWindow: view.limits.contextWindow,
+      model, instructions: rendered.names.text(injectedTemplate(planning.instructions)), injectedContext: injected.text, context: assembled.context, messages: assembled.messages, tools: rendered.tools, maxTokens: plan.output + plan.reasoning, contextWindow: view.limits.contextWindow,
       estimate: assembled.estimate, rendered, report, mode, ctx, session, access: input.access, ...(selection.considered === undefined ? {} : { considered: selection.considered }),
     };
   }
@@ -318,11 +351,17 @@ export class HubPromptPlanner implements PromptPlanner {
     return held;
   }
 
-  /** The system region, the messages and the request's estimate. */
-  #assemble(instructions: string, guide: string, selection: Selection, mode: ChatMode, rendered: Awaited<ReturnType<ChatMode['render']>>, estimator: TokenEstimator, held: BroughtBlocks) {
-    // out to the model: every fn the region names, as the model calls it here (the tail and tools already are, `spoken`)
-    const context = rendered.names.text(contextRegion(guide, selection, rendered.systemEnd, held, broughtWords(mode.type, rendered.protocol)));
-    const messages: LlmMessage[] = [...selection.linear, ...(rendered.tail === undefined ? [] : [{ role: 'system' as const, content: rendered.tail }])];
+  /**
+   * The system region, the messages and the request's estimate. Out to the model, every fn the instructions, the region
+   * and the messages name (the hub's blocks on a person's message, results, background results, refusals) is spelled as
+   * the model calls it here, after one lookup of every name they hold (the tail and tools already are, `spoken`).
+   */
+  async #assemble(instructions: string, guide: string, selection: Selection, mode: ChatMode, rendered: Awaited<ReturnType<ChatMode['render']>>, estimator: TokenEstimator, held: BroughtBlocks) {
+    const { names } = rendered;
+    const region = contextRegion(guide, selection, rendered.systemEnd, held, broughtWords(mode.type, rendered.protocol));
+    await names.learn([instructions, region, ...selection.linear.flatMap(messageTexts)]);
+    const context = names.text(region);
+    const messages: LlmMessage[] = [...selection.linear.map((message) => spokenMessage(message, names)), ...(rendered.tail === undefined ? [] : [{ role: 'system' as const, content: rendered.tail }])];
     const system = context === '' ? instructions : `${instructions}\n\n${context}`;
     const estimate = estimator.message({ role: 'system', content: system }) + rendered.tools.reduce((sum, t) => sum + estimator.tool(t.spec), 0) + estimator.messages(messages);
     return { context, messages, estimate };
@@ -372,13 +411,65 @@ export class HubPromptPlanner implements PromptPlanner {
   }
 
   /**
-   * Context injected into this agent (an `inject` target hits it): systems' context, and the hub-made context (memory,
-   * from resources) the viewer may see. Until the injected section is built into the fixed region, these are always
-   * loaded, as `alwaysFor` was; held (pending) and switched-off items are left out as for any loaded context.
+   * The agent's injected section for this turn (`injected.ts`): what reaches it, fitted to its detail and within its
+   * cap and `room`, with fn names as the model calls them here. Worked out once per turn and kept for its steps. At a
+   * turn's first step the fixed region's hash is compared with the session's stamp, and the stamp rewritten only when
+   * the region changed: then the report says so (`rebuilt`, with the items added and dropped) and the change is
+   * logged. A turn already stamped (the hub restarted mid-turn) keeps the items it was built with; changes wait for
+   * the next turn. The stamp is the session's own agent's; another agent run in the chat keeps its section for the
+   * turn in memory only. Previews and runs outside a chat work it out fresh and keep nothing.
    */
-  async #injected(agent: QualifiedName, viewer: ContextViewer): Promise<QualifiedName[]> {
-    const [declared, made] = await Promise.all([this.#deps.catalog.entries('context'), visibleMade(this.#deps.store, viewer)]);
-    return [...new Set([...declared, ...made].filter((item) => item.decl.inject?.into.some((target) => targetHits(target, agent)) === true).map((item) => item.name))];
+  async #injectedPart(planning: Planning, at: { mode: ChatMode; ctx: ModeContext; payload: LlmPayload; access: AccessScope; guide: string; room: number }): Promise<InjectedPart> {
+    const taken = at.payload.injected ?? { detail: 'full' as const };
+    if (taken === 'none') return NO_INJECTED;
+    const { session, turn, agent, model } = planning;
+    const key = planning.keep && session !== undefined && turn !== undefined ? compositeKey(session.id, turn.id, agent.name, model) : undefined;
+    const kept = key === undefined ? undefined : this.#sections.get(key);
+    if (kept !== undefined) return kept;
+    const gathered = await gatherInjected(
+      { store: this.#deps.store, catalog: this.#deps.catalog, dynamic: this.#deps.dynamic, fns: this.#deps.fns },
+      { agent, session, access: at.access, user: planning.user, person: turn?.user, mode: at.mode.type },
+    );
+    // the stamp is the session's own agent's: another agent run in the chat (a sub-agent) works its section out alone
+    const own = key !== undefined && session?.agent === agent.name;
+    const stamp = own ? session?.fixed : undefined;
+    const sameTurn = stamp !== undefined && turn !== undefined && stamp.at === turn.id;
+    const items = sameTurn ? gathered.items.filter((item) => stamp.injected.includes(item.name)) : gathered.items;
+    const names = at.ctx.names ?? modeNames(at.mode.type);
+    // the names the items' texts hold are looked up in one batch before they are spelled
+    await names.learn(items.flatMap((item) => [item.title, item.full, item.summary]));
+    const fitted = fitInjected(items, {
+      detail: taken.detail ?? 'full', room: Math.min(taken.maxTokens ?? Number.POSITIVE_INFINITY, at.room), estimator: at.ctx.estimator, render: (text) => names.text(text),
+    });
+    const placed = fitted.placed.map((p) => p.item.name);
+    let rebuilt: InjectedReport['rebuilt'];
+    if (own && session !== undefined && turn !== undefined) {
+      const hash = fixedHash(`${placeInjected(planning.instructions, fitted.text)}\n\n${at.guide}`);
+      if (stamp?.hash !== hash) {
+        await this.#deps.store.table('sessions').update(session.id, { fixed: { hash, injected: placed, at: turn.id } });
+        if (stamp !== undefined) {
+          rebuilt = { added: placed.filter((name) => !stamp.injected.includes(name)), dropped: stamp.injected.filter((name) => !placed.includes(name)) };
+          this.#deps.log.info('contextor.fixed-rebuilt', { session: session.id, turn: turn.id, agent: agent.name, ...rebuilt });
+        }
+      }
+    }
+    const part: InjectedPart = {
+      text: fitted.text, tokens: fitted.tokens, shown: injectedShown(fitted.placed), fns: injectedFns(fitted.placed), cut: fitted.cut,
+      report: {
+        tokens: fitted.tokens,
+        items: fitted.placed.map((p) => ({ name: p.item.name, detail: p.detail, tokens: p.tokens })),
+        leftOut: [...gathered.leftOut, ...fitted.noFit].map((left) => ({ name: left.name, why: left.why, reason: left.reason })),
+        ...(rebuilt === undefined ? {} : { rebuilt }),
+      },
+    };
+    if (key !== undefined) {
+      this.#sections.set(key, part);
+      for (const old of this.#sections.keys()) {
+        if (this.#sections.size <= this.#deps.settings.HARNESS_INJECTED_STEPS) break;
+        this.#sections.delete(old);
+      }
+    }
+    return part;
   }
 
   /** What the current message asks for: its `/command` context (with each command's args), and the fns its person names (`fs/bash`, `@` mentions). */
@@ -406,15 +497,50 @@ export class HubPromptPlanner implements PromptPlanner {
  * A rendered iteration as the model reads it: its tools' descriptions and its trailing card message with every fn they
  * name spelled as the model calls it here (`ModelFnNames.text`). The system region is spelled when it is assembled.
  */
-export function spoken(rendered: RenderedIteration): RenderedIteration {
+export async function spoken(rendered: RenderedIteration): Promise<RenderedIteration> {
   const { names } = rendered;
+  // every name the tools and the tail hold, looked up in one batch first
+  await names.learn([
+    rendered.tail, ...rendered.tools.flatMap((tool) => [tool.description, tool.instructions, tool.spec.description, ...schemaDescriptions(tool.spec.parameters)]),
+  ]);
   const tools = rendered.tools.map((tool): ModeTool => ({
     ...tool,
     description: names.text(tool.description),
     ...(tool.instructions === undefined ? {} : { instructions: names.text(tool.instructions) }),
-    spec: { ...tool.spec, ...(tool.spec.description === undefined ? {} : { description: names.text(tool.spec.description) }) },
+    spec: {
+      ...tool.spec,
+      ...(tool.spec.description === undefined ? {} : { description: names.text(tool.spec.description) }),
+      parameters: spokenSchema(tool.spec.parameters, names),
+    },
   }));
   return { ...rendered, tools, ...(rendered.tail === undefined ? {} : { tail: names.text(rendered.tail) }) };
+}
+
+/** The `description` texts of a JSON schema, at any depth (a field's own words, which may name fns). */
+function schemaDescriptions(schema: Json): string[] {
+  if (Array.isArray(schema)) return schema.flatMap(schemaDescriptions);
+  if (schema === null || typeof schema !== 'object') return [];
+  return Object.entries(schema).flatMap(([key, value]) => (key === 'description' && typeof value === 'string' ? [value] : schemaDescriptions(value)));
+}
+
+/** A JSON schema with its `description` texts spelled for the model; patterns, enums and defaults are left as they are. */
+function spokenSchema(schema: Json, names: ModelFnNames): Json {
+  if (Array.isArray(schema)) return schema.map((item) => spokenSchema(item, names));
+  if (schema === null || typeof schema !== 'object') return schema;
+  return Object.fromEntries(Object.entries(schema).map(([key, value]) => [key, key === 'description' && typeof value === 'string' ? names.text(value) : spokenSchema(value, names)]));
+}
+
+/** The texts of a message the hub spells (a person's, a tool's or a system message; the model's own words stay its own). */
+function messageTexts(message: LlmMessage): string[] {
+  if (message.role === 'assistant') return [];
+  return typeof message.content === 'string' ? [message.content] : message.content.flatMap((part) => (part.type === 'text' ? [part.content] : []));
+}
+
+/** A message with every fn its text names spelled as the model calls it here (after `learn` over `messageTexts`). */
+function spokenMessage(message: LlmMessage, names: ModelFnNames): LlmMessage {
+  if (message.role === 'assistant') return message;
+  if (typeof message.content === 'string') return { ...message, content: names.text(message.content) };
+  return { ...message, content: message.content.map((part) => (part.type === 'text' ? { ...part, content: names.text(part.content) } : part)) };
 }
 
 /** A message with its text shortened to `max` characters (string content only). */

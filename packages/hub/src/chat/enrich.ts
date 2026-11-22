@@ -206,7 +206,8 @@ export class HubMessageEnricher implements MessageEnricher {
   }> {
     const { session } = at;
     const access = await this.#deps.access.scope(at.actor);
-    const seen = new Set<string>([...(session.suggested ?? []), ...session.tools, ...session.context]);
+    // what the agent's injected section holds (the fixed region's stamp) is in the prompt already: never loaded for you
+    const seen = new Set<string>([...(session.suggested ?? []), ...session.tools, ...session.context, ...(session.fixed?.injected ?? [])]);
     const broughtBy = new Map((decided.record?.items ?? []).flatMap((item) => (item.kind === 'fn' && item.broughtBy !== undefined ? [[item.name, item.broughtBy] as const] : [])));
     const ranked = [...decided.suggestions].sort((a, b) => b.score - a.score);
     const why = (item: Suggestion): string | undefined => load.why.get(`${item.kind}:${item.name}`);
@@ -403,7 +404,8 @@ export class HubMessageEnricher implements MessageEnricher {
    * part left with no blocks. `loaded`: what this message loads for the turn (`#load`), never suggested with it.
    */
   async #offer(parts: readonly MessagePart[], at: { session: Session; actor: ActorId; toolset: ChatModeType }, loaded: readonly QualifiedName[] = []): Promise<MessagePart[]> {
-    const seen = new Set<string>([...(at.session.suggested ?? []), ...at.session.tools, ...at.session.context, ...loaded]);
+    // nor is what the injected section holds suggested: it is in the prompt
+    const seen = new Set<string>([...(at.session.suggested ?? []), ...at.session.tools, ...at.session.context, ...(at.session.fixed?.injected ?? []), ...loaded]);
     const out: MessagePart[] = [];
     let access: AccessScope | undefined;
     const scope = async (): Promise<AccessScope> => (access ??= await this.#deps.access.scope(at.actor));

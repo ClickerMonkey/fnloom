@@ -86,10 +86,10 @@ export async function factsFor(hub: FnsHub, fn: QualifiedName, args: Json | unde
  */
 export async function fnsOfModelNames(hub: Pick<HubServices, 'access' | 'catalog'>, names: readonly string[], user: Viewer): Promise<Record<string, QualifiedName>> {
   const [{ index }, access] = await Promise.all([hub.catalog.modelNames(), hub.access.scope(user.id)]);
+  // one batch for every name the view asks about
+  const found = await index.fnsOf([...new Set(names)]);
   const out: Record<string, QualifiedName> = {};
-  for (const name of new Set(names)) {
-    const fn = index.fnOf(name);
-    if (fn === undefined) { continue; }
+  for (const [name, fn] of found) {
     const record = await hub.catalog.fn(fn);
     if (record === undefined || access.seesFn(record)) { out[name] = fn; }
   }

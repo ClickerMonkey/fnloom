@@ -161,7 +161,7 @@ export class StoreCatalog implements Catalog {
   constructor(options: CatalogOptions) {
     this.options = options;
     this.#scopes = options.scopes ?? new GinScopes();
-    this.#names = new StoreFnNames({ store: options.store, log: options.log, clock: options.clock });
+    this.#names = new StoreFnNames(options.store);
   }
 
   // ─── Reading ──────────────────────────────────────────────────────────────
@@ -272,7 +272,7 @@ export class StoreCatalog implements Catalog {
 
   async modelNames(): Promise<CatalogFnNames> {
     await this.#load();
-    return { index: await this.#names.index(), types: this.#storedLookup };
+    return { index: this.#names, types: this.#storedLookup };
   }
 
   // ─── Importing ────────────────────────────────────────────────────────────
@@ -371,6 +371,9 @@ export class StoreCatalog implements Catalog {
    */
   async indexStoredFns(): Promise<number> {
     const { store } = this.options;
+    // the model names (`modelFnNames`) of fns stored before the registry was a table
+    const named = await this.#names.backfill();
+    if (named > 0) { this.options.log.info('catalog.fns.named', { fns: named }); }
     if ((await store.table('fnLinks').count()) > 0 || (await store.table('fnSignatureTypes').count()) > 0) { return 0; }
     await this.#load();
     let indexed = 0;
@@ -504,6 +507,7 @@ export class StoreCatalog implements Catalog {
 
   /** Remove a fn's index rows with it. */
   async #removeIndexes(store: HubStore, name: QualifiedName): Promise<void> {
+    await this.#names.remove(store, name, this.options.clock());
     for (const row of await allRows(store.table('fnSignatureTypes'), { where: { fn: name } })) { await store.table('fnSignatureTypes').remove({ fn: row.fn, type: row.type }); }
     for (const row of await allRows(store.table('fnLinks'), { where: { fn: name } })) { await store.table('fnLinks').remove({ fn: row.fn, to: row.to, link: row.link }); }
   }
@@ -522,6 +526,7 @@ export class StoreCatalog implements Catalog {
   async #writeIndexes(store: HubStore, fn: FnRecord, described: readonly string[] | undefined, fresh = false): Promise<void> {
     // a fn stored for the first time has no rows to replace
     await this.#writeLinks(store, fn, fresh);
+    await this.#names.write(store, fn);
     const table = store.table('fnSignatureTypes');
     const before = fresh ? [] : await allRows(table, { where: { fn: fn.name } });
     const kept = fn.decl.kind !== 'native' && described === undefined ? before.map((row) => row.type) : [];
@@ -759,7 +764,6 @@ export class StoreCatalog implements Catalog {
 
   /** Publish what changed, with the fn records that changed. */
   #announce(added: QualifiedName[], removed: QualifiedName[], records: FnRecord[]): void {
-    this.#names.changed(removed, records);
     this.options.bus.publish('catalog.changed', { added, removed, fns: records });
   }
 

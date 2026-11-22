@@ -350,19 +350,40 @@ model names: context keys (`fs/guide`), types (`fs/Entry`) and hook tags (`<fs_g
 - **The rule a fn's name keeps** (core `FnLocalName`): dot-separated parts, none holding `__` or starting or ending
   with `_`, so `__` always separates parts. The SDK's build refuses a contract with one that breaks it, and the hub
   refuses such a fn (declared or saved) with the reason. Context keys and types keep `LocalName`.
-- **The registry.** The hub never reads a model name back by rule: the catalog keeps a registry of every fn's model
-  name (`catalog/fn-names.ts`, filled from the `fns` table), and a fn whose model name another fn has (only possible
-  through a cut name's hash) is refused when it is declared or saved. A fn that goes leaves its name in the
-  `modelFnNameHistory` table, so an old call still reads back for people.
+- **The registry, in the store.** The hub never reads a model name back by rule, and never holds every name in
+  memory. Each fn's model name is a row of the `modelFnNames` table (`{ model, fn, system }`, keyed by `model`, indexed
+  by `fn` and `system`), written and removed by the catalog in the same transaction as the fn itself (`catalog/fn-names.ts`;
+  a hub whose fns predate the table fills it once at start, page by page). A fn whose model name another fn holds (only
+  possible through a cut name's hash) is refused when it is declared or saved: one lookup by key. A fn that goes moves
+  its name to the `modelFnNameHistory` table, so an old call still reads back for people. Core's
+  `ModelFnNameRegistry` is the batched interface (`fnsAmong`: which of these qualified names are fns; `fnsOf`: which
+  fn each of these model names was given out for), answered with indexed `in` queries 500 names at a time.
 - **One module, three boundaries.** Core's `model-names.ts` owns the encoder, the rule and `modelFnNames`, the names
-  for one prompt; nothing else spells a model name. In static mode the hub fns the static tools do the jobs of read as
-  the tools (`hub/fns_search` is `find`, `hub/ctx_search` `find_ctx`, `hub/fns_load` and `hub/ctx_load` `load`, …);
-  every other fn reads as its model name. **Out, prompt text:** the planner spells every fn the system region, the
-  tools' descriptions and the trailing card message name (`text`: `fn:` refs, and each known fn's qualified name
-  standing alone; a `context:` ref is written as its key). **Out, results:** each tool reply goes through `text`, and a
-  result read as JSON has its fn-name fields written as model names (`value`). **In, calls:** a tool name, `run`'s `fn`
-  and every fn-name field of the args are read back through the registry; a qualified name the model writes anyway is
-  accepted.
+  for one prompt; nothing else spells a model name. A prompt's names object first `learn`s everything it will spell
+  or read: it pulls the candidate `system/name` tokens and the cut-shaped model names out of the texts and values, asks
+  the registry about the new ones in one batch (one query of each table), and keeps the answers for that prompt (or
+  that batch of replies) only. Then `text`, `value`, `fn` and `read` run synchronously; a bare name it never learned is
+  left as written. In static mode the hub fns the static tools do the jobs of read as the tools (`hub/fns_search` is
+  `find`, `hub/ctx_search` `find_ctx`, `hub/inspect` `inspect`, `hub/fns_load`, `hub/ctx_load` and `hub/load` `load`,
+  `hub/fns_drop`, `hub/ctx_drop` and `hub/unload` `unload`); every other fn reads as its model name. **Out, prompt
+  text:** the planner spells every authored string the model reads (`text`: `fn:` refs, and each known fn's qualified
+  name standing alone, not after `/`, `:`, `.` or a letter, so paths are left alone; a `context:` ref is written as its
+  key; a bare name that is both a fn and a context key reads as the fn): the agent's instructions (`CHAT_BASE`, any
+  `agent()`'s, a chat's own), the injected section, the systems list, the mode's guide, context blocks and cards, the
+  tools' descriptions and their schemas' field descriptions, the trailing card message, and every person's, tool and
+  system message of the history, so the hub's blocks on a message (`<loaded_for_you>`, `<file read="…">`, suggestion
+  cards, `<systems_changed>`, `<invocation>`, a hook's `Loaded:` line), `<background-result>`s and refusals all read
+  the one name. The model's own messages are left as it wrote them. **Out, results:** each tool reply goes through
+  `text`, and a result read as JSON has its fn-name fields written as model names (`value`); an MCP client's tool
+  descriptions and results the same. **In, calls:** a tool name, `run`'s `fn` and every fn-name field of the args are
+  read back (a cut name through the registry); a qualified name the model writes anyway is accepted.
+- **Refs in authored text.** In TypeScript a fn ref interpolates as `fn:<its name>` and a context ref as
+  `context:<its key>` (`` `Read it first with ${fns.read}.` ``), so a rename is a compile error, not a stale sentence; a
+  bare qualified name works too, found automatically. The SDK's build (`authoredNameWarnings`, printed by `harness
+  system build`) warns on a `fn:` or `context:` ref that names nothing, and on a bare name of the system's own or the
+  hub's that is near a name it knows but names nothing (a misspelling), in descriptions, instructions, examples' notes,
+  context bodies and summaries, hooks' `explains` and `about`. A saved fn's name (`database/main.expenses`), a family
+  (`input/ask_`) and another system's names are examples it can't know, and are left alone.
 - **A fn's name as a value** is `g.fnName()` in gin (core's `FnNameValue` in zod): code and people see `fs/read`, the
   model sees and writes `fs__read`, and its tool schema says "A fn's name, as your tools spell it." Every field that
   names a fn uses it (`hub/fns_load`'s `fns`, `hub/inspect`'s `name`, `hub/fns_get`'s `fn`, …).
@@ -1353,8 +1374,8 @@ What the security review of 2026-11-21 changed (findings in `docs/plans/security
 
 ### Injected context (the declaration)
 
-Design: `docs/plans/injected-context-2026-11-22.md` §4 and §6. What is built so far is the declaration; the
-injected section in the prompt (the planner) and the admin's Injected tab come after it.
+Design: `docs/plans/injected-context-2026-11-22.md` §4 and §6. The declaration, then the injected section the planner
+builds from it (below); the admin's Injected tab is its own part.
 
 - **A context item may declare `inject`** (`InjectDecl`: `into`, `order` default 100, `requires`, `mode`), in the
   contract (`context({ inject })`) or a context file's header (`inject: { into: ['hub/chat*'], order: 40 }`). It goes
@@ -1382,8 +1403,79 @@ injected section in the prompt (the planner) and the admin's Injected tab come a
   (`AgentInjected`, on `agent()` and the `hub/llm` payload). **A hook** says what its block means: `explains`.
 - **What the catalog lists** (`catalog/injections.ts`): `agentNames` (every agent now), `listInjections` (each item's
   `ContextInjection`: its targets resolved to agents, the agents it reaches, review state `approved` / `pending` /
-  `declined`, whether it is off or dynamic) and `listHookExplains`. Until the planner builds the injected section, an
-  item injected into an agent is loaded for it as `alwaysFor` items were.
+  `declined`, whether it is off or dynamic) and `listHookExplains`.
+
+### The injected section (the planner)
+
+The planner (`contextor/injected.ts`, called from `planner.ts`) puts what reaches an agent into its system prompt:
+
+- **What reaches it** (`gatherInjected`): every item whose target hits the agent, and, for a session's own agent, each
+  hook of the chat's systems that `explains` its block (heading "The `<fs_git>` block", keyed by the hook's name,
+  order 100). Each is in, or left out with the first `INJECTION_LEFT_OUT` reason that applies: `pending`, `declined`,
+  `off` (the admin's switch for this agent in `injectionSettings`, or the item's own switch), `system-off` (not
+  installed, not in this chat, or off), `mode` (its `mode` is the other chat mode), `fns-unusable` (a fn in its `fns`
+  or `requires` can't be used here: switched off, held, unseen, or beyond the chat's fn setting; `none` takes every
+  item that names a fn out). Another person's memory is skipped without a reason.
+- **Order**: the admin's per-agent order, else the item's `inject.order`; ties by system, a context item before a
+  hook's note, then key.
+- **Text**: each item as `## <title>`, then its text at the agent's `injected.detail` (`full`: its content; `summary`:
+  its summary, else its content), fn names rendered as the model calls them in this mode (`ModelFnNames.text`). It
+  goes at `{{injectedContext}}` in the instructions (the hub fills it in raw, as `{{{injectedContext}}}`; nothing in it
+  is read as a template), or straight after them. `injected: 'none'` gets no section. `hub/chat_small` takes
+  `{ detail: 'summary', maxTokens: 600 }`.
+- **Room**: the section is part of the fixed region and is counted in the budget's `fixed`. It may take the agent's
+  `injected.maxTokens`, and at most `HARNESS_INJECTED_SHARE` (default 0.5) of what the model leaves after the
+  instructions, the mode's guide and its tools: worked out from the model alone, never from the current message, so
+  it is the same from turn to turn. Over that, items fall back from the highest order down: all to their summaries
+  first, then to a line under `<more_ctx>` (loadable with `hub__ctx_load`; a hook's note has none), then out
+  (`no-fit`). Every fallback is a `cut` entry of the selection report.
+- **Starting tools**: the fns of each item shown (full or summary) join the agent's starting tools, through the
+  chat's fn setting and the mode as the payload's `tools` do. A `<more_ctx>` line brings none.
+- **Already loaded**: the shown items are in the prompt, so every contextor treats them as loaded (`ContextorInput
+  .injected`): they are taken out of `always`, `loaded` and `asked`, never candidates for the graph contextor, never
+  auto-injected or brought in as an import, and the enricher never suggests them or loads them for you.
+- **Caching** (`FixedRegionStamp`, `Session.fixed`): the section is worked out at a turn's first step and kept in
+  memory (`HARNESS_INJECTED_STEPS` turns) for every later step of the turn, whatever changes meanwhile. At that first
+  step the planner hashes the fixed region (the instructions with the section, then the `<systems>` list, the mode's
+  guide and the citation rule) and compares it with the session's stamp: the same hash writes nothing; a different
+  one rewrites the stamp (`hash`, the items in it, the turn), logs `contextor.fixed-rebuilt` and reports
+  `injected.rebuilt` (the items added and dropped). A turn already stamped (the hub restarted mid-turn) keeps the items
+  it was stamped with. So a system going off, an approval or an admin's switch costs one cache miss, at the next turn;
+  the person's message still carries `<systems_changed>`. Previews and runs outside a chat keep nothing.
+- **The run inspector** shows the section on the selection report (`SelectionReport.injected`): its tokens of the fixed
+  part, each item at its detail, each item left out with why, and whether the region was rebuilt this turn.
+
+### The admin's view of injected context
+
+Phil: "an admin for any hub/llm fn instance they can see what is injected and also can toggle them off if desired".
+
+- **Switches** (`injectionSettings`, `InjectionSetting`: agent, item, `on`, `order?`, `by`, `at`): an admin's switch and
+  order for one item (a context item's key, or a hook's name for its `explains`) in one agent. Only rows that differ
+  from the default exist: switching back on at the item's own order removes the row. The planner reads it.
+- **Hub fns** (tagged `admin`): `hub/ctx_injections_list({ agent?, context?, mode?, fnMode? }) → InjectionsPage` (a
+  read; asks nobody) and `hub/ctx_injection_set({ agent, context, on?, order? }) → InjectionView` (asks, as every admin
+  change; `order: null` goes back to the item's own order; logs `injection.set` and publishes `capabilities.changed`).
+  Web endpoints `injections` and `setInjection` (`injectionsSlice`, admins) run the same operations
+  (`api/injections.ts`).
+- **One implementation.** The list is the planner's own: `gatherInjected` (what reaches the agent, order, why left
+  out) and `fitInjected` (detail, tokens, `<more_ctx>` lines, `no-fit`), fn names spelled by `modeNames` after
+  `learn`, run for **a new chat with that agent** as the admin: every system on, the query's `fnMode` (default none
+  set) and `mode` (default the agent's own). So a hook's `explains` shows on every agent, as it would for a chat's
+  agent. Not known outside a turn: the model's window (room is the agent's cap) and, for an agent with no fixed model,
+  its calibration (tokens at the default characters per token). An item listed only under `<more_ctx>` reads as
+  `no-fit` with that said.
+- **`InjectionView`**: agent, item, source (context or hook), system, `via` (the target that took it in; the agent
+  itself for a hook), title, detail, text as the model reads it, tokens, order, `on`, `leftOut` (`INJECTION_LEFT_OUT`
+  with the reason) and `switched` (who, when). `InjectionsPage` adds, for one item, its targets with the agents each
+  hits now.
+- **Web.** An agent's fn page and fn modal have tabs, About and **Injected** (`?tab=injected` on the page, `?fnTab=`
+  in the modal; Open page keeps it): a total line ("3 of 4 items in · about 1,240 tokens", estimated outside any
+  chat), then each item in order with its system as a pill, title, key (to the item's page), state badge, why it is
+  left out, the target that took it in, tokens and detail, who last changed it, its text as markdown (collapsed), an
+  "On for this agent" switch, earlier/later buttons, an order field and "Own order" (`admin/components/InjectedList.vue`,
+  `admin/logic/injected.ts`, `admin/state/injected.ts`). A context item's page (admins) has an **Injected into** card:
+  each target with the agents it hits as pills, then one row per agent with the same state, text and controls. The
+  review card lists each target with its agents (`InjectTargets.vue`).
 
 ### Context as a graph
 

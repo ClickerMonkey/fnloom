@@ -25,6 +25,7 @@ import { bundledSystemsDir } from '../boot/info.ts';
 import type { Supervisor } from '../link/index.ts';
 import type { PackagingEnv } from '../link/env.ts';
 import { secretRefsRefusal } from '../link/config-secrets.ts';
+import { injectionDeps, setInjection } from './injections.ts';
 
 /** What an endpoint answers: its response schema's output, or nothing. */
 type ResultOf<E> = E extends { readonly cfg: { readonly response: infer R extends z.ZodType } } ? z.output<R> : void;
@@ -394,6 +395,13 @@ export function adminOperations(hub: HubServices): AdminOperations {
     export_system_data: async (data, by) => {
       const ref = await link.packages.exportData({ ref: { system: data.system, instance: data.instance }, withSecrets: data.withSecrets ?? false, by });
       return { ...ref, url: await hub.api.content.presignDownload(ref, dataExportFileName(data)) };
+    },
+    // an admin's per-agent switch and order of one injected item, kept until switched back to the default
+    ctx_injection_set: async (data, by) => {
+      const view = await setInjection(injectionDeps(hub), data, by);
+      bus.publish('capabilities.changed', {});
+      hub.log.info('injection.set', { agent: data.agent, context: data.context, on: view.on, order: view.order, user: by });
+      return view;
     },
 
   };

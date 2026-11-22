@@ -67,10 +67,15 @@ export function dynamicAsk(input: Pick<ContextorInput, 'session' | 'user' | 'per
   return { session: input.session?.id, actor: input.user, user: input.person, args: input.commands.get(name) };
 }
 
-/** The context records of names a person may see, in order, each once, dynamic ones with their system's text. */
-export async function contextsOf(deps: ContextorDeps, names: readonly string[], input: Pick<ContextorInput, 'session' | 'user' | 'person' | 'commands' | 'access'>): Promise<ContextRecord[]> {
+/**
+ * The context records of names a person may see, in order, each once, dynamic ones with their system's text. What the
+ * agent's injected section shows is in the prompt already: never again (an import of it, a search hit for it).
+ */
+export async function contextsOf(deps: ContextorDeps, names: readonly string[], input: Pick<ContextorInput, 'session' | 'user' | 'person' | 'commands' | 'access' | 'injected'>): Promise<ContextRecord[]> {
   const records: ContextRecord[] = [];
+  const injected = new Set<string>(input.injected ?? []);
   for (const name of unique(names)) {
+    if (injected.has(name)) continue;
     const parsed = QualifiedName.safeParse(name);
     const record = parsed.success ? await deps.catalog.context(parsed.data) : undefined;
     if (record !== undefined && visible(record, input)) records.push(await deps.dynamic.resolve(record, dynamicAsk(input, record.name)));
@@ -425,9 +430,11 @@ export class GraphContextorImpl implements Contextor {
   async #candidates(names: readonly string[], input: ContextorInput): Promise<Candidate[]> {
     const out: Candidate[] = [];
     const forced = new Set<string>([...input.always.context, ...input.always.fns, ...input.loaded.context, ...input.loaded.fns, ...input.asked.context, ...input.asked.fns]);
+    // the injected section's items are in the prompt already: never a candidate, so never chosen or counted again
+    const injected = new Set<string>(input.injected ?? []);
     for (const name of unique(names)) {
       const parsed = QualifiedName.safeParse(name);
-      if (!parsed.success || parsed.data === input.agent.name) continue;
+      if (!parsed.success || parsed.data === input.agent.name || injected.has(name)) continue;
       const record = await this.#deps.catalog.context(parsed.data);
       if (record !== undefined) {
         if (!visible(record, input) || !(forced.has(name) || forModel(record.decl.suggest))) continue;

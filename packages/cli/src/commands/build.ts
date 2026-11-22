@@ -28,6 +28,8 @@ export async function buildSystem(dir: string, io: CliIo, options: { typecheck: 
     }
     return undefined;
   }
+  // names in the contract's model-facing text that name nothing: stale or misspelt sentences
+  for (const warning of result.warnings) { io.out.warn(`${label} ${warning}`); }
   const concerns = result.scan.concerns.length;
   io.out.line(`built ${result.manifest.name} ${result.manifest.version} into ${relative(io.cwd, result.dist) || result.dist}`
     + ` (${result.scan.size} bytes${concerns === 0 ? '' : `, ${concerns} lines of concern in the scan`})`);

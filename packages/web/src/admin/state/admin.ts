@@ -18,6 +18,7 @@ import type { FnRecord, ListQuery } from '@harness/core';
 import { Paged } from '../../state/loaded.ts';
 import { BROWSER_PAGE, llmBrowser, modelCallsBrowser, resourcesBrowser, runsBrowser, type LlmBrowser, type ModelCallsBrowser, type ResourcesBrowser, type RunsBrowser } from './browsers.ts';
 import { FnStore } from './fn.ts';
+import { InjectedStore } from './injected.ts';
 import { InstanceStore } from './instance.ts';
 import { InstancePartsStore } from './instance-parts.ts';
 import { McpStore, McpsStore } from './mcps.ts';
@@ -70,6 +71,10 @@ export class AdminStore {
   readonly llm: LlmBrowser;
   readonly modelCalls: ModelCallsBrowser;
   readonly fn: FnStore;
+  /** What is injected into the agent the fn page or modal shows (its Injected tab). */
+  readonly injected: InjectedStore;
+  /** One context item's injections in every agent it reaches (its page); apart, so the fn modal can open over it. */
+  readonly itemInjected: InjectedStore;
   readonly instance: InstanceStore;
   /** What an instance owns: its fns, types and the changes its system proposed. */
   readonly instanceParts: InstancePartsStore;
@@ -112,6 +117,8 @@ export class AdminStore {
     this.llm = llmBrowser(api, deps.chat);
     this.modelCalls = modelCallsBrowser(api, deps.chat);
     this.fn = new FnStore(api, deps.userEvents);
+    this.injected = new InjectedStore(api);
+    this.itemInjected = new InjectedStore(api);
     this.instance = new InstanceStore(api, deps.userEvents);
     this.instanceParts = new InstancePartsStore(api, deps.chat);
     this.packages = new PackagesStore(api, deps.sender);

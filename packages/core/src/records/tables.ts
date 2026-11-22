@@ -28,7 +28,8 @@ import { DataRecord, RecordVersion } from '../data.ts';
 import { ItemVersionRecord } from '../versions.ts';
 import { ResourceUri } from '../resources.ts';
 import { ExternalIdentity } from '../sso.ts';
-import { ModelFnNameHistory } from '../model-names.ts';
+import { ModelFnNameHistory, ModelFnNameRow } from '../model-names.ts';
+import { InjectionSetting } from './injections.ts';
 
 /** A stored section: a resource's section at one version, with the hash of its text. */
 export const SectionRow = Section.extend({ uri: ResourceUri, version: z.string(), hash: z.string() });
@@ -147,6 +148,10 @@ export const HUB_TABLES = {
   externalIdentities: byFields(ExternalIdentity, 'issuer', 'sub'),
   // the one fn name: model names given out whose fns are gone, so old calls still read back
   modelFnNameHistory: byField(ModelFnNameHistory, 'model'),
+  // the one fn name: every fn's model name, kept in its fn's transaction, so names are looked up, never all loaded
+  modelFnNames: byField(ModelFnNameRow, 'model'),
+  // injected context: an admin's switch and order for one item in one agent (only rows that differ from the default)
+  injectionSettings: byFields(InjectionSetting, 'agent', 'context'),
 } as const;
 
 /** The table names. */

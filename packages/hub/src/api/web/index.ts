@@ -33,6 +33,7 @@ import { build5Plugins } from './build5.ts';
 import { explorerPlugin } from './explorer.ts';
 import { graphPlugin } from './graph.ts';
 import { reviewPlugin } from './review.ts';
+import { injectionsPlugin } from './injections.ts';
 import { identityPlugin } from './identity.ts';
 import { peoplePlugin } from './people.ts';
 import { imageEmbeddingPlugin } from './images.ts';
@@ -118,6 +119,7 @@ export function webPlugins(hub: HubServices, options: WebPluginOptions): readonl
     ...build5Plugins(hub, systems),
     explorerPlugin(hub, systems),
     reviewPlugin(hub, systems),
+    injectionsPlugin(hub, systems, ops),
     graphPlugin(auth, reads),
     identityPlugin(hub, systems),
     peoplePlugin(hub, systems, reads),
