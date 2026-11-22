@@ -343,9 +343,11 @@ describe('the chat agents\' prompt', () => {
   it('tells the model to stop and say what blocks it, with the hub\'s reason, instead of retrying (Phil: a prompt rule, no guard)', () => {
     for (const def of [hub.defs.fns.chat, hub.defs.fns.chat_small]) {
       const { instructions } = def.payload;
-      expect(instructions).toContain('When something you need is unavailable or refused, or the same call keeps failing or returning nothing, stop:');
-      expect(instructions).toContain('tell the person what blocks you and why, with the reason the hub gave');
+      expect(instructions).toContain('When a fn is refused or unavailable, stop: tell the person what blocks you and why, with the reason the hub gave');
       expect(instructions).toContain('instead of retrying, guessing or working around it.');
+      // invalid input and other failures are not "blocked": fixed and sent again, or one different try, then said
+      expect(instructions).toContain('When a result says the input was invalid, fix exactly what it names and call again.');
+      expect(instructions).toContain('try at most one different approach, then tell the person what failed.');
     }
   });
 });
