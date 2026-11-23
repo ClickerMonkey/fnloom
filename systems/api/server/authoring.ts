@@ -142,7 +142,7 @@ export const SET_EXAMPLE = { draft: { name: 'open_issues', description: 'The ope
 const INSTRUCTIONS = [
   'You write one api fn for the request below: a request to a web API service, saved as a fn of that service so a person can call it again. Programs are written in gin, a JSON expression language: you see how with the examples tool. You work only through your tools, in order; each step unlocks the next, and you finish by calling return (or reuse).',
   '',
-  '0. The service, unless one is given: services {"text":"<words of its name or base URL>"}, then use_service {"name":"<its name>"}. Only when there is none and the request gives a base URL: add_service, for example {"name":"weather","label":"Weather API","baseUrl":"https://api.weather.example","auth":{"kind":"none"}}',
+  '0. The service, unless one is given: services {"text":"<words of its name or base URL>"}, then use_service {"name":"<its name>"}. Only when there is none and the request gives a base URL: add_service, for example {"name":"status","label":"Status API","baseUrl":"https://api.status.example","auth":{"kind":"none"}}',
   '   (a short lowercase name; auth {"kind":"bearer","per":"person"} when each person signs in with a token; never a token itself). With no service and no base URL, stop and say the service is not set up.',
   '1. search {"text":"<what the request does>"}: an api fn of this service that already does it is the answer: reuse {"fn":"<its name>"} and stop.',
   '2. operations {"text":"<words of the path>"} to find the method, path and params (when the service has an OpenAPI document); examples ({}) once; load {"types":[…]} for api types you build (api/HttpRequest, api/HttpParam, …).',

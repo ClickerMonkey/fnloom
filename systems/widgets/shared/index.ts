@@ -44,13 +44,13 @@ const status = {
 
 /** What callers of `make_widget` read. */
 const MAKE_USAGE = [
-  'Use it when the person wants to keep a chart, table, calendar or cards of some rows to look at again ("a chart of my spending by month I can open any time"), or to change a widget they have.',
+  'Use it when the person wants to keep a chart, table, calendar or cards of some rows to look at again ("a chart of my sales by month I can open any time"), or to change a widget they have.',
   'Not needed just to show rows once: a fn that returns a table is already drawn for the person when it runs.',
-  '`source` is a fn that only reads and returns a table, by its name as your tools and search hits spell it: a saved query (`database/main.expenses_by_month`), a table\'s generated selectPage fn, or hub/records_table. Find it first (a search, or database/get_query to make the query); if none exists, make it first.',
+  '`source` is a fn that only reads and returns a table, by its name as your tools and search hits spell it: a saved query (`database/main.sales_by_month`), a table\'s generated selectPage fn, or hub/records_table. Find it first (a search, or database/get_query to make the query); if none exists, make it first.',
   'A chart of totals or counts by something needs a source that already groups and totals (a query that does the sum or count): a source that gives one row per item can\'t be charted as totals.',
   '`request` says what to show in the person\'s words: the measure, what it is grouped by, the chart type, the filters they want to change and any named presets ("This month").',
   '`args` is ONE JSON object (never a list or a string) of the source\'s own args by name, used to read a sample: give a value for every required arg, and leave out optional ones such as `sort`, `limit` and `offset` (the widget plans them).',
-  '`fns` lists other fns to offer as a row action or a click-through, only when the person asks for one. `widget` is the widget to change, by its name (`widgets/spending_by_month`).',
+  '`fns` lists other fns to offer as a row action or a click-through, only when the person asks for one. `widget` is the widget to change, by its name (`widgets/sales_by_month`).',
   'Set `show` to true when the person asked to see it now ("show me", "chart my …"): the proposal opens drawn; false opens it collapsed.',
   'What comes back is a proposal (its name, title, what it shows and a preview), not a saved widget: the person presses Save under it in the chat. Tell them to press Save; don\'t say it is saved. Once saved it is a fn `widgets/<name>` they can open again from the Widgets page or by running it.',
   'If it fails, read the reason (a source that does not read or return a table, a required arg missing from `args`) and fix that, or tell the person.',
@@ -79,7 +79,7 @@ export const widgets = system(WIDGETS_SYSTEM, {
     kinds: {
       widget: kind({
         description: 'A saved widget, kept as a fn (`widgets/<name>`): running it reads its source fn\'s table again with the widget\'s args and draws it for the person, with its chart types, chips, presets, click-through and row actions.',
-        applicability: 'A view of a fn\'s rows the person will look at again (open tasks by stage, spending by month, this week\'s events). Proposed by widgets/make_widget and kept when the person presses Save; never written by hand.',
+        applicability: 'A view of a fn\'s rows the person will look at again (open tasks by stage, sales by month, this week\'s events). Proposed by widgets/make_widget and kept when the person presses Save; never written by hand.',
         payload: WidgetPayload,
         // a widget only reads; its row actions ask for themselves
         approveChanges: false,
@@ -108,7 +108,7 @@ export const widgets = system(WIDGETS_SYSTEM, {
             note: 'Changing a widget to another source: allowed when every arg it plans exists in the new source.',
           },
           {
-            args: { source: 'database/main.spending_by_category', request: 'Spending per category as bars, with chips for the start and end dates, opening on this month.', args: { from: '2026-11-01', to: '2026-11-30' }, show: true },
+            args: { source: 'database/main.sales_by_category', request: 'Sales per category as bars, with chips for the start and end dates, opening on this month.', args: { from: '2026-11-01', to: '2026-11-30' }, show: true },
             note: 'A source with required date params: `args` gives one value for each, to read a sample; optional ones like sort are left out.',
           },
         ],
@@ -158,9 +158,9 @@ export const widgets = system(WIDGETS_SYSTEM, {
           '## Making one',
           '',
           '1. Find the source: a fn that only reads and returns a table. Usually a saved database query (search fns for one by what it reads, or make one with database/get_query), a table\'s generated selectPage fn, or hub/records_table.',
-          '   For totals or counts by something (spending per month, chores per person), the source must already do the sum or count: ask database/get_query for "total amount per month between a start date and an end date". A source that gives one row per item can only be shown as a list, table, cards or calendar.',
+          '   For totals or counts by something (sales per month, tasks per person), the source must already do the sum or count: ask database/get_query for "total amount per month between a start date and an end date". A source that gives one row per item can only be shown as a list, table, cards or calendar.',
           '2. Call widgets/make_widget with `source`, `request` (what to show, in the person\'s words), `args` (one JSON object with a sample value for each required arg of the source, such as {"from": "2026-11-01", "to": "2026-11-30"}; leave out sort, limit and offset), and `show` (true when they want to see it now).',
-          '   Example: {"source": "database/main.spending_by_month", "request": "Spending per month as a line chart, opening on this year", "args": {"from": "2026-01-01", "to": "2026-12-31"}, "show": true}',
+          '   Example: {"source": "database/main.sales_by_month", "request": "Sales per month as a line chart, opening on this year", "args": {"from": "2026-01-01", "to": "2026-12-31"}, "show": true}',
           '3. It comes back as a proposal with a preview and a Save button. Tell the person to press Save if they want to keep it; until they do, nothing is saved.',
           '',
           '## Afterwards',

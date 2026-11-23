@@ -7,12 +7,12 @@ its tool list and the messages. Your job is to compare what it saw with what is 
 ## The big picture
 
 The app is called the harness. One server, the **hub**, runs a chat for a household or a small team. People type
-everyday requests ("help me keep track of groceries"). A chat model answers, and it acts by calling tools.
+everyday requests ("help me keep track of something"). A chat model answers, and it acts by calling tools.
 
 - **Fn** is the harness word for a tool. Every fn has a qualified name `system/name` (`database/create_table`, a saved
-  one `database/main.grocery_spending`), which people, admins and this page use. The model never sees that form: it
+  one `database/main.tasks_by_month`), which people, admins and this page use. The model never sees that form: it
   meets one name for each fn everywhere (its tool list, the prompt's text, cards, search hits, results, errors), the
-  qualified name with every `/` and `.` written `__` (`database__create_table`, `database__main__grocery_spending`),
+  qualified name with every `/` and `.` written `__` (`database__create_table`, `database__main__tasks_by_month`),
   and calls it as is. A qualified name the model writes anyway is still accepted. (Known gap: a few field descriptions
   give made-up saved-fn names as examples, such as `database/main.overdue_invoices`, which stay in the slash form.)
   "Fn" and "tool" are the same thing; the model was trained on "tools" and may not know the word "fn".
@@ -62,7 +62,7 @@ Every fn has a **kind**, which says what its definition is and how it runs.
   - `database/query`: a saved query over one database (read, or write after approval). Made by
     `database/get_query` / `database/author_query` from a description, by `database/table_fns_generate` (a table's
     ready-made create / update / remove / list / count / sum fns), changed by `database/edit_query`. Named
-    `database/<db>.<name>` (`database/main.grocery_spending_create`) and run by name or with `database/run_query`.
+    `database/<db>.<name>` (`database/main.tasks_create`) and run by name or with `database/run_query`.
   - `input/form`: a saved form (a title and a typed set of questions). Made by `input/get_input` (it reuses a fitting
     saved form or designs one) or `input/save_form`. Running a saved form shows it again in the chat.
   - `widgets/widget`: a saved view (chart, table, calendar, cards) over a fn that returns a table. Proposed with
@@ -86,12 +86,12 @@ Every fn has a **kind**, which says what its definition is and how it runs.
   wait for approval. The database guide (`database/guide`) explains this in a paragraph.
 - **hub stored types (records)**: the hub also keeps typed records itself (`hub/data_sets`, `hub/records_find`,
   `hub/record_save`, `hub/record_update`, `hub/record_remove`, `hub/records_table`). Stored types come only from a
-  system's contract; the chat model cannot make a new one, so for a new list of the person's own (trips, chores,
-  readings) a database table is the way.
+  system's contract; the chat model cannot make a new one, so for a new list of the person's own (entries of
+  any kind) a database table is the way.
 - **input**: forms in the chat. `input/ask_text`, `ask_choice`, `ask_confirm`, `ask_number`, `ask_date` ask one
   question as a small form; `input/get_input` builds a form with several fields from a detailed description (and
   reuses a saved one that fits); the form is kept as an `input/form` fn so the same form can be shown again next
-  time ("log a grocery trip"). After showing a form the model should end its turn: the answers arrive as the next
+  time (a log entry, a weekly check-in). After showing a form the model should end its turn: the answers arrive as the next
   user message inside `<input-answer>`. `hub/ask_user` is different: a plain text question that blocks the run until
   answered, with no fields.
 - **widgets**: a fn that returns a table is drawn for the person as a chart, calendar, cards or table. To keep such a

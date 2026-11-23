@@ -102,7 +102,7 @@ export const SuggestPicking = z.object({
    * The least similarity of meaning (cosine, 0 to 1, the same scale as the hub's suggestion threshold, 0.3) a
    * candidate needs to reach the model. Below the threshold, so the model can take a near miss the score alone would
    * drop: measured on 2026-11-22 with EmbeddingGemma, a clearly relevant general fn scores only 0.2 to 0.3 against an
-   * ordinary request (`widgets/make_widget` 0.23 for keeping track of groceries), while the median item scores 0.09
+   * ordinary request (`widgets/make_widget` 0.23 for an ordinary keeping-track request), while the median item scores 0.09
    * to 0.19. A test keeps it under the threshold.
    */
   floor: z.number().min(0).max(1).default(0.2),

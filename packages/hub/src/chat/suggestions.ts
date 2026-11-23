@@ -308,7 +308,7 @@ export function prompt(messages: readonly string[], pool: readonly Suggestion[],
   const system = [
     'You choose which tools (fns) and context items to offer an assistant for the latest user message.',
     `Pick at most ${cap} that clearly help with what the user is asking now; pick none when none fit.`,
-    'Name each candidate by its key (kind:name) exactly as given. For example, for a question about the weather with a candidate fn:weather/today, pick { "name": "fn:weather/today", "reason": "Answers today\'s weather." }.',
+    'Name each candidate by its key (kind:name) exactly as given. For example, for a question about open tickets with a candidate fn:tickets/open, pick { "name": "fn:tickets/open", "reason": "Lists the open tickets." }.',
   ].join('\n');
   const candidates = pool.map((item) => `- ${candidateKey(item)} (score ${item.score.toFixed(2)}): ${item.description}`).join('\n');
   return [

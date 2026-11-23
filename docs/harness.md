@@ -341,7 +341,7 @@ author declares everything, because the code is the payload.
 
 A fn has one name the model sees, everywhere it meets one (its tool list, static mode's `run`, cards, search hits,
 results, refusals and errors, and an MCP client's tool list): its **model name**, the qualified name with every `/` and
-`.` written `__` (`database/main.expenses_create` → `database__main__expenses_create`, `fs/Entry.reveal` →
+`.` written `__` (`database/main.tasks_create` → `database__main__tasks_create`, `fs/Entry.reveal` →
 `fs__Entry__reveal`). It is a valid tool name for every provider (letters, digits, `_` and `-`, at most 64, starting
 with its system's first letter). Past 64 characters it is cut to 54 (no trailing `_`) and ended with `_x` and 8 hex of
 the qualified name's sha-256. People see the friendly label; admins see the qualified name on hover. Only fns have
@@ -392,7 +392,7 @@ model names: context keys (`fs/guide`), types (`fs/Entry`) and hook tags (`<fs_g
   bare qualified name works too, found automatically. The SDK's build (`authoredNameWarnings`, printed by `harness
   system build`) warns on a `fn:` or `context:` ref that names nothing, and on a bare name of the system's own or the
   hub's that is near a name it knows but names nothing (a misspelling), in descriptions, instructions, examples' notes,
-  context bodies and summaries, hooks' `explains` and `about`. A saved fn's name (`database/main.expenses`), a family
+  context bodies and summaries, hooks' `explains` and `about`. A saved fn's name (`database/main.tasks`), a family
   (`input/ask_`) and another system's names are examples it can't know, and are left alone.
 - **A fn's name as a value** is `g.fnName()` in gin (core's `FnNameValue` in zod): code and people see `fs/read`, the
   model sees and writes `fs__read`, and its tool schema says "A fn's name, as your tools spell it." Every field that
@@ -920,8 +920,8 @@ Before the LLM sees a user message, two things may add to it:
   A suggestion's score is its similarity of meaning to the message (cosine, measured in the database), not its rank.
   With EmbeddingGemma the scale is low: measured on 2026-11-22 over a scenario hub's 262 fns and context items and 42
   ordinary requests, a close fit (a saved query, a memory, a matching form) scores 0.35 to 0.7, a clearly relevant
-  general fn only 0.2 to 0.3 (`widgets/make_widget` 0.23 and `database/create_table` 0.13 for "I keep forgetting
-  what I spend on groceries"), the median item 0.09 to 0.19 and the 90th percentile at most 0.27. With no model, an
+  general fn only 0.2 to 0.3 (`widgets/make_widget` 0.23 and `database/create_table` 0.13 for an ordinary request to
+  keep track of something), the median item 0.09 to 0.19 and the 90th percentile at most 0.27. With no model, an
   item needs `HARNESS_SUGGEST_THRESHOLD` (0.3, past nearly all of that noise) to be suggested, the best first, up to
   `HARNESS_SUGGESTIONS` (6); the old 0.45 let almost nothing through. A chooser (a decision model or an LLM) picks
   among the candidates over its floor (0.2 by default, so it sees the near misses); when it fails, the threshold
@@ -991,8 +991,8 @@ form shown there tells the agent to end its turn: the person's answers arrive as
 call, a background run) is told not to wait, since the answers go to the chat and not back to it. Until iteration 2
 this went by `watched`, so a chat nobody had open (every scenario run) told the chat agent "Nobody is watching… go on".
 
-**Attached files are resources the model reads in one call** (iteration 2: a receipt photo, insurance quotes, a school
-PDF and a bank statement reached the model as a name and a hash, and it spent its turn looking for them). When a
+**Attached files are resources the model reads in one call** (iteration 2: attached pictures, PDFs and spreadsheets
+reached the model as a name and a hash, and it spent its turn looking for them). When a
 message is sent, each file is kept as a hub upload (`hub://resources/uploads/<day>/<name>`, as its sender), and the
 message carries the resource's uri. The model reads `<file name mime size uri read="…" />`: `read` names the one fn
 that reads it, called with `{ "uri": … }`: `hub/resource_send` for a picture (the model sees the image itself),
@@ -1436,8 +1436,8 @@ What the security review of 2026-11-21 changed (findings in `docs/plans/security
   declaration): `developer` (the authoring guides, which the generator marks), `admin` (running the hub; a fn tagged
   `admin` is admin material without saying so) or `reference` (the API listings the catalog writes, whose fns are hits
   of their own). A search multiplies a niche hit's rank by `HARNESS_FN_SEARCH_NICHE_WEIGHT` (0.5) unless the query
-  names its niche (`niches: ["developer"]`, for a search about writing a system), so "help me keep track of
-  groceries" finds `database/create_table` before `fs/authoring.*`; niche material is still found, and each hit says
+  names its niche (`niches: ["developer"]`, for a search about writing a system), so a request to keep track of
+  something finds `database/create_table` before `fs/authoring.*`; niche material is still found, and each hit says
   its niche. A model's search (`hub/fns_search`) never finds a fn whose visibility leaves the model out (`web/fetch_raw`,
   which the hub calls while importing a URL): it could never load it.
 - **Search decisions** (Models page, "Search"): an admin may have the hits of a search filtered before they are

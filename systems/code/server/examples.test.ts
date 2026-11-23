@@ -9,8 +9,8 @@ import { checkProgram, ProgramScope } from '@harness/sdk/program';
 import { describe, expect, it } from 'vitest';
 import { CODE_EXAMPLES, SET_EXAMPLE } from './authoring.ts';
 
-/** The weather fn example 3 calls, as the agent would have loaded it. */
-const FORECAST = { name: QualifiedName.parse('weather/forecast'), description: 'The forecast for a city.', args: { name: 'obj', props: { city: { type: { name: 'text' } } } }, returns: { name: 'obj', props: { summary: { type: { name: 'text' } } } }, mode: 'read' as const };
+/** The tickets fn example 3 calls, as the agent would have loaded it. */
+const STATUS_FN = { name: QualifiedName.parse('tickets/status'), description: 'The status of a ticket.', args: { name: 'obj', props: { ticket: { type: { name: 'text' } } } }, returns: { name: 'obj', props: { summary: { type: { name: 'text' } } } }, mode: 'read' as const };
 
 /** Each example's program and signature (example 3 reads like example 1's args). */
 const examples = [
@@ -23,7 +23,7 @@ describe('the code examples the agent is shown', () => {
   for (const example of examples) {
     it(`${example.name} fits the schemas the tools are sent and checks clean`, () => {
       const program = new ProgramScope();
-      program.addFn(FORECAST);
+      program.addFn(STATUS_FN);
       const { Expr, Type } = program.schemas();
       expect(Expr.safeParse(example.program).success, 'program fits the set tool schema').toBe(true);
       expect(Type.safeParse(example.signature.args).success, 'args fit the signature tool schema').toBe(true);

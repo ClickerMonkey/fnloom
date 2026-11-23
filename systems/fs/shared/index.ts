@@ -88,7 +88,7 @@ export const fs = system('fs', {
   about: [
     'Files and a shell over a few folders of the person\'s machine that an admin chose (its roots); nothing outside them can be reached, and `/` is not a root: paths are relative to the first root (`notes/todo.md`) or start with a root\'s name.',
     'Its fns read, list and search files (fs/read, fs/list, fs/glob, fs/grep), change them (fs/write, fs/edit, fs/remove: each may ask the person first, and each can be undone) and run bash commands (fs/bash, fs/cd).',
-    'Reach for it to look at or change the person\'s files, and to keep a lasting document they can open later (a note, a recipe, a list) as a markdown file. It defines no fn kinds.',
+    'Reach for it to look at or change the person\'s files, and to keep a lasting document they can open later (a note, a list, a summary) as a markdown file. It defines no fn kinds.',
     'A file the person attached to a chat message is not an fs file: it is a hub resource, read with the hub\'s resource fns. Its fns for installing and hosting systems (fs/install_system, fs/system_status, fs/restart_system, fs/stop_system, fs/restart) are for admins and system authors.',
     'Load its guide (fs/guide) before the first file change.',
   ].join(' '),
@@ -159,7 +159,7 @@ export const fs = system('fs', {
       write: fn({
         group: 'files',
         description: 'Write a whole file under the roots, creating it (and its folders) if needed. Gives whether it was created or replaced.',
-        instructions: 'Use it for a new file (a note, a list, a recipe the person wants to keep as a document), or to replace a whole small file. To change part of an existing file use fs/edit, so the rest stays as it is. It may ask the person first; the old content is kept, so the write can be undone. Tell the person the path you wrote, so they can find it.',
+        instructions: 'Use it for a new file (a note, a list, a summary the person wants to keep as a document), or to replace a whole small file. To change part of an existing file use fs/edit, so the rest stays as it is. It may ask the person first; the old content is kept, so the write can be undone. Tell the person the path you wrote, so they can find it.',
         examples: [{ args: { path: 'notes/todo.md', text: '# To do\n\n- Write the tests\n' }, result: { created: true }, note: 'A new file.' }],
         effects: { mode: 'write', free: true },
         // the hub asks which sensitive files a call touches first (server/sensitive.ts)
@@ -441,10 +441,10 @@ export const fs = system('fs', {
         content: [
           'The fs system works only inside the folders an admin chose (its roots). Paths are relative to the first root (`notes/todo.md`), or start with a root\'s name when there are several; `/` is outside the roots and is refused. Start with fs/list on `.` to see the first root.',
           '',
-          'To find something: fs/glob finds files by name (`*.md`, `recipes/**`), fs/grep finds lines inside files by a regular expression (case-sensitive; write `[Ss]oup` for either case, never `(?i)`), fs/list shows one folder. Don\'t guess a path: look first.',
+          'To find something: fs/glob finds files by name (`*.md`, `notes/**`), fs/grep finds lines inside files by a regular expression (case-sensitive; write `[Rr]eport` for either case, never `(?i)`), fs/list shows one folder. Don\'t guess a path: look first.',
           'To read: fs/read, a window at a time for long files (`offset`, `limit`). Say only what you read.',
           'To change: fs/edit replaces exact text (copy `find` from what fs/read gave, spaces included); fs/write writes a whole new file; fs/remove deletes one file. Each may ask the person first, and each can be undone with the turn.',
-          'To keep a document for the person (a shopping list, a recipe, notes from this chat): write a markdown file, for example fs/write with {"path":"notes/shopping-list.md","text":"# Shopping list\\n\\n- Milk\\n- Eggs\\n"}, then tell them the path. Check the result (`created`) before saying it is saved.',
+          'To keep a document for the person (a list, a summary, notes from this chat): write a markdown file, for example fs/write with {"path":"notes/ideas.md","text":"# Ideas\\n\\n- First idea\\n- Second idea\\n"}, then tell them the path. Check the result (`created`) before saying it is saved.',
           'To run a program, a build, tests or git: fs/bash runs a bash command (not PowerShell); set the folder once with fs/cd. Check `exitCode`: anything but 0 means the command failed. A command your shell setting does not mark safe asks the person first, and what it changes can\'t be undone.',
           '',
           'A file the person attached to a chat message is a hub resource, not an fs file: read it with hub/resource_read or look at it with hub/resource_send, not fs/read.',
@@ -459,7 +459,7 @@ export const fs = system('fs', {
         summary: 'The files system works only in folders an admin chose: paths are relative to the first root, never `/`. Load fs/guide first.',
         content: [
           'The **files system** (`fs`) works only inside a few folders of the person\'s machine an admin chose (its roots). Paths are relative to the first root (`notes/todo.md`) or start with a root\'s name; `/` is outside the roots and is refused. Look before you guess a path: fs/list on `.` shows the first root, fs/glob finds files by name, and fs/read reads one.',
-          'fs/write, fs/edit and fs/remove may ask the person first, and what they change can be undone with the turn; what fs/bash changes can\'t. To keep a document for the person (a note, a list, a recipe), write a markdown file and tell them its path.',
+          'fs/write, fs/edit and fs/remove may ask the person first, and what they change can be undone with the turn; what fs/bash changes can\'t. To keep a document for the person (a note, a list, a summary), write a markdown file and tell them its path.',
           'A file the person attached to a message is not an fs file: it is kept by the hub, not under the roots. Load fs/guide before the first change.',
         ].join('\n'),
         fns: [fns.list, fns.read],

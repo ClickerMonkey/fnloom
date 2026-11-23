@@ -2,7 +2,7 @@
 key: saved_fns
 title: Saved fns
 description: "Fns made while you chat and saved for later: what they are, looking for one before making one, and calling what a maker gives back."
-summary: "Some fns are made while you chat and saved to run again. Search fns by what it does before making one; then call the fn the maker gives back."
+summary: "Some fns are made while you chat and saved. Search fns by what it does before making one; then call the fn the maker returns."
 tags: [fns]
 inject: { into: ['hub/chat*'], order: 20, requires: [hub/fns_search, hub/fns_get] }
 ---
@@ -17,6 +17,6 @@ inject: { into: ['hub/chat*'], order: 20, requires: [hub/fns_search, hub/fns_get
 - **Look for one first.** Before making one, search fns (hub/fns_search) with a few words of what it should do, and
   reuse a saved one that fits. Search by what it does, not by its kind: you can't know how a fn was made.
   hub/fns_get shows a saved fn's whole definition when you need to check what it does.
-- **Keeping track of something over time** (spending, chores, a reading list): look for a saved fn or a place that
-  already keeps such entries, else make one; then give the person a way to add an entry and a way to see them. If it is
-  unclear which details matter, ask first.
+- **Keeping track of something over time** (entries of any kind, added again and again: amounts, dates, notes): look
+  for a saved fn or a place that already keeps such entries, else make one; then give the person a way to add an
+  entry and a way to see them. If it is unclear which details matter, ask first.

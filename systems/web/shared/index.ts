@@ -303,7 +303,7 @@ export const web = system('web', {
         content: [
           'web/search finds pages and gives titles, URLs and short snippets; web/read reads one page as text; web/crawl reads a site section. All three are reads: they keep the pages they fetch as resources, which doesn\'t count as a change, so a search for reads finds them and they work in a chat that allows only reads.',
           'A snippet is a fragment of a page, often old or out of context: before you state a time, date, price, address or schedule, read the page it came from and find it there. Prefer the official source. Answer with the URL of each page you used, and say what you couldn\'t confirm.',
-          'For "what\'s on near me this weekend": take the place from what you know of the person, else ask; take the dates from `<local_time>`; search, then read the best one or two pages.',
+          'For a question tied to a place or a time ("near me", "next month"): take the place from what you know of the person, else ask; take the dates from `<local_time>`; search, then read the best one or two pages.',
           'Load web/guide before your first search.',
         ].join('\n'),
         fns: [fns.search, fns.read],

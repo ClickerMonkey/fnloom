@@ -15,7 +15,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import { CASES } from './cases.ts';
+import { CASES, FAMILY } from './cases.ts';
 import { argMistakes, argMistakesLine, caseRuns } from './checks.ts';
 import { inventory, LIMIT_STEPS, modelView, openHubDb } from './modelview.ts';
 import type { OpenRouter } from './openrouter.ts';
@@ -79,6 +79,10 @@ export const Diagnosis = z.object({
 });
 export type Diagnosis = z.infer<typeof Diagnosis>;
 
+/** A fix left out because its proposedText named its case's subject: where it went, the words, and the text. */
+export const LeakedFix = z.object({ where: z.string(), words: z.array(z.string()), proposedText: z.string() });
+export type LeakedFix = z.infer<typeof LeakedFix>;
+
 /** One case rep's diagnosis, as saved. */
 export const CaseDiagnosis = z.object({
   iteration: z.string(),
@@ -96,6 +100,8 @@ export const CaseDiagnosis = z.object({
   diagnosis: Diagnosis.nullable(),
   /** Fixes left out because they broke a rule (stating the person's technical level). */
   dropped: z.array(z.string()).default([]),
+  /** Fixes left out because their proposedText used the case's own subject words (`leakedWords`). */
+  leaked: z.array(LeakedFix).default([]),
   error: z.string().optional(),
 });
 export type CaseDiagnosis = z.infer<typeof CaseDiagnosis>;
@@ -108,6 +114,79 @@ const MECHANISMS = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'm
 
 /** A fix that states or assumes how technical the person is (never allowed). */
 const TECHNICAL = /\b(non-?technical|not technical|technical (level|ability|skill|background)|tech-savvy|less technical)\b/i;
+
+/**
+ * Common words, which say nothing about one case. A fix's proposedText goes into prompts that serve every request, so
+ * it must never use its case's own subject words (Phil, 2026-11-23: "I want to be careful to not update any prompts,
+ * examples, instructions, etc that talk explicitly about any of the use cases. Like no llm guidance on groceries as an
+ * example because I don't want false positives and to pollute that stuff with these test cases. This system is meant
+ * to be general purpose."). Every word of the app's own description (`mechanisms.md`) counts as common too.
+ */
+const COMMON_WORDS = `
+  about above across actually after again against ahead almost alone along already also always among another answer
+  anything anyone around asked asking away back based because become been before being below best better between both
+  bring built call called calls came can't cannot case cases change changed check clear close come comes could couldn't
+  current days didn't different does doesn't doing done don't down each easy easier either else ended enough entries
+  entry even ever every everything exactly example fact facts find first five follow found four from full gave give
+  given gives going good great half happen have having help here high himself into it's just keep kept kind know known
+  last later least left less like likely list little long look looking lots made make making many maybe mean means
+  might mind more most much must need needed needs never next nice night none nothing number often once only open other
+  others over part past person place plan please point quick quite rather read ready real really right said same says
+  second seen send sent should show shown since small some someone something sometimes soon start still stop such sure
+  take taken tell than thank thanks that their them then there these they thing things think this those three through
+  time times today together told tomorrow track tried true trying turn twice under until upon used useful using usually
+  very want wanted wants week weeks well went were what when where whether which while whole will with within without
+  won't work would wouldn't write year years yesterday your yours
+  able assistant chance cost depend document download easiest forgetting friendly goal home idea link live liked login
+  love loved morning mostly move option owner photo picture project regular safe series short source spreadsheet store
+  technical tonight total window cancel central coming deleting drive duplicate figure happening near reason
+`;
+
+/** A word as the leak check compares words: lower case, a possessive or plural ending taken off. */
+function stem(word: string): string {
+  const w = word.toLowerCase().replace(/['’]s$/, '');
+  if (w.length > 4 && w.endsWith('ies')) { return `${w.slice(0, -3)}y`; }
+  if (w.length > 4 && /(ches|shes|sses|xes)$/.test(w)) { return w.slice(0, -2); }
+  if (w.length > 3 && w.endsWith('s') && !w.endsWith('ss')) { return w.slice(0, -1); }
+  return w;
+}
+
+/** The stems of a text's words of four letters or more, and its numbers of three digits or more (years left out). */
+export function textStems(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const word of text.match(/[A-Za-z][A-Za-z'’]*[A-Za-z]/g) ?? []) { if (word.length >= 4) { out.add(stem(word)); } }
+  for (const number of text.match(/\d+(?:[.,:x]\d+)*/g) ?? []) {
+    if (number.replace(/\D/g, '').length >= 3 && !/^(19|20)\d\d$/.test(number)) { out.add(number); }
+  }
+  return out;
+}
+
+/** Every stem that is common: the list above and the app's own description. */
+const COMMON = new Set([...textStems(COMMON_WORDS), ...textStems(MECHANISMS)]);
+
+/** The words only one case has: its request, title, facts and wants, and the family every case's person belongs to. */
+export function caseWords(caseId: number): Set<string> {
+  const played = CASES.find((c) => c.id === caseId);
+  const text = [...FAMILY, played?.title ?? '', ...(played?.steps.map((step) => step.say) ?? []), ...(played?.facts ?? []), played?.wants ?? ''].join('\n');
+  return new Set([...textStems(text)].filter((word) => !COMMON.has(word)));
+}
+
+/** The case's own words a fix's proposedText uses (none: it is written for any request of its kind). */
+export function leakedWords(proposedText: string, caseIds: readonly number[]): string[] {
+  const own = new Set(caseIds.flatMap((id) => [...caseWords(id)]));
+  return [...textStems(proposedText)].filter((word) => own.has(word)).sort();
+}
+
+/** A diagnosis's fixes split into those it keeps and those that use the case's own words. */
+function withoutLeaks(fixes: readonly Fix[], caseId: number): { kept: Fix[]; leaked: LeakedFix[] } {
+  const kept: Fix[] = [];
+  const leaked: LeakedFix[] = [];
+  for (const fix of fixes) {
+    const words = leakedWords(fix.proposedText, [caseId]);
+    if (words.length === 0) { kept.push(fix); } else { leaked.push({ where: fix.where, words, proposedText: fix.proposedText }); }
+  }
+  return { kept, leaked };
+}
 
 const INSTRUCTIONS = `You are a diagnostician for an AI assistant app. You read, step by step, exactly what a chat model was shown and what it did while serving one person's request. You work out why it went the way it did, and you propose exact changes to the text and behaviour the app gives the model.
 
@@ -161,13 +240,13 @@ If a fact is not on that page, the model does not know it. Judge each step only 
    - hub-behaviour: something the app's code should do differently (search ranking, an error message, a default).
    - new-mechanism: something the app lacks.
    "problem": what was wrong, quoting the prompt where it helps.
-   "proposedText": the exact words to add or to replace with, ready to paste, written for a model that knows nothing about this app: plain words, explain each app word the first time, say when to use it and when not to, and give a tiny example when a call's shape is tricky. For hub-behaviour and new-mechanism, describe the concrete change instead.
+   "proposedText": the exact words to add or to replace with, ready to paste, written for any request of this kind (never with this case's subject, nouns or data) and for a model that knows nothing about this app: plain words, explain each app word the first time, say when to use it and when not to, and give a tiny example when a call's shape is tricky. For hub-behaviour and new-mechanism, describe the concrete change instead.
    "confidence": 0 to 1, how likely this fix alone would have made this case go right.
 
 ## Rules
 
 - Be specific: real step numbers, real tool names from the trace or the inventory, quoted text. Advice like "improve the prompt", "add more guidance" or "be clearer" is worthless.
-- Write proposedText for every request of this kind, not this one person: it goes into a prompt that serves everyone. Use this case's details only as a labelled example ("for example, keeping a log of something the person does often"). Don't push one pattern onto every case (not every log needs a form and a chart): say when it fits.
+- Write proposedText for any request of this kind, never for this one: it goes into a prompt that serves everyone, whatever they ask about. Never use this case's subject, nouns or data in it (its topic, the things, names, places, stores, amounts and dates in the request, the facts or the trace), not even as an example. When an example helps, make up a neutral one on another subject (notes, tasks, projects), or say it in general terms ("entries of any kind: amounts, dates, notes"). A fix that names this case's subject is left out. Don't push one pattern onto every case (not every log needs a form and a chart): say when it fits.
 - Never propose telling the model how technical the person is, or to assume they are or aren't technical. Nobody knows who the person is. Plain wording to the person is fine without saying why.
 - Never present a tool that doesn't exist as if it did; a needed one is a new-mechanism fix.
 - Prefer fixing what the model was told over blaming the model. Use model-error only when the information was clearly there.
@@ -234,10 +313,12 @@ export async function diagnoseCase(router: OpenRouter, model: string, repFolder:
     // three tries: a long diagnosis sometimes slips one field (a step with no "should"), and the problem is told back
     const { value, cost } = await router.json(model, Diagnosis, [{ role: 'system', content: INSTRUCTIONS }, { role: 'user', content: prompt }], { tries: 3 });
     const dropped = value.fixes.filter((f) => TECHNICAL.test(`${f.problem} ${f.proposedText}`)).map((f) => `${f.where}: ${clip(f.proposedText, 200)}`);
-    const diagnosis = { ...value, fixes: value.fixes.filter((f) => !TECHNICAL.test(`${f.problem} ${f.proposedText}`)) };
-    saved = { ...base, cost, modelSteps: view.steps.length, promptChars: prompt.length, diagnosis, dropped };
+    // a fix whose proposedText uses this case's own words would pollute prompts that serve every request: left out
+    const { kept, leaked } = withoutLeaks(value.fixes.filter((f) => !TECHNICAL.test(`${f.problem} ${f.proposedText}`)), judged.case);
+    const diagnosis = { ...value, fixes: kept };
+    saved = { ...base, cost, modelSteps: view.steps.length, promptChars: prompt.length, diagnosis, dropped, leaked };
   } catch (error) {
-    saved = { ...base, cost: 0, modelSteps: 0, promptChars: 0, diagnosis: null, dropped: [], error: error instanceof Error ? error.message : String(error) };
+    saved = { ...base, cost: 0, modelSteps: 0, promptChars: 0, diagnosis: null, dropped: [], leaked: [], error: error instanceof Error ? error.message : String(error) };
   }
   writeFileSync(diagnosisFile(repFolder, judged.case), `${JSON.stringify(saved, null, 2)}\n`);
   return saved;
@@ -254,6 +335,7 @@ export function diagnosisMarkdown(saved: CaseDiagnosis): string {
     `**Steps:**\n${d.steps.map((s) => `- ${s.step}. **${stepCause(s)}** — did: ${s.did}${s.why === 'fine' ? '' : ` · should: ${s.should}`}`).join('\n') || '- —'}`,
     `**Fixes:**\n${d.fixes.map((f, i) => `${i + 1}. \`${f.where}\` (confidence ${f.confidence.toFixed(2)}${f.steps.length === 0 ? '' : `, steps ${f.steps.join(', ')}`}): ${f.problem}\n\n   > ${f.proposedText.split('\n').join('\n   > ')}`).join('\n\n') || '- —'}`,
     saved.dropped.length === 0 ? '' : `_Left out (they stated the person's technical level): ${saved.dropped.join(' · ')}_`,
+    saved.leaked.length === 0 ? '' : `_Left out (they used this case's own words, and prompts serve every request): ${saved.leaked.map((l) => `\`${l.where}\` (${l.words.join(', ')}): ${clip(l.proposedText, 200)}`).join(' · ')}_`,
   ].filter((part) => part !== '').join('\n\n');
 }
 
@@ -289,6 +371,8 @@ export const IterationDiagnosis = z.object({
   /** A run of several variants: per variant, the case reps diagnosed and their step causes counted. */
   byVariant: z.array(z.object({ variant: z.string(), diagnosed: z.number().int(), failed: z.number().int(), causes: z.record(z.string(), z.number()), cost: z.number() })).default([]),
   fixes: z.array(MergedFix),
+  /** Fixes left out because their proposedText used their cases' own words, each with the case reps it came from. */
+  leaked: z.array(LeakedFix.extend({ from: z.array(Origin) })).default([]),
   /** Each group's merge, kept by a hash of its input so an unchanged group isn't merged again. */
   merges: z.array(z.object({ where: z.string(), hash: z.string(), fixes: z.array(MergedFix), cost: z.number() })),
   /** What every diagnosis cost, and the merges. */
@@ -323,6 +407,7 @@ const Merged = z.object({
 });
 
 const MERGE_INSTRUCTIONS = `Several fixes were proposed for the same place in an AI assistant app's prompts or behaviour, each from a different failed conversation. Merge the ones that say the same thing (the same problem, even if worded differently) into one fix whose proposedText keeps every concrete detail that matters, written for a model that knows nothing about this app. Keep fixes that say different things apart. Never add a statement about how technical the person is.
+Every proposedText serves any request of its kind, whatever it is about: write for any request of this kind, and never use a conversation's subject, nouns or data (its topic, things, names, places, amounts, dates), not even as an example. Where an input fix uses them, say it in general terms or with a neutral example (notes, tasks, projects) instead.
 Every input fix number must appear in exactly one output fix's "from".
 Answer with only one JSON object: {"fixes": [{"from": [input numbers], "problem": "...", "proposedText": "...", "confidence": 0.0}]}`;
 
@@ -385,10 +470,16 @@ export async function aggregate(iterationFolder: string, iteration: string, rout
   const before = !force && existsSync(jsonFile) ? IterationDiagnosis.safeParse(JSON.parse(readFileSync(jsonFile, 'utf8'))) : undefined;
   const cached = new Map((before?.success === true ? before.data.merges : []).map((m) => [`${m.where}:${m.hash}`, m]));
   const groups = new Map<string, { fix: Fix; origin: Origin }[]>();
+  const leaked: IterationDiagnosis['leaked'] = [];
   for (const saved of diagnoses) {
-    for (const fix of saved.diagnosis?.fixes ?? []) {
+    const origin = originOf(saved);
+    for (const leak of saved.leaked) { leaked.push({ ...leak, from: [origin] }); }
+    // diagnoses saved before the check are checked here too
+    const { kept, leaked: late } = withoutLeaks(saved.diagnosis?.fixes ?? [], saved.case);
+    for (const leak of late) { leaked.push({ ...leak, from: [origin] }); }
+    for (const fix of kept) {
       const where = fix.where.toLowerCase();
-      groups.set(where, [...(groups.get(where) ?? []), { fix, origin: originOf(saved) }]);
+      groups.set(where, [...(groups.get(where) ?? []), { fix, origin }]);
     }
   }
   const merges: IterationDiagnosis['merges'] = [];
@@ -399,7 +490,12 @@ export async function aggregate(iterationFolder: string, iteration: string, rout
     const { fixes, cost } = await mergeGroup(router, model, where, items);
     merges.push({ where, hash, fixes, cost });
   }
-  const fixes = merges.flatMap((m) => m.fixes).sort((a, b) => repsOf(b) - repsOf(a) || b.confidence - a.confidence);
+  // a merge may carry one case's words into its text: checked against every case it came from
+  const fixes = merges.flatMap((m) => m.fixes).filter((fix) => {
+    const words = leakedWords(fix.proposedText, fix.from.map((o) => o.case));
+    if (words.length > 0) { leaked.push({ where: fix.where, words, proposedText: fix.proposedText, from: fix.from }); }
+    return words.length === 0;
+  }).sort((a, b) => repsOf(b) - repsOf(a) || b.confidence - a.confidence);
   const variants = [...new Set(diagnoses.flatMap((d) => (d.variant === undefined ? [] : [d.variant])))].sort();
   const result: IterationDiagnosis = {
     iteration, writtenAt: new Date().toISOString(), model,
@@ -410,7 +506,7 @@ export async function aggregate(iterationFolder: string, iteration: string, rout
       const of = diagnoses.filter((d) => d.variant === variant);
       return { variant, diagnosed: of.filter((d) => d.diagnosis !== null).length, failed: of.filter((d) => d.diagnosis === null).length, causes: countCauses(of), cost: of.reduce((sum, d) => sum + d.cost, 0) };
     }),
-    fixes, merges,
+    fixes, leaked, merges,
     cost: { cases: diagnoses.reduce((sum, d) => sum + d.cost, 0), merge: merges.reduce((sum, m) => sum + m.cost, 0) },
     rootCauses: diagnoses.flatMap((d) => (d.diagnosis === null ? [] : [{ ...originOf(d), title: d.title, rootCause: d.diagnosis.rootCause }])),
   };
@@ -461,6 +557,11 @@ export function iterationDiagnosisMarkdown(result: IterationDiagnosis): string {
       `**Problem:** ${fix.problem}`,
       `**Proposed:**\n\n> ${fix.proposedText.split('\n').join('\n> ')}`,
     ].join('\n\n')),
+    ...(result.leaked.length === 0 ? [] : [
+      `## Fixes left out: they used their cases' own words (${result.leaked.length})`,
+      'Prompts serve every request, so a fix may never name a test case\'s subject or data. Each would need rewriting in general terms before it is used.',
+      ...result.leaked.map((l) => `- \`${l.where}\` from ${l.from.map(caseLink).join(', ')} (${l.words.join(', ')}): ${clip(l.proposedText, 240)}`),
+    ]),
     '## Root cause of each case rep',
     ...result.rootCauses.map((r) => `- **${caseLink(r)} ${r.title}:** ${r.rootCause}`),
   ].join('\n\n');

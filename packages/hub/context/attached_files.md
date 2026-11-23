@@ -2,7 +2,7 @@
 key: attached_files
 title: Attached files
 description: "How to read a file the person attached to a message, from its <file> tag, and to check what you read from it before saving it."
-summary: "Read an attached <file … uri read=\"…\"> first: call the fn named in `read` with {\"uri\": \"<uri>\"}. Confirm amounts, dates or names with the person before saving them."
+summary: "Read an attached <file … uri read=\"…\"> first: call the fn named in `read` with {\"uri\": \"<uri>\"}. Confirm what you read before saving it."
 fns: [hub/resource_read, hub/resource_send]
 tags: [files]
 inject: { into: ['hub/chat*'], order: 16 }
@@ -23,5 +23,5 @@ primary form is read (a PDF's pages, a spreadsheet's table), and a form it lacks
 `note`. When a reply has `partial`, only that part was read: read on before you say what the rest holds. If
 hub/resource_read says a file has no form that reads as text, try hub/resource_send before you say it can't be read.
 
-**A photo or document attached**: read it before you answer. Before saving amounts, dates or names you read from it,
+**A picture or document attached**: read it before you answer. Before saving amounts, dates or names you read from it,
 show them and ask the person to confirm.

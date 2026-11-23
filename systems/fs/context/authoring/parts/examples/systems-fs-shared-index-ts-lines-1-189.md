@@ -110,7 +110,7 @@ export const fs = system('fs', {
   about: [
     'Files and a shell over a few folders of the person\'s machine that an admin chose (its roots); nothing outside them can be reached, and `/` is not a root: paths are relative to the first root (`notes/todo.md`) or start with a root\'s name.',
     'Its fns read, list and search files (fs/read, fs/list, fs/glob, fs/grep), change them (fs/write, fs/edit, fs/remove: each may ask the person first, and each can be undone) and run bash commands (fs/bash, fs/cd).',
-    'Reach for it to look at or change the person\'s files, and to keep a lasting document they can open later (a note, a recipe, a list) as a markdown file. It defines no fn kinds.',
+    'Reach for it to look at or change the person\'s files, and to keep a lasting document they can open later (a note, a list, a summary) as a markdown file. It defines no fn kinds.',
     'A file the person attached to a chat message is not an fs file: it is a hub resource, read with the hub\'s resource fns. Its fns for installing and hosting systems (fs/install_system, fs/system_status, fs/restart_system, fs/stop_system, fs/restart) are for admins and system authors.',
     'Load its guide (fs/guide) before the first file change.',
   ].join(' '),
@@ -181,7 +181,7 @@ export const fs = system('fs', {
       write: fn({
         group: 'files',
         description: 'Write a whole file under the roots, creating it (and its folders) if needed. Gives whether it was created or replaced.',
-        instructions: 'Use it for a new file (a note, a list, a recipe the person wants to keep as a document), or to replace a whole small file. To change part of an existing file use fs/edit, so the rest stays as it is. It may ask the person first; the old content is kept, so the write can be undone. Tell the person the path you wrote, so they can find it.',
+        instructions: 'Use it for a new file (a note, a list, a summary the person wants to keep as a document), or to replace a whole small file. To change part of an existing file use fs/edit, so the rest stays as it is. It may ask the person first; the old content is kept, so the write can be undone. Tell the person the path you wrote, so they can find it.',
         examples: [{ args: { path: 'notes/todo.md', text: '# To do\n\n- Write the tests\n' }, result: { created: true }, note: 'A new file.' }],
         effects: { mode: 'write', free: true },
         // the hub asks which sensitive files a call touches first (server/sensitive.ts)

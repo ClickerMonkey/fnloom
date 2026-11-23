@@ -102,7 +102,7 @@ export interface RecordFind {
  *
  * ```ts
  * const saved = await ctx.data.save(contract.types.Note, { title: 'Milk', body: 'Buy oat milk.' });
- * const { items } = await ctx.data.find(contract.types.Note, { search: 'groceries', query: { limit: 5 } });
+ * const { items } = await ctx.data.find(contract.types.Note, { search: 'launch plan', query: { limit: 5 } });
  * ```
  */
 export interface Data {

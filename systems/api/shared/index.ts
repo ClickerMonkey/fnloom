@@ -70,7 +70,7 @@ const MAKE_USAGE = [
 const declared = system(API_SYSTEM, {
   description: 'Web API requests kept as fns, like code: one instance authors api fns (code that calls an external service), each sent to one of its services, whose base URL and sign-in it keeps as records.',
   about: [
-    'Requests to web API services: outside services with an API, such as a weather service or an issue tracker. Each service is a record with its base URL and how it signs in.',
+    'Requests to web API services: outside services with an API, such as a status page or an issue tracker. Each service is a record with its base URL and how it signs in.',
     'Its fns: api/services lists the services set up, api/operations lists what one offers (from its OpenAPI document), api/test_request tries one GET, and api/make_api writes a request as a fn of the kind api/request and saves it, named for its service (such as api/github.open_issues).',
     'A saved request is the person\'s to call again by name for fresh data each time; one that changes something on the service (anything but a GET) asks the person to approve each run.',
     'You can\'t connect accounts: a service that needs a sign-in is connected by the person (or an admin, for everyone) on the app\'s Connections page. Never invent links, keys or setup steps, and never promise access to a service that api/services does not list.',
@@ -186,10 +186,10 @@ const declared = system(API_SYSTEM, {
         content: [
           '# Web API services',
           '',
-          'A service is an outside system with a web API (a weather service, an issue tracker). Each is a record: a name, a base URL, how it signs in. A saved request to one is an api/request fn, named api/<service>.<name>.',
+          'A service is an outside system with a web API (a status page, an issue tracker). Each is a record: a name, a base URL, how it signs in. A saved request to one is an api/request fn, named api/<service>.<name>.',
           '',
           'Steps:',
-          '1. Is the service set up? api/services {"text":"weather"}. If nothing comes back, it isn\'t: tell the person, and offer to add it only if they give its base URL. Never invent a service, a URL, a key or setup steps.',
+          '1. Is the service set up? api/services {"text":"github"}. If nothing comes back, it isn\'t: tell the person, and offer to add it only if they give its base URL. Never invent a service, a URL, a key or setup steps.',
           '2. Is there a saved request already? hub/fns_search with a few words of what it should get. If one fits, load it and call it by name.',
           '3. Otherwise api/make_api. Example args: {"request":"The open issues of a repository: GET /repos/{owner}/{repo}/issues?state=open; args owner and repo; give each issue\'s number and title.","service":"github"}. api/operations {"service":"github","text":"issues"} helps you find the method and path first.',
           '4. It answers with the saved fn ({"fn":"api/github.open_issues","signature":…,"preview":…}). The preview was only a trial: load the fn and call it with the person\'s values to get the real answer.',
@@ -207,7 +207,7 @@ const declared = system(API_SYSTEM, {
         description: 'Saved requests to outside web API services, the services set up, and never inventing a service or how to connect one.',
         summary: 'Web API requests are saved fns; api/services lists the services set up. Never invent a service, URL, key or connection step.',
         content: [
-          'Requests to outside web API services (a weather service, an issue tracker) are saved fns (such as `api/github.open_issues`), each sent to a service set up with its base URL. api/services lists the services set up; when the one needed isn\'t there, say so, and add it only from a base URL the person gives you.',
+          'Requests to outside web API services (a status page, an issue tracker) are saved fns (such as `api/github.open_issues`), each sent to a service set up with its base URL. api/services lists the services set up; when the one needed isn\'t there, say so, and add it only from a base URL the person gives you.',
           'Never invent a service, a URL, a key, a link or the steps to connect one. A service that needs a sign-in uses the person\'s own connection: when a result says it isn\'t connected, tell them what the result says.',
           'api/make_api writes and saves a new request from a description; its preview is only a trial: call the saved fn with the person\'s values for the answer. Requests other than GET change something on the service and ask the person to approve each run. Load api/guide before the first one.',
         ].join('\n'),

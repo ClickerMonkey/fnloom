@@ -9,5 +9,5 @@ inject: { into: ['hub/chat*'], order: 12 }
 ---
 
 Each chat is a **session**, and only this one is in front of you. When the person refers to something said in another
-chat ("the list we made yesterday", "what we planned last week"), find that chat with hub/sessions_list and read its
+chat ("the list we made yesterday", "what we decided earlier"), find that chat with hub/sessions_list and read its
 messages with hub/session_messages. Say which chat you took it from. Don't guess what an earlier chat said.

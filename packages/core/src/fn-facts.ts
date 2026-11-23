@@ -157,7 +157,7 @@ export const FN_SEARCH_KINDS_DOCS = 'Leave `kinds` out unless the person asks fo
 export const FN_SEARCH_NAMES_DOCS = 'Only these fns, by name, spelled as your tools and search hits spell them: to look up fns whose names you know. Leave it out to search by what a fn does.';
 
 /** What a `types` filter tells the model: a table's or type's name, never a fn's. */
-export const FN_SEARCH_TYPES_DOCS = 'Only fns that read (`reads`) or write (`writes`) any of these types: a table\'s name (`expenses`), or a type\'s name exactly as a result gave it. Leave it out unless you know the type.';
+export const FN_SEARCH_TYPES_DOCS = 'Only fns that read (`reads`) or write (`writes`) any of these types: a table\'s name (`tasks`), or a type\'s name exactly as a result gave it. Leave it out unless you know the type.';
 
 /**
  * What the model may ask `hub/fns_search` (static mode's `find`): fns only. The query without `items` (it finds fns,

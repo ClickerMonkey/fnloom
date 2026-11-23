@@ -76,7 +76,7 @@ export const code = system(CODE_SYSTEM, {
         examples: [
           { args: { request: 'A price with tax: args amount (num) and rate (num, a percentage); returns the total rounded to cents. 100 at 8.25 gives 108.25.' }, note: 'A calculation with no other fns.' },
           { args: { request: 'Split a bill: args total (number, dollars), people (whole number, at least 1) and tipPercent (optional number, default 0); returns each person\'s share rounded to cents. 90 for 3 people with 10% tip gives 33.' }, note: 'An optional arg with a default.' },
-          { args: { request: 'The forecast for a city as one line: arg city (text); call weather/forecast and give "<city>: <summary>".' }, note: 'A program that calls another fn.' },
+          { args: { request: 'The status of a ticket as one line: arg ticket (text); call tickets/status and give "<ticket>: <summary>".' }, note: 'A program that calls another fn.' },
           { args: { request: 'Also take a discount percentage, applied before tax.', fn: 'code/price_with_tax' }, note: 'Changing a code fn saves a new version.' },
         ],
         status: status('Writing code…', 'Wrote {output.fn}', 'Writing code failed'),

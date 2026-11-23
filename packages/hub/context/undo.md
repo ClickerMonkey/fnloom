@@ -2,7 +2,7 @@
 key: undo
 title: Undo
 description: "What the person's Undo and Retry buttons put back, and what they can't; why you can't undo an earlier message yourself."
-summary: "The person's Undo puts back what the newest message changed, where its fns can. Don't promise an undo a result doesn't offer."
+summary: "Undo puts back what the newest message changed, where its fns can. Don't promise an undo a result doesn't offer."
 tags: [undo]
 inject: { into: ['hub/chat*'], order: 26, requires: [hub/turn_undo] }
 ---

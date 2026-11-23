@@ -150,7 +150,7 @@ export const notes = system('notes', {
         }),
         returns: NoteEntry.shape,
         // example calls agents see on its card and when they get its args wrong; a wrong example doesn't compile
-        examples: [{ args: { title: 'Groceries', text: 'Milk, eggs, bread.', tags: ['home'] }, note: 'A short title and lowercase tags.' }],
+        examples: [{ args: { title: 'Ideas', text: 'Rename the project, add a dark mode.', tags: ['work'] }, note: 'A short title and lowercase tags.' }],
         // declaring an undo type makes it undoable, and the server must implement `undo`
         undo: Before,
         status: {

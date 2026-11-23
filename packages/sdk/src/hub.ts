@@ -277,9 +277,9 @@ const readFns = {
   run_get: readFn('One run: its fn, args, status, result or error, cost and timings.', 'Use it to see one run in full: its args, result or error, cost and how long it took. For a run still going use hub/run_status or hub/run_wait.', HUB_READ_ENDPOINTS.run_get, [{ args: { run: 'run_01HZX3' } }]),
   run_tree: readFn('The tree of runs a turn made: each run with the runs it called.', 'Use it to see everything one turn did, as a tree: each run with the runs it called. Good for explaining what happened or where a chain failed.', HUB_READ_ENDPOINTS.run_tree, [{ args: { turn: 'trn_01HZX3' }, note: 'Every run one message started.' }]),
   llm_call: readFn('One LLM call: its whole request and response, tokens, cost and timings.', 'Use it to look at one model call exactly as sent and received (messages, tools, tokens, cost) when a run\'s behaviour needs explaining. It can be long: read it only when the summary in hub/run_get is not enough.', HUB_READ_ENDPOINTS.llm_call, [{ args: { id: 'llm_01HZX3' }, note: 'What the model was sent and answered.' }]),
-  model_calls: readFn('Model calls of every kind (chat, embeddings, images, transcription, speech), newest first, with cost and timings.', 'Use it for spending and timing questions across models (what cost the most today, which calls were slow). Narrow with `run` (one run\'s calls), or with `query`: its filters and sort take only these fields: modality, model, provider, system, status, session, cost, tokens, duration and createdAt (the start; `startedAt` in a result is not a filter field). Page on; one call\'s detail is hub/llm_call. Leave out an arg you don\'t use rather than sending null.', HUB_READ_ENDPOINTS.model_calls, [{ args: { run: 'run_01HZX3' }, note: 'What one run spent on models.' }]),
+  model_calls: readFn('Model calls of every kind (chat, embeddings, images, transcription, speech), newest first, with cost and timings.', 'Use it for cost and timing questions across models (what cost the most today, which calls were slow). Narrow with `run` (one run\'s calls), or with `query`: its filters and sort take only these fields: modality, model, provider, system, status, session, cost, tokens, duration and createdAt (the start; `startedAt` in a result is not a filter field). Page on; one call\'s detail is hub/llm_call. Leave out an arg you don\'t use rather than sending null.', HUB_READ_ENDPOINTS.model_calls, [{ args: { run: 'run_01HZX3' }, note: 'What one run spent on models.' }]),
   fns_metrics: readFn('How fns have been doing: runs, outcomes, retries, durations (p50, p95), queue waits, cost and tokens.', 'Use it to say how a fn usually behaves: how often it fails, how long it usually takes (p50) and when it is slow (p95), and what it costs. Quote these numbers rather than guessing. `outcomes.failed` counts the fn\'s own failures; `outcomes.invalid-input` counts calls whose args didn\'t fit and went back to the caller to fix, which say nothing about the fn: leave them out of how often it fails.', HUB_READ_ENDPOINTS.fns_metrics, [{ args: { fn: 'fs/read', days: 7 }, note: 'A week of one fn.' }]),
-  sessions_list: readFn('The person\'s chats (sessions), most recent first, each with its id, title and when it was last used.', 'Use it when the person refers to an earlier conversation ("what did we decide about the trip?"): look for a title that fits, then read that chat with hub/session_messages. Memories are another place earlier facts may be kept (hub/ctx_search with `origins: ["memory"]`).', HUB_READ_ENDPOINTS.sessions_list, [{ args: { limit: 20 } }]),
+  sessions_list: readFn('The person\'s chats (sessions), most recent first, each with its id, title and when it was last used.', 'Use it when the person refers to an earlier conversation ("what did we decide about the launch?"): look for a title that fits, then read that chat with hub/session_messages. Memories are another place earlier facts may be kept (hub/ctx_search with `origins: ["memory"]`).', HUB_READ_ENDPOINTS.sessions_list, [{ args: { limit: 20 } }]),
   session_messages: readFn('A session\'s messages, newest first, paged backwards.', 'Use it to read what was said in an earlier chat, with the session id hub/sessions_list gave. It comes newest first; page backwards for older messages, and read only as far back as the question needs. Quote or sum up what the messages say; don\'t fill gaps from memory.', HUB_READ_ENDPOINTS.session_messages, [{ args: { session: 'ses_01HZX3', limit: 30 }, note: 'The last 30 messages.' }]),
   systems_list: readFn('Every system: whether it is connected, its version, instances and what it offers.', 'Use it to see which systems are installed, connected and configured before relying on one; a system that is not connected has no usable fns.', HUB_READ_ENDPOINTS.systems_list, [{ args: {}, note: 'Every system and its status.' }]),
   system_get: readFn('One system: its status, version, instances, config state and what it offers.', 'Use it for one system\'s state: whether it is connected, its instances and whether its config is set. When a fn of it is unavailable this usually says why.', HUB_READ_ENDPOINTS.system_get, [{ args: { system: 'fs' } }]),
@@ -319,10 +319,10 @@ const dataFns = {
   ),
   records_find: readFn(
     'Records of one stored type: filtered and sorted on its fields, searched by words (and meaning, when the type is embedded), a page at a time.',
-    'Use it to answer questions about stored data ("my notes about Oslo", "tasks due this week"): name the `type`, put conditions in `query.filters` on its top-level fields (is, in, >, <, between, contains, empty), a `query.sort`, and words in `search`. Keep `query.limit` small and page with the cursor. For a table to draw, use hub/records_table.',
+    'Use it to answer questions about stored data ("my notes about the launch", "tasks due this week"): name the `type`, put conditions in `query.filters` on its top-level fields (is, in, >, <, between, contains, empty), a `query.sort`, and words in `search`. Keep `query.limit` small and page with the cursor. For a table to draw, use hub/records_table.',
     HUB_DATA_ENDPOINTS.records_find,
     [
-      { args: { type: 'notes/Note', search: 'Oslo trip', query: { limit: 5 } }, note: 'The five notes that best match some words.' },
+      { args: { type: 'notes/Note', search: 'launch plan', query: { limit: 5 } }, note: 'The five notes that best match some words.' },
       { args: { type: 'tasks/Task', query: { filters: [{ field: 'done', op: 'is', value: false }], sort: [{ field: 'due', dir: 'asc' }], limit: 10 } }, note: 'Open tasks, soonest first.' },
     ],
   ),
@@ -349,7 +349,7 @@ const dataFns = {
     'Use it when the person asks to keep or change data. Leave out `id` to add a record; to change one, read it first and pass its id with the whole new value and `expect` set to the version you read, so someone else\'s change made meanwhile is refused rather than lost. A value that does not fit the type is refused with what is wrong.',
     HUB_DATA_ENDPOINTS.record_save,
     [
-      { args: { type: 'notes/Note', value: { title: 'Oslo trip', body: 'Book the train.' } }, note: 'A new note.' },
+      { args: { type: 'notes/Note', value: { title: 'Launch plan', body: 'Draft the timeline.' } }, note: 'A new note.' },
       { args: { type: 'tasks/Task', id: 'rec_01HZX3', value: { title: 'Pay rent', done: true }, expect: 3 }, note: 'Mark a task done, if nobody changed it since version 3.' },
     ],
     [],
@@ -617,7 +617,7 @@ const FNS_SEARCH_GUIDE = [
 ].join(' ');
 
 const FNS_SEARCH_EXAMPLES = [
-  { args: { text: 'keep a list of household chores and who does them' }, note: 'Fns for a request in plain words.' },
+  { args: { text: 'keep a list of tasks and who does each one' }, note: 'Fns for a request in plain words.' },
   { args: { text: 'invoices that are overdue', systems: ['database'], limit: 5 }, note: 'The database fns closest to a question, saved queries among them.' },
   { args: { systems: ['fs'], modes: ['read' as const], order: 'name' as const }, note: 'Every fs fn that only reads, by name.' },
 ];
@@ -632,7 +632,7 @@ const CTX_SEARCH_GUIDE = [
 
 const CTX_SEARCH_EXAMPLES = [
   { args: { text: 'how to work with tables and saved queries' }, note: 'Guides for a request in plain words.' },
-  { args: { text: 'the person\'s diet and food preferences', origins: ['memory' as const] }, note: 'Memories about the person.' },
+  { args: { text: 'the person\'s preferences and constraints', origins: ['memory' as const] }, note: 'Memories about the person.' },
 ];
 
 /**
@@ -687,7 +687,7 @@ export const hub = system('hub', {
     fns: {
       fns_load: fn({
         description: 'Add fns to your tools for the rest of this chat, by their names: each becomes a tool you can call from your next step.',
-        instructions: 'Use it after hub/fns_search or a suggestion, with the names of the fns you will call, exactly as the hits and suggestions spell them (`database/main.expenses_create`); they can be called from your next step. It answers with the cards of what it loaded (`<loaded_fns>`) and of each name it refused (`<refused_fns>`) with why, in the hub\'s words (no such fn, another system, waits for an admin to approve it): do not load a refused one again; tell the person what blocks it. Load only what you need: every loaded fn takes room in the prompt.',
+        instructions: 'Use it after hub/fns_search or a suggestion, with the names of the fns you will call, exactly as the hits and suggestions spell them (`database/main.tasks_create`); they can be called from your next step. It answers with the cards of what it loaded (`<loaded_fns>`) and of each name it refused (`<refused_fns>`) with why, in the hub\'s words (no such fn, another system, waits for an admin to approve it): do not load a refused one again; tell the person what blocks it. Load only what you need: every loaded fn takes room in the prompt.',
         examples: [{ args: { fns: ['fs/read', 'fs/edit'] }, note: 'Two fns for a file change.' }],
         args: g.obj({ fns: g.list(g.fnName(), { minLength: 1 }) }),
         returns: ginAs(LoadFnsResult),

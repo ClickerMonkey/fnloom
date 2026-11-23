@@ -87,14 +87,14 @@ export const CODE_EXAMPLES = {
       body: { kind: 'new', type: RESULT, value: { total: { kind: 'get', path: [{ prop: 'total' }] }, note: { kind: 'get', path: [{ prop: 'total' }, { prop: 'toText' }, { args: {} }] } } },
     },
   },
-  /** `(city: text) → text` calling the loaded `weather/forecast(city: text) → obj{summary: text}`. */
+  /** `(ticket: text) → text` calling the loaded `tickets/status(ticket: text) → obj{summary: text}`. */
   callsFn: {
-    signature: { args: { name: 'obj', props: { city: { type: text } } }, returns: text },
+    signature: { args: { name: 'obj', props: { ticket: { type: text } } }, returns: text },
     program: {
-      kind: 'template', template: '{city}: {summary}',
+      kind: 'template', template: '{ticket}: {summary}',
       params: {
-        kind: 'new', type: { name: 'obj', props: { city: { type: text }, summary: { type: text } } },
-        value: { city: arg('city'), summary: { kind: 'get', path: [{ prop: 'fns' }, { prop: 'weather' }, { prop: 'forecast' }, { args: { city: arg('city') } }, { prop: 'summary' }] } },
+        kind: 'new', type: { name: 'obj', props: { ticket: { type: text }, summary: { type: text } } },
+        value: { ticket: arg('ticket'), summary: { kind: 'get', path: [{ prop: 'fns' }, { prop: 'tickets' }, { prop: 'status' }, { args: { ticket: arg('ticket') } }, { prop: 'summary' }] } },
       },
     },
   },
@@ -107,12 +107,12 @@ export const CODE_GUIDE = [
   '- Build an obj with {"kind":"new","type":{"name":"obj","props":{…}},"value":{"<prop>":<expr>, …}}: the type slot holds the whole obj type, the value slot one entry per prop: a plain prop (text, num, bool, an enum) takes its value as is ("note":"fixed") or an expression; any other prop an expression.',
   '- `define` binds locals (each may use the ones before) and its body is the result; `block` runs lines and gives the last; `if` and `switch` choose.',
   '- A loop goes over a list (or another value whose type is known), never a bool; accumulate with `set` into a local defined outside it. Lists have methods (map, filter, …) that take a lambda.',
-  '- Call a loaded fn as fns.<system>.<name> followed by its call step: {"kind":"get","path":[{"prop":"fns"},{"prop":"weather"},{"prop":"forecast"},{"args":{"city":<expr>}}]}. An instance\'s fn adds the instance: fns.database.main.orders. Only loaded fns can be called.',
+  '- Call a loaded fn as fns.<system>.<name> followed by its call step: {"kind":"get","path":[{"prop":"fns"},{"prop":"tickets"},{"prop":"status"},{"args":{"ticket":<expr>}}]}. An instance\'s fn adds the instance: fns.database.main.orders. Only loaded fns can be called.',
   '- `template` fills {name} placeholders from its params obj.',
   '',
   `Example 1, signature (amount: num, rate: num) → obj{total: num, note: text}: ${JSON.stringify(CODE_EXAMPLES.priceWithTax.program)}`,
   `Example 2, the same with a local: ${JSON.stringify(CODE_EXAMPLES.withLocal.program)}`,
-  `Example 3, signature (city: text) → text, after loading weather/forecast(city: text) → obj{summary: text}: ${JSON.stringify(CODE_EXAMPLES.callsFn.program)}`,
+  `Example 3, signature (ticket: text) → text, after loading tickets/status(ticket: text) → obj{summary: text}: ${JSON.stringify(CODE_EXAMPLES.callsFn.program)}`,
 ].join('\n');
 
 /** The `set` call the instructions show, whole: its one arg `draft` holds every part. */

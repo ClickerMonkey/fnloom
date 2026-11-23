@@ -19,7 +19,7 @@ const offered = (forward: LlmForward | undefined): string[] => (forward?.request
 const done = (result: Json): RunSettled => ({ status: 'done', result });
 
 const PRICE: CodeFnSpec = { ...CODE_EXAMPLES.priceWithTax.signature, program: CODE_EXAMPLES.priceWithTax.program };
-const FORECAST = { args: { name: 'obj', props: { city: { type: { name: 'text' } } } }, returns: { name: 'obj', props: { summary: { type: { name: 'text' } } } } };
+const STATUS_FN = { args: { name: 'obj', props: { ticket: { type: { name: 'text' } } } }, returns: { name: 'obj', props: { summary: { type: { name: 'text' } } } } };
 
 let kit: Kit | undefined;
 afterEach(async () => { await kit?.stop(); kit = undefined; });
@@ -29,17 +29,17 @@ async function start(script: readonly ScriptStep[]): Promise<Kit> {
   return kit;
 }
 
-/** Answer child calls as the hub does: `hub/fns_get` of weather/forecast with its signature, the forecast itself, else the kit's fns. */
+/** Answer child calls as the hub does: `hub/fns_get` of tickets/status with its signature, the status itself, else the kit's fns. */
 function scriptHub(running: Kit): Array<{ fn: string; args: Json }> {
   const seen: Array<{ fn: string; args: Json }> = [];
-  running.hub.onFnShape = (name) => Promise.resolve(name === 'weather/forecast' ? { fn: { ...FORECAST, description: 'The forecast for a city.', mode: 'read' as const } } : {});
+  running.hub.onFnShape = (name) => Promise.resolve(name === 'tickets/status' ? { fn: { ...STATUS_FN, description: 'The status of a ticket.', mode: 'read' as const } } : {});
   running.hub.onCall = async (call) => {
     seen.push({ fn: call.fn, args: call.args });
     await running.hub.peer().call('child', { parent: call.parent, key: call.key, run: mintId('run') });
-    if (call.fn === hub.fns.fns_get.name && JSON.stringify(call.args).includes('weather/forecast')) {
-      return done(Json.parse({ fn: 'weather/forecast', kind: 'native', description: 'The forecast for a city.', version: 1, available: true, ...FORECAST }));
+    if (call.fn === hub.fns.fns_get.name && JSON.stringify(call.args).includes('tickets/status')) {
+      return done(Json.parse({ fn: 'tickets/status', kind: 'native', description: 'The status of a ticket.', version: 1, available: true, ...STATUS_FN }));
     }
-    if (call.fn === 'weather/forecast') return done({ summary: 'Sunny' });
+    if (call.fn === 'tickets/status') return done({ summary: 'Open' });
     return running.hub.fns.settle(call) ?? done(null);
   };
   return seen;
@@ -141,7 +141,7 @@ describe('the program kind', () => {
     scriptHub(running);
     const props = await running.kindProps('program', CALLS);
     expect(props.problems).toEqual([]);
-    expect(props.description).toMatchObject({ deps: ['weather/forecast', hub.fns.fns_get.name], args: CALLS.args, returns: CALLS.returns, readable: { language: 'ts' }, effects: { mode: 'read' } });
+    expect(props.description).toMatchObject({ deps: ['tickets/status', hub.fns.fns_get.name], args: CALLS.args, returns: CALLS.returns, readable: { language: 'ts' }, effects: { mode: 'read' } });
     expect(props.description?.examples).toEqual([{ args: sampleArgs(CALLS.args), note: 'Runs the program with sample values: use real ones.' }]);
     const loop: CodeFnSpec = { ...CALLS, program: { kind: 'loop', over: { kind: 'new', type: { name: 'bool' }, value: true }, body: { kind: 'get', path: [{ prop: 'args' }] } } };
     expect((await running.kindProps('program', loop)).problems.join('\n')).toContain('while-loop');
@@ -150,8 +150,8 @@ describe('the program kind', () => {
   it('runs a program that calls another fn through the hub', async () => {
     const running = await start([]);
     const seen = scriptHub(running);
-    const outcome = await running.hub.run(QualifiedName.parse('code/city_forecast'), { city: 'Paris' }, { kind: CODE_KIND, payload: encodeValue(CodePayload, CALLS) });
-    expect(outcome).toMatchObject({ status: 'done', result: 'Paris: Sunny' });
-    expect(seen.map((call) => call.fn)).toEqual([hub.fns.fns_get.name, 'weather/forecast']);
+    const outcome = await running.hub.run(QualifiedName.parse('code/ticket_line'), { ticket: 'T-12' }, { kind: CODE_KIND, payload: encodeValue(CodePayload, CALLS) });
+    expect(outcome).toMatchObject({ status: 'done', result: 'T-12: Open' });
+    expect(seen.map((call) => call.fn)).toEqual([hub.fns.fns_get.name, 'tickets/status']);
   });
 });

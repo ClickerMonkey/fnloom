@@ -88,10 +88,10 @@ niche: "developer"
         content: [
           'The fs system works only inside the folders an admin chose (its roots). Paths are relative to the first root (`notes/todo.md`), or start with a root\'s name when there are several; `/` is outside the roots and is refused. Start with fs/list on `.` to see the first root.',
           '',
-          'To find something: fs/glob finds files by name (`*.md`, `recipes/**`), fs/grep finds lines inside files by a regular expression (case-sensitive; write `[Ss]oup` for either case, never `(?i)`), fs/list shows one folder. Don\'t guess a path: look first.',
+          'To find something: fs/glob finds files by name (`*.md`, `notes/**`), fs/grep finds lines inside files by a regular expression (case-sensitive; write `[Rr]eport` for either case, never `(?i)`), fs/list shows one folder. Don\'t guess a path: look first.',
           'To read: fs/read, a window at a time for long files (`offset`, `limit`). Say only what you read.',
           'To change: fs/edit replaces exact text (copy `find` from what fs/read gave, spaces included); fs/write writes a whole new file; fs/remove deletes one file. Each may ask the person first, and each can be undone with the turn.',
-          'To keep a document for the person (a shopping list, a recipe, notes from this chat): write a markdown file, for example fs/write with {"path":"notes/shopping-list.md","text":"# Shopping list\\n\\n- Milk\\n- Eggs\\n"}, then tell them the path. Check the result (`created`) before saying it is saved.',
+          'To keep a document for the person (a list, a summary, notes from this chat): write a markdown file, for example fs/write with {"path":"notes/ideas.md","text":"# Ideas\\n\\n- First idea\\n- Second idea\\n"}, then tell them the path. Check the result (`created`) before saying it is saved.',
           'To run a program, a build, tests or git: fs/bash runs a bash command (not PowerShell); set the folder once with fs/cd. Check `exitCode`: anything but 0 means the command failed. A command your shell setting does not mark safe asks the person first, and what it changes can\'t be undone.',
           '',
           'A file the person attached to a chat message is a hub resource, not an fs file: read it with hub/resource_read or look at it with hub/resource_send, not fs/read.',
@@ -106,7 +106,7 @@ niche: "developer"
         summary: 'The files system works only in folders an admin chose: paths are relative to the first root, never `/`. Load fs/guide first.',
         content: [
           'The **files system** (`fs`) works only inside a few folders of the person\'s machine an admin chose (its roots). Paths are relative to the first root (`notes/todo.md`) or start with a root\'s name; `/` is outside the roots and is refused. Look before you guess a path: fs/list on `.` shows the first root, fs/glob finds files by name, and fs/read reads one.',
-          'fs/write, fs/edit and fs/remove may ask the person first, and what they change can be undone with the turn; what fs/bash changes can\'t. To keep a document for the person (a note, a list, a recipe), write a markdown file and tell them its path.',
+          'fs/write, fs/edit and fs/remove may ask the person first, and what they change can be undone with the turn; what fs/bash changes can\'t. To keep a document for the person (a note, a list, a summary), write a markdown file and tell them its path.',
           'A file the person attached to a message is not an fs file: it is kept by the hub, not under the roots. Load fs/guide before the first change.',
         ].join('\n'),
         fns: [fns.list, fns.read],
