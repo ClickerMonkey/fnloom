@@ -1,8 +1,10 @@
 # The schedule system (design, 2026-11-23)
 
-Design for review. Nothing here is built. Phil's rule: the types below are for his approval first, then zod schemas,
-then code. The open decisions are in hitloop set `schedule-system-2026-11-23`; where this doc says "recommended", that
-is the answer it was written against.
+Design for review. Nothing here is built. Phil's rule: the types below are for his approval first, then code. All ten
+questions in hitloop set `schedule-system-2026-11-23` are answered (Decided, at the end, verbatim), and this design
+matches every answer. Revised 2026-11-23 for the one answer that differed from the first draft: a firing's result
+reaches the owner as a **notification linking to its run page** and is kept in the schedule's history; there is no
+chat per schedule.
 
 ## Phil's words (verbatim, docs/plans/todo-2026-11-23.md)
 
@@ -16,13 +18,14 @@ of that kind is a **schedule**: its payload names a fn to run, *when* as a daysp
 a time zone, and the args as a gin program evaluated at each firing. Like a code fn, a schedule is the person's own
 saved fn: the hub keeps it, versions it, shares it and shows it on its fn page. The schedule system owns the timer:
 it keeps each schedule's next firing on a durable `@ayepi/work` queue in its own data folder and, when one is due,
-asks the hub to start a run of the schedule fn **as its owner**. That run works out the args and calls the target fn
-as its child, so the run tree, policies, approvals, budgets, undo and the ledger all apply as they do in a chat. Each
-firing is recorded (a `schedule/Firing` record of the owner's) and its result goes to the schedule's own chat and,
-as the schedule says, a push notification. The chat gets fns to add, list, change, pause, resume, skip and remove
-schedules, and an injected item that replaces the hub's "Nothing runs later by itself" while the system is on. The
-Schedule page (`/s/schedule/calendar`) draws every schedule's past and coming firings on a month, week or agenda
-calendar.
+asks the hub to start a run of the schedule fn **as its owner**, outside any chat. That run works out the args and
+calls the target fn as its child, so the run tree, policies, approvals, budgets, undo and the ledger all apply as they
+do in a chat. Each firing is recorded (a `schedule/Firing` record of the owner's). When it settles, the owner gets
+one notification (as the schedule's `notify` says): whether it ran or failed, a one-line summary of the result worked
+out without a model, a link to the run's page and a second link to the schedule's history. The chat gets fns to add,
+list, change, pause, resume, skip and remove schedules, and an injected item that replaces the hub's "Nothing runs
+later by itself" while the system is on. The Schedule page (`/s/schedule/calendar`) draws every schedule's past and
+coming firings on a month, week or agenda calendar.
 
 ## What a schedule is
 
@@ -45,57 +48,56 @@ A schedule is a fn of kind `schedule/schedule`, named for what it does (`schedul
   time that happens twice fires once, at the first (the rule Oryoli's `zonedTime` already follows).
 - **Args** (`args`): one gin program whose result is the target fn's args. Fixed args are a literal (a constant
   program), so there is one field, always checked against the target's args type when the schedule is saved and again
-  when the target's signature changes. The program reads, by name:
+  when the target's signature changes. The program reads, by name (decided `args-scope`):
   - `fire`: this firing: `at` (the instant it was planned for), `local` (that instant in the zone, with its offset),
     `day` (`YYYY-MM-DD`), `time` (`HH:mm`, absent for a whole-day firing), `zone`, `count` (how many firings came
     before), `late` (ms between `at` and the start), `manual` (true for "run now").
   - `previous`: the last firing that ran, when there was one: its `at`, status and result (typed as the target fn's
     result). This is what "what's new since last time" needs, and nothing older is offered.
-  - Recommended: no fn calls in the args program. A firing that needs data from another fn is a schedule of a code fn
-    that calls both. (Question `args-scope`.)
+  - No fn calls in the args program. A firing that needs data from another fn is a schedule of a code fn that calls
+    both.
   - The words the args were written from are kept beside the program (`argsAsked`), so the fn page and the edit form
     can say "date: the firing's day minus 7 days" rather than show gin.
-- **Where results go** (`deliver`): `chat: 'own'` (recommended default) puts every firing in the schedule's own chat,
-  made at the first firing, titled after the schedule: each firing is an invocation turn there, so the person reads
-  results like any run card, can ask a follow-up, and can undo the turn. `chat: 'none'` keeps firings to the run pages
-  and the calendar. `notify: 'always' | 'failed' | 'never'` (default `always`) sends a push notification to the owner
-  when a firing settles, linking to the chat (or the run). (Question `results`.)
-- **Overlap** (`overlap`): what happens when a firing is due while the last one still runs: `skip` (recommended
-  default: recorded as skipped, with the run it waited on), `queue` (at most one waits and starts when the running one
-  settles), or `replace` (the running one is cancelled). (Question `overlap`.)
-- **Missed firings** (`missed`): a firing that couldn't start on time (the hub or the system was down, the person's
-  budget window was full): `latest` (recommended default: when it can start again, the most recent missed firing runs
-  once, late, if it is within the grace window; the rest are recorded as missed) or `none` (all recorded as missed).
-  (Question `missed`.)
+- **Notify** (`notify`, decided `results`): `always` (default), `failed` (only firings that didn't run cleanly) or
+  `never`. Whatever it says, every firing is on the run pages (when it became a run), in the schedule's history and on
+  the calendar. What the notification holds is below ("What the owner is told").
+- **Overlap** (`overlap`, decided `overlap`): what happens when a firing is due while the last one still runs: `skip`
+  (default: recorded as skipped, with the run it waited on), `queue` (at most one waits and starts when the running
+  one settles), or `replace` (the running one is cancelled).
+- **Missed firings** (`missed`, decided `missed`): a firing that couldn't start on time (the hub or the system was
+  down, the person's budget window was full): `latest` (default: when it can start again, the most recent missed
+  firing runs once, late, if it is within the grace window; the rest are recorded as missed) or `none` (all recorded
+  as missed).
 - **Cost cap** (`maxSpend`, optional): the most one firing may spend; it lowers the firing turn's per-turn budget.
 - **Paused** (`paused`, optional): who paused it, when, and optionally until which day. A pause is a change of the
   schedule like any other: a new version, in its history, undone by going back a version.
 
-**Who it runs as.** Its owner, always: the person who made it (recommended; question `run-as`). Sharing a schedule fn
-lets others see it and copy it (the copy is theirs and runs as them); it never runs as anyone else. A schedule whose
-owner is turned off, or who may no longer run the target fn, stops firing: each due firing is recorded as refused with
-the reason, and the owner (or, if they are gone, the admins) is told once.
+**Who it runs as** (decided `run-as`). Its owner, always: the person who made it. Sharing a schedule fn lets others see
+it and copy it (the copy is theirs and runs as them); it never runs as anyone else. A schedule whose owner is turned
+off, or who may no longer run the target fn, stops firing: each due firing is recorded as refused with the reason,
+and the owner is notified once (or, if they are gone, the admins, with `notifyAdmins`).
 
-**A kind, not records** (question `shape`, recommended). Phil's word "payload" fits: a schedule is a fn like a code fn
-or a widget. What that gives for free: the hub stores, versions, searches and shares it; its fn page shows its payload
-and versions; an admin sees every schedule in Admin › Fns; the review page shows the kind; `describe` gives its dep,
-so calling the target needs no new grant; calling the schedule fn by name ("run my weekly summary now") is a manual
+**A kind, not records** (decided `shape`). Phil's word "payload" fits: a schedule is a fn like a code fn or a widget.
+What that gives for free: the hub stores, versions, searches and shares it; its fn page shows its payload and
+versions; an admin sees every schedule in Admin › Fns; the review page shows the kind; `describe` gives its dep, so
+calling the target needs no new grant; calling the schedule fn by name ("run my weekly summary now") is a manual
 firing with no extra fn. The firings themselves are records (`schedule/Firing`, owned by the schedule's owner): one
 row per firing that was due, including those that never became a run (missed, skipped, refused), which a run table
 can't hold.
 
 **Operations on a schedule**:
 - **Add** (`schedule/add`): saves a new schedule fn. A write: the person approves it once, on a card that says what it
-  runs, as whom, when in plain words (dayspan's `en-plain` locale), the next three firings and the first firing's args.
+  runs, as whom, when in plain words (dayspan's `en-plain` locale), the next three firings, the first firing's args,
+  and when they will be notified.
 - **Change** (`schedule/change`): any part; saves a new version. The next firing is planned again from the new
   version; a firing already running keeps the version it started with.
 - **Pause / resume**, with an optional "until" day for a pause.
 - **Skip** one firing (`exclude`), or add one (`include`).
 - **Remove**: the fn is removed (the hub keeps its versions); its queued firing is cancelled; its firings stay.
 - **Run now**: call the schedule fn. Recorded as a firing with `manual: true`; it does not move the next one.
-- **History**: the `schedule/Firing` records (`schedule/history`, or `hub/records_find`).
+- **History**: the `schedule/Firing` records (`schedule/history`, `hub/records_find`, or the schedule's page).
 - **Undo**: every one of these is undoable as a run (add removes it, change and pause go back a version, remove brings
-  it back, skip un-skips). What a firing did is undone the usual way: its turn's undo, in the schedule's chat.
+  it back, skip un-skips). What a firing did is undone the usual way, as a run: **Undo** on its run page.
 
 **Limits** (the system's config, which an admin sets; defaults in brackets): the shortest gap between two firings of
 one schedule [15 minutes: a `when` with times closer together is refused with the reason], schedules per person [50],
@@ -108,59 +110,110 @@ interactive chat goes first), lowered by `maxSpend`. It spends from the owner's 
 delays the firing, and the overlap rule decides what happens if the next one comes due meanwhile; one that refuses
 records the firing as refused; one that says "ask" is an approval wait (below).
 
-**Approvals when nobody is watching** (question `approvals`). A firing whose target asks for approval waits for its
-owner: the hub already puts the approval in their inbox and sends the push. The system follows the run and gives up
-waiting when the next firing is due, or after 24 hours, whichever is first (the firing is recorded as `expired`). An
-admin can set the system's `approvals` config to `refuse`: then a firing that needs approval is cancelled at once and
-recorded as refused, and the owner is told so they can allow it with a policy. Making the schedule is the moment the
-person is watching, so the add card offers "Let its runs go ahead without asking" when the target would ask: that
-records an "always" approval narrowed to runs made by this schedule (recommended; it needs policies to match a run's
-caller fn, a small hub change listed below).
+**Approvals when nobody is watching** (decided `approvals`). A firing whose target asks for approval waits for its
+owner: the hub already puts the approval in their inbox and sends the push; the approval card is also on the run's
+page. The system follows the run and gives up waiting when the next firing is due, or after 24 hours, whichever is
+first (the firing is recorded as `expired`, and notified as a failure). An admin can set the system's `approvals`
+config to `refuse`: then a firing that needs approval is cancelled at once and recorded as refused, and the owner is
+notified so they can allow it with a policy. Making the schedule is the moment the person is watching, so the add
+card offers "Let its runs go ahead without asking" when the target would ask: that records an "always" approval
+narrowed to runs made by this schedule (it needs policies to match a run's caller fn, a small hub change listed
+below).
+
+## What the owner is told
+
+One notification per firing that settles, sent by the system with `ctx.runs.notify` (the hub sends nothing of its own
+for a run started outside a chat, so there is never a second one). It goes to the schedule's owner and no one else,
+as an inbox item and a push (skipped, as for every notification, while they are looking at the page it links to).
+
+- **Which firings.** `notify: 'always'` tells every firing that ran, failed, was cancelled (by anything but the
+  person), missed, refused or expired. `'failed'` tells all of those except `ran`. `'never'` tells none. A skipped
+  firing (the overlap rule) is never told: it is in the history. A manual firing ("run now") is not told: the person
+  started it and is looking at it. A refused firing is told once per reason, until a firing runs again, so a schedule
+  whose owner lost access does not notify every hour. Missed firings found together (after the hub was down) are one
+  notification: "Missed 3 times while the hub was down; the latest ran 2 h late".
+- **No double notice.** If the firing's run already notified its person (`schedule/remind`, or any fn the target calls
+  that notifies), the system sends no "ran" notice of its own; a failure is still told. The hub's settled-run event
+  says whether the run tree sent a notice (`notified`).
+- **Title**: the schedule's title and the outcome: "Weekly sales summary ran", "… failed", "… was cancelled",
+  "… missed 3 times", "… was refused", "… gave up waiting for approval".
+- **Body**: one line, at most 160 characters (the hub's notification body limit, moved into core so both use it),
+  worked out from the result by rules, never by a model:
+  1. Failed, cancelled, refused or expired: the run's error message or the firing's reason, clamped.
+  2. Ran, and the result is text (an agent's answer): its first paragraph, markdown removed, clamped on a word boundary
+     (core's `clamp`).
+  3. Ran, and the result is a table or a list: "12 rows" or "3 items", then the first row's most telling value when
+     there is one ("12 rows: Widgets $1,240, …").
+  4. Ran, and the result is an object: its most telling text field (`summary`, `message`, `title`, `text`, `name`,
+     the order core's `argSummary` already uses for args), clamped.
+  5. Otherwise: the target's own `done` status line filled with its result (core's `resolveStatus` with `output`),
+     such as "Found 12 orders" or the default "Ran sales_by_week".
+  A firing that started late adds "(2 h late)". The same line is kept on the firing record (`summary`), so the
+  history and the calendar say it too.
+- **Links.** The notification's link is the firing's **run page** (`/run/<run>`, below), where the result is drawn by
+  the target fn's renderer under a header naming the schedule, with Undo, the approval card while one waits, and the
+  run tree. A firing that never became a run (missed, refused) links to the schedule's page at that firing instead.
+  Its second link, **History**, opens the schedule's page on its history.
+- **Repeats.** A new notification of the same schedule replaces its earlier one while that is still unread (in the
+  inbox, and on the phone by the push's tag), so a schedule every 15 minutes leaves one item, not forty.
 
 ## The hub side
 
-The system owns its kind and its timer. The hub adds only what lets *any* system start its own kind's fns later on
-behalf of their owners, plus the injection change. Why the timer is the system's (question `timer-home`, recommended):
+The system owns its kind and its timer (decided `timer-home`). The hub adds only what lets *any* system start its own
+kind's fns later on behalf of their owners and tell them how it went, plus the injection change. Why the timer is the
+system's:
 - Harness systems own their kinds: the kind's payload, its checks and when it runs are the system's; the hub stays a
   small core that never needs dayspan, time zones or schedule rules.
 - "Nothing runs later by itself" is then true of the hub alone and false only while a system that says otherwise is
   installed and live: switching the schedule system off stops every timer, and its review page says so.
 - The capability is visible: a system that may start runs by itself declares the `runs` grant, and the review flags it
-  ("Starts runs on its own, as the owners of its fns").
+  ("Starts runs on its own, as the owners of its fns, and notifies them").
 - The hub already has the hard parts: durable queues, sessionless turns for a person (the hub MCP's runner does exactly
   this, `mcp/calls.ts`), idempotent proposals by key, push notifications.
 
-What the hub adds:
+What the hub adds (all generic; none of it names schedules):
 
-1. **Starting a kind's fn as its owner** (`runs.start`, link endpoint `start`, grant `runs`). Outside any run, a system
-   may start a run of a fn of one of its own kinds, as that fn's owner. The hub refuses unless the fn is of a kind this
-   system declares, its owner is a person who can still use the hub, the system is live, and the owner may run it
-   (policies, as at any call). It makes a turn for the owner (limits resolved for `background`, lowered by the given
-   cap), sessionless or as an invocation turn in a chat the system opened for that owner, with the system's actor as
-   the caller. A `key` makes it idempotent: the same key is the same run, so a retried or doubled start never fires
-   twice.
-2. **Listing a kind's fns** (`runs.kindFns`): every fn of this system's kinds with owner, version and payload, a page
-   at a time, optionally changed since a time: what the timer loads at start. The `fns` event gains `changed` (a new
-   version of a fn), so an edit made anywhere (the fn page, `hub/fns_save`, an owner being turned off) re-plans.
-3. **A chat for the owner** (`chats.open`): outside a run, open (or find, by key) a chat of one person's for one of the
-   system's fns, with a title; the person sees it in their chat list. Gated like `runs.start`.
-4. **Notifying the run's own person** (`ctx.notify` in a run): a push and inbox item to the person the run is for,
-   never anyone else, with a link to a chat, a run or a page of the system. Reason `system-message`.
-5. **Policies by caller**: a policy may also match on the fn whose run made the call (`via`), so "always allow
+1. **Starting a kind's fn as its owner** (`ctx.runs.start`, link endpoint `start`, grant `runs`). Outside any run, a
+   system may start a run of a fn of one of its own kinds, as that fn's owner. The hub refuses unless the fn is of a
+   kind this system declares, its owner is a person who can still use the hub, the system is live, and the owner may
+   run it (policies, as at any call). It makes a sessionless turn for the owner (limits resolved for `background`,
+   lowered by the given cap) with the system's actor as the caller. A `key` makes it idempotent: the same key is the
+   same run, so a retried or doubled start never fires twice.
+2. **Listing a kind's fns** (`ctx.runs.kindFns`): every fn of one of this system's kinds with owner, title, version and
+   its payload (parsed by the kind's payload type), a page at a time, optionally changed since a time: what the timer
+   loads at start. The `fns` event gains `changed` (a new version of a fn), so an edit made anywhere (the fn page,
+   `hub/fns_save`, an owner being turned off) re-plans.
+3. **Notifying a kind fn's owner** (`ctx.runs.notify`, same grant): outside a run, an inbox item and push to the
+   owner of one of this system's kind's fns, never anyone else. And **`ctx.notify` in a run**: the same to the person
+   the run is for (what `schedule/remind` uses). Reason `system-message`.
+4. **Notifications gain** a link to a system page (`{ page }`, beside today's session, run, approval, pairing and
+   system links), a second link with a label (`also`, shown as a button in the inbox and as a push action), a `tone`
+   (ok, failed, info: the inbox icon) and a `key` (a new one with the same key replaces the person's unread one, and
+   is the push's tag).
+5. **A person's run page** (`/run/:run`, web): today a run outside a chat opens only in Admin › Runs. This page shows
+   one run to its own person (or an admin): its status, args, result (through the fn's renderer), changes, errors, its
+   tree, the approval card while one waits, and Undo. A notification's `run` link opens it when the run is in no chat
+   (for admins too). Every sessionless run gets it, the hub MCP's included.
+6. **The settled-run event says `notified`**: whether the run or one of its children sent its person a notice.
+7. **Page refs**: a contract gives a ref per declared page (`schedule.page.item`), so links to pages are refs, never
+   segment strings.
+8. **Policies by caller**: a policy may also match on the fn whose run made the call (`via`), so "always allow
    `fs/write` when `schedule/nightly_backup` calls it" is a policy, which the add card's "Let its runs go ahead" records.
-6. **Removing a saved fn from a system** (`hub/fns_remove`, the owner's or an admin's, undoable by restoring the last version): the hub has `fns_save` but no remove a system can call; `schedule/remove` needs one.
-7. **`InjectDecl.replaces`** (chat side, below), and the split of the hub's `limits` item.
+9. **Removing a saved fn from a system** (`hub/fns_remove`, the owner's or an admin's, undoable by restoring the last
+   version): the hub has `fns_save` but no remove a system can call; `schedule/remove` needs one.
+10. **`InjectDecl.replaces`** (chat side, below), and the split of the hub's `limits` item.
 
 **Durability across restarts.** The system keeps its timer in its data folder (`ctx.dataDir`): an `@ayepi/work` queue
 on SQLite ports, one delayed item per schedule for its next firing (`runAt` the planned instant, id
-`<fn>@<instant>`), and a small table per schedule (version, last planned instant, last firing, the run going now). On
-start it reconciles: it loads every schedule fn with `kindFns`, queues each one's next firing if it isn't queued, and
-for each schedule works out the firings between its last planned instant and now; those are missed, and the `missed`
-rule decides whether the latest runs late. When the hub is unreachable at fire time, the work item waits and retries
-(`WorkDelayError`) until the grace window passes, then records the firing as missed once the hub is back. Firing
-records are written to the hub (person-owned records), so they survive the system and are exported with nothing
-extra; the local tables are rebuilt from the hub if the data folder is lost (only the not-yet-recorded firings are
-lost then).
+`<fn>@<instant>`), and a small table per schedule (version, last planned instant, last firing, the run going now, the
+last refusal told). On start it reconciles: it loads every schedule fn with `kindFns`, queues each one's next firing if
+it isn't queued, and for each schedule works out the firings between its last planned instant and now; those are
+missed, and the `missed` rule decides whether the latest runs late. When the hub is unreachable at fire time, the work
+item waits and retries (`WorkDelayError`) until the grace window passes, then records the firing as missed once the
+hub is back. Firing records are written to the hub (person-owned records), so they survive the system and are exported
+with nothing extra; the local tables are rebuilt from the hub if the data folder is lost (only the not-yet-recorded
+firings are lost then). A notification is sent after its firing record is written, keyed by the firing, so a restart
+between the two sends it once.
 
 **Multi-instance.** The system is `instances: "one"`: one timer per hub. If two copies ever run at once (an upgrade
 overlapping the old one, a data folder restored on a second machine), nothing fires twice: the hub's `key` is the
@@ -170,61 +223,66 @@ firing (`schedule:<fn>@<instant>`), so the second start returns the first's run.
 ## The chat side
 
 **Fns for the model** (group `schedules`):
-- `schedule/add({ fn, when, args?, compute?, name?, zone?, deliver?, overlap?, missed?, maxSpend? })` → the schedule:
-  its name, what it says in words, the next three firings in the person's zone, and the first firing's args.
+- `schedule/add({ fn, when, args?, compute?, name?, zone?, notify?, overlap?, missed?, maxSpend? })` → the schedule:
+  its name, what it says in words, the next three firings in the person's zone, the first firing's args, and when the
+  person is notified.
 - `schedule/change({ schedule, …any of add's fields })` → the same.
 - `schedule/list({ fn?, search?, paused? })` → the person's schedules with their next firing and the last firing's
-  status.
+  status and summary.
 - `schedule/pause({ schedule, until? })`, `schedule/resume({ schedule })`, `schedule/remove({ schedule })`.
 - `schedule/skip({ schedule, day, time? })`: skip one firing.
-- `schedule/history({ schedule?, from?, to?, status? })` → a page of firings.
+- `schedule/history({ schedule?, from?, to?, status? })` → a page of firings, each with its summary and run.
 - `schedule/remind({ text })`: a fn that only notifies its own person, so "remind me" is a schedule of it rather than a
   sentence about what the app can't do.
 
-**How the model writes the args** (question `args-authoring`, recommended): fixed values in `args` (JSON, checked
-against the target's args), and the ones that depend on the firing in `compute`, in plain words ("`from`: the firing's
-day minus 7 days; `to`: the firing's day"). When `compute` is given, a small authoring step (the code system's program
-tools, on `ctx.ai()`, with `fire` and `previous` typed in its scope) writes the gin program, checks it against the
-target's args type, runs it for the next three firings and saves it with the words. The model never writes gin, and a
-person editing on the page sees the words and the three previews.
+**How the model writes the args** (decided `args-authoring`): fixed values in `args` (JSON, checked against the
+target's args), and the ones that depend on the firing in `compute`, in plain words ("`from`: the firing's day minus
+7 days; `to`: the firing's day"). When `compute` is given, a small authoring step (the code system's program tools, on
+`ctx.ai()`, with `fire` and `previous` typed in its scope) writes the gin program, checks it against the target's args
+type, runs it for the next three firings and saves it with the words. The model never writes gin, and a person editing
+on the page sees the words and the three previews.
 
-**The injected item** (`schedule/basics`, into `hub/chat*`, order 30, `replaces: [hub/later]`). General purpose, written
-for any request:
+**The injected item** (`schedule/basics`, into `hub/chat*`, order 30, `replaces: [hub/later]`). General purpose,
+written for any request:
 
 ```md
 ---
 title: Scheduled runs
 summary: "schedule/add runs a fn of the person's later, once or repeating, as them; only at times, never on events.
-  Read back what it says and the next times; never say something is scheduled unless the result says so."
+  Results come as a notification, not into this chat. Never say something is scheduled unless the result says so."
 ---
 
 A fn can run later by itself on a schedule. schedule/add saves a schedule of the person's: which fn, its args, and
 when (once on a day, or repeating by days of the week or month with times of day) in their time zone. It runs as
-the person, at background priority, with the same approvals and budgets as their chat. Each run goes in the
-schedule's own chat and the person is notified when it finishes.
+the person, at background priority, with the same approvals and budgets as their chat.
 
 - Settle the fn, its args and the times first. Args that change with each run (the day it runs, the week before it)
   go in `compute`, in plain words; fixed ones in `args`.
 - The result says when it runs in words and lists the next times: read those back to the person, and never say
   something is scheduled unless the result says so.
+- Each run's result does not come back into this chat. The person gets a notification with a short summary and a
+  link to the run (`notify` says when: always, only when it fails, or never), and the Schedule page keeps every run.
+  Don't promise to tell them here.
 - To remind the person of something, schedule schedule/remind with the text.
 - Change, pause, resume, skip or remove one with schedule/change, schedule/pause, schedule/resume, schedule/skip and
-  schedule/remove; schedule/list shows theirs. The Schedule page shows them all on a calendar.
+  schedule/remove; schedule/list shows theirs, and schedule/history what past runs gave.
 
 What still can't happen: nothing starts because something else happened (a new file, an email, a change somewhere):
 only at times. A scheduled run can notify the person it is for, and no one else unless a fn it calls does. A run
 that needs approval waits for the person, who is notified.
 ```
 
-**How `hub/limits` changes.** Today one hub item, `packages/hub/context/limits.md`, says three things. It becomes two:
-`hub/limits` (you can't connect accounts or set up services; never invent setup steps) and `hub/later` ("Nothing runs
-later by itself", "No messages to anyone later", and the closest-real-thing advice for "every month" and "remind
-me"). No hub text names the schedule system. Instead a context item may declare `replaces` (question `limits-text`,
-recommended): while it is in an agent's section, each item it replaces is left out with the reason `replaced` (and by
-what), shown on the agent's Injected tab like every other reason. The schedule system's `basics` replaces `hub/later`
-and restates what is still true. With the system off, out of the chat, or its item switched off, `hub/later` is back.
-A declaration that replaces another system's item raises the `injects` review flag ("Takes hub/later out of hub/chat
-and hub/chat_small").
+(In the contract the fn names in this text are refs, `${fns.add}`, so a rename doesn't compile.)
+
+**How `hub/limits` changes** (decided `limits-text`: what makes sense from the other answers, which is the recommended
+`replaces`). Today one hub item, `packages/hub/context/limits.md`, says three things. It becomes two: `hub/limits`
+(you can't connect accounts or set up services; never invent setup steps) and `hub/later` ("Nothing runs later by
+itself", "No messages to anyone later", and the closest-real-thing advice for "every month" and "remind me"). No hub
+text names the schedule system. Instead a context item may declare `replaces`: while it is in an agent's section, each
+item it replaces is left out with the reason `replaced` (and by what), shown on the agent's Injected tab like every
+other reason. The schedule system's `basics` replaces `hub/later` and restates what is still true. With the system
+off, out of the chat, or its item switched off, `hub/later` is back. A declaration that replaces another system's item
+raises the `injects` review flag ("Takes hub/later out of hub/chat and hub/chat_small").
 
 ## The schedule page
 
@@ -233,148 +291,177 @@ and hub/chat_small").
   each schedule's payload by the same shared code the server uses (`shared/when.ts`, over dayspan's `Calendar` and
   `Schedule`), so the calendar needs no server round trip to page forward. Past firings are the `schedule/Firing`
   records, coloured by status (ran, failed, missed, skipped, refused, waiting). Each entry shows the schedule's name and
-  the target fn as a `FnPill`; it opens a panel with the firing's args, its status, and links to the schedule, the
-  target fn's page, the run and the chat turn. A filter picks schedules; a "Paused" badge marks paused ones, whose
-  coming firings are drawn faded.
+  the target fn as a `FnPill`; it opens a panel with the firing's summary, args and status, and links to the schedule,
+  the target fn's page and the run page. A filter picks schedules; a "Paused" badge marks paused ones, whose coming
+  firings are drawn faded.
 - **`/s/schedule/item/<schedule>`** (hidden): one schedule. What it runs and when in words, its zone ("New York time"
-  when it isn't the viewer's), the next firings, its history (paged), and Pause, Resume, Run now, Skip (from a coming
+  when it isn't the viewer's), when it notifies, the next firings, its history (paged, `?tab=history`, each row with
+  its summary and a link to its run; `?firing=<key>` opens one), and Pause, Resume, Run now, Skip (from a coming
   firing's menu) and Remove. **Edit** opens the form: the fn (search), when (presets built from dayspan's patterns:
   once, every day, weekdays, every week on…, every other week, the Nth weekday of the month, the last day of the
   month; or custom rules; a list of times; the zone), the args (the target's args type in the app's `ValueEditor` for
-  fixed values, the `compute` words with three previews for computed ones), where results go, overlap and missed
-  firings under "More". Saving runs `schedule/change` as the person through `host.runs`, so approvals and undo are the
-  same as in a chat.
+  fixed values, the `compute` words with three previews for computed ones), "Notify me" (every run, only when it
+  fails, never), and overlap and missed firings under "More". Saving runs `schedule/change` as the person through
+  `host.runs`, so approvals and undo are the same as in a chat.
 - **`/s/schedule/all`** (access `admin`): every schedule on the hub, by owner, with pause, so an admin can see and stop
   anything that runs by itself.
+- **The run page** of a firing is the hub's (`/run/<run>`); the schedule kind's result renderer adds a header there
+  (the schedule's name, "planned for Mon 9:00, ran 2 min late", a link to its history) above the target's own result.
 - **Mobile.** Agenda is the default under 640 px. The month grid shows a dot per firing and opens that day's agenda
   on tap; the week view scrolls one day at a time. The edit form is one column. Everything is drawn with the app's
   shared components (`Frame`, `Button`, `Select`, `Dialog`, `Badge`, `FnPill`, `ValueEditor`, `Markdown`, `Empty`,
   `LoadState`, `Skeleton`); only the calendar grid is the system's own component. If a second system wants a calendar
   (google-calendar), the grid moves into the app's shared components.
 - **Result renderer.** `schedule/add`, `change` and `list` results are drawn by the system's renderer (the schedule in
-  words, the next firings, a link to its page), in the chat and on any page that shows the run.
+  words, the next firings, when it notifies, a link to its page), in the chat and on any page that shows the run.
 
-## Types first
+## Types (final, for approval)
 
-What follows is for Phil's approval. The core shapes go to `packages/core/src/schedules.ts` as zod after approval; the
-contract is `systems/schedule/shared/index.ts`; the hub additions are in `packages/sdk/src/ctx.ts` and `core/inject.ts`.
+One source for each type. The schedule's own shapes are zod in `systems/schedule/shared/types.ts` (the hub never needs
+them, so they stay out of core); the contract makes them gin with `ginAs`, and TypeScript types are `z.infer`, never
+written twice. Everything that points at something the code declares (a fn, a kind, a page, a context item) is a ref.
+The hub's generic additions go in `packages/core` (records, notifications, inject, grants) and `packages/sdk/src/ctx.ts`.
 
-### Core shapes
+### Core shapes (systems/schedule/shared/types.ts)
 
 ```ts
+import { z } from 'zod';
+import { ActorId, GinExprDef, Json, QualifiedName, RunId, Timestamp, Usd } from '@harness/core';
+
 /** A local day, `YYYY-MM-DD`, read in the schedule's zone. */
-export type LocalDay = string;
+export const LocalDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).brand<'LocalDay'>();
 /** A time of day, `HH:mm` (24-hour). */
-export type ClockTime = string;
-/** One firing of a timed schedule (`2026-12-24T18:00`) or a whole day (`2026-12-25`), as dayspan's exclude/include take it. */
-export type OccurrenceKey = string;
+export const ClockTime = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).brand<'ClockTime'>();
+/** One firing: a whole day (`2026-12-25`) or one time of a timed schedule (`2026-12-24T18:00`), as dayspan's exclude/include take it. */
+export const OccurrenceKey = z.string().regex(/^\d{4}-\d{2}-\d{2}(T([01]\d|2[0-3]):[0-5]\d)?$/).brand<'OccurrenceKey'>();
+/** An IANA time zone (`America/New_York`), checked with Intl. */
+export const Zone = z.string().refine(isIanaZone, 'an IANA time zone, such as America/New_York').brand<'Zone'>();
+export const Every = z.object({ every: z.number().int().min(1), offset: z.number().int().min(0).optional() }).strict();
 
-/** When: dayspan's ScheduleInput as stored (Oryoli's strict subset), read in the schedule's zone. */
-export interface When {
-  on?: LocalDay;                      // a one-off
-  start?: LocalDay;
-  end?: LocalDay;
-  maxOccurrences?: number;            // needs start
-  dayOfWeek?: number[];               // 0 = Sunday … 6 = Saturday
-  dayOfMonth?: number[];
-  lastDayOfMonth?: number[];          // 1 = the last day
-  weekspanOfMonth?: number[];         // 0 = days 1–7 ("the 1st Tuesday")
-  lastWeekspanOfMonth?: number[];     // 0 = the last 7 days ("the last Friday")
-  weekOfMonth?: number[];
-  weekOfYear?: number[];
-  month?: number[];                   // 0 = January
-  year?: number[] | Every;
-  daysSinceEpoch?: Every;             // every N days from start
-  weeksSinceEpoch?: Every;
-  monthsSinceEpoch?: Every;
-  times?: ClockTime[];                // each is a firing; none = one at 00:00
-  exclude?: OccurrenceKey[];          // skipped firings
-  include?: OccurrenceKey[];          // extra firings
-}
-export interface Every { every: number; offset?: number }
+const days = (min: number, max: number) => z.array(z.number().int().min(min).max(max)).min(1).optional();
 
-/** Where a firing's result goes. */
-export interface Delivery {
-  chat: 'own' | 'none';
-  notify: 'always' | 'failed' | 'never';
-}
+/**
+ * When: dayspan's ScheduleInput as stored (Oryoli's strict subset), read in the schedule's zone. Checked: `on` or day
+ * rules, not both; `maxOccurrences` needs `start`; `start` ≤ `end`; times unique and at least `minGap` apart (config).
+ */
+export const When = z.object({
+  on: LocalDay.optional(),                         // a one-off
+  start: LocalDay.optional(),
+  end: LocalDay.optional(),
+  maxOccurrences: z.number().int().min(1).optional(),
+  dayOfWeek: days(0, 6),                           // 0 = Sunday … 6 = Saturday
+  dayOfMonth: days(1, 31),
+  lastDayOfMonth: days(1, 31),                     // 1 = the last day
+  weekspanOfMonth: days(0, 4),                     // 0 = days 1–7 ("the 1st Tuesday")
+  lastWeekspanOfMonth: days(0, 4),                 // 0 = the last 7 days ("the last Friday")
+  weekOfMonth: days(0, 5),
+  weekOfYear: days(1, 53),
+  month: days(0, 11),                              // 0 = January
+  year: z.union([z.array(z.number().int()).min(1), Every]).optional(),
+  daysSinceEpoch: Every.optional(),                // every N days from start
+  weeksSinceEpoch: Every.optional(),
+  monthsSinceEpoch: Every.optional(),
+  times: z.array(ClockTime).optional(),            // each is a firing; none = one at 00:00
+  exclude: z.array(OccurrenceKey).optional(),      // skipped firings
+  include: z.array(OccurrenceKey).optional(),      // extra firings
+}).strict().superRefine(whenProblems);
+export type When = z.infer<typeof When>;
+
+/** Which settled firings the owner is told about. */
+export const Notify = z.enum(['always', 'failed', 'never']);
+/** A firing due while the last one still runs. */
+export const Overlap = z.enum(['skip', 'queue', 'replace']);
+/** Firings that couldn't start on time. */
+export const Missed = z.enum(['latest', 'none']);
 
 /** A schedule: the payload of a `schedule/schedule` fn. */
-export interface SchedulePayload {
-  fn: QualifiedName;
-  when: When;
-  zone: string;                       // IANA
-  /** A gin program over `fire` and `previous` whose result is `fn`'s args (a literal for fixed args). */
-  args: GinExprDef;
+export const SchedulePayload = z.object({
+  /** The fn it runs (stored data, so a name; the kind's `describe` turns it into the schedule's one dep). */
+  fn: QualifiedName,
+  when: When,
+  zone: Zone,
+  /** A gin program over `fire` and `previous` whose result is `fn`'s args (a literal for fixed args). Checked against `fn`'s args type. */
+  args: GinExprDef,
   /** The words `args` was written from, when it computes anything. */
-  argsAsked?: string;
-  deliver: Delivery;
-  overlap: 'skip' | 'queue' | 'replace';
-  missed: 'latest' | 'none';
-  maxSpend?: Usd;
-  paused?: { at: Timestamp; by: ActorId; until?: LocalDay };
-}
+  argsAsked: z.string().min(1).optional(),
+  notify: Notify.default('always'),
+  overlap: Overlap.default('skip'),
+  missed: Missed.default('latest'),
+  maxSpend: Usd.positive().optional(),
+  paused: z.object({ at: Timestamp, by: ActorId, until: LocalDay.optional() }).strict().optional(),
+}).strict();
+export type SchedulePayload = z.infer<typeof SchedulePayload>;
 
 /** What the args program reads as `fire`. */
-export interface Fire {
-  at: Timestamp;                      // the instant it was planned for
-  local: string;                      // that instant in the zone, with its offset: 2026-11-30T09:00:00-05:00
-  day: LocalDay;
-  time?: ClockTime;
-  zone: string;
-  count: number;                      // firings before this one
-  late: number;                       // ms after `at` that it started
-  manual: boolean;                    // run now
-}
+export const Fire = z.object({
+  at: Timestamp,                                   // the instant it was planned for
+  local: z.string(),                               // that instant in the zone, with its offset: 2026-11-30T09:00:00-05:00
+  day: LocalDay,
+  time: ClockTime.optional(),
+  zone: Zone,
+  count: z.number().int().min(0),                  // firings before this one
+  late: z.number().int().min(0),                   // ms after `at` that it started
+  manual: z.boolean(),                             // run now
+});
+export type Fire = z.infer<typeof Fire>;
 
-/** What it reads as `previous` (R: the target fn's result). */
-export interface PreviousFiring<R> { at: Timestamp; status: 'ran' | 'failed'; result?: R }
+/** What it reads as `previous`. `result` is Json here; the authoring step's scope types it as the target fn's result. */
+export const PreviousFiring = z.object({ at: Timestamp, status: z.enum(['ran', 'failed']), result: Json.optional() });
+export type PreviousFiring = z.infer<typeof PreviousFiring>;
 
-export type FiringStatus =
-  | 'running' | 'waiting'             // started; waiting = for approval or a budget window
-  | 'ran' | 'failed' | 'cancelled'    // its run settled
-  | 'skipped'                         // overlap: the last one was still running
-  | 'missed'                          // couldn't start in time
-  | 'refused'                         // the hub refused, or approval was needed and the admin says refuse
-  | 'expired';                        // waited for approval past the next firing
+export const FiringStatus = z.enum([
+  'running', 'waiting',                            // started; waiting = for approval or a budget window
+  'ran', 'failed', 'cancelled',                    // its run settled
+  'skipped',                                       // overlap: the last one was still running
+  'missed',                                        // couldn't start in time
+  'refused',                                       // the hub refused, or approval was needed and the admin says refuse
+  'expired',                                       // waited for approval past the next firing
+]);
+export type FiringStatus = z.infer<typeof FiringStatus>;
 
 /** A `schedule/Firing` record (owned by the schedule's owner): one firing that was due. */
-export interface Firing {
-  schedule: QualifiedName;
-  version: string;
-  at: Timestamp;                      // planned
-  day: LocalDay;
-  time?: ClockTime;
-  manual: boolean;
-  status: FiringStatus;
-  run?: RunId;
-  turn?: TurnId;
-  chat?: SessionId;
-  args?: Json;
-  startedAt?: Timestamp;
-  endedAt?: Timestamp;
-  cost?: Usd;
-  /** In words, for skipped, missed, refused and expired ("the 9:00 run was still going"). */
-  reason?: string;
-}
+export const FiringShape = z.object({
+  schedule: QualifiedName,
+  version: z.string(),
+  at: Timestamp,                                   // planned
+  key: OccurrenceKey,                              // the firing within the schedule: its day, or day and time
+  manual: z.boolean(),
+  status: FiringStatus,
+  run: RunId.optional(),                           // absent for skipped, missed, refused before a run
+  args: Json.optional(),
+  startedAt: Timestamp.optional(),
+  endedAt: Timestamp.optional(),
+  cost: Usd.optional(),
+  /** The one line the owner was (or would have been) told: the result's summary, or the reason in words. */
+  summary: z.string().max(160).optional(),
+  /** Whether the owner was notified of this firing. */
+  notified: z.boolean(),
+}).strict();
+export type FiringShape = z.infer<typeof FiringShape>;
 
 /** A schedule as the chat's results and the page show it. */
-export interface ScheduleView {
-  schedule: QualifiedName;
-  fn: QualifiedName;
-  says: string;                       // "Every Monday at 9:00 am, New York time"
-  zone: string;
-  next: { at: Timestamp; local: string }[];
-  firstArgs?: Json;                   // the next firing's args
-  paused?: { until?: LocalDay };
-  last?: Pick<Firing, 'at' | 'status' | 'run'>;
-}
+export const ScheduleView = z.object({
+  schedule: QualifiedName,
+  fn: QualifiedName,
+  says: z.string(),                                // "Every Monday at 9:00 am, New York time"
+  zone: Zone,
+  notify: Notify,
+  next: z.array(z.object({ at: Timestamp, local: z.string() })),
+  firstArgs: Json.optional(),                      // the next firing's args
+  paused: z.object({ until: LocalDay.optional() }).optional(),
+  last: FiringShape.pick({ at: true, status: true, run: true, summary: true }).optional(),
+});
+export type ScheduleView = z.infer<typeof ScheduleView>;
 ```
 
-### The contract
+`day` and `time` are gone from the record: `key` holds both (`2026-11-30T09:00`), and `fire` gives them to the program.
+
+### The contract (systems/schedule/shared/index.ts)
 
 ```ts
-// systems/schedule/shared/index.ts
+import { agents, context, fn, g, ginAs, hub, json, kind, system, type } from '@harness/sdk';
+import { FiringShape, FiringStatus, Missed, Notify, Overlap, SchedulePayload, ScheduleView, When, Zone, LocalDay, ClockTime } from './types.ts';
+
 export const Limits = g.obj({
   minGap: g.field(g.duration(), { docs: 'The shortest gap between two firings of one schedule.' }),       // 15 min
   perPerson: g.field(g.num(), { docs: 'Schedules one person may have.' }),                                 // 50
@@ -384,19 +471,36 @@ export const Limits = g.obj({
   keep: g.obj({ perSchedule: g.num(), days: g.num() }),                                                    // 500, 180
 });
 
+/** What schedule/add is asked; change takes the same, all optional, plus `schedule`. */
+const Settings = {
+  when: g.field(ginAs(When), { docs: 'When it runs, in the dayspan form: `on` for once, or day rules with `times`.' }),
+  args: g.field(g.optional(json()), { docs: 'Fixed args for the fn, checked against its args.' }),
+  compute: g.field(g.optional(g.text({ minLength: 1 })), { docs: 'Args that change with each run, in plain words.' }),
+  name: g.field(g.optional(g.text({ minLength: 1 })), { docs: 'What it does, for its fn name and title.' }),
+  zone: g.field(g.optional(ginAs(Zone)), { docs: 'The time zone; the person\'s when left out.' }),
+  notify: g.field(g.optional(ginAs(Notify)), { docs: 'When the person is notified of a run: always (default), failed, never.' }),
+  overlap: g.field(g.optional(ginAs(Overlap)), { docs: 'A run due while the last still runs: skip (default), queue, replace.' }),
+  missed: g.field(g.optional(ginAs(Missed)), { docs: 'Runs missed while the hub was down: latest (default), none.' }),
+  maxSpend: g.field(g.optional(g.num({ min: 0 })), { docs: 'The most one run may spend, in USD.' }),
+};
+export const AddArgs = g.obj({ fn: g.field(g.fnName(), { docs: 'The fn to run, as your tools spell it.' }), ...Settings });
+export const ChangeArgs = g.obj({ schedule: g.fnName(), fn: g.optional(g.fnName()), ...partialOf(Settings) });
+export const ScheduleArg = g.obj({ schedule: g.fnName() });
+export const View = ginAs(ScheduleView);
+
 export const Firing = type({
-  description: 'One firing of a schedule that was due: when, its status, its run and chat.',
+  description: 'One firing of a schedule that was due: when, its status, its summary and its run.',
   shape: ginAs(FiringShape),
-  display: { label: 'Firing', plural: 'Firings', icon: 'clock', title: 'schedule', subtitle: 'status' },
-  records: { shape: 'table', owner: 'person', search: { text: ['schedule', 'reason'], embed: false } },
+  display: { label: 'Firing', plural: 'Firings', icon: 'clock', title: 'schedule', subtitle: 'summary' },
+  records: { shape: 'table', owner: 'person', search: { text: ['schedule', 'summary'], embed: false } },
 });
 
 export const schedule = system('schedule', {
-  description: 'Runs fns later by themselves, once or repeating, as the person who scheduled them.',
+  description: 'Runs fns later by themselves, once or repeating, as the person who scheduled them, and notifies them how each run went.',
   about: '…',                                       // what it is for, its kind, its fns, when to reach for it
   groups: [{ name: 'schedules', title: 'Schedules', description: 'Add, change, pause and remove scheduled runs of fns.' }],
-  // it starts its own kind's fns as their owners, opens their chats, keeps firings as records, writes computed args
-  grants: { hub: ['runs', 'chats', 'data', 'fns', 'search', 'ai'], calls: [hub.fns.fns_get.name, hub.fns.fns_save.name, 'hub/fns_remove'] },   // fns_remove is new (hub side, 6)
+  // it starts its own kind's fns as their owners and notifies them, keeps firings as records, writes computed args
+  grants: { hub: ['runs', 'data', 'fns', 'search', 'ai'], calls: [hub.fns.fns_get.name, hub.fns.fns_save.name, hub.fns.fns_remove.name] },
   pages: [
     { segment: 'calendar', title: 'Schedule', description: 'Your scheduled runs on a calendar.', icon: 'calendar', nav: 'main', component: 'CalendarPage' },
     { segment: 'item', title: 'Schedule', nav: 'hidden', component: 'SchedulePage' },
@@ -408,7 +512,7 @@ export const schedule = system('schedule', {
     types: { Firing },
     kinds: {
       schedule: kind({
-        description: 'A schedule: runs one fn later by itself, at the times its dayspan schedule gives, as its owner. Calling it by name runs it now.',
+        description: 'A schedule: runs one fn later by itself, at the times its dayspan schedule gives, as its owner, who is notified how it went. Calling it by name runs it now.',
         applicability: 'Something the person wants done at a time or on a repeating schedule, made by schedule/add.',
         payload: ginAs(SchedulePayload),
         approveChanges: false,
@@ -418,27 +522,28 @@ export const schedule = system('schedule', {
     fns: {
       add: fn({
         group: 'schedules',
-        description: 'Schedule a fn to run later by itself, once or repeating, as the person; gives the schedule, when it runs in words and its next times.',
-        args: AddArgs,                        // { fn, when, args?, compute?, name?, zone?, deliver?, overlap?, missed?, maxSpend? }
-        returns: View,                        // ScheduleView
+        description: 'Schedule a fn to run later by itself, once or repeating, as the person; gives the schedule, when it runs in words, its next times and when the person is notified.',
+        args: AddArgs,
+        returns: View,
         deps: { getFn: hub.fns.fns_get, saveFn: hub.fns.fns_save },
-        undo: g.obj({ schedule: g.fnName() }),
+        undo: ScheduleArg,
         effects: { mode: 'write', registry: [{ thing: 'fns', action: 'create', kind: SCHEDULE_KIND }] },
         examples: [
           { args: { fn: 'database/main.sales_by_week', when: { dayOfWeek: [1], times: ['09:00'] }, compute: 'week_start: the firing\'s day minus 7 days' }, note: 'Every Monday at 9:00, the week before.' },
           { args: { fn: 'schedule/remind', when: { on: '2026-12-01', times: ['08:30'] }, args: { text: 'Renew the car registration.' } }, note: 'A one-off reminder.' },
+          { args: { fn: 'fs/nightly_backup', when: { dayOfWeek: [0, 1, 2, 3, 4, 5, 6], times: ['02:00'] }, notify: 'failed' }, note: 'Every night; tell me only when it fails.' },
         ],
       }),
-      change: fn({ group: 'schedules', /* { schedule: g.fnName(), …add's fields, all optional } → View; undo: the version before */ }),
-      list:   fn({ group: 'schedules', /* { fn?, search?, paused? } → { items: View[], cursor? }; read, free */ }),
-      pause:  fn({ group: 'schedules', /* { schedule, until? } → View; undo */ }),
-      resume: fn({ group: 'schedules', /* { schedule } → View; undo */ }),
-      skip:   fn({ group: 'schedules', /* { schedule, day, time? } → View; undo */ }),
-      remove: fn({ group: 'schedules', /* { schedule } → { removed: g.fnName() }; undo: restore the last version */ }),
-      history: fn({ group: 'schedules', /* { schedule?, from?, to?, status? } → { items: FiringShape[], cursor? }; read, free */ }),
+      change: fn({ group: 'schedules', args: ChangeArgs, returns: View, deps: { getFn: hub.fns.fns_get, saveFn: hub.fns.fns_save }, undo: /* the version before */ … }),
+      list:   fn({ group: 'schedules', args: g.obj({ fn: g.optional(g.fnName()), search: g.optional(g.text()), paused: g.optional(g.bool()) }), returns: g.obj({ items: g.list(View), cursor: g.optional(g.text()) }), effects: { mode: 'read', free: true } }),
+      pause:  fn({ group: 'schedules', args: g.obj({ schedule: g.fnName(), until: g.optional(ginAs(LocalDay)) }), returns: View, /* undo */ }),
+      resume: fn({ group: 'schedules', args: ScheduleArg, returns: View, /* undo */ }),
+      skip:   fn({ group: 'schedules', args: g.obj({ schedule: g.fnName(), day: ginAs(LocalDay), time: g.optional(ginAs(ClockTime)) }), returns: View, /* undo */ }),
+      remove: fn({ group: 'schedules', args: ScheduleArg, returns: g.obj({ removed: g.fnName() }), deps: { removeFn: hub.fns.fns_remove }, /* undo: restore the last version */ }),
+      history: fn({ group: 'schedules', args: g.obj({ schedule: g.optional(g.fnName()), from: g.optional(g.timestamp()), to: g.optional(g.timestamp()), status: g.optional(ginAs(FiringStatus)) }), returns: g.obj({ items: g.list(Firing), cursor: g.optional(g.text()) }), effects: { mode: 'read', free: true } }),
       remind: fn({
         description: 'Notify the person with a short text (their phone and inbox). Made to be scheduled.',
-        args: g.obj({ text: g.text({ minLength: 1 }) }),
+        args: g.obj({ text: g.text({ minLength: 1, maxLength: 160 }) }),
         returns: g.obj({ sent: g.bool() }),
         effects: { mode: 'read', free: true },
         examples: [{ args: { text: 'Take the bins out.' } }],
@@ -447,98 +552,173 @@ export const schedule = system('schedule', {
   })
   .with(({ fns }) => ({
     context: {
-      guide: context({ description: 'How to schedule fns: when, args that change per run, where results go.', content: '…', fns: [fns.add, fns.list] }),
+      guide: context({ description: 'How to schedule fns: when, args that change per run, notifications.', content: '…', fns: [fns.add, fns.list] }),
       basics: context({
         title: 'Scheduled runs',
-        description: 'That fns can run later by themselves, and how to schedule one.',
-        summary: '…',                      // as above
+        description: 'That fns can run later by themselves, how to schedule one, and that results come as notifications.',
+        summary: '…',                      // as above, with ${fns.add} refs
         content: '…',                      // the item above
         fns: [fns.add, fns.list],
-        requires: [fns.change, fns.pause, fns.resume, fns.skip, fns.remove, fns.remind],
+        requires: [fns.change, fns.pause, fns.resume, fns.skip, fns.remove, fns.history, fns.remind],
         inject: { into: [agents.startingWith(hub.fns.chat)], order: 30, replaces: [hub.context.later] },
       }),
     },
   }));
+
+// refs this exports, used below: schedule.kinds.schedule, schedule.fns.*, schedule.types.Firing,
+// schedule.page.calendar, schedule.page.item, schedule.page.all, schedule.context.basics
 ```
 
-### The server
+### The server (shape only)
 
 ```ts
-// systems/schedule/server/impl.ts (shape only)
+// systems/schedule/server/impl.ts
 export function createScheduleImpl(deps: { timer: Timer }): SystemImpl<ScheduleContract['defs']> {
   return {
     kinds: {
       schedule: {
-        check: (payload, ctx) => payloadProblems(SchedulePayload.parse(payload), ctx),   // when parses, gaps ≥ minGap, args checks against fn's args
-        describe: (payload, ctx) => describeSchedule(SchedulePayload.parse(payload), ctx), // args: { at?: Timestamp }, returns: fn's result, deps: [fn]
+        check: (payload, ctx) => payloadProblems(payload, ctx),     // payload arrives parsed (SchedulePayload); gaps ≥ minGap, args checks against fn's args
+        describe: (payload, ctx) => describeSchedule(payload, ctx), // args: { at?: Timestamp }, returns: fn's result, deps: [fn]
         async run(payload, args, ctx) {
-          const spec = SchedulePayload.parse(payload);
-          const fire = fireOf(spec, args.at ?? ctx.run.time.now, { manual: args.at === undefined, started: ctx.run.time.now });
-          const input = await runArgsProgram(spec, { fire, previous: await deps.timer.previous(ctx.run.fn) }, ctx);
-          const settled = await ctx.call(spec.fn, input);           // the target, as the owner's child run
-          await deliver(spec.deliver, settled, ctx);                // ctx.notify when it says so
-          return settled.status === 'done' ? ctx.done(settled.result) : ctx.fail('caller', failedText(spec.fn, settled));
+          const fire = fireOf(payload, args.at ?? ctx.run.time.now, { manual: args.at === undefined, started: ctx.run.time.now });
+          const input = await runArgsProgram(payload, { fire, previous: await deps.timer.previous(ctx.run.fn) }, ctx);
+          const settled = await ctx.call(payload.fn, input);           // the target, as the owner's child run
+          return settled.status === 'done' ? ctx.done(settled.result) : ctx.fail('caller', failedText(payload.fn, settled));
         },
       },
     },
     fns: { add, change, list, pause, resume, skip, remove, history, remind: { run: async (args, ctx) => { await ctx.notify({ title: 'Reminder', body: args.text }); return ctx.done({ sent: true }); } } },
-    events: { fns: (event, ctx) => deps.timer.replan(event, ctx), run: (event, ctx) => deps.timer.follow(event, ctx) },
+    events: { fns: (event, ctx) => deps.timer.replan(event, ctx), run: (event, ctx) => deps.timer.settled(event, ctx) },
     lifecycle: { started: (ctx) => deps.timer.reconcile(ctx), stopping: (ctx) => deps.timer.stop(ctx) },
   };
 }
 
-// a due firing, on the timer's @ayepi/work queue:
-await ctx.runs.start(schedule.fn, {
+// a due firing, on the timer's @ayepi/work queue (`due.schedule` is a KindFn from ctx.runs.kindFns(schedule.kinds.schedule)):
+const started = await ctx.runs.start(due.schedule, {
   args: { at: due.at },
-  key: `schedule:${schedule.fn}@${due.at}`,
-  chat: spec.deliver.chat === 'own' ? await ctx.chats.open({ for: schedule.owner, key: schedule.fn, title: schedule.title, about: schedule.fn }) : undefined,
+  key: `schedule:${due.schedule.fn}@${due.at}`,
   priority: 'background',
-  maxSpend: spec.maxSpend,
+  maxSpend: due.schedule.payload.maxSpend,
 });
+
+// when it settles (events.run, `notified` from the hub) or never became a run (missed, refused):
+const firing = await deps.timer.record(due, settled);              // the schedule/Firing record, with its summary line
+if (tells(due.schedule.payload.notify, firing, settled?.notified)) {
+  await ctx.runs.notify(due.schedule, {
+    title: titleOf(due.schedule, firing),                            // "Weekly sales summary ran"
+    body: firing.summary,                                            // summaryLine(): the rules above, no model
+    tone: firing.status === 'ran' ? 'ok' : 'failed',
+    link: firing.run !== undefined ? { run: firing.run } : { page: schedule.page.item, path: [localOf(due.schedule.fn)], query: { firing: firing.key } },
+    also: { label: 'History', link: { page: schedule.page.item, path: [localOf(due.schedule.fn)], query: { tab: 'history' } } },
+    key: `schedule:${due.schedule.fn}`,
+  });
+}
 ```
 
-### The hub additions to the SDK
+### The hub's generic additions
 
 ```ts
+// packages/sdk/src/refs.ts
+/** A typed handle to one of a system's pages (`schedule.page.item`): links to pages are refs, never segment strings. */
+export interface PageRef<N extends QualifiedName> {
+  readonly ref: 'page';
+  readonly name: N;                               // `schedule/item`: the system and the page's segment
+}
+export type AnyPageRef = PageRef<QualifiedName>;
+// a contract gains `page`: one PageRef per declared page, keyed by segment (`schedule.page.calendar`, `.item`, `.all`)
+
 // packages/sdk/src/ctx.ts
-export interface SystemCtx<Cfg> {
+/** What a ctx knows of its own contract: refs of another system's kinds and pages don't fit where only its own do. */
+export interface Own<K extends AnyKindRef = AnyKindRef, P extends AnyPageRef = AnyPageRef> {
+  readonly kinds: K;
+  readonly pages: P;
+}
+// SystemImpl<Defs> types every ctx it hands out with Own<its kind refs, its page refs>.
+
+export interface SystemCtx<Cfg = unknown, O extends Own = Own> {
   /** Needs the `runs` grant. */
-  readonly runs: KindRuns;
-  /** Needs the `chats` grant. */
-  readonly chats: OwnerChats;
+  readonly runs: KindRuns<O>;
 }
 
-/** Runs of this system's own kinds' fns, started by the system itself as each fn's owner (a firing). */
-export interface KindRuns {
+/** Runs of this system's own kinds' fns, started by the system itself as each fn's owner, and notices to those owners. */
+export interface KindRuns<O extends Own> {
+  /** The fns of one of this system's kinds, with owner, title, version and parsed payload, a page at a time. */
+  kindFns<K extends O['kinds']>(kind: K, query?: { changedSince?: Timestamp; cursor?: string }): Promise<{ items: KindFn<K>[]; cursor?: string }>;
   /**
-   * Start a run of a fn of one of this system's kinds, as its owner, outside any run. Refused (with the reason) unless
-   * the owner can still use the hub, the system is live and the owner may run it. The same `key` is the same run.
+   * Start a run of the fn, as its owner, outside any run and any chat (a sessionless turn). Refused (with the reason)
+   * unless the owner can still use the hub, the system is live and the owner may run it. The same `key` is the same run.
    */
-  start(fn: QualifiedName, options: StartAsOwner): Promise<StartedRun>;
-  /** The fns of this system's kinds, with owner, version and payload, a page at a time. */
-  kindFns(query: { kind: KindRef; changedSince?: Timestamp; cursor?: string }): Promise<{ items: KindFn[]; cursor?: string }>;
+  start(fn: KindFn<O['kinds']>, options: StartAsOwner): Promise<StartedRun>;
+  /** Notify the fn's owner (inbox and push), never anyone else. */
+  notify(fn: KindFn<O['kinds']>, notice: Notice<O>): Promise<void>;
 }
+
+/** A fn of one of this system's kinds, as the hub lists it. Only `kindFns` makes one (branded), so it can't be built by hand. */
+export interface KindFn<K extends AnyKindRef> {
+  readonly [kindFnBrand]: K['name'];
+  readonly fn: QualifiedName;
+  readonly kind: K['name'];
+  readonly owner: ActorId;
+  readonly title: string;
+  readonly version: string;
+  readonly payload: PayloadOf<K>;                 // parsed by the kind's payload type
+  readonly removed: boolean;
+  readonly updatedAt: Timestamp;
+}
+
 export interface StartAsOwner {
+  /** Checked by the hub against the args the kind's `describe` gives the fn. */
   args: Json;
+  /** Required: the same key is the same run. */
   key: string;
-  /** A chat of the owner's (`chats.open`): the run is an invocation turn there. Absent: a turn outside any chat. */
-  chat?: SessionId;
-  priority?: 'background' | 'interactive';   // default background
+  priority?: 'background' | 'interactive';       // default background
   /** Lowers the turn's per-turn budget. */
   maxSpend?: Usd;
 }
-export interface StartedRun { run: RunId; turn: TurnId; status: RunStatus }
-export interface KindFn { fn: QualifiedName; kind: FnKindName; owner: ActorId; version: string; payload: Json; removed?: boolean; updatedAt: Timestamp }
+export interface StartedRun { readonly run: RunId; readonly turn: TurnId; readonly status: RunStatus }
 
-/** A chat of one person's that this system keeps for one of its fns. */
-export interface OwnerChats {
-  /** Open (or find, by `key`) the chat; the person sees it in their list. Refused unless `about` is this system's kind's fn owned by `for`. */
-  open(options: { for: ActorId; key: string; title: string; about: QualifiedName }): Promise<SessionId>;
+/** A notice to one person: the owner of a kind fn (`runs.notify`) or the person a run is for (`ctx.notify`). */
+export interface Notice<O extends Own = Own> {
+  title: string;
+  /** At most NOTIFICATION_BODY (160) characters; longer is clamped on a word boundary. */
+  body: string;
+  tone?: 'ok' | 'failed' | 'info';                // default info
+  /** Where it leads. Absent: from a run, that run; from `runs.notify`, the system's main page. */
+  link?: NoticeLink<O>;
+  /** A second link, shown as a button and a push action. */
+  also?: { label: string; link: NoticeLink<O> };
+  /** A later notice with the same key replaces this one while it is unread (and is its push tag). */
+  key?: string;
 }
+export type NoticeLink<O extends Own = Own> =
+  | { run: RunId }
+  | { page: O['pages']; path?: readonly string[]; query?: Readonly<Record<string, string>> };
 
-// in a run's ctx (FnCtx):
-/** Notify the person this run is for (push and inbox), never anyone else. */
-notify(notice: { title: string; body: string; link?: { session: SessionId } | { run: RunId } | { page: PageLocation } }): Promise<void>;
+// in a run's ctx (FnCtx<T, Cfg, O>):
+/** Notify the person this run is for (inbox and push), never anyone else. */
+notify(notice: Notice<O>): Promise<void>;
+
+// packages/core/src/records/content.ts
+export const NOTIFICATION_BODY = 160;            // moved from hub/src/chat/turns.ts
+export const NotificationReason = z.enum([/* today's */, 'system-message']);
+export const NotificationLink = z.union([
+  /* today's: session, approval, pairing, run, system */
+  z.object({ page: z.object({ system: SystemName, segment: z.string(), path: z.array(z.string()).optional(), query: z.record(z.string(), z.string()).optional() }) }),
+]);
+export const Notification = z.object({
+  /* today's fields, and: */
+  tone: z.enum(['ok', 'failed', 'info']).optional(),
+  also: z.object({ label: z.string().min(1).max(24), link: NotificationLink }).optional(),
+  key: z.string().max(200).optional(),
+});
+
+// packages/core/src/system-events.ts
+// the `fns` event gains `changed` (a new version of a fn); the settled `run` event gains
+// `notified: boolean` (the run or a child sent its person a notice)
+
+// packages/core/src/grants.ts: HUB_CAPABILITIES gains 'runs' (review flag: "Starts runs on its own, as the owners of its fns, and notifies them")
+// policies: a match gains `via?: QualifiedName` (the fn whose run made the call)
+// hub fns: `hub/fns_remove({ fn })`, the owner's or an admin's, undo restores the last version
 
 // packages/core/src/inject.ts
 export const InjectDecl = z.object({
@@ -549,15 +729,20 @@ export const InjectDecl = z.object({
   /** Context items this one takes the place of: while it is in an agent's section, each is left out (`replaced`). */
   replaces: z.array(QualifiedName).default([]),
 });
+// the SDK's inject input takes refs (`replaces: [hub.context.later]`) and writes their names here
 
-// HubCapability gains 'runs' and 'chats'; NotificationReason gains 'system-message';
-// SystemEvent 'fns' gains `changed`; a policy gains `via` (the fn whose run made the call).
+// packages/web: route `/run/:run` (`links.run(run)`): one run for its own person or an admin;
+// notificationTarget sends a run outside any chat there instead of Admin › Runs
 ```
 
-What the types refuse (added to `types/examples.ts` with the build): `runs.start` of a fn of another system's kind, or
-without a key; `ctx.notify` outside a run (a `SystemCtx` has none); `chats.open` without `about`; a schedule `kind`
-whose payload's `args` is checked against a different fn's args than its `fn`; a `replaces` naming something that is
-not a context item (a build warning, as `fn:` refs that name nothing).
+What doesn't compile (added to `types/examples.ts` with the build): `runs.start`, `runs.notify` or `kindFns` with a fn
+or kind of another system's, or with a fn not listed by `kindFns` (a hand-built object); `runs.start` without a `key`;
+`runs.notify` to anyone but the fn's owner (there is no `to`); `ctx.notify` outside a run (a `SystemCtx` has none); a
+notice linking to another system's page, or to a page by segment string; a `replaces` naming anything but a context
+ref; an `exclude` like `"2026-12-24 18:00"` (OccurrenceKey is branded: values come from `When.parse` or the shared
+helpers); the old `deliver` field or a `chat` option anywhere. What the hub still checks at run time, because it is
+data: a schedule's `args` program against its own `fn`'s args (when saved and when the target changes), and a page
+link's segment against the system's declared pages.
 
 ## Library asks
 
@@ -571,16 +756,17 @@ not a context item (a build warning, as `fn:` refs that name nothing).
 
 | # | Slice | Where | Estimate |
 |---|---|---|---|
-| 1 | Zod for the core shapes, the contract with stub fns, `types/examples.ts` refusals | core, systems/schedule/shared | 0.5 day |
+| 1 | Zod for the schedule's shapes, the contract with stub fns, `types/examples.ts` refusals | systems/schedule/shared | 0.5 day |
 | 2 | dayspan zoned instants (library ask), release, Oryoli switched to it | dayspan, oryoli | 0.5 day |
-| 3 | Hub: `runs.start`, `kindFns`, `chats.open`, `ctx.notify`, `fns.changed`, `hub/fns_remove`, grants `runs`/`chats` with their review flag, policy `via` | hub, sdk, core | 2 days |
+| 3 | Hub: `runs.start`, `kindFns`, `runs.notify`, `ctx.notify`, the notification additions (`page` link, `also`, `tone`, `key` replacing unread, push tag and action), `NOTIFICATION_BODY` in core, the run event's `notified`, `fns.changed`, page refs, `hub/fns_remove`, grant `runs` with its review flag, policy `via` | hub, sdk, core | 2 days |
 | 4 | Hub: `InjectDecl.replaces`, the `replaced` reason in planner and Injected tab, split `limits.md` into `limits` and `later` | hub, core, web | 0.5 day |
-| 5 | System server: the kind (check, describe, run, the args program over `fire`/`previous`), the timer on `@ayepi/work` + SQLite, reconcile, missed, overlap, approvals wait/refuse, Firing records and their pruning | systems/schedule/server | 2 days |
-| 6 | Chat fns, the `compute` authoring step on the program tools, `remind`, the guide and `basics` items, the result renderer | systems/schedule | 1.5 days |
-| 7 | Pages: calendar (month, week, agenda, mobile), one schedule with its edit form, the admin list | systems/schedule/client | 2.5 days |
-| 8 | Tests: zones and daylight saving, missed and overlap, doubled starts, the start gate; a live run of each described flow once (GPT-6 Luna); ui-tests for the pages | all | 1.5 days |
+| 5 | Web: the person's run page `/run/:run` (result, tree, approval card, Undo), notification targets, the inbox's `also` button and tone | web | 1 day |
+| 6 | System server: the kind (check, describe, run, the args program over `fire`/`previous`), the timer on `@ayepi/work` + SQLite, reconcile, missed, overlap, approvals wait/refuse, Firing records and their pruning, the summary line and the notice rules | systems/schedule/server | 2 days |
+| 7 | Chat fns, the `compute` authoring step on the program tools, `remind`, the guide and `basics` items, the result renderers (add/change/list, and the run-page header) | systems/schedule | 1.5 days |
+| 8 | Pages: calendar (month, week, agenda, mobile), one schedule with its history and edit form, the admin list | systems/schedule/client | 2.5 days |
+| 9 | Tests: zones and daylight saving, missed and overlap, doubled starts, the start gate, the summary rules and which firings notify (no double notice with remind, refused once, unread replaced); a live run of each described flow once (GPT-6 Luna); ui-tests for the pages and the run page | all | 1.5 days |
 
-About 11 days of work; 3 and 4 can run beside 5 and 6 once slice 1 is in, and 7 needs only slice 1's shared code.
+About 12 days of work; 3, 4 and 5 can run beside 6 and 7 once slice 1 is in, and 8 needs only slice 1's shared code.
 
 ## Judgement calls (not asked)
 
@@ -591,6 +777,27 @@ About 11 days of work; 3 and 4 can run beside 5 and 6 once slice 1 is in, and 7 
 - Firing records are pruned by the system (500 per schedule, 180 days); runs stay as the hub keeps them.
 - The schedule fn's own args are `{ at?: Timestamp }`: a person or model calling it gets "run now"; only the timer
   passes `at`.
+- The notification summary is worked out by rules from the result (text, table, object, the target's status line),
+  never by a model: free, instant, and it can't say something the result doesn't. A schedule can't yet say in words
+  what its notice should say ("tell me the total"); if wanted, that is a second program in the payload, written by the
+  same authoring step.
+- `notify` stays a per-schedule choice (always, failed, never), default always, with every firing still on the run
+  page and in the history. Skipped and manual firings are never told; refusals are told once per reason; missed ones
+  found together are one notice; a run that already notified (remind) gets no second "ran" notice.
+- A new notice of a schedule replaces its unread earlier one (`key`), so frequent schedules don't flood the inbox.
+- Non-admins had no page for a run outside a chat (Admin › Runs is admin-only), so the hub gains `/run/:run` for the
+  run's own person. It is generic: hub MCP runs use it too.
+- A notification gets one extra link (`also`) rather than a list, which is enough for "the run" and "the history".
+- The schedule's shapes live in the system's `shared/`, not core, because the hub never reads them; the hub's
+  additions are the only core changes.
+- Page refs are `schedule.page.<segment>` (singular `page`), since the contract's `pages` is already the declared
+  list.
+- `runs.start` takes args as JSON checked by the hub, since a kind fn's args come from its kind's `describe`, not from
+  a static declaration; the schedule kind's are always `{ at?: Timestamp }`.
+- Following up on a scheduled result in a chat is not part of this design (there is no chat per schedule). If wanted
+  later, the run page could gain an "Ask about this" button that starts a chat with the run attached.
+- `partialOf` (all of an object's gin fields made optional) is a small `g` helper `ChangeArgs` needs; if gin already
+  has one, that is used instead.
 
 ## Decided (Phil, hitloop set schedule-system-2026-11-23, 2026-11-23, verbatim)
 
