@@ -283,6 +283,39 @@ export function isFnNameDef(def: GinTypeDef): boolean {
   return def.name === 'text' && typeof options === 'object' && options !== null && 'pattern' in options && options.pattern === FN_NAME_PATTERN;
 }
 
+/** A name written the way the model's tools spell names: a system, `__`, then parts joined by `__` (`database__main__expenses`). */
+const UNDERSCORED_NAME = /^([a-z][a-z0-9-]*)__(\S+)$/;
+
+/**
+ * A name that is not a fn's (a type, or a glob over fn names) written as the model may write it, read as the hub keeps
+ * it: a name with a `/` is kept as it is; one in the tools' spelling (`database__main__expenses`, `fs__*`) gets its `/`
+ * and `.`s back by the rule (`database/main.expenses`, `fs/*`); anything else (a bare `expenses`) is left as it is,
+ * for the caller to match.
+ */
+export function slashedName(given: string): string {
+  const name = given.trim();
+  if (name.includes('/')) return name;
+  const match = UNDERSCORED_NAME.exec(name);
+  if (match === null || match[1] === undefined || match[2] === undefined) return name;
+  const parts = match[2].split('__');
+  return parts.some((part) => part === '') ? name : `${match[1]}/${parts.join('.')}`;
+}
+
+/**
+ * A type's name as a filter or an arg takes it: the type's name (`database/main.expenses`), the same in the tools'
+ * spelling (`database__main__expenses`), or a bare name (`expenses`, `main.expenses`), which matches every type whose
+ * name ends in it (`typeMatches`). Types keep their own form when shown (plan `injected-context-2026-11-22`, "fns only").
+ */
+export const TypeNameRef = z.string().min(1).regex(/^\S+$/, 'a type\'s name, with no spaces');
+export type TypeNameRef = z.infer<typeof TypeNameRef>;
+
+/** Whether a type's qualified name is the one a `TypeNameRef` means (read with `slashedName` first). */
+export function typeMatches(type: string, ref: string): boolean {
+  const wanted = slashedName(ref);
+  if (wanted.includes('/')) return type === wanted;
+  return type.endsWith(`/${wanted}`) || type.endsWith(`.${wanted}`);
+}
+
 // ─── The boundary ─────────────────────────────────────────────────────────────
 
 /** The hub fns static mode's tools stand for, by tool: `fn` is the tool's own hub fn, `also` the fns whose jobs it does. */
@@ -539,7 +572,8 @@ function outward(value: Json, type: GinTypeDef | undefined, walker: Walker, dept
   if (value === null || typeof value !== 'object') return value;
   const def = type === undefined || depth > MAX_DEPTH ? undefined : resolved(type, walker);
   if (Array.isArray(value)) return value.map((item, i) => outward(item, def === undefined ? undefined : elementOf(def, i), walker, depth + 1));
-  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, outward(item, def === undefined ? undefined : fieldOf(def, key), walker, depth + 1)]));
+  const shape = def === undefined ? undefined : optionFor(def, value);
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, outward(item, shape === undefined ? undefined : fieldOf(shape, key), walker, depth + 1)]));
 }
 
 /** A value from the model: fn-name fields read back to qualified names; nothing else changes. */
@@ -550,7 +584,8 @@ function inward(value: Json, type: GinTypeDef | undefined, walker: Walker, depth
   if (typeof value === 'string') return isFnNameDef(def) ? walker.fn(value) ?? value : value;
   if (value === null || typeof value !== 'object') return value;
   if (Array.isArray(value)) return value.map((item, i) => inward(item, elementOf(def, i), walker, depth + 1));
-  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, inward(item, fieldOf(def, key), walker, depth + 1)]));
+  const shape = optionFor(def, value);
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, inward(item, fieldOf(shape, key), walker, depth + 1)]));
 }
 
 /** A type without its `optional` and `nullable` wrappers, a named type as its definition (undefined when unknown). */
@@ -571,6 +606,25 @@ function elementOf(def: GinTypeDef, i: number): GinTypeDef | undefined {
   if (def.name === 'tuple') return listOption(def, 'elements')[i];
   if (def.name === 'or' || def.name === 'and') return listOption(def, 'types').find((option) => option.name === 'list' || option.name === 'tuple');
   return undefined;
+}
+
+/**
+ * The option of a union an object value is: the one whose literal fields (a discriminated union's `kind`) all match
+ * the value's, so a field two options share (`name`: a context key in one, a fn's name in another) is read by the
+ * right one. Any other type, or a union no option of which matches by a literal, is returned as it is.
+ */
+function optionFor(def: GinTypeDef, value: { readonly [key: string]: Json }): GinTypeDef {
+  if (def.name !== 'or') return def;
+  for (const option of listOption(def, 'types')) {
+    const literals = Object.entries(option.props ?? {}).filter(([, prop]) => prop.type.name === 'literal');
+    if (literals.length === 0) continue;
+    const fits = literals.every(([key, prop]) => {
+      const options: unknown = prop.type.options;
+      return typeof options === 'object' && options !== null && 'value' in options && options.value === value[key];
+    });
+    if (fits) return option;
+  }
+  return def;
 }
 
 /** The type of an object's field. */

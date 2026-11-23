@@ -17,6 +17,8 @@ const FEATURES: Record<string, { title: string; fns: string[]; requires?: string
   earlier_chats: { title: 'Earlier chats', fns: ['hub/sessions_list', 'hub/session_messages'] },
   asking: { title: 'Asking mid-task', fns: ['hub/ask_user'] },
   attached_files: { title: 'Attached files', fns: ['hub/resource_read', 'hub/resource_send'] },
+  // only while a model that can see images is set up (hub/image_read needs the describe role)
+  images: { title: 'Unseen images', fns: ['hub/image_read'] },
   resources: { title: 'Resources', fns: ['hub/search_resources', 'hub/resource_read'], requires: ['hub/resource_outline', 'hub/resource_send'] },
   saved_fns: { title: 'Saved fns', fns: [], requires: ['hub/fns_search', 'hub/fns_get'] },
   examples: { title: 'Examples', fns: ['hub/fns_examples'] },

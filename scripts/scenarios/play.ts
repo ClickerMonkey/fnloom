@@ -403,7 +403,7 @@ async function readBack(ctx: PlayContext, client: SignedIn, played: Case, data: 
       const run = await client.hub.call('run', { run: node.run.id });
       if (run.toolCallId !== undefined) { toolCalls.add(run.toolCallId); }
       const approval = data.decisions.get(run.id);
-      runs.push({ run: run.id, fn: run.fn, depth, status: run.status, args: clip(JSON.stringify(run.args), 400), outcome: outcomeOf(run), cost: run.cost, ...(approval === undefined ? {} : { approval }) });
+      runs.push({ run: run.id, fn: run.fn, depth, status: run.status, args: clip(JSON.stringify(run.args), 400), outcome: outcomeOf(run), cost: run.cost, ...((run.repairs?.length ?? 0) === 0 ? {} : { repairs: run.repairs?.length ?? 0 }), ...(approval === undefined ? {} : { approval }) });
       const asked = run.fn.startsWith('input/') ? askedOf(run.outcome?.status === 'done' ? run.outcome.result : undefined) : undefined;
       if (asked !== undefined) { forms.push({ type: 'form', run: run.id, title: asked.form.title, fields: fieldAsks(asked.form).map((f) => f.label) }); }
     }

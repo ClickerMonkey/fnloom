@@ -18,6 +18,8 @@ type Protocol = CallProtocol;
 export const RUN_TAG = 'run';
 /** The tag of a result the hub sends back for a `<run>` block. */
 export const RESULT_TAG = 'result';
+/** The tag of the message the hub adds after a call that shows the model a resource (`chat/shown.ts`). */
+export const SHOWN_TAG = 'shown';
 
 /** The longest one-line description shown for a listed item. */
 const LINE_MAX = 160;

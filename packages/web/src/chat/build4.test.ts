@@ -88,7 +88,7 @@ describe('fn validation, shown softly', () => {
   it('says a fn can’t run now without calling it a retry, and a refused result was sent back', () => {
     expect(invalidSummary({ source: 'unavailable', problems: [{ path: '', message: 'Shop is closed' }] })).toBe('Not available now: Shop is closed');
     expect(invalidSummary({ source: 'result', problems: [{ path: '', message: 'Too long' }] })).toMatch(/^Sent back · /);
-    expect(invalidSummary({ source: 'schema', problems: [{ path: 'a', message: 'Required' }] })).toMatch(/^Retried · /);
+    expect(invalidSummary({ source: 'schema', problems: [{ path: 'a', message: 'Required' }] })).toBe('Thinking harder · no bearing on the result');
   });
 
   it('shows a run its output hook stopped as a stop with the reason, not an error', () => {

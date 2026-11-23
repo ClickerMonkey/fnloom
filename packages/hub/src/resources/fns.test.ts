@@ -6,12 +6,13 @@ import { z } from 'zod';
 import type { RunInput } from '../execution/index.ts';
 import { ALICE, executionRig, SESSION, type ExecutionRig } from '../execution/testing.ts';
 import { registerResourceFns, type ReachScope } from './fns.ts';
+import { HubImageQuestions } from './images.ts';
 import type { ResourceServices } from './index.ts';
 import { bytes, resourcesRig, statOf } from './testing.ts';
 
 /** The resource fns this module implements. */
 const NAMES = [
-  'resource_list', 'resource_read', 'ctx_get', 'resource_outline', 'resource_send', 'resource_convert', 'resource_import', 'resource_rename',
+  'resource_list', 'resource_read', 'ctx_get', 'resource_outline', 'resource_send', 'image_read', 'resource_convert', 'resource_import', 'resource_rename',
   'resource_delete', 'ctx_from_resource', 'remember', 'forget',
 ] as const satisfies ReadonlyArray<keyof typeof hub.fns>;
 
@@ -31,6 +32,7 @@ async function started(scope: () => ReachScope | undefined = () => undefined, ac
   const services: ResourceServices = {
     library: resources.library, forms: resources.forms, reader: resources.reader, context: resources.context,
     content: { parts: () => Promise.resolve([{ type: 'text', content: 'the text', name: 'a.md' }]) },
+    images: new HubImageQuestions({ forms: resources.forms, content: resources.content, models: resources.models }),
   };
   for (const name of NAMES) { addHubFn(r, hub.fns[name]); }
   registerResourceFns(r.module.hubFns, { resources: () => services, store: () => r.store, llm: () => ({ models: () => Promise.resolve([]) }), mcpScope: () => Promise.resolve(scope()), access: (actor) => Promise.resolve(access(actor)) });
@@ -80,6 +82,41 @@ describe('the resource hub fns', () => {
     const { r, turn } = await started();
     const settled = await call(r, turn, 'resource_read', { uri: 'not a uri' });
     expect(settled.status).not.toBe('done');
+  });
+});
+
+describe('asking about an image (hub/image_read)', () => {
+  const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 40, 0, 0, 0, 30]);
+
+  it('resolves the id to the image and answers with the vision model, as the person who runs it', async () => {
+    const { r, resources, turn } = await started();
+    const uri = ResourceUri.parse('file://main/sign.png');
+    resources.raw.serve({ stat: statOf(uri, { format: 'image', mime: 'image/png' }), bytes: PNG });
+    const asked = await call(r, turn, 'image_read', { image: uri, question: 'What does it say?' });
+    expect(asked).toEqual({ status: 'done', result: { image: { id: uri, name: 'sign.png' }, answer: 'answer about sign.png: What does it say?', model: 'test/vision' } });
+    expect(resources.models.asked).toMatchObject([{ question: 'What does it say?', name: 'sign.png', who: { actor: ALICE } }]);
+  });
+
+  it('refuses an id that is not an image, one it cannot reach, and any call while no image model is set up', async () => {
+    const mcp: { scope?: ReachScope } = {};
+    const { r, resources, turn } = await started(() => mcp.scope);
+    const doc = ResourceUri.parse('file://main/notes.md');
+    const image = ResourceUri.parse('file://main/private/sign.png');
+    resources.raw.serve({ stat: statOf(doc, { format: 'markdown' }), bytes: bytes('# Notes\n') });
+    resources.raw.serve({ stat: statOf(image, { format: 'image', mime: 'image/png' }), bytes: PNG });
+    const notImage = await call(r, turn, 'image_read', { image: doc, question: 'What is it?' });
+    expect(notImage.status).not.toBe('done');
+    expect(JSON.stringify(notImage)).toContain('not an image');
+    expect((await call(r, turn, 'image_read', { image: 'file://main/gone.png', question: 'What is it?' })).status).not.toBe('done');
+    expect((await call(r, turn, 'image_read', { image, question: '' })).status).not.toBe('done');
+    mcp.scope = { context: new Set(), allowsResource: (uri) => !uri.startsWith('file://main/private') };
+    expect((await call(r, turn, 'image_read', { image, question: 'What is it?' })).status).not.toBe('done');
+    delete mcp.scope;
+    resources.models.off.add('description');
+    const off = await call(r, turn, 'image_read', { image, question: 'What is it, again?' });
+    expect(off.status).not.toBe('done');
+    expect(JSON.stringify(off)).toContain('no image model is set up');
+    expect(resources.models.asked.filter((a) => a.name === 'sign.png')).toHaveLength(1);
   });
 });
 

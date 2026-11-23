@@ -480,8 +480,8 @@ export interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services, Propo
   done(result: T['result'], extra?: { undo?: T['undo']; cost?: Usd }): Outcome<T>;
   /**
    * The args were wrong in a way the fn's types can't say (a path outside the root, an end before the start): the
-   * caller's mistake, not a failure. An agent gets the problems back and tries again; the chat shows the run softly as
-   * "Retried". Give a message, or problems by path (a dotted path into the args, `''` for the whole).
+   * caller's mistake, not a failure. An agent gets the problems back and tries again; the chat shows the run calmly as
+   * "Thinking harder", never as an error. Give a message, or problems by path (a dotted path into the args, `''` for the whole).
    */
   invalid(problems: string | readonly InputProblem[], extra?: { cost?: Usd }): Outcome<T>;
   /**

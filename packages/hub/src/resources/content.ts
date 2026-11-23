@@ -1,7 +1,8 @@
 /**
  * A resource as message content for the model actually chosen (`MessageContent`), per part and never failing:
  *
- * - an image goes as an image part to a model that sees (`vision`), else as its description (made once and kept);
+ * - an image goes as an image part to a model that sees (`vision`), else as an `<image>` block (`images.ts`): its id,
+ *   what is known of it, and how to ask about it with `hub/image_read`;
  * - a pdf goes as a file part to a model that takes files (`files`), else as its text;
  * - audio goes as an audio part to a model that hears (`hearing`), else as its transcript; video likewise
  *   (`videoInput`);
@@ -16,6 +17,7 @@ import { messageOf, type LlmContentPart, type ResourceUri, type SectionKey } fro
 import type { ContentStore } from '../api/index.ts';
 import type { Asking, ContentModel, FormService, MessageContent, ResourceReader } from './index.ts';
 import type { Snapshot } from './forms.ts';
+import { IMAGE_HEAD_BYTES, imageBlock, imageSize } from './images.ts';
 import { familyOfStat } from './rules.ts';
 
 /** The largest raw content sent inline as a data URL (bigger media go as their text form). */
@@ -38,6 +40,11 @@ export interface FormMessageContentOptions {
   readonly reader: Pick<ResourceReader, 'read'>;
   readonly content: ContentStore;
   readonly log: Logger;
+  /**
+   * Whether a vision model is set up to answer questions about an image (`hub/image_read`, the `describe` role), so an
+   * image's block says how to ask about it, or that nobody can. Absent: none is.
+   */
+  readonly answersImages?: () => Promise<boolean>;
 }
 
 /** Message content over the forms service. */
@@ -48,19 +55,22 @@ export class FormMessageContent implements MessageContent {
     this.#o = options;
   }
 
-  async parts(uri: ResourceUri, model: ContentModel, who: Asking, options: { section?: SectionKey } = {}): Promise<LlmContentPart[]> {
+  async parts(uri: ResourceUri, model: ContentModel, who: Asking, options: { section?: SectionKey; source?: string } = {}): Promise<LlmContentPart[]> {
     let record: Snapshot | undefined;
     try {
       record = await this.#o.forms.snapshot(uri, who);
       if (options.section !== undefined) {
         const read = await this.#o.reader.read({ uri, section: options.section }, who);
-        const more = read.truncated ? `\n\n[${read.total - read.text.length} more characters: read the section with hub/resource_read]` : '';
+        const more = read.partial === undefined ? '' : `\n\n[${read.partial}]`;
         return [this.#text(record, `${read.text}${more}`, `${read.form}, ${options.section}`)];
       }
       const family = familyOfStat(record.stat);
       const media = family === 'image' || family === 'audio' || family === 'video' ? MEDIA[family] : undefined;
       if (media !== undefined) {
-        if (model.capabilities.includes(media.capability) && record.raw.size <= INLINE_MAX) { return [await this.#inline(record, media.part)]; }
+        const fits = record.raw.size <= INLINE_MAX;
+        if (model.capabilities.includes(media.capability) && fits) { return [await this.#inline(record, media.part)]; }
+        // an image the model can't take is an <image> block it can ask about (hub/image_read), never a picture or a guess
+        if (family === 'image') { return [await this.#imageBlock(record, options.source, model.capabilities.includes(media.capability) ? 'This image is too large to show here, so it is described by this block instead.' : undefined)]; }
         const form = await this.#o.forms.ensure(uri, media.form, who);
         return [this.#text(record, await this.#o.forms.text(form), media.form)];
       }
@@ -73,6 +83,16 @@ export class FormMessageContent implements MessageContent {
       const what = record?.stat.mime ?? record?.stat.format ?? 'a resource';
       return [{ type: 'text', content: `[${name}: ${what} at ${uri}, which could not be shown here (${messageOf(error)})]`, name }];
     }
+  }
+
+  /** An image as a model that can't see it reads it: its facts, its id and how to ask about it. */
+  async #imageBlock(record: Snapshot, source: string | undefined, reason: string | undefined): Promise<LlmContentPart> {
+    const head = await this.#o.content.read(record.raw, 0, Math.min(record.raw.size, IMAGE_HEAD_BYTES)).catch(() => new Uint8Array());
+    const answerable = await (this.#o.answersImages?.() ?? Promise.resolve(false)).catch(() => false);
+    const content = imageBlock({
+      id: record.uri, name: record.stat.name, mime: record.raw.mime, size: record.raw.size, dimensions: imageSize(head), source, answerable, reason,
+    });
+    return { type: 'text', content, name: record.stat.name };
   }
 
   /** The raw content as a data URL part. */

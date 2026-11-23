@@ -52,18 +52,26 @@ export function fetchSettings(config: WebConfig, settings: WebSettings, render: 
   };
 }
 
+/** What a failed page read adds to its error: nothing from the page is confirmed, and what to do instead. */
+export const READ_FAILED_NOTE = 'The page was not read, so nothing it says is confirmed (a search snippet of it is not either): try the next result, or render: "always" for a page built by scripts.';
+
+/** What a page that read empty says. */
+export const READ_EMPTY_NOTE = 'The page read empty, so nothing it says is confirmed: it may be built by scripts (read it again with render: "always") or have no text; try the next result.';
+
 /**
  * Run fn code, turning a `WebProblem` into a failure of its class with its code, a failed hub call into the same
- * failure, and an abort of the run's own signal into a cancel.
+ * failure, and an abort of the run's own signal into a cancel. `after` is added to a failure's message (what a
+ * failed read means and what to do instead).
  */
-async function attempt<T extends FnTypes>(ctx: Pick<FnCtx<T, WebConfig>, 'fail' | 'cancelled' | 'signal'>, work: () => Promise<Outcome<T>>): Promise<Outcome<T>> {
+async function attempt<T extends FnTypes>(ctx: Pick<FnCtx<T, WebConfig>, 'fail' | 'cancelled' | 'signal'>, work: () => Promise<Outcome<T>>, after?: string): Promise<Outcome<T>> {
+  const said = (message: string): string => (after === undefined ? message : `${message} ${after}`);
   try {
     return await work();
   } catch (error) {
-    if (error instanceof WebProblem) { return ctx.fail(error.errorClass, error.message, { code: error.code }); }
+    if (error instanceof WebProblem) { return ctx.fail(error.errorClass, said(error.message), { code: error.code }); }
     if (error instanceof CallFailed) {
       if (error.error.class === 'cancelled') { return ctx.cancelled(); }
-      return ctx.fail(error.error.class, error.error.message, error.error.code === undefined ? {} : { code: error.error.code });
+      return ctx.fail(error.error.class, said(error.error.message), error.error.code === undefined ? {} : { code: error.error.code });
     }
     if (ctx.signal.aborted) { return ctx.cancelled(); }
     throw error;
@@ -158,8 +166,12 @@ export function createWebImpl(deps: WebDeps): WebServer {
           const finalUrl = source?.finalUrl ?? source?.url ?? url.href;
           const rendered = source?.rendered ?? false;
           ctx.log.info('web.read.done', { url: redactUrl(finalUrl), uri: record.uri, chars: read.text.length, truncated: read.truncated, rendered });
-          return ctx.done({ uri: record.uri, title: record.stat.name, finalUrl, text: read.text, truncated: read.truncated, rendered, fetched: [...page.fetched] });
-        }),
+          const note = read.total === 0 ? READ_EMPTY_NOTE : read.note;
+          return ctx.done({
+            uri: record.uri, title: record.stat.name, finalUrl, text: read.text, truncated: read.truncated, ...(read.partial === undefined ? {} : { partial: read.partial }),
+            ...(note === undefined ? {} : { note }), rendered, fetched: [...page.fetched],
+          });
+        }, READ_FAILED_NOTE),
       },
     },
     mentions: {

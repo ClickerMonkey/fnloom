@@ -31,7 +31,7 @@ const RESOLVE_WINDOW = 200;
 const APPROVAL_END = { approved: 'Approved', denied: 'Denied', expired: 'Timed out' } as const satisfies Record<Exclude<Approval['status'], 'pending'>, string>;
 const HANDLER_END = { answered: 'Answered', failed: 'No longer needed' } as const satisfies Record<Exclude<HandlerCall['status'], 'pending'>, string>;
 const PAIRING_END = { approved: 'Paired', rejected: 'Rejected', expired: 'Expired' } as const satisfies Record<Exclude<PairingRequest['status'], 'pending'>, string>;
-const RUN_END = { done: 'Run finished', 'invalid-input': 'Run retried', failed: 'Run failed', cancelled: 'Run cancelled', undone: 'Run undone' } as const satisfies Record<SettledRunStatus, string>;
+const RUN_END = { done: 'Run finished', 'invalid-input': 'Sent back to the model', failed: 'Run failed', cancelled: 'Run cancelled', undone: 'Run undone' } as const satisfies Record<SettledRunStatus, string>;
 
 /** The action items about a run, which end when it does. */
 const RUN_ITEMS = ['approval-needed', 'input-needed', 'spend-limit'] as const satisfies readonly NotificationReason[];

@@ -87,6 +87,15 @@ export class FakeFormModels implements FormModels {
     await this.gate;
     return { text: `${kind} of ${input.name}`, model: 'test/vision' };
   }
+
+  /** Questions asked about images (`hub/image_read`); refused like the real one while descriptions are off. */
+  readonly asked: Array<{ question: string; name: string; who: Asking }> = [];
+
+  ask(question: string, input: MadeFormInput, who: Asking): Promise<MadeForm> {
+    this.asked.push({ question, name: input.name, who });
+    if (this.off.has('description')) { return Promise.reject(new Error('no image model is set up')); }
+    return Promise.resolve({ text: `answer about ${input.name}: ${question}`, model: 'test/vision' });
+  }
 }
 
 /** A context graph that keeps edges in memory. */

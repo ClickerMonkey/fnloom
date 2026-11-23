@@ -6,11 +6,11 @@ import {
   type DraftMention,
 } from './composer.ts';
 import { clamp, formatBytes, formatCost, formatDuration, formatTokens } from './format.ts';
-import { messageContent, taggedBlocks, treeCalls, treeRuns, treeSize, turnUsage } from './inspect.ts';
+import { messageContent, taggedBlocks, toolCallSlip, treeCalls, treeRuns, treeSize, turnUsage } from './inspect.ts';
 import { isTyping, shortcutFor } from './keys.ts';
 import { agentName, confirmVerb, fnLabel, humanize, localName, lowerFirst, systemOf } from './labels.ts';
 import {
-  applyRunUpdate, argSummary, ASKING_TEXT, drawerRun, INVALID_TEXT, emptyRun, isActive, isBusy, mergeRecord, PHASES, phaseOf, recordIsBehind, runMessage, runShows, progressFraction, repeatsArgs, resultBrief, runElapsed, runDeclined, runError, runResult, runText, shownStatus, statusLine,
+  applyRunUpdate, argSummary, ASKING_TEXT, drawerRun, INVALID_TEXT, emptyRun, isActive, isBusy, mergeRecord, PHASES, phaseOf, recordIsBehind, runMessage, runShows, progressFraction, repeatsArgs, resultBrief, runElapsed, runDeclined, runError, runResult, runText, shownStatus, statusLine, THINKING, THINKING_HARDER_LEAD, lineHasNews, repairedNote, invalidWhat,
 } from './runs.ts';
 import { abilities, contextText, findModels, isFree, priceText, type ModelQuery } from './models.ts';
 import { agentOptions, budgetMeter, messageSuggestions, modelChoiceOf, modelLabel, modelPick, scopeLabel, scoreText, skipText, whoAnswers } from './session.ts';
@@ -138,6 +138,32 @@ describe('runs', () => {
     expect(statusLine([agent], T0)).toEqual({ groups: [], more: 0, lead: 'Thinking…' });
     expect(statusLine([agent, reads[0] ?? agent], T0).groups.map((g) => g.text)).toEqual(['Reading a.md…']);
     expect(statusLine([run({ status: 'paused' })], T0).lead).toBe('Paused');
+  });
+
+  it('says "Thinking harder…" while the model fixes a call that went back to it, never a retry or an error', () => {
+    const agent = run({ id: 'run_agent', fn: 'hub/chat', kind: 'hub/llm', status: 'waiting' });
+    const slip = run({ id: 'run_slip', fn: 'fs/read', status: 'invalid-input', parent: RunId.parse('run_agent'), startedAt: T0, endedAt: T0 });
+    const line = statusLine([agent, slip], T0 + 100);
+    expect(line).toEqual({ groups: [], more: 0, lead: THINKING_HARDER_LEAD });
+    expect(line.lead).toBe('Thinking harder…');
+    expect(lineHasNews(line)).toBe(true);
+    // once the model's next call runs, that speaks; once something else happened last, the lead is plain thinking again
+    const next = run({ id: 'run_next', fn: 'fs/read', status: 'running', parent: RunId.parse('run_agent'), startedAt: T0 + 50 });
+    expect(statusLine([agent, slip, next], T0 + 100).groups.map((g) => g.text)).toEqual(['Read…']);
+    const done = { ...next, status: 'done' as const, endedAt: T0 + 60 };
+    expect(statusLine([agent, slip, done], T0 + 100_000).lead).toBe(THINKING);
+    expect(INVALID_TEXT).toBe('Thinking harder');
+  });
+
+  it('says the model’s other slips calmly: a repaired field, a call the hub stopped mid-stream, a tool it wasn’t offered', () => {
+    expect(repairedNote({ repairs: [{ path: 'rows', repair: 'json-string' }] })).toBe('The model sent rows as text holding JSON; the hub read it as JSON. No bearing on the result.');
+    expect(repairedNote({})).toBe('');
+    expect(invalidWhat({ source: 'json', problems: [{ path: '', message: 'x' }], raw: 'Stopped by the hub: these arguments ran into 2000 blank characters' })).toBe('The hub stopped a call the model was still writing (it ran too long)');
+    expect(invalidWhat({ source: 'json', problems: [{ path: '', message: 'x' }], raw: '{"a":' })).toBe('The model’s call wasn’t valid JSON');
+    expect(toolCallSlip({ name: 'fs__read', arguments: 'Stopped by the hub: the arguments reached the output limit' })).toMatch(/^The hub stopped this call .* No bearing on the result\.$/);
+    expect(toolCallSlip({ name: 'fs__reed', arguments: '{}' }, ['fs__read', 'run'])).toMatch(/^Not one of the tools offered .* No bearing on the result\.$/);
+    expect(toolCallSlip({ name: 'fs__read', arguments: '{}' }, ['fs__read'])).toBe('');
+    expect(toolCallSlip({ name: 'fs__reed', arguments: '{}' })).toBe('');
   });
 });
 

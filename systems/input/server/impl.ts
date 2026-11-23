@@ -35,7 +35,7 @@ export function nameFor(base: string, attempt: number): string {
 }
 
 /** An input fn's answer: the form, the saved form it came from, and what the caller does next (by whether anyone watches). */
-const asked = (ctx: { run: RunInfo }, form: InputFormValue, saved?: string): AskedValue => ({ form, next: nextAfterAsking(ctx.run), ...(saved === undefined ? {} : { saved }) });
+const asked = (ctx: { run: RunInfo }, form: InputFormValue, saved?: string): AskedValue => ({ form, next: nextAfterAsking(ctx.run), ...(saved === undefined ? {} : { saved: QualifiedName.parse(saved) }) });
 
 /** `hub/fns_save` as a run of `save_form` or `get_input` calls it. */
 type SaveFn = FnCtx<TypesOf<InputContract['defs']['fns']['save_form']>>['fns']['saveFn'];
@@ -125,7 +125,7 @@ export function createInputImpl(deps: InputDeps): SystemImpl<InputContract['defs
           const kept = await keepForm(ctx.fns.saveFn, { name: args.name, description: args.description, form: args.form, askedFor: args.askedFor, share: { visibility, with: shareWith } }, s.INPUT_NAME_TRIES);
           if (kept === undefined) { return ctx.fail('caller', `Every name tried for "${args.name}" is taken; give it another name.`, { code: SAVE_FN_TAKEN }); }
           ctx.log.info('input.saved', { form: kept.fn, visibility });
-          return ctx.done({ fn: kept.fn, name: args.name.trim() });
+          return ctx.done({ fn: QualifiedName.parse(kept.fn), name: args.name.trim() });
         },
       },
       get_input: {

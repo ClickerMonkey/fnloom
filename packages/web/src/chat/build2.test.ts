@@ -125,21 +125,25 @@ describe('the context inspector', () => {
 });
 
 describe('refused input', () => {
-  it('reads as retried, never as a failure', () => {
+  it('reads as thinking harder, never as a failure', () => {
     expect(STATUS_LOOK['invalid-input'].tone).toBe('neutral');
     expect(runInvalid(refused)?.source).toBe('schema');
-    expect(invalidLine(runInvalid(refused) ?? { source: 'json', problems: [{ path: '', message: 'x' }] })).toBe('The input didn’t fit the fn’s args: path: Required (+1 more)');
+    expect(invalidLine(runInvalid(refused) ?? { source: 'json', problems: [{ path: '', message: 'x' }] })).toBe('The model’s call didn’t fit the fn’s args: path: Required (+1 more)');
+    expect(STATUS_LOOK['invalid-input'].word).toBe('Thinking harder');
   });
 
   it('RunCard shows it softly with what was wrong; RunDetails lists every problem and what the model wrote', async () => {
     const card = mount(RunCard, { props: { run: refused, now: T0, collapsed: false } });
     expect(card.classes()).toContain('status-invalid-input');
-    expect(card.get('[data-testid=run-retried]').text()).toContain('Retried');
+    expect(card.get('[data-testid=run-retried]').text()).toBe('Thinking harder · no bearing on the result');
+    expect(card.get('[data-testid=run-retried]').attributes('title')).toContain('path: Required');
+    expect(card.text()).not.toMatch(/error|failed/i);
     expect(card.find('.error-text').exists()).toBe(false);
     const details = mount(RunDetails, { props: { run: refused, loading: false, now: T0 } });
     await flushPromises();
     const invalid = details.get('[data-testid=run-invalid]');
-    expect(invalid.text()).toContain('not a failure');
+    expect(invalid.text()).toContain('No bearing on the result');
+    expect(invalid.text()).not.toMatch(/error|failed/i);
     expect(invalid.findAll('li')).toHaveLength(2);
     expect(invalid.text()).toContain('{"file":"README.md"}');
     expect(details.find('[data-testid=run-error]').exists()).toBe(false);

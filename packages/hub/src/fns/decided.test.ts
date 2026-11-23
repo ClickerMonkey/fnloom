@@ -3,14 +3,14 @@
  * the one `HubDecider`, split by its question cap), an LLM's picks, every call recorded under its purpose and charged
  * to the run, and every hit kept when the model fails.
  */
-import { ActorId, IDS, QualifiedName, SystemName, type FnSearchHit, type FnSearchPage } from '@harness/core';
+import { ActorId, IDS, QualifiedName, SystemName, type FnSearchHit, type FnSearchPage, type FnSearchQuery } from '@harness/core';
 import type { LlmGateway } from '../execution/index.ts';
 import type { ModelSite } from '../models/index.ts';
 import { describe, expect, it } from 'vitest';
 import { FixtureDecisions, FixtureLlm } from '../chat/testing.ts';
 import { HubDecider } from '../models/decide.ts';
 import { memoryLog, testStore } from '../testing.ts';
-import { DecidedFnSearch, filterPrompt, hitQuestions, purposeText, SEARCH_DECISION_PURPOSES, SearchDecisions } from './decided.ts';
+import { DecidedFnSearch, exactNames, filterPrompt, hitQuestions, purposeText, SEARCH_DECISION_PURPOSES, SearchDecisions } from './decided.ts';
 import { openScope } from '../access/index.ts';
 
 const ADMIN = ActorId.parse('act_admin');
@@ -136,6 +136,60 @@ describe('search decisions', () => {
     const wrapped = new DecidedFnSearch({ search: () => Promise.resolve(PAGE) }, w.search);
     const page = await wrapped.search({ text: 'web' }, { actor: ADMIN, access: openScope(ADMIN) });
     expect(page.items.map((h) => h.name)).not.toContain('web/fetch_raw');
+  });
+
+  /** A database search over PAGE's items: a ranked search finds what `ranked` says, a lookup by name finds those names. */
+  const byName = (ranked: (query: FnSearchQuery) => FnSearchHit[]) => ({
+    queries: [] as FnSearchQuery[],
+    search(query: FnSearchQuery): Promise<FnSearchPage> {
+      this.queries.push(query);
+      if (query.order === 'name' && query.names !== undefined && query.text === undefined) {
+        const names = new Set<string>(query.names);
+        return Promise.resolve({ items: PAGE.items.filter((h) => names.has(h.name) && (query.items === undefined || query.items.includes(h.item))) });
+      }
+      return Promise.resolve({ items: ranked(query) });
+    },
+  });
+
+  it('gives an item named exactly first, marked exact, even when the decision drops it (iteration 2)', async () => {
+    const w = await world();
+    w.decisions.role = { model: 'judge', threshold: 0.5 };
+    // the decision model finds no hit likely: a search whose text is a guide's name lost the guide
+    w.decisions.answer = () => 0.2;
+    await w.search.set('context', { by: 'decision' }, ADMIN);
+    const inner = byName(() => PAGE.items.filter((h) => h.item === 'context'));
+    const wrapped = new DecidedFnSearch(inner, w.search);
+    const page = await wrapped.search({ text: 'web/guide', items: ['context'] }, { actor: ADMIN, access: openScope(ADMIN) });
+    expect(page.items).toEqual([{ ...PAGE.items[1], exact: true }]);
+    // the dropped list no longer names what came back
+    expect(page.filtered?.[0]?.dropped.map((d) => d.name)).toEqual(['fs/authoring']);
+    // a name-like word in a longer text, and a fn as a model spells it, are named exactly too
+    const words = await wrapped.search({ text: 'how to use `web/guide` and web__search', items: ['context', 'fn'] }, { actor: ADMIN, access: openScope(ADMIN) });
+    expect(words.items.filter((h) => h.exact === true).map((h) => h.name)).toEqual(['web/search', 'web/guide']);
+  });
+
+  it('finds an item named in `names` whatever the other filters, and says which names nothing has (iteration 2)', async () => {
+    const w = await world();
+    // names with a memory scope: the ranked search finds nothing (a system guide is no memory)
+    const inner = byName(() => []);
+    const wrapped = new DecidedFnSearch(inner, w.search);
+    const page = await wrapped.search(
+      { text: 'web guide search and read pages', names: [QualifiedName.parse('web/guide'), QualifiedName.parse('web/nope')], scopes: ['everyone'], items: ['context'] },
+      { actor: ADMIN, access: openScope(ADMIN) },
+    );
+    expect(page.items.map((h) => [h.name, h.exact])).toEqual([['web/guide', true]]);
+    expect(page.missing).toEqual({ names: ['web/nope'], note: 'No context item you may use here is named web/nope: check the spelling, or search by what it does or is about instead.' });
+    // the lookup is by name alone: no scopes, no text
+    expect(inner.queries.at(-1)).toEqual({ names: ['web/guide', 'web/nope'], order: 'name', limit: 2, items: ['context'] });
+    // a later page doesn't repeat them
+    expect((await wrapped.search({ text: 'web/guide', offset: 10 }, { actor: ADMIN, access: openScope(ADMIN) })).items).toEqual([]);
+  });
+
+  it('names words that are names, and leaves plain words alone', () => {
+    expect(exactNames({ text: 'fs/guide' })).toEqual(['fs/guide']);
+    expect(exactNames({ text: 'read "web/api.pages", then web__read.' })).toEqual(['web/api.pages', 'web/read']);
+    expect(exactNames({ text: 'and/or either way', names: [QualifiedName.parse('x/y')] })).toEqual(['x/y', 'and/or']);
+    expect(exactNames({ text: 'plain words only' })).toEqual([]);
   });
 
   it('asks whether each hit fits what the search is for, with the turn\'s latest message when there is one', () => {

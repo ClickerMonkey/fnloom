@@ -3,7 +3,7 @@
  * and `make_code` (the authoring agent in `authoring.ts`). Nothing is stored here: code fns, who may use them and their
  * versions are the hub's.
  */
-import { CODE_KIND, CodeFnSpec, KindDescription, QualifiedName, splitName, type Json } from '@harness/core';
+import { CODE_KIND, CodeFnSpec, fnOfModelNameByRule, KindDescription, QualifiedName, splitName, type Json } from '@harness/core';
 import { CallFailed, hub, sampleArgs, type FnCtx, type KindCheckCtx, type SystemImpl, type TypesOf } from '@harness/sdk';
 import {
   ProgramError, calleesMode, checkProgram, hubProgramHost, kindCheckLookups, kindRunLookups, runProgram, storedProgramScope, type ProgramCheck, type ProgramLookups,
@@ -36,8 +36,9 @@ type MakeFns = FnCtx<TypesOf<CodeContract['defs']['fns']['make_code']>>['fns'];
 
 /** The code fn `make_code` was asked to change, with its fns loaded and its signature declared. */
 async function edited(name: string, fns: MakeFns): Promise<EditedCode | string> {
-  const fn = QualifiedName.safeParse(name);
-  if (!fn.success) return `${name} is not a fn name (\`code/<name>\`).`;
+  // the hub reads a fn name the model wrote back at the boundary; the tools' spelling is read by the rule here too
+  const fn = QualifiedName.safeParse(name.includes('/') ? name : fnOfModelNameByRule(name) ?? name);
+  if (!fn.success) return `${name} is not a code fn's name: give it as your tools and search hits spell it.`;
   const stored = await fns.getFn({ fn: fn.data });
   const spec = CodeFnSpec.safeParse(stored.payload);
   if (stored.kind !== CODE_KIND || !spec.success) return `${name} is not a code fn, so make_code can't change it.`;

@@ -15,13 +15,18 @@
  * `fns-search` or `context-search`) charged to the asker's run when there is one. If the model fails, every hit is
  * kept and the page says so (`SearchFiltered.failed`).
  *
+ * An item the search names exactly (its `names`, its whole text, or a name-like word in it: `web/guide`, or a fn as
+ * a model spells it, `web__read`) is always on the first page, first, marked `exact`: whatever the query's other
+ * filters, the ranking or a decision would have done with it (`DecidedFnSearch`). A name in `names` no item the asker
+ * may see has is said so (`FnSearchPage.missing`) instead of an empty page.
+ *
  * A decision whose action is `load` marks its record so (`SearchFiltered.action`); the filter itself loads nothing
  * (the web's search only filters). `hub/fns_search` and `hub/ctx_search`, which run in a chat, then load the best kept hits they may use
  * (`loadKept` in `boot/hub-fns.ts`) and say what in their page (`FnSearchPage.loaded`).
  */
 import type { Logger } from '@ayepi/log';
 import {
-  actionOf, messageOf, SEARCH_DECISION_DEFAULT, SEARCH_DECISION_OPTIONS, SearchDecision, yesProbability, type ActorId, type DecisionQuestions, type FnSearchHit,
+  actionOf, fnOfModelNameByRule, messageOf, QualifiedName, SEARCH_DECISION_DEFAULT, SEARCH_DECISION_OPTIONS, SearchDecision, yesProbability, type ActorId, type DecisionQuestions, type FnSearchHit,
   type FnSearchPage, type FnSearchQuery, type LlmMessage, type ModelCallId, type MessagePart, type RunId, type SearchDecisionsView, type SearchDecisionView,
   type SearchFiltered, type SearchItemKind, type SessionId, type Timestamp,
 } from '@harness/core';
@@ -234,7 +239,40 @@ export class SearchDecisions {
   }
 }
 
-/** The database search with the admin's search decisions on its pages: the one search every caller asks. */
+/** The most names a search looks up exactly (the query's `names` cap). */
+const EXACT_MAX = 100;
+
+/** Quotes, brackets and sentence marks around a word of a search's text. */
+const WORD_EDGES = /^[`'"([{<]+|[`'")\]}>,;:.?!]+$/g;
+
+/**
+ * The names a search asks for exactly: its `names`, then its whole text and each word of it that is an item's name
+ * (`web/guide`), or a fn's name as a model spells it (`web__read`). Words that only look like names are harmless: a
+ * name no item has finds nothing.
+ */
+export function exactNames(query: Pick<FnSearchQuery, 'text' | 'names'>): QualifiedName[] {
+  const text = query.text?.trim() ?? '';
+  const words = [text, ...text.split(/\s+/)].map((word) => word.replace(WORD_EDGES, '')).filter((word) => word.includes('/') || word.includes('__'));
+  const named = words.flatMap((word): QualifiedName[] => {
+    const name = QualifiedName.safeParse(word);
+    if (name.success && !/\s/.test(word)) return [name.data];
+    const fn = fnOfModelNameByRule(word);
+    return fn === undefined ? [] : [fn];
+  });
+  return [...new Set([...(query.names ?? []), ...named])].slice(0, EXACT_MAX);
+}
+
+/** What a page says of names asked for that no item the asker may see has. */
+export function missingNote(names: readonly string[], items: FnSearchQuery['items']): string {
+  const what = items?.length === 1 ? (items[0] === 'fn' ? 'fn' : 'context item') : 'fn or context item';
+  return `No ${what} you may use here is named ${names.join(', ')}: check the spelling, or search by what it does or is about instead.`;
+}
+
+/**
+ * The database search with the admin's search decisions on its pages: the one search every caller asks. The items it
+ * names exactly come first on the first page, marked `exact`, looked up by name alone (so no other filter, ranking
+ * or decision drops them), and taken out of what the decision says it dropped.
+ */
 export class DecidedFnSearch implements FnSearch {
   readonly #inner: FnSearch;
   readonly #decisions: Pick<SearchDecisions, 'filter'>;
@@ -245,6 +283,27 @@ export class DecidedFnSearch implements FnSearch {
   }
 
   async search(query: FnSearchQuery, asker: Asker): Promise<FnSearchPage> {
-    return this.#decisions.filter(await this.#inner.search(query, asker), query, asker);
+    const page = await this.#decisions.filter(await this.#inner.search(query, asker), query, asker);
+    const names = exactNames(query);
+    if (names.length === 0 || (query.offset ?? 0) > 0) return page;
+    // by name alone: the asker's reach still holds (what it may see, a session's systems, an MCP's rules)
+    const lookup: FnSearchQuery = {
+      names, order: 'name', limit: names.length,
+      ...(query.items === undefined ? {} : { items: query.items }),
+      ...(query.off === undefined ? {} : { off: query.off }),
+      ...(query.available === undefined ? {} : { available: query.available }),
+    };
+    const exact = (await this.#inner.search(lookup, asker)).items.map((hit): FnSearchHit => ({ ...hit, exact: true }));
+    const key = (hit: Pick<FnSearchHit, 'item' | 'name'>): string => `${hit.item}:${hit.name}`;
+    const found = new Set(exact.map(key));
+    const named = new Set<string>(exact.map((hit) => hit.name));
+    const filtered = page.filtered?.map((f) => ({ ...f, dropped: f.dropped.filter((d) => !named.has(d.name)) }));
+    const missing = (query.names ?? []).filter((name) => !named.has(name));
+    return {
+      ...page,
+      items: [...exact, ...page.items.filter((hit) => !found.has(key(hit)))],
+      ...(filtered === undefined ? {} : { filtered }),
+      ...(missing.length === 0 ? {} : { missing: { names: missing, note: missingNote(missing, query.items) } }),
+    };
   }
 }

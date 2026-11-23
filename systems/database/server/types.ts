@@ -9,7 +9,7 @@
  */
 import type { PropDef, TypeDef as GinDef } from '@aeye/gin';
 import { Value, tableToGinType, type ColumnSpec, type ColumnType, type FieldDef, type FieldTypeDef, type TableSpec, type TypeBacking, type TypeDef } from '@aeye/query';
-import { GinTypeDef, type QualifiedName } from '@harness/core';
+import { GinTypeDef, slashedName, type QualifiedName } from '@harness/core';
 import { z } from 'zod';
 import type { ScannedTable } from './schema.ts';
 
@@ -105,6 +105,19 @@ export function typeNameOf(instance: string, table: string): string {
 /** The qualified hub name of a table's type. */
 export function qualifiedTypeOf(instance: string, table: string): QualifiedName {
   return `database/${typeNameOf(instance, table)}`;
+}
+
+/**
+ * A table as a `table` arg may name it, read as the table and the instance it names (if any): its name (`expenses`),
+ * its type's local name (`main.expenses`), its type (`database/main.expenses`), or that type in the tools' spelling
+ * (`database__main__expenses`), so whichever spelling the model or a person copies finds the table.
+ */
+export function tableRefOf(given: string): { readonly instance?: string; readonly table: string } {
+  const trimmed = given.trim();
+  const name = trimmed.startsWith('database__') ? slashedName(trimmed) : trimmed;
+  const local = name.startsWith('database/') ? name.slice('database/'.length) : name;
+  const dot = local.indexOf('.');
+  return dot > 0 && dot < local.length - 1 ? { instance: local.slice(0, dot), table: local.slice(dot + 1) } : { table: local };
 }
 
 // ─── The hub's type ──────────────────────────────────────────────────────────

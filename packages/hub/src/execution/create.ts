@@ -31,6 +31,7 @@ import { HubRunService } from './runs.ts';
 import { LedgerSpend } from './spend.ts';
 import { messageOf } from './errors.ts';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
+import { ConversationMedia } from '../chat/shown.ts';
 
 /**
  * How the module reaches models: the stored provider records (the hub), fixed providers for the hub AI (tests and
@@ -53,7 +54,7 @@ function engineOf(source: LlmSource, hooks: HubAiHooks, log: ExecutionInput['log
 }
 
 /** What the module is built from. */
-export interface ExecutionInput extends ExecutionDeps, Pick<AgentLoopDeps, 'enrich' | 'planner'> {
+export interface ExecutionInput extends ExecutionDeps, Pick<AgentLoopDeps, 'enrich' | 'planner' | 'media'> {
   /** The ayepi ports the queues and rate limits run on (the store's, in production). */
   readonly ports: QueuePorts;
   readonly llm: LlmSource;
@@ -244,6 +245,8 @@ export function executionModule(options: {
       ...chatPorts(hub),
       ...contextorPorts(hub),
       ...metricsPorts(hub),
+      // images and shown resources as each call's model takes them, read through the resources module when a call is made
+      media: new ConversationMedia({ content: () => hub.resources.content, models: () => hub.execution.llm.models(), maxChars: hub.settings.resourcesEnv.HARNESS_READ_CHARS }),
       ports: hub.store.ports,
       llm: options.llm?.(hub) ?? { stored: new JoinedProviderSource([storedProviders(hub, hubActor), systemProviders(hub)]) },
     });

@@ -57,4 +57,38 @@ describe('generated table fns', () => {
     const ranked = done(await hub.run('database/run_query', { fn: counted.fns[0]?.fn ?? '', args: {} }));
     expect(JSON.stringify(ranked)).toContain('Ada');
   });
+
+  it('finds the table by every spelling a model or a person copies (iteration 2: the tools\' spelling was refused)', async () => {
+    const { hub } = await start();
+    for (const args of [
+      { table: 'projects' }, { table: 'projects', database: 'main' }, { table: 'main.projects' }, { table: 'database/main.projects' },
+      { table: 'database__main__projects', database: 'main' }, { table: 'database__main__projects' },
+    ]) {
+      expect(TableFnsList.parse(done(await hub.run('database/table_fns_available', args))).table).toBe('projects');
+    }
+    const made = TableFnsGenerated.parse(done(await hub.run('database/table_fns_generate', { table: 'database__main__projects', database: 'main', names: ['selectPage'] })));
+    expect(made.fns.map((fn) => fn.fn)).toEqual(['database/main.projects_selectPage']);
+    // run_query takes the saved query in the tools' spelling too
+    expect(done(await hub.run('database/run_query', { fn: 'database__main__projects_selectPage', args: {} }))).toMatchObject({ result: { total: 3 } });
+    // a table that isn't there is named, with the ones that are
+    const missing = await hub.run('database/table_fns_available', { table: 'nothing_here', database: 'main' });
+    expect(missing).toMatchObject({ status: 'invalid-input' });
+    expect(JSON.stringify(missing)).toContain('owners, projects');
+  });
+
+  it('says rows can\'t be written apart from whether tables can change, and why a write fn isn\'t made', async () => {
+    const dir = testFolder('table-fns-read-only');
+    const file = join(dir, 'shop.db');
+    const db = new BetterSqlite3(file);
+    db.exec(PROJECTS_SQL);
+    db.close();
+    served = await serveDatabase({ dir, config: shopConfig({ label: 'Projects', data: 'read-only', schema: 'allowed' }) });
+    const { hub } = served;
+    expect(done(await hub.run('database/tables', { database: 'main' }))).toMatchObject({ writes: false, schemaChanges: true });
+    const listed = TableFnsList.parse(done(await hub.run('database/table_fns_available', { table: 'projects' })));
+    expect(listed.groups.flatMap((group) => group.fns).every((fn) => fn.mode === 'read')).toBe(true);
+    const refused = JSON.stringify(await hub.run('database/table_fns_generate', { table: 'projects', names: ['create'] }));
+    expect(refused).toContain('can only be read');
+    expect(refused).toContain('rows can\'t be added');
+  });
 });

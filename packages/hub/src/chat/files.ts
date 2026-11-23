@@ -1,12 +1,13 @@
 /**
- * Files attached to a message, as the model reads them (iteration 2: a receipt photo, insurance quotes, a school PDF
- * and a bank statement reached the model as a name and a hash, and it spent its turn searching for them). When a message
+ * Files attached to a message, as the model reads them (iteration 2: attached photos and documents reached the model
+ * as a name and a hash, and it spent its turn searching for them). When a message
  * is sent each file is kept as a hub resource (`StoreTurnService`, `ChatDeps.files`), so its `<file>` block names the
- * resource's `uri` and the one fn that reads it (`read`): `hub/resource_send` shows a picture itself (the chat models
- * take images), `hub/resource_read` reads anything else as text (a PDF's pages, a spreadsheet's tables). A small
+ * resource's `uri` and the one fn that reads it (`read`): `hub/resource_send` shows a picture itself (to a model that
+ * sees; for one that can't, `shown.ts` puts an `<image id>` block in the tag's place, asked about with
+ * `hub/image_read`), `hub/resource_read` reads anything else as text (a PDF's pages, a spreadsheet's tables). A small
  * text file's text is in the block itself. Those readers join the turn's tools.
  */
-import { QualifiedName, type MessagePart } from '@harness/core';
+import { cutMarker, QualifiedName, type MessagePart } from '@harness/core';
 import type { ResourceLibrary, ResourceReader } from '../resources/index.ts';
 import type { AttachedFiles } from './deps.ts';
 import { escapeAttribute, escapeBody } from './support.ts';
@@ -34,7 +35,11 @@ export function fileTag(part: FilePart): string {
   const base = `name="${escapeAttribute(part.name)}" mime="${escapeAttribute(part.ref.mime)}" size="${part.ref.size}"`;
   if (part.uri === undefined) return `<file ${base} hash="${part.ref.hash}" />`;
   const head = `<file ${base} uri="${escapeAttribute(part.uri)}" read="${fileReader(part.ref.mime)}"${part.truncated === true ? ' truncated="true"' : ''}`;
-  return part.text === undefined ? `${head} />` : `${head}>${escapeBody(part.text)}</file>`;
+  if (part.text === undefined) return `${head} />`;
+  // only the start is inside: the text ends with how much was cut and where the rest is read from
+  const left = Math.max(0, part.ref.size - new TextEncoder().encode(part.text).length);
+  const cut = part.truncated === true ? cutMarker(left, `read the rest with hub/resource_read, uri "${part.uri}", form "raw" and offset ${part.text.length}`, 'bytes') : '';
+  return `${head}>${escapeBody(part.text + cut)}</file>`;
 }
 
 /** Whether a file is text the model can read in the message (plain text, markdown, CSV, JSON, XML, code). */

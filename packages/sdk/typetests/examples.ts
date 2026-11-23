@@ -36,7 +36,7 @@ expectType<Equal<typeof fs.fns.explore.name, 'fs/explore'>>(true);
 expectType<Equal<typeof fs.types.Entry.name, 'fs/Entry'>>(true);
 // a command's args are typed: tree's root is optional
 expectType<Equal<typeof fs.context.tree, ContextRef<'fs/tree', { root?: string }>>>(true);
-expectType<Equal<typeof fs.fns.read, FnRef<'fs/read', { path: string; offset?: number | undefined; limit?: number | undefined }, { text: string; lines: number; truncated: boolean }, {}>>>(true);
+expectType<Equal<typeof fs.fns.read, FnRef<'fs/read', { path: string; offset?: number | undefined; limit?: number | undefined }, { text: string; lines: number; truncated: boolean; partial?: string | undefined }, {}>>>(true);
 // a named type from another system is a field like any other: the hub's ContentRef is core's ContentRef
 expectType<Equal<Infer<typeof hub.types.ContentRef>, ContentRef>>(true);
 // every other gin type the hub mirrors from a core schema is pinned to it the same way

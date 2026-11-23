@@ -187,7 +187,8 @@ export function problemLine(problem: InputProblem): string {
 
 /**
  * A run's input was refused before (or by) its fn. This is retryable and often expected from a model: the hub feeds the
- * problems back to the agent and the chat shows the run softly as "Retried". A real failure is `failed`.
+ * problems back to the agent and the chat shows the run calmly as "Thinking harder" (the model's slip, with no bearing on
+ * the result; never an error). A real failure is `failed`.
  */
 export const InvalidInput = z.object({
   source: InputProblemSource,
@@ -228,7 +229,7 @@ const SETTLED_BY_STATUS = {
  */
 export const RUN_STATUS_WORDS = {
   'awaiting-approval': 'Needs approval', queued: 'Queued', running: 'Running', waiting: 'Waiting', paused: 'Paused',
-  done: 'Done', 'invalid-input': 'Retried', failed: 'Failed', cancelled: 'Cancelled', undone: 'Undone',
+  done: 'Done', 'invalid-input': 'Thinking harder', failed: 'Failed', cancelled: 'Cancelled', undone: 'Undone',
 } as const satisfies Record<RunStatus, string>;
 
 /** A status a run never leaves on its own. */

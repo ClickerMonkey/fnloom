@@ -7,10 +7,10 @@
  */
 import { fnOfModelNameByRule, QualifiedName, type LlmMessage } from '@harness/core';
 import type { ExchangeSummary } from './index.ts';
-import { parseRunBlocks, RESULT_TAG } from './render.ts';
+import { parseRunBlocks, RESULT_TAG, SHOWN_TAG } from './render.ts';
 
-/** Tags of user messages the hub writes (tool results in text, background results), which don't start an exchange. */
-const HUB_WRITTEN = [`<${RESULT_TAG} `, '<background-result '] as const;
+/** Tags of user messages the hub writes (tool results in text, background results, resources shown), which don't start an exchange. */
+const HUB_WRITTEN = [`<${RESULT_TAG} `, '<background-result ', `<${SHOWN_TAG} `] as const;
 
 /** One exchange of a conversation. */
 export interface Exchange {

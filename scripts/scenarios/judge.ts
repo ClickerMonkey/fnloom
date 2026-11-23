@@ -5,6 +5,7 @@
  * fix. A judge that fails leaves the case unjudged, with why.
  */
 import { CASES } from './cases.ts';
+import { argMistakes, argMistakesLine, caseRuns } from './checks.ts';
 import type { OpenRouter } from './openrouter.ts';
 import { CAUSES, Judgement, LAYERS, type CaseRecord, type JudgedCase } from './records.ts';
 import { transcriptMarkdown } from './transcript.ts';
@@ -24,9 +25,11 @@ Causes (pick the main one when it isn't a clean pass; null for a clean pass): ${
 - didnt-ask: guessed where it should have asked. asked-too-much: questions it could have skipped or asked in one go.
 - wrong-tool: used a tool that doesn't fit. missed-capability: never used something the app has that fits.
 - gave-up: stopped short. overpromised: said it would/could do what it can't. hallucinated: made up facts or results.
-- tool-error: a tool failed. harness-bug: the app itself misbehaved (a stuck turn, a broken card). prompt-unclear: the model was confused by its own instructions or tool docs. slow: far too many steps or too long.
+- tool-error: a tool itself failed on a call that fit it. harness-bug: the app itself misbehaved (a stuck turn, a broken card). prompt-unclear: the model was confused by its own instructions or tool docs. slow: far too many steps or too long.
 Layers (where the fix belongs; null for a clean pass): ${LAYERS.join(', ')}.
 - fn: a tool's behavior or its arguments. context: the docs/context items the model reads about the tools. kind: a kind of fn (how authored fns are made). instructions: a tool's usage text. chat-prompt: the chat agent's system prompt (its core text; the hub's and each system's injected items in it are context). ui: how the web app shows it. hub: the hub's own logic.
+
+Model arg mistakes are not failures. When the model's own call didn't fit (JSON that didn't parse, arguments that didn't fit, a tool name it made up, a call the app stopped mid-stream, a field it repaired) the app sends it back and the model calls again: the run lines mark these "model arg mistake". One the model recovered from costs nothing: never lower the score or name a cause for it, and never call it a tool error. What counts is the result the person got: not delivering a good result is the failure. Only when the model never recovered and that kept it from a good result does it matter, and then the cause is what kept it from the result (often prompt-unclear or gave-up), not tool-error.
 
 Read the run lines: they show what really happened (a "saved" claim with no saving run is a false claim). The hard checks are code checks of the same transcript.
 
@@ -49,6 +52,7 @@ export async function judgeCase(router: OpenRouter, model: string, record: CaseR
     `The person's private facts (only the person knew these; the assistant starts knowing none of them unless the transcript shows it was told or found them, so asking for one is right): ${played?.facts.join(' ') || 'none'} They were after: ${played?.wants ?? '—'}`,
     `How it ended: ${record.ending.by} — ${record.ending.reason}`,
     `Hard checks: ${record.checks.map((c) => `${c.ok ? 'ok' : 'FAILED'} ${c.name}: ${c.detail}`).join(' | ')}`,
+    `Model arg mistakes: ${argMistakesLine(argMistakes(caseRuns(record)))}.`,
     `Numbers: ${record.stats.turns} turns, ${record.stats.toolRuns} runs, ${record.stats.modelCalls} model calls, ${Math.round(record.stats.wallMs / 1000)}s.`,
     record.errors.length === 0 ? '' : `The test runner hit: ${record.errors.join(' | ')}`,
     `Transcript:\n\n${bounded(transcriptMarkdown(record, 'full'))}`,

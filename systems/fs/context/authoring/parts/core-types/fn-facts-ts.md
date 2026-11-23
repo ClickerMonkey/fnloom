@@ -120,14 +120,9 @@ never context: that is `hub/ctx_search`), the context-only filters, the context 
 
 ```ts
 type FnSearchArgs = {
-  types?: {
-    reads?: `${string}/${string}`[] | undefined;
-    writes?: `${string}/${string}`[] | undefined;
-  } | undefined;
   instance?: InstanceName | undefined;
   visibility?: "shared" | "public" | "mine" | undefined;
   text?: string | undefined;
-  names?: `${string}/${string}`[] | undefined;
   offset?: number | undefined;
   limit?: number | undefined;
   systems?: SystemName[] | undefined;
@@ -141,6 +136,11 @@ type FnSearchArgs = {
   niches?: ("admin" | "developer" | "reference")[] | undefined;
   order?: "name" | "rank" | undefined;
   kinds?: (`${string}/${string}` | "native")[] | undefined;
+  names?: `${string}/${string}`[] | undefined;
+  types?: {
+    reads?: string[] | undefined;
+    writes?: string[] | undefined;
+  } | undefined;
 };
 ```
 
@@ -180,6 +180,7 @@ type FnSearchPage = {
       system?: SystemName | undefined;
     } | undefined;
     inPrompt?: "injected" | "loaded" | undefined;
+    exact?: true | undefined;
   }[];
   next?: number | undefined;
   filtered?: {
@@ -196,6 +197,10 @@ type FnSearchPage = {
   loaded?: {
     fns: `${string}/${string}`[];
     context: `${string}/${string}`[];
+    note: string;
+  } | undefined;
+  missing?: {
+    names: `${string}/${string}`[];
     note: string;
   } | undefined;
 };
@@ -224,8 +229,8 @@ type FnSearchQuery = {
   instance?: InstanceName | undefined;
   visibility?: "shared" | "public" | "mine" | undefined;
   types?: {
-    reads?: `${string}/${string}`[] | undefined;
-    writes?: `${string}/${string}`[] | undefined;
+    reads?: string[] | undefined;
+    writes?: string[] | undefined;
   } | undefined;
   modes?: ("read" | "write" | "delete")[] | undefined;
   effects?: {

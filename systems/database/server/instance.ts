@@ -177,11 +177,12 @@ export class DatabaseInstance {
     return { instance: this.instance, label: this.config.label, dialect: this.#catalog.dialectName };
   }
 
-  /** Whether queries may write and tables may change. */
+  /** Whether rows may be written (inserted, updated, deleted): the config's `data`; table changes are `schemaChanges`. */
   get writes(): boolean {
     return this.config.data === 'read-write';
   }
 
+  /** Whether tables may be made and changed: the config's `schema`. */
   get schemaChanges(): boolean {
     return this.config.schema === 'allowed';
   }

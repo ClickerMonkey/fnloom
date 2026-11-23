@@ -32,6 +32,11 @@ export const scenariosEnv = env({
    * decisions. GPT-6 Luna Decisions (OpenAI's Decisions API), served through the OpenRouter provider the hub already has.
    */
   HARNESS_SCENARIOS_DECISION_MODEL: z.string().min(1).default('typesafe/jev-1.14'),
+  /**
+   * The image model every rep's hub has (the `describe` role, a model that can see images): it describes images and
+   * answers `hub/image_read` for a chat model that can't see them. GPT-6 Luna.
+   */
+  HARNESS_SCENARIOS_IMAGE_MODEL: z.string().min(1).default('openai/gpt-6-luna'),
   /** How many times a hub call the hub shed (HTTP 503, "the hub is busy") is tried in all before the case fails on it. */
   HARNESS_SCENARIOS_BUSY_TRIES: z.coerce.number().int().min(1).max(100).default(12),
   /** The first wait after a shed call (ms); each next wait doubles, never under the hub's retry-after. */

@@ -160,7 +160,7 @@ export const fs = system('fs', {
       read: fn({
         group: 'files',
         description: 'Read a text file under the roots, whole or a window of its lines. Gives its text, how many lines it has, and whether more follows.',
-        instructions: 'Read a file before you change it or say what is in it; never describe a file you have not read. Paths are relative to the first root (`src/app.ts`) or start with a root\'s name when there are several. For a long file read a window with `offset` (the first line, counted from 0) and `limit` (how many lines); `truncated: true` means more follows. Binary files (PDFs, images) are refused: read those with hub/resource_read or hub/resource_send. A file attached to a chat message is not here: it is a hub resource.',
+        instructions: 'Read a file before you change it or say what is in it; never describe a file you have not read. Paths are relative to the first root (`src/app.ts`) or start with a root\'s name when there are several. For a long file read a window with `offset` (the first line, counted from 0) and `limit` (how many lines); `truncated: true` means more follows, and `partial` says which lines are here, how many were left out and how to read the rest: read on before you say what the rest holds. Binary files (PDFs, images) are refused: read those with hub/resource_read or hub/resource_send. A file attached to a chat message is not here: it is a hub resource.',
         examples: [
           { args: { path: 'README.md' }, note: 'The whole file.' },
           { args: { path: 'src/server/main.ts', offset: 120, limit: 60 }, note: 'Lines 121 to 180 of a long file.' },
@@ -169,7 +169,7 @@ export const fs = system('fs', {
         // the hub asks which sensitive files a call touches first (server/sensitive.ts)
         flags: true,
         args: g.obj({ path: path(), offset: g.optional(g.num({ min: 0, whole: true })), limit: g.optional(g.num({ min: 1, whole: true })) }),
-        returns: g.obj({ text: g.text(), lines: g.num(), truncated: g.bool() }),
+        returns: g.obj({ text: g.text(), lines: g.num(), truncated: g.bool(), partial: g.optional(g.text()) }),
         status: {
           active: { one: 'Reading {args.path}…', many: 'Reading {n} files…' },
           retry: { one: 'Retrying reading {args.path}…', many: 'Retrying {n} file reads…' },

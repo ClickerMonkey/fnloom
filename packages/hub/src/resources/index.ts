@@ -92,6 +92,8 @@ export interface FormModels {
   model(kind: MadeFormKind): Promise<string | undefined>;
   /** Make one. Refused when the role is off or the content isn't what the kind reads (an image, a recording). */
   make(kind: MadeFormKind, input: MadeFormInput, who: Asking, signal?: AbortSignal): Promise<MadeForm>;
+  /** Ask the `describe` role's vision model a question about an image. Refused when no image model is set up or it isn't an image. */
+  ask(question: string, input: MadeFormInput, who: Asking, signal?: AbortSignal): Promise<MadeForm>;
 }
 
 /** Forms of raw content: made once per key, looked up by hash. */
@@ -130,12 +132,25 @@ export type ContentModel = Pick<ModelInfo, 'id' | 'capabilities'>;
 
 /**
  * A resource as message content for the model actually chosen: an image as an image part only for a vision model,
- * else its description (made once); a pdf as a file part only when the model takes files, else its text; audio the
- * same with its transcript; text formats always as text. One section is always its text in the primary form. Never
- * fails: the worst case is one text part.
+ * else an `<image>` block with its id that `hub/image_read` takes (`source` says where it came from); a pdf as a file
+ * part only when the model takes files, else its text; audio the same with its transcript; text formats always as
+ * text. One section is always its text in the primary form. Never fails: the worst case is one text part.
  */
 export interface MessageContent {
-  parts(uri: ResourceUri, model: ContentModel, who: Asking, options?: { section?: SectionKey }): Promise<LlmContentPart[]>;
+  parts(uri: ResourceUri, model: ContentModel, who: Asking, options?: { section?: SectionKey; source?: string }): Promise<LlmContentPart[]>;
+}
+
+/** What `hub/image_read` answers with: the image it looked at, the vision model's answer and that model. */
+export interface ImageAnswer {
+  readonly image: { readonly id: ResourceUri; readonly name: string };
+  readonly answer: string;
+  readonly model: string;
+}
+
+/** Questions about images, for a model that can't see them (`hub/image_read`), answered by the `describe` role's model. */
+export interface ImageQuestions {
+  /** Ask about an image. Refused when it isn't an image, or no image model is set up. The model call is charged to `who.run`. */
+  ask(uri: ResourceUri, question: string, who: Asking, signal?: AbortSignal): Promise<ImageAnswer>;
 }
 
 /** Context made from resources, memory, and the context list as people browse it. */
@@ -163,4 +178,6 @@ export interface ResourceServices {
   readonly reader: ResourceReader;
   readonly content: MessageContent;
   readonly context: ContextLibrary;
+  /** Questions about images for models that can't see them. */
+  readonly images: ImageQuestions;
 }

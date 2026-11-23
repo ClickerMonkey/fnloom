@@ -68,6 +68,46 @@ describe('reading resources', () => {
     await expect(r.reader.read({ uri: r.bin }, who)).rejects.toThrow('not text');
   });
 
+  it('reads the form a resource has when asked for one it lacks, saying so, instead of refusing (iteration 2)', async () => {
+    const r = await rig();
+    // a spreadsheet asked for as `text`: its table is read, and the note names the forms it has
+    const sheet = await r.reader.read({ uri: r.sheet, form: 'text' }, who);
+    expect(sheet).toMatchObject({ form: 'table', forms: ['table'] });
+    expect(sheet.text).toContain('row1');
+    expect(sheet.note).toBe(`Read as table: ${r.sheet} has no text form. Its forms: table. Leave out form to read its primary form.`);
+    // a page asked for as `pages`: its markdown
+    const page = await r.reader.read({ uri: r.page, form: 'pages' }, who);
+    expect(page).toMatchObject({ form: 'markdown', note: expect.stringContaining('has no pages form') });
+    // the form it has, asked for, reads with no note
+    expect((await r.reader.read({ uri: r.sheet, form: 'table' }, who)).note).toBeUndefined();
+  });
+
+  it('refuses a resource with no form to read, naming what can be done instead', async () => {
+    const r = await rig();
+    await expect(r.reader.read({ uri: r.bin, form: 'markdown' }, who)).rejects.toMatchObject({ code: 'NO_FORM', message: expect.stringContaining('hub/resource_send') });
+    await expect(r.reader.read({ uri: r.bin }, who)).rejects.toThrow(/not text\. It has no form that reads as text yet\. Look at it with hub\/resource_send instead\./);
+  });
+
+  it('says what part a cut read holds, how much was left out and how to read the rest', async () => {
+    const r = await rig();
+    const window = await r.reader.read({ uri: r.page, form: 'raw', offset: 6, maxChars: 6 }, who);
+    const rest = PAGE.length - 12;
+    expect(window.partial).toBe(
+      `Partial: characters 7–12 of ${PAGE.length} are here; ${6 + rest} characters were left out (6 before this part, ${rest} after it). `
+        + `To get the rest, call hub/resource_read again with uri: "${r.page}", form: "raw" and offset: 12 (or read one section from hub/resource_outline). Don't state what the left-out part says.`,
+    );
+    // whole, nothing is said
+    expect((await r.reader.read({ uri: r.page }, who)).partial).toBeUndefined();
+    // rows: the next range to ask for
+    const rows = await r.reader.read({ uri: r.sheet, rows: { table: '1', from: 0, to: 2 } }, who);
+    expect(rows.partial).toContain('rows 1–2 of 8 are here; 6 rows were left out');
+    expect(rows.partial).toContain('rows: { table: "1", from: 2, to: 4 }');
+    // the whole table form of a sheet the hub keeps only the first rows of
+    const whole = await r.reader.read({ uri: r.sheet }, who);
+    expect(whole).toMatchObject({ truncated: true, partial: expect.stringContaining('keeps only the first rows of') });
+    expect(whole.partial).toContain('(rows 1–5 of 8)');
+  });
+
   it('outlines the primary form without the sections\' text', async () => {
     const r = await rig();
     const outline = await r.reader.outline(r.page, who);

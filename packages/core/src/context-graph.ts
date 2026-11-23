@@ -8,6 +8,7 @@ import { ActorId, Audience, QualifiedName, RunId, type Same, SessionId, Timestam
 import { ResourceUri, SectionKey } from './resources.ts';
 import { InjectDecl } from './inject.ts';
 import { forModels, peopleOnly, peopleOnlyKeys } from './people-only.ts';
+import { FnNameValue } from './model-names.ts';
 
 // ─── Where context comes from ─────────────────────────────────────────────────
 
@@ -89,7 +90,8 @@ export type DeclarableRelation = z.infer<typeof DeclarableRelation>;
 /** What an edge points at. */
 export const LinkTarget = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('context'), name: QualifiedName }),
-  z.object({ kind: z.literal('fn'), name: QualifiedName }),
+  // a fn's name as the model's tools spell it, read back at the boundary (`optionFor` picks this option by `kind`)
+  z.object({ kind: z.literal('fn'), name: FnNameValue }),
   z.object({ kind: z.literal('type'), name: QualifiedName }),
   z.object({ kind: z.literal('resource'), uri: ResourceUri, section: SectionKey.optional() }),
 ]);
@@ -150,9 +152,9 @@ export const ContextOptions = z.object({
   summary: z.string().optional(),
   tags: z.array(z.string().min(1)).optional(),
   /** Tied fns: offered whenever this item is loaded. */
-  fns: z.array(QualifiedName).optional(),
+  fns: z.array(FnNameValue).optional(),
   /** Fns suggested alongside it. */
-  suggestFns: z.array(QualifiedName).optional(),
+  suggestFns: z.array(FnNameValue).optional(),
   /**
    * Put it in these agents' system prompts (`InjectDecl`). On hub-made context (a memory, context made from a
    * resource) only an admin sets it, by hand (`guardReach`): a model never writes text that lands in later prompts,

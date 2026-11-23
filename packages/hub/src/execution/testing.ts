@@ -31,6 +31,7 @@ import { contextorEnv } from '../contextor/env.ts';
 import { createExecution, type ExecutionModule, type LlmSource } from './create.ts';
 import { executionEnv } from './env.ts';
 import type { ExecutionDeps, ExecutionSettings } from './ports.ts';
+import type { AgentLoopDeps } from './agent.ts';
 import { openScope } from '../access/index.ts';
 
 export { settle };
@@ -360,6 +361,8 @@ export async function executionRig(options: {
   /** What people may see and use (default: everything). */
   access?: ExecutionDeps['access'];
   connections?: ExecutionDeps['connections'];
+  /** How a conversation's shown resources reach the model (default: as kept). */
+  media?: AgentLoopDeps['media'];
 } = {}) {
   const rigAccess = options.access;
   const store = await testStore();
@@ -424,6 +427,7 @@ export async function executionRig(options: {
     approvers: { approvers: (approver: Approver, turnUser: ActorId) => Promise.resolve(approver.by === 'turn-user' ? [turnUser] : approver.by === 'actor' ? [approver.actor] : approver.by === 'admins' ? [ALICE] : []) },
     ports: { work, rate },
     calls, metrics, planner: contextor.planner,
+    ...(options.media === undefined ? {} : { media: options.media }),
     llm: options.llm ?? { providers: { [SCRIPTED_AS]: provider }, models: [TEST_MODEL] },
   });
   let module = build();

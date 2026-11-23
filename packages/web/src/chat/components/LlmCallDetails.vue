@@ -5,13 +5,15 @@
  * chose for it and how the window was split (the context inspector); what it answered
  * (text, reasoning, tool calls); and the raw JSON. Read-only and copyable. A tool that is a fn (`hub__fns_search` read
  * back to `hub/fns_search`), offered or called, and the fn a static `run` call names, is a `FnPill` that opens the fn modal.
+ * A call the model got wrong (one the hub stopped mid-stream, a tool it wasn't offered) carries a calm note that it went
+ * back to the model, with no bearing on the result: never an error.
  */
 import { fnOfStoredToolName, type LlmInteraction, type LlmToolCall, type QualifiedName } from '@harness/core';
 import { computed, watchEffect } from 'vue';
 import { UiBadge, UiCodeBlock, UiTabs, fullTime, type TabItem } from '../../ui/index.ts';
 import { formatCost, formatDuration, formatTokens } from '../logic/format.ts';
 import { humanize } from '../logic/labels.ts';
-import { callToolNames, messageContent, taggedBlocks, toolCallFn as callFn, type LlmCallTab as Tab } from '../logic/inspect.ts';
+import { callToolNames, messageContent, taggedBlocks, toolCallFn as callFn, toolCallSlip, type LlmCallTab as Tab } from '../logic/inspect.ts';
 import { useStoresIfAny } from '../../state/stores.ts';
 import FnPill from '../../fns/components/FnPill.vue';
 import SelectionReportView from './SelectionReportView.vue';
@@ -42,6 +44,8 @@ const messages = computed(() => props.call.request.messages.map((m, i) => {
 const firstToken = computed(() => (props.call.firstTokenAt === undefined ? undefined : props.call.firstTokenAt - props.call.queuedAt));
 const duration = computed(() => (props.call.startedAt === undefined || props.call.endedAt === undefined ? undefined : props.call.endedAt - props.call.startedAt));
 const json = computed(() => JSON.stringify(props.call, null, 2));
+/** The tools this call offered, by name: a call to any other went back to the model. */
+const offered = computed(() => (props.call.request.tools ?? []).map((tool) => tool.name));
 </script>
 
 <template>
@@ -65,7 +69,7 @@ const json = computed(() => JSON.stringify(props.call, null, 2));
               <div v-for="(tag, i) in m.tags" :key="i" class="tag"><span class="tag-name">&lt;{{ tag.tag }}&gt;</span> {{ tag.text }}</div>
             </div>
             <pre class="text">{{ m.text }}</pre>
-            <div v-for="tool in m.toolCalls" :key="tool.id" class="tool-call" data-testid="llm-tool-call"><code v-if="fnOfToolName(tool.name) === undefined" class="tool-name">{{ tool.name }}</code><FnPill v-if="toolCallFn(tool)" :name="toolCallFn(tool) ?? ''" /><pre class="args">{{ tool.arguments }}</pre></div>
+            <div v-for="tool in m.toolCalls" :key="tool.id" class="tool-call" data-testid="llm-tool-call"><code v-if="fnOfToolName(tool.name) === undefined" class="tool-name">{{ tool.name }}</code><FnPill v-if="toolCallFn(tool)" :name="toolCallFn(tool) ?? ''" /><p v-if="toolCallSlip(tool) !== ''" class="slip" data-testid="llm-tool-slip">{{ toolCallSlip(tool) }}</p><pre class="args">{{ tool.arguments }}</pre></div>
           </li>
         </ol>
         <div v-else-if="value === 'context' && call.selection" class="pane"><SelectionReportView :report="call.selection" /></div>
@@ -80,7 +84,7 @@ const json = computed(() => JSON.stringify(props.call, null, 2));
           <template v-if="call.response">
             <p v-if="call.response.reasoning" class="reasoning">{{ call.response.reasoning }}</p>
             <pre class="text">{{ call.response.content }}</pre>
-            <div v-for="tool in call.response.toolCalls ?? []" :key="tool.id" class="tool-call" data-testid="llm-tool-call"><code v-if="fnOfToolName(tool.name) === undefined" class="tool-name">{{ tool.name }}</code><FnPill v-if="toolCallFn(tool)" :name="toolCallFn(tool) ?? ''" /><pre class="args">{{ tool.arguments }}</pre></div>
+            <div v-for="tool in call.response.toolCalls ?? []" :key="tool.id" class="tool-call" data-testid="llm-tool-call"><code v-if="fnOfToolName(tool.name) === undefined" class="tool-name">{{ tool.name }}</code><FnPill v-if="toolCallFn(tool)" :name="toolCallFn(tool) ?? ''" /><p v-if="toolCallSlip(tool, offered) !== ''" class="slip" data-testid="llm-tool-slip">{{ toolCallSlip(tool, offered) }}</p><pre class="args">{{ tool.arguments }}</pre></div>
             <p class="dim">Stopped: {{ call.response.finishReason }}</p>
           </template>
           <p v-else class="dim">No answer yet.</p>
@@ -97,6 +101,8 @@ const json = computed(() => JSON.stringify(props.call, null, 2));
 dt { color: var(--text-faint); }
 dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .error { color: var(--danger); }
+/* the model's slip, sent back to it: a quiet note, never red */
+.slip { margin: 0; color: var(--text-faint); font-size: var(--text-xs); font-style: italic; }
 .messages, .tools { display: grid; gap: var(--space-3); margin: 0; padding: var(--space-3) 0 0; list-style: none; }
 .message { display: grid; gap: var(--space-1); padding: var(--space-2) var(--space-3); border-left: 3px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-2); min-width: 0; }
 .message.system { border-left-color: var(--accent); }

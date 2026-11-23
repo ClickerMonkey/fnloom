@@ -3,7 +3,7 @@
  * back for undo. Paths arrive already resolved by the guard; problems a caller can fix are thrown as `FsProblem`.
  */
 import { lstat, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import type { ContentRef, UndoOutcome } from '@harness/core';
+import { partialNote, type ContentRef, type UndoOutcome } from '@harness/core';
 import { lineCount } from '../shared/format.ts';
 import type { PreviousValue } from '../shared/index.ts';
 import type { EntryValue, Located, PathGuard, Snapshots } from './index.ts';
@@ -32,6 +32,8 @@ export interface TextSlice {
   /** Lines in the whole file. */
   readonly lines: number;
   readonly truncated: boolean;
+  /** When `truncated`: which lines are here, how many were left out and how to read the rest (`partialNote`). */
+  readonly partial?: string;
 }
 
 /** A change to a file: its text before and after (for the diff), and the snapshot that undoes it. */
@@ -111,7 +113,10 @@ export class FileService {
     const all = text.split('\n');
     const end = Math.min(offset + limit, lines);
     const slice = all.slice(offset, end).join('\n');
-    return { text: slice, lines, truncated: offset > 0 || end < lines };
+    const shown = Math.max(0, end - offset);
+    const rest = end < lines ? `call fs/read again with the same path and offset: ${end}` : 'call fs/read again with the same path and offset: 0';
+    const partial = partialNote({ unit: 'lines', offset: Math.min(offset, lines), shown, total: lines, rest });
+    return { text: slice, lines, truncated: offset > 0 || end < lines, ...(partial === undefined ? {} : { partial }) };
   }
 
   /** Write a file, making its folder if needed. */

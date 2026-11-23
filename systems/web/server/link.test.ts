@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { web } from '../shared/index.ts';
 import { webEnv } from './env.ts';
-import { createWebImpl, fetchSettings, searchCredits, type WebServer } from './impl.ts';
+import { createWebImpl, fetchSettings, READ_EMPTY_NOTE, searchCredits, type WebServer } from './impl.ts';
 import { PageLoader } from './loader.ts';
 import { WebProblem } from './problem.ts';
 import { PageTabs } from './renderer.ts';
@@ -186,12 +186,28 @@ describe('web over the link', () => {
     hub.onCall = (call): Promise<RunSettled> => (call.fn === 'hub/resource_import'
       ? Promise.resolve({ status: 'failed', error: { class: 'caller', message: 'example.com answered 404 Not Found.', code: 'http-status' } })
       : Promise.resolve({ status: 'cancelled' }));
-    expect(await hub.run('web/read', { url: 'https://example.com/missing' })).toMatchObject({ status: 'failed', error: { class: 'caller', code: 'http-status', message: 'https://example.com/missing answered 404 Not Found.' } });
+    expect(await hub.run('web/read', { url: 'https://example.com/missing' })).toMatchObject({ status: 'failed', error: { class: 'caller', code: 'http-status', message: expect.stringMatching(/^https:\/\/example\.com\/missing answered 404 Not Found\. The page was not read, so nothing it says is confirmed/) } });
     hub.onCall = (call): Promise<RunSettled> => (call.fn === 'hub/resource_import'
       ? Promise.resolve({ status: 'done', result: pageRecord('https://example.com/', 'https://example.com/', false) })
       : Promise.resolve({ status: 'cancelled' }));
     expect((await hub.run('web/read', { url: 'https://example.com/' })).status).toBe('cancelled');
     expect(hub.calls.at(-1)?.args).toEqual({ uri: 'hub://resources/web/article', maxChars: settings.WEB_READ_CHARS });
+  });
+
+  it('passes on what part of a cut page it read, and says when a page read empty', async () => {
+    const reading = (text: string, total: number, partial?: string): RunSettled => ({
+      status: 'done',
+      result: { uri: 'hub://resources/web/article', form: 'markdown', text, offset: 0, total, truncated: partial !== undefined, ...(partial === undefined ? {} : { partial }), forms: ['markdown'], offers: [] },
+    });
+    const partial = 'Partial: characters 1–5 of 50 are here; 45 characters were left out. To get the rest, read on.';
+    hub.onCall = (call): Promise<RunSettled> => Promise.resolve(call.fn === 'hub/resource_import'
+      ? { status: 'done', result: pageRecord('https://example.com/', 'https://example.com/', false) }
+      : reading('Hello', 50, partial));
+    expect(done(await hub.run('web/read', { url: 'https://example.com/' }))).toMatchObject({ text: 'Hello', truncated: true, partial });
+    hub.onCall = (call): Promise<RunSettled> => Promise.resolve(call.fn === 'hub/resource_import'
+      ? { status: 'done', result: pageRecord('https://app.example.com/', 'https://app.example.com/', true) }
+      : reading('', 0));
+    expect(done(await hub.run('web/read', { url: 'https://app.example.com/' }))).toMatchObject({ text: '', note: READ_EMPTY_NOTE });
   });
 
   it('crawls a site into one folder, hands the hub the page it fetched, and reports the root', async () => {

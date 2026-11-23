@@ -1000,7 +1000,8 @@ that reads it, called with `{ "uri": … }`: `hub/resource_send` for a picture (
 text, markdown, CSV, JSON…) of up to `HARNESS_FILE_INLINE_CHARS` (4000) characters is in the block itself, with
 `truncated="true"` when only its start is (`chat/files.ts`). The readers (and `hub/resource_outline`) join the
 session's tools with the message. A file the hub could not keep goes out with its content ref (`hash`) only, which
-`hub/resource_import` takes.
+`hub/resource_import` takes. For a chat model that can't see images, an attached picture's tag reaches it as an
+`<image id>` block instead ([Images for models without vision](#g/images-without-vision)).
 
 ### Chat inputs
 
@@ -1156,7 +1157,8 @@ request and response. Model calls are not fns: fns are what agents choose to run
 ### Model roles
 
 Besides the model an agent uses, the hub picks a model for its own jobs: **transcribing** audio, **dictation** in
-the composer (or the browser's own speech recognition), **speaking** answers, **describing** images and **reading
+the composer (or the browser's own speech recognition), **speaking** answers, **describing** images (and answering
+questions about them for a chat model that can't see: [Images without vision](#g/images-without-vision)) and **reading
 text** in them, **deciding** (yes/no questions answered by a decision model), and the default chat model. Each role is
 set in the admin's model settings (a model, optionally the provider that serves it, a language) or by asking in chat.
 
@@ -1167,6 +1169,41 @@ over the cap before sending it. The hub's own callers (suggestions, systems' `de
 one decider that picks the model (the job's own or the role's) and sends the questions in batches that fit both the
 model's question cap and its request size (`maxRequestBytes`), one call after another. A question too large to fit
 alone is refused before anything is sent. Every decide call is a model call with modality `decide`, budgeted and priced like the others.
+
+### Images without vision
+
+Phil (2026-11-23, verbatim): "For image reading if the current model doesn't have vision then the image content should
+be replaced with xml about the image with an identifier then an image read tool with that ID and a request which does
+get sent off to an llm configured by an admin to answer the question for the blind llm."
+
+A conversation keeps every resource the model is shown **by reference**, never its bytes: a done `hub/resource_send`
+call is followed by a hub-written `<shown uri="…" section="…">` message (it starts no exchange), and an attached file
+is its `<file … uri>` tag. Before each model call the agent loop makes the conversation for the model that call goes
+to (`chat/shown.ts`, `ConversationMedia`, as the run's person, before the planner so estimates and spelling see it):
+
+- **A model with `vision`** gets a shown image as an image part (a data URL), as before; attached pictures stay
+  `<file>` tags it opens with `hub/resource_send`.
+- **A model without `vision`** (also an automatic choice, or a model no provider lists) gets, in place of every image
+  it would receive (a shown image, an attached picture's `<file>` tag, an image part already in a message), an
+  `<image id="…" name mime size width height source>` block: `id` is the image's resource uri, the width and height
+  are read from the bytes' header (PNG, GIF, JPEG, WebP), `source` says where it came from, and one line says to ask
+  about it with `hub/image_read {"image": "<id>", "question": "…"}`. With no image model set up the line says nothing
+  can read it instead. An image part with no resource behind it says it has no id. No model call is made to build a
+  block. An image too large to send inline (`INLINE_MAX`) is a block for a vision model too.
+- A shown resource's text (a document sent whole) is kept to `HARNESS_READ_CHARS`, saying how to read on.
+
+**`hub/image_read`** takes the id and a question (`ImageReadArgs`, at most `IMAGE_QUESTION_MAX` characters), checks the
+caller may reach the resource (as `hub/resource_read` does), and sends the image and the question to the **describe**
+role's vision model through the LLM gateway, recorded against the run (an `LlmInteraction` and a `ModelCall`); it
+answers `{ answer, model, image: { id, name } }`. It declares `roles: ['describe']`, so it is unavailable
+(`role-unset`) until an admin sets that role on the Models page or with `hub/set_model_role`, and a call that reaches
+it anyway is refused "no image model is set up" (`NO_IMAGE_MODEL`). Something that isn't an image is refused with
+`NOT_AN_IMAGE`. The hub's **Unseen images** item (`packages/hub/context/images.md`) brings the fn and explains the
+block; it is injected only while the fn is available. The scenario runner sets the describe role to GPT-6 Luna
+(`HARNESS_SCENARIOS_IMAGE_MODEL`) on every rep's hub.
+
+Since only references are kept, undo cuts them with the rest of a turn, and a chat that changes model reads every
+earlier image the way its new model takes them.
 
 ### Providers from systems
 
@@ -1195,7 +1232,17 @@ the admin's fn pages show them and `hub/fns_metrics` gives them to the LLM.
 
 A model's mistake in calling a fn (JSON that doesn't parse, arguments that don't fit the fn's type, input the fn's
 own checks refuse) ends the run as **invalid input**: the problems go back to the model so it can try again, the
-chat shows it softly as "Retried", and it doesn't count as a failure. A real failure is **failed**.
+chat shows it calmly as "Thinking harder", and it doesn't count as a failure. A real failure is **failed**.
+
+Phil (2026-11-23): model mistakes are not errors, anywhere. The chat never shows a model's slip as an error or a
+warning in red: a call that went back to the model reads **"Thinking harder"** (its card: "Thinking harder · no bearing
+on the result", what was wrong in its tooltip and details; the live status line: "Thinking harder…" while the model
+works out a better call), and so do the other slips the model recovers from: a field it sent as a string of JSON (the
+run's details say the hub read it as JSON), a call the hub stopped mid-stream ("Stopped by the hub", a stuck stream or
+the output limit) and a tool name it wasn't offered (an LLM call's details note both quietly). Fn metrics keep them
+apart from failures (a fn's failure rate counts its real runs only; "Fixed by the model" counts the rest), the hub logs
+them at `info`, and the scenario judge, checks and diagnosis count them apart as model arg mistakes, recovered or not:
+not delivering a good result is the failure.
 
 The problems are short (iteration 2: a nested type's mistake came back as megabytes of union branches, or as
 "Unrecognized key: props" one level too high). `conciseIssues` (core) names at most five, each at its full dotted path
@@ -1874,7 +1921,7 @@ Already checked: type-checking all of the types and examples takes about two sec
   instance data, state and cache folders outside the package; config in the hub database; `harness system
   new|build|pack|install|export-data`; the hub installs zips.
 - **Invalid input vs error** (build 2): `invalid-input` is its own run status, retryable, fed back to the LLM and
-  shown softly as "Retried"; `failed` is a real failure.
+  shown calmly as "Thinking harder"; `failed` is a real failure.
 - **Model calls** (build 2): every model call of every modality is a `ModelCall` record attributed to its run; not a
   fn kind; nothing bypasses the hub.
 - **Systems add resource views, type inputs (editors that are also viewers) and value renderers** through `client()`.
@@ -1898,7 +1945,7 @@ Already checked: type-checking all of the types and examples takes about two sec
   each for the models it serves (aeye's registry refresh), so a local Ollama's models are offered at once, with the
   window Ollama serves them with.
 - **Tool args reach the hub's own check** (build 2 integration): agent tools accept any JSON object and the hub checks
-  the args against the fn's type, so args that don't fit become an `invalid-input` run the chat shows as "Retried"
+  the args against the fn's type, so args that don't fit become an `invalid-input` run the chat shows as "Thinking harder"
   and the fn's metrics count. Args that aren't JSON at all are retried inside aeye, before any run exists.
 - **Fleets in the chat** (build 2 integration): in tools mode a fn whose system has several connected instances gets
   an optional `on` choice in its tool schema; the static toolset's `run` takes `on`. Both are taken out of the args and

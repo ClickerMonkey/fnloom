@@ -19,7 +19,7 @@ import { fnLabel, lowerFirst } from './labels.ts';
  * so instead of looking busy.
  */
 export type RunView = Pick<Run, 'id' | 'fn' | 'status' | 'cost' | 'totalCost' | 'attempt' | 'background' | 'errors'>
-  & Partial<Pick<Run, 'args' | 'outcome' | 'progress' | 'allowed' | 'startedAt' | 'endedAt' | 'parent' | 'turn' | 'kind' | 'system' | 'instance' | 'llmCall' | 'createdAt' | 'text'>>
+  & Partial<Pick<Run, 'args' | 'repairs' | 'outcome' | 'progress' | 'allowed' | 'startedAt' | 'endedAt' | 'parent' | 'turn' | 'kind' | 'system' | 'instance' | 'llmCall' | 'createdAt' | 'text'>>
   & { readonly asking?: boolean };
 
 /** The words of a run waiting on the person's answer. */
@@ -101,7 +101,7 @@ export const STATUS_LOOK = {
   waiting: { tone: 'warn', icon: 'clock', word: RUN_STATUS_WORDS.waiting },
   paused: { tone: 'neutral', icon: 'clock', word: RUN_STATUS_WORDS.paused },
   done: { tone: 'ok', icon: 'success', word: RUN_STATUS_WORDS.done },
-  // refused input is retried by the agent: shown softly, never as a failure
+  // the model's call didn't fit and went back to it: a calm 'thinking harder', never a failure
   'invalid-input': { tone: 'neutral', icon: 'refresh', word: RUN_STATUS_WORDS['invalid-input'] },
   failed: { tone: 'danger', icon: 'error', word: RUN_STATUS_WORDS.failed },
   cancelled: { tone: 'neutral', icon: 'x', word: RUN_STATUS_WORDS.cancelled },
@@ -126,38 +126,68 @@ export function runDeclined(run: Pick<RunView, 'status'> & Partial<Pick<RunView,
   return run.status === 'cancelled' && error?.code === DECLINED_CODE ? error.message : undefined;
 }
 
-/** Why a run's input was refused, when it was: the agent retries it, so it is never shown as a failure. */
+/** Why a run's input was refused, when it was: the model tries again, so it is never shown as a failure. */
 export function runInvalid(run: Pick<RunView, 'outcome'>): InvalidInput | undefined {
   return run.outcome?.status === 'invalid-input' ? run.outcome.invalid : undefined;
 }
 
-/** What each kind of refused input was, in plain words. */
+/**
+ * What each kind of refused input was, in plain words. Refused args are the model's own slip, said as such (never as
+ * an error): it is told what to change and calls again.
+ */
 export const INPUT_PROBLEM_WORDS = {
-  json: 'The input wasn’t valid JSON',
-  schema: 'The input didn’t fit the fn’s args',
-  validation: 'The fn’s own checks refused the input',
+  json: 'The model’s call wasn’t valid JSON',
+  schema: 'The model’s call didn’t fit the fn’s args',
+  validation: 'The fn asked the model to adjust its call',
   unavailable: 'Not available now',
-  result: 'The fn refused its result',
+  result: 'The fn sent its result back for another try',
 } as const satisfies Record<InputProblemSource, string>;
 
+/** The start of the args the hub writes for a call it stopped while the model was still writing it (the hub's `stoppedArguments`). */
+export const STOPPED_BY_HUB = 'Stopped by the hub';
+
+/** What a refused input was: its kind's words, or, for a call the hub stopped mid-stream, that. */
+export function invalidWhat(invalid: InvalidInput): string {
+  return invalid.source === 'json' && invalid.raw?.trimStart().startsWith(STOPPED_BY_HUB) === true
+    ? 'The hub stopped a call the model was still writing (it ran too long)'
+    : INPUT_PROBLEM_WORDS[invalid.source];
+}
+
+/** The calm status of a run whose call went back to the model: it is trying again. */
+export const THINKING_HARDER = 'Thinking harder';
+
+/** What a model's slip has to do with the result: nothing. */
+export const NO_BEARING = 'No bearing on the result';
+
 /**
- * A refused run on its card's line, softly: a fn that can't run now says so (the agent was told why), a refused
- * result says it was sent back, and anything else reads as retried.
+ * A refused run on its card's line, calmly: a fn that can't run now says so (the model was told why), a refused
+ * result says it was sent back, and the model's own slip reads as "Thinking harder" with no bearing on the result (what
+ * was wrong is the line's tooltip and in the details).
  */
 export function invalidSummary(invalid: InvalidInput): string {
   switch (invalid.source) {
     case 'unavailable': return invalidLine(invalid);
     case 'result': return `Sent back · ${invalidLine(invalid)}`;
-    case 'json': case 'schema': case 'validation': return `Retried · ${invalidLine(invalid)}`;
+    case 'json': case 'schema': case 'validation': return `${THINKING_HARDER} · ${lowerFirst(NO_BEARING)}`;
   }
+}
+
+/**
+ * What the hub read other than as the model sent it (a field sent as a string of JSON, read as that JSON), for the
+ * run's details: the model's slip, fixed on the way in, with no bearing on the result. Empty when nothing was.
+ */
+export function repairedNote(run: Pick<RunView, 'repairs'>): string {
+  const paths = (run.repairs ?? []).map((repair) => (repair.path === '' ? 'the args' : repair.path));
+  if (paths.length === 0) { return ''; }
+  return `The model sent ${paths.join(', ')} as text holding JSON; the hub read it as JSON. ${NO_BEARING}.`;
 }
 
 /** What happened after a refusal, for the run's details. */
 export function invalidAfter(source: InputProblemSource): string {
   switch (source) {
-    case 'unavailable': return 'The agent was told why it can’t run now. This is not a failure.';
-    case 'result': return 'The agent was told why and asked to try again. This is not a failure.';
-    case 'json': case 'schema': case 'validation': return 'The agent was told why and can try again. This is not a failure.';
+    case 'unavailable': return 'The model was told why it can’t run now. This is not a failure.';
+    case 'result': return 'The model was told why and asked to try again. This is not a failure.';
+    case 'json': case 'schema': case 'validation': return `The model was told what to change and tried again. ${NO_BEARING}.`;
   }
 }
 
@@ -176,8 +206,8 @@ export function runStopped(run: RunView): string | undefined {
 /** A refused input in one line: what was wrong and its first problem ("The input didn’t fit the fn’s args: path: required"). */
 export function invalidLine(invalid: InvalidInput): string {
   const [first, ...rest] = invalid.problems;
-  if (first === undefined) { return INPUT_PROBLEM_WORDS[invalid.source]; }
-  return `${INPUT_PROBLEM_WORDS[invalid.source]}: ${problemLine(first)}${rest.length > 0 ? ` (+${rest.length} more)` : ''}`;
+  if (first === undefined) { return invalidWhat(invalid); }
+  return `${invalidWhat(invalid)}: ${problemLine(first)}${rest.length > 0 ? ` (+${rest.length} more)` : ''}`;
 }
 
 /**
@@ -232,13 +262,13 @@ export function runWords(run: Pick<RunView, 'fn' | 'attempt' | 'args' | 'text'> 
   return run.text?.phase === phase ? run.text : resolveStatus([], phase, { fn: run.fn, args: run.args ?? null });
 }
 
-/** A run whose input was refused, once it is over: settled words, not the retry phase's progress words. */
-export const INVALID_TEXT = 'Sent back for the agent to fix its call';
+/** A run whose call went back to the model, once it is over: "Thinking harder", never the retry phase's words. */
+export const INVALID_TEXT = THINKING_HARDER;
 
 /**
  * What a run is doing, in plain words: its fn's words for its phase ("Reading harness.md…", "Read harness.md",
  * "Retrying harness.md…", "Reading harness.md failed"), or the chat's own while it waits on a person, after it was
- * stopped or taken back, or once its input was refused and sent back for the agent to fix (`INVALID_TEXT`).
+ * stopped or taken back, or once its call went back to the model to fix (`INVALID_TEXT`, "Thinking harder").
  */
 export function runText(run: Pick<RunView, 'fn' | 'status' | 'attempt' | 'args' | 'text' | 'asking'> & Partial<Pick<RunView, 'errors'>>): string {
   const label = fnLabel(run.fn);
@@ -339,6 +369,9 @@ const PHASE_TONE = { active: 'accent', retry: 'warn', waiting: 'warn', failed: '
 /** The lead while nothing but the agent itself is working. */
 export const THINKING = 'Thinking…';
 
+/** The lead while the model tries again after its call went back to it (never said as an error). */
+export const THINKING_HARDER_LEAD = `${THINKING_HARDER}…`;
+
 /**
  * Whether a run is the turn's own agent: the line's lead ("Thinking…") speaks for it, never its label. Known by its
  * kind once its record arrives, and before that by being the session's agent fn with no parent.
@@ -350,6 +383,22 @@ function isTurnAgent(run: Pick<RunView, 'parent' | 'kind' | 'fn'>, agent: Qualif
 /** Whether a status line says more than that the agent is thinking: worth showing beside (or instead of) typing dots. */
 export function lineHasNews(line: StatusLine): boolean {
   return line.groups.length > 0 || line.more > 0 || (line.lead !== '' && line.lead !== THINKING);
+}
+
+/**
+ * Whether the latest thing to happen among a turn's runs (its own agent left out) is a call that went back to the
+ * model: it is working out a better call now. The latest is the one that ended (or else started) last; runs the
+ * browser knows no time of yet count in the order given.
+ */
+function rethinking(runs: readonly RunView[], agent: QualifiedName | undefined): boolean {
+  let latest: RunView | undefined;
+  let at = -Infinity;
+  for (const run of runs) {
+    if (isTurnAgent(run, agent)) { continue; }
+    const when = run.endedAt ?? run.startedAt ?? run.createdAt ?? 0;
+    if (when >= at) { at = when; latest = run; }
+  }
+  return latest?.status === 'invalid-input';
 }
 
 /** A group's words: its runs' status words, the `many` form with the count when there is more than one. */
@@ -364,13 +413,14 @@ function groupText(first: RunView, count: number): string {
  * Sum up a turn's runs on one line: same-fn runs grouped in their fn's words ("Reading 3 files…"), most active first,
  * finished groups kept for `linger` ms after they end then dropped, and past `max` groups "+N more". Runs waiting on a
  * person are not grouped: their cards already say so, and the lead says "Waiting for your approval". The turn's own
- * agent is the lead too.
+ * agent is the lead too. A call that went back to the model (its args didn't fit) is never a group: when it is the
+ * latest thing to happen, the lead says "Thinking harder…" while the model works out a better call.
  */
 export function statusLine(runs: readonly RunView[], now: number, options: StatusLineOptions = STATUS_LINE, agent?: QualifiedName): StatusLine {
   const groups = new Map<string, { first: RunView; phase: Phase; count: number }>();
   for (const run of runs) {
     const phase = phaseOf(run);
-    if (phase === 'waiting' || isTurnAgent(run, agent)) { continue; }
+    if (phase === 'waiting' || run.status === 'invalid-input' || isTurnAgent(run, agent)) { continue; }
     if (phase === 'done' && now - (run.endedAt ?? now) > options.linger) { continue; }
     const key = `${run.fn}:${phase}`;
     const group = groups.get(key);
@@ -384,7 +434,7 @@ export function statusLine(runs: readonly RunView[], now: number, options: Statu
   const lead = runs.some((run) => run.status === 'awaiting-approval') ? 'Waiting for your approval'
     : runs.some((run) => run.asking === true && !isSettled(run.status)) ? ASKING_TEXT
     : runs.some((run) => run.status === 'paused') ? 'Paused'
-    : working ? '' : THINKING;
+    : working ? '' : rethinking(runs, agent) ? THINKING_HARDER_LEAD : THINKING;
   return { groups: shown, more: Math.max(0, sorted.length - options.max), lead };
 }
 

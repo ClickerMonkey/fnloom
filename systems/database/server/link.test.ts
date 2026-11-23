@@ -126,9 +126,9 @@ describe('the database system over the link', () => {
   it('gives the agent the tables, checks a draft, keeps it in the hub, runs it, and keeps a new version', async () => {
     dir = shopFile().dir;
     await start();
-    expect(done(await hub.run('database/databases', {}))).toEqual([{ instance: 'main', label: 'Shop', tables: ['customers', 'orders'] }]);
+    expect(done(await hub.run('database/databases', {}))).toEqual([{ instance: 'main', label: 'Shop', tables: ['customers', 'orders'], writes: true, schemaChanges: true }]);
     const tables = done(await hub.run('database/tables', { database: 'main' }));
-    expect(tables).toMatchObject({ database: { instance: 'main', label: 'Shop', dialect: 'sqlite' }, writes: true });
+    expect(tables).toMatchObject({ database: { instance: 'main', label: 'Shop', dialect: 'sqlite' }, writes: true, schemaChanges: true });
     expect(JSON.stringify(tables)).toContain('orders');
     expect(await hub.run('database/tables', { database: 'not a name!' })).toMatchObject({ status: 'invalid-input' });
 

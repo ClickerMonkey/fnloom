@@ -29,6 +29,8 @@ export const ToolRun = z.object({
   /** The result or error, shortened. */
   outcome: z.string(),
   cost: z.number(),
+  /** Parts of its args the hub read other than as sent (a field sent as JSON text, read as that JSON): the model's slip, repaired (absent: none, or a record from before 2026-11-23). */
+  repairs: z.number().int().min(0).optional(),
   /** The approval it waited on, and what the person said. */
   approval: z.object({ title: z.string(), decision: z.enum(['approved', 'denied', 'left']), reason: z.string() }).optional(),
 });

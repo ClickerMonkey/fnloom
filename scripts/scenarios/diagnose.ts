@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { CASES } from './cases.ts';
+import { argMistakes, argMistakesLine, caseRuns } from './checks.ts';
 import { inventory, LIMIT_STEPS, modelView, openHubDb } from './modelview.ts';
 import type { OpenRouter } from './openrouter.ts';
 import type { JudgedCase } from './records.ts';
@@ -23,7 +24,7 @@ import { clip, transcriptMarkdown, usd } from './transcript.ts';
 import { VARIANT_NAMES } from './variants.ts';
 
 /** Why the model did what it did at a step. */
-export const STEP_CAUSES = ['missing-info', 'misleading-info', 'jargon-unexplained', 'wrong-mechanism', 'mechanism-missing', 'mechanism-too-hard', 'tool-bug', 'model-error', 'fine'] as const;
+export const STEP_CAUSES = ['missing-info', 'misleading-info', 'jargon-unexplained', 'wrong-mechanism', 'mechanism-missing', 'mechanism-too-hard', 'model-arg-mistake', 'tool-bug', 'model-error', 'fine'] as const;
 export const StepCause = z.enum(STEP_CAUSES);
 export type StepCause = z.infer<typeof StepCause>;
 
@@ -49,6 +50,7 @@ const CAUSE_WORDS: Record<string, StepCause> = {
   ok: 'fine', good: 'fine', correct: 'fine', right: 'fine', none: 'fine',
   'missing-information': 'missing-info', missing: 'missing-info', 'misleading-information': 'misleading-info', misleading: 'misleading-info',
   jargon: 'jargon-unexplained', 'unexplained-jargon': 'jargon-unexplained', 'bug': 'tool-bug', 'tool-error': 'tool-bug', error: 'model-error',
+  'arg-mistake': 'model-arg-mistake', 'model-arg-error': 'model-arg-mistake', 'bad-args': 'model-arg-mistake', 'invalid-args': 'model-arg-mistake', 'invalid-input': 'model-arg-mistake',
   'missing-mechanism': 'mechanism-missing', 'too-hard': 'mechanism-too-hard',
 };
 
@@ -65,6 +67,8 @@ export const DiagnosedStep = z.object({
   // a fine step needs no "should"; a model sometimes leaves it out
   should: z.string().default(''),
   why: z.preprocess(causeWord, StepCause),
+  /** For a model-arg-mistake: whether the model got the call right afterwards (absent: not said, or a diagnosis from before 2026-11-23). */
+  recovered: z.preprocess((v) => (v === 'true' ? true : v === 'false' ? false : v === null ? undefined : v), z.boolean().optional()),
 });
 export type DiagnosedStep = z.infer<typeof DiagnosedStep>;
 
@@ -138,13 +142,14 @@ If a fact is not on that page, the model does not know it. Judge each step only 
    - wrong-mechanism: the app has the right tool and the model could know of it, but it used another (a plain question instead of a form, writing out a chart instead of a widget).
    - mechanism-missing: the app has nothing that does what is needed.
    - mechanism-too-hard: the right tool exists but is too hard to use correctly from what it was given (a huge schema, a nested format with no example, a multi-step dance nobody described).
-   - tool-bug: a tool misbehaved, returned something wrong or unhelpful, or its error didn't say how to fix the call. Before you call a rejected call a bug, compare its exact arguments with the tool's schema in the trace: a call that doesn't fit the schema is not a bug in the validator (the cause is then whatever made the shape hard to get right). Something the person failed to answer is not a tool bug unless the trace shows the tool broke.
+   - model-arg-mistake: the model's own call didn't fit and the app sent it back for the model to fix: JSON that didn't parse, arguments that didn't fit the tool's schema or its own checks, a tool name that doesn't exist, a call the app stopped while the model was still writing it ("Stopped by the hub": a stuck stream or the output limit), or a field the app repaired (an object sent as a string of JSON). Set "recovered": true when a later call got it right, false when it never did. This is not a failure in itself: a recovered one cost a step and nothing else, so don't give it a fix of its own unless the same mistake keeps coming back (then the fix makes the shape easier: mechanism-too-hard). An unrecovered one matters only for what it cost the result.
+   - tool-bug: the tool itself misbehaved on a call that fit it: it failed, returned something wrong or unhelpful, or its error didn't say how to fix the call. A rejected call that didn't fit the tool's schema is a model-arg-mistake, never a tool-bug (compare its exact arguments with the tool's schema in the trace). Something the person failed to answer is not a tool bug unless the trace shows the tool broke.
    List every step that went wrong or decided something important, plus the first and the last step. Routine steps may be skipped.
    Every "did" must hold a short quote from the trace at that step (the tool call's name and key arguments, or the words the model wrote) so it can be checked. Never say a search or result showed something unless that text is in the trace at or before that step; if you can't find it, say it was absent.
    Read every tool result the model acted on for words that told it what to do next ("go on", "don't wait", "try again", an example, an error's advice). When such words steered it wrong, quote them: that is misleading-info (or tool-bug), and the fix replaces those words.
 3b. Audit the model's messages to the person. List each claim of fact or of action in them (a date, a price, a link, "I checked…", "I saved…", "I set up…") and find the tool result that backs it. A claim no tool result backs (a link that appears in no result, "I checked the pages" when no page was read) is the worst failure in a case, whatever the judge said: file the step that wrote it as model-error unless the prompt invited it, and add a fix (usually system-prompt) that makes the rule plain: say only what tool results show, and say what was not checked.
 4. rootCause: one paragraph. Name the step numbers, quote the exact text that was missing, misleading or confusing (or say exactly what was absent), and explain how that led to the outcome. If the case went well, say what made it work.
-5. fixes: 2 to 6 changes, the most useful first (fix the earliest cause in the chain before its consequences). Every step you filed as anything but fine must be covered by at least one fix; list the steps a fix covers in its "steps". Each changes ONE place ("where"):
+5. fixes: 2 to 6 changes, the most useful first (fix the earliest cause in the chain before its consequences). Every step you filed as anything but fine (or a recovered model-arg-mistake) must be covered by at least one fix; list the steps a fix covers in its "steps". Each changes ONE place ("where"):
    - system-prompt: the core of the chat agent's system prompt (shown in full at step 1): what is true of every chat whatever is installed.
    - systems-list: the <systems> block inside that prompt (one line per system).
    - context:<key> also names an injected item: after the core, the system prompt holds sections under a "## Title" heading (the hub's own, such as hub/asking or hub/saved_fns, and each system's, such as input/basics or database/basics); each is a context item injected into the prompt, so fix one by its key. What one system should say goes in that system's item, never in the core.
@@ -162,14 +167,14 @@ If a fact is not on that page, the model does not know it. Judge each step only 
 ## Rules
 
 - Be specific: real step numbers, real tool names from the trace or the inventory, quoted text. Advice like "improve the prompt", "add more guidance" or "be clearer" is worthless.
-- Write proposedText for every request of this kind, not this one person: it goes into a prompt that serves everyone. Use this case's details only as a labelled example ("for example, logging grocery trips"). Don't push one pattern onto every case (not every log needs a form and a chart): say when it fits.
+- Write proposedText for every request of this kind, not this one person: it goes into a prompt that serves everyone. Use this case's details only as a labelled example ("for example, keeping a log of something the person does often"). Don't push one pattern onto every case (not every log needs a form and a chart): say when it fits.
 - Never propose telling the model how technical the person is, or to assume they are or aren't technical. Nobody knows who the person is. Plain wording to the person is fine without saying why.
 - Never present a tool that doesn't exist as if it did; a needed one is a new-mechanism fix.
 - Prefer fixing what the model was told over blaming the model. Use model-error only when the information was clearly there.
 - For a request the app can't fully do (for example anything that must happen later on its own), good means saying so plainly and building the closest thing.
 
 Answer with only one JSON object:
-{"steps": [{"step": <number>, "did": "what it did", "should": "what it should have done", "why": "${STEP_CAUSES.join('" | "')}"}], "rootCause": "one paragraph", "fixes": [{"where": "...", "steps": [<step numbers>], "problem": "...", "proposedText": "...", "confidence": 0.0}]}
+{"steps": [{"step": <number>, "did": "what it did", "should": "what it should have done", "why": "${STEP_CAUSES.join('" | "')}", "recovered": true | false (model-arg-mistake only)}], "rootCause": "one paragraph", "fixes": [{"where": "...", "steps": [<step numbers>], "problem": "...", "proposedText": "...", "confidence": 0.0}]}
 
 # What the app offers
 
@@ -187,6 +192,7 @@ function caseBrief(judged: JudgedCase): string {
     `What the person privately knew (said only when asked): ${played?.facts.join(' ') || 'nothing special'} They were after: ${played?.wants ?? '—'}`,
     `How it ended: ${judged.ending.by} — ${judged.ending.reason}`,
     j === null ? `Judge: none (${judged.judgeError ?? '—'})` : `Judge: ${j.verdict} ${j.score}/10. ${j.summary}\nWent well: ${j.wentWell.join('; ') || '—'}\nWent wrong: ${j.wentWrong.join('; ') || '—'}${j.cause === null ? '' : `\nJudge's cause: ${j.cause}; fix: ${j.fix}`}`,
+    `Model arg mistakes (the model's own calls the app sent back; not failures in themselves): ${argMistakesLine(argMistakes(caseRuns(judged)))}.`,
     `Code checks: ${judged.checks.map((c) => `${c.ok ? 'ok' : 'FAILED'} ${c.name} (${c.detail})`).join('; ')}`,
     `## Transcript (what the person saw, with each tool run in short)\n\n${clip(transcriptMarkdown(judged, 'short'), 30_000)}`,
   ].join('\n\n');
@@ -245,7 +251,7 @@ export function diagnosisMarkdown(saved: CaseDiagnosis): string {
     `## Diagnosis`,
     `_${saved.model}, ${saved.modelSteps} model steps read, ${usd(saved.cost)}._`,
     `**Root cause:** ${d.rootCause}`,
-    `**Steps:**\n${d.steps.map((s) => `- ${s.step}. **${s.why}** — did: ${s.did}${s.why === 'fine' ? '' : ` · should: ${s.should}`}`).join('\n') || '- —'}`,
+    `**Steps:**\n${d.steps.map((s) => `- ${s.step}. **${stepCause(s)}** — did: ${s.did}${s.why === 'fine' ? '' : ` · should: ${s.should}`}`).join('\n') || '- —'}`,
     `**Fixes:**\n${d.fixes.map((f, i) => `${i + 1}. \`${f.where}\` (confidence ${f.confidence.toFixed(2)}${f.steps.length === 0 ? '' : `, steps ${f.steps.join(', ')}`}): ${f.problem}\n\n   > ${f.proposedText.split('\n').join('\n   > ')}`).join('\n\n') || '- —'}`,
     saved.dropped.length === 0 ? '' : `_Left out (they stated the person's technical level): ${saved.dropped.join(' · ')}_`,
   ].filter((part) => part !== '').join('\n\n');
@@ -350,11 +356,20 @@ async function mergeGroup(router: OpenRouter | undefined, model: string, where: 
   }
 }
 
-/** Every diagnosed step's cause, counted. */
+/** A step's cause as it is counted: a model-arg-mistake says whether the model recovered (when the diagnosis said). */
+export function stepCause(step: Pick<DiagnosedStep, 'why' | 'recovered'>): string {
+  if (step.why !== 'model-arg-mistake' || step.recovered === undefined) { return step.why; }
+  return step.recovered ? 'model-arg-mistake (recovered)' : 'model-arg-mistake (not recovered)';
+}
+
+/** Whether a counted cause is a model arg mistake (shown apart: not a failure in itself). */
+export const isArgMistake = (cause: string): boolean => cause.startsWith('model-arg-mistake');
+
+/** Every diagnosed step's cause, counted (a model-arg-mistake as recovered or not). */
 function countCauses(diagnoses: readonly CaseDiagnosis[]): Record<string, number> {
   const causes: Record<string, number> = {};
   for (const saved of diagnoses) {
-    for (const step of saved.diagnosis?.steps ?? []) { causes[step.why] = (causes[step.why] ?? 0) + 1; }
+    for (const step of saved.diagnosis?.steps ?? []) { const cause = stepCause(step); causes[cause] = (causes[cause] ?? 0) + 1; }
   }
   return causes;
 }
@@ -413,8 +428,11 @@ const caseLink = (origin: Origin): string => `[${origin.case}/${origin.variant =
 
 /** The iteration's diagnosis as markdown: step causes, then the fixes ranked, then each case rep's root cause. */
 export function iterationDiagnosisMarkdown(result: IterationDiagnosis): string {
-  const causes = Object.entries(result.causes).sort(([, a], [, b]) => b - a);
   const several = result.byVariant.length > 1;
+  // the model's arg mistakes are shown apart: not failures in themselves
+  const causes = Object.entries(result.causes).filter(([cause]) => !isArgMistake(cause)).sort(([, a], [, b]) => b - a);
+  const mistakes = Object.entries(result.causes).filter(([cause]) => isArgMistake(cause)).sort(([a], [b]) => a.localeCompare(b));
+  const mistakesLine = mistakes.length === 0 ? '' : `**Model arg mistakes** (the model's own call didn't fit and was sent back; not failures in themselves): ${mistakes.map(([cause, n]) => `${n} ${cause === 'model-arg-mistake' ? 'not said whether recovered' : cause.slice('model-arg-mistake '.length).replace(/[()]/g, '')}`).join(', ')}${several ? ` (${result.byVariant.map((v) => `${v.variant}: ${mistakes.map(([cause]) => v.causes[cause] ?? 0).reduce((a, b) => a + b, 0)}`).join(', ')})` : ''}.`;
   const names = result.byVariant.map((v) => v.variant);
   /** Which variants need a fix, as its heading says it. */
   const need = (fix: MergedFix): string => {
@@ -435,6 +453,7 @@ export function iterationDiagnosisMarkdown(result: IterationDiagnosis): string {
     ] : []),
     '## Why each step went the way it did',
     causes.length === 0 ? '_none_' : causeTable,
+    ...(mistakesLine === '' ? [] : [mistakesLine]),
     '## Fixes, ranked by how many case reps they would help',
     ...result.fixes.map((fix, i) => [
       `### ${i + 1}. \`${fix.where}\` — ${repsOf(fix)} case rep(s), confidence ${fix.confidence.toFixed(2)}${need(fix)}`,

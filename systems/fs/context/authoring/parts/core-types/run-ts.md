@@ -114,7 +114,8 @@ type InputProblem = {
 const, type · declared in `packages/core/src/run.ts`
 
 A run's input was refused before (or by) its fn. This is retryable and often expected from a model: the hub feeds the
-problems back to the agent and the chat shows the run softly as "Retried". A real failure is `failed`.
+problems back to the agent and the chat shows the run calmly as "Thinking harder" (the model's slip, with no bearing on
+the result; never an error). A real failure is `failed`.
 
 ```ts
 type InvalidInput = {

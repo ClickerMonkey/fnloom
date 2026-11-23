@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * A fn's numbers over a period (`v-model:days`: 7, 30 or 90): a strip of figures (runs, retried input apart from
+ * A fn's numbers over a period (`v-model:days`: 7, 30 or 90): a strip of figures (runs, the calls the model sent back and fixed apart from
  * failures, typical and p95 time, waiting, cost, tokens) and its runs and typical time per day. The fn page and the
  * fn modal both show it.
  */

@@ -4,7 +4,7 @@
  * (only when that adds to the line), with a ticking elapsed time and its cost. Each fact shows once: expanded with its
  * fn's own renderer (or a widget whose chips show its args, or a proposal), the line drops the args summary, and who started it is the
  * line's tooltip (the card sits under their message). Progress shows as a bar or steps. A failed run says why in place of its
- * summary; refused input (which the agent retries) says so quietly, as a dashed card. The body is the fn's own renderer when its system has one,
+ * summary; a call that went back to the model (its args didn't fit) reads "Thinking harder · no bearing on the result", quietly, as a dashed card, never red. The body is the fn's own renderer when its system has one,
  * else, once it is done, its system's result renderer (`client({ results })`, by fn or kind: a widget proposal is the
  * widgets system's), else rows in the result view, else the result in brief. The card
  * collapses to its one line; clicking the line (past the pill) opens the run's details.

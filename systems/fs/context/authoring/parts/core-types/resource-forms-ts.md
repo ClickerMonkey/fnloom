@@ -13,6 +13,37 @@ niche: "developer"
 
 ### From `packages/core/src/resource-forms.ts`
 
+#### <a id="core-imagereadargs"></a>`ImageReadArgs`
+
+const, type · declared in `packages/core/src/resource-forms.ts`
+
+`hub/image_read`: a question about an image a model can't see. `image` is the id of an `<image id="…">` block (the
+image's resource uri, so an attached file's `uri` works too).
+
+```ts
+type ImageReadArgs = {
+  image: `${string}://${string}`;
+  question: string;
+};
+```
+
+#### <a id="core-imagereadresult"></a>`ImageReadResult`
+
+const, type · declared in `packages/core/src/resource-forms.ts`
+
+What `hub/image_read` answers: the vision model's answer, the model that gave it, and the image it looked at.
+
+```ts
+type ImageReadResult = {
+  answer: string;
+  model: string;
+  image: {
+    id: `${string}://${string}`;
+    name: string;
+  };
+};
+```
+
 #### <a id="core-resourceoutlineargs"></a>`ResourceOutlineArgs`
 
 const, type · declared in `packages/core/src/resource-forms.ts`

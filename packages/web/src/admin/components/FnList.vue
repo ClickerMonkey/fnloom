@@ -2,7 +2,7 @@
 /**
  * A system's fns: what each does, its version (the start of its decl's hash) and whether it was added while running,
  * whether it can be used now (and why not), whether it is paused or off, its tags,
- * and how its runs have gone (count, failure rate, retried input apart from failures, typical and p95 time, cost).
+ * and how its runs have gone (count, failure rate of its real runs, the calls the model sent back and fixed apart from failures, typical and p95 time, cost).
  * Its name opens the app's fn modal over the list (what it does, its on/off switch and its numbers, with Open page for
  * the full page; `switched` says when it was turned on or off there); its numbers open its runs. A tag every listed fn has (all of an
  * instance's saved queries are `database` and `query`, all added while running) is left off: it tells none apart.
@@ -16,6 +16,7 @@ import { formatCost, formatDuration } from '../../chat/logic/format.ts';
 import { fnLabel } from '../../chat/logic/labels.ts';
 import { UiBadge, UiIcon, UiSwitch, fullTime, relativeTime } from '../../ui/index.ts';
 import { availabilityText, lacksExamples, NO_EXAMPLES_WHY, shortVersion } from '../logic/systems.ts';
+import { failureRate, fixedByModel } from '../logic/metrics.ts';
 
 const props = defineProps<{ fns: readonly FnRecord[]; now: number; runsOf: (fn: QualifiedName) => RouteLocationRaw; switchable?: boolean }>();
 const emit = defineEmits<{ switch: [fn: QualifiedName, on: boolean]; switched: [fn: QualifiedName, on: boolean] }>();
@@ -34,7 +35,6 @@ const shared = computed(() => {
 });
 
 const runTotal = (fn: FnRecord): number => runCount(fn.stats.outcomes);
-const failureRate = (fn: FnRecord): string => (runTotal(fn) === 0 ? '' : `${Math.round((fn.stats.outcomes.failed / runTotal(fn)) * 100)}% failed`);
 </script>
 
 <template>
@@ -59,7 +59,7 @@ const failureRate = (fn: FnRecord): string => (runTotal(fn) === 0 ? '' : `${Math
       </div>
       <RouterLink class="stats" :to="runsOf(fn.name)" :title="fn.stats.lastRunAt === undefined ? 'Never run' : `Last run ${fullTime(fn.stats.lastRunAt)}`">
         <span class="runs">{{ runTotal(fn).toLocaleString() }} {{ runTotal(fn) === 1 ? 'run' : 'runs' }}</span>
-        <span v-if="runTotal(fn) > 0" class="dim detail">{{ failureRate(fn) }}<template v-if="fn.stats.outcomes['invalid-input'] > 0"> · {{ fn.stats.outcomes['invalid-input'] }} retried</template> · {{ formatDuration(fn.stats.averageTime) }}<template v-if="fn.stats.p95 !== undefined"> (p95 {{ formatDuration(fn.stats.p95) }})</template> · {{ formatCost(fn.stats.averageCost) }}</span>
+        <span v-if="runTotal(fn) > 0" class="dim detail">{{ [failureRate(fn.stats.outcomes), fixedByModel(fn.stats.outcomes), formatDuration(fn.stats.averageTime)].filter((part) => part !== '').join(' · ') }}<template v-if="fn.stats.p95 !== undefined"> (p95 {{ formatDuration(fn.stats.p95) }})</template> · {{ formatCost(fn.stats.averageCost) }}</span>
         <span v-if="fn.stats.lastRunAt !== undefined" class="dim">last {{ relativeTime(fn.stats.lastRunAt, now) }}</span>
       </RouterLink>
     </li>

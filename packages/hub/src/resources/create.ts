@@ -16,6 +16,7 @@ import { RegistryConverters } from './converters.ts';
 import { LibraryFetcher, WEB, WebSystemFetcher } from './fetch.ts';
 import { NO_CONTENT, StoreFormService } from './forms.ts';
 import { HubResourceLibrary } from './library.ts';
+import { HubImageQuestions } from './images.ts';
 import { HubFormModels } from './models.ts';
 import { LinkRawReader, linkSource } from './raw.ts';
 import { FormReader } from './reader.ts';
@@ -71,7 +72,12 @@ export const resourcesModule: ModuleFactory<'resources'> = ({ hub, hubActor }) =
   };
   let stop: (() => void) | undefined;
   return {
-    services: { library, forms, reader, content: new FormMessageContent({ forms, reader, content, log }), context },
+    services: {
+      library, forms, reader, context,
+      // a model that can't see reads an image as a block it can ask about while the describe role has a model
+      content: new FormMessageContent({ forms, reader, content, log, answersImages: async () => (await models.model('description')) !== undefined }),
+      images: new HubImageQuestions({ forms, content, models }),
+    },
     hooks: {
       work: {
         up: () => { stop = hub.index.indexer.readWith(indexReader); return Promise.resolve(); },

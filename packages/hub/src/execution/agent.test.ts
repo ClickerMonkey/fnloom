@@ -577,6 +577,7 @@ describe('agent loop pieces', () => {
     expect(headless).toEqual({
       summary: 'A table of 3 rows. Nobody is watching this run, so no one sees them: answer from the first 2, and say the answer covers only those',
       columns: ['n'], rows: [[1], [2]], more: 1,
+      partial: 'Partial: rows 1–2 of 3 are here; 1 row was left out. To get the rest, run it again narrower. Don\'t state what the left-out part says.',
     });
     expect(JSON.parse(settledReply({ status: 'done', result: table }, { rows: 50, watched: false }))).toMatchObject({ summary: 'A table of 3 rows. Nobody is watching this run, so no one sees them: answer from them', more: 0 });
   });

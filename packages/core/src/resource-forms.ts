@@ -160,6 +160,20 @@ export type ResourceOutlineArgs = z.infer<typeof ResourceOutlineArgs>;
 export const ResourceSendArgs = z.object({ uri: ResourceUri, section: SectionKey.optional() });
 export type ResourceSendArgs = z.infer<typeof ResourceSendArgs>;
 
+/** The most characters a question to `hub/image_read` may have. */
+export const IMAGE_QUESTION_MAX = 2_000;
+
+/**
+ * `hub/image_read`: a question about an image a model can't see. `image` is the id of an `<image id="…">` block (the
+ * image's resource uri, so an attached file's `uri` works too).
+ */
+export const ImageReadArgs = z.object({ image: ResourceUri, question: z.string().trim().min(1).max(IMAGE_QUESTION_MAX) });
+export type ImageReadArgs = z.infer<typeof ImageReadArgs>;
+
+/** What `hub/image_read` answers: the vision model's answer, the model that gave it, and the image it looked at. */
+export const ImageReadResult = z.object({ answer: z.string(), model: z.string(), image: z.object({ id: ResourceUri, name: z.string() }) });
+export type ImageReadResult = z.infer<typeof ImageReadResult>;
+
 /** `hub/resource_read`: a resource's text in one form, a section of it, or a window of it, for a small budget. */
 export const ResourceReadArgs = z.object({
   uri: ResourceUri,
@@ -181,6 +195,10 @@ export const ResourceReadResult = z.object({
   offset: z.number().int().min(0),
   total: z.number().int().min(0),
   truncated: z.boolean(),
+  /** When `truncated`: what part is here, how much was left out and how to read the rest (`partialNote`). */
+  partial: z.string().optional(),
+  /** When the form asked for isn't one the resource has: which form was read instead, and the forms it has. */
+  note: z.string().optional(),
   forms: z.array(FormKind),
   offers: z.array(FormOffer),
 });

@@ -5,6 +5,7 @@
  */
 import { fnOfStoredToolName, RunArgs, type QualifiedName, type LlmInteraction, type LlmInteractionId, type LlmMessage, type LlmToolCall, type RunId, type StaticTool, type TreeNode } from '@harness/core';
 import { z } from 'zod';
+import { NO_BEARING, STOPPED_BY_HUB } from './runs.ts';
 
 /** The tabs of an LLM call's details. */
 export const LlmCallTab = z.enum(['saw', 'context', 'tools', 'answer', 'json']);
@@ -86,6 +87,21 @@ export function toolCallFn(tool: Pick<LlmToolCall, 'name' | 'arguments'>, cut?: 
   } catch {
     return undefined;
   }
+}
+
+/**
+ * A calm note on a tool call the model got wrong, for an LLM call's details, or '' when there is nothing to say: a call
+ * the hub stopped while the model was still writing it, or (given what this call offered) a tool name it wasn't
+ * offered. Either went back to the model to try again: its slip, never shown as an error.
+ */
+export function toolCallSlip(tool: Pick<LlmToolCall, 'name' | 'arguments'>, offered?: readonly string[]): string {
+  if (tool.arguments.trimStart().startsWith(STOPPED_BY_HUB)) {
+    return `The hub stopped this call while the model was still writing it (it ran too long); the model was told and called again. ${NO_BEARING}.`;
+  }
+  if (offered !== undefined && offered.length > 0 && tool.name !== RUN_TOOL && !offered.includes(tool.name)) {
+    return `Not one of the tools offered to this call; the model was told and tried again. ${NO_BEARING}.`;
+  }
+  return '';
 }
 
 /** Every tool name a call offered or called, and every `run` target, for asking the hub about cut names. */

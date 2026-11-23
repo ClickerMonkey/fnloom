@@ -20,7 +20,7 @@ import { FnDecl, FnExample, FnMode, Niche, REGISTRY_ACTIONS, RegistryAction, Reg
 import { RoleModel, type ModelRole } from './model-calls.ts';
 import { FnBlock } from './fn-block.ts';
 import { ActorId, Duration, FnKindName, IDS, InstanceName, Json, LocalName, ModelCallId, QualifiedName, type Same, SystemName, Timestamp, Usd } from './primitives.ts';
-import { FnNameValue } from './model-names.ts';
+import { FnNameValue, TypeNameRef } from './model-names.ts';
 import { ResourceUri, SectionKey } from './resources.ts';
 import { Filter } from './query.ts';
 import { ContextRecord } from './records/systems.ts';
@@ -120,7 +120,8 @@ export const FnSearchQuery = z.object({
   systems: z.array(SystemName).min(1).optional(),
   instance: InstanceName.optional(),
   visibility: z.enum(['mine', 'shared', 'public']).optional(),
-  types: z.object({ reads: z.array(QualifiedName).optional(), writes: z.array(QualifiedName).optional() }).optional(),
+  /** Types by name (`TypeNameRef`): a type's name, the same in the tools' spelling, or a bare name every type ending in it matches. */
+  types: z.object({ reads: z.array(TypeNameRef).optional(), writes: z.array(TypeNameRef).optional() }).optional(),
   modes: z.array(FnMode).min(1).optional(),
   /**
    * Only fns that create, update or remove one of these things in the hub (`FnFacts.registry`); `action`
@@ -152,6 +153,12 @@ export type FnSearchQuery = z.infer<typeof FnSearchQuery>;
 /** What a `kinds` filter tells the model: leave it out unless the person names a kind. */
 export const FN_SEARCH_KINDS_DOCS = 'Leave `kinds` out unless the person asks for a kind of fn by name: you can\'t know how a fn was made, and a search by what it does finds every kind.';
 
+/** What a `names` filter tells the model: fns by the names its tools and hits spell them. */
+export const FN_SEARCH_NAMES_DOCS = 'Only these fns, by name, spelled as your tools and search hits spell them: to look up fns whose names you know. Leave it out to search by what a fn does.';
+
+/** What a `types` filter tells the model: a table's or type's name, never a fn's. */
+export const FN_SEARCH_TYPES_DOCS = 'Only fns that read (`reads`) or write (`writes`) any of these types: a table\'s name (`expenses`), or a type\'s name exactly as a result gave it. Leave it out unless you know the type.';
+
 /**
  * What the model may ask `hub/fns_search` (static mode's `find`): fns only. The query without `items` (it finds fns,
  * never context: that is `hub/ctx_search`), the context-only filters, the context page's own `filters` and `off`, and
@@ -159,6 +166,9 @@ export const FN_SEARCH_KINDS_DOCS = 'Leave `kinds` out unless the person asks fo
  */
 export const FnSearchArgs = FnSearchQuery.omit({ items: true, match: true, filters: true, off: true, scopes: true }).extend({
   kinds: FnSearchQuery.shape.kinds.describe(FN_SEARCH_KINDS_DOCS),
+  // a fn's name as the model's tools spell it, read back at the boundary (`g.fnName()`), so the one spelling works here too
+  names: z.array(FnNameValue).min(1).max(100).optional().describe(FN_SEARCH_NAMES_DOCS),
+  types: z.object({ reads: z.array(TypeNameRef).optional(), writes: z.array(TypeNameRef).optional() }).optional().describe(FN_SEARCH_TYPES_DOCS),
 });
 export type FnSearchArgs = z.infer<typeof FnSearchArgs>;
 
@@ -235,6 +245,11 @@ export const FnSearchHit = z.object({
    * its injected section) or `loaded` (loaded in this chat). Absent for one that isn't, and for fns.
    */
   inPrompt: z.enum(['injected', 'loaded']).optional(),
+  /**
+   * The search named this item exactly (its name is the search's text, a name-like word in it, or one of `names`): it is
+   * listed first, whatever the other filters, ranking or the admin's search decision would have done with it.
+   */
+  exact: z.literal(true).optional(),
 });
 export type FnSearchHit = z.infer<typeof FnSearchHit>;
 
@@ -278,7 +293,11 @@ export type SearchLoaded = z.infer<typeof SearchLoaded>;
  * decisions dropped from this page (a page can then hold fewer hits than its limit while another follows).
  * `loaded`: what `hub/fns_search` or `hub/ctx_search` loaded of the kept hits (a decision whose action is `load`).
  */
-export const FnSearchPage = z.object({ items: z.array(FnSearchHit), next: z.number().int().min(0).optional(), filtered: z.array(SearchFiltered).optional(), loaded: SearchLoaded.optional() });
+export const FnSearchPage = z.object({
+  items: z.array(FnSearchHit), next: z.number().int().min(0).optional(), filtered: z.array(SearchFiltered).optional(), loaded: SearchLoaded.optional(),
+  /** Names the search asked for exactly (in `names`) that no item the asker may see has, and a line saying so. */
+  missing: z.object({ names: z.array(QualifiedName).min(1), note: z.string() }).optional(),
+});
 export type FnSearchPage = z.infer<typeof FnSearchPage>;
 
 // ─── Facts ────────────────────────────────────────────────────────────────────

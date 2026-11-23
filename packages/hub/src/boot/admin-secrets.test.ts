@@ -170,6 +170,19 @@ describe('secrets in the admin fns’ args', () => {
     }
   });
 
+  it('keeps a policy\'s fn or glob in the tools\' spelling as the hub names fns, so it matches', async () => {
+    const ops = adminOperations(running.services);
+    const exact = await ops.set_policy({ description: 'no forgetting', subject: { everyone: true }, target: { fn: 'hub__forget' }, decision: { effect: 'deny', reason: 'not here' }, priority: 1 }, admin.id);
+    const glob = await ops.set_policy({ description: 'no fs', subject: { everyone: true }, target: { fn: 'fs__*' }, decision: { effect: 'deny', reason: 'not here' }, priority: 1 }, admin.id);
+    try {
+      expect((await running.services.store.table('policies').get(exact.id))?.target.fn).toBe('hub/forget');
+      expect((await running.services.store.table('policies').get(glob.id))?.target.fn).toBe('fs/*');
+    } finally {
+      await ops.remove_rule({ kind: 'policy', id: exact.id }, admin.id);
+      await ops.remove_rule({ kind: 'policy', id: glob.id }, admin.id);
+    }
+  });
+
   it('removes the secrets of a run whose approval is declined, without configuring', async () => {
     const ops = adminOperations(running.services);
     const policy = await ops.set_policy({ description: 'ask the admins', subject: { everyone: true }, target: {}, decision: { effect: 'ask', approver: { by: 'admins' } }, priority: 1 }, admin.id);

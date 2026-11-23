@@ -16,7 +16,7 @@
  * (`niches`), so an ordinary request finds the fns and guides it needs first; it stays searchable. A model's search
  * (`Asker.forModel`) never finds a fn whose visibility leaves the model out, since it could never load it.
  */
-import { contextOff, effectsLine, nicheOf, QualifiedName, type ContextRecord, type Filter, type IndexedKind, type SearchSection, type RegistryEffect, type FnRecord, type FnSearchHit, type FnSearchPage, type FnSearchQuery, type RowOf, type SearchHit, type SearchItemKind } from '@harness/core';
+import { contextOff, effectsLine, nicheOf, QualifiedName, slashedName, typeMatches, type SystemName, type ContextRecord, type Filter, type IndexedKind, type SearchSection, type RegistryEffect, type FnRecord, type FnSearchHit, type FnSearchPage, type FnSearchQuery, type RowOf, type SearchHit, type SearchItemKind } from '@harness/core';
 import type { Catalog } from '../catalog/index.ts';
 import type { AccessService } from '../access/index.ts';
 import { seesContextAs } from '../access/scope.ts';
@@ -172,14 +172,36 @@ export class StoreFnSearch implements FnSearch {
 
   /** The fns that read or write the asked types (from `fnTypes`), or undefined when the query names none. */
   async #typed(query: FnSearchQuery): Promise<ReadonlySet<QualifiedName> | undefined> {
-    const reads = query.types?.reads ?? [];
-    const writes = query.types?.writes ?? [];
-    if (reads.length === 0 && writes.length === 0) return undefined;
+    const asked = { reads: query.types?.reads ?? [], writes: query.types?.writes ?? [] };
+    if (asked.reads.length === 0 && asked.writes.length === 0) return undefined;
+    const reads = await this.#typeNames(asked.reads, query.systems);
+    const writes = await this.#typeNames(asked.writes, query.systems);
     const table = this.#deps.store().table('fnTypes');
     const fns = new Set<QualifiedName>();
     if (reads.length > 0) for await (const row of rows(table, { where: { type: { in: reads }, use: 'read' } })) fns.add(row.fn);
     if (writes.length > 0) for await (const row of rows(table, { where: { type: { in: writes }, use: 'write' } })) fns.add(row.fn);
     return fns;
+  }
+
+  /**
+   * The types a filter's names mean (`TypeNameRef`): a type's name as it is, one in the tools' spelling read back
+   * (`database__main__expenses`), and a bare name (`expenses`) as every type ending in it, of the asked systems, read
+   * from the `types` table a page at a time.
+   */
+  async #typeNames(refs: readonly string[], systems: readonly SystemName[] | undefined): Promise<QualifiedName[]> {
+    const names = new Set<QualifiedName>();
+    const bare: string[] = [];
+    for (const ref of refs) {
+      const name = QualifiedName.safeParse(slashedName(ref));
+      if (name.success) names.add(name.data); else bare.push(slashedName(ref));
+    }
+    if (bare.length > 0) {
+      const table = this.#deps.store().table('types');
+      for await (const row of systems === undefined ? rows(table) : rows(table, { where: { system: { in: [...systems] } } })) {
+        if (bare.some((ref) => typeMatches(row.name, ref))) names.add(row.name);
+      }
+    }
+    return [...names];
   }
 
   /** Ranked by words and meaning in the database, best first, keeping only hits the asker may have. */

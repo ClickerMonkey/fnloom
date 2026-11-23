@@ -5,12 +5,13 @@ import type { ContentModel } from './index.ts';
 import { ALICE, bytes, resourcesRig, statOf } from './testing.ts';
 
 const who = { actor: ALICE };
-const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+/** A PNG's signature and IHDR chunk: 640 by 480. */
+const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 2, 0x80, 0, 0, 1, 0xe0]);
 const model = (capabilities: string[]): ContentModel => ({ id: 'm', capabilities });
 
-async function rig() {
+async function rig(options: { answers?: boolean } = {}) {
   const r = await resourcesRig();
-  const content = new FormMessageContent({ forms: r.forms, reader: r.reader, content: r.content, log: r.log });
+  const content = new FormMessageContent({ forms: r.forms, reader: r.reader, content: r.content, log: r.log, answersImages: () => Promise.resolve(options.answers ?? true) });
   const image = ResourceUri.parse('file://main/cat.png');
   const pdf = ResourceUri.parse('file://main/r.pdf');
   const scanned = ResourceUri.parse('file://main/s.pdf');
@@ -31,14 +32,23 @@ describe('resources as message content', () => {
     expect(r.models.calls).toHaveLength(0);
   });
 
-  it('sends a text-only model the image\'s description, made once', async () => {
+  it('sends a model that can\'t see an <image> block with its id, facts and how to ask about it, and makes no model call', async () => {
     const r = await rig();
-    const first = await r.content.parts(r.image, model(['chat']), who);
-    const second = await r.content.parts(r.image, model(['chat']), who);
-    expect(first).toEqual(second);
-    expect(first[0]?.type).toBe('text');
-    expect(first[0]?.content).toContain('description of cat.png');
-    expect(r.models.calls).toHaveLength(1);
+    const [part, ...rest] = await r.content.parts(r.image, model(['chat']), who, { source: 'attached to a message' });
+    expect(rest).toHaveLength(0);
+    expect(part).toMatchObject({ type: 'text', name: 'cat.png' });
+    const block = part?.content ?? '';
+    expect(block).toMatch(/^<image id="file:\/\/main\/cat\.png" name="cat\.png" mime="image\/png" size="24" width="640" height="480" source="attached to a message">/);
+    expect(block).toContain('hub/image_read with {"image": "file://main/cat.png", "question": ');
+    expect(block).not.toContain('data:');
+    expect(r.models.calls).toHaveLength(0);
+  });
+
+  it('says so in the block when no image model is set up to answer about it', async () => {
+    const r = await rig({ answers: false });
+    const [part] = await r.content.parts(r.image, model(['chat']), who);
+    expect(part?.content).toContain('No model that can see images is set up');
+    expect(part?.content).not.toContain('hub/image_read');
   });
 
   it('sends a pdf as a file to a model that takes files, else its text', async () => {
@@ -70,10 +80,12 @@ describe('resources as message content', () => {
 
   it('never fails: what can\'t be made becomes one short text part', async () => {
     const r = await rig();
-    r.models.off.add('description');
-    const parts = await r.content.parts(r.image, model(['chat']), who);
+    const talk = ResourceUri.parse('file://main/talk.wav');
+    r.raw.serve({ stat: statOf(talk, { format: 'audio', mime: 'audio/wav' }), bytes: bytes('RIFF....WAVE') });
+    r.models.off.add('transcript');
+    const parts = await r.content.parts(talk, model(['chat']), who);
     expect(parts).toHaveLength(1);
-    expect(parts[0]).toMatchObject({ type: 'text', name: 'cat.png' });
+    expect(parts[0]).toMatchObject({ type: 'text', name: 'talk.wav' });
     expect(parts[0]?.content).toContain('could not be shown');
     const missing = await r.content.parts(ResourceUri.parse('file://main/gone.txt'), model(['chat']), who);
     expect(missing[0]?.content).toContain('file://main/gone.txt');

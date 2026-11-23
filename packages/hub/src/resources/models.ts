@@ -27,6 +27,23 @@ export const VISION_PROMPTS = {
   ocr: 'Write out all of the text in this image exactly as it appears, in reading order, keeping line breaks. Write nothing else. If there is no text, write nothing.',
 } as const satisfies Partial<Record<MadeFormKind, string>>;
 
+/** The code `hub/image_read` is refused with when no vision model is set up. */
+export const NO_IMAGE_MODEL = 'NO_IMAGE_MODEL';
+
+/** What it says then: plainly, and who can change it. */
+export const NO_IMAGE_MODEL_TEXT = 'no image model is set up: nothing here can look at images. An admin chooses a model that can see images for the "describe" role under Models (or with hub/set_model_role)';
+
+/** What the vision model is asked for a model that can't see the image. */
+export function imageQuestion(question: string): string {
+  return [
+    'Another assistant, which cannot see images, asks you about this image. Answer its question from what the image shows.',
+    'Be exact: quote any text, numbers and names word for word, and keep their order. Say plainly when the image does not show something or you cannot make it out; never guess.',
+    'Answer directly, with no preamble.',
+    '',
+    `Question: ${question}`,
+  ].join('\n');
+}
+
 /** What making forms with models needs. */
 export interface HubFormModelsOptions {
   readonly roles: () => Pick<ModelRoles, 'resolve'>;
@@ -58,6 +75,12 @@ export class HubFormModels implements FormModels {
       case 'transcript': return this.#transcribe(chosen.model, input, who, abort);
       case 'thumbnail': throw reject(422, 'NO_FORM_MODEL', 'the hub does not make thumbnails with a model');
     }
+  }
+
+  async ask(question: string, input: MadeFormInput, who: Asking, signal?: AbortSignal): Promise<MadeForm> {
+    const chosen = await this.#o.roles().resolve('describe');
+    if (chosen === undefined) { throw reject(409, NO_IMAGE_MODEL, NO_IMAGE_MODEL_TEXT); }
+    return this.#vision(imageQuestion(question), chosen.model, input, who, signal ?? new AbortController().signal);
   }
 
   /** Ask the vision model about an image. */

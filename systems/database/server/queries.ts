@@ -6,7 +6,7 @@
  * a write is proposed as a run of its fn that waits for the person's approval, with a preview of what it would do.
  */
 import { CallFailed, SAVE_FN_TAKEN, type Log, type ResultBlock } from '@harness/sdk';
-import { Json, QualifiedName, qualify, type InstanceName, type ApprovalPreview, type FnExample, type ProposedRun, type ResultDrill, type ResultTable, type RunInfo, type ShareRule, type UserInfo } from '@harness/core';
+import { Json, QualifiedName, qualify, slashedName, type InstanceName, type ApprovalPreview, type FnExample, type ProposedRun, type ResultDrill, type ResultTable, type RunInfo, type ShareRule, type UserInfo } from '@harness/core';
 import { resultBlock } from '@harness/sdk/server';
 import { QUERY_KIND, database } from '../shared/index.ts';
 import { QueryPayload, SortArg, type DrillArgs, type QueryCheck, type QueryDraft, type QueryRun, type SavedQueryRef, type TablesInfo, type WriteResult } from '../shared/shapes.ts';
@@ -56,7 +56,7 @@ export interface QueryRunCtx {
   /** `hub/fns_get`: a saved fn, as the run's person may see it. */
   getFn(fn: string): Promise<StoredQuery>;
   /** `hub/fns_save`. */
-  saveFn(save: SaveQuery): Promise<{ fn: string; version: number; created: boolean }>;
+  saveFn(save: SaveQuery): Promise<{ fn: QualifiedName; version: number; created: boolean }>;
 }
 
 /** Why a request couldn't be answered: the caller's to fix (`invalid`), or a failure. */
@@ -137,7 +137,9 @@ function nameTaken(error: unknown): boolean {
 
 /** Where a saved query fn points: its instance and its local name (`database/main.orders` gives `main`, `main.orders`). */
 export function queryInstance(fn: string): { instance: string; local: string } | undefined {
-  const local = fn.replace(/^database\//, '');
+  // the tools' spelling (`database__main__expenses_create`) is read by the rule, as the hub reads a fn name the model wrote
+  const given = fn.trim();
+  const local = (given.startsWith('database__') ? slashedName(given) : given).replace(/^database\//, '');
   const dot = local.indexOf('.');
   return dot <= 0 ? undefined : { instance: local.slice(0, dot), local };
 }
@@ -165,7 +167,7 @@ export class QueryService {
 
   /** `tables`: what a query is written against. */
   tables(instance: DatabaseInstance): TablesInfo {
-    return { database: instance.info, writes: instance.writes, schema: instance.catalog.describe() };
+    return { database: instance.info, writes: instance.writes, schemaChanges: instance.schemaChanges, schema: instance.catalog.describe() };
   }
 
   /** Whether a draft runs here, its SQL and signature, or what to fix. */

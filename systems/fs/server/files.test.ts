@@ -48,8 +48,11 @@ describe('FileService', () => {
   afterEach(() => tmp.cleanup());
 
   it('reads a slice by line and says when it is cut', async () => {
-    expect(await files.read(at('a.txt'))).toEqual({ text: 'one\ntwo\nthree', lines: 5, truncated: true });
-    expect(await files.read(at('a.txt'), 3, 10)).toEqual({ text: 'four\nfive', lines: 5, truncated: true });
+    expect(await files.read(at('a.txt'))).toEqual({
+      text: 'one\ntwo\nthree', lines: 5, truncated: true,
+      partial: 'Partial: lines 1–3 of 5 are here; 2 lines were left out. To get the rest, call fs/read again with the same path and offset: 3. Don\'t state what the left-out part says.',
+    });
+    expect(await files.read(at('a.txt'), 3, 10)).toMatchObject({ text: 'four\nfive', lines: 5, truncated: true, partial: expect.stringContaining('lines 4–5 of 5 are here; 3 lines were left out (all before this part)') });
     expect(await files.read(at('a.txt'), 0, 10)).toEqual({ text: 'one\ntwo\nthree\nfour\nfive', lines: 5, truncated: false });
   });
 

@@ -17,7 +17,9 @@
 import { z } from 'zod';
 import { GinTypeDef } from './gin.ts';
 import { humanize } from './labels.ts';
+import { FnNameValue } from './model-names.ts';
 import { FnMode } from './manifest.ts';
+import { partialNote } from './partial.ts';
 import { Json, LocalName, QualifiedName, RunId } from './primitives.ts';
 import { ResultTable } from './registries.ts';
 import { ResultFacts, VisualBinding } from './visuals.ts';
@@ -259,12 +261,13 @@ export type ReadTableArgs = z.infer<typeof ReadTableArgs>;
  * and whether the person asked to see something (the proposal then opens with its chart drawn).
  */
 export const MakeWidgetArgs = z.object({
-  source: QualifiedName,
+  // fn names as the model's tools spell them, read back at the boundary (`g.fnName()`)
+  source: FnNameValue,
   request: z.string().min(1),
   args: z.record(z.string(), Json).optional(),
   /** Other fns the widget may bind as row actions or its drill (any fn, as the person names them), besides the rows' types' methods. */
-  fns: z.array(QualifiedName).max(10).optional(),
-  widget: QualifiedName.optional(),
+  fns: z.array(FnNameValue).max(10).optional(),
+  widget: FnNameValue.optional(),
   show: z.boolean(),
 });
 export type MakeWidgetArgs = z.infer<typeof MakeWidgetArgs>;
@@ -277,7 +280,7 @@ export const WidgetProposal = z.object({
   /** The source run with the plan's args, drawn as the widget will be. */
   preview: WidgetResult,
   /** The widget it changes, when it edits one. */
-  replaces: QualifiedName.optional(),
+  replaces: FnNameValue.optional(),
   show: z.boolean(),
 });
 export type WidgetProposal = z.infer<typeof WidgetProposal>;
@@ -303,7 +306,11 @@ export const RESULT_TABLE_ROUTING = 'returns a table; the chat draws it as a cha
 export const RESULT_TABLE_INSTRUCTION = 'To show data as a chart or table, call a fn that returns a table; never write a chart yourself. To keep one, call widgets/make_widget with that fn.';
 
 /** What the chat model sees of a table result: one line, the columns, and the first rows. */
-export const TableModelView = z.object({ summary: z.string(), columns: z.array(z.string()), rows: z.array(z.array(Json)), more: z.number().int().min(0) });
+export const TableModelView = z.object({
+  summary: z.string(), columns: z.array(z.string()), rows: z.array(z.array(Json)), more: z.number().int().min(0),
+  /** When the model reads fewer rows than there are: which rows it has, how many were left out and how to read them (`partialNote`). */
+  partial: z.string().optional(),
+});
 export type TableModelView = z.infer<typeof TableModelView>;
 
 /**
@@ -325,7 +332,14 @@ export function tableModelView(summary: string, table: ResultTable, reading: Tab
   const more = table.rows.length - rows.length;
   const held = more > 0 ? `: answer from the first ${String(rows.length)}, and say the answer covers only those` : `: answer from them`;
   const seen = reading.watched ? `${summary}, shown to the person` : `${summary}. Nobody is watching this run, so no one sees them${held}`;
-  return { summary: seen, columns: table.columns.map((column) => column.name), rows, more };
+  // rows nobody sees (held back from an unwatched run, or past this page): the view says how many and how to read them;
+  // a watched run's person has the whole page, and `more` counts what the model was not given
+  const total = table.total ?? (table.truncated ? undefined : table.offset + table.rows.length);
+  const rest = `run it again narrower${table.truncated ? ` or from offset ${String(table.offset + table.rows.length)}` : ''}`;
+  const partial = (more > 0 && !reading.watched) || table.truncated
+    ? partialNote({ unit: 'rows', offset: table.offset, shown: rows.length, ...(total === undefined ? {} : { total }), rest })
+    : undefined;
+  return { summary: seen, columns: table.columns.map((column) => column.name), rows, more, ...(partial === undefined ? {} : { partial }) };
 }
 
 /** A widget's summary line: "Bar chart of count by stage, 12 rows". */

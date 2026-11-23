@@ -1,17 +1,17 @@
 <script setup lang="ts">
 /**
  * One run in full, in a side panel whose header names the fn (its name and id, so neither repeats here): its status and timing, cost (its own and with everything it called), progress,
- * args (by their gin type when it is known, so system components draw named types) and result (readable, and as JSON), why its input was refused (softly: the agent retries), the error of every failed attempt, where it came from (the LLM call that
+ * args (by their gin type when it is known, so system components draw named types) and result (readable, and as JSON), why its call went back to the model (calmly: the model's slip, with no bearing on the result; so is a field the hub repaired), the error of every failed attempt, where it came from (the LLM call that
  * asked for it, its parent) and what may be done with it now (look into its fn, move to the background, open the turn's tree, undo
  * the turn; for admins, its model calls). Live while the run is going.
  */
 import type { GinTypeDef, Json, LlmInteractionId, QualifiedName, Run, RunId } from '@harness/core';
 import { computed } from 'vue';
-import { UiBanner, UiButton, UiCodeBlock, UiSkeleton, UiTabs, fullTime, type TabItem } from '../../ui/index.ts';
+import { UiBanner, UiButton, UiCodeBlock, UiIcon, UiSkeleton, UiTabs, fullTime, type TabItem } from '../../ui/index.ts';
 import { formatCost, formatDuration } from '../logic/format.ts';
 import { humanize } from '../logic/labels.ts';
 import { isSettled } from '@harness/core';
-import { argSummary, INPUT_PROBLEM_WORDS, invalidAfter, resultBrief, runElapsed, runError, runInvalid, runResult, statusDetail, STATUS_LOOK, type RunView } from '../logic/runs.ts';
+import { argSummary, invalidAfter, invalidWhat, repairedNote, resultBrief, runElapsed, runError, runInvalid, runResult, statusDetail, STATUS_LOOK, type RunView } from '../logic/runs.ts';
 import type { RunTab as Tab } from '../logic/inspect.ts';
 import GinValueView from '../../gin/GinValueView.vue';
 import ChangeSetView from '../../components/changes/ChangeSetView.vue';
@@ -45,6 +45,8 @@ const tabs = computed<TabItem<Tab>[]>(() => [
 
 const error = computed(() => (props.run === undefined ? undefined : runError(props.run)));
 const invalid = computed(() => (props.run === undefined ? undefined : runInvalid(props.run)));
+/** What the hub repaired in its args (a field sent as JSON text), said calmly. */
+const repaired = computed(() => (props.run === undefined ? '' : repairedNote(props.run)));
 const result = computed(() => (props.run === undefined ? undefined : runResult(props.run)));
 /** What the call changed (a command's files), when its result says. */
 const changes = computed(() => changeSetOf(result.value));
@@ -99,12 +101,13 @@ const json = computed(() => JSON.stringify(props.record ?? props.run ?? null, nu
         <template #default="{ value }">
           <div v-if="value === 'overview'" class="pane">
             <section v-if="invalid" class="invalid" data-testid="run-invalid">
-              <p class="invalid-title">{{ INPUT_PROBLEM_WORDS[invalid.source] }}. {{ invalidAfter(invalid.source) }}</p>
+              <p class="invalid-title"><UiIcon name="refresh" :size="13" class="invalid-icon" />{{ invalidWhat(invalid) }}. {{ invalidAfter(invalid.source) }}</p>
               <ul class="problems">
                 <li v-for="(issue, i) in invalid.problems" :key="i"><code v-if="issue.path !== ''" class="path">{{ issue.path }}</code> {{ issue.message }}</li>
               </ul>
               <UiCodeBlock v-if="invalid.raw" :code="invalid.raw" language="text" :max-height="200" />
             </section>
+            <p v-if="repaired !== ''" class="repaired" data-testid="run-repaired"><UiIcon name="refresh" :size="13" class="invalid-icon" />{{ repaired }}</p>
             <p v-if="error" class="error" data-testid="run-error">{{ error.message }}<span v-if="error.code" class="dim"> ({{ error.code }})</span></p>
             <dl class="fields">
               <template v-if="about !== ''"><dt>Asked</dt><dd><code class="value">{{ about }}</code></dd></template>
@@ -155,7 +158,9 @@ dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .value { margin: 0; font-family: var(--mono); font-size: var(--text-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
 .error { margin: var(--space-1) 0 0; color: var(--danger); overflow-wrap: anywhere; }
 .invalid { display: grid; gap: var(--space-2); margin-bottom: var(--space-3); padding: var(--space-3); border: 1px dashed var(--border-strong); border-radius: var(--radius); }
-.invalid-title { margin: 0; color: var(--text-dim); font-size: var(--text-sm); }
+.invalid-title, .repaired { margin: 0; color: var(--text-dim); font-size: var(--text-sm); }
+.repaired { margin-bottom: var(--space-3); }
+.invalid-icon { margin-right: var(--space-1); color: var(--text-faint); vertical-align: -2px; }
 .problems { display: grid; gap: var(--space-1); margin: 0; padding-left: var(--space-4); font-size: var(--text-sm); }
 .path { font-family: var(--mono); font-size: var(--text-xs); color: var(--text-dim); }
 .errors { display: grid; gap: var(--space-3); margin: 0; padding-left: var(--space-4); font-size: var(--text-sm); }

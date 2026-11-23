@@ -24,7 +24,7 @@ types). Return exactly one; never throw to report something the caller should he
 | Helper | Status | Use it when |
 |---|---|---|
 | `ctx.done(result, { undo?, cost? })` | `done` | it worked. `undo` records how to reverse it (undoable fns only) |
-| `ctx.invalid(problems, { cost? })` | `invalid-input` | **the caller's mistake** the types can't catch: an id that doesn't exist, an end before a start, nothing to search for. Give a message or `[{ path, message }]` problems (`path` a dotted path into the args, `''` for the whole). An agent gets the problems back and retries; the chat shows the run softly as "Retried". Not an error |
+| `ctx.invalid(problems, { cost? })` | `invalid-input` | **the caller's mistake** the types can't catch: an id that doesn't exist, an end before a start, nothing to search for. Give a message or `[{ path, message }]` problems (`path` a dotted path into the args, `''` for the whole). An agent gets the problems back and retries; the chat shows the run calmly as "Thinking harder". Not an error |
 | `ctx.fail(class, message, { code?, data?, undo?, cost? })` | `failed` | **a real failure.** `class` is `retry` (temporary: the hub retries per `limits.retries`), `caller` (refused for a reason the caller must hear: full, denied, conflict) or `fatal` (a bug or broken setup). `code` is a stable word for programs (`not-found`, `denied`, `full`) |
 | `ctx.pause(state)` | `paused` | it can stop and continue later (fns with a `resume` type only) |
 | `ctx.cancelled({ partial?, undo? })` | `cancelled` | it stopped because it was cancelled or the person said no |

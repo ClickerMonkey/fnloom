@@ -14,7 +14,7 @@ export const ROLE_WORDS = {
   transcribe: { label: 'Transcription', about: 'Turns audio resources and recordings into text.', can: 'hear audio' },
   dictate: { label: 'Dictation', about: 'Turns what people say into the composer into text.', can: 'hear audio' },
   speak: { label: 'Speech', about: 'Reads answers aloud.', can: 'speak' },
-  describe: { label: 'Image descriptions', about: 'Describes images so agents can read them.', can: 'see images' },
+  describe: { label: 'Image descriptions', about: 'Describes images so agents can read them, and answers questions about an image for a chat model that cannot see images.', can: 'see images' },
   ocr: { label: 'Text in images', about: 'Reads the text in images and scanned pages.', can: 'see images' },
   decide: {
     label: 'Decisions', about: 'A decision model answering yes/no questions: context crawls, systems reusing what they have, and suggestions when set to it.',

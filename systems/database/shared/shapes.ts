@@ -3,7 +3,7 @@
  * model. The contract (`index.ts`) carries each as gin (`ginAs`), and the server parses with these, so each shape has
  * one source.
  */
-import { GinObjTypeDef, Json, ResultTable, ShareRule } from '@harness/core';
+import { FnNameValue, GinObjTypeDef, Json, ResultTable, ShareRule } from '@harness/core';
 import { ResultBlock, ResultFn } from '@harness/sdk';
 import { z } from 'zod';
 
@@ -164,7 +164,7 @@ export type QueryRun = z.infer<typeof QueryRun>;
 
 /** A query the agent wrote, before it is checked and saved. */
 export const QueryDraft = z.object({
-  name: z.string().regex(/^[a-z][a-z0-9_]{0,47}$/).describe('A snake_case name (`overdue_invoices`); it is saved as `database/<database>.<name>`.'),
+  name: z.string().regex(/^[a-z][a-z0-9_]{0,47}$/).describe('A snake_case name (`overdue_invoices`); it is saved as a fn of the database (`database/main.overdue_invoices`).'),
   title: z.string().min(1).describe('A short title (`Overdue invoices`).'),
   description: z.string().min(1).describe('One sentence: what it returns (or changes) and what its params are for. Later requests are matched against it.'),
   query: Json.describe('The query as `@aeye/query` JSON (`{ "kind": "select", … }`).'),
@@ -185,14 +185,16 @@ export type QueryCheck = z.infer<typeof QueryCheck>;
 /** What `tables` gives: one database's tables, columns and relations, and the query language, as the agent writes against. */
 export const TablesInfo = z.object({
   database: DatabaseInfo,
-  writes: z.boolean().describe('Whether queries may insert, update and delete (each after approval).'),
+  writes: z.boolean().describe('Whether rows can be written: added, changed and removed, each after approval. False means rows can only be read, whatever `schemaChanges` says.'),
+  schemaChanges: z.boolean().describe('Whether tables can be made and changed (create_table, alter_table), each after approval. A table can be made where rows can\'t be written.'),
   schema: z.string().describe('The table types, their columns (with choices, formats and ranges where known), relations, and how to write queries.'),
 });
 export type TablesInfo = z.infer<typeof TablesInfo>;
 
 /** A query the authoring agent kept in the hub. */
 export const SavedQueryRef = z.object({
-  fn: z.string().describe('The saved fn (`database/main.overdue_invoices`).'),
+  /** The saved fn (`database/main.overdue_invoices`); a fn name, so the model reads it as its tools spell it. */
+  fn: FnNameValue,
   signature: z.string(),
   version: z.number().int().min(1).describe('1 for a new query; more when an edit replaced an earlier version (kept in its history).'),
   created: z.boolean(),
@@ -204,6 +206,8 @@ export const DatabaseSummary = z.object({
   instance: z.string(),
   label: z.string(),
   tables: z.array(z.string()).describe('Its tables, each with what it holds when known.'),
+  writes: z.boolean().optional().describe('Whether rows can be written (added, changed, removed), each after approval.'),
+  schemaChanges: z.boolean().optional().describe('Whether tables can be made and changed, each after approval; one can be allowed without the other.'),
 });
 export type DatabaseSummary = z.infer<typeof DatabaseSummary>;
 
@@ -295,10 +299,13 @@ export type DatabasePick = z.infer<typeof DatabasePick>;
 
 // ─── Generated table fns ─────────────────────────────────────────────────────
 
+/** What a `table` arg tells the model: the table's plain name, with what else it takes. */
+export const TABLE_ARG_DOCS = 'The table\'s name as database/databases and database/tables list it (`projects`), with `database` when there are several databases. Its type, as a result gave it, is taken too.';
+
 /** `table_fns_available` args. */
 export const TableFnsArgs = z.object({
-  table: z.string().min(1).describe('The table, by name (`projects`) or as its type (`database/main.projects`).'),
-  database: z.string().min(1).optional().describe('The database instance; read from the type name, else the only one.'),
+  table: z.string().min(1).describe(TABLE_ARG_DOCS),
+  database: z.string().min(1).optional().describe('The database instance (`main`), as database/databases lists it; the only one when empty.'),
 });
 export type TableFnsArgs = z.infer<typeof TableFnsArgs>;
 
@@ -309,10 +316,11 @@ export type TableFnState = z.infer<typeof TableFnState>;
 /** One fn a table could have. */
 export const TableFnEntry = z.object({
   name: z.string().describe('Its name within the table (`selectPage`, `projectCount`): what `table_fns_generate` takes.'),
-  fn: z.string().describe('The fn it is, or would be, in the hub (`database/main.projects_selectPage`).'),
+  /** The fn it is, or would be once generated (`database/main.projects_selectPage`); a fn name, so the model reads it as its tools spell it. */
+  fn: FnNameValue,
   about: z.string(),
   signature: z.string(),
-  mode: z.enum(['read', 'write', 'delete']).describe('Whether it reads, writes (after approval) or deletes rows.'),
+  mode: z.enum(['read', 'write', 'delete']).describe('Whether it reads, writes (after approval) or deletes rows. Fns that write rows are listed only where rows can be written.'),
   state: TableFnState,
   version: z.number().int().min(1).optional().describe('The saved version, when it exists.'),
 });
@@ -326,7 +334,7 @@ export type TableFnGroup = z.infer<typeof TableFnGroup>;
 export const TableFnsList = z.object({
   database: DatabaseInfo,
   table: z.string(),
-  type: z.string().describe('The type of the table in the hub.'),
+  type: z.string().describe('The table\'s type in the hub, for hub/fns_search\'s `types` filter; give `table` args the table\'s name instead.'),
   hash: z.string().describe('The schema hash of the table now.'),
   groups: z.array(TableFnGroup),
   more: z.number().int().min(0).describe('Fns left out past the cap.'),
@@ -342,7 +350,7 @@ export type TableFnsGenerateArgs = z.infer<typeof TableFnsGenerateArgs>;
 
 /** One fn `table_fns_generate` made: its name, signature and version, and what happened to it. */
 export const GeneratedTableFn = z.object({
-  fn: z.string(),
+  fn: FnNameValue,
   signature: z.string(),
   version: z.number().int().min(1),
   status: z.enum(['created', 'updated', 'unchanged']),

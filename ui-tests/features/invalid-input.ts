@@ -1,5 +1,5 @@
 /**
- * Refused input (build 2 design 3.13): a run whose args the hub refused shows softly as "Retried" (a dashed, quiet
+ * Refused input (build 2 design 3.13): a run whose args the hub refused shows calmly as "Thinking harder" (a dashed, quiet
  * card, never red), and its details list each problem and what the model wrote. Uses a run that settled
  * `invalid-input` (asking the agent for one with the wrong args when the hub has none yet).
  */
@@ -7,7 +7,7 @@ import { BUILD_2_VIEWPORTS, check, feature, find, inEachScheme, open, settle, sh
 import { ask, SessionWatch } from '../../scripts/session.ts';
 
 export default feature({
-  id: 'invalid-input', ref: 'build-2 3.13', title: 'Refused input, retried', viewports: BUILD_2_VIEWPORTS,
+  id: 'invalid-input', ref: 'build-2 3.13', title: 'Refused input, thinking harder', viewports: BUILD_2_VIEWPORTS,
   async run(ctx) {
     const { page, api } = ctx;
     let found = (await api.hub.call('runs', { query: { filters: [{ field: 'status', op: 'is' as const, value: 'invalid-input' }], limit: 1 } })).items[0];

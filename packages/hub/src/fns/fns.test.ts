@@ -4,7 +4,7 @@
  * time estimates, the chat fn mode gate, the auto classifier, and browser logs rolled by size and quiet.
  */
 import {
-  ActorId, compositeKey, ModelCallId, nicheOf, QualifiedName, ResourceUri, RunId, SessionId, SystemName, noFnStats, noOutcomes, type FnSearchHit, type Niche,
+  ActorId, compositeKey, FnSearchArgs, ModelCallId, nicheOf, QualifiedName, ResourceUri, RunId, SessionId, SystemName, noFnStats, noOutcomes, type FnSearchHit, type Niche,
   type ContextRecord, type FnEffects, type FnMetricsDay, type FnRecord, type IndexedKind, type ModelInfo, type Session, type SystemStatus,
 } from '@harness/core';
 import { context, fn, g, hub, system, type as typeDecl } from '@harness/sdk';
@@ -187,6 +187,20 @@ describe('fns search in the hub database', () => {
     // names: exactly the fns asked for, whatever ranks above them
     expect((await search.search({ names: [q('books/void_invoice'), q('notes/read_note')], items: ['fn'] }, asker)).items.map((h) => h.name)).toEqual(['books/void_invoice', 'notes/read_note']);
     expect((await search.search({ names: [q('books/overdue')], text: 'travel notes' }, asker)).items.map((h) => h.name)).toEqual(['books/overdue']);
+  });
+
+  it('takes a type by its name, in the tools\' spelling, or bare (iteration 2: `types.reads` with a table\'s name was refused)', async () => {
+    const { search, asker } = await setup();
+    const names = async (types: { reads?: string[]; writes?: string[] }, systems?: string[]) =>
+      (await search.search({ types, ...(systems === undefined ? {} : { systems: systems.map((s) => SystemName.parse(s)) }) }, asker)).items.map((h) => h.name);
+    expect(await names({ writes: ['books__Invoice'] })).toEqual(['books/close_month', 'books/void_invoice']);
+    // a bare name matches every type ending in it (a table's name, a type's local name), within the asked systems
+    expect(await names({ reads: ['Invoice'] })).toEqual(['books/overdue']);
+    expect(await names({ reads: ['Invoice'] }, ['notes'])).toEqual([]);
+    // a name no type has finds nothing rather than everything
+    expect(await names({ reads: ['nothing_like_it'] })).toEqual([]);
+    // the model's own call shape is accepted as it is sent
+    expect(FnSearchArgs.safeParse({ text: 'total amount between two dates', systems: ['books'], types: { reads: ['Invoice'] }, modes: ['read'], available: true, order: 'rank', offset: 0, limit: 10 }).success).toBe(true);
   });
 
   it('keeps to what the asker may see and use, and to whose fns they are', async () => {

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   FN_NAME_PATTERN, FnLocalName, FnNameIndex, fnLocalNameProblem, fnOfModelNameByRule, fnOfStoredToolName, isCutModelName, legacyFnOfToolName, ModelFnName, modelFnName,
-  modelFnNames, RULE_ONLY_NAMES, sha256Hex, bareNamesIn, cutNamesIn, isFnShaped, unresolvedNamesIn, type ModelFnNameRegistry,
+  modelFnNames, RULE_ONLY_NAMES, sha256Hex, bareNamesIn, cutNamesIn, isFnShaped, slashedName, typeMatches, unresolvedNamesIn, type ModelFnNameRegistry,
 } from './model-names.ts';
 import { JsonObject, QualifiedName } from './primitives.ts';
 import type { GinTypeDef } from './gin.ts';
@@ -188,6 +188,48 @@ describe('the boundary', () => {
     });
     // in: only fn-name fields come back; the model's other text is its own
     expect(names.read({ ...JsonObject.parse(out), note: 'fs__read' }, type)).toEqual({ ...value, fns: ['fs/Entry.reveal', 'gone/fn'], note: 'fs__read', extra: 'fs__read' });
+  });
+
+  it('reads a union\'s field by the option its literal fields pick, so a field two options share is read by the right one', async () => {
+    const literal = (value: string): GinTypeDef => ({ name: 'literal', generic: { T: { name: 'text' } }, options: { value } });
+    const target: GinTypeDef = {
+      name: 'or',
+      options: {
+        types: [
+          { name: 'obj', props: { kind: { type: literal('context') }, name: { type: { name: 'text' } } } },
+          { name: 'obj', props: { kind: { type: literal('fn') }, name: { type: FN_NAME } } },
+        ],
+      },
+    };
+    const type: GinTypeDef = { name: 'obj', props: { about: { type: { name: 'list', generic: { V: target } } } } };
+    const names = modelFnNames({ index, mode: { type: 'tools' } });
+    const given = { about: [{ kind: 'fn', name: 'hub__fns_search' }, { kind: 'context', name: 'fs/guide' }] };
+    expect(names.read(given, type)).toEqual({ about: [{ kind: 'fn', name: 'hub/fns_search' }, { kind: 'context', name: 'fs/guide' }] });
+    await names.learn([given]);
+    expect(names.value({ about: [{ kind: 'fn', name: 'fs/read' }, { kind: 'context', name: 'fs/guide' }] }, type)).toEqual({ about: [{ kind: 'fn', name: 'fs__read' }, { kind: 'context', name: 'fs/guide' }] });
+  });
+});
+
+describe('names that are not fns, as the model may write them', () => {
+  it('gives a type or a glob in the tools\' spelling its / and . back, and leaves the rest alone', () => {
+    expect(slashedName('database__main__expenses')).toBe('database/main.expenses');
+    expect(slashedName('database/main.expenses')).toBe('database/main.expenses');
+    expect(slashedName('hub__ContentRef')).toBe('hub/ContentRef');
+    expect(slashedName('fs__*')).toBe('fs/*');
+    expect(slashedName('hub__fns_*')).toBe('hub/fns_*');
+    expect(slashedName('expenses')).toBe('expenses');
+    expect(slashedName('main.expenses')).toBe('main.expenses');
+    expect(slashedName('a____b')).toBe('a____b');
+  });
+
+  it('matches a type by its name, the tools\' spelling, or a bare name it ends in', () => {
+    expect(typeMatches('database/main.expenses', 'database/main.expenses')).toBe(true);
+    expect(typeMatches('database/main.expenses', 'database__main__expenses')).toBe(true);
+    expect(typeMatches('database/main.expenses', 'expenses')).toBe(true);
+    expect(typeMatches('database/main.expenses', 'main.expenses')).toBe(true);
+    expect(typeMatches('database/main.expenses', 'penses')).toBe(false);
+    expect(typeMatches('hub/ContentRef', 'ContentRef')).toBe(true);
+    expect(typeMatches('database/main.other', 'database__main__expenses')).toBe(false);
   });
 });
 

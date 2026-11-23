@@ -2,7 +2,7 @@
  * Fn metrics as the fn page reads them: a percentile from a duration histogram (to within one bucket), a day's
  * typical time, the figures of the metrics strip, and the bars of the per-day charts. Pure, so it is tested alone.
  */
-import { DURATION_BUCKETS, type DurationStats, type FnMetrics, type FnMetricsDay } from '@harness/core';
+import { DURATION_BUCKETS, runCount, type DurationStats, type FnMetrics, type FnMetricsDay, type OutcomeCounts } from '@harness/core';
 import { formatCost, formatDuration, formatTokens } from '../../chat/logic/format.ts';
 
 /**
@@ -28,17 +28,42 @@ export interface Figure {
   readonly detail?: string;
 }
 
-/** The share of runs that ended `done`, as a whole percent ('' with no runs). */
-export function successRate(metrics: Pick<FnMetrics, 'runs' | 'outcomes'>): string {
-  return metrics.runs === 0 ? '' : `${Math.round((metrics.outcomes.done / metrics.runs) * 100)}%`;
+/**
+ * The runs that say how the fn itself does: all but those whose args the model got wrong (`invalid-input`: sent back for
+ * the model to fix, never run), which say nothing of the fn.
+ */
+export function realRuns(outcomes: OutcomeCounts): number {
+  return runCount(outcomes) - outcomes['invalid-input'];
 }
 
-/** The metrics strip: runs, how they ended (retried input apart from failures), times, cost and tokens. */
+/** A share as a whole percent, '' when there is nothing to share. */
+const percentOf = (part: number, whole: number): string => (whole === 0 ? '' : `${Math.round((part / whole) * 100)}%`);
+
+/** The share of the fn's real runs (`realRuns`) that ended `done`, as a whole percent ('' with none). */
+export function successRate(metrics: Pick<FnMetrics, 'outcomes'>): string {
+  return percentOf(metrics.outcomes.done, realRuns(metrics.outcomes));
+}
+
+/** The share of the fn's real runs that failed ("3% failed"; '' with none): the model's arg mistakes are not failures. */
+export function failureRate(outcomes: OutcomeCounts): string {
+  const rate = percentOf(outcomes.failed, realRuns(outcomes));
+  return rate === '' ? '' : `${rate} failed`;
+}
+
+/** The model's arg mistakes a fn's runs held, in words ("4 fixed by the model"), '' with none: not failures. */
+export function fixedByModel(outcomes: OutcomeCounts): string {
+  return outcomes['invalid-input'] === 0 ? '' : `${outcomes['invalid-input'].toLocaleString()} fixed by the model`;
+}
+
+/** What the "Fixed by the model" figure means. */
+export const FIXED_BY_MODEL_DETAIL = 'Calls the model sent back and fixed; not failures';
+
+/** The metrics strip: runs, how they ended (the model's arg mistakes apart from failures), times, cost and tokens. */
 export function figures(metrics: FnMetrics): Figure[] {
   const time = (ms: number | undefined): string => (ms === undefined ? '—' : formatDuration(ms));
   return [
     { key: 'runs', label: 'Runs', value: metrics.runs.toLocaleString(), detail: successRate(metrics) === '' ? '' : `${successRate(metrics)} done` },
-    { key: 'retried', label: 'Retried input', value: metrics.outcomes['invalid-input'].toLocaleString(), detail: 'The agent fixed its call' },
+    { key: 'retried', label: 'Fixed by the model', value: metrics.outcomes['invalid-input'].toLocaleString(), detail: FIXED_BY_MODEL_DETAIL },
     { key: 'failed', label: 'Failed', value: metrics.outcomes.failed.toLocaleString(), detail: metrics.outcomes.cancelled > 0 ? `${metrics.outcomes.cancelled} cancelled` : '' },
     { key: 'p50', label: 'Typical time', value: time(metrics.p50), detail: `p95 ${time(metrics.p95)}` },
     { key: 'queued', label: 'Waited', value: time(metrics.averageQueued), detail: 'On average, before running' },
@@ -90,7 +115,7 @@ export function dayBars(days: readonly FnMetricsDay[], measure: DayMeasure, wind
     const runs = day.ran.count;
     const p50 = percentile(day.ran, 0.5);
     const p95 = percentile(day.ran, 0.95);
-    const ended = `${day.outcomes.done} done · ${day.outcomes['invalid-input']} retried · ${day.outcomes.failed} failed`;
+    const ended = `${day.outcomes.done} done · ${day.outcomes.failed} failed${day.outcomes['invalid-input'] === 0 ? '' : ` · ${day.outcomes['invalid-input']} fixed by the model`}`;
     return measure === 'runs'
       ? { day: day.day, label: dayLabel(day.day), value: runs, lines: [`${runs.toLocaleString()} ${runs === 1 ? 'run' : 'runs'}`, ended] }
       : { day: day.day, label: dayLabel(day.day), value: p50 ?? 0, lines: [p50 === undefined ? 'No runs' : `Typical ${formatDuration(p50)}`, p95 === undefined ? '' : `p95 ${formatDuration(p95)}`].filter((l) => l !== '') };

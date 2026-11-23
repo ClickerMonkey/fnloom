@@ -5,7 +5,7 @@
  * watching (`RunInfo.watched` not true: a nested agent, an MCP call, a background run) the rows are kept with the run
  * but shown to no one, so the block is worded headless and the model answers from the sample.
  */
-import type { Json, ResultTable } from '@harness/core';
+import { cutMarker, partialNote, type Json, type ResultTable } from '@harness/core';
 import type { NextPage, ResultBlock, ResultFn } from '../results.ts';
 import { sdkEnv } from './env.ts';
 
@@ -35,9 +35,14 @@ export function resultBlock(table: ResultTable, options: ResultBlockOptions): Re
   const shown = block.rowCount === 0
     ? 'No rows matched. Nobody is watching this run, so say so in your answer.'
     : `${block.rowCount === 1 ? 'One row was' : `${block.rowCount} rows${counted} were`} read. Nobody is watching this run, so no one sees them: answer from the sample.${more}`;
-  return block.sample.length < block.rowCount
-    ? { ...rest, shown, sampleNote: `The sample holds the first ${block.sample.length} of the ${block.rowCount} rows read.` }
-    : { ...rest, shown };
+  if (block.sample.length >= block.rowCount) { return { ...rest, shown }; }
+  // nobody sees the rows past the sample: the note says how many were left out and how to read them
+  const from = table.offset + block.sample.length;
+  const again = table.limit === undefined
+    ? `call ${options.fn.name} again with narrower args`
+    : `call ${options.fn.name}(${JSON.stringify({ ...options.args, offset: from, limit: Math.max(1, block.sample.length) })})`;
+  const note = partialNote({ unit: 'rows', offset: 0, shown: block.sample.length, total: block.rowCount, rest: again }) ?? '';
+  return { ...rest, shown, sampleNote: `The sample holds the first ${block.sample.length} of the ${block.rowCount} rows read. ${note}`.trim() };
 }
 
 /** The result block for rows shown to the person. */
@@ -84,7 +89,7 @@ function sampleOf(table: ResultTable, budget: number, cellChars: number): { samp
     table.columns.forEach((column, i) => {
       const cell = row[i] ?? null;
       if (typeof cell === 'string' && cell.length > cellChars) {
-        record[column.name] = `${cell.slice(0, cellChars)}…`;
+        record[column.name] = `${cell.slice(0, cellChars)}${cutMarker(cell.length - cellChars)}`;
         rowCut = true;
       } else {
         record[column.name] = cell;

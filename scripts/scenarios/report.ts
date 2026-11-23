@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { CASES } from './cases.ts';
 import { Shedding } from './busy.ts';
+import { argMistakes, brokenRun, caseRuns, hardChecks } from './checks.ts';
 import { JudgedCase, Verdict, type Cause, type Layer } from './records.ts';
 import { SCENARIOS_DIR } from './rep.ts';
 import { usd } from './transcript.ts';
@@ -64,6 +65,10 @@ export const CaseSummary = z.object({
     cost: z.number(), wallMs: z.number(), ended: z.string(), checksFailed: z.array(z.string()), sessions: z.array(z.string()), file: z.string(),
     /** The hub's model calls and the tool runs of the case (its steps), and the calls the hub shed. */
     modelCalls: z.number().int().default(0), toolRuns: z.number().int().default(0), shed: z.number().int().default(0),
+    /** Tool calls that really went wrong (the tool failed, or the call was refused). */
+    toolFailures: z.number().int().default(0),
+    /** The model's own calls that didn't fit and were sent back (or repaired), and how many it recovered from: not failures. */
+    argMistakes: z.number().int().default(0), argMistakesRecovered: z.number().int().default(0),
   })),
   meanScore: z.number().nullable(),
   /** Every judged repetition gave the same verdict. */
@@ -113,6 +118,8 @@ export const Report = z.object({
   cases: z.array(CaseSummary),
   causes: z.record(z.string(), z.number()),
   layers: z.record(z.string(), z.number()),
+  /** Tool calls across every rep: real failures and refusals, and the model's arg mistakes (recovered or not) apart. */
+  calls: z.object({ total: z.number().int(), failures: z.number().int(), argMistakes: z.number().int(), argMistakesRecovered: z.number().int() }).default({ total: 0, failures: 0, argMistakes: 0, argMistakesRecovered: 0 }),
   cost: z.object({ hub: z.number(), person: z.number(), judge: z.number(), total: z.number() }),
   /** The variants compared (present when the iteration ran more than one). */
   comparison: Comparison.optional(),
@@ -205,6 +212,13 @@ function compare(cases: readonly JudgedCase[]): Comparison | undefined {
   return { variants, cases: rows };
 }
 
+/** A case rep's tool calls: real failures and refusals, and the model's arg mistakes apart (recovered or not). */
+function callCounts(judged: JudgedCase): { toolFailures: number; argMistakes: number; argMistakesRecovered: number } {
+  const runs = caseRuns(judged);
+  const mistakes = argMistakes(runs);
+  return { toolFailures: runs.filter(brokenRun).length, argMistakes: mistakes.total, argMistakesRecovered: mistakes.recovered };
+}
+
 /** Summarize an iteration. */
 export function buildReport(iteration: string): Report {
   const { reps, cases } = loadIteration(iteration);
@@ -228,7 +242,10 @@ export function buildReport(iteration: string): Report {
         rep: judged.rep, ...(judged.variant === undefined ? {} : { variant: judged.variant }),
         verdict: judged.judgement?.verdict ?? null, score: judged.judgement?.score ?? null, summary: judged.judgement?.summary ?? judged.judgeError ?? '',
         cause: judged.judgement?.cause ?? null, layer: judged.judgement?.layer ?? null, fix: judged.judgement?.fix ?? '',
-        cost: costOf(judged), wallMs: judged.stats.wallMs, ended: judged.ending.by, checksFailed: judged.checks.filter((c) => !c.ok).map((c) => c.name),
+        cost: costOf(judged), wallMs: judged.stats.wallMs, ended: judged.ending.by,
+        // the checks again, by today's rules (an older record's saved checks counted the model's arg mistakes as errors)
+        checksFailed: hardChecks(judged).filter((c) => !c.ok).map((c) => c.name),
+        ...callCounts(judged),
         sessions: judged.sessions.map((s) => s.url), file: caseFile(judged.rep, id, judged.variant),
         modelCalls: judged.stats.modelCalls, toolRuns: judged.stats.toolRuns, shed: judged.stats.shed ?? 0,
       })),
@@ -241,7 +258,12 @@ export function buildReport(iteration: string): Report {
   const cost = { hub: sum((j) => j.stats.hubCost), person: sum((j) => j.stats.personCost), judge: sum((j) => j.judgeCost), total: 0 };
   cost.total = cost.hub + cost.person + cost.judge;
   const comparison = compare(cases);
-  return { iteration, writtenAt: new Date().toISOString(), reps, cases: summaries, causes, layers, cost, ...(comparison === undefined ? {} : { comparison }) };
+  const counted = cases.map(callCounts);
+  const calls = {
+    total: sum((j) => caseRuns(j).length), failures: counted.reduce((n, c) => n + c.toolFailures, 0),
+    argMistakes: counted.reduce((n, c) => n + c.argMistakes, 0), argMistakesRecovered: counted.reduce((n, c) => n + c.argMistakesRecovered, 0),
+  };
+  return { iteration, writtenAt: new Date().toISOString(), reps, cases: summaries, causes, layers, calls, cost, ...(comparison === undefined ? {} : { comparison }) };
 }
 
 /** A variant's name as a report reads it. */
@@ -280,6 +302,21 @@ export function comparisonMarkdown(report: Report): string {
   ].join('\n\n');
 }
 
+/** The iteration's tool calls in a line: real failures apart from the model's arg mistakes, which are not failures. */
+export function callsLine(calls: Report['calls']): string {
+  const recovered = calls.argMistakes === 0 ? '' : ` (${calls.argMistakesRecovered} recovered, ${calls.argMistakes - calls.argMistakesRecovered} not)`;
+  return `Tool calls: ${calls.total}. **Failed or refused: ${calls.failures}.** Model arg mistakes, sent back to the model to fix: ${calls.argMistakes}${recovered}; these are not failures (what counts is the result the person got).`;
+}
+
+/** A rep's tool trouble, when it had any: real failures, then the model's arg mistakes apart. */
+function repCallsNote(r: CaseSummary['reps'][number]): string {
+  const parts = [
+    ...(r.toolFailures === 0 ? [] : [`${r.toolFailures} tool call(s) failed or refused`]),
+    ...(r.argMistakes === 0 ? [] : [`${r.argMistakes} model arg mistake(s), ${r.argMistakesRecovered} recovered`]),
+  ];
+  return parts.length === 0 ? '' : ` ${parts.join('; ')}.`;
+}
+
 /** The report as markdown. */
 export function reportMarkdown(report: Report): string {
   const worst = [...report.cases].sort((a, b) => (a.meanScore ?? -1) - (b.meanScore ?? -1));
@@ -309,6 +346,7 @@ export function reportMarkdown(report: Report): string {
   return [
     `# Scenarios: ${report.iteration}`,
     `Written ${report.writtenAt}. ${report.cases.length} cases × ${report.reps.length} rep(s). Verdicts: ${count('pass')} pass, ${count('weak')} weak, ${count('fail')} fail${crashed === 0 ? '' : `, ${crashed} lost to a harness crash`}. Cost: ${usd(report.cost.total)} (hub ${usd(report.cost.hub)}, person ${usd(report.cost.person)}, judge ${usd(report.cost.judge)}). Model: ${report.reps[0]?.model ?? '—'}.`,
+    callsLine(report.calls),
     ...(crashes.length === 0 ? [] : [`**The hub crashed ${crashes.length} time(s):**\n${crashes.map((c) => `- ${c.rep} at ${c.at}: ${c.error.slice(0, 200)}. Cases marked harness-crash: ${c.cases.join(', ') || 'none'}. ${c.restartedIn === undefined ? 'The rest of the rep did not run.' : `The rest ran on a fresh stack in that rep's ${c.restartedIn}/.`}${c.logTail.length === 0 ? '' : `\n\n  \`\`\`\n  ${c.logTail.slice(-12).map((l) => l.slice(0, 240)).join('\n  ')}\n  \`\`\``}`).join('\n')}`]),
     ...(shed.length === 0 ? [] : [`**The hub shed load (HTTP 503, "the hub is busy") in ${shed.length} rep(s).** The runner waited and tried again (\`busy.ts\`); a case fails on it only past that patience. This is the hub's finding, not the agent's:\n${shed.map(shedLine).join('\n')}`]),
     ...(several ? [comparisonMarkdown(report)] : []),
@@ -325,7 +363,7 @@ export function reportMarkdown(report: Report): string {
     ...worst.map((c) => [
       `### ${c.case}. ${c.title}`,
       `Good: ${c.good}`,
-      ...c.reps.map((r) => `- **${r.variant === undefined ? '' : `${r.variant} `}rep ${r.rep}: ${r.verdict === null ? 'not judged' : `${r.verdict} ${r.score}/10`}** — ${r.summary}${r.cause === null ? '' : ` _(cause ${r.cause}, layer ${r.layer ?? '—'}; fix: ${r.fix})_`}${r.checksFailed.length === 0 ? '' : ` **Checks failed: ${r.checksFailed.join(', ')}.**`} Ended ${r.ended}, ${Math.round(r.wallMs / 1000)}s, ${usd(r.cost)}. [transcript](${r.file}) · chat: ${r.sessions.join(' , ')}`),
+      ...c.reps.map((r) => `- **${r.variant === undefined ? '' : `${r.variant} `}rep ${r.rep}: ${r.verdict === null ? 'not judged' : `${r.verdict} ${r.score}/10`}** — ${r.summary}${r.cause === null ? '' : ` _(cause ${r.cause}, layer ${r.layer ?? '—'}; fix: ${r.fix})_`}${r.checksFailed.length === 0 ? '' : ` **Checks failed: ${r.checksFailed.join(', ')}.**`}${repCallsNote(r)} Ended ${r.ended}, ${Math.round(r.wallMs / 1000)}s, ${usd(r.cost)}. [transcript](${r.file}) · chat: ${r.sessions.join(' , ')}`),
     ].join('\n\n')),
   ].join('\n\n');
 }

@@ -1,6 +1,6 @@
 /**
  * The hub fns of the resources module, implemented against the hub contract's refs: reading (`hub/resource_list`,
- * `hub/resource_read`, `hub/resource_outline`, `hub/resource_send`, `hub/ctx_get`) and writing
+ * `hub/resource_read`, `hub/resource_outline`, `hub/resource_send`, `hub/image_read`, `hub/ctx_get`) and writing
  * (`hub/resource_convert`, `hub/resource_import`, `hub/resource_rename`, `hub/resource_delete`,
  * `hub/ctx_from_resource`, `hub/remember`, `hub/forget`). The fns that mirror a web endpoint read their args with
  * that endpoint's body schema (`HUB_READ_ENDPOINTS`, `HUB_WRITE_ENDPOINTS`, through `toolArgsOf`, which flattens a
@@ -10,7 +10,7 @@
  * it weren't there, and a listing leaves them out. Services are read when a fn runs, never while registering.
  */
 import { reject } from '@ayepi/core';
-import { ResourceOutlineArgs, ResourceSendArgs, splitName, type ActorId, type ContextLink, type LinkTarget, type QualifiedName } from '@harness/core';
+import { ImageReadArgs, ResourceOutlineArgs, ResourceSendArgs, splitName, type ActorId, type ContextLink, type LinkTarget, type QualifiedName } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
 import { seesContextAs, seesTypeNamed } from '../access/scope.ts';
 import { hub, HUB_READ_ENDPOINTS, HUB_WRITE_ENDPOINTS, toolArgsOf } from '@harness/sdk';
@@ -145,6 +145,11 @@ export function registerResourceFns(fns: HubFns, deps: ResourceFnDeps): void {
     (await reachOf(deps, ctx)).needResource(uri);
     const parts = await deps.resources().content.parts(uri, await modelOf(deps, ctx), askingOf(ctx), section === undefined ? {} : { section });
     return { parts: parts.map((part) => ({ type: part.type, chars: part.content.length, ...(part.name === undefined ? {} : { name: part.name }) })) };
+  });
+  fns.register(refs.image_read, async (args, ctx) => {
+    const { image, question } = ImageReadArgs.parse(args);
+    (await reachOf(deps, ctx)).needResource(image);
+    return deps.resources().images.ask(image, question, askingOf(ctx), ctx.signal);
   });
 
   fns.register(refs.resource_convert, async (args, ctx) => {

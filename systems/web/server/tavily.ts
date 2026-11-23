@@ -3,6 +3,7 @@
  * shaping and its tests share one source of truth; a response that doesn't fit is a `search-garbled` problem, never a
  * half-read result. Snippets are cleaned (whitespace, markdown leftovers) and cut at a word near the limit.
  */
+import { clipMarked } from '@harness/core';
 import { z } from 'zod';
 import { SEARCH_DEPTHS, SEARCH_TOPICS, type SearchFoundValue } from '../shared/index.ts';
 import type { SearchArgs, SearchProvider } from './index.ts';
@@ -55,13 +56,16 @@ export interface TavilyOptions {
   readonly snippetChars: number;
 }
 
-/** A snippet: whitespace collapsed, markdown heading and emphasis marks dropped, cut at a word boundary near `max`. */
+/** How a cut snippet says where the rest is. */
+export const SNIPPET_REST = 'read the page with web/read';
+
+/**
+ * A snippet: whitespace collapsed, markdown heading and emphasis marks dropped, cut at a word boundary near `max`,
+ * ending with how much was cut and where the rest is (`clipMarked`).
+ */
 export function cleanSnippet(text: string, max: number): string {
   const flat = text.replace(/[#*_`>|]+/g, ' ').replace(/\s+/g, ' ').trim();
-  if (flat.length <= max) { return flat; }
-  const cut = flat.slice(0, max);
-  const space = cut.lastIndexOf(' ');
-  return `${(space > max * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,;:.-]+$/, '')}…`;
+  return clipMarked(flat, max, { atWord: true, rest: SNIPPET_REST });
 }
 
 /** The request for some search args. */

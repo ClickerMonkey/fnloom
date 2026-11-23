@@ -10,7 +10,7 @@ import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { reject } from '@ayepi/core';
 import {
-  compact, dataExportFileName, PROXY_TRUST_OPTION, SIGN_IN_LIMITS_OPTION, SIGN_IN_POLICY_OPTION, MAIN_INSTANCE, mintId, qualify, splitName, SystemName, type ActorId, type HostedBy, type InstanceName, type Json, type GroupActor, type ModelInfo, type ProviderConfig, type ProviderInput, type ProviderKind,
+  compact, dataExportFileName, PROXY_TRUST_OPTION, SIGN_IN_LIMITS_OPTION, SIGN_IN_POLICY_OPTION, MAIN_INSTANCE, mintId, qualify, slashedName, splitName, SystemName, type ActorId, type HostedBy, type InstanceName, type Json, type GroupActor, type ModelInfo, type ProviderConfig, type ProviderInput, type ProviderKind,
   type InstallSource, type ProviderRecord, type SecretId, type SystemRecord, type UserActor,
 } from '@harness/core';
 import type { ADMIN_ENDPOINTS, AdminFnName } from '@harness/sdk';
@@ -199,7 +199,9 @@ export function adminOperations(hub: HubServices): AdminOperations {
     set_policy: async (data, by) => {
       const id = data.id ?? mintId('policy');
       const previous = data.id === undefined ? undefined : await store.table('policies').get(data.id);
-      await store.table('policies').put({ ...compact(data), id, createdBy: previous?.createdBy ?? by, createdAt: previous?.createdAt ?? hub.clock() });
+      // a fn or glob in the model's tools' spelling (`hub__forget`, `fs__*`) is kept as the hub names fns, so it matches
+      const target = data.target.fn === undefined ? data.target : { ...data.target, fn: slashedName(data.target.fn) };
+      await store.table('policies').put({ ...compact({ ...data, target }), id, createdBy: previous?.createdBy ?? by, createdAt: previous?.createdAt ?? hub.clock() });
       hub.log.info('policy.set', { policy: id, effect: data.decision.effect, user: by });
       return { id };
     },

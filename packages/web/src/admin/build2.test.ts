@@ -8,7 +8,7 @@ import { fakeCaller } from '../test/fakes.ts';
 import { limitsView, mcpView, modelCall, roleView } from './test/build2.ts';
 import { fakeAdmin, model, pairing, systemView, T0 } from './test/fakes.ts';
 import { addEntry, connectSnippets, entryText, readFnMatch, readResourceSelector, removeEntry, selectorSize, slugOf } from './logic/mcps.ts';
-import { dayBars, figures, niceMax, percentile } from './logic/metrics.ts';
+import { dayBars, failureRate, figures, fixedByModel, niceMax, percentile } from './logic/metrics.ts';
 import { callPurpose, callTook, sizeText, unitsText } from './logic/model-calls.ts';
 import { hasLanguage, limitsDraft, limitsOf, modelsFor, resolvedText, roleChoiceOf, roleDraft, roleLanguage, roleWorks } from './logic/roles.ts';
 import { answerJson, HttpMcpProbe } from './probe.ts';
@@ -190,17 +190,27 @@ describe('fn metrics', () => {
     expect(percentile({ ...stats, count: 0 }, 0.5)).toBeUndefined();
   });
 
-  it('makes the strip and the day bars, keeping retried input apart from failures', () => {
+  it('makes the strip and the day bars, keeping the model’s arg mistakes apart from failures', () => {
     const strip = figures(fnMetrics());
     expect(strip.find((f) => f.key === 'retried')?.value).toBe('14');
     expect(strip.find((f) => f.key === 'failed')?.value).toBe('8');
-    expect(strip.find((f) => f.key === 'runs')?.detail).toBe('84% done');
+    // the share done is of the fn's real runs: the 14 the model got wrong say nothing of the fn
+    expect(strip.find((f) => f.key === 'runs')?.detail).toBe('94% done');
+    expect(strip.find((f) => f.key === 'retried')?.label).toBe('Fixed by the model');
+    expect(strip.find((f) => f.key === 'retried')?.detail).toContain('not failures');
+    expect(failureRate({ done: 118, 'invalid-input': 14, failed: 8, cancelled: 0 })).toBe('6% failed');
+    expect(failureRate({ done: 0, 'invalid-input': 3, failed: 0, cancelled: 0 })).toBe('');
+    expect(fixedByModel({ done: 1, 'invalid-input': 3, failed: 0, cancelled: 0 })).toBe('3 fixed by the model');
+    expect(fixedByModel({ done: 1, 'invalid-input': 0, failed: 0, cancelled: 0 })).toBe('');
     const days = fnDays(7);
     const week = { period: 7, now: T0 };
     const runs = dayBars(days, 'runs', week);
     expect(runs).toHaveLength(7);
     expect(runs[0]?.value).toBe(days[0]?.ran.count);
-    expect(runs[0]?.lines[1]).toContain('retried');
+    // a day the model sent calls back says so apart from failures; a day it didn't leaves it out
+    expect(runs.some((bar) => bar.lines[1]?.includes('fixed by the model') === true)).toBe(true);
+    expect(runs[0]?.lines[1]).toBe(`${days[0]?.outcomes.done} done · ${days[0]?.outcomes.failed} failed`);
+    expect(runs.every((bar) => bar.lines[1]?.includes('retried') !== true)).toBe(true);
     expect(dayBars(days, 'time', week)[0]?.lines[0]).toMatch(/^Typical /);
     // one day with runs still draws every day of the window, the day with runs in its own place
     const one = dayBars(days.slice(-1), 'runs', week);

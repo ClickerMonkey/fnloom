@@ -164,7 +164,7 @@ describe('result blocks', () => {
     expect(block.columns).toEqual([{ name: 'name', kind: 'text', nullable: false }, { name: 'total', kind: 'number', nullable: true }]);
     expect(block.sample.length).toBeGreaterThan(0);
     expect(block.sample.length).toBeLessThan(30);
-    expect(block.sample[0]?.['name']).toBe(`${'x'.repeat(40)}…`);
+    expect(block.sample[0]?.['name']).toMatch(new RegExp(`^${'x'.repeat(40)}…\\[\\d+ more characters cut\\]$`));
     expect(block.sampleNote).toBe(`The first ${block.sample.length} of 30 rows; the person has them all. Text longer than 40 characters is cut.`);
     expect(block).toMatchObject({ rowCount: 30, total: 95, truncated: true, sort: [{ column: 'total', dir: 'desc' }], fn: fnInfo });
   });

@@ -23,6 +23,8 @@ import type { FnSignature } from '../catalog/index.ts';
 import type { MessageEnricher } from '../chat/index.ts';
 import { ensureAgentActor } from '../chat/support.ts';
 import { citationsNotice, withCiteId } from '../chat/cite-rule.ts';
+import { SEND_FN, shownMessage, type ConversationMedia } from '../chat/shown.ts';
+import type { Asking } from '../resources/index.ts';
 import type { CallPlan, ExposedTo, ModelCallOut, PromptPlanner } from '../contextor/index.ts';
 import { AUTO_MODEL } from '../contextor/limits.ts';
 import { parseRunBlocks, problemLines, resultText, RunBlockFilter, splitThinking, ThinkingFilter } from '../contextor/render.ts';
@@ -193,6 +195,11 @@ export interface AgentLoopDeps extends ExecutionDeps {
   readonly models: Pick<ModelResolver, 'resolve'>;
   /** How a chat message reads to the LLM (mentions, extras and hooks as tagged blocks). */
   readonly enrich: Pick<MessageEnricher, 'render'>;
+  /**
+   * Resources shown in a conversation, made for the model each call goes to (`chat/shown.ts`): pictures for a model
+   * that sees, `<image>` blocks it can ask about otherwise. Absent: the conversation goes as it is kept.
+   */
+  readonly media?: Pick<ConversationMedia, 'expand'> | undefined;
   /** What each prompt holds, within the model's limits, and what the model's calls mean. */
   readonly planner: Pick<PromptPlanner, 'plan' | 'interpret' | 'exposed' | 'settled' | 'names' | 'draft'>;
 }
@@ -312,7 +319,8 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     const cites = citationsNotice(session.citationsTold, session.citations === true);
     const message = cites.notice === undefined ? input.message : `${cites.notice}\n\n${input.message}`;
     const planned = await this.#deps.planner.draft({
-      session, agent: fn, model, instructions, transcript: [...session.transcript, { role: 'user', content: message }], user: input.user,
+      session, agent: fn, model, instructions, user: input.user,
+      transcript: await this.#media([...session.transcript, { role: 'user', content: message }], model, { actor: input.user, session: session.id }),
     });
     const own = modelFnName(fn.name);
     const tools = agentTools(planned.tools.filter((tool) => tool.name !== own), new PendingCalls());
@@ -408,7 +416,11 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       }
     }
     const planned = await this.#deps.planner.plan({
-      session, turn, agent: fn, model, instructions, transcript: await conversation.messages(), cached: state.selection,
+      session, turn, agent: fn, model, instructions, cached: state.selection,
+      // shown resources and images as this model takes them: pictures for one that sees, blocks it can ask about otherwise
+      transcript: await this.#media(await conversation.messages(), model, {
+        actor: turn.user.id, run: run.id, admin: turn.user.role === 'admin', ...(run.session === undefined ? {} : { session: run.session }),
+      }),
     });
     if (state.selection === undefined) {
       if (planned.considered !== undefined && session !== undefined && turn.message !== undefined) await this.#deps.turns.suggested(turn.message, planned.considered);
@@ -923,6 +935,8 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     // out to the model: every fn a reply names is spelled as the model calls it in this session's mode
     const names = prompt === undefined ? undefined : await this.#deps.planner.names(prompt);
     // each reply is written first, then every name the replies hold is looked up in one batch and spelled
+    // a call that showed the model a resource: the reference follows the replies, made for the model at each call
+    const shown: LlmMessage[] = [];
     const unspoken = await Promise.all(pending.map(async (call): Promise<{ readonly call: PendingCall; readonly text: string }> => {
       const reply = (status: string, content: string) => ({ call, text: call.block === true ? resultText(call.fn, status, content) : content });
       if (call.invalid !== undefined) return reply('invalid-input', call.invalid);
@@ -942,6 +956,7 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       const encode = names === undefined ? undefined : (value: Json): Json => names.value(value, returns);
       if (settled.status === 'failed') failed += 1;
       if (settled.status === 'failed' && settled.error.code === OUTPUT_REFUSED) stopped ??= settled.error;
+      if (settled.status === 'done' && child?.fn === SEND_FN) shown.push(...shownOf(child.args));
       const exposed = outcome?.status === 'done' && outcome.expose !== undefined && prompt !== undefined ? await this.#deps.planner.exposed(outcome.expose, prompt) : '';
       const text = settledReply(settled, child === undefined ? { rows: this.#deps.settings.execution.HARNESS_HEADLESS_RESULT_ROWS, watched: false } : await this.#reading(child), encode);
       const content = exposed === '' ? text : `${text}\n\n${exposed}`;
@@ -953,7 +968,19 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     const messages = unspoken.map(({ call, text }): LlmMessage => (call.block === true
       ? { role: 'user', content: spoken(text) }
       : { role: 'tool', toolCallId: call.toolCallId, content: spoken(text) }));
+    messages.push(...shown);
     return { messages, allFailed: pending.length > 0 && failed === pending.length, ...(stopped === undefined ? {} : { stopped }) };
+  }
+
+  /** A conversation as the model takes it (`AgentLoopDeps.media`); as kept when there is no media service or it fails. */
+  async #media(messages: readonly LlmMessage[], model: string, who: Asking): Promise<LlmMessage[]> {
+    if (this.#deps.media === undefined) return [...messages];
+    try {
+      return await this.#deps.media.expand(messages, model, who);
+    } catch (error) {
+      this.#deps.log.warn('agent.media-failed', { model, error: messageOf(error) });
+      return [...messages];
+    }
   }
 
   /**
@@ -1097,4 +1124,11 @@ export function toolCallKey(iteration: number, toolCallId: string): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms).unref());
+}
+
+/** The `<shown>` reference for a done `hub/resource_send` run, read from its args (none when they don't name a resource). */
+function shownOf(args: Json): LlmMessage[] {
+  if (typeof args !== 'object' || args === null || Array.isArray(args)) return [];
+  const { uri, section } = args;
+  return typeof uri === 'string' ? [shownMessage(uri, typeof section === 'string' ? section : undefined)] : [];
 }

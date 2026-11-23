@@ -19,7 +19,7 @@ export const CodePayload = ginAs(CodeFnSpec);
 /** What `make_code` is asked. */
 export const MakeCodeArgs = g.obj({
   request: g.field(g.text({ minLength: 1 }), { docs: 'The calculation, in plain words: its inputs (names and kinds), what it gives back, any fns it should call, and one example with the expected result. Describe the logic, not the person\'s data.' }),
-  fn: g.field(g.optional(g.text({ minLength: 1 })), { docs: 'A code fn to change (`code/total_with_tax`); a new version of it is saved.' }),
+  fn: g.field(g.optional(g.fnName()), { docs: 'A code fn to change, by its name as your tools and search hits spell it (`code/total_with_tax`); a new version of it is saved.' }),
 });
 
 /** How callers of `make_code` use it. */

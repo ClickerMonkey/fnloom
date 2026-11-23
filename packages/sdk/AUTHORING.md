@@ -3146,7 +3146,7 @@ types). Return exactly one; never throw to report something the caller should he
 | Helper | Status | Use it when |
 |---|---|---|
 | `ctx.done(result, { undo?, cost? })` | `done` | it worked. `undo` records how to reverse it (undoable fns only) |
-| `ctx.invalid(problems, { cost? })` | `invalid-input` | **the caller's mistake** the types can't catch: an id that doesn't exist, an end before a start, nothing to search for. Give a message or `[{ path, message }]` problems (`path` a dotted path into the args, `''` for the whole). An agent gets the problems back and retries; the chat shows the run softly as "Retried". Not an error |
+| `ctx.invalid(problems, { cost? })` | `invalid-input` | **the caller's mistake** the types can't catch: an id that doesn't exist, an end before a start, nothing to search for. Give a message or `[{ path, message }]` problems (`path` a dotted path into the args, `''` for the whole). An agent gets the problems back and retries; the chat shows the run calmly as "Thinking harder". Not an error |
 | `ctx.fail(class, message, { code?, data?, undo?, cost? })` | `failed` | **a real failure.** `class` is `retry` (temporary: the hub retries per `limits.retries`), `caller` (refused for a reason the caller must hear: full, denied, conflict) or `fatal` (a bug or broken setup). `code` is a stable word for programs (`not-found`, `denied`, `full`) |
 | `ctx.pause(state)` | `paused` | it can stop and continue later (fns with a `resume` type only) |
 | `ctx.cancelled({ partial?, undo? })` | `cancelled` | it stopped because it was cancelled or the person said no |
@@ -5698,7 +5698,7 @@ This is the hub contract as the SDK declares it now:
 
 #### Fns of `hub`
 
-- `hub/fns_load`: Add fns to your tools for the rest of this chat, by their full names (`system/name`): each becomes a tool you can call from your next step. Tags: `read`.
+- `hub/fns_load`: Add fns to your tools for the rest of this chat, by their names: each becomes a tool you can call from your next step. Tags: `read`.
 
   ```text
   (obj{
@@ -5715,12 +5715,12 @@ This is the hub contract as the SDK declares it now:
 - `hub/fns_search`: Search fns in the hub by words, meaning or both, best first or by name, filtered by system, instance, who shares them, the types they read or write and their mode, a page at a time. Tags: `read`.
 
   ```text
-  (obj{ text?, kinds?, systems?, instance?, visibility?, types?, modes?, effects?, names?, available?, niches?, order?, offset?, limit? … }) => obj{ items, next?, filtered?, loaded? … }
+  (obj{ text?, kinds?, systems?, instance?, visibility?, types?, modes?, effects?, names?, available?, niches?, order?, offset?, limit? … }) => obj{ items, next?, filtered?, loaded?, missing? … }
   ```
 - `hub/ctx_search`: Search context (guides, memories, pieces of files) by words or meaning, a page at a time. Tags: `read`.
 
   ```text
-  (obj{ text?, systems?, origins?, scopes?, tags?, names?, niches?, order?, offset?, limit? … }) => obj{ items, next?, filtered?, loaded? … }
+  (obj{ text?, systems?, origins?, scopes?, tags?, names?, niches?, order?, offset?, limit? … }) => obj{ items, next?, filtered?, loaded?, missing? … }
   ```
 - `hub/fns_examples`: A page of one fn's example calls (its args, the result when kept, and what each shows), the closest to what you are about to do first. Tags: `read`.
 
@@ -5892,6 +5892,14 @@ This is the hub contract as the SDK declares it now:
     }>
   }
   ```
+- `hub/image_read`: Ask a question about an image you can't see: another model that can see images looks at it and answers. Tags: `read`.
+
+  ```text
+  (obj{
+    image: text,
+    question: text{minLength=1, maxLength=2000}
+  }) => obj{answer: text, model: text, image: obj{id: text, name: text}}
+  ```
 - `hub/system_calls`: Holds the model calls a system makes outside its own runs (hooks, timers, start-up, its own aeye), so they are charged to its budgets and show as its.
 
   ```text
@@ -5911,7 +5919,7 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{ cursor?, limit?, search?, system?, family?, source?, under?, form?, missing?, group?, in?, query? … }) => obj{ items, cursor?, facets … }
   ```
-- `hub/resource_read`: Read a resource as text: its primary form (markdown for pages, tables for spreadsheets) or a chosen form, whole or by sections. Tags: `read`.
+- `hub/resource_read`: Read a resource as text: its primary form (markdown for pages, tables for spreadsheets, pages for a PDF) or a chosen form, whole or by sections. Tags: `read`.
 
   ```text
   (obj{
@@ -5921,7 +5929,7 @@ This is the hub contract as the SDK declares it now:
     offset?: num{whole=true, min=0},
     maxChars?: num{whole=true, min=1, max=200000},
     rows?: obj{table: text, from: num{whole=true, min=0}, to: num{whole=true, min=0}}
-  }) => obj{ uri, form, text, offset, total, truncated, forms, offers … }
+  }) => obj{ uri, form, text, offset, total, truncated, partial?, note?, forms, offers … }
   ```
 - `hub/ctx_get`: One context item (a guide, skill, memory or piece of a resource) with its text and its links both ways. Tags: `read`.
 
@@ -6096,18 +6104,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/ctx_from_resource`: Make context items from a resource (one per section, under an outline parent), or update the ones made before.
 
   ```text
-  (obj{
-    uri: text,
-    sections?: list<text{minLength=1}>,
-    copy?: enum<text>{live, snapshot},
-    weight?: num{min=0, max=2},
-    tags?: list<text{minLength=1}>,
-    fns?: list<text>,
-    suggestFns?: list<text>,
-    command?: text,
-    visible?: enum<text>{user, llm, both, none},
-    suggest?: enum<text>{user, llm, both, none}
-  }) => obj{created: list<text>, updated: list<text>, links: num{whole=true, min=0}}
+  (obj{ uri, sections?, copy?, weight?, tags?, fns?, suggestFns?, command?, visible?, suggest? … }) => obj{created: list<text>, updated: list<text>, links: num{whole=true, min=0}}
   ```
 - `hub/remember`: Keep a fact for later as a memory (a context item): for this chat, for the person in all their chats, or for everyone.
 
@@ -6943,7 +6940,7 @@ The hub's contract.
 const hub: typeof hub; // too large to print: see its section
 ```
 
-Refers to: [`ContextCrawlArgs`](#core-contextcrawlargs), [`ContextCrawlResult`](#core-contextcrawlresult), [`ContributionView`](#core-contributionview), [`CtxSearchArgs`](#core-ctxsearchargs), [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnSearchArgs`](#core-fnsearchargs), [`FnSearchPage`](#core-fnsearchpage), [`LoadContextResult`](#core-loadcontextresult), [`LoadFnsResult`](#core-loadfnsresult), [`MintMcpTokenArgs`](#core-mintmcptokenargs), [`NameRefusal`](#core-namerefusal), [`ReadTableArgs`](#core-readtableargs), [`ResourceOutlineArgs`](#core-resourceoutlineargs), [`ResourceSendArgs`](#core-resourcesendargs), [`ResultTable`](#core-resulttable), [`RowActionsQuery`](#core-rowactionsquery), [`Section`](#core-section), [`WidgetActionOption`](#core-widgetactionoption).
+Refers to: [`ContextCrawlArgs`](#core-contextcrawlargs), [`ContextCrawlResult`](#core-contextcrawlresult), [`ContributionView`](#core-contributionview), [`CtxSearchArgs`](#core-ctxsearchargs), [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnSearchArgs`](#core-fnsearchargs), [`FnSearchPage`](#core-fnsearchpage), [`ImageReadArgs`](#core-imagereadargs), [`ImageReadResult`](#core-imagereadresult), [`LoadContextResult`](#core-loadcontextresult), [`LoadFnsResult`](#core-loadfnsresult), [`MintMcpTokenArgs`](#core-mintmcptokenargs), [`NameRefusal`](#core-namerefusal), [`ReadTableArgs`](#core-readtableargs), [`ResourceOutlineArgs`](#core-resourceoutlineargs), [`ResourceSendArgs`](#core-resourcesendargs), [`ResultTable`](#core-resulttable), [`RowActionsQuery`](#core-rowactionsquery), [`Section`](#core-section), [`WidgetActionOption`](#core-widgetactionoption).
 
 #### `HubContract`
 
@@ -8117,8 +8114,8 @@ interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services, Proposals, D
   done(result: T['result'], extra?: { undo?: T['undo']; cost?: Usd }): Outcome<T>;
   /**
    * The args were wrong in a way the fn's types can't say (a path outside the root, an end before the start): the
-   * caller's mistake, not a failure. An agent gets the problems back and tries again; the chat shows the run softly as
-   * "Retried". Give a message, or problems by path (a dotted path into the args, `''` for the whole).
+   * caller's mistake, not a failure. An agent gets the problems back and tries again; the chat shows the run calmly as
+   * "Thinking harder", never as an error. Give a message, or problems by path (a dotted path into the args, `''` for the whole).
    */
   invalid(problems: string | readonly InputProblem[], extra?: { cost?: Usd }): Outcome<T>;
   /**
@@ -15461,7 +15458,7 @@ export const fs = system('fs', {
       read: fn({
         group: 'files',
         description: 'Read a text file under the roots, whole or a window of its lines. Gives its text, how many lines it has, and whether more follows.',
-        instructions: 'Read a file before you change it or say what is in it; never describe a file you have not read. Paths are relative to the first root (`src/app.ts`) or start with a root\'s name when there are several. For a long file read a window with `offset` (the first line, counted from 0) and `limit` (how many lines); `truncated: true` means more follows. Binary files (PDFs, images) are refused: read those with hub/resource_read or hub/resource_send. A file attached to a chat message is not here: it is a hub resource.',
+        instructions: 'Read a file before you change it or say what is in it; never describe a file you have not read. Paths are relative to the first root (`src/app.ts`) or start with a root\'s name when there are several. For a long file read a window with `offset` (the first line, counted from 0) and `limit` (how many lines); `truncated: true` means more follows, and `partial` says which lines are here, how many were left out and how to read the rest: read on before you say what the rest holds. Binary files (PDFs, images) are refused: read those with hub/resource_read or hub/resource_send. A file attached to a chat message is not here: it is a hub resource.',
         examples: [
           { args: { path: 'README.md' }, note: 'The whole file.' },
           { args: { path: 'src/server/main.ts', offset: 120, limit: 60 }, note: 'Lines 121 to 180 of a long file.' },
@@ -15470,7 +15467,7 @@ export const fs = system('fs', {
         // the hub asks which sensitive files a call touches first (server/sensitive.ts)
         flags: true,
         args: g.obj({ path: path(), offset: g.optional(g.num({ min: 0, whole: true })), limit: g.optional(g.num({ min: 1, whole: true })) }),
-        returns: g.obj({ text: g.text(), lines: g.num(), truncated: g.bool() }),
+        returns: g.obj({ text: g.text(), lines: g.num(), truncated: g.bool(), partial: g.optional(g.text()) }),
         status: {
           active: { one: 'Reading {args.path}…', many: 'Reading {n} files…' },
           retry: { one: 'Retrying reading {args.path}…', many: 'Retrying {n} file reads…' },
@@ -18784,14 +18781,9 @@ never context: that is `hub/ctx_search`), the context-only filters, the context 
 
 ```ts
 type FnSearchArgs = {
-  types?: {
-    reads?: `${string}/${string}`[] | undefined;
-    writes?: `${string}/${string}`[] | undefined;
-  } | undefined;
   instance?: InstanceName | undefined;
   visibility?: "shared" | "public" | "mine" | undefined;
   text?: string | undefined;
-  names?: `${string}/${string}`[] | undefined;
   offset?: number | undefined;
   limit?: number | undefined;
   systems?: SystemName[] | undefined;
@@ -18805,6 +18797,11 @@ type FnSearchArgs = {
   niches?: ("admin" | "developer" | "reference")[] | undefined;
   order?: "name" | "rank" | undefined;
   kinds?: (`${string}/${string}` | "native")[] | undefined;
+  names?: `${string}/${string}`[] | undefined;
+  types?: {
+    reads?: string[] | undefined;
+    writes?: string[] | undefined;
+  } | undefined;
 };
 ```
 
@@ -18844,6 +18841,7 @@ type FnSearchPage = {
       system?: SystemName | undefined;
     } | undefined;
     inPrompt?: "injected" | "loaded" | undefined;
+    exact?: true | undefined;
   }[];
   next?: number | undefined;
   filtered?: {
@@ -18860,6 +18858,10 @@ type FnSearchPage = {
   loaded?: {
     fns: `${string}/${string}`[];
     context: `${string}/${string}`[];
+    note: string;
+  } | undefined;
+  missing?: {
+    names: `${string}/${string}`[];
     note: string;
   } | undefined;
 };
@@ -18888,8 +18890,8 @@ type FnSearchQuery = {
   instance?: InstanceName | undefined;
   visibility?: "shared" | "public" | "mine" | undefined;
   types?: {
-    reads?: `${string}/${string}`[] | undefined;
-    writes?: `${string}/${string}`[] | undefined;
+    reads?: string[] | undefined;
+    writes?: string[] | undefined;
   } | undefined;
   modes?: ("read" | "write" | "delete")[] | undefined;
   effects?: {
@@ -23136,6 +23138,37 @@ type RemoteCredentials = {
 
 ### From `packages/core/src/resource-forms.ts`
 
+#### <a id="core-imagereadargs"></a>`ImageReadArgs`
+
+const, type · declared in `packages/core/src/resource-forms.ts`
+
+`hub/image_read`: a question about an image a model can't see. `image` is the id of an `<image id="…">` block (the
+image's resource uri, so an attached file's `uri` works too).
+
+```ts
+type ImageReadArgs = {
+  image: `${string}://${string}`;
+  question: string;
+};
+```
+
+#### <a id="core-imagereadresult"></a>`ImageReadResult`
+
+const, type · declared in `packages/core/src/resource-forms.ts`
+
+What `hub/image_read` answers: the vision model's answer, the model that gave it, and the image it looked at.
+
+```ts
+type ImageReadResult = {
+  answer: string;
+  model: string;
+  image: {
+    id: `${string}://${string}`;
+    name: string;
+  };
+};
+```
+
 #### <a id="core-resourceoutlineargs"></a>`ResourceOutlineArgs`
 
 const, type · declared in `packages/core/src/resource-forms.ts`
@@ -23502,7 +23535,8 @@ type InputProblem = {
 const, type · declared in `packages/core/src/run.ts`
 
 A run's input was refused before (or by) its fn. This is retryable and often expected from a model: the hub feeds the
-problems back to the agent and the chat shows the run softly as "Retried". A real failure is `failed`.
+problems back to the agent and the chat shows the run calmly as "Thinking harder" (the model's slip, with no bearing on
+the result; never an error). A real failure is `failed`.
 
 ```ts
 type InvalidInput = {

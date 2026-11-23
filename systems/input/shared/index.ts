@@ -30,7 +30,7 @@ export const InputForm = ginAs(InputFormSchema);
 export const Asked = g.obj({
   form: InputForm,
   /** The saved form's fn (`input/trip_details`) when one was reused. */
-  saved: g.optional(g.text()),
+  saved: g.optional(g.fnName()),
   /** What the model does now: end its turn, the answers coming back as the next message (or, in a run that is not the chat's own, go on without them). */
   next: g.text(),
   /** How to show the same form again directly (`input/trip_details({})`), when it is a saved one. */
@@ -38,7 +38,7 @@ export const Asked = g.obj({
 });
 
 /** What `save_form` gives: the new fn's name. */
-export const SavedForm = g.obj({ fn: g.text(), name: g.text() });
+export const SavedForm = g.obj({ fn: g.fnName(), name: g.text() });
 
 /** What `check_form` gives. */
 export const FormCheck = g.obj({

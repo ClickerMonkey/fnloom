@@ -21,7 +21,7 @@ import { agents, context, fn, g, ginAs, hub, kind, system, type Infer } from '@h
 export const WidgetPayload = ginAs(WidgetSpec);
 
 /** What `save_widget` gives: the widget fn, its version, and whether it is new. */
-export const SavedWidget = g.obj({ fn: g.text(), version: g.num({ min: 1, whole: true }), created: g.bool() });
+export const SavedWidget = g.obj({ fn: g.fnName(), version: g.num({ min: 1, whole: true }), created: g.bool() });
 
 /**
  * A widget over a saved query that counts open tasks by stage (columns `stage`, `count`), as the examples write it.
@@ -46,11 +46,11 @@ const status = {
 const MAKE_USAGE = [
   'Use it when the person wants to keep a chart, table, calendar or cards of some rows to look at again ("a chart of my spending by month I can open any time"), or to change a widget they have.',
   'Not needed just to show rows once: a fn that returns a table is already drawn for the person when it runs.',
-  '`source` is the full name of a fn that only reads and returns a table: a saved query (`database/main.expenses_by_month`), a table\'s generated selectPage fn, or hub/records_table. Find it first (a search, or database/get_query to make the query); if none exists, make it first.',
+  '`source` is a fn that only reads and returns a table, by its name as your tools and search hits spell it: a saved query (`database/main.expenses_by_month`), a table\'s generated selectPage fn, or hub/records_table. Find it first (a search, or database/get_query to make the query); if none exists, make it first.',
   'A chart of totals or counts by something needs a source that already groups and totals (a query that does the sum or count): a source that gives one row per item can\'t be charted as totals.',
   '`request` says what to show in the person\'s words: the measure, what it is grouped by, the chart type, the filters they want to change and any named presets ("This month").',
   '`args` is ONE JSON object (never a list or a string) of the source\'s own args by name, used to read a sample: give a value for every required arg, and leave out optional ones such as `sort`, `limit` and `offset` (the widget plans them).',
-  '`fns` lists other fns to offer as a row action or a click-through, only when the person asks for one. `widget` is the widget to change (`widgets/spending_by_month`).',
+  '`fns` lists other fns to offer as a row action or a click-through, only when the person asks for one. `widget` is the widget to change, by its name (`widgets/spending_by_month`).',
   'Set `show` to true when the person asked to see it now ("show me", "chart my …"): the proposal opens drawn; false opens it collapsed.',
   'What comes back is a proposal (its name, title, what it shows and a preview), not a saved widget: the person presses Save under it in the chat. Tell them to press Save; don\'t say it is saved. Once saved it is a fn `widgets/<name>` they can open again from the Widgets page or by running it.',
   'If it fails, read the reason (a source that does not read or return a table, a required arg missing from `args`) and fix that, or tell the person.',

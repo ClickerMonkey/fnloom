@@ -5,7 +5,7 @@
  * typed and checked by the contract's gin types. Services are read when a fn runs, never while registering. Every one
  * keeps to what the run's person may see and use (their `AccessScope`): search hits, loads and results alike.
  */
-import { ContextCrawlArgs, contextOff, effectCovered, effectsLine, CtxSearchArgs, ctxSearchQuery, FnExamplesQuery, FnRouting, FnSearchArgs, fnsSearchQuery, QualifiedName, qualify, splitName, SystemName, type FnRefusal, type ContextCrawlResult, type ContextRecord, type CrawledContext, type FnSearchPage, type FnSearchQuery, type LoadContextResult, type LoadFnsResult, type SearchItemKind, type ActorId, type FnDecl, type FnExample, type Json, type IndexedKind, type RegistryEffect, type Run, type Session, type SessionId } from '@harness/core';
+import { clipMarked, ContextCrawlArgs, contextOff, effectCovered, effectsLine, CtxSearchArgs, ctxSearchQuery, FnExamplesQuery, FnRouting, FnSearchArgs, fnsSearchQuery, QualifiedName, qualify, splitName, SystemName, type FnRefusal, type ContextCrawlResult, type ContextRecord, type CrawledContext, type FnSearchPage, type FnSearchQuery, type LoadContextResult, type LoadFnsResult, type SearchItemKind, type ActorId, type FnDecl, type FnExample, type Json, type IndexedKind, type RegistryEffect, type Run, type Session, type SessionId } from '@harness/core';
 import { hub, parseValue, SAVE_FN_TAKEN, wireType } from '@harness/sdk';
 import type { AccessService } from '../access/index.ts';
 import type { FnFactsService, FnsServices } from '../fns/index.ts';
@@ -317,7 +317,7 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
       .filter(({ at }) => roots === undefined || roots.some((root) => at.uri.startsWith(root)))
       .map(({ hit, at }) => ({
         uri: at.uri, ...('section' in at ? { section: at.section } : {}),
-        title: hit.text.split('\n', 1)[0]?.slice(0, 120) ?? at.uri, preview: hit.text.slice(0, PREVIEW), rank: hit.rank,
+        title: hit.text.split('\n', 1)[0]?.slice(0, 120) ?? at.uri, preview: clipMarked(hit.text, PREVIEW, { atWord: true, rest: 'read the section with hub/resource_read' }), rank: hit.rank,
       }));
   });
 

@@ -13,7 +13,7 @@ import { CallFailed, ginAs, sampleArgs, wireType, type FnCtx, type Fleets, type 
 import { AuthoringError } from '@harness/sdk/server';
 import { z } from 'zod';
 import { QUERY_KIND, ResultData, database, type DatabaseContract } from '../shared/index.ts';
-import { ParamValues, QueryPayload, WriteResult, type AskWhichDatabase, type AuthorArgs, type Connection, type QueryAnswer as QueryAnswerValue, type DatabaseConfig, type InstanceAnswer, type InstanceOp, type ReadInstanceOp, type SchemaArgs, type SchemaChanged } from '../shared/shapes.ts';
+import { ParamValues, QueryPayload, WriteResult, type AskWhichDatabase, type AuthorArgs, type Connection, type QueryAnswer as QueryAnswerValue, DatabaseConfig, type InstanceAnswer, type InstanceOp, type ReadInstanceOp, type SchemaArgs, type SchemaChanged } from '../shared/shapes.ts';
 import type { Enricher } from './author.ts';
 import { argProblems, argsTypeOf, effectsOf, signatureOf, type CompiledQuery } from './compile.ts';
 import type { Database } from './drivers/index.ts';
@@ -23,7 +23,7 @@ import { QueryService, callArgs, drillFor, isProblem, mayUse, notYours, queryIns
 import { QueryAuthoring, localName, queryAuthoring, type EditedQuery } from './authoring.ts';
 import { pickDatabase } from './pick.ts';
 import { TableFnService, type TableFnsCtx, type TableFnsReadCtx } from './table-fns.ts';
-import { hubTypeOf, qualifiedTypeOf, tableMetaOf } from './types.ts';
+import { hubTypeOf, qualifiedTypeOf, tableMetaOf, tableRefOf } from './types.ts';
 
 /** The run context of one of the contract's fns. */
 type CtxOf<K extends keyof DatabaseContract['defs']['fns']> = FnCtx<TypesOf<DatabaseContract['defs']['fns'][K]>, DatabaseConfig>;
@@ -39,6 +39,14 @@ export interface FleetMember {
   readonly tables: readonly string[];
   /** Who may use it; absent when the fleet doesn't say (then its own instance decides). */
   readonly audience?: ShareRule;
+  /** Whether its rows can be written, and whether its tables can be made and changed; absent when the fleet doesn't say. */
+  readonly writes?: boolean;
+  readonly schemaChanges?: boolean;
+}
+
+/** This instance as a fleet member: its label, tables, audience, and what may change in it. */
+function selfMember(here: DatabaseInstance): FleetMember {
+  return { instance: here.instance, label: here.config.label, tables: here.catalog.tableList(), audience: here.config.audience, writes: here.writes, schemaChanges: here.schemaChanges };
 }
 
 /** The database instances of this system. */
@@ -50,7 +58,7 @@ export interface Fleet {
 export const SELF_FLEET: Fleet = { members: (self) => Promise.resolve([self]) };
 
 /** The part of another instance's config the choice needs. */
-const LabelOnly = z.object({ label: z.string().min(1), audience: ShareRule });
+const LabelOnly = z.object({ label: z.string().min(1), audience: ShareRule, data: DatabaseConfig.shape.data.optional(), schema: DatabaseConfig.shape.schema.optional() });
 
 /**
  * The fleet as the hub lists it (`ctx.fleet()`): every online, configured instance, this one included, each described
@@ -64,7 +72,11 @@ export const HUB_FLEET: Fleet = {
       const label = LabelOnly.safeParse(member.config);
       if ((member.instance !== self.instance && !member.online) || !label.success) { return []; }
       const tables = member.types.map((type) => `${type.name.slice(type.name.lastIndexOf('.') + 1)}${type.description === '' ? '' : ` (${type.description})`}`);
-      return [{ instance: member.instance, label: label.data.label, audience: label.data.audience, tables }];
+      const { data, schema } = label.data;
+      return [{
+        instance: member.instance, label: label.data.label, audience: label.data.audience, tables,
+        ...(data === undefined ? {} : { writes: data === 'read-write' }), ...(schema === undefined ? {} : { schemaChanges: schema === 'allowed' }),
+      }];
     });
     return listed.some((member) => member.instance === self.instance) ? listed : [self, ...listed];
   },
@@ -399,7 +411,7 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
 
   /** The databases the run's person may use, this one included, each with its label and tables. */
   async function usable(here: DatabaseInstance, ctx: Fleets & { readonly run: RunInfo }): Promise<FleetMember[]> {
-    const members = await deps.fleet.members({ instance: here.instance, label: here.config.label, tables: here.catalog.tableList(), audience: here.config.audience }, ctx);
+    const members = await deps.fleet.members(selfMember(here), ctx);
     return members.filter((member) => member.audience === undefined || mayUse(member.audience, ctx.run.user));
   }
 
@@ -492,9 +504,12 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
         async run(_args, ctx) {
           const here = instance;
           if (here === undefined) { return ctx.fail('caller', 'This database is not configured yet: an admin sets its connection on the system\'s page.'); }
-          const members = (await deps.fleet.members({ instance: here.instance, label: here.config.label, tables: here.catalog.tableList(), audience: here.config.audience }, ctx))
+          const members = (await deps.fleet.members(selfMember(here), ctx))
             .filter((member) => member.audience === undefined || mayUse(member.audience, ctx.run.user));
-          return ctx.done(members.map((member) => ({ instance: member.instance, label: member.label, tables: [...member.tables] })));
+          return ctx.done(members.map((member) => ({
+            instance: member.instance, label: member.label, tables: [...member.tables],
+            ...(member.writes === undefined ? {} : { writes: member.writes }), ...(member.schemaChanges === undefined ? {} : { schemaChanges: member.schemaChanges }),
+          })));
         },
       },
       pick_database: {
@@ -528,7 +543,7 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
       drill_down: {
         async run(args, ctx) {
           const target = queryInstance(args.fn);
-          if (target === undefined) { return ctx.invalid([{ path: 'fn', message: `"${args.fn}" isn't a saved query fn; they are named database/<database>.<name>.` }]); }
+          if (target === undefined) { return ctx.invalid([{ path: 'fn', message: `"${args.fn}" isn't a saved query fn: give a saved query's name as a search hit, database/get_query or database/table_fns_generate gave it.` }]); }
           const drill = { ...args, fn: qualify(database.name, target.local) };
           const answer = await at(ctx, target.instance, { op: 'drill', drill }, (found) => (found.op === 'drill' ? found.table : undefined));
           return isProblem(answer) ? refuse(ctx, answer) : ctx.done(answer);
@@ -570,7 +585,7 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
       edit_query: {
         async run(args, ctx) {
           const target = queryInstance(args.name);
-          if (target === undefined) { return ctx.invalid([{ path: 'name', message: `"${args.name}" isn't a saved query fn; they are named database/<database>.<name>.` }]); }
+          if (target === undefined) { return ctx.invalid([{ path: 'name', message: `"${args.name}" isn't a saved query fn: give a saved query's name as a search hit, database/get_query or database/table_fns_generate gave it.` }]); }
           const answer = await authorOn(ctx, target.instance, { request: args.instructions, edit: qualify(database.name, target.local) });
           return isProblem(answer) ? refuse(ctx, answer) : ctx.done(answer);
         },
@@ -585,7 +600,7 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
         async run(args, ctx) {
           const target = queryInstance(args.fn);
           if (!ParamValues.optional().safeParse(args.args).success) { return ctx.invalid([NOT_VALUES]); }
-          if (target === undefined) { return ctx.invalid([{ path: 'fn', message: `"${args.fn}" isn't a saved query fn; they are named database/<database>.<name>.` }]); }
+          if (target === undefined) { return ctx.invalid([{ path: 'fn', message: `"${args.fn}" isn't a saved query fn: give a saved query's name as a search hit, database/get_query or database/table_fns_generate gave it.` }]); }
           const answer = await at(ctx, target.instance, { op: 'run', fn: qualify(database.name, target.local), ...(args.args === undefined ? {} : { args: args.args }) }, (found) => (found.op === 'run' ? found.run : undefined));
           return isProblem(answer) ? refuse(ctx, answer) : ctx.done(answer);
         },
@@ -698,18 +713,18 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
 
 
   /**
-   * The instance and table a table fn is about: the database named, else the one in the type name
-   * (`database/main.projects`), else the only one the person may use.
+   * The instance and table a table fn is about: the database named, else the one in the type name (any spelling
+   * `tableRefOf` reads: `database/main.projects`, `database__main__projects`, `main.projects`), else the only one the
+   * person may use.
    */
   async function tableTarget(args: { table: string; database?: string | undefined }, ctx: Fleets & { readonly run: RunInfo }): Promise<{ instance: string; table: string } | { invalid: string }> {
-    const typed = args.table.replace(/^database\//, '');
-    const dot = typed.indexOf('.');
-    const table = dot > 0 ? typed.slice(dot + 1) : typed;
-    const named = args.database ?? (dot > 0 ? typed.slice(0, dot) : undefined);
-    if (named !== undefined) { return { instance: named.replace(/^database\//, ''), table }; }
+    const ref = tableRefOf(args.table);
+    const table = ref.table;
+    const named = args.database ?? ref.instance;
+    if (named !== undefined) { return { instance: named.replace(/^database(\/|__)/, ''), table }; }
     const here = instance;
     if (here === undefined) { return { invalid: 'This database is not configured yet.' }; }
-    const members = (await deps.fleet.members({ instance: here.instance, label: here.config.label, tables: here.catalog.tableList(), audience: here.config.audience }, ctx))
+    const members = (await deps.fleet.members(selfMember(here), ctx))
       .filter((member) => member.audience === undefined || mayUse(member.audience, ctx.run.user));
     const [only, ...others] = members;
     if (only === undefined || others.length > 0) {
@@ -749,7 +764,7 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
     let target = args.database;
     if (target === undefined) {
       // with no database named, only the one database the person may use is meant, never whichever instance answered
-      const members = (await deps.fleet.members({ instance: here.instance, label: here.config.label, tables: here.catalog.tableList(), audience: here.config.audience }, ctx))
+      const members = (await deps.fleet.members(selfMember(here), ctx))
         .filter((member) => member.audience === undefined || mayUse(member.audience, ctx.run.user));
       const [only, ...others] = members;
       if (only === undefined || others.length > 0) {

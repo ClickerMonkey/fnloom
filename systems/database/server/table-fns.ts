@@ -16,7 +16,7 @@ import { QueryPayload, type GeneratedTableFn, type TableFnEntry, type TableFnGro
 import { argsTypeOf, signatureOf } from './compile.ts';
 import type { DatabaseInstance } from './instance.ts';
 import type { QueryProblem, QueryRunCtx } from './queries.ts';
-import { identifierOf, qualifiedTypeOf } from './types.ts';
+import { identifierOf, qualifiedTypeOf, tableRefOf } from './types.ts';
 
 /** The tag every generated fn carries, beside `database`, `query` and its table. */
 export const GENERATED_TAG = 'generated';
@@ -134,7 +134,8 @@ export class TableFnService {
           throw error;
         }
       }
-      if (!this.#runs(instance, fn)) { return { invalid: `${name} doesn't run on the ${instance.config.label} database${fn.mode === 'read' ? '' : ' (it is read-only)'}.` }; }
+      const why = this.#whyNot(instance, fn);
+      if (why !== undefined) { return { invalid: why }; }
       made.push(fn);
     }
     const local = (fn: TableFn) => generatedLocal(instance.instance, fn.table, fn.name);
@@ -192,15 +193,31 @@ export class TableFnService {
 
   /** The table asked for (by name, local type name or qualified type), and every table's spec. */
   #table(instance: DatabaseInstance, table: string): { spec: TableSpec; specs: TableSpec[] } | { invalid: string } {
-    const spec = instance.catalog.spec(table.replace(/^database\//, ''));
-    if (spec === undefined) { return { invalid: `There is no table ${table} in the ${instance.config.label} database; database/tables lists them.` }; }
+    const spec = instance.catalog.spec(tableRefOf(table).table);
+    if (spec === undefined) {
+      const names = instance.catalog.tables.map((known) => known.scanned.spec.name);
+      const listed = names.length === 0 ? 'it has no tables yet' : `its tables are ${names.join(', ')}`;
+      return { invalid: `There is no table ${table} in the ${instance.config.label} database: ${listed}. Give \`table\` as one of those names.` };
+    }
     return { spec, specs: instance.catalog.tables.map((known) => known.scanned.spec) };
   }
 
   /** Whether a generated fn checks against this instance's tables, and may run here (a write only where writes are allowed). */
   #runs(instance: DatabaseInstance, fn: TableFn): boolean {
-    if (fn.mode !== 'read' && !instance.writes) { return false; }
-    return 'query' in instance.compile(payloadOf(instance.instance, fn, 'unchecked'));
+    return this.#whyNot(instance, fn) === undefined;
+  }
+
+  /**
+   * Why a generated fn can't be made here, in words the model can act on: it writes rows where rows can only be read
+   * (whatever schema changes are allowed), or it doesn't check against the tables as they are; undefined when it can.
+   */
+  #whyNot(instance: DatabaseInstance, fn: TableFn): string | undefined {
+    if (fn.mode !== 'read' && !instance.writes) {
+      const schema = instance.schemaChanges ? '; tables can still be made and changed there, but rows can\'t be added to them' : '';
+      return `${fn.name} writes rows, and rows of the ${instance.config.label} database can only be read (an admin can allow row writes on the system's page)${schema}.`;
+    }
+    const compiled = instance.compile(payloadOf(instance.instance, fn, 'unchecked'));
+    return 'query' in compiled ? undefined : `${fn.name} doesn't fit the ${fn.table} table as it is now: ${compiled.problems.join(' ')}`;
   }
 
   /** How each listed fn stands in the hub: absent (new), made for this schema (current), or for an older one (stale). */

@@ -1,7 +1,7 @@
 import { LlmInteractionId, ModelCallId, RunId, type LlmForward, type LlmForwardChunk, type ModelForward, type ModelRole } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import type { ModelSite } from '../models/index.ts';
-import { HubFormModels, VISION_PROMPTS } from './models.ts';
+import { HubFormModels, imageQuestion, NO_IMAGE_MODEL, VISION_PROMPTS } from './models.ts';
 import { ALICE, bytes } from './testing.ts';
 
 const png = { raw: { hash: 'a'.repeat(64), size: 4, mime: 'image/png' }, bytes: new Uint8Array([1, 2, 3, 4]), name: 'cat.png' };
@@ -65,5 +65,29 @@ describe('forms made by models', () => {
     await expect(on.models.make('ocr', png, who)).rejects.toThrow('overloaded');
     await expect(on.models.make('thumbnail', png, who)).rejects.toMatchObject({ status: 422 });
     expect(await on.models.model('thumbnail')).toBeUndefined();
+  });
+});
+
+describe('questions about an image for a model that can\'t see it', () => {
+  it('sends the image and the question to the describe role\'s model, charged to the run', async () => {
+    const r = rig({ describe: 'vision-1' }, [
+      { type: 'chunk', chunk: { content: 'It says OPEN.' } },
+      { type: 'done', usage: { input: 10, output: 4 }, cost: 0.001, interaction: LlmInteractionId.parse('llm_2'), model: 'vision-1' },
+    ]);
+    expect(await r.models.ask('What does the sign say?', png, who)).toEqual({ text: 'It says OPEN.', model: 'vision-1' });
+    const [sent] = r.forwarded;
+    expect(sent).toMatchObject({ system: 'hub', model: { model: 'vision-1' }, run: 'run_1' });
+    const content = sent?.request.messages[0]?.content;
+    expect(Array.isArray(content) ? content.map((part) => part.type) : content).toEqual(['text', 'image']);
+    expect(Array.isArray(content) ? content[0]?.content : '').toBe(imageQuestion('What does the sign say?'));
+    expect(imageQuestion('What does the sign say?')).toContain('Question: What does the sign say?');
+  });
+
+  it('is refused plainly when no image model is set up, and for what isn\'t an image', async () => {
+    const off = rig({ ocr: 'vision-1' });
+    await expect(off.models.ask('What is it?', png, who)).rejects.toMatchObject({ status: 409, code: NO_IMAGE_MODEL });
+    await expect(off.models.ask('What is it?', png, who)).rejects.toThrow('no image model is set up');
+    expect(off.forwarded).toHaveLength(0);
+    await expect(rig({ describe: 'vision-1' }).models.ask('What is it?', wav, who)).rejects.toMatchObject({ status: 422 });
   });
 });

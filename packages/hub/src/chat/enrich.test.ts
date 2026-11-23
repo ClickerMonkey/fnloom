@@ -161,7 +161,7 @@ describe('the text the LLM gets', () => {
     ]))).toBe(
       '<file name="quote.pdf" mime="application/pdf" size="900" uri="hub://resources/uploads/2026-11-22/quote.pdf" read="hub/resource_read" />'
         + '<file name="receipt.jpg" mime="image/jpeg" size="800" uri="hub://resources/uploads/2026-11-22/receipt.jpg" read="hub/resource_send" />'
-        + '<file name="a&amp;b.txt" mime="text/plain" size="9" uri="hub://resources/uploads/2026-11-22/a&amp;b.txt" read="hub/resource_read" truncated="true">milk &lt;2&gt;</file>',
+        + '<file name="a&amp;b.txt" mime="text/plain" size="9" uri="hub://resources/uploads/2026-11-22/a&amp;b.txt" read="hub/resource_read" truncated="true">milk &lt;2&gt;…[1 more byte cut: read the rest with hub/resource_read, uri "hub://resources/uploads/2026-11-22/a&amp;b.txt", form "raw" and offset 8]</file>',
     );
   });
 

@@ -107,7 +107,7 @@ describe('invalid input', () => {
   it('is a settled outcome worded softly, in the retry phase', () => {
     expect(OutcomeWire.parse({ status: 'invalid-input', invalid: { source: 'schema', problems: [{ path: 'path', message: 'expected text' }] } })).toMatchObject({ status: 'invalid-input' });
     expect(OutcomeWire.safeParse({ status: 'invalid-input', invalid: { source: 'json', problems: [] } }).success).toBe(false);
-    expect(RUN_STATUS_WORDS['invalid-input']).toBe('Retried');
+    expect(RUN_STATUS_WORDS['invalid-input']).toBe('Thinking harder');
     expect(phaseOf('invalid-input', 1)).toBe('retry');
   });
 

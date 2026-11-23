@@ -75,7 +75,7 @@ export const Page = type({
 export const SearchHit = g.obj({
   title: g.text(),
   url: g.text(),
-  /** The part of the page that matched, cleaned and cut short. */
+  /** The part of the page that matched, cleaned and cut short: a cut one ends with how much was cut. */
   snippet: g.text(),
   /** How well it matched, 0 to 1. */
   score: g.num({ min: 0 }),
@@ -106,6 +106,10 @@ export const ReadResult = g.obj({
   /** The page's markdown (or the text of its primary form), up to the asked length. */
   text: g.text(),
   truncated: g.bool(),
+  /** When `truncated`: what part is here, how much was left out and how to read the rest. */
+  partial: g.optional(g.text()),
+  /** When the page read empty, or was read in another form than its primary one: what that means. */
+  note: g.optional(g.text()),
   /** Whether the page was run in the headless browser before it was read. */
   rendered: g.bool(),
   /** Every URL requested for it, redirects included (credentials redacted), shown on the run. */
@@ -203,7 +207,7 @@ export const web = system('web', {
         instructions: [
           'Use it on a URL from web/search, from the person or from another page, to check what the page really says before you answer from it. When a page can\'t be read (an error, an empty page), say so and try the next result, or `render: "always"`; don\'t present a snippet as if you had read the page.',
           'It does not search: to find pages, use web/search first. The page is cleaned to its main text (no menus or ads) and kept as a hub resource (`uri`), so read more of it later with hub/resource_read and an `offset` instead of reading the URL again.',
-          'Give `maxChars` for long pages and check `truncated`. Pages built by scripts are run in a headless browser first (`render: "auto"`); use `always` when a page reads empty. Cite `finalUrl`.',
+          'Give `maxChars` for long pages. When `truncated`, `partial` says how much was left out and how to read the rest: read on before you state anything the page may say past the part you read. Pages built by scripts are run in a headless browser first (`render: "auto"`); use `always` when a page reads empty. Cite `finalUrl`.',
         ].join(' '),
         args: g.obj({
           url: url(),

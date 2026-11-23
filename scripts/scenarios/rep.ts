@@ -2,7 +2,7 @@
  * One repetition's clean slate: a fresh data folder (`.harness-test/scenarios/<iteration>/rep-<n>/`, or
  * `<iteration>/<variant>/rep-<n>/` when a run has several variants; emptied first), a fresh fake home folder for fs
  * (outside any git repository: `homeFolder`), one new SQLite scratch database, and its own stack on the scenarios port with the
- * chat model set to GPT-6 Luna. Every paired system goes live, as an admin does after pairing. With the embedder
+ * chat model and the image model (the `describe` role, for `hub/image_read`) set to GPT-6 Luna. Every paired system goes live, as an admin does after pairing. With the embedder
  * running, the rep then waits for the hub's index to be embedded (`indexStatus`), so suggestions and search by
  * meaning work from the first case; when it doesn't catch up in time the cases run anyway and the rep says so. People are added here:
  * the kids' member accounts (case 36 needs someone to restrict) and one admin account per case, each with a known
@@ -262,6 +262,12 @@ export async function startRep(settings: ScenariosSettings, iteration: string, r
   try {
     admin = await signInPatient(ADMIN);
     await goLiveAll(admin);
+    // a model that can see images, as an admin sets one under Models: a chat model that can't see asks it with hub/image_read
+    const image = await admin.hub.call('setModelRole', { role: 'describe', model: { model: settings.HARNESS_SCENARIOS_IMAGE_MODEL } });
+    if (image.resolved === undefined || !('model' in image.resolved)) {
+      throw new Error(`the image model ${settings.HARNESS_SCENARIOS_IMAGE_MODEL} can't be the describe role: ${image.resolved === undefined ? 'it resolves to nothing' : image.resolved.problem}`);
+    }
+    log(`rep ${rep}: image model (describe role) ${image.resolved.model}`);
     // the kids' own logins, members with no password (nobody signs in as them; case 36 restricts them)
     for (const kid of [{ name: 'Emma Parker', email: 'emma@example.com' }, { name: 'Leo Parker', email: 'leo@example.com' }]) {
       await admin.hub.call('addUser', { ...kid, role: 'member' });

@@ -49,7 +49,8 @@ const INJECTED = `${INJECTED_HEADING}\n\n${INJECTED_CONTEXT}`;
 /**
  * The tags the hub itself puts in a user message whatever is installed (chat/enrich.ts, chat/announce.ts,
  * chat/cite-rule.ts, execution/agent.ts): the core explains each. The rest are explained by the items that own them
- * (`<file>` by the hub's Attached files, `<input-answer>` by input, a hook's block by its hook's `explains`).
+ * (`<file>` by the hub's Attached files, `<image>` by its Unseen images, `<input-answer>` by input, a hook's block by its
+ * hook's `explains`). `<shown>`, the message after a `hub/resource_send` call, says what it is itself.
  */
 export const CHAT_CORE_TAGS = [
   'local_time', 'systems_changed', 'loaded_for_you', 'suggested_fns', 'suggested_ctx', 'mention', 'command', 'invocation', 'attachment', 'link',

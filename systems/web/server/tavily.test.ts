@@ -73,7 +73,7 @@ describe('Tavily search', () => {
       'https://vuejs.org/guide/introduction', 'https://vuejs.org/guide/extras/composition-api-faq', 'https://example.com/untitled',
     ]);
     expect(results.results[0]).toEqual({ title: 'Introduction | Vue.js', url: 'https://vuejs.org/guide/introduction', snippet: '', score: 0.92 });
-    expect(results.results[1]?.snippet).toBe('Composition API FAQ Composition API is a set of APIs that allows us to author Vue components using imported functions…');
+    expect(results.results[1]?.snippet).toEqual(expect.stringMatching(/^Composition API FAQ Composition API is a set of APIs that allows us to author Vue components using imported functions…\[\d+ more characters cut: read the page with web\/read\]$/));
     expect(results.results[2]).toMatchObject({ title: 'https://example.com/untitled', published: 'Tue, 04 Nov 2025 10:00:00 GMT' });
   });
 
@@ -131,7 +131,7 @@ describe('shaping', () => {
 
   it('cleans and cuts snippets at a word', () => {
     expect(cleanSnippet('## Title\n\n*bold*   text', 100)).toBe('Title bold text');
-    expect(cleanSnippet('one two three four five six', 15)).toBe('one two three…');
-    expect(cleanSnippet('abcdefghijklmnopqrstuvwxyz', 10)).toBe('abcdefghij…');
+    expect(cleanSnippet('one two three four five six', 15)).toBe('one two three…[14 more characters cut: read the page with web/read]');
+    expect(cleanSnippet('abcdefghijklmnopqrstuvwxyz', 10)).toBe('abcdefghij…[16 more characters cut: read the page with web/read]');
   });
 });

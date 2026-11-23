@@ -3,6 +3,7 @@
  * status, outcome, the approval and what the person said), the forms it showed and the questions it asked. The
  * judge reads the same text the report and the hitl review show.
  */
+import { callTrouble } from './checks.ts';
 import type { CaseRecord, Entry, JudgedCase, ToolRun } from './records.ts';
 
 /** Text shortened to `max` characters. */
@@ -15,13 +16,19 @@ function quoted(text: string): string {
   return text === '' ? '> (empty)' : text.split('\n').map((line) => `> ${line}`).join('\n');
 }
 
+/** What a run's trouble adds to its status: a model arg mistake is said to be one (sent back to the model, not a failure). */
+function troubleNote(run: ToolRun): string {
+  if (callTrouble(run) !== 'model-arg-mistake') { return ''; }
+  return run.status === 'done' ? ` (model arg mistake, repaired: ${run.repairs ?? 1} field(s) sent as JSON text read as JSON)` : ' (model arg mistake: sent back for the model to fix; not a failure)';
+}
+
 /** One fn run as a line. */
 export function runLine(run: ToolRun, detail: 'short' | 'full'): string {
   const indent = '  '.repeat(Math.max(0, run.depth - 1));
   const approval = run.approval === undefined ? '' : ` — approval "${run.approval.title}": ${run.approval.decision}${run.approval.reason === '' ? '' : ` (${run.approval.reason})`}`;
   const args = detail === 'full' ? ` ${run.args}` : '';
   const outcome = ` → ${detail === 'full' ? run.outcome : clip(run.outcome, 140)}`;
-  return `${indent}- \`${run.fn}\` ${run.status}${args}${outcome}${approval}`;
+  return `${indent}- \`${run.fn}\` ${run.status}${troubleNote(run)}${args}${outcome}${approval}`;
 }
 
 function entryText(entry: Entry, detail: 'short' | 'full'): string {
