@@ -550,13 +550,13 @@ describe('saved fns (build 5)', () => {
     await r.module.start();
     const input = r.connect('input');
     const results: unknown[] = [];
-    const save = { kind: 'input/form', name: 'trip', description: 'Asks for a trip.', payload: { title: 'Trip' }, examples: [{ args: { to: 'Oslo' } }] };
+    const save = { kind: 'input/form', name: 'project', description: 'Asks for a project.', payload: { title: 'Project' }, examples: [{ args: { owner: 'Ann' } }] };
     input.behaviour.run = async (request) => {
       const callHub = async (name: string, args: Json) => r.module.linkHandlers.call(linkPayload({ parent: request.run.id, fn: `hub/${name}`, args, key: `${name}-${results.length}`, handlers: [], background: false }, LinkSession.parse({ system: 'input', instance: 'main', boot: 'b' })));
       results.push(await callHub('fns_save', save));
       results.push(await callHub('fns_save', save));
-      results.push(await callHub('fns_save', { ...save, description: 'Asks for a trip and who goes.', replace: true }));
-      results.push(await callHub('fns_get', { fn: 'input/trip' }));
+      results.push(await callHub('fns_save', { ...save, description: 'Asks for a project and who owns it.', replace: true }));
+      results.push(await callHub('fns_get', { fn: 'input/project' }));
       results.push(await callHub('fns_save', { ...save, kind: 'database/query' }));
       // now it only declares creating: saving over its fn is an update it did not declare
       declares([{ thing: 'fns', action: 'create', kind: 'input/form' }]);
@@ -566,18 +566,18 @@ describe('saved fns (build 5)', () => {
     const turn = await r.turn();
     const { settled } = await r.module.runs.start({ fn: QualifiedName.parse('input/ask'), args: {}, turn: turn.id, key: 'k', actor: ALICE, caller: ALICE, priority: 'interactive', background: false, handlers: [] });
     await settled;
-    expect(results[0]).toEqual({ status: 'done', result: { fn: 'input/trip', version: 1, created: true } });
+    expect(results[0]).toEqual({ status: 'done', result: { fn: 'input/project', version: 1, created: true } });
     expect(results[1]).toMatchObject({ status: 'failed', error: { class: 'caller', code: 'fn-taken' } });
-    expect(results[2]).toEqual({ status: 'done', result: { fn: 'input/trip', version: 2, created: false } });
-    expect(results[3]).toMatchObject({ status: 'done', result: { fn: 'input/trip', kind: 'input/form', description: 'Asks for a trip and who goes.', payload: { title: 'Trip' }, version: 2, owner: ALICE, available: true } });
+    expect(results[2]).toEqual({ status: 'done', result: { fn: 'input/project', version: 2, created: false } });
+    expect(results[3]).toMatchObject({ status: 'done', result: { fn: 'input/project', kind: 'input/form', description: 'Asks for a project and who owns it.', payload: { title: 'Project' }, version: 2, owner: ALICE, available: true } });
     expect(results[4]).toMatchObject({ status: 'failed', error: { code: 'not-your-kind' } });
     expect(results[5]).toMatchObject({ status: 'failed', error: { class: 'caller', code: UNDECLARED_CHANGE } });
-    expect(owned).toEqual([{ fn: 'input/trip', owner: ALICE, visibility: 'private' }]);
+    expect(owned).toEqual([{ fn: 'input/project', owner: ALICE, visibility: 'private' }]);
     // an example keeps only the parts it has, so the catalog can hash the decl as JSON
-    expect(Object.keys(r.catalog.records.get(QualifiedName.parse('input/trip'))?.decl.examples?.[0] ?? {})).toEqual(['args']);
+    expect(Object.keys(r.catalog.records.get(QualifiedName.parse('input/project'))?.decl.examples?.[0] ?? {})).toEqual(['args']);
     expect((await r.store.table('itemVersions').find({ order: [['number', 'asc']], limit: 5 })).items).toMatchObject([
-      { name: 'input/trip', section: 'fns', number: 1, change: 'added', decl: { description: 'Asks for a trip.' }, savedBy: ALICE },
-      { name: 'input/trip', number: 2, change: 'changed', decl: { description: 'Asks for a trip and who goes.' } },
+      { name: 'input/project', section: 'fns', number: 1, change: 'added', decl: { description: 'Asks for a project.' }, savedBy: ALICE },
+      { name: 'input/project', number: 2, change: 'changed', decl: { description: 'Asks for a project and who owns it.' } },
     ]);
   });
 });

@@ -165,7 +165,7 @@ export interface NameShapes {
  * installed (`systems`), its local name is one a model name carries (`FnLocalName`) and is not a type's (one
  * capitalised part, `fs/Entry`), and neither it nor a name it ends in at a `.` is a context key, kind or type
  * (`reserved`: `database/guide`, `database/query`, `database/guide.md`). Example names (`database/main.overdue_invoices`,
- * `input/trip_details`) are fn-shaped; their model name is computable without any fn holding it.
+ * `input/project_details`) are fn-shaped; their model name is computable without any fn holding it.
  */
 export function isFnShaped(name: QualifiedName, systems: ReadonlySet<string>, reserved: ReadonlySet<string>): boolean {
   const { system, local } = splitName(name);

@@ -15,7 +15,7 @@ import type { Json, FnSearchPage, FnSearchQuery } from '@harness/core';
 import { expectType, type Equal } from '@harness/sdk';
 import { authoringAgent, authoringTool, type AuthoredFn, type AuthoringSession } from '@harness/sdk/server';
 import { z } from 'zod';
-import { InputFormSchema, FIELD_GUIDE, FORM_KIND, TRIP_FORM, type InputFormValue } from '../shared/index.ts';
+import { InputFormSchema, FIELD_GUIDE, FORM_KIND, PROJECT_FORM, type InputFormValue } from '../shared/index.ts';
 import { fieldsOf, formProblems, type FIELD_TYPES } from '../shared/forms.ts';
 
 
@@ -72,7 +72,7 @@ export function checkForm(form: InputFormValue, maxFields: number): string[] {
 const INSTRUCTIONS = [
   'You make the one form that asks a person for what the request below describes, and nothing else. A form is drawn in a chat: a title, a short description, and one input per question. You work only through your tools, in order; each step unlocks the next, and you finish by saving (or reusing) a form.',
   '',
-  '1. find_forms with a few plain words for what is asked: {"text":"trip details"}. A saved form that asks for the same things (the same fields, not just a similar name) is the answer: call use_saved with its name, {"fn":"input/trip_details"}, and stop.',
+  '1. find_forms with a few plain words for what is asked: {"text":"project details"}. A saved form that asks for the same things (the same fields, not just a similar name) is the answer: call use_saved with its name, {"fn":"input/project_details"}, and stop.',
   '2. field_types (args {}) to see how a form is written; load_form {"fn":"…"} shows a saved form find_forms listed, when you adapt it.',
   '3. draft the whole form. The draft tool takes ONE arg, `draft`, holding the whole form: {"draft":{"title":…,"description":…,"submit":…,"type":{"name":"obj","props":{…}}}}.',
   '   Only the fields the request asks for, each with a clear question as its "docs"; optional where the person may skip it; enums for fixed choices; an amount that may be unknown as an optional number.',
@@ -80,8 +80,8 @@ const INSTRUCTIONS = [
   '5. Once the check says it is clean, call save (args {}). Then answer in one line.',
   'If the request can\'t be a form (it asks for no information), or the checks keep failing, stop and answer in one line saying why.',
   '',
-  'Example. For "the trip: destination city (required), first day, number of nights (whole, 1 to 60) and who is coming (optional names)" the draft call is:',
-  JSON.stringify({ draft: TRIP_FORM }),
+  'Example. For "the project: its name (required), who owns it (required), the due date, the priority (low, medium or high) and notes (optional)" the draft call is:',
+  JSON.stringify({ draft: PROJECT_FORM }),
 ].join('\n');
 
 // #region authoring-tool

@@ -19,6 +19,8 @@ const root = join(import.meta.dirname, '..');
 const SCENARIO_WORDS: readonly string[] = [
   'grocery', 'groceries', 'receipts?', 'chores?', 'chore chart', 'reading minutes?', 'reading list', 'books I\'ve read',
   'furnace', 'home maintenance', 'birthday', 'birthday party', 'dinners?', 'picky', 'running plan', 'this weekend',
+  // trips and travel as a subject; not a "round trip" or data that "travels together/with/as/back"
+  '(?<!round[- ])trips?', 'travel(?:l?ers?|l?ing)?(?! together| with| as | back|,)',
   'airport', 'heat pumps?', 'barking', 'recipes?', 'shopping list', 'pantry', 'school letter', 'insurance',
   'times tables?', 'where to eat', 'cheapest gas', 'gas prices?', 'bank statements?', 'dentist', 'band tour',
   'peanuts?', 'allerg(?:y|ies|ic)', 'vacations?', 'beach', 'shoe sizes?', 'pizza', 'weather', 'forecasts?', 'rain',

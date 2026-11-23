@@ -18,7 +18,7 @@ export interface InputDeps {
   readonly settings: InputSettings;
 }
 
-/** A fn name from a form's name: `Trip details!` becomes `trip_details`. */
+/** A fn name from a form's name: `Project details!` becomes `project_details`. */
 export function slugOf(name: string): string {
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48);
   return slug === '' || /^[0-9]/.test(slug) ? `form_${slug}` : slug;
@@ -65,7 +65,7 @@ function taken(error: unknown): boolean {
 
 /**
  * Keep a form in the hub as an `input/form` fn of the run's person, under its name's slug or the next free one
- * (`trip_details`, `trip_details_2`, …); undefined when every name tried is taken. The hub embeds it for search,
+ * (`project_details`, `project_details_2`, …); undefined when every name tried is taken. The hub embeds it for search,
  * its first example the description it was made for.
  */
 async function keepForm(saveFn: SaveFn, keep: KeepForm, tries: number): Promise<{ fn: string; version: number } | undefined> {

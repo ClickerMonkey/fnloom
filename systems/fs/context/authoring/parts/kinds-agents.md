@@ -248,15 +248,15 @@ _From `systems/input/server/authoring.test.ts`:_
 
 ```ts
 const model = mockModel([
-  toolCall('find_forms', { text: 'trip details' }), toolCall('field_types', {}), toolCall('draft', { draft: tooWide }), toolCall('draft', { draft: TRIP }), toolCall('save', {}), replyChunks('Saved.'),
-  toolCall('find_forms', { text: 'trip details' }), toolCall('use_saved', { fn: 'input/trip_details' }), replyChunks('Reused.'),
+  toolCall('find_forms', { text: 'project details' }), toolCall('field_types', {}), toolCall('draft', { draft: tooWide }), toolCall('draft', { draft: PROJECT }), toolCall('save', {}), replyChunks('Saved.'),
+  toolCall('find_forms', { text: 'project details' }), toolCall('use_saved', { fn: 'input/project_details' }), replyChunks('Reused.'),
 ]);
 const kit = await testHub(input, createInputImpl({ settings: inputEnv.parse() }), { config: {}, model });
 try {
   const watched = kit.hub.runInfo(QualifiedName.parse('input/get_input'), { watched: true, inChat: true });
-  const made = await kit.call('get_input', { detailedDescription: 'The trip: the city and how many nights.' }, { run: watched });
-  expect(made.result).toMatchObject({ form: { title: 'Trip details' }, saved: 'input/trip_details', call: 'input/trip_details({})', next: WAIT_FOR_ANSWERS });
-  expect(kit.hub.fns.kept.get('input/trip_details')?.saved).toMatchObject({ kind: FORM_KIND, payload: TRIP, share: { visibility: 'private', with: [] } });
+  const made = await kit.call('get_input', { detailedDescription: 'The project: its name and how many hours.' }, { run: watched });
+  expect(made.result).toMatchObject({ form: { title: 'Project details' }, saved: 'input/project_details', call: 'input/project_details({})', next: WAIT_FOR_ANSWERS });
+  expect(kit.hub.fns.kept.get('input/project_details')?.saved).toMatchObject({ kind: FORM_KIND, payload: PROJECT, share: { visibility: 'private', with: [] } });
   const forwards = made.hubCalls.forwards;
   // find first; the field guide and draft only after; save only after a clean draft
   expect(offered(forwards[0])).toEqual(['find_forms']);

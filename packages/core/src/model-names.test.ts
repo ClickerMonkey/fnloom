@@ -147,13 +147,13 @@ describe('the boundary', () => {
     });
     const names = modelFnNames({ index: shaped, mode: { type: 'tools' } });
     const text = [
-      'Saved as database/main.overdue_invoices, input/trip_details, code/price_with_tax or api/github.open_issues.',
+      'Saved as database/main.overdue_invoices, input/project_details, code/price_with_tax or api/github.open_issues.',
       'Kinds and keys stay: database/query, input/form, hub/llm, database/guide, database/guide.md, fs/Entry and fs/Entry.size.',
       'A family stays: input/ask_; other systems and paths too: shop/get, docs/fs/read.md. A known fn: fs/read.',
     ].join('\n');
     await names.learn([text]);
     expect(names.text(text)).toBe([
-      'Saved as database__main__overdue_invoices, input__trip_details, code__price_with_tax or api__github__open_issues.',
+      'Saved as database__main__overdue_invoices, input__project_details, code__price_with_tax or api__github__open_issues.',
       'Kinds and keys stay: database/query, input/form, hub/llm, database/guide, database/guide.md, fs/Entry and fs/Entry.size.',
       'A family stays: input/ask_; other systems and paths too: shop/get, docs/fs/read.md. A known fn: fs__read.',
     ].join('\n'));

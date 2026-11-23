@@ -300,10 +300,10 @@ const readFns = {
   ),
   item_versions: readFn(
     'The version history of one item a system declared or added while running (a fn, type, context item, kind, command, component, provider, ...): each version\'s declaration, how it changed, and who saved it, newest first.',
-    'Use it to say what changed in an item and when ("what did the trip form look like before?", "when did fs/read change?"): give the system, the section and the name as the system page lists it (qualified, like `input/trip`, or a `/command`). Each version holds the whole declaration; compare two to say what changed. Page with a small limit.',
+    'Use it to say what changed in an item and when ("what did the project form look like before?", "when did fs/read change?"): give the system, the section and the name as the system page lists it (qualified, like `input/project`, or a `/command`). Each version holds the whole declaration; compare two to say what changed. Page with a small limit.',
     HUB_READ_ENDPOINTS.item_versions,
     [
-      { args: { system: 'input', section: 'fns', name: 'input/trip', limit: 5 }, note: 'The last five versions of a saved form.' },
+      { args: { system: 'input', section: 'fns', name: 'input/project', limit: 5 }, note: 'The last five versions of a saved form.' },
       { args: { system: 'fs', section: 'context', name: 'fs/authoring' }, note: 'How a guide changed over time.' },
     ],
   ),
@@ -392,7 +392,7 @@ const personFns = {
   memory_update: writeFn('Change a memory: its text, title, weight, tags, the fns it brings or where it applies.', 'Use it to correct or narrow a memory rather than forgetting it and remembering again. Give its name and only what changes.', HUB_PERSON_ENDPOINTS.memory_update, [{ args: { name: 'hub/memory.report-day', text: 'Reports go out on Thursdays.' } }], [], changes('update', 'context')),
   ctx_link: writeFn('Link a context item to another item (context, fn, type or resource), with a relation and weight.', 'Use it to say what a context item imports, brings or relates to, so it loads with its context and fns. `imports` and `brings` always load with it.', HUB_PERSON_ENDPOINTS.ctx_link, [{ args: { from: 'hub/memory.report-day', to: { kind: 'fn', name: 'database/sales_by_month' }, relation: 'brings', weight: 1 }, note: 'A memory that brings the fn its work needs.' }], [], changes('update', 'context')),
   ctx_unlink: writeFn('Remove one link from a context item.', 'Use it when a link is wrong or no longer needed; give the link\'s target key and relation as hub/ctx_get shows them.', HUB_PERSON_ENDPOINTS.ctx_unlink, [{ args: { from: 'hub/memory.report-day', toKey: 'fn:database/sales_by_month', relation: 'brings' } }], [], changes('update', 'context')),
-  access_set: writeFn('Set who may see a system, fn, context item, resource root or connection: private, shared with some, or public.', 'Use it when the person asks to share something or make it private. Only its owner or an admin may change it; say who will see it after.', HUB_PERSON_ENDPOINTS.access_set, [{ args: { target: { kind: 'fn', fn: 'input/trip_details' }, sharing: { visibility: 'shared', with: ['act_01HZX3'] } }, note: 'Share a saved form with one person.' }]),
+  access_set: writeFn('Set who may see a system, fn, context item, resource root or connection: private, shared with some, or public.', 'Use it when the person asks to share something or make it private. Only its owner or an admin may change it; say who will see it after.', HUB_PERSON_ENDPOINTS.access_set, [{ args: { target: { kind: 'fn', fn: 'input/project_details' }, sharing: { visibility: 'shared', with: ['act_01HZX3'] } }, note: 'Share a saved form with one person.' }]),
   connection_update: writeFn('Change one of the person\'s connected accounts: its settings, which fns use it, or who it is shared with.', 'Use it when the person asks to change how a connected account is used. Never show its credentials.', HUB_PERSON_ENDPOINTS.connection_update, [{ args: { connection: 'cnx_01HZX3', share: { visibility: 'private', with: [] } }, note: 'Stop sharing it.' }], [], changes('update', 'connections')),
   connection_disconnect: writeFn('Disconnect one of the person\'s connected accounts.', 'Use it only when the person asks to disconnect an account; the fns that act as them stop working until they connect again.', HUB_PERSON_ENDPOINTS.connection_disconnect, [{ args: { connection: 'cnx_01HZX3' } }], [], changes('remove', 'connections')),
 };
@@ -590,7 +590,7 @@ export const StoredFn = g.obj({
 /** `hub/fns_save`'s args. */
 export const SaveFnArgs = g.obj({
   kind: g.field(g.text({ minLength: 1 }), { docs: 'The qualified kind (`input/form`): one of the calling system\'s own kinds.' }),
-  name: g.field(g.text({ minLength: 1 }), { docs: 'Its local name (`trip_details`, `main.overdue_invoices`); the hub names it `<system>/<name>`.' }),
+  name: g.field(g.text({ minLength: 1 }), { docs: 'Its local name (`project_details`, `main.overdue_invoices`); the hub names it `<system>/<name>`.' }),
   description: g.text({ minLength: 1 }),
   instructions: g.optional(g.text()),
   payload: json(),
@@ -728,7 +728,7 @@ export const hub = system('hub', {
         returns: ginAs(FnExamplesPage),
         examples: [
           { args: { fn: 'database/main.sales_by_month', query: 'sales for 2025 only' }, note: 'The examples closest to filtering one year come first.' },
-          { args: { fn: 'input/trip_details', offset: 10, limit: 10 }, note: 'The second page of ten.' },
+          { args: { fn: 'input/project_details', offset: 10, limit: 10 }, note: 'The second page of ten.' },
         ],
         tags: [READ_TAG],
         display: 'message',
@@ -738,7 +738,7 @@ export const hub = system('hub', {
         instructions: 'Use it to look inside a saved fn (a saved form, a saved query) before reusing or changing it. Only fns the run\'s person may see are given; another is "no such fn".',
         args: g.obj({ fn: g.fnName() }),
         returns: StoredFn,
-        examples: [{ args: { fn: 'input/trip_details' }, note: 'A saved form: its payload is the form.' }],
+        examples: [{ args: { fn: 'input/project_details' }, note: 'A saved form: its payload is the form.' }],
         tags: [READ_TAG],
         display: 'hidden',
       }),
@@ -748,7 +748,7 @@ export const hub = system('hub', {
         args: SaveFnArgs,
         returns: g.obj({ fn: g.fnName(), version: g.num({ min: 1, whole: true }), created: g.bool() }),
         examples: [{
-          args: { kind: 'input/form', name: 'trip_details', description: 'Asks for a trip\'s dates, destination and travellers.', payload: { title: 'Trip details', type: { name: 'obj', props: {} } }, share: { visibility: 'private', with: [] } },
+          args: { kind: 'input/form', name: 'project_details', description: 'Asks for a project\'s name, owner, due date and priority.', payload: { title: 'Project details', type: { name: 'obj', props: {} } }, share: { visibility: 'private', with: [] } },
           note: 'A saved form, private to its person.',
         }],
         tags: [OWN_TAG],

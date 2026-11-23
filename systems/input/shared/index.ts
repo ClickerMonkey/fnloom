@@ -29,11 +29,11 @@ export const InputForm = ginAs(InputFormSchema);
 /** What every input fn returns: the form to draw, and the saved form it came from, if any. */
 export const Asked = g.obj({
   form: InputForm,
-  /** The saved form's fn (`input/trip_details`) when one was reused. */
+  /** The saved form's fn (`input/project_details`) when one was reused. */
   saved: g.optional(g.fnName()),
   /** What the model does now: end its turn, the answers coming back as the next message (or, in a run that is not the chat's own, go on without them). */
   next: g.text(),
-  /** How to show the same form again directly (`input/trip_details({})`), when it is a saved one. */
+  /** How to show the same form again directly (`input/project_details({})`), when it is a saved one. */
   call: g.optional(g.text()),
 });
 
@@ -85,18 +85,19 @@ const askUsage = (when: string, pitfall: string) => [
   `It returns the form it showed and \`next\`, which says what to do now. ${WAIT_FOR_ANSWERS}`,
 ].join(' ');
 
-/** A trip form, as the examples write it. */
-export const TRIP_FORM = {
-  title: 'Trip details',
-  description: 'Where and when you are going, and who with.',
-  submit: 'Plan it',
+/** A project form, as the examples write it. */
+export const PROJECT_FORM = {
+  title: 'Project details',
+  description: 'What the project is, who owns it and when it is due.',
+  submit: 'Save project',
   type: {
     name: 'obj',
     props: {
-      city: { docs: 'Which city are you going to?', type: { name: 'text', options: { minLength: 1, maxLength: 100 } } },
-      start: { docs: 'First day', type: { name: 'date' } },
-      nights: { docs: 'How many nights?', type: { name: 'num', options: { min: 1, max: 60, whole: true } } },
-      travellers: { docs: 'Who is coming?', type: { name: 'optional', generic: { T: { name: 'list', generic: { V: { name: 'text' } } } } } },
+      name: { docs: 'What is the project called?', type: { name: 'text', options: { minLength: 1, maxLength: 100 } } },
+      owner: { docs: 'Who owns it?', type: { name: 'text', options: { minLength: 1, maxLength: 100 } } },
+      due: { docs: 'When is it due?', type: { name: 'date' } },
+      priority: { docs: 'How urgent is it?', type: { name: 'enum', generic: { V: { name: 'text' } }, options: { values: { low: 'Low', medium: 'Medium', high: 'High' } } } },
+      notes: { docs: 'Anything else to know? (optional)', type: { name: 'optional', generic: { T: { name: 'text', options: { maxLength: 2000 } } } } },
     },
   },
 };
@@ -125,17 +126,17 @@ export const FIELD_GUIDE = [
   'An amount or count the person may not know yet (a price, a total, a quantity) is an optional number, its question saying it can be left empty:',
   '{ "name": "optional", "generic": { "T": { "name": "num", "options": { "min": 0 } } } }',
   '',
-  'Example. Asked for "the trip: destination city (required), first day, number of nights (whole, 1 to 60) and who is coming (optional names)":',
-  JSON.stringify(TRIP_FORM),
+  'Example. Asked for "the project: its name (required), who owns it (required), the due date, the priority (low, medium or high) and notes (optional)":',
+  JSON.stringify(PROJECT_FORM),
 ].join('\n');
 
 /** What callers of `get_input` read. */
 const GET_INPUT_USAGE = [
-  'Use it when you need two or more pieces of information that only the person has (trip details, a bug report, the fields of a row to add to a table) and they are easier to give as fields than in a reply.',
+  'Use it when you need two or more pieces of information that only the person has (project details, a bug report, the fields of a row to add to a table) and they are easier to give as fields than in a reply.',
   'Ask only the essentials first: the few answers you need for a useful first plan or entry, not every detail that could help. You can ask for more later.',
   'In `detailedDescription`, describe every field: what it is, its kind (text, long text, a number with its range, a date, yes or no, one of fixed options you list, a list of things) and whether it is required.',
   'Fixed choices (a size, a rating, low/medium/high) become an option field: list the options. An amount or quantity the person may not know yet is an optional number.',
-  'It first looks for a saved form that asks the same things and reuses it, so describe the information, not the wording. Otherwise it writes a form, checks it and saves it as an `input/form` fn of the person (named like input/trip_details), so the same form can be shown again later by calling that fn by name.',
+  'It first looks for a saved form that asks the same things and reuses it, so describe the information, not the wording. Otherwise it writes a form, checks it and saves it as an `input/form` fn of the person (named like input/project_details), so the same form can be shown again later by calling that fn by name.',
   'It returns the form it showed, `saved` (the saved form\'s fn), `call` (how to show it again) and `next` (what to do now).',
   'Showing a form only asks: the answers come back to you, and nothing stores them, sends them on or reminds anyone unless you then do that with other fns.',
   'If the person only wants a form ready for later, say it is saved and how to open it again rather than asking them to fill it now.',
@@ -148,7 +149,7 @@ export const input = system('input', {
   about: [
     'Forms in the chat: when you need information only the person has, this system shows them a small form to fill in, right in the conversation.',
     'Its fns: input/get_input shows a form with several typed fields, made from your description (or a saved form that already asks the same); input/ask_text, input/ask_choice, input/ask_confirm, input/ask_number and input/ask_date each ask one question.',
-    'Its fn kind is input/form: every form get_input makes is saved as a fn of that kind (such as input/trip_details), and calling that fn by name later shows the same form again, so the person can fill in the same thing each time (a log entry, a weekly check-in).',
+    'Its fn kind is input/form: every form get_input makes is saved as a fn of that kind (such as input/project_details), and calling that fn by name later shows the same form again, so the person can fill in the same thing each time (a log entry, a weekly check-in).',
     'After you show any form, end your turn: the answers come back as the person\'s next message, inside an <input-answer> block.',
     'A form only asks: it stores the answers nowhere by itself (keep them with another system, such as a database table), it never sends itself or reminds anyone later, and it gives nobody else access to anything.',
     'Not every question needs a form: a quick one you can just ask in your reply, and hub/ask_user asks a plain text question that pauses your run until it is answered. Load input/guide before your first form.',
@@ -165,7 +166,7 @@ export const input = system('input', {
     kinds: {
       form: kind({
         description: 'A saved form: a title and a set of typed questions. Running it (by its name, with no args) shows the form to the person in the chat; their answers arrive as their next message, in an <input-answer> block. It stores, sends or schedules nothing by itself.',
-        applicability: 'A form the person will fill in again (trip details, a bug report, a weekly check-in). input/get_input makes one from a description and saves it; to show it again, call it by name.',
+        applicability: 'A form the person will fill in again (project details, a bug report, a weekly check-in). input/get_input makes one from a description and saves it; to show it again, call it by name.',
         payload: InputForm,
         // a form only asks; saving one needs no approval
         approveChanges: false,
@@ -182,7 +183,7 @@ export const input = system('input', {
         args: g.obj({ form: InputForm }),
         returns: FormCheck,
         examples: [
-          { args: { form: TRIP_FORM }, result: { ok: true, problems: [], fields: 4 }, note: 'A form that passes.' },
+          { args: { form: PROJECT_FORM }, result: { ok: true, problems: [], fields: 5 }, note: 'A form that passes.' },
           {
             args: { form: { title: 'Size', description: '', type: { name: 'obj', props: { size: { type: { name: 'color' } } } } } },
             result: { ok: false, problems: ['Field size uses the type "color"; use one of text, num, bool, enum, date, timestamp, duration, list, optional, obj.'], fields: 1 },
@@ -271,7 +272,7 @@ export const input = system('input', {
         description: 'Keep a form in the hub as an `input/form` fn of its person, so input/get_input finds and reuses it next time and it can be shown again by its name.',
         instructions: 'The person saves a quick form with the button under it; forms input/get_input makes are saved already. Give a short name, a description of what it asks and when to use it, and who may use it (only them by default).',
         args: g.obj({
-          name: g.field(g.text({ minLength: 1, maxLength: 60 }), { docs: 'A short name for it ("Trip details").' }),
+          name: g.field(g.text({ minLength: 1, maxLength: 60 }), { docs: 'A short name for it ("Project details").' }),
           description: g.field(g.text({ minLength: 1 }), { docs: 'What it asks for and when to use it.' }),
           form: InputForm,
           askedFor: g.field(g.optional(g.text()), { docs: 'The description get_input made it for; kept as the saved fn\'s first example.' }),
@@ -281,8 +282,8 @@ export const input = system('input', {
         returns: SavedForm,
         deps: { saveFn: hub.fns.fns_save },
         examples: [{
-          args: { name: 'Trip details', description: 'Asks for a trip\'s city, first day, nights and travellers.', form: TRIP_FORM, askedFor: 'the trip: city, first day, nights and who is coming' },
-          result: { fn: 'input/trip_details', name: 'Trip details' },
+          args: { name: 'Project details', description: 'Asks for a project\'s name, owner, due date, priority and notes.', form: PROJECT_FORM, askedFor: 'the project: name, owner, due date, priority and notes' },
+          result: { fn: 'input/project_details', name: 'Project details' },
         }],
         // the person saves it from under the form; the model doesn't
         visibility: 'user',
@@ -308,8 +309,8 @@ export const input = system('input', {
         deps: { getFn: hub.fns.fns_get, saveFn: hub.fns.fns_save },
         examples: [
           {
-            args: { detailedDescription: 'The trip: destination city (required), first day (date), number of nights (whole number, 1 to 60) and who is coming (optional list of names).' },
-            result: { form: TRIP_FORM, saved: 'input/trip_details', call: 'input/trip_details({})', ...WAITED },
+            args: { detailedDescription: 'The project: its name (required), who owns it (required), due date (date), priority (one of low, medium, high) and notes (optional long text).' },
+            result: { form: PROJECT_FORM, saved: 'input/project_details', call: 'input/project_details({})', ...WAITED },
             note: 'A new form, written, checked and kept as the own form of the person, for next time.',
           },
           {
@@ -344,12 +345,12 @@ export const input = system('input', {
           '- hub/ask_user is not a form: it asks a plain text question and pauses your run until it is answered. Use it when you need the answer before your next step in the same turn.',
           '',
           'Steps with input/get_input:',
-          '1. Call it with `detailedDescription`: every field, its kind and whether it is required. Example args: {"detailedDescription":"The trip: destination city (required), first day (date), number of nights (whole number, 1 to 60) and who is coming (optional list of names)."}',
-          '2. It reuses a saved form that asks the same, or writes a new one and saves it as an input/form fn of the person (such as input/trip_details). The result has `saved` (that fn) and `call` (how to show it again).',
+          '1. Call it with `detailedDescription`: every field, its kind and whether it is required. Example args: {"detailedDescription":"The project: its name (required), who owns it (required), due date (date), priority (one of low, medium, high) and notes (optional long text)."}',
+          '2. It reuses a saved form that asks the same, or writes a new one and saves it as an input/form fn of the person (such as input/project_details). The result has `saved` (that fn) and `call` (how to show it again).',
           '3. End your turn, saying briefly what the form is for. Never answer it for the person or guess the answers.',
           '4. Their answers arrive as their next message, in an <input-answer title="…"> block of `field: value` lines. Use them; never ask the same thing again.',
           '',
-          'Showing a saved form again: call its fn by name with no args (input/trip_details with {}). Find a saved form with hub/fns_search and a few words of what it asks.',
+          'Showing a saved form again: call its fn by name with no args (input/project_details with {}). Find a saved form with hub/fns_search and a few words of what it asks.',
           '',
           'What a form does not do: it does not store the answers (put them in a database table or another system once they arrive, and say where), it does not send itself to anyone, it does not run or remind on a schedule, and it gives nobody else access.',
         ].join('\n'),
@@ -364,7 +365,7 @@ export const input = system('input', {
         content: [
           'A **form** (the input system) asks the person for several typed fields at once, drawn in the chat. Make one with input/get_input from a plain description of each field, or ask one typed question (a number, a date, a choice, yes or no, a line of text) with input/ask_number, input/ask_date, input/ask_choice, input/ask_confirm or input/ask_text.',
           'Use a form when you need several details, or ones with a type (dates, amounts, choices); a quick question still goes in your answer.',
-          'Forms are saved fns of the person (such as input/trip_details): call one by its name with no args to show the same form again another time, such as a form to add an entry to something they keep.',
+          'Forms are saved fns of the person (such as input/project_details): call one by its name with no args to show the same form again another time, such as a form to add an entry to something they keep.',
           'After showing a form, end your turn without answering for the person; the result\'s `next` says the same. Their answers arrive as their next message, inside `<input-answer>`, whenever they send it, even if they are not in the chat now. The person filled them in: treat them as their reply.',
           'A form only asks: it stores the answers nowhere by itself, sends nothing and reminds nobody. Load input/guide before your first form.',
         ].join('\n'),

@@ -37,7 +37,7 @@ async function everyBlock(): Promise<string> {
     replyAll: false, answerers: [], createdAt: 0,
     parts: [
       { type: 'systems-changed', on: [{ name: SystemName.parse('fs'), reason: 'installed', description: 'Files: read them with fs/read.' }], off: [] },
-      { type: 'text', text: 'Please save it with fs/write, like database/main.overdue_invoices or input/trip_details, then ' },
+      { type: 'text', text: 'Please save it with fs/write, like database/main.overdue_invoices or input/project_details, then ' },
       { type: 'mention', provider: 'fs/files', label: 'a.md', target: { path: 'a.md' }, text: 'The file a.md.' },
       { type: 'command', context: 'fs/plan', args: {} },
       { type: 'invocation', run: IDS.run.parse('run_1'), fn: 'fs/read' },
@@ -142,7 +142,7 @@ describe('no fn reaches the model in its system/name form', () => {
     expect(all).toContain('database/guide');
     // example fn names no fn holds read the same way
     expect(all).toContain('database__main__overdue_invoices');
-    expect(all).toContain('input__trip_details');
+    expect(all).toContain('input__project_details');
     expect(planned.tools.map((tool) => tool.name)).toContain('hub__fns_search');
   });
 

@@ -606,7 +606,7 @@ export class MockChat {
     this.#add(router.id, { turn: mintId('turn'), author: 'act_hub', role: 'note', status: 'done', createdAt: now - 3_600_000, parts: [{ type: 'text', text: 'notes went offline. Its fns are unavailable until it reconnects.' }] });
     // build 4: a form's answers (hidden unless in debug mode), then an answer whose call missed the prompt cache
     const later = mintId('turn');
-    const form = RunId.parse('run_trip_form');
+    const form = RunId.parse('run_project_form');
     this.#add(router.id, {
       turn: later, author: this.#owner(), role: 'user', status: 'done', createdAt: now - 1_900_000,
       parts: [{ type: 'input-answer', run: form, title: 'Route groups', value: { groups: ['chat'], keepMounted: true }, text: 'Groups: chat\nKeep mounted: yes' }],

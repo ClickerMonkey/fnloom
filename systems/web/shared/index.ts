@@ -143,7 +143,7 @@ export const web = system('web', {
   about: [
     'The public web: finding pages and reading them. web/search finds pages for a query and gives titles, URLs and short snippets (a snippet is a fragment, not enough evidence for a detail such as a time, a price or a date); web/read reads one page as clean text; web/crawl reads a whole site section.',
     'Every page it reads is kept as a hub resource, so it can be read again (hub/resource_read) without fetching it twice. It defines no fn kinds.',
-    'Reach for it for anything current or outside what you know (news, opening hours, timetables, prices, travel times, reviews): search first, read the best one or two pages, and answer from what they say, with their URLs.',
+    'Reach for it for anything current or outside what you know (news, opening hours, timetables, prices, reviews): search first, read the best one or two pages, and answer from what they say, with their URLs.',
     'Not for a web API that needs a sign-in or returns data (that is the api system), and not for files on the person\'s machine (fs). Load its guide (web/guide) before the first search.',
   ].join(' '),
   // its API groups: the hub indexes its fns by them (`web/api`, `web/api.<group>`)
@@ -169,7 +169,7 @@ export const web = system('web', {
         group: 'search',
         description: 'Search the web for pages. Gives titles, URLs and short snippets, best first, and a short answer when there is one.',
         instructions: [
-          'Use it to find pages about anything current or outside what you know. It finds pages; it does not read them. A snippet or the short answer is a fragment of a page, often old or out of context: before you state a detail that matters (a time, a date, a price, an address, a route or travel time, an event\'s schedule), read the page it came from with web/read and check it there. Prefer the official source (the venue, the operator, the government site) over aggregators.',
+          'Use it to find pages about anything current or outside what you know. It finds pages; it does not read them. A snippet or the short answer is a fragment of a page, often old or out of context: before you state a detail that matters (a time, a date, a price, an address, a route, an event\'s schedule), read the page it came from with web/read and check it there. Prefer the official source (the venue, the operator, the government site) over aggregators.',
           'Write the query as a search engine wants it (a few key words, names in full), not a question to a person. Use `topic: "news"` with `days` for recent events, `include` to keep to sites you trust, and `depth: "advanced"` only when basic results miss (it costs twice as much).',
           'The results are kept as a hub resource (`uri`). Cite the URLs you used, and say which details you could not confirm on a page.',
         ].join(' '),
@@ -284,7 +284,7 @@ export const web = system('web', {
           'Steps for a question about something current or outside what you know:',
           '1. web/search with a few key words, as a search engine wants them (`Lisbon tram 28 timetable`, not "what time does the tram run?"). For recent news add `topic: "news"` and `days`.',
           '2. Pick the one or two best results: the official source first (the operator, the venue, the maker), then well-known references.',
-          '3. web/read each of those pages. A search snippet is a fragment: it may be old or about something else. Before you state a time, date, price, address, route, travel time or schedule, find it on the page you read.',
+          '3. web/read each of those pages. A search snippet is a fragment: it may be old or about something else. Before you state a time, date, price, address, route or schedule, find it on the page you read.',
           '4. Answer from what the pages say, with the URL of each one you used. Say plainly what you could not confirm, and what depends on the day (opening hours, traffic, prices change).',
           '',
           'When a page can\'t be read (an error, an empty page), say so and try the next result, or web/read again with `render: "always"` for a page built by scripts.',

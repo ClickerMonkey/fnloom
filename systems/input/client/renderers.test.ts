@@ -13,10 +13,10 @@ import { checkAnswers, controlOf } from './form.ts';
 import FormCard from './FormCard.vue';
 import { ACCESS_INFO, INPUT_ANSWERS, SHARE_EDITOR, VALUE_EDITOR, type InputAnswer, type InputAnswers } from './host.ts';
 
-const TRIP: AskedValue = {
+const PROJECT: AskedValue = {
   form: {
-    title: 'Trip details', description: 'Where you go.',
-    type: { name: 'obj', props: { city: { docs: 'Which city?', type: { name: 'text', options: { maxLength: 100 } } }, nights: { type: { name: 'optional', generic: { T: { name: 'num', options: { whole: true } } } } } } },
+    title: 'Project details', description: 'What it is.',
+    type: { name: 'obj', props: { project: { docs: 'Which project?', type: { name: 'text', options: { maxLength: 100 } } }, hours: { type: { name: 'optional', generic: { T: { name: 'num', options: { whole: true } } } } } } },
   },
   next: 'wait',
 };
@@ -40,51 +40,51 @@ describe('FormCard', () => {
   it('draws the fields, refuses a missing required one, sends the answers and then shows them', async () => {
     const answers = fakeAnswers();
     const run = mintId('run');
-    const card = mount(FormCard, { props: { run, result: TRIP, system: fakeSystem().system }, global: { provide: { [INPUT_ANSWERS]: answers } } });
-    expect(card.find('h3').text()).toBe('Trip details');
+    const card = mount(FormCard, { props: { run, result: PROJECT, system: fakeSystem().system }, global: { provide: { [INPUT_ANSWERS]: answers } } });
+    expect(card.find('h3').text()).toBe('Project details');
     expect(card.findAll('.field')).toHaveLength(2);
     expect(card.find('.optional').exists()).toBe(true);
     await card.find('form.fields').trigger('submit');
-    expect(card.find('[role="alert"]').text()).toBe('Fill in Which city?.');
+    expect(card.find('[role="alert"]').text()).toBe('Fill in Which project?.');
     expect(answers.sent).toHaveLength(0);
 
-    await card.find('input[type="text"]').setValue('Lisbon');
+    await card.find('input[type="text"]').setValue('Website');
     await card.find('input[type="number"]').setValue('3');
     await card.find('form.fields').trigger('submit');
     await flushPromises();
-    expect(answers.sent).toEqual([{ run, title: 'Trip details', value: { city: 'Lisbon', nights: 3 }, text: 'Which city?: Lisbon\nNights: 3' }]);
+    expect(answers.sent).toEqual([{ run, title: 'Project details', value: { project: 'Website', hours: 3 }, text: 'Which project?: Website\nHours: 3' }]);
     expect(card.find('.done').text()).toBe('Answered');
-    expect(card.find('.answers').text()).toContain('Lisbon');
+    expect(card.find('.answers').text()).toContain('Website');
     expect(card.find('form.fields').exists()).toBe(false);
   });
 
   it('uses the chat\'s value editor when there is one, and says when answers can\'t be sent', async () => {
-    const Editor = defineComponent({ props: { type: { type: Object, required: true }, modelValue: { type: null, default: undefined } }, emits: ['update:modelValue'], setup: (_props, { emit }) => () => h('button', { class: 'editor', onClick: () => { emit('update:modelValue', { city: 'Oslo' }); } }) });
+    const Editor = defineComponent({ props: { type: { type: Object, required: true }, modelValue: { type: null, default: undefined } }, emits: ['update:modelValue'], setup: (_props, { emit }) => () => h('button', { class: 'editor', onClick: () => { emit('update:modelValue', { project: 'Website' }); } }) });
     const answers = fakeAnswers();
-    const card = mount(FormCard, { props: { run: mintId('run'), result: TRIP, system: fakeSystem().system }, global: { provide: { [INPUT_ANSWERS]: answers, [VALUE_EDITOR]: Editor } } });
+    const card = mount(FormCard, { props: { run: mintId('run'), result: PROJECT, system: fakeSystem().system }, global: { provide: { [INPUT_ANSWERS]: answers, [VALUE_EDITOR]: Editor } } });
     await card.find('.editor').trigger('click');
     await card.find('form.fields').trigger('submit');
     await flushPromises();
-    expect(answers.sent[0]?.value).toEqual({ city: 'Oslo' });
+    expect(answers.sent[0]?.value).toEqual({ project: 'Website' });
 
-    const lonely = mount(FormCard, { props: { run: mintId('run'), result: TRIP, system: fakeSystem().system } });
+    const lonely = mount(FormCard, { props: { run: mintId('run'), result: PROJECT, system: fakeSystem().system } });
     expect(lonely.find('[role="note"]').text()).toContain('can\'t send');
     expect(lonely.find('button.primary').attributes('disabled')).toBeDefined();
   });
 
   it('saves the form for next time, with who may use it in a multi-person hub', async () => {
     const { system, saved } = fakeSystem();
-    const card = mount(FormCard, { props: { run: mintId('run'), result: TRIP, system }, global: { provide: { [ACCESS_INFO]: { multiUser: true } } } });
+    const card = mount(FormCard, { props: { run: mintId('run'), result: PROJECT, system }, global: { provide: { [ACCESS_INFO]: { multiUser: true } } } });
     await card.find('button.link').trigger('click');
-    expect(card.find<HTMLInputElement>('input[maxlength="60"]').element.value).toBe('Trip details');
+    expect(card.find<HTMLInputElement>('input[maxlength="60"]').element.value).toBe('Project details');
     expect(card.findAll('.segment').map((segment) => segment.text())).toEqual(['Only me', 'Everyone']);
     await card.findAll('.segment')[1]?.trigger('click');
     await card.find('form.save-form').trigger('submit');
     await flushPromises();
-    expect(saved).toEqual([{ name: 'Trip details', description: 'Where you go.', form: TRIP.form, visibility: 'public' }]);
+    expect(saved).toEqual([{ name: 'Project details', description: 'What it is.', form: PROJECT.form, visibility: 'public' }]);
     expect(card.find('.saved').exists()).toBe(true);
 
-    const reused = mount(FormCard, { props: { run: mintId('run'), result: { ...TRIP, saved: 'input/trip' }, system } });
+    const reused = mount(FormCard, { props: { run: mintId('run'), result: { ...PROJECT, saved: 'input/project' }, system } });
     expect(reused.find('.save').exists()).toBe(false);
   });
 
@@ -98,7 +98,7 @@ describe('FormCard', () => {
       emits: ['update:modelValue'],
       setup: (_props, { emit }) => () => h('button', { type: 'button', class: 'share', onClick: () => { emit('update:modelValue', pick); } }, 'share'),
     });
-    const card = mount(FormCard, { props: { run: mintId('run'), result: TRIP, system }, global: { provide: { [ACCESS_INFO]: { multiUser: true }, [SHARE_EDITOR]: Share } } });
+    const card = mount(FormCard, { props: { run: mintId('run'), result: PROJECT, system }, global: { provide: { [ACCESS_INFO]: { multiUser: true }, [SHARE_EDITOR]: Share } } });
     await card.find('button.link').trigger('click');
     expect(card.find('.segments').exists()).toBe(false);
     await card.find('button.share').trigger('click');
@@ -109,7 +109,7 @@ describe('FormCard', () => {
     await card.find('button.share').trigger('click');
     await card.find('form.save-form').trigger('submit');
     await flushPromises();
-    expect(saved).toEqual([{ name: 'Trip details', description: 'Where you go.', form: TRIP.form, visibility: 'shared', with: [ben] }]);
+    expect(saved).toEqual([{ name: 'Project details', description: 'What it is.', form: PROJECT.form, visibility: 'shared', with: [ben] }]);
   });
 
   it('shows nothing but the error for a result that is not a form', () => {

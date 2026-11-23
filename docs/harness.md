@@ -349,7 +349,7 @@ model names: context keys (`fs/guide`), types (`fs/Entry`) and hook tags (`<fs_g
 
 - **Encode by rule** (Phil, 2026-11-22). The format is computable from the name, so text spells every name shaped like
   a fn's by it, even one no fn holds: an example in a description (`database/main.overdue_invoices`,
-  `input/trip_details`, `code/price_with_tax`, `api/github.open_issues`) reads `database__main__overdue_invoices`, so the
+  `input/project_details`, `code/price_with_tax`, `api/github.open_issues`) reads `database__main__overdue_invoices`, so the
   model never meets the `/` form of a fn name. Fn-shaped (core `isFnShaped`): its system is installed (the `systems`
   table, the hub always), its local name is a `FnLocalName` and not a type's (one capitalised part), and neither it nor
   a name it ends in at a `.` is a context key, kind or type (`database/guide`, `database/query`, `input/form`,

@@ -387,7 +387,7 @@ const · `import { SaveFnArgs } from '@harness/sdk'`
 ```ts
 const SaveFnArgs = g.obj({
   kind: g.field(g.text({ minLength: 1 }), { docs: 'The qualified kind (`input/form`): one of the calling system\'s own kinds.' }),
-  name: g.field(g.text({ minLength: 1 }), { docs: 'Its local name (`trip_details`, `main.overdue_invoices`); the hub names it `<system>/<name>`.' }),
+  name: g.field(g.text({ minLength: 1 }), { docs: 'Its local name (`project_details`, `main.overdue_invoices`); the hub names it `<system>/<name>`.' }),
   description: g.text({ minLength: 1 }),
   instructions: g.optional(g.text()),
   payload: json(),
