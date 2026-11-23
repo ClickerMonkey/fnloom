@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "seq": 11,
+  "readSeq": 7,
+  "answers": {
+    "ollama": {
+      "status": "answered",
+      "other": "Actually installs and runs ollama and can get models listed and installed etc.",
+      "rev": "yzubre",
+      "at": "2026-11-23T19:12:14.635Z",
+      "seq": 5
+    },
+    "who-selects": {
+      "status": "answered",
+      "picked": [
+        "admin-offers-person-picks"
+      ],
+      "labels": [
+        "An admin offers, a person picks per chat"
+      ],
+      "rev": "dul6hh",
+      "at": "2026-11-23T19:12:19.224Z",
+      "seq": 6
+    },
+    "ui-errors": {
+      "status": "answered",
+      "picked": [
+        "done"
+      ],
+      "labels": [
+        "Already covered by the arg-mistake change"
+      ],
+      "rev": "7g2ese",
+      "at": "2026-11-23T19:12:46.239Z",
+      "seq": 11
+    }
+  },
+  "threads": {}
+}
