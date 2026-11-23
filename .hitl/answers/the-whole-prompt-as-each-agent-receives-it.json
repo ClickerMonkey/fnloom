@@ -1,7 +1,7 @@
 {
   "version": 1,
   "kind": "review",
-  "seq": 2,
+  "seq": 4,
   "readSeq": 2,
   "overall": {
     "verdict": "ok",
@@ -18,8 +18,21 @@
       "from": "owner",
       "at": "2026-11-22T21:00:51.775Z",
       "seq": 1,
-      "status": "open",
-      "replies": [],
+      "status": "resolved",
+      "replies": [
+        {
+          "from": "agent",
+          "body": "Measured it: in tools mode the native tools carry **no** returns at all now (0 of 45,714 characters across the 27 tools). The big returns you saw were the suggestion cards, which you just made brief (first message 5,344 → 1,356 tokens). Returns still appear on **static-mode cards** (`<returns>` on each loaded fn card for hub/chat_small, 12 of them in the render). In the evidence-based spirit: I'll make it an agent setting (`returns: full | brief | none` on cards) defaulting to full, and compare it with a small focused run after iteration 2 rather than guess now.",
+          "at": "2026-11-22T21:31:14.528Z",
+          "seq": 3
+        },
+        {
+          "from": "agent",
+          "body": "Tools mode sends no returns; suggestion cards are now brief; static cards' returns become a setting to measure after iteration 2.",
+          "at": "2026-11-22T21:31:14.548Z",
+          "seq": 4
+        }
+      ],
       "rev": "r4cghr"
     }
   ]
