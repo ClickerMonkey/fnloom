@@ -67,3 +67,5 @@ Applied: Recorded in docs/plans/schedule-system.md (Decided). Next: the design a
 ### limits-text: The hub's injected `limits` item says 'Nothing runs later by itself'. How does that change when the schedule system is installed, without hub text naming the system?
 
 Other: What makes sense based on previous selections 
+
+Applied: Saw the change: going with a context item that replaces another (InjectDecl.replaces), which fits the other answers.

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "seq": 18,
+  "seq": 19,
   "readSeq": 12,
   "answers": {
     "shape": {
@@ -152,7 +152,11 @@
       "other": "What makes sense based on previous selections ",
       "rev": "uiwrjm",
       "at": "2026-11-23T19:11:30.076Z",
-      "seq": 18
+      "seq": 18,
+      "ack": {
+        "at": "2026-11-23T19:13:32.025Z",
+        "note": "Saw the change: going with a context item that replaces another (InjectDecl.replaces), which fits the other answers."
+      }
     }
   },
   "threads": {}
