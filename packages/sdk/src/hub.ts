@@ -603,6 +603,12 @@ export const SaveFnArgs = g.obj({
   replace: g.field(g.optional(g.bool()), { docs: 'Save over the fn of this name, keeping the old version; otherwise a taken name is refused.' }),
 });
 
+/**
+ * How a run of `hub/fns_save` is undone: the fn, the version the save made, and whether it made the fn. Undoing it puts
+ * back the version before (or removes a fn the save made), unless the fn was saved again or removed since.
+ */
+export const SavedFn = g.obj({ fn: g.fnName(), version: g.num({ min: 1, whole: true }), created: g.bool() });
+
 /** What `hub/fns_remove` gives, and how its run is undone: the fn, and the version it had (the one restored). */
 export const RemovedFn = g.obj({ fn: g.fnName(), version: g.num({ min: 1, whole: true }) });
 
@@ -748,10 +754,11 @@ const hubContract = system('hub', {
         display: 'hidden',
       }),
       fns_save: fn({
-        description: 'Keep a fn of one of the calling system\'s kinds in the hub (a saved form, a saved query), owned by the run\'s person and shared as asked. Saving a name again keeps the old version in its history.',
+        description: 'Keep a fn of one of the calling system\'s kinds in the hub (a saved form, a saved query), owned by the run\'s person and shared as asked. Saving a name again keeps the old version in its history; undoing the run puts back the version before (or removes a fn it made).',
         instructions: 'Only the system that owns the kind may save fns of it. Give a description and instructions a model can choose and call it by, and examples (args, and the result when there is one). The hub checks the payload with the kind before keeping it, embeds it for hub/fns_search, and keeps its examples for hub/fns_examples.',
         args: SaveFnArgs,
         returns: g.obj({ fn: g.fnName(), version: g.num({ min: 1, whole: true }), created: g.bool() }),
+        undo: SavedFn,
         examples: [{
           args: { kind: 'input/form', name: 'project_details', description: 'Asks for a project\'s name, owner, due date and priority.', payload: { title: 'Project details', type: { name: 'obj', props: {} } }, share: { visibility: 'private', with: [] } },
           note: 'A saved form, private to its person.',

@@ -190,6 +190,7 @@ describe('the saved widgets\' page', () => {
         bind: (key: string) => ({ get value() { return query[key] ?? ''; }, set value(next: string) { query[key] = next; } }),
       },
       href: () => '', go: () => undefined, components, chatHref: (session) => `/c/${session}`, goChat: () => undefined,
+      runHref: (run) => `/run/${run}`, goRun: () => undefined,
       openChat: (start: ChatStart) => { chats.push(start); return Promise.resolve(); },
       runs: () => { throw new Error('the widgets page starts no runs of its own'); },
       inbox: { byRun: () => undefined, load: () => Promise.resolve(), decide: () => Promise.resolve(false), problem: '' },

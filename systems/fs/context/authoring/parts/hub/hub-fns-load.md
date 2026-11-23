@@ -57,7 +57,7 @@ niche: "developer"
   ```text
   (obj{fn: text{pattern="^[a-z]\\S*$"}}) => obj{ fn, kind, description, instructions?, payload?, version, owner?, routing?, available, blocked?, args?, returns?, live? … }
   ```
-- `hub/fns_save`: Keep a fn of one of the calling system's kinds in the hub (a saved form, a saved query), owned by the run's person and shared as asked. Saving a name again keeps the old version in its history. Tags: `own`.
+- `hub/fns_save`: Keep a fn of one of the calling system's kinds in the hub (a saved form, a saved query), owned by the run's person and shared as asked. Saving a name again keeps the old version in its history; undoing the run puts back the version before (or removes a fn it made). Tags: `own`.
 
   ```text
   (obj{ kind, name, description, instructions?, payload, examples?, tags?, share?, routing?, replace? … }) => obj{fn: text{pattern="^[a-z]\\S*$"}, version: num{min=1, whole=true}, created: bool}

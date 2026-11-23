@@ -120,6 +120,19 @@ describe('the data system', () => {
     expect((await data.find({ type: PREFS }, other)).items).toEqual([]);
   });
 
+  // the schedule system records a firing that never became a run (missed, refused) as its owner's, outside any run
+  it('lets a system name the owner of a new record of its own person-owned type outside a run, and no one else', async () => {
+    const { data, ann, ben } = await world();
+    const shop: DataAsker = { actor: ActorId.parse('act_shop'), access: member(ActorId.parse('act_shop')), system: SystemName.parse('shop') };
+    const made = await data.save({ type: PREFS, value: { theme: 'grey' }, owner: BEN }, shop);
+    expect(made.owner).toBe(BEN);
+    expect((await data.find({ type: PREFS }, ben)).items.map((r) => r.id)).toEqual([made.id]);
+    // in a run, from another system, or from a person, naming an owner is refused
+    for (const asker of [ann, { ...shop, system: SystemName.parse('mail') }, ben]) {
+      await expect(data.save({ type: PREFS, value: { theme: 'red' }, owner: BEN }, asker)).rejects.toMatchObject({ status: 403, code: 'RECORD_OWNER_REFUSED' });
+    }
+  });
+
   it('searches within one type and the asker’s own records, so other matches never use up the depth', async () => {
     const { data, ann, ben } = await world(10);
     for (let n = 0; n < 12; n += 1) { await data.save({ type: NOTE, value: { title: `oslo ${String(n)}`, body: 'oslo oslo', stars: n, done: false } }, ann); }

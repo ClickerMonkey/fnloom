@@ -158,7 +158,10 @@ export class StoreDataService implements DataService {
     const problems = await this.#deps.catalog.check(stored.type.system, stored.type.def, input.value);
     if (problems.length > 0) { throw reject(400, 'RECORD_INVALID', `the value doesn't fit ${stored.type.name}: ${problems.join('; ')}`); }
     const now = this.#deps.clock();
-    const owner = stored.type.records.owner === 'person' ? asker.actor : undefined;
+    if (input.owner !== undefined && !(stored.type.records.owner === 'person' && asker.system === stored.type.system && asker.run === undefined)) {
+      throw reject(403, 'RECORD_OWNER_REFUSED', `only ${stored.type.system} itself, outside a run, names whose ${stored.type.name} record it saves`);
+    }
+    const owner = stored.type.records.owner === 'person' ? input.owner ?? asker.actor : undefined;
     const record = await this.#deps.store.tx(async (tx) => {
       const records = tx.table('records');
       const existing = input.id !== undefined ? await records.get(input.id)

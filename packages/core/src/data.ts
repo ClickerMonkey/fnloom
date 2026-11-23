@@ -125,6 +125,11 @@ export const RecordSave = z.object({
   value: Json,
   expect: z.number().int().min(1).optional(),
   run: RunId.optional(),
+  /**
+   * The person a new record of a person-owned type belongs to, when the type's own system saves it outside a run (a
+   * timer's record of something that never became a run). Refused from anyone else; an existing record keeps its owner.
+   */
+  owner: ActorId.optional(),
 });
 export type RecordSave = z.infer<typeof RecordSave>;
 

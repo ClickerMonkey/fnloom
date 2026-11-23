@@ -1145,7 +1145,9 @@ and only a `KindFn` `kindFns` listed (branded) can be started.
 
 **Removing a saved fn** (`hub/fns_remove`): a system removes a saved fn of its own kind, for its owner or an admin,
 declared as a dep and an effect (`fns` `remove`) like `hub/fns_save`. The hub keeps its versions (a `removed`
-version holds the declaration it last had), and undoing the run saves that version again. The `fns` event says
+version holds the declaration it last had), and undoing the run saves that version again. Undoing a run of
+`hub/fns_save` likewise puts back the version before it (or removes the fn the save made), unless the fn was saved
+again or removed since, so undoing a turn takes back what its saves did. The `fns` event says
 `added`, `removed` and `changed` (saved again, or its availability moved), so an edit made anywhere re-plans
 what a system keeps of its fns.
 
@@ -1354,6 +1356,64 @@ and a gin type at the failing path is parsed by gin, whose message names the rea
 (`gin.parse: prop 'id' has unknown key 'name' — valid keys: docs, type, …`) with the shape of an object type. The hub's
 args check uses it, and so does every authoring agent's tool (`parseArgs`, which also reads a field sent as a string
 holding JSON).
+
+### The schedule system
+
+Phil's words (docs/plans/todo-2026-11-23.md, verbatim): "Schedule system which uses dayspan-ts schedule format to
+schedule fns. It also adds a schedule page with a calendar that shows scheduled fns. The payload could contain gin
+program since some fns that are called has arguments." The design, its decisions and what each slice built are in
+docs/plans/schedule-system.md.
+
+`systems/schedule` (`"instances": "one"`) adds the fn kind `schedule/schedule`: a schedule is a saved fn of the
+person's whose payload names a fn to run, *when* as a dayspan schedule read in a time zone, and its args as a gin
+program over `fire` (this firing) and `previous` (the last one that ran). The system owns the timer:
+
+- **The kind.** Its check refuses times closer together than the config's `minGap`, a target the owner can't see,
+  and an args program that calls fns or doesn't give the target's args. Its describe gives the schedule fn's args
+  (`{ at? }`: the timer passes the planned instant; without it a call is "run now"), the target's result and mode,
+  and the target as its dep (with `hub/fns_get`, to read the target's signature again when it runs), so a firing may
+  call it with no new grant. Its run works out the args (checked again against the target as it is now), calls the
+  target as its child, follows it through a wait for approval and records the firing. Only its owner runs it.
+- **The timer** keeps one delayed `@ayepi/work` item per schedule (its next firing, at the planned instant) on SQLite
+  in the instance's data folder (`SCHEDULE_DB`), beside a row per schedule and per recent firing. It reconciles at
+  start and on `fns` events (`ctx.runs.kindFns`), starts a due firing with `ctx.runs.start` as the owner (key
+  `schedule:<fn>@<instant>`, background priority, the payload's `maxSpend`), and hears it settle on the `run` event.
+- **Catching up.** Every firing since the last one handled is due at once: the latest runs (late) when it is on time
+  (`SCHEDULE_ON_TIME`) or within the config's grace window with `missed: 'latest'`; the others are recorded as
+  missed and told in one notice (or in the latest's, when it runs). While the hub can't be reached a firing waits and
+  tries again (`SCHEDULE_RETRY`) until the grace window passes.
+- **Overlap**: a firing due while the last still runs is skipped (default), queued (at most one waits) or replaces it.
+- **Approvals**: a firing whose target waits for approval waits until its next firing or `SCHEDULE_APPROVAL_WAIT`
+  (24 h), then gives up (`expired`); with the config's `approvals: 'refuse'` it is cancelled at once (`refused`).
+- **Limits** (the config): schedules per person (the newest beyond the limit don't run) and firings per person a day;
+  a firing past one is refused with the reason.
+- **Records and notices.** Each firing is a `schedule/Firing` record of the owner's (written in its run, or, for one
+  that never became a run, by the system outside any run naming the owner: `ctx.data.save(type, value, { owner })`,
+  which the hub allows only to a person-owned type's own system outside a run). Its one-line summary is worked out by
+  fixed rules, never a model: the reason, a text's first paragraph, "12 rows: …", an object's telling field, or the
+  target's own done line, with "(2 h late)". The owner is told once per settled firing by `notify` (always, failed,
+  never): never a skipped or "run now" firing, a refusal once per reason, no "ran" when the run already told them
+  (`notified`), keyed per schedule, linking to the run (or the schedule's page at that firing) and to its history.
+  Records are pruned to the config's `keep` (per schedule and days), at most daily.
+
+- **The chat's fns** (group `schedules`). `schedule/add` reads the target with `hub/fns_get`, checks the payload with
+  the kind's own `scheduleProblems` (and that it runs at all, and that the first run's args work out) and saves it with
+  `hub/fns_save`, named from `name`, a reminder's text or the target (the next free name when one is taken); it answers
+  with the schedule as the chat shows it (`ScheduleView`: its words, the next three runs, the first run's args, when the
+  person is notified). Fixed args become a literal program; args that change with each run come as `compute`, plain
+  words that a small authoring agent on `ctx.ai()` and the program tools (`schedule_args_author`: `examples`, then
+  `set` checked against the target's args and run for the next three runs, then `return`) turns into the program, kept
+  with the words (`argsAsked`). The program reads `fire.date`, the run's local day as a gin date, for day arithmetic.
+  `change`, `pause` (until a day), `resume` and `skip` (one run's `exclude`) save a new version over the old;
+  `remove` uses `hub/fns_remove`; only the owner changes a schedule (an admin may also pause and resume one). `list`
+  reads the person's schedules from the timer with each last run from the firing records; `history` is a page of those
+  records; `remind` notifies its own person (`ctx.notify`), so "remind me" is a schedule of it.
+- **Undo.** Each saving fn's run has the hub's save or remove as its child, and the turn's undo undoes that child:
+  `hub/fns_save` now has an undo of its own (it puts back the version before, or removes the fn the save made, unless
+  the fn was saved again or removed since), as `hub/fns_remove` has. The schedule fns' own undos say that in words.
+- **Result renderers** (`systems/schedule/client`): `add` and `change` as the schedule's card, `list` as one card per
+  schedule with a link to the calendar, and a run of a schedule fn (its run page, a chat) under a header naming the
+  schedule and when it was planned for, above the target's own result.
 
 ### The LLM can see and do everything
 
@@ -1831,7 +1891,7 @@ Still open:
   expressions, mapping a hub user to a database user (required or not), and public or private types. The
   admin sets this up and can change it through fns.
 - **MCP bridge system** and **Claude Code system** (described above).
-- **Scheduled fns and trigger fns.**
+- **Trigger fns** (runs started by events). Scheduled fns are the schedule system (above).
 - Product's other kinds (`api`, `query`, `code`, `input`, …).
 
 ## Build order

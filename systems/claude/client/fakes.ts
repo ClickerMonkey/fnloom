@@ -171,6 +171,8 @@ export function fakeHost(options: { hub: HubClient; runs?: ReturnType<typeof fak
     href: (to) => `/s/claude/${to.page ?? 'here'}/${(to.path ?? []).join('/')}`,
     chatHref: (session) => `/c/${session}`,
     goChat: (session) => { moves.push({ chat: session }); },
+    runHref: (run) => `/run/${run}`,
+    goRun: (run) => { moves.push({ run }); },
     go: (to) => { moves.push(to); },
     openChat: () => Promise.resolve(),
     components: fakeComponents(),

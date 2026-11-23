@@ -151,6 +151,7 @@ type RecordSave = {
   id?: string | undefined;
   expect?: number | undefined;
   run?: string | undefined;
+  owner?: string | undefined;
 };
 ```
 

@@ -114,9 +114,11 @@ export interface Data {
   table<T>(type: StoredType<T>, find?: Omit<RecordFind, 'query'> & { readonly query?: Omit<ListQuery, 'cursor' | 'limit'>; readonly offset?: number; readonly limit?: number }): Promise<ResultTable>;
   /**
    * Add a record (no `id`) or replace one. `expect` fails the save when the record moved past that version (someone
-   * else changed it meanwhile). A `value` type has one record: leave `id` out.
+   * else changed it meanwhile). A `value` type has one record: leave `id` out. `owner`: outside a run, the person a new
+   * record of one of this system's own person-owned types belongs to (a timer's record of something that never became
+   * a run); the hub refuses it in a run or for another system's type.
    */
-  save<T>(type: StoredType<T>, value: T, options?: { readonly id?: RecordId; readonly expect?: number }): Promise<StoredRecord<T>>;
+  save<T>(type: StoredType<T>, value: T, options?: { readonly id?: RecordId; readonly expect?: number; readonly owner?: ActorId }): Promise<StoredRecord<T>>;
   /** Remove a record (its versions stay); false when there was none. */
   remove(type: StoredType<unknown>, id: RecordId): Promise<boolean>;
 }

@@ -5,8 +5,8 @@
  * typed and checked by the contract's gin types. Services are read when a fn runs, never while registering. Every one
  * keeps to what the run's person may see and use (their `AccessScope`): search hits, loads and results alike.
  */
-import { mapConcurrent, clipMarked, ContextCrawlArgs, contextOff, effectCovered, effectsLine, CtxSearchArgs, ctxSearchQuery, FnDecl, FnExamplesQuery, FnRouting, FnSearchArgs, fnsSearchQuery, QualifiedName, qualify, splitName, SystemName, type FnRefusal, type ContextCrawlResult, type ContextRecord, type CrawledContext, type FnSearchPage, type FnSearchQuery, type LoadContextResult, type LoadFnsResult, type SearchItemKind, type ActorId, type FnExample, type Json, type IndexedKind, type RegistryEffect, type Run, type Session, type SessionId } from '@harness/core';
-import { hub, parseValue, RemovedFn, SAVE_FN_TAKEN, wireType } from '@harness/sdk';
+import { itemVersionId, mapConcurrent, clipMarked, ContextCrawlArgs, contextOff, effectCovered, effectsLine, CtxSearchArgs, ctxSearchQuery, FnDecl, FnExamplesQuery, FnRouting, FnSearchArgs, fnsSearchQuery, QualifiedName, qualify, splitName, SystemName, type FnRefusal, type ContextCrawlResult, type ContextRecord, type CrawledContext, type FnSearchPage, type FnSearchQuery, type LoadContextResult, type LoadFnsResult, type SearchItemKind, type ActorId, type FnExample, Json, type IndexedKind, type RegistryEffect, type Run, type Session, type SessionId } from '@harness/core';
+import { canonicalJson, hub, parseValue, RemovedFn, SAVE_FN_TAKEN, SavedFn, sha256, wireType } from '@harness/sdk';
 import type { AccessService } from '../access/index.ts';
 import type { FnFactsService, FnsServices } from '../fns/index.ts';
 import { latestUserText } from '../fns/decided.ts';
@@ -40,6 +40,11 @@ const PREVIEW = 280;
 /** An example as the catalog keeps it: the parts it has (gin reads an absent optional field as undefined). */
 function keptExample(example: { readonly args: Json; readonly result?: Json | undefined; readonly note?: string | undefined }): FnExample {
   return { args: example.args, ...(example.result === undefined ? {} : { result: example.result }), ...(example.note === undefined ? {} : { note: example.note }) };
+}
+
+/** A fn declaration's hash as the catalog would read it, so a version put back matches the one it copies. */
+function declHash(decl: Json): Promise<string> {
+  return sha256(canonicalJson(Json.parse(FnDecl.parse(decl))));
 }
 
 /** What the hub fns read, each looked up when a fn runs. */
@@ -407,7 +412,32 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
     const share = args.share ?? (existing === undefined ? { visibility: 'private' as const, with: [] } : undefined);
     if (share !== undefined) await deps.sharing().own({ kind: 'fn', fn: name }, existing === undefined ? person : (await deps.sharing().sharing({ kind: 'fn', fn: name })).owner, share);
     // every save is a version of the fn (`itemVersions`, written with it), numbered from 1
-    return { fn: name, version: Math.max(1, await itemVersionCount(deps.store(), system, 'fns', name)), created: existing === undefined };
+    const version = Math.max(1, await itemVersionCount(deps.store(), system, 'fns', name));
+    ctx.undoWith({ fn: name, version, created: existing === undefined });
+    return { fn: name, version, created: existing === undefined };
+  });
+  // undoing a save puts back the version before it, or removes the fn it made; a fn saved again or removed since (its
+  // newest version no longer the one this save made) is left as it is. A save undone, then the one before it, steps
+  // back one version each: a version put back has the same declaration, so the next undo finds its own save newest.
+  fns.registerUndo(hub.fns.fns_save, SavedFn, async (payload, ctx) => {
+    const name = QualifiedName.parse(payload.fn);
+    const system = SystemName.parse(splitName(name).system);
+    const versions = deps.store().table('itemVersions');
+    const [saved, last] = await Promise.all([versions.get(itemVersionId(system, 'fns', name, payload.version)), latestItemVersion(deps.store(), system, 'fns', name)]);
+    if (saved === undefined || last === undefined || last.change === 'removed') return { status: 'gone' };
+    if (last.number !== saved.number && await declHash(last.decl) !== await declHash(saved.decl)) return { status: 'gone' };
+    if (payload.created) {
+      const report = await deps.catalog().remove(system, name, ctx.info.user.id);
+      const refused = report.refused[0];
+      if (refused !== undefined) return { status: 'failed', error: fnError('caller', `${name} could not be removed: ${refused.problems.join('; ')}`, 'refused') };
+      return { status: 'undone', summary: `Removed ${name}, which the save made` };
+    }
+    const before = await versions.get(itemVersionId(system, 'fns', name, payload.version - 1));
+    if (before === undefined || before.change === 'removed') return { status: 'gone' };
+    const report = await deps.catalog().declare(system, FnDecl.parse(before.decl), ctx.info.user.id);
+    const refused = report.refused[0];
+    if (refused !== undefined) return { status: 'failed', error: fnError('caller', `${name} could not be put back: ${refused.problems.join('; ')}`, 'refused') };
+    return { status: 'undone', summary: `Put back ${name} as it was (version ${String(payload.version - 1)})` };
   });
 
   // a system removes a saved fn of its own kind, for its owner or an admin; undoing the run saves its last version again

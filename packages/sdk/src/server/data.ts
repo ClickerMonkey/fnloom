@@ -4,7 +4,7 @@
  * from every record read. The hub does the finding, filtering, sorting and paging in its database; nothing is loaded
  * whole here.
  */
-import type { DataRecord, RecordId, ResultTable, RunId } from '@harness/core';
+import type { ActorId, DataRecord, RecordId, ResultTable, RunId } from '@harness/core';
 import type { Data, RecordFind, StoredRecord, StoredType } from '../ctx.ts';
 import type { HubAccess } from './link.ts';
 import { decodeOrThrow, encodeOrThrow } from './wire.ts';
@@ -44,13 +44,14 @@ export class HubData implements Data {
     }, this.#options());
   }
 
-  async save<T>(type: StoredType<T>, value: T, options: { readonly id?: RecordId; readonly expect?: number } = {}): Promise<StoredRecord<T>> {
+  async save<T>(type: StoredType<T>, value: T, options: { readonly id?: RecordId; readonly expect?: number; readonly owner?: ActorId } = {}): Promise<StoredRecord<T>> {
     const hub = await this.#ready();
     const saved = await hub.call('saveRecord', {
       type: type.name,
       value: encodeOrThrow(type, value, `The ${type.name} record`),
       ...(options.id === undefined ? {} : { id: options.id }),
       ...(options.expect === undefined ? {} : { expect: options.expect }),
+      ...(options.owner === undefined ? {} : { owner: options.owner }),
       ...this.#scope(),
     }, this.#options());
     return decoded(type, saved);

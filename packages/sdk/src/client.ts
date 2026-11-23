@@ -226,6 +226,10 @@ export interface PageHost {
   chatHref(session: SessionId): string;
   /** Go to one of the person's chats. */
   goChat(session: SessionId): void;
+  /** The URL of a run's own page (`/run/<run>`: its result, tree, approval and Undo), for an `<a href>`. */
+  runHref(run: RunId): string;
+  /** Go to a run's own page. */
+  goRun(run: RunId): void;
   /** Go to one of the system's pages (this one, with another path or query, when `page` is left out). */
   go(to: PageLocation, options?: { readonly replace?: boolean }): void;
   /**

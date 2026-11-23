@@ -13,12 +13,12 @@ choices:
     when: "Pick this for client, ClientRenderers, ClientModule, Renderer, FnView, FnViewOf, AttachmentView, AttachmentViewOf, InputView, InputViewOf, MentionView, ResourceView, SystemClient, WithSystem,…"
   - to: "fs/authoring.client.reference.resultview"
     when: "Pick this for ResultView, ResultViewOf, RESULT_VIEW, APP_COMPONENTS, ResultViewProps, ResultLook, CHAT_HOST, ChatHost, RunOutcome, ChatStart, PageView, PageViewOf, PageHost, PAGE_HOST, PageLocation,…"
-  - to: "fs/authoring.client.reference.approvalprops"
-    when: "Pick this for ApprovalProps, ConversationCall, ConversationPiece, ConversationEntry, ConversationProps, ComposerProps, safeHref, RESOURCE_LINK, APP_PATH."
+  - to: "fs/authoring.client.reference.fnpillprops"
+    when: "Pick this for FnPillProps, ApprovalProps, ConversationCall, ConversationPiece, ConversationEntry, ConversationProps, ComposerProps, safeHref, RESOURCE_LINK, APP_PATH."
 ---
 
 This part is in 3 pieces; load the one you need:
 
 - [client … VISUALS](context:fs/authoring.client.reference.client)
-- [ResultView … FnPillProps](context:fs/authoring.client.reference.resultview)
-- [ApprovalProps … APP_PATH](context:fs/authoring.client.reference.approvalprops)
+- [ResultView … SkeletonProps](context:fs/authoring.client.reference.resultview)
+- [FnPillProps … APP_PATH](context:fs/authoring.client.reference.fnpillprops)

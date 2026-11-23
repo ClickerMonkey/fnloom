@@ -6,12 +6,20 @@
   "description": "Development only: system.json holds this system's name, version and entries.",
   "exports": {
     ".": "./shared/index.ts",
-    "./server": "./server/index.ts"
+    "./server": "./server/index.ts",
+    "./client": "./client/index.ts"
   },
   "dependencies": {
+    "@aeye/gin": "file:../../../aits/packages/gin",
+    "@ayepi/core": "file:../../../ayepi/packages/core",
     "@ayepi/env": "file:../../../ayepi/packages/env",
+    "@ayepi/sqlite": "file:../../../ayepi/packages/sqlite",
+    "@ayepi/work": "file:../../../ayepi/packages/work",
+    "better-sqlite3": "^12.4.1",
     "@harness/core": "*",
     "@harness/sdk": "*",
+    "dayspan": "^1.2.0",
+    "vue": "^3.5.22",
     "zod": "^4.6.7"
   }
 }

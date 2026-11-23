@@ -25,7 +25,8 @@
     "systems/mcp",
     "systems/code",
     "systems/api",
-    "systems/claude"
+    "systems/claude",
+    "systems/schedule"
   ],
   "scripts": {
     "typecheck": "vue-tsc -b",

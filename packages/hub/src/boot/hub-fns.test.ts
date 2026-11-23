@@ -1,4 +1,4 @@
-import { agent, fn, g, hub, manifestOf, RemovedFn, type FnRef } from '@harness/sdk';
+import { agent, fn, g, hub, manifestOf, RemovedFn, SavedFn, type FnRef } from '@harness/sdk';
 import { ActorId, ContextCrawlResult, LinkSession, ModelCallId, QualifiedName, SystemName, type FnSearchHit, type FnSearchQuery, type Json, type SearchFiltered, type RegistryEffect, type SearchHit, type Session, type SessionId, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AGENT_KIND, type RunInput } from '../execution/index.ts';
@@ -580,6 +580,74 @@ describe('saved fns (build 5)', () => {
       { name: 'input/project', section: 'fns', number: 1, change: 'added', decl: { description: 'Asks for a project.' }, savedBy: ALICE },
       { name: 'input/project', number: 2, change: 'changed', decl: { description: 'Asks for a project and who owns it.' } },
     ]);
+  });
+
+  it('undoes saves newest first: a save over a fn puts back the version before, and the save that made it removes it', async () => {
+    const r = await executionRig();
+    rig = r;
+    r.catalog.add('hub', 'fns_save', fn({ description: 'hub/fns_save', args: hub.fns.fns_save.args, returns: hub.fns.fns_save.returns, undo: SavedFn, tags: ['read'] }));
+    const asker = r.catalog.add('input', 'ask', fn({ description: 'Ask.', args: g.obj({}), returns: g.bool(), tags: ['read'] }));
+    r.catalog.set(asker.name, { decl: { ...asker.decl, deps: [hub.fns.fns_save.name], effects: { registry: [{ thing: 'fns', action: 'create', kind: 'input/form' }, { thing: 'fns', action: 'update', kind: 'input/form' }] } } });
+    const project = QualifiedName.parse('input/project');
+    registerHubFns(r.module.hubFns, {
+      store: () => r.store,
+      catalog: () => ({
+        fn: (name) => r.catalog.fn(name), fns: (filter) => r.catalog.fns(filter), availability: (name) => r.catalog.availability(name), context: (name) => r.catalog.context(name), type: () => r.catalog.type(), kind: () => r.catalog.kind(),
+        remove: async (system, name, by) => {
+          const decl = r.catalog.records.get(name)?.decl;
+          r.catalog.records.delete(name);
+          await writeItemVersions(r.store, system, [{ section: 'fns', name, change: 'removed', decl: JsonValue.parse(decl ?? {}) }], 4, by);
+          return { added: [], updated: [], removed: [name], refused: [] };
+        },
+        declare: async (system, decl, by) => {
+          const name = QualifiedName.parse(`${system}/${decl.name}`);
+          const existing = r.catalog.records.get(name);
+          if (existing === undefined) r.catalog.add(system, decl.name, fn({ description: decl.description, args: g.obj({}), returns: g.bool(), tags: ['read'] }));
+          r.catalog.set(name, { decl, origin: 'runtime', addedBy: by, updatedAt: 3 });
+          await writeItemVersions(r.store, system, [{ section: 'fns', name, change: existing === undefined ? 'added' : 'changed', decl: JsonValue.parse(decl) }], 3, by);
+          return { added: existing === undefined ? [name] : [], updated: existing === undefined ? [] : [name], removed: [], refused: [] };
+        },
+      }),
+      views: () => new CatalogFnViews(r.catalog),
+      decider: () => decider,
+      facts: () => ({ registry: (names) => Promise.resolve(new Map(names.map((name) => [name, r.catalog.records.get(name)?.decl.effects?.registry ?? []]))) }),
+      search: () => ({ search: () => Promise.resolve([]) }),
+      sessions: () => ({ load: () => Promise.reject(new Error('no loads here')) }),
+      handlers: () => r.module.handlers,
+      access: (actor) => Promise.resolve(openScope(actor)),
+      sharing: () => ({ sharing: () => Promise.resolve({ owner: ALICE, visibility: 'private', with: [] }), own: (target, owner, rule) => Promise.resolve({ target, sharing: { owner, ...rule }, editable: true }) }),
+      fns: () => ({ search: { search: () => Promise.reject(new Error('no search')) }, examples: { sync: () => Promise.resolve(), page: () => Promise.reject(new Error('no examples')), patch: () => Promise.reject(new Error('no examples')), forPrompt: () => Promise.resolve([]) } }),
+    });
+    await r.module.start();
+    const input = r.connect('input');
+    const save = { kind: 'input/form', name: 'project', description: 'Asks for a project.', payload: { title: 'Project' } };
+    let saves = 0;
+    input.behaviour.run = async (request) => {
+      const args = saves === 0 ? save : { ...save, description: `Asks for a project (${String(saves + 1)}).`, replace: true };
+      saves += 1;
+      await r.module.linkHandlers.call(linkPayload({ parent: request.run.id, fn: 'hub/fns_save', args, key: `save-${String(saves)}`, handlers: [], background: false }, LinkSession.parse({ system: 'input', instance: 'main', boot: 'b' })));
+      return { status: 'done', result: true };
+    };
+    const ask = async (): Promise<void> => {
+      const turn = await r.turn();
+      await (await r.module.runs.start({ fn: asker.name, args: {}, turn: turn.id, key: 'k', actor: ALICE, caller: ALICE, priority: 'interactive', background: false, handlers: [] })).settled;
+    };
+    await ask();
+    await ask();
+    await ask();
+    const runs = (await r.store.table('runs').find({ where: { fn: QualifiedName.parse('hub/fns_save'), status: 'done' }, order: [['createdAt', 'asc']], limit: 5 })).items;
+    expect(runs.map((run) => run.undo)).toEqual([{ fn: 'input/project', version: 1, created: true }, { fn: 'input/project', version: 2, created: false }, { fn: 'input/project', version: 3, created: false }]);
+    const [first, second, third] = runs;
+    if (first === undefined || second === undefined || third === undefined) throw new Error('three saves');
+    // the first save's undo finds a later one newest: nothing of it is left to take back alone
+    expect(await r.module.runs.undo(first.id, ALICE)).toEqual({ status: 'gone' });
+    expect(await r.module.runs.undo(third.id, ALICE)).toMatchObject({ status: 'undone', summary: 'Put back input/project as it was (version 2)' });
+    expect(r.catalog.records.get(project)?.decl.description).toBe('Asks for a project (2).');
+    expect(await r.module.runs.undo(second.id, ALICE)).toMatchObject({ status: 'undone' });
+    expect(r.catalog.records.get(project)?.decl.description).toBe('Asks for a project.');
+    // the save that made it, undone once nothing newer stands on it: the fn is removed
+    expect(await r.module.runs.undo(first.id, ALICE)).toMatchObject({ status: 'undone', summary: 'Removed input/project, which the save made' });
+    expect(r.catalog.records.has(project)).toBe(false);
   });
 
   it('lets the system of a kind remove a saved fn of it for its owner, refuses others, and undoing the run restores the version it had', async () => {

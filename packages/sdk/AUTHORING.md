@@ -1922,15 +1922,17 @@ interface Data {
   table<T>(type: StoredType<T>, find?: Omit<RecordFind, 'query'> & { readonly query?: Omit<ListQuery, 'cursor' | 'limit'>; readonly offset?: number; readonly limit?: number }): Promise<ResultTable>;
   /**
    * Add a record (no `id`) or replace one. `expect` fails the save when the record moved past that version (someone
-   * else changed it meanwhile). A `value` type has one record: leave `id` out.
+   * else changed it meanwhile). A `value` type has one record: leave `id` out. `owner`: outside a run, the person a new
+   * record of one of this system's own person-owned types belongs to (a timer's record of something that never became
+   * a run); the hub refuses it in a run or for another system's type.
    */
-  save<T>(type: StoredType<T>, value: T, options?: { readonly id?: RecordId; readonly expect?: number }): Promise<StoredRecord<T>>;
+  save<T>(type: StoredType<T>, value: T, options?: { readonly id?: RecordId; readonly expect?: number; readonly owner?: ActorId }): Promise<StoredRecord<T>>;
   /** Remove a record (its versions stay); false when there was none. */
   remove(type: StoredType<unknown>, id: RecordId): Promise<boolean>;
 }
 ```
 
-Refers to: [`ListQuery`](#core-listquery), [`RecordId`](#core-recordid), [`ResultTable`](#core-resulttable).
+Refers to: [`ActorId`](#core-actorid), [`ListQuery`](#core-listquery), [`RecordId`](#core-recordid), [`ResultTable`](#core-resulttable).
 
 #### `StoredRecord`
 
@@ -5811,7 +5813,7 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{fn: text{pattern="^[a-z]\\S*$"}}) => obj{ fn, kind, description, instructions?, payload?, version, owner?, routing?, available, blocked?, args?, returns?, live? … }
   ```
-- `hub/fns_save`: Keep a fn of one of the calling system's kinds in the hub (a saved form, a saved query), owned by the run's person and shared as asked. Saving a name again keeps the old version in its history. Tags: `own`.
+- `hub/fns_save`: Keep a fn of one of the calling system's kinds in the hub (a saved form, a saved query), owned by the run's person and shared as asked. Saving a name again keeps the old version in its history; undoing the run puts back the version before (or removes a fn it made). Tags: `own`.
 
   ```text
   (obj{ kind, name, description, instructions?, payload, examples?, tags?, share?, routing?, replace? … }) => obj{fn: text{pattern="^[a-z]\\S*$"}, version: num{min=1, whole=true}, created: bool}
@@ -6383,7 +6385,14 @@ This is the hub contract as the SDK declares it now:
 - `hub/record_save`: Add a record to a stored type, or replace one (with its id); the value is checked against the type.
 
   ```text
-  (obj{type: text, id?: text, value: any, expect?: num{whole=true, min=1}, run?: text}) => obj{
+  (obj{
+    type: text,
+    id?: text,
+    value: any,
+    expect?: num{whole=true, min=1},
+    run?: text,
+    owner?: text
+  }) => obj{
     /* record id */ id: text,
     type: text,
     value: any,
@@ -7435,6 +7444,17 @@ The error code `hub/fns_save` fails with (class `caller`) when the name is taken
 
 ```ts
 const SAVE_FN_TAKEN: "fn-taken";
+```
+
+#### `SavedFn`
+
+const · `import { SavedFn } from '@harness/sdk'`
+
+How a run of `hub/fns_save` is undone: the fn, the version the save made, and whether it made the fn. Undoing it puts
+back the version before (or removes a fn the save made), unless the fn was saved again or removed since.
+
+```ts
+const SavedFn: ObjType<{ fn: `${string}/${string}`; version: number; created: boolean; }>;
 ```
 
 #### `RemovedFn`
@@ -9899,6 +9919,7 @@ A page's props are `PageViewOf<typeof contract>`: `page` (its segment), `path` (
 | `href(to)` / `go(to, { replace? })` | links and moves between the system's own pages: `{ page?, path?, query? }` (this page when `page` is left out) |
 | `openChat({ title, run? })` | starts a new chat as the person, runs `run` (`{ fn, args }`) there first as the person's own run, and goes to it (the widgets page opens a saved widget this way) |
 | `chatHref(session)` / `goChat(session)` | a link to, and a move to, one of the person's chats (an item's own chat) |
+| `runHref(run)` / `goRun(run)` | a link to, and a move to, a run's own page (`/run/<run>`: its result, tree, approval card and Undo), for a run outside any chat |
 | `runs({ title })` | runs the page starts and waits on (`PageRuns`): each `run(fn, args, { on?, waiting? })` is the person's own run in a harness chat (made the first time, named by `title`, or `attach(session)`ed), so approval rules apply and the chat records it; it resolves only once the run settled with its outcome (`{ ok, output }` or `{ ok: false, problem }`, never early on the hub's `done`). The chat's `approvals` (with `argsOf(run)`) are answered with `approve`; `close()` when the page goes |
 | `inbox` | the approvals waiting outside any chat, for runs the page knows wait on the person: `load(runs)`, `byRun(run)`, `decide` |
 | `notify` / `format` / `live(refresh, every)` | the app's toasts (`ok`, `error`); money and times as the app writes them (`cost`, `relativeTime`, `fullTime`); and keeping the page live (every `every` ms while it is in view, once more when it comes back) |
@@ -10795,6 +10816,10 @@ interface PageHost {
   chatHref(session: SessionId): string;
   /** Go to one of the person's chats. */
   goChat(session: SessionId): void;
+  /** The URL of a run's own page (`/run/<run>`: its result, tree, approval and Undo), for an `<a href>`. */
+  runHref(run: RunId): string;
+  /** Go to a run's own page. */
+  goRun(run: RunId): void;
   /** Go to one of the system's pages (this one, with another path or query, when `page` is left out). */
   go(to: PageLocation, options?: { readonly replace?: boolean }): void;
   /**
@@ -10817,7 +10842,7 @@ interface PageHost {
 }
 ```
 
-Refers to: [`SessionId`](#core-sessionid), [`UserView`](#core-userview).
+Refers to: [`RunId`](#core-runid), [`SessionId`](#core-sessionid), [`UserView`](#core-userview).
 
 #### `PAGE_HOST`
 
@@ -18802,6 +18827,7 @@ type RecordSave = {
   id?: string | undefined;
   expect?: number | undefined;
   run?: string | undefined;
+  owner?: string | undefined;
 };
 ```
 

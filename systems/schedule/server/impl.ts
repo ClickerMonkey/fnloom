@@ -1,55 +1,56 @@
 /**
- * The schedule system's implementation, slice 1 (docs/plans/schedule-system.md, "Build slices"): every fn and the
- * kind are declared and typed by the contract, and each one refuses with "not built yet" and its name. The timer (on
- * `@ayepi/work` in the data folder), the kind's check, describe and run, the Firing records and the notices come with
- * slices 6 and 7, once the hub can start a kind's fns as their owners (slice 3).
+ * The schedule system's implementation (docs/plans/schedule-system.md): the `schedule/schedule` kind (check, describe,
+ * and its run, which is the timer's `runFiring`), the timer itself (`timer.ts`: reconciled at start and on `fns`
+ * events, told when runs settle, stopped with the system), and the chat's fns (`fns.ts`: add, change, list, pause,
+ * resume, skip, remove, history and remind, over the timer's schedules and limits, the kind's `scheduleProblems` and
+ * the hub's `fns_get`, `fns_save` and `fns_remove`).
  */
-import type { UndoOutcome } from '@harness/core';
+import { Timestamp } from '@harness/core';
 import type { SystemImpl } from '@harness/sdk';
-import type { ScheduleContract } from '../shared/index.ts';
+import { z } from 'zod';
+import { SchedulePayload, type ScheduleContract } from '../shared/index.ts';
 import type { ScheduleSettings } from './env.ts';
+import { scheduleFns } from './fns.ts';
+import { describeSchedule, scheduleProblems } from './kind.ts';
+import { systemClock, Timer, type Clock } from './timer.ts';
 
 /** Everything the implementation is built from. */
 export interface ScheduleDeps {
   readonly settings: ScheduleSettings;
+  /** The clock the timer, the kind's runs and the chat fns read (a test's fake one); the wall clock by default. */
+  readonly clock?: Clock;
+  /** The timer, when the caller keeps one (a test that reads its store); made from the settings otherwise. */
+  readonly timer?: Timer;
 }
 
-/** The error code every part not built yet fails with. */
-export const NOT_BUILT = 'not-built';
-
-/** What a part not built yet says. */
-export function notBuilt(name: string): string {
-  return `${name} is not built yet.`;
-}
-
-/** What `ctx.fail` is given for a part not built yet. */
-const failing = (name: string) => ['fatal', notBuilt(name), { code: NOT_BUILT }] as const;
-
-/** An undo of a fn not built yet. */
-function undoNotBuilt(name: string): Promise<UndoOutcome> {
-  return Promise.resolve({ status: 'failed', error: { class: 'fatal', message: notBuilt(name), code: NOT_BUILT } });
-}
+/** A schedule fn's own args: the planned instant, absent for "run now". */
+const RunArgs = z.object({ at: Timestamp.optional() });
 
 /** Build the schedule system's implementation. */
-export function createScheduleImpl(_deps: ScheduleDeps): SystemImpl<ScheduleContract['defs']> {
+export function createScheduleImpl(deps: ScheduleDeps): SystemImpl<ScheduleContract['defs']> {
+  const clock = deps.clock ?? systemClock;
+  const timer = deps.timer ?? new Timer({ settings: deps.settings, clock });
   return {
     kinds: {
       schedule: {
-        check: () => Promise.resolve([notBuilt('schedule/schedule')]),
-        describe: () => Promise.reject(new Error(notBuilt('schedule/schedule'))),
-        run: (_payload, _args, ctx) => Promise.resolve(ctx.fail(...failing('schedule/schedule'))),
+        check: (payload, ctx) => {
+          const parsed = SchedulePayload.safeParse(payload);
+          return parsed.success ? scheduleProblems(parsed.data, ctx, timer.limits.minGap) : Promise.resolve(parsed.error.issues.map((issue) => `${issue.path.join('.') || 'payload'}: ${issue.message}`));
+        },
+        describe: (payload, ctx) => describeSchedule(SchedulePayload.parse(payload), ctx),
+        run: (payload, args, ctx) => timer.runFiring(SchedulePayload.parse(payload), RunArgs.parse(args).at, ctx),
       },
     },
-    fns: {
-      add: { run: (_args, ctx) => Promise.resolve(ctx.fail(...failing('schedule/add'))), undo: () => undoNotBuilt('schedule/add') },
-      change: { run: (_args, ctx) => Promise.resolve(ctx.fail(...failing('schedule/change'))), undo: () => undoNotBuilt('schedule/change') },
-      list: { run: (_args, ctx) => Promise.resolve(ctx.fail(...failing('schedule/list'))) },
-      pause: { run: (_args, ctx) => Promise.resolve(ctx.fail(...failing('schedule/pause'))), undo: () => undoNotBuilt('schedule/pause') },
-      resume: { run: (_args, ctx) => Promise.resolve(ctx.fail(...failing('schedule/resume'))), undo: () => undoNotBuilt('schedule/resume') },
-      skip: { run: (_args, ctx) => Promise.resolve(ctx.fail(...failing('schedule/skip'))), undo: () => undoNotBuilt('schedule/skip') },
-      remove: { run: (_args, ctx) => Promise.resolve(ctx.fail(...failing('schedule/remove'))), undo: () => undoNotBuilt('schedule/remove') },
-      history: { run: (_args, ctx) => Promise.resolve(ctx.fail(...failing('schedule/history'))) },
-      remind: { run: (_args, ctx) => Promise.resolve(ctx.fail(...failing('schedule/remind'))) },
+    fns: scheduleFns({ timer, clock }),
+    events: {
+      fns: (event, ctx) => timer.fnsChanged(event, ctx),
+      run: (event, ctx) => timer.settled(event, ctx),
+    },
+    lifecycle: {
+      started: (ctx) => timer.start(ctx),
+      configured: (ctx) => { timer.configure(ctx); return Promise.resolve(); },
+      stopping: () => timer.stop(),
+      exporting: () => { timer.checkpoint(); return Promise.resolve(); },
     },
   };
 }

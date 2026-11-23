@@ -53,7 +53,7 @@ export {
 } from './system.ts';
 export {
   hub, ADMIN_ENDPOINTS, ADMIN_READ_ENDPOINTS, HUB_READ_ENDPOINTS, HUB_WRITE_ENDPOINTS, HUB_PERSON_ENDPOINTS, HUB_EXPLORE_ENDPOINTS, HUB_DATA_ENDPOINTS, FIND_KINDS, LlmPayloadType, ModelChoiceType, ChatModeType, ContextorType, FnErrorType,
-  StoredFn, SaveFnArgs, SAVE_FN_TAKEN, RemovedFn, HUB_CONTEXT_KEYS,
+  StoredFn, SaveFnArgs, SAVE_FN_TAKEN, RemovedFn, SavedFn, HUB_CONTEXT_KEYS,
   type HubContextKey, type HubContextRefs, type AdminFnName, type AdminReadFnName, type HubReadFnName, type HubWriteFnName, type HubPersonFnName, type HubExploreFnName, type HubContract,
 } from './hub.ts';
 export { APP_PATH, safeHref, RESOURCE_LINK } from './links.ts';

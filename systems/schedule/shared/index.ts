@@ -45,7 +45,7 @@ export const Limits = g.obj({
   keep: g.field(g.optional(g.obj({ perSchedule: g.num({ min: 1, whole: true }), days: g.num({ min: 1, whole: true }) })), { docs: 'How many firings are kept per schedule, and for how many days (default 500 and 180).' }),
 });
 /** The limits, with every one filled in. */
-export type Limits = Required<Infer<typeof Limits>>;
+export type Limits = { readonly [K in keyof Infer<typeof Limits>]-?: NonNullable<Infer<typeof Limits>[K]> };
 
 /** The config with its defaults filled in. */
 export function limitsOf(config: Infer<typeof Limits>): Limits {
@@ -292,20 +292,26 @@ export const schedule = system('schedule', {
           '',
           '## Args',
           '',
-          'Fixed values go in `args`, as JSON checked against the fn\'s args. Values that change with each run go in `compute`, in plain words ("from: the run\'s day minus 7 days; to: the run\'s day"), and are worked out for each run from its day and time and the last run\'s result. Never write a program yourself.',
+          'Fixed values go in `args`, as JSON checked against the fn\'s args. Values that change with each run go in `compute`, in plain words, one arg at a time ("from: the run\'s day minus 7 days; to: the run\'s day"), and are worked out for each run from its day and time and the last run\'s result; give the fixed ones in `args` beside it. Never write a program yourself.',
+          'The result\'s `firstArgs` is what the next run gets: check it is what the person asked for. If the words can\'t be worked out (they need another fn\'s data, say), the answer says why: say each arg more exactly, or schedule a fn that gets that data itself.',
           '',
           '## Afterwards',
           '',
-          `The result says when it runs in words and lists the next times: read those back. Each run's result reaches the person as a notification (\`notify\`: always, failed or never), never this chat. ${fns.list.toString()} lists the person's schedules, ${fns.history.toString()} what past runs gave; ${fns.change.toString()}, ${fns.pause.toString()}, ${fns.resume.toString()}, ${fns.skip.toString()} and ${fns.remove.toString()} change them. To remind the person of something, schedule ${fns.remind.toString()}.`,
+          `The result says when it runs in words and lists the next times: read those back. Each run's result reaches the person as a notification (\`notify\`: always, failed or never), never this chat. ${fns.list.toString()} lists the person's schedules, ${fns.history.toString()} what past runs gave; ${fns.change.toString()}, ${fns.pause.toString()}, ${fns.resume.toString()}, ${fns.skip.toString()} and ${fns.remove.toString()} change them, each saved as a new version, so undoing the turn puts it back.`,
+          'A schedule is a fn of its own: calling it by name runs it now, outside its times, without moving the next run.',
+          '',
+          '## Reminders',
+          '',
+          `To remind the person of something at a time, schedule ${fns.remind.toString()} with the text in \`args\` (\`{ "text": "…" }\`, at most 160 characters): it notifies only them.`,
         ].join('\n'),
         fns: [fns.add, fns.list, fns.history],
         tags: ['schedules'],
       }),
       basics: context({
-        title: 'Schedules',
+        title: 'Scheduled runs',
         description: 'That fns can run later by themselves, how to schedule one, and that results come as notifications.',
-        // short: every chat item's summary shares the small chat agent's 600-token cap (scripts/chat-prompt.test.ts)
-        summary: `${fns.add.toString()} runs fns later.`,
+        // at most 220 characters, as every chat item's summary (scripts/chat-prompt.test.ts)
+        summary: `${fns.add.toString()} runs a fn of the person's later, once or repeating, as them; only at times, never on events. Results come as a notification, not into this chat. Never say it is scheduled unless the result says so.`,
         content: [
           `A fn can run later by itself on a schedule. ${fns.add.toString()} saves a schedule of the person's: which fn, its args, and when (once on a day, or repeating by days of the week or month with times of day) in their time zone. It runs as the person, at background priority, with the same approvals and budgets as their chat.`,
           '',

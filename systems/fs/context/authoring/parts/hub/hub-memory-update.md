@@ -175,7 +175,14 @@ niche: "developer"
 - `hub/record_save`: Add a record to a stored type, or replace one (with its id); the value is checked against the type.
 
   ```text
-  (obj{type: text, id?: text, value: any, expect?: num{whole=true, min=1}, run?: text}) => obj{
+  (obj{
+    type: text,
+    id?: text,
+    value: any,
+    expect?: num{whole=true, min=1},
+    run?: text,
+    owner?: text
+  }) => obj{
     /* record id */ id: text,
     type: text,
     value: any,

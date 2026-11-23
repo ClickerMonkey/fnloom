@@ -52,6 +52,8 @@ const host = pageHost({
   live: useLive,
   chatHref: (id) => router.resolve(links.session(id)).href,
   goChat: (id) => { void router.push(links.session(id)); },
+  runHref: (run) => router.resolve(links.run(run)).href,
+  goRun: (run) => { void router.push(links.run(run)); },
 });
 provide(PAGE_HOST, host);
 

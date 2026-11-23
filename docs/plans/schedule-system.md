@@ -835,6 +835,101 @@ refusals are `typetests/runs.ts`. Where the build differs from the types above:
   also covers the calls an agent the schedule runs makes.
 - `hub/fns_remove` returns `{ fn, version }` (the version it had), which is also its undo payload.
 
+**Slice 8 built (2026-11-23, local).** `systems/schedule/client` (the three pages, the calendar grid, the agenda, the
+edit form, `logic.ts` and `state.ts`) and the system's `client` entry; `shared/when.ts`, the dayspan code the server and
+the browser share: a `when`'s firings in its zone (`firingsOnDays`, `firingsBetween`, `nextFirings`, `firingOf`), its
+words (`describeWhen`, dayspan's `en-plain`), and the presets from dayspan's patterns (`presetsFor`, `presetOf`).
+`dayspan` 1.2 is a dependency of the system, which is now a workspace. Where the build differs from the design:
+- dayspan is asked only which local days the rules give (each built at noon); times, skips, extras, `maxOccurrences`
+  and instants are `when.ts`'s own, so the host's zone never moves a firing (dayspan reads days in the host's zone).
+- The calendar reads the person's schedules with the hub's fn search (kind `schedule/schedule`, `mine`) and each one's
+  payload with `hub/fns_get` as a quiet read (`readFn`), since `ScheduleView` has no `when`; firings are the
+  `schedule/Firing` records in the range (at most 200 a range, the records page's limit). It draws on the viewer's
+  own days; a schedule in another zone says so in its words.
+- The page host gains `runHref(run)` / `goRun(run)` (SDK and web), so a firing links to its run page without reloading.
+- The edit form's days are the browser's date and time inputs (the app has no date picker); custom rules the form edits
+  are days of the week, days of the month and every N weeks; any other rules are kept as they are. An unchanged
+  `when` is never sent, so opening and saving the form changes only what was changed.
+- `/s/schedule/all` lists the hub's `fns` list (admins) filtered to the kind, with owners' names from `actors`; Pause
+  and Resume there run `schedule/pause`/`resume` as the admin, so the server decides whether an admin may.
+- Run now on a schedule's page runs the schedule fn itself (a manual firing); Skip on a coming run runs
+  `schedule/skip`, and a skipped run is brought back with `schedule/change` (its `exclude` less that key).
+
+**Slice 6 built (2026-11-23, local).** `systems/schedule/server`: `kind.ts` (check: `gapProblems` with the config's
+`minGap`, the target, the args program; describe: `{ at? }`, the target's result and mode, deps), `args.ts` (the args
+program over `fire` and `previous` on the shared program runtime, no fn calls, checked again at each run),
+`timer.ts` (the timer, the kind's run, reconcile, catching up, overlap, approvals, limits, records, notices, pruning),
+`store.ts` (its SQLite rows), `summary.ts` (the summary line and the notice rules) and `env.ts` (`SCHEDULE_DB`, `_POLL`,
+`_ON_TIME`, `_APPROVAL_WAIT`, `_RETRY`, `_START_TIMEOUT`, `_LOST_AFTER`); tests with a fake clock and the fake hub
+(`timer.test.ts`, `summary.test.ts`). The chat fns still refuse (slice 7); their seams are `ScheduleDeps.timer`
+(`known`, `limits`, `store`), `scheduleProblems` and `shared/when.ts`. Where the build differs from the design:
+- **A hub addition:** a firing that never became a run (missed, skipped, refused) is recorded outside any run, where
+  the hub made a person-owned record the system actor's. `RecordSave` gains `owner` (`ctx.data.save(type, value,
+  { owner })`), which the hub accepts only from a person-owned type's own system outside a run (403
+  `RECORD_OWNER_REFUSED` otherwise; the fake hub does the same). A firing that ran is recorded in its run, as its
+  person.
+- The schedule fn's deps are the target **and `hub/fns_get`**: the run reads the target's signature again, so an args
+  program that no longer fits a changed target fails with the reason instead of sending wrong args.
+- The run event carries no result, so the summary is worked out in the schedule fn's own run (in this process: the
+  timer and the kind share it), from the target's result and the done status line its child updates carry; the run
+  event only says `notified` and settles the notice.
+- The planned firing's record is written by its run, so a firing started but not yet run by the hub has a timer row
+  and no record yet.
+- Missed firings: when the latest runs late, its notice body begins "Missed 3 runs before this one." and ends with its
+  summary and "(1 h late)"; when none runs, one notice: "… missed 3 runs", "It couldn't start in time for 3 runs, the
+  last on Thu, Dec 3 9:00 am." A firing up to `SCHEDULE_ON_TIME` (1 min) late is on time even with `missed: 'none'`.
+- A paused schedule queues nothing (or its first firing from its `until` day); its firings while paused are not
+  recorded. A live change (a new version) plans from now, so times its edit put in the past are not "missed"; a
+  version found changed at start (changed while the system was down) keeps the missed firings.
+- "Cancelled by anything but the person": a child cancelled while the schedule run itself was not cancelled is told;
+  the person cancelling the run (its signal) is not. "Replaced" (overlap) is told as cancelled.
+- A refusal is told once per reason (the reason is the summary), reset when a firing runs. A refused start whose
+  hub code is `OWNER_GONE` also tells the admins once (`notifyAdmins`, which has no fn link).
+- Schedules per person: the newest beyond the limit (by last change) are refused at firing time; refusing them when
+  saved is `schedule/add`'s (slice 7). "Run now" is not held to the limits or the overlap rule.
+- A firing waiting for approval whose run is no longer in this process (a restart) is recorded as expired at its time
+  but its run can't be cancelled from here (no hub endpoint cancels a run of a kind's fn); a firing marked running with
+  no run here for `SCHEDULE_LOST_AFTER` (26 h) is recorded as failed.
+- A gap across midnight (`23:55` and `00:05`) is not refused by the check (it depends on the days); the timer fires both.
+- The work items are not given ids `<fn>@<instant>` (the work queue mints its own); each `due` item carries the fn and
+  instant, and one that no longer matches the schedule's planned instant does nothing.
+
+**Slice 7 built (2026-11-23, local).** `systems/schedule/server/fns.ts` (the chat fns), `server/authoring.ts` (the
+`compute` step, `schedule_args_author` on the SDK's `authoringAgent` and the program tools' `examples`), the `guide`
+and `basics` items' full text (`basics` back to the design's title "Scheduled runs" and its summary sentences, 210
+characters), the code system's `about`, guide and basics saying a code fn "runs only when something calls it" (true
+with or without schedules, naming none), and the result renderers in `systems/schedule/client` (`results.ts`,
+`ScheduleCard`, `ScheduleResult`/`ChangeResult` for add and change, `ScheduleListResult`, `FiringResult` for the kind);
+tests `fns.test.ts` (fake hub, fake clock, scripted model) and `client/results.test.ts`. Where the build differs:
+- **A hub addition: `hub/fns_save` has an undo** (`SavedFn`: the fn, the version the save made, whether it made it).
+  An undo has no fn calls of its own, so a schedule fn can't save the version before when it is undone; instead the
+  turn's undo undoes its child save: the version before is put back (or a fn the save made is removed), unless the
+  fn's newest version is no longer the one that save made (saved again or removed since). Undone newest first, a
+  turn's saves step back one version each. `hub/fns_remove`'s undo brings a removed schedule back. Each schedule fn
+  still leaves its own undo payload (`ScheduleArg`, `VersionBefore`), whose undo says the step in words, so the
+  turn's note doesn't list it as "no undo".
+- **`fire.date`**: the args program's `fire` also has `date`, the local day as a gin `date` (`addDays`, `addMonths`,
+  `dayOfWeek`, `toText`): gin has no way to read a date out of text, so "the run's day minus 7 days" had no program.
+  The `Fire` shape is unchanged; `fireType()`/`fireValue()` add it in the program's scope.
+- Fixed `args` are one `new` of the target's args type with the JSON as its value. The type check reads a literal's
+  slots loosely, so `add` and a change of args or fn also work out the first run's args and refuse them (at `args`)
+  when they don't fit; a pause, resume or skip goes through whatever the args do.
+- The compute step is handed the target, so it skips `find`; the model writes the whole args object (fixed values
+  given as their literals, and checked to come out unchanged), sees each of the next three runs' args after a clean
+  `set`, and `return` keeps the program for `add`/`change`, which save it. A step that gives up is `invalid` at
+  `compute` with its last problems.
+- `add` refuses a schedule past the per-person limit when it is saved (the timer's count of the person's schedules),
+  a `when` that never runs, a target that is itself a schedule, and a taken `name` (a name worked out from the words
+  takes the next free one, `orders_report_2`). With no `name`, a reminder is named from its first words.
+- `list` reads the timer's schedules (what `kindFns` last listed) rather than a fn search: they carry their owner and
+  payload, so a just-saved schedule shows once the hub's `fns` event has come. Its views have no `firstArgs` (one
+  signature read per schedule); `history` takes no cursor, so it gives the newest 50.
+- `ScheduleView.next[].local` is the run in words in the schedule's zone ("Mon, Nov 30 9:00 am"); `says` adds the zone
+  when it isn't the person's.
+- The add card's "Let its runs go ahead without asking" and a preview on the approval are not built: `add` is a write
+  as declared, approved as the person's policies say.
+- The run page header doesn't say how late a firing started (the renderer has only the run's args and result).
+
 ## Judgement calls (not asked)
 
 - The calendar grid is the system's own component on dayspan's `Calendar`; dayspan-vuetify is Vue 2 and Vuetify, so

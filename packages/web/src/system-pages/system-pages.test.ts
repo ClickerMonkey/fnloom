@@ -107,6 +107,7 @@ describe('system page logic', () => {
     const host = pageHost({
       here: () => here, navigate: (to, replace) => { moves.push({ to, replace }); }, resolve: (to) => JSON.stringify(to), user: () => user,
       hub: fakePages().pages.hub, components: SHARED_COMPONENTS, openChat: () => Promise.resolve(), chatHref: (session) => `/c/${session}`, goChat: () => undefined,
+      runHref: (run) => `/run/${run}`, goRun: () => undefined,
       runs: () => { throw new Error('no runs in this test'); }, inbox: { byRun: () => undefined, load: () => Promise.resolve(), decide: () => Promise.resolve(false), problem: '' },
       notify: { ok: () => undefined, error: () => undefined }, format: PAGE_FORMAT, live: () => undefined,
     });

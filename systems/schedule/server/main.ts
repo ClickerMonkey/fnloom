@@ -1,7 +1,6 @@
 /**
  * The schedule system's process: its contract served to the hub. Schedules live in the hub as fns of its kind; the
- * timer that will start their firings (slice 6) keeps its queue in this system's data folder. No client bundle yet:
- * the pages come with slice 8.
+ * timer that starts their firings keeps its queue and rows on SQLite in this instance's data folder (`SCHEDULE_DB`).
  */
 import { loggedHost, placeFolders, serve } from '@harness/sdk/server';
 import { schedule } from '../shared/index.ts';

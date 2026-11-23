@@ -82,11 +82,15 @@ export class FakeRecords {
     if (body.expect !== undefined && existing !== undefined && existing.version !== body.expect) {
       throw reject(409, 'RECORD_MOVED', `The record is at version ${String(existing.version)}, not ${String(body.expect)}.`);
     }
+    // as the hub: only the type's own system, outside a run, names a new person-owned record's owner
+    if (body.owner !== undefined && (decl.records.owner !== 'person' || body.run !== undefined)) {
+      throw reject(403, 'RECORD_OWNER_REFUSED', `Only the system itself, outside a run, names whose ${body.type} record it saves.`);
+    }
     const record: DataRecord = {
       id: existing?.id ?? mintId('record'),
       type: body.type,
       value: body.value,
-      ...(decl.records.owner === 'person' ? { owner: existing?.owner ?? this.#owner() } : {}),
+      ...(decl.records.owner === 'person' ? { owner: existing?.owner ?? body.owner ?? this.#owner() } : {}),
       title: titleOf(decl, body.value),
       version: (existing?.version ?? 0) + 1,
       createdAt: existing?.createdAt ?? time,

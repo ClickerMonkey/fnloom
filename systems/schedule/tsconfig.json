@@ -1,6 +1,6 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "rootDir": ".", "outDir": "../../.types/system-schedule", "tsBuildInfoFile": "../../.types/system-schedule.tsbuildinfo", "types": ["node"] },
-  "include": ["shared", "server", "typetests"],
-  "references": [{ "path": "../../packages/core" }, { "path": "../../packages/sdk" }]
+  "compilerOptions": { "rootDir": ".", "outDir": "../../.types/system-schedule", "tsBuildInfoFile": "../../.types/system-schedule.tsbuildinfo", "jsx": "preserve", "types": ["vite/client", "node"] },
+  "include": ["shared", "server", "typetests", "client/**/*.ts", "client/**/*.vue"],
+  "references": [{ "path": "../../packages/core" }, { "path": "../../packages/sdk" }, { "path": "../../packages/web" }]
 }

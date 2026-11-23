@@ -52,6 +52,8 @@ function host(): PageHost {
     openChat: () => Promise.resolve(),
     chatHref: () => '/c/ses_1',
     goChat: () => undefined,
+    runHref: (run) => `/run/${run}`,
+    goRun: () => undefined,
     components: STAND_INS,
     runs: () => { throw new Error('no runs here'); },
     inbox: { byRun: () => undefined, load: () => Promise.resolve(), decide: () => Promise.resolve(false), problem: '' },

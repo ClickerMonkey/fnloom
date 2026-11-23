@@ -77,6 +77,8 @@ export interface PageHostDeps {
   readonly live: PageHost['live'];
   readonly chatHref: PageHost['chatHref'];
   readonly goChat: PageHost['goChat'];
+  readonly runHref: PageHost['runHref'];
+  readonly goRun: PageHost['goRun'];
 }
 
 /** The host a system page is handed. Its query and user read the route and session live. */
@@ -108,6 +110,8 @@ export function pageHost(deps: PageHostDeps): PageHost {
     href: (to) => deps.resolve(target(to)),
     chatHref: (session) => deps.chatHref(session),
     goChat: (session) => { deps.goChat(session); },
+    runHref: (run) => deps.runHref(run),
+    goRun: (run) => { deps.goRun(run); },
     go: (to, options) => { deps.navigate(target(to), options?.replace === true); },
     openChat: (start) => deps.openChat(start),
     components: deps.components,

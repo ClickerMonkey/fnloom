@@ -443,6 +443,17 @@ The error code `hub/fns_save` fails with (class `caller`) when the name is taken
 const SAVE_FN_TAKEN: "fn-taken";
 ```
 
+#### `SavedFn`
+
+const · `import { SavedFn } from '@harness/sdk'`
+
+How a run of `hub/fns_save` is undone: the fn, the version the save made, and whether it made the fn. Undoing it puts
+back the version before (or removes a fn the save made), unless the fn was saved again or removed since.
+
+```ts
+const SavedFn: ObjType<{ fn: `${string}/${string}`; version: number; created: boolean; }>;
+```
+
 #### `RemovedFn`
 
 const · `import { RemovedFn } from '@harness/sdk'`
