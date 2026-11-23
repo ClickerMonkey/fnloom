@@ -19,6 +19,8 @@ export const databaseEnv = env({
   DATABASE_PREVIEW_ROWS: z.number().int().min(1).default(20),
   /** A text column with at most this many distinct values has them all shown to the enricher. */
   DATABASE_DISTINCT_MAX: z.number().int().min(1).default(12),
+  /** How many tables a scan enriches at once (each a sample read and a model call, which waits its turn on the hub's LLM queue); 1 enriches them one after another. */
+  DATABASE_ENRICH_PARALLEL: z.number().int().min(1).default(2),
   /** How many relation hops a table's generated fns follow for derived fields. */
   DATABASE_TABLE_FNS_DEPTH: z.number().int().min(0).max(4).default(2),
   /** The most fns table_fns_available lists for a table (the rest are counted as more). */

@@ -285,7 +285,7 @@ export function createDatabaseImpl(deps: DatabaseDeps): DatabaseServer {
       await before?.close();
       const opening = new DatabaseInstance(config, {
         instance: deps.instance, dataDir: deps.dataDir, enricher: deps.enricher, hub: hubSide, limits,
-        distinctMax: s.DATABASE_DISTINCT_MAX, now: deps.now, ...(deps.open === undefined ? {} : { open: deps.open }),
+        distinctMax: s.DATABASE_DISTINCT_MAX, enrichParallel: s.DATABASE_ENRICH_PARALLEL, now: deps.now, ...(deps.open === undefined ? {} : { open: deps.open }),
       });
       try {
         await opening.scan(ctx.llm);

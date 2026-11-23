@@ -110,12 +110,12 @@ export class RecordingHub implements HubSide {
 }
 
 /** An instance over a fresh shop database. */
-export function shopInstance(options: { config?: Partial<DatabaseConfig>; enricher?: Enricher; hub?: RecordingHub; dir?: string } = {}): { instance: DatabaseInstance; hub: RecordingHub; dir: string } {
+export function shopInstance(options: { config?: Partial<DatabaseConfig>; enricher?: Enricher; hub?: RecordingHub; dir?: string; enrichParallel?: number } = {}): { instance: DatabaseInstance; hub: RecordingHub; dir: string } {
   const dir = options.dir ?? shopFile().dir;
   const hub = options.hub ?? new RecordingHub();
   const instance = new DatabaseInstance(shopConfig(options.config), {
     instance: InstanceName.parse('main'), dataDir: dir, enricher: options.enricher ?? NO_ENRICHER, hub,
-    limits: { page: 50, max: 500 }, distinctMax: 12, now: () => 1_000,
+    limits: { page: 50, max: 500 }, distinctMax: 12, enrichParallel: options.enrichParallel, now: () => 1_000,
   });
   return { instance, hub, dir };
 }

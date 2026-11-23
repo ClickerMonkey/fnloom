@@ -77,6 +77,8 @@ export const fsEnv = env({
   FS_INDEX_MAX: z.number().int().min(1).default(100_000),
   /** Resources per page when the hub lists a folder. */
   FS_RESOURCE_PAGE: z.number().int().min(1).max(1_000).default(200),
+  /** How many files hashing a system's sources reads at once; 1 reads them one after another. */
+  FS_READ_PARALLEL: z.number().int().min(1).default(8),
   /** Largest text a resource read returns inline, in characters. */
   FS_RESOURCE_TEXT_MAX: z.number().int().min(1).default(2_000_000),
   /** How long file changes are gathered before they are reported. */

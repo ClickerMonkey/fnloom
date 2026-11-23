@@ -56,7 +56,7 @@ const watchFolder: WatchFolder = (folder, listener) => {
 // the hosted systems run under the loader fs runs under (tsx), whose packages they may read
 const loader = tsxLoader(import.meta.url);
 const hosting = new Hosting({
-  builds: new HarnessBuilds({ builder: new ViteBuilder({ probeTimeout: settings.FS_HOSTED_PROBE_TIMEOUT, probeEnv: scrubbedEnv(process.env) }), files: new NodeFiles() }),
+  builds: new HarnessBuilds({ builder: new ViteBuilder({ probeTimeout: settings.FS_HOSTED_PROBE_TIMEOUT, probeEnv: scrubbedEnv(process.env) }), files: new NodeFiles(), readParallel: settings.FS_READ_PARALLEL }),
   runner: new SupervisedRunner({
     starter: new NodeStarter({ baseEnv: process.env, nodeArgs: loader.nodeArgs, outputTail: settings.FS_HOSTED_OUTPUT_TAIL }),
     policy: new CrashPolicy({ maxWait: settings.FS_HOSTED_BACKOFF_MAX, restartCode: RESTART_CODE }),
