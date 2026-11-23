@@ -3,10 +3,10 @@
   "title": "Scenarios iter-2: 176 pass, 173 weak, 11 fail",
   "intro": "The 40 everyday requests played against a fresh hub with GPT-6 Luna, 9 rep(s) each, a simulated non-technical person answering, judged by a model on each request's Good line. Each case ran in two households, decision models off and on (off vs on vs load); the first item compares them. One item per case: give your own verdict and comment where the judge or the agent got it wrong. Total cost $14.490. The full report is .harness-test/scenarios/iter-2/report.md.",
   "mode": "review",
-  "status": "open",
+  "status": "closed",
   "from": "harness scenarios runner",
   "created": "2026-11-23T03:04:55.770Z",
-  "updated": "2026-11-23T03:04:55.770Z",
+  "updated": "2026-11-23T12:06:07.110Z",
   "items": [
     {
       "id": "variants",

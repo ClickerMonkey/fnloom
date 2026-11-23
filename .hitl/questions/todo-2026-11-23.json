@@ -1,0 +1,88 @@
+{
+  "$schema": "https://unpkg.com/hitloop/schema/questions.schema.json",
+  "title": "To-do batch: Ollama system and UI errors",
+  "created": "2026-11-23T18:54:36.189Z",
+  "sections": [
+    {
+      "id": "todo",
+      "title": "Two items that overlap with what exists",
+      "intro": "Parallel work starts now, and the schedule system gets a design (types for your approval) first. These two items overlap with what's already built, so I'd like to know what you mean before an agent starts.",
+      "questions": [
+        {
+          "id": "ollama",
+          "question": "The hub already has a built-in Ollama provider an admin configures (Models page; `execution/providers.ts`, `@aeye/ollama`). What should the Ollama system be?",
+          "why": "Two ways to reach the same Ollama would confuse admins; the answer decides whether the built-in goes away.",
+          "options": [
+            {
+              "id": "replace",
+              "label": "A system that replaces the built-in",
+              "description": "An `ollama` system (installed, many instances: one per Ollama server) offers an aeye provider through the 'Providers from systems' mechanism: its config is the server URL, its model list is read live from the server, and admins (or people, per your wording) pick which models are offered. The hub's built-in Ollama provider type is removed and existing configs migrate to a system instance.",
+              "recommended": true
+            },
+            {
+              "id": "both",
+              "label": "A system alongside the built-in",
+              "description": "Add the system; keep the built-in provider type for hubs that don't install it."
+            },
+            {
+              "id": "picker",
+              "label": "Just a better model picker",
+              "description": "No new system: improve the built-in so the person can pick from the Ollama server's live model list."
+            }
+          ],
+          "recommended": "replace",
+          "priority": "high"
+        },
+        {
+          "id": "who-selects",
+          "question": "\"…the user can select models from\": who picks which Ollama models are used?",
+          "options": [
+            {
+              "id": "admin-offers-person-picks",
+              "label": "An admin offers, a person picks per chat",
+              "description": "An admin chooses which of the server's models are offered (with limits like num_ctx); people pick among them in a chat's model picker, as with other providers.",
+              "recommended": true
+            },
+            {
+              "id": "anyone",
+              "label": "Anyone picks any model the server has",
+              "description": "Every model the server lists is usable by everyone without an admin step."
+            }
+          ],
+          "recommended": "admin-offers-person-picks",
+          "priority": "normal"
+        },
+        {
+          "id": "ui-errors",
+          "question": "\"Distinguishing to ui llm errors vs fn errors\": which part is still mixed for you? (Model arg mistakes already show calmly as \"Thinking harder · no bearing on the result\", a40c00f.)",
+          "type": "multi",
+          "options": [
+            {
+              "id": "provider",
+              "label": "Model-call failures look like fn failures",
+              "description": "When the model call itself fails (provider error, 429, timeout, out of credits, context too long), the chat shows it like a fn failure. Make it its own look: \"the model couldn't answer\" with the provider's reason and what to do (retry, another model), separate from a fn that failed.",
+              "recommended": true
+            },
+            {
+              "id": "attribution",
+              "label": "Whose fault, at a glance",
+              "description": "Every failure in the run tree and details says which side failed: the model (bad call, couldn't answer) or the fn/system (it ran and failed, or its system was down)."
+            },
+            {
+              "id": "done",
+              "label": "Already covered by the arg-mistake change",
+              "description": "I wrote this before seeing a40c00f; nothing more needed."
+            }
+          ],
+          "recommended": [
+            "provider",
+            "attribution"
+          ],
+          "priority": "normal"
+        }
+      ]
+    }
+  ],
+  "from": "harness scenarios session",
+  "updated": "2026-11-23T18:54:36.190Z"
+}
