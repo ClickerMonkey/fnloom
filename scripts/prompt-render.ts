@@ -16,7 +16,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { isFnShaped, QualifiedName, SystemName, type PromptPreview, type SessionId } from '@harness/core';
+import { isFnShaped, mapConcurrent, QualifiedName, SystemName, type PromptPreview, type SessionId } from '@harness/core';
 import { goLiveAll } from '../e2e/review.ts';
 import { ROOT, startStack, type ComponentName } from './stack.ts';
 import { loadSettings } from './scenarios/env.ts';
@@ -108,14 +108,10 @@ async function main(): Promise<void> {
 
 /** Every fn the hub knows, by qualified name. */
 async function knownFns(admin: Awaited<ReturnType<typeof startStack>>['admin']): Promise<Set<string>> {
-  const names = new Set<string>();
   const systems = (await admin.hub.call('systems', {})).map((s) => s.name);
-  for (const system of ['hub', ...systems]) {
-    try {
-      for (const fn of await admin.hub.call('systemFns', { system: SystemName.parse(system) })) names.add(fn.name);
-    } catch { /* a system with none */ }
-  }
-  return names;
+  // every system's fns asked at once, gathered in the systems' order
+  const each = await mapConcurrent(['hub', ...systems], (system) => admin.hub.call('systemFns', { system: SystemName.parse(system) }).catch(() => [] /* a system with none */));
+  return new Set(each.flat().map((fn) => fn.name));
 }
 
 /** Every context key the hub knows. */

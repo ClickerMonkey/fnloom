@@ -1,4 +1,4 @@
-import { ActorId, InstanceName, noFnStats, QualifiedName, SystemName, type ConnectDecl, type FnRecord, type SystemRecord } from '@harness/core';
+import { ActorId, ConnectionId, InstanceName, noFnStats, QualifiedName, SystemName, type ConnectDecl, type FnRecord, type SystemRecord } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { AesSecretVault, SecretBox } from '../api/secrets.ts';
 import { TEST_KEYS, testManifest } from '../api/testing/rig.ts';
@@ -251,6 +251,22 @@ describe('instance-scoped connections (build 9)', () => {
     if (!('url' in started)) throw new Error('expected a URL');
     await service.callback({ state: stateOf(started.url), code: 'c' }, browserOf(started));
     expect((await service.gate(BEN, new Set())).fn(SEARCH)).toMatchObject({ state: 'ready', connection: { owner: ADA, instance: LINEAR } });
+  });
+
+  it('lists each system\'s own connections on its page, the pages in title order, read in one query for all systems', async () => {
+    const { service, store, catalog } = await world();
+    const MAIL = SystemName.parse('mail');
+    const mailDecl: ConnectDecl = { ...DECL, title: 'Agenda mail' };
+    catalog.manifest = (name: SystemName) => Promise.resolve(name === CAL ? testManifest(CAL, { connect: DECL }) : name === MAIL ? testManifest(MAIL, { connect: mailDecl }) : undefined);
+    await store.table('systems').insert({ name: MAIL, description: '', status: 'disconnected', enabled: { functions: true, renderers: true }, version: '1', manifestHash: 'h', actor: ADA });
+    await service.connect(ADA, CAL);
+    const calRow = (await store.table('connections').find({ limit: 1 })).items[0];
+    if (calRow === undefined) throw new Error('no connection row');
+    await store.table('connections').insert({ ...calRow, id: ConnectionId.parse('cnx_mail'), system: MAIL, createdAt: calRow.createdAt + 1 });
+    const pages = await service.pages(ADA);
+    expect(pages.map((page) => [page.system, page.ready, page.connections.length])).toEqual([[MAIL, false, 1], [CAL, true, 1]]);
+    expect(pages[0]?.connections[0]?.id).toBe('cnx_mail');
+    expect(pages[1]?.connections[0]?.id).toBe(calRow.id);
   });
 
   it('refuses an instance that needs no connection, and an instance for a system-wide connection', async () => {

@@ -14,7 +14,7 @@
  */
 import type { Logger } from '@ayepi/log';
 import {
-  ChatModeConfig, compositeKey, ContextorConfig, DEFAULT_CHAT_MODE, DEFAULT_CONTEXTOR, ModelChoice, namesModel, QualifiedName, type ActorId, type AnnouncedSystem, type Exposure, type InjectedReport, type FnBlock, type FnRecord, type FnRefusal, type LlmMessage, type ModelFnNames, type ModelInfo,
+  ChatModeConfig, compositeKey, ContextorConfig, DEFAULT_CHAT_MODE, DEFAULT_CONTEXTOR, flow, mapConcurrent, ModelChoice, namesModel, QualifiedName, type ActorId, type AnnouncedSystem, type Exposure, type InjectedReport, type FnBlock, type FnRecord, type FnRefusal, type LlmMessage, type ModelFnNames, type ModelInfo,
   type Json, type Session, type SessionId, type SelectionReport, type Turn, type TurnId,
 } from '@harness/core';
 import { LlmPayloadType, parseValue, type LlmPayload } from '@harness/sdk';
@@ -32,7 +32,7 @@ import type {
   ModeTool, PlanInput, PlannedPrompt, PromptPlanner, RenderedIteration, Selection, TokenEstimates, TokenEstimator,
 } from './index.ts';
 import { AUTO_MODEL } from './limits.ts';
-import { fitInjected, fixedHash, gatherInjected, injectedFns, injectedShown, injectedTemplate, placeInjected } from './injected.ts';
+import { fitInjected, fixedHash, gatherInjected, injectedFns, injectedShown, injectedTemplate, placeInjected, type InjectedGather } from './injected.ts';
 import { CHAT_MODES, modeNames } from './modes.ts';
 import { broughtWords, contextBlock, earlierBlock, moreContext, type BroughtFnLines, type BroughtWords } from './render.ts';
 import { MESSAGE_FRAMING } from './tokens.ts';
@@ -180,6 +180,9 @@ interface InjectedPart {
 /** An agent that takes no injected section (`injected: 'none'`). */
 const NO_INJECTED: InjectedPart = { text: '', tokens: 0, shown: [], fns: [], cut: [], report: undefined };
 
+/** The injected section as far as reading goes: done (none, or kept for this turn), or its items to fit. */
+type Injecting = { readonly part: InjectedPart } | { readonly gathered: InjectedGather };
+
 /** The planner. */
 export class HubPromptPlanner implements PromptPlanner {
   readonly #deps: PlannerDeps;
@@ -255,16 +258,22 @@ export class HubPromptPlanner implements PromptPlanner {
 
   async #plan(planning: Planning): Promise<PlannedPrompt> {
     const { session, agent, model } = planning;
-    const { mode, ctx, payload, choice } = await this.#mode(session, agent, model);
-    const { estimator } = ctx;
-    const view = await this.#deps.limits.resolve(model);
-    const contextor = contextorOf(choice.contextor, this.#deps);
     const all = exchanges(planning.transcript);
     const currentExchange = all.at(-1);
     const history = all.slice(0, -1);
-    const access = await this.#deps.access(planning.user);
-    const guide = fixedRegion(await this.#systems(session, access), mode.guide(ctx), citationsPrompt(session), ctx.brief === true ? 'summary' : 'full');
-    const tools = await mode.fixedTools(ctx);
+    // what the prompt is built from, each read as soon as what it needs is known
+    const { chosen: { mode, ctx, payload, choice }, view, access, systems, tools, asked, injecting } = await flow()
+      .step('chosen', () => this.#mode(session, agent, model))
+      .step('view', () => this.#deps.limits.resolve(model))
+      .step('access', () => this.#deps.access(planning.user))
+      .step('asked', () => this.#asked(planning.turn, currentExchange?.messages ?? []))
+      .step('systems', ['access'], ({ access: scope }) => this.#systems(session, scope))
+      .step('tools', ['chosen'], ({ chosen: { mode: chatMode, ctx: modeCtx } }) => chatMode.fixedTools(modeCtx))
+      .step('injecting', ['chosen', 'access'], ({ chosen: { mode: chatMode, payload: agentPayload }, access: scope }) => this.#gather(planning, chatMode, agentPayload, scope))
+      .run();
+    const { estimator } = ctx;
+    const contextor = contextorOf(choice.contextor, this.#deps);
+    const guide = fixedRegion(systems, mode.guide(ctx), citationsPrompt(session), ctx.brief === true ? 'summary' : 'full');
     const rest = MESSAGE_FRAMING + (guide === '' ? 0 : estimator.text(`\n\n${guide}`)) + tools.reduce((sum, t) => sum + estimator.tool(t.spec), 0);
     // an agent that declares no `maxOutput` still gets a bound (`HARNESS_AGENT_MAX_OUTPUT`): a stuck model stops there
     const cap = this.#deps.settings.HARNESS_AGENT_MAX_OUTPUT;
@@ -274,7 +283,7 @@ export class HubPromptPlanner implements PromptPlanner {
     // the model leaves after the rest of the fixed part, worked out from the model alone so it stays the same each turn
     const bare = estimator.text(planning.instructions) + rest;
     const share = Math.floor(this.#deps.settings.HARNESS_INJECTED_SHARE * Math.max(0, reserve.available - bare));
-    const injected = await this.#injectedPart(planning, { mode, ctx, payload, access, guide, room: share });
+    const injected = await this.#injectedPart(planning, injecting, { mode, ctx, payload, guide, room: share });
     const instructions = placeInjected(planning.instructions, injected.text);
     const head = estimator.text(instructions) + rest;
     const fitted = this.#fitCurrent(currentExchange?.messages ?? [], reserve, head, estimator, model);
@@ -282,7 +291,6 @@ export class HubPromptPlanner implements PromptPlanner {
     const query = currentExchange?.user ?? '';
     // the fns the mode's own tools replace are never shown
     const shown = (names: readonly string[]): string[] => names.filter((name) => !mode.replaces.has(name));
-    const asked = await this.#asked(planning.turn, currentExchange?.messages ?? []);
     const inSection = new Set<string>(injected.shown);
     const notInjected = (names: readonly string[]): string[] => names.filter((name) => !inSection.has(name));
 
@@ -352,9 +360,8 @@ export class HubPromptPlanner implements PromptPlanner {
   /** What blocks each fn the selection's shown context brings (`fnRefusal`), for its blocks to say only what is true. */
   async #held(selection: Selection, session: Session | undefined, access: AccessScope): Promise<BroughtBlocks> {
     const names = new Set(selection.context.filter((c) => c.detail !== 'listed').flatMap((c) => c.record.decl.fns));
-    const held = new Map<string, FnBlock | undefined>();
-    for (const name of names) held.set(name, fnRefusal(await this.#deps.catalog.fn(name), session, access));
-    return held;
+    const records = await mapConcurrent(names, (name) => this.#deps.catalog.fn(name));
+    return new Map<string, FnBlock | undefined>([...names].map((name, index) => [name, fnRefusal(records[index], session, access)]));
   }
 
   /**
@@ -417,6 +424,29 @@ export class HubPromptPlanner implements PromptPlanner {
   }
 
   /**
+   * What the agent's injected section is made of (`gatherInjected`: a dynamic item is written by its system), or the
+   * section itself when there is none or this turn's is kept already. Read alongside the rest of the prompt's parts.
+   */
+  async #gather(planning: Planning, mode: ChatMode, payload: LlmPayload, access: AccessScope): Promise<Injecting> {
+    if (payload.injected === 'none') return { part: NO_INJECTED };
+    const key = this.#sectionKey(planning);
+    const kept = key === undefined ? undefined : this.#sections.get(key);
+    if (kept !== undefined) return { part: kept };
+    const { session, turn, agent } = planning;
+    const gathered = await gatherInjected(
+      { store: this.#deps.store, catalog: this.#deps.catalog, dynamic: this.#deps.dynamic, fns: this.#deps.fns, parallel: this.#deps.settings.HARNESS_CONTEXT_PARALLEL },
+      { agent, session, access, user: planning.user, person: turn?.user, mode: mode.type },
+    );
+    return { gathered };
+  }
+
+  /** The key a turn's injected section is kept under for its steps; undefined when it is not kept (a preview, a run outside a chat). */
+  #sectionKey(planning: Planning): string | undefined {
+    const { session, turn, agent, model } = planning;
+    return planning.keep && session !== undefined && turn !== undefined ? compositeKey(session.id, turn.id, agent.name, model) : undefined;
+  }
+
+  /**
    * The agent's injected section for this turn (`injected.ts`): what reaches it, fitted to its detail and within its
    * cap and `room`, with fn names as the model calls them here. Worked out once per turn and kept for its steps. At a
    * turn's first step the fixed region's hash is compared with the session's stamp, and the stamp rewritten only when
@@ -425,17 +455,12 @@ export class HubPromptPlanner implements PromptPlanner {
    * the next turn. The stamp is the session's own agent's; another agent run in the chat keeps its section for the
    * turn in memory only. Previews and runs outside a chat work it out fresh and keep nothing.
    */
-  async #injectedPart(planning: Planning, at: { mode: ChatMode; ctx: ModeContext; payload: LlmPayload; access: AccessScope; guide: string; room: number }): Promise<InjectedPart> {
-    const taken = at.payload.injected ?? { detail: 'full' as const };
-    if (taken === 'none') return NO_INJECTED;
-    const { session, turn, agent, model } = planning;
-    const key = planning.keep && session !== undefined && turn !== undefined ? compositeKey(session.id, turn.id, agent.name, model) : undefined;
-    const kept = key === undefined ? undefined : this.#sections.get(key);
-    if (kept !== undefined) return kept;
-    const gathered = await gatherInjected(
-      { store: this.#deps.store, catalog: this.#deps.catalog, dynamic: this.#deps.dynamic, fns: this.#deps.fns },
-      { agent, session, access: at.access, user: planning.user, person: turn?.user, mode: at.mode.type },
-    );
+  async #injectedPart(planning: Planning, injecting: Injecting, at: { mode: ChatMode; ctx: ModeContext; payload: LlmPayload; guide: string; room: number }): Promise<InjectedPart> {
+    if ('part' in injecting) return injecting.part;
+    const { gathered } = injecting;
+    const taken = at.payload.injected === undefined || at.payload.injected === 'none' ? { detail: 'full' as const } : at.payload.injected;
+    const { session, turn, agent } = planning;
+    const key = this.#sectionKey(planning);
     // the stamp is the session's own agent's: another agent run in the chat (a sub-agent) works its section out alone
     const own = key !== undefined && session?.agent === agent.name;
     const stamp = own ? session.fixed : undefined;
@@ -485,11 +510,9 @@ export class HubPromptPlanner implements PromptPlanner {
     const context = commands.map((part) => part.context);
     const person = current.find(isPersonMessage);
     const named = person === undefined ? [] : namedIn(personWords(textOf(person)));
-    const fns: QualifiedName[] = [];
-    for (const name of named) {
-      const parsed = QualifiedName.safeParse(name);
-      if (parsed.success && (await this.#deps.catalog.fn(parsed.data)) !== undefined) fns.push(parsed.data);
-    }
+    const parsed = named.flatMap((name) => { const one = QualifiedName.safeParse(name); return one.success ? [one.data] : []; });
+    const records = await mapConcurrent(parsed, (name) => this.#deps.catalog.fn(name));
+    const fns = parsed.filter((_name, index) => records[index] !== undefined);
     return { asked: { context, fns }, commands: new Map(commands.map((part) => [part.context, part.args])) };
   }
 

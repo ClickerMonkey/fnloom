@@ -85,4 +85,10 @@ describe('HarnessBuilds', () => {
     await writeFile(join(dir, 'server', 'main.ts'), 'export const changed = 1;\n', 'utf8');
     expect(await builds.sourceHash(dir)).not.toBe(first);
   });
+
+  it('hashes the same reading the files side by side as one after another', async () => {
+    const dir = await folder({ 'system.json': systemJson, 'server/main.ts': 'export {};\n', 'server/a.ts': 'a', 'server/b.ts': 'b', 'shared/index.ts': 'c' });
+    const one = await new HarnessBuilds({ builder: new StandInBuilder(), files: new NodeFiles(), readParallel: 1 }).sourceHash(dir);
+    expect(await new HarnessBuilds({ builder: new StandInBuilder(), files: new NodeFiles(), readParallel: 4 }).sourceHash(dir)).toBe(one);
+  });
 });

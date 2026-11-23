@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { ModelCallId, type ModelRoleView } from '@harness/core';
 import { decideInBatches, decisionInputBytes, HubDecider, questionBatches } from './decide.ts';
-import type { ModelSite } from './index.ts';
+import type { DecisionModel, ModelSite } from './index.ts';
 
 /** A fake Ollama with one System One model (`nimble`) that answers every predicate with 0.5 + its index / 1000. */
 function fakeOllama() {
@@ -125,6 +125,42 @@ describe('the hub decider', () => {
     expect(calls.every((c) => JSON.stringify(c.metadata) === JSON.stringify({ model: 'judge', provider: 'ollama' }) && c.site === site)).toBe(true);
     expect(Object.keys(decided.answers)).toEqual(['q0', 'q1', 'q2', 'q3', 'q4']);
     expect(decided).toMatchObject({ calls: ['mdl_1', 'mdl_2', 'mdl_3'], cost: 1.5 });
+  });
+
+  it('asks up to `parallel` calls at once, keeping answers, calls and cost in batch order however they finish', async () => {
+    let running = 0;
+    let most = 0;
+    const role: ModelRoleView = { role: 'decide', from: 'setting', choice: { role: 'decide', model: { model: 'judge' }, threshold: 0.7 }, resolved: { model: 'judge', provider: 'ollama' } };
+    const hub = new HubDecider({
+      roles: { get: () => Promise.resolve(role), resolveModel: () => Promise.resolve({ problem: 'not here' }) },
+      llm: {
+        models: () => Promise.resolve([]),
+        decide: async (input) => {
+          const names = Object.keys(input.questions);
+          running += 1;
+          most = Math.max(most, running);
+          // the first batch is the slowest: the later ones finish before it
+          await new Promise((resolve) => setTimeout(resolve, names.includes('q0') ? 30 : 5));
+          running -= 1;
+          const answers = Object.fromEntries(names.map((name) => [name, { type: 'predicate' as const, probability: 0.9 }]));
+          return { value: { answers, model: 'judge' }, call: ModelCallId.parse(`mdl_${names[0]}`), cost: names.length, model: 'judge' };
+        },
+      },
+      parallel: 2,
+    });
+    const model: DecisionModel = { model: 'judge', provider: 'ollama', threshold: 0.7, maxQuestions: 2 };
+    const decided = await hub.ask({ input: 'the user asked about invoices', questions: questions(7), model, site: { purpose: 'test' }, signal: new AbortController().signal });
+    expect(most).toBe(2);
+    expect(Object.keys(decided.answers)).toEqual(['q0', 'q1', 'q2', 'q3', 'q4', 'q5', 'q6']);
+    expect(decided).toMatchObject({ calls: ['mdl_q0', 'mdl_q2', 'mdl_q4', 'mdl_q6'], cost: 7 });
+  });
+
+  it('fails the decision with the first call that fails', async () => {
+    const decided = decideInBatches(questions(4), { input: 'x', maxQuestions: 1 }, async (batch) => {
+      if ('q1' in batch) throw new Error('the model is down');
+      return { answers: {}, model: 'judge' };
+    }, 4);
+    await expect(decided).rejects.toThrow('the model is down');
   });
 
   it('asks in calls within the model’s bytes too, keeping every call', async () => {

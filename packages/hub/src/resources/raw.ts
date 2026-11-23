@@ -5,6 +5,7 @@
  * (`RawReader`) so the forms service is tested without a link.
  */
 import { reject } from '@ayepi/core';
+import { flow } from '@harness/core';
 import type { ContentRef, ResourceLink, ResourceRead, ResourceStat, ResourceUri, SystemName, systemLinkSpec } from '@harness/core';
 import type { z } from 'zod';
 import type { ContentStore } from '../api/index.ts';
@@ -92,8 +93,12 @@ export class LinkRawReader implements RawReader {
       if (offset !== ref.size) { throw reject(502, 'CONTENT_SHORT', `${source.system} sent ${offset} of the ${ref.size} bytes of ${uri}`); }
       return Buffer.concat(parts);
     };
-    const bytes = read.bytes === undefined ? undefined : await fetch(read.bytes);
-    const text = read.text === undefined ? undefined : 'inline' in read.text ? read.text.inline : Buffer.from(await fetch(read.text.ref)).toString('utf8');
+    // the bytes and the text are fetched together
+    const textOf = async (given: NonNullable<typeof read.text>): Promise<string> => ('inline' in given ? given.inline : Buffer.from(await fetch(given.ref)).toString('utf8'));
+    const { bytes, text } = await flow({ signal })
+      .step('bytes', () => (read.bytes === undefined ? undefined : fetch(read.bytes)))
+      .step('text', () => (read.text === undefined ? undefined : textOf(read.text)))
+      .run();
     return { system: source.system, stat: read.stat, links: read.links ?? [], ...(bytes === undefined ? {} : { bytes }), ...(text === undefined ? {} : { text }) };
   }
 

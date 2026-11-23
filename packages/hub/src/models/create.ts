@@ -52,6 +52,7 @@ export const modelsModule: ModuleFactory<'models'> = ({ hub }) => {
   const decider = new HubDecider({
     roles,
     llm: { decide: (input, site, signal) => hub.execution.llm.decide(input, site, signal), models: () => hub.execution.llm.models() },
+    parallel: hub.settings.modelEnv.HARNESS_DECIDE_PARALLEL,
   });
   return {
     services: { roles, gateway, decider },

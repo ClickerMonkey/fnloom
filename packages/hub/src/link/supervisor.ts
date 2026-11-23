@@ -31,7 +31,7 @@ import {
   type Endpoint, type NetworkGate, type ProcessCommand, type ProcessExit, type ProcessStarter, type ProxyRefusal, type SupervisedProcess,
 } from '@harness/sdk/server';
 import {
-  MAIN_INSTANCE, instanceLabel, type InstallSource, type InstalledSystem, type InstanceDirs, type InstanceName, type InstanceRecord, type InstanceRef,
+  MAIN_INSTANCE, instanceLabel, mapConcurrent, type InstallSource, type InstalledSystem, type InstanceDirs, type InstanceName, type InstanceRecord, type InstanceRef,
   type HostRefusal, type StopReason, type SystemName,
 } from '@harness/core';
 import type { EventBus } from '../bus.ts';
@@ -248,7 +248,8 @@ export class ProcessSupervisor implements Supervisor {
 
   async uninstall(system: SystemName, instance?: InstanceName): Promise<void> {
     const targets = await this.#targets(system, instance);
-    for (const installed of targets) {
+    // each instance stops (up to the stop timeout) and is removed on its own, all at once
+    await mapConcurrent(targets, async (installed) => {
       const ref = refOf(installed);
       await this.#stop(ref, 'removed');
       await this.#options.instances.sync(ref, (record) => {
@@ -257,7 +258,7 @@ export class ProcessSupervisor implements Supervisor {
       });
       this.#crashes.forget(instanceLabel(ref));
       this.#options.log.info('supervisor.uninstalled', { system, instance: ref.instance });
-    }
+    });
     // the package goes with the last installed instance; data folders stay, so the data can still be exported
     const left = (await this.list()).filter((i) => i.name === system);
     const first = targets[0];

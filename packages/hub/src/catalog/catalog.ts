@@ -9,7 +9,7 @@ import {
   apiContextName, injectTargetProblems, Json, MANIFEST_SECTION_NAMES, noFnStats, QualifiedName, qualify, roleLinkTo, runtimeNames, splitName, type ModelRole,
   type ActorId, type Availability, type ContextDecl, type ContextRecord, type FnDecl, type FnRecord, type GinTypeDef, type ImportReport,
   type KindDecl, type KindRecord, type Manifest, type ManifestPatch, type ManifestSection, type SectionDecl,
-  type InstanceName, SystemName, type TypeDecl, type TypeRecord, type DeclaredBy, type FnLink, type ApiGroupDecl,
+  type InstanceName, SystemName, type SystemProviderDecl, type TypeDecl, type TypeRecord, type DeclaredBy, type FnLink, type ApiGroupDecl,
 } from '@harness/core';
 import { canonicalJson, sha256 } from '@harness/sdk';
 import { z } from 'zod';
@@ -67,6 +67,9 @@ export const typeOwner = (decl: TypeDecl): InstanceName | undefined => decl.inst
 /** The fleet instance a fn belongs to (one routed to it always), if one does. */
 export const fnOwner = (decl: FnDecl): InstanceName | undefined => (decl.routing?.to === 'instance' ? decl.routing.instance : undefined);
 
+/** The fleet instance a provider belongs to (its calls go there), if one does. */
+export const providerOwner = (decl: SystemProviderDecl): InstanceName | undefined => decl.instance;
+
 /** One owned section of a manifest from `from`: the others' entries kept from before, its own and the shared ones as sent. */
 function ownedSection<D extends { name: string }>(before: readonly D[], sent: readonly D[], from: InstanceName, owner: (decl: D) => InstanceName | undefined): D[] {
   const kept = before.filter((decl) => { const own = owner(decl); return own !== undefined && own !== from; });
@@ -76,7 +79,7 @@ function ownedSection<D extends { name: string }>(before: readonly D[], sent: re
 }
 
 /**
- * A manifest as an instance of a fleet sent it, joined with what the system's other instances own: their types and fns
+ * A manifest as an instance of a fleet sent it, joined with what the system's other instances own: their types, fns and providers
  * stay as they were, and anything it says about them (an update, a removal, a claim to own one) is ignored.
  */
 export function fromInstance(before: Manifest | undefined, sent: Manifest, from: InstanceName): Manifest {
@@ -90,7 +93,9 @@ export function fromInstance(before: Manifest | undefined, sent: Manifest, from:
   };
   const ownerOf = <D extends { name: string }>(list: readonly D[], owner: (decl: D) => InstanceName | undefined) => (name: string) => { const decl = list.find((d) => d.name === name); return decl === undefined ? undefined : owner(decl); };
   const runtime = { ...sent.runtime, types: runtimeIn('types', types, ownerOf(types, typeOwner)), fns: runtimeIn('fns', fns, ownerOf(fns, fnOwner)) };
-  return { ...sent, types, fns, runtime };
+  // an instance's own providers (a runtime provider is one per instance) are kept from before when another instance sends
+  const providers = before?.providers === undefined && sent.providers === undefined ? undefined : ownedSection(before?.providers ?? [], sent.providers ?? [], from, providerOwner);
+  return { ...sent, types, fns, runtime, ...(providers === undefined ? {} : { providers }) };
 }
 
 /** Running numbers for a fn that has never run. */
@@ -320,8 +325,9 @@ export class StoreCatalog implements Catalog {
       if (previous === undefined) { return emptyReport(); }
       const types = previous.types.filter((decl) => typeOwner(decl) !== instance);
       const fns = previous.fns.filter((decl) => fnOwner(decl) !== instance);
-      if (types.length === previous.types.length && fns.length === previous.fns.length) { return emptyReport(); }
-      return this.#import({ ...previous, types, fns }, false);
+      const providers = previous.providers?.filter((decl) => providerOwner(decl) !== instance);
+      if (types.length === previous.types.length && fns.length === previous.fns.length && providers?.length === previous.providers?.length) { return emptyReport(); }
+      return this.#import({ ...previous, types, fns, ...(providers === undefined ? {} : { providers }) }, false);
     });
   }
 
@@ -512,10 +518,12 @@ export class StoreCatalog implements Catalog {
     for (const row of await allRows(store.table('fnLinks'), { where: { fn: name } })) { await store.table('fnLinks').remove({ fn: row.fn, to: row.to, link: row.link }); }
   }
 
-  /** The fn records of some names, leaving out any gone. */
+  /** The fn records of some names in the names' order (each once), leaving out any gone: one query, not one per name. */
   async #records(names: readonly QualifiedName[]): Promise<FnRecord[]> {
-    const fns = this.options.store.table('fns');
-    return (await Promise.all([...new Set(names)].map((name) => fns.get(name)))).filter((fn) => fn !== undefined);
+    const wanted = [...new Set(names)];
+    if (wanted.length === 0) return [];
+    const found = new Map((await allRows(this.options.store.table('fns'), { where: { name: { in: wanted } } })).map((fn) => [fn.name, fn]));
+    return wanted.flatMap((name) => { const fn = found.get(name); return fn === undefined ? [] : [fn]; });
   }
 
   /**

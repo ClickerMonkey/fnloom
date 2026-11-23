@@ -5,7 +5,7 @@
  * typed and checked by the contract's gin types. Services are read when a fn runs, never while registering. Every one
  * keeps to what the run's person may see and use (their `AccessScope`): search hits, loads and results alike.
  */
-import { clipMarked, ContextCrawlArgs, contextOff, effectCovered, effectsLine, CtxSearchArgs, ctxSearchQuery, FnExamplesQuery, FnRouting, FnSearchArgs, fnsSearchQuery, QualifiedName, qualify, splitName, SystemName, type FnRefusal, type ContextCrawlResult, type ContextRecord, type CrawledContext, type FnSearchPage, type FnSearchQuery, type LoadContextResult, type LoadFnsResult, type SearchItemKind, type ActorId, type FnDecl, type FnExample, type Json, type IndexedKind, type RegistryEffect, type Run, type Session, type SessionId } from '@harness/core';
+import { mapConcurrent, clipMarked, ContextCrawlArgs, contextOff, effectCovered, effectsLine, CtxSearchArgs, ctxSearchQuery, FnExamplesQuery, FnRouting, FnSearchArgs, fnsSearchQuery, QualifiedName, qualify, splitName, SystemName, type FnRefusal, type ContextCrawlResult, type ContextRecord, type CrawledContext, type FnSearchPage, type FnSearchQuery, type LoadContextResult, type LoadFnsResult, type SearchItemKind, type ActorId, type FnDecl, type FnExample, type Json, type IndexedKind, type RegistryEffect, type Run, type Session, type SessionId } from '@harness/core';
 import { hub, parseValue, SAVE_FN_TAKEN, wireType } from '@harness/sdk';
 import type { AccessService } from '../access/index.ts';
 import type { FnFactsService, FnsServices } from '../fns/index.ts';
@@ -140,15 +140,14 @@ async function mayLoad(deps: Pick<HubFnDeps, 'catalog'>, { session, access }: As
  * the name), and the rest refused with the closest names it knows.
  */
 async function askedContext(deps: HubFnDeps, asker: Asker, ctx: HubFnCtx, given: readonly string[]): Promise<{ asked: QualifiedName[]; refused: LoadContextResult['refused'] }> {
-  const refused: LoadContextResult['refused'] = [];
-  const asked: QualifiedName[] = [];
-  for (const line of given) {
+  // every line looked up at once (a refused one searches for the closest names), then sorted in the order given
+  const looked = await mapConcurrent(given, async (line) => {
     const name = QualifiedName.safeParse(line.split(/:\s/, 1)[0]?.trim() ?? line);
     const record = name.success ? await deps.catalog().context(name.data) : undefined;
-    if (record !== undefined && await mayLoad(deps, asker, record)) { asked.push(record.name); continue; }
-    refused.push({ context: line, reason: name.success ? 'no context you can load has that name' : 'not a qualified name (system/name)', closest: await closestContext(deps, asker, ctx, line) });
-  }
-  return { asked, refused };
+    if (record !== undefined && await mayLoad(deps, asker, record)) return { asked: record.name };
+    return { refused: { context: line, reason: name.success ? 'no context you can load has that name' : 'not a qualified name (system/name)', closest: await closestContext(deps, asker, ctx, line) } };
+  });
+  return { asked: looked.flatMap((one) => ('asked' in one ? [one.asked] : [])), refused: looked.flatMap((one) => ('refused' in one ? [one.refused] : [])) };
 }
 
 /**

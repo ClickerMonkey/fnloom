@@ -5,9 +5,14 @@
  * links answered at or above the role's threshold load, most likely first, with their imports, while they fit the token
  * budget. Core's `context-graph.ts` holds the wording and the ranking; this walks the catalog. Loading what it took into
  * a session, and the cards the model reads, are the hub fn's (`boot/hub-fns.ts`).
+ *
+ * What runs together: a level's lookups (each link's target and whether the asker may load it, each taken item's
+ * imports) are read at once, and the decider asks a level's batches up to `HARNESS_DECIDE_PARALLEL` at a time. What
+ * stays in order is the taking: items are admitted one by one, most likely first, against the token budget, so the
+ * outcome is the same as reading everything one after another.
  */
 import {
-  QualifiedName, crawlBatchSize, crawlInput, crawlQuestion, rankCrawlAnswers, yesProbability, type ContextChoice, type ContextCrawlArgs, type ContextRecord, type CrawledContext,
+  QualifiedName, crawlBatchSize, mapConcurrent, crawlInput, crawlQuestion, rankCrawlAnswers, yesProbability, type ContextChoice, type ContextCrawlArgs, type ContextRecord, type CrawledContext,
   type CrawlSkip, type CrawlStopReason, type DecisionAnswer, type DecisionQuestion, type ModelCallId,
 } from '@harness/core';
 import type { Catalog } from '../catalog/index.ts';
@@ -57,6 +62,9 @@ interface Link {
 /** What taking an item (with its imports) came to. */
 type Admitted = { readonly taken: readonly Taken[] } | { readonly over: true };
 
+/** How an item was reached, for its `Taken` entry. */
+type How = Pick<Taken, 'depth' | 'via'> & Partial<Pick<Taken, 'from' | 'probability'>>;
+
 /** An item's size as a crawl counts it: its full text, or its summary while its text is written on load (dynamic context). */
 export function crawlTokens(record: Pick<ContextRecord, 'decl' | 'tokens'>): number {
   const tokens = record.tokens ?? contextTokens(record.decl);
@@ -96,14 +104,14 @@ class CrawlRun {
   async walk(): Promise<CrawlOutcome> {
     let over = false;
     let frontier: Taken[] = [];
-    // level 0: what was asked for, each with what it imports
-    for (const name of this.#plan.start) {
-      if (this.#names.has(name)) continue;
-      const record = await this.#deps.catalog.context(name);
-      if (record === undefined) continue;
-      const admitted = await this.#admit(record, { depth: 0, via: 'start' });
-      if ('over' in admitted) { over = true; this.#skipped.push({ context: name, depth: 0, reason: 'max-tokens' }); } else { frontier.push(...admitted.taken); }
-    }
+    // level 0: what was asked for, each with what it imports (all read at once, then taken in the order asked)
+    const records = await mapConcurrent(this.#plan.start, (name) => this.#deps.catalog.context(name));
+    const units = await mapConcurrent(records, (record) => (record === undefined ? [] : this.#unit(record)));
+    records.forEach((record, index) => {
+      if (record === undefined || this.#names.has(record.name)) return;
+      const admitted = this.#take(record, units[index] ?? [], { depth: 0, via: 'start' });
+      if ('over' in admitted) { over = true; this.#skipped.push({ context: record.name, depth: 0, reason: 'max-tokens' }); } else { frontier.push(...admitted.taken); }
+    });
     if (over) return this.#outcome('max-tokens');
     for (let depth = 1; ; depth += 1) {
       const links = await this.#links(frontier, depth);
@@ -128,12 +136,15 @@ class CrawlRun {
       const { yes, no } = rankCrawlAnswers(asked.map((link, index) => ({ link, probability: yesProbability(answers[questionKey(index)]) })), this.#plan.model.threshold);
       for (const { link, probability } of no) this.#skip(link, depth, 'declined', probability);
       const next: Taken[] = [];
-      for (const { link, probability } of yes) {
+      // every yes link's imports read at once; then taken most likely first, against the budget
+      const fresh = yes.filter(({ link }) => !this.#names.has(link.target.name));
+      const freshUnits = await mapConcurrent(fresh, ({ link }) => this.#unit(link.target));
+      fresh.forEach(({ link, probability }, index) => {
         // two links to one item: the first taken wins, the other has nothing left to load
-        if (this.#names.has(link.target.name)) continue;
-        const admitted = await this.#admit(link.target, { depth, via: 'choice', from: link.from, probability });
+        if (this.#names.has(link.target.name)) return;
+        const admitted = this.#take(link.target, freshUnits[index] ?? [], { depth, via: 'choice', from: link.from, probability });
         if ('over' in admitted) { over = true; this.#skip(link, depth, 'max-tokens', probability); } else { next.push(...admitted.taken); }
-      }
+      });
       if (over) return this.#outcome('max-tokens');
       if (links.length > asked.length) return this.#outcome('max-decisions');
       if (next.length === 0) return this.#outcome('complete');
@@ -159,40 +170,54 @@ class CrawlRun {
    * the asker can't load is skipped as `unavailable` without a question.
    */
   async #links(frontier: readonly Taken[], depth: number): Promise<Link[]> {
-    const links: Link[] = [];
+    const wanted: Array<{ readonly from: QualifiedName; readonly choice: ContextChoice }> = [];
     const seen = new Set<string>();
     for (const item of frontier) {
       for (const choice of item.record.decl.choices ?? []) {
         const key = `${item.name}\n${choice.to}`;
         if (this.#names.has(choice.to) || seen.has(key)) continue;
         seen.add(key);
-        const target = await this.#deps.catalog.context(choice.to);
-        if (target === undefined || !await this.#deps.usable(target)) {
-          this.#skipped.push({ context: choice.to, from: item.name, depth, reason: 'unavailable' });
-          continue;
-        }
-        links.push({ from: item.name, choice, target });
+        wanted.push({ from: item.name, choice });
       }
     }
+    // every target read (and checked for the asker) at once; the links and skips keep the frontier's order
+    const targets = await mapConcurrent(wanted, async ({ choice }) => {
+      const target = await this.#deps.catalog.context(choice.to);
+      return target !== undefined && await this.#deps.usable(target) ? target : undefined;
+    });
+    const links: Link[] = [];
+    wanted.forEach(({ from, choice }, index) => {
+      const target = targets[index];
+      if (target === undefined) this.#skipped.push({ context: choice.to, from, depth, reason: 'unavailable' });
+      else links.push({ from, choice, target });
+    });
     return links;
   }
 
   /**
-   * Take an item with what it imports (transitively, those not taken yet that the asker may load), all or nothing:
-   * when they don't fit what is left of the token budget, none is taken.
+   * An item with what it imports (transitively) that the asker may load, in `withImports` order: everything taking it
+   * could need, read at once. What is taken by the time it is admitted is left out then (`#take`).
    */
-  async #admit(record: ContextRecord, how: Pick<Taken, 'depth' | 'via'> & Partial<Pick<Taken, 'from' | 'probability'>>): Promise<Admitted> {
-    const unit: ContextRecord[] = [];
-    for (const name of await withImports(this.#deps.catalog, [record.name])) {
-      if (this.#names.has(name)) continue;
+  async #unit(record: ContextRecord): Promise<ContextRecord[]> {
+    const names = await withImports(this.#deps.catalog, [record.name]);
+    const found = await mapConcurrent(names, async (name) => {
       const parsed = QualifiedName.safeParse(name);
-      const found = name === record.name ? record : parsed.success ? await this.#deps.catalog.context(parsed.data) : undefined;
-      if (found !== undefined && await this.#deps.usable(found)) unit.push(found);
-    }
-    const cost = unit.reduce((sum, item) => sum + crawlTokens(item), 0);
+      const item = name === record.name ? record : parsed.success ? await this.#deps.catalog.context(parsed.data) : undefined;
+      return item !== undefined && await this.#deps.usable(item) ? item : undefined;
+    });
+    return found.filter((item) => item !== undefined);
+  }
+
+  /**
+   * Take an item with its unit (`#unit`, less what is taken already), all or nothing: when they don't fit what is
+   * left of the token budget, none is taken.
+   */
+  #take(record: ContextRecord, unit: readonly ContextRecord[], how: How): Admitted {
+    const left = unit.filter((item) => !this.#names.has(item.name));
+    const cost = left.reduce((sum, item) => sum + crawlTokens(item), 0);
     if (this.#tokens + cost > this.#plan.maxTokens) return { over: true };
     this.#tokens += cost;
-    const taken = unit.map((item): Taken => {
+    const taken = left.map((item): Taken => {
       this.#names.add(item.name);
       const head = item.name === record.name;
       return {

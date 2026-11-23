@@ -112,6 +112,7 @@ export const modelEnv = env({
   HARNESS_EMBEDDER_QUERY: z.string().default('embedder/query').describe('The embedder that embeds search text (queries), in the same vector space as the document embedder.'),
   HARNESS_EMBED_BATCH: z.number().int().min(1).default(32).describe('Most texts in one embed batch.'),
   HARNESS_SUGGESTIONS: z.number().int().min(0).default(6).describe('How many fns and context the composer suggests.'),
+  HARNESS_DECIDE_PARALLEL: z.number().int().min(1).default(2).describe('How many calls one decision split over several calls (a crawl level, judging a search) makes at once; each still waits its turn on the LLM queue (HARNESS_LLM_CONCURRENCY). 1 asks them one after another.'),
 });
 
 /** Logging. */

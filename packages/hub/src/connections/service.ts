@@ -9,9 +9,9 @@ import { z } from 'zod';
 import type { Logger } from '@ayepi/log';
 import { keyConnectOf } from '@harness/sdk';
 import {
-  ConnectionId, ConnectKey, ConnectKeyRecord, InstanceConnect, Json, mintId, qualify, splitName, type ActorId, type ConnectDecl, type Filter, type FnConnectKey, type ConnectFlow, type ConnectionChange, type ConnectionFnOption, type ConnectionUpdate,
+  ConnectionId, ConnectKey, ConnectKeyRecord, flow, InstanceConnect, Json, mapConcurrent, mintId, qualify, splitName, type ActorId, type ConnectDecl, type Filter, type FnConnectKey, type ConnectFlow, type ConnectionChange, type ConnectionFnOption, type ConnectionUpdate,
   type ConnectionView, type ConnectPage, type ConnectResult, type IdRandom, type InstanceName, type QualifiedName, type RunConnection, type SecretId, SystemName,
-  type UserConnection,
+  type InstanceRecord, type UserConnection,
 } from '@harness/core';
 import { fnOwner } from '../catalog/catalog.ts';
 import type { ConnectionGate, FnConnection, FnRef } from '../access/index.ts';
@@ -83,6 +83,12 @@ function fnKey(connectKey: FnConnectKey | undefined, args: Json | undefined): Co
   return key.success ? key.data : undefined;
 }
 
+/** The instances a page lists: those not removed whose connect has a flow. */
+function instancePages(rows: readonly InstanceRecord[]): NonNullable<ConnectPage['instances']> {
+  return rows.flatMap((row) => (row.status === 'removed' || row.connect?.flow === undefined ? []
+    : [{ instance: row.instance, label: row.description === '' ? row.instance : row.description, connect: row.connect }]));
+}
+
 /** Connections over the store. */
 export class StoreConnectionService implements ConnectionService {
   readonly #deps: ConnectionDeps;
@@ -102,17 +108,22 @@ export class StoreConnectionService implements ConnectionService {
   }
 
   async pages(asker: ActorId): Promise<ConnectPage[]> {
-    const pages: ConnectPage[] = [];
-    for (const { system, decl, ready } of await this.#decls()) {
-      const connections = await allRows(this.#table(), { where: { owner: asker, system } });
-      const instances = decl.scope === 'instance' ? await this.#instancePages(system) : undefined;
-      const keys = decl.scope === 'key' ? await this.#keyEntries(decl, asker) : undefined;
-      pages.push({
-        system, decl, ready, connections: connections.sort((a, b) => b.createdAt - a.createdAt).map(connectionView),
-        ...(instances === undefined ? {} : { instances }), ...(keys === undefined ? {} : { keys }),
-      });
-    }
-    return pages;
+    // the asker's connections and the systems' instances in one query each (not one per system), the keys alongside
+    const { decls, connections, instances, keys } = await flow()
+      .step('decls', () => this.#decls())
+      .step('connections', ['decls'], ({ decls: all }) => (all.length === 0 ? [] : allRows(this.#table(), { where: { owner: asker, system: { in: all.map((entry) => entry.system) } } })))
+      .step('instances', ['decls'], ({ decls: all }) => this.#instanceRows(all.filter((entry) => entry.decl.scope === 'instance').map((entry) => entry.system)))
+      .step('keys', ['decls'], ({ decls: all }) => mapConcurrent(all, ({ decl }) => (decl.scope === 'key' ? this.#keyEntries(decl, asker) : undefined)))
+      .run();
+    return decls.map(({ system, decl, ready }, index): ConnectPage => {
+      const own = connections.filter((row) => row.system === system);
+      const shown = decl.scope === 'instance' ? instancePages(instances.filter((row) => row.system === system)) : undefined;
+      const entries = keys[index];
+      return {
+        system, decl, ready, connections: own.sort((a, b) => b.createdAt - a.createdAt).map(connectionView),
+        ...(shown === undefined ? {} : { instances: shown }), ...(entries === undefined ? {} : { keys: entries }),
+      };
+    });
   }
 
   async connect(asker: ActorId, system: SystemName, form?: Json, instance?: InstanceName, key?: ConnectKey): Promise<ConnectStart> {
@@ -335,12 +346,12 @@ export class StoreConnectionService implements ConnectionService {
 
   /** Every system with a `connect` declaration, and whether it can take connections now. */
   async #decls(): Promise<Array<{ system: SystemName; decl: ConnectDecl; ready: boolean }>> {
-    const out: Array<{ system: SystemName; decl: ConnectDecl; ready: boolean }> = [];
-    for (const record of await allRows(this.#deps.store.table('systems'))) {
-      if (record.status === 'removed') continue;
-      const decl = (await this.#deps.catalog.manifest(record.name))?.connect;
-      if (decl !== undefined) out.push({ system: record.name, decl, ready: record.status === 'connected' });
-    }
+    const records = (await allRows(this.#deps.store.table('systems'))).filter((record) => record.status !== 'removed');
+    const manifests = await mapConcurrent(records, (record) => this.#deps.catalog.manifest(record.name));
+    const out = records.flatMap((record, index) => {
+      const decl = manifests[index]?.connect;
+      return decl === undefined ? [] : [{ system: record.name, decl, ready: record.status === 'connected' }];
+    });
     return out.sort((a, b) => a.decl.title.localeCompare(b.decl.title));
   }
 
@@ -422,19 +433,16 @@ export class StoreConnectionService implements ConnectionService {
   }
 
   /** The instances of an instance-scoped system people connect to (those that said how), for its page. */
-  async #instancePages(system: SystemName): Promise<NonNullable<ConnectPage['instances']>> {
-    const rows = await allRows(this.#deps.store.table('instances'), { where: { system } });
-    return rows.flatMap((row) => (row.status === 'removed' || row.connect?.flow === undefined ? []
-      : [{ instance: row.instance, label: row.description === '' ? row.instance : row.description, connect: row.connect }]));
+  /** The instance rows of these systems, in one query. */
+  async #instanceRows(systems: readonly SystemName[]): Promise<InstanceRecord[]> {
+    return systems.length === 0 ? [] : allRows(this.#deps.store.table('instances'), { where: { system: { in: [...systems] } } });
   }
 
   /** How people connect to each instance of these systems (`system/instance` to its `InstanceConnect`). */
   async #instanceConnects(systems: readonly SystemName[]): Promise<Map<string, InstanceConnect>> {
     const out = new Map<string, InstanceConnect>();
-    for (const system of systems) {
-      for (const row of await allRows(this.#deps.store.table('instances'), { where: { system } })) {
-        if (row.status !== 'removed' && row.connect !== undefined) out.set(instanceKey(system, row.instance), row.connect);
-      }
+    for (const row of await this.#instanceRows(systems)) {
+      if (row.status !== 'removed' && row.connect !== undefined) out.set(instanceKey(row.system, row.instance), row.connect);
     }
     return out;
   }

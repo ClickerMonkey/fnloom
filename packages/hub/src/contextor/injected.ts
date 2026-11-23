@@ -21,7 +21,7 @@
  */
 import { createHash } from 'node:crypto';
 import {
-  MODE_RANK, seesOrigin, targetHits, type AgentTargetDecl, type ChatModeType, type ContextRecord, type FnMode, type FnRecord, type InjectionLeftOut, type InjectionSetting,
+  MODE_RANK, flow, mapConcurrent, seesOrigin, targetHits, type AgentTargetDecl, type ChatModeType, type ContextRecord, type FnMode, type FnRecord, type InjectionLeftOut, type InjectionSetting,
   type InjectionSource, type QualifiedName, type Session, type SystemName,
 } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
@@ -98,6 +98,8 @@ export interface InjectedDeps {
   readonly dynamic: DynamicContext;
   /** Fns' modes, for the chat's fn setting (none: every fn counts as `write`). */
   readonly fns?: Pick<FnsForPrompt, 'modes'> | undefined;
+  /** How many items are worked out at once (`HARNESS_CONTEXT_PARALLEL`: a dynamic one is written by its system); all at once when unset. */
+  readonly parallel?: number | undefined;
 }
 
 /** The default order of a hook's `explains`: after its system's items at the default order. */
@@ -124,11 +126,13 @@ export async function gatherInjected(deps: InjectedDeps, at: InjectedFor): Promi
     const why = offReason(row, chat);
     return why === undefined ? undefined : why === 'chat' ? `this chat does not use ${system}` : `${system} is off (${why})`;
   };
-  const candidates: Array<{ item: InjectedItem; left?: Omit<LeftOutItem, 'name' | 'title'> }> = [];
+  type Candidate = { item: InjectedItem; left?: Omit<LeftOutItem, 'name' | 'title'> };
+  const limit = { limit: deps.parallel };
 
-  for (const injection of injections) {
+  /** A context injection as a candidate: undefined when the asker may not see it. */
+  const contextCandidate = async (injection: (typeof injections)[number]): Promise<Candidate | undefined> => {
     const stored = await deps.store.table('context').get(injection.context);
-    if (stored === undefined || !at.access.seesContext(stored) || !seesOrigin(stored.origin, { actor: at.user, session: at.session?.id })) continue;
+    if (stored === undefined || !at.access.seesContext(stored) || !seesOrigin(stored.origin, { actor: at.user, session: at.session?.id })) return undefined;
     const setting = settings.get(injection.context);
     const via = injection.inject.into.find((target) => targetHits(target, agent)) ?? agent;
     const order = setting?.order ?? injection.inject.order;
@@ -139,35 +143,40 @@ export async function gatherInjected(deps: InjectedDeps, at: InjectedFor): Promi
     // the text only for what goes in: a dynamic item is asked of its system then, never for one left out
     const record = left === undefined ? await deps.dynamic.resolve(stored, { session: at.session?.id, actor: at.user, user: at.person }) : stored;
     const { decl } = record;
-    candidates.push({
+    return {
       item: {
         name: injection.context, source: { type: 'context' }, system: injection.system, via, title: injection.title, order,
         full: decl.content ?? decl.summary ?? decl.description, summary: decl.summary, fns: injection.fns, record, dynamic: injection.dynamic,
       },
       ...(left === undefined ? {} : { left }),
-    });
-  }
+    };
+  };
 
-  // a hook's blocks go into the session's own agent's messages, so only it is told what they mean
-  if (at.session !== undefined && at.session.agent === agent) {
-    const hooks = await listHookExplains(deps.catalog, deps.store);
-    for (const hook of hooks) {
-      if (!allowsSystem(at.session, hook.system) || !at.access.seesSystem(hook.system)) continue;
-      const setting = settings.get(hook.hook);
-      const available = await deps.catalog.availability(hook.hook);
-      const left = await leftOutOf({
-        review: hook.review, setting, off: available !== true && available.unavailable === 'disabled', system: systemOff(hook.system), needs: [],
-      }, deps, at);
-      const tag = hookTag(hook.hook);
-      candidates.push({
-        item: {
-          name: hook.hook, source: { type: 'hook', hook: hook.hook }, system: hook.system, via: agent, title: `The <${tag}> block`,
-          order: setting?.order ?? HOOK_ORDER, full: hook.explains, summary: undefined, fns: [], dynamic: false,
-        },
-        ...(left === undefined ? {} : { left }),
-      });
-    }
-  }
+  /** A hook's `explains` as a candidate: undefined when the chat doesn't use its system or the asker can't see it. */
+  const hookCandidate = async (hook: Awaited<ReturnType<typeof listHookExplains>>[number]): Promise<Candidate | undefined> => {
+    if (at.session === undefined || !allowsSystem(at.session, hook.system) || !at.access.seesSystem(hook.system)) return undefined;
+    const setting = settings.get(hook.hook);
+    const available = await deps.catalog.availability(hook.hook);
+    const left = await leftOutOf({
+      review: hook.review, setting, off: available !== true && available.unavailable === 'disabled', system: systemOff(hook.system), needs: [],
+    }, deps, at);
+    const tag = hookTag(hook.hook);
+    return {
+      item: {
+        name: hook.hook, source: { type: 'hook', hook: hook.hook }, system: hook.system, via: agent, title: `The <${tag}> block`,
+        order: setting?.order ?? HOOK_ORDER, full: hook.explains, summary: undefined, fns: [], dynamic: false,
+      },
+      ...(left === undefined ? {} : { left }),
+    };
+  };
+
+  // the context items (a dynamic one written by its system) and the hooks' explains are worked out together
+  const found = await flow()
+    .step('context', () => mapConcurrent(injections, contextCandidate, limit))
+    // a hook's blocks go into the session's own agent's messages, so only it is told what they mean
+    .step('hooks', async () => (at.session !== undefined && at.session.agent === agent ? mapConcurrent(await listHookExplains(deps.catalog, deps.store), hookCandidate, limit) : []))
+    .run();
+  const candidates = [...found.context, ...found.hooks].filter((candidate) => candidate !== undefined);
 
   candidates.sort((a, b) => a.item.order - b.item.order || a.item.system.localeCompare(b.item.system)
     || sourceRank(a.item) - sourceRank(b.item) || a.item.name.localeCompare(b.item.name));

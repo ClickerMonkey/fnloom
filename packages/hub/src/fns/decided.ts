@@ -26,7 +26,7 @@
  */
 import type { Logger } from '@ayepi/log';
 import {
-  actionOf, fnOfModelNameByRule, messageOf, QualifiedName, SEARCH_DECISION_DEFAULT, SEARCH_DECISION_OPTIONS, SearchDecision, yesProbability, type ActorId, type DecisionQuestions, type FnSearchHit,
+  actionOf, fnOfModelNameByRule, mapConcurrent, messageOf, QualifiedName, SEARCH_DECISION_DEFAULT, SEARCH_DECISION_OPTIONS, SearchDecision, yesProbability, type ActorId, type DecisionQuestions, type FnSearchHit,
   type FnSearchPage, type FnSearchQuery, type LlmMessage, type ModelCallId, type MessagePart, type RunId, type SearchDecisionsView, type SearchDecisionView,
   type SearchFiltered, type SearchItemKind, type SessionId, type Timestamp,
 } from '@harness/core';
@@ -163,16 +163,20 @@ export class SearchDecisions {
     const text = query.text?.trim() ?? '';
     if (text === '' || query.order === 'name' || query.names !== undefined || page.items.length === 0) return page;
     const purpose: SearchPurpose = { text, latest: asker.latest };
+    // the fn hits and the context hits are judged at once (each kind's own model call); recorded fn first, then context
+    const outcomes = await mapConcurrent(['fn', 'context'] as const, async (item) => {
+      const hits = page.items.filter((hit) => hit.item === item);
+      if (hits.length === 0) return undefined;
+      const setting = (await this.setting(item)).value;
+      if (setting.by === 'none') return undefined;
+      return { hits, outcome: await this.#judge(item, setting, purpose, hits, asker.run) };
+    });
     const dropped = new Set<FnSearchHit>();
     const filtered: SearchFiltered[] = [];
-    for (const item of ['fn', 'context'] as const) {
-      const hits = page.items.filter((hit) => hit.item === item);
-      if (hits.length === 0) continue;
-      const setting = (await this.setting(item)).value;
-      if (setting.by === 'none') continue;
-      const outcome = await this.#judge(item, setting, purpose, hits, asker.run);
-      for (const hit of hits) if (outcome.kept !== undefined && !outcome.kept.has(hit)) dropped.add(hit);
-      filtered.push(outcome.filtered);
+    for (const judged of outcomes) {
+      if (judged === undefined) continue;
+      for (const hit of judged.hits) if (judged.outcome.kept !== undefined && !judged.outcome.kept.has(hit)) dropped.add(hit);
+      filtered.push(judged.outcome.filtered);
     }
     if (filtered.length === 0) return page;
     return { ...page, items: page.items.filter((hit) => !dropped.has(hit)), filtered: [...(page.filtered ?? []), ...filtered] };

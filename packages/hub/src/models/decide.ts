@@ -4,11 +4,12 @@
  * 64) and the bytes of input and questions per call (`ModelInfo.maxRequestBytes`; System One takes 64 KiB), and aeye
  * refuses a call over a cap without splitting it (`DecisionLimitError`). So every hub caller that asks questions
  * (suggestions, systems' `decide`, `ctx_crawl`) goes through `HubDecider.ask`, which splits them here, in order,
- * one call per batch, and gets every answer back by name. The model is the `decide` role's unless the job chose one,
+ * one call per batch, up to `HARNESS_DECIDE_PARALLEL` calls at once (each still waits its turn on the hub's LLM queue),
+ * and gets every answer back by name. The model is the `decide` role's unless the job chose one,
  * and the role's threshold says how likely a yes/no answer must be to count as yes.
  */
 import { DecisionLimitError, type DecisionAnswer, type DecisionQuestion, type DecisionRequest, type DecisionResponse } from '@aeye/ai';
-import { DEFAULT_DECIDE_THRESHOLD, type ModelCallId, type RoleModel } from '@harness/core';
+import { DEFAULT_DECIDE_THRESHOLD, mapConcurrent, type ModelCallId, type RoleModel } from '@harness/core';
 import { decisionInputFromWire } from '@harness/sdk/server';
 import type { LlmGateway } from '../execution/index.ts';
 import type { DecidedAnswers, Decider, DecisionModel, ModelRoles } from './index.ts';
@@ -67,21 +68,21 @@ export interface BatchedDecision {
 }
 
 /**
- * Ask `questions` about `input` in calls the model takes (`questionBatches`), one after another (a local decision
- * model answers one call at a time), through `ask` (an `ai.decide.get` with the caller's input, model and signal).
+ * Ask `questions` about `input` in calls the model takes (`questionBatches`), through `ask` (an `ai.decide.get` with
+ * the caller's input, model and signal): at most `parallel` calls at once (1, one after another, by default; each call
+ * still waits its turn on the hub's LLM queue). Answers and responses come back in batch order whatever order the
+ * calls finish in; the first call to fail fails the whole decision, after the calls already made have settled.
  */
 export async function decideInBatches(
   questions: Readonly<Record<string, DecisionQuestion>>,
   limits: DecisionLimits & { readonly input: DecisionRequest['input']; readonly model?: string },
-  ask: (batch: Record<string, DecisionQuestion>) => Promise<DecisionResponse>,
+  ask: (batch: Record<string, DecisionQuestion>, index: number) => Promise<DecisionResponse>,
+  parallel = 1,
 ): Promise<BatchedDecision> {
+  const batches = questionBatches(questions, limits, decisionInputBytes(limits.input), limits.model);
+  const responses = await mapConcurrent(batches, (batch, index) => ask(batch, index), { limit: parallel });
   const answers: Record<string, DecisionAnswer> = {};
-  const responses: DecisionResponse[] = [];
-  for (const batch of questionBatches(questions, limits, decisionInputBytes(limits.input), limits.model)) {
-    const response = await ask(batch);
-    responses.push(response);
-    Object.assign(answers, response.answers);
-  }
+  for (const response of responses) Object.assign(answers, response.answers);
   return { answers, responses };
 }
 
@@ -89,6 +90,8 @@ export async function decideInBatches(
 export interface HubDeciderDeps {
   readonly roles: Pick<ModelRoles, 'get' | 'resolveModel'>;
   readonly llm: Pick<LlmGateway, 'decide' | 'models'>;
+  /** How many of one decision's calls run at once (`HARNESS_DECIDE_PARALLEL`); one at a time when unset. */
+  readonly parallel?: number;
 }
 
 /** The hub's decisions, through the execution module's gateway: budgeted, rate-limited and recorded per call. */
@@ -115,17 +118,17 @@ export class HubDecider implements Decider {
 
   async ask(request: Parameters<Decider['ask']>[0]): Promise<DecidedAnswers> {
     const { input, questions, model, site, signal } = request;
-    const calls: ModelCallId[] = [];
-    let cost = 0;
     const metadata = { model: model.model, provider: model.provider };
     const wanted = decisionInputFromWire(input);
     const limits = { input: wanted, model: model.model, ...(model.maxQuestions === undefined ? {} : { maxQuestions: model.maxQuestions }), ...(model.maxRequestBytes === undefined ? {} : { maxRequestBytes: model.maxRequestBytes }) };
-    const { answers } = await decideInBatches(questions, limits, async (batch) => {
+    // each call's record and cost by its batch, so the calls are listed in batch order however they finish
+    const made: Array<{ readonly call: ModelCallId; readonly cost: number }> = [];
+    const { answers } = await decideInBatches(questions, limits, async (batch, index) => {
       const out = await this.#deps.llm.decide({ input: wanted, questions: batch, metadata }, site, signal);
-      calls.push(out.call);
-      cost += out.cost;
+      made[index] = { call: out.call, cost: out.cost };
       return out.value;
-    });
-    return { answers, calls, cost };
+    }, this.#deps.parallel);
+    const each = made.filter((one) => one !== undefined);
+    return { answers, calls: each.map((one) => one.call), cost: each.reduce((sum, one) => sum + one.cost, 0) };
   }
 }

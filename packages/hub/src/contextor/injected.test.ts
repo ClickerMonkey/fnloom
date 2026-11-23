@@ -8,7 +8,8 @@ import { ALICE, ALICE_INFO, OPEN_LIMITS } from '../execution/testing.ts';
 import { RecordingBus, memoryLog, testStore } from '../testing.ts';
 import { createContextor } from './create.ts';
 import { contextorEnv } from './env.ts';
-import { fitInjected, injectedTemplate, placeInjected, type InjectedItem } from './injected.ts';
+import { fitInjected, gatherInjected, injectedTemplate, placeInjected, type InjectedItem } from './injected.ts';
+import { openScope } from '../access/index.ts';
 import { moreContext } from './render.ts';
 import { chatModel, FixedSearch } from './testing.ts';
 
@@ -299,5 +300,37 @@ describe('the fixed region\'s stamp', () => {
     const report = await r.planner.preview(SESSION, 'Hello.', ALICE);
     expect(names(report.injected)).toContain('forms/asking');
     expect((await r.store.table('sessions').get(SESSION))?.fixed).toBeUndefined();
+  });
+});
+
+describe('gathering the injected section', () => {
+  it('works its items out together (a dynamic one written by its system), at most `parallel` at once, in the same order as one by one', async () => {
+    const r = await rig();
+    const session = await r.store.table('sessions').get(SESSION);
+    const agentRecord = await r.catalog.fn(q('hub/chat'));
+    if (agentRecord === undefined) throw new Error('no hub/chat');
+    const gather = async (parallel: number) => {
+      let running = 0;
+      let most = 0;
+      // each item's text takes a while, the first ones longest, so they finish out of order
+      const dynamic = {
+        resolve: async (record: ContextRecord) => {
+          running += 1;
+          most = Math.max(most, running);
+          await new Promise((resolve) => setTimeout(resolve, 10 - Math.min(9, record.name.length % 10)));
+          running -= 1;
+          return record;
+        },
+      };
+      const gathered = await gatherInjected({ store: r.store, catalog: r.catalog, dynamic, parallel }, { agent: agentRecord, session, access: openScope(ALICE), user: ALICE, mode: 'tools' });
+      return { order: gathered.items.map((item) => item.name), left: gathered.leftOut.map((item) => item.name), most };
+    };
+    const one = await gather(1);
+    const two = await gather(2);
+    expect(one.most).toBe(1);
+    expect(two.most).toBe(2);
+    expect(two.order).toEqual(one.order);
+    expect(two.left).toEqual(one.left);
+    expect(one.order).toContain('forms/asking');
   });
 });

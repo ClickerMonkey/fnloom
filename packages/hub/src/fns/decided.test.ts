@@ -118,6 +118,27 @@ describe('search decisions', () => {
     expect(w.records.some((l) => l.msg === 'fns.search-decision.failed')).toBe(true);
   });
 
+  it('judges the fn hits and the context hits at once, listing fn first then context however they finish', async () => {
+    const w = await world();
+    w.decisions.role = { model: 'judge', threshold: 0.5 };
+    w.decisions.answer = (instructions) => (instructions.includes('fs/authoring') ? 0 : 1);
+    await w.search.set('fn', { by: 'llm', model: { model: { model: 'tiny' } } }, ADMIN);
+    await w.search.set('context', { by: 'decision' }, ADMIN);
+    w.llm.answers = ['{"keep":[{"name":"web/search"}],"dropped":[{"name":"web/fetch_raw","reason":"raw bytes"}]}'];
+    // the fn judge (the LLM) is held until the context judge (the decision model) has been asked
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const chat = w.llm.chat.bind(w.llm);
+    w.llm.chat = async (input, site) => { await held; return chat(input, site); };
+    const filtering = w.search.filter(PAGE, { text: 'search the web' }, {});
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(w.decisions.asked).toEqual([['h0', 'h1']]);
+    release();
+    const page = await filtering;
+    expect(page.items.map((h) => h.name)).toEqual(['web/search', 'web/guide']);
+    expect(page.filtered?.map((f) => f.item)).toEqual(['fn', 'context']);
+  });
+
   it('leaves a search by name, for named items or with no text as it is', async () => {
     const w = await world();
     w.decisions.role = { model: 'judge', threshold: 0.5 };

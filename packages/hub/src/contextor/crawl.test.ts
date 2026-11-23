@@ -33,23 +33,26 @@ function graph(items: Record<string, { imports?: string[]; choices?: Record<stri
  * The real hub decider over a gateway that answers each question with the probability given for the item it names
  * (`Load fs/x …`), 0 for the rest, or fails when `fail` is set. It records each call's questions and site.
  */
-function decider(yes: Record<string, number>, options: { readonly fail?: boolean } = {}) {
+function decider(yes: Record<string, number>, options: { readonly fail?: boolean; readonly parallel?: number; readonly delay?: number } = {}) {
   const calls: Array<{ input: unknown; questions: string[]; site: ModelSite }> = [];
   const role: ModelRoleView = { role: 'decide', from: 'setting', choice: { role: 'decide', model: { model: 'judge' }, threshold: 0.5 }, resolved: { model: 'judge', provider: 'ollama' } };
   const hub = new HubDecider({
     roles: { get: () => Promise.resolve(role), resolveModel: () => Promise.resolve({ problem: 'not here' }) },
     llm: {
       models: () => Promise.resolve([]),
-      decide: (input, site) => {
-        if (options.fail === true) return Promise.reject(new Error('the decision model is down'));
+      decide: async (input, site) => {
+        if (options.fail === true) throw new Error('the decision model is down');
         calls.push({ input: input.input, questions: Object.values(input.questions).map((question) => question.instructions), site });
+        const call = ModelCallId.parse(`mdl_${calls.length}`);
+        if (options.delay !== undefined) await new Promise((resolve) => setTimeout(resolve, options.delay));
         const answers = Object.fromEntries(Object.entries(input.questions).map(([key, question]) => {
           const target = /^Load (\S+)/.exec(question.instructions)?.[1] ?? '';
           return [key, { type: 'predicate' as const, probability: yes[target] ?? 0 }];
         }));
-        return Promise.resolve({ value: { answers, model: 'judge' }, call: ModelCallId.parse(`mdl_${calls.length}`), cost: 0.01, model: 'judge' });
+        return { value: { answers, model: 'judge' }, call, cost: 0.01, model: 'judge' };
       },
     },
+    ...(options.parallel === undefined ? {} : { parallel: options.parallel }),
   });
   return { hub, calls };
 }
@@ -108,6 +111,27 @@ describe('crawling context by decision', () => {
     expect(uncapped.calls.map((call) => call.questions.length)).toEqual([CRAWL_BATCH_MAX, 300 - CRAWL_BATCH_MAX]);
     expect(outcome).toMatchObject({ decisions: 300, stop: { reason: 'complete' } });
     expect(outcome.skipped.every((skip) => skip.reason === 'declined')).toBe(true);
+  });
+
+  it('asks a level\'s batches together and reads its lookups at once, with the same outcome as one at a time', async () => {
+    const many = Object.fromEntries(Array.from({ length: 3 * CRAWL_BATCH_MAX }, (_, i) => [`c${i}`, `case ${i}`]));
+    const items = { hub: { choices: many }, ...Object.fromEntries(Object.keys(many).map((k, i) => [k, i % 7 === 0 ? { imports: [`c${(i + 1) % 30}`] } : {}])) };
+    const yes = Object.fromEntries(Object.keys(many).filter((_, i) => i % 5 === 0).map((k, i) => [`fs/${k}`, 0.6 + (i % 4) / 10]));
+    // the lookups answer out of order: later ones first
+    const usable = (record: { name: string }) => new Promise<boolean>((resolve) => setTimeout(() => resolve(!record.name.endsWith('3')), record.name.length % 3));
+    const run = async (parallel: number) => {
+      const decide = decider(yes, { parallel, delay: 20 });
+      const started = performance.now();
+      const outcome = await new ContextCrawler({ catalog: graph(items), decider: decide.hub, usable }).crawl(plan(['hub'], { maxDecisions: 4096, maxTokens: 2_500 }));
+      return { outcome, ms: performance.now() - started };
+    };
+    const one = await run(1);
+    const three = await run(3);
+    expect(three.outcome).toEqual(one.outcome);
+    expect(one.outcome.calls).toEqual(['mdl_1', 'mdl_2', 'mdl_3']);
+    expect(three.outcome.stop.reason).toBe('max-tokens');
+    // three 20 ms calls side by side take about one call's time, not three
+    expect(three.ms).toBeLessThan(one.ms);
   });
 
   it('takes a choice only at or above the decide role\'s threshold', async () => {

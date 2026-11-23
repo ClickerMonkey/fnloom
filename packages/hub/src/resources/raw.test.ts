@@ -66,6 +66,15 @@ describe('reading raw bytes over the link', () => {
     expect((await reader(s.fake).raw.read(URI)).text).toBe('0123456789abcdefghij');
   });
 
+  it('fetches the bytes and the text by ref together, each in order', async () => {
+    const s = source({ stat: STAT, bytes: REF, text: { ref: REF } });
+    const read = await reader(s.fake).raw.read(URI);
+    expect(Buffer.from(read.bytes ?? new Uint8Array()).toString()).toBe('0123456789abcdefghij');
+    expect(read.text).toBe('0123456789abcdefghij');
+    // the two fetches' chunks interleave, so neither waited for the other
+    expect(s.chunks.map((chunk) => chunk.offset)).toEqual([0, 0, 8, 8, 16, 16]);
+  });
+
   it('refuses bytes the system stopped sending short of their size', async () => {
     const s = source({ stat: STAT, bytes: REF }, BYTES.subarray(0, 10));
     await expect(reader(s.fake).raw.read(URI)).rejects.toMatchObject({ status: 502, code: 'CONTENT_SHORT' });

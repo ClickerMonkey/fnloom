@@ -14,7 +14,7 @@
  */
 import { ginTypeToTable, type TableSpec } from '@aeye/query';
 import { createHash } from 'node:crypto';
-import { Timestamp, type GinTypeDef, type InstanceName, type Json, type PreviewPart, type QualifiedName, type TypeDecl } from '@harness/core';
+import { mapConcurrent, Timestamp, type GinTypeDef, type InstanceName, type Json, type PreviewPart, type QualifiedName, type TypeDecl } from '@harness/core';
 import type { Llm } from '@harness/sdk';
 import { Connection, dialectOf, type DatabaseConfig, type DatabaseInfo, type QueryPayload, type SortArg } from '../shared/shapes.ts';
 import type { Enricher } from './author.ts';
@@ -112,6 +112,8 @@ export interface InstanceDeps {
   readonly limits: PageLimits;
   /** Distinct values a text column may have for the enricher to see them all. */
   readonly distinctMax: number;
+  /** How many tables a scan enriches at once (`DATABASE_ENRICH_PARALLEL`: a sample read and a model call each); one at a time when unset. */
+  readonly enrichParallel?: number | undefined;
   readonly now: () => number;
   /** Opens the database; the drivers by default (tests may pass their own). */
   readonly open?: (connection: Connection, options: { dataDir: string; readonly: boolean }) => Database;
@@ -199,11 +201,13 @@ export class DatabaseInstance {
     const kept = await this.#keptEnrichments();
     // the enricher reads samples through a plain catalog of the tables as they are
     const plain = new TableCatalog(this.instance, dialectOf(this.connection.kind), scanned, new Map());
+    // the tables not enriched yet are enriched side by side (each a sample read and a model call), kept in scan order
+    const made = await mapConcurrent(scanned, (table) => kept.get(schemaHash(table.spec)) ?? this.#enrichment(table, plain, llm), { limit: this.#deps.enrichParallel ?? 1 });
     const enrichments = new Map<string, TableEnrichment>();
-    for (const table of scanned) {
-      const enrichment = kept.get(schemaHash(table.spec)) ?? await this.#enrichment(table, plain, llm);
+    scanned.forEach((table, index) => {
+      const enrichment = made[index];
       if (enrichment !== undefined) { enrichments.set(schemaHash(table.spec), enrichment); }
-    }
+    });
     this.#catalog = new TableCatalog(this.instance, dialectOf(this.connection.kind), scanned, enrichments);
   }
 
@@ -260,13 +264,17 @@ export class DatabaseInstance {
     const plain = new TableCatalog(this.instance, dialectOf(this.connection.kind), scanned, new Map());
     const enrichments = new Map<string, TableEnrichment>();
     const done = new Set<string>();
-    for (const table of this.#catalog.tables) {
+    // the plain tables enriched side by side; each table's outcome is its own (#enrichment changes only its name)
+    const tables = this.#catalog.tables;
+    const wanted = tables.map((table) => this.#unenriched.has(table.scanned.spec.name));
+    const made = await mapConcurrent(tables, (table, index) => (wanted[index] === true ? this.#enrichment(table.scanned, plain, llm) : table.enrichment), { limit: this.#deps.enrichParallel ?? 1 });
+    tables.forEach((table, index) => {
       const name = table.scanned.spec.name;
-      const enrichment = this.#unenriched.has(name) ? await this.#enrichment(table.scanned, plain, llm) : table.enrichment;
+      const enrichment = made[index];
       if (enrichment !== undefined) { enrichments.set(table.hash, enrichment); }
       // one try per run-less scan: a table its model can't enrich stays plain until the schema changes
       if (this.#unenriched.has(name)) { this.#unenriched.delete(name); } else if (enrichment !== undefined && table.enrichment === undefined) { done.add(name); }
-    }
+    });
     this.#catalog = new TableCatalog(this.instance, dialectOf(this.connection.kind), scanned, enrichments);
     const current = new Set(this.#catalog.tables.filter((table) => {
       const applied = this.#applied.get(table.scanned.spec.name);

@@ -9,7 +9,7 @@
 import { cp, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { BUILT, FolderError, NOT_SOURCE, buildSystem, type BuildFiles, type SystemBuilder } from '@harness/build';
-import type { Manifest } from '@harness/core';
+import { mapConcurrent, type Manifest } from '@harness/core';
 import { contentHash, contentHasher, readClientBundle } from '@harness/sdk/server';
 import type { BuiltSystem, SystemBuilds } from './hosting.ts';
 import { InstallRefused } from './hosting.ts';
@@ -18,6 +18,8 @@ import { InstallRefused } from './hosting.ts';
 export interface HarnessBuildsDeps {
   readonly builder: SystemBuilder;
   readonly files: BuildFiles;
+  /** How many source files hashing a folder reads at once (`FS_READ_PARALLEL`); one at a time when unset. */
+  readonly readParallel?: number | undefined;
 }
 
 /** A fn's line on the card: its name, mode and tags. */
@@ -51,10 +53,12 @@ export class HarnessBuilds implements SystemBuilds {
 
   async sourceHash(dir: string): Promise<string> {
     const files = (await this.#deps.files.walk(dir, NOT_SOURCE)).map((path) => relative(dir, path).replaceAll('\\', '/')).sort();
+    // the files read (and each hashed) side by side, then folded in path order
+    const hashes = await mapConcurrent(files, async (path) => contentHash(await this.#deps.files.read(join(dir, path))), { limit: this.#deps.readParallel ?? 1 });
     const hasher = contentHasher();
-    for (const path of files) {
-      hasher.update(new TextEncoder().encode(`${path}\n`)).update(new TextEncoder().encode(`${contentHash(await this.#deps.files.read(join(dir, path)))}\n`));
-    }
+    files.forEach((path, index) => {
+      hasher.update(new TextEncoder().encode(`${path}\n`)).update(new TextEncoder().encode(`${hashes[index] ?? ''}\n`));
+    });
     return hasher.digest();
   }
 

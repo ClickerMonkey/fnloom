@@ -25,6 +25,7 @@ export const contextorEnv = env({
   HARNESS_LINK_HALF_LIFE: z.number().int().min(86_400_000).default(30 * 86_400_000).describe('A learned link\'s use count halves after this long without use.'),
   HARNESS_DYNAMIC_CONTEXT_TTL: z.number().int().min(0).default(300_000).describe('How long the text a system wrote for a dynamic context item (`fs/tree`, `/new-system`) is kept per session and person before it is asked again.'),
   HARNESS_DYNAMIC_CONTEXT_TIMEOUT: z.number().int().min(100).default(15_000).describe('How long the hub waits for a system to write a dynamic context item.'),
+  HARNESS_CONTEXT_PARALLEL: z.number().int().min(1).default(8).describe('How many context items planning a prompt reads at once where each may be written by its system (dynamic context in the injected section, the items a contextor shows); 1 reads them one after another.'),
   HARNESS_DYNAMIC_CONTEXT_CACHE: z.number().int().min(1).default(500).describe('The most dynamic context texts kept in memory (the oldest go first).'),
   HARNESS_USED_WINDOW: z.number().int().min(1).max(50).default(5).describe('How many of the newest turns the graph contextor\'s `used` signal looks back over.'),
   HARNESS_MEMORY_WEIGHT: z.number().min(0).max(4).default(0.8).describe('What a memory weighs in the graph contextor\'s score when it sets no weight of its own (other items weigh 1).'),

@@ -13,7 +13,7 @@
  *   they hard-link, and the greedy chooser picks the detail of each under the budget. History is rebuilt: the newest
  *   selected exchanges in a row are real messages, older selected ones are summaries in the system prompt.
  */
-import { contextOff, Detail, modelFnName, QualifiedName, seesOrigin, type ContextRecord, type GraphContextor, type PlainContextor, type PoolUse, type SelectedItem, type SelectionReport, type SuggestContextor, type SuggestionOutcome } from '@harness/core';
+import { contextOff, Detail, mapConcurrent, modelFnName, QualifiedName, seesOrigin, type ContextRecord, type GraphContextor, type PlainContextor, type PoolUse, type SelectedItem, type SelectionReport, type SuggestContextor, type SuggestionOutcome } from '@harness/core';
 import { allowsSystem, searchSystems } from '../chat/support.ts';
 import type { Pool, PoolTokens } from './budget.ts';
 import { choose, type Cut, type Level, type Unit } from './choose.ts';
@@ -72,15 +72,14 @@ export function dynamicAsk(input: Pick<ContextorInput, 'session' | 'user' | 'per
  * agent's injected section shows is in the prompt already: never again (an import of it, a search hit for it).
  */
 export async function contextsOf(deps: ContextorDeps, names: readonly string[], input: Pick<ContextorInput, 'session' | 'user' | 'person' | 'commands' | 'access' | 'injected'>): Promise<ContextRecord[]> {
-  const records: ContextRecord[] = [];
   const injected = new Set<string>(input.injected ?? []);
-  for (const name of unique(names)) {
-    if (injected.has(name)) continue;
+  // each read at once (a dynamic item is written by its system), kept in the names' order
+  const records = await mapConcurrent(unique(names).filter((name) => !injected.has(name)), async (name) => {
     const parsed = QualifiedName.safeParse(name);
     const record = parsed.success ? await deps.catalog.context(parsed.data) : undefined;
-    if (record !== undefined && visible(record, input)) records.push(await deps.dynamic.resolve(record, dynamicAsk(input, record.name)));
-  }
-  return records;
+    return record !== undefined && visible(record, input) ? deps.dynamic.resolve(record, dynamicAsk(input, record.name)) : undefined;
+  }, { limit: deps.settings.HARNESS_CONTEXT_PARALLEL });
+  return records.filter((record) => record !== undefined);
 }
 
 /** The fn views of names the session may use, in order, each once. */
@@ -428,26 +427,25 @@ export class GraphContextorImpl implements Contextor {
 
   /** The candidates among names: context a person may see and fns the session may use, offered to the model. */
   async #candidates(names: readonly string[], input: ContextorInput): Promise<Candidate[]> {
-    const out: Candidate[] = [];
     const forced = new Set<string>([...input.always.context, ...input.always.fns, ...input.loaded.context, ...input.loaded.fns, ...input.asked.context, ...input.asked.fns]);
     // the injected section's items are in the prompt already: never a candidate, so never chosen or counted again
     const injected = new Set<string>(input.injected ?? []);
-    for (const name of unique(names)) {
+    const wanted = unique(names).flatMap((name) => {
       const parsed = QualifiedName.safeParse(name);
-      if (!parsed.success || parsed.data === input.agent.name || injected.has(name)) continue;
-      const record = await this.#deps.catalog.context(parsed.data);
+      return !parsed.success || parsed.data === input.agent.name || injected.has(name) ? [] : [parsed.data];
+    });
+    // each read at once (a forced dynamic item is written by its system), kept in the names' order
+    const found = await mapConcurrent(wanted, async (name): Promise<Candidate | undefined> => {
+      const record = await this.#deps.catalog.context(name);
       if (record !== undefined) {
-        if (!visible(record, input) || !(forced.has(name) || forModel(record.decl.suggest))) continue;
+        if (!visible(record, input) || !(forced.has(name) || forModel(record.decl.suggest))) return undefined;
         // what the agent, the session or the message pulls in is shown whole, so a dynamic item gets its system's text
-        out.push({ kind: 'context', name: parsed.data, record: forced.has(name) ? await this.#deps.dynamic.resolve(record, dynamicAsk(input, name)) : record });
-        continue;
+        return { kind: 'context', name, record: forced.has(name) ? await this.#deps.dynamic.resolve(record, dynamicAsk(input, name)) : record };
       }
-      const view = await this.#deps.views.view(parsed.data);
-      if (view !== undefined && usable(view.record, input.session, input.access) && (forced.has(name) || forModel(view.record.decl.visibility))) {
-        out.push({ kind: 'fn', name: parsed.data, view });
-      }
-    }
-    return out;
+      const view = await this.#deps.views.view(name);
+      return view !== undefined && usable(view.record, input.session, input.access) && (forced.has(name) || forModel(view.record.decl.visibility)) ? { kind: 'fn', name, view } : undefined;
+    }, { limit: this.#deps.settings.HARNESS_CONTEXT_PARALLEL });
+    return found.filter((candidate) => candidate !== undefined);
   }
 
   /** A candidate's levels, the whole unit's cost at each (a context with the context it imports and the fns it brings). */

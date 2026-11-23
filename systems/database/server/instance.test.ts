@@ -150,6 +150,32 @@ describe('a SQLite database instance', () => {
     expect(calls).toBe(2);
   });
 
+  it('enriches the tables side by side up to the limit, with the same types as one at a time', async () => {
+    const scan = async (enrichParallel: number) => {
+      let running = 0;
+      let most = 0;
+      const enricher: Enricher = {
+        enrich: async (table) => {
+          running += 1;
+          most = Math.max(most, running);
+          // the first table is the slowest, so the calls finish out of order
+          await new Promise((resolve) => setTimeout(resolve, table.spec.name === 'customers' ? 20 : 2));
+          running -= 1;
+          return { description: `About ${table.spec.name}.`, columns: {} };
+        },
+      };
+      const { instance, hub } = shopInstance({ config: { enrich: { on: true } }, enricher, enrichParallel });
+      open.push(instance);
+      await instance.rescan(fakeLlm);
+      return { most, kept: [...hub.kept.entries()].map(([name, decl]) => [name, decl.meta?.['enrichment']]) };
+    };
+    const one = await scan(1);
+    const two = await scan(2);
+    expect(one.most).toBe(1);
+    expect(two.most).toBe(2);
+    expect(two.kept).toEqual(one.kept);
+  });
+
   it('leaves tables plain when the model refuses outside a run, and enriches them in the next run', async () => {
     let refuse = true;
     const enricher: Enricher = {

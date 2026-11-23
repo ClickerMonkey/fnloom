@@ -39,11 +39,11 @@ let dir: string;
 let launcher: FakeLauncher;
 const SHOP = SystemName.parse('shop');
 
-function supervisor(name = 'shop', perHour = 2, installer = new FakeInstaller(name), systemsDir = dir) {
+function supervisor(name = 'shop', perHour = 2, installer = new FakeInstaller(name), systemsDir = dir, stopTimeout = 50) {
   return new ProcessSupervisor({
     store: rig.store, log: rig.log, clock: () => rig.time.now, links: rig.links, pairing: rig.pairing, config: rig.config, instances: rig.instances,
     launcher, installer, network: new FakeNetwork(),
-    settings: { systemsDir, hubLink: 'ws://hub:4300/link', stopTimeout: 50, backoff: 5, perHour, maxBackoff: 300_000 },
+    settings: { systemsDir, hubLink: 'ws://hub:4300/link', stopTimeout, backoff: 5, perHour, maxBackoff: 300_000 },
   });
 }
 
@@ -248,6 +248,26 @@ describe('adding an instance from the browser (build 9)', () => {
       .rejects.toMatchObject({ status: 422, code: 'WRONG_SYSTEM' });
     const single = await bundled('solo', 'one');
     await expect(sup.install({ source: { path: single }, instance: InstanceName.parse('two'), fleet: true, by: ADMIN })).rejects.toMatchObject({ status: 409, code: 'ONE_INSTANCE' });
+  });
+
+  it('uninstalls a fleet\'s instances side by side: one that stops is removed while another is still stopping', async () => {
+    // a stop timeout long enough that the first is still stopping when the second has gone
+    const sup = supervisor('shop', 2, new FakeInstaller('shop'), dir, 5_000);
+    const fleet = await bundled('shop', 'many');
+    const [one, two] = [InstanceName.parse('one'), InstanceName.parse('two')];
+    await sup.install({ source: { path: fleet }, system: SHOP, instance: one, fleet: true, by: ADMIN });
+    await sup.install({ source: { path: fleet }, system: SHOP, instance: two, fleet: true, by: ADMIN });
+    expect(launcher.launched).toHaveLength(2);
+    const removing = sup.uninstall(SHOP);
+    await settle(5);
+    // the second exits; the first is still within its stop timeout
+    launcher.launched[1]?.exit(0);
+    await settle(5);
+    expect(await rig.instances.get({ system: SHOP, instance: two })).toMatchObject({ status: 'removed' });
+    expect((await rig.instances.get({ system: SHOP, instance: one }))?.status).not.toBe('removed');
+    launcher.launched[0]?.exit(0);
+    await removing;
+    expect(await sup.list()).toEqual([]);
   });
 
   it('takes a new instance from the source its fleet was installed from, else the bundled folder', async () => {

@@ -3,7 +3,7 @@
  * the fns it and they bring (`ContextDecl.fns`). The plain, suggest and graph contextors and `hub/ctx_load` all go
  * through here, so a context's work always has its fns and its linked context, however it got into the prompt.
  */
-import { contextOff, QualifiedName, type ContextChoice, type ContextRecord } from '@harness/core';
+import { contextOff, mapConcurrent, QualifiedName, type ContextChoice, type ContextRecord } from '@harness/core';
 import type { Catalog } from '../catalog/index.ts';
 
 /** A context item's choice with the token size of the item it leads to (absent when that item is gone). */
@@ -14,21 +14,31 @@ export interface SizedChoice extends ContextChoice {
 /**
  * The names with the context each imports after it, depth-first, each once; cycles are cut and unknown names kept as
  * given (the caller decides what to do with them). A switched-off item (`contextOff`) is left out, and so is what
- * only it imports.
+ * only it imports. The records are read a level of imports at a time, each level's at once; the order is worked out
+ * after, as a depth-first walk would give it.
  */
 export async function withImports(catalog: Pick<Catalog, 'context'>, names: readonly string[]): Promise<string[]> {
+  const records = new Map<string, ContextRecord | undefined>();
+  for (let level = [...new Set(names)]; level.length > 0;) {
+    const found = await mapConcurrent(level, (name) => {
+      const parsed = QualifiedName.safeParse(name);
+      return parsed.success ? catalog.context(parsed.data) : undefined;
+    });
+    level.forEach((name, index) => records.set(name, found[index]));
+    // an off item's imports are not followed: what only it imports is left out
+    level = [...new Set(found.flatMap((record) => (record === undefined || contextOff(record) ? [] : record.decl.imports ?? [])))].filter((name) => !records.has(name));
+  }
   const out: string[] = [];
   const seen = new Set<string>();
-  const visit = async (name: string): Promise<void> => {
+  const visit = (name: string): void => {
     if (seen.has(name)) return;
     seen.add(name);
-    const parsed = QualifiedName.safeParse(name);
-    const record = parsed.success ? await catalog.context(parsed.data) : undefined;
+    const record = records.get(name);
     if (record !== undefined && contextOff(record)) return;
     out.push(name);
-    for (const imported of record?.decl.imports ?? []) await visit(imported);
+    for (const imported of record?.decl.imports ?? []) visit(imported);
   };
-  for (const name of names) await visit(name);
+  for (const name of names) visit(name);
   return out;
 }
 
