@@ -9,8 +9,8 @@
  *   HARNESS_ADMIN_EMAIL / HARNESS_ADMIN_PASSWORD   the single admin account (required; made on first start)
  *   HARNESS_PORT       hub and web app port (default 4300)
  *   HARNESS_DATA       data folder (default .harness)
- *   HARNESS_DEV_ONLY   comma list of what to run: web (the build), hub, fs, embedder, web-system, input, widgets, code, claude, calendar, ollama,
- *                      database (default all but database, which runs a new SQLite file `dev.db` only when listed)
+ *   HARNESS_DEV_ONLY   comma list of what to run: web (the build), hub, fs, embedder, web-system, input, widgets, code, claude, calendar, ollama, schedule,
+ *                      database (default all but schedule and database, which run only when listed; database is a new SQLite file `dev.db`)
  *   HARNESS_DEV_ROOT   the folder fs serves (default this repository)
  *   HARNESS_EMBEDDER_URL  the EmbeddingGemma service (default http://127.0.0.1:8760)
  *   TAVILY_API_KEY     the web system's search key; without it the web system doesn't run

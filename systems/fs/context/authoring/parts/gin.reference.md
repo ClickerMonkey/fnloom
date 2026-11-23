@@ -224,6 +224,31 @@ function sampleArgs(args: GinTypeDef): Record<string, Json>;
 
 Refers to: [`GinTypeDef`](context:fs/authoring.core-types.gin-ts#core-gintypedef), [`Json`](context:fs/authoring.core-types.primitives-ts#core-json).
 
+#### `partialOf`
+
+function · `import { partialOf } from '@harness/sdk'`
+
+Every field of an object's fields made optional, each keeping its docs: `g.obj({ id: g.text(), ...partialOf(Settings) })`
+for a change that takes any of the fields a create takes. A field that is already optional stays as it is.
+
+```ts
+function partialOf<const P extends FieldsInput>(fields: P): { -readonly [K in keyof P]: OptionalField<P[K]>; };
+```
+
+#### `OptionalField`
+
+type · `import { OptionalField } from '@harness/sdk'`
+
+One field of `partialOf`: an optional field as it is, any other made optional (keeping its docs).
+
+```ts
+type OptionalField<F> =
+F extends OptionalType<unknown> ? F
+  : F extends Type<infer T> ? OptionalType<T>
+    : F extends FieldSpec<infer X> ? (X extends OptionalType<unknown> ? F : FieldSpec<OptionalType<Infer<X>>>)
+      : F;
+```
+
 #### `TypeBuilder`
 
 interface · `import { TypeBuilder } from '@aeye/gin'`

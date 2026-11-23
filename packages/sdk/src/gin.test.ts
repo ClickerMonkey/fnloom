@@ -5,7 +5,7 @@
 import { createRegistry, type Type } from '@aeye/gin';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { encodeValue, g, json, parseValue, referencesOf, wireType } from './gin.ts';
+import { encodeValue, g, json, parseValue, partialOf, referencesOf, wireType } from './gin.ts';
 import { system } from './system.ts';
 import { type } from './declare.ts';
 
@@ -133,5 +133,17 @@ describe('gin types as the SDK uses them', () => {
     expect(() => { parseValue(parsed, { items: [{ sku: 'a', price: 1 }] }); }).toThrow();
     const value = { items: [{ sku: 'a', price: { amount: 1, currency: 'EUR' } }] };
     expect(parseValue(parsed, value)).toEqual(parseValue(cart, value));
+  });
+});
+
+describe('partialOf', () => {
+  it('makes every field optional, keeping its docs, and leaves optional ones as they are', () => {
+    const optional = g.optional(g.bool());
+    const fields = partialOf({ a: g.text(), b: g.field(g.num(), { docs: 'A count.' }), c: optional });
+    expect(fields.c).toBe(optional);
+    const def = wireType(g.obj(fields));
+    expect(def.props?.['a']?.type.name).toBe('optional');
+    expect(def.props?.['b']).toMatchObject({ type: { name: 'optional', generic: { T: { name: 'num' } } }, docs: 'A count.' });
+    expect(parseValue(g.obj(fields), {})).toEqual({});
   });
 });

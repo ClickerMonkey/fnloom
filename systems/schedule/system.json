@@ -1,0 +1,9 @@
+{
+  "format": 1,
+  "name": "schedule",
+  "version": "0.1.0",
+  "description": "Runs fns later by themselves, once or repeating, as the person who scheduled them, and notifies them how each run went.",
+  "protocol": 1,
+  "server": { "entry": "server/main.ts", "external": {} },
+  "instances": "one"
+}

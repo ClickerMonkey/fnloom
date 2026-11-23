@@ -750,6 +750,8 @@ link's segment against the system's declared pages.
   in an IANA zone across daylight saving (`zonedTime`, `localNow` in Oryoli's `server/src/reminders.ts`). Recommended:
   move them into dayspan (`Schedule.instants(from, to, zone, limit)` and `nextInstant(after, zone)`), published by its
   release workflow, and have Oryoli use them too. Without it the schedule system copies Oryoli's functions.
+  **Postponed (2026-11-23):** slice 2 waits; until then the rule lives in `systems/schedule/shared/zoned.ts`
+  (`zonedTime`, `localNow`, plus `offsetAt` and `localString` for `fire.local`), copied from Oryoli with its tests.
 - **dayspan, later and only if wanted: "every N minutes between two times"** as one rule, instead of a list of times.
 
 ## Build slices (after the types are approved)
@@ -767,6 +769,26 @@ link's segment against the system's declared pages.
 | 9 | Tests: zones and daylight saving, missed and overlap, doubled starts, the start gate, the summary rules and which firings notify (no double notice with remind, refused once, unread replaced); a live run of each described flow once (GPT-6 Luna); ui-tests for the pages and the run page | all | 1.5 days |
 
 About 12 days of work; 3, 4 and 5 can run beside 6 and 7 once slice 1 is in, and 8 needs only slice 1's shared code.
+
+**Slice 1 built (2026-11-23, local).** `systems/schedule`: `shared/types.ts` (the zod shapes), `shared/zoned.ts`,
+`shared/index.ts` (the contract), server stubs that fail `not-built` with the fn's name, `typetests/contract.ts`, and
+unit and link tests; `partialOf` added to the SDK's gin helpers. Listed in the dev stack, off unless named in
+`HARNESS_DEV_ONLY`. Where the build differs from the types above:
+- `FiringShape.version` is a number (the hub's fn version is a whole number from 1), not a string.
+- The config's limits are optional fields with the defaults in `LIMIT_DEFAULTS` (`limitsOf` fills them in), so an
+  admin installs it without filling a form; the defaults are the ones above.
+- `When`'s schema checks `on` against day rules, start, end and count, `maxOccurrences` needing `start`, `start` ≤
+  `end` and unique times. The gap between times is the config's, so it is `gapProblems(when, minGap)`, which the
+  kind's check calls (slice 6); a gap across midnight is checked when firings are planned.
+- The contract is three `.with`s (kinds and the Firing type first), so `effects.registry` names the kind by its ref
+  and `history` returns the Firing type's ref; `requires` sits in `inject`, where the SDK has it. The kind's status is
+  the plain status object (there is no `status()` helper).
+- `basics`' title is "Schedules" and its summary one line ("schedule/add runs fns later."): every chat item's title and
+  summary share the small chat agent's 600-token cap (scripts/chat-prompt.test.ts), which this item filled; the rest
+  of the summary's sentences are in its content. A wider cap is Phil's call.
+- Waiting on slice 3 or 4, marked `TODO(slice 3)` / `TODO(slice 4)` where they go: the `runs` grant, `hub/fns_remove`
+  (remove's dep and the grant's calls), `inject.replaces: [hub.context.later]`, page refs, and the hub-side refusals in
+  "What doesn't compile". No client yet (slice 8), so the declared pages have no components to draw them.
 
 ## Judgement calls (not asked)
 

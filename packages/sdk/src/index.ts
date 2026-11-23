@@ -10,7 +10,7 @@ export type { StatusInput, CheckedStatus, CheckedTemplate, OneTokens, ManyTokens
 /** Parallel claims: what a fn's calls operate on, so an agent's calls that clash run one after another. */
 export { fillClaims, type ClaimsRequest } from '@harness/core';
 export type { ClaimsInput, CheckedClaim, ClaimTokens, ToolClaims } from './claims.ts';
-export { g, json, wireType, parseValue, encodeValue, referencesOf, loadTypes, sampleOf, sampleArgs, type GinType, type Infer, type LoadedTypes } from './gin.ts';
+export { g, json, partialOf, type OptionalField, wireType, parseValue, encodeValue, referencesOf, loadTypes, sampleOf, sampleArgs, type GinType, type Infer, type LoadedTypes } from './gin.ts';
 export { ginOf, ginAs, toolArgsOf, type FlatArgs, type ToolArgs } from './zod-gin.ts';
 export {
   accountLabel, connectForm, credentialHeaders, credentialsFromForm, instanceConnectOf, keyConnectOf, type FormFor, maskHeaders, readCredentials, secretHeaderNames, sharedHeaders, usesConnections,

@@ -4,7 +4,7 @@
  * JSON definition (`toJSON`), value parsing (`parse`), a zod value schema (`toValueSchema`) and the named types it
  * references (`references`). Named types a contract declares are registered in `g`, so they serialize by name.
  */
-import { Type, type Infer, type Registry } from '@aeye/gin';
+import { OptionalType, Type, type FieldSpec, type FieldsInput, type Infer, type Registry } from '@aeye/gin';
 import { FN_NAME_PATTERN, GinTypeDef, harnessRegistry, Json, QualifiedName, RecordType, type TypeDefinitions } from '@harness/core';
 
 /** What the harness adds to gin's builder. */
@@ -38,6 +38,35 @@ export const g: Registry & HarnessGin = Object.assign(registry, {
 
 /** A gin type whose values are `T`. */
 export type GinType<T = unknown> = Type<T>;
+
+/** Whether a field is written with `g.field` (a plain spec holding its type), not a computed prop. */
+function fieldSpec(field: FieldsInput[string]): field is FieldSpec<Type> {
+  return !(field instanceof Type) && Object.getPrototypeOf(field) === Object.prototype && 'type' in field && field.type instanceof Type;
+}
+
+/** One field of `partialOf`: an optional field as it is, any other made optional (keeping its docs). */
+export type OptionalField<F> =
+  F extends OptionalType<unknown> ? F
+    : F extends Type<infer T> ? OptionalType<T>
+      : F extends FieldSpec<infer X> ? (X extends OptionalType<unknown> ? F : FieldSpec<OptionalType<Infer<X>>>)
+        : F;
+
+/**
+ * Every field of an object's fields made optional, each keeping its docs: `g.obj({ id: g.text(), ...partialOf(Settings) })`
+ * for a change that takes any of the fields a create takes. A field that is already optional stays as it is.
+ */
+export function partialOf<const P extends FieldsInput>(fields: P): { -readonly [K in keyof P]: OptionalField<P[K]> } {
+  const optional = (type: Type): Type => (type instanceof OptionalType ? type : g.optional(type));
+  const out = Object.fromEntries(Object.entries(fields).map(([name, field]) => [
+    name,
+    field instanceof Type ? optional(field) : fieldSpec(field) ? g.field(optional(field.type), {
+      ...(field.docs === undefined ? {} : { docs: field.docs }),
+      ...(field.default === undefined ? {} : { default: field.default }),
+    }) : field,
+  ]));
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- each field was made optional as OptionalField says
+  return out as { -readonly [K in keyof P]: OptionalField<P[K]> };
+}
 
 /** The TypeScript value of a gin type. */
 export type { Infer };

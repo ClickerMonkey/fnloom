@@ -59,6 +59,9 @@
       "path": "systems/ollama"
     },
     {
+      "path": "systems/schedule"
+    },
+    {
       "path": "scripts"
     },
     {
