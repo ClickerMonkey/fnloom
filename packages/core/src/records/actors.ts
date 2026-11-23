@@ -101,6 +101,11 @@ export const FnMatch = z.object({
   tags: z.array(z.string()).optional(),
   /** A gin predicate over the args: an expression whose value is a bool. */
   when: GinExprDef.optional(),
+  /**
+   * The fn whose run made the call, directly or through the runs it called (`schedule/nightly_backup`), so "always
+   * allow fs/write when schedule/nightly_backup calls it" is a policy that leaves every other fs/write as it was.
+   */
+  via: QualifiedName.optional(),
 });
 export type FnMatch = z.infer<typeof FnMatch>;
 

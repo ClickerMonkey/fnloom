@@ -47,6 +47,8 @@ export const CAPABILITY_ENDPOINTS = {
   state: ['stateGet', 'stateSet'],
   // build 8: served by the hub lane (the data system)
   data: ['records', 'record', 'recordTable', 'saveRecord', 'removeRecord'],
+  // starting its own kinds' fns as their owners, and telling those owners how they went (`ctx.runs`)
+  runs: ['kindFns', 'startRun', 'notifyOwner'],
 } as const satisfies Record<HubCapability, readonly HubLinkEndpoint[]>;
 
 /** The capability an endpoint needs, or none for the base (handshake, contract, uploads, its own runs, logs, types, fleet). */

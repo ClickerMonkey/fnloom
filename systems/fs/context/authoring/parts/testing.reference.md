@@ -10,15 +10,15 @@ tags: ["authoring", "reference"]
 niche: "developer"
 choices:
   - to: "fs/authoring.testing.reference.fakehub"
-    when: "Pick this for FakeHub, FakeHubOptions, FakeProcess, TEST_USER, TEST_PLACE, NO_ASKS, HubBody, SystemBody, streamOf, liveEnv, liveModels, expectType, Equal, Simplify, MemoryKeyStore, MemoryJournal,…"
-  - to: "fs/authoring.testing.reference.fakehubwidgets"
-    when: "Pick this for FakeHubWidgets, HUB_WIDGET_FNS, FakeTableSource, FakeModelLink, fakeHubAi, replyChunks, FakeModelOptions, FakeReply, checkContextFolder, contextFolderLinks, CheckedContext, KnownNames,…"
-  - to: "fs/authoring.testing.reference.recordingoptions"
-    when: "Pick this for RecordingOptions, realModel, RealModelTest, liveTurn, OpenRouterModelLink, OpenRouterOptions, preview, PreviewOptions, SavedShot, renderHtml, galleryHtml, PreviewIndex, PREVIEW_INDEX,…"
+    when: "Pick this for FakeHub, FakeHubOptions, FakeProcess, TEST_USER, TEST_PLACE, NO_ASKS, HubBody, SystemBody, streamOf, liveEnv, liveModels, expectType, Equal, Simplify, MemoryKeyStore, MemoryJournal."
+  - to: "fs/authoring.testing.reference.fakehubfns"
+    when: "Pick this for FakeHubFns, KeptFn, FakeHubWidgets, HUB_WIDGET_FNS, FakeTableSource, FakeModelLink, fakeHubAi, replyChunks, FakeModelOptions, FakeReply, checkContextFolder, contextFolderLinks,…"
+  - to: "fs/authoring.testing.reference.modelrecording"
+    when: "Pick this for ModelRecording, RecordedModelLink, RecordingOptions, realModel, RealModelTest, liveTurn, OpenRouterModelLink, OpenRouterOptions, preview, PreviewOptions, SavedShot, renderHtml,…"
 ---
 
 This part is in 3 pieces; load the one you need:
 
-- [FakeHub … KeptFn](context:fs/authoring.testing.reference.fakehub)
-- [FakeHubWidgets … RecordedModelLink](context:fs/authoring.testing.reference.fakehubwidgets)
-- [RecordingOptions … StoredTypeDecl](context:fs/authoring.testing.reference.recordingoptions)
+- [FakeHub … MemoryJournal](context:fs/authoring.testing.reference.fakehub)
+- [FakeHubFns … ScriptStep](context:fs/authoring.testing.reference.fakehubfns)
+- [ModelRecording … StoredTypeDecl](context:fs/authoring.testing.reference.modelrecording)

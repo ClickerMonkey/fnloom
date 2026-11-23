@@ -52,19 +52,19 @@ A kind's implementation. The payload is typed; a fn's args and result aren't (th
 arrive as JSON the hub has already checked against `describe`'s types.
 
 ```ts
-interface KindImpl<P, Cfg = unknown> {
+interface KindImpl<P, Cfg = unknown, O extends Own = Own> {
   /** Problems with a payload beyond its type (an unknown fn, a program that doesn't type-check). */
   check(payload: P, ctx: KindCheckCtx): Promise<string[]>;
   describe(payload: P, ctx: KindCheckCtx): Promise<KindDescription>;
-  run(payload: P, args: Json, ctx: KindRunCtx<Cfg>): Promise<Outcome<UntypedFn>>;
+  run(payload: P, args: Json, ctx: KindRunCtx<Cfg, O>): Promise<Outcome<UntypedFn>>;
   undo?(payload: P, undo: Json, ctx: UndoCtx<Cfg>): Promise<UndoOutcome>;
   /** What a run of a payload's fn would do, for a fn `describe` gave an `approval` with a preview (a write query). */
-  preview?(payload: P, args: Json, ctx: PreviewCtx<Cfg>): Promise<PreviewAnswer>;
+  preview?(payload: P, args: Json, ctx: PreviewCtx<Cfg, O>): Promise<PreviewAnswer>;
   /**
    * What a fn of this payload costs, for a kind declared with `estimates: true`: an estimate with basis `payload` (or
    * `free`), blending in `history` when it helps, or `undefined` to leave it to the history.
    */
-  estimate?(payload: P, input: KindEstimateInput, ctx: SystemCtx<Cfg>): Promise<CostEstimate | undefined>;
+  estimate?(payload: P, input: KindEstimateInput, ctx: SystemCtx<Cfg, O>): Promise<CostEstimate | undefined>;
 }
 ```
 
@@ -108,7 +108,7 @@ interface · `import { KindRunCtx } from '@harness/sdk'`
 A kind's run context: like `FnCtx`, but calls are by name (limited to the deps `describe` returned).
 
 ```ts
-interface KindRunCtx<Cfg = unknown> extends Omit<FnCtx<UntypedFn, Cfg>, 'fns' | 'handlers' | 'progress'> {
+interface KindRunCtx<Cfg = unknown, O extends Own = Own> extends Omit<FnCtx<UntypedFn, Cfg, O>, 'fns' | 'handlers' | 'progress'> {
   call(fn: QualifiedName, args: Json, options?: { key?: string; background?: boolean }): FnCall<Json>;
   handler(name: string, args: Json): Promise<Json>;
   progress(state: { fraction: number; message?: string } | { step: string; status: StepStatus; detail?: string }): void;

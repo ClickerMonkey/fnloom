@@ -231,6 +231,7 @@ type Manifest = {
       order: number;
       requires: `${string}/${string}`[];
       mode?: "tools" | "static" | undefined;
+      replaces?: `${string}/${string}`[] | undefined;
     } | undefined;
     niche?: "admin" | "developer" | "reference" | undefined;
     weight?: number | undefined;
@@ -418,7 +419,7 @@ type Manifest = {
   configSecrets?: string[] | undefined;
   runtime?: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "sectioners" | "actions", string[]>> | undefined;
   grants?: {
-    hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
+    hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "runs" | "ai")[];
     models?: {
       roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
       models?: string[] | undefined;

@@ -52,6 +52,34 @@ describe('the inbox', () => {
   });
 });
 
+describe('a notification with a key', () => {
+  it('replaces the unread one of the same key in place, and only theirs, only while unread', async () => {
+    const w = await chatWorld();
+    const bo = await w.user('Bo');
+    const link = { system: SystemName.parse('hub') };
+    const notice = { reason: 'system-message' as const, link, key: 'sched:weekly' };
+    const first = await w.chat.notifications.notify({ ...notice, user: w.admin.id, title: 'Weekly ran', body: '12 rows', tone: 'ok' });
+    w.advance(10);
+    const second = await w.chat.notifications.notify({
+      ...notice, user: w.admin.id, title: 'Weekly failed', body: 'No database', tone: 'failed', also: { label: 'History', link },
+    });
+    // the same item, now saying the newest; another person's of the same key is their own
+    expect(second.id).toBe(first.id);
+    expect(second).toMatchObject({ title: 'Weekly failed', tone: 'failed', also: { label: 'History' }, read: false });
+    expect(second.createdAt).toBeGreaterThan(first.createdAt);
+    const theirs = await w.chat.notifications.notify({ ...notice, user: bo.id, title: 'Weekly ran', body: '' });
+    expect(theirs.id).not.toBe(first.id);
+    expect((await w.chat.notifications.list(w.admin.id, {})).items.map((n) => n.title)).toEqual(['Weekly failed']);
+    // once read, a new one of the key is a new item; one without a key never replaces
+    await w.chat.notifications.read(w.admin.id, [first.id]);
+    const third = await w.chat.notifications.notify({ ...notice, user: w.admin.id, title: 'Weekly ran', body: '' });
+    expect(third.id).not.toBe(first.id);
+    const plain = await w.chat.notifications.notify({ user: w.admin.id, reason: 'system-message', title: 'Plain', body: '', link });
+    expect(plain.id).not.toBe(third.id);
+    expect((await w.chat.notifications.list(w.admin.id, {})).items.map((n) => n.title)).toEqual(['Plain', 'Weekly ran', 'Weekly failed']);
+  });
+});
+
 describe('notifications from hub events', () => {
   it('ask each approver once while an approval is pending', async () => {
     const w = await chatWorld();

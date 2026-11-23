@@ -28,6 +28,7 @@ import { HubTypes } from './types.ts';
 import { LinkState, stateRecordType } from './state.ts';
 import type { AnyOutcome, OutcomeHelpers, RunTarget, RuntimeFnCtx, RuntimeKindCtx, RuntimeProgress, RuntimeRunBase } from './table.ts';
 import { adminNotices, decisions, fleets, fnSearch, proposals } from './asks.ts';
+import { runNotices } from './owner-runs.ts';
 import { decodeArgs, decodeOrThrow, encode, encodeOrThrow, fnError, invalidInput, InvalidValue, messageOf, settledOf, thrownError } from './wire.ts';
 
 /** What every run gets from the runtime. */
@@ -345,6 +346,7 @@ export class ActiveRun {
       ...decisions(env.hub, this.id, signal),
       ...fleets(env.hub, signal),
       ...fnSearch(env.hub, this.id, signal),
+      ...runNotices({ system: env.system, hub: env.hub, signal }, this.id),
       config: config.value,
       run: request.run,
       budget: this.#budget(),

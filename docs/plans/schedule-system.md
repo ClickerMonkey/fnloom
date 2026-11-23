@@ -790,6 +790,51 @@ unit and link tests; `partialOf` added to the SDK's gin helpers. Listed in the d
   (remove's dep and the grant's calls), `inject.replaces: [hub.context.later]`, page refs, and the hub-side refusals in
   "What doesn't compile". No client yet (slice 8), so the declared pages have no components to draw them.
 
+**Slice 4 built (2026-11-23, local).** `InjectDecl.replaces` (core, optional on the wire, so manifests without it hash as
+before), the SDK's `InjectInput.replaces` taking context refs, and refs to the hub's own context items
+(`hub.context.<key>`, `HUB_CONTEXT_KEYS`, kept equal to the hub's `context/` folder by a test). The planner leaves a
+replaced item out with `replaced` ("replaced by Schedules (schedule/basics), which says what is true instead"); the
+Injected tab shows it ("Replaced", neutral), the review card and the `injects` line say what an item takes out
+("takes hub/later out"), and the context-folder check follows `inject.replaces`. `hub/limits` is split into `limits`
+(accounts, setup steps) and `later` (nothing runs later by itself, no messages to anyone later, the closest real
+thing), neither naming a system. `basics` declares `replaces: [hub.context.later]`. Where the build differs:
+- Replacing is decided when the section is gathered, before it is fitted: a replacing item that then falls to a
+  `<more_ctx>` line or `no-fit` still keeps what it replaces out. It is one pass, so an item replaced by another still
+  replaces what it names.
+- **The small agent's cap is the planner's to keep, not a sum the tests cap** (decided 2026-11-23). The old check that
+  every chat item's title and summary together stay under hub/chat_small's 600 tokens failed with each new system (this
+  one's summary was cut to fit). The runtime already holds the cap: the section falls back, highest order first, from
+  summary to a `<more_ctx>` line, then out. `scripts/chat-prompt.test.ts` now checks what matters: the hub's own items
+  fit the cap by themselves, every chat item has its own summary of at most 220 characters (an eighth of the cap), and
+  with thirty more systems' items the fitted section stays within the cap with every hub item still in it (at least
+  as a line). With room again, `basics`' summary can be the design's two sentences (slice 7).
+
+**Slice 3 built (2026-11-23, local).** The hub's generic additions: core `owner-runs.ts` (`KindFnsQuery`, `KindFnWire`,
+`StartAsOwner`, `StartedRun`, `SystemNotice`) and the link endpoints `kindFns`, `startRun`, `notifyOwner` (grant
+`runs`) and `notify` (base: a run's own person); the hub's `link/owner-runs.ts`; `NOTIFICATION_BODY` and the
+notification additions in core (`PageLink`, `NotificationTone`, `NotificationAlso`, `key`, reason `system-message`);
+the inbox replacing an unread notification of the same key in place, and the push carrying `also`, `key` and `tone`;
+the `fns` event's `changed` and the settled run event's `notified`; page refs (`contract.page.<segment>`); `Own`,
+`OwnOf`, `KindRuns`, `KindFn`, `Notice` and `ctx.notify` in the SDK, every impl ctx typed with its own refs;
+`hub/fns_remove` with undo (hub fns can now register an undo); the `runs` review flag; policy `via`. The `TODO(slice
+3)` stopgaps in `shared/index.ts` are gone (`runs` grant, `fns_remove` in the calls and remove's deps); the hub-side
+refusals are `typetests/runs.ts`. Where the build differs from the types above:
+- `KindFn.version` is a number (as `FiringShape.version`); `title` is the fn's name in words ("Weekly sales summary"):
+  saved fns have no title of their own.
+- `kindFns` lists only saved fns (they have an owner to run as); a contract's own fns of the kind are left out.
+- `PageRef` also carries `system` and `segment` (what a link is written from). `system()` keeps its pages' segments in
+  the contract's type, so `ContractShape` gains `system` and `pages` (by segment) beside the sections.
+- The settled run event's `notified` is optional on the `run` event: set on the update that settles the run, absent on
+  the others. The `fns` event's `changed` defaults to `[]`.
+- A notice's body may be sent up to 2000 characters; the hub clamps what it keeps to `NOTIFICATION_BODY`. A notice's
+  key is kept per system (`<system>:<key>`), so two systems never replace each other's. `also`'s label is at most 24
+  characters. A notice from `runs.notify` with no link leads to the system's own page (`{ system }`).
+- `ctx.notify` in a run needs no grant (it reaches only the run's own person); `runs` covers `kindFns`, `startRun` and
+  `notifyOwner`.
+- A policy's `via` matches the fn of any run above the call, not only its direct parent, so "let its runs go ahead"
+  also covers the calls an agent the schedule runs makes.
+- `hub/fns_remove` returns `{ fn, version }` (the version it had), which is also its undo payload.
+
 ## Judgement calls (not asked)
 
 - The calendar grid is the system's own component on dayspan's `Calendar`; dayspan-vuetify is Vue 2 and Vuetify, so

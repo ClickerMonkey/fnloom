@@ -10,7 +10,7 @@ import type {
 } from '@harness/core';
 import { sectionKeys as structuralKeys } from '@aeye/resources/section-keys';
 import { RecordStorage, SectionKey as SectionKeySchema } from '@harness/core';
-import type { ActionCtx, AskerCtx, FnCall, FnCtx, PreviewCtx, SystemCtx, UndoCtx } from './ctx.ts';
+import type { ActionCtx, AskerCtx, FnCall, FnCtx, Own, PreviewCtx, SystemCtx, UndoCtx } from './ctx.ts';
 import type { FnTypes, Outcome, UntypedFn } from './fn.ts';
 import { g, type GinType } from './gin.ts';
 import type { AgentRef, AnyContextRef, AnyFnRef, AnyTypeRef, Methods, TypeRef } from './refs.ts';
@@ -77,8 +77,8 @@ export function type<T, const M extends Methods = {}>(def: {
 export type ValueOf<D> = D extends TypeDef<infer T, Methods> ? T : never;
 
 /** A method's implementation: a native fn that also gets the value it was called on. */
-export type MethodImpl<V, T extends FnTypes, Cfg = unknown> =
-  { run(self: V, args: T['args'], ctx: FnCtx<T, Cfg>): Promise<Outcome<T>> } &
+export type MethodImpl<V, T extends FnTypes, Cfg = unknown, O extends Own = Own> =
+  { run(self: V, args: T['args'], ctx: FnCtx<T, Cfg, O>): Promise<Outcome<T>> } &
   ([T['undo']] extends [never] ? { undo?: never } : { undo(payload: T['undo'], ctx: UndoCtx<Cfg>): Promise<UndoOutcome> });
 
 // ─── Settings and attachments ─────────────────────────────────────────────────
@@ -151,7 +151,7 @@ export interface KindCheckCtx {
 }
 
 /** A kind's run context: like `FnCtx`, but calls are by name (limited to the deps `describe` returned). */
-export interface KindRunCtx<Cfg = unknown> extends Omit<FnCtx<UntypedFn, Cfg>, 'fns' | 'handlers' | 'progress'> {
+export interface KindRunCtx<Cfg = unknown, O extends Own = Own> extends Omit<FnCtx<UntypedFn, Cfg, O>, 'fns' | 'handlers' | 'progress'> {
   call(fn: QualifiedName, args: Json, options?: { key?: string; background?: boolean }): FnCall<Json>;
   handler(name: string, args: Json): Promise<Json>;
   progress(state: { fraction: number; message?: string } | { step: string; status: StepStatus; detail?: string }): void;
@@ -161,19 +161,19 @@ export interface KindRunCtx<Cfg = unknown> extends Omit<FnCtx<UntypedFn, Cfg>, '
  * A kind's implementation. The payload is typed; a fn's args and result aren't (they depend on the payload), so they
  * arrive as JSON the hub has already checked against `describe`'s types.
  */
-export interface KindImpl<P, Cfg = unknown> {
+export interface KindImpl<P, Cfg = unknown, O extends Own = Own> {
   /** Problems with a payload beyond its type (an unknown fn, a program that doesn't type-check). */
   check(payload: P, ctx: KindCheckCtx): Promise<string[]>;
   describe(payload: P, ctx: KindCheckCtx): Promise<KindDescription>;
-  run(payload: P, args: Json, ctx: KindRunCtx<Cfg>): Promise<Outcome<UntypedFn>>;
+  run(payload: P, args: Json, ctx: KindRunCtx<Cfg, O>): Promise<Outcome<UntypedFn>>;
   undo?(payload: P, undo: Json, ctx: UndoCtx<Cfg>): Promise<UndoOutcome>;
   /** What a run of a payload's fn would do, for a fn `describe` gave an `approval` with a preview (a write query). */
-  preview?(payload: P, args: Json, ctx: PreviewCtx<Cfg>): Promise<PreviewAnswer>;
+  preview?(payload: P, args: Json, ctx: PreviewCtx<Cfg, O>): Promise<PreviewAnswer>;
   /**
    * What a fn of this payload costs, for a kind declared with `estimates: true`: an estimate with basis `payload` (or
    * `free`), blending in `history` when it helps, or `undefined` to leave it to the history.
    */
-  estimate?(payload: P, input: KindEstimateInput, ctx: SystemCtx<Cfg>): Promise<CostEstimate | undefined>;
+  estimate?(payload: P, input: KindEstimateInput, ctx: SystemCtx<Cfg, O>): Promise<CostEstimate | undefined>;
 }
 
 // ─── Context ──────────────────────────────────────────────────────────────────
@@ -247,6 +247,13 @@ export interface InjectInput {
   readonly requires?: readonly AnyFnRef[];
   /** Only in this chat mode. Leave it out unless the text is true in one mode only. */
   readonly mode?: 'tools' | 'static';
+  /**
+   * Context items it takes the place of, as refs (`[hub.context.later]`; a name as a string doesn't compile): while
+   * it goes into an agent's section, each is left out of that section (`replaced`), so the item says what is true
+   * instead. When it is out (its system off, switched off), they are back. Restate what the replaced item says that
+   * is still true.
+   */
+  readonly replaces?: readonly AnyContextRef[];
 }
 
 /** Content for the LLM. Static content is written in the contract; dynamic content is produced by the system. */
@@ -322,7 +329,11 @@ export function context<const Args extends Record<string, ArgDef<boolean>>>(def:
     suggestFns: [...(def.suggestFns ?? [])],
     suggest: def.suggest ?? 'both',
     visible: def.visible ?? 'both',
-    inject: def.inject === undefined ? undefined : { ...def.inject, into: [...def.inject.into], ...(def.inject.requires === undefined ? {} : { requires: [...def.inject.requires] }) },
+    inject: def.inject === undefined ? undefined : {
+      ...def.inject, into: [...def.inject.into],
+      ...(def.inject.requires === undefined ? {} : { requires: [...def.inject.requires] }),
+      ...(def.inject.replaces === undefined ? {} : { replaces: [...def.inject.replaces] }),
+    },
     tags: [...(def.tags ?? [])],
     weight: def.weight,
     summary: def.summary,
@@ -333,7 +344,7 @@ export function context<const Args extends Record<string, ArgDef<boolean>>>(def:
 }
 
 /** A dynamic context's implementation: its content for these args. */
-export type ContextImpl<A, Cfg = unknown> = (args: A, ctx: SystemCtx<Cfg> & Partial<AskerCtx> & Pick<AskerCtx, 'user' | 'time'>) => Promise<string>;
+export type ContextImpl<A, Cfg = unknown, O extends Own = Own> = (args: A, ctx: SystemCtx<Cfg, O> & Partial<AskerCtx> & Pick<AskerCtx, 'user' | 'time'>) => Promise<string>;
 
 // ─── Hooks ────────────────────────────────────────────────────────────────────
 
@@ -379,7 +390,7 @@ export function hookBlock(contribution: HookContribution): HookBlock {
 }
 
 /** A hook's implementation. */
-export type HookImpl<Cfg = unknown> = (input: HookInput, ctx: SystemCtx<Cfg>) => Promise<HookContribution[]>;
+export type HookImpl<Cfg = unknown, O extends Own = Own> = (input: HookInput, ctx: SystemCtx<Cfg, O>) => Promise<HookContribution[]>;
 
 // ─── Mentions ─────────────────────────────────────────────────────────────────
 
@@ -408,16 +419,16 @@ export interface MentionOption<T> {
 }
 
 /** What a mention provider's implementation gets: the person mentioning, so results are limited to what they may see. */
-export interface MentionCtx<Cfg = unknown> extends SystemCtx<Cfg>, AskerCtx {}
+export interface MentionCtx<Cfg = unknown, O extends Own = Own> extends SystemCtx<Cfg, O>, AskerCtx {}
 
 /** A mention provider's implementation. */
-export interface MentionImpl<T, V, Cfg = unknown> {
+export interface MentionImpl<T, V, Cfg = unknown, O extends Own = Own> {
   /** Results for what the person typed after `@`. */
-  search(query: string, ctx: MentionCtx<Cfg>): Promise<MentionOption<T>[]>;
+  search(query: string, ctx: MentionCtx<Cfg, O>): Promise<MentionOption<T>[]>;
   /** The hover card, asked for when hovered so it is current; `undefined` when the thing no longer exists. */
-  hover(target: T, ctx: MentionCtx<Cfg>): Promise<(Omit<MentionHover, 'value'> & { value?: V }) | undefined>;
+  hover(target: T, ctx: MentionCtx<Cfg, O>): Promise<(Omit<MentionHover, 'value'> & { value?: V }) | undefined>;
   /** The text the LLM gets for this mention: what the thing is, where it lives and how to reach it. */
-  llm(target: T, ctx: MentionCtx<Cfg>): Promise<string>;
+  llm(target: T, ctx: MentionCtx<Cfg, O>): Promise<string>;
 }
 
 // ─── Sectioners ───────────────────────────────────────────────────────────────
@@ -466,4 +477,4 @@ export function action<I, R = undefined, St extends object = {}>(def: { descript
 }
 
 /** An action's implementation. */
-export type ActionImpl<I, R, St extends object, Cfg = unknown> = (input: I, ctx: ActionCtx<St, Cfg>) => Promise<R>;
+export type ActionImpl<I, R, St extends object, Cfg = unknown, O extends Own = Own> = (input: I, ctx: ActionCtx<St, Cfg, O>) => Promise<R>;

@@ -32,7 +32,7 @@ export {
 } from './declare.ts';
 export type {
   FnRef, AnyFnRef, AgentRef, FnRefOf, TypeRef, AnyTypeRef, Methods, MethodName, MethodArgs, MethodRefs, KindRef, AnyKindRef, ContextRef, AnyContextRef,
-  SettingRef, AttachmentRef, HookRef, AnyHookRef, MentionRef, SectionerRef, ActionRef, ProviderRef,
+  SettingRef, AttachmentRef, HookRef, AnyHookRef, MentionRef, SectionerRef, ActionRef, ProviderRef, PageRef, AnyPageRef,
 } from './refs.ts';
 export {
   Suspended, CallFailed, HandlerFailed,
@@ -40,6 +40,7 @@ export {
   type Callers, type FnCall, type BudgetInfo, type Resume, type FnCtx, type UndoCtx, type ValidateCtx, type AskerCtx, type ActionCtx, type RunStatusView, type SystemPlace,
   type Data, type StoredRecord, type StoredType, type RecordFind,
   type ForwardModality, type ModelInput, type ModelOutput, type PreviewCtx, type ClaimsCtx, type Proposals, type ProposeOptions, type Decisions, type DecideOptions, type Fleets, type FnSearch, type AiSource, type AdminNotices, type InstanceConnects,
+  type Own, type PayloadOf, type KindFn, type KindRuns, type StartAsOwner, type Notice, type NoticeLink, type OwnerRuns, type RunNotices,
 } from './ctx.ts';
 export { ResultBlock, ResultBlockType, ResultColumnInfo, ResultFn, NextPage } from './results.ts';
 export type { FnImpl } from './impl.ts';
@@ -47,13 +48,13 @@ export type { ResourceProvider } from './resources.ts';
 export { provider, providerDecl, type ProviderDef, type ProviderInput, type ProviderImpl } from './providers.ts';
 export {
   system, isSystemContract, CONTRACT_SECTIONS,
-  type ContractShape, type ContractSection, type EmptyContract, type Merge, type SystemRefs, type SystemContract, type AnyContract, type ConfigOf,
+  type ContractShape, type ContractSection, type EmptyContract, type Merge, type SystemRefs, type SystemContract, type AnyContract, type ConfigOf, type OwnOf,
   type ConnectImpl, type EventHandlers, type Lifecycle, type SystemImpl, type SystemInfo, type RegistryDef,
 } from './system.ts';
 export {
   hub, ADMIN_ENDPOINTS, ADMIN_READ_ENDPOINTS, HUB_READ_ENDPOINTS, HUB_WRITE_ENDPOINTS, HUB_PERSON_ENDPOINTS, HUB_EXPLORE_ENDPOINTS, HUB_DATA_ENDPOINTS, FIND_KINDS, LlmPayloadType, ModelChoiceType, ChatModeType, ContextorType, FnErrorType,
-  StoredFn, SaveFnArgs, SAVE_FN_TAKEN,
-  type AdminFnName, type AdminReadFnName, type HubReadFnName, type HubWriteFnName, type HubPersonFnName, type HubExploreFnName, type HubContract,
+  StoredFn, SaveFnArgs, SAVE_FN_TAKEN, RemovedFn, HUB_CONTEXT_KEYS,
+  type HubContextKey, type HubContextRefs, type AdminFnName, type AdminReadFnName, type HubReadFnName, type HubWriteFnName, type HubPersonFnName, type HubExploreFnName, type HubContract,
 } from './hub.ts';
 export { APP_PATH, safeHref, RESOURCE_LINK } from './links.ts';
 export { agent, type AgentInput, type AgentFnTypes, type AgentInjected, type LlmPayload, type LlmKind } from './agent.ts';

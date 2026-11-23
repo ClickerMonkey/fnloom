@@ -30,7 +30,13 @@ export function generateVapidKeys(): Promise<VapidKeys> {
  * hub's display name, so a push says which hub it is from ("Family Desk: Approve fs/write?").
  */
 export function pushPayload(notification: Notification, hubName: string): string {
-  return JSON.stringify({ id: notification.id, title: `${hubName}: ${notification.title}`, body: notification.body, link: notification.link, reason: notification.reason });
+  return JSON.stringify({
+    id: notification.id, title: `${hubName}: ${notification.title}`, body: notification.body, link: notification.link, reason: notification.reason,
+    // a second link is a push action; a key is its tag, so a later notice of the same key replaces it on the phone
+    ...(notification.also === undefined ? {} : { also: notification.also }),
+    ...(notification.key === undefined ? {} : { key: notification.key }),
+    ...(notification.tone === undefined ? {} : { tone: notification.tone }),
+  });
 }
 
 /** Pushes to every browser a user subscribed. */

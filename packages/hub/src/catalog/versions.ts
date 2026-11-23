@@ -68,6 +68,12 @@ export function itemVersionCount(store: HubStore, system: SystemName, section: I
   return store.table('itemVersions').count({ system, section, name });
 }
 
+/** An item's newest version, if it has one. */
+export async function latestItemVersion(store: HubStore, system: SystemName, section: ItemSection, name: string): Promise<ItemVersionRecord | undefined> {
+  const page = await store.table('itemVersions').find({ where: { system, section, name }, order: [['number', 'desc']], limit: 1 });
+  return page.items[0];
+}
+
 /**
  * Move build 5's `fnVersions` and build 7's `typeVersions` rows into `itemVersions` (as `changed` versions with the
  * numbers they had), removing each as it moves. Runs once per start before the catalog imports anything; a store with

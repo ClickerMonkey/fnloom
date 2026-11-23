@@ -19,27 +19,27 @@ interface · `import { Lifecycle } from '@harness/sdk'`
 Moments in a system's life. All optional; each gets the system's context with its current config.
 
 ```ts
-interface Lifecycle<Cfg> {
+interface Lifecycle<Cfg, O extends Own = Own> {
   /** The first time it connects after being paired or installed (with a valid config). */
-  installed?(ctx: SystemCtx<Cfg>): Promise<void>;
+  installed?(ctx: SystemCtx<Cfg, O>): Promise<void>;
   /** Every time it connects with a valid config and its contract is imported. */
-  started?(ctx: SystemCtx<Cfg>): Promise<void>;
+  started?(ctx: SystemCtx<Cfg, O>): Promise<void>;
   /**
    * Someone changed the config. `previous` is the value it replaced, or undefined when there was none (the first
    * config it gets while already running). Runs already going keep the value they started with.
    */
-  configured?(ctx: SystemCtx<Cfg> & { readonly previous: Cfg | undefined }): Promise<void>;
+  configured?(ctx: SystemCtx<Cfg, O> & { readonly previous: Cfg | undefined }): Promise<void>;
   /** Before it stops. The hub waits up to `timeout`. */
-  stopping?(ctx: SystemCtx<Cfg> & { readonly reason: StopReason; readonly timeout: Duration }): Promise<void>;
+  stopping?(ctx: SystemCtx<Cfg, O> & { readonly reason: StopReason; readonly timeout: Duration }): Promise<void>;
   /** The first start of a new version; `from` is the version it replaced. */
-  upgraded?(ctx: SystemCtx<Cfg> & { readonly from: string }): Promise<void>;
+  upgraded?(ctx: SystemCtx<Cfg, O> & { readonly from: string }): Promise<void>;
   /** An admin removed it; clean up anything it keeps outside the hub. */
-  uninstalled?(ctx: SystemCtx<Cfg>): Promise<void>;
+  uninstalled?(ctx: SystemCtx<Cfg, O>): Promise<void>;
   /**
    * The hub is about to copy `ctx.dataDir` for a data export: flush what is buffered and checkpoint an open database
    * so the copy is whole. The hub waits up to `timeout`; runs keep going.
    */
-  exporting?(ctx: SystemCtx<Cfg> & { readonly timeout: Duration }): Promise<void>;
+  exporting?(ctx: SystemCtx<Cfg, O> & { readonly timeout: Duration }): Promise<void>;
 }
 ```
 
@@ -52,8 +52,8 @@ type · `import { EventHandlers } from '@harness/sdk'`
 Hub events a system handles, by event type. Subscriptions follow the handlers given.
 
 ```ts
-type EventHandlers<Cfg> = {
-  readonly [E in SystemEvent['type']]?: (event: Extract<SystemEvent, { type: E }>, ctx: SystemCtx<Cfg>) => Promise<void>;
+type EventHandlers<Cfg, O extends Own = Own> = {
+  readonly [E in SystemEvent['type']]?: (event: Extract<SystemEvent, { type: E }>, ctx: SystemCtx<Cfg, O>) => Promise<void>;
 };
 ```
 

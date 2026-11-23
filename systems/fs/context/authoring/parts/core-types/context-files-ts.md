@@ -13,78 +13,6 @@ niche: "developer"
 
 ### From `packages/core/src/context-files.ts`
 
-#### <a id="core-contextcrawlargs"></a>`ContextCrawlArgs`
-
-const, type · declared in `packages/core/src/context-files.ts`
-
-`hub/ctx_crawl`'s args (see `CRAWL_DEFAULTS` for how a crawl walks the graph).
-
-```ts
-type ContextCrawlArgs = {
-  context: string[];
-  guidance: string;
-  maxDepth: number;
-  maxDecisions: number;
-  maxTokens: number;
-  metadataOnly: boolean;
-};
-```
-
-#### <a id="core-contextcrawlresult"></a>`ContextCrawlResult`
-
-const, type · declared in `packages/core/src/context-files.ts`
-
-What `hub/ctx_crawl` did: the items it took (`crawled`, in the order taken), those loaded into the session as
-`hub/ctx_load` loads them (none when metadata only) with the fns they brought, the starting names it refused,
-the links it skipped, why it stopped, and what it spent: the decide calls (`calls`, each a model call), the questions
-asked and the tokens gathered. The model reads only its `cards` (`LoadCards`).
-
-```ts
-type ContextCrawlResult = {
-  loaded: `${string}/${string}`[];
-  fns: `${string}/${string}`[];
-  fnsRefused: {
-    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
-    reason: string;
-    fn: string;
-    system?: SystemName | undefined;
-  }[];
-  refused: {
-    context: string;
-    reason: string;
-    closest: `${string}/${string}`[];
-  }[];
-  cards: string;
-  crawled: {
-    name: `${string}/${string}`;
-    description: string;
-    depth: number;
-    via: "start" | "import" | "choice";
-    tokens: number;
-    title?: string | undefined;
-    from?: `${string}/${string}` | undefined;
-    probability?: number | undefined;
-    content?: string | undefined;
-  }[];
-  skipped: {
-    context: string;
-    depth: number;
-    reason: "failed" | "declined" | "max-tokens" | "max-decisions" | "max-depth" | "unavailable";
-    from?: `${string}/${string}` | undefined;
-    probability?: number | undefined;
-  }[];
-  stop: {
-    reason: "failed" | "max-tokens" | "max-decisions" | "max-depth" | "complete";
-    detail?: string | undefined;
-  };
-  depth: number;
-  decisions: number;
-  tokens: number;
-  calls: string[];
-  metadataOnly: boolean;
-};
-```
-
 #### <a id="core-contextfileheader"></a>`ContextFileHeader`
 
 const, type · declared in `packages/core/src/context-files.ts`
@@ -132,6 +60,7 @@ type ContextFileHeader = {
     order: number;
     requires: `${string}/${string}`[];
     mode?: "tools" | "static" | undefined;
+    replaces?: `${string}/${string}`[] | undefined;
   } | undefined;
   command?: {
     name: string;
@@ -171,51 +100,4 @@ const, type · declared in `packages/core/src/context-files.ts`
 
 ```ts
 type ContextFileProblemCode = "header" | "duplicate-key" | "broken-link" | "cycle" | "missing-summary";
-```
-
-#### <a id="core-loadcontextresult"></a>`LoadContextResult`
-
-const, type · declared in `packages/core/src/context-files.ts`
-
-What `hub/ctx_load` did: the context it loaded (with what each loads with it, every time), the fns that context
-brings that went into the session's tools, the fns it brings that could not (`fnsRefused`, each with what blocks it), and
-what it refused, each with the closest names it knows. The model reads only its `cards` (`LoadCards`).
-
-```ts
-type LoadContextResult = {
-  loaded: `${string}/${string}`[];
-  fns: `${string}/${string}`[];
-  fnsRefused: {
-    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
-    reason: string;
-    fn: string;
-    system?: SystemName | undefined;
-  }[];
-  refused: {
-    context: string;
-    reason: string;
-    closest: `${string}/${string}`[];
-  }[];
-  cards: string;
-};
-```
-
-#### <a id="core-loadfnsresult"></a>`LoadFnsResult`
-
-const, type · declared in `packages/core/src/context-files.ts`
-
-What `hub/fns_load` did: the fns that went into the session's tools, and the names it refused, each with what blocks
-it. The model reads only its `cards` (`LoadCards`).
-
-```ts
-type LoadFnsResult = {
-  loaded: `${string}/${string}`[];
-  refused: {
-    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
-    reason: string;
-    fn: string;
-    system?: SystemName | undefined;
-  }[];
-  cards: string;
-};
 ```

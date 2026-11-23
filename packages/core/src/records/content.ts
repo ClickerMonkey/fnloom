@@ -107,8 +107,35 @@ export const NotificationReason = z.enum([
   'system-paused',
   /** A system told the admins something (`notifyAdmins`). */
   'system-notice',
+  /**
+   * A system told one person something: the person a run is for (`ctx.notify`), or the owner of one of its kinds'
+   * fns (`ctx.runs.notify`), such as how a run it started went.
+   */
+  'system-message',
 ]);
 export type NotificationReason = z.infer<typeof NotificationReason>;
+
+/** The most characters a notification's body holds: a longer one is clamped on a word boundary (`clamp`). */
+export const NOTIFICATION_BODY = 160;
+
+/** The most characters an `also` link's label holds: it is a button in the inbox and a push action. */
+export const NOTIFICATION_ACTION_LABEL = 24;
+
+/** The most characters a notification's `key` holds. */
+export const NOTIFICATION_KEY = 200;
+
+/**
+ * A link to one of a system's declared pages (`/s/<system>/<segment>`), with more path after the segment (an item's
+ * name) and a query (`?tab=history`). The hub checks the segment against the system's declared pages; a system writes
+ * one from a page ref (`contract.page.item`), never a segment string.
+ */
+export const PageLink = z.object({
+  system: SystemName,
+  segment: z.string().min(1),
+  path: z.array(z.string().min(1)).optional(),
+  query: z.record(z.string(), z.string()).optional(),
+}).strict();
+export type PageLink = z.infer<typeof PageLink>;
 
 /** Where a notification leads. */
 export const NotificationLink = z.union([
@@ -117,8 +144,17 @@ export const NotificationLink = z.union([
   z.object({ pairing: PairingId }),
   z.object({ run: RunId }),
   z.object({ system: SystemName }),
+  z.object({ page: PageLink }),
 ]);
 export type NotificationLink = z.infer<typeof NotificationLink>;
+
+/** How a notification went, for its inbox icon: it went well, it failed, or it only says something. */
+export const NotificationTone = z.enum(['ok', 'failed', 'info']);
+export type NotificationTone = z.infer<typeof NotificationTone>;
+
+/** A notification's second link, with its label: a button in the inbox and an action on the push (`History`). */
+export const NotificationAlso = z.object({ label: z.string().min(1).max(NOTIFICATION_ACTION_LABEL), link: NotificationLink });
+export type NotificationAlso = z.infer<typeof NotificationAlso>;
 
 /** An inbox item; pushed (web push) when the user isn't looking. */
 export const Notification = z.object({
@@ -135,6 +171,15 @@ export const Notification = z.object({
    * `Connected`); such a notification is read, and stays as a record of what happened.
    */
   resolved: z.string().optional(),
+  /** How it went, for the inbox icon; absent is `info`. */
+  tone: NotificationTone.optional(),
+  /** A second link with its label, shown as a button in the inbox and as a push action. */
+  also: NotificationAlso.optional(),
+  /**
+   * A later notification to the same person with the same key replaces this one while it is unread, in the inbox and
+   * on the phone (the key is the push's tag), so a run that repeats leaves one item, not forty.
+   */
+  key: z.string().min(1).max(NOTIFICATION_KEY).optional(),
   createdAt: Timestamp,
 });
 export type Notification = z.infer<typeof Notification>;

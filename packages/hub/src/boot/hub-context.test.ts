@@ -5,7 +5,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { hub, manifestOf } from '@harness/sdk';
+import { hub, HUB_CONTEXT_KEYS, manifestOf } from '@harness/sdk';
 import { ContextFolderError } from '@harness/sdk/server';
 import { describe, expect, it } from 'vitest';
 import { hubContext, withHubContext } from './hub-context.ts';
@@ -25,6 +25,7 @@ const FEATURES: Record<string, { title: string; fns: string[]; requires?: string
   background_runs: { title: 'Background runs', fns: ['hub/run_status', 'hub/run_wait'] },
   undo: { title: 'Undo', fns: [], requires: ['hub/turn_undo'] },
   limits: { title: 'What this app can\'t do', fns: [] },
+  later: { title: 'Nothing runs later', fns: [] },
 };
 
 describe('the hub\'s context files', () => {
@@ -56,6 +57,32 @@ describe('the hub\'s context files', () => {
     const words = items.reduce((sum, item) => sum + `## ${item.title ?? ''}\n\n${item.summary ?? ''}`.split(/\s+/).length, 0);
     // about 4/3 tokens a word: the hub's share leaves room for the systems' items
     expect(words * 4 / 3).toBeLessThan(400);
+  });
+
+  it('are the keys the SDK gives refs to (hub.context.later), so a system can name one', async () => {
+    const items = await hubContext(await manifestOf(hub, { version: '0' }));
+    expect(items.map((item) => item.name).sort()).toEqual([...HUB_CONTEXT_KEYS].sort());
+    expect(hub.context.later).toMatchObject({ ref: 'context', name: 'hub/later' });
+    expect(`${hub.context.limits}`).toBe('context:hub/limits');
+  });
+
+  it('split what the app can\'t do: `limits` (accounts, setup) and `later` (nothing later by itself, no messages later), naming no system', async () => {
+    const items = await hubContext(await manifestOf(hub, { version: '0' }));
+    const text = (name: string): string => {
+      const item = items.find((found) => found.name === name);
+      return `${item?.description ?? ''}\n${item?.summary ?? ''}\n${item?.content ?? ''}`;
+    };
+    const limits = text('limits');
+    const later = text('later');
+    expect(limits).toContain('You can\'t connect accounts or set up services');
+    expect(limits).toContain('Never invent links');
+    expect(limits).not.toMatch(/later|remind|every week/i);
+    expect(later).toContain('Nothing runs later by itself.');
+    expect(later).toContain('No messages to anyone later.');
+    expect(later).toContain('"remind me"');
+    expect(later).not.toMatch(/accounts|set up services/i);
+    // general purpose: neither names a system that might say otherwise
+    for (const said of [limits, later]) expect(said).not.toMatch(/\bschedul/i);
   });
 
   it('own the blocks the core leaves to them: <file> is the Attached files item\'s', async () => {

@@ -27,6 +27,7 @@ import { ModelNamesStore } from '../fns/state/model-names.ts';
 import { IdentityStore } from '../state/identity.ts';
 import { OutsideImagesStore } from '../state/outside-images.ts';
 import { GraphStore } from '../graph/state/graph.ts';
+import { RunPageStore } from '../runs/store.ts';
 import { DataStore } from '../data/state/data.ts';
 import { SystemPagesStore } from '../system-pages/store.ts';
 import type { Stores } from '../state/stores.ts';
@@ -102,6 +103,7 @@ export function createStores(win: Window): Stores {
     fnNotices: new FnNotices(api.fns),
     modelNames: new ModelNamesStore(api.fns),
     graph: () => new GraphStore(api.graph),
+    runPage: () => new RunPageStore(api.chat),
     data: new DataStore(api.data),
     pages,
     itemVersions: (query) => api.data.itemVersions.call(query),

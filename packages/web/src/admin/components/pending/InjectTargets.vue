@@ -2,7 +2,8 @@
 /**
  * What a change does to what agents are told, on its review card: each target of the injection (`hub/chat*`,
  * `crm/reviewer`) with the agents it hits now as pills, "hits no agent yet" for a pattern that hits none, and its
- * rough size. A hook's `explains` names no targets: it goes into the agents that get the hook's blocks.
+ * rough size, and the items it takes out of those agents' sections (`replaces`). A hook's `explains` names no targets:
+ * it goes into the agents that get the hook's blocks.
  */
 import type { InjectionChangeView } from '@harness/core';
 import { computed } from 'vue';
@@ -30,6 +31,10 @@ const lead = computed(() => LEAD[props.injection.change]);
       </li>
     </ul>
     <p v-else class="dim">The agents that get {{ injection.name }}'s blocks.</p>
+    <p v-if="injection.replaces !== undefined && injection.change !== 'removed'" class="replaces" data-testid="inject-replaces">
+      Takes <template v-for="(name, i) in injection.replaces" :key="name"><code>{{ name }}</code><template v-if="i < injection.replaces.length - 1">, </template></template>
+      out of their sections while it is in.
+    </p>
   </section>
 </template>
 
@@ -44,4 +49,5 @@ p.dim { margin: 0; }
 .arrow { color: var(--text-faint); }
 .agents { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 .none { color: var(--text-dim); font-style: italic; }
+.replaces { margin: 0; color: var(--text-dim); }
 </style>

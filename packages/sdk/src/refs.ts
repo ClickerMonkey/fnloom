@@ -138,6 +138,20 @@ export interface SectionerRef<N extends QualifiedName> {
   readonly name: N;
 }
 
+/**
+ * A typed handle to one of a system's pages (`schedule.page.item`), named `<system>/<segment>`: links to pages are
+ * refs, never segment strings, so a link to a page that isn't declared, or to another system's page, doesn't compile.
+ */
+export interface PageRef<N extends QualifiedName> {
+  readonly ref: 'page';
+  readonly name: N;
+  /** The system that declares it. */
+  readonly system: string;
+  /** Its segment: the page is at `/s/<system>/<segment>`. */
+  readonly segment: string;
+}
+export type AnyPageRef = PageRef<QualifiedName>;
+
 /** A typed handle to an action a system's renderers may send. */
 export interface ActionRef<N extends QualifiedName, I, R> {
   readonly ref: 'action';

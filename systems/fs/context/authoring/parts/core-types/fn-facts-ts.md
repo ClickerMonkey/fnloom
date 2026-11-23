@@ -31,29 +31,6 @@ type CostEstimate = {
 };
 ```
 
-#### <a id="core-ctxsearchargs"></a>`CtxSearchArgs`
-
-const, type · declared in `packages/core/src/fn-facts.ts`
-
-What the model may ask `hub/ctx_search` (static mode's `find_ctx`): context only (guides, memories, pieces of
-files), by words or meaning, filtered by system, origin (`system`, `memory`, `resource`), a memory's scope and tags.
-It is the one search too: `ctxSearchQuery` turns it into a `FnSearchQuery` of context items.
-
-```ts
-type CtxSearchArgs = {
-  text?: string | undefined;
-  systems?: SystemName[] | undefined;
-  origins?: ("system" | "memory" | "resource")[] | undefined;
-  scopes?: ("user" | "session" | "everyone")[] | undefined;
-  tags?: string[] | undefined;
-  names?: `${string}/${string}`[] | undefined;
-  niches?: ("admin" | "developer" | "reference")[] | undefined;
-  order?: "name" | "rank" | undefined;
-  offset?: number | undefined;
-  limit?: number | undefined;
-};
-```
-
 #### <a id="core-fnexamplespage"></a>`FnExamplesPage`
 
 const, type · declared in `packages/core/src/fn-facts.ts`
@@ -107,40 +84,6 @@ type FnExamplesQuery = {
   query?: string | undefined;
   offset?: number | undefined;
   limit?: number | undefined;
-};
-```
-
-#### <a id="core-fnsearchargs"></a>`FnSearchArgs`
-
-const, type · declared in `packages/core/src/fn-facts.ts`
-
-What the model may ask `hub/fns_search` (static mode's `find`): fns only. The query without `items` (it finds fns,
-never context: that is `hub/ctx_search`), the context-only filters, the context page's own `filters` and `off`, and
-`match` (the search merges words and meaning itself), so the tool's spec in every prompt stays small.
-
-```ts
-type FnSearchArgs = {
-  instance?: InstanceName | undefined;
-  visibility?: "shared" | "public" | "mine" | undefined;
-  text?: string | undefined;
-  offset?: number | undefined;
-  limit?: number | undefined;
-  systems?: SystemName[] | undefined;
-  modes?: ("read" | "write" | "delete")[] | undefined;
-  effects?: {
-    thing: "types" | "records" | "fns" | "context" | "examples" | "kinds" | "resources" | "components" | "approvals" | "secrets" | "connections";
-    action?: "create" | "update" | "remove" | undefined;
-    kind?: string | undefined;
-  }[] | undefined;
-  available?: boolean | undefined;
-  niches?: ("admin" | "developer" | "reference")[] | undefined;
-  order?: "name" | "rank" | undefined;
-  kinds?: (`${string}/${string}` | "native")[] | undefined;
-  names?: `${string}/${string}`[] | undefined;
-  types?: {
-    reads?: string[] | undefined;
-    writes?: string[] | undefined;
-  } | undefined;
 };
 ```
 

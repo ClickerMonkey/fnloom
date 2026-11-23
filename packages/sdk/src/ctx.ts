@@ -6,12 +6,12 @@ import type {
   ActorId, AllowedOperations, ConnectionUpdate, ContentRef, DeliveryId, Detail, InstanceName, ModelForward, ModelForwardResult, ErrorClass, FnError, InputProblem, Json, Link, ModelChoice, Operations, QualifiedName,
   ResourceHit, ResourceLink, ResourceStat, ResourceUri, RunId, RunInfo, RunStatus, RunUpdate, Section, SectionKey, SessionId, TimeInfo, Usd,
   Duration, RunConnection, ShareRule, TypeDefinitions, UserInfo, ApprovalPreview, DecideAnswer, DecideCandidate, FleetInstance, ProposalApprover, ProposedRun, FnSearchQuery, FnSearchPage, FnExamplesQuery, FnExamplesPage,
-  ApprovedRun, AdminNotice, DataRecord, ListQuery, RecordId, ResultTable, InstanceConnect, ProposalAsk,
+  ApprovedRun, AdminNotice, DataRecord, ListQuery, RecordId, ResultTable, InstanceConnect, ProposalAsk, StartedRun, Timestamp, NotificationTone,
 } from '@harness/core';
 import type { z } from 'zod';
 import type { FnTypes, HandlerArgs, Handlers, HandlersInRun, HasRequiredHandlers, Outcome, ProgressReporter, Deps } from './fn.ts';
 import type { GinType } from './gin.ts';
-import type { AnyFnRef, AttachmentRef, FnRef, SettingRef } from './refs.ts';
+import type { AnyFnRef, AnyKindRef, AnyPageRef, AttachmentRef, FnRef, KindRef, SettingRef } from './refs.ts';
 import type { HarnessAi } from './server/llm.ts';
 
 // ─── Services ─────────────────────────────────────────────────────────────────
@@ -165,6 +165,107 @@ export interface InstanceConnects {
   instanceConnect(connect: z.input<typeof InstanceConnect>): Promise<void>;
 }
 
+// ─── Runs of a system's own kinds, and notices to people ───────────────────────
+
+/**
+ * What a ctx knows of its own contract: the refs of its kinds and of its pages. `SystemImpl<Defs>` types every ctx it
+ * hands out with its own (`OwnOf`), so another system's kind, fn or page doesn't fit where only its own do.
+ */
+export interface Own<K extends AnyKindRef = AnyKindRef, P extends AnyPageRef = AnyPageRef> {
+  readonly kinds: K;
+  readonly pages: P;
+}
+
+/** The payload type of a kind ref. */
+export type PayloadOf<K> = K extends KindRef<QualifiedName, infer P> ? P : never;
+
+/** The brand only `kindFns` puts on a fn it lists, so a `KindFn` can't be built by hand. */
+export const KIND_FN: unique symbol = Symbol('harness.kindFn');
+
+/** A fn of one of this system's kinds, as the hub lists it. Only `kindFns` makes one (branded), so it can't be built by hand. */
+export interface KindFn<K extends AnyKindRef> {
+  readonly [KIND_FN]: K['name'];
+  readonly fn: QualifiedName;
+  readonly kind: K['name'];
+  /** The person who owns it: whom its runs are started as, and whom `runs.notify` reaches. */
+  readonly owner: ActorId;
+  /** What people call it ("Weekly sales summary"). */
+  readonly title: string;
+  /** Its version, from 1, counting every save. */
+  readonly version: number;
+  /** Parsed by the kind's payload type. */
+  readonly payload: PayloadOf<K>;
+  /** Removed since `changedSince` (its last payload is given). */
+  readonly removed: boolean;
+  readonly updatedAt: Timestamp;
+}
+
+/** How `runs.start` starts a run. */
+export interface StartAsOwner {
+  /** Checked by the hub against the args the kind's `describe` gives the fn. */
+  readonly args: Json;
+  /** Required: the same key is the same run, so a retried or doubled start never runs twice. */
+  readonly key: string;
+  /** Default `background`, so people's chats go first. */
+  readonly priority?: 'background' | 'interactive';
+  /** Lowers the turn's per-turn budget. */
+  readonly maxSpend?: Usd;
+}
+
+/** Where a notice leads: a run of the person's, or one of this system's own pages (a ref, with more path and a query). */
+export type NoticeLink<O extends Own = Own> =
+  | { readonly run: RunId }
+  | { readonly page: O['pages']; readonly path?: readonly string[]; readonly query?: Readonly<Record<string, string>> };
+
+/** A notice to one person: the owner of a kind fn (`runs.notify`) or the person a run is for (`ctx.notify`). */
+export interface Notice<O extends Own = Own> {
+  readonly title: string;
+  /** At most `NOTIFICATION_BODY` (160) characters; longer is clamped on a word boundary. */
+  readonly body: string;
+  /** How it went, for the inbox icon; default `info`. */
+  readonly tone?: NotificationTone;
+  /** Where it leads. Absent: from a run, that run; from `runs.notify`, the system's main page. */
+  readonly link?: NoticeLink<O>;
+  /** A second link, shown as a button in the inbox and as a push action. */
+  readonly also?: { readonly label: string; readonly link: NoticeLink<O> };
+  /** A later notice with the same key replaces this one while it is unread (and is its push tag). */
+  readonly key?: string;
+}
+
+/**
+ * Runs of this system's own kinds' fns, started by the system itself as each fn's owner, and notices to those owners.
+ * Needs the `runs` grant (the review flags it: "Starts runs on its own, as the owners of its fns, and notifies them").
+ *
+ * ```ts
+ * const { items } = await ctx.runs.kindFns(contract.kinds.schedule);
+ * const started = await ctx.runs.start(items[0], { args: { at }, key: `schedule:${items[0].fn}@${at}` });
+ * await ctx.runs.notify(items[0], { title: 'Weekly summary ran', body: '12 rows', link: { run: started.run } });
+ * ```
+ */
+export interface KindRuns<O extends Own = Own> {
+  /** The fns of one of this system's kinds, with owner, title, version and parsed payload, a page at a time. */
+  kindFns<K extends O['kinds']>(kind: K, query?: { readonly changedSince?: Timestamp; readonly cursor?: string }): Promise<{ readonly items: Array<KindFn<K>>; readonly cursor?: string }>;
+  /**
+   * Start a run of the fn, as its owner, outside any run and any chat (a sessionless turn). Refused (with the reason)
+   * unless the owner can still use the hub, the system is live and the owner may run it. The same `key` is the same run.
+   */
+  start(fn: KindFn<O['kinds']>, options: StartAsOwner): Promise<StartedRun>;
+  /** Notify the fn's owner (inbox and push), never anyone else. */
+  notify(fn: KindFn<O['kinds']>, notice: Notice<O>): Promise<void>;
+}
+
+/** `ctx.runs`: in a system's context (hooks, events, lifecycle, timers), never in a run's. */
+export interface OwnerRuns<O extends Own = Own> {
+  /** Runs of this system's own kinds' fns, as their owners, and notices to those owners. Needs the `runs` grant. */
+  readonly runs: KindRuns<O>;
+}
+
+/** `ctx.notify`: in a run's context only. */
+export interface RunNotices<O extends Own = Own> {
+  /** Notify the person this run is for (inbox and push), never anyone else. The run's settled event says it did (`notified`). */
+  notify(notice: Notice<O>): Promise<void>;
+}
+
 /** What every run, undo and action gets from the hub. */
 export interface Services extends SystemPlace, AiSource, AdminNotices {
   /** LLM calls through the hub, counted against the run's budget. */
@@ -250,7 +351,7 @@ export interface Decisions {
  * What a `preview` gets: the system context, the run waiting for approval and whom it is for. A preview must not
  * change anything: it reads what the run would touch and says so.
  */
-export interface PreviewCtx<Cfg = unknown> extends SystemCtx<Cfg> {
+export interface PreviewCtx<Cfg = unknown, O extends Own = Own> extends SystemCtx<Cfg, O> {
   readonly run: RunId;
   readonly user: UserInfo;
 }
@@ -259,7 +360,7 @@ export interface PreviewCtx<Cfg = unknown> extends SystemCtx<Cfg> {
  * What a fn's `claims(args, ctx)` gets: the system context, the person whose turn made the call, the agent run that
  * made it and its chat. The call isn't a run yet, so it has no run of its own.
  */
-export interface ClaimsCtx<Cfg = unknown> extends SystemCtx<Cfg> {
+export interface ClaimsCtx<Cfg = unknown, O extends Own = Own> extends SystemCtx<Cfg, O> {
   readonly user: UserInfo;
   /** The agent run that made the call. */
   readonly caller: RunId;
@@ -285,7 +386,7 @@ export interface FnSearch {
   fnExamples(query: FnExamplesQuery): Promise<FnExamplesPage>;
 }
 
-export interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets, FnSearch, AiSource, AdminNotices, InstanceConnects {
+export interface SystemCtx<Cfg = unknown, O extends Own = Own> extends SystemPlace, Proposals, Fleets, FnSearch, AiSource, AdminNotices, InstanceConnects, OwnerRuns<O> {
   readonly system: string;
   /** The system's current config. */
   readonly config: Cfg;
@@ -420,7 +521,7 @@ export interface Resume<S> {
  * What a fn's validation hooks get (`fn({ validate })`): the system's context, the run being checked (who it is for,
  * its session and time), and for an output check which attempt this is (1 for the first result).
  */
-export interface ValidateCtx<Cfg = unknown> extends SystemCtx<Cfg> {
+export interface ValidateCtx<Cfg = unknown, O extends Own = Own> extends SystemCtx<Cfg, O> {
   readonly run: RunInfo;
   /** The attempt whose result is checked; 1 for an input check. */
   readonly attempt: number;
@@ -430,7 +531,7 @@ export interface ValidateCtx<Cfg = unknown> extends SystemCtx<Cfg> {
  * What a run gets besides its args. Typed by its fn: only its deps can be called, only its handlers exist, only its
  * progress steps can be reported, and the outcome helpers take its result, undo and resume types.
  */
-export interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services, Proposals, Decisions, Fleets, FnSearch {
+export interface FnCtx<T extends FnTypes, Cfg = unknown, O extends Own = Own> extends Services, Proposals, Decisions, Fleets, FnSearch, RunNotices<O> {
   /** The system's config, as it was when this run started. */
   readonly config: Cfg;
   /** Which run this is, whom it acts for, and where it sits in the tree. */
@@ -509,7 +610,7 @@ export interface AskerCtx {
 }
 
 /** What an action's implementation gets. */
-export interface ActionCtx<St extends object, Cfg = unknown> extends SystemCtx<Cfg>, AskerCtx, Omit<Services, 'log' | 'llm' | 'resources' | 'types'> {
+export interface ActionCtx<St extends object, Cfg = unknown, O extends Own = Own> extends SystemCtx<Cfg, O>, AskerCtx, Omit<Services, 'log' | 'llm' | 'resources' | 'types'> {
   readonly delivery: DeliveryId;
   /** The run whose renderer sent it, if any. */
   readonly run: RunId | undefined;

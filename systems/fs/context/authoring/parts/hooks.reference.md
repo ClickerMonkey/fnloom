@@ -52,7 +52,7 @@ type · `import { HookImpl } from '@harness/sdk'`
 A hook's implementation.
 
 ```ts
-type HookImpl<Cfg = unknown> = (input: HookInput, ctx: SystemCtx<Cfg>) => Promise<HookContribution[]>;
+type HookImpl<Cfg = unknown, O extends Own = Own> = (input: HookInput, ctx: SystemCtx<Cfg, O>) => Promise<HookContribution[]>;
 ```
 
 Refers to: [`HookInput`](context:fs/authoring.core-types.contextdecl#core-hookinput).

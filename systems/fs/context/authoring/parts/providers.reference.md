@@ -69,7 +69,7 @@ The implementation of a declared provider: make the aeye `Provider` for the curr
 the config changes, and kept otherwise.
 
 ```ts
-type ProviderImpl<Cfg = unknown> = (ctx: SystemCtx<Cfg>) => Provider;
+type ProviderImpl<Cfg = unknown, O extends Own = Own> = (ctx: SystemCtx<Cfg, O>) => Provider;
 ```
 
 #### `ProviderRef`

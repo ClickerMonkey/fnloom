@@ -148,6 +148,21 @@ describe('the review summary\'s injects flag', () => {
     expect(injectionChanges(contractChanges(before, plainChanged))).toEqual([]);
   });
 
+  it('says what a new injection takes out of the agents\' sections (`replaces`), and counts a new replaces as a change', async () => {
+    const crm = crmWith(['hub/chat*']);
+    const desk = (replaces: boolean) => system('desk', { description: 'Deal desk.' })
+      .with({ context: { basics: context({ title: 'Deal desk', description: 'The desk.', content: 'The desk reviews deals.', inject: { into: ['hub/chat*'], order: 40, ...(replaces ? { replaces: [crm.context.deals] } : {}) } }) } });
+    const plain = await manifestFor(desk(false));
+    expect(plain.context[0]?.inject?.replaces).toBeUndefined();
+    const after = await manifestFor(desk(true));
+    expect(after.context[0]?.inject?.replaces).toEqual(['crm/deals']);
+    const [added] = injectionChanges(contractChanges(undefined, after), [q('hub/chat'), q('hub/chat_small')]);
+    expect(added?.replaces).toEqual(['crm/deals']);
+    const flag = reviewSummary(contractChanges(undefined, after), [q('hub/chat'), q('hub/chat_small')]).flags.find((item) => item.flag === 'injects');
+    expect(flag?.line).toMatch(/^Changes what hub\/chat and hub\/chat_small are told: \+ Deal desk \(desk\/basics, \d+ tokens, takes crm\/deals out\)$/);
+    expect(injectionChanges(contractChanges(plain, after)).map((item) => [item.change, item.replaces])).toEqual([['changed', ['crm/deals']]]);
+  });
+
   it('flags a hook\'s new explains, and says a pattern hits no agent yet', async () => {
     const before = await manifestFor(crmWith(['hub/chat*']));
     const after = withTargets(await manifestFor(crmWith(['hub/chat*'], { explains: 'The deal\'s stage.' })), 'deals', ['billing/*']);

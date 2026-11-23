@@ -215,6 +215,7 @@ export class TestCatalog implements Catalog {
   typesOf(): ReturnType<Catalog['typesOf']> { return Promise.resolve([]); }
   typeClosure(names: readonly QualifiedName[]): ReturnType<Catalog['typeClosure']> { return Promise.resolve({ order: [], missing: [...names] }); }
   declare(): never { throw new Error('not in execution tests'); }
+  remove(): never { throw new Error('not in execution tests'); }
   /** The test fns' model names; no named types here. */
   modelNames(): ReturnType<Catalog['modelNames']> { return Promise.resolve({ index: FnNameIndex.of(this.records.keys()), types: () => undefined }); }
   reimport(): never { throw new Error('not in execution tests'); }

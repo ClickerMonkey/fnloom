@@ -64,6 +64,8 @@ export const InjectionChangeView = z.object({
   tokens: z.number().int().min(0).optional(),
   targets: z.array(InjectTargetView),
   agents: z.array(QualifiedName),
+  /** The items it takes out of those agents' sections while it is in (`InjectDecl.replaces`); absent when none. */
+  replaces: z.array(QualifiedName).optional(),
 });
 export type InjectionChangeView = z.infer<typeof InjectionChangeView>;
 
@@ -88,9 +90,10 @@ export type InjectionSetting = z.infer<typeof InjectionSetting>;
  * Why an injected item isn't in an agent's prompt now: `off` (an admin switched it off for this agent, or switched the
  * item itself off), `pending` (waiting in its system's Pending review), `declined` (an admin declined it),
  * `system-off` (its system is off or not connected), `fns-unusable` (a fn it brings or requires can't be used),
- * `mode` (it is for the other chat mode), `no-fit` (it didn't fit the agent's cap).
+ * `mode` (it is for the other chat mode), `replaced` (an item in the section replaces it: `InjectDecl.replaces`),
+ * `no-fit` (it didn't fit the agent's cap).
  */
-export const INJECTION_LEFT_OUT = ['off', 'pending', 'declined', 'system-off', 'fns-unusable', 'mode', 'no-fit'] as const;
+export const INJECTION_LEFT_OUT = ['off', 'pending', 'declined', 'system-off', 'fns-unusable', 'mode', 'replaced', 'no-fit'] as const;
 export const InjectionLeftOut = z.enum(INJECTION_LEFT_OUT);
 export type InjectionLeftOut = z.infer<typeof InjectionLeftOut>;
 

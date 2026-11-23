@@ -15,7 +15,7 @@ import {
 } from '@harness/core';
 import type { ChatDeps } from './deps.ts';
 import { messageOf } from './errors.ts';
-import type { ApproverDirectory, NotificationService, PresenceTracker } from './index.ts';
+import type { ApproverDirectory, NotificationInput, NotificationService, PresenceTracker } from './index.ts';
 import { allRows } from '../store/rows.ts';
 
 /** How many already-notified event ids are remembered, so a repeated event doesn't notify twice. */
@@ -93,10 +93,15 @@ export class StoreNotifications implements NotificationService {
     this.#presence = presence;
   }
 
-  async notify(input: { user: ActorId; reason: NotificationReason; title: string; body: string; link: NotificationLink }): Promise<Notification> {
-    const stored = await this.#deps.store.table('notifications').insert({
-      id: mintId('notification', this.#deps.random), ...input, read: false, pushed: false, createdAt: this.#deps.clock(),
-    });
+  async notify(input: NotificationInput): Promise<Notification> {
+    const table = this.#deps.store.table('notifications');
+    // a key replaces the person's unread notification of that key in place: one item for a repeating notice, not forty
+    const replaced = input.key === undefined ? undefined : (await table.find({ where: { user: input.user, key: input.key, read: false }, order: [['createdAt', 'desc']], limit: 1 })).items[0];
+    const fresh = { ...input, read: false, pushed: false, createdAt: this.#deps.clock() };
+    const stored = replaced === undefined
+      ? await table.insert({ id: mintId('notification', this.#deps.random), ...fresh })
+      // the fields the earlier one had and this one hasn't go with it
+      : await table.put({ id: replaced.id, ...fresh });
     this.#deps.bus.publish('notification', { notification: stored });
     const looking = this.#presence.looking(input.user, 'session' in input.link ? input.link.session : undefined);
     if (looking) { return stored; }

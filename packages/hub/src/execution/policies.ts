@@ -67,9 +67,14 @@ export function globMatches(glob: string, name: string): boolean {
  * How specific a fn match is (higher is more specific), or undefined when it doesn't match. A `when` predicate over
  * the args can't be evaluated yet, so a policy with one matches only when it would deny or ask (never to allow).
  */
-export function targetRank(match: FnMatch, fn: FnRecord, effect: PolicyDecision['effect']): number | undefined {
+export function targetRank(match: FnMatch, fn: FnRecord, effect: PolicyDecision['effect'], via: readonly QualifiedName[] = []): number | undefined {
   if (match.when !== undefined && effect === 'allow') return undefined;
   let rank = 0;
+  // made by a run of `via` (or one under it): narrower than the fn alone
+  if (match.via !== undefined) {
+    if (!via.includes(match.via)) return undefined;
+    rank += 4;
+  }
   if (match.fn !== undefined) {
     if (match.fn === fn.name) rank += 8;
     else if (globMatches(match.fn, fn.name)) rank += 4;
@@ -92,13 +97,16 @@ export function targetRank(match: FnMatch, fn: FnRecord, effect: PolicyDecision[
 
 const SEVERITY = { deny: 3, ask: 2, allow: 1 } as const;
 
-/** The policy that decides, of those that match: priority, then specificity, then severity. */
-export function choosePolicy(policies: readonly Policy[], fn: FnRecord, actor: ActorFacts, now: number): Policy | undefined {
+/**
+ * The policy that decides, of those that match: priority, then specificity, then severity. `via` are the fns of the
+ * runs the call was made under, nearest first (a policy's `target.via` matches any of them).
+ */
+export function choosePolicy(policies: readonly Policy[], fn: FnRecord, actor: ActorFacts, now: number, via: readonly QualifiedName[] = []): Policy | undefined {
   let best: { policy: Policy; key: readonly number[] } | undefined;
   for (const policy of policies) {
     if (policy.expiresAt !== undefined && policy.expiresAt <= now) continue;
     const subject = subjectRank(policy.subject, actor);
-    const target = targetRank(policy.target, fn, policy.decision.effect);
+    const target = targetRank(policy.target, fn, policy.decision.effect, via);
     if (subject === undefined || target === undefined) continue;
     const key = [policy.priority, subject, target, SEVERITY[policy.decision.effect]];
     if (best === undefined || compareKeys(key, best.key) > 0) best = { policy, key };
@@ -152,7 +160,7 @@ export class HubPolicyEngine implements PolicyEngine {
     const fn = await catalog.fn(input.fn);
     if (fn === undefined) return { effect: 'deny', reason: `no fn ${input.fn}` };
     const actor = await this.#facts(input.actor);
-    const chosen = choosePolicy(await allRows(store.table('policies')), fn, actor, clock());
+    const chosen = choosePolicy(await allRows(store.table('policies')), fn, actor, clock(), input.via ?? []);
     const policy = chosen?.decision ?? fallback(fn, chosen === undefined ? (await this.#facts(input.caller)).kind : undefined);
     if (policy.effect === 'deny') return policy;
     if (input.sensitive === true) return this.#approval(input, TURN_USER, undefined);

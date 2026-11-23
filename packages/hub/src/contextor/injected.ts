@@ -8,8 +8,10 @@
  *   its block means. Each is in, or left out with one of `INJECTION_LEFT_OUT`'s reasons, the first that applies:
  *   waiting for review (`pending`), `declined`, switched off for this agent or by itself (`off`), its system off or
  *   not in the chat (`system-off`), for the other chat mode (`mode`), a fn it brings or requires that can't be used
- *   here (`fns-unusable`: off, held, unseen, beyond the chat's fn setting). Hub-made context the person can't see
- *   (another person's memory) is not theirs to be told about, so it is skipped without a reason.
+ *   here (`fns-unusable`: off, held, unseen, beyond the chat's fn setting). Then each item that goes in takes out the
+ *   items it replaces (`InjectDecl.replaces`: `replaced`, naming what replaces it), so an item left out for any other
+ *   reason replaces nothing and what it names is back. Hub-made context the person can't see (another person's
+ *   memory) is not theirs to be told about, so it is skipped without a reason.
  * - **How it fits** (`fitInjected`): each item at the agent's detail (`full`, or `summary` for a small window), as its
  *   title as a heading and then its text, within `room` tokens; when the section doesn't fit, items fall back from
  *   the highest order down, first to their summary, then to a line under `<more_ctx>` (loadable by name), then out
@@ -59,6 +61,8 @@ export interface InjectedItem {
   readonly summary: string | undefined;
   /** The fns it brings: they join the agent's starting tools while it is shown. */
   readonly fns: readonly QualifiedName[];
+  /** The items it takes out of the section while it goes in (`InjectDecl.replaces`); none for a hook's `explains`. */
+  readonly replaces: readonly QualifiedName[];
   /** The context record (for its `<more_ctx>` line); absent for a hook's `explains`, which can't be loaded by name. */
   readonly record?: ContextRecord;
   /** Written by its system each turn: its text can change. */
@@ -146,7 +150,8 @@ export async function gatherInjected(deps: InjectedDeps, at: InjectedFor): Promi
     return {
       item: {
         name: injection.context, source: { type: 'context' }, system: injection.system, via, title: injection.title, order,
-        full: decl.content ?? decl.summary ?? decl.description, summary: decl.summary, fns: injection.fns, record, dynamic: injection.dynamic,
+        full: decl.content ?? decl.summary ?? decl.description, summary: decl.summary, fns: injection.fns,
+        replaces: injection.inject.replaces ?? [], record, dynamic: injection.dynamic,
       },
       ...(left === undefined ? {} : { left }),
     };
@@ -164,7 +169,7 @@ export async function gatherInjected(deps: InjectedDeps, at: InjectedFor): Promi
     return {
       item: {
         name: hook.hook, source: { type: 'hook', hook: hook.hook }, system: hook.system, via: agent, title: `The <${tag}> block`,
-        order: setting?.order ?? HOOK_ORDER, full: hook.explains, summary: undefined, fns: [], dynamic: false,
+        order: setting?.order ?? HOOK_ORDER, full: hook.explains, summary: undefined, fns: [], replaces: [], dynamic: false,
       },
       ...(left === undefined ? {} : { left }),
     };
@@ -176,7 +181,7 @@ export async function gatherInjected(deps: InjectedDeps, at: InjectedFor): Promi
     // a hook's blocks go into the session's own agent's messages, so only it is told what they mean
     .step('hooks', async () => (at.session !== undefined && at.session.agent === agent ? mapConcurrent(await listHookExplains(deps.catalog, deps.store), hookCandidate, limit) : []))
     .run();
-  const candidates = [...found.context, ...found.hooks].filter((candidate) => candidate !== undefined);
+  const candidates = withReplaced([...found.context, ...found.hooks].filter((candidate) => candidate !== undefined));
 
   candidates.sort((a, b) => a.item.order - b.item.order || a.item.system.localeCompare(b.item.system)
     || sourceRank(a.item) - sourceRank(b.item) || a.item.name.localeCompare(b.item.name));
@@ -184,6 +189,25 @@ export async function gatherInjected(deps: InjectedDeps, at: InjectedFor): Promi
     items: candidates.flatMap((c) => (c.left === undefined ? [c.item] : [])),
     leftOut: candidates.flatMap((c) => (c.left === undefined ? [] : [{ name: c.item.name, title: c.item.title, ...c.left }])),
   };
+}
+
+/**
+ * The candidates with each item that goes in taking out the ones it replaces (`replaced`, naming what replaces it). One
+ * pass over what goes in before any replacing, so an item replaced by another still replaces what it names.
+ */
+function withReplaced<C extends { readonly item: InjectedItem; readonly left?: Omit<LeftOutItem, 'name' | 'title'> }>(candidates: readonly C[]): C[] {
+  const by = new Map<QualifiedName, InjectedItem[]>();
+  for (const { item, left } of candidates) {
+    if (left !== undefined) continue;
+    for (const name of item.replaces) if (name !== item.name) by.set(name, [...by.get(name) ?? [], item]);
+  }
+  if (by.size === 0) return [...candidates];
+  return candidates.map((candidate) => {
+    const replacers = by.get(candidate.item.name);
+    if (candidate.left !== undefined || replacers === undefined) return candidate;
+    const names = replacers.map((item) => `${item.title} (${item.name})`).join(' and ');
+    return { ...candidate, left: { why: 'replaced', reason: `replaced by ${names}, which says what is true instead` } };
+  });
 }
 
 /** A context item before a hook's `explains` at the same order and system. */

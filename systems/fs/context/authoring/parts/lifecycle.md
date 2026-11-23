@@ -5,15 +5,15 @@ title: "Config, events, lifecycle and data"
 description: "Writing a harness system: Config, events, lifecycle and data."
 summary: "Config, events, the lifecycle hooks and the data folders."
 parent: "fs/authoring.topics.server"
-next: "fs/authoring.remote"
+next: "fs/authoring.owner-runs"
 fns: ["fs/read", "fs/write", "fs/edit", "fs/bash"]
 tags: ["authoring"]
 niche: "developer"
 choices:
   - to: "fs/authoring.lifecycle.reference"
     when: "Pick this when you need the exact signatures and options."
-  - to: "fs/authoring.remote"
-    when: "Pick this to go on in order: Remote services: fleets, sign-in and connections per instance."
+  - to: "fs/authoring.owner-runs"
+    when: "Pick this to go on in order: Runs a system starts by itself, and notices."
 ---
 
 ## 23. Config, events, lifecycle and data
@@ -38,8 +38,9 @@ value, and the hub still checks it with the gin type before storing it.
 
 `events` handles hub events by type, and the system is subscribed to exactly the types it handles: `message` (a chat
 message), `run` (a run's status, progress, operations or cost changed), `resources` (resources changed), `system` (a
-system connected, disconnected or was removed) and `fns` (fns were added or removed). Each handler is
-`async (event, ctx) => void`, with the event typed by its `type`.
+system connected, disconnected or was removed) and `fns` (fns were `added`, `removed`, or `changed`: saved again, or
+their availability moved). The update that settles a run also says `notified`: whether it, or a run under it, told its
+person something. Each handler is `async (event, ctx) => void`, with the event typed by its `type`.
 
 ### Lifecycle
 

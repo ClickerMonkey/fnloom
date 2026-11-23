@@ -333,7 +333,7 @@ What a fn's validation hooks get (`fn({ validate })`): the system's context, the
 its session and time), and for an output check which attempt this is (1 for the first result).
 
 ```ts
-interface ValidateCtx<Cfg = unknown> extends SystemCtx<Cfg> {
+interface ValidateCtx<Cfg = unknown, O extends Own = Own> extends SystemCtx<Cfg, O> {
   readonly run: RunInfo;
   /** The attempt whose result is checked; 1 for an input check. */
   readonly attempt: number;
@@ -350,7 +350,7 @@ What a `preview` gets: the system context, the run waiting for approval and whom
 change anything: it reads what the run would touch and says so.
 
 ```ts
-interface PreviewCtx<Cfg = unknown> extends SystemCtx<Cfg> {
+interface PreviewCtx<Cfg = unknown, O extends Own = Own> extends SystemCtx<Cfg, O> {
   readonly run: RunId;
   readonly user: UserInfo;
 }
@@ -606,7 +606,7 @@ What a fn's `claims(args, ctx)` gets: the system context, the person whose turn 
 made it and its chat. The call isn't a run yet, so it has no run of its own.
 
 ```ts
-interface ClaimsCtx<Cfg = unknown> extends SystemCtx<Cfg> {
+interface ClaimsCtx<Cfg = unknown, O extends Own = Own> extends SystemCtx<Cfg, O> {
   readonly user: UserInfo;
   /** The agent run that made the call. */
   readonly caller: RunId;

@@ -83,9 +83,9 @@ export const AUTHORING_GROUPS: readonly AuthoringGroup[] = [
   {
     id: 'server',
     title: 'The server and the hub',
-    summary: 'The hub contract, serve and the implementation, the run context, config and lifecycle, remote services, and the internals.',
-    when: 'Pick this when you write server code, call the hub, or handle config and lifecycle.',
-    topics: ['hub', 'server', 'ctx', 'lifecycle', 'remote', 'internals'],
+    summary: 'The hub contract, serve and the implementation, the run context, config and lifecycle, runs a system starts and its notices, remote services, internals.',
+    when: 'Pick this when you write server code, call the hub, handle config and lifecycle, or run fns later and tell people how they went.',
+    topics: ['hub', 'server', 'ctx', 'lifecycle', 'owner-runs', 'remote', 'internals'],
   },
   {
     id: 'client',
@@ -129,6 +129,7 @@ export const PART_WORDS: Readonly<Record<string, PartWords>> = {
   ctx: { summary: 'The run context: logging, models, files, resources, state and calls.', when: 'Pick this when a fn needs ctx (models, files, state, the hub).' },
   calling: { summary: 'Calling other fns from a run, with deps and handlers.', when: 'Pick this when a fn calls another system\'s fn.' },
   lifecycle: { summary: 'Config, events, the lifecycle hooks and the data folders.', when: 'Pick this when the system has config, reacts to events or keeps data.' },
+  'owner-runs': { summary: 'Starting the saved fns of your kinds later as their owners (ctx.runs), notices to people, and removing a saved fn.', when: 'Pick this when the system runs the fns of people by itself or tells them how runs went.' },
   remote: { summary: 'Fleets of remote services (MCP servers, APIs): sign-in, per-instance connections and credentials.', when: 'Pick this when each instance calls a remote service people sign in to.' },
   client: { summary: 'Vue renderers, inputs and resource views, typed by the contract.', when: 'Pick this when you write client/ components.' },
   packaging: { summary: 'system.json, building, packing and installing, from the chat with fs/install_system or the CLI.', when: 'Pick this when you build or install a system.' },

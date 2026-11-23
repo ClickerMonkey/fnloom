@@ -8,11 +8,15 @@
 import { z } from 'zod';
 
 /**
- * The risk flags, most serious first. `injects`: a new or changed injection changes what agents are told ("Changes
- * what hub/chat and hub/chat_small are told: + Forms (input/asking, 310 tokens)"); its items are the agents.
+ * The risk flags, most serious first. `runs`: the system may now start runs by itself, as the owners of its kinds' fns,
+ * and notify them (the `runs` grant: `RUNS_FLAG_LINE`); its one item is the grant. `injects`: a new or changed injection changes what
+ * agents are told ("Changes what hub/chat and hub/chat_small are told: + Forms (input/asking, 310 tokens)"); its items
+ * are the agents.
  */
-export const REVIEW_FLAGS = ['delete-fns', 'write-fns', 'injects', 'effects', 'capabilities', 'secrets', 'hosts', 'files', 'calls', 'models'] as const;
+export const REVIEW_FLAGS = ['delete-fns', 'write-fns', 'runs', 'injects', 'effects', 'capabilities', 'secrets', 'hosts', 'files', 'calls', 'models'] as const;
 export const ReviewFlagKind = z.enum(REVIEW_FLAGS);
+/** What the `runs` flag says: the `runs` grant lets a system start runs with nobody asking. */
+export const RUNS_FLAG_LINE = 'Starts runs on its own, as the owners of its fns, and notifies them';
 export type ReviewFlagKind = z.infer<typeof ReviewFlagKind>;
 
 /**

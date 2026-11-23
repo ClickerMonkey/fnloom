@@ -1,5 +1,5 @@
 import { ActorId, ContextorConfig, mintId, QualifiedName, SystemName, type ContextRecord, type ContractChange, type KindDescription, type LlmMessage, type Session, type Turn } from '@harness/core';
-import { agent, context, fn, g, hook, kind, LlmPayloadType, system, wireType, parseValue, type LlmPayload } from '@harness/sdk';
+import { agent, context, fn, g, hook, kind, LlmPayloadType, system, wireType, parseValue, type AnyContract, type LlmPayload } from '@harness/sdk';
 import { describe, expect, it } from 'vitest';
 import { StoreCatalog } from '../catalog/catalog.ts';
 import { manifestFor, systemRow } from '../catalog/fixtures.ts';
@@ -71,13 +71,17 @@ const turnOf = (id: string): Turn => ({
 });
 
 /** A hub with the mini contract and forms installed (connected), the contextor over it, and a chat session. */
-async function rig(patch: Partial<Session> = {}, window = 16_384) {
+async function rig(patch: Partial<Session> = {}, window = 16_384, extra: readonly AnyContract[] = []) {
   const store = await testStore();
   const { log, records } = memoryLog();
   const catalog = new StoreCatalog({ store, bus: new RecordingBus(), log, clock: () => 1_000, describer });
   await store.table('systems').put(systemRow('forms', 'connected'));
   expect((await catalog.importManifest(await manifestFor(miniHub))).refused).toEqual([]);
   expect((await catalog.importManifest(await manifestFor(forms))).refused).toEqual([]);
+  for (const contract of extra) {
+    await store.table('systems').put(systemRow(contract.name, 'connected'));
+    expect((await catalog.importManifest(await manifestFor(contract))).refused).toEqual([]);
+  }
   // the forms system is connected, so its fns can be used
   for (const name of ['forms/get_input', 'forms/reviewer', 'hub/ask_user']) await store.table('fns').update(q(name), { available: true });
   const search = new FixedSearch();
@@ -170,6 +174,43 @@ describe('the injected section: what is left out', () => {
   });
 });
 
+/** A system whose item says what can't happen, and one whose item replaces it while it is in (`replaces`). */
+const notes = system('notes', { description: 'Notes.' })
+  .with({ context: { never: context({ title: 'Never later', description: 'Nothing later.', summary: 'Nothing runs later.', content: 'Nothing runs later by itself.', inject: { into: ['hub/chat*'], order: 30 } }) } });
+const timer = system('timer', { description: 'Timers.' })
+  .with({ context: { basics: context({ title: 'Timers', description: 'Runs later.', summary: 'Things can run later.', content: 'A fn can run later.', inject: { into: ['hub/chat*'], order: 30, replaces: [notes.context.never] } }) } });
+
+describe('the injected section: an item that replaces another', () => {
+  it('leaves the replaced item out, saying by what, while the replacing one is in', async () => {
+    const r = await rig({}, 16_384, [notes, timer]);
+    const chat = await r.plan('hub/chat');
+    expect(names(chat.report.injected)).toContain('timer/basics');
+    expect(names(chat.report.injected)).not.toContain('notes/never');
+    expect(chat.report.injected?.leftOut.find((item) => item.name === 'notes/never')).toEqual({
+      name: 'notes/never', why: 'replaced', reason: 'replaced by Timers (timer/basics), which says what is true instead',
+    });
+    expect(chat.injectedContext).not.toContain('Nothing runs later by itself.');
+    expect(chat.injectedContext).toContain('A fn can run later.');
+  });
+
+  it('brings the replaced item back when the replacing one is switched off, its system is off, or the chat doesn\'t use it', async () => {
+    const off = await rig({}, 16_384, [notes, timer]);
+    await off.store.table('injectionSettings').put({ agent: q('hub/chat'), context: q('timer/basics'), on: false, by: ADMIN, at: 1 });
+    const switched = await off.plan('hub/chat');
+    expect(names(switched.report.injected)).toContain('notes/never');
+    expect(leftOut(switched.report.injected)['timer/basics']).toBe('off');
+
+    const down = await rig({}, 16_384, [notes, timer]);
+    await down.store.table('systems').put(systemRow('timer', 'connected', { enabled: { functions: false, renderers: true } }));
+    const systemOff = await down.plan('hub/chat');
+    expect(names(systemOff.report.injected)).toContain('notes/never');
+    expect(leftOut(systemOff.report.injected)['timer/basics']).toBe('system-off');
+
+    const without = await rig({ systems: [SystemName.parse('forms'), SystemName.parse('notes')] }, 16_384, [notes, timer]);
+    expect(names((await without.plan('hub/chat')).report.injected)).toContain('notes/never');
+  });
+});
+
 describe('the injected section: order, detail and fit', () => {
   it('orders by the admin\'s per-agent order, else the item\'s', async () => {
     const r = await rig();
@@ -188,7 +229,7 @@ describe('the injected section: order, detail and fit', () => {
   });
 
   const item = (name: string, full: string, summary?: string): InjectedItem => ({
-    name: q(`forms/${name}`), source: { type: 'context' }, system: SystemName.parse('forms'), via: 'hub/chat*', title: name, order: 100, full, summary, fns: [],
+    name: q(`forms/${name}`), source: { type: 'context' }, system: SystemName.parse('forms'), via: 'hub/chat*', title: name, order: 100, full, summary, fns: [], replaces: [],
     record: { name: q(`forms/${name}`), system: SystemName.parse('forms'), stale: false, updatedAt: 0, mentions: { context: [], fns: [] }, decl: { name, description: `About ${name}.`, imports: [], fns: [], suggestFns: [], suggest: 'both', visible: 'both', tags: [] } } satisfies ContextRecord,
     dynamic: false,
   });

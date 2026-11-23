@@ -483,6 +483,28 @@ describe('patches, runtime fns and re-imports', () => {
     expect(await catalog.fn(q('shop/extra'))).toBeDefined();
   });
 
+  it('says which declared fns were saved again, and removes a saved fn keeping its last declaration as a version', async () => {
+    const { catalog, bus, store } = await setup();
+    const manifest = await manifestFor(shop);
+    await catalog.importManifest(manifest);
+    const get = declOf(manifest, 'get');
+    await catalog.declare(SHOP, { ...get, name: 'extra' }, ADMIN);
+    await catalog.declare(SHOP, { ...get, name: 'extra', description: 'Saved again.' }, ADMIN);
+    const [first, again] = bus.of('catalog.changed').slice(-2);
+    expect(first?.updated).toBeUndefined();
+    expect(again?.updated).toEqual(['shop/extra']);
+
+    expect(await catalog.remove(SHOP, q('shop/extra'), ADMIN)).toMatchObject({ removed: ['shop/extra'] });
+    expect(await catalog.fn(q('shop/extra'))).toBeUndefined();
+    expect(bus.of('catalog.changed').at(-1)).toMatchObject({ added: [], removed: ['shop/extra'] });
+    const versions = (await store.table('itemVersions').find({ where: { system: SHOP, section: 'fns', name: 'shop/extra' }, order: [['number', 'asc']], limit: 10 })).items;
+    expect(versions.map((v) => v.change)).toEqual(['added', 'changed', 'removed']);
+    expect(versions[2]?.decl).toMatchObject({ name: 'extra', description: 'Saved again.' });
+    // a contract fn, or one that is gone, is refused
+    expect((await catalog.remove(SHOP, q('shop/get'), ADMIN)).refused[0]?.problems).toEqual(["a fn of the contract can't be removed"]);
+    expect((await catalog.remove(SHOP, q('shop/extra'), ADMIN)).refused).toHaveLength(1);
+  });
+
   it('re-imports the stored manifest, describing kinds afresh', async () => {
     const describer = reportDescriber();
     const { catalog } = await setup(describer);

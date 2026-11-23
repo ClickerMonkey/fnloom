@@ -24,6 +24,7 @@ import { HubTypes } from './types.ts';
 import { runReporting, servicesFor, type RunEnvironment, type Track } from './run.ts';
 import type { RunRegistry } from './runs.ts';
 import { adminNotices, fleets, fnSearch, instanceConnects, proposals } from './asks.ts';
+import { ownerRuns } from './owner-runs.ts';
 import { LinkState, stateRecordType } from './state.ts';
 import type { SystemTable } from './table.ts';
 import { decode, decodeOrThrow, encodeOrThrow, messageOf, thrownError, withTimeout } from './wire.ts';
@@ -154,6 +155,7 @@ export class SystemRuntime<C extends ContractShape> {
       ...fnSearch(env.hub, undefined, signal),
       ...adminNotices(env.hub, signal),
       ...instanceConnects((connect) => this.#parts.host.instanceConnect(connect)),
+      runs: ownerRuns({ system: env.system, hub: env.hub, signal }, this.#log),
     };
   }
 

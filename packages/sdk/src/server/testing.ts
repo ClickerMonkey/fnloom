@@ -17,11 +17,11 @@ import {
   type ConnectResult, type DecideAnswer, type KindEstimateAnswer, type FleetInstance, type HubModelInfo, type PreviewAnswer, type ProposedRun, type InstanceName, type ModelForward, type ModelForwardResult, type PairingInfo, type AdminNotice,
   type AutoPairGrant, type ConfigValue, type Hello, type HandlerAnswer, type HubLinkSpec, type ImportReport, type JsonObject, type KindFnShape, type LinkSession, type LlmForward,
   type LlmForwardChunk, type LogLine, type Manifest, type ManifestPatch, type OutcomeWire, type PairingId, type QualifiedName,
-  type PairingGrant, type PairingGrantRequest, type ResourceRead, type ResourceHit, type MentionResourceSearch, type FlagsAnswer, type ClaimsAnswer, type MentionOption as WireMentionOption, type RunControl, type Section, type RunInfo, type RunRequest, type RunSettled, type StateOwner, type SystemLinkSpec, type TypeDefinitions, type UserInfo, ActorId, SystemName,
+  type PairingGrant, type PairingGrantRequest, type KindFnWire, type StartedRun, RunId, TurnId, type ResourceRead, type ResourceHit, type MentionResourceSearch, type FlagsAnswer, type ClaimsAnswer, type MentionOption as WireMentionOption, type RunControl, type Section, type RunInfo, type RunRequest, type RunSettled, type StateOwner, type SystemLinkSpec, type TypeDefinitions, type UserInfo, ActorId, SystemName,
 } from '@harness/core';
 import type { z } from 'zod';
 import { g, parseValue } from '../gin.ts';
-import type { AdminNotices, AiSource, Decisions, Fleets, FnSearch, InstanceConnects, Proposals, SystemPlace } from '../ctx.ts';
+import type { AdminNotices, AiSource, Decisions, Fleets, FnSearch, InstanceConnects, OwnerRuns, Proposals, RunNotices, SystemPlace } from '../ctx.ts';
 import { fakeHubAi, streamOf } from './fake-models.ts';
 import { FakeHubFns } from './fake-hub-fns.ts';
 import { FakeHubWidgets } from './fake-hub-widgets.ts';
@@ -46,11 +46,12 @@ export type SystemBody<K extends keyof SystemLinkSpec['endpoints']> = SystemLink
 export const TEST_PLACE: SystemPlace = { instance: MAIN_INSTANCE, dataDir: '.harness-test/data', cacheDir: '.harness-test/cache' };
 
 /**
- * `ctx.propose`, `ctx.decide` and `ctx.ai` for a hand-made test context that has no hub: proposing fails (the test
- * didn't expect it), the decision model is off, and `ctx.ai()` is an aeye `AI` over `FakeModelLink` answering `ok`.
+ * `ctx.propose`, `ctx.decide`, `ctx.ai`, `ctx.runs` and `ctx.notify` for a hand-made test context that has no hub:
+ * proposing and starting runs fail (the test didn't expect them), the decision model is off, notices and kind fns are
+ * none, and `ctx.ai()` is an aeye `AI` over `FakeModelLink` answering `ok`.
  * Spread it in beside `TEST_PLACE`; `FakeHub` serves the real ones.
  */
-export const NO_ASKS: Proposals & Decisions & Fleets & FnSearch & AiSource & AdminNotices & InstanceConnects = {
+export const NO_ASKS: Proposals & Decisions & Fleets & FnSearch & AiSource & AdminNotices & InstanceConnects & OwnerRuns & RunNotices = {
   ai: () => fakeHubAi(),
   propose: () => Promise.reject(new Error('This test context proposes no runs; serve against FakeHub to record them.')),
   decide: () => Promise.resolve({ by: 'off' }),
@@ -59,6 +60,12 @@ export const NO_ASKS: Proposals & Decisions & Fleets & FnSearch & AiSource & Adm
   fnExamples: (query) => Promise.resolve({ fn: query.fn, items: [], total: 0 }),
   notifyAdmins: () => Promise.resolve(),
   instanceConnect: () => Promise.resolve(),
+  runs: {
+    kindFns: () => Promise.resolve({ items: [] }),
+    start: () => Promise.reject(new Error('This test context starts no runs; serve against FakeHub to record them.')),
+    notify: () => Promise.resolve(),
+  },
+  notify: () => Promise.resolve(),
 };
 
 /** The person fake runs are for. */
@@ -243,6 +250,16 @@ export class FakeHub {
   readonly notices: AdminNotice[] = [];
   /** What a host's supervisor refused for the systems it hosts (`reportRefusal`), in order. */
   readonly hostRefusals: HubBody<'reportRefusal'>[] = [];
+  /** The fns of the system's kinds `kindFns` lists (`ctx.runs.kindFns`): set them as a test needs. */
+  kindFns: KindFnWire[] = [];
+  /** Every start asked for (`ctx.runs.start`), doubled ones too, in order. */
+  readonly starts: Array<HubBody<'startRun'>> = [];
+  /** The runs started, by key: a start of a key already here gets the same run back, as on the real hub. */
+  readonly startedRuns = new Map<string, StartedRun>();
+  /** What the system told kind fns' owners (`ctx.runs.notify`), in order. */
+  readonly ownerNotices: Array<HubBody<'notifyOwner'>> = [];
+  /** What runs told their people (`ctx.notify`), in order. */
+  readonly runNotices: Array<HubBody<'notify'>> = [];
   /**
    * Runs systems proposed (`propose`), with the run and approval the fake hub made; one per open `key` (outside a run a
    * settled key proposes afresh, as on the real hub). Settle one with `approveProposal` or `declineProposal`.
@@ -783,6 +800,23 @@ export class FakeHub {
         },
         pairingInfo: ({ data }) => { this.pairingInfos.push(data); },
         notifyAdmins: ({ data }) => { this.notices.push(data); },
+        kindFns: ({ data }) => {
+          const items = this.kindFns.filter((item) => item.kind === data.kind && (data.changedSince === undefined || item.updatedAt >= data.changedSince));
+          const from = data.cursor === undefined ? 0 : Number(data.cursor);
+          const limit = data.limit ?? items.length;
+          const next = from + limit;
+          return { items: items.slice(from, next), ...(next < items.length ? { cursor: String(next) } : {}) };
+        },
+        startRun: ({ data }) => {
+          this.starts.push(data);
+          const known = this.startedRuns.get(data.key);
+          if (known !== undefined) { return known; }
+          const started: StartedRun = { run: RunId.parse(`run_started${this.startedRuns.size + 1}`), turn: TurnId.parse(`trn_started${this.startedRuns.size + 1}`), status: 'queued' };
+          this.startedRuns.set(data.key, started);
+          return started;
+        },
+        notifyOwner: ({ data }) => { this.ownerNotices.push(data); },
+        notify: ({ data }) => { this.runNotices.push(data); },
         reportRefusal: ({ data }) => { this.hostRefusals.push(data); },
         mentionResources: async ({ data }) => {
           this.mentionSearches.push(data);

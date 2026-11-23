@@ -9,6 +9,7 @@ import { computed, shallowRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import InboxPanel from '../components/inbox/InboxPanel.vue';
 import { COMPACT_QUERY } from '../state/layout.ts';
+import type { NoticeVia } from '../state/push-payload.ts';
 import { useStores } from '../state/stores.ts';
 import { UiBanner, UiModal, UiPopover, UiToaster, useMediaQuery } from '../ui/index.ts';
 import { useNow } from '../ui/now.ts';
@@ -18,7 +19,7 @@ import { navEntries } from './nav.ts';
 import { useSignOut } from './signOut.ts';
 import { showFavicon } from './favicon.ts';
 import { tabTitle } from './title.ts';
-import { links, notificationTarget, ROUTES } from './routes.ts';
+import { links, noticeTarget, ROUTES } from './routes.ts';
 
 const { session, identity, keeper, layout, toasts, inbox, connection, admin, chat, pages, outsideImages } = useStores();
 const signOut = useSignOut();
@@ -90,10 +91,11 @@ function openInbox(anchor: HTMLElement): void {
   void inbox.load('all');
 }
 
-async function openNotification(notification: Notification): Promise<void> {
+/** Open a notification where it leads: its main link, or its second (`also`). */
+async function openNotification(notification: Notification, via: NoticeVia = 'link'): Promise<void> {
   inboxOpen.value = false;
   if (!notification.read) { void inbox.markRead([notification.id]); }
-  await router.push(await notificationTarget(notification.link, (run) => chat.sessionOfRun(run)));
+  await router.push(await noticeTarget(notification, (run) => chat.sessionOfRun(run), via));
 }
 
 async function readAll(): Promise<void> {
@@ -133,7 +135,7 @@ async function readAll(): Promise<void> {
     <UiPopover v-model:open="inboxOpen" :anchor="inboxAnchor" :side="compact ? 'bottom' : 'right'" align="start" label="Notifications">
       <InboxPanel
         :items="inbox.items.value" :unread="inbox.unread.value" :now="now" :loading="inbox.loading.value" :loaded="inbox.loaded.value"
-        :problem="inbox.problem.value" @open="openNotification" @read="inbox.markRead([$event.id])" @read-all="readAll"
+        :problem="inbox.problem.value" @open="openNotification($event)" @also="openNotification($event, 'also')" @read="inbox.markRead([$event.id])" @read-all="readAll"
         @all="router.push(links.inbox())" @retry="inbox.load('all')"
       />
     </UiPopover>

@@ -32,15 +32,16 @@ _Every code sample is a compiled file of the repository, so it is correct for th
 21. [The run context and services](#21-the-run-context-and-services)
 22. [Calling other fns](#22-calling-other-fns)
 23. [Config, events, lifecycle and data](#23-config-events-lifecycle-and-data)
-24. [Remote services: fleets, sign-in and connections per instance](#24-remote-services-fleets-sign-in-and-connections-per-instance)
-25. [The client: renderers, inputs, resource views and pages](#25-the-client-renderers-inputs-resource-views-and-pages)
-26. [Visuals and widgets](#26-visuals-and-widgets)
-27. [Packaging: system.json, build, pack, install](#27-packaging-systemjson-build-pack-install)
-28. [Testing](#28-testing)
-29. [Common mistakes](#29-common-mistakes)
-30. [Worked examples](#30-worked-examples)
-31. [Runtime internals](#31-runtime-internals)
-32. [Core types](#32-core-types)
+24. [Runs a system starts by itself, and notices](#24-runs-a-system-starts-by-itself-and-notices)
+25. [Remote services: fleets, sign-in and connections per instance](#25-remote-services-fleets-sign-in-and-connections-per-instance)
+26. [The client: renderers, inputs, resource views and pages](#26-the-client-renderers-inputs-resource-views-and-pages)
+27. [Visuals and widgets](#27-visuals-and-widgets)
+28. [Packaging: system.json, build, pack, install](#28-packaging-systemjson-build-pack-install)
+29. [Testing](#29-testing)
+30. [Common mistakes](#30-common-mistakes)
+31. [Worked examples](#31-worked-examples)
+32. [Runtime internals](#32-runtime-internals)
+33. [Core types](#33-core-types)
 
 ## 1. Start here
 
@@ -682,10 +683,11 @@ the admin, who goes live on them.
 
 function · `import { system } from '@harness/sdk'`
 
-Start a contract. The name must be unique among the hub's systems: lowercase letters, digits and dashes.
+Start a contract. The name must be unique among the hub's systems: lowercase letters, digits and dashes. Its pages'
+segments are kept in the contract's type, so `contract.page.<segment>` is a typed ref.
 
 ```ts
-function system<const N extends string>(name: N, info: SystemInfo): SystemContract<N, EmptyContract>;
+function system<const N extends string, const S extends string = never>(name: N, info: SystemInfo<S>): SystemContract<N, EmptyContract<N, S>>;
 ```
 
 #### `SystemContract`
@@ -750,6 +752,8 @@ interface SystemRefs<N extends string, C extends ContractShape> {
   readonly sectioners: { readonly [K in keyof C['sectioners']]: SectionerRef<Q<N, K>> };
   readonly actions: { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, object> ? ActionRef<Q<N, K>, I, R> : never };
   readonly providers: { readonly [K in keyof C['providers']]: ProviderRef<Q<N, K>> };
+  /** Page refs, by segment (`schedule.page.item`): what a notice links to, never a segment string. */
+  readonly page: { readonly [K in keyof C['pages']]: PageRef<Q<N, K>> };
 }
 ```
 
@@ -780,19 +784,23 @@ interface ContractShape {
    * fns act as them. `undefined` for a system everyone shares. The implementation then serves `connect`.
    */
   connect: ConnectDecl | undefined;
+  /** The system's name (`schedule`), so what is computed from the contract alone (the refs its ctxs take) is named. */
+  system: string;
+  /** Its declared pages, by segment (`system(name, { pages })`), so links to them are refs (`contract.page.item`). */
+  pages: Record<string, SystemPageDecl>;
 }
 ```
 
-Refers to: [`ConnectDecl`](#core-connectdecl).
+Refers to: [`ConnectDecl`](#core-connectdecl), [`SystemPageDecl`](#core-systempagedecl).
 
 #### `ContractSection`
 
 type · `import { ContractSection } from '@harness/sdk'`
 
-The sections of a contract that add named declarations (all but `config` and `connect`).
+The sections of a contract that add named declarations (all but `config`, `connect`, `system` and `pages`).
 
 ```ts
-type ContractSection = Exclude<keyof ContractShape, 'config' | 'connect'>;
+type ContractSection = Exclude<keyof ContractShape, 'config' | 'connect' | 'system' | 'pages'>;
 ```
 
 #### `CONTRACT_SECTIONS`
@@ -819,21 +827,26 @@ function isSystemContract(value: unknown): value is AnyContract;
 
 interface · `import { EmptyContract } from '@harness/sdk'`
 
-A contract with nothing in it yet. Its config is the empty object.
+A contract with nothing in it yet: system `N`, with the pages whose segments are `S`. Its config is the empty object.
 
 ```ts
-interface EmptyContract {
+interface EmptyContract<N extends string = string, S extends string = never> {
   config: GinType<{}>;
   types: {}; settings: {}; attachments: {}; kinds: {}; fns: {}; context: {}; hooks: {}; mentions: {}; sectioners: {}; actions: {}; providers: {};
   connect: undefined;
+  system: N;
+  pages: { [K in S]: SystemPageDecl };
 }
 ```
+
+Refers to: [`SystemPageDecl`](#core-systempagedecl).
 
 #### `Merge`
 
 type · `import { Merge } from '@harness/sdk'`
 
-A contract with more sections merged in: `config` and `connect` are replaced, every other section adds to what was declared.
+A contract with more sections merged in: `config` and `connect` are replaced, `system` and `pages` are kept (they are
+declared once, by `system()`), every other section adds to what was declared.
 
 ```ts
 type Merge<C extends ContractShape, P extends Partial<ContractShape>> = {
@@ -841,7 +854,9 @@ type Merge<C extends ContractShape, P extends Partial<ContractShape>> = {
     ? (P extends { config: infer X extends GinType<object> } ? X : C['config'])
     : K extends 'connect'
       ? (P extends { connect: infer X extends ConnectDecl } ? X : C['connect'])
-      : Simplify<C[K] & (K extends keyof P ? NonNullable<P[K]> : {})>;
+      : K extends 'system' | 'pages'
+        ? C[K]
+        : Simplify<C[K] & (K extends keyof P ? NonNullable<P[K]> : {})>;
 };
 ```
 
@@ -869,10 +884,10 @@ type ConfigOf<C extends ContractShape> = Infer<C['config']>;
 
 interface · `import { SystemInfo } from '@harness/sdk'`
 
-What `system()` takes besides its name.
+What `system()` takes besides its name; `S` is its pages' segments.
 
 ```ts
-interface SystemInfo {
+interface SystemInfo<S extends string = string> {
   description: string;
   /**
    * What a chat model that has never seen this app is told about the system in its system prompt's `<systems>` list,
@@ -911,7 +926,7 @@ interface SystemInfo {
    * (`client({ pages: { SessionsPage } })`), which must have every one named. The nav shows a `main` page while the
    * system is live; a `hidden` one is reached by link (a detail page). Segments are unique.
    */
-  pages?: SystemPageInput[];
+  pages?: Array<SystemPageInput & { segment: S }>;
   /**
    * Its API groups: a name, a title and what the group's fns are for (`{ name: 'files', title: 'Files', description:
    * 'Read, write and search files.' }`). The hub keeps an index item for the system (`<system>/api`, the groups as
@@ -1702,8 +1717,8 @@ type · `import { MethodImpl } from '@harness/sdk'`
 A method's implementation: a native fn that also gets the value it was called on.
 
 ```ts
-type MethodImpl<V, T extends FnTypes, Cfg = unknown> =
-{ run(self: V, args: T['args'], ctx: FnCtx<T, Cfg>): Promise<Outcome<T>> } &
+type MethodImpl<V, T extends FnTypes, Cfg = unknown, O extends Own = Own> =
+{ run(self: V, args: T['args'], ctx: FnCtx<T, Cfg, O>): Promise<Outcome<T>> } &
 ([T['undo']] extends [never] ? { undo?: never } : { undo(payload: T['undo'], ctx: UndoCtx<Cfg>): Promise<UndoOutcome> });
 ```
 
@@ -2459,7 +2474,7 @@ What a fn's validation hooks get (`fn({ validate })`): the system's context, the
 its session and time), and for an output check which attempt this is (1 for the first result).
 
 ```ts
-interface ValidateCtx<Cfg = unknown> extends SystemCtx<Cfg> {
+interface ValidateCtx<Cfg = unknown, O extends Own = Own> extends SystemCtx<Cfg, O> {
   readonly run: RunInfo;
   /** The attempt whose result is checked; 1 for an input check. */
   readonly attempt: number;
@@ -2476,7 +2491,7 @@ What a `preview` gets: the system context, the run waiting for approval and whom
 change anything: it reads what the run would touch and says so.
 
 ```ts
-interface PreviewCtx<Cfg = unknown> extends SystemCtx<Cfg> {
+interface PreviewCtx<Cfg = unknown, O extends Own = Own> extends SystemCtx<Cfg, O> {
   readonly run: RunId;
   readonly user: UserInfo;
 }
@@ -2732,7 +2747,7 @@ What a fn's `claims(args, ctx)` gets: the system context, the person whose turn 
 made it and its chat. The call isn't a run yet, so it has no run of its own.
 
 ```ts
-interface ClaimsCtx<Cfg = unknown> extends SystemCtx<Cfg> {
+interface ClaimsCtx<Cfg = unknown, O extends Own = Own> extends SystemCtx<Cfg, O> {
   readonly user: UserInfo;
   /** The agent run that made the call. */
   readonly caller: RunId;
@@ -3833,19 +3848,19 @@ A kind's implementation. The payload is typed; a fn's args and result aren't (th
 arrive as JSON the hub has already checked against `describe`'s types.
 
 ```ts
-interface KindImpl<P, Cfg = unknown> {
+interface KindImpl<P, Cfg = unknown, O extends Own = Own> {
   /** Problems with a payload beyond its type (an unknown fn, a program that doesn't type-check). */
   check(payload: P, ctx: KindCheckCtx): Promise<string[]>;
   describe(payload: P, ctx: KindCheckCtx): Promise<KindDescription>;
-  run(payload: P, args: Json, ctx: KindRunCtx<Cfg>): Promise<Outcome<UntypedFn>>;
+  run(payload: P, args: Json, ctx: KindRunCtx<Cfg, O>): Promise<Outcome<UntypedFn>>;
   undo?(payload: P, undo: Json, ctx: UndoCtx<Cfg>): Promise<UndoOutcome>;
   /** What a run of a payload's fn would do, for a fn `describe` gave an `approval` with a preview (a write query). */
-  preview?(payload: P, args: Json, ctx: PreviewCtx<Cfg>): Promise<PreviewAnswer>;
+  preview?(payload: P, args: Json, ctx: PreviewCtx<Cfg, O>): Promise<PreviewAnswer>;
   /**
    * What a fn of this payload costs, for a kind declared with `estimates: true`: an estimate with basis `payload` (or
    * `free`), blending in `history` when it helps, or `undefined` to leave it to the history.
    */
-  estimate?(payload: P, input: KindEstimateInput, ctx: SystemCtx<Cfg>): Promise<CostEstimate | undefined>;
+  estimate?(payload: P, input: KindEstimateInput, ctx: SystemCtx<Cfg, O>): Promise<CostEstimate | undefined>;
 }
 ```
 
@@ -3889,7 +3904,7 @@ interface · `import { KindRunCtx } from '@harness/sdk'`
 A kind's run context: like `FnCtx`, but calls are by name (limited to the deps `describe` returned).
 
 ```ts
-interface KindRunCtx<Cfg = unknown> extends Omit<FnCtx<UntypedFn, Cfg>, 'fns' | 'handlers' | 'progress'> {
+interface KindRunCtx<Cfg = unknown, O extends Own = Own> extends Omit<FnCtx<UntypedFn, Cfg, O>, 'fns' | 'handlers' | 'progress'> {
   call(fn: QualifiedName, args: Json, options?: { key?: string; background?: boolean }): FnCall<Json>;
   handler(name: string, args: Json): Promise<Json>;
   progress(state: { fraction: number; message?: string } | { step: string; status: StepStatus; detail?: string }): void;
@@ -4928,7 +4943,7 @@ type · `import { ContextImpl } from '@harness/sdk'`
 A dynamic context's implementation: its content for these args.
 
 ```ts
-type ContextImpl<A, Cfg = unknown> = (args: A, ctx: SystemCtx<Cfg> & Partial<AskerCtx> & Pick<AskerCtx, 'user' | 'time'>) => Promise<string>;
+type ContextImpl<A, Cfg = unknown, O extends Own = Own> = (args: A, ctx: SystemCtx<Cfg, O> & Partial<AskerCtx> & Pick<AskerCtx, 'user' | 'time'>) => Promise<string>;
 ```
 
 #### `ContextLinkDef`
@@ -5042,6 +5057,13 @@ interface InjectInput {
   readonly requires?: readonly AnyFnRef[];
   /** Only in this chat mode. Leave it out unless the text is true in one mode only. */
   readonly mode?: 'tools' | 'static';
+  /**
+   * Context items it takes the place of, as refs (`[hub.context.later]`; a name as a string doesn't compile): while
+   * it goes into an agent's section, each is left out of that section (`replaced`), so the item says what is true
+   * instead. When it is out (its system off, switched off), they are back. Restate what the replaced item says that
+   * is still true.
+   */
+  readonly replaces?: readonly AnyContextRef[];
 }
 ```
 
@@ -5158,7 +5180,7 @@ type · `import { HookImpl } from '@harness/sdk'`
 A hook's implementation.
 
 ```ts
-type HookImpl<Cfg = unknown> = (input: HookInput, ctx: SystemCtx<Cfg>) => Promise<HookContribution[]>;
+type HookImpl<Cfg = unknown, O extends Own = Own> = (input: HookInput, ctx: SystemCtx<Cfg, O>) => Promise<HookContribution[]>;
 ```
 
 Refers to: [`HookInput`](#core-hookinput).
@@ -5311,13 +5333,13 @@ interface · `import { MentionImpl } from '@harness/sdk'`
 A mention provider's implementation.
 
 ```ts
-interface MentionImpl<T, V, Cfg = unknown> {
+interface MentionImpl<T, V, Cfg = unknown, O extends Own = Own> {
   /** Results for what the person typed after `@`. */
-  search(query: string, ctx: MentionCtx<Cfg>): Promise<MentionOption<T>[]>;
+  search(query: string, ctx: MentionCtx<Cfg, O>): Promise<MentionOption<T>[]>;
   /** The hover card, asked for when hovered so it is current; `undefined` when the thing no longer exists. */
-  hover(target: T, ctx: MentionCtx<Cfg>): Promise<(Omit<MentionHover, 'value'> & { value?: V }) | undefined>;
+  hover(target: T, ctx: MentionCtx<Cfg, O>): Promise<(Omit<MentionHover, 'value'> & { value?: V }) | undefined>;
   /** The text the LLM gets for this mention: what the thing is, where it lives and how to reach it. */
-  llm(target: T, ctx: MentionCtx<Cfg>): Promise<string>;
+  llm(target: T, ctx: MentionCtx<Cfg, O>): Promise<string>;
 }
 ```
 
@@ -5347,7 +5369,7 @@ interface · `import { MentionCtx } from '@harness/sdk'`
 What a mention provider's implementation gets: the person mentioning, so results are limited to what they may see.
 
 ```ts
-interface MentionCtx<Cfg = unknown> extends SystemCtx<Cfg>, AskerCtx {}
+interface MentionCtx<Cfg = unknown, O extends Own = Own> extends SystemCtx<Cfg, O>, AskerCtx {}
 ```
 
 #### `MentionRef`
@@ -5444,7 +5466,7 @@ type · `import { ActionImpl } from '@harness/sdk'`
 An action's implementation.
 
 ```ts
-type ActionImpl<I, R, St extends object, Cfg = unknown> = (input: I, ctx: ActionCtx<St, Cfg>) => Promise<R>;
+type ActionImpl<I, R, St extends object, Cfg = unknown, O extends Own = Own> = (input: I, ctx: ActionCtx<St, Cfg, O>) => Promise<R>;
 ```
 
 #### `ActionCtx`
@@ -5454,7 +5476,7 @@ interface · `import { ActionCtx } from '@harness/sdk'`
 What an action's implementation gets.
 
 ```ts
-interface ActionCtx<St extends object, Cfg = unknown> extends SystemCtx<Cfg>, AskerCtx, Omit<Services, 'log' | 'llm' | 'resources' | 'types'> {
+interface ActionCtx<St extends object, Cfg = unknown, O extends Own = Own> extends SystemCtx<Cfg, O>, AskerCtx, Omit<Services, 'log' | 'llm' | 'resources' | 'types'> {
   readonly delivery: DeliveryId;
   /** The run whose renderer sent it, if any. */
   readonly run: RunId | undefined;
@@ -5585,7 +5607,7 @@ The implementation of a declared provider: make the aeye `Provider` for the curr
 the config changes, and kept otherwise.
 
 ```ts
-type ProviderImpl<Cfg = unknown> = (ctx: SystemCtx<Cfg>) => Provider;
+type ProviderImpl<Cfg = unknown, O extends Own = Own> = (ctx: SystemCtx<Cfg, O>) => Provider;
 ```
 
 #### `ProviderRef`
@@ -5793,6 +5815,13 @@ This is the hub contract as the SDK declares it now:
 
   ```text
   (obj{ kind, name, description, instructions?, payload, examples?, tags?, share?, routing?, replace? … }) => obj{fn: text{pattern="^[a-z]\\S*$"}, version: num{min=1, whole=true}, created: bool}
+  ```
+- `hub/fns_remove`: Remove a fn of one of the calling system's kinds that a person saved (a saved form, a saved query): it is no longer listed, called or run. The hub keeps its versions, and undoing the run brings back the version it had. Tags: `own`.
+
+  ```text
+  (obj{
+    /* The fn to remove, by its name. */ fn: text{pattern="^[a-z]\\S*$"}
+  }) => obj{fn: text{pattern="^[a-z]\\S*$"}, version: num{min=1, whole=true}}
   ```
 - `hub/ctx_load`: Load context items (guides, memories, pieces of files) into this chat by their full names: their text is in your prompt from your next step, with what they import, and the fns they bring join your tools. Tags: `read`.
 
@@ -6882,7 +6911,7 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj) => obj{ fn, context … }
   ```
-- `hub/ctx_injections_list`: What is injected into agents' system prompts: for each agent (a fn that runs a model, such as hub/chat), the context items and hook notes the hub puts into its instructions, in order, each with its text as the model reads it, its tokens, whether an admin left it on for that agent, and why it is left out if it is (switched off, waiting for review, declined, its system off, its fns unusable, the other chat mode, or no room). Tags: `admin`, `read`.
+- `hub/ctx_injections_list`: What is injected into agents' system prompts: for each agent (a fn that runs a model, such as hub/chat), the context items and hook notes the hub puts into its instructions, in order, each with its text as the model reads it, its tokens, whether an admin left it on for that agent, and why it is left out if it is (switched off, waiting for review, declined, its system off, its fns unusable, the other chat mode, replaced by another item, or no room). Tags: `admin`, `read`.
 
   ```text
   (obj{
@@ -6981,13 +7010,12 @@ This is the hub contract as the SDK declares it now:
 
 const · `import { hub } from '@harness/sdk'`
 
-The hub's contract.
+The hub's contract, with refs to its own context items beside what it declares, so a system can name one where a
+context ref is asked for (`inject: { replaces: [hub.context.later] }`).
 
 ```ts
-const hub: typeof hub; // too large to print: see its section
+const hub: Omit<typeof hubContract, 'context'> & { readonly context: (typeof hubContract)['context'] & HubContextRefs };
 ```
-
-Refers to: [`ContextCrawlArgs`](#core-contextcrawlargs), [`ContextCrawlResult`](#core-contextcrawlresult), [`ContributionView`](#core-contributionview), [`CtxSearchArgs`](#core-ctxsearchargs), [`FnExamplesPage`](#core-fnexamplespage), [`FnExamplesQuery`](#core-fnexamplesquery), [`FnSearchArgs`](#core-fnsearchargs), [`FnSearchPage`](#core-fnsearchpage), [`ImageReadArgs`](#core-imagereadargs), [`ImageReadResult`](#core-imagereadresult), [`LoadContextResult`](#core-loadcontextresult), [`LoadFnsResult`](#core-loadfnsresult), [`MintMcpTokenArgs`](#core-mintmcptokenargs), [`NameRefusal`](#core-namerefusal), [`ReadTableArgs`](#core-readtableargs), [`ResourceOutlineArgs`](#core-resourceoutlineargs), [`ResourceSendArgs`](#core-resourcesendargs), [`ResultTable`](#core-resulttable), [`RowActionsQuery`](#core-rowactionsquery), [`Section`](#core-section), [`WidgetActionOption`](#core-widgetactionoption).
 
 #### `HubContract`
 
@@ -6998,6 +7026,39 @@ The hub's contract type.
 ```ts
 type HubContract = typeof hub;
 ```
+
+#### `HUB_CONTEXT_KEYS`
+
+const · `import { HUB_CONTEXT_KEYS } from '@harness/sdk'`
+
+The keys of the hub's own context items: the markdown files in the hub's `context/` folder, which join its manifest
+at boot, so they are not declared in the contract. A test keeps this list and the folder the same.
+
+```ts
+const HUB_CONTEXT_KEYS: readonly ["asking", "attached_files", "background_runs", "earlier_chats", "examples", "finding_fns", "images", "later", "limits", "memory", "resources", "saved_fns", "undo"];
+```
+
+#### `HubContextKey`
+
+type · `import { HubContextKey } from '@harness/sdk'`
+
+One of the hub's own context items, by key.
+
+```ts
+type HubContextKey = (typeof HUB_CONTEXT_KEYS)[number];
+```
+
+#### `HubContextRefs`
+
+type · `import { HubContextRefs } from '@harness/sdk'`
+
+Refs to the hub's own context items, by key.
+
+```ts
+type HubContextRefs = { readonly [K in HubContextKey]: ContextRef<QualifiedName<'hub', K>, {}> };
+```
+
+Refers to: [`QualifiedName`](#core-qualifiedname).
 
 #### `ADMIN_ENDPOINTS`
 
@@ -7376,6 +7437,16 @@ The error code `hub/fns_save` fails with (class `caller`) when the name is taken
 const SAVE_FN_TAKEN: "fn-taken";
 ```
 
+#### `RemovedFn`
+
+const · `import { RemovedFn } from '@harness/sdk'`
+
+What `hub/fns_remove` gives, and how its run is undone: the fn, and the version it had (the one restored).
+
+```ts
+const RemovedFn: ObjType<{ fn: `${string}/${string}`; version: number; }>;
+```
+
 ## 20. The server: serve and the implementation
 
 `serve(contract, impl, options, host?)` (from `@harness/sdk/server`) connects to the hub, pairs the first time, sends the
@@ -7633,22 +7704,22 @@ sectioner, action and model provider.
 
 ```ts
 type SystemImpl<C extends ContractShape> =
-Needs<'fns', { readonly [K in NativeFnKeys<C['fns']>]: FnImpl<TypesOf<C['fns'][K]>, ConfigOf<C>> }> &
-Needs<'kinds', { readonly [K in keyof C['kinds']]: C['kinds'][K] extends KindDef<infer P> ? KindImpl<P, ConfigOf<C>> : never }> &
-Needs<'context', { readonly [K in DynamicContextKeys<C['context']>]: C['context'][K] extends ContextDef<infer A, true> ? ContextImpl<A, ConfigOf<C>> : never }> &
-Needs<'hooks', { readonly [K in keyof C['hooks']]: HookImpl<ConfigOf<C>> }> &
-Needs<'mentions', { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T, infer V> ? MentionImpl<T, V, ConfigOf<C>> : never }> &
-Needs<'types', { readonly [K in TypesWithMethods<C['types']>]: C['types'][K] extends TypeDef<infer V, infer M extends Methods> ? { readonly [J in keyof M]: MethodImpl<V, TypesOf<M[J]>, ConfigOf<C>> } : never }> &
+Needs<'fns', { readonly [K in NativeFnKeys<C['fns']>]: FnImpl<TypesOf<C['fns'][K]>, ConfigOf<C>, OwnOf<C>> }> &
+Needs<'kinds', { readonly [K in keyof C['kinds']]: C['kinds'][K] extends KindDef<infer P> ? KindImpl<P, ConfigOf<C>, OwnOf<C>> : never }> &
+Needs<'context', { readonly [K in DynamicContextKeys<C['context']>]: C['context'][K] extends ContextDef<infer A, true> ? ContextImpl<A, ConfigOf<C>, OwnOf<C>> : never }> &
+Needs<'hooks', { readonly [K in keyof C['hooks']]: HookImpl<ConfigOf<C>, OwnOf<C>> }> &
+Needs<'mentions', { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T, infer V> ? MentionImpl<T, V, ConfigOf<C>, OwnOf<C>> : never }> &
+Needs<'types', { readonly [K in TypesWithMethods<C['types']>]: C['types'][K] extends TypeDef<infer V, infer M extends Methods> ? { readonly [J in keyof M]: MethodImpl<V, TypesOf<M[J]>, ConfigOf<C>, OwnOf<C>> } : never }> &
 Needs<'sectioners', { readonly [K in keyof C['sectioners']]: SectionerImpl }> &
-Needs<'actions', { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, infer St> ? ActionImpl<I, R, St, ConfigOf<C>> : never }> &
-Needs<'providers', { readonly [K in keyof C['providers']]: ProviderImpl<ConfigOf<C>> }> &
-(C['connect'] extends ConnectDecl ? { readonly connect: ConnectImpl<ConfigOf<C>> } : { readonly connect?: never }) &
+Needs<'actions', { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, infer St> ? ActionImpl<I, R, St, ConfigOf<C>, OwnOf<C>> : never }> &
+Needs<'providers', { readonly [K in keyof C['providers']]: ProviderImpl<ConfigOf<C>, OwnOf<C>> }> &
+(C['connect'] extends ConnectDecl ? { readonly connect: ConnectImpl<ConfigOf<C>, OwnOf<C>> } : { readonly connect?: never }) &
 {
   /** Resources this system serves. */
   readonly resources?: ResourceProvider;
   /** Hub events to receive. */
-  readonly events?: EventHandlers<ConfigOf<C>>;
-  readonly lifecycle?: Lifecycle<ConfigOf<C>>;
+  readonly events?: EventHandlers<ConfigOf<C>, OwnOf<C>>;
+  readonly lifecycle?: Lifecycle<ConfigOf<C>, OwnOf<C>>;
 };
 ```
 
@@ -7666,12 +7737,12 @@ args operates on (`file:/abs/path`, or `'*'` to run alone), asked by the hub bef
 that clash run one after another.
 
 ```ts
-type FnImpl<T extends FnTypes, Cfg = unknown> =
+type FnImpl<T extends FnTypes, Cfg = unknown, O extends Own = Own> =
 {
-  run(args: T['args'], ctx: FnCtx<T, Cfg>): Promise<Outcome<T>>;
-  preview?(args: T['args'], ctx: PreviewCtx<Cfg>): Promise<PreviewAnswer>;
-  flags?(args: T['args'], ctx: PreviewCtx<Cfg>): Promise<SensitivityFlag[]>;
-  claims?(args: T['args'], ctx: ClaimsCtx<Cfg>): ToolClaims | Promise<ToolClaims>;
+  run(args: T['args'], ctx: FnCtx<T, Cfg, O>): Promise<Outcome<T>>;
+  preview?(args: T['args'], ctx: PreviewCtx<Cfg, O>): Promise<PreviewAnswer>;
+  flags?(args: T['args'], ctx: PreviewCtx<Cfg, O>): Promise<SensitivityFlag[]>;
+  claims?(args: T['args'], ctx: ClaimsCtx<Cfg, O>): ToolClaims | Promise<ToolClaims>;
 } &
 ([T['undo']] extends [never] ? { undo?: never } : { undo(payload: T['undo'], ctx: UndoCtx<Cfg>): Promise<UndoOutcome> });
 ```
@@ -7688,10 +7759,10 @@ query, or the form) into the account and credentials, or a problem in words; `di
 where the provider can (best effort).
 
 ```ts
-interface ConnectImpl<Cfg> {
-  start(request: ConnectStart, ctx: SystemCtx<Cfg>): Promise<{ url: string }> | { url: string };
-  finish(request: ConnectFinish, ctx: SystemCtx<Cfg>): Promise<ConnectResult>;
-  disconnect(connection: Pick<RunConnection, 'id' | 'owner' | 'credentials'>, ctx: SystemCtx<Cfg>): Promise<void>;
+interface ConnectImpl<Cfg, O extends Own = Own> {
+  start(request: ConnectStart, ctx: SystemCtx<Cfg, O>): Promise<{ url: string }> | { url: string };
+  finish(request: ConnectFinish, ctx: SystemCtx<Cfg, O>): Promise<ConnectResult>;
+  disconnect(connection: Pick<RunConnection, 'id' | 'owner' | 'credentials'>, ctx: SystemCtx<Cfg, O>): Promise<void>;
 }
 ```
 
@@ -8118,7 +8189,7 @@ What a run gets besides its args. Typed by its fn: only its deps can be called, 
 progress steps can be reported, and the outcome helpers take its result, undo and resume types.
 
 ```ts
-interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services, Proposals, Decisions, Fleets, FnSearch {
+interface FnCtx<T extends FnTypes, Cfg = unknown, O extends Own = Own> extends Services, Proposals, Decisions, Fleets, FnSearch, RunNotices<O> {
   /** The system's config, as it was when this run started. */
   readonly config: Cfg;
   /** Which run this is, whom it acts for, and where it sits in the tree. */
@@ -8225,7 +8296,7 @@ Refers to: [`Link`](#core-link), [`QualifiedName`](#core-qualifiedname).
 interface · `import { SystemCtx } from '@harness/sdk'`
 
 ```ts
-interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets, FnSearch, AiSource, AdminNotices, InstanceConnects {
+interface SystemCtx<Cfg = unknown, O extends Own = Own> extends SystemPlace, Proposals, Fleets, FnSearch, AiSource, AdminNotices, InstanceConnects, OwnerRuns<O> {
   readonly system: string;
   /** The system's current config. */
   readonly config: Cfg;
@@ -9096,8 +9167,9 @@ value, and the hub still checks it with the gin type before storing it.
 
 `events` handles hub events by type, and the system is subscribed to exactly the types it handles: `message` (a chat
 message), `run` (a run's status, progress, operations or cost changed), `resources` (resources changed), `system` (a
-system connected, disconnected or was removed) and `fns` (fns were added or removed). Each handler is
-`async (event, ctx) => void`, with the event typed by its `type`.
+system connected, disconnected or was removed) and `fns` (fns were `added`, `removed`, or `changed`: saved again, or
+their availability moved). The update that settles a run also says `notified`: whether it, or a run under it, told its
+person something. Each handler is `async (event, ctx) => void`, with the event typed by its `type`.
 
 ### Lifecycle
 
@@ -9152,27 +9224,27 @@ interface · `import { Lifecycle } from '@harness/sdk'`
 Moments in a system's life. All optional; each gets the system's context with its current config.
 
 ```ts
-interface Lifecycle<Cfg> {
+interface Lifecycle<Cfg, O extends Own = Own> {
   /** The first time it connects after being paired or installed (with a valid config). */
-  installed?(ctx: SystemCtx<Cfg>): Promise<void>;
+  installed?(ctx: SystemCtx<Cfg, O>): Promise<void>;
   /** Every time it connects with a valid config and its contract is imported. */
-  started?(ctx: SystemCtx<Cfg>): Promise<void>;
+  started?(ctx: SystemCtx<Cfg, O>): Promise<void>;
   /**
    * Someone changed the config. `previous` is the value it replaced, or undefined when there was none (the first
    * config it gets while already running). Runs already going keep the value they started with.
    */
-  configured?(ctx: SystemCtx<Cfg> & { readonly previous: Cfg | undefined }): Promise<void>;
+  configured?(ctx: SystemCtx<Cfg, O> & { readonly previous: Cfg | undefined }): Promise<void>;
   /** Before it stops. The hub waits up to `timeout`. */
-  stopping?(ctx: SystemCtx<Cfg> & { readonly reason: StopReason; readonly timeout: Duration }): Promise<void>;
+  stopping?(ctx: SystemCtx<Cfg, O> & { readonly reason: StopReason; readonly timeout: Duration }): Promise<void>;
   /** The first start of a new version; `from` is the version it replaced. */
-  upgraded?(ctx: SystemCtx<Cfg> & { readonly from: string }): Promise<void>;
+  upgraded?(ctx: SystemCtx<Cfg, O> & { readonly from: string }): Promise<void>;
   /** An admin removed it; clean up anything it keeps outside the hub. */
-  uninstalled?(ctx: SystemCtx<Cfg>): Promise<void>;
+  uninstalled?(ctx: SystemCtx<Cfg, O>): Promise<void>;
   /**
    * The hub is about to copy `ctx.dataDir` for a data export: flush what is buffered and checkpoint an open database
    * so the copy is whole. The hub waits up to `timeout`; runs keep going.
    */
-  exporting?(ctx: SystemCtx<Cfg> & { readonly timeout: Duration }): Promise<void>;
+  exporting?(ctx: SystemCtx<Cfg, O> & { readonly timeout: Duration }): Promise<void>;
 }
 ```
 
@@ -9185,14 +9257,270 @@ type · `import { EventHandlers } from '@harness/sdk'`
 Hub events a system handles, by event type. Subscriptions follow the handlers given.
 
 ```ts
-type EventHandlers<Cfg> = {
-  readonly [E in SystemEvent['type']]?: (event: Extract<SystemEvent, { type: E }>, ctx: SystemCtx<Cfg>) => Promise<void>;
+type EventHandlers<Cfg, O extends Own = Own> = {
+  readonly [E in SystemEvent['type']]?: (event: Extract<SystemEvent, { type: E }>, ctx: SystemCtx<Cfg, O>) => Promise<void>;
 };
 ```
 
 Refers to: [`SystemEvent`](#core-systemevent).
 
-## 24. Remote services: fleets, sign-in and connections per instance
+## 24. Runs a system starts by itself, and notices
+
+A system that owns a kind can run its people's fns of that kind later by itself, outside any chat, and tell those
+people how each run went. It declares the `runs` hub grant (`grants: { hub: ['runs', …] }`); the review page flags it
+("Starts runs on its own, as the owners of its fns, and notifies them"), and nothing of it works before an admin goes
+live with it.
+
+### Listing, starting and telling: `ctx.runs`
+
+`ctx.runs` is in every system context (events, lifecycle, hooks, timers), never in a run's. Each method takes only
+refs of the system's own: `SystemImpl` types the context with the contract's kinds and pages (`OwnOf`), so another
+system's kind, fn or page doesn't compile.
+
+- `kindFns(contract.kinds.plan, { changedSince?, cursor? })`: the saved fns of the kind, a page at a time, each a
+  `KindFn` with its `owner`, `title`, `version` (from 1) and `payload` parsed by the kind's payload type. With
+  `changedSince` it gives only those saved since (and those removed since, `removed: true`). Only `kindFns` makes a
+  `KindFn`, so a fn built by hand can't be started.
+- `start(fn, { args, key, priority?, maxSpend? })`: a run of the fn as its owner, in a turn of theirs with no chat, at
+  `background` priority by default and with its budget lowered to `maxSpend`. The system is its caller, so the owner's
+  policies, approvals and budgets apply as at any call. `key` is required: the same key is the same run, so a retried
+  or doubled start never runs twice. The hub refuses (with the reason) when the owner can no longer use the hub, the
+  system isn't live, or the fn isn't of one of its kinds.
+- `notify(fn, notice)`: an inbox item and a push to the fn's owner, and no one else.
+
+### Notices
+
+A `Notice` has a `title`, a `body` (clamped to `NOTIFICATION_BODY`, 160 characters, on a word boundary), a `tone`
+(`ok`, `failed`, `info`: the inbox icon), a `link` and a second link with a label (`also`, a button in the inbox and an
+action on the push). A link leads to a run of the person's (`{ run }`) or to one of the system's own pages by its ref
+(`{ page: contract.page.item, path: ['weekly'], query: { tab: 'history' } }`), never a segment string. A `key` makes a
+later notice of the same key replace the earlier one while it is still unread (and tags the push), so a fn that runs
+often leaves one item, not forty.
+
+Inside a run, `ctx.notify(notice)` tells the person the run is for, linking to the run when it names no link. The
+settled `run` event then says `notified: true` for that run and every run above it, so a system that tells people how
+its runs went doesn't tell them twice.
+
+### Removing a saved fn
+
+`hub/fns_remove({ fn })` removes a saved fn of one of the calling system's kinds, for its owner or an admin (declare it
+as a dep, list it in `grants.calls`, and declare the `fns` `remove` effect for the kind). The hub keeps its versions;
+undoing the run saves its last version again.
+
+### Reference: runs a system starts by itself, and notices
+
+#### `OwnOf`
+
+type · `import { OwnOf } from '@harness/sdk'`
+
+What a contract's implementation calls its own (`Own`): the refs of its kinds and of its pages, so `ctx.runs` and
+notices take those and nothing of another system's.
+
+```ts
+type OwnOf<C extends ContractShape> = Own<
+  { [K in keyof C['kinds']]: C['kinds'][K] extends KindDef<infer P> ? KindRef<Q<C['system'], K>, P> : never }[keyof C['kinds']],
+  { [K in keyof C['pages']]: PageRef<Q<C['system'], K>> }[keyof C['pages']]
+>;
+```
+
+#### `Own`
+
+interface · `import { Own } from '@harness/sdk'`
+
+What a ctx knows of its own contract: the refs of its kinds and of its pages. `SystemImpl<Defs>` types every ctx it
+hands out with its own (`OwnOf`), so another system's kind, fn or page doesn't fit where only its own do.
+
+```ts
+interface Own<K extends AnyKindRef = AnyKindRef, P extends AnyPageRef = AnyPageRef> {
+  readonly kinds: K;
+  readonly pages: P;
+}
+```
+
+#### `KindRuns`
+
+interface · `import { KindRuns } from '@harness/sdk'`
+
+Runs of this system's own kinds' fns, started by the system itself as each fn's owner, and notices to those owners.
+Needs the `runs` grant (the review flags it: "Starts runs on its own, as the owners of its fns, and notifies them").
+
+```ts
+const { items } = await ctx.runs.kindFns(contract.kinds.schedule);
+const started = await ctx.runs.start(items[0], { args: { at }, key: `schedule:${items[0].fn}@${at}` });
+await ctx.runs.notify(items[0], { title: 'Weekly summary ran', body: '12 rows', link: { run: started.run } });
+```
+
+```ts
+interface KindRuns<O extends Own = Own> {
+  /** The fns of one of this system's kinds, with owner, title, version and parsed payload, a page at a time. */
+  kindFns<K extends O['kinds']>(kind: K, query?: { readonly changedSince?: Timestamp; readonly cursor?: string }): Promise<{ readonly items: Array<KindFn<K>>; readonly cursor?: string }>;
+  /**
+   * Start a run of the fn, as its owner, outside any run and any chat (a sessionless turn). Refused (with the reason)
+   * unless the owner can still use the hub, the system is live and the owner may run it. The same `key` is the same run.
+   */
+  start(fn: KindFn<O['kinds']>, options: StartAsOwner): Promise<StartedRun>;
+  /** Notify the fn's owner (inbox and push), never anyone else. */
+  notify(fn: KindFn<O['kinds']>, notice: Notice<O>): Promise<void>;
+}
+```
+
+Refers to: [`StartedRun`](#core-startedrun), [`Timestamp`](#core-timestamp).
+
+#### `KindFn`
+
+interface · `import { KindFn } from '@harness/sdk'`
+
+A fn of one of this system's kinds, as the hub lists it. Only `kindFns` makes one (branded), so it can't be built by hand.
+
+```ts
+interface KindFn<K extends AnyKindRef> {
+  readonly [KIND_FN]: K['name'];
+  readonly fn: QualifiedName;
+  readonly kind: K['name'];
+  /** The person who owns it: whom its runs are started as, and whom `runs.notify` reaches. */
+  readonly owner: ActorId;
+  /** What people call it ("Weekly sales summary"). */
+  readonly title: string;
+  /** Its version, from 1, counting every save. */
+  readonly version: number;
+  /** Parsed by the kind's payload type. */
+  readonly payload: PayloadOf<K>;
+  /** Removed since `changedSince` (its last payload is given). */
+  readonly removed: boolean;
+  readonly updatedAt: Timestamp;
+}
+```
+
+Refers to: [`ActorId`](#core-actorid), [`QualifiedName`](#core-qualifiedname), [`Timestamp`](#core-timestamp).
+
+#### `PayloadOf`
+
+type · `import { PayloadOf } from '@harness/sdk'`
+
+The payload type of a kind ref.
+
+```ts
+type PayloadOf<K> = K extends KindRef<QualifiedName, infer P> ? P : never;
+```
+
+Refers to: [`QualifiedName`](#core-qualifiedname).
+
+#### `StartAsOwner`
+
+interface · `import { StartAsOwner } from '@harness/sdk'`
+
+How `runs.start` starts a run.
+
+```ts
+interface StartAsOwner {
+  /** Checked by the hub against the args the kind's `describe` gives the fn. */
+  readonly args: Json;
+  /** Required: the same key is the same run, so a retried or doubled start never runs twice. */
+  readonly key: string;
+  /** Default `background`, so people's chats go first. */
+  readonly priority?: 'background' | 'interactive';
+  /** Lowers the turn's per-turn budget. */
+  readonly maxSpend?: Usd;
+}
+```
+
+Refers to: [`Json`](#core-json), [`Usd`](#core-usd).
+
+#### `OwnerRuns`
+
+interface · `import { OwnerRuns } from '@harness/sdk'`
+
+`ctx.runs`: in a system's context (hooks, events, lifecycle, timers), never in a run's.
+
+```ts
+interface OwnerRuns<O extends Own = Own> {
+  /** Runs of this system's own kinds' fns, as their owners, and notices to those owners. Needs the `runs` grant. */
+  readonly runs: KindRuns<O>;
+}
+```
+
+#### `RunNotices`
+
+interface · `import { RunNotices } from '@harness/sdk'`
+
+`ctx.notify`: in a run's context only.
+
+```ts
+interface RunNotices<O extends Own = Own> {
+  /** Notify the person this run is for (inbox and push), never anyone else. The run's settled event says it did (`notified`). */
+  notify(notice: Notice<O>): Promise<void>;
+}
+```
+
+#### `Notice`
+
+interface · `import { Notice } from '@harness/sdk'`
+
+A notice to one person: the owner of a kind fn (`runs.notify`) or the person a run is for (`ctx.notify`).
+
+```ts
+interface Notice<O extends Own = Own> {
+  readonly title: string;
+  /** At most `NOTIFICATION_BODY` (160) characters; longer is clamped on a word boundary. */
+  readonly body: string;
+  /** How it went, for the inbox icon; default `info`. */
+  readonly tone?: NotificationTone;
+  /** Where it leads. Absent: from a run, that run; from `runs.notify`, the system's main page. */
+  readonly link?: NoticeLink<O>;
+  /** A second link, shown as a button in the inbox and as a push action. */
+  readonly also?: { readonly label: string; readonly link: NoticeLink<O> };
+  /** A later notice with the same key replaces this one while it is unread (and is its push tag). */
+  readonly key?: string;
+}
+```
+
+Refers to: [`NotificationTone`](#core-notificationtone).
+
+#### `NoticeLink`
+
+type · `import { NoticeLink } from '@harness/sdk'`
+
+Where a notice leads: a run of the person's, or one of this system's own pages (a ref, with more path and a query).
+
+```ts
+type NoticeLink<O extends Own = Own> =
+| { readonly run: RunId }
+| { readonly page: O['pages']; readonly path?: readonly string[]; readonly query?: Readonly<Record<string, string>> };
+```
+
+Refers to: [`RunId`](#core-runid).
+
+#### `PageRef`
+
+interface · `import { PageRef } from '@harness/sdk'`
+
+A typed handle to one of a system's pages (`schedule.page.item`), named `<system>/<segment>`: links to pages are
+refs, never segment strings, so a link to a page that isn't declared, or to another system's page, doesn't compile.
+
+```ts
+interface PageRef<N extends QualifiedName> {
+  readonly ref: 'page';
+  readonly name: N;
+  /** The system that declares it. */
+  readonly system: string;
+  /** Its segment: the page is at `/s/<system>/<segment>`. */
+  readonly segment: string;
+}
+```
+
+Refers to: [`QualifiedName`](#core-qualifiedname).
+
+#### `AnyPageRef`
+
+type · `import { AnyPageRef } from '@harness/sdk'`
+
+```ts
+type AnyPageRef = PageRef<QualifiedName>;
+```
+
+Refers to: [`QualifiedName`](#core-qualifiedname).
+
+## 25. Remote services: fleets, sign-in and connections per instance
 
 A system that calls a remote service it was set up for (an MCP server) is a fleet: one instance per service, added from
 the browser with its config (`instances: "many"` in `system.json`). A system that authors code calling many services
@@ -9400,7 +9728,7 @@ Headers with the secret ones masked (`••••` and their last four characte
 function maskHeaders(headers: Readonly<Record<string, string>>, secret: ReadonlySet<string>): Record<string, string>;
 ```
 
-## 25. The client: renderers, inputs, resource views and pages
+## 26. The client: renderers, inputs, resource views and pages
 
 A system can draw its things in the chat with **Vue 3 components**. `client(contract, renderers)` in `client/index.ts`
 (default export) registers them, and each component's props are typed by the contract, so a component with the wrong
@@ -11004,7 +11332,7 @@ A place inside the app: a path or a relative path. Never `//host`, nor `/\host`,
 const APP_PATH: RegExp;
 ```
 
-## 26. Visuals and widgets
+## 27. Visuals and widgets
 
 A fn that returns a `ResultTable` (a database query, `hub/records_table`, any fn of that shape) is drawn by the result
 view, which offers every **visual** that can draw it: a table, value cards and twelve chart families (part of a whole,
@@ -11949,7 +12277,7 @@ interface WidgetDraft {
 
 Refers to: [`WidgetSpec`](#core-widgetspec).
 
-## 27. Packaging: system.json, build, pack, install
+## 28. Packaging: system.json, build, pack, install
 
 ### `system.json`
 
@@ -12324,7 +12652,7 @@ interface AuthoredText {
 }
 ```
 
-## 28. Testing
+## 29. Testing
 
 Every system tests itself with the SDK's **test kit** (`@harness/sdk/testing`), in vitest, with no setup:
 
@@ -12507,6 +12835,16 @@ class FakeHub {
   readonly notices: AdminNotice[];
   /** What a host's supervisor refused for the systems it hosts (`reportRefusal`), in order. */
   readonly hostRefusals: HubBody<'reportRefusal'>[];
+  /** The fns of the system's kinds `kindFns` lists (`ctx.runs.kindFns`): set them as a test needs. */
+  kindFns: KindFnWire[];
+  /** Every start asked for (`ctx.runs.start`), doubled ones too, in order. */
+  readonly starts: Array<HubBody<'startRun'>>;
+  /** The runs started, by key: a start of a key already here gets the same run back, as on the real hub. */
+  readonly startedRuns: Map<string, { run: string; turn: string; status: "awaiting-approval" | "queued" | "running" | "waiting" | "paused" | "done" | "invalid-input" | "failed" | "cancelled" | "undone"; }>;
+  /** What the system told kind fns' owners (`ctx.runs.notify`), in order. */
+  readonly ownerNotices: Array<HubBody<'notifyOwner'>>;
+  /** What runs told their people (`ctx.notify`), in order. */
+  readonly runNotices: Array<HubBody<'notify'>>;
   /**
   * Runs systems proposed (`propose`), with the run and approval the fake hub made; one per open `key` (outside a run a
   * settled key proposes afresh, as on the real hub). Settle one with `approveProposal` or `declineProposal`.
@@ -12637,7 +12975,7 @@ class FakeHub {
 }
 ```
 
-Refers to: [`ActorId`](#core-actorid), [`AdminNotice`](#core-adminnotice), [`ClaimsAnswer`](#core-claimsanswer), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FlagsAnswer`](#core-flagsanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`Hello`](#core-hello), [`HubLinkSpec`](#core-hublinkspec), [`HubModelInfo`](#core-hubmodelinfo), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`KindEstimateAnswer`](#core-kindestimateanswer), [`KindFnShape`](#core-kindfnshape), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`MentionResourceSearch`](#core-mentionresourcesearch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceHit`](#core-resourcehit), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`Section`](#core-section), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
+Refers to: [`ActorId`](#core-actorid), [`AdminNotice`](#core-adminnotice), [`ClaimsAnswer`](#core-claimsanswer), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FlagsAnswer`](#core-flagsanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`Hello`](#core-hello), [`HubLinkSpec`](#core-hublinkspec), [`HubModelInfo`](#core-hubmodelinfo), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`KindEstimateAnswer`](#core-kindestimateanswer), [`KindFnShape`](#core-kindfnshape), [`KindFnWire`](#core-kindfnwire), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`MentionResourceSearch`](#core-mentionresourcesearch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceHit`](#core-resourcehit), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`Section`](#core-section), [`StartedRun`](#core-startedrun), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
 
 #### `FakeHubOptions`
 
@@ -12712,12 +13050,13 @@ const TEST_PLACE: SystemPlace;
 
 const · `import { NO_ASKS } from '@harness/sdk/server/testing'`
 
-`ctx.propose`, `ctx.decide` and `ctx.ai` for a hand-made test context that has no hub: proposing fails (the test
-didn't expect it), the decision model is off, and `ctx.ai()` is an aeye `AI` over `FakeModelLink` answering `ok`.
+`ctx.propose`, `ctx.decide`, `ctx.ai`, `ctx.runs` and `ctx.notify` for a hand-made test context that has no hub:
+proposing and starting runs fail (the test didn't expect them), the decision model is off, notices and kind fns are
+none, and `ctx.ai()` is an aeye `AI` over `FakeModelLink` answering `ok`.
 Spread it in beside `TEST_PLACE`; `FakeHub` serves the real ones.
 
 ```ts
-const NO_ASKS: Proposals & Decisions & Fleets & FnSearch & AiSource & AdminNotices & InstanceConnects;
+const NO_ASKS: Proposals & Decisions & Fleets & FnSearch & AiSource & AdminNotices & InstanceConnects & OwnerRuns & RunNotices;
 ```
 
 #### `HubBody`
@@ -13802,7 +14141,7 @@ type StoredTypeDecl = TypeDecl & { readonly records: RecordStorage };
 
 Refers to: [`RecordStorage`](#core-recordstorage), [`TypeDecl`](#core-typedecl).
 
-## 29. Common mistakes
+## 30. Common mistakes
 
 ### Mistakes the compiler refuses
 
@@ -14215,7 +14554,7 @@ reason given. If you see one of these errors, the fix is in the reason.
 - **Vague descriptions.** The LLM picks fns by their description and fills args from their types and docs: say exactly
   what the fn does and give examples for args that are easy to get wrong.
 
-## 30. Worked examples
+## 31. Worked examples
 
 ### The notes system, whole
 
@@ -15917,7 +16256,7 @@ export type PreviousValue = Infer<typeof Previous>;
 export type BashOutput = Infer<typeof BashResult>;
 ```
 
-## 31. Runtime internals
+## 32. Runtime internals
 
 The rest of what the SDK exports: the pieces `serve` is built from (the manifest builder, keys, the outcome journal, the
 link transport, the LLM wire, the MCP face, files and process control, client bundles). A system rarely uses these
@@ -17442,7 +17781,7 @@ interface RedirectProblems {
 }
 ```
 
-## 32. Core types
+## 33. Core types
 
 The wire shapes from `@harness/core` that the SDK's declarations refer to, each resolved to plain TypeScript. Each is a
 zod schema in core with its type inferred from it; import the type (and the schema, to parse) from `@harness/core`.
@@ -17612,7 +17951,7 @@ type ApprovalPreview = {
     };
     source?: string | undefined;
     grants?: {
-      hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
+      hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "runs" | "ai")[];
       models?: {
         roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
         models?: string[] | undefined;
@@ -17684,7 +18023,7 @@ type ApprovalPreview = {
       removed: number;
     }[];
     flags: {
-      flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns" | "injects";
+      flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "runs" | "hosts" | "delete-fns" | "write-fns" | "injects";
       line: string;
       items: string[];
       lead?: string | undefined;
@@ -17789,7 +18128,7 @@ type ApprovedRun = {
       };
       source?: string | undefined;
       grants?: {
-        hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
+        hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "runs" | "ai")[];
         models?: {
           roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
           models?: string[] | undefined;
@@ -17861,7 +18200,7 @@ type ApprovedRun = {
         removed: number;
       }[];
       flags: {
-        flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns" | "injects";
+        flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "runs" | "hosts" | "delete-fns" | "write-fns" | "injects";
         line: string;
         items: string[];
         lead?: string | undefined;
@@ -17925,7 +18264,7 @@ type PairingGrantRequest = {
     };
     source?: string | undefined;
     grants?: {
-      hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
+      hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "runs" | "ai")[];
       models?: {
         roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
         models?: string[] | undefined;
@@ -18224,78 +18563,6 @@ type RunConnection = {
 
 ### From `packages/core/src/context-files.ts`
 
-#### <a id="core-contextcrawlargs"></a>`ContextCrawlArgs`
-
-const, type · declared in `packages/core/src/context-files.ts`
-
-`hub/ctx_crawl`'s args (see `CRAWL_DEFAULTS` for how a crawl walks the graph).
-
-```ts
-type ContextCrawlArgs = {
-  context: string[];
-  guidance: string;
-  maxDepth: number;
-  maxDecisions: number;
-  maxTokens: number;
-  metadataOnly: boolean;
-};
-```
-
-#### <a id="core-contextcrawlresult"></a>`ContextCrawlResult`
-
-const, type · declared in `packages/core/src/context-files.ts`
-
-What `hub/ctx_crawl` did: the items it took (`crawled`, in the order taken), those loaded into the session as
-`hub/ctx_load` loads them (none when metadata only) with the fns they brought, the starting names it refused,
-the links it skipped, why it stopped, and what it spent: the decide calls (`calls`, each a model call), the questions
-asked and the tokens gathered. The model reads only its `cards` (`LoadCards`).
-
-```ts
-type ContextCrawlResult = {
-  loaded: `${string}/${string}`[];
-  fns: `${string}/${string}`[];
-  fnsRefused: {
-    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
-    reason: string;
-    fn: string;
-    system?: SystemName | undefined;
-  }[];
-  refused: {
-    context: string;
-    reason: string;
-    closest: `${string}/${string}`[];
-  }[];
-  cards: string;
-  crawled: {
-    name: `${string}/${string}`;
-    description: string;
-    depth: number;
-    via: "start" | "import" | "choice";
-    tokens: number;
-    title?: string | undefined;
-    from?: `${string}/${string}` | undefined;
-    probability?: number | undefined;
-    content?: string | undefined;
-  }[];
-  skipped: {
-    context: string;
-    depth: number;
-    reason: "failed" | "declined" | "max-tokens" | "max-decisions" | "max-depth" | "unavailable";
-    from?: `${string}/${string}` | undefined;
-    probability?: number | undefined;
-  }[];
-  stop: {
-    reason: "failed" | "max-tokens" | "max-decisions" | "max-depth" | "complete";
-    detail?: string | undefined;
-  };
-  depth: number;
-  decisions: number;
-  tokens: number;
-  calls: string[];
-  metadataOnly: boolean;
-};
-```
-
 #### <a id="core-contextfileheader"></a>`ContextFileHeader`
 
 const, type · declared in `packages/core/src/context-files.ts`
@@ -18343,6 +18610,7 @@ type ContextFileHeader = {
     order: number;
     requires: `${string}/${string}`[];
     mode?: "tools" | "static" | undefined;
+    replaces?: `${string}/${string}`[] | undefined;
   } | undefined;
   command?: {
     name: string;
@@ -18382,53 +18650,6 @@ const, type · declared in `packages/core/src/context-files.ts`
 
 ```ts
 type ContextFileProblemCode = "header" | "duplicate-key" | "broken-link" | "cycle" | "missing-summary";
-```
-
-#### <a id="core-loadcontextresult"></a>`LoadContextResult`
-
-const, type · declared in `packages/core/src/context-files.ts`
-
-What `hub/ctx_load` did: the context it loaded (with what each loads with it, every time), the fns that context
-brings that went into the session's tools, the fns it brings that could not (`fnsRefused`, each with what blocks it), and
-what it refused, each with the closest names it knows. The model reads only its `cards` (`LoadCards`).
-
-```ts
-type LoadContextResult = {
-  loaded: `${string}/${string}`[];
-  fns: `${string}/${string}`[];
-  fnsRefused: {
-    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
-    reason: string;
-    fn: string;
-    system?: SystemName | undefined;
-  }[];
-  refused: {
-    context: string;
-    reason: string;
-    closest: `${string}/${string}`[];
-  }[];
-  cards: string;
-};
-```
-
-#### <a id="core-loadfnsresult"></a>`LoadFnsResult`
-
-const, type · declared in `packages/core/src/context-files.ts`
-
-What `hub/fns_load` did: the fns that went into the session's tools, and the names it refused, each with what blocks
-it. The model reads only its `cards` (`LoadCards`).
-
-```ts
-type LoadFnsResult = {
-  loaded: `${string}/${string}`[];
-  refused: {
-    code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
-    reason: string;
-    fn: string;
-    system?: SystemName | undefined;
-  }[];
-  cards: string;
-};
 ```
 
 ### From `packages/core/src/context-graph.ts`
@@ -18723,21 +18944,6 @@ type FnBlock = {
 };
 ```
 
-#### <a id="core-namerefusal"></a>`NameRefusal`
-
-const, type · declared in `packages/core/src/fn-block.ts`
-
-A name `hub/load` refused (a fn's or a context item's), with what blocks it; a name that is neither is `no-such-fn`.
-
-```ts
-type NameRefusal = {
-  code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
-  reason: string;
-  name: string;
-  system?: SystemName | undefined;
-};
-```
-
 ### From `packages/core/src/fn-facts.ts`
 
 #### <a id="core-costestimate"></a>`CostEstimate`
@@ -18755,29 +18961,6 @@ type CostEstimate = {
   max: number;
   basis: "unknown" | "history" | "payload" | "free";
   runs: number;
-};
-```
-
-#### <a id="core-ctxsearchargs"></a>`CtxSearchArgs`
-
-const, type · declared in `packages/core/src/fn-facts.ts`
-
-What the model may ask `hub/ctx_search` (static mode's `find_ctx`): context only (guides, memories, pieces of
-files), by words or meaning, filtered by system, origin (`system`, `memory`, `resource`), a memory's scope and tags.
-It is the one search too: `ctxSearchQuery` turns it into a `FnSearchQuery` of context items.
-
-```ts
-type CtxSearchArgs = {
-  text?: string | undefined;
-  systems?: SystemName[] | undefined;
-  origins?: ("system" | "memory" | "resource")[] | undefined;
-  scopes?: ("user" | "session" | "everyone")[] | undefined;
-  tags?: string[] | undefined;
-  names?: `${string}/${string}`[] | undefined;
-  niches?: ("admin" | "developer" | "reference")[] | undefined;
-  order?: "name" | "rank" | undefined;
-  offset?: number | undefined;
-  limit?: number | undefined;
 };
 ```
 
@@ -18834,40 +19017,6 @@ type FnExamplesQuery = {
   query?: string | undefined;
   offset?: number | undefined;
   limit?: number | undefined;
-};
-```
-
-#### <a id="core-fnsearchargs"></a>`FnSearchArgs`
-
-const, type · declared in `packages/core/src/fn-facts.ts`
-
-What the model may ask `hub/fns_search` (static mode's `find`): fns only. The query without `items` (it finds fns,
-never context: that is `hub/ctx_search`), the context-only filters, the context page's own `filters` and `off`, and
-`match` (the search merges words and meaning itself), so the tool's spec in every prompt stays small.
-
-```ts
-type FnSearchArgs = {
-  instance?: InstanceName | undefined;
-  visibility?: "shared" | "public" | "mine" | undefined;
-  text?: string | undefined;
-  offset?: number | undefined;
-  limit?: number | undefined;
-  systems?: SystemName[] | undefined;
-  modes?: ("read" | "write" | "delete")[] | undefined;
-  effects?: {
-    thing: "types" | "records" | "fns" | "context" | "examples" | "kinds" | "resources" | "components" | "approvals" | "secrets" | "connections";
-    action?: "create" | "update" | "remove" | undefined;
-    kind?: string | undefined;
-  }[] | undefined;
-  available?: boolean | undefined;
-  niches?: ("admin" | "developer" | "reference")[] | undefined;
-  order?: "name" | "rank" | undefined;
-  kinds?: (`${string}/${string}` | "native")[] | undefined;
-  names?: `${string}/${string}`[] | undefined;
-  types?: {
-    reads?: string[] | undefined;
-    writes?: string[] | undefined;
-  } | undefined;
 };
 ```
 
@@ -19049,7 +19198,7 @@ grants gets the base only. The hub refuses (and logs as a `RefusalRecord`) anyth
 
 ```ts
 type SystemGrants = {
-  hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
+  hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "runs" | "ai")[];
   models?: {
     roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
     models?: string[] | undefined;
@@ -19181,7 +19330,7 @@ type PreviewAnswer = {
       };
       source?: string | undefined;
       grants?: {
-        hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
+        hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "runs" | "ai")[];
         models?: {
           roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
           models?: string[] | undefined;
@@ -19253,7 +19402,7 @@ type PreviewAnswer = {
         removed: number;
       }[];
       flags: {
-        flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns" | "injects";
+        flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "runs" | "hosts" | "delete-fns" | "write-fns" | "injects";
         line: string;
         items: string[];
         lead?: string | undefined;
@@ -19474,6 +19623,7 @@ type PreviewAnswer = {
         order: number;
         requires: `${string}/${string}`[];
         mode?: "tools" | "static" | undefined;
+        replaces?: `${string}/${string}`[] | undefined;
       } | undefined;
       niche?: "admin" | "developer" | "reference" | undefined;
       weight?: number | undefined;
@@ -19661,7 +19811,7 @@ type PreviewAnswer = {
     configSecrets?: string[] | undefined;
     runtime?: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "sectioners" | "actions", string[]>> | undefined;
     grants?: {
-      hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
+      hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "runs" | "ai")[];
       models?: {
         roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
         models?: string[] | undefined;
@@ -19981,7 +20131,7 @@ type RunRequest = {
         };
         source?: string | undefined;
         grants?: {
-          hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
+          hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "runs" | "ai")[];
           models?: {
             roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
             models?: string[] | undefined;
@@ -20053,7 +20203,7 @@ type RunRequest = {
           removed: number;
         }[];
         flags: {
-          flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns" | "injects";
+          flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "runs" | "hosts" | "delete-fns" | "write-fns" | "injects";
           line: string;
           items: string[];
           lead?: string | undefined;
@@ -20323,6 +20473,7 @@ type ContextDecl = {
     order: number;
     requires: `${string}/${string}`[];
     mode?: "tools" | "static" | undefined;
+    replaces?: `${string}/${string}`[] | undefined;
   } | undefined;
   niche?: "admin" | "developer" | "reference" | undefined;
   weight?: number | undefined;
@@ -20968,6 +21119,7 @@ type Manifest = {
       order: number;
       requires: `${string}/${string}`[];
       mode?: "tools" | "static" | undefined;
+      replaces?: `${string}/${string}`[] | undefined;
     } | undefined;
     niche?: "admin" | "developer" | "reference" | undefined;
     weight?: number | undefined;
@@ -21155,7 +21307,7 @@ type Manifest = {
   configSecrets?: string[] | undefined;
   runtime?: Partial<Record<"types" | "fns" | "context" | "settings" | "attachments" | "kinds" | "hooks" | "mentions" | "sectioners" | "actions", string[]>> | undefined;
   grants?: {
-    hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
+    hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "runs" | "ai")[];
     models?: {
       roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
       models?: string[] | undefined;
@@ -21408,6 +21560,7 @@ type ManifestPatch = {
         order: number;
         requires: `${string}/${string}`[];
         mode?: "tools" | "static" | undefined;
+        replaces?: `${string}/${string}`[] | undefined;
       } | undefined;
       niche?: "admin" | "developer" | "reference" | undefined;
       weight?: number | undefined;
@@ -21993,6 +22146,41 @@ type ModelLimits = {
 };
 ```
 
+### From `packages/core/src/owner-runs.ts`
+
+#### <a id="core-kindfnwire"></a>`KindFnWire`
+
+const, type · declared in `packages/core/src/owner-runs.ts`
+
+A fn of one of a system's kinds as the hub lists it: its owner, title, version and payload (JSON: the SDK parses it).
+
+```ts
+type KindFnWire = {
+  fn: `${string}/${string}`;
+  kind: `${string}/${string}`;
+  owner: string;
+  title: string;
+  version: number;
+  payload: z.core.util.JSONType;
+  removed: boolean;
+  updatedAt: number;
+};
+```
+
+#### <a id="core-startedrun"></a>`StartedRun`
+
+const, type · declared in `packages/core/src/owner-runs.ts`
+
+The run `startRun` started (or had already started under the same key), its turn, and its status now.
+
+```ts
+type StartedRun = {
+  run: string;
+  turn: string;
+  status: "awaiting-approval" | "queued" | "running" | "waiting" | "paused" | "done" | "invalid-input" | "failed" | "cancelled" | "undone";
+};
+```
+
 ### From `packages/core/src/package.ts`
 
 #### <a id="core-fleetinstance"></a>`FleetInstance`
@@ -22384,7 +22572,7 @@ type Approval = {
       };
       source?: string | undefined;
       grants?: {
-        hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "ai")[];
+        hub: ("search" | "embed" | "fns" | "settings" | "state" | "resources" | "approvals" | "connections" | "decide" | "data" | "runs" | "ai")[];
         models?: {
           roles?: ("ocr" | "chat" | "transcribe" | "dictate" | "speak" | "describe" | "decide")[] | undefined;
           models?: string[] | undefined;
@@ -22456,7 +22644,7 @@ type Approval = {
         removed: number;
       }[];
       flags: {
-        flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "hosts" | "delete-fns" | "write-fns" | "injects";
+        flag: "models" | "capabilities" | "secrets" | "effects" | "calls" | "files" | "runs" | "hosts" | "delete-fns" | "write-fns" | "injects";
         line: string;
         items: string[];
         lead?: string | undefined;
@@ -22711,20 +22899,16 @@ type MessagePart = {
 };
 ```
 
-### From `packages/core/src/records/mcps.ts`
+### From `packages/core/src/records/content.ts`
 
-#### <a id="core-mintmcptokenargs"></a>`MintMcpTokenArgs`
+#### <a id="core-notificationtone"></a>`NotificationTone`
 
-const, type · declared in `packages/core/src/records/mcps.ts`
+const, type · declared in `packages/core/src/records/content.ts`
 
-`hub/mint_mcp_token`: which MCP, a label for the session, and how long the token lasts (the hub's default when absent).
+How a notification went, for its inbox icon: it went well, it failed, or it only says something.
 
 ```ts
-type MintMcpTokenArgs = {
-  mcp: string;
-  label: string;
-  ttl?: number | undefined;
-};
+type NotificationTone = "failed" | "ok" | "info";
 ```
 
 ### From `packages/core/src/records/runs.ts`
@@ -23205,64 +23389,6 @@ type RemoteCredentials = {
   tokenType: string;
   refreshToken?: string | undefined;
   clientId?: string | undefined;
-};
-```
-
-### From `packages/core/src/resource-forms.ts`
-
-#### <a id="core-imagereadargs"></a>`ImageReadArgs`
-
-const, type · declared in `packages/core/src/resource-forms.ts`
-
-`hub/image_read`: a question about an image a model can't see. `image` is the id of an `<image id="…">` block (the
-image's resource uri, so an attached file's `uri` works too).
-
-```ts
-type ImageReadArgs = {
-  image: `${string}://${string}`;
-  question: string;
-};
-```
-
-#### <a id="core-imagereadresult"></a>`ImageReadResult`
-
-const, type · declared in `packages/core/src/resource-forms.ts`
-
-What `hub/image_read` answers: the vision model's answer, the model that gave it, and the image it looked at.
-
-```ts
-type ImageReadResult = {
-  answer: string;
-  model: string;
-  image: {
-    id: `${string}://${string}`;
-    name: string;
-  };
-};
-```
-
-#### <a id="core-resourceoutlineargs"></a>`ResourceOutlineArgs`
-
-const, type · declared in `packages/core/src/resource-forms.ts`
-
-`hub/resource_outline`: the resource whose sections to list.
-
-```ts
-type ResourceOutlineArgs = {
-  uri: `${string}://${string}`;
-};
-```
-
-#### <a id="core-resourcesendargs"></a>`ResourceSendArgs`
-
-const, type · declared in `packages/core/src/resource-forms.ts`
-
-`hub/resource_send`: a resource (or one section of it) to show the model at its next step.
-
-```ts
-type ResourceSendArgs = {
-  uri: `${string}://${string}`;
-  section?: SectionKey | undefined;
 };
 ```
 
@@ -24015,6 +24141,7 @@ type SystemEvent = {
   } | {
     type: "background";
   };
+  notified?: boolean | undefined;
 } | {
   type: "resources";
   changes: {
@@ -24030,6 +24157,7 @@ type SystemEvent = {
   type: "fns";
   added: `${string}/${string}`[];
   removed: `${string}/${string}`[];
+  changed: `${string}/${string}`[];
 };
 ```
 
@@ -24316,26 +24444,6 @@ const, type · declared in `packages/core/src/widgets.ts`
 
 ```ts
 type RelativeDate = "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
-```
-
-#### <a id="core-rowactionsquery"></a>`RowActionsQuery`
-
-const, type · declared in `packages/core/src/widgets.ts`
-
-The actions offered on rows of these types (hub `rowActions` and `hub/row_actions`), narrowed by a widget's list. With
-no row types (a source with no records type or ref columns) only the fns the widget binds are offered.
-
-```ts
-type RowActionsQuery = {
-  types: `${string}/${string}`[];
-  narrow?: {
-    fn: `${string}/${string}`;
-    bind: Record<string, string>;
-    label?: string | undefined;
-    confirm?: true | undefined;
-    then?: "status" | "open" | "refresh" | undefined;
-  }[] | undefined;
-};
 ```
 
 #### <a id="core-widgetaction"></a>`WidgetAction`

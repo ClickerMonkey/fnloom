@@ -28,10 +28,18 @@ export function isHeardSystemStatus(status: SystemStatus): status is HeardSystem
 /** Hub events a system can subscribe to. */
 export const SystemEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('message'), message: MessageView }),
-  z.object({ type: z.literal('run'), run: RunId, fn: QualifiedName, update: RunUpdate }),
+  z.object({
+    type: z.literal('run'), run: RunId, fn: QualifiedName, update: RunUpdate,
+    /**
+     * On the update that settles the run: whether the run or one of its children sent its person a notice
+     * (`ctx.notify`, `ctx.runs.notify`), so a system that tells people how runs went doesn't tell them twice.
+     */
+    notified: z.boolean().optional(),
+  }),
   z.object({ type: z.literal('resources'), changes: z.array(ResourceChange) }),
   z.object({ type: z.literal('system'), system: SystemName, status: HeardSystemStatus }),
-  z.object({ type: z.literal('fns'), added: z.array(QualifiedName), removed: z.array(QualifiedName) }),
+  /** Fns came, went, or got a new version (`changed`: saved again, from the fn page, `hub/fns_save` or anywhere else). */
+  z.object({ type: z.literal('fns'), added: z.array(QualifiedName), removed: z.array(QualifiedName), changed: z.array(QualifiedName).default([]) }),
 ]);
 export type SystemEvent = z.infer<typeof SystemEvent>;
 

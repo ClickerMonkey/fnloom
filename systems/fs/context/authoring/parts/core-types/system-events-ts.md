@@ -69,6 +69,7 @@ type SystemEvent = {
   } | {
     type: "background";
   };
+  notified?: boolean | undefined;
 } | {
   type: "resources";
   changes: {
@@ -84,5 +85,6 @@ type SystemEvent = {
   type: "fns";
   added: `${string}/${string}`[];
   removed: `${string}/${string}`[];
+  changed: `${string}/${string}`[];
 };
 ```

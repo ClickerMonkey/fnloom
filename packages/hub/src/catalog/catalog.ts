@@ -23,7 +23,7 @@ import { StoreFnNames } from './fn-names.ts';
 import { allRows, rows } from '../store/rows.ts';
 import { GinScopes, messageOf, type TypeLookup } from './scope.ts';
 import { Serial } from './serial.ts';
-import { itemChanges, writeItemVersions } from './versions.ts';
+import { itemChanges, latestItemVersion, writeItemVersions } from './versions.ts';
 import { apiIndexDecls, isApiIndexName } from './api-index.ts';
 import { AGENT_KIND, agentNames } from './injections.ts';
 
@@ -365,9 +365,35 @@ export class StoreCatalog implements Catalog {
       });
       await this.#refresh([name]);
       const saved = await this.fn(name);
-      this.#announce([name], [], saved === undefined ? [] : [saved]);
+      this.#announce([name], [], saved === undefined ? [] : [saved], existing === undefined ? [] : [name]);
       for (const changed of apiChanged) { this.options.bus.publish('context.changed', { name: changed }); }
       return { ...emptyReport(), ...(existing === undefined ? { added: [name] } : { updated: [name] }) };
+    });
+  }
+
+  remove(system: SystemName, name: QualifiedName, by: ActorId): Promise<ImportReport> {
+    return this.#serial.run(async () => {
+      await this.#load();
+      const existing = await this.fn(name);
+      if (existing?.system !== system) { return { ...emptyReport(), refused: [{ name, problems: [`${system} has no fn ${name}`] }] }; }
+      if (existing.origin === 'contract') { return { ...emptyReport(), refused: [{ name, problems: ['a fn of the contract can\'t be removed'] }] }; }
+      const { store, clock } = this.options;
+      // the version kept for the removal holds the declaration as it was last saved, so restoring it saves that again
+      const saved = (await latestItemVersion(store, system, 'fns', name))?.decl ?? Json.parse(existing.decl);
+      const manifest = this.#manifests.get(system);
+      const systemRow = await store.table('systems').get(system);
+      const apiChanged = await store.tx(async (tx) => {
+        await tx.table('fns').remove(name);
+        await this.#removeIndexes(tx, name);
+        await writeItemVersions(tx, system, [{ section: 'fns', name, change: 'removed', decl: saved, declaredBy: 'runtime' }], clock(), by);
+        const off = systemRow?.enabled.context === false || systemRow?.stage === 'installed';
+        return this.#writeApiIndex(tx, system, manifest?.context ?? [], manifest?.groups ?? [], clock(), off);
+      });
+      // the fns that depend on it follow it out
+      const changed = await this.#refresh(await this.#touchedBy(system, { fns: [name], kinds: [] }));
+      this.#announce([], [name], changed);
+      for (const context of apiChanged) { this.options.bus.publish('context.changed', { name: context }); }
+      return { ...emptyReport(), removed: [name] };
     });
   }
 
@@ -728,7 +754,7 @@ export class StoreCatalog implements Catalog {
     const redescribed = await this.#redescribe(await this.#referencing(changedTypes, changedNames));
     const availabilityChanged = await this.#refresh(await this.#touchedBy(system, { fns: removedFrom.get('fns') ?? [], kinds: removedFrom.get('kinds') ?? [] }));
     const fns = new Map<string, FnRecord>([...fnWrites, ...redescribed, ...availabilityChanged].map((r) => [r.name, r]));
-    this.#announce([...report.added, ...report.updated], report.removed, [...fns.values()]);
+    this.#announce([...report.added, ...report.updated], report.removed, [...fns.values()], report.updated);
     for (const name of apiChanged) { this.options.bus.publish('context.changed', { name }); }
     log.info('catalog.imported', { system, added: report.added.length, updated: report.updated.length, removed: report.removed.length, refused: report.refused.length });
     return report;
@@ -770,9 +796,9 @@ export class StoreCatalog implements Catalog {
     return changed;
   }
 
-  /** Publish what changed, with the fn records that changed. */
-  #announce(added: QualifiedName[], removed: QualifiedName[], records: FnRecord[]): void {
-    this.options.bus.publish('catalog.changed', { added, removed, fns: records });
+  /** Publish what changed, with the fn records that changed; `updated` are those of `added` that existed before. */
+  #announce(added: QualifiedName[], removed: QualifiedName[], records: FnRecord[], updated: QualifiedName[] = []): void {
+    this.options.bus.publish('catalog.changed', { added, removed, fns: records, ...(updated.length === 0 ? {} : { updated }) });
   }
 
   // ─── Checks per section ───────────────────────────────────────────────────

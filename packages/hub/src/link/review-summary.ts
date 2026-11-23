@@ -5,7 +5,7 @@
  * can now write or delete, new effects on the hub, and new hub calls, secrets, hosts, paths, fns or models granted.
  */
 import {
-  ContextDecl, effectsLine, FnDecl, HookDecl, isKept, Json, ITEM_SECTIONS, QualifiedName, registryMode, REVIEW_FLAGS, reviewFlag, strongerMode, SystemGrants,
+  ContextDecl, effectsLine, FnDecl, HookDecl, isKept, Json, ITEM_SECTIONS, QualifiedName, registryMode, REVIEW_FLAGS, reviewFlag, RUNS_FLAG_LINE, strongerMode, SystemGrants,
   type ContractChange, type DeclaredFnFacts, type FnChangeFacts, type FnMode, type GrantsMove, type InjectionChangeView, type RegistryEffect, type ReviewCount, type ReviewFlag,
   type ReviewFlagKind, type ReviewSummary,
 } from '@harness/core';
@@ -118,6 +118,7 @@ export function injectionChanges(changes: readonly ContractChange[], agents: rea
         change: now === undefined ? 'removed' : was === undefined ? 'added' : 'changed',
         ...(shown.content === undefined ? {} : { tokens: estimateTokens(text) }),
         targets, agents: [...new Set(targets.flatMap((target) => target.agents))].sort(),
+        ...(shown.inject.replaces === undefined || shown.inject.replaces.length === 0 ? {} : { replaces: shown.inject.replaces }),
       }];
     }
     if (change.section === 'hooks') {
@@ -144,13 +145,17 @@ const CHANGE_MARK = { added: '+', changed: '~', removed: '−' } as const;
 
 /**
  * The `injects` flag: "Changes what hub/chat and hub/chat_small are told: + Forms (input/asking, 310 tokens)". Its
- * items are the agents; an injection that hits no agent yet says so.
+ * items are the agents; an injection that hits no agent yet says so, and one that replaces items names what it takes
+ * out of their sections ("+ Scheduled runs (sched/basics, 240 tokens, takes hub/later out)").
  */
 function injectsFlag(injections: readonly InjectionChangeView[]): ReviewFlag | undefined {
   if (injections.length === 0) { return undefined; }
   const agents = [...new Set(injections.flatMap((item) => item.agents))].sort();
   const items = injections.map((item) => {
-    const facts = [item.name, ...(item.tokens === undefined ? [] : [`${item.tokens.toLocaleString('en-US')} tokens`]), ...(item.section === 'context' && item.agents.length === 0 ? ['hits no agent yet'] : [])];
+    const facts = [
+      item.name, ...(item.tokens === undefined ? [] : [`${item.tokens.toLocaleString('en-US')} tokens`]), ...(item.section === 'context' && item.agents.length === 0 ? ['hits no agent yet'] : []),
+      ...(item.replaces === undefined || item.change === 'removed' ? [] : [`takes ${andList(item.replaces)} out`]),
+    ];
     return `${CHANGE_MARK[item.change]} ${item.title} (${facts.join(', ')})`;
   }).join('; ');
   const tail = `${agents.length === 1 ? 'is' : 'are'} told: ${items}`;
@@ -166,7 +171,10 @@ export function grantsMove(before: SystemGrants | undefined, after: SystemGrants
   const now = after ?? { hub: [] };
   const flags: ReviewFlag[] = [];
   const flag = (kind: ReviewFlagKind, label: string, items: readonly string[]): void => { if (items.length > 0) { flags.push(reviewFlag(kind, label, items)); } };
-  flag('capabilities', 'New hub calls', added(was.hub, now.hub));
+  const calls = added(was.hub, now.hub);
+  // starting runs with nobody asking is its own flag, read before the other hub calls
+  if (calls.includes('runs')) { flags.push({ flag: 'runs', line: RUNS_FLAG_LINE, items: ['runs'] }); }
+  flag('capabilities', 'New hub calls', calls.filter((call) => call !== 'runs'));
   flag('secrets', 'New secrets', added(was.secrets, now.secrets));
   flag('hosts', 'New hosts', added(was.network, now.network));
   flag('files', 'New paths', [...added(was.files?.read, now.files?.read).map((path) => `read ${path}`), ...added(was.files?.write, now.files?.write).map((path) => `write ${path}`)]);

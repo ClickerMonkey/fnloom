@@ -8,7 +8,7 @@ import type {
   AllowedOperations, ApprovedRun, ConnectFinish, CostEstimate, Manifest, ManifestPatch, ManifestSection, ProviderModelDecl, SectionDecl, ConnectionUpdate, ConnectResult, ConnectStart, Detail, ErrorClass, HookInput, InputProblem, Json, KindDescription, MentionHover, PreviewAnswer, RunConnection, RunInfo, SensitivityFlag, ShareRule, StepStatus, TypeDecl, StopReason, SystemEvent, UndoOutcome, Usd,
 } from '@harness/core';
 import { MANIFEST_SECTIONS, MANIFEST_SECTION_NAMES } from '@harness/core';
-import type { ActionCtx, AskerCtx, BudgetInfo, CallOptions, Decisions, FnCall, Fleets, FnCtx, FnSearch, PreviewCtx, ClaimsCtx, Proposals, Resume, Services, SessionState, SystemCtx, UndoCtx } from '../ctx.ts';
+import type { ActionCtx, AskerCtx, BudgetInfo, CallOptions, Decisions, FnCall, Fleets, FnCtx, FnSearch, PreviewCtx, ClaimsCtx, Proposals, Resume, RunNotices, Services, SessionState, SystemCtx, UndoCtx } from '../ctx.ts';
 import type {
   ActionImpl, AnyTypeDef, ContextImpl, HookContribution, HookImpl, KindCheckCtx, KindDef, KindEstimateInput, KindImpl, KindRunCtx, MentionCtx, MentionImpl,
   MentionOption, MethodImpl, SectionerImpl,
@@ -46,7 +46,7 @@ export interface OutcomeHelpers {
 }
 
 /** What every run context has besides its calls, handlers and progress. */
-export interface RuntimeRunBase extends Services, OutcomeHelpers, Proposals, Decisions, Fleets, FnSearch {
+export interface RuntimeRunBase extends Services, OutcomeHelpers, Proposals, Decisions, Fleets, FnSearch, RunNotices {
   readonly config: unknown;
   readonly run: RunInfo;
   readonly budget: BudgetInfo;

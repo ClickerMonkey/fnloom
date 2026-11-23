@@ -1,5 +1,5 @@
 import { fn, g, handler, hub, system } from '@harness/sdk';
-import { ApprovalId, InstanceName, INVALID_INPUT_CODE, PolicyId, RunId, SystemName, type InvalidInput, type Json, type QualifiedName, type Turn } from '@harness/core';
+import { ApprovalId, InstanceName, INVALID_INPUT_CODE, PolicyId, RunId, SystemName, type InvalidInput, type Json, QualifiedName, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { RunRefused } from './errors.ts';
 import type { RunInput } from './index.ts';
@@ -411,6 +411,21 @@ describe('refusing runs', () => {
     expect(await settled).toEqual({ status: 'failed', error: { class: 'caller', message: 'Not allowed: reading is off today', code: 'denied' } });
     expect(fs.requests).toEqual([]);
     expect(r.bus.of('approval')).toEqual([]);
+  });
+
+  it('matches a policy by the fn whose run made the call (via): only calls under that fn are decided by it', async () => {
+    const r = await started();
+    r.connect('fs');
+    await r.store.table('policies').insert({
+      id: PolicyId.parse('pol_via'), description: 'No reading from copies.', subject: { everyone: true }, target: { fn: 'fs/read', via: QualifiedName.parse('fs/copy') },
+      decision: { effect: 'deny', reason: 'not from a copy' }, priority: 10, createdBy: ALICE, createdAt: 0,
+    });
+    const turn = await r.turn();
+    const parent = await r.module.runs.start(input(turn, 'fs/copy', { from: 'x' }));
+    const child = await r.module.runs.start({ ...input(turn, 'fs/read', { path: 'x' }), parent: parent.run, key: 'child' });
+    expect(await child.settled).toMatchObject({ status: 'failed', error: { message: 'Not allowed: not from a copy' } });
+    const alone = await r.module.runs.start({ ...input(turn, 'fs/read', { path: 'x' }), key: 'alone' });
+    expect(await alone.settled).toMatchObject({ status: 'done' });
   });
 
   it('holds a queued run while its fn is paused, and fails one whose fn is gone when its turn comes', async () => {

@@ -128,6 +128,11 @@ export interface PolicyEngine {
      * lets it through, and the approval says which variant asks. A deny still wins.
      */
     variant?: CompareFork;
+    /**
+     * The fns of the runs the call is made under, nearest first (its parent's fn, then that run's parent's, …), so a
+     * policy that names one (`FnMatch.via`) matches calls made by that fn's runs only.
+     */
+    via?: readonly QualifiedName[];
   }): Promise<RunDecision>;
   /** Make the approval of a run a system proposed (`propose` on the hub link), with its preview, and tell its approvers. */
   propose(input: { run: RunId; fn: QualifiedName; approver: Approver; preview: ApprovalPreview; turnUser: ActorId; session?: SessionId; ask?: ProposalAsk }): Promise<Approval>;

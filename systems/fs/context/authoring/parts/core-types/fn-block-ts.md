@@ -29,18 +29,3 @@ type FnBlock = {
   system?: SystemName | undefined;
 };
 ```
-
-#### <a id="core-namerefusal"></a>`NameRefusal`
-
-const, type · declared in `packages/core/src/fn-block.ts`
-
-A name `hub/load` refused (a fn's or a context item's), with what blocks it; a name that is neither is `no-such-fn`.
-
-```ts
-type NameRefusal = {
-  code: "paused" | "system-needs-config" | "system-disconnected" | "system-removed" | "kind-missing" | "kind-system-disconnected" | "dep-unavailable" | "disabled" | "held" | "role-unset" | "no-such-fn" | "not-a-name" | "other-system" | "not-for-model" | "connect-account";
-  reason: string;
-  name: string;
-  system?: SystemName | undefined;
-};
-```

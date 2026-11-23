@@ -30,6 +30,7 @@ import { fakeDataApi } from '../data/test/fakes.ts';
 import { IdentityStore } from '../state/identity.ts';
 import { OutsideImagesStore } from '../state/outside-images.ts';
 import { GraphStore } from '../graph/state/graph.ts';
+import { RunPageStore } from '../runs/store.ts';
 import { fakeGraphApi } from '../graph/test/fakes.ts';
 import { ClientLogs } from '../state/client-logs.ts';
 import { SystemPagesStore } from '../system-pages/store.ts';
@@ -240,6 +241,7 @@ export function fakeStores(options: { signedIn?: boolean; api?: ReturnType<typeo
     fnNotices: new FnNotices(fns),
     modelNames: new ModelNamesStore(fns),
     graph: () => new GraphStore(fakeGraphApi()),
+    runPage: () => new RunPageStore(chat.api),
     data: new DataStore(data),
     pages: pages.pages,
     itemVersions: (query) => data.itemVersions.call(query),

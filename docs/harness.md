@@ -1119,7 +1119,35 @@ These always need approval.
 ### Push notifications
 
 The hub sends web push notifications: approval or input needed, a reply to your message, a turn finished while you
-were away, a system waiting for pairing, a budget reached.
+were away, a system waiting for pairing, a budget reached, and what a system tells one person (`system-message`).
+
+A notification has a `link` (a session, an approval, a pairing, a run, a system, or one of a system's declared pages:
+`{ page: { system, segment, path?, query? } }`), an optional second link with a label (`also`: a button in the
+inbox and an action on the push), a `tone` (`ok`, `failed`, `info`: the inbox icon) and a `key`. A new
+notification with the same key replaces the person's unread one in place (same id, newest, unread again), and the key
+is the push's tag, so the phone replaces it too: a run that repeats leaves one item, not forty. A body holds at most
+`NOTIFICATION_BODY` (160) characters, in core, so the chat and systems clamp alike.
+
+**Runs a system starts by itself** (the `runs` grant; the review flags it: "Starts runs on its own, as the owners of
+its fns, and notifies them"). Outside any run, a system may list the saved fns of its own kinds with owner, title,
+version and parsed payload (`ctx.runs.kindFns`, optionally only those changed or removed since a time), start one as
+its owner (`ctx.runs.start`) and tell that owner how it went (`ctx.runs.notify`). A start makes a sessionless turn
+for the owner (limits for `background` unless asked otherwise, the turn's budget lowered by `maxSpend`) with the
+system's actor as caller, so the owner's policies, approvals, budgets and the ledger apply as at any call; it is
+refused (with the reason) unless the fn is a saved fn of the system's own kind, the system is live and its owner can
+still use the hub. Its `key` is required and makes it idempotent: the same key is the same run, whether the start is
+retried later or doubled at once. Inside a run, `ctx.notify` tells the run's own person. A notice reaches one person
+only and links only to their runs or the system's own declared pages (by page ref, `contract.page.<segment>`, never a
+segment string); its key is kept per system. The settled run event says `notified` when the run or a run under it
+sent its person a notice, so a system that reports runs doesn't tell people twice. The SDK types every ctx an
+implementation gets with its own kinds and pages (`OwnOf`), so another system's kind, fn or page doesn't compile,
+and only a `KindFn` `kindFns` listed (branded) can be started.
+
+**Removing a saved fn** (`hub/fns_remove`): a system removes a saved fn of its own kind, for its owner or an admin,
+declared as a dep and an effect (`fns` `remove`) like `hub/fns_save`. The hub keeps its versions (a `removed`
+version holds the declaration it last had), and undoing the run saves that version again. The `fns` event says
+`added`, `removed` and `changed` (saved again, or its availability moved), so an edit made anywhere re-plans
+what a system keeps of its fns.
 
 ## LLM calls and budgets
 
@@ -1402,7 +1430,8 @@ the tightest.
   Settings › Account.
 - **Policies** decide whether an actor may run a fn: allow, deny or ask. "Ask" names who decides: the
   user who started the turn, a specific actor, a group, an LLM judge (an `llm` fn), or the hub itself.
-  Policies match fns by name, system, kind or tag.
+  Policies match fns by name, system, kind or tag, and by the fn whose run made the call (`via`, at any depth up the
+  run's tree), so "always allow `fs/write` when a nightly backup fn calls it" leaves every other `fs/write` as it was.
 - **Approvals** are records. "Always" turns into a policy.
 - **Actor settings** are typed values systems declare and attach to actors, set by an admin or by a fn.
   For example, the database system declares row and field access rules; an admin sets them per group.
@@ -1530,9 +1559,9 @@ What the security review of 2026-11-21 changed (findings in `docs/plans/security
 Design: `docs/plans/injected-context-2026-11-22.md` §4 and §6. The declaration, then the injected section the planner
 builds from it (below); the admin's Injected tab is its own part.
 
-- **A context item may declare `inject`** (`InjectDecl`: `into`, `order` default 100, `requires`, `mode`), in the
-  contract (`context({ inject })`) or a context file's header (`inject: { into: ['hub/chat*'], order: 40 }`). It goes
-  into the system prompts of the agents (`hub/llm` fns, saved ones included) it targets, once approved, unless an
+- **A context item may declare `inject`** (`InjectDecl`: `into`, `order` default 100, `requires`, `mode`,
+  `replaces`), in the contract (`context({ inject })`) or a context file's header (`inject: { into: ['hub/chat*'],
+  order: 40 }`). It goes into the system prompts of the agents (`hub/llm` fns, saved ones included) it targets, once approved, unless an
   admin switches it off for an agent. `alwaysFor` is gone: the store migration turns a hub-made item's `alwaysFor` into
   `inject` with the same agents as exact names and drops a system's (it declares `inject` now): `store/always-for.ts`,
   a step of the one migration (`store/migrate-fn-names.ts`).
@@ -1546,10 +1575,23 @@ builds from it (below); the admin's Injected tab is its own part.
   declared in the same contract): "`crm/reviewr` is not an agent"; a pattern that hits no agent yet is accepted and
   logged (`catalog.inject.no-agent`), and its review card says "hits no agent yet". The SDK's context-folder check
   refuses an exact name that is no agent it knows (`KnownNames.agents`).
-- **Review.** A new, changed (text, summary, title, targets, order, mode, fns) or removed injection, and a hook's new or
-  changed `explains`, raise the review flag `injects` ("Changes what hub/chat and hub/chat_small are told: + Forms
-  (input/asking, 310 tokens)"), and each such change's card on the Pending tab lists its targets with the agents each
-  hits now (`PendingReviewView.injections`, `injectionChanges`).
+- **Replacing another item** (`replaces`, context refs in the SDK: `inject: { replaces: [hub.context.later] }`; a name
+  as a string doesn't compile; absent on the wire when there are none, so older manifests hash the same). While the
+  item goes into an agent's section, each item it replaces is left out of that section with the reason `replaced`
+  ("replaced by Scheduled runs (schedule/basics), which says what is true instead"); when it is out (switched off, its
+  system off or not in the chat, the other mode, its fns unusable) the replaced items are back. It is how a system
+  makes a general hub statement untrue without hub text naming it: the hub's `later` item says "Nothing runs later by
+  itself", and a system that runs fns later replaces it and restates what is still true. The hub's own items have
+  refs in the SDK (`hub.context.<key>`, `HUB_CONTEXT_KEYS`, kept equal to `packages/hub/context/` by a test); the
+  context-folder check follows a file's `inject.replaces` like its other links. Replacing is one pass over what goes
+  in before any replacing (an item replaced by another still replaces what it names), and it is decided before the
+  section is fitted, so a replacing item that later falls to a `<more_ctx>` line or `no-fit` still keeps what it
+  replaces out.
+- **Review.** A new, changed (text, summary, title, targets, order, mode, fns, replaces) or removed injection, and a
+  hook's new or changed `explains`, raise the review flag `injects` ("Changes what hub/chat and hub/chat_small are
+  told: + Forms (input/asking, 310 tokens)"; one that replaces items adds "takes hub/later out"), and each such
+  change's card on the Pending tab lists its targets with the agents each hits now and what it takes out of their
+  sections (`PendingReviewView.injections`, `injectionChanges`, `InjectionChangeView.replaces`).
 - **Hub-made context** (a memory, context made from a resource) injects only when an admin sets it by hand
   (`guardReach`: `ADMIN_ONLY` for anyone else, `INJECT_BY_HAND` for any model's run, an admin's included).
 - **An agent** says how it takes its section: `injected: { detail: 'full' | 'summary', maxTokens? } | 'none'`
@@ -1568,7 +1610,8 @@ The planner (`contextor/injected.ts`, called from `planner.ts`) puts what reache
   `off` (the admin's switch for this agent in `injectionSettings`, or the item's own switch), `system-off` (not
   installed, not in this chat, or off), `mode` (its `mode` is the other chat mode), `fns-unusable` (a fn in its `fns`
   or `requires` can't be used here: switched off, held, unseen, or beyond the chat's fn setting; `none` takes every
-  item that names a fn out). Another person's memory is skipped without a reason.
+  item that names a fn out), then `replaced` (an item that goes in replaces it: `inject.replaces`, above). Another
+  person's memory is skipped without a reason.
 - **Order**: the admin's per-agent order, else the item's `inject.order`; ties by system, a context item before a
   hook's note, then key.
 - **Text**: each item as `## <title>`, then its text at the agent's `injected.detail` (`full`: its content; `summary`:
@@ -1581,7 +1624,10 @@ The planner (`contextor/injected.ts`, called from `planner.ts`) puts what reache
   instructions, the mode's guide and its tools: worked out from the model alone, never from the current message, so
   it is the same from turn to turn. Over that, items fall back from the highest order down: all to their summaries
   first, then to a line under `<more_ctx>` (loadable with `hub__ctx_load`; a hook's note has none), then out
-  (`no-fit`). Every fallback is a `cut` entry of the selection report.
+  (`no-fit`). Every fallback is a `cut` entry of the selection report. So the small agent's cap holds however many
+  systems add a chat item: `scripts/chat-prompt.test.ts` checks that the hub's own items fit it by themselves, that
+  every chat item has a summary of its own (at most 220 characters, an eighth of the cap at most), and that with
+  thirty more systems' items the section stays in the cap with every hub item still in it, at least as a line.
 - **Starting tools**: the fns of each item shown (full or summary) join the agent's starting tools, through the
   chat's fn setting and the mode as the payload's `tools` do. A `<more_ctx>` line brings none.
 - **Already loaded**: the shown items are in the prompt, so every contextor treats them as loaded (`ContextorInput

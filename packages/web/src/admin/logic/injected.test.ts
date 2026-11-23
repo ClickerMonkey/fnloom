@@ -23,6 +23,8 @@ describe('the Injected tab\'s logic', () => {
     expect(injectionState({ detail: 'summary' })).toMatchObject({ label: 'In, as its summary', in: true });
     expect(injectionState({ detail: 'full', leftOut: { why: 'off', reason: '' } }).tone).toBe('neutral');
     expect(injectionState({ detail: 'full', leftOut: { why: 'declined', reason: '' } }).tone).toBe('danger');
+    // replaced by another item that says what is true instead: expected, not a warning
+    expect(injectionState({ detail: 'full', leftOut: { why: 'replaced', reason: 'replaced by Timers (timer/basics)' } })).toEqual({ label: 'Replaced', tone: 'neutral', in: false });
     const total = injectedTotal(chat());
     expect(total).toEqual({ in: 3, of: 4, tokens: 270 });
     expect(totalLine(total)).toBe('3 of 4 items in · about 270 tokens');

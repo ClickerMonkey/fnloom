@@ -229,6 +229,7 @@ type ManifestPatch = {
         order: number;
         requires: `${string}/${string}`[];
         mode?: "tools" | "static" | undefined;
+        replaces?: `${string}/${string}`[] | undefined;
       } | undefined;
       niche?: "admin" | "developer" | "reference" | undefined;
       weight?: number | undefined;

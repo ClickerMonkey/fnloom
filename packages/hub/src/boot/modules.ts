@@ -19,6 +19,7 @@ import { runIsOf } from '../execution/link-handlers.ts';
 import { buildSystems, type HubSystems } from '../link/build.ts';
 import { linkServicesPlugin, serviceCatalog } from '../link/services.ts';
 import { linkReadsPlugin } from '../link/reads.ts';
+import { ownerRunsPlugin } from '../link/owner-runs.ts';
 import { adminReadOperations, exploreOperations, personOperations, type AdminReadOperations, type ExploreOperations, type PersonOperations } from '../api/person-ops.ts';
 import { registerPersonFns } from './person-fns.ts';
 import { NodeStarter, type ProcessStarter } from '@harness/sdk/server';
@@ -137,6 +138,10 @@ function systemsModules(seams: ModuleSeams): Pick<HubModules, 'catalog' | 'link'
           maxUpload: hub.settings.httpEnv.HARNESS_MAX_UPLOAD, uploadTtl: hub.settings.httpEnv.HARNESS_PRESIGN_TTL,
           maxUploads: hub.settings.linkEnv.HARNESS_LINK_MAX_UPLOADS, clock: hub.clock,
           access: (actor) => hub.access.scope(actor), bus: () => hub.bus,
+        }), ownerRunsPlugin({
+          // a system's runs of its own kinds' fns, started as their owners, and its notices to people (`runs` grant)
+          store: () => hub.store, catalog: () => hub.catalog, runs: () => hub.execution.runs, limits: () => hub.execution.limits,
+          notifications: () => hub.chat.notifications, sharing: () => hub.access, bus: () => hub.bus, clock: hub.clock, log: hub.log,
         }), linkReadsPlugin({
           store: () => hub.store, access: (actor) => hub.access.scope(actor), router: () => hub.link.resources, reader: () => hub.resources.reader, pairing: () => hub.link.pairing,
         })],

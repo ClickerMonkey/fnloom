@@ -7,9 +7,9 @@
  * now"), its result after it is done (`retry` settles it `invalid-input` from `result` so the model tries again, up
  * to `HARNESS_VALIDATE_RETRIES` times a turn; `stop` fails it `fatal`, which ends the turn with the reason).
  */
-import { encodeValue, parseValue, type FnRef } from '@harness/sdk';
+import { encodeValue, parseValue, type FnRef, type GinType } from '@harness/sdk';
 import {
-  splitName, type ActorId, type InputProblem, type InvalidInput, type Json, type OutcomeWire, type QualifiedName, type Run, type RunId, type RunRequest, type UndoOutcome, type RunControlAction,
+  splitName, type ActorId, type InputProblem, type InvalidInput, type Json, type OutcomeWire, type QualifiedName, type Run, type RunId, type RunRequest, type UndoOutcome, type RunControlAction, type RunInfo,
 } from '@harness/core';
 import type { SystemConnection } from '../link/index.ts';
 import { causeOf, fnError, messageOf, RunRefused, RunStopped } from './errors.ts';
@@ -134,7 +134,21 @@ export class InvalidArgs extends Error {
 export interface HubFnCtx {
   readonly request: RunRequest;
   readonly signal: AbortSignal;
+  /**
+   * Record how this run is undone (its fn must have an undo registered, `HubFns.registerUndo`); the last one wins. The
+   * payload is checked against the fn's declared undo type when the run settles.
+   */
+  undoWith(payload: Json): void;
 }
+
+/** What a hub fn's undo gets: the run being undone, as it ran. */
+export interface HubUndoCtx {
+  readonly run: Run;
+  readonly info: RunInfo;
+}
+
+/** A hub fn's undo, erased to JSON in. */
+type HubUndoImpl = (payload: Json, ctx: HubUndoCtx) => Promise<UndoOutcome>;
 
 /** One hub fn implementation, erased to JSON in and out (its typed form is checked when it is registered). */
 type HubFnImpl = (args: Json, ctx: HubFnCtx) => Promise<Json>;
@@ -158,6 +172,7 @@ export type HubFnCheck<A> = (args: A, asker: HubFnAsker) => Promise<InputProblem
 export class HubFns implements RunExecutor {
   readonly #impls = new Map<QualifiedName, HubFnImpl>();
   readonly #checks = new Map<QualifiedName, HubFnCheck<Json>>();
+  readonly #undos = new Map<QualifiedName, HubUndoImpl>();
 
   /**
    * Implement a hub fn. Its args arrive checked and in their plain form; its result is checked on the way out. A
@@ -166,6 +181,14 @@ export class HubFns implements RunExecutor {
   register<A, R>(ref: FnRef<QualifiedName, A, R>, impl: (args: A, ctx: HubFnCtx) => Promise<R>, check?: HubFnCheck<A>): void {
     this.#impls.set(ref.name, async (args, ctx) => encodeValue(ref.returns, await impl(parseValue(ref.args, args), ctx)));
     if (check !== undefined) this.#checks.set(ref.name, (args, asker) => check(parseValue(ref.args, args), asker));
+  }
+
+  /**
+   * Undo a hub fn's runs: the implementation records its payload with `ctx.undoWith`, and this gets it back, checked
+   * against the fn's undo type, when a person undoes the run. A fn without one can't be undone.
+   */
+  registerUndo<U>(ref: { readonly name: QualifiedName }, type: GinType<U>, undo: (payload: U, ctx: HubUndoCtx) => Promise<UndoOutcome>): void {
+    this.#undos.set(ref.name, (payload, ctx) => undo(parseValue(type, payload), ctx));
   }
 
   /**
@@ -189,11 +212,12 @@ export class HubFns implements RunExecutor {
   async execute(job: ExecutionJob, signal: AbortSignal): Promise<OutcomeWire> {
     const impl = this.#impls.get(job.run.fn);
     if (impl === undefined) return { status: 'failed', error: fnError('fatal', `the hub has no implementation of ${job.run.fn}`, 'not-implemented') };
+    let undo: Json | undefined;
     try {
-      const result = await impl(job.request.args, { request: job.request, signal });
+      const result = await impl(job.request.args, { request: job.request, signal, undoWith: (payload) => { undo = payload; } });
       // an implementation that returns early when stopped (`run_wait`) still ends the way the stop asked
       if (signal.aborted && signal.reason instanceof RunStopped) throw signal.reason;
-      return { status: 'done', result };
+      return { status: 'done', result, ...(undo === undefined || !this.#undos.has(job.run.fn) ? {} : { undo }) };
     } catch (error) {
       if (signal.aborted && signal.reason instanceof RunStopped) throw signal.reason;
       if (error instanceof InvalidArgs) return { status: 'invalid-input', invalid: error.invalid };
@@ -214,7 +238,9 @@ export class HubFns implements RunExecutor {
     return Promise.resolve();
   }
 
-  undo(): Promise<UndoOutcome> {
-    return Promise.resolve({ status: 'gone' });
+  /** Undo a hub fn's run with its registered undo; one without is gone. */
+  undo(job: UndoJob): Promise<UndoOutcome> {
+    const undo = this.#undos.get(job.run.fn);
+    return undo === undefined ? Promise.resolve({ status: 'gone' }) : undo(job.payload, { run: job.run, info: job.info });
   }
 }

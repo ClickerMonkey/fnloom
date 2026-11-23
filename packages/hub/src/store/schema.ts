@@ -77,7 +77,7 @@ export const TABLE_INDEXES: { readonly [K in TableName]?: IndexSpec<K> } = {
   resources: [['system']],
   sections: [['uri', 'version']],
   index: [['kind'], ['system'], ['embedder'], ['embedder', 'kind', 'parent']],
-  notifications: [['user', 'createdAt'], ['user', 'read']],
+  notifications: [['user', 'createdAt'], ['user', 'read'], ['user', 'key', 'read']],
   pushSubscriptions: [['user']],
   reservations: [['createdAt']],
   fnExamples: [['fn', 'order']],

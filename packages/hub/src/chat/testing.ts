@@ -110,7 +110,7 @@ export class FixtureCatalog implements Catalog {
   /** The fixture fns' model names, and its types. */
   async modelNames(): Promise<CatalogFnNames> { return Promise.resolve({ index: FnNameIndex.of(this.fnRecords.keys()), types: (name) => [...this.typeRecords.values()].find((type) => type.name === name)?.def }); }
 
-  importManifest = refuse; importPatch = refuse; forgetInstance = refuse; reimport = refuse; refreshAvailability = refuse; refreshRoles = refuse; indexStoredFns = refuse; manifest = refuse; kind = refuse; typeClosure = refuse; declare = refuse;
+  importManifest = refuse; importPatch = refuse; forgetInstance = refuse; reimport = refuse; refreshAvailability = refuse; refreshRoles = refuse; indexStoredFns = refuse; manifest = refuse; kind = refuse; typeClosure = refuse; declare = refuse; remove = refuse;
   signature = (): Promise<FnSignature> => refuse();
 }
 
@@ -239,7 +239,7 @@ export class FakeRuns implements RunService {
     const refused = this.refuseStart;
     if (refused !== undefined) { this.refuseStart = undefined; throw refused; }
     const id = this.#ids();
-    await this.#store.table('runs').insert(makeRun({ id, fn: input.fn, turn: input.turn, actor: input.actor, caller: input.caller, args: input.args, status: 'running', ...(input.session === undefined ? {} : { session: input.session }) }));
+    await this.#store.table('runs').insert(makeRun({ id, fn: input.fn, turn: input.turn, actor: input.actor, caller: input.caller, args: input.args, key: input.key, status: 'running', ...(input.session === undefined ? {} : { session: input.session }) }));
     const settled = new Promise<RunSettled>((resolve, reject) => { this.#settle.set(id, { resolve, reject }); });
     return { run: id, settled };
   }

@@ -115,10 +115,9 @@ export const schedule = system('schedule', {
     'Reach for it when the person wants something done at a time or on a repeat, or to be reminded (schedule/remind). It runs only at times, never because something else happened. Load schedule/guide before the first one.',
   ].join(' '),
   groups: [{ name: 'schedules', title: 'Schedules', description: 'Add, change, pause and remove scheduled runs of fns.' }],
-  // it keeps firings as records, saves schedules as hub fns, finds the fns they run, and writes computed args on a model.
-  // TODO(slice 3): add the `runs` capability (start its own kind's fns as their owners and notify them) and
-  // `hub.fns.fns_remove.name` to the calls, once the hub has them.
-  grants: { hub: ['data', 'fns', 'search', 'ai'], calls: [hub.fns.fns_get.name, hub.fns.fns_save.name] },
+  // it starts its own kind's fns as their owners and notifies them, keeps firings as records, saves and removes
+  // schedules as hub fns, finds the fns they run, and writes computed args on a model
+  grants: { hub: ['runs', 'data', 'fns', 'search', 'ai'], calls: [hub.fns.fns_get.name, hub.fns.fns_save.name, hub.fns.fns_remove.name] },
   pages: [
     { segment: 'calendar', title: 'Schedule', description: 'Your scheduled runs on a calendar.', icon: 'calendar', nav: 'main', component: 'CalendarPage' },
     { segment: 'item', title: 'Schedule', description: 'One schedule: when it runs, its history, and its controls.', nav: 'hidden', component: 'SchedulePage' },
@@ -237,8 +236,7 @@ export const schedule = system('schedule', {
         description: 'Remove a schedule: it never runs again; its past runs stay in its history.',
         args: ScheduleArg,
         returns: g.obj({ removed: g.fnName() }),
-        // TODO(slice 3): `removeFn: hub.fns.fns_remove`, once the hub has it
-        deps: { getFn: hub.fns.fns_get },
+        deps: { getFn: hub.fns.fns_get, removeFn: hub.fns.fns_remove },
         // undo restores its last version
         undo: VersionBefore,
         effects: { mode: 'delete', registry: [{ thing: 'fns', action: 'remove', kind: kinds.schedule.name }] },
@@ -326,8 +324,8 @@ export const schedule = system('schedule', {
           order: 30,
           // the fns its text names without bringing them
           requires: [fns.change, fns.pause, fns.resume, fns.skip, fns.remove, fns.history, fns.remind],
-          // TODO(slice 4): `replaces: [hub.context.later]` once `InjectDecl.replaces` and the hub's `later` item exist,
-          // so this item takes the place of "Nothing runs later by itself" while the system is on
+          // takes the place of the hub's "Nothing runs later by itself" while it is in, and restates what is still true
+          replaces: [hub.context.later],
         },
       }),
     },

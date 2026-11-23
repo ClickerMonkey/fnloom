@@ -30,6 +30,7 @@ import {
   ActorId, DeliveryId, Duration, FnKindName, HandlerCallId, InstanceName, Json, LocalName, MAIN_INSTANCE, JsonObject, PairingId, QualifiedName, RunId, SessionId, SystemName, Timestamp, Usd, page,
 } from './primitives.ts';
 import { HttpUrl } from './urls.ts';
+import { KindFnsPage, KindFnsQuery, StartAsOwner, StartedRun, SystemNotice } from './owner-runs.ts';
 import { InstanceMode, TypeDefinitions } from './records/systems.ts';
 import { SystemEvent } from './system-events.ts';
 import { ContentRef, Link, ReadWant, ResourceChange, ResourceRead, ResourceRoot, ResourceStat, ResourceUri, Section, SectionKey } from './resources.ts';
@@ -331,6 +332,23 @@ const linked = use(linkTel, linkSession).group({
    * system disabled after too many crashes. Each admin gets an inbox item that links to the system's page.
    */
   notifyAdmins: { body: AdminNotice, ws: 'na' },
+  /**
+   * Tell the person a run of this system is for something (`ctx.notify`): an inbox item and a push, to them only.
+   * Refused unless the run is this instance's and still acting.
+   */
+  notify: { body: z.object({ run: RunId, notice: SystemNotice }), ws: 'nf' },
+  /**
+   * Capability `runs` (owner-runs.ts): the fns of one of this system's kinds, with owner, title, version and payload, a
+   * page at a time (`ctx.runs.kindFns`).
+   */
+  kindFns: { body: KindFnsQuery, response: KindFnsPage, ws: 'kf' },
+  /**
+   * Capability `runs`: start a run of a fn of one of this system's kinds, as its owner, outside any run and chat
+   * (`ctx.runs.start`). Refused unless the owner can still use the hub, the system is live and the owner may run it.
+   */
+  startRun: { body: StartAsOwner, response: StartedRun, ws: 'sru' },
+  /** Capability `runs`: tell the owner of a fn of one of this system's kinds something (`ctx.runs.notify`), never anyone else. */
+  notifyOwner: { body: z.object({ fn: QualifiedName, notice: SystemNotice }), ws: 'nfo' },
   /**
    * A host reports what its supervisor refused on the machine for an instance it hosts (`HostRefusal`: a host
    * outside `grants.network`, a path outside `grants.files`). Refused unless that instance's `host` is this one.

@@ -101,6 +101,7 @@ export const CAPABILITY_WORDS = {
   settings: 'Read settings',
   state: 'Keep state in the hub',
   data: 'Read and write records in the hub',
+  runs: 'Start runs on its own, as the owners of its fns, and notify them',
 } as const satisfies Record<HubCapability, string>;
 
 /** One row of a system's grants. */
@@ -479,6 +480,7 @@ export function grantDeltaRows(before: SystemGrants | undefined, after: SystemGr
 export const FLAG_LOOK = {
   'delete-fns': { tone: 'danger', icon: 'trash' },
   'write-fns': { tone: 'warn', icon: 'edit' },
+  runs: { tone: 'warn', icon: 'clock' },
   injects: { tone: 'warn', icon: 'chat' },
   effects: { tone: 'warn', icon: 'layers' },
   capabilities: { tone: 'warn', icon: 'shield' },

@@ -16,13 +16,12 @@ niche: "developer"
 
 const · `import { hub } from '@harness/sdk'`
 
-The hub's contract.
+The hub's contract, with refs to its own context items beside what it declares, so a system can name one where a
+context ref is asked for (`inject: { replaces: [hub.context.later] }`).
 
 ```ts
-const hub: typeof hub; // too large to print: see its section
+const hub: Omit<typeof hubContract, 'context'> & { readonly context: (typeof hubContract)['context'] & HubContextRefs };
 ```
-
-Refers to: [`ContextCrawlArgs`](context:fs/authoring.core-types.context-files-ts#core-contextcrawlargs), [`ContextCrawlResult`](context:fs/authoring.core-types.context-files-ts#core-contextcrawlresult), [`ContributionView`](context:fs/authoring.core-types.registries-ts#core-contributionview), [`CtxSearchArgs`](context:fs/authoring.core-types.fn-facts-ts#core-ctxsearchargs), [`FnExamplesPage`](context:fs/authoring.core-types.fn-facts-ts#core-fnexamplespage), [`FnExamplesQuery`](context:fs/authoring.core-types.fn-facts-ts#core-fnexamplesquery), [`FnSearchArgs`](context:fs/authoring.core-types.fn-facts-ts#core-fnsearchargs), [`FnSearchPage`](context:fs/authoring.core-types.fn-facts-ts#core-fnsearchpage), [`ImageReadArgs`](context:fs/authoring.core-types.resource-forms-ts#core-imagereadargs), [`ImageReadResult`](context:fs/authoring.core-types.resource-forms-ts#core-imagereadresult), [`LoadContextResult`](context:fs/authoring.core-types.context-files-ts#core-loadcontextresult), [`LoadFnsResult`](context:fs/authoring.core-types.context-files-ts#core-loadfnsresult), [`MintMcpTokenArgs`](context:fs/authoring.core-types.records-mcps-ts#core-mintmcptokenargs), [`NameRefusal`](context:fs/authoring.core-types.fn-block-ts#core-namerefusal), [`ReadTableArgs`](context:fs/authoring.core-types.widgets-ts#core-readtableargs), [`ResourceOutlineArgs`](context:fs/authoring.core-types.resource-forms-ts#core-resourceoutlineargs), [`ResourceSendArgs`](context:fs/authoring.core-types.resource-forms-ts#core-resourcesendargs), [`ResultTable`](context:fs/authoring.core-types.registries-ts#core-resulttable), [`RowActionsQuery`](context:fs/authoring.core-types.widgets-ts#core-rowactionsquery), [`Section`](context:fs/authoring.core-types.resources-ts#core-section), [`WidgetActionOption`](context:fs/authoring.core-types.widgets-ts#core-widgetactionoption).
 
 #### `HubContract`
 
@@ -33,6 +32,39 @@ The hub's contract type.
 ```ts
 type HubContract = typeof hub;
 ```
+
+#### `HUB_CONTEXT_KEYS`
+
+const · `import { HUB_CONTEXT_KEYS } from '@harness/sdk'`
+
+The keys of the hub's own context items: the markdown files in the hub's `context/` folder, which join its manifest
+at boot, so they are not declared in the contract. A test keeps this list and the folder the same.
+
+```ts
+const HUB_CONTEXT_KEYS: readonly ["asking", "attached_files", "background_runs", "earlier_chats", "examples", "finding_fns", "images", "later", "limits", "memory", "resources", "saved_fns", "undo"];
+```
+
+#### `HubContextKey`
+
+type · `import { HubContextKey } from '@harness/sdk'`
+
+One of the hub's own context items, by key.
+
+```ts
+type HubContextKey = (typeof HUB_CONTEXT_KEYS)[number];
+```
+
+#### `HubContextRefs`
+
+type · `import { HubContextRefs } from '@harness/sdk'`
+
+Refs to the hub's own context items, by key.
+
+```ts
+type HubContextRefs = { readonly [K in HubContextKey]: ContextRef<QualifiedName<'hub', K>, {}> };
+```
+
+Refers to: [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname).
 
 #### `ADMIN_ENDPOINTS`
 
@@ -409,4 +441,14 @@ The error code `hub/fns_save` fails with (class `caller`) when the name is taken
 
 ```ts
 const SAVE_FN_TAKEN: "fn-taken";
+```
+
+#### `RemovedFn`
+
+const · `import { RemovedFn } from '@harness/sdk'`
+
+What `hub/fns_remove` gives, and how its run is undone: the fn, and the version it had (the one restored).
+
+```ts
+const RemovedFn: ObjType<{ fn: `${string}/${string}`; version: number; }>;
 ```

@@ -17,7 +17,7 @@ choices:
   - to: "fs/authoring.topics.declare"
     when: "Pick this when the system adds context, a hook, a mention, an action, a provider or resources."
   - to: "fs/authoring.topics.server"
-    when: "Pick this when you write server code, call the hub, or handle config and lifecycle."
+    when: "Pick this when you write server code, call the hub, handle config and lifecycle, or run fns later and tell people how they went."
   - to: "fs/authoring.topics.client"
     when: "Pick this when the system draws its results, inputs or resources in the app, or adds a visual."
   - to: "fs/authoring.topics.examples"

@@ -23,8 +23,11 @@ import { QualifiedName, SystemName, Usd } from './primitives.ts';
  * - `settings`: `setting`
  * - `state`: `stateGet`, `stateSet`
  * - `data` (build 8): `records`, `record`, `recordTable`, `saveRecord`, `removeRecord`
+ * - `runs`: `kindFns`, `startRun`, `notifyOwner` (outside any run: list the fns of its own kinds, start one as its
+ *   owner, and tell that owner how it went). The review flags it: "Starts runs on its own, as the owners of its fns,
+ *   and notifies them".
  */
-export const HUB_CAPABILITIES = ['ai', 'embed', 'resources', 'fns', 'search', 'decide', 'approvals', 'connections', 'settings', 'state', 'data'] as const;
+export const HUB_CAPABILITIES = ['ai', 'embed', 'resources', 'fns', 'search', 'decide', 'approvals', 'connections', 'settings', 'state', 'data', 'runs'] as const;
 export const HubCapability = z.enum(HUB_CAPABILITIES);
 export type HubCapability = z.infer<typeof HubCapability>;
 

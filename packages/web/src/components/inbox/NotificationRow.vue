@@ -1,15 +1,17 @@
 <script setup lang="ts">
 /**
  * One notification: its reason's icon, title, a short body, when it came and whether it's unread. The row's main
- * button opens what it's about (`open`); beside it, a separate button marks it read without opening it.
+ * button opens what it's about (`open`); beside it, its second link when it has one (`also`, such as History) and a
+ * separate button that marks it read without opening it. A notification that says how something went (`tone`) shows
+ * that in its icon's colour, quietly.
  */
 import type { Notification } from '@harness/core';
 import { computed } from 'vue';
-import { UiIcon, UiIconButton, fullTime, relativeTime } from '../../ui/index.ts';
+import { UiButton, UiIcon, UiIconButton, fullTime, relativeTime } from '../../ui/index.ts';
 import { lookOf } from './reasons.ts';
 
 const props = withDefaults(defineProps<{ notification: Notification; now: number; compact?: boolean }>(), { compact: false });
-defineEmits<{ open: [notification: Notification]; read: [notification: Notification] }>();
+defineEmits<{ open: [notification: Notification]; also: [notification: Notification]; read: [notification: Notification] }>();
 
 const look = computed(() => lookOf(props.notification));
 </script>
@@ -31,6 +33,7 @@ const look = computed(() => lookOf(props.notification));
       </span>
     </button>
     <div class="side">
+      <UiButton v-if="notification.also" class="also" size="sm" variant="ghost" data-testid="notification-also" @click="$emit('also', notification)">{{ notification.also.label }}</UiButton>
       <UiIconButton v-if="!notification.read" class="read" icon="check" label="Mark as read" size="sm" @click="$emit('read', notification)" />
     </div>
   </li>
@@ -62,7 +65,8 @@ const look = computed(() => lookOf(props.notification));
 .resolved .title { color: var(--text-dim); font-weight: var(--weight-medium); }
 .resolved .mark { background: var(--surface-2); color: var(--text-faint); }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
-.side { display: grid; place-items: center; flex: none; width: var(--control-sm); }
+.side { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-1); flex: none; min-width: var(--control-sm); }
+.also { white-space: nowrap; }
 .read { opacity: 0; transition: opacity var(--fast) var(--ease); }
 .row:hover .read, .row:focus-within .read { opacity: 1; }
 @media (hover: none) { .read { opacity: 1; } }

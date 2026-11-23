@@ -4,7 +4,7 @@
  * so everything declared must be implemented and nothing undeclared can be.
  */
 import { ApiGroupDecl, ConfigComponentDecl, ConfigPath, ConnectDecl, ContributionDecl, SystemGrants, SystemName, SystemPageDecl, qualify, systemPageProblems, type SystemPageInput, type ConnectFinish, type ConnectResult, type ConnectStart, type Duration, type RunConnection, type QualifiedName, type SystemEvent, type StopReason } from '@harness/core';
-import type { SystemCtx } from './ctx.ts';
+import type { Own, SystemCtx } from './ctx.ts';
 import type {
   ActionDef, ActionImpl, AnyContextDef, AnyTypeDef, AttachmentDef, ContextDef, ContextImpl, HookDef, HookImpl,
   KindDef, KindImpl, MentionDef, MentionImpl, MethodImpl, SectionerDef, SectionerImpl, SettingDef, TypeDef,
@@ -13,7 +13,7 @@ import { kindFn, type AnyFnDef, type FnDef, type FnTypes, type TypesOf } from '.
 import type { FnImpl } from './impl.ts';
 import { g, type GinType, type Infer } from './gin.ts';
 import {
-  withRefText, type ActionRef, type AttachmentRef, type ContextRef, type FnRefOf, type HookRef, type KindRef, type MentionRef, type Methods, type MethodRefs, type ProviderRef, type SectionerRef,
+  withRefText, type ActionRef, type AttachmentRef, type ContextRef, type FnRefOf, type HookRef, type KindRef, type MentionRef, type Methods, type MethodRefs, type PageRef, type ProviderRef, type SectionerRef,
   type SettingRef, type TypeRef,
 } from './refs.ts';
 import { entriesOf, mapValues, type Simplify } from './util.ts';
@@ -41,28 +41,39 @@ export interface ContractShape {
    * fns act as them. `undefined` for a system everyone shares. The implementation then serves `connect`.
    */
   connect: ConnectDecl | undefined;
+  /** The system's name (`schedule`), so what is computed from the contract alone (the refs its ctxs take) is named. */
+  system: string;
+  /** Its declared pages, by segment (`system(name, { pages })`), so links to them are refs (`contract.page.item`). */
+  pages: Record<string, SystemPageDecl>;
 }
 
-/** The sections of a contract that add named declarations (all but `config` and `connect`). */
-export type ContractSection = Exclude<keyof ContractShape, 'config' | 'connect'>;
+/** The sections of a contract that add named declarations (all but `config`, `connect`, `system` and `pages`). */
+export type ContractSection = Exclude<keyof ContractShape, 'config' | 'connect' | 'system' | 'pages'>;
 
 /** The contract sections, in the order the manifest lists them. */
 export const CONTRACT_SECTIONS = ['types', 'settings', 'attachments', 'kinds', 'fns', 'context', 'hooks', 'mentions', 'sectioners', 'actions', 'providers'] as const satisfies readonly ContractSection[];
 
-/** A contract with nothing in it yet. Its config is the empty object. */
-export interface EmptyContract {
+/** A contract with nothing in it yet: system `N`, with the pages whose segments are `S`. Its config is the empty object. */
+export interface EmptyContract<N extends string = string, S extends string = never> {
   config: GinType<{}>;
   types: {}; settings: {}; attachments: {}; kinds: {}; fns: {}; context: {}; hooks: {}; mentions: {}; sectioners: {}; actions: {}; providers: {};
   connect: undefined;
+  system: N;
+  pages: { [K in S]: SystemPageDecl };
 }
 
-/** A contract with more sections merged in: `config` and `connect` are replaced, every other section adds to what was declared. */
+/**
+ * A contract with more sections merged in: `config` and `connect` are replaced, `system` and `pages` are kept (they are
+ * declared once, by `system()`), every other section adds to what was declared.
+ */
 export type Merge<C extends ContractShape, P extends Partial<ContractShape>> = {
   [K in keyof ContractShape]: K extends 'config'
     ? (P extends { config: infer X extends GinType<object> } ? X : C['config'])
     : K extends 'connect'
       ? (P extends { connect: infer X extends ConnectDecl } ? X : C['connect'])
-      : Simplify<C[K] & (K extends keyof P ? NonNullable<P[K]> : {})>;
+      : K extends 'system' | 'pages'
+        ? C[K]
+        : Simplify<C[K] & (K extends keyof P ? NonNullable<P[K]> : {})>;
 };
 
 type Q<N extends string, K> = QualifiedName<N, K & string>;
@@ -82,7 +93,18 @@ export interface SystemRefs<N extends string, C extends ContractShape> {
   readonly sectioners: { readonly [K in keyof C['sectioners']]: SectionerRef<Q<N, K>> };
   readonly actions: { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, object> ? ActionRef<Q<N, K>, I, R> : never };
   readonly providers: { readonly [K in keyof C['providers']]: ProviderRef<Q<N, K>> };
+  /** Page refs, by segment (`schedule.page.item`): what a notice links to, never a segment string. */
+  readonly page: { readonly [K in keyof C['pages']]: PageRef<Q<N, K>> };
 }
+
+/**
+ * What a contract's implementation calls its own (`Own`): the refs of its kinds and of its pages, so `ctx.runs` and
+ * notices take those and nothing of another system's.
+ */
+export type OwnOf<C extends ContractShape> = Own<
+  { [K in keyof C['kinds']]: C['kinds'][K] extends KindDef<infer P> ? KindRef<Q<C['system'], K>, P> : never }[keyof C['kinds']],
+  { [K in keyof C['pages']]: PageRef<Q<C['system'], K>> }[keyof C['pages']]
+>;
 
 /**
  * A system's contract, in `shared/`: its name and everything it offers, with no implementation. Safe to import from
@@ -137,8 +159,8 @@ export interface RegistryDef {
   readonly data: GinType;
 }
 
-/** What `system()` takes besides its name. */
-export interface SystemInfo {
+/** What `system()` takes besides its name; `S` is its pages' segments. */
+export interface SystemInfo<S extends string = string> {
   description: string;
   /**
    * What a chat model that has never seen this app is told about the system in its system prompt's `<systems>` list,
@@ -177,7 +199,7 @@ export interface SystemInfo {
    * (`client({ pages: { SessionsPage } })`), which must have every one named. The nav shows a `main` page while the
    * system is live; a `hidden` one is reached by link (a detail page). Segments are unique.
    */
-  pages?: SystemPageInput[];
+  pages?: Array<SystemPageInput & { segment: S }>;
   /**
    * Its API groups: a name, a title and what the group's fns are for (`{ name: 'files', title: 'Files', description:
    * 'Read, write and search files.' }`). The hub keeps an index item for the system (`<system>/api`, the groups as
@@ -218,6 +240,11 @@ function kindRef(system: string, local: string, def: KindDef<unknown>): KindRef<
 
 /** The hub's agent kind: its fns' refs are `AgentRef`s. */
 const AGENT_KIND = 'hub/llm';
+
+/** The refs of a contract's pages, by segment. */
+function pageRefs(system: string, pages: Record<string, SystemPageDecl>): Record<string, PageRef<QualifiedName>> {
+  return mapValues(pages, (page) => ({ ref: 'page' as const, name: qualify(system, page.segment), system, segment: page.segment }));
+}
 
 /** Make the refs for one part of a contract. */
 function refsOf(system: string, part: Partial<ContractShape>): AnyRefs {
@@ -274,6 +301,7 @@ function assemble<N extends string, C extends ContractShape>(name: N, extras: Co
     ...extras,
     defs,
     ...refs,
+    page: pageRefs(name, defs.pages),
     with<const P extends Partial<ContractShape>>(part: P | ((self: SystemRefs<N, C>) => P)): SystemContract<N, Merge<C, P>> {
       const added = typeof part === 'function' ? part(self) : part;
       refuseOldEmbedders(`system ${name}`, added);
@@ -282,7 +310,7 @@ function assemble<N extends string, C extends ContractShape>(name: N, extras: Co
       const more = refsOf(name, added);
       if (added.connect !== undefined && defs.connect !== undefined) { throw new Error(`system ${name}: connect is declared twice`); }
       const connect = added.connect === undefined ? defs.connect : ConnectDecl.parse(added.connect);
-      const merged = { config: added.config ?? defs.config, connect } as Record<string, unknown>; // eslint-disable-line @typescript-eslint/consistent-type-assertions -- filled per section just below
+      const merged = { config: added.config ?? defs.config, connect, system: defs.system, pages: defs.pages } as Record<string, unknown>; // eslint-disable-line @typescript-eslint/consistent-type-assertions -- filled per section just below
       const mergedRefs: AnyRefs = EMPTY_SECTIONS();
       for (const section of CONTRACT_SECTIONS) {
         merged[section] = { ...defs[section], ...added[section] };
@@ -321,10 +349,12 @@ function checkedPages(system: string, pages: SystemPageDecl[]): SystemPageDecl[]
   return pages;
 }
 
-/** Start a contract. The name must be unique among the hub's systems: lowercase letters, digits and dashes. */
-export function system<const N extends string>(name: N, info: SystemInfo): SystemContract<N, EmptyContract> {
+/**
+ * Start a contract. The name must be unique among the hub's systems: lowercase letters, digits and dashes. Its pages'
+ * segments are kept in the contract's type, so `contract.page.<segment>` is a typed ref.
+ */
+export function system<const N extends string, const S extends string = never>(name: N, info: SystemInfo<S>): SystemContract<N, EmptyContract<N, S>> {
   SystemName.parse(name);
-  const defs: EmptyContract = { config: g.obj({}), connect: undefined, ...EMPTY_SECTIONS() };
   const extras: ContractExtras = {
     description: info.description,
     about: info.about,
@@ -336,6 +366,9 @@ export function system<const N extends string>(name: N, info: SystemInfo): Syste
     pages: checkedPages(name, (info.pages ?? []).map((page) => SystemPageDecl.parse(page))),
     groups: (info.groups ?? []).map((group) => ApiGroupDecl.parse(group)),
   };
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the pages were checked just above; keyed by their segments, they are exactly S's
+  const pages = Object.fromEntries(extras.pages.map((page) => [page.segment, page])) as EmptyContract<N, S>['pages'];
+  const defs: EmptyContract<N, S> = { config: g.obj({}), connect: undefined, system: name, pages, ...EMPTY_SECTIONS() };
   return assemble(name, extras, defs, EMPTY_SECTIONS());
 }
 
@@ -349,32 +382,32 @@ type DynamicContextKeys<X> = { [K in keyof X]: X[K] extends ContextDef<unknown, 
 type Needs<K extends string, T> = [keyof T] extends [never] ? { readonly [P in K]?: never } : { readonly [P in K]: T };
 
 /** Hub events a system handles, by event type. Subscriptions follow the handlers given. */
-export type EventHandlers<Cfg> = {
-  readonly [E in SystemEvent['type']]?: (event: Extract<SystemEvent, { type: E }>, ctx: SystemCtx<Cfg>) => Promise<void>;
+export type EventHandlers<Cfg, O extends Own = Own> = {
+  readonly [E in SystemEvent['type']]?: (event: Extract<SystemEvent, { type: E }>, ctx: SystemCtx<Cfg, O>) => Promise<void>;
 };
 
 /** Moments in a system's life. All optional; each gets the system's context with its current config. */
-export interface Lifecycle<Cfg> {
+export interface Lifecycle<Cfg, O extends Own = Own> {
   /** The first time it connects after being paired or installed (with a valid config). */
-  installed?(ctx: SystemCtx<Cfg>): Promise<void>;
+  installed?(ctx: SystemCtx<Cfg, O>): Promise<void>;
   /** Every time it connects with a valid config and its contract is imported. */
-  started?(ctx: SystemCtx<Cfg>): Promise<void>;
+  started?(ctx: SystemCtx<Cfg, O>): Promise<void>;
   /**
    * Someone changed the config. `previous` is the value it replaced, or undefined when there was none (the first
    * config it gets while already running). Runs already going keep the value they started with.
    */
-  configured?(ctx: SystemCtx<Cfg> & { readonly previous: Cfg | undefined }): Promise<void>;
+  configured?(ctx: SystemCtx<Cfg, O> & { readonly previous: Cfg | undefined }): Promise<void>;
   /** Before it stops. The hub waits up to `timeout`. */
-  stopping?(ctx: SystemCtx<Cfg> & { readonly reason: StopReason; readonly timeout: Duration }): Promise<void>;
+  stopping?(ctx: SystemCtx<Cfg, O> & { readonly reason: StopReason; readonly timeout: Duration }): Promise<void>;
   /** The first start of a new version; `from` is the version it replaced. */
-  upgraded?(ctx: SystemCtx<Cfg> & { readonly from: string }): Promise<void>;
+  upgraded?(ctx: SystemCtx<Cfg, O> & { readonly from: string }): Promise<void>;
   /** An admin removed it; clean up anything it keeps outside the hub. */
-  uninstalled?(ctx: SystemCtx<Cfg>): Promise<void>;
+  uninstalled?(ctx: SystemCtx<Cfg, O>): Promise<void>;
   /**
    * The hub is about to copy `ctx.dataDir` for a data export: flush what is buffered and checkpoint an open database
    * so the copy is whole. The hub waits up to `timeout`; runs keep going.
    */
-  exporting?(ctx: SystemCtx<Cfg> & { readonly timeout: Duration }): Promise<void>;
+  exporting?(ctx: SystemCtx<Cfg, O> & { readonly timeout: Duration }): Promise<void>;
 }
 
 /**
@@ -383,22 +416,22 @@ export interface Lifecycle<Cfg> {
  * sectioner, action and model provider.
  */
 export type SystemImpl<C extends ContractShape> =
-  Needs<'fns', { readonly [K in NativeFnKeys<C['fns']>]: FnImpl<TypesOf<C['fns'][K]>, ConfigOf<C>> }> &
-  Needs<'kinds', { readonly [K in keyof C['kinds']]: C['kinds'][K] extends KindDef<infer P> ? KindImpl<P, ConfigOf<C>> : never }> &
-  Needs<'context', { readonly [K in DynamicContextKeys<C['context']>]: C['context'][K] extends ContextDef<infer A, true> ? ContextImpl<A, ConfigOf<C>> : never }> &
-  Needs<'hooks', { readonly [K in keyof C['hooks']]: HookImpl<ConfigOf<C>> }> &
-  Needs<'mentions', { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T, infer V> ? MentionImpl<T, V, ConfigOf<C>> : never }> &
-  Needs<'types', { readonly [K in TypesWithMethods<C['types']>]: C['types'][K] extends TypeDef<infer V, infer M extends Methods> ? { readonly [J in keyof M]: MethodImpl<V, TypesOf<M[J]>, ConfigOf<C>> } : never }> &
+  Needs<'fns', { readonly [K in NativeFnKeys<C['fns']>]: FnImpl<TypesOf<C['fns'][K]>, ConfigOf<C>, OwnOf<C>> }> &
+  Needs<'kinds', { readonly [K in keyof C['kinds']]: C['kinds'][K] extends KindDef<infer P> ? KindImpl<P, ConfigOf<C>, OwnOf<C>> : never }> &
+  Needs<'context', { readonly [K in DynamicContextKeys<C['context']>]: C['context'][K] extends ContextDef<infer A, true> ? ContextImpl<A, ConfigOf<C>, OwnOf<C>> : never }> &
+  Needs<'hooks', { readonly [K in keyof C['hooks']]: HookImpl<ConfigOf<C>, OwnOf<C>> }> &
+  Needs<'mentions', { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T, infer V> ? MentionImpl<T, V, ConfigOf<C>, OwnOf<C>> : never }> &
+  Needs<'types', { readonly [K in TypesWithMethods<C['types']>]: C['types'][K] extends TypeDef<infer V, infer M extends Methods> ? { readonly [J in keyof M]: MethodImpl<V, TypesOf<M[J]>, ConfigOf<C>, OwnOf<C>> } : never }> &
   Needs<'sectioners', { readonly [K in keyof C['sectioners']]: SectionerImpl }> &
-  Needs<'actions', { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, infer St> ? ActionImpl<I, R, St, ConfigOf<C>> : never }> &
-  Needs<'providers', { readonly [K in keyof C['providers']]: ProviderImpl<ConfigOf<C>> }> &
-  (C['connect'] extends ConnectDecl ? { readonly connect: ConnectImpl<ConfigOf<C>> } : { readonly connect?: never }) &
+  Needs<'actions', { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, infer St> ? ActionImpl<I, R, St, ConfigOf<C>, OwnOf<C>> : never }> &
+  Needs<'providers', { readonly [K in keyof C['providers']]: ProviderImpl<ConfigOf<C>, OwnOf<C>> }> &
+  (C['connect'] extends ConnectDecl ? { readonly connect: ConnectImpl<ConfigOf<C>, OwnOf<C>> } : { readonly connect?: never }) &
   {
     /** Resources this system serves. */
     readonly resources?: ResourceProvider;
     /** Hub events to receive. */
-    readonly events?: EventHandlers<ConfigOf<C>>;
-    readonly lifecycle?: Lifecycle<ConfigOf<C>>;
+    readonly events?: EventHandlers<ConfigOf<C>, OwnOf<C>>;
+    readonly lifecycle?: Lifecycle<ConfigOf<C>, OwnOf<C>>;
   };
 
 /**
@@ -407,10 +440,10 @@ export type SystemImpl<C extends ContractShape> =
  * query, or the form) into the account and credentials, or a problem in words; `disconnect` revokes the credentials
  * where the provider can (best effort).
  */
-export interface ConnectImpl<Cfg> {
-  start(request: ConnectStart, ctx: SystemCtx<Cfg>): Promise<{ url: string }> | { url: string };
-  finish(request: ConnectFinish, ctx: SystemCtx<Cfg>): Promise<ConnectResult>;
-  disconnect(connection: Pick<RunConnection, 'id' | 'owner' | 'credentials'>, ctx: SystemCtx<Cfg>): Promise<void>;
+export interface ConnectImpl<Cfg, O extends Own = Own> {
+  start(request: ConnectStart, ctx: SystemCtx<Cfg, O>): Promise<{ url: string }> | { url: string };
+  finish(request: ConnectFinish, ctx: SystemCtx<Cfg, O>): Promise<ConnectResult>;
+  disconnect(connection: Pick<RunConnection, 'id' | 'owner' | 'credentials'>, ctx: SystemCtx<Cfg, O>): Promise<void>;
 }
 
 /** Re-export for authors who write `FnTypes` by hand. */

@@ -160,8 +160,8 @@ type · `import { MethodImpl } from '@harness/sdk'`
 A method's implementation: a native fn that also gets the value it was called on.
 
 ```ts
-type MethodImpl<V, T extends FnTypes, Cfg = unknown> =
-{ run(self: V, args: T['args'], ctx: FnCtx<T, Cfg>): Promise<Outcome<T>> } &
+type MethodImpl<V, T extends FnTypes, Cfg = unknown, O extends Own = Own> =
+{ run(self: V, args: T['args'], ctx: FnCtx<T, Cfg, O>): Promise<Outcome<T>> } &
 ([T['undo']] extends [never] ? { undo?: never } : { undo(payload: T['undo'], ctx: UndoCtx<Cfg>): Promise<UndoOutcome> });
 ```
 

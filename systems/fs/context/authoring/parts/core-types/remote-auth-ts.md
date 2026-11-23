@@ -5,7 +5,7 @@ title: "Core types: From packages/core/src/remote-auth.ts"
 description: "Core types, the part on From packages/core/src/remote-auth.ts."
 summary: "Core types: From packages/core/src/remote-auth.ts."
 parent: "fs/authoring.core-types"
-next: "fs/authoring.core-types.resource-forms-ts"
+next: "fs/authoring.core-types.resources-ts"
 suggest: "none"
 tags: ["authoring", "reference"]
 niche: "developer"

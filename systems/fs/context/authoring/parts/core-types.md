@@ -63,6 +63,8 @@ choices:
     when: "Pick this for From packages/core/src/model-names.ts."
   - to: "fs/authoring.core-types.modes-ts"
     when: "Pick this for From packages/core/src/modes.ts."
+  - to: "fs/authoring.core-types.owner-runs-ts"
+    when: "Pick this for From packages/core/src/owner-runs.ts."
   - to: "fs/authoring.core-types.package-ts"
     when: "Pick this for From packages/core/src/package.ts."
   - to: "fs/authoring.core-types.primitives-ts"
@@ -73,8 +75,8 @@ choices:
     when: "Pick this for From packages/core/src/records/actors.ts."
   - to: "fs/authoring.core-types.records-chat-ts"
     when: "Pick this for From packages/core/src/records/chat.ts."
-  - to: "fs/authoring.core-types.records-mcps-ts"
-    when: "Pick this for From packages/core/src/records/mcps.ts."
+  - to: "fs/authoring.core-types.records-content-ts"
+    when: "Pick this for From packages/core/src/records/content.ts."
   - to: "fs/authoring.core-types.records-runs-ts"
     when: "Pick this for From packages/core/src/records/runs.ts."
   - to: "fs/authoring.core-types.records-systems-ts"
@@ -83,8 +85,6 @@ choices:
     when: "Pick this for From packages/core/src/registries.ts."
   - to: "fs/authoring.core-types.remote-auth-ts"
     when: "Pick this for From packages/core/src/remote-auth.ts."
-  - to: "fs/authoring.core-types.resource-forms-ts"
-    when: "Pick this for From packages/core/src/resource-forms.ts."
   - to: "fs/authoring.core-types.resources-ts"
     when: "Pick this for From packages/core/src/resources.ts."
   - to: "fs/authoring.core-types.run-ts"
@@ -107,7 +107,7 @@ choices:
     when: "Pick this for From packages/core/src/widgets.ts."
 ---
 
-## 32. Core types
+## 33. Core types
 
 The wire shapes from `@harness/core` that the SDK's declarations refer to, each resolved to plain TypeScript. Each is a
 zod schema in core with its type inferred from it; import the type (and the schema, to parse) from `@harness/core`.
@@ -141,17 +141,17 @@ This part is in 48 pieces; load the one you need:
 - [From packages/core/src/model-calls.ts](context:fs/authoring.core-types.model-calls-ts)
 - [From packages/core/src/model-names.ts](context:fs/authoring.core-types.model-names-ts)
 - [From packages/core/src/modes.ts](context:fs/authoring.core-types.modes-ts)
+- [From packages/core/src/owner-runs.ts](context:fs/authoring.core-types.owner-runs-ts)
 - [From packages/core/src/package.ts](context:fs/authoring.core-types.package-ts)
 - [From packages/core/src/primitives.ts](context:fs/authoring.core-types.primitives-ts)
 - [From packages/core/src/query.ts](context:fs/authoring.core-types.query-ts)
 - [From packages/core/src/records/actors.ts](context:fs/authoring.core-types.records-actors-ts)
 - [From packages/core/src/records/chat.ts](context:fs/authoring.core-types.records-chat-ts)
-- [From packages/core/src/records/mcps.ts](context:fs/authoring.core-types.records-mcps-ts)
+- [From packages/core/src/records/content.ts](context:fs/authoring.core-types.records-content-ts)
 - [From packages/core/src/records/runs.ts](context:fs/authoring.core-types.records-runs-ts)
 - [From packages/core/src/records/systems.ts](context:fs/authoring.core-types.records-systems-ts)
 - [From packages/core/src/registries.ts](context:fs/authoring.core-types.registries-ts)
 - [From packages/core/src/remote-auth.ts](context:fs/authoring.core-types.remote-auth-ts)
-- [From packages/core/src/resource-forms.ts](context:fs/authoring.core-types.resource-forms-ts)
 - [From packages/core/src/resources.ts](context:fs/authoring.core-types.resources-ts)
 - [From packages/core/src/run.ts](context:fs/authoring.core-types.run-ts)
 - [From packages/core/src/sensitivity.ts](context:fs/authoring.core-types.sensitivity-ts)

@@ -19,7 +19,7 @@ const props = withDefaults(defineProps<{
   limit?: number;
 }>(), { problem: '', limit: 6 });
 
-defineEmits<{ open: [notification: Notification]; read: [notification: Notification]; readAll: []; all: []; retry: [] }>();
+defineEmits<{ open: [notification: Notification]; also: [notification: Notification]; read: [notification: Notification]; readAll: []; all: []; retry: [] }>();
 const shown = computed(() => props.items.slice(0, props.limit));
 </script>
 
@@ -31,7 +31,7 @@ const shown = computed(() => props.items.slice(0, props.limit));
     </header>
     <NotificationList
       :items="shown" :now="now" :loading="loading" :loaded="loaded" :problem="problem" compact
-      @open="$emit('open', $event)" @read="$emit('read', $event)" @retry="$emit('retry')"
+      @open="$emit('open', $event)" @also="$emit('also', $event)" @read="$emit('read', $event)" @retry="$emit('retry')"
     />
     <footer class="foot">
       <UiButton size="sm" variant="ghost" icon-right="arrow-right" block @click="$emit('all')">Open inbox</UiButton>

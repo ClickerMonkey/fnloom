@@ -21,7 +21,7 @@ withDefaults(defineProps<{
   emptyBody?: string;
 }>(), { problem: '', hasMore: false, loadingMore: false, compact: false, emptyTitle: 'All caught up', emptyBody: 'Approvals, replies and finished work show up here.' });
 
-defineEmits<{ open: [notification: Notification]; read: [notification: Notification]; more: []; retry: [] }>();
+defineEmits<{ open: [notification: Notification]; also: [notification: Notification]; read: [notification: Notification]; more: []; retry: [] }>();
 </script>
 
 <template>
@@ -40,7 +40,7 @@ defineEmits<{ open: [notification: Notification]; read: [notification: Notificat
     <TransitionGroup v-else tag="ul" name="row" class="rows">
       <NotificationRow
         v-for="item in items" :key="item.id" :notification="item" :now="now" :compact="compact"
-        @open="$emit('open', $event)" @read="$emit('read', $event)"
+        @open="$emit('open', $event)" @also="$emit('also', $event)" @read="$emit('read', $event)"
       />
     </TransitionGroup>
     <div v-if="hasMore && items.length > 0" class="more">

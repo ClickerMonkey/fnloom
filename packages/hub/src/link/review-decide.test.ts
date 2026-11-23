@@ -106,6 +106,14 @@ describe('a pending review in one strip', () => {
     ]);
   });
 
+  it('flags the runs grant on its own, before the other hub calls: the system starts runs with nobody asking', () => {
+    expect(grantsMove({ hub: ['data'] }, { hub: ['data', 'runs', 'ai'] }).flags).toEqual([
+      { flag: 'runs', line: 'Starts runs on its own, as the owners of its fns, and notifies them', items: ['runs'] },
+      { flag: 'capabilities', line: 'New hub calls: ai', items: ['ai'], lead: 'New hub calls' },
+    ]);
+    expect(grantsMove({ hub: ['runs'] }, { hub: ['runs'] }).flags).toEqual([]);
+  });
+
   it('gives each changed fn its declared facts before and after', async () => {
     const manifest = await manifestFor(notes);
     const facts = fnChangeFacts(contractChanges(manifest, nextVersion(manifest)));

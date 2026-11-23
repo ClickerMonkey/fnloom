@@ -1,8 +1,8 @@
 /**
  * The check of a system's context folder (the build's, and the test kit's `contextFolder`). On top of what the SDK's
  * reader checks in each file (the header against `ContextFileHeader`, a missing summary, duplicate keys), it follows
- * every link: the header's `fns`, `suggestFns`, `inject.requires`, `imports`, `choices`, `links`, `parent` and `next`,
- * each exact agent name in `inject.into` (a pattern, holding `*`, may hit no agent yet), and `[text](context:key)` /
+ * every link: the header's `fns`, `suggestFns`, `inject.requires`, `inject.replaces`, `imports`, `choices`, `links`,
+ * `parent` and `next`, each exact agent name in `inject.into` (a pattern, holding `*`, may hit no agent yet), and `[text](context:key)` /
  * `fn:name` references in the body, against the names the system knows (its own contract and context, and the hub's
  * catalog or the systems it requires), and refuses a context that loads itself through `imports`. An anchor link in
  * the body (`[text](#anchor)`, or `context:key#anchor` to another file of the folder) must name an anchor that file
@@ -50,6 +50,7 @@ function headerLinks(file: ContextFile): FileLink[] {
     ...fns('suggestFns', header.suggestFns),
     ...fns('requires', header.inject?.requires ?? []),
     ...(header.inject?.into ?? []).filter((target) => !isAgentPattern(target)).map((to): FileLink => ({ to, kind: 'agent', key: 'into' })),
+    ...context('replaces', header.inject?.replaces ?? []),
     ...context('imports', header.imports),
     ...context('choices', (header.choices ?? []).map((choice) => choice.to)),
     ...context('parent', header.parent === undefined ? [] : [header.parent]),

@@ -1,7 +1,7 @@
 /** The implementation shapes a system's server writes, computed from what its contract declares. */
 import type { ToolClaims } from '@aeye/core';
 import type { PreviewAnswer, SensitivityFlag, UndoOutcome } from '@harness/core';
-import type { ClaimsCtx, FnCtx, PreviewCtx, UndoCtx } from './ctx.ts';
+import type { ClaimsCtx, FnCtx, Own, PreviewCtx, UndoCtx } from './ctx.ts';
 import type { FnTypes, Outcome } from './fn.ts';
 
 /**
@@ -12,11 +12,11 @@ import type { FnTypes, Outcome } from './fn.ts';
  * args operates on (`file:/abs/path`, or `'*'` to run alone), asked by the hub before an agent's call starts, so calls
  * that clash run one after another.
  */
-export type FnImpl<T extends FnTypes, Cfg = unknown> =
+export type FnImpl<T extends FnTypes, Cfg = unknown, O extends Own = Own> =
   {
-    run(args: T['args'], ctx: FnCtx<T, Cfg>): Promise<Outcome<T>>;
-    preview?(args: T['args'], ctx: PreviewCtx<Cfg>): Promise<PreviewAnswer>;
-    flags?(args: T['args'], ctx: PreviewCtx<Cfg>): Promise<SensitivityFlag[]>;
-    claims?(args: T['args'], ctx: ClaimsCtx<Cfg>): ToolClaims | Promise<ToolClaims>;
+    run(args: T['args'], ctx: FnCtx<T, Cfg, O>): Promise<Outcome<T>>;
+    preview?(args: T['args'], ctx: PreviewCtx<Cfg, O>): Promise<PreviewAnswer>;
+    flags?(args: T['args'], ctx: PreviewCtx<Cfg, O>): Promise<SensitivityFlag[]>;
+    claims?(args: T['args'], ctx: ClaimsCtx<Cfg, O>): ToolClaims | Promise<ToolClaims>;
   } &
   ([T['undo']] extends [never] ? { undo?: never } : { undo(payload: T['undo'], ctx: UndoCtx<Cfg>): Promise<UndoOutcome> });

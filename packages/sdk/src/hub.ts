@@ -13,6 +13,7 @@ import {
   graphSlice, injectionsSlice, versionsSlice, dataSlice, ContributionView, ReadTableArgs, ResultTable, RowActionsQuery, WidgetActionOption, mcpsSlice, metricsSlice, accessSlice, autoPairSlice, connectionsSlice, explorerSlice, suggestionsSlice, MintMcpTokenArgs, modelsSlice, OWN_TAG, packagingSlice, READ_TAG, resourcesSlice, ResourceOutlineArgs, ResourceSendArgs, ImageReadArgs, ImageReadResult, RUN_STATUSES, runsSlice,
   FnLive, GinTypeDef, LIST_NAMES, querySlice, Section, settingsSlice, systemsSlice, LlmContentPart, ModelLimits, LINK_TARGET_KINDS, type Display,
   FnBlock, FnExample, FnExamplesPage, FnExamplesQuery, FnRouting, FnSearchArgs, FnSearchPage, CtxSearchArgs, LoadContextResult, LoadFnsResult, ContextCrawlArgs, ContextCrawlResult, CRAWL_BATCH_MAX, NameRefusal, ShareRule, type RegistryEffect,
+  type QualifiedName,
 } from '@harness/core';
 import { z } from 'zod';
 import { CHAT_BASE, CHAT_SMALL_BASE } from './chat-prompt.ts';
@@ -20,6 +21,7 @@ import { fn, type FnExampleOf } from './fn.ts';
 import { kind, mention, sectioner, type } from './declare.ts';
 import { g, json, type GinType } from './gin.ts';
 import { system } from './system.ts';
+import { withRefText, type ContextRef } from './refs.ts';
 import { BUILT_IN_CONTRIBUTIONS } from './widgets.ts';
 import { ginAs, ginOf, toolArgsOf, type ToolArgs } from './zod-gin.ts';
 
@@ -420,7 +422,7 @@ const adminReadFns = {
   suggest_decision_get: adminReadFn('The suggestions setting: who picks what each message is offered (a decision model, an LLM, or none: the best by similarity over the threshold), and its limits.', 'Use it before changing it with hub/suggest_decision_set.', ADMIN_READ_ENDPOINTS.suggest_decision_get, [{ args: {} }]),
   search_decision_get: adminReadFn('The search decisions: who filters search hits before they are returned, for fns and for context (none, a decision model or an LLM).', 'Use it before changing one with hub/search_decision_set.', ADMIN_READ_ENDPOINTS.search_decision_get, [{ args: {} }]),
   ctx_injections_list: adminReadFn(
-    'What is injected into agents\' system prompts: for each agent (a fn that runs a model, such as hub/chat), the context items and hook notes the hub puts into its instructions, in order, each with its text as the model reads it, its tokens, whether an admin left it on for that agent, and why it is left out if it is (switched off, waiting for review, declined, its system off, its fns unusable, the other chat mode, or no room).',
+    'What is injected into agents\' system prompts: for each agent (a fn that runs a model, such as hub/chat), the context items and hook notes the hub puts into its instructions, in order, each with its text as the model reads it, its tokens, whether an admin left it on for that agent, and why it is left out if it is (switched off, waiting for review, declined, its system off, its fns unusable, the other chat mode, replaced by another item, or no room).',
     'Use it when an admin asks what an agent is told, why an agent knows or does not know something, or before switching an item with hub/ctx_injection_set. Give `agent` for one agent\'s list, `context` for one item in every agent it reaches (the answer then also lists its targets and the agents each hits), or both. Each entry\'s `via` is the target that took it in (an agent\'s name or a pattern such as `hub/chat*`). It shows what a new chat with that agent would be told, every system on; give `mode` (`tools` or `static`) or `fnMode` (`read`, `write`, `delete`, `none`) to see it as a chat with that setting gets it. Tokens are estimates.',
     ADMIN_READ_ENDPOINTS.ctx_injections_list,
     [
@@ -601,6 +603,9 @@ export const SaveFnArgs = g.obj({
   replace: g.field(g.optional(g.bool()), { docs: 'Save over the fn of this name, keeping the old version; otherwise a taken name is refused.' }),
 });
 
+/** What `hub/fns_remove` gives, and how its run is undone: the fn, and the version it had (the one restored). */
+export const RemovedFn = g.obj({ fn: g.fnName(), version: g.num({ min: 1, whole: true }) });
+
 /** The error code `hub/fns_save` fails with (class `caller`) when the name is taken and `replace` is not set. */
 export const SAVE_FN_TAKEN = 'fn-taken';
 
@@ -649,8 +654,8 @@ const CONTEXT_CRAWL_GUIDE = [
   'Without `metadataOnly` what it took is loaded into this session like hub/ctx_load, its text in front of you from your next step. With `metadataOnly: true` nothing is loaded: you get each item\'s key, title, description and size, and load what fits with hub/ctx_load.',
 ].join(' ');
 
-/** The hub's contract. */
-export const hub = system('hub', {
+/** The hub's contract as declared (`hub` adds the refs to its own context items). */
+const hubContract = system('hub', {
   description: 'The hub: search and load fns and context, follow runs, ask people, and run agents.',
   registries: {
     visuals: { description: 'Every visual a table result can be drawn with (a table, value cards, the chart families): each system adds its own, with the shape of data it draws.', data: ginAs(ResultTable) },
@@ -755,6 +760,18 @@ export const hub = system('hub', {
         display: 'hidden',
         // a fn that saves through it creates or updates fns of its kind: the hub checks that it said so
         effects: { registry: [{ thing: 'fns', action: 'create' }, { thing: 'fns', action: 'update' }] },
+      }),
+      fns_remove: fn({
+        description: 'Remove a fn of one of the calling system\'s kinds that a person saved (a saved form, a saved query): it is no longer listed, called or run. The hub keeps its versions, and undoing the run brings back the version it had.',
+        instructions: 'Only the system that owns the kind may remove fns of it, and only for the fn\'s owner or an admin. A system\'s own fns (its contract\'s) can\'t be removed.',
+        args: g.obj({ fn: g.field(g.fnName(), { docs: 'The fn to remove, by its name.' }) }),
+        returns: RemovedFn,
+        undo: RemovedFn,
+        examples: [{ args: { fn: 'input/project_details' }, result: { fn: 'input/project_details', version: 3 }, note: 'A saved form its person no longer wants.' }],
+        tags: [OWN_TAG],
+        display: 'hidden',
+        // a fn that removes through it removes fns of its kind: the hub checks that it said so
+        effects: { mode: 'delete', registry: [{ thing: 'fns', action: 'remove' }] },
       }),
       ctx_load: fn({
         description: 'Load context items (guides, memories, pieces of files) into this chat by their full names: their text is in your prompt from your next step, with what they import, and the fns they bring join your tools.',
@@ -991,6 +1008,31 @@ export const hub = system('hub', {
     };
   })
   .with({ fns: { ...adminFns, ...adminReadFns } });
+
+/**
+ * The keys of the hub's own context items: the markdown files in the hub's `context/` folder, which join its manifest
+ * at boot, so they are not declared in the contract. A test keeps this list and the folder the same.
+ */
+export const HUB_CONTEXT_KEYS = [
+  'asking', 'attached_files', 'background_runs', 'earlier_chats', 'examples', 'finding_fns', 'images', 'later', 'limits', 'memory', 'resources',
+  'saved_fns', 'undo',
+] as const;
+/** One of the hub's own context items, by key. */
+export type HubContextKey = (typeof HUB_CONTEXT_KEYS)[number];
+
+/** Refs to the hub's own context items, by key. */
+export type HubContextRefs = { readonly [K in HubContextKey]: ContextRef<QualifiedName<'hub', K>, {}> };
+
+const hubContextRefs = Object.fromEntries(HUB_CONTEXT_KEYS.map((key) => [key, withRefText({ ref: 'context' as const, name: `hub/${key}` as const })])) as HubContextRefs;
+
+/**
+ * The hub's contract, with refs to its own context items beside what it declares, so a system can name one where a
+ * context ref is asked for (`inject: { replaces: [hub.context.later] }`).
+ */
+export const hub: Omit<typeof hubContract, 'context'> & { readonly context: (typeof hubContract)['context'] & HubContextRefs } = {
+  ...hubContract,
+  context: { ...hubContract.context, ...hubContextRefs },
+};
 
 /** The hub's contract type. */
 export type HubContract = typeof hub;

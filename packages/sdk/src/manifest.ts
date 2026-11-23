@@ -141,6 +141,7 @@ function injectDecl(inject: InjectInput): InjectDecl {
     into: inject.into.map((target) => (typeof target === 'string' ? target : target.name)),
     order: inject.order ?? 100,
     requires: (inject.requires ?? []).map((ref) => ref.name),
+    ...(inject.replaces === undefined || inject.replaces.length === 0 ? {} : { replaces: inject.replaces.map((ref) => ref.name) }),
     ...(inject.mode === undefined ? {} : { mode: inject.mode }),
   });
 }
@@ -153,7 +154,7 @@ function referencedSystems(system: string, defs: ContractShape): string[] {
     if (def.kind !== 'native') { names.add(def.kind.name); }
   }
   for (const def of Object.values(defs.context)) {
-    for (const ref of [...def.imports, ...def.fns, ...def.suggestFns, ...(def.inject?.requires ?? [])]) { names.add(ref.name); }
+    for (const ref of [...def.imports, ...def.fns, ...def.suggestFns, ...(def.inject?.requires ?? []), ...(def.inject?.replaces ?? [])]) { names.add(ref.name); }
     for (const target of def.inject?.into ?? []) { if (typeof target !== 'string') { names.add(target.name); } }
     for (const ref of [def.parent, def.next]) { if (ref !== undefined) { names.add(ref.name); } }
     for (const link of def.links) { if ('ref' in link.to) { names.add(link.to.name); } }

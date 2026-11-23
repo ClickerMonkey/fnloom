@@ -166,22 +166,22 @@ sectioner, action and model provider.
 
 ```ts
 type SystemImpl<C extends ContractShape> =
-Needs<'fns', { readonly [K in NativeFnKeys<C['fns']>]: FnImpl<TypesOf<C['fns'][K]>, ConfigOf<C>> }> &
-Needs<'kinds', { readonly [K in keyof C['kinds']]: C['kinds'][K] extends KindDef<infer P> ? KindImpl<P, ConfigOf<C>> : never }> &
-Needs<'context', { readonly [K in DynamicContextKeys<C['context']>]: C['context'][K] extends ContextDef<infer A, true> ? ContextImpl<A, ConfigOf<C>> : never }> &
-Needs<'hooks', { readonly [K in keyof C['hooks']]: HookImpl<ConfigOf<C>> }> &
-Needs<'mentions', { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T, infer V> ? MentionImpl<T, V, ConfigOf<C>> : never }> &
-Needs<'types', { readonly [K in TypesWithMethods<C['types']>]: C['types'][K] extends TypeDef<infer V, infer M extends Methods> ? { readonly [J in keyof M]: MethodImpl<V, TypesOf<M[J]>, ConfigOf<C>> } : never }> &
+Needs<'fns', { readonly [K in NativeFnKeys<C['fns']>]: FnImpl<TypesOf<C['fns'][K]>, ConfigOf<C>, OwnOf<C>> }> &
+Needs<'kinds', { readonly [K in keyof C['kinds']]: C['kinds'][K] extends KindDef<infer P> ? KindImpl<P, ConfigOf<C>, OwnOf<C>> : never }> &
+Needs<'context', { readonly [K in DynamicContextKeys<C['context']>]: C['context'][K] extends ContextDef<infer A, true> ? ContextImpl<A, ConfigOf<C>, OwnOf<C>> : never }> &
+Needs<'hooks', { readonly [K in keyof C['hooks']]: HookImpl<ConfigOf<C>, OwnOf<C>> }> &
+Needs<'mentions', { readonly [K in keyof C['mentions']]: C['mentions'][K] extends MentionDef<infer T, infer V> ? MentionImpl<T, V, ConfigOf<C>, OwnOf<C>> : never }> &
+Needs<'types', { readonly [K in TypesWithMethods<C['types']>]: C['types'][K] extends TypeDef<infer V, infer M extends Methods> ? { readonly [J in keyof M]: MethodImpl<V, TypesOf<M[J]>, ConfigOf<C>, OwnOf<C>> } : never }> &
 Needs<'sectioners', { readonly [K in keyof C['sectioners']]: SectionerImpl }> &
-Needs<'actions', { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, infer St> ? ActionImpl<I, R, St, ConfigOf<C>> : never }> &
-Needs<'providers', { readonly [K in keyof C['providers']]: ProviderImpl<ConfigOf<C>> }> &
-(C['connect'] extends ConnectDecl ? { readonly connect: ConnectImpl<ConfigOf<C>> } : { readonly connect?: never }) &
+Needs<'actions', { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, infer St> ? ActionImpl<I, R, St, ConfigOf<C>, OwnOf<C>> : never }> &
+Needs<'providers', { readonly [K in keyof C['providers']]: ProviderImpl<ConfigOf<C>, OwnOf<C>> }> &
+(C['connect'] extends ConnectDecl ? { readonly connect: ConnectImpl<ConfigOf<C>, OwnOf<C>> } : { readonly connect?: never }) &
 {
   /** Resources this system serves. */
   readonly resources?: ResourceProvider;
   /** Hub events to receive. */
-  readonly events?: EventHandlers<ConfigOf<C>>;
-  readonly lifecycle?: Lifecycle<ConfigOf<C>>;
+  readonly events?: EventHandlers<ConfigOf<C>, OwnOf<C>>;
+  readonly lifecycle?: Lifecycle<ConfigOf<C>, OwnOf<C>>;
 };
 ```
 
@@ -199,12 +199,12 @@ args operates on (`file:/abs/path`, or `'*'` to run alone), asked by the hub bef
 that clash run one after another.
 
 ```ts
-type FnImpl<T extends FnTypes, Cfg = unknown> =
+type FnImpl<T extends FnTypes, Cfg = unknown, O extends Own = Own> =
 {
-  run(args: T['args'], ctx: FnCtx<T, Cfg>): Promise<Outcome<T>>;
-  preview?(args: T['args'], ctx: PreviewCtx<Cfg>): Promise<PreviewAnswer>;
-  flags?(args: T['args'], ctx: PreviewCtx<Cfg>): Promise<SensitivityFlag[]>;
-  claims?(args: T['args'], ctx: ClaimsCtx<Cfg>): ToolClaims | Promise<ToolClaims>;
+  run(args: T['args'], ctx: FnCtx<T, Cfg, O>): Promise<Outcome<T>>;
+  preview?(args: T['args'], ctx: PreviewCtx<Cfg, O>): Promise<PreviewAnswer>;
+  flags?(args: T['args'], ctx: PreviewCtx<Cfg, O>): Promise<SensitivityFlag[]>;
+  claims?(args: T['args'], ctx: ClaimsCtx<Cfg, O>): ToolClaims | Promise<ToolClaims>;
 } &
 ([T['undo']] extends [never] ? { undo?: never } : { undo(payload: T['undo'], ctx: UndoCtx<Cfg>): Promise<UndoOutcome> });
 ```
@@ -221,10 +221,10 @@ query, or the form) into the account and credentials, or a problem in words; `di
 where the provider can (best effort).
 
 ```ts
-interface ConnectImpl<Cfg> {
-  start(request: ConnectStart, ctx: SystemCtx<Cfg>): Promise<{ url: string }> | { url: string };
-  finish(request: ConnectFinish, ctx: SystemCtx<Cfg>): Promise<ConnectResult>;
-  disconnect(connection: Pick<RunConnection, 'id' | 'owner' | 'credentials'>, ctx: SystemCtx<Cfg>): Promise<void>;
+interface ConnectImpl<Cfg, O extends Own = Own> {
+  start(request: ConnectStart, ctx: SystemCtx<Cfg, O>): Promise<{ url: string }> | { url: string };
+  finish(request: ConnectFinish, ctx: SystemCtx<Cfg, O>): Promise<ConnectResult>;
+  disconnect(connection: Pick<RunConnection, 'id' | 'owner' | 'credentials'>, ctx: SystemCtx<Cfg, O>): Promise<void>;
 }
 ```
 

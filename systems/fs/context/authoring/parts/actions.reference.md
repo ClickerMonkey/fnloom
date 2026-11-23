@@ -51,7 +51,7 @@ type · `import { ActionImpl } from '@harness/sdk'`
 An action's implementation.
 
 ```ts
-type ActionImpl<I, R, St extends object, Cfg = unknown> = (input: I, ctx: ActionCtx<St, Cfg>) => Promise<R>;
+type ActionImpl<I, R, St extends object, Cfg = unknown, O extends Own = Own> = (input: I, ctx: ActionCtx<St, Cfg, O>) => Promise<R>;
 ```
 
 #### `ActionCtx`
@@ -61,7 +61,7 @@ interface · `import { ActionCtx } from '@harness/sdk'`
 What an action's implementation gets.
 
 ```ts
-interface ActionCtx<St extends object, Cfg = unknown> extends SystemCtx<Cfg>, AskerCtx, Omit<Services, 'log' | 'llm' | 'resources' | 'types'> {
+interface ActionCtx<St extends object, Cfg = unknown, O extends Own = Own> extends SystemCtx<Cfg, O>, AskerCtx, Omit<Services, 'log' | 'llm' | 'resources' | 'types'> {
   readonly delivery: DeliveryId;
   /** The run whose renderer sent it, if any. */
   readonly run: RunId | undefined;

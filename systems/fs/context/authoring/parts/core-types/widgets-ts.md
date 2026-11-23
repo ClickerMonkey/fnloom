@@ -85,26 +85,6 @@ const, type · declared in `packages/core/src/widgets.ts`
 type RelativeDate = "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
 ```
 
-#### <a id="core-rowactionsquery"></a>`RowActionsQuery`
-
-const, type · declared in `packages/core/src/widgets.ts`
-
-The actions offered on rows of these types (hub `rowActions` and `hub/row_actions`), narrowed by a widget's list. With
-no row types (a source with no records type or ref columns) only the fns the widget binds are offered.
-
-```ts
-type RowActionsQuery = {
-  types: `${string}/${string}`[];
-  narrow?: {
-    fn: `${string}/${string}`;
-    bind: Record<string, string>;
-    label?: string | undefined;
-    confirm?: true | undefined;
-    then?: "status" | "open" | "refresh" | undefined;
-  }[] | undefined;
-};
-```
-
 #### <a id="core-widgetaction"></a>`WidgetAction`
 
 const, type · declared in `packages/core/src/widgets.ts`

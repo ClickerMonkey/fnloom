@@ -53,6 +53,18 @@ describe('matching', () => {
     expect(targetRank({ fn: 'fs/write', when: { kind: 'new', type: { name: 'bool' }, value: true } }, write, 'deny')).toBe(8);
   });
 
+  it('matches a policy by the fn whose run made the call (via), at any depth, as narrower than the fn alone', () => {
+    const backup = QualifiedName.parse('timer/nightly_backup');
+    expect(targetRank({ fn: 'fs/write', via: backup }, write, 'allow', [backup])).toBe(12);
+    expect(targetRank({ fn: 'fs/write', via: backup }, write, 'allow', [QualifiedName.parse('hub/chat'), backup])).toBe(12);
+    expect(targetRank({ fn: 'fs/write', via: backup }, write, 'allow', [QualifiedName.parse('hub/chat')])).toBeUndefined();
+    expect(targetRank({ fn: 'fs/write', via: backup }, write, 'allow')).toBeUndefined();
+    const viaAllow = policy({ subject: { actor: ALICE }, target: { fn: 'fs/write', via: backup }, decision: { effect: 'allow' } });
+    const ask = policy({ subject: { actor: ALICE }, target: { fn: 'fs/write' }, decision: { effect: 'ask', approver: { by: 'turn-user' } } });
+    expect(choosePolicy([ask, viaAllow], write, alice, 0, [backup])).toBe(viaAllow);
+    expect(choosePolicy([ask, viaAllow], write, alice, 0, [])).toBe(ask);
+  });
+
   it('chooses by priority, then specificity, then deny over ask over allow', () => {
     const everyoneDeny = policy({ subject: { everyone: true }, target: { fn: 'fs/*' }, decision: { effect: 'deny', reason: 'no' } });
     const aliceAllow = policy({ subject: { actor: ALICE }, target: { fn: 'fs/write' }, decision: { effect: 'allow' } });
@@ -82,6 +94,15 @@ describe('the policy engine', () => {
     return { store, bus, policies };
   }
   const ask = { actor: ALICE, turnUser: ALICE, args: {}, session: SESSION, run: RUN, caller: BOB };
+
+  it('lets a call through on a policy for the fn whose run made it, and asks for the same fn called any other way', async () => {
+    const { policies, store } = await engine();
+    const backup = QualifiedName.parse('timer/nightly_backup');
+    await store.table('policies').insert(policy({ subject: { actor: ALICE }, target: { fn: 'fs/write', via: backup }, decision: { effect: 'allow' } }));
+    expect(await policies.decide({ ...ask, fn: write.name, via: [backup] })).toEqual({ effect: 'allow' });
+    expect(await policies.decide({ ...ask, fn: write.name, via: [QualifiedName.parse('hub/chat')] })).toMatchObject({ effect: 'ask' });
+    expect(await policies.decide({ ...ask, fn: write.name })).toMatchObject({ effect: 'ask' });
+  });
 
   it('allows read fns (by tag or effects) and agents, and asks the turn user for the rest', async () => {
     const { policies, bus } = await engine();

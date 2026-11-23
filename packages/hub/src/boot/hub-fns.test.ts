@@ -1,4 +1,4 @@
-import { agent, fn, g, hub, manifestOf, type FnRef } from '@harness/sdk';
+import { agent, fn, g, hub, manifestOf, RemovedFn, type FnRef } from '@harness/sdk';
 import { ActorId, ContextCrawlResult, LinkSession, ModelCallId, QualifiedName, SystemName, type FnSearchHit, type FnSearchQuery, type Json, type SearchFiltered, type RegistryEffect, type SearchHit, type Session, type SessionId, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AGENT_KIND, type RunInput } from '../execution/index.ts';
@@ -524,6 +524,7 @@ describe('saved fns (build 5)', () => {
       store: () => r.store,
       catalog: () => ({
         fn: (name) => r.catalog.fn(name), fns: (filter) => r.catalog.fns(filter), availability: (name) => r.catalog.availability(name), context: (name) => r.catalog.context(name), type: () => r.catalog.type(), kind: () => r.catalog.kind(),
+        remove: () => Promise.reject(new Error('not removed here')),
         declare: async (system, decl, by) => {
           const name = QualifiedName.parse(`${system}/${decl.name}`);
           const existing = r.catalog.records.get(name);
@@ -579,5 +580,73 @@ describe('saved fns (build 5)', () => {
       { name: 'input/project', section: 'fns', number: 1, change: 'added', decl: { description: 'Asks for a project.' }, savedBy: ALICE },
       { name: 'input/project', number: 2, change: 'changed', decl: { description: 'Asks for a project and who owns it.' } },
     ]);
+  });
+
+  it('lets the system of a kind remove a saved fn of it for its owner, refuses others, and undoing the run restores the version it had', async () => {
+    const r = await executionRig();
+    rig = r;
+    r.catalog.add('hub', 'fns_remove', fn({ description: 'hub/fns_remove', args: hub.fns.fns_remove.args, returns: hub.fns.fns_remove.returns, undo: RemovedFn, tags: ['read'] }));
+    const asker = r.catalog.add('input', 'forget', fn({ description: 'Forget a form.', args: g.obj({}), returns: g.bool(), tags: ['read'] }));
+    r.catalog.set(asker.name, { decl: { ...asker.decl, deps: [hub.fns.fns_remove.name], effects: { registry: [{ thing: 'fns', action: 'remove', kind: 'input/form' }] } } });
+    const formDecl = { ...asker.decl, name: 'project', kind: QualifiedName.parse('input/form'), payload: { title: 'Project' }, deps: [] };
+    const save = async (): Promise<void> => {
+      const name = QualifiedName.parse('input/project');
+      if (!r.catalog.records.has(name)) r.catalog.add('input', 'project', fn({ description: 'Asks for a project.', args: g.obj({}), returns: g.bool(), tags: ['read'] }));
+      r.catalog.set(name, { decl: formDecl, origin: 'runtime', addedBy: ALICE });
+    };
+    await save();
+    await writeItemVersions(r.store, SystemName.parse('input'), [{ section: 'fns', name: 'input/project', change: 'added', decl: JsonValue.parse(formDecl) }], 1, ALICE);
+    let owner = ALICE;
+    const declared: string[] = [];
+    registerHubFns(r.module.hubFns, {
+      store: () => r.store,
+      catalog: () => ({
+        fn: (name) => r.catalog.fn(name), fns: (filter) => r.catalog.fns(filter), availability: (name) => r.catalog.availability(name), context: (name) => r.catalog.context(name), type: () => r.catalog.type(),
+        kind: (name) => Promise.resolve(name === 'input/form' ? { name, system: SystemName.parse('input'), decl: { name: 'form', description: 'A form.', applicability: 'Forms.', payload: { name: 'any' }, approveChanges: false } } : undefined),
+        remove: async (system, name, by) => {
+          r.catalog.records.delete(name);
+          await writeItemVersions(r.store, system, [{ section: 'fns', name, change: 'removed', decl: JsonValue.parse(formDecl) }], 2, by);
+          return { added: [], updated: [], removed: [name], refused: [] };
+        },
+        declare: async (system, decl) => { declared.push(`${system}/${decl.name}`); await save(); return { added: [QualifiedName.parse(`${system}/${decl.name}`)], updated: [], removed: [], refused: [] }; },
+      }),
+      views: () => new CatalogFnViews(r.catalog),
+      decider: () => decider,
+      facts: () => ({ registry: (names) => Promise.resolve(new Map(names.map((name) => [name, r.catalog.records.get(name)?.decl.effects?.registry ?? []]))) }),
+      search: () => ({ search: () => Promise.resolve([]) }),
+      sessions: () => ({ load: () => Promise.reject(new Error('no loads here')) }),
+      handlers: () => r.module.handlers,
+      access: (actor) => Promise.resolve(openScope(actor)),
+      sharing: () => ({ sharing: () => Promise.resolve({ owner, visibility: 'private', with: [] }), own: () => Promise.reject(new Error('no sharing here')) }),
+      fns: () => ({ search: { search: () => Promise.reject(new Error('no search')) }, examples: { sync: () => Promise.resolve(), page: () => Promise.reject(new Error('no examples')), patch: () => Promise.reject(new Error('no examples')), forPrompt: () => Promise.resolve([]) } }),
+    });
+    await r.module.start();
+    const input = r.connect('input');
+    const results: unknown[] = [];
+    input.behaviour.run = async (request) => {
+      results.push(await r.module.linkHandlers.call(linkPayload({ parent: request.run.id, fn: 'hub/fns_remove', args: { fn: 'input/project' }, key: `remove-${results.length}`, handlers: [], background: false }, LinkSession.parse({ system: 'input', instance: 'main', boot: 'b' }))));
+      return { status: 'done', result: true };
+    };
+    const ask = async (role: 'admin' | 'member' = 'member'): Promise<void> => {
+      const turn = await r.turn();
+      await r.store.table('turns').update(turn.id, { user: { ...turn.user, role } });
+      await (await r.module.runs.start({ fn: asker.name, args: {}, turn: turn.id, key: 'k', actor: ALICE, caller: ALICE, priority: 'interactive', background: false, handlers: [] })).settled;
+    };
+    // not the owner (and not an admin): refused, nothing removed
+    owner = ActorId.parse('act_someone');
+    await ask();
+    expect(results[0]).toMatchObject({ status: 'failed', error: { class: 'caller', code: 'not-yours' } });
+    expect(r.catalog.records.has(QualifiedName.parse('input/project'))).toBe(true);
+    // its owner may (an admin may too)
+    owner = ALICE;
+    await ask();
+    expect(results[1]).toEqual({ status: 'done', result: { fn: 'input/project', version: 1 } });
+    expect(r.catalog.records.has(QualifiedName.parse('input/project'))).toBe(false);
+    // undoing the remove's run saves the last version again
+    const removal = (await r.store.table('runs').find({ where: { fn: QualifiedName.parse('hub/fns_remove'), status: 'done' }, limit: 1 })).items[0];
+    if (removal === undefined) throw new Error('no removal run');
+    expect(await r.module.runs.undo(removal.id, ALICE)).toMatchObject({ status: 'undone' });
+    expect(declared).toEqual(['input/project']);
+    expect(r.catalog.records.has(QualifiedName.parse('input/project'))).toBe(true);
   });
 });

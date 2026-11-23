@@ -13,7 +13,7 @@ import { SHARED_COMPONENTS } from '../system-pages/shared.ts';
 import App from './App.vue';
 import { navEntries } from './nav.ts';
 import { createAppRouter } from './router.ts';
-import { links, notificationTarget, ROUTES, safeNext } from './routes.ts';
+import { links, noticeTarget, notificationTarget, ROUTES, safeNext } from './routes.ts';
 import { useChatUrl } from '../chat/url.ts';
 import { useParamChoice, useRouteQuery } from './url.ts';
 import { resyncOnReconnect } from './wire.ts';
@@ -66,9 +66,28 @@ describe('routes', () => {
     expect(await at({ pairing: 'par_1' })).toEqual({ name: ROUTES.systems, query: { pairing: 'par_1' } });
     expect(await at({ approval: 'apr_1' })).toEqual({ name: ROUTES.runs, query: { q: 'status:awaiting-approval' } });
     expect(links.waitingRuns(SystemName.parse('database'))).toEqual({ name: ROUTES.runs, query: { q: 'status:awaiting-approval system:database' } });
-    expect(await at({ run: 'run_1' })).toEqual({ name: ROUTES.runs, query: { run: 'run_1' } });
+    // a run outside any chat opens on its run page, for admins too
+    expect(await at({ run: 'run_1' })).toEqual({ name: ROUTES.run, params: { run: 'run_1' } });
     expect(await at({ run: 'run_chat' })).toEqual({ name: ROUTES.session, params: { session: 'ses_9' } });
-    expect(await notificationTarget(NotificationLink.parse({ run: 'run_x' }), () => Promise.reject(new Error('gone')))).toEqual({ name: ROUTES.runs, query: { run: 'run_x' } });
+    expect(await notificationTarget(NotificationLink.parse({ run: 'run_x' }), () => Promise.reject(new Error('gone')))).toEqual({ name: ROUTES.run, params: { run: 'run_x' } });
+    // a system page, with the path and query the link gives
+    expect(await at({ page: { system: 'schedule', segment: 'item', path: ['weekly_sales'], query: { tab: 'history' } } }))
+      .toEqual({ name: ROUTES.systemPage, params: { system: 'schedule', page: 'item', path: ['weekly_sales'] }, query: { tab: 'history' } });
+    expect(await at({ page: { system: 'schedule', segment: 'calendar' } })).toEqual({ name: ROUTES.systemPage, params: { system: 'schedule', page: 'calendar', path: [] } });
+  });
+
+  it("opens a notification by its main link carrying its second to the run page, or by its second (`also`)", async () => {
+    const history = { label: 'History', link: { page: { system: 'schedule', segment: 'item', path: ['weekly'], query: { tab: 'history' } } } };
+    const told = notification({ reason: 'system-message', link: { run: 'run_7' }, also: history, tone: 'ok' });
+    const outside = () => Promise.resolve(undefined);
+    const main = await noticeTarget(told, outside);
+    expect(main).toEqual({ name: ROUTES.run, params: { run: 'run_7' }, query: { also: JSON.stringify(history) } });
+    expect(await noticeTarget(told, outside, 'also')).toEqual({ name: ROUTES.systemPage, params: { system: 'schedule', page: 'item', path: ['weekly'] }, query: { tab: 'history' } });
+    // without a second link, `also` opens the main one; a run in a chat opens the chat and carries nothing
+    const plain = notification({ link: { run: 'run_7' } });
+    expect(await noticeTarget(plain, outside, 'also')).toEqual({ name: ROUTES.run, params: { run: 'run_7' } });
+    expect(await noticeTarget(told, () => Promise.resolve(SessionId.parse('ses_2')))).toEqual({ name: ROUTES.session, params: { session: 'ses_2' } });
+    expect(links.run(RunId.parse('run_7'), { runTab: 'args' })).toEqual({ name: ROUTES.run, params: { run: 'run_7' }, query: { runTab: 'args' } });
   });
 
   it('writes only the keys a page declares, checked with their schemas', () => {

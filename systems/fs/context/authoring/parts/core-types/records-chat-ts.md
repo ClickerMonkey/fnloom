@@ -5,7 +5,7 @@ title: "Core types: From packages/core/src/records/chat.ts"
 description: "Core types, the part on From packages/core/src/records/chat.ts."
 summary: "Core types: From packages/core/src/records/chat.ts."
 parent: "fs/authoring.core-types"
-next: "fs/authoring.core-types.records-mcps-ts"
+next: "fs/authoring.core-types.records-content-ts"
 suggest: "none"
 tags: ["authoring", "reference"]
 niche: "developer"

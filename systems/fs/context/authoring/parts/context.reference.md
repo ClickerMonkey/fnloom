@@ -299,7 +299,7 @@ type · `import { ContextImpl } from '@harness/sdk'`
 A dynamic context's implementation: its content for these args.
 
 ```ts
-type ContextImpl<A, Cfg = unknown> = (args: A, ctx: SystemCtx<Cfg> & Partial<AskerCtx> & Pick<AskerCtx, 'user' | 'time'>) => Promise<string>;
+type ContextImpl<A, Cfg = unknown, O extends Own = Own> = (args: A, ctx: SystemCtx<Cfg, O> & Partial<AskerCtx> & Pick<AskerCtx, 'user' | 'time'>) => Promise<string>;
 ```
 
 #### `ContextLinkDef`
@@ -413,6 +413,13 @@ interface InjectInput {
   readonly requires?: readonly AnyFnRef[];
   /** Only in this chat mode. Leave it out unless the text is true in one mode only. */
   readonly mode?: 'tools' | 'static';
+  /**
+   * Context items it takes the place of, as refs (`[hub.context.later]`; a name as a string doesn't compile): while
+   * it goes into an agent's section, each is left out of that section (`replaced`), so the item says what is true
+   * instead. When it is out (its system off, switched off), they are back. Restate what the replaced item says that
+   * is still true.
+   */
+  readonly replaces?: readonly AnyContextRef[];
 }
 ```
 

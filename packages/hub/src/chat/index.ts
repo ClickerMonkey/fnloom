@@ -10,7 +10,7 @@
  */
 import type {
   ActorId, AnnouncedSystems, Approver, Asker, ChatMessage, ClientInfo, DeliveryId, DeliveryRecord, HookBlock, InstanceName, Json, MentionHover, MentionOption,
-  MessageId, MessagePart, Notification, NotificationId, NotificationLink, NotificationReason, OutgoingPart, Page, Presence, QualifiedName, RunId,
+  MessageId, MessagePart, Notification, NotificationId, OutgoingPart, Page, Presence, QualifiedName, RunId,
   Session, SessionControls, SessionId, Suggestion, SuggestDecision, SuggestDecisionView, SuggestionRecord, SessionPatch, SessionSummary, StateFieldValue, StateOwner, SystemName, TurnId, TurnStatus, UndoReport, UserInfo,
   Compact, DecideAnswer, DecideRequest, SessionListQuery, MessageListQuery, NotificationListQuery, SessionControlAction, CompareVariantInput, CompareView, KeptVariant, Turn, VariantIndex,
 } from '@harness/core';
@@ -230,9 +230,16 @@ export interface PresenceTracker {
   looking(user: ActorId, session?: SessionId): boolean;
 }
 
+/** What a notification is made from: the person, why, its words and links, and how it went. */
+export type NotificationInput = Pick<Notification, 'user' | 'reason' | 'title' | 'body' | 'link'> & Partial<Pick<Notification, 'tone' | 'also' | 'key'>>;
+
 /** The inbox: every notification is stored, published live, and pushed (web push) when the user isn't looking. */
 export interface NotificationService {
-  notify(input: { user: ActorId; reason: NotificationReason; title: string; body: string; link: NotificationLink }): Promise<Notification>;
+  /**
+   * Store, publish and push one notification. With a `key`, it replaces the person's unread notification of the same
+   * key in place (same id, now unread and newest) rather than adding another; the push is tagged by the key.
+   */
+  notify(input: NotificationInput): Promise<Notification>;
   list(user: ActorId, query: Compact<NotificationListQuery>): Promise<Page<Notification>>;
   /** Mark some of a user's notifications read; returns how many changed. Others' ids are ignored. */
   read(user: ActorId, ids: readonly NotificationId[]): Promise<number>;

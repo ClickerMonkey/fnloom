@@ -135,6 +135,27 @@ describe('hub/ctx_injections_list', () => {
     expect(off?.leftOut?.why).toBe('system-off');
   });
 
+  it('says an item is replaced, and by what, while the item that replaces it is in; back when that one is off', async () => {
+    const { r, catalog } = await setup();
+    const deals = system('deals', { description: 'Deal desk.' })
+      .with({ context: { desk: context({ title: 'Deal desk', description: 'The desk reviews deals.', content: 'The deal desk reviews every deal.', inject: { into: ['hub/chat*'], order: 40, replaces: [crm.context.deals] } }) } });
+    await r.store.table('systems').put(systemRow('deals', 'connected', { stage: 'live' }));
+    expect((await catalog.importManifest(await manifestFor(deals))).refused).toEqual([]);
+    const reads = adminReadOperations(r.hub);
+    const views = (await reads.ctx_injections_list({ agent: q('hub/chat') }, admin)).injections;
+    const replaced = views.find((view) => view.context === 'crm/deals');
+    expect(replaced?.leftOut).toEqual({ why: 'replaced', reason: 'replaced by Deal desk (deals/desk), which says what is true instead' });
+    // still shown with its text, so the admin sees what it would say
+    expect(replaced?.text).toContain('look the customer up');
+    expect(views.find((view) => view.context === 'deals/desk')?.leftOut).toBeUndefined();
+    // the reviewer gets no deal desk, so crm/deals stays in there
+    expect((await reads.ctx_injections_list({ agent: q('crm/reviewer'), context: q('crm/deals') }, admin)).injections[0]?.leftOut).toBeUndefined();
+    await adminOperations(r.hub).ctx_injection_set({ agent: q('hub/chat'), context: q('deals/desk'), on: false }, admin.id);
+    const back = (await reads.ctx_injections_list({ agent: q('hub/chat') }, admin)).injections;
+    expect(back.find((view) => view.context === 'crm/deals')?.leftOut).toBeUndefined();
+    expect(back.find((view) => view.context === 'deals/desk')?.leftOut?.why).toBe('off');
+  });
+
   it('shows it as a chat with a given fn setting or mode gets it', async () => {
     const { r } = await setup();
     const reads = adminReadOperations(r.hub);

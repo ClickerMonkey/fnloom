@@ -14,7 +14,7 @@ choices:
     when: "Pick this to go on in order: Worked examples."
 ---
 
-## 29. Common mistakes
+## 30. Common mistakes
 
 ### Mistakes the compiler refuses
 

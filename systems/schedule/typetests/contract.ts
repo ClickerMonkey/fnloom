@@ -1,11 +1,11 @@
 // Compile-time proof for the schedule system's contract (slice 1, docs/plans/schedule-system.md "What doesn't
 // compile"): its shapes have one source (zod, made gin with `ginAs`), firings and days are branded so a hand-written
 // string doesn't fit where a parsed one goes, its payload has no `deliver` or `chat`, and its refs are typed. The
-// hub-side refusals (`runs.start`, `runs.notify`, `kindFns`, `ctx.notify`, page refs, `replaces`) come with slice 3
-// and 4. Nothing here runs: `npm run typecheck` fails if an expectation breaks, and every `@ts-expect-error` marks a
+// hub-side refusals (`runs.start`, `runs.notify`, `kindFns`, `ctx.notify`, page refs) come with slice 3; `replaces`
+// (slice 4) is at the end. Nothing here runs: `npm run typecheck` fails if an expectation breaks, and every `@ts-expect-error` marks a
 // mistake that must not compile.
 
-import { expectType, type ContextRef, type Equal, type Infer, type KindRef } from '@harness/sdk';
+import { agents, context, expectType, hub, type ContextRef, type Equal, type Infer, type KindRef } from '@harness/sdk';
 import type { z } from 'zod';
 import { OccurrenceKey } from '../shared/index.ts';
 import type { AddArgs, ChangeArgs, FiringShape, FiringStatus, LocalDay, SchedulePayload, ScheduleView, View, When, schedule } from '../shared/index.ts';
@@ -69,3 +69,16 @@ void change;
 // @ts-expect-error notify is always, failed or never
 const loud: Change = { schedule: 'schedule/weekly_orders_summary', notify: 'sometimes' };
 void loud;
+
+// ── replaces: context refs only (slice 4) ────────────────────────────────────
+
+// the hub's own items have refs, so `basics` names the one it replaces by ref
+expectType<Equal<typeof hub.context.later, ContextRef<'hub/later', {}>>>(true);
+const replacing = context({ description: 'Runs later.', content: 'A fn can run later.', inject: { into: [agents.startingWith(hub.fns.chat)], replaces: [hub.context.later] } });
+void replacing;
+// @ts-expect-error a replaced item is named by its ref, never by a string
+const byName = context({ description: 'Runs later.', content: 'A fn can run later.', inject: { into: [agents.startingWith(hub.fns.chat)], replaces: ['hub/later'] } });
+void byName;
+// @ts-expect-error nor by a fn's ref: only context is replaced
+const byFn = context({ description: 'Runs later.', content: 'A fn can run later.', inject: { into: [agents.startingWith(hub.fns.chat)], replaces: [hub.fns.chat] } });
+void byFn;

@@ -2,8 +2,9 @@
  * The hub's own context items: markdown files with a header in `packages/hub/context/`, as a system's context folder is
  * (plan injected-context-2026-11-22, section 5: "minimal core in code; the hub's features as hub context files"). Each
  * is one of the hub's features an admin could switch off for an agent (memory, earlier chats, resources, attached files,
- * asking mid-task, saved fns, background runs, undo, examples, what the app can't do), injected into the chat agents
- * (`inject: { into: ['hub/chat*'] }`, order 10 to 30) with the fns it brings. They join the hub's manifest at boot, so
+ * asking mid-task, saved fns, background runs, undo, examples, what the app can't do, that nothing runs later), injected
+ * into the chat agents (`inject: { into: ['hub/chat*'] }`, order 10 to 30) with the fns it brings. The SDK's
+ * `hub.context` has a ref to each (`HUB_CONTEXT_KEYS`), so a system's item can replace one (`replaces`). They join the hub's manifest at boot, so
  * each has a key (`hub/memory`), a page, a version history and a switch like any context item; the hub isn't reviewed.
  */
 import { fileURLToPath } from 'node:url';

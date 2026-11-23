@@ -155,13 +155,13 @@ async function declaredFor(deps: InjectionDeps, agent: QualifiedName, settings: 
       name: injection.context, source: { type: 'context' }, system: injection.system,
       via: injection.targets.find((target) => target.agents.includes(agent))?.target ?? agent,
       title: injection.title, order: settings.get(injection.context)?.order ?? injection.inject.order, full: decl.content ?? decl.summary ?? decl.description,
-      summary: decl.summary, fns: injection.fns, record, dynamic: injection.dynamic,
+      summary: decl.summary, fns: injection.fns, replaces: injection.inject.replaces ?? [], record, dynamic: injection.dynamic,
     });
   }
   for (const hook of await listHookExplains(deps.catalog, deps.store)) {
     out.set(hook.hook, {
       name: hook.hook, source: { type: 'hook', hook: hook.hook }, system: hook.system, via: agent, title: `The <${hookTag(hook.hook)}> block`,
-      order: settings.get(hook.hook)?.order ?? HOOK_EXPLAINS_ORDER, full: hook.explains, summary: undefined, fns: [], dynamic: false,
+      order: settings.get(hook.hook)?.order ?? HOOK_EXPLAINS_ORDER, full: hook.explains, summary: undefined, fns: [], replaces: [], dynamic: false,
     });
   }
   return out;

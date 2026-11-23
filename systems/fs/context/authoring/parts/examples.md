@@ -49,7 +49,7 @@ choices:
     when: "Pick this for systems/fs/shared/index.ts, lines 371-533."
 ---
 
-## 30. Worked examples
+## 31. Worked examples
 
 This part is in 19 pieces; load the one you need:
 

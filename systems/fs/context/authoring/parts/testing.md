@@ -16,7 +16,7 @@ choices:
     when: "Pick this to go on in order: Common mistakes."
 ---
 
-## 28. Testing
+## 29. Testing
 
 Every system tests itself with the SDK's **test kit** (`@harness/sdk/testing`), in vitest, with no setup:
 

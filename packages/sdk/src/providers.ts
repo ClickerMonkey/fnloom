@@ -11,7 +11,7 @@
  */
 import type { Provider } from '@aeye/ai';
 import { ProviderModelDecl, type InstanceName, type SystemProviderDecl } from '@harness/core';
-import type { SystemCtx } from './ctx.ts';
+import type { Own, SystemCtx } from './ctx.ts';
 
 /** A provider as the contract declares it. */
 export interface ProviderDef {
@@ -57,7 +57,7 @@ export function checkedModels(input: readonly ProviderModelDecl[]): ProviderMode
  * The implementation of a declared provider: make the aeye `Provider` for the current config. It is made again when
  * the config changes, and kept otherwise.
  */
-export type ProviderImpl<Cfg = unknown> = (ctx: SystemCtx<Cfg>) => Provider;
+export type ProviderImpl<Cfg = unknown, O extends Own = Own> = (ctx: SystemCtx<Cfg, O>) => Provider;
 
 /** A provider declaration on the wire. */
 export function providerDecl(name: SystemProviderDecl['name'], def: ProviderDef): SystemProviderDecl {

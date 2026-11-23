@@ -16,7 +16,7 @@ choices:
     when: "Pick this to go on in order: The client: renderers, inputs, resource views and pages."
 ---
 
-## 24. Remote services: fleets, sign-in and connections per instance
+## 25. Remote services: fleets, sign-in and connections per instance
 
 A system that calls a remote service it was set up for (an MCP server) is a fleet: one instance per service, added from
 the browser with its config (`instances: "many"` in `system.json`). A system that authors code calling many services

@@ -21,7 +21,7 @@ What a run gets besides its args. Typed by its fn: only its deps can be called, 
 progress steps can be reported, and the outcome helpers take its result, undo and resume types.
 
 ```ts
-interface FnCtx<T extends FnTypes, Cfg = unknown> extends Services, Proposals, Decisions, Fleets, FnSearch {
+interface FnCtx<T extends FnTypes, Cfg = unknown, O extends Own = Own> extends Services, Proposals, Decisions, Fleets, FnSearch, RunNotices<O> {
   /** The system's config, as it was when this run started. */
   readonly config: Cfg;
   /** Which run this is, whom it acts for, and where it sits in the tree. */
@@ -128,7 +128,7 @@ Refers to: [`Link`](context:fs/authoring.core-types.resources-ts#core-link), [`Q
 interface · `import { SystemCtx } from '@harness/sdk'`
 
 ```ts
-interface SystemCtx<Cfg = unknown> extends SystemPlace, Proposals, Fleets, FnSearch, AiSource, AdminNotices, InstanceConnects {
+interface SystemCtx<Cfg = unknown, O extends Own = Own> extends SystemPlace, Proposals, Fleets, FnSearch, AiSource, AdminNotices, InstanceConnects, OwnerRuns<O> {
   readonly system: string;
   /** The system's current config. */
   readonly config: Cfg;

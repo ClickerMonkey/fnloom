@@ -49,13 +49,13 @@ interface · `import { MentionImpl } from '@harness/sdk'`
 A mention provider's implementation.
 
 ```ts
-interface MentionImpl<T, V, Cfg = unknown> {
+interface MentionImpl<T, V, Cfg = unknown, O extends Own = Own> {
   /** Results for what the person typed after `@`. */
-  search(query: string, ctx: MentionCtx<Cfg>): Promise<MentionOption<T>[]>;
+  search(query: string, ctx: MentionCtx<Cfg, O>): Promise<MentionOption<T>[]>;
   /** The hover card, asked for when hovered so it is current; `undefined` when the thing no longer exists. */
-  hover(target: T, ctx: MentionCtx<Cfg>): Promise<(Omit<MentionHover, 'value'> & { value?: V }) | undefined>;
+  hover(target: T, ctx: MentionCtx<Cfg, O>): Promise<(Omit<MentionHover, 'value'> & { value?: V }) | undefined>;
   /** The text the LLM gets for this mention: what the thing is, where it lives and how to reach it. */
-  llm(target: T, ctx: MentionCtx<Cfg>): Promise<string>;
+  llm(target: T, ctx: MentionCtx<Cfg, O>): Promise<string>;
 }
 ```
 
@@ -85,7 +85,7 @@ interface · `import { MentionCtx } from '@harness/sdk'`
 What a mention provider's implementation gets: the person mentioning, so results are limited to what they may see.
 
 ```ts
-interface MentionCtx<Cfg = unknown> extends SystemCtx<Cfg>, AskerCtx {}
+interface MentionCtx<Cfg = unknown, O extends Own = Own> extends SystemCtx<Cfg, O>, AskerCtx {}
 ```
 
 #### `MentionRef`

@@ -6,7 +6,7 @@
  * `finish`; `settle` closes the turn and tells people who are away.
  */
 import {
-  ACTIVE_RUN_STATUSES, CITE_MARKER, isHiddenPart, type Citation, mintId, splitName, type ActorId, type CompareVariantInput, type AgentActor, type Asker, type ChatMessage, type ClientInfo, type InstanceName, type Json, type MessageId, type MessagePart, type OutgoingPart, type SuggestionRecord,
+  ACTIVE_RUN_STATUSES, CITE_MARKER, isHiddenPart, NOTIFICATION_BODY, type Citation, mintId, splitName, type ActorId, type CompareVariantInput, type AgentActor, type Asker, type ChatMessage, type ClientInfo, type InstanceName, type Json, type MessageId, type MessagePart, type OutgoingPart, type SuggestionRecord,
   type QualifiedName, type ResolvedLimits, type Run, type RunId, type RunSettled, type Session, type SessionId, type SystemName, type Turn, type TurnId, type TurnStart, type UserInfo,
 } from '@harness/core';
 import type { AccessScope } from '../access/index.ts';
@@ -27,9 +27,6 @@ import type { StreamBuffer, StreamedText } from './streams.ts';
 import { allowsSystem, clip, participantOf, peopleOf, unmark } from './support.ts';
 import { allRows } from '../store/rows.ts';
 import { timeInfo } from '../execution/time.ts';
-
-/** How long a notification's body may be. */
-const NOTIFICATION_BODY = 160;
 
 /** The words of a message a person would read: its text, mention labels and commands. Used for titles, hooks and suggestions. */
 export function plainText(parts: readonly MessagePart[]): string {

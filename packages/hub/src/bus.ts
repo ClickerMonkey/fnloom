@@ -25,6 +25,8 @@ export interface HubEvents {
   /** A/B compare: a compared turn of a chat changed (a variant started or settled, or one was chosen). */
   'turn.compare': { session: SessionId; turn: TurnId };
   'run.update': { run: RunId; fn: QualifiedName; session?: SessionId; update: RunUpdate };
+  /** A run sent its person a notice (`ctx.notify`): it and the runs above it, nearest first (the settled run event's `notified`). */
+  'run.notified': { runs: RunId[] };
   'state.changed': { session: SessionId; system: SystemName; fields: StateFieldValue[] };
   'delivery': { session: SessionId; delivery: DeliveryView };
   'handler': { session?: SessionId; call: HandlerCall };
@@ -45,7 +47,11 @@ export interface HubEvents {
   'access.ended': { user: ActorId; session?: AuthSessionId };
   /** Build 8: the hub's display name changed. */
   'identity': { identity: HubIdentity };
-  'catalog.changed': { added: QualifiedName[]; removed: QualifiedName[]; fns: readonly FnRecord[] };
+  /**
+   * Fns came, went or changed. `added` holds new and re-declared fns alike (what most listeners re-read); `updated`
+   * says which of them already existed (a saved fn saved again: a new version), for listeners that tell the two apart.
+   */
+  'catalog.changed': { added: QualifiedName[]; removed: QualifiedName[]; fns: readonly FnRecord[]; updated?: QualifiedName[] };
   /** A fn's running numbers after one of its runs settled. */
   'fn.stats': { fn: QualifiedName; system: SystemName; stats: FnStats };
   'resources.changed': { system: SystemName; changes: ResourceChange[] };

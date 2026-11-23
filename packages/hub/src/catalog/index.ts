@@ -106,4 +106,9 @@ export interface Catalog {
 
   /** Declare a fn while running (`hub/declare_fn` or a system's `add`). Fns of a kind are described by the kind's system. */
   declare(system: SystemName, decl: FnDecl, by: ActorId): Promise<ImportReport>;
+  /**
+   * Remove a fn added while running (a person's saved fn): it goes from the catalog and its indexes, and a `removed`
+   * version keeps the declaration it last had, so declaring that again restores it. A contract's fn is refused.
+   */
+  remove(system: SystemName, name: QualifiedName, by: ActorId): Promise<ImportReport>;
 }

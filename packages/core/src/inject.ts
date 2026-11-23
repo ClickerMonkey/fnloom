@@ -82,6 +82,13 @@ export const InjectDecl = z.object({
   requires: z.array(QualifiedName).default([]),
   /** Only in this chat mode; absent, in both. */
   mode: z.enum(['tools', 'static']).optional(),
+  /**
+   * Context items it takes the place of: while it goes into an agent's section, each of these is left out of that
+   * section (`replaced`), so an item can say what is true instead (a system that runs fns later replaces the hub's
+   * "Nothing runs later by itself"). With it out of the section (its system off, switched off, the other mode), they
+   * are back. Names that reach no agent are ignored.
+   */
+  replaces: z.array(QualifiedName).optional(),
 });
 export type InjectDecl = z.infer<typeof InjectDecl>;
 

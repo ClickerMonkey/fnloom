@@ -8,9 +8,9 @@ import type { Approval, Json, Notification, RunId } from '@harness/core';
 import { computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import AppPage from '../app/AppPage.vue';
-import { ROUTES, notificationTarget } from '../app/routes.ts';
+import { ROUTES, noticeTarget } from '../app/routes.ts';
 import { useRouteQuery } from '../app/url.ts';
-import { OPEN_KEY } from '../state/push-payload.ts';
+import { NoticeVia, OPEN_KEY, VIA_KEY } from '../state/push-payload.ts';
 import InboxApprovals from '../components/inbox/InboxApprovals.vue';
 import NotificationList from '../components/inbox/NotificationList.vue';
 import ListSearch from '../components/query/ListSearch.vue';
@@ -38,14 +38,17 @@ const shows = computed<readonly SegmentOption<InboxFilter>[]>(() => [
 watch([filter, () => JSON.stringify(hubQuery.value)], ([value]) => { void inbox.load(value, hubQuery.value); }, { immediate: true });
 
 const opening = query.text(OPEN_KEY);
+/** Which of its links a push opens it by: its main one, or its second for the push's action. */
+const via = query.choice(VIA_KEY, NoticeVia, 'link');
 watch([opening, inbox.items], ([id, items]) => {
   const found = id === '' ? undefined : items.find((n) => n.id === id);
-  if (found !== undefined) { void open(found); }
+  if (found !== undefined) { void open(found, via.value); }
 }, { immediate: true });
 
-async function open(notification: Notification): Promise<void> {
+/** Open a notification where it leads: its main link, or its second (`also`). */
+async function open(notification: Notification, by: NoticeVia = 'link'): Promise<void> {
   if (!notification.read) { void inbox.markRead([notification.id]); }
-  await router.push(await notificationTarget(notification.link, (run) => chat.sessionOfRun(run)));
+  await router.push(await noticeTarget(notification, (run) => chat.sessionOfRun(run), by));
 }
 
 /** The runs the unresolved approval notifications point at. */
@@ -79,7 +82,7 @@ async function readAll(): Promise<void> {
         :items="inbox.items.value" :now="now" :loading="inbox.loading.value" :loaded="inbox.loaded.value" :problem="inbox.problem.value"
         :has-more="inbox.hasMore.value" :loading-more="inbox.loadingMore.value"
         :empty-title="Object.keys(hubQuery).length > 0 ? 'Nothing matches' : filter === 'unread' ? 'Nothing unread' : 'All caught up'"
-        @open="open" @read="inbox.markRead([$event.id])" @more="inbox.loadMore()" @retry="inbox.load(filter, hubQuery)"
+        @open="open($event)" @also="open($event, 'also')" @read="inbox.markRead([$event.id])" @more="inbox.loadMore()" @retry="inbox.load(filter, hubQuery)"
       />
     </UiCard>
   </AppPage>

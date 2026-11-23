@@ -6,7 +6,7 @@
  * renamed or misspelled key breaks both at compile time.
  */
 import {
-  type HubMcpId, type InstanceName, LlmInteractionId, ModelCallId, ModelRole, NotificationId, PairingId, SearchItemKind, splitName, ResourceUri, RunId, SessionId, TurnId, type MessageId, type NotificationLink, type QualifiedName, type SystemName,
+  type HubMcpId, type InstanceName, LlmInteractionId, ModelCallId, ModelRole, NotificationId, PairingId, SearchItemKind, splitName, ResourceUri, RunId, SessionId, TurnId, type MessageId, type Notification, type NotificationAlso, type NotificationLink, type QualifiedName, type SystemName,
 } from '@harness/core';
 import type { RouteLocationRaw, RouteRecordRaw } from 'vue-router';
 import { z } from 'zod';
@@ -18,8 +18,9 @@ import { ContextBrowseQuery, ContextItemQuery } from '../context/logic/context.t
 import { GraphUrl } from '../graph/url.ts';
 import { DataSetsUrl, RecordsUrl, typeParts } from '../data/logic/data.ts';
 import { InboxFilter } from '../state/inbox.ts';
-import { OPEN_KEY } from '../state/push-payload.ts';
+import { NoticeVia, OPEN_KEY, VIA_KEY } from '../state/push-payload.ts';
 import { NEEDS_APPROVAL, queryParam } from '../state/query.ts';
+import { alsoParam } from '../runs/logic.ts';
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -59,6 +60,8 @@ export const ROUTES = {
   /** SSO: people, groups and how people sign in (`/admin/people/<tab>`). */
   people: 'people',
   runs: 'runs',
+  /** One run for its own person (and admins), `/run/<run>`: where a run outside any chat opens. */
+  run: 'run',
   llmCalls: 'llm-calls',
   modelCalls: 'model-calls',
   mcps: 'mcps',
@@ -119,7 +122,8 @@ export const QUERIES = {
   [ROUTES.chat]: CHAT_QUERY,
   [ROUTES.session]: CHAT_QUERY,
   [ROUTES.turnTree]: CHAT_QUERY,
-  [ROUTES.inbox]: z.object({ q: z.string(), filter: InboxFilter, [OPEN_KEY]: NotificationId }).partial(),
+  /** The search and filter, and a notification to open (a push's click), by its main link or its second (`via=also`, a push's action). */
+  [ROUTES.inbox]: z.object({ q: z.string(), filter: InboxFilter, [OPEN_KEY]: NotificationId, [VIA_KEY]: NoticeVia }).partial(),
   [ROUTES.systems]: z.object({ pairing: PairingId, q: z.string() }).partial(),
   /** The section the Parts tab shows, and the Graph tab's filters. */
   [ROUTES.system]: GraphUrl.extend({ part: PartTab.optional() }),
@@ -129,6 +133,8 @@ export const QUERIES = {
   /** The list's words and filters, the person or group open beside it, the add dialog, and a test sign-in's result. */
   [ROUTES.people]: z.object({ q: z.string(), user: z.string(), group: z.string(), add: z.literal('1'), test: z.string() }).partial(),
   [ROUTES.runs]: z.object({ q: z.string(), run: RunId, [TAB_KEYS.run]: RunTab }).partial(),
+  /** The details' tab, and the second link of the notification that led here (`NotificationAlso` as JSON, `alsoParam`). */
+  [ROUTES.run]: z.object({ [TAB_KEYS.run]: RunTab, also: z.string() }).partial(),
   [ROUTES.llmCalls]: z.object({ q: z.string(), call: LlmInteractionId, [TAB_KEYS.llm]: LlmCallTab }).partial(),
   [ROUTES.resources]: BrowserQuery,
   /** The file opened in the folder shown, by its name there. */
@@ -212,6 +218,8 @@ export const links = {
   }),
   /** The runs browser; `query` narrows it (`q`, a written query: `queryParam('runs', ...)`) or opens one (`run`). */
   runs: (query: RouteQuery<typeof ROUTES.runs> = {}): RouteLocationRaw => ({ name: ROUTES.runs, ...queryOf(ROUTES.runs, query) }),
+  /** One run on its person's run page (`/run/run_1`); `query` opens a details tab or carries a notification's second link (`also`). */
+  run: (run: RunId, query: RouteQuery<typeof ROUTES.run> = {}): RouteLocationRaw => ({ name: ROUTES.run, params: { run }, ...queryOf(ROUTES.run, query) }),
   /** The runs of one fn. */
   fnRuns: (fn: QualifiedName): RouteLocationRaw => links.runs({ q: queryParam('runs', { filters: [{ field: 'fn', op: 'is', value: fn }] }) }),
   /** The runs waiting for an approval, of one system when it is given. */
@@ -285,15 +293,28 @@ export type SessionOfRun = (run: RunId) => Promise<SessionId | undefined>;
 
 /**
  * Where a notification leads. A run in a chat leads to that chat, where its question or approval waits in the dock
- * and is answered; a run outside any chat opens in the runs browser. An approval leads to the runs waiting on one.
+ * and is answered; a run outside any chat opens on its run page (for admins too), which carries the notification's
+ * second link (`also`) so it can offer it beside the run. A page link opens that system's page. An approval leads to
+ * the runs waiting on one.
  */
-export async function notificationTarget(link: NotificationLink, sessionOf: SessionOfRun): Promise<RouteLocationRaw> {
+export async function notificationTarget(link: NotificationLink, sessionOf: SessionOfRun, also?: NotificationAlso): Promise<RouteLocationRaw> {
   if ('session' in link) { return links.session(link.session); }
   if ('system' in link) { return links.system(link.system); }
   if ('pairing' in link) { return links.systems({ pairing: link.pairing }); }
   if ('approval' in link) { return links.waitingRuns(); }
+  if ('page' in link) { return links.systemPage(link.page.system, link.page.segment, link.page.path ?? [], link.page.query ?? {}); }
   const session = await sessionOf(link.run).catch(() => undefined);
-  return session === undefined ? links.runs({ run: link.run }) : links.session(session);
+  return session === undefined ? links.run(link.run, also === undefined ? {} : { also: alsoParam(also) }) : links.session(session);
+}
+
+/**
+ * Where opening a notification leads: its main link (carrying its second link to a run page), or its second link
+ * (`also`: the inbox's second button, a push's action). A notification without a second link opens its main one.
+ */
+export function noticeTarget(notification: Pick<Notification, 'link' | 'also'>, sessionOf: SessionOfRun, via: NoticeVia = 'link'): Promise<RouteLocationRaw> {
+  return via === 'also' && notification.also !== undefined
+    ? notificationTarget(notification.also.link, sessionOf)
+    : notificationTarget(notification.link, sessionOf, notification.also);
 }
 
 /** A path pattern matching one of an enum's values. */
@@ -324,6 +345,8 @@ export const routes: RouteRecordRaw[] = [
   // a system's page: the host finds it among the live systems' pages, or says the system isn't installed (keeping the URL)
   { path: '/s/:system/:page/:path(.*)*', name: ROUTES.systemPage, component: () => import('../system-pages/SystemPageHost.vue'), meta: { title: 'Page' } },
   { path: '/connect/:system', name: ROUTES.connect, component: () => import('../pages/ConnectPage.vue'), meta: { title: 'Connect' } },
+  // one run for its own person (and admins): where a run outside any chat opens
+  { path: '/run/:run', name: ROUTES.run, component: () => import('../pages/RunPage.vue'), meta: { title: 'Run' } },
   { path: '/inbox', name: ROUTES.inbox, component: () => import('../pages/InboxPage.vue'), meta: { title: 'Inbox' } },
   {
     path: '/admin', component: () => import('../admin/views/AdminLayout.vue'), meta: { admin: true },

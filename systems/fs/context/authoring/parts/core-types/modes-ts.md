@@ -5,7 +5,7 @@ title: "Core types: From packages/core/src/modes.ts"
 description: "Core types, the part on From packages/core/src/modes.ts."
 summary: "Core types: From packages/core/src/modes.ts."
 parent: "fs/authoring.core-types"
-next: "fs/authoring.core-types.package-ts"
+next: "fs/authoring.core-types.owner-runs-ts"
 suggest: "none"
 tags: ["authoring", "reference"]
 niche: "developer"

@@ -29,7 +29,9 @@ const props = withDefaults(defineProps<{
   canSeeCalls?: boolean;
   /** The gin type of the fn's args (`GinTypeDef`), when the browser knows it: the args then draw by their type, with system components for named types. */
   argsType?: GinTypeDef | undefined;
-}>(), { record: undefined, problem: '', canSeeCalls: false, argsType: undefined });
+  /** Whether "Undo the turn" is offered (a page with its own Undo, or one that can't undo it, turns it off). */
+  undoable?: boolean;
+}>(), { record: undefined, problem: '', canSeeCalls: false, argsType: undefined, undoable: true });
 const emit = defineEmits<{ background: []; tree: []; undo: []; llm: [id: LlmInteractionId]; run: [id: RunId]; retry: []; calls: [id: RunId]; fn: [fn: QualifiedName] }>();
 
 /** The tab shown; a parent binds it to the URL so a refresh keeps it. */
@@ -95,7 +97,7 @@ const json = computed(() => JSON.stringify(props.record ?? props.run ?? null, nu
         <UiButton v-if="run.llmCall" size="sm" variant="ghost" icon="sparkles" @click="run.llmCall && emit('llm', run.llmCall)">LLM call that asked</UiButton>
         <UiButton v-if="canSeeCalls" size="sm" variant="ghost" icon="cpu" data-testid="run-model-calls" @click="run && emit('calls', run.id)">Model calls</UiButton>
         <UiButton v-if="run.parent" size="sm" variant="ghost" icon="chevron-left" @click="run.parent && emit('run', run.parent)">Called by</UiButton>
-        <UiButton v-if="run.turn && isSettled(run.status)" size="sm" variant="ghost" icon="undo" @click="emit('undo')">Undo the turn</UiButton>
+        <UiButton v-if="undoable && run.turn && isSettled(run.status)" size="sm" variant="ghost" icon="undo" @click="emit('undo')">Undo the turn</UiButton>
       </div>
       <UiTabs v-model="tab" :tabs="tabs" label="Run details">
         <template #default="{ value }">

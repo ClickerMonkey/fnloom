@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ActorId, NotificationId, PushId, SessionId, type Notification } from '@harness/core';
+import { ActorId, NotificationId, PushId, RunId, SessionId, SystemName, type Notification } from '@harness/core';
 import { pushPayload, WebPushService } from './push.ts';
 import { testStore } from '../testing.ts';
 import { recordingPush } from './testing/rig.ts';
@@ -49,6 +49,19 @@ describe('WebPushService', () => {
     await expect(push.send(user, notification)).resolves.toEqual({ sent: 0, gone: 0 });
     expect(errors).toMatchObject([{ message: 'the push service answered 429' }]);
     await expect(store.table('pushSubscriptions').count()).resolves.toBe(1);
+  });
+
+  it('carries a second link, key and tone, so the phone tags it by key and offers the link as an action', () => {
+    const notice: Notification = {
+      ...notification, reason: 'system-message', link: { run: RunId.parse('run_1') }, tone: 'failed', key: 'schedule:schedule/weekly',
+      also: { label: 'History', link: { page: { system: SystemName.parse('schedule'), segment: 'item', path: ['weekly'], query: { tab: 'history' } } } },
+    };
+    expect(JSON.parse(pushPayload(notice, 'Family Desk'))).toEqual({
+      id: 'ntf_1', title: 'Family Desk: Ada replied', body: 'Looks good', link: { run: 'run_1' }, reason: 'system-message', tone: 'failed', key: 'schedule:schedule/weekly',
+      also: { label: 'History', link: { page: { system: 'schedule', segment: 'item', path: ['weekly'], query: { tab: 'history' } } } },
+    });
+    // a plain one carries none of them
+    expect(JSON.parse(pushPayload(notification, 'Family Desk'))).toEqual({ id: 'ntf_1', title: 'Family Desk: Ada replied', body: 'Looks good', link: { session: 'ses_1' }, reason: 'replied' });
   });
 
   it('gives its public key', async () => {

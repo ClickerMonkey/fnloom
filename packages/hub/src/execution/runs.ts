@@ -127,6 +127,9 @@ export function suppliedHandlers(fn: FnRecord, parent: Run | undefined, named: r
 /** The key prefix of a run a system proposed (`propose`), apart from the keys of the calls it makes. */
 export const PROPOSED_KEY = 'propose:';
 
+/** How many runs up a call's tree a policy's `via` is looked for. */
+const MAX_VIA_DEPTH = 32;
+
 /** The error code of a run a policy denied or its approver declined. */
 export const DECLINED_CODE = 'denied';
 
@@ -366,6 +369,8 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       ...(await this.#withinParent(fn, parent) ? { withinParent: true } : {}),
       // an A/B compare's variant (its session is a fork): what would change something asks in each variant
       ...(await this.#variantOf(input.session)),
+      // the fns of the runs this call is made under, for policies that match by caller (`FnMatch.via`)
+      ...(parent === undefined ? {} : { via: await this.#via(parent) }),
       // a per-person fn its person keeps on 'ask first' waits for the connection's owner
       ...(connection?.state === 'ready' && connection.option.ask ? { ask: connection.connection.owner === turn.user.id ? { by: 'turn-user' } : { by: 'actor', actor: connection.connection.owner } } : {}),
     });
@@ -380,6 +385,18 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     }
     if (input.background) await this.background(id);
     return { run: id, settled };
+  }
+
+  /** The fns of a run and the runs above it, nearest first (what a policy's `via` is matched against). */
+  async #via(parent: Run): Promise<QualifiedName[]> {
+    const fns: QualifiedName[] = [];
+    let run: Run | undefined = parent;
+    // a tree is shallow; the bound only guards against a broken parent chain
+    for (let depth = 0; run !== undefined && depth < MAX_VIA_DEPTH; depth++) {
+      fns.push(run.fn);
+      run = run.parent === undefined ? undefined : await this.#deps.store.table('runs').get(run.parent);
+    }
+    return fns;
   }
 
   /** The compare variant a session is the fork of, if it is one (`Session.fork`). */

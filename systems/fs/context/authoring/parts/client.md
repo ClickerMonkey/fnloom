@@ -16,7 +16,7 @@ choices:
     when: "Pick this to go on in order: Visuals and widgets."
 ---
 
-## 25. The client: renderers, inputs, resource views and pages
+## 26. The client: renderers, inputs, resource views and pages
 
 A system can draw its things in the chat with **Vue 3 components**. `client(contract, renderers)` in `client/index.ts`
 (default export) registers them, and each component's props are typed by the contract, so a component with the wrong

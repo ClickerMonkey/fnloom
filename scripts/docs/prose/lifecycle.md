@@ -18,8 +18,9 @@ value, and the hub still checks it with the gin type before storing it.
 
 `events` handles hub events by type, and the system is subscribed to exactly the types it handles: `message` (a chat
 message), `run` (a run's status, progress, operations or cost changed), `resources` (resources changed), `system` (a
-system connected, disconnected or was removed) and `fns` (fns were added or removed). Each handler is
-`async (event, ctx) => void`, with the event typed by its `type`.
+system connected, disconnected or was removed) and `fns` (fns were `added`, `removed`, or `changed`: saved again, or
+their availability moved). The update that settles a run also says `notified`: whether it, or a run under it, told its
+person something. Each handler is `async (event, ctx) => void`, with the event typed by its `type`.
 
 ### Lifecycle
 

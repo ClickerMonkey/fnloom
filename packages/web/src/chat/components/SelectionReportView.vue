@@ -41,7 +41,7 @@ const injectedLine = computed((): string | undefined => {
   return `${injected.tokens.toLocaleString()} of the ${props.report.budget.fixed.toLocaleString()} fixed tokens · ${parts.join(', ')}`;
 });
 const LEFT_OUT_WORDS: Record<string, string> = {
-  off: 'switched off', pending: 'waiting for review', declined: 'declined', 'system-off': 'system off', 'fns-unusable': 'its fns can\'t be used', mode: 'the other chat mode', 'no-fit': 'didn\'t fit',
+  off: 'switched off', pending: 'waiting for review', declined: 'declined', 'system-off': 'system off', 'fns-unusable': 'its fns can\'t be used', mode: 'the other chat mode', replaced: 'replaced', 'no-fit': 'didn\'t fit',
 };
 const itemTitle = (item: RankedItem): string => `${item.name}: ${DETAIL_WORDS[item.detail]}, activation ${item.activation.toFixed(2)}`;
 </script>

@@ -16,10 +16,11 @@ niche: "developer"
 
 function · `import { system } from '@harness/sdk'`
 
-Start a contract. The name must be unique among the hub's systems: lowercase letters, digits and dashes.
+Start a contract. The name must be unique among the hub's systems: lowercase letters, digits and dashes. Its pages'
+segments are kept in the contract's type, so `contract.page.<segment>` is a typed ref.
 
 ```ts
-function system<const N extends string>(name: N, info: SystemInfo): SystemContract<N, EmptyContract>;
+function system<const N extends string, const S extends string = never>(name: N, info: SystemInfo<S>): SystemContract<N, EmptyContract<N, S>>;
 ```
 
 #### `SystemContract`
@@ -84,6 +85,8 @@ interface SystemRefs<N extends string, C extends ContractShape> {
   readonly sectioners: { readonly [K in keyof C['sectioners']]: SectionerRef<Q<N, K>> };
   readonly actions: { readonly [K in keyof C['actions']]: C['actions'][K] extends ActionDef<infer I, infer R, object> ? ActionRef<Q<N, K>, I, R> : never };
   readonly providers: { readonly [K in keyof C['providers']]: ProviderRef<Q<N, K>> };
+  /** Page refs, by segment (`schedule.page.item`): what a notice links to, never a segment string. */
+  readonly page: { readonly [K in keyof C['pages']]: PageRef<Q<N, K>> };
 }
 ```
 
@@ -114,19 +117,23 @@ interface ContractShape {
    * fns act as them. `undefined` for a system everyone shares. The implementation then serves `connect`.
    */
   connect: ConnectDecl | undefined;
+  /** The system's name (`schedule`), so what is computed from the contract alone (the refs its ctxs take) is named. */
+  system: string;
+  /** Its declared pages, by segment (`system(name, { pages })`), so links to them are refs (`contract.page.item`). */
+  pages: Record<string, SystemPageDecl>;
 }
 ```
 
-Refers to: [`ConnectDecl`](context:fs/authoring.core-types.connections-ts#core-connectdecl).
+Refers to: [`ConnectDecl`](context:fs/authoring.core-types.connections-ts#core-connectdecl), [`SystemPageDecl`](context:fs/authoring.core-types.system-pages-ts#core-systempagedecl).
 
 #### `ContractSection`
 
 type · `import { ContractSection } from '@harness/sdk'`
 
-The sections of a contract that add named declarations (all but `config` and `connect`).
+The sections of a contract that add named declarations (all but `config`, `connect`, `system` and `pages`).
 
 ```ts
-type ContractSection = Exclude<keyof ContractShape, 'config' | 'connect'>;
+type ContractSection = Exclude<keyof ContractShape, 'config' | 'connect' | 'system' | 'pages'>;
 ```
 
 #### `CONTRACT_SECTIONS`
@@ -153,21 +160,26 @@ function isSystemContract(value: unknown): value is AnyContract;
 
 interface · `import { EmptyContract } from '@harness/sdk'`
 
-A contract with nothing in it yet. Its config is the empty object.
+A contract with nothing in it yet: system `N`, with the pages whose segments are `S`. Its config is the empty object.
 
 ```ts
-interface EmptyContract {
+interface EmptyContract<N extends string = string, S extends string = never> {
   config: GinType<{}>;
   types: {}; settings: {}; attachments: {}; kinds: {}; fns: {}; context: {}; hooks: {}; mentions: {}; sectioners: {}; actions: {}; providers: {};
   connect: undefined;
+  system: N;
+  pages: { [K in S]: SystemPageDecl };
 }
 ```
+
+Refers to: [`SystemPageDecl`](context:fs/authoring.core-types.system-pages-ts#core-systempagedecl).
 
 #### `Merge`
 
 type · `import { Merge } from '@harness/sdk'`
 
-A contract with more sections merged in: `config` and `connect` are replaced, every other section adds to what was declared.
+A contract with more sections merged in: `config` and `connect` are replaced, `system` and `pages` are kept (they are
+declared once, by `system()`), every other section adds to what was declared.
 
 ```ts
 type Merge<C extends ContractShape, P extends Partial<ContractShape>> = {
@@ -175,7 +187,9 @@ type Merge<C extends ContractShape, P extends Partial<ContractShape>> = {
     ? (P extends { config: infer X extends GinType<object> } ? X : C['config'])
     : K extends 'connect'
       ? (P extends { connect: infer X extends ConnectDecl } ? X : C['connect'])
-      : Simplify<C[K] & (K extends keyof P ? NonNullable<P[K]> : {})>;
+      : K extends 'system' | 'pages'
+        ? C[K]
+        : Simplify<C[K] & (K extends keyof P ? NonNullable<P[K]> : {})>;
 };
 ```
 
@@ -203,10 +217,10 @@ type ConfigOf<C extends ContractShape> = Infer<C['config']>;
 
 interface · `import { SystemInfo } from '@harness/sdk'`
 
-What `system()` takes besides its name.
+What `system()` takes besides its name; `S` is its pages' segments.
 
 ```ts
-interface SystemInfo {
+interface SystemInfo<S extends string = string> {
   description: string;
   /**
    * What a chat model that has never seen this app is told about the system in its system prompt's `<systems>` list,
@@ -245,7 +259,7 @@ interface SystemInfo {
    * (`client({ pages: { SessionsPage } })`), which must have every one named. The nav shows a `main` page while the
    * system is live; a `hidden` one is reached by link (a detail page). Segments are unique.
    */
-  pages?: SystemPageInput[];
+  pages?: Array<SystemPageInput & { segment: S }>;
   /**
    * Its API groups: a name, a title and what the group's fns are for (`{ name: 'files', title: 'Files', description:
    * 'Read, write and search files.' }`). The hub keeps an index item for the system (`<system>/api`, the groups as

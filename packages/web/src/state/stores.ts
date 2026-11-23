@@ -18,6 +18,7 @@ import type { FnInfoStore } from '../fns/state/fn-info.ts';
 import type { FnNotices } from '../fns/state/fn-notices.ts';
 import type { ModelNamesStore } from '../fns/state/model-names.ts';
 import type { GraphStore } from '../graph/state/graph.ts';
+import type { RunPageStore } from '../runs/store.ts';
 import type { DataStore } from '../data/state/data.ts';
 import type { SystemPagesStore } from '../system-pages/store.ts';
 import type { ItemVersionsSource } from '../components/versions/versions.ts';
@@ -62,6 +63,8 @@ export interface Stores {
   readonly modelNames: ModelNamesStore;
   /** A new graph view (the graph page, a system's Graph tab), each with its own query and page. */
   readonly graph: () => GraphStore;
+  /** A new run page's store (`/run/:run`): one run for its own person, its tree, approval and undo. */
+  readonly runPage: () => RunPageStore;
   /** The Data pages (build 8): stored types, their records, saved widgets and the actions rows offer. */
   readonly data: DataStore;
   /** The pages live systems add (item 9), for the nav and `/s/<system>/<page>`. */

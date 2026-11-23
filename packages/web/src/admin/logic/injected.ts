@@ -29,6 +29,7 @@ export const LEFT_OUT_WORDS: Readonly<Record<InjectionLeftOut, string>> = {
   'system-off': 'System off',
   'fns-unusable': 'Its fns can\'t be used',
   mode: 'Other chat mode',
+  replaced: 'Replaced',
   'no-fit': 'Didn\'t fit',
 };
 
@@ -44,7 +45,7 @@ export interface InjectionState {
 export function injectionState(view: Pick<InjectionView, 'leftOut' | 'detail'>): InjectionState {
   const why = view.leftOut?.why;
   if (why === undefined) { return { label: view.detail === 'summary' ? 'In, as its summary' : 'In', tone: 'ok', in: true }; }
-  const tone: Tone = why === 'off' ? 'neutral' : why === 'declined' ? 'danger' : 'warn';
+  const tone: Tone = why === 'off' || why === 'replaced' ? 'neutral' : why === 'declined' ? 'danger' : 'warn';
   return { label: LEFT_OUT_WORDS[why], tone, in: false };
 }
 

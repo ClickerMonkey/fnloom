@@ -5,8 +5,8 @@
  * typed and checked by the contract's gin types. Services are read when a fn runs, never while registering. Every one
  * keeps to what the run's person may see and use (their `AccessScope`): search hits, loads and results alike.
  */
-import { mapConcurrent, clipMarked, ContextCrawlArgs, contextOff, effectCovered, effectsLine, CtxSearchArgs, ctxSearchQuery, FnExamplesQuery, FnRouting, FnSearchArgs, fnsSearchQuery, QualifiedName, qualify, splitName, SystemName, type FnRefusal, type ContextCrawlResult, type ContextRecord, type CrawledContext, type FnSearchPage, type FnSearchQuery, type LoadContextResult, type LoadFnsResult, type SearchItemKind, type ActorId, type FnDecl, type FnExample, type Json, type IndexedKind, type RegistryEffect, type Run, type Session, type SessionId } from '@harness/core';
-import { hub, parseValue, SAVE_FN_TAKEN, wireType } from '@harness/sdk';
+import { mapConcurrent, clipMarked, ContextCrawlArgs, contextOff, effectCovered, effectsLine, CtxSearchArgs, ctxSearchQuery, FnDecl, FnExamplesQuery, FnRouting, FnSearchArgs, fnsSearchQuery, QualifiedName, qualify, splitName, SystemName, type FnRefusal, type ContextCrawlResult, type ContextRecord, type CrawledContext, type FnSearchPage, type FnSearchQuery, type LoadContextResult, type LoadFnsResult, type SearchItemKind, type ActorId, type FnExample, type Json, type IndexedKind, type RegistryEffect, type Run, type Session, type SessionId } from '@harness/core';
+import { hub, parseValue, RemovedFn, SAVE_FN_TAKEN, wireType } from '@harness/sdk';
 import type { AccessService } from '../access/index.ts';
 import type { FnFactsService, FnsServices } from '../fns/index.ts';
 import { latestUserText } from '../fns/decided.ts';
@@ -30,7 +30,7 @@ import { crawledContextCards, loadedContextCards, loadedFnsCards } from '../cont
 import { ContextCrawler } from '../contextor/crawl.ts';
 import type { Decider } from '../models/index.ts';
 import { fnRefusal, readsAsMissing, refusalOf, unavailableBlock } from '../contextor/views.ts';
-import { itemVersionCount } from '../catalog/versions.ts';
+import { itemVersionCount, latestItemVersion } from '../catalog/versions.ts';
 
 /** How many results a search returns when the agent doesn't say. */
 const DEFAULT_LIMIT = 10;
@@ -45,7 +45,7 @@ function keptExample(example: { readonly args: Json; readonly result?: Json | un
 /** What the hub fns read, each looked up when a fn runs. */
 export interface HubFnDeps {
   readonly store: () => HubStore;
-  readonly catalog: () => Pick<Catalog, 'fn' | 'fns' | 'availability' | 'context' | 'type' | 'declare' | 'kind'>;
+  readonly catalog: () => Pick<Catalog, 'fn' | 'fns' | 'availability' | 'context' | 'type' | 'declare' | 'kind' | 'remove'>;
   readonly search: () => Search;
   /** Where a session's loaded fns and context are kept. */
   readonly sessions: () => Pick<SessionService, 'load'>;
@@ -408,6 +408,40 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
     if (share !== undefined) await deps.sharing().own({ kind: 'fn', fn: name }, existing === undefined ? person : (await deps.sharing().sharing({ kind: 'fn', fn: name })).owner, share);
     // every save is a version of the fn (`itemVersions`, written with it), numbered from 1
     return { fn: name, version: Math.max(1, await itemVersionCount(deps.store(), system, 'fns', name)), created: existing === undefined };
+  });
+
+  // a system removes a saved fn of its own kind, for its owner or an admin; undoing the run saves its last version again
+  fns.register(hub.fns.fns_remove, async (args, ctx) => {
+    const name = QualifiedName.safeParse(args.fn);
+    const fn = name.success ? await deps.catalog().fn(name.data) : undefined;
+    const person = ctx.request.run.user;
+    if (fn === undefined || !(await deps.access(person.id)).seesFn(fn)) throw new InvalidArgs([{ path: 'fn', message: `no such fn: ${args.fn}` }]);
+    const kind = fn.decl.kind === 'native' ? undefined : (await deps.catalog().kind(fn.decl.kind));
+    // only the kind's own system removes fns of it: the hub fn's caller is a run of that system
+    const parent = ctx.request.run.parent === undefined ? undefined : await deps.store().table('runs').get(ctx.request.run.parent);
+    if (kind === undefined || parent?.system !== kind.system) throw new RunRefused(fnError('caller', `only the system that owns ${fn.name}'s kind may remove it`, 'not-your-kind'));
+    if (fn.origin === 'contract') throw new RunRefused(fnError('caller', `${fn.name} is one of ${fn.system}'s own fns and can't be removed`, 'not-saved'));
+    const { owner } = await deps.sharing().sharing({ kind: 'fn', fn: fn.name });
+    if (owner !== person.id && person.role !== 'admin') throw new RunRefused(fnError('caller', `${fn.name} is not ${person.name}'s: only its owner or an admin may remove it`, 'not-yours'));
+    await checkDeclared(deps, parent, { thing: 'fns', action: 'remove', kind: kind.name });
+    const version = Math.max(1, await itemVersionCount(deps.store(), fn.system, 'fns', fn.name));
+    const report = await deps.catalog().remove(fn.system, fn.name, person.id);
+    const refused = report.refused[0];
+    if (refused !== undefined) throw new RunRefused(fnError('caller', refused.problems.join('; '), 'refused'));
+    ctx.undoWith({ fn: fn.name, version });
+    return { fn: fn.name, version };
+  });
+  fns.registerUndo(hub.fns.fns_remove, RemovedFn, async (payload, ctx) => {
+    const name = QualifiedName.parse(payload.fn);
+    const { system } = splitName(name);
+    const last = await latestItemVersion(deps.store(), SystemName.parse(system), 'fns', name);
+    // restored already, or saved again since: nothing of this removal is left to take back
+    if (last?.change !== 'removed') return { status: 'gone' };
+    if (await deps.catalog().fn(name) !== undefined) return { status: 'gone' };
+    const report = await deps.catalog().declare(SystemName.parse(system), FnDecl.parse(last.decl), ctx.info.user.id);
+    const refused = report.refused[0];
+    if (refused !== undefined) return { status: 'failed', error: fnError('caller', `${name} could not be restored: ${refused.problems.join('; ')}`, 'refused') };
+    return { status: 'undone', summary: `Restored ${name} (version ${String(payload.version)})` };
   });
 
   // its runs are made by the hub for a system's own model calls (`RunService.systemWork`); it is never run itself
