@@ -2,7 +2,7 @@
  * The manifest as it is now: the contract's, plus fns and types added at runtime and every runtime patch (`SystemTable.patch`). Its hash goes in `hello`, so the hub only asks
  * for the manifest when its copy is stale; runtime changes go as patches carrying the new hash.
  */
-import { Json, Manifest, ManifestPatch, SystemName, splitName, type ClientAssets, type FnDecl, type QualifiedName, type TypeDecl } from '@harness/core';
+import { Json, Manifest, ManifestPatch, SystemName, splitName, type ClientAssets, type FnDecl, type InstanceName, type QualifiedName, type TypeDecl } from '@harness/core';
 import type { AnyFnDef } from '../fn.ts';
 import { canonicalJson, fnDecl, manifestBody, sha256, type ManifestOptions } from '../manifest.ts';
 import type { SystemPatch, SystemTable } from './table.ts';
@@ -23,10 +23,13 @@ export class ManifestState {
   readonly #table: SystemTable;
   readonly #options: ManifestOptions;
   #client: ClientAssets | undefined;
+  /** The instance this process is now (the hub's welcome may name it), for the runtime provider's name. */
+  readonly #instance: (() => InstanceName) | undefined;
 
-  constructor(table: SystemTable, options: ManifestOptions) {
+  constructor(table: SystemTable, options: ManifestOptions, instance?: () => InstanceName) {
     this.#table = table;
     this.#options = options;
+    this.#instance = instance;
     this.#client = options.client;
   }
 
@@ -38,7 +41,7 @@ export class ManifestState {
   /** The manifest as it is now, hashed and checked. */
   async current(): Promise<Manifest> {
     const contract = this.#table.contract;
-    const body = manifestBody(contract, { ...this.#options, ...(this.#client === undefined ? {} : { client: this.#client }) });
+    const body = manifestBody(contract, { ...this.#options, ...(this.#instance === undefined ? {} : { instance: this.#instance() }), runtimeModels: this.#table.runtimeModels(), ...(this.#client === undefined ? {} : { client: this.#client }) });
     const added = [...this.#table.added()];
     const requires = new Set<string>(body.requires);
     for (const [, { def }] of added) {
@@ -95,6 +98,12 @@ export class ManifestState {
       ...(change.lists === undefined ? {} : { lists: change.lists }),
       ...(change.roots === undefined ? {} : { roots: change.roots }),
     });
+  }
+
+  /** A patch that sends the providers as they are now (the runtime provider's models changed), whole. */
+  async providers(): Promise<ManifestPatch> {
+    const current = await this.current();
+    return ManifestPatch.parse({ hash: current.hash, upsert: {}, remove: {}, lists: { providers: current.providers ?? [] } });
   }
 
   /** A patch that removes one fn. */

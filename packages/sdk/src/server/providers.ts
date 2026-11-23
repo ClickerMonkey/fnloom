@@ -2,14 +2,16 @@
  * The system side of the model providers a system brings (`provider()` in its contract): the hub's `providerChat`,
  * `providerEmbed`, `providerDecide` and `providerModels` calls run on the aeye `Provider` its implementation makes
  * for the current config. A model the contract doesn't declare is refused, and a live listing names only declared
- * models, so the hub can only reach what the manifest promised (and priced), which is what an admin reviewed.
+ * models, so the hub can only reach what the manifest promised (and priced), which is what an admin reviewed. The
+ * contract's runtime provider is called by this instance's name, and declares the models the system set last
+ * (`RunningSystem.models`).
  */
 import type { Provider } from '@aeye/ai';
 import type { Chunk, Response } from '@aeye/core';
 import { reject } from '@ayepi/core';
 import {
   compact, DecisionAnswers, isEmbedImage, type LiveProviderModel, type ProviderChat, type ProviderChunk, type ProviderDecide, type ProviderDecideResult, type ProviderEmbed, type ProviderEmbedResult,
-  type ProviderModels, type ProviderModelsResult,
+  type ProviderModelDecl, type ProviderModels, type ProviderModelsResult,
 } from '@harness/core';
 import type { SystemCtx } from '../ctx.ts';
 import type { ProviderDef } from '../providers.ts';
@@ -26,6 +28,8 @@ export interface ProviderServerParts {
   readonly ctx: () => SystemCtx;
   /** The current config version; a provider is made again when it changes. */
   readonly configVersion: () => number | undefined;
+  /** The contract's runtime provider, if it has one: its local name, this instance's name and its models now. */
+  readonly runtime?: { readonly local: string; readonly instance: () => string; readonly models: () => readonly ProviderModelDecl[] } | undefined;
 }
 
 /** How an error from a provider reads on the wire: what kind of failure it is, by aeye's error names. */
@@ -113,8 +117,8 @@ export class ProviderServer {
    * provider that can't list says so (`listed: false`), and the hub then offers every declared model.
    */
   async models(data: ProviderModels): Promise<ProviderModelsResult> {
-    const def = this.#def(data.provider);
-    const provider = this.#made(data.provider);
+    const { def, local } = this.#def(data.provider);
+    const provider = this.#made(local);
     if (provider.listModels === undefined) { return { listed: false }; }
     const declared = new Set(def.models.map((m) => m.id));
     const live = await provider.listModels();
@@ -128,17 +132,26 @@ export class ProviderServer {
     return { listed: true, models };
   }
 
-  /** A declared provider's declaration. */
-  #def(name: string): ProviderDef {
+  /**
+   * A declared provider's declaration and the local name its implementation has: a contract provider by its own name,
+   * the runtime provider by this instance's (with the models set last).
+   */
+  #def(name: string): { def: ProviderDef; local: string } {
+    const runtime = this.#parts.runtime;
+    if (runtime !== undefined && name === runtime.instance()) {
+      const def = this.#parts.defs[runtime.local];
+      if (def !== undefined && this.#parts.impls[runtime.local] !== undefined) { return { def: { ...def, models: runtime.models() }, local: runtime.local }; }
+    }
     const def = this.#parts.defs[name];
-    if (def === undefined || this.#parts.impls[name] === undefined) { throw reject(404, 'NOT_FOUND', `No provider ${name}.`); }
-    return def;
+    if (def === undefined || def.runtime || this.#parts.impls[name] === undefined) { throw reject(404, 'NOT_FOUND', `No provider ${name}.`); }
+    return { def, local: name };
   }
 
   /** The provider for a declared model, made for the current config (and kept until the config changes). */
   #provider(name: string, model: string): Provider {
-    if (!this.#def(name).models.some((m) => m.id === model)) { throw reject(404, 'NOT_FOUND', `Provider ${name} declares no model ${model}.`); }
-    return this.#made(name);
+    const { def, local } = this.#def(name);
+    if (!def.models.some((m) => m.id === model)) { throw reject(404, 'NOT_FOUND', `Provider ${name} declares no model ${model}.`); }
+    return this.#made(local);
   }
 
   /** A declared provider made for the current config (and kept until the config changes). */

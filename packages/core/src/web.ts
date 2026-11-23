@@ -56,7 +56,7 @@ import {
 } from './sso.ts';
 import { ItemVersionsPage, ItemVersionsQuery } from './versions.ts';
 import { DataRecord, DataSetPage, DataSetQuery, RecordGet, RecordPage, RecordQuery, RecordRemove, RecordSave, RecordTableQuery, RecordUpdate, RecordVersionsPage, RecordVersionsQuery } from './data.ts';
-import { ExportQuery, ReadTableArgs, RowActionsQuery, WidgetActionOption } from './widgets.ts';
+import { ExportQuery, ReadFnArgs, RowActionsQuery, WidgetActionOption } from './widgets.ts';
 import { ResultTable } from './registries.ts';
 
 // ─── Middleware defs (bound once, in the hub's api module) ────────────────────
@@ -917,12 +917,12 @@ export const dataSlice = spec({
 /**
  * Widget pass: the actions offered on rows of some types, narrowed by a widget's list (`widgets.ts`), and a quiet read:
  * a read fn run as the signed-in person outside any session (a widget's pager, range, drill, refresh and live re-runs),
- * giving its output. A fn that is not a read is refused.
+ * giving its output, on the instance `on` names for a fleet. A fn that is not a read is refused.
  */
 export const rowActionsSlice = spec({
   endpoints: use(tel, hubAuth).group({
     rowActions: { body: RowActionsQuery, response: z.array(WidgetActionOption), ws: 'rowActions' },
-    readFn: { body: ReadTableArgs, response: Json, ws: 'readFn' },
+    readFn: { body: ReadFnArgs, response: Json, ws: 'readFn' },
   }),
 });
 

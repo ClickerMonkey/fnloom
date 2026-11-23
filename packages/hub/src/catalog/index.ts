@@ -67,7 +67,7 @@ export interface Catalog {
   importManifest(manifest: Manifest, from?: InstanceName): Promise<ImportReport>;
   /** Apply a patch to the stored manifest; `from` as for `importManifest`. */
   importPatch(system: SystemName, patch: ManifestPatch, from?: InstanceName): Promise<ImportReport>;
-  /** An instance was removed: drop the types and fns it owns. */
+  /** An instance was removed: drop the types, fns and providers it owns. */
   forgetInstance(system: SystemName, instance: InstanceName): Promise<ImportReport>;
   /** Import the stored manifest again: re-check every entry and ask kinds to describe their fns afresh. */
   reimport(system: SystemName): Promise<ImportReport>;

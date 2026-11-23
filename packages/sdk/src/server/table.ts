@@ -5,7 +5,7 @@
  * runtime builds. `implTable` is the one place that bridge is made.
  */
 import type {
-  AllowedOperations, ApprovedRun, ConnectFinish, CostEstimate, Manifest, ManifestPatch, ManifestSection, SectionDecl, ConnectionUpdate, ConnectResult, ConnectStart, Detail, ErrorClass, HookInput, InputProblem, Json, KindDescription, MentionHover, PreviewAnswer, RunConnection, RunInfo, SensitivityFlag, ShareRule, StepStatus, TypeDecl, StopReason, SystemEvent, UndoOutcome, Usd,
+  AllowedOperations, ApprovedRun, ConnectFinish, CostEstimate, Manifest, ManifestPatch, ManifestSection, ProviderModelDecl, SectionDecl, ConnectionUpdate, ConnectResult, ConnectStart, Detail, ErrorClass, HookInput, InputProblem, Json, KindDescription, MentionHover, PreviewAnswer, RunConnection, RunInfo, SensitivityFlag, ShareRule, StepStatus, TypeDecl, StopReason, SystemEvent, UndoOutcome, Usd,
 } from '@harness/core';
 import { MANIFEST_SECTIONS, MANIFEST_SECTION_NAMES } from '@harness/core';
 import type { ActionCtx, AskerCtx, BudgetInfo, CallOptions, Decisions, FnCall, Fleets, FnCtx, FnSearch, PreviewCtx, ClaimsCtx, Proposals, Resume, Services, SessionState, SystemCtx, UndoCtx } from '../ctx.ts';
@@ -17,7 +17,7 @@ import type { AnyFnDef, FnTypes, Handlers, Outcome, ProgressDef, UntypedFn } fro
 import type { FnImpl } from '../impl.ts';
 import type { AnyFnRef } from '../refs.ts';
 import type { ResourceProvider } from '../resources.ts';
-import type { ProviderImpl } from '../providers.ts';
+import { checkedModels, runtimeProviderOf, type ProviderImpl } from '../providers.ts';
 import type { Provider } from '@aeye/ai';
 import type { ToolClaims } from '@aeye/core';
 import { refuseOldEmbedders, type AnyContract, type ConnectImpl, type ContractShape, type EventHandlers, type Lifecycle, type SystemImpl } from '../system.ts';
@@ -232,11 +232,16 @@ export class SystemTable {
   readonly #hidden = new Map<ManifestSection, Set<string>>();
   #lists: ManifestPatch['lists'];
   readonly #listeners = new Set<() => void>();
+  /** The contract's runtime provider (`provider({ models: 'runtime' })`), if it has one. */
+  readonly runtimeProvider: string | undefined;
+  /** The models the running system set for its runtime provider (`RunningSystem.models`). */
+  #runtimeModels: readonly ProviderModelDecl[] = [];
 
   constructor(contract: AnyContract, impl: ImplTable) {
     refuseOldEmbedders(`system ${contract.name}'s implementation`, impl);
     this.contract = contract;
     this.impl = impl;
+    this.runtimeProvider = runtimeProviderOf(contract.name, contract.defs.providers);
     for (const [local, def] of Object.entries(contract.defs.fns)) { checkHooks(contract.name, local, def, impl.fns?.[local]); }
     for (const [local, def] of Object.entries(contract.defs.kinds)) {
       if (def.estimates && impl.kinds?.[local] !== undefined && impl.kinds[local].estimate === undefined) {
@@ -309,6 +314,18 @@ export class SystemTable {
     const kept = base.filter((decl) => hidden?.has(decl.name) !== true).map((decl) => patched.get(decl.name) ?? decl);
     const names = new Set(kept.map((decl) => decl.name));
     return [...kept, ...[...patched.values()].filter((decl) => !names.has(decl.name))];
+  }
+
+  /** Set the runtime provider's models (checked: each one's shape, no id twice). */
+  setRuntimeModels(models: readonly ProviderModelDecl[]): void {
+    if (this.runtimeProvider === undefined) { throw new Error(`${this.contract.name} has no runtime provider: declare one with provider({ description, models: 'runtime' }).`); }
+    this.#runtimeModels = checkedModels(models);
+    this.#changed();
+  }
+
+  /** The runtime provider's models now. */
+  runtimeModels(): readonly ProviderModelDecl[] {
+    return this.#runtimeModels;
   }
 
   /** The lists a patch replaced (each one whole), if any. */

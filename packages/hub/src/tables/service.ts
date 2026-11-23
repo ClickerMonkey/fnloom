@@ -6,7 +6,7 @@
 import { reject } from '@ayepi/core';
 import {
   HUB_VISUALS, Json, qualify, ResultTable, splitName, SystemName, csvHeader, csvRows,
-  type ActorId, type ContributionView, type ExportQuery, type FnRecord, type Priority, type QualifiedName, type ReadTableArgs, type RowActionsQuery, type RunSettled, type TurnId,
+  type ActorId, type ContributionView, type ExportQuery, type FnRecord, type Priority, type QualifiedName, type ReadFnArgs, type ReadTableArgs, type RowActionsQuery, type RunSettled, type TurnId,
   type UserView, type WidgetActionOption,
 } from '@harness/core';
 import { returnsTable, widgetActionOptions, type RowFn } from '@harness/sdk';
@@ -64,12 +64,12 @@ export class HubTables implements TableService {
     });
   }
 
-  async readAs(input: ReadTableArgs, user: UserView, signal?: AbortSignal): Promise<Json> {
+  async readAs(input: ReadFnArgs, user: UserView, signal?: AbortSignal): Promise<Json> {
     const source = await this.#seen(input.fn, user.id, 'NOT_A_READ');
     const turn = await this.#deps.turn(user);
     let ok = false;
     try {
-      const settled = await this.#quiet({ fn: source.name, args: input.args, turn: turn.id, key: 'read', actor: user.id, caller: user.id, priority: turn.priority }, signal)
+      const settled = await this.#quiet({ fn: source.name, args: input.args, ...(input.on === undefined ? {} : { on: input.on }), turn: turn.id, key: 'read', actor: user.id, caller: user.id, priority: turn.priority }, signal)
         .catch((error: unknown) => { throw refusedAs400(error, 'READ_FAILED'); });
       if (settled.status !== 'done') {
         const why = settled.status === 'background' ? 'it went to the background' : settled.error?.message ?? settled.status;

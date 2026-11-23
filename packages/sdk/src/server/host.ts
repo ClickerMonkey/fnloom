@@ -19,7 +19,7 @@ import { updown, type UpDown } from '@ayepi/updown';
 import type { Logger } from '@ayepi/log';
 import {
   LINK_PROTOCOL, LinkLimits, SYSTEM_EVENT_TYPES, qualify, splitName,
-  type ImportReport, type InstanceName, type LogLine, type PairingId, type QualifiedName, type StopReason, type TypeDecl, type Welcome,
+  type ImportReport, type InstanceName, type LogLine, type PairingId, type ProviderModelDecl, type QualifiedName, type StopReason, type TypeDecl, type Welcome,
   type FleetInstance, type FnExamplesPage, type FnExamplesQuery, type FnSearchPage, type FnSearchQuery, FnExamplesPatch, HostRefusal, InstanceConnect, PairingGrantRequest, type PairingGrant,
 } from '@harness/core';
 import type { z } from 'zod';
@@ -29,7 +29,7 @@ import { wireType } from '../gin.ts';
 import { checkExamples, contractHash } from '../manifest.ts';
 import type { FnDef, FnTypes } from '../fn.ts';
 import type { FnImpl } from '../impl.ts';
-import { withRefText, type AnyFnRef, type FnRef } from '../refs.ts';
+import { withRefText, type AnyFnRef, type FnRef, type ProviderRef } from '../refs.ts';
 import { configTypeOf, type ConfigOf, type ContractShape, type SystemContract, type SystemImpl } from '../system.ts';
 import { isPlainOffMachine } from './address.ts';
 import { readClientBundle, uploadClientBundle, type ClientBundle } from './assets.ts';
@@ -239,15 +239,15 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
     await this.#loadContext();
     const events = SYSTEM_EVENT_TYPES.filter((type) => this.#table.impl.events?.[type] !== undefined);
     if (this.#options.client !== undefined) { this.#bundle = await readClientBundle(this.#options.client); }
+    const place = await this.#place();
     this.#manifest = new ManifestState(this.#table, {
       version: this.#version,
       events,
       resources: this.#table.impl.resources !== undefined,
       ...(this.#bundle === undefined ? {} : { client: this.#bundle.assets }),
-    });
+    }, () => place.instance);
     const hubAccess = this.#access;
     const content = new HubContent(hubAccess);
-    const place = await this.#place();
     const runEnv: RunEnvironment = {
       system: this.name,
       hub: hubAccess,
@@ -338,6 +338,16 @@ class LinkedSystem<N extends string, C extends ContractShape> implements Running
     // while offline the change rides in the next manifest (its hash includes it); roots are asked for at welcome
     if (hub === undefined) { return { added: [], updated: [], removed: [], refused: [] }; }
     return hub.call('patch', await this.#manifestState().patch(change));
+  }
+
+  async models(provider: ProviderRef<QualifiedName<N>>, models: readonly ProviderModelDecl[]): Promise<ImportReport> {
+    const { system, local } = splitName(provider.name);
+    if (system !== this.name || local !== this.#table.runtimeProvider) { throw new Error(`${provider.name} is not ${this.name}'s runtime provider (provider({ description, models: 'runtime' })).`); }
+    this.#table.setRuntimeModels(models);
+    const hub = this.#now();
+    // while offline the models ride in the next manifest (its hash includes them)
+    if (hub === undefined) { return { added: [], updated: [], removed: [], refused: [] }; }
+    return hub.call('patch', await this.#manifestState().providers());
   }
 
   async grantPairing(request: PairingGrantRequest): Promise<PairingGrant> {

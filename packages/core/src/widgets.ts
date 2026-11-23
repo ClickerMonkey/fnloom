@@ -20,7 +20,7 @@ import { humanize } from './labels.ts';
 import { FnNameValue } from './model-names.ts';
 import { FnMode } from './manifest.ts';
 import { partialNote } from './partial.ts';
-import { Json, LocalName, QualifiedName, RunId } from './primitives.ts';
+import { InstanceName, Json, LocalName, QualifiedName, RunId } from './primitives.ts';
 import { ResultTable } from './registries.ts';
 import { ResultFacts, VisualBinding } from './visuals.ts';
 import type { ActionThenV1, WidgetSpecV1 } from './widgets-v1.ts';
@@ -255,6 +255,10 @@ export type RowActionsQuery = z.infer<typeof RowActionsQuery>;
 /** `hub/read_table`: run a read fn that returns a table, as a child run of the caller, as its person. */
 export const ReadTableArgs = z.object({ fn: QualifiedName, args: z.record(z.string(), Json) });
 export type ReadTableArgs = z.infer<typeof ReadTableArgs>;
+
+/** The web's quiet read (`readFn`): a read fn and its args, and for a fleet the instance it runs on (`on`, else the hub picks). */
+export const ReadFnArgs = ReadTableArgs.extend({ on: InstanceName.optional() });
+export type ReadFnArgs = z.infer<typeof ReadFnArgs>;
 
 /**
  * `widgets/make_widget`: the source fn, what the person wants, sample args, the widget to change (absent: a new one),

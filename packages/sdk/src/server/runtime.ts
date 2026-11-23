@@ -126,6 +126,9 @@ export class SystemRuntime<C extends ContractShape> {
       impls: parts.table.impl.providers ?? {},
       ctx: () => this.systemCtx(),
       configVersion: () => parts.config.current?.version,
+      ...(parts.table.runtimeProvider === undefined ? {} : {
+        runtime: { local: parts.table.runtimeProvider, instance: () => parts.env.place.instance, models: () => parts.table.runtimeModels() },
+      }),
     });
   }
 

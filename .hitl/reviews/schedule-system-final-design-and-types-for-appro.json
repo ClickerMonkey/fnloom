@@ -1,0 +1,133 @@
+{
+  "$schema": "https://unpkg.com/hitloop/schema/reviews.schema.json",
+  "title": "Schedule system: final design and types for approval",
+  "intro": "The design revised to your 10 answers: results go to one notification and the run page (no chat per schedule), with a rule-based one-line summary and no model call. Give each part a verdict; \\\"looks good\\\" on all of them starts the build (9 slices, about 12 days of agent work).",
+  "mode": "review",
+  "from": "harness scenarios session",
+  "created": "2026-11-23T19:22:55.038Z",
+  "items": [
+    {
+      "title": "What a schedule is",
+      "file": "docs/plans/schedule-system.md",
+      "lines": "14-122",
+      "id": "what-a-schedule-is",
+      "snap": {
+        "path": ".hitl/media/snaps/schedule-system-final-design-and-types-for-appro/what-a-schedule-is-d0634a79.md",
+        "sha": "d0634a79de1da0976b93a1bf417b7b907e6e13de",
+        "size": 61505,
+        "at": "2026-11-23T19:22:55.039Z"
+      }
+    },
+    {
+      "title": "What the owner is told (notifications, summaries)",
+      "file": "docs/plans/schedule-system.md",
+      "lines": "123-159",
+      "id": "what-the-owner-is-told-notificat",
+      "snap": {
+        "path": ".hitl/media/snaps/schedule-system-final-design-and-types-for-appro/what-the-owner-is-told-notificat-d0634a79.md",
+        "sha": "d0634a79de1da0976b93a1bf417b7b907e6e13de",
+        "size": 61505,
+        "at": "2026-11-23T19:22:55.041Z"
+      }
+    },
+    {
+      "title": "The hub side (generic additions)",
+      "file": "docs/plans/schedule-system.md",
+      "lines": "160-222",
+      "id": "the-hub-side-generic-additions",
+      "snap": {
+        "path": ".hitl/media/snaps/schedule-system-final-design-and-types-for-appro/the-hub-side-generic-additions-d0634a79.md",
+        "sha": "d0634a79de1da0976b93a1bf417b7b907e6e13de",
+        "size": 61505,
+        "at": "2026-11-23T19:22:55.042Z"
+      }
+    },
+    {
+      "title": "The chat side (fns, injected item)",
+      "file": "docs/plans/schedule-system.md",
+      "lines": "223-286",
+      "id": "the-chat-side-fns-injected-item",
+      "snap": {
+        "path": ".hitl/media/snaps/schedule-system-final-design-and-types-for-appro/the-chat-side-fns-injected-item-d0634a79.md",
+        "sha": "d0634a79de1da0976b93a1bf417b7b907e6e13de",
+        "size": 61505,
+        "at": "2026-11-23T19:22:55.043Z"
+      }
+    },
+    {
+      "title": "The schedule page (calendar)",
+      "file": "docs/plans/schedule-system.md",
+      "lines": "287-317",
+      "id": "the-schedule-page-calendar",
+      "snap": {
+        "path": ".hitl/media/snaps/schedule-system-final-design-and-types-for-appro/the-schedule-page-calendar-d0634a79.md",
+        "sha": "d0634a79de1da0976b93a1bf417b7b907e6e13de",
+        "size": 61505,
+        "at": "2026-11-23T19:22:55.044Z"
+      }
+    },
+    {
+      "title": "Types: core shapes",
+      "file": "docs/plans/schedule-system.md",
+      "lines": "318-458",
+      "ask": "Do these types read well and are they right?",
+      "id": "types-core-shapes",
+      "snap": {
+        "path": ".hitl/media/snaps/schedule-system-final-design-and-types-for-appro/types-core-shapes-d0634a79.md",
+        "sha": "d0634a79de1da0976b93a1bf417b7b907e6e13de",
+        "size": 61505,
+        "at": "2026-11-23T19:22:55.045Z"
+      }
+    },
+    {
+      "title": "Types: the contract and server",
+      "file": "docs/plans/schedule-system.md",
+      "lines": "459-617",
+      "id": "types-the-contract-and-server",
+      "snap": {
+        "path": ".hitl/media/snaps/schedule-system-final-design-and-types-for-appro/types-the-contract-and-server-d0634a79.md",
+        "sha": "d0634a79de1da0976b93a1bf417b7b907e6e13de",
+        "size": 61505,
+        "at": "2026-11-23T19:22:55.045Z"
+      }
+    },
+    {
+      "title": "Types: the hub's generic additions",
+      "file": "docs/plans/schedule-system.md",
+      "lines": "618-746",
+      "id": "types-the-hub-s-generic-addition",
+      "snap": {
+        "path": ".hitl/media/snaps/schedule-system-final-design-and-types-for-appro/types-the-hub-s-generic-addition-d0634a79.md",
+        "sha": "d0634a79de1da0976b93a1bf417b7b907e6e13de",
+        "size": 61505,
+        "at": "2026-11-23T19:22:55.046Z"
+      }
+    },
+    {
+      "title": "Library asks and build slices",
+      "file": "docs/plans/schedule-system.md",
+      "lines": "747-770",
+      "id": "library-asks-and-build-slices",
+      "snap": {
+        "path": ".hitl/media/snaps/schedule-system-final-design-and-types-for-appro/library-asks-and-build-slices-d0634a79.md",
+        "sha": "d0634a79de1da0976b93a1bf417b7b907e6e13de",
+        "size": 61505,
+        "at": "2026-11-23T19:22:55.046Z"
+      }
+    },
+    {
+      "title": "Judgement calls",
+      "file": "docs/plans/schedule-system.md",
+      "lines": "771-801",
+      "ask": "Any of these you'd call differently?",
+      "id": "judgement-calls",
+      "snap": {
+        "path": ".hitl/media/snaps/schedule-system-final-design-and-types-for-appro/judgement-calls-d0634a79.md",
+        "sha": "d0634a79de1da0976b93a1bf417b7b907e6e13de",
+        "size": 61505,
+        "at": "2026-11-23T19:22:55.049Z"
+      }
+    }
+  ],
+  "updated": "2026-11-23T19:22:55.049Z"
+}

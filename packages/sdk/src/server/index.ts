@@ -6,11 +6,11 @@
  * The runtime sits behind `SystemHost`; `LinkHost` is the real one (the WebSocket link, pairing keys, the outcome
  * journal, the forwarding aeye provider, the MCP face). Its seams (`LinkHostDeps`) let tests run all of it in memory.
  */
-import type { AutoPairGrant, Duration, FnExamplesPatch, HostRefusal, ImportReport, InstanceMode, PairingGrant, PairingGrantRequest, QualifiedName, TypeDecl } from '@harness/core';
+import type { AutoPairGrant, Duration, FnExamplesPatch, HostRefusal, ImportReport, InstanceMode, PairingGrant, PairingGrantRequest, ProviderModelDecl, QualifiedName, TypeDecl } from '@harness/core';
 import type { Fleets, FnSearch, InstanceConnects } from '../ctx.ts';
 import type { FnDef, FnTypes } from '../fn.ts';
 import type { FnImpl } from '../impl.ts';
-import type { AnyFnRef, FnRef } from '../refs.ts';
+import type { AnyFnRef, FnRef, ProviderRef } from '../refs.ts';
 import type { ContractShape, SystemContract, SystemImpl } from '../system.ts';
 import type { FilesFactory } from './files.ts';
 import type { HarnessAi } from './llm.ts';
@@ -85,6 +85,13 @@ export interface RunningSystem<N extends string> extends FnSearch, Fleets, Insta
    * entries in the same records. While offline the change rides in the next manifest. Native fns go through `add`.
    */
   patch(change: SystemPatch): Promise<ImportReport>;
+  /**
+   * Set the models of the contract's runtime provider (`provider({ description, models: 'runtime' })`), whole: the hub
+   * offers them as `<system>/<instance>`, routed to this instance, and drops the ones left out. Each is checked as
+   * `provider()` checks a model. Changes to free models need no review once the system went live. While offline they
+   * ride in the next manifest.
+   */
+  models(provider: ProviderRef<QualifiedName<N>>, models: readonly ProviderModelDecl[]): Promise<ImportReport>;
   /**
    * Add or replace (by `key`) and remove examples of one of this system's fns, by local name, in the hub's
    * `fnExamples` (the hub embeds and pages them). Waits for the hub.

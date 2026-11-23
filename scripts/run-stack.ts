@@ -36,7 +36,7 @@ const DEV_DATABASE = {
   audience: { visibility: 'private', with: [] },
 } as const satisfies NonNullable<StackOptions['systems']['databases']>[string];
 
-const COLOURS = { web: 36, hub: 35, fs: 33, embedder: 32, 'web-system': 34, input: 94, widgets: 92, code: 93, api: 90, calendar: 95, database: 96, claude: 91 } as const satisfies Record<ComponentName, number>;
+const COLOURS = { web: 36, hub: 35, fs: 33, embedder: 32, 'web-system': 34, input: 94, widgets: 92, code: 93, api: 90, calendar: 95, database: 96, claude: 91, ollama: 97 } as const satisfies Record<ComponentName, number>;
 const isComponent = (name: string): name is ComponentName => COMPONENTS.some((c) => c === name);
 
 /** How this run differs: dev builds the web app and watches the source; live runs a pinned build and watches nothing. */
@@ -56,6 +56,10 @@ export async function runStack(mode: RunMode, settings: StackSettings = stackSet
   // the calendar connects people through an OAuth client; without one it can't, so it isn't started
   const google = settings.GOOGLE_CLIENT_ID === undefined || settings.GOOGLE_CLIENT_SECRET === undefined ? undefined : { clientId: settings.GOOGLE_CLIENT_ID, clientSecret: settings.GOOGLE_CLIENT_SECRET };
   if (google === undefined && only.delete('calendar')) { console.info(`${mode.name}.calendar.skipped`, { reason: 'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are not set' }); }
+  // the ollama system runs an Ollama or talks to one; until one is named it isn't started (never one on this machine by surprise)
+  const ollama = settings.HARNESS_DEV_OLLAMA === undefined ? undefined
+    : settings.HARNESS_DEV_OLLAMA === 'managed' ? { server: { mode: 'managed' as const, autoStart: false } } : { server: { mode: 'url' as const, url: settings.HARNESS_DEV_OLLAMA } };
+  if (ollama === undefined && only.delete('ollama')) { console.info(`${mode.name}.ollama.skipped`, { reason: 'HARNESS_DEV_OLLAMA is not set' }); }
 
   const stack = await startStack({
     port: settings.HARNESS_PORT,
@@ -70,6 +74,7 @@ export async function runStack(mode: RunMode, settings: StackSettings = stackSet
     systems: {
       fs: fsConfig(settings.HARNESS_DEV_ROOT ?? ROOT), embedder: { url: settings.HARNESS_EMBEDDER_URL },
       ...(google === undefined ? {} : { calendar: { ...google, hubUrl: `http://127.0.0.1:${settings.HARNESS_PORT}` } }),
+      ...(ollama === undefined ? {} : { ollama }),
       ...(only.has('database') ? { databases: { main: DEV_DATABASE } } : {}),
     },
     output: (component, line, stream) => {

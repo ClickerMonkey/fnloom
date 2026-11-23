@@ -5485,6 +5485,22 @@ characters it reads (`maxInput`) is an embedder the hub's index can use, named `
 `embedders` section and `embedder()` builder are gone: a contract or implementation that still has `embedders` is
 refused when built or served, with a message pointing here.
 
+**Runtime providers.** When an admin chooses the models while the system runs (the models a local server has and an
+admin offers), declare the provider with `models: 'runtime'` (at most one per contract) and set its models, whole, once
+`serve` returned and whenever they change: `await running.models(contract.providers.server, models)`, each model as
+`provider()` checks one. Each instance sends it named after itself (`<system>/<instance>`, here `local/desk`), so a
+fleet has one provider per instance and the hub routes each one's calls there; its implementation is still the one
+function under `providers`. Free models move without another review once the system went live; a price waits for an
+admin. The Ollama system is one (`systems/ollama`).
+
+```ts
+// shared/
+.with({ providers: { server: provider({ description: 'The models an admin offers here.', models: 'runtime' }) } })
+// server/main.ts
+const running = await serve(contract, impl, options);
+await running.models(contract.providers.server, [{ id: 'small:latest', capabilities: ['chat'], contextWindow: 8_192, pricing: { input: 0, output: 0 }, caching: false }]);
+```
+
 ### Reference: model providers
 
 #### `provider`
@@ -5508,8 +5524,11 @@ What `provider()` takes.
 ```ts
 interface ProviderInput {
   description: string;
-  /** Every model it serves. A call for any other model is refused. */
-  models: ProviderModelDecl[];
+  /**
+   * Every model it serves; a call for any other model is refused. `'runtime'`: the running system sets them
+   * (`running.models`), from what an admin chose, and the provider is one per instance, named after it.
+   */
+  models: ProviderModelDecl[] | 'runtime';
 }
 ```
 
@@ -5524,7 +5543,10 @@ A provider as the contract declares it.
 ```ts
 interface ProviderDef {
   readonly description: string;
+  /** Its models; none for a runtime provider, whose models the running system sets. */
   readonly models: readonly ProviderModelDecl[];
+  /** Its models are set while the system runs (`RunningSystem.models`), one provider per instance. */
+  readonly runtime: boolean;
 }
 ```
 
@@ -7530,6 +7552,13 @@ interface RunningSystem<N extends string> extends FnSearch, Fleets, InstanceConn
    */
   patch(change: SystemPatch): Promise<ImportReport>;
   /**
+   * Set the models of the contract's runtime provider (`provider({ description, models: 'runtime' })`), whole: the hub
+   * offers them as `<system>/<instance>`, routed to this instance, and drops the ones left out. Each is checked as
+   * `provider()` checks a model. Changes to free models need no review once the system went live. While offline they
+   * ride in the next manifest.
+   */
+  models(provider: ProviderRef<QualifiedName<N>>, models: readonly ProviderModelDecl[]): Promise<ImportReport>;
+  /**
    * Add or replace (by `key`) and remove examples of one of this system's fns, by local name, in the hub's
    * `fnExamples` (the hub embeds and pages them). Waits for the hub.
    */
@@ -7557,7 +7586,7 @@ interface RunningSystem<N extends string> extends FnSearch, Fleets, InstanceConn
 }
 ```
 
-Refers to: [`FnExamplesPatch`](#core-fnexamplespatch), [`HostRefusal`](#core-hostrefusal), [`ImportReport`](#core-importreport), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`QualifiedName`](#core-qualifiedname), [`TypeDecl`](#core-typedecl).
+Refers to: [`FnExamplesPatch`](#core-fnexamplespatch), [`HostRefusal`](#core-hostrefusal), [`ImportReport`](#core-importreport), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`ProviderModelDecl`](#core-providermodeldecl), [`QualifiedName`](#core-qualifiedname), [`TypeDecl`](#core-typedecl).
 
 #### `RunningStatus`
 
@@ -15985,8 +16014,16 @@ interface ManifestOptions {
   /** Whether its implementation serves resources. */
   resources?: boolean;
   client?: ClientAssets;
+  /**
+   * The instance this process is: a runtime provider (`provider({ models: 'runtime' })`) is sent named after it, with
+   * `runtimeModels` (the models the running system set). Without one, the manifest has no runtime provider.
+   */
+  instance?: InstanceName;
+  runtimeModels?: readonly ProviderModelDecl[];
 }
 ```
+
+Refers to: [`InstanceName`](#core-instancename), [`ProviderModelDecl`](#core-providermodeldecl).
 
 #### `ProviderServer`
 
@@ -16031,8 +16068,12 @@ interface ProviderServerParts {
   readonly ctx: () => SystemCtx;
   /** The current config version; a provider is made again when it changes. */
   readonly configVersion: () => number | undefined;
+  /** The contract's runtime provider, if it has one: its local name, this instance's name and its models now. */
+  readonly runtime?: { readonly local: string; readonly instance: () => string; readonly models: () => readonly ProviderModelDecl[] } | undefined;
 }
 ```
+
+Refers to: [`ProviderModelDecl`](#core-providermodeldecl).
 
 #### `providerErrorKind`
 
@@ -19503,6 +19544,8 @@ type PreviewAnswer = {
         maxQuestions?: number | undefined;
         maxRequestBytes?: number | undefined;
       }[];
+      runtime?: true | undefined;
+      instance?: InstanceName | undefined;
     }[] | undefined;
     connect?: {
       title: string;
@@ -20995,6 +21038,8 @@ type Manifest = {
       maxQuestions?: number | undefined;
       maxRequestBytes?: number | undefined;
     }[];
+    runtime?: true | undefined;
+    instance?: InstanceName | undefined;
   }[] | undefined;
   connect?: {
     title: string;
@@ -21423,6 +21468,8 @@ type ManifestPatch = {
         maxQuestions?: number | undefined;
         maxRequestBytes?: number | undefined;
       }[];
+      runtime?: true | undefined;
+      instance?: InstanceName | undefined;
     }[] | undefined;
     registries?: {
       name: string;

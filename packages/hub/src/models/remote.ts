@@ -17,7 +17,7 @@ import { embeddingImageURL, embeddingInputs, isEmbeddingImage } from '@aeye/ai';
 import { getResponseFromChunks, type Chunk, type Request, type Response } from '@aeye/core';
 import {
   qualify, type Compact, type DecisionAnswer as WireDecisionAnswer, type EmbedInput as WireEmbedInput, type DecisionQuestion as WireDecisionQuestion, type LiveProviderModel, type ProviderChat, type ProviderModelDecl,
-  type Same, type SystemName, type SystemProviderDecl,
+  type InstanceName, type Same, type SystemName, type SystemProviderDecl,
 } from '@harness/core';
 import type { Logger } from '@ayepi/log';
 import type { EventBus } from '../bus.ts';
@@ -273,18 +273,21 @@ export class OfferedProviders {
     this.#deps = deps;
   }
 
-  /** A system's connection, while it is connected. */
-  link(system: SystemName): SystemConnection | undefined {
-    return this.#deps.link.connection(system);
+  /** A system's connection (the instance's, for a provider an instance owns), while it is connected. */
+  link(system: SystemName, instance?: InstanceName): SystemConnection | undefined {
+    return this.#deps.link.connection(system, instance);
   }
 
   /** Every declared provider of a connected system that is offered now. */
   async list(): Promise<OfferedProvider[]> {
     const out: OfferedProvider[] = [];
-    const systems = new Set(this.#deps.link.connected().map((c) => c.system));
+    const connected = this.#deps.link.connected();
+    const systems = new Set(connected.map((c) => c.system));
     for (const system of systems) {
       const manifest = await this.#deps.catalog.manifest(system);
       for (const provider of manifest?.providers ?? []) {
+        // a provider an instance owns is offered while that instance is connected
+        if (provider.instance !== undefined && !connected.some((c) => c.system === system && c.instance === provider.instance)) continue;
         if (this.#deps.offered !== undefined && !await this.#deps.offered(system, provider.name)) continue;
         out.push({ system, provider, key: remoteProviderKey(system, provider.name) });
       }
@@ -303,11 +306,16 @@ export class OfferedProviders {
   }
 }
 
+/** What a set of offered providers is, to tell when it changed: each one's key and declaration, in key order. */
+function offeredSignature(offered: readonly OfferedProvider[]): string {
+  return offered.length === 0 ? '' : JSON.stringify([...offered].sort((a, b) => a.key.localeCompare(b.key)).map((d) => [d.key, d.provider]));
+}
+
 /** The providers connected systems offer, as aeye providers on the hub AI. */
 export class SystemProviderSource implements ProviderSource {
   readonly #offered: OfferedProviders;
   readonly #log: Logger;
-  /** The keys the last load gave, to tell when the set changed. */
+  /** What the last load gave (each provider's key and declaration), to tell when the set changed. */
   #loaded = '';
 
   constructor(deps: SystemProviderDeps) {
@@ -317,23 +325,24 @@ export class SystemProviderSource implements ProviderSource {
 
   async load(): Promise<Providers> {
     const providers: Record<string, Provider> = {};
-    for (const decl of await this.#offered.list()) {
-      providers[decl.key] = new RemoteProvider(decl.system, decl.provider, () => this.#offered.link(decl.system));
+    const offered = await this.#offered.list();
+    for (const decl of offered) {
+      providers[decl.key] = new RemoteProvider(decl.system, decl.provider, () => this.#offered.link(decl.system, decl.provider.instance));
     }
-    this.#loaded = Object.keys(providers).sort().join(',');
+    this.#loaded = offeredSignature(offered);
     if (this.#loaded !== '') this.#log.info('providers.remote', { providers: Object.keys(providers) });
     return providers;
   }
 
   /**
-   * Call `changed` when the set of remote providers differs from the last load: a system that brings providers
-   * connected or left, or changed what it declares.
+   * Call `changed` when the remote providers differ from the last load: a system that brings providers connected or
+   * left, or changed what it declares (a runtime provider's models included, so a model an admin offers or removes is
+   * picked up).
    */
   watch(changed: () => void): () => void {
     return this.#offered.watch(() => {
       void this.#offered.list().then((offered) => {
-        const keys = offered.map((d) => d.key).sort().join(',');
-        if (keys !== this.#loaded) changed();
+        if (offeredSignature(offered) !== this.#loaded) changed();
       }, (error: unknown) => { this.#log.warn('providers.remote.check-failed', { error: error instanceof Error ? error.message : String(error) }); });
     });
   }

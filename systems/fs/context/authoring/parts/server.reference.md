@@ -110,6 +110,13 @@ interface RunningSystem<N extends string> extends FnSearch, Fleets, InstanceConn
    */
   patch(change: SystemPatch): Promise<ImportReport>;
   /**
+   * Set the models of the contract's runtime provider (`provider({ description, models: 'runtime' })`), whole: the hub
+   * offers them as `<system>/<instance>`, routed to this instance, and drops the ones left out. Each is checked as
+   * `provider()` checks a model. Changes to free models need no review once the system went live. While offline they
+   * ride in the next manifest.
+   */
+  models(provider: ProviderRef<QualifiedName<N>>, models: readonly ProviderModelDecl[]): Promise<ImportReport>;
+  /**
    * Add or replace (by `key`) and remove examples of one of this system's fns, by local name, in the hub's
    * `fnExamples` (the hub embeds and pages them). Waits for the hub.
    */
@@ -137,7 +144,7 @@ interface RunningSystem<N extends string> extends FnSearch, Fleets, InstanceConn
 }
 ```
 
-Refers to: [`FnExamplesPatch`](context:fs/authoring.core-types.fn-facts-ts#core-fnexamplespatch), [`HostRefusal`](context:fs/authoring.core-types.lifecycle-ts#core-hostrefusal), [`ImportReport`](context:fs/authoring.core-types.contextdecl#core-importreport), [`PairingGrant`](context:fs/authoring.core-types.approvals-ts#core-pairinggrant), [`PairingGrantRequest`](context:fs/authoring.core-types.approvals-ts#core-pairinggrantrequest), [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname), [`TypeDecl`](context:fs/authoring.core-types.manifestpatch#core-typedecl).
+Refers to: [`FnExamplesPatch`](context:fs/authoring.core-types.fn-facts-ts#core-fnexamplespatch), [`HostRefusal`](context:fs/authoring.core-types.lifecycle-ts#core-hostrefusal), [`ImportReport`](context:fs/authoring.core-types.contextdecl#core-importreport), [`PairingGrant`](context:fs/authoring.core-types.approvals-ts#core-pairinggrant), [`PairingGrantRequest`](context:fs/authoring.core-types.approvals-ts#core-pairinggrantrequest), [`ProviderModelDecl`](context:fs/authoring.core-types.system-providers-ts#core-providermodeldecl), [`QualifiedName`](context:fs/authoring.core-types.primitives-ts#core-qualifiedname), [`TypeDecl`](context:fs/authoring.core-types.manifestpatch#core-typedecl).
 
 #### `RunningStatus`
 

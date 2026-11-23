@@ -4129,7 +4129,8 @@ export const manifest = {
       "q": [],
       "b": [
         "fn",
-        "args"
+        "args",
+        "on"
       ],
       "f": [],
       "hasBody": true,

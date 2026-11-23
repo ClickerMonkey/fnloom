@@ -14,7 +14,7 @@
 import { z } from 'zod';
 import { DecisionAnswers, DecisionInput, DecisionQuestions } from './decisions.ts';
 import { LlmChunk, LlmRequest, LlmUsage } from './llm.ts';
-import { LocalName, RunId, Usd } from './primitives.ts';
+import { InstanceName, LocalName, RunId, Usd } from './primitives.ts';
 
 /** The capabilities of a model that embeds: text (`embedding`) or images (`imageEmbedding`). */
 export const EMBEDDING_CAPABILITIES = ['embedding', 'imageEmbedding'] as const;
@@ -48,8 +48,22 @@ export const ProviderModelDecl = z.object({
 });
 export type ProviderModelDecl = z.infer<typeof ProviderModelDecl>;
 
-/** A provider a system declares (manifest `providers`). */
-export const SystemProviderDecl = z.object({ name: LocalName, description: z.string(), models: z.array(ProviderModelDecl) });
+/**
+ * A provider a system declares (manifest `providers`). A **runtime** provider (`runtime: true`, the SDK's
+ * `provider({ models: 'runtime' })`) has its models set while the system runs (`RunningSystem.models`), from what an
+ * admin chose (the Ollama system's offered models); one is sent per fleet instance, named after it and owned by it
+ * (`instance`), so `ollama/desk` and `ollama/laptop` are two providers whose calls go to their own instance. Once an
+ * admin reviewed a system with a runtime provider, changes to such a provider's free models need no review again.
+ */
+export const SystemProviderDecl = z.object({
+  name: LocalName,
+  description: z.string(),
+  models: z.array(ProviderModelDecl),
+  /** Its models are set at runtime (an admin's choice the system follows), not fixed in the contract. */
+  runtime: z.literal(true).optional(),
+  /** The fleet instance that serves it: every call goes there, and only that instance may change or remove it. */
+  instance: InstanceName.optional(),
+});
 export type SystemProviderDecl = z.infer<typeof SystemProviderDecl>;
 
 /** Hub → system: a chat request for one of its providers' models. */

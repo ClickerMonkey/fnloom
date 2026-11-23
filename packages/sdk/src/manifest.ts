@@ -4,14 +4,14 @@
  */
 import {
   fnLocalNameProblem, owesExamples, DeclaredLink, InjectDecl, GENERAL_GROUP, Json, LinkTarget, Manifest, SystemName, splitName, SYSTEM_EVENT_TYPES,
-  type ActionDecl, type ClientAssets, type ConnectDecl, type ContextDecl, type FnDecl, type HandlerDecl, type QualifiedName, type SystemEventType,
+  type ActionDecl, type ClientAssets, type ConnectDecl, type ContextDecl, type FnDecl, type HandlerDecl, type InstanceName, type ProviderModelDecl, type QualifiedName, type SystemEventType, type SystemProviderDecl,
   type TypeDecl, type ApiGroupDecl, GinTypeDef, RecordType,
 } from '@harness/core';
 import { z } from 'zod';
 import type { AnyContextDef, AnyTypeDef, ContextLinkTarget, InjectInput } from './declare.ts';
 import { progressDecl, validationOf, type AnyFnDef, type Handlers } from './fn.ts';
 import { encodeValue, referencesOf, wireType } from './gin.ts';
-import { providerDecl } from './providers.ts';
+import { providerDecl, runtimeProviderDecl, runtimeProviderOf, type ProviderDef } from './providers.ts';
 import type { AnyContract, ContractShape } from './system.ts';
 import { entriesOf } from './util.ts';
 
@@ -24,6 +24,12 @@ export interface ManifestOptions {
   /** Whether its implementation serves resources. */
   resources?: boolean;
   client?: ClientAssets;
+  /**
+   * The instance this process is: a runtime provider (`provider({ models: 'runtime' })`) is sent named after it, with
+   * `runtimeModels` (the models the running system set). Without one, the manifest has no runtime provider.
+   */
+  instance?: InstanceName;
+  runtimeModels?: readonly ProviderModelDecl[];
 }
 
 function handlersDecl(handlers: Handlers): Record<string, HandlerDecl> {
@@ -209,7 +215,7 @@ export function manifestBody(contract: AnyContract, options: ManifestOptions): O
     resources: options.resources ?? false,
     ...(options.client === undefined ? {} : { client: options.client }),
     ...(defs.connect === undefined ? {} : { connect: connectDecl(contract.name, defs.connect, fns.map((f) => f.name)) }),
-    ...(Object.keys(defs.providers).length === 0 ? {} : { providers: entriesOf(defs.providers).map(([name, def]) => providerDecl(name, def)) }),
+    ...providersOf(contract.name, defs.providers, options),
     config: wireType(defs.config),
     requires: referencedSystems(contract.name, defs).map((s) => SystemName.parse(s)),
     ...(Object.keys(contract.registries).length === 0 ? {} : {
@@ -222,6 +228,15 @@ export function manifestBody(contract: AnyContract, options: ManifestOptions): O
     ...(contract.pages.length === 0 ? {} : { pages: contract.pages.map((page) => ({ ...page })) }),
     ...(contract.groups.length === 0 ? {} : { groups: checkedGroups(contract.name, contract.groups, fns) }),
   };
+}
+
+/** The manifest's providers: the contract's own, and its runtime provider named after this instance, when it has one. */
+function providersOf(system: string, providers: Readonly<Record<string, ProviderDef>>, options: ManifestOptions): Pick<Manifest, 'providers'> {
+  const runtime = runtimeProviderOf(system, providers);
+  const out: SystemProviderDecl[] = entriesOf(providers).filter(([, def]) => !def.runtime).map(([name, def]) => providerDecl(name, def));
+  const def = runtime === undefined ? undefined : providers[runtime];
+  if (def !== undefined && options.instance !== undefined) { out.push(runtimeProviderDecl(options.instance, def, options.runtimeModels ?? [])); }
+  return out.length === 0 ? {} : { providers: out };
 }
 
 /** The API groups, checked: names are unique and every group a fn names is declared (a fn with none is general). */

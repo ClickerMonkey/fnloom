@@ -44,4 +44,20 @@ characters it reads (`maxInput`) is an embedder the hub's index can use, named `
 `embedders` section and `embedder()` builder are gone: a contract or implementation that still has `embedders` is
 refused when built or served, with a message pointing here.
 
+**Runtime providers.** When an admin chooses the models while the system runs (the models a local server has and an
+admin offers), declare the provider with `models: 'runtime'` (at most one per contract) and set its models, whole, once
+`serve` returned and whenever they change: `await running.models(contract.providers.server, models)`, each model as
+`provider()` checks one. Each instance sends it named after itself (`<system>/<instance>`, here `local/desk`), so a
+fleet has one provider per instance and the hub routes each one's calls there; its implementation is still the one
+function under `providers`. Free models move without another review once the system went live; a price waits for an
+admin. The Ollama system is one (`systems/ollama`).
+
+```ts
+// shared/
+.with({ providers: { server: provider({ description: 'The models an admin offers here.', models: 'runtime' }) } })
+// server/main.ts
+const running = await serve(contract, impl, options);
+await running.models(contract.providers.server, [{ id: 'small:latest', capabilities: ['chat'], contextWindow: 8_192, pricing: { input: 0, output: 0 }, caching: false }]);
+```
+
 Fns for this: fn:fs/read, fn:fs/write, fn:fs/edit, fn:fs/bash.

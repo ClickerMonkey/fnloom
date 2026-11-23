@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "name": "ollama",
+  "version": "0.1.0",
+  "description": "Runs Ollama on a machine: installs and starts it, pulls and removes its models, and offers the ones an admin chose to the chat.",
+  "protocol": 1,
+  "server": { "entry": "server/main.ts", "external": {} },
+  "client": { "entry": "client/index.ts" },
+  "instances": "many",
+  "permissions": { "childProcess": true }
+}

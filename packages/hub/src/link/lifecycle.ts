@@ -2,7 +2,8 @@
  * Build 7: installed vs live. A newly paired system is `installed`: the hub knows its contract but offers nothing
  * (`systemAvailability` refuses its contributions) until an admin reviews it and goes live, which saves the reviewed
  * contract's hash and grants (`LiveContract`). After that, every manifest or patch is compared with the one before it:
- * runtime additions its fns declared (`FnEffects.registry`) are approved at once, anything else waits as a
+ * runtime additions its fns declared (`FnEffects.registry`) and a runtime provider's free models moving
+ * (`runtimeProviderChange`) are approved at once, anything else waits as a
  * `PendingReview` with its changes, which stay off (`held`) while the live version keeps serving. An admin approves
  * or declines it all at once, or change by change (`decide`): approved changes go live, declined ones stay off and are
  * recorded on the review row (`declined`), and the rest keep waiting. Items an admin
@@ -12,7 +13,7 @@ import { reject as refuse } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import { canonicalJson } from '@harness/sdk';
 import {
-  DECLINED_KEPT, effectCovered, FnDecl, type ClientAssets, FnKindName, Json, MANIFEST_SECTION_NAMES, qualify, QualifiedName, runtimeNames,
+  DECLINED_KEPT, effectCovered, FnDecl, type ClientAssets, FnKindName, Json, MANIFEST_SECTION_NAMES, qualify, QualifiedName, runtimeNames, SystemProviderDecl,
   type ActorId, type ChangeRef, type ContractChange, type DeclaredBy, type DeclinedChange, type GoLiveRequest, type ReviewDecided, type ReviewDecision, type ItemRef, type ItemSection, type LiveContract, type Manifest, type PendingReview,
   type RegistryEffect, type RegistryThing, type SwitchPart, type SystemName, type SystemReviewRecord, type SystemStage,
 } from '@harness/core';
@@ -126,6 +127,22 @@ export function mergeChanges(waiting: readonly ContractChange[], newer: readonly
     out.set(itemKey(change), { ...change, change: kind, ...(before === undefined ? {} : { before }), ...(after === undefined ? {} : { after }) });
   }
   return [...out.values()];
+}
+
+/**
+ * Whether a change is only a runtime provider's free models moving (an admin offered or removed one, a fleet instance
+ * came or went): before and after are runtime providers (`SystemProviderDecl.runtime`) whose every model is free. A
+ * system an admin reviewed with a runtime provider takes these without another review; a price or a provider that
+ * isn't runtime still waits for one.
+ */
+export function runtimeProviderChange(change: ContractChange): boolean {
+  if (change.section !== 'providers') { return false; }
+  const runtimeFree = (decl: Json | undefined): boolean => {
+    if (decl === undefined) { return true; }
+    const parsed = SystemProviderDecl.safeParse(decl);
+    return parsed.success && parsed.data.runtime === true && parsed.data.models.every((model) => model.pricing.input === 0 && model.pricing.output === 0 && (model.pricing.cached ?? 0) === 0 && (model.pricing.cacheWrite ?? 0) === 0);
+  };
+  return (change.before !== undefined || change.after !== undefined) && runtimeFree(change.before) && runtimeFree(change.after);
 }
 
 /** The item a change is about, when it is one the switches cover (not the grants or config as a whole). */
@@ -452,7 +469,8 @@ export class SystemLifecycle {
     }
     const declared = reviewedEffects(before, review);
     const changes = contractChanges(before, after);
-    const covered = changes.filter((change) => this.#covered(change, declared));
+    const runtimeProviders = (before.providers ?? []).some((provider) => provider.runtime === true);
+    const covered = changes.filter((change) => this.#covered(change, declared) || (runtimeProviders && runtimeProviderChange(change)));
     const waiting = mergeChanges(review?.pending?.changes ?? [], changes.filter((change) => !covered.includes(change)));
     const nextLive: LiveContract = { ...live, runtime: foldRuntime(live.runtime, covered), ...(waiting.length === 0 ? { hash: after.hash, version: after.version } : {}) };
     const pending: PendingReview | undefined = waiting.length === 0 ? undefined : {

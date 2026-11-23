@@ -1,5 +1,5 @@
 import {
-  ActorId, HUB_VISUALS, jsonOf, QualifiedName, RunId, SystemName, TurnId,
+  ActorId, HUB_VISUALS, InstanceName, jsonOf, QualifiedName, RunId, SystemName, TurnId,
   type ContributionView, type FnMode, type Json, type Manifest, type ResolvedLimits, type ResultTable, type Run, type RunSettled,
 } from '@harness/core';
 import { fn, g } from '@harness/sdk';
@@ -103,6 +103,14 @@ describe('hub tables', () => {
     expect(started).toHaveLength(2);
     // a fn the person may not see is missing, never "writes"
     await expect(tables.read({ fn: QualifiedName.parse('shop/secret'), args: {} }, asker)).rejects.toMatchObject({ error: { code: 'no-fn', message: 'there is no fn shop/secret' } });
+  });
+
+  it('runs a quiet read on the fleet instance it names', async () => {
+    const { tables, started } = service();
+    const user = { kind: 'user' as const, id: ANN, name: 'Ann', email: 'ann@example.com', role: 'member' as const };
+    await tables.readAs({ fn: QualifiedName.parse('shop/orders'), args: {}, on: InstanceName.parse('desk') }, user);
+    await tables.readAs({ fn: QualifiedName.parse('shop/orders'), args: {} }, user);
+    expect(started.map((input) => input.on)).toEqual(['desk', undefined]);
   });
 
   it('refuses a quiet read that waits for approval, and stops one when the request goes away or runs too long', async () => {

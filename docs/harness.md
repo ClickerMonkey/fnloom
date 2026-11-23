@@ -286,7 +286,7 @@ A system says in `system.json` whether it runs one copy or many (`"instances": "
 system's record (a later hello that says nothing keeps it). A `one` system's page has no Instances tab and no
 "Install another": its instance's facts are on the overview and its data and export are on a Data tab, and old
 instance links go to the same tab on the system page. A `many` system keeps the fleet pages even with one
-instance. claude, database, fs and mcp are `many`; api is `one`. Like code, the api system authors fns: an api fn is
+instance. claude, database, fs, mcp and ollama are `many`; api is `one`. Like code, the api system authors fns: an api fn is
 code that calls an external service. Its services are records of the one instance (`api/Service`: the base URL, how
 it signs in, the OpenAPI document), which the authoring agent picks or adds and admins edit under Admin → API services;
 a record never holds a secret. Connections are keyed per service (`ConnectDecl.scope: 'key'`): each person connects
@@ -1222,6 +1222,80 @@ The hub's own Ollama provider is aeye's `@aeye/ollama`. It reads a model's abili
 that lists none, the provider's **Decision models** field (an admin's list) marks which models decide. Decisions go to
 Ollama's `/v1/systemone`.
 
+**Runtime providers.** A provider whose models an admin chooses while the system runs is declared
+`provider({ description, models: 'runtime' })` (at most one per contract). The contract has none of its models: the
+running system sets them, whole, with `running.models(contract.providers.<name>, models)`, and each fleet instance sends
+its own, **named after the instance** and owned by it (`SystemProviderDecl.runtime` and `instance`), so `ollama/desk`
+and `ollama/laptop` are two providers. The hub routes each one's calls to its instance, offers it only while that
+instance is connected, keeps each instance's own when another sends (`fromInstance`, as with types an instance owns),
+drops it with the instance, and rebuilds the hub AI when its models change (the offered set is compared by
+declaration, not just by name). Once an admin reviewed a system that has a runtime provider, a change to such a
+provider's models goes live without another review as long as every model is free (`runtimeProviderChange` in
+`link/lifecycle.ts`); a price, or a provider that isn't runtime, still waits for one. The live list still narrows the
+declared models to what the provider serves now.
+
+### The Ollama system
+
+Phil (2026-11-23, verbatim): "Add an ollama system to be aeye provider the user can select models from"; what it is:
+"Actually installs and runs ollama and can get models listed and installed etc."; who picks: "An admin offers, a
+person picks per chat".
+
+`systems/ollama` (`"instances": "many"`: one per machine or server) runs an Ollama, manages its models and offers the
+ones an admin chose as a runtime provider named after the instance, so people pick them in a chat's model picker like
+any provider's.
+
+- **Where Ollama runs** is the instance's config (`server`, zod `OllamaServerConfig`, read with `ginAs`): `managed`
+  (the official release installed in the instance's data folder and run from there; the default), `binary` (an Ollama
+  already on the machine, `path` or the first one found, run by the system with its models in the data folder unless
+  `modelsDir` says otherwise) or `url` (a server someone else runs; the system lists, pulls, removes and offers, but
+  never starts or stops it). `managed` and `binary` take `port` (11435 by default, so an Ollama already on 11434 is
+  left alone), `host` (127.0.0.1), `autoStart`, `contextLength` (Ollama's `OLLAMA_CONTEXT_LENGTH`) and `keepAlive`.
+- **Installing** (`ollama/install`, `managed` only): the release for the OS and architecture comes from GitHub's
+  releases API (`ollama-windows-<arch>.zip`, `ollama-darwin.tgz`, `ollama-linux-<arch>.tar.zst` or `.tgz`), is
+  downloaded with linear progress, checked against the sha-256 the release publishes (the asset's own digest, else its
+  `sha256sum.txt`; a mismatch installs nothing, and a release with no checksum at all says so on the card), unpacked by
+  the OS's own `tar` (System32's on Windows; no shell, a bare environment) into a new, empty staging folder and moved to
+  `<data>/ollama/<version>/`, with `<data>/ollama/install.json` recording it. No system-wide installer, no admin rights.
+  Older versions are removed once the server isn't running them.
+- **Running** (`ollama/start`, `ollama/stop`): `ollama serve` is a child process, run directly with the OS's
+  essentials, the GPU names in `OLLAMA_SYSTEM_PASS_ENV` and Ollama's own settings (`OLLAMA_HOST`, `OLLAMA_MODELS`, …),
+  never the system's other environment. A start is refused while anything already answers on its port, waits until
+  the server answers (`OLLAMA_SYSTEM_START_TIMEOUT`), and a crash is restarted after a wait that doubles
+  (`OLLAMA_SYSTEM_RESTART_DELAY` up to `…_RESTART_MAX`) until `OLLAMA_SYSTEM_RESTARTS_PER_HOUR` crashes leave it
+  `failed`. `autoStart` starts an installed server when the system starts and after a config change (the admin's
+  config is the consent); the system stops it when it stops. `ollama/status` gives its state, address, version,
+  restarts, last exit, problem, install, pulls in progress, the offered models and its last output; `ollama/detect`
+  finds programs on the PATH and where installers put them, and servers that answer, without running anything.
+- **Models** (`ollama/models`, `ollama/pull`, `ollama/remove`): the list reads `/api/tags` and `/api/show` with
+  `@aeye/ollama`'s own readings (`capabilitiesOf`, `servedWindow`), so it shows the same abilities (tools, vision,
+  reasoning, embedding with its vector size, decision), trained length and served window the provider uses, beside
+  size, family, parameters and quantization. A pull streams Ollama's progress as linear progress (and into
+  `ollama/status` for the page); a removal drops the model from the picker at once.
+- **Offering**: the config's `offered` list (`OfferedModel`: `model`, `label`, `contextWindow`, the cap on what the
+  hub sends it, Ollama's `num_ctx` served window never raised; `maxOutput`; `decision` for a server that doesn't list
+  the ability). The provider declares the **offered models the server has** (`declaredModels`, free, each within its
+  offer), sent again whenever that set changes: at start, on a config change, once the server answers, and after a
+  pull or a removal. The provider itself is `@aeye/ollama`'s `OllamaProvider` pointed at the instance's server
+  (`OfferedOllamaProvider` only narrows its live list to the offers and their caps), so chat, embeddings and System One
+  decisions are aeye's code; nothing of Ollama's API is written again. The OpenAI-compatible endpoint takes no
+  `num_ctx`, so the served window comes from the Modelfile or the managed server's `contextLength`; the offer's cap
+  keeps prompts within it.
+- **Admin only, with approval.** Every fn is tagged `admin`; `install`, `start`, `stop`, `pull` and `remove` ask an
+  admin first (`approval: { approver: 'admins' }`) with a card that says what happens (the file, its size and how it is
+  checked; the command and port; the model and where it goes). The reads (`status`, `detect`, `models`) don't ask.
+- **The page** `/s/ollama/servers` (admins, the app's own components) shows one instance at a time (`?on=`): its
+  state, facts and output, Install / Start / Stop, the models with an Offer switch and a context cap each (written to
+  the instance's config with the hub's `configureSystem`), Pull with progress (read every second while a pull runs) and
+  Remove. Reads are the hub's quiet read (`readFn`), which takes `on` to name a fleet instance; changes are the
+  admin's own runs in an "Ollama" chat, their approvals answered on the page.
+- **The hub's built-in Ollama provider stays** for a server an admin only points the hub at (Models page; one base
+  URL, a decision-models list, every model the server has). Use the system when the hub should run and manage Ollama on
+  a machine, or choose which of a server's models people see; use the built-in provider for a remote server nobody
+  manages from here. Both use `@aeye/ollama`, and both can point at the same server.
+- **In development** `npm run dev` runs it only with `HARNESS_DEV_OLLAMA` set: an address (its `url` mode) or
+  `managed` (with `autoStart` off; nothing is installed until an admin approves). Its tests fake the release, the
+  download, the unpack, the child process and Ollama's HTTP API; nothing real is installed, started or pulled.
+
 ### Fn metrics
 
 Every run records how long it waited in the queue, waited for approval and ran, what it cost and used, how it ended
@@ -1695,6 +1769,10 @@ Still open:
 - **ayepi sqlite: a `FileStore` over SQLite**, for keeping raw content in the database (the hub has its own until then).
 - **ayepi mcp: server progress notifications.**
 - **aeye core:** `forget` counting tool definitions; a provider hook for the served context window.
+- **aeye ollama: pulling and removing models.** `OllamaApi` reads `/api/tags`, `/api/show` and `/api/version`; the
+  Ollama system adds `POST /api/pull` (its NDJSON progress) and `DELETE /api/delete` in `systems/ollama/server/api.ts`
+  until `OllamaApi` has `pull` and `delete`, and parses `/api/tags`' sizes and details itself (`OllamaTags` types only
+  the names).
 - **aeye ai: one count of a decision request's bytes** (say `decisionRequestBytes(request)`), so the hub splits by
   the same count the provider checks. The hub estimates it today.
 - **ayepi auth: an authorization request without PKCE.** `authorizationUrl` and `exchangeCode` always use PKCE, and
@@ -2122,3 +2200,7 @@ Already checked: type-checking all of the types and examples takes about two sec
   child runs of each iteration (**Parallel claims** under **Fns**). Static claims use the status words' `{args.x}`
   tokens, checked against the args at compile time; a system that can't answer for its dynamic claims makes the call
   run alone; held calls a stopped agent no longer waits for are skipped, never started later.
+- **Ollama system** (2026-11-23, hitloop `todo-2026-11-23`). Phil: "Actually installs and runs ollama and can get
+  models listed and installed etc." and "An admin offers, a person picks per chat". The system runs Ollama per
+  instance and offers an admin's chosen models as a runtime provider named after the instance; the hub's built-in
+  Ollama provider stays for servers it doesn't manage (**The Ollama system** under **LLM calls and budgets**).

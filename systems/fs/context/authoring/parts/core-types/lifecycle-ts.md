@@ -514,6 +514,8 @@ type PreviewAnswer = {
         maxQuestions?: number | undefined;
         maxRequestBytes?: number | undefined;
       }[];
+      runtime?: true | undefined;
+      instance?: InstanceName | undefined;
     }[] | undefined;
     connect?: {
       title: string;

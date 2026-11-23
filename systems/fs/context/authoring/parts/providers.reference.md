@@ -33,8 +33,11 @@ What `provider()` takes.
 ```ts
 interface ProviderInput {
   description: string;
-  /** Every model it serves. A call for any other model is refused. */
-  models: ProviderModelDecl[];
+  /**
+   * Every model it serves; a call for any other model is refused. `'runtime'`: the running system sets them
+   * (`running.models`), from what an admin chose, and the provider is one per instance, named after it.
+   */
+  models: ProviderModelDecl[] | 'runtime';
 }
 ```
 
@@ -49,7 +52,10 @@ A provider as the contract declares it.
 ```ts
 interface ProviderDef {
   readonly description: string;
+  /** Its models; none for a runtime provider, whose models the running system sets. */
   readonly models: readonly ProviderModelDecl[];
+  /** Its models are set while the system runs (`RunningSystem.models`), one provider per instance. */
+  readonly runtime: boolean;
 }
 ```
 
