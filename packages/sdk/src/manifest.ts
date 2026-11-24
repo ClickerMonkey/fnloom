@@ -38,6 +38,13 @@ function handlersDecl(handlers: Handlers): Record<string, HandlerDecl> {
   }]));
 }
 
+/** The qualified name of a dep a fn's args check calls, by its key among the fn's deps (typed to them by `fn()`). */
+function checkDep(def: AnyFnDef, local: string): QualifiedName {
+  const dep = def.deps[local];
+  if (dep === undefined) { throw new Error(`The args check calls ${local}, which is not one of the fn's deps.`); }
+  return dep.name;
+}
+
 /** A fn declaration on the wire. `name` is local (`read`, `Entry.reveal`). */
 export function fnDecl(name: string, def: AnyFnDef): FnDecl {
   const kind = def.kind === 'native' ? 'native' : def.kind.name;
@@ -80,6 +87,7 @@ export function fnDecl(name: string, def: AnyFnDef): FnDecl {
     ...(def.roles === undefined || def.roles.length === 0 ? {} : { roles: [...def.roles] }),
     ...(def.parallelClaims.length === 0 ? {} : { parallelClaims: [...def.parallelClaims] }),
     ...(def.dynamicClaims ? { dynamicClaims: true } : {}),
+    ...(def.check === undefined ? {} : { check: { deps: def.check.calls.map((local) => checkDep(def, local)) } }),
   };
 }
 

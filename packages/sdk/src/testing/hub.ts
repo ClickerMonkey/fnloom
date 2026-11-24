@@ -9,7 +9,7 @@
  * await kit.stop();
  * ```
  */
-import { fillClaims, qualify, type Json, type DataRecord, type KindDescription, type MentionOption as WireMentionOption, type OutcomeWire, type QualifiedName, type ResultTable, type RunRequest, type SensitivityFlag, type VisualRank } from '@harness/core';
+import { fillClaims, qualify, type InputProblem, type Json, type DataRecord, type KindDescription, type MentionOption as WireMentionOption, type OutcomeWire, type QualifiedName, type ResultTable, type RunRequest, type SensitivityFlag, type VisualRank } from '@harness/core';
 import type { KindDef } from '../declare.ts';
 import type { AnyFnDef, FnDef, TypesOf } from '../fn.ts';
 import { encodeValue, parseValue } from '../gin.ts';
@@ -174,6 +174,19 @@ export class TestSystem<N extends string, C extends ContractShape> {
     const request = this.hub.request(fn, encodeValue(def.args, args));
     const answer = await this.hub.flags({ fn: name, kind: 'native', args: request.args, run: request.run.id, user: request.run.user });
     return answer.flags;
+  }
+
+  /**
+   * What a fn's args check finds (`fn({ check })`), as the hub asks it before the policies and any approval: the
+   * problems (none when the args are fine, or the fn has no check) and what the check asked the hub for (its read
+   * calls come to `hub.onCall`, keyed `check:…`). `extra.run` sets whom the call is for.
+   */
+  async check<K extends FnNameOf<C>>(name: K, args: FnArgsOf<C, K>, extra: Partial<Omit<RunRequest, 'fn' | 'args'>> = {}): Promise<{ readonly problems: InputProblem[]; readonly hubCalls: HubCalls }> {
+    const def = this.#fn(name);
+    const before = this.#marks();
+    const request = this.hub.request(qualify(this.contract.name, name), encodeValue(def.args, args), extra);
+    const answer = await this.hub.checkArgs({ fn: name, args: request.args, run: request.run.id, user: request.run.user, deadline: Date.now() + 10_000 });
+    return { problems: answer.problems, hubCalls: this.#since(before) };
   }
 
   /**

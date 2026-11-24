@@ -280,6 +280,12 @@ class TestSystem<N extends string, C extends ContractShape> {
   */
   flags<K extends FnNameOf<C>>(name: K, args: FnArgsOf<C, K>): Promise<SensitivityFlag[]>;
   /**
+  * What a fn's args check finds (`fn({ check })`), as the hub asks it before the policies and any approval: the
+  * problems (none when the args are fine, or the fn has no check) and what the check asked the hub for (its read
+  * calls come to `hub.onCall`, keyed `check:…`). `extra.run` sets whom the call is for.
+  */
+  check<K extends FnNameOf<C>>(name: K, args: FnArgsOf<C, K>, extra?: Partial<Omit<RunRequest, "fn" | "args">>): Promise<{ readonly problems: InputProblem[]; readonly hubCalls: HubCalls; }>;
+  /**
   * What an agent's call of a fn with these args would operate on, as the hub works it out before starting it: its
   * `parallelClaims` filled from the args, then (for a fn with `dynamicClaims`) what its own `claims(args, ctx)` adds.
   */
@@ -299,7 +305,7 @@ class TestSystem<N extends string, C extends ContractShape> {
 }
 ```
 
-Refers to: [`DataRecord`](context:fs/authoring.core-types.data-ts#core-datarecord), [`Json`](context:fs/authoring.core-types.primitives-ts#core-json), [`OutcomeWire`](context:fs/authoring.core-types.run-ts#core-outcomewire), [`ResultTable`](context:fs/authoring.core-types.registries-ts#core-resulttable), [`RunRequest`](context:fs/authoring.core-types.link-ts#core-runrequest), [`SensitivityFlag`](context:fs/authoring.core-types.sensitivity-ts#core-sensitivityflag), [`VisualRank`](context:fs/authoring.core-types.visuals-ts#core-visualrank).
+Refers to: [`DataRecord`](context:fs/authoring.core-types.data-ts#core-datarecord), [`InputProblem`](context:fs/authoring.core-types.run-ts#core-inputproblem), [`Json`](context:fs/authoring.core-types.primitives-ts#core-json), [`OutcomeWire`](context:fs/authoring.core-types.run-ts#core-outcomewire), [`ResultTable`](context:fs/authoring.core-types.registries-ts#core-resulttable), [`RunRequest`](context:fs/authoring.core-types.link-ts#core-runrequest), [`SensitivityFlag`](context:fs/authoring.core-types.sensitivity-ts#core-sensitivityflag), [`VisualRank`](context:fs/authoring.core-types.visuals-ts#core-visualrank).
 
 #### `TestHubOptions`
 

@@ -193,6 +193,8 @@ export class HubPolicyEngine implements PolicyEngine {
   /** Make the approval a run waits on, with its preview (asked for only now: a denied, allowed or remembered run costs none). */
   async #approval(input: DecideInput, approver: Approver, policy: Approval['policy']): Promise<RunDecision> {
     const { clock } = this.#deps;
+    // a call that can't wait (an args check's read) is denied where it would ask: nobody is asked for it
+    if (input.noAsk !== undefined) return { effect: 'deny', reason: input.noAsk };
     const preview = input.preview === undefined ? undefined : await input.preview();
     if (input.preview !== undefined && preview === undefined) return { effect: 'deny', reason: `${input.fn} can't show what it would do` };
     // a choice the preview offered on the card (read once the preview is worked out)

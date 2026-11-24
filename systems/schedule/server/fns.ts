@@ -12,6 +12,11 @@
  *   `schedule/Firing` records); **history** is a page of those records.
  * - **remind** notifies its own person with a text (`ctx.notify`): what "remind me" is scheduled as.
  *
+ * Args checks: `add` and `change` check a call before the hub's policies and the approval card (`check`, reading
+ * `hub/fns_get` only): the target exists and can run, fixed args fit its args type (`fixedProblems`), `when` runs and
+ * its times are far enough apart, the person has room for one more, and a changed schedule is theirs. Args worked out
+ * from words are a model call, so they wait for the run.
+ *
  * Undo: each saving fn's run has the hub save (or remove) as its child, and the hub undoes that child with the turn
  * (`hub/fns_save` puts back the version before, or removes the fn it made; `hub/fns_remove` restores the last version),
  * so the schedule goes back as the design says (add removes it, change and pause go back a version, remove brings it
@@ -24,11 +29,11 @@ import { fnOfModelNameByRule, Json, QualifiedName, splitName, type InputProblem,
 import { CallFailed, g, SAVE_FN_TAKEN, wireType, type Infer, type KindCheckCtx, type StoredFn, type SystemImpl } from '@harness/sdk';
 import { hubProgramHost, type ProgramLookups } from '@harness/sdk/program';
 import { AuthoringError } from '@harness/sdk/server';
-import { ALLOW_RUNS_LABEL, schedule, type AddArgs, type ScheduleContract } from '../shared/index.ts';
-import { FiringShape, OccurrenceKey, SchedulePayload, ScheduleView, When, Zone, type Fire, type FiringStatus, type PreviousFiring } from '../shared/types.ts';
+import { ALLOW_RUNS_LABEL, schedule, type AddArgs, type ChangeArgs, type ScheduleContract } from '../shared/index.ts';
+import { FiringShape, gapProblems, OccurrenceKey, SchedulePayload, ScheduleView, When, Zone, type Fire, type FiringStatus, type PreviousFiring } from '../shared/types.ts';
 import { describeWhen, firingsOnDays, nextFirings, occurrenceKey, type Occurrence } from '../shared/when.ts';
 import { localNow, localString, zonedTime } from '../shared/zoned.ts';
-import { ArgsFailed, evaluateArgs, type TargetSignature } from './args.ts';
+import { ArgsFailed, evaluateArgs, fixedProblems, type TargetSignature } from './args.ts';
 import { argsAuthoring, ArgsAuthoring, computeRequest, runWords } from './authoring.ts';
 import { scheduleProblems } from './kind.ts';
 import type { Clock, Timer } from './timer.ts';
@@ -63,6 +68,17 @@ interface ReadsFns {
   readonly run: AddCtx['run'];
   readonly types: AddCtx['types'];
   readonly data: AddCtx['data'];
+}
+
+/** What looking a fn and its types up needs: `hub/fns_get` and the hub's named types (a run, or an args check). */
+type Reads = Pick<ReadsFns, 'fns' | 'types'>;
+
+/** The person a schedule fn is run for, as its run and its args check both know them. */
+interface Person {
+  readonly id: string;
+  readonly name: string;
+  readonly role: string;
+  readonly timeZone: string;
 }
 
 /** A run that saves schedules (`hub/fns_save` as its dep `saveFn`). */
@@ -185,12 +201,12 @@ export function viewOf(name: QualifiedName, payload: SchedulePayload, input: { n
 }
 
 /** Program lookups for a run: named types from the hub; the args program calls no fns. */
-function lookupsOf(ctx: ReadsFns): ProgramLookups {
+function lookupsOf(ctx: Pick<ReadsFns, 'types'>): ProgramLookups {
   return { types: (names) => ctx.types.definitions(names), fn: () => Promise.resolve(undefined) };
 }
 
 /** A fn's shape as the kind's check reads it, from `hub/fns_get` as the run's person; undefined when they can't see it. */
-async function shapeOf(ctx: ReadsFns, name: QualifiedName): Promise<KindFnShape | undefined> {
+async function shapeOf(ctx: Pick<ReadsFns, 'fns'>, name: QualifiedName): Promise<KindFnShape | undefined> {
   try {
     const stored = await ctx.fns.getFn({ fn: name });
     return stored.args === undefined || stored.returns === undefined ? undefined : { args: stored.args, returns: stored.returns, description: stored.description, mode: 'write' };
@@ -201,7 +217,7 @@ async function shapeOf(ctx: ReadsFns, name: QualifiedName): Promise<KindFnShape 
 }
 
 /** The kind's check context in a run: types and fns as the run's person sees them, so `scheduleProblems` runs before the save. */
-function checkCtxOf(ctx: ReadsFns): KindCheckCtx {
+function checkCtxOf(ctx: Reads): KindCheckCtx {
   return {
     type: async (name) => (await ctx.types.definitions([name])).types.find((type) => type.name === name)?.def,
     fn: (name) => shapeOf(ctx, name),
@@ -209,7 +225,7 @@ function checkCtxOf(ctx: ReadsFns): KindCheckCtx {
 }
 
 /** The fn a schedule is to run, with its signature; refused in words when it can't be scheduled. */
-async function targetOf(ctx: ReadsFns, raw: string): Promise<{ name: QualifiedName; signature: TargetSignature }> {
+async function targetOf(ctx: Pick<ReadsFns, 'fns'>, raw: string): Promise<{ name: QualifiedName; signature: TargetSignature }> {
   const name = nameOf(raw);
   if (name === undefined) { throw new Invalid([{ path: 'fn', message: `${raw} is not a fn's name: give it as your tools and search hits spell it.` }]); }
   let stored: StoredFnValue;
@@ -226,7 +242,7 @@ async function targetOf(ctx: ReadsFns, raw: string): Promise<{ name: QualifiedNa
 }
 
 /** A schedule of the person's, as the hub keeps it; refused in words when there is none, or it is someone else's. */
-async function ownSchedule(ctx: ReadsFns, raw: string, options: { admin?: boolean } = {}): Promise<{ name: QualifiedName; stored: StoredFnValue; payload: SchedulePayload }> {
+async function ownSchedule(ctx: Pick<ReadsFns, 'fns'>, raw: string, user: Person, options: { admin?: boolean } = {}): Promise<{ name: QualifiedName; stored: StoredFnValue; payload: SchedulePayload }> {
   const name = nameOf(raw);
   const missing = `${raw} is not a schedule of the person's: ${schedule.fns.list.name} names theirs.`;
   if (name === undefined) { throw new Invalid([{ path: 'schedule', message: missing }]); }
@@ -238,7 +254,6 @@ async function ownSchedule(ctx: ReadsFns, raw: string, options: { admin?: boolea
     throw new Invalid([{ path: 'schedule', message: missing }]);
   }
   if (stored.kind !== KIND) { throw new Invalid([{ path: 'schedule', message: `${name} is not a schedule (it is a fn of ${stored.kind}): ${schedule.fns.list.name} names the person's schedules.` }]); }
-  const user = ctx.run.user;
   if (stored.owner !== undefined && stored.owner !== user.id && !(options.admin === true && user.role === 'admin')) {
     throw new Refused(`${name} is not ${user.name}'s: a schedule runs as the person who made it, so only they change it. To have one of their own, add a schedule that runs the same fn.`);
   }
@@ -248,12 +263,79 @@ async function ownSchedule(ctx: ReadsFns, raw: string, options: { admin?: boolea
 }
 
 /** Every problem with a payload before it is saved: its type, the kind's own check, and that it runs at all. */
-async function payloadProblems(ctx: ReadsFns, payload: SchedulePayload, minGap: number, now: number): Promise<InputProblem[]> {
+async function payloadProblems(ctx: Reads, payload: SchedulePayload, minGap: number, now: number): Promise<InputProblem[]> {
   const problems: InputProblem[] = (await scheduleProblems(payload, checkCtxOf(ctx), minGap)).map((message) => ({ path: message.startsWith('args') ? 'args' : /apart/.test(message) ? 'when.times' : 'fn', message }));
-  if (payload.paused === undefined && nextFirings(payload.when, payload.zone, now, 1).length === 0) {
-    problems.push({ path: 'when', message: 'It would never run: every time it gives is in the past. Give a day and time still to come.' });
+  return [...problems, ...neverRuns(payload, now)];
+}
+
+/** That a schedule runs at all: a problem at `when` when every time it gives is in the past (none while it is paused). */
+function neverRuns(payload: Pick<SchedulePayload, 'when' | 'zone' | 'paused'>, now: number): InputProblem[] {
+  if (payload.paused !== undefined || nextFirings(payload.when, payload.zone, now, 1).length > 0) { return []; }
+  return [{ path: 'when', message: 'It would never run: every time it gives is in the past. Give a day and time still to come.' }];
+}
+
+/**
+ * The problems of a schedule whose args are worked out from words after approval (a model call, so never in a check):
+ * its times' gap and that it runs at all. Its target was read already; its args program doesn't exist yet.
+ */
+function whenProblems(payload: Pick<SchedulePayload, 'when' | 'zone' | 'paused'>, minGap: number, now: number): InputProblem[] {
+  return [...gapProblems(payload.when, minGap).map((message) => ({ path: 'when.times', message })), ...neverRuns(payload, now)];
+}
+
+/** `when` and `zone` as add or change was given them, refused by path when they don't read. */
+function whenOf(args: { readonly when?: unknown; readonly zone?: string | undefined }, fallbackZone: Zone): { when: When | undefined; zone: Zone } {
+  const when = args.when === undefined ? undefined : When.safeParse(jsonOf(args.when));
+  if (when !== undefined && !when.success) { throw new Invalid([{ path: 'when', message: `It doesn't read as a time to run: ${when.error.issues.map((issue) => `${issue.path.join('.') || 'when'}: ${issue.message}`).join('; ')}` }]); }
+  const zone = args.zone === undefined ? { success: true as const, data: fallbackZone } : Zone.safeParse(args.zone);
+  if (!zone.success) { throw new Invalid([{ path: 'zone', message: `${args.zone ?? ''} is not a time zone: give an IANA zone such as America/New_York.` }]); }
+  return { when: when?.data, zone: zone.data };
+}
+
+/**
+ * What `add` works out before the args program, in its run and in its check alike: the target and its signature, the
+ * fixed args as meant (`fromPairs`), `when` and the zone (the person's own when it gives none).
+ */
+async function addPlan(ctx: Pick<ReadsFns, 'fns'>, args: Infer<typeof AddArgs>, user: Pick<Person, 'timeZone'>): Promise<{ target: { name: QualifiedName; signature: TargetSignature }; fixed: Json | undefined; when: When; zone: Zone }> {
+  const target = await targetOf(ctx, args.fn);
+  const fixed = args.args === undefined ? undefined : fromPairs(args.args);
+  if (fixed !== undefined && target.signature.args.name === 'obj' && !isObject(fixed)) {
+    throw new Invalid([{ path: 'args', message: `${target.name} takes its args as an object: give them by name.` }]);
   }
-  return problems;
+  const { when, zone } = whenOf(args, personZone(user.timeZone));
+  if (when === undefined) { throw new Invalid([{ path: 'when', message: 'Say when it runs.' }]); }
+  return { target, fixed, when, zone };
+}
+
+/** The settings of a new schedule `add` was given beyond what it runs and when. */
+function addOptions(args: Infer<typeof AddArgs>): Partial<Pick<SchedulePayload, 'notify' | 'overlap' | 'missed' | 'maxSpend'>> {
+  return {
+    ...(args.notify === undefined ? {} : { notify: args.notify }),
+    ...(args.overlap === undefined ? {} : { overlap: args.overlap }),
+    ...(args.missed === undefined ? {} : { missed: args.missed }),
+    ...(args.maxSpend === undefined || args.maxSpend === 0 ? {} : { maxSpend: args.maxSpend }),
+  };
+}
+
+/** How many schedules the person has, refused in words when they have the most one person may. */
+function roomFor(timer: Timer, user: Person): void {
+  const theirs = timer.schedules().filter((fn) => fn.owner === user.id).length;
+  if (theirs >= timer.limits.perPerson) {
+    throw new Refused(`The person has ${String(theirs)} schedules, the most one person may have (${String(timer.limits.perPerson)}): remove one first (${schedule.fns.remove.name}).`);
+  }
+}
+
+/**
+ * A fn's args check (`check` in the contract): its body's refusals as problems by path (a refusal in words at the
+ * whole call), none when it found nothing. Anything else it hits is left to the hub, which lets the call go on.
+ */
+async function checked(body: () => Promise<readonly InputProblem[]>): Promise<readonly InputProblem[]> {
+  try {
+    return await body();
+  } catch (error) {
+    if (error instanceof Invalid) { return error.problems; }
+    if (error instanceof Refused) { return [{ path: '', message: error.message }]; }
+    throw error;
+  }
 }
 
 /** The args program a schedule keeps: a literal for fixed args, or one the compute step writes from the words. */
@@ -288,7 +370,7 @@ async function argsProgramOf(ctx: AddCtx | CtxOf<'change'>, input: {
  * The first coming run's args, worked out as that run will (none when nothing is coming). A program that fails for it
  * (fixed values that don't fit the fn's args: the type check reads a literal's slots loosely) is refused at `args`.
  */
-async function firstArgsOf(ctx: ReadsFns, payload: SchedulePayload, signature: TargetSignature, now: number, count: number, previous: PreviousFiring | undefined): Promise<Json | undefined> {
+async function firstArgsOf(ctx: Pick<ReadsFns, 'types'>, payload: SchedulePayload, signature: TargetSignature, now: number, count: number, previous: PreviousFiring | undefined): Promise<Json | undefined> {
   const first = comingRuns(payload, now, 1)[0];
   if (first === undefined) { return undefined; }
   try {
@@ -415,6 +497,42 @@ async function guarded<C extends { fail: (cls: 'caller', message: string) => R; 
 /** The changes `schedule/change` was asked for, as a payload over the current one (args and words worked out by the caller). */
 type Changes = Partial<Pick<SchedulePayload, 'fn' | 'when' | 'zone' | 'notify' | 'overlap' | 'missed' | 'maxSpend'>>;
 
+/** What `change` was asked, as its implementation gets it. */
+type ChangeArgsValue = Infer<typeof ChangeArgs>;
+
+/**
+ * What `change` works out before any args program, in its run and its check alike: the schedule with the asked changes
+ * over it (`merged`, its program still the old one) and the new target's signature when it runs another fn.
+ */
+async function changePlan(ctx: Pick<ReadsFns, 'fns'>, own: { payload: SchedulePayload }, args: ChangeArgsValue): Promise<{ merged: SchedulePayload & Changes; signature: TargetSignature | undefined }> {
+  const changes: Changes = {};
+  let signature: TargetSignature | undefined;
+  if (args.fn !== undefined) {
+    const target = await targetOf(ctx, args.fn);
+    changes.fn = target.name;
+    signature = target.signature;
+  }
+  const { when, zone } = whenOf(args, own.payload.zone);
+  if (when !== undefined) { changes.when = when; }
+  if (args.zone !== undefined) { changes.zone = zone; }
+  if (args.notify !== undefined) { changes.notify = args.notify; }
+  if (args.overlap !== undefined) { changes.overlap = args.overlap; }
+  if (args.missed !== undefined) { changes.missed = args.missed; }
+  if (args.maxSpend !== undefined) { changes.maxSpend = args.maxSpend === 0 ? undefined : args.maxSpend; }
+  return { merged: { ...own.payload, ...changes }, signature };
+}
+
+/** A schedule's args program as it keeps it: the program, and the words it was worked out from when it was. */
+function programOf(payload: SchedulePayload): { args: ExprDef; argsAsked?: string } {
+  return { args: payload.args, ...(payload.argsAsked === undefined ? {} : { argsAsked: payload.argsAsked }) };
+}
+
+/** The payload `change` saves: the merged schedule with its args program (and its spending cap only when it has one). */
+function changedPayload(merged: SchedulePayload & Changes, program: { args: ExprDef; argsAsked?: string }): SchedulePayload {
+  const { argsAsked: _asked, maxSpend: _spend, ...rest } = merged;
+  return SchedulePayload.parse({ ...rest, ...(merged.maxSpend === undefined ? {} : { maxSpend: merged.maxSpend }), ...program });
+}
+
 /** Build the chat fns over the timer and the clock. */
 export function scheduleFns(deps: ScheduleFnsDeps): Fns {
   const { timer, clock } = deps;
@@ -450,29 +568,16 @@ export function scheduleFns(deps: ScheduleFnsDeps): Fns {
       run: (args, ctx) => guarded(ctx, async () => {
         const now = clock.now();
         const user = ctx.run.user;
-        const theirs = timer.schedules().filter((fn) => fn.owner === user.id).length;
-        if (theirs >= timer.limits.perPerson) {
-          throw new Refused(`The person has ${String(theirs)} schedules, the most one person may have (${String(timer.limits.perPerson)}): remove one first (${schedule.fns.remove.name}).`);
-        }
+        roomFor(timer, user);
         // only the person lets its runs go ahead: on the approval card (`ctx.approved`), or running add themselves
         const allow = args.allowRuns === true;
         if (allow && ctx.approved === undefined && ctx.run.caller !== user.id) {
           throw new Invalid([{ path: 'allowRuns', message: 'allowRuns is the person\'s own choice, made on the approval card: leave it out.' }]);
         }
         if (allow && timer.limits.approvals === 'refuse') { throw new Refused(REFUSE_SET); }
-        const target = await targetOf(ctx, args.fn);
-        const fixed = args.args === undefined ? undefined : fromPairs(args.args);
-        const zone = args.zone === undefined ? personZone(user.timeZone) : Zone.parse(args.zone);
-        const when = When.parse(jsonOf(args.when));
+        const { target, fixed, when, zone } = await addPlan(ctx, args, user);
         const program = await argsProgramOf(ctx, { target: target.name, signature: target.signature, fixed, compute: args.compute, payload: { when, zone }, now, count: 0 });
-        const payload = SchedulePayload.parse({
-          fn: target.name, when, zone, ...program,
-          ...(args.notify === undefined ? {} : { notify: args.notify }),
-          ...(args.overlap === undefined ? {} : { overlap: args.overlap }),
-          ...(args.missed === undefined ? {} : { missed: args.missed }),
-          ...(args.maxSpend === undefined || args.maxSpend === 0 ? {} : { maxSpend: args.maxSpend }),
-          ...(allow ? { runsAllowed: { at: now, by: user.id } } : {}),
-        });
+        const payload = SchedulePayload.parse({ fn: target.name, when, zone, ...program, ...addOptions(args), ...(allow ? { runsAllowed: { at: now, by: user.id } } : {}) });
         const problems = await payloadProblems(ctx, payload, timer.limits.minGap, now);
         if (problems.length > 0) { throw new Invalid(problems); }
         const firstArgs = await firstArgsOf(ctx, payload, target.signature, now, 0, undefined);
@@ -483,11 +588,27 @@ export function scheduleFns(deps: ScheduleFnsDeps): Fns {
       }),
       undo: (payload) => Promise.resolve({ status: 'undone', summary: `${payload.schedule} is taken back with the save that made it, so it won't run` }),
       preview: (args, ctx) => Promise.resolve(addPreview(args, { user: ctx.user, now: clock.now(), approvals: timer.limits.approvals })),
+      // before the card: the person's room for one more, the target, `when`, and fixed args against the target's args
+      // type (the first run's args worked out). Args worked out from words wait for the run: that is a model call.
+      check: (args, ctx) => checked(async () => {
+        const now = clock.now();
+        roomFor(timer, ctx.user);
+        const { target, fixed, when, zone } = await addPlan(ctx, args, ctx.user);
+        const base = { fn: target.name, when, zone, ...addOptions(args) };
+        if (args.compute !== undefined) { return whenProblems(base, timer.limits.minGap, now); }
+        const wrong = await fixedProblems(fixed ?? {}, target.signature, lookupsOf(ctx));
+        if (wrong.length > 0) { return [...wrong, ...whenProblems(base, timer.limits.minGap, now)]; }
+        const payload = SchedulePayload.parse({ ...base, args: literalArgs(target.signature, fixed) });
+        const problems = await payloadProblems(ctx, payload, timer.limits.minGap, now);
+        if (problems.length > 0) { return problems; }
+        await firstArgsOf(ctx, payload, target.signature, now, 0, undefined);
+        return [];
+      }),
     },
 
     allow_runs: {
       run: (args, ctx) => guarded(ctx, async () => {
-        const own = await ownSchedule(ctx, args.schedule);
+        const own = await ownSchedule(ctx, args.schedule, ctx.run.user);
         if (ctx.run.caller !== ctx.run.user.id) {
           throw new Refused(`Whether ${own.name}'s runs ask is the person's own choice, made on its page: it can't be changed for them.`);
         }
@@ -504,35 +625,54 @@ export function scheduleFns(deps: ScheduleFnsDeps): Fns {
 
     change: {
       run: (args, ctx) => guarded(ctx, async () => {
-        const own = await ownSchedule(ctx, args.schedule);
+        const own = await ownSchedule(ctx, args.schedule, ctx.run.user);
         const now = clock.now();
-        const current = own.payload;
-        const changes: Changes = {};
-        let signature: TargetSignature | undefined;
-        if (args.fn !== undefined) {
-          const target = await targetOf(ctx, args.fn);
-          changes.fn = target.name;
-          signature = target.signature;
-        }
-        if (args.when !== undefined) { changes.when = When.parse(jsonOf(args.when)); }
-        if (args.zone !== undefined) { changes.zone = Zone.parse(args.zone); }
-        if (args.notify !== undefined) { changes.notify = args.notify; }
-        if (args.overlap !== undefined) { changes.overlap = args.overlap; }
-        if (args.missed !== undefined) { changes.missed = args.missed; }
-        if (args.maxSpend !== undefined) { changes.maxSpend = args.maxSpend === 0 ? undefined : args.maxSpend; }
-        const merged = { ...current, ...changes };
-        let program: { args: ExprDef; argsAsked?: string } = { args: current.args, ...(current.argsAsked === undefined ? {} : { argsAsked: current.argsAsked }) };
+        const plan = await changePlan(ctx, own, args);
+        let { signature } = plan;
+        let program = programOf(own.payload);
         if (args.args !== undefined || args.compute !== undefined) {
-          signature ??= (await targetOf(ctx, merged.fn)).signature;
+          signature ??= (await targetOf(ctx, plan.merged.fn)).signature;
           const row = timer.row(own.name);
           program = await argsProgramOf(ctx, {
-            target: merged.fn, signature, fixed: args.args === undefined ? undefined : fromPairs(args.args), compute: args.compute, payload: merged, now, count: row?.count ?? 0, previous: row?.previous,
+            target: plan.merged.fn, signature, fixed: args.args === undefined ? undefined : fromPairs(args.args), compute: args.compute, payload: plan.merged, now, count: row?.count ?? 0, previous: row?.previous,
           });
         }
-        const { argsAsked: _asked, maxSpend: _spend, ...rest } = merged;
-        const next = SchedulePayload.parse({ ...rest, ...(merged.maxSpend === undefined ? {} : { maxSpend: merged.maxSpend }), ...program });
+        const next = changedPayload(plan.merged, program);
         const { view, version } = await saveChange(ctx, own, next, { signature, argsChanged: args.fn !== undefined || args.args !== undefined || args.compute !== undefined });
         return version === undefined ? ctx.done(view) : ctx.done(view, { undo: { schedule: own.name, version } });
+      }),
+      // before anyone is asked: the schedule is the person's, and what changes reads (the target, `when`, fixed args
+      // against the target's args type, the first run's args); args worked out from words wait for the run
+      check: (args, ctx) => checked(async () => {
+        const own = await ownSchedule(ctx, args.schedule, ctx.user);
+        const now = clock.now();
+        const plan = await changePlan(ctx, own, args);
+        if (args.compute !== undefined) { return whenProblems(plan.merged, timer.limits.minGap, now); }
+        let signature: TargetSignature | undefined = plan.signature;
+        let program = programOf(own.payload);
+        if (args.args !== undefined) {
+          signature ??= (await targetOf(ctx, plan.merged.fn)).signature;
+          const fixed = fromPairs(args.args);
+          if (signature.args.name === 'obj' && !isObject(fixed)) { throw new Invalid([{ path: 'args', message: `${plan.merged.fn} takes its args as an object: give them by name.` }]); }
+          const wrong = await fixedProblems(fixed, signature, lookupsOf(ctx));
+          if (wrong.length > 0) { return [...wrong, ...whenProblems(plan.merged, timer.limits.minGap, now)]; }
+          program = { args: literalArgs(signature, fixed) };
+        } else if (signature !== undefined && fixedOf(own.payload) !== undefined) {
+          // another fn, the same fixed args: they must fit the new fn's args type
+          const wrong = await fixedProblems(fixedOf(own.payload) ?? {}, signature, lookupsOf(ctx));
+          if (wrong.length > 0) { return wrong; }
+        }
+        const next = changedPayload(plan.merged, program);
+        if (JSON.stringify(next) === JSON.stringify(own.payload)) { return []; }
+        const problems = await payloadProblems(ctx, next, timer.limits.minGap, now);
+        if (problems.length > 0) { return problems; }
+        // what it runs or its args changed: the first run's args must work out, as the run itself requires
+        signature ??= args.fn === undefined ? undefined : await shapeOf(ctx, next.fn);
+        if (signature !== undefined && (args.fn !== undefined || args.args !== undefined)) {
+          const row = timer.row(own.name);
+          await firstArgsOf(ctx, next, signature, now, row?.count ?? 0, row?.previous);
+        }
+        return [];
       }),
       undo: (payload) => Promise.resolve({ status: 'undone', summary: `${payload.schedule} goes back to version ${String(payload.version)}` }),
     },
@@ -559,7 +699,7 @@ export function scheduleFns(deps: ScheduleFnsDeps): Fns {
 
     pause: {
       run: (args, ctx) => guarded(ctx, async () => {
-        const own = await ownSchedule(ctx, args.schedule, { admin: true });
+        const own = await ownSchedule(ctx, args.schedule, ctx.run.user, { admin: true });
         const now = clock.now();
         const until = args.until;
         if (until !== undefined && until <= localNow(now, own.payload.zone).day) {
@@ -575,7 +715,7 @@ export function scheduleFns(deps: ScheduleFnsDeps): Fns {
 
     resume: {
       run: (args, ctx) => guarded(ctx, async () => {
-        const own = await ownSchedule(ctx, args.schedule, { admin: true });
+        const own = await ownSchedule(ctx, args.schedule, ctx.run.user, { admin: true });
         const { paused: _paused, ...rest } = own.payload;
         const { view, version } = await saveChange(ctx, own, SchedulePayload.parse(rest));
         return version === undefined ? ctx.done(view) : ctx.done(view, { undo: { schedule: own.name, version } });
@@ -585,7 +725,7 @@ export function scheduleFns(deps: ScheduleFnsDeps): Fns {
 
     skip: {
       run: (args, ctx) => guarded(ctx, async () => {
-        const own = await ownSchedule(ctx, args.schedule);
+        const own = await ownSchedule(ctx, args.schedule, ctx.run.user);
         const { when, zone } = own.payload;
         const key = OccurrenceKey.parse(occurrenceKey(args.day, args.time));
         const that = firingsOnDays(when, zone, args.day, args.day).filter((firing) => args.time === undefined || firing.key === key);
@@ -610,7 +750,7 @@ export function scheduleFns(deps: ScheduleFnsDeps): Fns {
 
     remove: {
       run: (args, ctx) => guarded(ctx, async () => {
-        const own = await ownSchedule(ctx, args.schedule);
+        const own = await ownSchedule(ctx, args.schedule, ctx.run.user);
         // a removed schedule leaves no allowance behind for a later one of the same name (undone with the turn)
         if (own.payload.runsAllowed !== undefined) { await allowRunsOf(ctx, own.name, false); }
         try {

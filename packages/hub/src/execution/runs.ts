@@ -11,7 +11,7 @@
  * resume go as far as the run allows (`allowed`). Undo hands the run's undo payload back to its executor.
  */
 import {
-  clip, compact, CONCISE_LIMITS, conciseIssues, FN_MODES, INVALID_INPUT_CODE, isSettled, isUnsettled, MAIN_INSTANCE, mintId, problemLine, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
+  ARGS_CHECK_KEY_PREFIX, clip, compact, CONCISE_LIMITS, conciseIssues, FN_MODES, INVALID_INPUT_CODE, isSettled, isUnsettled, MAIN_INSTANCE, mintId, problemLine, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
   type ProgressWire, type ResumeWire, type Run, type RunId, type RunInfo, type RunRequest, type RunSettled, type RunStatus, type RunText, type RunUpdate,
   type Turn, type UndoOutcome, type Usd, type RunControlAction, type FnError, type InputProblem, type InvalidInput, type Compact,
   flagsVerdict, proposalSubjectOf, type CompareFork, type SessionId, type ApprovalPreview, type ProposalAsk, type Approver, type PreviewPart, type SensitivityFlag, type InstanceName, type ProposedRun, type ProposeRun, type UserInfo, type QualifiedName, qualify,
@@ -31,6 +31,7 @@ import type { ExecutionQueues } from './queues.ts';
 import { timeInfo } from './time.ts';
 import { RunWording } from './wording.ts';
 import type { FnModeGate, ModeVerdict } from '../fns/index.ts';
+import { fnMode } from '../link/review-summary.ts';
 
 /**
  * Whether a run is the chat's own (`RunInfo.inChat`): a chat turn's agent or a fn it called directly, on a session, not
@@ -130,6 +131,8 @@ export const PROPOSED_KEY = 'propose:';
 /** How many runs up a call's tree a policy's `via` is looked for. */
 const MAX_VIA_DEPTH = 32;
 
+/** The error code of a call a fn's args check may not make (not a declared check dep, or not a `read` fn). */
+export const CHECK_CALL_CODE = 'check-call';
 /** The error code of a run a policy denied or its approver declined. */
 export const DECLINED_CODE = 'denied';
 
@@ -195,6 +198,11 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
   #gate: FnModeGate | undefined;
   /** Seals the secrets in the args of the fns that carry them (boot sets it with the admin fns). */
   #argSecrets: RunArgSecrets | undefined;
+  /**
+   * Runs whose args their system is checking now (`check`: their calls must be the check's declared read deps), and
+   * the calls made under them until each settles (`under`: their calls must read). Neither ever waits for approval.
+   */
+  readonly #checking = new Map<RunId, 'check' | 'under'>();
 
   constructor(deps: RunServiceDeps) {
     this.#deps = deps;
@@ -262,6 +270,13 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       if (existing !== undefined) return { run: existing.id, settled: this.#waitFor(existing) };
       await this.#checkDep(parent, fn);
     }
+    // a call made while its parent's args are checked (or under such a call) only reads, and never waits for anyone
+    const checking = parent === undefined ? undefined : this.#checking.get(parent.id);
+    if (parent !== undefined && checking !== undefined) await this.#checkCall(parent, fn, checking);
+    // a check's call that comes once the hub stopped waiting for it (its deadline passed) is never run unchecked
+    if (parent !== undefined && checking === undefined && input.key.startsWith(ARGS_CHECK_KEY_PREFIX)) {
+      throw new RunRefused(fnError('caller', `${parent.fn}'s args check is over, so its calls are no longer taken.`, CHECK_CALL_CODE));
+    }
     const handlers = suppliedHandlers(fn, parent, input.handlers);
     const missing = Object.entries(fn.decl.handlers).filter(([name, decl]) => decl.required && !handlers.includes(name)).map(([name]) => name);
     if (missing.length > 0) throw new RunRefused(fnError('fatal', `${fn.name} needs its caller to answer ${missing.join(', ')}, which this caller can't.`, 'needs-handlers'));
@@ -280,7 +295,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const sealing = this.#argSecrets === undefined ? { args: input.args } : await this.#argSecrets.seal({ run: id, fn: fn.name, args: input.args, owner: input.actor });
     const { args } = sealing;
     // a hub fn's own check (a record's value against its type) runs on the args as given, before anyone is asked
-    const invalid = refused ?? sealing.invalid ?? await this.#executors.get(executorKind(fn))?.check?.({ id, fn: fn.name, args: input.args }, turn.user.id);
+    const early = refused ?? sealing.invalid ?? await this.#executors.get(executorKind(fn))?.check?.({ id, fn: fn.name, args: input.args }, turn.user.id);
     const { operations } = fn.decl;
     const run: Run = {
       id,
@@ -319,7 +334,11 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const settled = this.#waitFor(run);
     this.#publish(run, statusUpdate('queued', text));
     this.#deps.log.info('run.created', { run: id, fn: fn.name, turn: input.turn, parent: input.parent ?? null, key: input.key });
+    // what a call under an args check calls is held to the same rules, until it settles
+    if (checking !== undefined) this.#underCheck(id, settled);
 
+    // a fn that checks its own args (`FnDecl.check`) does so once the run exists, before anyone is asked
+    const invalid = early ?? await this.#argsCheck(run, fn, turn.user);
     if (invalid !== undefined) {
       // refused input never reaches the policies or the fn: the caller hears the problems and may try again
       this.#deps.log.info('run.invalid-input', { run: id, fn: fn.name, source: invalid.source, problems: invalid.problems.length });
@@ -376,6 +395,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       ...(parent === undefined ? {} : { via: await this.#via(parent) }),
       // a per-person fn its person keeps on 'ask first' waits for the connection's owner
       ...(connection?.state === 'ready' && connection.option.ask ? { ask: connection.connection.owner === turn.user.id ? { by: 'turn-user' } : { by: 'actor', actor: connection.connection.owner } } : {}),
+      ...(checking === undefined || parent === undefined ? {} : { noAsk: `${fn.name} would wait for approval, and a call made to check ${parent.fn}'s args can't wait for anyone.` }),
     });
     if (previewed.refused !== undefined) {
       await this.settle(id, previewed.refused);
@@ -424,6 +444,59 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const verdict = await this.#gate.check({ session, fn, args: run.args, run: run.id, flags });
     if (verdict.effect !== 'pass') this.#deps.log.info('run.chat-mode', { run: run.id, fn: fn.name, mode: session.fnMode ?? null, effect: verdict.effect });
     return verdict;
+  }
+
+  /**
+   * A native fn's own check of a call's args (`FnDecl.check`, `checkArgs` on the system link), after they parse and
+   * before the policies: its problems as refused input (a few at most, each clipped), or undefined when it found none.
+   * A check that can't run (its system not connected, an error, `HARNESS_ARGS_CHECK_TIMEOUT` passed) is logged and
+   * the call goes on as if the fn had none: it is checked again by the run itself.
+   */
+  async #argsCheck(run: Run, fn: FnRecord, user: UserInfo): Promise<InvalidInput | undefined> {
+    if (fn.decl.check === undefined || fn.decl.kind !== 'native') return undefined;
+    const { log, clock } = this.#deps;
+    const connection = this.#deps.link.connection(run.system, run.instance);
+    if (connection === undefined) {
+      log.warn('run.args-check-skipped', { run: run.id, fn: fn.name, reason: `${run.system} is not connected` });
+      return undefined;
+    }
+    const timeout = this.#deps.settings.execution.HARNESS_ARGS_CHECK_TIMEOUT;
+    this.#checking.set(run.id, 'check');
+    try {
+      const answer = await connection.peer.call('checkArgs', {
+        run: run.id, fn: splitName(run.fn).local, args: run.args, user, deadline: clock() + timeout,
+      }, { signal: AbortSignal.any([connection.signal, AbortSignal.timeout(timeout)]) });
+      const [first, ...rest] = answer.problems.slice(0, CONCISE_LIMITS.max).map((problem): InputProblem => ({ path: problem.path, message: clip(problem.message, CONCISE_LIMITS.chars) }));
+      if (first === undefined) return undefined;
+      log.info('run.args-check-refused', { run: run.id, fn: fn.name, problems: answer.problems.length });
+      return { source: 'validation', problems: [first, ...rest] };
+    } catch (error) {
+      log.warn('run.args-check-skipped', { run: run.id, fn: fn.name, reason: messageOf(error) });
+      return undefined;
+    } finally {
+      this.#checking.delete(run.id);
+    }
+  }
+
+  /**
+   * Refuse a call an args check may not make: the checked run's calls must be the deps its check declares
+   * (`FnArgsCheck.deps`), and every call under a check must be of a fn whose mode is `read`.
+   */
+  async #checkCall(parent: Run, fn: FnRecord, checking: 'check' | 'under'): Promise<void> {
+    if (checking === 'check') {
+      const declared = (await this.#deps.catalog.fn(parent.fn))?.decl.check?.deps ?? [];
+      if (!declared.includes(fn.name)) {
+        throw new RunRefused(fnError('caller', `${parent.fn}'s args check may call only the deps its check declares (${declared.join(', ') || 'none'}), not ${fn.name}.`, CHECK_CALL_CODE));
+      }
+    }
+    const mode = fnMode(fn.decl);
+    if (mode !== 'read') throw new RunRefused(fnError('caller', `A call made to check ${parent.fn}'s args may only read, and ${fn.name} is a ${mode} fn.`, CHECK_CALL_CODE));
+  }
+
+  /** Hold a call made under an args check to the check's rules until it settles. */
+  #underCheck(run: RunId, settled: Promise<RunSettled>): void {
+    this.#checking.set(run, 'under');
+    void settled.finally(() => { this.#checking.delete(run); });
   }
 
   /**

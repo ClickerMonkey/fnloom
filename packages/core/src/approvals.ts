@@ -17,7 +17,7 @@ import { InstallChecks } from './checks.ts';
 import { SystemGrants } from './grants.ts';
 import { ResultTable } from './registries.ts';
 import { ReviewSummary } from './review-summary.ts';
-import { UserInfo } from './run.ts';
+import { InputProblem, UserInfo } from './run.ts';
 import { SensitivityFlag } from './sensitivity.ts';
 
 /** A record's id (`IDS.record`, as `RecordId` in data.ts). */
@@ -130,6 +130,30 @@ export const PreviewRequest = z.object({
   payload: Json.optional(),
 });
 export type PreviewRequest = z.infer<typeof PreviewRequest>;
+
+/**
+ * The hub asks a native fn's system to check a call's args before the policies and any approval (`checkArgs` on the
+ * system link, `FnDecl.check`). The run exists (queued) so the check's own calls are its children; `deadline` is when
+ * the hub stops waiting for the answer.
+ */
+export const ArgsCheckRequest = z.object({
+  run: RunId,
+  fn: LocalName,
+  args: Json,
+  user: UserInfo,
+  deadline: Timestamp,
+});
+export type ArgsCheckRequest = z.infer<typeof ArgsCheckRequest>;
+
+/**
+ * What the keys of an args check's calls start with, apart from the run's own calls' keys; the hub refuses such a call
+ * once it has stopped waiting for the check.
+ */
+export const ARGS_CHECK_KEY_PREFIX = 'check:';
+
+/** What a fn's args check found: problems by path (none when the args are fine), refused as invalid input. */
+export const ArgsCheckAnswer = z.object({ problems: z.array(InputProblem) });
+export type ArgsCheckAnswer = z.infer<typeof ArgsCheckAnswer>;
 
 /**
  * Build 9: a form an approver fills before approving; its value, checked against `type`, becomes `args[into]`.

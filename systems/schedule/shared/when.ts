@@ -3,18 +3,18 @@
  * server's timer and the browser's calendar (docs/plans/schedule-system.md, "The schedule page"): which local days
  * dayspan's rules give, each of `times` on such a day as a firing (none: one at 00:00), skipped and extra firings
  * (`exclude`, `include`), `maxOccurrences` counted from `start`, and each firing's instant in the zone across daylight
- * saving (`zonedTime`). Also the words a schedule says (dayspan's `en-plain` locale) and the presets an edit form
- * offers (dayspan's patterns, worded for the day they start on).
+ * saving (dayspan's `TimeZone`). Also the words a schedule says (dayspan's `en-plain` locale) and the presets an edit
+ * form offers (dayspan's patterns, worded for the day they start on).
  *
  * dayspan reads days in the host's own time zone, so it is only asked about whole days (built at noon, which every
- * zone has); the times and instants are ours, so the host's daylight saving never moves a firing.
+ * zone has); the times are ours, and the instants are dayspan's `TimeZone` in the schedule's zone, so the host's
+ * daylight saving never moves a firing.
  */
 import dayspan, { type ScheduleInput } from 'dayspan';
 import { ClockTime, LocalDay, OccurrenceKey, When, type Zone } from './types.ts';
-import { localNow, zonedTime } from './zoned.ts';
 
 // dayspan is a CommonJS bundle: its classes are on the default export, in Node and in the browser's build alike
-const { Schedule, Day, PatternMap, Locales, enPlain } = dayspan;
+const { Schedule, Day, PatternMap, Locales, enPlain, TimeZone } = dayspan;
 type DsDay = InstanceType<typeof Day>;
 type DsSchedule = InstanceType<typeof Schedule<unknown>>;
 /** What dayspan's patterns read and write. */
@@ -151,7 +151,7 @@ function firingsOn(when: When, zone: string, day: LocalDay, skip: ReadonlySet<st
   }
   return [...keys].sort().map((key) => {
     const { time } = fromOccurrenceKey(key);
-    return { key: OccurrenceKey.parse(key), day, ...(time === undefined ? {} : { time }), at: zonedTime(day, time === undefined ? 0 : minuteOf(time), zone) };
+    return { key: OccurrenceKey.parse(key), day, ...(time === undefined ? {} : { time }), at: TimeZone.instant(day, time === undefined ? 0 : minuteOf(time), zone) };
   });
 }
 
@@ -208,15 +208,15 @@ export function firingsOnDays(when: When, zone: Zone | string, from: string, to:
 /** Every firing planned at or after `from` and before `to` (instants, ms), in order, at most `limit`. */
 export function firingsBetween(when: When, zone: Zone | string, from: number, to: number, limit = 2000): Occurrence[] {
   if (to <= from) { return []; }
-  const first = localNow(from, zone).day;
-  const last = localNow(to, zone).day;
+  const first = TimeZone.local(from, zone).day;
+  const last = TimeZone.local(to, zone).day;
   return firingsOnDays(when, zone, first, last, Number.MAX_SAFE_INTEGER).filter((firing) => firing.at >= from && firing.at < to).slice(0, limit);
 }
 
 /** The next `count` firings planned at or after `after` (ms), in order; fewer when the schedule ends. */
 export function nextFirings(when: When, zone: Zone | string, after: number, count: number): Occurrence[] {
   const out: Occurrence[] = [];
-  const today = localNow(after, zone).day;
+  const today = TimeZone.local(after, zone).day;
   // a month at a time, so a daily schedule reads one month and a yearly one walks on until it finds enough
   for (let from = today; out.length < count && daysBetween(today, from) < LOOK_AHEAD; from = addDays(from, 31)) {
     const to = addDays(from, 30);
@@ -298,7 +298,7 @@ export function describeWhen(when: When, zone: string, options: { readonly viewe
     text = `Once, on ${dayWords(when.on, thisYear)}${at}`;
   } else {
     const preset = presetOf(when);
-    const first = firingsOnDays(when, zone, when.start ?? options.today ?? localNow(Date.now(), zone).day, addDays(when.start ?? options.today ?? localNow(Date.now(), zone).day, LOOK_AHEAD), 1)[0];
+    const first = firingsOnDays(when, zone, when.start ?? options.today ?? TimeZone.local(Date.now(), zone).day, addDays(when.start ?? options.today ?? TimeZone.local(Date.now(), zone).day, LOOK_AHEAD), 1)[0];
     const words = preset === 'custom' || preset === 'once' || first === undefined ? undefined : PRESET_WORDS[preset](dsDay(first.day));
     text = (words ?? inPlainWords(() => dayspanOf(when).describe('', false, false, false)).replace(/^Happens /, '').replace(/\s+/g, ' ').trim()) + at;
     text = text.charAt(0).toUpperCase() + text.slice(1);

@@ -366,6 +366,21 @@ type ApprovedRun = {
 };
 ```
 
+#### <a id="core-argscheckanswer"></a>`ArgsCheckAnswer`
+
+const, type · declared in `packages/core/src/approvals.ts`
+
+What a fn's args check found: problems by path (none when the args are fine), refused as invalid input.
+
+```ts
+type ArgsCheckAnswer = {
+  problems: {
+    path: string;
+    message: string;
+  }[];
+};
+```
+
 #### <a id="core-fnapproval"></a>`FnApproval`
 
 const, type · declared in `packages/core/src/approvals.ts`

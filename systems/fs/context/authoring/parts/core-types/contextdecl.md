@@ -193,6 +193,9 @@ type FnDecl = {
   } | undefined;
   parallelClaims?: string[] | undefined;
   dynamicClaims?: boolean | undefined;
+  check?: {
+    deps: `${string}/${string}`[];
+  } | undefined;
 };
 ```
 

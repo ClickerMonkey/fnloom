@@ -15,10 +15,10 @@
     "@ayepi/env": "file:../../../ayepi/packages/env",
     "@ayepi/sqlite": "file:../../../ayepi/packages/sqlite",
     "@ayepi/work": "file:../../../ayepi/packages/work",
-    "better-sqlite3": "^12.4.1",
     "@harness/core": "*",
     "@harness/sdk": "*",
-    "dayspan": "^1.2.0",
+    "better-sqlite3": "^12.4.1",
+    "dayspan": "^1.3.0",
     "vue": "^3.5.22",
     "zod": "^4.6.7"
   }

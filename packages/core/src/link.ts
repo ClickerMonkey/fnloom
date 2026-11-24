@@ -15,7 +15,7 @@ import { FnShare, FnUsable } from './access.ts';
 import { ConnectFinish, ConnectResult, ConnectStart, ConnectionUpdate, InstanceConnect, RunConnection } from './connections.ts';
 import { ProviderChat, ProviderChunk, ProviderDecide, ProviderDecideResult, ProviderEmbed, ProviderEmbedResult, ProviderModels, ProviderModelsResult } from './system-providers.ts';
 import { ValidateAnswer, ValidateRequest } from './validation.ts';
-import { ApprovedRun, PairingGrant, PairingGrantRequest, PreviewRequest, ProposeRun, ProposedRun } from './approvals.ts';
+import { ApprovedRun, ArgsCheckAnswer, ArgsCheckRequest, PairingGrant, PairingGrantRequest, PreviewRequest, ProposeRun, ProposedRun } from './approvals.ts';
 import { HubModelInfo } from './admin.ts';
 import { HostRefusal, PreviewAnswer } from './lifecycle.ts';
 import { DecideAnswer, DecideRequest } from './decisions.ts';
@@ -475,6 +475,11 @@ export const systemLinkSpec = spec({
     flags: endpoint({ body: PreviewRequest, response: FlagsAnswer, ws: 'fg' }),
     /** What an agent's call of a fn with `dynamicClaims` operates on (`claims.ts`), asked before the call becomes a run. */
     claims: endpoint({ body: ClaimsRequest, response: ClaimsAnswer, ws: 'pcl' }),
+    /**
+     * Check a native fn's args before the policies and any approval (`FnDecl.check`): its implementation's `check(args,
+     * ctx)`, whose read-only calls are children of the queued run. Problems settle the run as invalid input.
+     */
+    checkArgs: endpoint({ body: ArgsCheckRequest, response: ArgsCheckAnswer, ws: 'cka' }),
   },
 });
 export type SystemLinkSpec = typeof systemLinkSpec;

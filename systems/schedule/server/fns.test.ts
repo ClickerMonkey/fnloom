@@ -15,7 +15,7 @@ import { hub, wireType, type Infer } from '@harness/sdk';
 import { mockModel, TEST_USER, testHub, toolCall, type ScriptStep, type TestSystem } from '@harness/sdk/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { SchedulePayload, schedule, type AddArgs, type ScheduleConfigInput } from '../shared/index.ts';
+import { SchedulePayload, schedule, type AddArgs, type ChangeArgs, type ScheduleConfigInput } from '../shared/index.ts';
 import { ARGS_EXAMPLES } from './authoring.ts';
 import { scheduleEnv } from './env.ts';
 import { fixedOf, fromPairs, localNameOf, slugOf } from './fns.ts';
@@ -279,6 +279,56 @@ describe('changing a schedule', () => {
     expect(JSON.stringify((await s.kit.run('pause', { schedule: NAME }, asPerson(s.kit, 'pause'))).outcome)).toContain('runs as the person who made it');
     const admin = await s.kit.run('pause', { schedule: NAME }, asPerson(s.kit, 'pause', TEST_USER));
     expect(admin.outcome).toMatchObject({ status: 'done', result: { paused: {} } });
+  });
+});
+
+describe('the args check the hub asks before the approval card (live run, slice 9: wrong args waited on a card)', () => {
+  /** The problems `add` or `change`'s check finds, as path: message lines, and whether it saved or asked a model. */
+  const lines = (problems: readonly { path: string; message: string }[]): string[] => problems.map((problem) => `${problem.path}: ${problem.message}`);
+
+  it('refuses add\'s fixed args that don\'t fit the target\'s args type, by path, before any card, saving nothing', async () => {
+    const s = await served();
+    const wrong = await s.kit.check('add', { fn: TARGET, when: MONDAYS, args: { day: 3 } }, asPerson(s.kit, 'add'));
+    // concise lines, each at its path with what was expected there, as the hub words a call's own args
+    expect(wrong.problems.map((problem) => problem.path)).toEqual(['args.day', 'args.limit']);
+    expect(lines(wrong.problems).join(' ')).toMatch(/args\.day: .*text|string/);
+    // it read the target's signature with hub/fns_get, under its own keys, and changed nothing
+    expect(wrong.hubCalls.calls.map((call) => [call.fn, call.key])).toEqual([[hub.fns.fns_get.name, 'check:getFn#1']]);
+    expect(s.kit.hub.fns.kept.size).toBe(0);
+    expect(s.kit.hub.forwards).toHaveLength(0);
+    // the pairs a strict tool schema sends are read as the object they spell, and args that fit pass
+    expect((await s.kit.check('add', { fn: TARGET, when: MONDAYS, args: [{ key: 'day', value: 'latest' }, { key: 'limit', value: 5 }] }, asPerson(s.kit, 'add'))).problems).toEqual([]);
+    expect(lines((await s.kit.check('add', { fn: TARGET, when: MONDAYS, args: 'day=latest' }, asPerson(s.kit, 'add'))).problems)).toEqual(['args: demo/orders_report takes its args as an object: give them by name.']);
+  });
+
+  it('refuses an unknown or unusable target, a time already past, a gap too small and too many schedules', async () => {
+    const s = await served({ config: { perPerson: 1 } });
+    const check = async (args: Infer<typeof AddArgs>): Promise<string[]> => lines((await s.kit.check('add', args, asPerson(s.kit, 'add'))).problems);
+    expect((await check({ fn: 'demo/nothing_here', when: MONDAYS })).join(' ')).toContain('fn: demo/nothing_here is not a fn the person can run');
+    expect((await check({ fn: TARGET, when: { on: '2026-11-20', times: ['09:00'] }, args: { day: 'x', limit: 1 } })).join(' ')).toContain('when: It would never run');
+    expect((await check({ fn: TARGET, when: { dayOfWeek: [1], times: ['09:00', '09:05'] }, args: { day: 'x', limit: 1 } })).join(' ')).toContain('less than 15 minutes apart');
+    // args worked out from words are a model call, made after the card: only the target and when are checked first
+    expect(await check({ fn: TARGET, when: MONDAYS, compute: 'day: the run\'s day minus 7 days' })).toEqual([]);
+    expect(s.kit.hub.forwards).toHaveLength(0);
+    expect((await check({ fn: TARGET, when: { dayOfWeek: [1], times: ['09:00', '09:05'] }, compute: 'day: the run\'s day' })).join(' ')).toContain('when.times:');
+    await s.kit.call('add', { fn: TARGET, when: MONDAYS, args: { day: 'x', limit: 1 } }, asPerson(s.kit, 'add'));
+    await s.sync();
+    expect(await check({ fn: TARGET, when: MONDAYS, args: { day: 'x', limit: 1 } })).toEqual([`: The person has 1 schedules, the most one person may have (1): remove one first (${schedule.fns.remove.name}).`]);
+  });
+
+  it('refuses change\'s fixed args against the target\'s args type, someone else\'s schedule and a when that never runs', async () => {
+    const s = await served();
+    await s.kit.call('add', { fn: TARGET, when: MONDAYS, args: { day: 'x', limit: 1 } }, asPerson(s.kit, 'add'));
+    const NAME = 'schedule/orders_report';
+    const check = async (args: Infer<typeof ChangeArgs>): Promise<string[]> => lines((await s.kit.check('change', args, asPerson(s.kit, 'change'))).problems);
+    expect((await check({ schedule: NAME, args: { day: 3 } })).map((line) => line.split(':')[0])).toEqual(['args.day', 'args.limit']);
+    expect(await check({ schedule: NAME, args: { day: 'y', limit: 2 } })).toEqual([]);
+    expect(await check({ schedule: NAME, notify: 'never' })).toEqual([]);
+    expect((await check({ schedule: NAME, when: { on: '2026-11-20', times: ['09:00'] } })).join(' ')).toContain('It would never run');
+    expect((await check({ schedule: 'schedule/nope' })).join(' ')).toContain('schedule: schedule/nope is not a schedule of the person\'s');
+    expect(s.kit.hub.fns.kept.get(NAME)?.version).toBe(1);
+    s.owner = 'act_someone_else';
+    expect((await check({ schedule: NAME, notify: 'never' })).join(' ')).toContain('runs as the person who made it');
   });
 });
 

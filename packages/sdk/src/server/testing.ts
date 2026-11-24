@@ -17,7 +17,7 @@ import {
   type ConnectResult, type DecideAnswer, type KindEstimateAnswer, type FleetInstance, type HubModelInfo, type PreviewAnswer, type ProposedRun, type InstanceName, type ModelForward, type ModelForwardResult, type PairingInfo, type AdminNotice,
   type AutoPairGrant, type ConfigValue, type Hello, type HandlerAnswer, type HubLinkSpec, type ImportReport, type JsonObject, type KindFnShape, type LinkSession, type LlmForward,
   type LlmForwardChunk, type LogLine, type Manifest, type ManifestPatch, type OutcomeWire, type PairingId, type QualifiedName,
-  type PairingGrant, type PairingGrantRequest, type KindFnWire, type StartedRun, RunId, TurnId, type ResourceRead, type ResourceHit, type MentionResourceSearch, type FlagsAnswer, type ClaimsAnswer, type MentionOption as WireMentionOption, type RunControl, type Section, type RunInfo, type RunRequest, type RunSettled, type StateOwner, type SystemLinkSpec, type TypeDefinitions, type UserInfo, ActorId, SystemName,
+  type PairingGrant, type PairingGrantRequest, type KindFnWire, type StartedRun, RunId, TurnId, type ResourceRead, type ResourceHit, type MentionResourceSearch, type FlagsAnswer, type ClaimsAnswer, type ArgsCheckAnswer, type MentionOption as WireMentionOption, type RunControl, type Section, type RunInfo, type RunRequest, type RunSettled, type StateOwner, type SystemLinkSpec, type TypeDefinitions, type UserInfo, ActorId, SystemName,
 } from '@harness/core';
 import type { z } from 'zod';
 import { g, parseValue } from '../gin.ts';
@@ -508,6 +508,14 @@ export class FakeHub {
   /** Ask the connected system which sensitive files a run would touch (`flags`), as the hub does before a run. */
   flags(body: SystemBody<'flags'>): Promise<FlagsAnswer> {
     return this.peer().call('flags', body);
+  }
+
+  /**
+   * Ask the connected system to check a call's args (`checkArgs`), as the hub does before the policies for a fn that
+   * declares `check`. The check's calls come to `onCall` like a run's, with keys starting `check:`.
+   */
+  checkArgs(body: SystemBody<'checkArgs'>): Promise<ArgsCheckAnswer> {
+    return this.peer().call('checkArgs', body);
   }
 
   /** Ask the connected system what an agent's call would operate on (`claims`), as the hub does before the call starts. */

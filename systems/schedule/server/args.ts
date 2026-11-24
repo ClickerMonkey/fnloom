@@ -10,7 +10,7 @@
  * the runtime's limits.
  */
 import type { ExprDef, TypeDef } from '@aeye/gin';
-import { Json, type QualifiedName } from '@harness/core';
+import { conciseIssues, Json, type InputProblem, type QualifiedName } from '@harness/core';
 import { ginAs } from '@harness/sdk';
 import { checkProgram, fnCandidates, ProgramError, runProgram, storedProgramScope, type ProgramLookups } from '@harness/sdk/program';
 import { Fire, PreviousFiring } from '../shared/types.ts';
@@ -81,6 +81,17 @@ function callProblems(def: ExprDef, target: QualifiedName): string[] {
   const calls = fnCandidates(def);
   if (calls.length === 0) { return []; }
   return [`args: it calls ${calls.join(', ')}; the args program reads only \`fire\` and \`previous\` and calls no fns. A run that needs another fn's data first is a schedule of a code fn that calls both (and then ${target}).`];
+}
+
+/**
+ * Fixed args against the target's args type, the way the hub checks a call's args: each problem at its full path under
+ * `args` with what was expected there (`conciseIssues`, a few at most); none when they fit.
+ */
+export async function fixedProblems(fixed: Json, target: TargetSignature, lookups: ProgramLookups): Promise<InputProblem[]> {
+  const program = await storedProgramScope({ types: [target.args], programs: [] }, typesOnly(lookups));
+  const checked = program.parse(target.args).toValueSchema({ scope: program.scope, unknownKeys: 'refuse' }).safeParse(fixed);
+  if (checked.success) { return []; }
+  return conciseIssues(checked.error, fixed).map((issue) => ({ path: issue.path === '' ? 'args' : `args.${issue.path}`, message: issue.message }));
 }
 
 /** Problems with an args program: it calls no fns and gives the target's args. Never throws. */

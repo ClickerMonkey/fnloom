@@ -8,7 +8,7 @@ import type {
   AllowedOperations, ApprovedRun, ConnectFinish, CostEstimate, Manifest, ManifestPatch, ManifestSection, ProviderModelDecl, SectionDecl, ConnectionUpdate, ConnectResult, ConnectStart, Detail, ErrorClass, HookInput, InputProblem, Json, KindDescription, MentionHover, PreviewAnswer, RunConnection, RunInfo, SensitivityFlag, ShareRule, StepStatus, TypeDecl, StopReason, SystemEvent, UndoOutcome, Usd,
 } from '@harness/core';
 import { MANIFEST_SECTIONS, MANIFEST_SECTION_NAMES } from '@harness/core';
-import type { ActionCtx, AskerCtx, BudgetInfo, CallOptions, Decisions, FnCall, Fleets, FnCtx, FnSearch, PreviewCtx, ClaimsCtx, Proposals, Resume, RunNotices, Services, SessionState, SystemCtx, UndoCtx } from '../ctx.ts';
+import type { ActionCtx, AskerCtx, BudgetInfo, CallOptions, CheckCtx, CheckProblems, Decisions, FnCall, Fleets, FnCtx, FnSearch, PreviewCtx, ClaimsCtx, Proposals, Resume, RunNotices, Services, SessionState, SystemCtx, UndoCtx } from '../ctx.ts';
 import type {
   ActionImpl, AnyTypeDef, ContextImpl, HookContribution, HookImpl, KindCheckCtx, KindDef, KindEstimateInput, KindImpl, KindRunCtx, MentionCtx, MentionImpl,
   MentionOption, MethodImpl, SectionerImpl,
@@ -72,6 +72,11 @@ export interface RuntimeFnCtx extends RuntimeRunBase {
   readonly progress: RuntimeProgress;
 }
 
+/** A fn's args check context as the runtime builds it: callers for the deps its check declares. */
+export interface RuntimeCheckCtx extends Omit<CheckCtx, 'fns'> {
+  readonly fns: Readonly<Record<string, RuntimeCaller>>;
+}
+
 /** A kind's run context: calls and handlers by name. */
 export interface RuntimeKindCtx extends RuntimeRunBase {
   call(fn: `${string}/${string}`, args: Json, options?: { key?: string; background?: boolean }): FnCall<Json>;
@@ -84,6 +89,7 @@ export interface RuntimeFnImpl {
   preview?(args: unknown, ctx: PreviewCtx): Promise<PreviewAnswer>;
   flags?(args: unknown, ctx: PreviewCtx): Promise<SensitivityFlag[]>;
   claims?(args: unknown, ctx: ClaimsCtx): ToolClaims | Promise<ToolClaims>;
+  check?(args: unknown, ctx: RuntimeCheckCtx): Promise<CheckProblems>;
   undo?(payload: unknown, ctx: UndoCtx): Promise<UndoOutcome>;
 }
 
@@ -457,6 +463,16 @@ function checkHooks(system: string, local: string, def: AnyFnDef, impl: RuntimeF
   }
   if (def.dynamicClaims && impl !== undefined && impl.claims === undefined) {
     throw new Error(`${system}/${local} declares dynamicClaims, so its implementation needs a claims(args, ctx).`);
+  }
+  if (def.check !== undefined && (def.kind !== 'native' || splitMethod(local) !== undefined)) {
+    throw new Error(`${system}/${local} declares check, but only a native fn (not a method or a kind's fn) checks its own args.`);
+  }
+  if (def.check !== undefined && impl !== undefined && impl.check === undefined) {
+    throw new Error(`${system}/${local} declares check, so its implementation needs a check(args, ctx).`);
+  }
+  const unknown = (def.check?.calls ?? []).filter((dep) => !(dep in def.deps));
+  if (unknown.length > 0) {
+    throw new Error(`${system}/${local}'s check calls ${unknown.join(', ')}, which are not among its deps.`);
   }
 }
 

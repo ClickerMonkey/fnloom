@@ -18,7 +18,7 @@ export {
 export {
   fn, handler, linear, steps, noProgress, progressDecl, kindFn, validationOf,
   type FnValidators,
-  type FnDef, type AnyFnDef, type FnTypes, type FnInput, type FnExampleOf, type NativeFnTypes, type KindFnInput, type KindFnTypes, type UntypedFn, type TypesOf, type Deps,
+  type FnDef, type AnyFnDef, type FnTypes, type FnInput, type FnExampleOf, type NativeFnTypes, type KindFnInput, type KindFnTypes, type UntypedFn, type TypesOf, type Deps, type FnCheckInput, type FnCheckTypes, type CheckTypesOf,
   type HandlerDef, type Handlers, type HandlerFn, type HandlerArgs, type HandlersInRun, type HasRequiredHandlers,
   type ProgressDef, type NoProgress, type LinearProgress, type StepsProgress, type ProgressReporter, type ProgressState, type Outcome,
 } from './fn.ts';
@@ -39,11 +39,11 @@ export {
   type Llm, type Files, type Resources, type Types, type Log, type Services, type SystemCtx, type SessionState, type Settled, type CallOptions, type Caller,
   type Callers, type FnCall, type BudgetInfo, type Resume, type FnCtx, type UndoCtx, type ValidateCtx, type AskerCtx, type ActionCtx, type RunStatusView, type SystemPlace,
   type Data, type StoredRecord, type StoredType, type RecordFind,
-  type ForwardModality, type ModelInput, type ModelOutput, type PreviewCtx, type ClaimsCtx, type Proposals, type ProposeOptions, type Decisions, type DecideOptions, type Fleets, type FnSearch, type AiSource, type AdminNotices, type InstanceConnects,
+  type ForwardModality, type ModelInput, type ModelOutput, type PreviewCtx, type ClaimsCtx, type CheckCtx, type CheckProblems, type Proposals, type ProposeOptions, type Decisions, type DecideOptions, type Fleets, type FnSearch, type AiSource, type AdminNotices, type InstanceConnects,
   type Own, type PayloadOf, type KindFn, type KindRuns, type StartAsOwner, type Notice, type NoticeLink, type OwnerRuns, type RunNotices,
 } from './ctx.ts';
 export { ResultBlock, ResultBlockType, ResultColumnInfo, ResultFn, NextPage } from './results.ts';
-export type { FnImpl } from './impl.ts';
+export type { CheckImpl, FnImpl } from './impl.ts';
 export type { ResourceProvider } from './resources.ts';
 export { provider, providerDecl, type ProviderDef, type ProviderInput, type ProviderImpl } from './providers.ts';
 export {

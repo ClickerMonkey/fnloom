@@ -359,6 +359,38 @@ export interface PreviewCtx<Cfg = unknown, O extends Own = Own> extends SystemCt
 }
 
 /**
+ * What a fn's args check gets (`fn({ check })`, `check(args, ctx)`): the run waiting to be decided and whom it is for,
+ * the system's config, named types, its log, and callers for only the deps its check declares (`calls`), each a read.
+ * Nothing here changes anything, spends or asks anyone: a check reads what the args name and says what is wrong.
+ * `signal` aborts at `deadline`, when the hub stops waiting and lets the call go on unchecked.
+ *
+ * ```ts
+ * check: async (args, ctx) => {
+ *   const target = await ctx.fns.getFn({ fn: args.fn });
+ *   return target.available ? [] : [{ path: 'fn', message: `${args.fn} can't run now: pick another fn.` }];
+ * },
+ * ```
+ */
+export interface CheckCtx<D extends Deps = Deps, Cfg = unknown> {
+  readonly system: string;
+  readonly config: Cfg;
+  /** The queued run whose args are checked; the check's calls are its children. */
+  readonly run: RunId;
+  /** The person the run is for: the deps answer as them. */
+  readonly user: UserInfo;
+  /** The deps the check declares, called as the run (each a `read` fn; any other call is refused). */
+  readonly fns: Callers<D>;
+  readonly types: Types;
+  readonly log: Log;
+  /** When the hub stops waiting for the answer. */
+  readonly deadline: Timestamp;
+  readonly signal: AbortSignal;
+}
+
+/** What a fn's args check found: problems by path, `[]` when the args are fine. */
+export type CheckProblems = readonly InputProblem[];
+
+/**
  * What a fn's `claims(args, ctx)` gets: the system context, the person whose turn made the call, the agent run that
  * made it and its chat. The call isn't a run yet, so it has no run of its own.
  */

@@ -1394,6 +1394,12 @@ program over `fire` (this firing) and `previous` (the last one that ran). The sy
   Only the person makes the choice: a caller that sets `allowRuns` itself is refused, and `schedule/allow_runs` (the
   page's switch, `visibility: 'user'`) runs only when the person runs it themselves. While the config says `refuse` it
   is not offered and can't be turned on. Removing a schedule takes its allowance away first (undone with the turn).
+  Before that card, `add`'s args check (`check: { calls: ['getFn'] }`) reads the target with `hub/fns_get` and refuses,
+  as invalid input, a target that doesn't exist or can't run, fixed args that don't fit its args type (by path, as the
+  hub words a call's own args), a `when` that never runs or whose times are too close, and a person at their limit of
+  schedules; `change`'s does the same for what changes, and that the schedule is theirs. Args worked out from words
+  (`compute`) are a model call, so they are still worked out after the approval; only the target and `when` are
+  checked first for them.
 - **Limits** (the config): schedules per person (the newest beyond the limit don't run) and firings per person a day;
   a firing past one is refused with the reason.
 - **Records and notices.** Each firing is a `schedule/Firing` record of the owner's, written by the system outside any
@@ -1508,6 +1514,18 @@ the tightest.
 - **Approvals** are records. "Always" turns into a policy. A system's preview may offer a choice on the card
   (`PreviewAnswer.ask`, an optional form with its `label`): the approver's answer, when given, is set as the run's
   `args[into]`, and such a card is answered for that run only.
+- **Args checks before approval** (`FnDecl.check`, `fn({ check })`). A preview can't call fns, so args that only
+  another fn can judge (a schedule's fixed args against its target's args type) used to wait on a card and fail after
+  it. A native fn may check a call's args itself: once they parse, and before the sensitive-files gate, the chat's fn
+  mode, the policies, the preview and any approval, the hub asks its system (`checkArgs` on the system link) with the
+  run already made (queued), so the check's calls are that run's children (keys `check:…`, apart from the run's own).
+  Problems settle the run `invalid-input` (`source: 'validation'`, at most `CONCISE_LIMITS` lines, each clipped), so
+  the model fixes the call and nobody is asked. The check may call only the deps it declares (`check.deps`, typed in
+  the SDK to the fn's own deps) and only fns whose mode is `read`, and so may anything called under it until it
+  settles; a call of the check's that a policy would ask about is denied instead (`noAsk`), never put to anyone. A
+  check that can't finish (its system not connected, an error, `HARNESS_ARGS_CHECK_TIMEOUT`, default 5 s) is logged
+  (`run.args-check-skipped`) and the call goes on as before: the run still checks for itself. Its ctx (`CheckCtx`)
+  has no model calls, data writes, proposals or notices.
 - **Actor settings** are typed values systems declare and attach to actors, set by an admin or by a fn.
   For example, the database system declares row and field access rules; an admin sets them per group.
 

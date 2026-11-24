@@ -157,6 +157,8 @@ export const schedule = system('schedule', {
         // the person approves it on a card that says what it runs, as whom, when and its first args, and offers to let
         // its runs go ahead without asking; "always" lets later ones through without a card (and without the offer)
         approval: { preview: true, remember: true },
+        // the target, the fixed args against its args type, `when` and the limits are checked before that card is made
+        check: { calls: ['getFn'] },
         effects: { mode: 'write', registry: [{ thing: 'fns', action: 'create', kind: kinds.schedule.name }] },
         status: phases('Scheduling {args.fn}…', 'Scheduled {output.schedule}', 'Scheduling {args.fn} failed'),
         examples: [
@@ -172,6 +174,8 @@ export const schedule = system('schedule', {
         returns: View,
         deps: { getFn: hub.fns.fns_get, saveFn: hub.fns.fns_save },
         undo: VersionBefore,
+        // what changes is checked (the schedule is theirs, the target, fixed args, `when`) before anyone is asked
+        check: { calls: ['getFn'] },
         effects: { mode: 'write', registry: [{ thing: 'fns', action: 'update', kind: kinds.schedule.name }] },
         status: phases('Changing {args.schedule}…', 'Changed {args.schedule}', 'Changing {args.schedule} failed'),
         examples: [

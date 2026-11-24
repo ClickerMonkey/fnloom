@@ -205,7 +205,7 @@ The types of a fn of some kind. Its deps, handlers and progress come from the ki
 
 ```ts
 interface KindFnTypes<K extends AnyKindRef, P, A, R> {
-  kind: K; payload: P; args: A; result: R; deps: {}; handlers: {}; progress: NoProgress; resume: never; undo: never; state: {}; form: never;
+  kind: K; payload: P; args: A; result: R; deps: {}; handlers: {}; progress: NoProgress; resume: never; undo: never; state: {}; form: never; check: never;
 }
 ```
 

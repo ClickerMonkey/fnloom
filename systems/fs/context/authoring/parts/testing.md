@@ -48,6 +48,9 @@ Every system tests itself with the SDK's **test kit** (`@harness/sdk/testing`), 
   the hub asks before a run. `kit.claims('<fn>', args)` gives what an agent's call would operate on: its
   `parallelClaims` filled from the args, joined with what its `claims` hook answers. `kit.mentions('<provider>', query)` gives a mention provider's options and the resource searches
   it made (answer them with `kit.hub.onMentionResources`).
+- **Args checks.** `kit.check('<fn>', args)` gives the problems a fn's `check` hook finds, as the hub asks before
+  the policies and any approval, with the calls it made (`hubCalls.calls`, keyed `check:…`, answered by
+  `kit.hub.onCall`); a fn without a check finds none.
 - **Files and commands.** `scratchFolder({ git: true, files })` makes a temp folder (a git repository with the files
   committed) to run file and command fns in: change a file, add an untracked or ignored one, and check the change set
   or the flags a fn reports. `repo.dispose()` removes it.

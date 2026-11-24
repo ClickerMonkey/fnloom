@@ -2004,6 +2004,7 @@ A **fn** is something people, agents and code can run: a name, a description, ty
 | `flags` | `true`: before every run the hub asks `flags(args, ctx)` which sensitive files it would touch (below) | `flags` must be implemented |
 | `parallelClaims` | what its calls operate on, as templates filled from the args (`['file:{args.path}']`, `'*'` to run alone), so an agent's calls that clash run in order (below) | tokens are checked against the args |
 | `dynamicClaims` | `true`: before an agent's call starts the hub also asks `claims(args, ctx)` (below) | `claims` must be implemented |
+| `check` | `true`, or `{ calls: ['getFn'] }` naming the read deps it calls: before the policies and any approval the hub asks `check(args, ctx)` what is wrong with a call's args (below) | `check` must be implemented; its `ctx.fns` has only the deps it names, and a name that isn't a dep doesn't compile |
 
 _From `scripts/docs/example/shared/index.ts`:_
 
@@ -2125,6 +2126,33 @@ anything. `remember: false` (the default) means the person can't say "don't ask 
 `describe` (`approval`) and `preview(payload, args, ctx)`. Serving a fn that asks for a preview without implementing
 one throws.
 
+**Checking args before approval.** A card's preview can't call fns, so a call whose args are wrong in a way only
+another fn can tell (args for a fn it runs later, a name that must exist) would wait on the person and fail after.
+Declare `check` and implement `check(args, ctx)`: the hub asks it once the args parse, before the policies, the
+preview and any approval. It returns problems by path (`[{ path: 'args.limit', message: 'a number' }]`, `[]` when
+the args are fine), and problems end the run as invalid input with those lines, so the model fixes the call and tries
+again and the person is never asked (the chat shows it as "Thinking harder"). Its `CheckCtx` has the run, its person,
+the config, named types, the log, a `deadline` with a `signal` that aborts at it, and `ctx.fns` with only the deps
+`check: { calls }` names; `check: true` calls nothing. Each call is a child of the waiting run (under its own
+`check:` keys) and must be of a `read` fn: the hub refuses a call to any other fn, and denies one that would wait for
+approval instead of asking. A check makes no model calls and changes nothing. One that can't finish (its system gone,
+an error, the hub's `HARNESS_ARGS_CHECK_TIMEOUT`) is logged and the call goes on as if there were none, so `run`
+still checks for itself. `kit.check('<fn>', args)` gives its problems and the calls it made (**Testing**).
+
+```ts
+add: fn({
+  description: 'Schedule a fn.', args: g.obj({ fn: g.fnName(), args: json() }), returns: g.bool(),
+  deps: { getFn: hub.fns.fns_get, saveFn: hub.fns.fns_save },
+  approval: { preview: true },
+  check: { calls: ['getFn'] },
+}),
+// in the implementation
+check: async (args, ctx) => {
+  const target = await ctx.fns.getFn({ fn: args.fn });
+  return target.available ? [] : [{ path: 'fn', message: `${args.fn} can't run now: pick another fn.` }];
+},
+```
+
 **Sensitive files.** A native fn that reads or writes files the person names (fs's `read`, `write`, `bash`) declares
 `flags: true` and implements `flags(args, ctx)`: the sensitive files a run with these args would touch, each a
 `SensitivityFlag` (`path`, `kind`, `rule`, `access`, `action`, `why`, and `certain: false` for a path only found in a
@@ -2162,7 +2190,7 @@ function · `import { fn } from '@harness/sdk'`
 Declare a native fn: a fn its system implements in code.
 
 ```ts
-function fn<A, R, const D extends Deps = {}, const H extends Handlers = {}, const P extends ProgressDef = NoProgress, S = never, U = never, St extends object = {}, F = never, const T extends StatusTemplates = { active: { one: string; many: string; }; retry: { one: string; many: string; }; done: { one: string; many: string; }; failed: { one: string; many: string; }; }, const C extends readonly string[] = readonly string[]>(def: FnInput<A, R, D, H, P, S, U, St, F, T, C>): FnDef<NativeFnTypes<A, R, NoInfer<D>, NoInfer<H>, NoInfer<P>, NoInfer<S>, NoInfer<U>, NoInfer<St>, NoInfer<F>>>;
+function fn<A, R, const D extends Deps = {}, const H extends Handlers = {}, const P extends ProgressDef = NoProgress, S = never, U = never, St extends object = {}, F = never, const T extends StatusTemplates = { active: { one: string; many: string; }; retry: { one: string; many: string; }; done: { one: string; many: string; }; failed: { one: string; many: string; }; }, const C extends readonly string[] = readonly string[], const Ck extends FnCheckInput<D> | undefined = undefined>(def: FnInput<A, R, D, H, P, S, U, St, F, T, C, Ck>): FnDef<NativeFnTypes<A, R, NoInfer<D>, NoInfer<H>, NoInfer<P>, NoInfer<S>, NoInfer<U>, NoInfer<St>, NoInfer<F>, CheckTypesOf<NoInfer<Ck>>>>;
 ```
 
 #### `FnInput`
@@ -2174,6 +2202,7 @@ What `fn()` takes. Only `description`, `args` and `returns` are required.
 ```ts
 interface FnInput<
   A, R, D extends Deps, H extends Handlers, P extends ProgressDef, S, U, St extends object, F, T extends StatusTemplates = StatusTemplates, C extends readonly string[] = readonly string[],
+  Ck extends FnCheckInput<D> | undefined = undefined,
 > {
   description: string;
   /** Extra guidance the LLM sees when the fn is in its toolset. */
@@ -2268,6 +2297,15 @@ interface FnInput<
    * implementation. It costs a round trip per call, so prefer `parallelClaims` when the args say it all.
    */
   dynamicClaims?: true;
+  /**
+   * Check a call's args before the policies and any approval, for what the args type can't say (another fn's args, a
+   * name that must exist): the hub asks the implementation's `check(args, ctx)` once the args parse, and problems end
+   * the run as invalid input (the model fixes the call; nobody is asked). `true` for a check that calls nothing, or
+   * `{ calls: ['getFn'] }` naming the deps it reads (each must be a `read` fn: the hub refuses anything else, and any
+   * call that would wait for approval). A check that can't finish in time is skipped, so `run` still checks for itself.
+   * Requires `check` in the implementation.
+   */
+  check?: Ck;
 }
 ```
 
@@ -2343,6 +2381,8 @@ interface FnDef<T extends FnTypes> {
   readonly parallelClaims: readonly string[];
   /** Whether the hub also asks its implementation's `claims(args, ctx)` before an agent's call starts. */
   readonly dynamicClaims: boolean;
+  /** Its args check before approval: the keys of the deps it calls (`fn({ check })`); undefined when it has none. */
+  readonly check: { readonly calls: readonly string[] } | undefined;
   /** Phantom: lets the SDK read T back out of a def. Never set at runtime. */
   readonly types?: T;
 }
@@ -2384,6 +2424,11 @@ interface FnTypes {
   state: object;
   /** What its renderer's form submits back to the run; `never` when it has no form. */
   form: unknown;
+  /**
+   * Its args check before approval (`fn({ check })`): the keys of the deps the check may call, or `never` when it has
+   * none. Absent for a fn known only at runtime, whose implementation may or may not check.
+   */
+  check?: FnCheckTypes;
 }
 ```
 
@@ -2394,8 +2439,8 @@ interface · `import { NativeFnTypes } from '@harness/sdk'`
 The types of a native fn.
 
 ```ts
-interface NativeFnTypes<A, R, D extends Deps, H extends Handlers, P extends ProgressDef, S, U, St extends object = {}, F = never> {
-  kind: 'native'; payload: undefined; args: A; result: R; deps: D; handlers: H; progress: P; resume: S; undo: U; state: St; form: F;
+interface NativeFnTypes<A, R, D extends Deps, H extends Handlers, P extends ProgressDef, S, U, St extends object = {}, F = never, Ck extends FnCheckTypes = never> {
+  kind: 'native'; payload: undefined; args: A; result: R; deps: D; handlers: H; progress: P; resume: S; undo: U; state: St; form: F; check: Ck;
 }
 ```
 
@@ -2769,6 +2814,106 @@ calls finish before it starts, and later calls wait for it.
 
 ```ts
 const ALL_CLAIMS: "*";
+```
+
+#### `FnCheckInput`
+
+type · `import { FnCheckInput } from '@harness/sdk'`
+
+A fn's args check as `fn()` takes it: `true` for a check that calls nothing, or `{ calls }` naming the deps it calls,
+each one of the fn's deps whose mode is `read` (the hub refuses any other call, and any that would wait for approval).
+
+```ts
+type FnCheckInput<D extends Deps> = true | { readonly calls: readonly (keyof D & string)[] };
+```
+
+#### `FnCheckTypes`
+
+interface · `import { FnCheckTypes } from '@harness/sdk'`
+
+What the type system knows of a fn's args check: the keys of the deps it may call (`never` for none).
+
+```ts
+interface FnCheckTypes {
+  calls: string;
+}
+```
+
+#### `CheckTypesOf`
+
+type · `import { CheckTypesOf } from '@harness/sdk'`
+
+The check types of what `fn({ check })` was given; `never` when it has no check.
+
+```ts
+type CheckTypesOf<Ck> =
+Ck extends { readonly calls: readonly (infer K extends string)[] } ? { calls: K } :
+Ck extends true ? { calls: never } :
+never;
+```
+
+#### `CheckCtx`
+
+interface · `import { CheckCtx } from '@harness/sdk'`
+
+What a fn's args check gets (`fn({ check })`, `check(args, ctx)`): the run waiting to be decided and whom it is for,
+the system's config, named types, its log, and callers for only the deps its check declares (`calls`), each a read.
+Nothing here changes anything, spends or asks anyone: a check reads what the args name and says what is wrong.
+`signal` aborts at `deadline`, when the hub stops waiting and lets the call go on unchecked.
+
+```ts
+check: async (args, ctx) => {
+  const target = await ctx.fns.getFn({ fn: args.fn });
+  return target.available ? [] : [{ path: 'fn', message: `${args.fn} can't run now: pick another fn.` }];
+},
+```
+
+```ts
+interface CheckCtx<D extends Deps = Deps, Cfg = unknown> {
+  readonly system: string;
+  readonly config: Cfg;
+  /** The queued run whose args are checked; the check's calls are its children. */
+  readonly run: RunId;
+  /** The person the run is for: the deps answer as them. */
+  readonly user: UserInfo;
+  /** The deps the check declares, called as the run (each a `read` fn; any other call is refused). */
+  readonly fns: Callers<D>;
+  readonly types: Types;
+  readonly log: Log;
+  /** When the hub stops waiting for the answer. */
+  readonly deadline: Timestamp;
+  readonly signal: AbortSignal;
+}
+```
+
+Refers to: [`RunId`](#core-runid), [`Timestamp`](#core-timestamp), [`UserInfo`](#core-userinfo).
+
+#### `CheckProblems`
+
+type · `import { CheckProblems } from '@harness/sdk'`
+
+What a fn's args check found: problems by path, `[]` when the args are fine.
+
+```ts
+type CheckProblems = readonly InputProblem[];
+```
+
+Refers to: [`InputProblem`](#core-inputproblem).
+
+#### `CheckImpl`
+
+type · `import { CheckImpl } from '@harness/sdk'`
+
+A fn's args check in its implementation: required exactly when it declares `check` (its ctx calls only the deps the
+check names), absent otherwise; optional for a fn known only at runtime.
+
+```ts
+type CheckImpl<T extends FnTypes, Cfg = unknown> =
+T extends { readonly check: infer C }
+  ? [C] extends [never]
+    ? { check?: never }
+    : C extends FnCheckTypes ? { check(args: T['args'], ctx: CheckCtx<Pick<T['deps'], C['calls'] & keyof T['deps']>, Cfg>): Promise<CheckProblems> } : never
+  : { check?(args: T['args'], ctx: CheckCtx<T['deps'], Cfg>): Promise<CheckProblems> };
 ```
 
 #### `fnsMissingExamples`
@@ -4003,7 +4148,7 @@ The types of a fn of some kind. Its deps, handlers and progress come from the ki
 
 ```ts
 interface KindFnTypes<K extends AnyKindRef, P, A, R> {
-  kind: K; payload: P; args: A; result: R; deps: {}; handlers: {}; progress: NoProgress; resume: never; undo: never; state: {}; form: never;
+  kind: K; payload: P; args: A; result: R; deps: {}; handlers: {}; progress: NoProgress; resume: never; undo: never; state: {}; form: never; check: never;
 }
 ```
 
@@ -7773,7 +7918,8 @@ declares `approval` with a preview (checked when the system serves): what a run 
 `flags` when it declares `flags: true`: the sensitive files a run with these args would read or write (empty when
 none), asked by the hub before every run. `claims` when it declares `dynamicClaims: true`: what a call with these
 args operates on (`file:/abs/path`, or `'*'` to run alone), asked by the hub before an agent's call starts, so calls
-that clash run one after another.
+that clash run one after another. `check` exactly when it declares `check`: what is wrong with a call's args beyond
+their type, asked by the hub before the policies and any approval.
 
 ```ts
 type FnImpl<T extends FnTypes, Cfg = unknown, O extends Own = Own> =
@@ -7783,6 +7929,7 @@ type FnImpl<T extends FnTypes, Cfg = unknown, O extends Own = Own> =
   flags?(args: T['args'], ctx: PreviewCtx<Cfg, O>): Promise<SensitivityFlag[]>;
   claims?(args: T['args'], ctx: ClaimsCtx<Cfg, O>): ToolClaims | Promise<ToolClaims>;
 } &
+CheckImpl<T, Cfg> &
 ([T['undo']] extends [never] ? { undo?: never } : { undo(payload: T['undo'], ctx: UndoCtx<Cfg>): Promise<UndoOutcome> });
 ```
 
@@ -12728,6 +12875,9 @@ Every system tests itself with the SDK's **test kit** (`@harness/sdk/testing`), 
   the hub asks before a run. `kit.claims('<fn>', args)` gives what an agent's call would operate on: its
   `parallelClaims` filled from the args, joined with what its `claims` hook answers. `kit.mentions('<provider>', query)` gives a mention provider's options and the resource searches
   it made (answer them with `kit.hub.onMentionResources`).
+- **Args checks.** `kit.check('<fn>', args)` gives the problems a fn's `check` hook finds, as the hub asks before
+  the policies and any approval, with the calls it made (`hubCalls.calls`, keyed `check:…`, answered by
+  `kit.hub.onCall`); a fn without a check finds none.
 - **Files and commands.** `scratchFolder({ git: true, files })` makes a temp folder (a git repository with the files
   committed) to run file and command fns in: change a file, add an untracked or ignored one, and check the change set
   or the flags a fn reports. `repo.dispose()` removes it.
@@ -12993,6 +13143,11 @@ class FakeHub {
   preview(body: SystemBody<"preview">): Promise<PreviewAnswer>;
   /** Ask the connected system which sensitive files a run would touch (`flags`), as the hub does before a run. */
   flags(body: SystemBody<"flags">): Promise<FlagsAnswer>;
+  /**
+  * Ask the connected system to check a call's args (`checkArgs`), as the hub does before the policies for a fn that
+  * declares `check`. The check's calls come to `onCall` like a run's, with keys starting `check:`.
+  */
+  checkArgs(body: SystemBody<"checkArgs">): Promise<ArgsCheckAnswer>;
   /** Ask the connected system what an agent's call would operate on (`claims`), as the hub does before the call starts. */
   claims(body: SystemBody<"claims">): Promise<ClaimsAnswer>;
   /**
@@ -13024,7 +13179,7 @@ class FakeHub {
 }
 ```
 
-Refers to: [`ActorId`](#core-actorid), [`AdminNotice`](#core-adminnotice), [`ClaimsAnswer`](#core-claimsanswer), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FlagsAnswer`](#core-flagsanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`Hello`](#core-hello), [`HubLinkSpec`](#core-hublinkspec), [`HubModelInfo`](#core-hubmodelinfo), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`KindEstimateAnswer`](#core-kindestimateanswer), [`KindFnShape`](#core-kindfnshape), [`KindFnWire`](#core-kindfnwire), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`MentionResourceSearch`](#core-mentionresourcesearch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceHit`](#core-resourcehit), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`Section`](#core-section), [`StartedRun`](#core-startedrun), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
+Refers to: [`ActorId`](#core-actorid), [`AdminNotice`](#core-adminnotice), [`ArgsCheckAnswer`](#core-argscheckanswer), [`ClaimsAnswer`](#core-claimsanswer), [`ConfigValue`](#core-configvalue), [`ConnectResult`](#core-connectresult), [`ContentRef`](#core-contentref), [`DecideAnswer`](#core-decideanswer), [`FlagsAnswer`](#core-flagsanswer), [`FleetInstance`](#core-fleetinstance), [`HandlerAnswer`](#core-handleranswer), [`Hello`](#core-hello), [`HubLinkSpec`](#core-hublinkspec), [`HubModelInfo`](#core-hubmodelinfo), [`InstanceName`](#core-instancename), [`Json`](#core-json), [`JsonObject`](#core-jsonobject), [`KindEstimateAnswer`](#core-kindestimateanswer), [`KindFnShape`](#core-kindfnshape), [`KindFnWire`](#core-kindfnwire), [`LinkSession`](#core-linksession), [`LlmForward`](#core-llmforward), [`LlmForwardChunk`](#core-llmforwardchunk), [`LogLine`](#core-logline), [`Manifest`](#core-manifest), [`ManifestPatch`](#core-manifestpatch), [`MentionResourceSearch`](#core-mentionresourcesearch), [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-modelforwardresult), [`OutcomeWire`](#core-outcomewire), [`PairingGrant`](#core-pairinggrant), [`PairingGrantRequest`](#core-pairinggrantrequest), [`PairingId`](#core-pairingid), [`PairingInfo`](#core-pairinginfo), [`PreviewAnswer`](#core-previewanswer), [`ProposedRun`](#core-proposedrun), [`QualifiedName`](#core-qualifiedname), [`ResourceHit`](#core-resourcehit), [`ResourceRead`](#core-resourceread), [`RunControl`](#core-runcontrol), [`RunInfo`](#core-runinfo), [`RunRequest`](#core-runrequest), [`RunSettled`](#core-runsettled), [`Section`](#core-section), [`StartedRun`](#core-startedrun), [`StateOwner`](#core-stateowner), [`SystemLinkSpec`](#core-systemlinkspec), [`TypeDefinitions`](#core-typedefinitions).
 
 #### `FakeHubOptions`
 
@@ -13490,6 +13645,12 @@ class TestSystem<N extends string, C extends ContractShape> {
   */
   flags<K extends FnNameOf<C>>(name: K, args: FnArgsOf<C, K>): Promise<SensitivityFlag[]>;
   /**
+  * What a fn's args check finds (`fn({ check })`), as the hub asks it before the policies and any approval: the
+  * problems (none when the args are fine, or the fn has no check) and what the check asked the hub for (its read
+  * calls come to `hub.onCall`, keyed `check:…`). `extra.run` sets whom the call is for.
+  */
+  check<K extends FnNameOf<C>>(name: K, args: FnArgsOf<C, K>, extra?: Partial<Omit<RunRequest, "fn" | "args">>): Promise<{ readonly problems: InputProblem[]; readonly hubCalls: HubCalls; }>;
+  /**
   * What an agent's call of a fn with these args would operate on, as the hub works it out before starting it: its
   * `parallelClaims` filled from the args, then (for a fn with `dynamicClaims`) what its own `claims(args, ctx)` adds.
   */
@@ -13509,7 +13670,7 @@ class TestSystem<N extends string, C extends ContractShape> {
 }
 ```
 
-Refers to: [`DataRecord`](#core-datarecord), [`Json`](#core-json), [`OutcomeWire`](#core-outcomewire), [`ResultTable`](#core-resulttable), [`RunRequest`](#core-runrequest), [`SensitivityFlag`](#core-sensitivityflag), [`VisualRank`](#core-visualrank).
+Refers to: [`DataRecord`](#core-datarecord), [`InputProblem`](#core-inputproblem), [`Json`](#core-json), [`OutcomeWire`](#core-outcomewire), [`ResultTable`](#core-resulttable), [`RunRequest`](#core-runrequest), [`SensitivityFlag`](#core-sensitivityflag), [`VisualRank`](#core-visualrank).
 
 #### `TestHubOptions`
 
@@ -14286,6 +14447,41 @@ reason given. If you see one of these errors, the fix is in the reason.
 
   ```ts
   void ((args: Infer<typeof hub.fns.resource_read.args>) => args)({});
+  ```
+- **`getFns` is not one of the fn's deps.**
+
+  ```ts
+  fn({ description: 'Add.', args, returns: g.bool(), deps: { getFn: hub.fns.fns_get }, check: { calls: ['getFns'] } });
+  ```
+- **A fn with no deps can't name one for its check.**
+
+  ```ts
+  fn({ description: 'Add.', args, returns: g.bool(), check: { calls: ['getFn'] } });
+  ```
+- **The check calls only the deps it names: saving is the run's.**
+
+  ```ts
+  void ctx.fns.saveFn;
+  ```
+- **A check makes no model calls.**
+
+  ```ts
+  void ctx.llm;
+  ```
+- **A fn that declares a check must implement it.**
+
+  ```ts
+  add: { async run(_args, ctx) { return ctx.done(true); } },
+  ```
+- **A fn that declares no check has none to implement.**
+
+  ```ts
+  none: { async run(_args, ctx) { return ctx.done(true); }, check: () => Promise.resolve([]) },
+  ```
+- **Problems are { path, message }.**
+
+  ```ts
+  check: () => Promise.resolve(['limit is wrong']),
   ```
 - **`paht` is not one of the args.**
 
@@ -18262,6 +18458,21 @@ type ApprovedRun = {
 };
 ```
 
+#### <a id="core-argscheckanswer"></a>`ArgsCheckAnswer`
+
+const, type · declared in `packages/core/src/approvals.ts`
+
+What a fn's args check found: problems by path (none when the args are fine), refused as invalid input.
+
+```ts
+type ArgsCheckAnswer = {
+  problems: {
+    path: string;
+    message: string;
+  }[];
+};
+```
+
 #### <a id="core-fnapproval"></a>`FnApproval`
 
 const, type · declared in `packages/core/src/approvals.ts`
@@ -19652,6 +19863,9 @@ type PreviewAnswer = {
       } | undefined;
       parallelClaims?: string[] | undefined;
       dynamicClaims?: boolean | undefined;
+      check?: {
+        deps: `${string}/${string}`[];
+      } | undefined;
     }[];
     context: {
       name: string;
@@ -20680,6 +20894,9 @@ type FnDecl = {
   } | undefined;
   parallelClaims?: string[] | undefined;
   dynamicClaims?: boolean | undefined;
+  check?: {
+    deps: `${string}/${string}`[];
+  } | undefined;
 };
 ```
 
@@ -21153,6 +21370,9 @@ type Manifest = {
     } | undefined;
     parallelClaims?: string[] | undefined;
     dynamicClaims?: boolean | undefined;
+    check?: {
+      deps: `${string}/${string}`[];
+    } | undefined;
   }[];
   context: {
     name: string;
@@ -21594,6 +21814,9 @@ type ManifestPatch = {
       } | undefined;
       parallelClaims?: string[] | undefined;
       dynamicClaims?: boolean | undefined;
+      check?: {
+        deps: `${string}/${string}`[];
+      } | undefined;
     }[] | undefined;
     context?: {
       name: string;

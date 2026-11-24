@@ -206,6 +206,9 @@ type Manifest = {
     } | undefined;
     parallelClaims?: string[] | undefined;
     dynamicClaims?: boolean | undefined;
+    check?: {
+      deps: `${string}/${string}`[];
+    } | undefined;
   }[];
   context: {
     name: string;

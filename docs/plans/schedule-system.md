@@ -752,6 +752,16 @@ link's segment against the system's declared pages.
   release workflow, and have Oryoli use them too. Without it the schedule system copies Oryoli's functions.
   **Postponed (2026-11-23):** slice 2 waits; until then the rule lives in `systems/schedule/shared/zoned.ts`
   (`zonedTime`, `localNow`, plus `offsetAt` and `localString` for `fire.local`), copied from Oryoli with its tests.
+  **Slice 2 built (2026-11-23, local, approved by Phil):** dayspan 1.3.0 has `TimeZone` (`instant`, `local`, `offset`,
+  `localString`, `wall`, `isValid`), committed in `../dayspan`, not yet released. The zone functions only, not
+  `Schedule.instants`/`nextInstant`: `when.ts` still works out times, skips and extras itself and asks dayspan only for
+  days. `zoned.ts` is now a thin adapter over `TimeZone` under the old names (its users, the shared exports and the
+  tests are unchanged); `when.ts` calls `TimeZone` directly. `systems/schedule` links the local dayspan
+  (`"dayspan": "file:../../../dayspan"`, like `@ayepi/*`) until the release, then goes back to `^1.3.0`. Oryoli's
+  switch is a local branch (`dayspan-timezone`) waiting on the release. The copied rule was right only where offsets
+  are negative (the Americas): east of Greenwich it took the hour before a spring-forward gap (London's 01:30 became
+  00:30 GMT) and the second of a repeated time; dayspan's rule holds in every zone (tested against a search around
+  every 2026 transition in ten zones, Lord Howe's and Chatham's included).
 - **dayspan, later and only if wanted: "every N minutes between two times"** as one rule, instead of a list of times.
 
 ## Build slices (after the types are approved)
@@ -988,8 +998,16 @@ flow, and the pages' shots.
   - The shots: calendar chips overflowed their day in the month view (border-box now); the admin list's columns
     didn't line up with its head (a fixed last column), and a one-off with no runs left said "Running" ("Ended"); a
     phone's week opened on Sunday instead of today; the run page's header said "Run by hand" for a planned firing.
-  - Still open: each `add` the model got wrong waited on an approval card before failing (a card's preview can't read
-    the target's signature, so it can't refuse wrong args first).
+  - Each `add` the model got wrong waited on an approval card before failing (a card's preview can't read the
+    target's signature, so it can't refuse wrong args first). **Fixed** (2026-11-23, local) by a general hub step, the
+    args check before approval (`fn({ check })`, docs/harness.md "Args checks before approval"): `add` and `change`
+    declare `check: { calls: ['getFn'] }`, and their check reads the target with `hub/fns_get` and refuses as invalid
+    input, before the card, an unknown or unusable target, fixed args against the target's args type (by path:
+    `args.limit: …`, `fixedProblems`), a `when` that never runs or whose times are too close (`scheduleProblems`), the
+    person's limit of schedules, and for `change` a schedule that isn't theirs. `compute` stays after the approval (its
+    words become a program by a model call; the check reads only the target and `when` for it). Tests: `fns.test.ts`
+    ("the args check the hub asks before the approval card"), the hub's `args-check.test.ts`, the SDK's
+    `check.test.ts` and `typetests/check.ts`.
 
 ## Judgement calls (not asked)
 

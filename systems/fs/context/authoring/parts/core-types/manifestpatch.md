@@ -204,6 +204,9 @@ type ManifestPatch = {
       } | undefined;
       parallelClaims?: string[] | undefined;
       dynamicClaims?: boolean | undefined;
+      check?: {
+        deps: `${string}/${string}`[];
+      } | undefined;
     }[] | undefined;
     context?: {
       name: string;

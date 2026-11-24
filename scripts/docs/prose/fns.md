@@ -25,6 +25,7 @@ A **fn** is something people, agents and code can run: a name, a description, ty
 | `flags` | `true`: before every run the hub asks `flags(args, ctx)` which sensitive files it would touch (below) | `flags` must be implemented |
 | `parallelClaims` | what its calls operate on, as templates filled from the args (`['file:{args.path}']`, `'*'` to run alone), so an agent's calls that clash run in order (below) | tokens are checked against the args |
 | `dynamicClaims` | `true`: before an agent's call starts the hub also asks `claims(args, ctx)` (below) | `claims` must be implemented |
+| `check` | `true`, or `{ calls: ['getFn'] }` naming the read deps it calls: before the policies and any approval the hub asks `check(args, ctx)` what is wrong with a call's args (below) | `check` must be implemented; its `ctx.fns` has only the deps it names, and a name that isn't a dep doesn't compile |
 
 <!-- include: scripts/docs/example/shared/index.ts#fn-add -->
 
@@ -88,6 +89,33 @@ input. A preview gets a `PreviewCtx` (the system context, the waiting run and it
 anything. `remember: false` (the default) means the person can't say "don't ask again". A kind does the same from
 `describe` (`approval`) and `preview(payload, args, ctx)`. Serving a fn that asks for a preview without implementing
 one throws.
+
+**Checking args before approval.** A card's preview can't call fns, so a call whose args are wrong in a way only
+another fn can tell (args for a fn it runs later, a name that must exist) would wait on the person and fail after.
+Declare `check` and implement `check(args, ctx)`: the hub asks it once the args parse, before the policies, the
+preview and any approval. It returns problems by path (`[{ path: 'args.limit', message: 'a number' }]`, `[]` when
+the args are fine), and problems end the run as invalid input with those lines, so the model fixes the call and tries
+again and the person is never asked (the chat shows it as "Thinking harder"). Its `CheckCtx` has the run, its person,
+the config, named types, the log, a `deadline` with a `signal` that aborts at it, and `ctx.fns` with only the deps
+`check: { calls }` names; `check: true` calls nothing. Each call is a child of the waiting run (under its own
+`check:` keys) and must be of a `read` fn: the hub refuses a call to any other fn, and denies one that would wait for
+approval instead of asking. A check makes no model calls and changes nothing. One that can't finish (its system gone,
+an error, the hub's `HARNESS_ARGS_CHECK_TIMEOUT`) is logged and the call goes on as if there were none, so `run`
+still checks for itself. `kit.check('<fn>', args)` gives its problems and the calls it made (**Testing**).
+
+```ts
+add: fn({
+  description: 'Schedule a fn.', args: g.obj({ fn: g.fnName(), args: json() }), returns: g.bool(),
+  deps: { getFn: hub.fns.fns_get, saveFn: hub.fns.fns_save },
+  approval: { preview: true },
+  check: { calls: ['getFn'] },
+}),
+// in the implementation
+check: async (args, ctx) => {
+  const target = await ctx.fns.getFn({ fn: args.fn });
+  return target.available ? [] : [{ path: 'fn', message: `${args.fn} can't run now: pick another fn.` }];
+},
+```
 
 **Sensitive files.** A native fn that reads or writes files the person names (fs's `read`, `write`, `bash`) declares
 `flags: true` and implements `flags(args, ctx)`: the sensitive files a run with these args would touch, each a

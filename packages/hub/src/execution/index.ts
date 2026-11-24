@@ -135,6 +135,11 @@ export interface PolicyEngine {
      * policy that names one (`FnMatch.via`) matches calls made by that fn's runs only.
      */
     via?: readonly QualifiedName[];
+    /**
+     * The call can't wait for anyone (a fn's args check calling a read dep, `FnDecl.check`): where it would ask, it is
+     * denied with `noAsk` as the reason instead, and no approval is made.
+     */
+    noAsk?: string;
   }): Promise<RunDecision>;
   /** Make the approval of a run a system proposed (`propose` on the hub link), with its preview, and tell its approvers. */
   propose(input: { run: RunId; fn: QualifiedName; approver: Approver; preview: ApprovalPreview; turnUser: ActorId; session?: SessionId; ask?: ProposalAsk }): Promise<Approval>;

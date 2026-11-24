@@ -17,7 +17,7 @@ import {
   type TurnId, type TurnStatus, type UndoOutcome, type UserInfo, type RunControlAction, type SuggestionRecord,
   type ProviderChat, type ProviderChunk, type ProviderDecide, type ProviderDecideResult, type ProviderEmbed, type ProviderEmbedResult, type ProviderModels,
   type ProviderModelsResult, type ValidateAnswer, type ValidateRequest,
-  type ConnectFinish, type ContextDecl, type ConnectResult, type ConnectStart, type RunConnection, type PreviewAnswer, type PreviewRequest, type FlagsAnswer, type ClaimsAnswer, type ClaimsRequest,
+  type ConnectFinish, type ContextDecl, type ConnectResult, type ConnectStart, type RunConnection, type PreviewAnswer, type PreviewRequest, type FlagsAnswer, type ClaimsAnswer, type ClaimsRequest, type ArgsCheckAnswer, type ArgsCheckRequest,
 } from '@harness/core';
 import { z } from 'zod';
 import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
@@ -255,6 +255,8 @@ export interface SystemBehaviour {
   flags: (input: PreviewRequest) => FlagsAnswer;
   /** What an agent's call of a fn that declares `dynamicClaims` operates on. */
   claims: (input: ClaimsRequest) => ClaimsAnswer | Promise<ClaimsAnswer>;
+  /** What a fn that declares `check` finds wrong with a call's args, before the policies (`FnDecl.check`). */
+  checkArgs: (input: ArgsCheckRequest, signal: AbortSignal) => ArgsCheckAnswer | Promise<ArgsCheckAnswer>;
 }
 
 /** A system connected to the rig over an in-process socket, serving `systemLinkSpec` for real. */
@@ -265,6 +267,7 @@ export class TestSystem {
   readonly previews: PreviewRequest[] = [];
   readonly flagged: PreviewRequest[] = [];
   readonly claimed: ClaimsRequest[] = [];
+  readonly argChecks: ArgsCheckRequest[] = [];
   readonly chats: ProviderChat[] = [];
   readonly decisions: ProviderDecide[] = [];
   readonly children: Array<{ parent: string; key: string; run: string; update?: unknown }> = [];
@@ -284,6 +287,7 @@ export class TestSystem {
     preview: () => ({ preview: { title: 'Do it', parts: [], irreversible: false } }),
     flags: () => ({ flags: [] }),
     claims: () => ({ claims: [] }),
+    checkArgs: () => ({ problems: [] }),
   };
   conn: WsConn | undefined;
   readonly #controller = new AbortController();
@@ -303,6 +307,7 @@ export class TestSystem {
       preview: ({ data }) => { this.previews.push(data); return this.behaviour.preview(data); },
       flags: ({ data }) => { this.flagged.push(data); return this.behaviour.flags(data); },
       claims: ({ data }) => { this.claimed.push(data); return this.behaviour.claims(data); },
+      checkArgs: ({ data, signal }) => { this.argChecks.push(data); return this.behaviour.checkArgs(data, signal); },
       validate: ({ data }) => { this.validations.push(data); return this.behaviour.validate(data); },
       providerChat: ({ data }) => { this.chats.push(data); return this.behaviour.providerChat(data); },
       providerEmbed: ({ data }) => this.behaviour.providerEmbed(data),

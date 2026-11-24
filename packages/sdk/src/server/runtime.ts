@@ -5,12 +5,14 @@
  */
 import { implement, reject, server, type Server } from '@ayepi/core';
 import {
-  ClaimsAnswer, CostEstimate, EXPORT_NOT_READY, FlagsAnswer, systemLinkSpec, type ClaimsRequest, type KindEstimateAnswer, type KindEstimateRequest, type MentionRequestId,
+  ArgsCheckAnswer, ClaimsAnswer, CostEstimate, EXPORT_NOT_READY, FlagsAnswer, systemLinkSpec, type ArgsCheckRequest, type ClaimsRequest, type KindEstimateAnswer, type KindEstimateRequest, type MentionRequestId,
   type ActorId, type ConfigValue, type DeliveryId, type HookBlock, type Json, type KindDescription, type MentionHover,
   type MentionOption as WireMentionOption, type ResourceRead, type ResourceUri, type RunId, type RunInfo, type Section, type SessionId,
   type InstanceConnect, type StopReason, type SystemEvent, type SystemLinkSpec, type TimeInfo, type UndoOutcome, type UserInfo, type ValidateAnswer, type ValidateRequest, type PreviewAnswer, type PreviewRequest,
 } from '@harness/core';
-import type { ActionCtx, AskerCtx, SystemCtx, UndoCtx } from '../ctx.ts';
+import type { ActionCtx, AskerCtx, CallOptions, SystemCtx, UndoCtx } from '../ctx.ts';
+import type { Handlers } from '../fn.ts';
+import { CallSet, CHECK_KEY_PREFIX } from './calls.ts';
 import { hookBlock, type KindCheckCtx, type MentionCtx } from '../declare.ts';
 import { g, wireType, type GinType } from '../gin.ts';
 import type { ConfigOf, ContractShape } from '../system.ts';
@@ -230,6 +232,7 @@ export class SystemRuntime<C extends ContractShape> {
       estimate: ({ data, signal }) => this.#estimate(data, signal),
       flags: ({ data, signal }) => this.#flags(data, signal),
       claims: ({ data, signal }) => this.#claims(data, signal),
+      checkArgs: ({ data, signal }) => this.#checkArgs(data, signal),
       providerChat: ({ data, signal }) => this.#providers.chat(data, signal),
       providerEmbed: ({ data, signal }) => this.#providers.embed(data, signal),
       providerDecide: ({ data, signal }) => this.#providers.decide(data, signal),
@@ -360,6 +363,31 @@ export class SystemRuntime<C extends ContractShape> {
     const ctx = { ...this.systemCtx(signal), user: data.user, caller: data.caller, session: data.session };
     const claims = await target.impl.claims(decodeOrThrow(target.def.args, data.args, 'The args'), ctx);
     return ClaimsAnswer.parse({ claims: [...claims] });
+  }
+
+  /**
+   * A fn's args check before the policies (`fn({ check })`): its `check(args, ctx)`, with callers for only the deps the
+   * check declares, whose calls are the queued run's children under keys of their own (`check:`), so they never
+   * collide with the run's own calls. Aborts at the hub's deadline. A fn without a check finds nothing.
+   */
+  async #checkArgs(data: ArgsCheckRequest, signal: AbortSignal): Promise<ArgsCheckAnswer> {
+    const target = this.#parts.table.target(data.fn, 'native');
+    if (typeof target === 'string') { throw reject(404, 'NOT_FOUND', target); }
+    if (target.kind !== 'native' || target.impl.check === undefined || target.def.check === undefined) { return { problems: [] }; }
+    const env = this.#parts.env;
+    const stop = AbortSignal.any([signal, AbortSignal.timeout(Math.max(0, data.deadline - Date.now()))]);
+    const ctx = this.systemCtx(stop);
+    const log = env.log.with({ run: data.run, fn: data.fn, check: true });
+    const calls = new CallSet({ hub: env.hub, parent: data.run, resume: undefined, signal: stop, log, keyPrefix: CHECK_KEY_PREFIX });
+    const deps = target.def.deps;
+    const fns = Object.fromEntries(target.def.check.calls.flatMap((local) => {
+      const dep = deps[local];
+      return dep === undefined ? [] : [[local, (args: unknown, options?: CallOptions<Handlers>) => calls.call(dep, local, args, options)] as const];
+    }));
+    const problems = await target.impl.check(decodeOrThrow(target.def.args, data.args, 'The args'), {
+      system: ctx.system, config: ctx.config, types: ctx.types, log, signal: ctx.signal, run: data.run, user: data.user, deadline: data.deadline, fns,
+    });
+    return ArgsCheckAnswer.parse({ problems: [...problems] });
   }
 
   /**

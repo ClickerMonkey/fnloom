@@ -196,7 +196,8 @@ declares `approval` with a preview (checked when the system serves): what a run 
 `flags` when it declares `flags: true`: the sensitive files a run with these args would read or write (empty when
 none), asked by the hub before every run. `claims` when it declares `dynamicClaims: true`: what a call with these
 args operates on (`file:/abs/path`, or `'*'` to run alone), asked by the hub before an agent's call starts, so calls
-that clash run one after another.
+that clash run one after another. `check` exactly when it declares `check`: what is wrong with a call's args beyond
+their type, asked by the hub before the policies and any approval.
 
 ```ts
 type FnImpl<T extends FnTypes, Cfg = unknown, O extends Own = Own> =
@@ -206,6 +207,7 @@ type FnImpl<T extends FnTypes, Cfg = unknown, O extends Own = Own> =
   flags?(args: T['args'], ctx: PreviewCtx<Cfg, O>): Promise<SensitivityFlag[]>;
   claims?(args: T['args'], ctx: ClaimsCtx<Cfg, O>): ToolClaims | Promise<ToolClaims>;
 } &
+CheckImpl<T, Cfg> &
 ([T['undo']] extends [never] ? { undo?: never } : { undo(payload: T['undo'], ctx: UndoCtx<Cfg>): Promise<UndoOutcome> });
 ```
 

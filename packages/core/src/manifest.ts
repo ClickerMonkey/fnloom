@@ -232,6 +232,16 @@ export function nicheOf(decl: { readonly niche?: Niche | undefined; readonly tag
 }
 
 /**
+ * A native fn's pre-approval check of its args (`FnDecl.check`): what its args type can't say (another fn's args, a
+ * name that must exist), worked out by its system after the args parse and before the policies decide the run.
+ * `deps` are the fns the check may call, each one of the fn's own deps whose mode is `read`; the hub refuses any other
+ * call it makes, and any call that would wait for approval. A check that can't finish (its system gone, the
+ * `HARNESS_ARGS_CHECK_TIMEOUT` deadline) leaves the run to go on as if it had none.
+ */
+export const FnArgsCheck = z.object({ deps: z.array(QualifiedName) });
+export type FnArgsCheck = z.infer<typeof FnArgsCheck>;
+
+/**
  * A fn. Native fns carry their signature, deps and handlers as declared. Fns of other kinds carry a payload; the hub
  * asks the kind's system to describe it and checks the result against the declared signature.
  */
@@ -308,6 +318,11 @@ export const FnDecl = z.object({
   parallelClaims: z.array(ClaimTemplate).optional(),
   /** Before an agent's call starts, the hub also asks its system for its claims (`claims` on the system link), from the args and the call's context. */
   dynamicClaims: z.boolean().optional(),
+  /**
+   * Its args are checked by its system before the policies and any approval (`checkArgs` on the system link,
+   * `FnArgsCheck`): problems end the run as invalid input, so a wrong call is never put to a person.
+   */
+  check: FnArgsCheck.optional(),
 });
 export type FnDecl = z.infer<typeof FnDecl>;
 

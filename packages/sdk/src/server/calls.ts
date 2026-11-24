@@ -5,7 +5,7 @@
  * while waiting, pending calls reject with `Suspended`, which the runtime turns into the paused outcome.
  */
 import {
-  HandlerAnswer, type ControlReply, type Json, type QualifiedName, type ResumeWire, type RunId, type RunSettled, type RunUpdate, type RunControlAction,
+  ARGS_CHECK_KEY_PREFIX, HandlerAnswer, type ControlReply, type Json, type QualifiedName, type ResumeWire, type RunId, type RunSettled, type RunUpdate, type RunControlAction,
 } from '@harness/core';
 import { CallFailed, HandlerFailed, type Suspended, type CallOptions, type FnCall, type Settled } from '../ctx.ts';
 import type { Handlers } from '../fn.ts';
@@ -109,6 +109,9 @@ interface Supplied {
   readonly fns: Readonly<Record<string, ((args: unknown) => Promise<unknown>) | undefined>>;
 }
 
+/** What the keys of an args check's calls start with (`fn({ check })`), apart from the run's own calls' keys. */
+export const CHECK_KEY_PREFIX = ARGS_CHECK_KEY_PREFIX;
+
 /** Everything one run calls: keys, resumed results, supplied handlers, and suspension. */
 export class CallSet {
   readonly #hub: HubAccess;
@@ -120,10 +123,13 @@ export class CallSet {
   readonly #open = new Map<string, OpenCall>();
   readonly #supplied = new Map<string, Supplied>();
   #suspended: Suspended | undefined;
+  /** Put before every key this set makes, so another set's calls under the same run (an args check's) never share one. */
+  readonly #prefix: string;
 
-  constructor(options: { hub: HubAccess; parent: RunId; resume: ResumeWire | undefined; signal: AbortSignal; log: ScopedLog }) {
+  constructor(options: { hub: HubAccess; parent: RunId; resume: ResumeWire | undefined; signal: AbortSignal; log: ScopedLog; keyPrefix?: string }) {
     this.#hub = options.hub;
     this.#parent = options.parent;
+    this.#prefix = options.keyPrefix ?? '';
     this.#resumed = options.resume?.calls ?? {};
     this.#signal = options.signal;
     this.#log = options.log;
@@ -131,7 +137,7 @@ export class CallSet {
 
   /** Call `target` as the dep named `local`. */
   call<R>(target: CallTarget & { returns: GinType<R> }, local: string, args: unknown, options: CallOptions<Handlers> | undefined): FnCall<R> {
-    const key = options?.key ?? this.#nextKey(local);
+    const key = `${this.#prefix}${options?.key ?? this.#nextKey(local)}`;
     const call = new ChildCall<R>(key, (run, action) => this.#control(run, action));
     if (this.#suspended !== undefined) {
       call.fail(this.#suspended);

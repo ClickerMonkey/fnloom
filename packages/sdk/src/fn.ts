@@ -114,7 +114,29 @@ export interface FnTypes {
   state: object;
   /** What its renderer's form submits back to the run; `never` when it has no form. */
   form: unknown;
+  /**
+   * Its args check before approval (`fn({ check })`): the keys of the deps the check may call, or `never` when it has
+   * none. Absent for a fn known only at runtime, whose implementation may or may not check.
+   */
+  check?: FnCheckTypes;
 }
+
+/** What the type system knows of a fn's args check: the keys of the deps it may call (`never` for none). */
+export interface FnCheckTypes {
+  calls: string;
+}
+
+/**
+ * A fn's args check as `fn()` takes it: `true` for a check that calls nothing, or `{ calls }` naming the deps it calls,
+ * each one of the fn's deps whose mode is `read` (the hub refuses any other call, and any that would wait for approval).
+ */
+export type FnCheckInput<D extends Deps> = true | { readonly calls: readonly (keyof D & string)[] };
+
+/** The check types of what `fn({ check })` was given; `never` when it has no check. */
+export type CheckTypesOf<Ck> =
+  Ck extends { readonly calls: readonly (infer K extends string)[] } ? { calls: K } :
+  Ck extends true ? { calls: never } :
+  never;
 
 /**
  * One example call of a fn, shown on its card at `full` detail, in its invalid-input replies and by `hub/fns_examples`:
@@ -214,6 +236,8 @@ export interface FnDef<T extends FnTypes> {
   readonly parallelClaims: readonly string[];
   /** Whether the hub also asks its implementation's `claims(args, ctx)` before an agent's call starts. */
   readonly dynamicClaims: boolean;
+  /** Its args check before approval: the keys of the deps it calls (`fn({ check })`); undefined when it has none. */
+  readonly check: { readonly calls: readonly string[] } | undefined;
   /** Phantom: lets the SDK read T back out of a def. Never set at runtime. */
   readonly types?: T;
 }
@@ -226,6 +250,7 @@ export type TypesOf<F> = F extends FnDef<infer T> ? T : never;
 /** What `fn()` takes. Only `description`, `args` and `returns` are required. */
 export interface FnInput<
   A, R, D extends Deps, H extends Handlers, P extends ProgressDef, S, U, St extends object, F, T extends StatusTemplates = StatusTemplates, C extends readonly string[] = readonly string[],
+  Ck extends FnCheckInput<D> | undefined = undefined,
 > {
   description: string;
   /** Extra guidance the LLM sees when the fn is in its toolset. */
@@ -320,20 +345,29 @@ export interface FnInput<
    * implementation. It costs a round trip per call, so prefer `parallelClaims` when the args say it all.
    */
   dynamicClaims?: true;
+  /**
+   * Check a call's args before the policies and any approval, for what the args type can't say (another fn's args, a
+   * name that must exist): the hub asks the implementation's `check(args, ctx)` once the args parse, and problems end
+   * the run as invalid input (the model fixes the call; nobody is asked). `true` for a check that calls nothing, or
+   * `{ calls: ['getFn'] }` naming the deps it reads (each must be a `read` fn: the hub refuses anything else, and any
+   * call that would wait for approval). A check that can't finish in time is skipped, so `run` still checks for itself.
+   * Requires `check` in the implementation.
+   */
+  check?: Ck;
 }
 
 /** The types of a native fn. */
-export interface NativeFnTypes<A, R, D extends Deps, H extends Handlers, P extends ProgressDef, S, U, St extends object = {}, F = never> {
-  kind: 'native'; payload: undefined; args: A; result: R; deps: D; handlers: H; progress: P; resume: S; undo: U; state: St; form: F;
+export interface NativeFnTypes<A, R, D extends Deps, H extends Handlers, P extends ProgressDef, S, U, St extends object = {}, F = never, Ck extends FnCheckTypes = never> {
+  kind: 'native'; payload: undefined; args: A; result: R; deps: D; handlers: H; progress: P; resume: S; undo: U; state: St; form: F; check: Ck;
 }
 
 /** Declare a native fn: a fn its system implements in code. */
 export function fn<
   A, R, const D extends Deps = {}, const H extends Handlers = {}, const P extends ProgressDef = NoProgress, S = never, U = never, St extends object = {}, F = never,
-  const T extends StatusTemplates = StatusTemplates, const C extends readonly string[] = readonly string[],
+  const T extends StatusTemplates = StatusTemplates, const C extends readonly string[] = readonly string[], const Ck extends FnCheckInput<D> | undefined = undefined,
 >(
-  def: FnInput<A, R, D, H, P, S, U, St, F, T, C>,
-): FnDef<NativeFnTypes<A, R, NoInfer<D>, NoInfer<H>, NoInfer<P>, NoInfer<S>, NoInfer<U>, NoInfer<St>, NoInfer<F>>> {
+  def: FnInput<A, R, D, H, P, S, U, St, F, T, C, Ck>,
+): FnDef<NativeFnTypes<A, R, NoInfer<D>, NoInfer<H>, NoInfer<P>, NoInfer<S>, NoInfer<U>, NoInfer<St>, NoInfer<F>, CheckTypesOf<NoInfer<Ck>>>> {
   return {
     kind: 'native',
     payload: undefined,
@@ -371,7 +405,14 @@ export function fn<
     roles: def.roles,
     parallelClaims: [...(def.parallelClaims ?? [])],
     dynamicClaims: def.dynamicClaims === true,
+    check: checkOf(def.check),
   };
+}
+
+/** A fn's args check as its def keeps it: the dep keys it calls (none for `true`). */
+function checkOf(check: true | { readonly calls: readonly string[] } | undefined): FnDef<FnTypes>['check'] {
+  if (check === undefined) { return undefined; }
+  return { calls: check === true ? [] : [...new Set(check.calls)] };
 }
 
 // ─── Kinds' fns ───────────────────────────────────────────────────────────────
@@ -410,7 +451,7 @@ export interface KindFnInput<P, A, R, T extends StatusTemplates = StatusTemplate
 
 /** The types of a fn of some kind. Its deps, handlers and progress come from the kind at runtime. */
 export interface KindFnTypes<K extends AnyKindRef, P, A, R> {
-  kind: K; payload: P; args: A; result: R; deps: {}; handlers: {}; progress: NoProgress; resume: never; undo: never; state: {}; form: never;
+  kind: K; payload: P; args: A; result: R; deps: {}; handlers: {}; progress: NoProgress; resume: never; undo: never; state: {}; form: never; check: never;
 }
 
 /** The types of a fn known only at runtime (what a kind's implementation runs). */
@@ -454,6 +495,7 @@ export function kindFn<N extends `${string}/${string}`, P, A, R, const T extends
     roles: undefined,
     parallelClaims: [],
     dynamicClaims: false,
+    check: undefined,
   };
 }
 

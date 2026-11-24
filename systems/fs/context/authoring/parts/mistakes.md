@@ -111,6 +111,41 @@ reason given. If you see one of these errors, the fix is in the reason.
   ```ts
   void ((args: Infer<typeof hub.fns.resource_read.args>) => args)({});
   ```
+- **`getFns` is not one of the fn's deps.**
+
+  ```ts
+  fn({ description: 'Add.', args, returns: g.bool(), deps: { getFn: hub.fns.fns_get }, check: { calls: ['getFns'] } });
+  ```
+- **A fn with no deps can't name one for its check.**
+
+  ```ts
+  fn({ description: 'Add.', args, returns: g.bool(), check: { calls: ['getFn'] } });
+  ```
+- **The check calls only the deps it names: saving is the run's.**
+
+  ```ts
+  void ctx.fns.saveFn;
+  ```
+- **A check makes no model calls.**
+
+  ```ts
+  void ctx.llm;
+  ```
+- **A fn that declares a check must implement it.**
+
+  ```ts
+  add: { async run(_args, ctx) { return ctx.done(true); } },
+  ```
+- **A fn that declares no check has none to implement.**
+
+  ```ts
+  none: { async run(_args, ctx) { return ctx.done(true); }, check: () => Promise.resolve([]) },
+  ```
+- **Problems are { path, message }.**
+
+  ```ts
+  check: () => Promise.resolve(['limit is wrong']),
+  ```
 - **`paht` is not one of the args.**
 
   ```ts
