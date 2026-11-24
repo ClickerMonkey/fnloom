@@ -71,8 +71,14 @@ const Settings = {
   missed: g.field(g.optional(ginAs(Missed)), { docs: 'Runs missed while the hub was down: latest (default), none.' }),
   maxSpend: g.field(g.optional(g.num({ min: 0 })), { docs: 'The most one run may spend, in USD.' }),
 };
-/** What schedule/add is asked. */
-export const AddArgs = g.obj({ fn: g.field(g.fnName(), { docs: 'The fn to run, as your tools spell it.' }), ...Settings });
+/** The words of the add card's choice (`allowRuns`), and of the schedule page's switch. */
+export const ALLOW_RUNS_LABEL = 'Let its runs go ahead without asking';
+/** What schedule/add is asked. `allowRuns` is the person's choice on the approval card, never the caller's. */
+export const AddArgs = g.obj({
+  fn: g.field(g.fnName(), { docs: 'The fn to run, as your tools spell it.' }),
+  ...Settings,
+  allowRuns: g.field(g.optional(g.bool()), { docs: 'Never set this: it is the person\'s own choice on the approval card.' }),
+});
 /** What schedule/change is asked: the schedule, and any of add's fields. */
 export const ChangeArgs = g.obj({
   schedule: g.field(g.fnName(), { docs: 'The schedule to change, by its name.' }),
@@ -116,8 +122,9 @@ export const schedule = system('schedule', {
   ].join(' '),
   groups: [{ name: 'schedules', title: 'Schedules', description: 'Add, change, pause and remove scheduled runs of fns.' }],
   // it starts its own kind's fns as their owners and notifies them, keeps firings as records, saves and removes
-  // schedules as hub fns, finds the fns they run, and writes computed args on a model
-  grants: { hub: ['runs', 'data', 'fns', 'search', 'ai'], calls: [hub.fns.fns_get.name, hub.fns.fns_save.name, hub.fns.fns_remove.name] },
+  // schedules as hub fns, records its owner's choice to let its runs go ahead, finds the fns they run, and writes
+  // computed args on a model
+  grants: { hub: ['runs', 'data', 'fns', 'search', 'ai'], calls: [hub.fns.fns_get.name, hub.fns.fns_save.name, hub.fns.fns_remove.name, hub.fns.fns_allow_runs.name] },
   pages: [
     { segment: 'calendar', title: 'Schedule', description: 'Your scheduled runs on a calendar.', icon: 'calendar', nav: 'main', component: 'CalendarPage' },
     { segment: 'item', title: 'Schedule', description: 'One schedule: when it runs, its history, and its controls.', nav: 'hidden', component: 'SchedulePage' },
@@ -145,8 +152,11 @@ export const schedule = system('schedule', {
         description: 'Schedule a fn to run later by itself, once or repeating, as the person; gives the schedule, when it runs in words, its next times and when the person is notified.',
         args: AddArgs,
         returns: View,
-        deps: { getFn: hub.fns.fns_get, saveFn: hub.fns.fns_save },
+        deps: { getFn: hub.fns.fns_get, saveFn: hub.fns.fns_save, allowRuns: hub.fns.fns_allow_runs },
         undo: ScheduleArg,
+        // the person approves it on a card that says what it runs, as whom, when and its first args, and offers to let
+        // its runs go ahead without asking; "always" lets later ones through without a card (and without the offer)
+        approval: { preview: true, remember: true },
         effects: { mode: 'write', registry: [{ thing: 'fns', action: 'create', kind: kinds.schedule.name }] },
         status: phases('Scheduling {args.fn}…', 'Scheduled {output.schedule}', 'Scheduling {args.fn} failed'),
         examples: [
@@ -236,12 +246,28 @@ export const schedule = system('schedule', {
         description: 'Remove a schedule: it never runs again; its past runs stay in its history.',
         args: ScheduleArg,
         returns: g.obj({ removed: g.fnName() }),
-        deps: { getFn: hub.fns.fns_get, removeFn: hub.fns.fns_remove },
+        deps: { getFn: hub.fns.fns_get, removeFn: hub.fns.fns_remove, allowRuns: hub.fns.fns_allow_runs },
         // undo restores its last version
         undo: VersionBefore,
         effects: { mode: 'delete', registry: [{ thing: 'fns', action: 'remove', kind: kinds.schedule.name }] },
         status: phases('Removing {args.schedule}…', 'Removed {args.schedule}', 'Removing {args.schedule} failed'),
         examples: [{ args: { schedule: 'schedule/weekly_orders_summary' }, result: { removed: 'schedule/weekly_orders_summary' } }],
+      }),
+      allow_runs: fn({
+        group: 'schedules',
+        description: 'Let a schedule\'s runs go ahead without asking the person, or have them ask again; their own choice, from the schedule\'s page.',
+        args: g.obj({
+          schedule: g.field(g.fnName(), { docs: 'The schedule, by its name.' }),
+          allow: g.field(g.bool(), { docs: 'True: its runs go ahead without asking; false: they ask as before.' }),
+        }),
+        returns: View,
+        deps: { getFn: hub.fns.fns_get, saveFn: hub.fns.fns_save, allowRuns: hub.fns.fns_allow_runs },
+        undo: VersionBefore,
+        effects: { mode: 'write', registry: [{ thing: 'fns', action: 'update', kind: kinds.schedule.name }] },
+        // a person's own choice, made on a page: never offered to a model
+        visibility: 'user',
+        status: phases('Changing how {args.schedule} asks…', 'Changed how {args.schedule} asks', 'Changing how {args.schedule} asks failed'),
+        examples: [{ args: { schedule: 'schedule/nightly_backup', allow: false }, note: 'Its runs ask again.' }],
       }),
       history: fn({
         group: 'schedules',

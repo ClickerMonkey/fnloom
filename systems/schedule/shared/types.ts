@@ -164,6 +164,11 @@ export const SchedulePayload = z.object({
   maxSpend: Usd.positive().optional(),
   /** Who paused it, when, and optionally until which day. */
   paused: z.object({ at: Timestamp, by: ActorId, until: LocalDay.optional() }).strict().optional(),
+  /**
+   * Its owner let its runs go ahead without asking ("Let its runs go ahead without asking" on the add card, or the
+   * schedule's page): who and when. The hub keeps the matching policy (`hub/fns_allow_runs`); this is the choice on record.
+   */
+  runsAllowed: z.object({ at: Timestamp, by: ActorId }).strict().optional(),
 }).strict();
 export type SchedulePayload = z.infer<typeof SchedulePayload>;
 
@@ -187,6 +192,15 @@ export const Fire = z.object({
 export type Fire = z.infer<typeof Fire>;
 
 /** What it reads as `previous`. `result` is Json here; the authoring step's scope types it as the target fn's result. */
+/**
+ * A schedule fn's own args: the instant the timer planned the run for, absent for "run now". It is a gin timestamp,
+ * which travels as ISO text; milliseconds are read too. One shape for the kind's run and the run page's header.
+ */
+export const ScheduleRunArgs = z.object({
+  at: z.union([Timestamp, z.iso.datetime({ offset: true })]).transform((at) => (typeof at === 'number' ? at : Date.parse(at))).optional(),
+}).loose();
+export type ScheduleRunArgs = z.infer<typeof ScheduleRunArgs>;
+
 export const PreviousFiring = z.object({ at: Timestamp, status: z.enum(['ran', 'failed']), result: Json.optional() });
 export type PreviousFiring = z.infer<typeof PreviousFiring>;
 
@@ -243,6 +257,8 @@ export const ScheduleView = z.object({
   /** The next firing's args. */
   firstArgs: Json.optional(),
   paused: z.object({ until: LocalDay.optional() }).optional(),
+  /** Its runs go ahead without asking (its owner's choice). */
+  runsAllowed: z.boolean().optional(),
   last: FiringShape.pick({ at: true, status: true, run: true, summary: true }).optional(),
 });
 export type ScheduleView = z.infer<typeof ScheduleView>;

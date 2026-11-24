@@ -10,10 +10,10 @@
  *
  * Links are the app's paths to the schedule's page (`/s/schedule/item/<schedule>`), from the contract's page refs.
  */
-import { fnLabel, QualifiedName, systemPagePath, Timestamp, type Json } from '@harness/core';
+import { fnLabel, QualifiedName, systemPagePath, type Json } from '@harness/core';
 import type { PartTone } from '@harness/sdk';
 import { z } from 'zod';
-import { schedule, ScheduleView } from '../shared/index.ts';
+import { schedule, ScheduleRunArgs, ScheduleView } from '../shared/index.ts';
 import { instantWords, localOf, NOTIFY_WORDS, STATUS_LOOK, todayIn } from './logic.ts';
 
 /** A link to a schedule's page, with its query (`tab=history`, `firing=<key>`). */
@@ -43,6 +43,8 @@ export interface ScheduleCard {
   readonly paused?: string;
   /** When it notifies, in words. */
   readonly notifies: string;
+  /** Its runs go ahead without asking (its owner's choice), in words; absent when they ask. */
+  readonly allowed?: string;
   /** How its last run went, when it ran before. */
   readonly last?: { readonly word: string; readonly tone: PartTone; readonly summary?: string };
   /** The next run's args, as JSON text. */
@@ -63,6 +65,7 @@ export function scheduleCard(result: unknown): ScheduleCard | undefined {
     next: view.next.map((run) => run.local),
     ...(paused === undefined ? {} : { paused }),
     notifies: NOTIFY_WORDS[view.notify],
+    ...(view.runsAllowed === true ? { allowed: 'Its runs go ahead without asking.' } : {}),
     ...(look === undefined || view.last === undefined ? {} : { last: { word: look.word, tone: look.tone, ...(view.last.summary === undefined ? {} : { summary: view.last.summary }) } }),
     ...(view.firstArgs === undefined ? {} : { firstArgs: argsText(view.firstArgs) }),
     href: scheduleHref(view.schedule),
@@ -92,12 +95,9 @@ export interface FiringHeader {
   readonly historyHref: string;
 }
 
-/** The schedule fn's own args: `at` when the timer planned it. */
-const FiringArgs = z.object({ at: Timestamp.optional() }).loose();
-
 /** A firing's header, read in the viewer's zone. */
 export function firingHeader(fn: string, args: unknown, zone: string, now = Date.now()): FiringHeader {
-  const parsed = FiringArgs.safeParse(args);
+  const parsed = ScheduleRunArgs.safeParse(args);
   const at = parsed.success ? parsed.data.at : undefined;
   return {
     title: labelOf(fn),

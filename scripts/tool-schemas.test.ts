@@ -24,10 +24,11 @@ import { fs } from '../systems/fs/shared/index.ts';
 import { googleCalendar } from '../systems/google-calendar/shared/index.ts';
 import { input } from '../systems/input/shared/index.ts';
 import { mcp } from '../systems/mcp/shared/index.ts';
+import { schedule } from '../systems/schedule/shared/index.ts';
 import { web } from '../systems/web/shared/index.ts';
 import { widgets } from '../systems/widgets/shared/index.ts';
 
-const SYSTEMS: readonly AnyContract[] = [api, claude, code, database, embedderSystem, fs, googleCalendar, input, mcp, web, widgets];
+const SYSTEMS: readonly AnyContract[] = [api, claude, code, database, embedderSystem, fs, googleCalendar, input, mcp, schedule, web, widgets];
 
 /**
  * Positions that are any JSON on purpose, as `fn` then the dotted path in its args. Each says why; a new entry needs a
@@ -50,6 +51,8 @@ const ANY_JSON: Readonly<Record<string, string>> = {
   'api/test_request params.[].value': "a parameter value serialised by the operation's style: text, a number, a list or an object",
   'database/run_query args.*': "values of the saved query's own args (an object of them by name), checked against them",
   'widgets/make_widget args.*': "values of the widget's own args (an object of them by name), checked against them",
+  'schedule/add args': "fixed args of the fn it schedules (an object of them by name, which strict schemas send as key/value pairs), checked against that fn's args",
+  'schedule/change args': "fixed args of the fn it schedules, as for schedule/add, checked against that fn's args",
 };
 
 /**

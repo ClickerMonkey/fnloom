@@ -17,7 +17,9 @@ const props = withDefaults(defineProps<{
   type: ProposalAsk['type'];
   /** Changes when another approval takes the card, which starts the form again. */
   ident?: string;
-}>(), { ident: '' });
+  /** What the card calls the form (`ProposalAsk.label`), such as a choice's words. */
+  label?: string | undefined;
+}>(), { ident: '', label: undefined });
 const emit = defineEmits<{ change: [value: Json | undefined] }>();
 
 const types = inject(GIN_TYPES, LOCAL_TYPES);
@@ -47,7 +49,7 @@ void load();
 
 <template>
   <div class="ask" data-testid="approval-ask">
-    <GinInput :node="form.node" :draft="form.draft.value" path="" :problems="form.problems.value" label="Your answer" :required="form.node.kind !== 'obj'" @update="update" />
+    <GinInput :node="form.node" :draft="form.draft.value" path="" :problems="form.problems.value" :label="label ?? 'Your answer'" :required="form.node.kind !== 'obj'" @update="update" />
   </div>
 </template>
 

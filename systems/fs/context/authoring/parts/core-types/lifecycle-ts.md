@@ -38,7 +38,9 @@ const, type · declared in `packages/core/src/lifecycle.ts`
 
 A system's answer to a preview (`preview` on the system link): the preview, or why the run can't go ahead at all
 (it then fails as invalid input). An install host sends the contract the card would install (`contract`): the hub
-checks it against the subject's hash, works out the card's `summary` from it, and never stores it.
+checks it against the subject's hash, works out the card's `summary` from it, and never stores it. A preview may
+also offer a choice on the card (`ask`, a form of an optional type, such as "let its runs go ahead without asking"):
+the approver's answer, when they give one, is set as the run's `args[into]` before it goes ahead.
 
 ```ts
 type PreviewAnswer = {
@@ -106,7 +108,7 @@ type PreviewAnswer = {
         kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content" | "runs-code" | "unknown-path";
         rule: string;
         access: "read" | "write";
-        action: "ask" | "allow" | "refuse";
+        action: "allow" | "ask" | "refuse";
         why: string;
         certain: boolean;
       }[];
@@ -641,6 +643,11 @@ type PreviewAnswer = {
       description: string;
     }[] | undefined;
     about?: string | undefined;
+  } | undefined;
+  ask?: {
+    type: TypeDef<any>;
+    into: string;
+    label?: string | undefined;
   } | undefined;
 } | {
   refused: string;

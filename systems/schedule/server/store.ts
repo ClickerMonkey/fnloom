@@ -24,6 +24,8 @@ export const ScheduleRow = z.object({
   plannedAt: z.number().int().optional(),
   /** The refusal reason last told, so one reason is told once until a firing runs again. */
   refused: z.string().optional(),
+  /** The refusal reason the admins were last told (its owner is gone), kept apart from the owner's so neither is told twice. */
+  adminsTold: z.string().optional(),
   /** The last firing that ran or failed, for the args program's `previous`. */
   previous: PreviousFiring.optional(),
   /** Firings that became runs. */

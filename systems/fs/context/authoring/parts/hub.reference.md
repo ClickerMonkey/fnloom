@@ -463,3 +463,14 @@ What `hub/fns_remove` gives, and how its run is undone: the fn, and the version 
 ```ts
 const RemovedFn: ObjType<{ fn: `${string}/${string}`; version: number; }>;
 ```
+
+#### `AllowedRuns`
+
+const · `import { AllowedRuns } from '@harness/sdk'`
+
+What `hub/fns_allow_runs` gives, and how its run is undone: the fn, and whether its runs go ahead without asking (as
+it left them; the undo payload is how they were before).
+
+```ts
+const AllowedRuns: ObjType<{ fn: `${string}/${string}`; allowed: boolean; }>;
+```

@@ -56,3 +56,23 @@ describe('system bundles', () => {
     }
   });
 });
+
+/**
+ * Systems whose process doesn't serve its client yet, though `system.json` names one: found when the schedule
+ * system's pages showed "isn't installed" on a dev stack (2026-11-23), left for their own change.
+ */
+const CLIENT_NOT_SERVED: Readonly<Record<string, string>> = {
+  claude: 'its process passes no client to serve, so its pages and renderers load only from a built package',
+  random: 'its process passes no client to serve, so its renderers load only from a built package',
+  template: 'the starting point new systems are copied from: its client folder has no renderers until a system adds them',
+};
+
+describe('system clients', () => {
+  it('are built and served by the process of every system whose system.json names one, or its pages never load', () => {
+    for (const { name, dir, manifest } of manifests()) {
+      if (manifest.client === undefined || CLIENT_NOT_SERVED[name] !== undefined) { continue; }
+      const main = readFileSync(join(dir, manifest.server.entry), 'utf8');
+      expect(/\bclient: \w+/.test(main) && main.includes('rendererFolder('), `${name} names a client in system.json, but ${manifest.server.entry} doesn't build and serve it`).toBe(true);
+    }
+  });
+});

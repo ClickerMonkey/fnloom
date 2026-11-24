@@ -33,6 +33,8 @@ watch(() => host.query.values['q'] ?? '', (q) => { if (q !== words.value.trim())
 
 const says = (row: AdminSchedule): string => (row.payload === undefined ? 'Its payload doesn’t read.' : saysOf(row.payload, zone.value, today.value));
 const paused = (row: AdminSchedule): boolean => row.payload !== undefined && pausedOn(row.payload, today.value);
+/** A schedule with no runs left (a one-off that ran, or one past its end), not paused. */
+const ended = (row: AdminSchedule): boolean => row.payload !== undefined && !paused(row) && nextFirings(row.payload.when, row.payload.zone, now.value, 1).length === 0;
 const next = (row: AdminSchedule): string => {
   if (row.payload === undefined || paused(row)) { return '—'; }
   const first = nextFirings(row.payload.when, row.payload.zone, now.value, 1)[0];
@@ -84,6 +86,7 @@ async function decide(approve: boolean, remember: Parameters<typeof runs.approve
           <span class="cell end" role="cell">
             <Badge v-if="row.disabled" tone="danger" dot>Off</Badge>
             <Badge v-else-if="paused(row)" tone="neutral" dot>Paused</Badge>
+            <Badge v-else-if="ended(row)" tone="neutral">Ended</Badge>
             <Badge v-else tone="ok" dot>Running</Badge>
             <Button size="sm" variant="ghost" :icon="paused(row) ? 'play' : 'pause'" :loading="acting === row.fn" :disabled="acting !== '' || row.payload === undefined" data-testid="all-toggle" @click="toggle(row)">
               {{ paused(row) ? 'Resume' : 'Pause' }}
@@ -104,7 +107,8 @@ async function decide(approve: boolean, remember: Parameters<typeof runs.approve
 .bar > * { flex: 1; }
 .waiting { margin-bottom: var(--space-4); }
 .table { display: grid; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-sm); overflow: hidden; }
-.row { display: grid; grid-template-columns: minmax(180px, 1.2fr) minmax(100px, 0.7fr) minmax(200px, 1.6fr) minmax(140px, 0.9fr) auto; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
+/* one set of columns for the head and every row (the last a fixed width, never sized by its content), so they line up */
+.row { display: grid; grid-template-columns: minmax(180px, 1.2fr) minmax(100px, 0.7fr) minmax(200px, 1.6fr) minmax(140px, 0.9fr) 196px; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
 .row + .row { border-top: 1px solid var(--border); }
 .row:not(.head):hover { background: var(--surface-2); }
 .head { background: var(--surface-2); color: var(--text-dim); font-size: var(--text-xs); font-weight: var(--weight-strong); text-transform: uppercase; letter-spacing: 0.04em; }

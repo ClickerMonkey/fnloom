@@ -25,6 +25,7 @@ import widgetsCharts from './widgets-charts.ts';
 import widgetChrome from './widget-chrome.ts';
 import widgetDrill from './widget-drill.ts';
 import searchPills from './search-pills.ts';
+import schedulePages from './schedule-pages.ts';
 import chatManage from './chat-manage.ts';
 import chatShell from './chat-shell.ts';
 import chatModes from './chat-modes.ts';
@@ -88,5 +89,5 @@ export const FEATURES: readonly Feature[] = [
   ginEditors, resourceBrowser, viewers,
   modelRoles, chatModes, contextGraph, contextItems, invalidInput, modelCalls, fnMetrics, hubMcps, instances, qrPairing,
   streaming, approvals, build5Feedback, build6Screens, build6Install, build6Added, searchPills, build7Review, build7Graph, build8Data, build8Changes, widgetsCharts, widgetChrome, widgetDrill,
-  security,
+  schedulePages, security,
 ];

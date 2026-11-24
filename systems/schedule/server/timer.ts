@@ -453,11 +453,19 @@ export class Timer {
     }
     try {
       const started = await this.#withTimeout(ctx.runs.start(fn, {
-        args: { at: occurrence.at }, key: `schedule:${id}`, priority: 'background',
+        // the schedule fn's `at` is a gin timestamp, whose wire form is ISO text
+        args: { at: new Date(occurrence.at).toISOString() }, key: `schedule:${id}`, priority: 'background',
         ...(payload.maxSpend === undefined ? {} : { maxSpend: payload.maxSpend }),
       }));
       store.updateFiring(id, (row) => ({ ...row, run: row.run ?? started.run }));
       ctx.log.info('schedule.started', { fn: fn.fn, at: occurrence.at, run: started.run });
+      // a run the hub ended before it answered (its args refused, say) sent its settled event before the firing knew
+      // its run: settled here from the status the start gave, so it is recorded and told all the same
+      const ended = firingStatusOf(started.status);
+      if (ended !== undefined && !this.#handles.has(id) && (store.firing(id)?.status === 'running')) {
+        store.updateFiring(id, (row) => ({ ...row, value: { ...row.value, run: row.value.run ?? started.run } }));
+        await this.#settle(id, { status: ended, reason: started.status === 'invalid-input' ? 'The hub refused the args it was started with, so it never ran.' : `Its run ended at once (${started.status}).` });
+      }
       return 'started';
     } catch (error) {
       const refused = refusalOf(error);
@@ -528,11 +536,10 @@ export class Timer {
 
   /** The admins hear once that a schedule's owner is gone (its firings are refused). */
   async #tellAdminsOnce(fn: ScheduleFn, reason: string, ctx: ScheduleCtx): Promise<void> {
-    const key = `admins:${reason}`;
     const row = this.store.schedule(fn.fn);
-    if (row?.refused === key) { return; }
+    if (row?.adminsTold === reason) { return; }
     await ctx.notifyAdmins({ title: `${fn.title} can't run`, body: `${fn.fn} runs as its owner, who can no longer use the hub. ${reason}` });
-    this.store.updateSchedule(fn.fn, (r) => ({ ...r, refused: key }));
+    this.store.updateSchedule(fn.fn, (r) => ({ ...r, adminsTold: reason }));
   }
 
   /** Missed firings found together: one notice ("… missed 3 runs"), unless the schedule says never. */
@@ -588,13 +595,17 @@ export class Timer {
     store.updateSchedule(fn, (r) => ({ ...r, count: r.count + 1 }));
     const { day, time } = fromOccurrenceKey(key);
     const fire: Fire = { at: plannedAt, local: localString(plannedAt, payload.zone), day, ...(time === undefined ? {} : { time }), zone: payload.zone, count: schedRow?.count ?? 0, late, manual };
-    // one save at a time, in order, as the run's person
+    // one save at a time, in order, for the run's person. Saved by the system outside the run, naming its owner: the
+    // schedule fn's mode is its target's, and a fn declared `read` (a reminder) may not save records in its run
     let saving: Promise<unknown> = Promise.resolve();
     const save = (change: (r: FiringRow) => FiringRow): Promise<void> => {
       const next = store.updateFiring(id, change);
       if (next === undefined) { return Promise.resolve(); }
       row = next;
-      saving = saving.then(() => this.#saveRecord(next, undefined, ctx)).catch((error: unknown) => { ctx.log.warn('schedule.record.failed', { id, error: error instanceof Error ? error.message : String(error) }); });
+      const system = this.#ctx;
+      // read again when its turn comes, so a save queued behind the first updates the record that one made
+      const latest = (): FiringRow => store.firing(id) ?? next;
+      saving = saving.then(() => (system === undefined ? this.#saveRecord(latest(), undefined, ctx) : this.#saveRecord(latest(), system))).catch((error: unknown) => { ctx.log.warn('schedule.record.failed', { id, error: error instanceof Error ? error.message : String(error) }); });
       return saving.then(() => undefined);
     };
     const finish = async (status: FiringStatus, summary: string, extra: Partial<FiringShape> = {}): Promise<void> => {
@@ -698,7 +709,7 @@ export class Timer {
 
   /** The firing ran or failed: `previous` for the next one, and a refusal may be told again. */
   #ran(fn: string, previous: PreviousFiring): void {
-    this.store.updateSchedule(fn, (r) => ({ ...r, previous, ...(previous.status === 'ran' ? { refused: undefined } : {}) }));
+    this.store.updateSchedule(fn, (r) => ({ ...r, previous, ...(previous.status === 'ran' ? { refused: undefined, adminsTold: undefined } : {}) }));
   }
 
   /** The key of a "run now" at an instant: its day and minute in the schedule's zone (its day alone with no times). */
@@ -776,7 +787,9 @@ export class Timer {
       refusedBefore: schedRow?.refused, reason,
     });
     if (!tell) {
-      store.updateFiring(id, (r) => ({ ...r, told: true }));
+      // a run that told its person itself (a reminder): the owner was notified of this firing, by its run
+      const told = store.updateFiring(id, (r) => ({ ...r, told: true, ...(notifiedByRun && row.status === 'ran' ? { value: { ...r.value, notified: true } } : {}) }));
+      if (notifiedByRun && row.status === 'ran' && told !== undefined) { await this.#saveRecord(told, ctx); }
       return;
     }
     const missed = row.missed;

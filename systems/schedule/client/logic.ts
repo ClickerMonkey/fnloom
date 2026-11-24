@@ -27,6 +27,7 @@ export const SCHEDULE_FNS = {
   resume: schedule.fns.resume.name,
   skip: schedule.fns.skip.name,
   remove: schedule.fns.remove.name,
+  allowRuns: schedule.fns.allow_runs.name,
 } as const satisfies Record<string, QualifiedName>;
 /** The schedule kind and the firing records' type. */
 export const SCHEDULE_KIND = schedule.kinds.schedule.name;

@@ -18,7 +18,7 @@ import { z } from 'zod';
 import { SchedulePayload, schedule, type AddArgs, type ScheduleConfigInput } from '../shared/index.ts';
 import { ARGS_EXAMPLES } from './authoring.ts';
 import { scheduleEnv } from './env.ts';
-import { fixedOf, localNameOf, slugOf } from './fns.ts';
+import { fixedOf, fromPairs, localNameOf, slugOf } from './fns.ts';
 import { createScheduleImpl } from './impl.ts';
 import { Timer, type Clock } from './timer.ts';
 
@@ -56,6 +56,8 @@ interface Served {
   owner: string | undefined;
   /** The fns `hub/fns_remove` removed. */
   readonly removed: string[];
+  /** What `hub/fns_allow_runs` was asked, in order. */
+  readonly allowed: Array<{ fn: string; allow: boolean }>;
   /** The timer lists the kept schedules (as `kindFns` would once the hub's `fns` event comes). */
   sync(): Promise<void>;
 }
@@ -74,8 +76,9 @@ async function served(options: { script?: readonly ScriptStep[]; config?: Schedu
   const kit = await testHub(schedule, createScheduleImpl({ settings, clock, timer }), { config: options.config ?? {}, model: mockModel(options.script ?? []) });
   cleanup.push(async () => { await kit.stop(); await timer.stop(); rmSync(dir, { recursive: true, force: true }); });
   const removed: string[] = [];
+  const allowed: Served['allowed'] = [];
   const state: Served = {
-    kit, clock, owner: undefined, removed,
+    kit, clock, owner: undefined, removed, allowed,
     async sync() {
       kit.hub.kindFns = [...kit.hub.fns.kept.values()].map((kept): KindFnWire => ({
         fn: QualifiedName.parse(kept.fn), kind: schedule.kinds.schedule.name, owner: TEST_USER.id, title: kept.saved.name, version: kept.version,
@@ -92,6 +95,11 @@ async function served(options: { script?: readonly ScriptStep[]; config?: Schedu
     if (asked === schedule.fns.remind.name) {
       const remind = schedule.fns.remind;
       return Promise.resolve(done({ fn: remind.name, kind: 'native', description: 'Notify the person.', version: 1, available: true, args: wireType(remind.args), returns: wireType(remind.returns) }));
+    }
+    if (call.fn === hub.fns.fns_allow_runs.name) {
+      const asked = z.object({ fn: z.string(), allow: z.boolean() }).parse(call.args);
+      allowed.push(asked);
+      return Promise.resolve(done({ fn: asked.fn, allowed: asked.allow }));
     }
     if (call.fn === hub.fns.fns_remove.name) {
       const { fn } = FnArg.parse(call.args);
@@ -142,6 +150,20 @@ describe('schedule/add', () => {
     // in a zone other than the person's, the words say whose time it is
     const paris = await s.kit.call('change', { schedule: 'schedule/weekly_orders_summary', notify: 'always' }, asPerson(s.kit, 'change'));
     expect(paris.result.says).toBe('Every week on Monday at 9:00 am, Paris time');
+  });
+
+  it('reads fixed args a strict tool schema sent as { key, value } pairs as the object they spell (live run, slice 9)', async () => {
+    // OpenAI's strict mode has no open object, so a free-form JSON arg arrives as a list of pairs, at any depth
+    expect(fromPairs([{ key: 'text', value: 'Call the dentist.' }])).toEqual({ text: 'Call the dentist.' });
+    expect(fromPairs([{ key: 'filter', value: [{ key: 'day', value: 'x' }] }, { key: 'tags', value: ['a', 'b'] }])).toEqual({ filter: { day: 'x' }, tags: ['a', 'b'] });
+    expect(fromPairs([{ key: 'a', value: 1, extra: true }])).toEqual([{ key: 'a', value: 1, extra: true }]);
+    expect(fromPairs([])).toEqual([]);
+    const s = await served();
+    const { result } = await s.kit.call('add', { fn: TARGET, when: MONDAYS, args: [{ key: 'day', value: 'latest' }, { key: 'limit', value: 5 }] }, asPerson(s.kit, 'add'));
+    expect(result.firstArgs).toEqual({ day: 'latest', limit: 5 });
+    expect(fixedOf(keptPayload(s, 'schedule/orders_report'))).toEqual({ day: 'latest', limit: 5 });
+    const changed = await s.kit.call('change', { schedule: 'schedule/orders_report', args: [{ key: 'day', value: 'x' }, { key: 'limit', value: 1 }] }, asPerson(s.kit, 'change'));
+    expect(changed.result.firstArgs).toEqual({ day: 'x', limit: 1 });
   });
 
   it('writes args that change with each run from words: the forced workflow, a fixed value kept, three previews', async () => {
@@ -288,6 +310,71 @@ describe('reading schedules', () => {
     expect(slugOf('2 a day')).toBe('schedule_2_a_day');
     expect(localNameOf({ fn: QualifiedName.parse('database/main.orders_by_week') })).toBe('main_orders_by_week');
     expect(localNameOf({ fn: schedule.fns.remind.name, fixed: { text: 'Take the bins out tonight please now' } })).toBe('reminder_take_the_bins_out_tonight');
+  });
+});
+
+describe('letting its runs go ahead without asking', () => {
+  const NAME = 'schedule/orders_report';
+  const APPROVED = { approved: { by: TEST_USER.id, preview: { title: 'Schedule it', parts: [], irreversible: false } } };
+  /** A run of a fn as an agent calls it for the person (not the person themselves). */
+  const asAgent = (kit: Kit, fn: string) => ({ run: kit.hub.runInfo(QualifiedName.parse(`schedule/${fn}`), { user: NEW_YORK, caller: 'act_agent', time: { now: MON_8, timeZone: NEW_YORK.timeZone, local: '' } }) });
+  const preview = async (s: Served, args: Json) => s.kit.hub.peer().call('preview', { run: 'run_preview', fn: 'add', args, user: NEW_YORK });
+
+  it('the add card says what it runs, as whom, when, its next runs, args and notices, and offers the choice', async () => {
+    const s = await served();
+    const answer = await preview(s, { fn: TARGET, when: MONDAYS, args: { day: 'latest', limit: 5 }, notify: 'failed' });
+    expect(answer).toMatchObject({ preview: { title: 'Schedule demo/orders_report: Every week on Monday at 9:00 am', irreversible: false }, ask: { into: 'allowRuns', label: 'Let its runs go ahead without asking' } });
+    const text = JSON.stringify(answer);
+    expect(text).toContain(`as **${NEW_YORK.name}**`);
+    expect(text).toContain('Next runs: Mon, Nov 23 9:00 am; Mon, Nov 30 9:00 am; Mon, Dec 7 9:00 am.');
+    expect(text).toContain('\\"limit\\": 5');
+    expect(text).toContain('You are notified only when a run fails.');
+    // the caller can't make the choice for the person; with the admin's "refuse" it isn't offered
+    expect(await preview(s, { fn: TARGET, when: MONDAYS, allowRuns: true })).toEqual({ refused: 'allowRuns is the person\'s own choice, made on the approval card: leave it out.' });
+    const refusing = await served({ config: { approvals: 'refuse' } });
+    const plain = await preview(refusing, { fn: TARGET, when: MONDAYS, compute: 'day: the run\'s day' });
+    expect(plain).not.toHaveProperty('ask');
+    expect(JSON.stringify(plain)).toContain('one that needs your approval is refused (an admin set it so)');
+  });
+
+  it('records the choice made on the card on the schedule and as the hub\'s policy; a caller\'s own is refused', async () => {
+    const s = await served();
+    const args = { fn: TARGET, when: MONDAYS, args: { day: 'x', limit: 1 }, allowRuns: true };
+    const byAgent = await s.kit.run('add', args, asAgent(s.kit, 'add'));
+    expect(JSON.stringify(byAgent.outcome)).toContain('"path":"allowRuns"');
+    expect(s.kit.hub.fns.kept.size).toBe(0);
+    const ticked = await s.kit.run('add', args, { ...asAgent(s.kit, 'add'), ...APPROVED });
+    expect(ticked.outcome).toMatchObject({ status: 'done', result: { schedule: NAME, runsAllowed: true } });
+    expect(keptPayload(s, NAME).runsAllowed).toEqual({ at: MON_8, by: TEST_USER.id });
+    expect(s.allowed).toEqual([{ fn: NAME, allow: true }]);
+    // not ticked: nothing recorded
+    await s.kit.call('add', { fn: TARGET, when: MONDAYS, args: { day: 'x', limit: 1 } }, { ...asAgent(s.kit, 'add'), ...APPROVED });
+    expect(keptPayload(s, `${NAME}_2`).runsAllowed).toBeUndefined();
+    expect(s.allowed).toHaveLength(1);
+  });
+
+  it('is changed only by the person on its page, a new version each way; removing it takes the allowance away first', async () => {
+    const s = await served();
+    await s.kit.call('add', { fn: TARGET, when: MONDAYS, args: { day: 'x', limit: 1 } }, asPerson(s.kit, 'add'));
+    expect(JSON.stringify((await s.kit.run('allow_runs', { schedule: NAME, allow: true }, asAgent(s.kit, 'allow_runs'))).outcome)).toContain('the person\'s own choice, made on its page');
+    const on = await s.kit.run('allow_runs', { schedule: NAME, allow: true }, asPerson(s.kit, 'allow_runs'));
+    expect(on.outcome).toMatchObject({ status: 'done', result: { runsAllowed: true }, undo: { schedule: NAME, version: 1 } });
+    expect(keptPayload(s, NAME).runsAllowed).toMatchObject({ by: TEST_USER.id });
+    const off = await s.kit.run('allow_runs', { schedule: NAME, allow: false }, asPerson(s.kit, 'allow_runs'));
+    expect(off.outcome).toMatchObject({ status: 'done', undo: { schedule: NAME, version: 2 } });
+    expect(keptPayload(s, NAME).runsAllowed).toBeUndefined();
+    await s.kit.call('allow_runs', { schedule: NAME, allow: true }, asPerson(s.kit, 'allow_runs'));
+    await s.kit.call('remove', { schedule: NAME }, asPerson(s.kit, 'remove'));
+    expect(s.allowed).toEqual([{ fn: NAME, allow: true }, { fn: NAME, allow: false }, { fn: NAME, allow: true }, { fn: NAME, allow: false }]);
+    expect(s.removed).toEqual([NAME]);
+  });
+
+  it('can\'t be turned on while the admin has firings that need approval refused', async () => {
+    const s = await served({ config: { approvals: 'refuse' } });
+    await s.kit.call('add', { fn: TARGET, when: MONDAYS, args: { day: 'x', limit: 1 } }, asPerson(s.kit, 'add'));
+    expect(JSON.stringify((await s.kit.run('allow_runs', { schedule: NAME, allow: true }, asPerson(s.kit, 'allow_runs'))).outcome)).toContain('An admin set scheduled runs that need approval to be refused');
+    expect(JSON.stringify((await s.kit.run('add', { fn: TARGET, when: MONDAYS, args: { day: 'x', limit: 1 }, allowRuns: true }, { ...asPerson(s.kit, 'add'), ...APPROVED })).outcome)).toContain('An admin set');
+    expect(s.allowed).toEqual([]);
   });
 });
 

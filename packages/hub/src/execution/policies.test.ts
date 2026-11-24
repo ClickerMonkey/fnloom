@@ -65,6 +65,19 @@ describe('matching', () => {
     expect(choosePolicy([ask, viaAllow], write, alice, 0, [])).toBe(ask);
   });
 
+  it('lets a person\'s own allow (yields) decide only when no other policy matches, so an admin\'s deny or ask wins', () => {
+    const backup = QualifiedName.parse('schedule/nightly_backup');
+    const own = policy({ subject: { actor: ALICE }, target: { via: backup }, decision: { effect: 'allow' }, yields: true });
+    // broader and lower than it, but firm: the admin's rule decides
+    const everyoneDeny = policy({ subject: { everyone: true }, target: { fn: 'fs/*' }, decision: { effect: 'deny', reason: 'no writes' } });
+    const usersAsk = policy({ subject: { kind: 'user' }, target: { system: SystemName.parse('fs') }, decision: { effect: 'ask', approver: { by: 'turn-user' } } });
+    expect(choosePolicy([own], write, alice, 0, [backup])).toBe(own);
+    expect(choosePolicy([own, everyoneDeny], write, alice, 0, [backup])).toBe(everyoneDeny);
+    expect(choosePolicy([usersAsk, own], write, alice, 0, [backup])).toBe(usersAsk);
+    // only under the fn it names
+    expect(choosePolicy([own], write, alice, 0, [QualifiedName.parse('hub/chat')])).toBeUndefined();
+  });
+
   it('chooses by priority, then specificity, then deny over ask over allow', () => {
     const everyoneDeny = policy({ subject: { everyone: true }, target: { fn: 'fs/*' }, decision: { effect: 'deny', reason: 'no' } });
     const aliceAllow = policy({ subject: { actor: ALICE }, target: { fn: 'fs/write' }, decision: { effect: 'allow' } });

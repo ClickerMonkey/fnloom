@@ -3,7 +3,8 @@
  * One schedule (`/s/schedule/item/<schedule>`): what it runs (a pill that opens the fn) and when in words, its zone
  * when it isn't the viewer's, when it notifies, its args, its next runs (each can be skipped) and the runs it skips;
  * its history (`?tab=history`, paged, each run with its summary and a link to its run page; `?firing=<key>` opens one);
- * and Run now, Pause, Resume, Edit (`?edit=1`) and Remove. Every change runs the schedule fns as the person through
+ * and Run now, Pause, Resume, Edit (`?edit=1`) and Remove; whether its runs go ahead without asking (the person's own
+ * choice, made on the add card or here, `schedule/allow_runs`). Every change runs the schedule fns as the person through
  * the page's runs (`host.runs`), so approvals and undo are the same as in a chat; an approval waits on the page.
  */
 import { Json, type QualifiedName, type Remember, type RunId } from '@harness/core';
@@ -86,6 +87,8 @@ async function act(fn: QualifiedName, args: Record<string, Json>, label: string,
 
 const pause = () => act(SCHEDULE_FNS.pause, { schedule: name.value ?? '' }, 'Pause it', 'Paused');
 const resume = () => act(SCHEDULE_FNS.resume, { schedule: name.value ?? '' }, 'Resume it', 'Resumed');
+/** Let its runs go ahead without asking, or have them ask again. */
+const allowRuns = (allow: boolean) => act(SCHEDULE_FNS.allowRuns, { schedule: name.value ?? '', allow }, allow ? 'Let its runs go ahead' : 'Have its runs ask', allow ? 'Its runs go ahead without asking' : 'Its runs ask again');
 async function runNow(): Promise<void> {
   const current = store.value;
   if (current === undefined || name.value === undefined) { return; }
@@ -185,6 +188,10 @@ const busy = computed(() => store.value?.busy.value ?? false);
             <div v-if="payload.overlap !== 'skip'"><dt>Overlap</dt><dd>{{ payload.overlap === 'queue' ? 'A run due while one runs waits for it' : 'A run due while one runs stops it' }}</dd></div>
             <div v-if="payload.missed !== 'latest'"><dt>Missed runs</dt><dd>Not run late</dd></div>
           </dl>
+          <div class="asks" data-testid="schedule-asks">
+            <p class="note">{{ payload.runsAllowed ? 'Its runs go ahead without asking you (your choice). An admin’s rules still apply.' : 'A run that needs your approval waits for you, and you are told.' }}</p>
+            <Button size="sm" variant="ghost" :disabled="busy" data-testid="schedule-allow-runs" @click="allowRuns(!payload.runsAllowed)">{{ payload.runsAllowed ? 'Ask me again' : 'Let its runs go ahead without asking' }}</Button>
+          </div>
         </section>
 
         <section class="card">
@@ -302,6 +309,7 @@ const busy = computed(() => store.value?.busy.value ?? false);
 .facts { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-6); margin: 0; }
 .facts div { display: grid; gap: 2px; }
 .facts dt { color: var(--text-dim); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; }
+.asks { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .facts dd { display: flex; align-items: center; margin: 0; font-size: var(--text-sm); }
 .card-title { margin: 0; font-size: var(--text-sm); font-weight: var(--weight-strong); }
 .sub { margin: var(--space-2) 0 0; color: var(--text-dim); font-size: var(--text-xs); font-weight: var(--weight-strong); text-transform: uppercase; letter-spacing: 0.04em; }

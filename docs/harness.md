@@ -1385,11 +1385,21 @@ program over `fire` (this firing) and `previous` (the last one that ran). The sy
 - **Overlap**: a firing due while the last still runs is skipped (default), queued (at most one waits) or replaces it.
 - **Approvals**: a firing whose target waits for approval waits until its next firing or `SCHEDULE_APPROVAL_WAIT`
   (24 h), then gives up (`expired`); with the config's `approvals: 'refuse'` it is cancelled at once (`refused`).
+  **Allow at creation**: `schedule/add` asks on a card (`approval: { preview, remember }`) that says what it runs, as
+  whom, when in words, the next three runs, its args and when the person is notified, and offers "Let its runs go ahead
+  without asking" (the preview's `ask`, an optional tick, so Approve alone leaves runs asking). Ticked, the choice is
+  recorded on the schedule (`runsAllowed`, shown on its page with "Ask me again") and as the hub's policy through
+  `hub/fns_allow_runs`: a yielding allow of the owner's matched by `via` (the schedule fn), which decides only when no
+  other policy matches, so an admin's deny or ask still wins, and fns whose approvals are never remembered still ask.
+  Only the person makes the choice: a caller that sets `allowRuns` itself is refused, and `schedule/allow_runs` (the
+  page's switch, `visibility: 'user'`) runs only when the person runs it themselves. While the config says `refuse` it
+  is not offered and can't be turned on. Removing a schedule takes its allowance away first (undone with the turn).
 - **Limits** (the config): schedules per person (the newest beyond the limit don't run) and firings per person a day;
   a firing past one is refused with the reason.
-- **Records and notices.** Each firing is a `schedule/Firing` record of the owner's (written in its run, or, for one
-  that never became a run, by the system outside any run naming the owner: `ctx.data.save(type, value, { owner })`,
-  which the hub allows only to a person-owned type's own system outside a run). Its one-line summary is worked out by
+- **Records and notices.** Each firing is a `schedule/Firing` record of the owner's, written by the system outside any
+  run naming the owner (`ctx.data.save(type, value, { owner })`, which the hub allows only to a person-owned type's own
+  system outside a run), also for a firing that ran: the schedule fn's mode is its target's, and a `read` run may not
+  save records. The schedule fn's `at` is a gin timestamp (ISO text on the wire). Its one-line summary is worked out by
   fixed rules, never a model: the reason, a text's first paragraph, "12 rows: …", an object's telling field, or the
   target's own done line, with "(2 h late)". The owner is told once per settled firing by `notify` (always, failed,
   never): never a skipped or "run now" firing, a refusal once per reason, no "ran" when the run already told them
@@ -1492,7 +1502,12 @@ the tightest.
   user who started the turn, a specific actor, a group, an LLM judge (an `llm` fn), or the hub itself.
   Policies match fns by name, system, kind or tag, and by the fn whose run made the call (`via`, at any depth up the
   run's tree), so "always allow `fs/write` when a nightly backup fn calls it" leaves every other `fs/write` as it was.
-- **Approvals** are records. "Always" turns into a policy.
+  A person's own allow that a system records for them on their say-so (`hub/fns_allow_runs`: the runs of a saved fn of
+  the system's kind go ahead without asking its owner) is a **yielding** policy (`yields`): it decides only when no
+  other policy matches, standing in for the fallback ask, so an admin's deny or ask always wins over it.
+- **Approvals** are records. "Always" turns into a policy. A system's preview may offer a choice on the card
+  (`PreviewAnswer.ask`, an optional form with its `label`): the approver's answer, when given, is set as the run's
+  `args[into]`, and such a card is answered for that run only.
 - **Actor settings** are typed values systems declare and attach to actors, set by an admin or by a fn.
   For example, the database system declares row and field access rules; an admin sets them per group.
 

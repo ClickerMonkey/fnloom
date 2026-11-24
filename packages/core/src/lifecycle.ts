@@ -6,7 +6,7 @@
  * working. Every call the hub refuses because a system went past what it declared is a `RefusalRecord`.
  */
 import { z } from 'zod';
-import { ApprovalPreview } from './approvals.ts';
+import { ApprovalPreview, ProposalAsk } from './approvals.ts';
 import { InstallChecks } from './checks.ts';
 import { FnFacts } from './fn-facts.ts';
 import { SystemGrants, SystemStage } from './grants.ts';
@@ -222,10 +222,12 @@ export type ReviewDecided = z.infer<typeof ReviewDecided>;
 /**
  * A system's answer to a preview (`preview` on the system link): the preview, or why the run can't go ahead at all
  * (it then fails as invalid input). An install host sends the contract the card would install (`contract`): the hub
- * checks it against the subject's hash, works out the card's `summary` from it, and never stores it.
+ * checks it against the subject's hash, works out the card's `summary` from it, and never stores it. A preview may
+ * also offer a choice on the card (`ask`, a form of an optional type, such as "let its runs go ahead without asking"):
+ * the approver's answer, when they give one, is set as the run's `args[into]` before it goes ahead.
  */
 export const PreviewAnswer = z.union([
-  z.object({ preview: ApprovalPreview, contract: Manifest.optional() }),
+  z.object({ preview: ApprovalPreview, contract: Manifest.optional(), ask: ProposalAsk.optional() }),
   z.object({ refused: z.string().min(1) }),
 ]);
 export type PreviewAnswer = z.infer<typeof PreviewAnswer>;

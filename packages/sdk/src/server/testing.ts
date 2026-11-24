@@ -336,6 +336,11 @@ export class FakeHub {
   onFleet: () => Promise<FleetInstance[]> = () => Promise.resolve([]);
   /** Controls a child run. Default: accepted. */
   onControl: (control: RunControl) => Promise<{ accepted: boolean; reason?: string }> = () => Promise.resolve({ accepted: true });
+  /**
+   * Before a start (`ctx.runs.start`) is answered: throw `reject(status, code, message)` to refuse it as the hub's gate
+   * does (`OWNER_GONE`, a policy), or any other error for a hub that can't start it now. Default: every start goes ahead.
+   */
+  onStartRun: (start: HubBody<'startRun'>) => void = () => undefined;
 
   readonly #options: FakeHubOptions;
   readonly #sessions = new WeakMap<WsConn, LinkSession>();
@@ -809,6 +814,7 @@ export class FakeHub {
         },
         startRun: ({ data }) => {
           this.starts.push(data);
+          this.onStartRun(data);
           const known = this.startedRuns.get(data.key);
           if (known !== undefined) { return known; }
           const started: StartedRun = { run: RunId.parse(`run_started${this.startedRuns.size + 1}`), turn: TurnId.parse(`trn_started${this.startedRuns.size + 1}`), status: 'queued' };

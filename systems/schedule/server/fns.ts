@@ -20,11 +20,11 @@
  * Only a schedule's owner changes it (a schedule runs as them); an admin may also pause and resume anyone's.
  */
 import type { ExprDef } from '@aeye/gin';
-import { fnOfModelNameByRule, Json, QualifiedName, splitName, type InputProblem, type KindFnShape } from '@harness/core';
-import { CallFailed, SAVE_FN_TAKEN, type Infer, type KindCheckCtx, type StoredFn, type SystemImpl } from '@harness/sdk';
+import { fnOfModelNameByRule, Json, QualifiedName, splitName, type InputProblem, type KindFnShape, type PreviewAnswer, type PreviewPart } from '@harness/core';
+import { CallFailed, g, SAVE_FN_TAKEN, wireType, type Infer, type KindCheckCtx, type StoredFn, type SystemImpl } from '@harness/sdk';
 import { hubProgramHost, type ProgramLookups } from '@harness/sdk/program';
 import { AuthoringError } from '@harness/sdk/server';
-import { schedule, type ScheduleContract } from '../shared/index.ts';
+import { ALLOW_RUNS_LABEL, schedule, type AddArgs, type ScheduleContract } from '../shared/index.ts';
 import { FiringShape, OccurrenceKey, SchedulePayload, ScheduleView, When, Zone, type Fire, type FiringStatus, type PreviousFiring } from '../shared/types.ts';
 import { describeWhen, firingsOnDays, nextFirings, occurrenceKey, type Occurrence } from '../shared/when.ts';
 import { localNow, localString, zonedTime } from '../shared/zoned.ts';
@@ -115,6 +115,23 @@ export function jsonOf(value: unknown): Json {
   return Json.parse(JSON.parse(JSON.stringify(value ?? null)));
 }
 
+/** Whether a value is a list of `{ key, value }` pairs and nothing else (the strict encoding of an object). */
+function isPairs(value: Json): value is Array<{ key: string; value: Json }> {
+  return Array.isArray(value) && value.length > 0 && value.every((item) => isObject(item) && typeof item['key'] === 'string' && 'value' in item && Object.keys(item).length === 2);
+}
+
+/**
+ * Fixed args as the caller meant them. A model on a strict tool schema can't write an open JSON object (OpenAI's strict
+ * mode has none), so the free-form `args` comes as the strict encoding of one: a list of `{ key, value }` pairs. Such a
+ * list, at any depth, is read back as the object it spells; every other value is kept as it is.
+ */
+export function fromPairs(value: Json): Json {
+  if (isPairs(value)) { return Object.fromEntries(value.map((pair) => [pair.key, fromPairs(pair.value)])); }
+  if (Array.isArray(value)) { return value.map(fromPairs); }
+  if (isObject(value)) { return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, fromPairs(item)])); }
+  return value;
+}
+
 /** A zone the person's own zone gives, or UTC when theirs isn't one Intl knows. */
 function personZone(timeZone: string): Zone {
   const parsed = Zone.safeParse(timeZone);
@@ -162,6 +179,7 @@ export function viewOf(name: QualifiedName, payload: SchedulePayload, input: { n
     next: comingRuns(payload, input.now).map((occurrence) => ({ at: occurrence.at, local: runWords(occurrence) })),
     ...(input.firstArgs === undefined ? {} : { firstArgs: input.firstArgs }),
     ...(payload.paused === undefined ? {} : { paused: payload.paused.until === undefined ? {} : { until: payload.paused.until } }),
+    ...(payload.runsAllowed === undefined ? {} : { runsAllowed: true }),
     ...(input.last === undefined ? {} : { last: input.last }),
   });
 }
@@ -308,6 +326,66 @@ async function save(ctx: SavesFns, payload: SchedulePayload, options: { local: s
   throw new Refused(`Every name like schedule/${options.local} is taken: give the schedule a name.`);
 }
 
+/** The words for when a schedule's person is notified. */
+const NOTIFY_WORDS = { always: 'after every run', failed: 'only when a run fails', never: 'never (every run is still on its page)' } as const;
+
+/** The choice the add card offers: an optional tick, so Approve alone leaves runs asking as before. */
+export const ALLOW_RUNS_ASK = { type: wireType(g.optional(g.bool())), into: 'allowRuns', label: ALLOW_RUNS_LABEL } as const;
+
+/**
+ * The add card (`schedule/add`'s preview): what it runs, as whom, when in words, the next three runs, its args (fixed
+ * values, or the words they are worked out from) and when the person is notified, with the offer to let its runs go
+ * ahead without asking (`ALLOW_RUNS_ASK`), unless the admin set firings that need approval to be refused. Refused when
+ * the caller set `allowRuns` itself (only the person makes that choice, here) or `when` doesn't read.
+ */
+export function addPreview(args: Infer<typeof AddArgs>, input: { user: { name: string; timeZone: string }; now: number; approvals: 'wait' | 'refuse' }): PreviewAnswer {
+  if (args.allowRuns !== undefined) { return { refused: 'allowRuns is the person\'s own choice, made on the approval card: leave it out.' }; }
+  const target = nameOf(args.fn);
+  if (target === undefined) { return { refused: `${args.fn} is not a fn's name: give it as your tools and search hits spell it.` }; }
+  const when = When.safeParse(jsonOf(args.when));
+  if (!when.success) { return { refused: `when doesn't read: ${when.error.issues.map((issue) => issue.message).join(' ')}` }; }
+  const zone = args.zone === undefined ? personZone(input.user.timeZone) : Zone.parse(args.zone);
+  const says = describeWhen(when.data, zone, { viewerZone: input.user.timeZone, today: localNow(input.now, zone).day });
+  const next = nextFirings(when.data, zone, input.now, NEXT).map((occurrence) => runWords(occurrence));
+  const notify = args.notify ?? 'always';
+  const parts: PreviewPart[] = [
+    { type: 'text', text: `Runs **${target}** by itself, as **${input.user.name}**: ${says}.\n\nNext runs: ${next.length === 0 ? 'none' : next.join('; ')}.` },
+    ...(args.compute === undefined ? [] : [{ type: 'text' as const, text: `Its args are worked out for each run from these words: ${args.compute}` }]),
+    ...(args.args === undefined ? [] : [{ type: 'code' as const, language: 'json', title: args.compute === undefined ? 'Its args' : 'Fixed args', code: JSON.stringify(fromPairs(args.args), null, 2) }]),
+    {
+      type: 'text',
+      text: [
+        `You are notified ${NOTIFY_WORDS[notify]}.`,
+        input.approvals === 'refuse'
+          ? 'Nobody watches its runs: one that needs your approval is refused (an admin set it so), and you are told.'
+          : `Nobody watches its runs: one that needs your approval waits for you, and you are told. Tick "${ALLOW_RUNS_LABEL}" to let them go ahead instead; you can change that on its page.`,
+      ].join(' '),
+    },
+  ];
+  return {
+    preview: { title: `Schedule ${target}: ${says}`, parts, irreversible: false },
+    ...(input.approvals === 'refuse' ? {} : { ask: ALLOW_RUNS_ASK }),
+  };
+}
+
+/** Why the person can't let runs go ahead: the admin's setting wins. */
+const REFUSE_SET = 'An admin set scheduled runs that need approval to be refused, so they can\'t be let go ahead without asking.';
+
+/** A run that records whether a schedule's runs go ahead without asking (`hub/fns_allow_runs` as its dep `allowRuns`). */
+interface AllowsRuns {
+  readonly fns: { readonly allowRuns: AddCtx['fns']['allowRuns'] };
+}
+
+/** Have the hub let a schedule's runs go ahead without asking its owner, or ask again; refused in words when it won't. */
+async function allowRunsOf(ctx: AllowsRuns, name: QualifiedName, allow: boolean): Promise<void> {
+  try {
+    await ctx.fns.allowRuns({ fn: name, allow });
+  } catch (error) {
+    if (!(error instanceof CallFailed)) { throw error; }
+    throw new Refused(`The hub didn't record whether ${name}'s runs ask: ${error.message}`);
+  }
+}
+
 /** How the last run of each schedule went, from the person's firing records. */
 async function lastRuns(ctx: Pick<ReadsFns, 'data'>, names: readonly QualifiedName[]): Promise<Map<string, NonNullable<View['last']>>> {
   const out = new Map<string, NonNullable<View['last']>>();
@@ -376,25 +454,52 @@ export function scheduleFns(deps: ScheduleFnsDeps): Fns {
         if (theirs >= timer.limits.perPerson) {
           throw new Refused(`The person has ${String(theirs)} schedules, the most one person may have (${String(timer.limits.perPerson)}): remove one first (${schedule.fns.remove.name}).`);
         }
+        // only the person lets its runs go ahead: on the approval card (`ctx.approved`), or running add themselves
+        const allow = args.allowRuns === true;
+        if (allow && ctx.approved === undefined && ctx.run.caller !== user.id) {
+          throw new Invalid([{ path: 'allowRuns', message: 'allowRuns is the person\'s own choice, made on the approval card: leave it out.' }]);
+        }
+        if (allow && timer.limits.approvals === 'refuse') { throw new Refused(REFUSE_SET); }
         const target = await targetOf(ctx, args.fn);
+        const fixed = args.args === undefined ? undefined : fromPairs(args.args);
         const zone = args.zone === undefined ? personZone(user.timeZone) : Zone.parse(args.zone);
         const when = When.parse(jsonOf(args.when));
-        const program = await argsProgramOf(ctx, { target: target.name, signature: target.signature, fixed: args.args, compute: args.compute, payload: { when, zone }, now, count: 0 });
+        const program = await argsProgramOf(ctx, { target: target.name, signature: target.signature, fixed, compute: args.compute, payload: { when, zone }, now, count: 0 });
         const payload = SchedulePayload.parse({
           fn: target.name, when, zone, ...program,
           ...(args.notify === undefined ? {} : { notify: args.notify }),
           ...(args.overlap === undefined ? {} : { overlap: args.overlap }),
           ...(args.missed === undefined ? {} : { missed: args.missed }),
           ...(args.maxSpend === undefined || args.maxSpend === 0 ? {} : { maxSpend: args.maxSpend }),
+          ...(allow ? { runsAllowed: { at: now, by: user.id } } : {}),
         });
         const problems = await payloadProblems(ctx, payload, timer.limits.minGap, now);
         if (problems.length > 0) { throw new Invalid(problems); }
         const firstArgs = await firstArgsOf(ctx, payload, target.signature, now, 0, undefined);
-        const saved = await save(ctx, payload, { local: localNameOf({ name: args.name, fn: target.name, fixed: args.args }), replace: false, named: args.name !== undefined, now });
-        ctx.log.info('schedule.added', { fn: saved.fn, target: target.name });
+        const saved = await save(ctx, payload, { local: localNameOf({ name: args.name, fn: target.name, fixed }), replace: false, named: args.name !== undefined, now });
+        if (allow) { await allowRunsOf(ctx, saved.fn, true); }
+        ctx.log.info('schedule.added', { fn: saved.fn, target: target.name, runsAllowed: allow });
         return ctx.done(viewOf(saved.fn, payload, { now, viewerZone: user.timeZone, firstArgs }), { undo: { schedule: saved.fn } });
       }),
       undo: (payload) => Promise.resolve({ status: 'undone', summary: `${payload.schedule} is taken back with the save that made it, so it won't run` }),
+      preview: (args, ctx) => Promise.resolve(addPreview(args, { user: ctx.user, now: clock.now(), approvals: timer.limits.approvals })),
+    },
+
+    allow_runs: {
+      run: (args, ctx) => guarded(ctx, async () => {
+        const own = await ownSchedule(ctx, args.schedule);
+        if (ctx.run.caller !== ctx.run.user.id) {
+          throw new Refused(`Whether ${own.name}'s runs ask is the person's own choice, made on its page: it can't be changed for them.`);
+        }
+        if (args.allow && timer.limits.approvals === 'refuse') { throw new Refused(REFUSE_SET); }
+        const { runsAllowed: _was, ...rest } = own.payload;
+        const next = SchedulePayload.parse(args.allow ? { ...rest, runsAllowed: own.payload.runsAllowed ?? { at: clock.now(), by: ctx.run.user.id } } : rest);
+        const { view, version } = await saveChange(ctx, own, next);
+        // the hub's policy follows the choice on record (also when only one of them was left behind)
+        await allowRunsOf(ctx, own.name, args.allow);
+        return version === undefined ? ctx.done(view) : ctx.done(view, { undo: { schedule: own.name, version } });
+      }),
+      undo: (payload) => Promise.resolve({ status: 'undone', summary: `${payload.schedule} goes back to version ${String(payload.version)}, asking as it did before` }),
     },
 
     change: {
@@ -421,7 +526,7 @@ export function scheduleFns(deps: ScheduleFnsDeps): Fns {
           signature ??= (await targetOf(ctx, merged.fn)).signature;
           const row = timer.row(own.name);
           program = await argsProgramOf(ctx, {
-            target: merged.fn, signature, fixed: args.args, compute: args.compute, payload: merged, now, count: row?.count ?? 0, previous: row?.previous,
+            target: merged.fn, signature, fixed: args.args === undefined ? undefined : fromPairs(args.args), compute: args.compute, payload: merged, now, count: row?.count ?? 0, previous: row?.previous,
           });
         }
         const { argsAsked: _asked, maxSpend: _spend, ...rest } = merged;
@@ -506,6 +611,8 @@ export function scheduleFns(deps: ScheduleFnsDeps): Fns {
     remove: {
       run: (args, ctx) => guarded(ctx, async () => {
         const own = await ownSchedule(ctx, args.schedule);
+        // a removed schedule leaves no allowance behind for a later one of the same name (undone with the turn)
+        if (own.payload.runsAllowed !== undefined) { await allowRunsOf(ctx, own.name, false); }
         try {
           const removed = await ctx.fns.removeFn({ fn: own.name });
           ctx.log.info('schedule.removed', { fn: own.name, version: removed.version });

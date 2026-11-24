@@ -153,6 +153,12 @@ export const Policy = z.object({
   expiresAt: Timestamp.optional(),
   createdBy: ActorId,
   createdAt: Timestamp,
+  /**
+   * A person's own allow, recorded for them by a system on their say-so (a schedule's "let its runs go ahead without
+   * asking", `hub/fns_allow_runs`): it decides only when no other policy matches, standing in for the fallback ask, so
+   * an admin's policies (a deny, an ask) always win over it.
+   */
+  yields: z.boolean().optional(),
 });
 export type Policy = z.infer<typeof Policy>;
 

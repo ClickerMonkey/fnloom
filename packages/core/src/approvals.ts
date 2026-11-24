@@ -131,8 +131,11 @@ export const PreviewRequest = z.object({
 });
 export type PreviewRequest = z.infer<typeof PreviewRequest>;
 
-/** Build 9: a form an approver fills before approving; its value, checked against `type`, becomes `args[into]`. */
-export const ProposalAsk = z.object({ type: GinTypeDef, into: LocalName });
+/**
+ * Build 9: a form an approver fills before approving; its value, checked against `type`, becomes `args[into]`.
+ * `label` is what the card calls it ("Your answer" when absent), such as a choice's words.
+ */
+export const ProposalAsk = z.object({ type: GinTypeDef, into: LocalName, label: z.string().min(1).max(80).optional() });
 export type ProposalAsk = z.infer<typeof ProposalAsk>;
 
 /**

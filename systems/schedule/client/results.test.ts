@@ -44,7 +44,7 @@ const parts: SharedComponents = {
 const start = (): Promise<RunId> => Promise.reject(new Error('the result renderers start no runs'));
 const system: SystemClient<ScheduleContract['defs']> = {
   online: true, send: {},
-  run: { add: start, change: start, list: start, pause: start, resume: start, skip: start, remove: start, history: start, remind: start },
+  run: { add: start, change: start, list: start, pause: start, resume: start, skip: start, remove: start, history: start, remind: start, allow_runs: start },
 };
 const view = ScheduleView.parse(VIEW);
 
@@ -78,6 +78,8 @@ describe('the schedule result renderers', () => {
       title: 'Weekly orders summary', when: 'Planned for Mon, Nov 30, 9:00 am', href: '/s/schedule/item/weekly_orders_summary', historyHref: '/s/schedule/item/weekly_orders_summary?tab=history',
     });
     expect(firingHeader('schedule/weekly_orders_summary', {}, 'UTC').when).toBe('Run by hand, outside its times');
+    // `at` travels as the gin timestamp's ISO text (the live run's run page said "by hand" for a planned firing)
+    expect(firingHeader('schedule/weekly_orders_summary', { at: new Date(MON_9).toISOString() }, 'America/New_York', MON_9 - 3 * 86_400_000).when).toBe('Planned for Mon, Nov 30, 9:00 am');
   });
 
   it('draw a schedule\'s card, moving the chat\'s app on a plain click, and a list with a link to the calendar', async () => {

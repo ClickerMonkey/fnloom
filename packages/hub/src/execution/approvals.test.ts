@@ -106,6 +106,34 @@ describe('fns that always ask', () => {
   });
 });
 
+describe('a choice a preview offers on the card', () => {
+  const offering = fn({ description: 'Insert rows.', args: g.obj({ table: g.text(), always: g.optional(g.bool()) }), returns: g.num(), tags: ['read'] });
+  const ASK = { type: { name: 'optional', generic: { T: { name: 'bool' } } }, into: 'always', label: 'Let its runs go ahead without asking' };
+
+  it('is kept on the approval with its words; an answer is set in the args, Approve alone leaves them, and it is never remembered', async () => {
+    const r = await started({ preview: true, remember: true });
+    const record = r.catalog.add('fs', 'insert', offering);
+    r.catalog.set(record.name, { decl: { ...record.decl, approval: { preview: true, remember: true } } });
+    const fs = r.connect('fs');
+    fs.behaviour.preview = () => ({ preview: PREVIEW, ask: ASK });
+    const turn = await r.turn();
+    const ticked = await r.module.runs.start(input(turn, 'fs/insert', { table: 'orders' }));
+    await settle();
+    const approval = lastApproval(r);
+    expect(approval.ask).toEqual(ASK);
+    await r.module.policies.answer(approval.id, { by: ALICE, approve: true, remember: 'always', answer: true });
+    await ticked.settled;
+    expect((await r.module.runs.get(ticked.run))?.args).toEqual({ table: 'orders', always: true });
+    // a card with a choice is answered for this run only
+    expect(await r.store.table('policies').count({})).toBe(0);
+    const plain = await r.module.runs.start({ ...input(turn, 'fs/insert', { table: 'orders' }), key: 'k2' });
+    await settle();
+    await r.module.policies.answer(lastApproval(r).id, { by: ALICE, approve: true, remember: 'once' });
+    await plain.settled;
+    expect((await r.module.runs.get(plain.run))?.args).toEqual({ table: 'orders' });
+  });
+});
+
 describe('runs a system proposes', () => {
   it('adds a waiting child of its run for that run’s person, once per key, that runs when approved', async () => {
     const r = await started();

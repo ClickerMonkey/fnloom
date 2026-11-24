@@ -129,7 +129,7 @@ describe('the contract', () => {
 
   it('declares the kind, every fn, the Firing type and the injected item', () => {
     expect(schedule.kinds.schedule.name).toBe('schedule/schedule');
-    expect(Object.keys(schedule.fns).sort()).toEqual(['add', 'change', 'history', 'list', 'pause', 'remind', 'remove', 'resume', 'skip']);
+    expect(Object.keys(schedule.fns).sort()).toEqual(['add', 'allow_runs', 'change', 'history', 'list', 'pause', 'remind', 'remove', 'resume', 'skip']);
     expect(schedule.types.Firing.name).toBe('schedule/Firing');
     expect(schedule.defs.context.basics.inject?.into).toEqual(['hub/chat*']);
     expect(schedule.pages.map((page) => page.segment)).toEqual(['calendar', 'item', 'all']);

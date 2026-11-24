@@ -5,10 +5,8 @@
  * resume, skip, remove, history and remind, over the timer's schedules and limits, the kind's `scheduleProblems` and
  * the hub's `fns_get`, `fns_save` and `fns_remove`).
  */
-import { Timestamp } from '@harness/core';
 import type { SystemImpl } from '@harness/sdk';
-import { z } from 'zod';
-import { SchedulePayload, type ScheduleContract } from '../shared/index.ts';
+import { SchedulePayload, ScheduleRunArgs, type ScheduleContract } from '../shared/index.ts';
 import type { ScheduleSettings } from './env.ts';
 import { scheduleFns } from './fns.ts';
 import { describeSchedule, scheduleProblems } from './kind.ts';
@@ -23,8 +21,6 @@ export interface ScheduleDeps {
   readonly timer?: Timer;
 }
 
-/** A schedule fn's own args: the planned instant, absent for "run now". */
-const RunArgs = z.object({ at: Timestamp.optional() });
 
 /** Build the schedule system's implementation. */
 export function createScheduleImpl(deps: ScheduleDeps): SystemImpl<ScheduleContract['defs']> {
@@ -38,7 +34,7 @@ export function createScheduleImpl(deps: ScheduleDeps): SystemImpl<ScheduleContr
           return parsed.success ? scheduleProblems(parsed.data, ctx, timer.limits.minGap) : Promise.resolve(parsed.error.issues.map((issue) => `${issue.path.join('.') || 'payload'}: ${issue.message}`));
         },
         describe: (payload, ctx) => describeSchedule(SchedulePayload.parse(payload), ctx),
-        run: (payload, args, ctx) => timer.runFiring(SchedulePayload.parse(payload), RunArgs.parse(args).at, ctx),
+        run: (payload, args, ctx) => timer.runFiring(SchedulePayload.parse(payload), ScheduleRunArgs.parse(args).at, ctx),
       },
     },
     fns: scheduleFns({ timer, clock }),

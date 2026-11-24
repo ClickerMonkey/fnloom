@@ -5,8 +5,8 @@
  * typed and checked by the contract's gin types. Services are read when a fn runs, never while registering. Every one
  * keeps to what the run's person may see and use (their `AccessScope`): search hits, loads and results alike.
  */
-import { itemVersionId, mapConcurrent, clipMarked, ContextCrawlArgs, contextOff, effectCovered, effectsLine, CtxSearchArgs, ctxSearchQuery, FnDecl, FnExamplesQuery, FnRouting, FnSearchArgs, fnsSearchQuery, QualifiedName, qualify, splitName, SystemName, type FnRefusal, type ContextCrawlResult, type ContextRecord, type CrawledContext, type FnSearchPage, type FnSearchQuery, type LoadContextResult, type LoadFnsResult, type SearchItemKind, type ActorId, type FnExample, Json, type IndexedKind, type RegistryEffect, type Run, type Session, type SessionId } from '@harness/core';
-import { canonicalJson, hub, parseValue, RemovedFn, SAVE_FN_TAKEN, SavedFn, sha256, wireType } from '@harness/sdk';
+import { itemVersionId, mintId, type Policy, mapConcurrent, clipMarked, ContextCrawlArgs, contextOff, effectCovered, effectsLine, CtxSearchArgs, ctxSearchQuery, FnDecl, FnExamplesQuery, FnRouting, FnSearchArgs, fnsSearchQuery, QualifiedName, qualify, splitName, SystemName, type FnRefusal, type ContextCrawlResult, type ContextRecord, type CrawledContext, type FnSearchPage, type FnSearchQuery, type LoadContextResult, type LoadFnsResult, type SearchItemKind, type ActorId, type FnExample, Json, type IndexedKind, type RegistryEffect, type Run, type Session, type SessionId } from '@harness/core';
+import { AllowedRuns, canonicalJson, hub, parseValue, RemovedFn, SAVE_FN_TAKEN, SavedFn, sha256, wireType } from '@harness/sdk';
 import type { AccessService } from '../access/index.ts';
 import type { FnFactsService, FnsServices } from '../fns/index.ts';
 import { latestUserText } from '../fns/decided.ts';
@@ -31,6 +31,7 @@ import { ContextCrawler } from '../contextor/crawl.ts';
 import type { Decider } from '../models/index.ts';
 import { fnRefusal, readsAsMissing, refusalOf, unavailableBlock } from '../contextor/views.ts';
 import { itemVersionCount, latestItemVersion } from '../catalog/versions.ts';
+import { allRows } from '../store/rows.ts';
 
 /** How many results a search returns when the agent doesn't say. */
 const DEFAULT_LIMIT = 10;
@@ -474,6 +475,30 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
     return { status: 'undone', summary: `Restored ${name} (version ${String(payload.version)})` };
   });
 
+  // a system records, for the owner of a saved fn of its kind, that the fn's runs go ahead without asking: a yielding
+  // allow policy of theirs matched by `via`, which any other policy that matches wins over; undone back to how it was
+  fns.register(hub.fns.fns_allow_runs, async (args, ctx) => {
+    const name = QualifiedName.safeParse(args.fn);
+    const fn = name.success ? await deps.catalog().fn(name.data) : undefined;
+    const person = ctx.request.run.user;
+    if (fn === undefined || !(await deps.access(person.id)).seesFn(fn)) throw new InvalidArgs([{ path: 'fn', message: `no such fn: ${args.fn}` }]);
+    const kind = fn.decl.kind === 'native' ? undefined : (await deps.catalog().kind(fn.decl.kind));
+    // only the kind's own system decides this, for the fn's owner only: a run goes ahead as its owner
+    const parent = ctx.request.run.parent === undefined ? undefined : await deps.store().table('runs').get(ctx.request.run.parent);
+    if (kind === undefined || parent?.system !== kind.system) throw new RunRefused(fnError('caller', `only the system that owns ${fn.name}'s kind may let its runs go ahead`, 'not-your-kind'));
+    if (fn.origin === 'contract') throw new RunRefused(fnError('caller', `${fn.name} is one of ${fn.system}'s own fns, with no owner to decide for`, 'not-saved'));
+    const { owner } = await deps.sharing().sharing({ kind: 'fn', fn: fn.name });
+    if (owner !== person.id) throw new RunRefused(fnError('caller', `${fn.name} is not ${person.name}'s: only its owner decides whether its runs ask`, 'not-yours'));
+    const was = await setRunsAllowed(deps.store(), fn.name, person.id, args.allow, ctx.request.run.time.now);
+    ctx.undoWith({ fn: fn.name, allowed: was });
+    return { fn: fn.name, allowed: args.allow };
+  });
+  fns.registerUndo(hub.fns.fns_allow_runs, AllowedRuns, async (payload, ctx) => {
+    const name = QualifiedName.parse(payload.fn);
+    await setRunsAllowed(deps.store(), name, ctx.info.user.id, payload.allowed, ctx.info.time.now);
+    return { status: 'undone', summary: payload.allowed ? `Runs of ${name} go ahead without asking again` : `Runs of ${name} ask again` };
+  });
+
   // its runs are made by the hub for a system's own model calls (`RunService.systemWork`); it is never run itself
   fns.register(hub.fns.system_calls, () => Promise.reject(new RunRefused(fnError('caller', 'hub/system_calls is not called: the hub makes its runs itself', 'not-callable'))));
 
@@ -488,6 +513,29 @@ export function registerHubFns(fns: HubFns, deps: HubFnDeps): void {
     if (!answer.ok) { throw new Error(answer.error.message); }
     return parseValue(ask.returns, answer.value);
   });
+}
+
+/** Whether a policy is the owner's own "its runs go ahead" allow for a fn (`hub/fns_allow_runs`). */
+function runsAllowedPolicy(policy: Policy, fn: QualifiedName, owner: ActorId): boolean {
+  return policy.yields === true && policy.target.via === fn && policy.target.fn === undefined && 'actor' in policy.subject && policy.subject.actor === owner;
+}
+
+/**
+ * Record whether the runs of `fn` go ahead without asking its owner: one yielding allow policy of theirs, matched by
+ * the fn whose run made the call (`via`), added or removed. Gives whether it was allowed before.
+ */
+export async function setRunsAllowed(store: HubStore, fn: QualifiedName, owner: ActorId, allow: boolean, now: number): Promise<boolean> {
+  const table = store.table('policies');
+  const mine = (await allRows(table)).filter((policy) => runsAllowedPolicy(policy, fn, owner));
+  const was = mine.length > 0;
+  if (allow && !was) {
+    await table.insert({
+      id: mintId('policy'), description: `Runs of ${fn} go ahead without asking (its owner's choice)`, subject: { actor: owner }, target: { via: fn },
+      decision: { effect: 'allow' }, priority: 0, createdBy: owner, createdAt: now, yields: true,
+    });
+  }
+  if (!allow) { for (const policy of mine) await table.remove(policy.id); }
+  return was;
 }
 
 /** The context items whose names or descriptions come closest to a name the model got wrong, from the hub's search. */

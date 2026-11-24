@@ -612,6 +612,12 @@ export const SavedFn = g.obj({ fn: g.fnName(), version: g.num({ min: 1, whole: t
 /** What `hub/fns_remove` gives, and how its run is undone: the fn, and the version it had (the one restored). */
 export const RemovedFn = g.obj({ fn: g.fnName(), version: g.num({ min: 1, whole: true }) });
 
+/**
+ * What `hub/fns_allow_runs` gives, and how its run is undone: the fn, and whether its runs go ahead without asking (as
+ * it left them; the undo payload is how they were before).
+ */
+export const AllowedRuns = g.obj({ fn: g.fnName(), allowed: g.bool() });
+
 /** The error code `hub/fns_save` fails with (class `caller`) when the name is taken and `replace` is not set. */
 export const SAVE_FN_TAKEN = 'fn-taken';
 
@@ -779,6 +785,19 @@ const hubContract = system('hub', {
         display: 'hidden',
         // a fn that removes through it removes fns of its kind: the hub checks that it said so
         effects: { mode: 'delete', registry: [{ thing: 'fns', action: 'remove' }] },
+      }),
+      fns_allow_runs: fn({
+        description: 'Let the runs of a saved fn of one of the calling system\'s kinds call other fns without asking its owner, or ask again: a policy of the owner\'s own, which any admin policy that matches (a deny, an ask) still wins over.',
+        instructions: 'Only the system that owns the kind may call it, and only for the fn\'s owner, on their own say-so (a choice they made on a card or a page, never the model\'s). Fns whose approvals are never remembered still ask. Undoing the run puts the choice back as it was.',
+        args: g.obj({
+          fn: g.field(g.fnName(), { docs: 'The saved fn whose runs it is about, by its name.' }),
+          allow: g.field(g.bool(), { docs: 'True: its runs go ahead without asking; false: they ask as before.' }),
+        }),
+        returns: AllowedRuns,
+        undo: AllowedRuns,
+        examples: [{ args: { fn: 'schedule/nightly_backup', allow: true }, result: { fn: 'schedule/nightly_backup', allowed: true }, note: 'Its owner chose to let its runs go ahead.' }],
+        tags: [OWN_TAG],
+        display: 'hidden',
       }),
       ctx_load: fn({
         description: 'Load context items (guides, memories, pieces of files) into this chat by their full names: their text is in your prompt from your next step, with what they import, and the fns they bring join your tools.',

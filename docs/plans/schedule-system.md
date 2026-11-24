@@ -930,6 +930,67 @@ tests `fns.test.ts` (fake hub, fake clock, scripted model) and `client/results.t
   as declared, approved as the person's policies say.
 - The run page header doesn't say how late a firing started (the renderer has only the run's args and result).
 
+**Slice 9 built (2026-11-23, local).** The piece slice 7 left out, the tests the slices didn't cover, a live run of each
+flow, and the pages' shots.
+- **Allow at creation** (decided `approvals`). `schedule/add` asks on a card (`approval: { preview: true, remember:
+  true }`): its preview (`addPreview`) says what it runs, as whom, when in words, the next three runs, its fixed args or
+  the words they are worked out from, and when the person is notified, and offers "Let its runs go ahead without
+  asking". The hub additions are generic: a preview may offer a choice on the card (`PreviewAnswer.ask`, with a
+  `label`, `ProposalAsk.label`), which the hub keeps on the approval as its `ask` and fills into `args[into]` when
+  answered (such a card is answered once); a **yielding** policy (`Policy.yields`), which decides only when no other
+  policy matches, so an admin's deny or ask always wins; and `hub/fns_allow_runs({ fn, allow })` (tag `own`, grant
+  `calls`), with which the kind's system records, for the fn's owner only, a yielding allow `{ via: fn }` of theirs, or
+  removes it; its undo puts the choice back. The schedule keeps the choice (`runsAllowed: { at, by }`, `ScheduleView.
+  runsAllowed`), its page shows it with "Ask me again" / "Let its runs go ahead without asking"
+  (`schedule/allow_runs`, `visibility: 'user'`, refused unless the person runs it themselves), and `remove` takes the
+  allowance away first, so a later schedule of the same name never inherits it. Where the build differs:
+  - "An admin's refuse still wins": admin policies (a deny or an ask that matches) always beat the yielding allow,
+    and while the config's `approvals` is `refuse` the card doesn't offer it and it can't be turned on. An allowance
+    made before an admin switches to `refuse` stays until the person (or an admin policy) takes it back.
+  - The offer is on every add card, not only "when the target would ask": whether a run would ask is decided by the
+    hub's policies at run time (an agent's tool calls one by one), which the card can't know. A card with the offer
+    is answered once (no "always" for add then); `add` without a card (a policy allows it) never sets it.
+  - The choice is the person's: the preview refuses args that set `allowRuns`, and the run takes it only when it went
+    ahead on an approval (`ctx.approved`) or the person ran `add` themselves.
+- **Tests.** `fns.test.ts` (the add card, the choice recorded and refused, `allow_runs` by the person only, refused
+  while the admin refuses, remove taking it away); `timer.test.ts` (zones and daylight saving end to end: 02:30 across
+  spring-forward fires at 03:30 then 02:30 again with the offset in `fire.local`, 01:30 on the fall-back night once at
+  the first, a schedule in Tokyo's zone; across a restart: a firing due while the run before it still goes is skipped
+  and the replayed run recorded once, `missed: 'none'` records every missed firing and runs none late; the start gate:
+  a refused start recorded with the hub's reason and told once per reason, the admins once when the owner is gone, and
+  a start the hub couldn't answer tried again with the same key, one run); hub `policies.test.ts` (yielding),
+  `approvals.test.ts` (a preview's choice on the card), `hub-fns.test.ts` (`fns_allow_runs` and its undo). The SDK's
+  fake hub gains `onStartRun` (refuse a start as the hub's gate does). Already covered and not repeated: the summary
+  rules and `tells` (`summary.test.ts`), no second "ran" after a reminder and a refusal told once (`timer.test.ts`),
+  the inbox replacing an unread notice of the same key (`notifications.test.ts`), `hub/fns_save`'s undo stepping back
+  a fn's versions newest first (`hub-fns.test.ts`) and a turn's undo undoing its runs newest first (`undo.test.ts`).
+- **A bug the tests found**: a refused start whose owner was gone told the owner and the admins on every firing,
+  since the admins' "told once" key shared the owner's field; it is its own (`ScheduleRow.adminsTold`).
+- **The live run** is `scripts/schedule-live.ts` (port 4360, GPT-6 Luna, each flow once in its own chat, approvals
+  answered with Approve alone; `--only=…` reruns some, `--seed` adds schedules by hand, `--fire-by-hand` a firing
+  with no model, `--reuse` restarts on the same data, `--keep` leaves the stack up for the shots); the firing flow
+  waits on the real clock (the test stack can't move the timer's clock). The shots are the `schedule-pages` ui-test
+  (`ui-tests/shots/schedule-pages/`). Bugs it found, each fixed with a regression test:
+  - Fixed `args` never arrived as an object: on a strict tool schema (OpenAI's) a free-form JSON arg is sent as a list
+    of `{ key, value }` pairs, which `add` refused as "not an object" every time (the weekday and the firing flows
+    failed; a reminder got through only by the model moving its text into `compute`). `fromPairs` reads such a list
+    back as the object it spells, at any depth (`add`, `change`, the card).
+  - Every timed firing was refused by the hub: the timer sent `at` as milliseconds, but the schedule fn's `at` is a
+    gin timestamp, which travels as ISO text. It sends ISO text now, and `ScheduleRunArgs` (shared, one shape for the
+    kind's run and the run page's header) reads both. And a run the hub ended inside the start itself (its settled
+    event came before the firing knew its run) was never recorded or told: it is settled from the start's status.
+  - A firing of a read target (a reminder) was never recorded: the schedule fn's mode is its target's, and the hub
+    refuses a record saved in a `read` run. Firing records are saved by the system outside the run, naming the owner
+    (one record, updated in order). A firing whose run told its person itself is recorded as `notified`.
+  - The schedule system's process served no client build, so its pages ("schedule isn't installed") and result
+    renderers never loaded on a stack; `main.ts` builds and serves it now (`scripts/system-bundles.test.ts` checks every
+    system whose `system.json` names a client; claude and random don't yet, listed there).
+  - The shots: calendar chips overflowed their day in the month view (border-box now); the admin list's columns
+    didn't line up with its head (a fixed last column), and a one-off with no runs left said "Running" ("Ended"); a
+    phone's week opened on Sunday instead of today; the run page's header said "Run by hand" for a planned firing.
+  - Still open: each `add` the model got wrong waited on an approval card before failing (a card's preview can't read
+    the target's signature, so it can't refuse wrong args first).
+
 ## Judgement calls (not asked)
 
 - The calendar grid is the system's own component on dayspan's `Calendar`; dayspan-vuetify is Vue 2 and Vuetify, so

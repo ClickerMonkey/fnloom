@@ -84,7 +84,7 @@ type ApprovalPreview = {
       kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content" | "runs-code" | "unknown-path";
       rule: string;
       access: "read" | "write";
-      action: "ask" | "allow" | "refuse";
+      action: "allow" | "ask" | "refuse";
       why: string;
       certain: boolean;
     }[];
@@ -261,7 +261,7 @@ type ApprovedRun = {
         kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content" | "runs-code" | "unknown-path";
         rule: string;
         access: "read" | "write";
-        action: "ask" | "allow" | "refuse";
+        action: "allow" | "ask" | "refuse";
         why: string;
         certain: boolean;
       }[];
@@ -455,11 +455,13 @@ type ProposalApprover = "person" | "admins";
 const, type · declared in `packages/core/src/approvals.ts`
 
 Build 9: a form an approver fills before approving; its value, checked against `type`, becomes `args[into]`.
+`label` is what the card calls it ("Your answer" when absent), such as a choice's words.
 
 ```ts
 type ProposalAsk = {
   type: TypeDef<any>;
   into: string;
+  label?: string | undefined;
 };
 ```
 

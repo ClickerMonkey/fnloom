@@ -5825,6 +5825,14 @@ This is the hub contract as the SDK declares it now:
     /* The fn to remove, by its name. */ fn: text{pattern="^[a-z]\\S*$"}
   }) => obj{fn: text{pattern="^[a-z]\\S*$"}, version: num{min=1, whole=true}}
   ```
+- `hub/fns_allow_runs`: Let the runs of a saved fn of one of the calling system's kinds call other fns without asking its owner, or ask again: a policy of the owner's own, which any admin policy that matches (a deny, an ask) still wins over. Tags: `own`.
+
+  ```text
+  (obj{
+    /* The saved fn whose runs it is about, by its name. */ fn: text{pattern="^[a-z]\\S*$"},
+    /* True: its runs go ahead without asking; false: they ask as before. */ allow: bool
+  }) => obj{fn: text{pattern="^[a-z]\\S*$"}, allowed: bool}
+  ```
 - `hub/ctx_load`: Load context items (guides, memories, pieces of files) into this chat by their full names: their text is in your prompt from your next step, with what they import, and the fns they bring join your tools. Tags: `read`.
 
   ```text
@@ -6499,7 +6507,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/set_policy`: Add a policy saying whether actors may run fns (allow, deny, or ask an approver), or change the one with this id. Tags: `admin`.
 
   ```text
-  (obj{ id?, description, subject, target, decision, priority, expiresAt? … }) => obj{/* policy id */ id: text}
+  (obj{ id?, description, subject, target, decision, priority, expiresAt?, yields? … }) => obj{/* policy id */ id: text}
   ```
 - `hub/set_actor_setting`: Set a setting a system declares for a user, group or agent. Tags: `admin`.
 
@@ -6796,7 +6804,7 @@ This is the hub contract as the SDK declares it now:
 - `hub/policies_list`: Every policy: who it is for, which fns, and whether they run, ask or are refused. Tags: `admin`, `read`.
 
   ```text
-  (obj) => list<obj{ id, description, subject, target, decision, priority, expiresAt?, createdBy, createdAt … }>
+  (obj) => list<obj{ id, description, subject, target, decision, priority, expiresAt?, createdBy, createdAt, yields? … }>
   ```
 - `hub/priority_rules_list`: Every priority rule: the default and highest priority of the hub, groups, people and sessions. Tags: `admin`, `read`.
 
@@ -7465,6 +7473,17 @@ What `hub/fns_remove` gives, and how its run is undone: the fn, and the version 
 
 ```ts
 const RemovedFn: ObjType<{ fn: `${string}/${string}`; version: number; }>;
+```
+
+#### `AllowedRuns`
+
+const · `import { AllowedRuns } from '@harness/sdk'`
+
+What `hub/fns_allow_runs` gives, and how its run is undone: the fn, and whether its runs go ahead without asking (as
+it left them; the undo payload is how they were before).
+
+```ts
+const AllowedRuns: ObjType<{ fn: `${string}/${string}`; allowed: boolean; }>;
 ```
 
 ## 20. The server: serve and the implementation
@@ -12934,6 +12953,11 @@ class FakeHub {
   onFleet: () => Promise<FleetInstance[]>;
   /** Controls a child run. Default: accepted. */
   onControl: (control: RunControl) => Promise<{ accepted: boolean; reason?: string }>;
+  /**
+  * Before a start (`ctx.runs.start`) is answered: throw `reject(status, code, message)` to refuse it as the hub's gate
+  * does (`OWNER_GONE`, a policy), or any other error for a hub that can't start it now. Default: every start goes ahead.
+  */
+  onStartRun: (start: HubBody<'startRun'>) => void;
   constructor(options: FakeHubOptions = {});
   /** The transport a system under test connects with. */
   transport(): LinkTransport;
@@ -17956,7 +17980,7 @@ type ApprovalPreview = {
       kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content" | "runs-code" | "unknown-path";
       rule: string;
       access: "read" | "write";
-      action: "ask" | "allow" | "refuse";
+      action: "allow" | "ask" | "refuse";
       why: string;
       certain: boolean;
     }[];
@@ -18133,7 +18157,7 @@ type ApprovedRun = {
         kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content" | "runs-code" | "unknown-path";
         rule: string;
         access: "read" | "write";
-        action: "ask" | "allow" | "refuse";
+        action: "allow" | "ask" | "refuse";
         why: string;
         certain: boolean;
       }[];
@@ -18327,11 +18351,13 @@ type ProposalApprover = "person" | "admins";
 const, type · declared in `packages/core/src/approvals.ts`
 
 Build 9: a form an approver fills before approving; its value, checked against `type`, becomes `args[into]`.
+`label` is what the card calls it ("Your answer" when absent), such as a choice's words.
 
 ```ts
 type ProposalAsk = {
   type: TypeDef<any>;
   into: string;
+  label?: string | undefined;
 };
 ```
 
@@ -19268,7 +19294,9 @@ const, type · declared in `packages/core/src/lifecycle.ts`
 
 A system's answer to a preview (`preview` on the system link): the preview, or why the run can't go ahead at all
 (it then fails as invalid input). An install host sends the contract the card would install (`contract`): the hub
-checks it against the subject's hash, works out the card's `summary` from it, and never stores it.
+checks it against the subject's hash, works out the card's `summary` from it, and never stores it. A preview may
+also offer a choice on the card (`ask`, a form of an optional type, such as "let its runs go ahead without asking"):
+the approver's answer, when they give one, is set as the run's `args[into]` before it goes ahead.
 
 ```ts
 type PreviewAnswer = {
@@ -19336,7 +19364,7 @@ type PreviewAnswer = {
         kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content" | "runs-code" | "unknown-path";
         rule: string;
         access: "read" | "write";
-        action: "ask" | "allow" | "refuse";
+        action: "allow" | "ask" | "refuse";
         why: string;
         certain: boolean;
       }[];
@@ -19872,6 +19900,11 @@ type PreviewAnswer = {
     }[] | undefined;
     about?: string | undefined;
   } | undefined;
+  ask?: {
+    type: TypeDef<any>;
+    into: string;
+    label?: string | undefined;
+  } | undefined;
 } | {
   refused: string;
 };
@@ -20137,7 +20170,7 @@ type RunRequest = {
           kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content" | "runs-code" | "unknown-path";
           rule: string;
           access: "read" | "write";
-          action: "ask" | "allow" | "refuse";
+          action: "allow" | "ask" | "refuse";
           why: string;
           certain: boolean;
         }[];
@@ -22578,7 +22611,7 @@ type Approval = {
         kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content" | "runs-code" | "unknown-path";
         rule: string;
         access: "read" | "write";
-        action: "ask" | "allow" | "refuse";
+        action: "allow" | "ask" | "refuse";
         why: string;
         certain: boolean;
       }[];
@@ -22684,6 +22717,7 @@ type Approval = {
   ask?: {
     type: TypeDef<any>;
     into: string;
+    label?: string | undefined;
   } | undefined;
   variant?: {
     turn: string;
@@ -24084,7 +24118,7 @@ type FlagsAnswer = {
     kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content" | "runs-code" | "unknown-path";
     rule: string;
     access: "read" | "write";
-    action: "ask" | "allow" | "refuse";
+    action: "allow" | "ask" | "refuse";
     why: string;
     certain: boolean;
   }[];
@@ -24103,7 +24137,7 @@ type SensitivityFlag = {
   kind: "token" | "key" | "gitignored" | "env" | "credential" | "secret-content" | "runs-code" | "unknown-path";
   rule: string;
   access: "read" | "write";
-  action: "ask" | "allow" | "refuse";
+  action: "allow" | "ask" | "refuse";
   why: string;
   certain: boolean;
 };

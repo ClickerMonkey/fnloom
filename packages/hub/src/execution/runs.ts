@@ -14,7 +14,7 @@ import {
   clip, compact, CONCISE_LIMITS, conciseIssues, FN_MODES, INVALID_INPUT_CODE, isSettled, isUnsettled, MAIN_INSTANCE, mintId, problemLine, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
   type ProgressWire, type ResumeWire, type Run, type RunId, type RunInfo, type RunRequest, type RunSettled, type RunStatus, type RunText, type RunUpdate,
   type Turn, type UndoOutcome, type Usd, type RunControlAction, type FnError, type InputProblem, type InvalidInput, type Compact,
-  flagsVerdict, proposalSubjectOf, type CompareFork, type SessionId, type ApprovalPreview, type Approver, type PreviewPart, type SensitivityFlag, type InstanceName, type ProposedRun, type ProposeRun, type UserInfo, type QualifiedName, qualify,
+  flagsVerdict, proposalSubjectOf, type CompareFork, type SessionId, type ApprovalPreview, type ProposalAsk, type Approver, type PreviewPart, type SensitivityFlag, type InstanceName, type ProposedRun, type ProposeRun, type UserInfo, type QualifiedName, qualify,
 } from '@harness/core';
 import { z } from 'zod';
 import { HUB_SYSTEM, systemAvailability } from '../catalog/availability.ts';
@@ -345,7 +345,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       return { run: id, settled };
     }
     // the preview is asked for only when an approval is made; a refusal settles the run with the system's reason
-    const previewed: { refused?: OutcomeWire } = {};
+    const previewed: { refused?: OutcomeWire; ask?: ProposalAsk } = {};
     // the flags lead the card of a call that touches sensitive files, before what the system or auto mode says
     const flagParts: PreviewPart[] = sensitive.effect === 'ask' ? [{ type: 'flags', flags: flagged.flags }] : [];
     const modeParts: PreviewPart[] = mode.effect === 'ask' ? [{ type: 'text', text: mode.reason }] : [];
@@ -355,14 +355,17 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const preview = fn.decl.approval?.preview === true
       ? async (): Promise<ApprovalPreview | undefined> => {
         const answer = await this.#preview(run, fn, turn.user);
-        if ('preview' in answer) return { ...answer.preview, parts: [...flagParts, ...modeParts, ...answer.preview.parts] };
+        if ('preview' in answer) {
+          if (answer.ask !== undefined) previewed.ask = answer.ask;
+          return { ...answer.preview, parts: [...flagParts, ...modeParts, ...answer.preview.parts] };
+        }
         previewed.refused = answer.refused;
         return undefined;
       }
       : asked === undefined ? undefined : () => Promise.resolve(asked);
     const decision = await this.#deps.policies.decide({
       fn: fn.name, actor: input.actor, turnUser: turn.user.id, args, run: id, caller: input.caller, ...(input.session === undefined ? {} : { session: input.session }),
-      ...(preview === undefined ? {} : { preview }),
+      ...(preview === undefined ? {} : { preview, form: () => previewed.ask }),
       ...(sensitive.effect === 'ask' ? { sensitive: true } : {}),
       ...(mode.effect === 'ask' ? { ask: { by: 'turn-user' } } : {}),
       ...(mode.effect === 'allow' ? { autoAllowed: true } : {}),
@@ -428,7 +431,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
    * asked; or how the run settles instead: invalid input with the system's reason, or a retryable failure when the
    * system can't be reached. An install card is checked against the hub's instances and gets its summary (`installCard`).
    */
-  async #preview(run: Run, fn: FnRecord, user: UserInfo): Promise<{ preview: ApprovalPreview } | { refused: OutcomeWire }> {
+  async #preview(run: Run, fn: FnRecord, user: UserInfo): Promise<{ preview: ApprovalPreview; ask?: ProposalAsk } | { refused: OutcomeWire }> {
     // a kind fn's preview comes from its kind's system, which works it out from the payload
     const system = executingSystem(fn);
     const connection = system === run.system ? this.#deps.link.connection(run.system, run.instance) : this.#deps.link.connection(SystemName.parse(system));
@@ -442,7 +445,8 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
       }, { signal: connection.signal });
       // an install card is checked against the hub's own instances, which the system can't see
       const checked = await installCard(answer, run.args, { instance: (ref) => this.#deps.store.table('instances').get(ref), manifest: (name) => this.#deps.catalog.manifest(name), agents: () => agentNames(this.#deps.store) });
-      if ('preview' in checked) return checked;
+      // a choice the system offers on the card goes with its preview
+      if ('preview' in checked) return 'preview' in answer && answer.ask !== undefined ? { ...checked, ask: answer.ask } : checked;
       return { refused: { status: 'invalid-input', invalid: { source: 'validation', problems: [{ path: '', message: checked.refused }] } } };
     } catch (error) {
       return away(messageOf(error));

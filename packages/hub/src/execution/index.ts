@@ -110,6 +110,8 @@ export interface PolicyEngine {
    */
   decide(input: {
     fn: QualifiedName; actor: ActorId; turnUser: ActorId; args: Json; session?: SessionId; run: RunId; caller: ActorId; ask?: Approver; preview?: () => Promise<ApprovalPreview | undefined>;
+    /** A choice the preview offered on the card (`PreviewAnswer.ask`), read once `preview` is worked out; kept on the approval as its `ask`. */
+    form?: () => ProposalAsk | undefined;
     /** A chat in auto mode let this call go ahead: no matching policy means allow rather than ask (a fn that always asks still asks). */
     autoAllowed?: boolean;
     /**

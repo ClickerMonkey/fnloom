@@ -1,6 +1,7 @@
-import { agent, fn, g, hub, manifestOf, RemovedFn, SavedFn, type FnRef } from '@harness/sdk';
+import { agent, AllowedRuns, fn, g, hub, manifestOf, RemovedFn, SavedFn, type FnRef } from '@harness/sdk';
 import { ActorId, ContextCrawlResult, LinkSession, ModelCallId, QualifiedName, SystemName, type FnSearchHit, type FnSearchQuery, type Json, type SearchFiltered, type RegistryEffect, type SearchHit, type Session, type SessionId, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { AGENT_KIND, type RunInput } from '../execution/index.ts';
 import { AGENT, ALICE, calls, executionRig, says, SESSION, until, type ExecutionRig } from '../execution/testing.ts';
 import { openScope, type AccessScope } from '../access/index.ts';
@@ -716,5 +717,69 @@ describe('saved fns (build 5)', () => {
     expect(await r.module.runs.undo(removal.id, ALICE)).toMatchObject({ status: 'undone' });
     expect(declared).toEqual(['input/project']);
     expect(r.catalog.records.has(QualifiedName.parse('input/project'))).toBe(true);
+  });
+
+  it('lets the system of a kind record that a saved fn\'s runs go ahead for its owner, as a yielding policy matched by via, undone back', async () => {
+    const r = await executionRig();
+    rig = r;
+    r.catalog.add('hub', 'fns_allow_runs', fn({ description: 'hub/fns_allow_runs', args: hub.fns.fns_allow_runs.args, returns: hub.fns.fns_allow_runs.returns, undo: AllowedRuns, tags: ['read'] }));
+    const asker = r.catalog.add('input', 'trust', fn({ description: 'Trust a form.', args: g.obj({ allow: g.bool() }), returns: g.bool(), tags: ['read'] }));
+    r.catalog.set(asker.name, { decl: { ...asker.decl, deps: [hub.fns.fns_allow_runs.name] } });
+    const project = QualifiedName.parse('input/project');
+    r.catalog.add('input', 'project', fn({ description: 'Asks for a project.', args: g.obj({}), returns: g.bool(), tags: ['read'] }));
+    r.catalog.set(project, { decl: { ...asker.decl, name: 'project', kind: QualifiedName.parse('input/form'), payload: { title: 'Project' }, deps: [] }, origin: 'runtime', addedBy: ALICE });
+    let owner = ALICE;
+    registerHubFns(r.module.hubFns, {
+      store: () => r.store,
+      catalog: () => ({
+        fn: (name) => r.catalog.fn(name), fns: (filter) => r.catalog.fns(filter), availability: (name) => r.catalog.availability(name), context: (name) => r.catalog.context(name), type: () => r.catalog.type(),
+        kind: (name) => Promise.resolve(name === 'input/form' ? { name, system: SystemName.parse('input'), decl: { name: 'form', description: 'A form.', applicability: 'Forms.', payload: { name: 'any' }, approveChanges: false } } : undefined),
+        remove: () => Promise.reject(new Error('no removes here')),
+        declare: () => Promise.reject(new Error('no saves here')),
+      }),
+      views: () => new CatalogFnViews(r.catalog),
+      decider: () => decider,
+      facts: () => ({ registry: () => Promise.resolve(new Map()) }),
+      search: () => ({ search: () => Promise.resolve([]) }),
+      sessions: () => ({ load: () => Promise.reject(new Error('no loads here')) }),
+      handlers: () => r.module.handlers,
+      access: (actor) => Promise.resolve(openScope(actor)),
+      sharing: () => ({ sharing: () => Promise.resolve({ owner, visibility: 'private', with: [] }), own: () => Promise.reject(new Error('no sharing here')) }),
+      fns: () => ({ search: { search: () => Promise.reject(new Error('no search')) }, examples: { sync: () => Promise.resolve(), page: () => Promise.reject(new Error('no examples')), patch: () => Promise.reject(new Error('no examples')), forPrompt: () => Promise.resolve([]) } }),
+    });
+    await r.module.start();
+    const input = r.connect('input');
+    const results: unknown[] = [];
+    input.behaviour.run = async (request) => {
+      const { allow } = z.object({ allow: z.boolean() }).parse(request.args);
+      results.push(await r.module.linkHandlers.call(linkPayload({ parent: request.run.id, fn: 'hub/fns_allow_runs', args: { fn: 'input/project', allow }, key: `allow-${results.length}`, handlers: [], background: false }, LinkSession.parse({ system: 'input', instance: 'main', boot: 'b' }))));
+      return { status: 'done', result: true };
+    };
+    const trust = async (allow: boolean): Promise<void> => {
+      const turn = await r.turn();
+      await (await r.module.runs.start({ fn: asker.name, args: { allow }, turn: turn.id, key: `k${String(results.length)}`, actor: ALICE, caller: ALICE, priority: 'interactive', background: false, handlers: [] })).settled;
+    };
+    const policies = async () => (await r.store.table('policies').find({ where: {}, limit: 10 })).items;
+    // someone else's fn: refused, nothing recorded
+    owner = ActorId.parse('act_someone');
+    await trust(true);
+    expect(results[0]).toMatchObject({ status: 'failed', error: { class: 'caller', code: 'not-yours' } });
+    expect(await policies()).toHaveLength(0);
+    // its owner's: one yielding allow of theirs, matched by the fn whose run makes the call; twice is still one
+    owner = ALICE;
+    await trust(true);
+    await trust(true);
+    expect(results[1]).toEqual({ status: 'done', result: { fn: 'input/project', allowed: true } });
+    expect(await policies()).toMatchObject([{ subject: { actor: ALICE }, target: { via: 'input/project' }, decision: { effect: 'allow' }, yields: true, priority: 0 }]);
+    // undoing the first allow puts back how it was before it (not allowed); asking again removes it too
+    const runs = (await r.store.table('runs').find({ where: { fn: QualifiedName.parse('hub/fns_allow_runs'), status: 'done' }, order: [['createdAt', 'asc']], limit: 5 })).items;
+    expect(runs.map((run) => run.undo)).toEqual([{ fn: 'input/project', allowed: false }, { fn: 'input/project', allowed: true }]);
+    const first = runs[0];
+    if (first === undefined) throw new Error('no allow run');
+    expect(await r.module.runs.undo(first.id, ALICE)).toMatchObject({ status: 'undone', summary: 'Runs of input/project ask again' });
+    expect(await policies()).toHaveLength(0);
+    await trust(true);
+    await trust(false);
+    expect(await policies()).toHaveLength(0);
   });
 });

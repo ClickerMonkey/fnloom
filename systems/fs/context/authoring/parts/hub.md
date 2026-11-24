@@ -11,11 +11,11 @@ tags: ["authoring"]
 niche: "developer"
 choices:
   - to: "fs/authoring.hub.hub-fns-load"
-    when: "Pick this for hub/fns_load, hub/fns_drop, hub/fns_search, hub/ctx_search, hub/fns_examples, hub/fns_get, hub/fns_save, hub/fns_remove, hub/ctx_load, hub/ctx_drop, hub/ctx_crawl,…"
-  - to: "fs/authoring.hub.hub-memory-update"
-    when: "Pick this for hub/memory_update, hub/ctx_link, hub/ctx_unlink, hub/access_set, hub/connection_update, hub/connection_disconnect, hub/explore_roots, hub/explore_list, hub/explore_read, hub/data_sets,…"
-  - to: "fs/authoring.hub.hub-export-system-data"
-    when: "Pick this for hub/export_system_data, hub/ctx_injection_set, hub/budgets_list, hub/policies_list, hub/priority_rules_list, hub/providers_list, hub/actors_list, hub/actor_settings_list,…"
+    when: "Pick this for hub/fns_load, hub/fns_drop, hub/fns_search, hub/ctx_search, hub/fns_examples, hub/fns_get, hub/fns_save, hub/fns_remove, hub/fns_allow_runs, hub/ctx_load, hub/ctx_drop, hub/ctx_crawl,…"
+  - to: "fs/authoring.hub.hub-run-background"
+    when: "Pick this for hub/run_background, hub/turn_undo, hub/memory_update, hub/ctx_link, hub/ctx_unlink, hub/access_set, hub/connection_update, hub/connection_disconnect, hub/explore_roots,…"
+  - to: "fs/authoring.hub.hub-auto-pair-revoke"
+    when: "Pick this for hub/auto_pair_revoke, hub/system_reimport, hub/export_system_data, hub/ctx_injection_set, hub/budgets_list, hub/policies_list, hub/priority_rules_list, hub/providers_list,…"
   - to: "fs/authoring.hub.kinds-of-hub"
     when: "Pick this for Kinds of hub, Types of hub, Mentions of hub, Sectioners of hub."
   - to: "fs/authoring.hub.reference"
@@ -37,9 +37,9 @@ This is the hub contract as the SDK declares it now:
 
 This part is in 4 pieces; load the one you need:
 
-- [hub/fns_load … hub/turn_undo](context:fs/authoring.hub.hub-fns-load)
-- [hub/memory_update … hub/system_reimport](context:fs/authoring.hub.hub-memory-update)
-- [hub/export_system_data … hub/ctx_injections_list](context:fs/authoring.hub.hub-export-system-data)
+- [hub/fns_load … hub/session_delete](context:fs/authoring.hub.hub-fns-load)
+- [hub/run_background … hub/search_decision_set](context:fs/authoring.hub.hub-run-background)
+- [hub/auto_pair_revoke … hub/ctx_injections_list](context:fs/authoring.hub.hub-auto-pair-revoke)
 - [Kinds of hub … Sectioners of hub](context:fs/authoring.hub.kinds-of-hub)
 
 Fns for this: fn:fs/read, fn:fs/write, fn:fs/edit, fn:fs/bash.

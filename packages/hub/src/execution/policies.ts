@@ -99,19 +99,22 @@ const SEVERITY = { deny: 3, ask: 2, allow: 1 } as const;
 
 /**
  * The policy that decides, of those that match: priority, then specificity, then severity. `via` are the fns of the
- * runs the call was made under, nearest first (a policy's `target.via` matches any of them).
+ * runs the call was made under, nearest first (a policy's `target.via` matches any of them). A person's own allow
+ * (`yields`) decides only when no other policy matches, so an admin's deny or ask always wins over it.
  */
 export function choosePolicy(policies: readonly Policy[], fn: FnRecord, actor: ActorFacts, now: number, via: readonly QualifiedName[] = []): Policy | undefined {
-  let best: { policy: Policy; key: readonly number[] } | undefined;
+  const best: { firm?: { policy: Policy; key: readonly number[] }; yielding?: { policy: Policy; key: readonly number[] } } = {};
   for (const policy of policies) {
     if (policy.expiresAt !== undefined && policy.expiresAt <= now) continue;
     const subject = subjectRank(policy.subject, actor);
     const target = targetRank(policy.target, fn, policy.decision.effect, via);
     if (subject === undefined || target === undefined) continue;
     const key = [policy.priority, subject, target, SEVERITY[policy.decision.effect]];
-    if (best === undefined || compareKeys(key, best.key) > 0) best = { policy, key };
+    const slot = policy.yields === true ? 'yielding' : 'firm';
+    const current = best[slot];
+    if (current === undefined || compareKeys(key, current.key) > 0) best[slot] = { policy, key };
   }
-  return best?.policy;
+  return (best.firm ?? best.yielding)?.policy;
 }
 
 function compareKeys(a: readonly number[], b: readonly number[]): number {
@@ -192,6 +195,8 @@ export class HubPolicyEngine implements PolicyEngine {
     const { clock } = this.#deps;
     const preview = input.preview === undefined ? undefined : await input.preview();
     if (input.preview !== undefined && preview === undefined) return { effect: 'deny', reason: `${input.fn} can't show what it would do` };
+    // a choice the preview offered on the card (read once the preview is worked out)
+    const ask = input.form?.();
     const approval: Approval = {
       id: mintId('approval', this.#deps.random),
       run: input.run,
@@ -203,6 +208,7 @@ export class HubPolicyEngine implements PolicyEngine {
       createdAt: clock(),
       ...(preview === undefined ? {} : { preview }),
       ...(input.variant === undefined ? {} : { variant: input.variant }),
+      ...(ask === undefined ? {} : { ask }),
     };
     return { effect: 'ask', approval: await this.#ask(approval, input.turnUser, input.session) };
   }

@@ -3,9 +3,10 @@
  * The calendar grid, the system's own component (docs/plans/schedule-system.md, "The schedule page"): a month of whole
  * weeks or one week, Sunday first, each day with its firings as chips in their status colour (time and schedule,
  * faded when the schedule is paused). On a phone the month shows a dot per firing and a tap opens that day's agenda;
- * the week scrolls one day at a time. A chip opens its entry (`open`), a day's number its agenda (`day`).
+ * the week scrolls one day at a time, opening on today (or the week's first day when today isn't in it). A chip opens
+ * its entry (`open`), a day's number its agenda (`day`).
  */
-import { computed } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { cellNumber, entryLook, SHORT_WEEKDAYS, timeWords, type CalendarEntry, type CalendarView } from './logic.ts';
 
 const props = defineProps<{
@@ -29,6 +30,19 @@ const weeks = computed(() => Array.from({ length: Math.ceil(props.days.length / 
 const entriesOn = (day: string): readonly CalendarEntry[] => props.byDay.get(day) ?? [];
 const chipTime = (entry: CalendarEntry): string => (entry.allDay ? 'All day' : timeWords(entry.at, props.zone));
 const label = (entry: CalendarEntry): string => `${chipTime(entry)}, ${entry.title}: ${entryLook(entry).word}`;
+/** The grid, to scroll a phone's week to its day. */
+const grid = ref<HTMLElement | null>(null);
+/** On a phone the week scrolls sideways: bring today's column (else the first) to the start. Wider, nothing scrolls. */
+async function toDay(): Promise<void> {
+  await nextTick();
+  const el = grid.value;
+  if (props.view !== 'week' || el === null || el.scrollWidth <= el.clientWidth) { return; }
+  const day = props.days.includes(props.today) ? props.today : props.days[0];
+  const cell = el.querySelector<HTMLElement>(`[data-day="${day ?? ''}"]`);
+  el.scrollLeft = cell === null ? 0 : el.scrollLeft + cell.getBoundingClientRect().left - el.getBoundingClientRect().left - el.clientLeft;
+}
+onMounted(() => { void toDay(); });
+watch(() => [props.view, props.days[0]], () => { void toDay(); });
 const dayLabel = (day: string): string => {
   const count = entriesOn(day).length;
   return `${day}: ${count === 0 ? 'nothing planned' : `${String(count)} ${count === 1 ? 'run' : 'runs'}`}`;
@@ -36,7 +50,7 @@ const dayLabel = (day: string): string => {
 </script>
 
 <template>
-  <div class="grid" :class="view" role="grid" :aria-label="view === 'month' ? 'Month' : 'Week'" data-testid="schedule-grid" :data-view="view">
+  <div ref="grid" class="grid" :class="view" role="grid" :aria-label="view === 'month' ? 'Month' : 'Week'" data-testid="schedule-grid" :data-view="view">
     <div class="head" role="row">
       <span v-for="(name, i) in SHORT_WEEKDAYS" :key="name" class="weekday" role="columnheader" :data-weekend="i === 0 || i === 6">{{ name }}</span>
     </div>
@@ -92,11 +106,13 @@ const dayLabel = (day: string): string => {
 .number:hover { background: var(--surface-2); }
 .number:focus-visible, .chip:focus-visible, .more:focus-visible, .dots:focus-visible { outline: none; box-shadow: var(--ring); }
 .today .number { background: var(--accent); color: var(--on-accent); font-weight: var(--weight-strong); }
-.today .number .n { color: var(--on-accent); }
+.today .number .n, .today .number .weekday-inline { color: var(--on-accent); }
 .weekday-inline { display: none; color: var(--text-dim); font-size: var(--text-xs); text-transform: uppercase; }
-.chips { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; min-width: 0; }
+.chips { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; margin: 0; padding: 0; list-style: none; min-width: 0; }
+.chips > li { min-width: 0; }
 .chip {
-  display: flex; align-items: baseline; gap: var(--space-1); width: 100%; min-width: 0; padding: 2px var(--space-2); border: 0; border-left: 3px solid var(--tint);
+  /* border-box, so its padding and border stay inside the day's column */
+  display: flex; box-sizing: border-box; align-items: baseline; gap: var(--space-1); width: 100%; min-width: 0; overflow: hidden; padding: 2px var(--space-2); border: 0; border-left: 3px solid var(--tint);
   border-radius: var(--radius-sm); background: color-mix(in srgb, var(--tint) 14%, var(--surface)); color: var(--text); font: inherit; font-size: var(--text-xs);
   text-align: left; cursor: pointer; transition: background var(--fast) var(--ease), transform var(--fast) var(--ease);
 }

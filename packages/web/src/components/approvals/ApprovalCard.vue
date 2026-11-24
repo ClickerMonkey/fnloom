@@ -99,7 +99,7 @@ function decide(approve: boolean, remembered: Remember, reason: string): void {
       <ArgList v-else :args="args" />
     </div>
     <SensitiveFiles v-if="trayFlags.length > 0" :flags="trayFlags" compact />
-    <ApprovalAsk v-if="ask" :type="ask.type" :ident="ident" @change="answer = $event" />
+    <ApprovalAsk v-if="ask" :type="ask.type" :label="ask.label" :ident="ident" @change="answer = $event" />
     <slot name="after" />
     <ApprovalAnswer v-model:remember="remember" :rememberable="canRemember" :irreversible="irreversible" :ident="ident" :review="clipped" :blocked="blocked" :approve-label="approveLabel" :deny-label="denyLabel" @decide="decide" @review="reviewing = true">
       <template #buttons="scope"><slot name="buttons" :remember="scope.remember" /></template>

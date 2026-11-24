@@ -36,6 +36,7 @@ function open(event: MouseEvent, href: string): void {
     </ul>
     <p v-else-if="!card.paused" class="note">No runs to come.</p>
     <p class="note" data-testid="schedule-card-notifies">{{ card.notifies }}</p>
+    <p v-if="card.allowed" class="note" data-testid="schedule-card-allowed">{{ card.allowed }}</p>
     <p v-if="card.last" class="last" data-testid="schedule-card-last">
       <component :is="parts.Badge" v-if="parts" :tone="card.last.tone" dot>{{ card.last.word }}</component>
       <span v-else>{{ card.last.word }}</span>

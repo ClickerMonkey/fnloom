@@ -7,7 +7,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ActorId, QualifiedName, type DataRecord, type Json, type KindFnWire, type RunSettled } from '@harness/core';
+import { ActorId, QualifiedName, RunId, TurnId, type DataRecord, type Json, type KindFnWire, type RunSettled } from '@harness/core';
+import { reject } from '@ayepi/core';
 import { TEST_USER, testHub, type TestSystem } from '@harness/sdk/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -111,6 +112,9 @@ async function served(start: number, schedules: Record<string, Json>, options: {
   };
 }
 
+/** An instant as the schedule fn's `at` travels: a gin timestamp's ISO text. */
+const iso = (at: number): string => new Date(at).toISOString();
+
 /** Mondays at 9:00, New York time. */
 const MONDAYS = { dayOfWeek: [1], times: ['09:00'] };
 /** Every day at 9:00. */
@@ -124,7 +128,7 @@ describe('the schedule timer', () => {
     expect(s.timer.store.schedule('schedule/orders_report')?.plannedAt).toBe(MON_9);
     s.clock.set(MON_9 + 5_000);
     await vi.waitFor(() => { expect(s.kit.hub.starts).toHaveLength(1); });
-    expect(s.kit.hub.starts[0]).toEqual({ fn: 'schedule/orders_report', args: { at: MON_9 }, key: `schedule:schedule/orders_report@${String(MON_9)}`, priority: 'background' });
+    expect(s.kit.hub.starts[0]).toEqual({ fn: 'schedule/orders_report', args: { at: iso(MON_9) }, key: `schedule:schedule/orders_report@${String(MON_9)}`, priority: 'background' });
     await s.runStarted(0);
     // the target got the firing's local day
     expect(s.kit.hub.calls.filter((call) => call.fn === TARGET).map((call) => call.args)).toEqual([{ day: '2026-11-30' }]);
@@ -139,6 +143,9 @@ describe('the schedule timer', () => {
     });
     const [firing] = s.firings();
     expect(firing?.owner).toBe(TEST_USER.id);
+    // saved by the system outside the run, naming its owner: a schedule of a read fn (a reminder) is declared read,
+    // and the hub refuses a record saved in such a run (live run, slice 9); one record, updated as the firing went on
+    expect(s.kit.records('Firing').map((record) => record.run)).toEqual([undefined]);
     expect(firing?.value).toMatchObject({ schedule: 'schedule/orders_report', at: MON_9, key: '2026-11-30T09:00', status: 'ran', manual: false, summary: '12 orders on 2026-11-30', notified: true, args: { day: '2026-11-30' } });
     // the next Monday is queued
     expect(s.timer.store.schedule('schedule/orders_report')?.plannedAt).toBe(MON_9 + 7 * 24 * HOUR);
@@ -172,7 +179,7 @@ describe('the schedule timer', () => {
     s.clock.set(MON_9 + 3 * 24 * HOUR + HOUR);
     await s.restart();
     await vi.waitFor(() => { expect(s.kit.hub.starts).toHaveLength(1); });
-    expect(s.kit.hub.starts[0]?.args).toEqual({ at: MON_9 + 3 * 24 * HOUR });
+    expect(s.kit.hub.starts[0]?.args).toEqual({ at: iso(MON_9 + 3 * 24 * HOUR) });
     await s.runStarted(0);
     await vi.waitFor(() => { expect(s.kit.hub.ownerNotices).toHaveLength(1); });
     expect(s.kit.hub.ownerNotices[0]?.notice).toMatchObject({ title: 'Orders report ran', body: 'Missed 3 runs before this one. 12 orders on 2026-12-03 (1 h late)' });
@@ -261,6 +268,8 @@ describe('the schedule timer', () => {
     await vi.waitFor(() => { expect(s.kit.hub.starts).toHaveLength(1); });
     await s.runStarted(0, { notified: true });
     expect(s.firings()[0]?.value['status']).toBe('ran');
+    // its record says the owner was notified (by the run itself)
+    await vi.waitFor(() => { expect(s.firings()[0]?.value['notified']).toBe(true); });
     expect(s.kit.hub.ownerNotices).toHaveLength(0);
     s.kit.hub.onCall = (call) => Promise.resolve(call.fn === 'hub/fns_get'
       ? { status: 'done', result: { fn: TARGET, kind: 'native', description: 'Orders.', version: 1, available: true, args: TARGET_ARGS, returns: TARGET_RETURNS } }
@@ -303,6 +312,146 @@ describe('the schedule timer', () => {
     s.clock.set(MON_9 + HOUR + 1_000);
     await vi.waitFor(() => { expect(s.firings().some((f) => f.value['status'] === 'refused')).toBe(true); });
     expect(s.kit.hub.starts).toHaveLength(1);
+  });
+});
+
+/** `{ day: fire.local }`: the target gets the firing's instant as its zone's wall clock, with the offset. */
+const LOCAL_ARGS = { kind: 'new', type: TARGET_ARGS, value: { day: { kind: 'get', path: [{ prop: 'fire' }, { prop: 'local' }] } } };
+
+describe('zones and daylight saving, end to end', () => {
+  /** Let the planned firing come due, run it as the hub would, and give what the target got. */
+  async function fireNext(s: Served, index: number): Promise<{ at: number; day: string }> {
+    const at = s.timer.store.schedule('schedule/nightly')?.plannedAt;
+    if (at === undefined) throw new Error('nothing planned');
+    s.clock.set(at + 1_000);
+    await vi.waitFor(() => { expect(s.kit.hub.starts).toHaveLength(index + 1); });
+    await s.runStarted(index);
+    const call = s.kit.hub.calls.filter((c) => c.fn === TARGET).at(-1);
+    return { at, day: DayArgs.parse(call?.args).day };
+  }
+
+  it('fires 02:30 every night across the spring-forward night: 03:30 that night, 02:30 again after, the offset in fire.local', async () => {
+    // Saturday 13 March 2027, 00:00 in New York (EST); clocks go forward at 02:00 on Sunday the 14th
+    const s = await served(Date.UTC(2027, 2, 13, 5, 0), { nightly: payload({ dayOfWeek: [0, 1, 2, 3, 4, 5, 6], times: ['02:30'] }, { args: LOCAL_ARGS }) });
+    expect(await fireNext(s, 0)).toEqual({ at: Date.UTC(2027, 2, 13, 7, 30), day: '2027-03-13T02:30:00-05:00' });
+    expect(await fireNext(s, 1)).toEqual({ at: Date.UTC(2027, 2, 14, 7, 30), day: '2027-03-14T03:30:00-04:00' });
+    expect(await fireNext(s, 2)).toEqual({ at: Date.UTC(2027, 2, 15, 6, 30), day: '2027-03-15T02:30:00-04:00' });
+    // each is one firing, recorded under the time it was planned for
+    expect(s.firings().map((f) => [f.value.key, f.value.status])).toEqual([['2027-03-13T02:30', 'ran'], ['2027-03-14T02:30', 'ran'], ['2027-03-15T02:30', 'ran']]);
+  });
+
+  it('fires 01:30 once on the fall-back night, at the first one, and the next night at 01:30 standard time', async () => {
+    // Saturday 31 October 2026, 00:00 in New York (EDT); clocks go back at 02:00 on Sunday 1 November, so 01:30 happens twice
+    const s = await served(Date.UTC(2026, 9, 31, 4, 0), { nightly: payload({ dayOfWeek: [0, 1, 2, 3, 4, 5, 6], times: ['01:30'] }, { args: LOCAL_ARGS }) });
+    expect(await fireNext(s, 0)).toEqual({ at: Date.UTC(2026, 9, 31, 5, 30), day: '2026-10-31T01:30:00-04:00' });
+    expect(await fireNext(s, 1)).toEqual({ at: Date.UTC(2026, 10, 1, 5, 30), day: '2026-11-01T01:30:00-04:00' });
+    // the second 01:30 that night (06:30 UTC) is not a firing: the next is Monday's, in standard time
+    expect(s.timer.store.schedule('schedule/nightly')?.plannedAt).toBe(Date.UTC(2026, 10, 2, 6, 30));
+  });
+
+  it('reads a schedule in its own zone, not the host\'s or the person\'s: 9:00 in Tokyo is 00:00 UTC', async () => {
+    const s = await served(Date.UTC(2026, 10, 29, 12, 0), { nightly: payload({ dayOfWeek: [1], times: ['09:00'] }, { zone: 'Asia/Tokyo', args: LOCAL_ARGS }) });
+    // Monday 30 November 2026, 09:00 in Tokyo (UTC+9, no daylight saving) is Monday 00:00 UTC
+    expect(await fireNext(s, 0)).toEqual({ at: Date.UTC(2026, 10, 30, 0, 0), day: '2026-11-30T09:00:00+09:00' });
+  });
+});
+
+describe('across a restart', () => {
+  it('skips a firing due while the run before it, started before the restart, still goes; the replayed run is recorded once', async () => {
+    const s = await served(MON_9 - HOUR, { orders_report: payload({ dayOfWeek: [1], times: ['09:00', '09:30'] }) }, { hold: true });
+    s.clock.set(MON_9 + 1_000);
+    await vi.waitFor(() => { expect(s.kit.hub.starts).toHaveLength(1); });
+    const run = s.kit.hub.startedRuns.get(s.kit.hub.starts[0]?.key ?? '')?.run;
+    // the system goes down while the 9:00 run is still going on the hub, and comes back after 9:30
+    await s.timer.stop();
+    s.clock.set(MON_9 + 31 * MINUTE);
+    await s.restart();
+    await vi.waitFor(() => { expect(s.firings().some((f) => f.value.status === 'skipped')).toBe(true); });
+    expect(s.kit.hub.starts).toHaveLength(1);
+    expect(s.firings().find((f) => f.value.status === 'skipped')?.value).toMatchObject({ key: '2026-11-30T09:30', run, summary: 'The run before it (Mon, Nov 30 9:00 am) was still going.' });
+    // the hub runs the 9:00 firing again after the restart: it settles as one firing
+    const running = s.runStarted(0);
+    await vi.waitFor(() => { expect(s.held).toHaveLength(1); });
+    s.held[0]?.settle({ status: 'done', result: { summary: 'done', total: 1 } });
+    await running;
+    await vi.waitFor(() => { expect(s.firings().filter((f) => f.value.status === 'ran')).toHaveLength(1); });
+    expect(s.firings().map((f) => f.value.status)).toEqual(['ran', 'skipped']);
+  });
+
+  it('with missed set to none, records every firing missed while it was down, runs none late, and goes on with the next', async () => {
+    const s = await served(MON_9 - HOUR, { orders_report: payload(DAILY, { missed: 'none' }) });
+    await s.timer.stop();
+    // down from Monday 8:00 to Tuesday 9:30, within the grace window: Monday's and Tuesday's are missed all the same
+    s.clock.set(MON_9 + 24 * HOUR + 30 * MINUTE);
+    await s.restart();
+    await vi.waitFor(() => { expect(s.kit.hub.ownerNotices).toHaveLength(1); });
+    expect(s.kit.hub.starts).toHaveLength(0);
+    expect(s.kit.hub.ownerNotices[0]?.notice).toMatchObject({ title: 'Orders report missed 2 runs' });
+    expect(s.firings().map((f) => [f.value.key, f.value.status, f.value.summary])).toEqual([
+      ['2026-11-30T09:00', 'missed', 'It couldn\'t start on time (Mon, Nov 30 9:00 am), and missed runs don\'t run late.'],
+      ['2026-12-01T09:00', 'missed', 'It couldn\'t start on time (Tue, Dec 1 9:00 am), and missed runs don\'t run late.'],
+    ]);
+    expect(s.timer.store.schedule('schedule/orders_report')?.plannedAt).toBe(MON_9 + 2 * 24 * HOUR);
+    s.clock.set(MON_9 + 2 * 24 * HOUR + 1_000);
+    await vi.waitFor(() => { expect(s.kit.hub.starts).toHaveLength(1); });
+    expect(s.kit.hub.starts[0]?.args).toEqual({ at: iso(MON_9 + 2 * 24 * HOUR) });
+  });
+});
+
+describe('the start gate', () => {
+  it('records a refused start with the hub\'s reason, tells the owner once per reason and the admins once when the owner is gone', async () => {
+    const s = await served(MON_9 - HOUR, { orders_report: payload(DAILY) });
+    let refusal = { status: 403, code: 'OWNER_GONE', message: 'Its owner can no longer use the hub.' };
+    s.kit.hub.onStartRun = () => { throw reject(refusal.status, refusal.code, refusal.message); };
+    for (const day of [0, 1]) {
+      s.clock.set(MON_9 + day * 24 * HOUR + 1_000);
+      await vi.waitFor(() => { expect(s.firings().filter((f) => f.value.status === 'refused')).toHaveLength(day + 1); });
+    }
+    expect(s.firings().map((f) => f.value.summary)).toEqual(['The hub refused to start it: Its owner can no longer use the hub.', 'The hub refused to start it: Its owner can no longer use the hub.']);
+    expect(s.kit.hub.ownerNotices.map((sent) => sent.notice.title)).toEqual(['Orders report was refused']);
+    expect(s.kit.hub.notices).toHaveLength(1);
+    // another reason is told again, under the same key (it replaces the unread one)
+    refusal = { status: 403, code: 'DENIED', message: 'Not allowed: no reports on weekends.' };
+    s.clock.set(MON_9 + 2 * 24 * HOUR + 1_000);
+    await vi.waitFor(() => { expect(s.kit.hub.ownerNotices).toHaveLength(2); });
+    expect(s.kit.hub.ownerNotices.map((sent) => sent.notice.key)).toEqual(['schedule:schedule/orders_report', 'schedule:schedule/orders_report']);
+    expect(s.kit.hub.notices).toHaveLength(1);
+    expect(s.firings().every((f) => f.value.run === undefined)).toBe(true);
+  });
+
+  it('tries a start the hub couldn\'t answer again with the same key: one run, one firing', async () => {
+    const s = await served(MON_9 - HOUR, { orders_report: payload(MONDAYS) });
+    let down = true;
+    s.kit.hub.onStartRun = () => { if (down) { throw new Error('The hub is restarting.'); } };
+    s.clock.set(MON_9 + 1_000);
+    await vi.waitFor(() => { expect(s.kit.hub.starts).toHaveLength(1); });
+    expect(s.firings()).toHaveLength(0);
+    down = false;
+    s.clock.set(MON_9 + 2_000);
+    await vi.waitFor(() => { expect(s.kit.hub.starts).toHaveLength(2); });
+    expect(new Set(s.kit.hub.starts.map((start) => start.key))).toEqual(new Set([`schedule:schedule/orders_report@${String(MON_9)}`]));
+    await s.runStarted(1);
+    expect(s.firings().map((f) => [f.value.status, f.value.summary])).toEqual([['ran', '12 orders on 2026-11-30']]);
+    expect(s.kit.hub.startedRuns.size).toBe(1);
+  });
+});
+
+describe('a start the hub ends at once (live run, slice 9)', () => {
+  it('sends the planned instant as the gin timestamp’s ISO text, and records and tells a run the hub refused before it answered', async () => {
+    const s = await served(MON_9 - HOUR, { orders_report: payload(MONDAYS) });
+    // the hub checks the schedule fn's args and ends the run in the start itself, before the firing knows its run
+    s.kit.hub.onStartRun = (start) => {
+      const { at } = z.object({ at: z.unknown() }).parse(start.args);
+      if (typeof at !== 'string') { throw new Error('at should travel as ISO text'); }
+      s.kit.hub.startedRuns.set(start.key, { run: RunId.parse('run_refused1'), turn: TurnId.parse('trn_refused1'), status: 'invalid-input' });
+    };
+    s.clock.set(MON_9 + 1_000);
+    await vi.waitFor(() => { expect(s.firings()).toHaveLength(1); });
+    expect(s.firings()[0]?.value).toMatchObject({ status: 'failed', run: 'run_refused1', summary: 'The hub refused the args it was started with, so it never ran.' });
+    await vi.waitFor(() => { expect(s.kit.hub.ownerNotices).toHaveLength(1); });
+    expect(s.kit.hub.ownerNotices[0]?.notice).toMatchObject({ title: 'Orders report failed', tone: 'failed' });
+    // the next Monday is planned as before
+    expect(s.timer.store.schedule('schedule/orders_report')?.plannedAt).toBe(MON_9 + 7 * 24 * HOUR);
   });
 });
 

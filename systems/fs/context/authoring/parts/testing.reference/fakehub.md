@@ -130,6 +130,11 @@ class FakeHub {
   onFleet: () => Promise<FleetInstance[]>;
   /** Controls a child run. Default: accepted. */
   onControl: (control: RunControl) => Promise<{ accepted: boolean; reason?: string }>;
+  /**
+  * Before a start (`ctx.runs.start`) is answered: throw `reject(status, code, message)` to refuse it as the hub's gate
+  * does (`OWNER_GONE`, a policy), or any other error for a hub that can't start it now. Default: every start goes ahead.
+  */
+  onStartRun: (start: HubBody<'startRun'>) => void;
   constructor(options: FakeHubOptions = {});
   /** The transport a system under test connects with. */
   transport(): LinkTransport;

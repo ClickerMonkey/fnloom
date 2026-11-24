@@ -1488,7 +1488,8 @@ export const manifest = {
         "target",
         "decision",
         "priority",
-        "expiresAt"
+        "expiresAt",
+        "yields"
       ],
       "f": [],
       "hasBody": true,
@@ -4018,7 +4019,8 @@ export const manifest = {
         "id",
         "value",
         "expect",
-        "run"
+        "run",
+        "owner"
       ],
       "f": [],
       "hasBody": true,
