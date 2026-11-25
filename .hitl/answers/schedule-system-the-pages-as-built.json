@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "kind": "review",
+  "seq": 13,
+  "readSeq": 0,
+  "items": {
+    "calendar-month": {
+      "verdict": "ok",
+      "rev": "jfjb96",
+      "at": "2026-11-24T01:53:16.129Z",
+      "seq": 1
+    },
+    "calendar-week": {
+      "verdict": "ok",
+      "rev": "1lm90rs",
+      "at": "2026-11-24T01:53:25.960Z",
+      "seq": 2
+    },
+    "calendar-agenda": {
+      "verdict": "ok",
+      "rev": "jn8byc",
+      "at": "2026-11-24T01:53:27.805Z",
+      "seq": 3
+    },
+    "calendar-on-a-phone-month": {
+      "verdict": "ok",
+      "rev": "1rgdkj2",
+      "at": "2026-11-24T01:53:34.520Z",
+      "seq": 4
+    },
+    "calendar-on-a-phone-agenda": {
+      "verdict": "ok",
+      "rev": "1vah08w",
+      "at": "2026-11-24T01:53:41.214Z",
+      "seq": 5
+    },
+    "a-schedule-overview": {
+      "verdict": "ok",
+      "rev": "11cjhhm",
+      "at": "2026-11-24T01:53:49.505Z",
+      "seq": 6
+    },
+    "a-schedule-history": {
+      "verdict": "ok",
+      "rev": "1xaxdvv",
+      "at": "2026-11-24T01:53:51.171Z",
+      "seq": 7
+    },
+    "a-schedule-edit": {
+      "verdict": "ok",
+      "rev": "pviyw5",
+      "at": "2026-11-24T01:53:58.555Z",
+      "seq": 8
+    },
+    "a-schedule-on-a-phone-edit": {
+      "verdict": "ok",
+      "rev": "29mgu9",
+      "at": "2026-11-24T01:54:06.767Z",
+      "seq": 9
+    },
+    "all-schedules-admins": {
+      "verdict": "ok",
+      "rev": "wgp7gs",
+      "at": "2026-11-24T02:07:04.359Z",
+      "seq": 10
+    },
+    "the-run-page": {
+      "verdict": "ok",
+      "rev": "aa1khs",
+      "at": "2026-11-24T02:07:15.843Z",
+      "seq": 11
+    },
+    "the-run-page-on-a-phone": {
+      "verdict": "ok",
+      "rev": "85oaec",
+      "at": "2026-11-24T02:07:19.734Z",
+      "seq": 12
+    }
+  },
+  "comments": [],
+  "overall": {
+    "verdict": "ok",
+    "at": "2026-11-24T02:07:20.372Z",
+    "seq": 13
+  }
+}

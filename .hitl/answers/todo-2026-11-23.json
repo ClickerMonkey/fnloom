@@ -1,7 +1,7 @@
 {
   "version": 1,
   "seq": 13,
-  "readSeq": 7,
+  "readSeq": 13,
   "answers": {
     "ollama": {
       "status": "answered",
