@@ -5,30 +5,16 @@
  * row type was a `z.custom` that became gin `any`. This test loads the hub's and every system's real manifest into
  * the catalog and fails on any such position, except the ones listed below, each with the reason it is any JSON.
  */
-import { manifestOf, hub, type AnyContract } from '@harness/sdk';
-import { QualifiedName, type Manifest } from '@harness/core';
+import { plainDeferred } from '@aeye/schema';
+import { manifestOf } from '@harness/sdk';
+import { QualifiedName } from '@harness/core';
 import { describe, expect, it } from 'vitest';
-import { StoreCatalog } from '../packages/hub/src/catalog/catalog.ts';
-import type { KindDescriber } from '../packages/hub/src/catalog/index.ts';
-import { withHubGroups } from '../packages/hub/src/boot/hub-groups.ts';
 import { fnModeTool } from '../packages/hub/src/contextor/modes.ts';
 import { CatalogFnViews } from '../packages/hub/src/contextor/views.ts';
 import { agentTool, PendingCalls } from '../packages/hub/src/execution/tools.ts';
-import { RecordingBus, memoryLog, testStore } from '../packages/hub/src/testing.ts';
-import { api } from '../systems/api/shared/index.ts';
-import { claude } from '../systems/claude/shared/index.ts';
-import { code } from '../systems/code/shared/index.ts';
 import { database } from '../systems/database/shared/index.ts';
-import { embedderSystem } from '../systems/embedder/shared/index.ts';
-import { fs } from '../systems/fs/shared/index.ts';
-import { googleCalendar } from '../systems/google-calendar/shared/index.ts';
-import { input } from '../systems/input/shared/index.ts';
-import { mcp } from '../systems/mcp/shared/index.ts';
-import { schedule } from '../systems/schedule/shared/index.ts';
-import { web } from '../systems/web/shared/index.ts';
-import { widgets } from '../systems/widgets/shared/index.ts';
+import { catalogOfEverything as loadEverything, NOT_IN_THIS_TEST } from './everything.ts';
 
-const SYSTEMS: readonly AnyContract[] = [api, claude, code, database, embedderSystem, fs, googleCalendar, input, mcp, schedule, web, widgets];
 
 /**
  * Positions that are any JSON on purpose, as `fn` then the dotted path in its args. Each says why; a new entry needs a
@@ -94,16 +80,11 @@ function emptyPositions(schema: Node, path: string, out: string[], seen: Set<Nod
 }
 
 /** The hub's and every system's manifest, imported into a catalog. */
-async function catalogOfEverything(): Promise<{ catalog: StoreCatalog; manifests: Manifest[] }> {
-  const describer: KindDescriber = { describe: () => Promise.resolve({ problems: ['not in this test'] }) };
-  const catalog = new StoreCatalog({ store: await testStore(), bus: new RecordingBus(), log: memoryLog().log, clock: () => 1_000, describer });
-  const manifests = [withHubGroups(await manifestOf(hub, { version: '1.0.0' })), ...await Promise.all(SYSTEMS.map((contract) => manifestOf(contract, { version: '1.0.0', resources: false })))];
-  for (const manifest of manifests) {
-    const report = await catalog.importManifest(manifest);
-    // fns of a kind (hub/chat) need their kind's system to describe them; they are checked where that runs
-    expect(report.refused.filter((refusal) => !refusal.problems.includes('not in this test')), manifest.name).toEqual([]);
-  }
-  return { catalog, manifests };
+async function catalogOfEverything(): Promise<Omit<Awaited<ReturnType<typeof loadEverything>>, 'refused'>> {
+  const { refused, ...everything } = await loadEverything();
+  // fns of a kind (hub/chat) need their kind's system to describe them; they are checked where that runs
+  expect(refused.filter((refusal) => !refusal.problems.includes(NOT_IN_THIS_TEST))).toEqual([]);
+  return everything;
 }
 
 describe('tool schemas', () => {
@@ -197,7 +178,8 @@ describe('tool examples', () => {
           if (tool === undefined) { continue; }
           checked += 1;
           const sent = agentTool(tool, new PendingCalls()).input.description;
-          if (!sent.includes(`Example args: ${JSON.stringify(first.args)}`)) { unsent.push(name); }
+          // its examples are written through the request's plan when it is sent: in the code shape before
+          if (!plainDeferred(sent).includes(`Example args: ${JSON.stringify(first.args)}`)) { unsent.push(name); }
         }
       }
     }

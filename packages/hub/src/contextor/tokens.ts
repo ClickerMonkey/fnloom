@@ -5,6 +5,7 @@
  * measured. Selection never tokenizes: everything it weighs is a length over characters per token.
  */
 import type { ModelTokenizer } from '@aeye/ai';
+import { hasDeferred, plainDeferred } from '@aeye/schema';
 import type { ContextDecl, ContextTokens, LlmMessage, LlmToolSpec, ResolvedModelLimits } from '@harness/core';
 import type { TokenEstimator } from './index.ts';
 
@@ -34,15 +35,20 @@ export function rawTokens(chars: number, charsPerToken: number): number {
 export function messageChars(message: LlmMessage): { chars: number; media: number } {
   let chars = 0;
   let media = 0;
-  if (typeof message.content === 'string') chars += message.content.length;
-  else for (const part of message.content) { if (part.type === 'text') chars += part.content.length; else media += 1; }
+  // an example written through the request's plan when it is sent (a deferred value) counts in the code shape
+  const length = (text: string): number => (hasDeferred(text) ? plainDeferred(text) : text).length;
+  if (typeof message.content === 'string') chars += length(message.content);
+  else for (const part of message.content) { if (part.type === 'text') chars += length(part.content); else media += 1; }
   for (const call of message.toolCalls ?? []) chars += call.name.length + call.arguments.length;
   return { chars, media };
 }
 
-/** The characters a native tool definition is sent as: its name, description and JSON schema. */
+/**
+ * The characters a native tool definition is sent as: its name, description and JSON schema. An example in its
+ * description is written through the request's plan when it is sent (a deferred value): counted in the code shape.
+ */
 export function toolChars(tool: LlmToolSpec): number {
-  return tool.name.length + (tool.description?.length ?? 0) + JSON.stringify(tool.parameters).length;
+  return tool.name.length + (tool.description === undefined ? 0 : plainDeferred(tool.description).length) + JSON.stringify(tool.parameters).length;
 }
 
 /**

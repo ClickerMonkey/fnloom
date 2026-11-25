@@ -11,8 +11,9 @@
 import {
   compact, contextOff, DEFAULT_CHAT_MODE, type AnnouncedSystems, fnLabel, INPUT_ANSWER_TAG, splitName, type ActorId, type ChatMessage, type ChatModeType, type ContextRecord, type HookBlock, type HookInput,
   type Link, type LoadedForYouPart, type LoadOutcome, type MessagePart, QualifiedName, type Session, type SuggestedFnCard, type Suggestion, type SuggestionOutcome, type SuggestionRecord, type TurnId,
-  type FnExample, type UserInfo,
+  type FnExample, type Json, type UserInfo,
 } from '@harness/core';
+import type { ShownExample } from '../contextor/examples.ts';
 import { withImports } from '../contextor/brought.ts';
 import { DEFAULT_CHARS_PER_TOKEN } from '../contextor/tokens.ts';
 import { announce, systemsChanged, systemsNow } from './announce.ts';
@@ -20,7 +21,7 @@ import type { ChatDeps } from './deps.ts';
 import { messageOf } from './errors.ts';
 import { fileTag } from './files.ts';
 import type { CatalogEntry } from '../catalog/index.ts';
-import type { DecidedSuggestions, MessageEnricher, SuggestionDecider } from './index.ts';
+import type { DecidedSuggestions, MessageEnricher, SuggestedExamples, SuggestionDecider } from './index.ts';
 import { allowsSystem, callSystem, escapeAttribute, escapeBody } from './support.ts';
 import { timeInfo, weekday } from '../execution/time.ts';
 import type { AccessScope } from '../access/index.ts';
@@ -67,7 +68,7 @@ const UNSTATED_TOOLSET: ChatModeType = DEFAULT_CHAT_MODE.type;
 const NO_SUGGESTIONS: { parts: MessagePart[]; record?: SuggestionRecord } = { parts: [] };
 
 /** A suggestion block's card list, in the toolset's words. */
-function suggestionList(block: Extract<HookBlock, { type: 'suggest-context' | 'suggest-fns' }>): string {
+function suggestionList(block: Extract<HookBlock, { type: 'suggest-context' | 'suggest-fns' }>, examples?: SuggestedExamples): string {
   const toolset = block.toolset ?? UNSTATED_TOOLSET;
   if (block.type === 'suggest-context') {
     return cardList(SUGGESTION_TAGS[block.type], SUGGESTED_CONTEXT_LINES[toolset], block.items.map((item) => contextElement({ key: item.context, title: item.title, text: item.why ?? '' })));
@@ -75,14 +76,34 @@ function suggestionList(block: Extract<HookBlock, { type: 'suggest-context' | 's
   // a brief card (Phil 2026-11-22, "Brief cards"): a card snapshotted whole before reads as brief too
   return cardList(SUGGESTION_TAGS[block.type], SUGGESTED_FNS_LINES[toolset], block.items.map((item) => fnElement({
     name: item.fn, label: item.card?.label ?? fnLabel(item.fn), description: item.why ?? '',
-    ...(item.card === undefined ? {} : { mode: item.card.mode, blocked: item.card.blocked, examples: briefExample(item.card.examples ?? []) }),
+    ...(item.card === undefined ? {} : { mode: item.card.mode, blocked: item.card.blocked, examples: briefExample(item.fn, item.card.examples ?? [], examples) }),
   })));
 }
 
-/** A suggestion's one example: the first one's args, without its result or note. */
-function briefExample(examples: readonly FnExample[]): FnExample[] | undefined {
+/**
+ * The example args each suggested fn of a message shows (its card's first), in the code shape: the agent loop writes
+ * them as the model would send them for that fn (`PromptPlanner.writeArgs`) before it renders the message.
+ */
+export function suggestedExamples(message: Pick<ChatMessage, 'parts'>): Array<{ readonly fn: QualifiedName; readonly args: Json }> {
+  return message.parts.flatMap((part) => (part.type === 'extra' || part.type === 'hook' ? part.blocks : [])).flatMap((block) => {
+    if (block.type !== 'suggest-fns') return [];
+    return block.items.flatMap((item) => { const first = item.card?.examples?.[0]; return first === undefined ? [] : [{ fn: item.fn, args: first.args }]; });
+  });
+}
+
+/** A suggested fn's card's one example as it is snapshotted: the first one's args, in the code shape. */
+function firstArgs(examples: readonly FnExample[]): FnExample[] | undefined {
   const [first] = examples;
   return first === undefined ? undefined : [{ args: first.args }];
+}
+
+/**
+ * A suggestion's one example: the first one's args, without its result or note, as `written` has them for the model
+ * (`suggestedExamples`), else in the code shape.
+ */
+function briefExample(fn: QualifiedName, examples: readonly FnExample[], written?: SuggestedExamples): ShownExample[] | undefined {
+  const [first] = examples;
+  return first === undefined ? undefined : [{ args: written?.get(fn) ?? JSON.stringify(first.args) }];
 }
 
 /**
@@ -336,7 +357,7 @@ export class HubMessageEnricher implements MessageEnricher {
     }
   }
 
-  render(message: ChatMessage): string {
+  render(message: ChatMessage, examples?: SuggestedExamples): string {
     // what changed in the systems is read first, before the person's words it may explain
     const first: string[] = [];
     const inline: string[] = [];
@@ -357,8 +378,8 @@ export class HubMessageEnricher implements MessageEnricher {
           break;
         case 'invocation': inline.push(`<invocation fn="${escapeAttribute(part.fn)}" run="${escapeAttribute(part.run)}" />`); break;
         case 'file': inline.push(fileTag(part)); break;
-        case 'extra': blocks.push(this.block(EXTRA_TAGS[part.extra], part.blocks)); break;
-        case 'hook': blocks.push(this.block(hookTag(part.hook), part.blocks)); break;
+        case 'extra': blocks.push(this.block(EXTRA_TAGS[part.extra], part.blocks, examples)); break;
+        case 'hook': blocks.push(this.block(hookTag(part.hook), part.blocks, examples)); break;
         case 'attachment':
           blocks.push(`<attachment name="${escapeAttribute(part.attachment)}" title="${escapeAttribute(part.title)}">${escapeBody(JSON.stringify(part.data))}</attachment>`);
           break;
@@ -372,11 +393,11 @@ export class HubMessageEnricher implements MessageEnricher {
     return [...first, inline.join(''), ...blocks].filter((s) => s !== '').join('\n\n');
   }
 
-  block(tag: string, blocks: readonly HookBlock[]): string {
+  block(tag: string, blocks: readonly HookBlock[], examples?: SuggestedExamples): string {
     const lines = blocks.map((block) => {
       switch (block.type) {
         case 'text': return `<${hookTag(block.tag)}>${escapeBody(block.text)}</${hookTag(block.tag)}>`;
-        case 'suggest-context': case 'suggest-fns': return suggestionList(block);
+        case 'suggest-context': case 'suggest-fns': return suggestionList(block, examples);
         case 'load': return `Loaded: ${[...(block.context ?? []), ...(block.fns ?? [])].join(', ')}`;
       }
     });
@@ -470,7 +491,7 @@ export class HubMessageEnricher implements MessageEnricher {
     const blocked = fnRefusal(record, at.session, at.access);
     if (record === undefined || (blocked !== undefined && readsAsMissing(blocked))) return undefined;
     const head = fnHead(record, blocked?.reason);
-    return compact({ label: head.label, mode: head.mode, blocked: head.blocked, examples: briefExample(promptExamples(record).shown) });
+    return compact({ label: head.label, mode: head.mode, blocked: head.blocked, examples: firstArgs(promptExamples(record).shown) });
   }
 
   async #hooks(input: { session: Session; turn: TurnId; text: string; user: UserInfo }): Promise<MessagePart[]> {

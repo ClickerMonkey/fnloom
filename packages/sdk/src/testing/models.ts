@@ -8,7 +8,9 @@ import { dirname } from 'node:path';
 import { LlmForwardChunk, mintId, type HubModelInfo, type LlmForward, type ModelForward, type ModelForwardResult } from '@harness/core';
 import { it, type TestContext } from 'vitest';
 import { z } from 'zod';
+import type { ModelLike } from '@aeye/schema';
 import { FakeModelLink, replyChunks, streamOf, type FakeReply } from '../server/fake-models.ts';
+import { deferredProblems } from '../server/llm-wire.ts';
 import { liveEnv, liveModels } from '../server/live.ts';
 import type { ModelLink } from '../server/llm.ts';
 import { OpenRouterModelLink } from './openrouter.ts';
@@ -164,3 +166,27 @@ export const realModel = {
     });
   },
 };
+
+/**
+ * One model of each schema dialect a request may be planned for: OpenAI strict (records as `[{key, value}]` pairs,
+ * absent optionals as `null`), Anthropic strict (pairs, optionals left out, no recursion), Gemini (open records) and a
+ * model with no strict dialect (the code shape).
+ */
+export const DIALECT_MODELS: readonly ModelLike[] = [
+  { id: 'openai/gpt-5.1', provider: 'openrouter', capabilities: ['chat', 'tools', 'toolsStrict', 'structured', 'json'] },
+  { id: 'anthropic/claude-sonnet-4.5', provider: 'openrouter', capabilities: ['chat', 'tools', 'toolsStrict', 'structured'] },
+  { id: 'google/gemini-2.5-pro', provider: 'openrouter', capabilities: ['chat', 'tools', 'toolsStrict', 'structured', 'json'] },
+  { id: 'meta-llama/llama-3.3-70b-instruct', provider: 'openrouter', capabilities: ['chat', 'tools', 'json'] },
+];
+
+/**
+ * What a system's prompts showed the model as example calls, checked per dialect: every deferred value (an example
+ * written through the plan the hub makes, `ShowArgs` / `{{encode}}`) of the forwards a fake model link was sent
+ * (`FakeModelLink.sent`), written for each of `models` and read back through the very schema it was written for.
+ * `values` counts the examples seen (so a test knows it checked some); `problems` lists each that didn't read back.
+ */
+export function examplesChecked(forwards: readonly LlmForward[], models: readonly ModelLike[] = DIALECT_MODELS): { values: number; problems: string[] } {
+  const values = forwards.reduce((sum, forward) => sum + (JSON.stringify(forward.request).match(/⟦encode /g) ?? []).length, 0);
+  const problems = forwards.flatMap((forward) => models.flatMap((model) => deferredProblems(forward.request, model)));
+  return { values, problems: [...new Set(problems)] };
+}

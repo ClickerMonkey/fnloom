@@ -19,7 +19,7 @@
  * `harness test` runs a system's tests from anywhere and reports them (`SystemTestReport`).
  */
 export { CallNotDone, callFn, testHub, TestSystem, type FnArgsOf, type FnNameOf, type FnResultOf, type HubCalls, type KindNameOf, type KindPayloadOf, type KindProps, type TestCall, type TestHubOptions, type TestOutcome, type TestRun } from './hub.ts';
-export { ModelRecording, RecordedModelLink, liveTurn, mockModel, realModel, toolCall, type RealModelTest, type RecordingOptions, type ScriptStep } from './models.ts';
+export { DIALECT_MODELS, ModelRecording, RecordedModelLink, examplesChecked, liveTurn, mockModel, realModel, toolCall, type RealModelTest, type RecordingOptions, type ScriptStep } from './models.ts';
 export { OpenRouterModelLink, type OpenRouterOptions } from './openrouter.ts';
 export { galleryHtml, preview, renderHtml, type PreviewOptions, type SavedShot } from './preview.ts';
 export { PREVIEW_INDEX, PREVIEW_THEMES, PreviewIndex, type PreviewTheme } from './shots.ts';

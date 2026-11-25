@@ -7,9 +7,11 @@
 import {
   fnLabel, problemLine, RESULT_TABLE_INSTRUCTION, type ChatModeType, type ContextCrawlResult, type ContextRecord, type CrawledContext, type CrawlSkip, type CrawlStopReason, type Detail, type FnBlock, type FnExample, type FnMode, type FnRefusal, type FnRecord, type InputProblem, type QualifiedName,
 } from '@harness/core';
+import { hub } from '@harness/sdk';
 import { fnMode } from '../link/review-summary.ts';
+import { PLAIN_EXAMPLES, shownExamples, toolExamples, verbatim, type ExampleWriter } from './examples.ts';
 import type { CallProtocol, ChosenContext, ExchangeSummary, FnView } from './index.ts';
-import { AVAILABLE, cardList, contextElement, element, fnElement, type FnCardParts, type Markup } from './xml.ts';
+import { AVAILABLE, cardList, contextElement, element, fnElement, moreExamplesQuery, type FnCardParts, type Markup } from './xml.ts';
 
 /** How calls come back in a prompt (`CallProtocol`, named for the renderers' signatures). */
 type Protocol = CallProtocol;
@@ -60,16 +62,20 @@ export function promptExamples(record: Pick<FnRecord, 'decl'>, chosen?: readonly
 }
 
 /**
- * A fn's example lines as a native tool's description ends with them (`promptExamples`): the args of each example as the
- * JSON the tool takes (the tool is the fn, so there is nothing else to write), then where the rest are when it has more.
+ * A fn's example lines as its native tool's description ends with them (`promptExamples`): the args of each example as
+ * the tool takes them, written through the request's plan once it is made (`toolExamples`: the tool is the fn, so the
+ * example is exactly its args as the schema sent with it has them), then where the rest are when it has more. `tool`:
+ * the tool's name; `names`: the prompt's (none: estimates, which read the code shape).
  */
-export function toolExampleLines(record: FnRecord, chosen?: readonly FnExample[]): string[] {
+export function toolExampleLines(view: Pick<FnView, 'record' | 'signature'>, tool: string, chosen?: readonly FnExample[], names?: Parameters<typeof toolExamples>[1]): string[] {
+  const { record } = view;
   const { shown, more } = promptExamples(record, chosen);
-  const lines = shown.map((example) => {
-    const result = example.result === undefined ? '' : ` → result ${JSON.stringify(example.result)}`;
-    return `Example args: ${JSON.stringify(example.args)}${result}${example.note === undefined ? '' : ` — ${example.note}`}`;
+  const lines = shownExamples(view, shown, toolExamples(tool, names)).map((example) => {
+    const result = example.result === undefined ? '' : ` → result ${example.result}`;
+    return `Example args: ${example.args}${result}${example.note === undefined ? '' : ` — ${example.note}`}`;
   });
-  if (more > 0) lines.push(`It has ${more} more example${more === 1 ? '' : 's'}: hub/fns_examples ({"fn":"${record.name}","query":"what you are about to do"}) gives the closest.`);
+  // its args name the fn and say what you are about to do: nothing a dialect writes otherwise, so as they are
+  if (more > 0) lines.push(`It has ${more} more example${more === 1 ? '' : 's'}: hub/fns_examples (${verbatim({ fn: names?.name(record.name) ?? record.name, query: 'what you are about to do' })}) gives the closest.`);
   return lines;
 }
 
@@ -92,9 +98,10 @@ export function fnHead(record: Pick<FnRecord, 'name' | 'decl'>, blocked?: string
  * A fn's card (`fnElement`) at a detail: `listed` is its first line; `signature` adds its whole description with the
  * lines beside it, and its args and result types (gin's `toCode()`); `full` adds its instructions, examples, and the
  * definition of each named type it uses that `shown` doesn't have yet (they are added to it, so a prompt prints each
- * type once). `blocked` says what blocks it, when something does.
+ * type once). `blocked` says what blocks it, when something does. Its examples are written as the prompt's `writer` says
+ * (`examples.ts`: the args the model would send for the fn here; outside a prompt, the code shape).
  */
-export function fnCardElement(view: FnView, detail: Detail, shown: Set<QualifiedName> = new Set(), examples?: readonly FnExample[], blocked?: string): Markup {
+export function fnCardElement(view: FnView, detail: Detail, shown: Set<QualifiedName> = new Set(), examples?: readonly FnExample[], blocked?: string, writer: ExampleWriter = PLAIN_EXAMPLES): Markup {
   const head = fnHead(view.record, blocked);
   if (detail === 'listed') return fnElement({ ...head, description: firstLine(view.record.decl.description), beside: view.routing === undefined ? [] : [`It ${view.routing}.`] });
   const signature: FnCardParts = { ...head, description: view.record.decl.description, beside: besideLines(view), args: view.args, returns: view.returns };
@@ -106,12 +113,15 @@ export function fnCardElement(view: FnView, detail: Detail, shown: Set<Qualified
     shown.add(type);
     types.push([type, definition]);
   }
-  return fnElement({ ...signature, instructions: view.record.decl.instructions, examples: picked, moreExamples: more, types });
+  return fnElement({
+    ...signature, instructions: view.record.decl.instructions, examples: shownExamples(view, picked, writer), moreExamples: more,
+    ...(more > 0 ? { moreExamplesArgs: writer.contract(hub.fns.fns_examples, moreExamplesQuery(view.record.name)) } : {}), types,
+  });
 }
 
 /** A fn's card as text (`fnCardElement`). */
-export function fnCard(view: FnView, detail: Detail, shown: Set<QualifiedName> = new Set(), examples?: readonly FnExample[], blocked?: string): string {
-  return fnCardElement(view, detail, shown, examples, blocked).toString();
+export function fnCard(view: FnView, detail: Detail, shown: Set<QualifiedName> = new Set(), examples?: readonly FnExample[], blocked?: string, writer?: ExampleWriter): string {
+  return fnCardElement(view, detail, shown, examples, blocked, writer).toString();
 }
 
 /** The heading of the fn cards in a prompt. */

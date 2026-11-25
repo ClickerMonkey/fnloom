@@ -11,11 +11,11 @@
  * agent keeps its conversation on its run. The run's `resume` holds the loop's state (`AgentState`), so a pause, a
  * cancel or a restart picks up exactly where it was.
  */
-import { Prompt, ToolInputError, type Context, type Message, type PromptInput, type Request, type Streamer, type Usage } from '@aeye/core';
-import { a, type Bindable, type Bundle } from '@aeye/schema';
+import { fillRequest, planRequest, Prompt, ToolInputError, type Context, type Message, type PromptInput, type Request, type Streamer, type Usage } from '@aeye/core';
+import { a, fillDeferred, plainDeferred, type Bindable, type Bundle } from '@aeye/schema';
 import { LlmPayloadType, parseValue } from '@harness/sdk';
 import {
-  ArgRepair, HarnessGrammar, InstanceName, isSettled, Json, JsonObject, LlmInteractionId, type FnNameSpelling, type HarnessGrammarArgs, type ModelFnNames, LlmMessage, MessageId, ModelChoice, modelFnName, QualifiedName, RunId, SelectionReport, type PromptPreview, splitName, type ActorId, type FnError, type FnRecord, type InvalidInput,
+  ArgRepair, FnExamplesPage, HarnessGrammar, InstanceName, isSettled, Json, JsonObject, LlmInteractionId, type FnNameSpelling, type HarnessGrammarArgs, type ModelFnNames, LlmMessage, MessageId, ModelChoice, modelFnName, namesModel, QualifiedName, RunId, SelectionReport, type PromptPreview, splitName, type ActorId, type FnError, type FnRecord, type InvalidInput,
   type OutcomeWire, type Run, type RunSettled, type Session, type RunControlAction, type TableReading, type UserInfo,
 } from '@harness/core';
 import { z } from 'zod';
@@ -28,7 +28,9 @@ import { citationsNotice, withCiteId } from '../chat/cite-rule.ts';
 import { SEND_FN, shownMessage, type ConversationMedia } from '../chat/shown.ts';
 import type { Asking } from '../resources/index.ts';
 import type { CallPlan, ExposedTo, ModelCallOut, PromptPlanner } from '../contextor/index.ts';
+import { inlineDeferred, spelled } from '../contextor/examples.ts';
 import { AUTO_MODEL } from '../contextor/limits.ts';
+import { suggestedExamples } from '../chat/enrich.ts';
 import { parseRunBlocks, problemLines, resultText, RunBlockFilter, splitThinking, ThinkingFilter } from '../contextor/render.ts';
 import { causeOf, fnError, messageOf, RunRefused } from './errors.ts';
 import { OUTPUT_REFUSED, SystemGone } from './executors.ts';
@@ -195,7 +197,7 @@ export class RunConversation implements Conversation {
 export interface AgentLoopDeps extends ExecutionDeps {
   readonly runs: Pick<HubRunService, 'start' | 'get' | 'wait' | 'settle' | 'background' | 'cancel' | 'info' | 'reopen' | 'onSettled'>;
   readonly queues: Pick<ExecutionQueues, 'enqueueLlm' | 'cancel'>;
-  readonly llm: Pick<LlmEngine, 'streamer'>;
+  readonly llm: Pick<LlmEngine, 'streamer'> & Partial<Pick<LlmEngine, 'models'>>;
   readonly models: Pick<ModelResolver, 'resolve'>;
   /** How a chat message reads to the LLM (mentions, extras and hooks as tagged blocks). */
   readonly enrich: Pick<MessageEnricher, 'render'>;
@@ -205,7 +207,7 @@ export interface AgentLoopDeps extends ExecutionDeps {
    */
   readonly media?: Pick<ConversationMedia, 'expand'> | undefined;
   /** What each prompt holds, within the model's limits, and what the model's calls mean. */
-  readonly planner: Pick<PromptPlanner, 'plan' | 'interpret' | 'exposed' | 'settled' | 'names' | 'draft'>;
+  readonly planner: Pick<PromptPlanner, 'plan' | 'interpret' | 'exposed' | 'settled' | 'names' | 'draft' | 'writeArgs'>;
 }
 
 /** An agent prompt's tools (given each iteration by `retool`), typed so the prompt's events name them. */
@@ -354,12 +356,16 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       if (caught === undefined) throw error;
     }
     if (caught === undefined) throw new Error('the prompt sent no request');
-    const request: Request = caught;
+    // its examples written through the plan its provider makes for the model (`fillRequest`), as the model reads them
+    const info = this.#deps.llm.models?.().find((one) => namesModel(model, one));
+    const plan = planRequest(caught, info);
+    const request: Request = { ...caught, ...fillRequest(caught, plan) };
+    const context = fillDeferred(planned.context, plan);
     const { estimator } = planned.ctx;
     const textOf = (content: Message['content']): string => (typeof content === 'string' ? content : content.map((part) => (part.type === 'text' && typeof part.content === 'string' ? part.content : `[${part.type}]`)).join('\n'));
     const system = request.messages.filter((m) => m.role === 'system').map((m) => textOf(m.content)).join('\n\n');
     // the instructions as rendered: the system message without what follows them and without the injected section
-    let instructionsText = planned.context !== '' && system.endsWith(planned.context) ? system.slice(0, system.length - planned.context.length).trimEnd() : system;
+    let instructionsText = context !== '' && system.endsWith(context) ? system.slice(0, system.length - context.length).trimEnd() : system;
     if (planned.injectedContext !== '') instructionsText = instructionsText.replace(planned.injectedContext, '').replace(/\n{3,}/g, '\n\n').trim();
     // the tools as the request carries them (what core plans for the model), their parameters in the code shape
     const specs = new Map(planned.tools.map((tool) => [tool.name, tool.spec]));
@@ -372,9 +378,9 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       }),
       messages: request.messages.filter((m) => m.role !== 'system').map((m) => ({ role: m.role, content: textOf(m.content), tokens: estimator.text(textOf(m.content)) })),
       parts: {
-        instructions: instructionsText, injected: planned.injectedContext, context: planned.context, guide,
+        instructions: instructionsText, injected: planned.injectedContext, context, guide,
         tokens: {
-          instructions: estimator.text(instructionsText), injected: estimator.text(planned.injectedContext), context: estimator.text(planned.context), guide: estimator.text(guide), system: estimator.text(system),
+          instructions: estimator.text(instructionsText), injected: estimator.text(planned.injectedContext), context: estimator.text(context), guide: estimator.text(guide), system: estimator.text(system),
         },
       },
       counts: (input.count ?? []).map((text) => estimator.text(text)),
@@ -397,14 +403,14 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     const conversation = this.#conversation(session, state);
     const turn = await store.table('turns').get(run.turn);
     if (turn === undefined) throw new Error(`run ${run.id} names no turn ${run.turn}`);
-    if (session !== undefined && state.seeded !== true) {
-      await this.#seed(conversation, turn.message, session);
-      state = { ...state, seeded: true };
-      await store.table('runs').update(run.id, { resume: Json.parse(state) });
-    }
     // a chat's own model choice wins over the one its agent fn makes
     const metadata = await this.#deps.models.resolve(session?.model ?? ModelChoice.optional().parse(payload.model));
     const model = metadata.model ?? AUTO_MODEL;
+    if (session !== undefined && state.seeded !== true) {
+      await this.#seed(conversation, turn.message, session, { session, agent: fn, model, access: await this.#deps.access.scope(turn.user.id) });
+      state = { ...state, seeded: true };
+      await store.table('runs').update(run.id, { resume: Json.parse(state) });
+    }
     // a chat's own system prompt (`Session.instructions`, a compare variant's too) wins over its agent fn's
     const instructions = session?.instructions ?? payload.instructions;
     if (state.pending.length > 0) {
@@ -654,13 +660,16 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
    * changed since the model was last told (a compare variant's own setting too), it starts with a hidden
    * `<citations_changed>` block, once per change; what was told is kept on the session (and put back by undo).
    */
-  async #seed(conversation: Conversation, message: MessageId | undefined, session: Session): Promise<void> {
+  async #seed(conversation: Conversation, message: MessageId | undefined, session: Session, prompt: ExposedTo): Promise<void> {
     if (message === undefined) return;
     const row = await this.#deps.store.table('messages').get(message);
     if (row === undefined) return;
     const cites = citationsNotice(session.citationsTold, session.citations === true);
     if (cites.told !== session.citationsTold) await this.#deps.store.table('sessions').update(session.id, { citationsTold: cites.told });
-    const text = this.#deps.enrich.render(row);
+    // a suggested fn's example args as the model would send them for that fn here
+    const asks = suggestedExamples(row);
+    const written = asks.length === 0 ? [] : await this.#deps.planner.writeArgs(prompt, asks);
+    const text = this.#deps.enrich.render(row, new Map(asks.map((ask, index) => [ask.fn, written[index] ?? JSON.stringify(ask.args)])));
     await conversation.append([{ role: 'user', content: cites.notice === undefined ? text : `${cites.notice}\n\n${text}` }]);
   }
 
@@ -1020,18 +1029,38 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       if (settled.status === 'failed' && settled.error.code === OUTPUT_REFUSED) stopped ??= settled.error;
       if (settled.status === 'done' && child?.fn === SEND_FN) shown.push(...shownOf(child.args));
       const exposed = outcome?.status === 'done' && outcome.expose !== undefined && prompt !== undefined ? await this.#deps.planner.exposed(outcome.expose, prompt) : '';
-      const text = settledReply(settled, child === undefined ? { rows: this.#deps.settings.execution.HARNESS_HEADLESS_RESULT_ROWS, watched: false } : await this.#reading(child), encode);
+      const reading = child === undefined ? { rows: this.#deps.settings.execution.HARNESS_HEADLESS_RESULT_ROWS, watched: false } : await this.#reading(child);
+      const examples = settled.status === 'done' && prompt !== undefined && encode !== undefined ? await this.#examplesPage(settled.result, prompt, encode) : undefined;
+      const text = examples ?? settledReply(settled, reading, encode);
       const content = exposed === '' ? text : `${text}\n\n${exposed}`;
       // with citations on, the model reads each result's id first: what its cites name
       return reply(settled.status, prompt?.session?.citations === true ? withCiteId(call.run, content) : content);
     }));
     await names?.learn(unspoken.map((reply) => reply.text));
-    const spoken = (text: string): string => (names === undefined ? text : names.text(text));
+    // its fns spelled, then the examples kept from the speller (a page of examples' args) written as they are
+    const spoken = (text: string): string => (names === undefined ? plainDeferred(text) : spelled(names, text));
     const messages = unspoken.map(({ call, text }): LlmMessage => (call.block === true
       ? { role: 'user', content: spoken(text) }
       : { role: 'tool', toolCallId: call.toolCallId, content: spoken(text) }));
     messages.push(...shown);
     return { messages, allFailed: pending.length > 0 && failed === pending.length, ...(stopped === undefined ? {} : { stopped }) };
+  }
+
+  /**
+   * A page of a fn's examples (`hub/fns_examples`) as the model reads it: its fields as any result's (`encode`), each
+   * example's args written as the model would send them for that fn here (`PromptPlanner.writeArgs`), kept from the
+   * fn-name speller. Undefined for a result that isn't such a page.
+   */
+  async #examplesPage(result: Json, prompt: ExposedTo, encode: (value: Json) => Json): Promise<string | undefined> {
+    const page = FnExamplesPage.safeParse(result);
+    if (!page.success) return undefined;
+    const written = await this.#deps.planner.writeArgs(prompt, page.data.items.map((item) => ({ fn: page.data.fn, args: item.args })));
+    const rest = JsonObject.parse(encode(Json.parse({ ...page.data, items: page.data.items.map(({ args: _args, ...item }) => item) })));
+    const items = Array.isArray(rest['items']) ? rest['items'] : [];
+    // each example's args go in as their text (a deferred value, put in place once the JSON is written)
+    const asValue = (text: string | undefined): unknown => (text === undefined ? null : text.startsWith('⟦') ? text : JSON.parse(text));
+    const shown = { ...rest, items: items.map((item, index) => ({ args: asValue(written[index]), ...(typeof item === 'object' && item !== null && !Array.isArray(item) ? item : {}) })) };
+    return inlineDeferred(JSON.stringify(shown));
   }
 
   /** A conversation as the model takes it (`AgentLoopDeps.media`); as kept when there is no media service or it fails. */

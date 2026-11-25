@@ -19,7 +19,7 @@ import type { z } from 'zod';
 import { API_KIND, ApiFnSpec, HarnessGrammar, type Json, QualifiedName, type ApiService } from '@harness/core';
 import { encodeValue, modelArgsOf, type Infer, type StoredFn } from '@harness/sdk';
 import { previewText, ProgramAuthoring, ProgramError, programTools, testTool, type ProgramHost, type ProgramSession } from '@harness/sdk/program';
-import { authoringAgent, authoringTool, type AuthoredFn } from '@harness/sdk/server';
+import { authoringAgent, authoringTool, type AuthoredFn, type ShowArgs } from '@harness/sdk/server';
 import { ApiPayload, HTTP_TYPES, type OperationsPage, type ServicesPage } from '../shared/index.ts';
 import { NoCredential, RequestRefused, ResponseFailed, type SendCtx } from './http.ts';
 import { checkApi, runApi, type ApiCheck } from './program.ts';
@@ -139,25 +139,25 @@ export const API_GUIDE = [
 /** The `set` call the instructions show, whole: its one arg `draft` holds every part (no output: the body is the result). */
 export const SET_EXAMPLE = { draft: { name: 'open_issues', description: 'The open issues of a repository: number and title of each.', request: API_EXAMPLES.openIssues.request, sample: { owner: 'acme', repo: 'web' } } };
 
-/** The agent's job, step by step. */
-const INSTRUCTIONS = [
+/** The agent's job, step by step; every example call is written as the model writes that tool's args (`ShowArgs`). */
+const INSTRUCTIONS = (show: ShowArgs): string => [
   'You write one api fn for the request below: a request to a web API service, saved as a fn of that service so a person can call it again. Programs are written in gin, a JSON expression language: you see how with the examples tool. You work only through your tools, in order; each step unlocks the next, and you finish by calling return (or reuse).',
   '',
-  '0. The service, unless one is given: services {"text":"<words of its name or base URL>"}, then use_service {"name":"<its name>"}. Only when there is none and the request gives a base URL: add_service, for example {"name":"status","label":"Status API","baseUrl":"https://api.status.example","auth":{"kind":"none"}}',
+  `0. The service, unless one is given: services ${show('services', { text: '<words of its name or base URL>' })}, then use_service ${show('use_service', { name: '<its name>' })}. Only when there is none and the request gives a base URL: add_service, for example ${show('add_service', { name: 'status', label: 'Status API', baseUrl: 'https://api.status.example', auth: { kind: 'none' } })}`,
   '   (a short lowercase name; auth {"kind":"bearer","per":"person"} when each person signs in with a token; never a token itself). With no service and no base URL, stop and say the service is not set up.',
-  '1. search {"text":"<what the request does>"}: an api fn of this service that already does it is the answer: reuse {"fn":"<its name>"} and stop.',
-  '2. operations {"text":"<words of the path>"} to find the method, path and params (when the service has an OpenAPI document); examples ({}) once; load {"types":[…]} for api types you build (api/HttpRequest, api/HttpParam, …).',
+  `1. search ${show('search', { text: '<what the request does>' })}: an api fn of this service that already does it is the answer: reuse ${show('reuse', { fn: '<its name>' })} and stop.`,
+  `2. operations ${show('operations', { text: '<words of the path>' })} to find the method, path and params (when the service has an OpenAPI document); examples ${show('examples', {})} once; load ${show('load', { types: ['api/HttpRequest'] })} for api types you build (api/HttpRequest, api/HttpParam, …).`,
   '3. signature {"args":<an obj type>,"returns":<a type>}: the args the caller gives, and what the caller gets (not the whole response).',
   '4. set the whole draft. The set tool takes ONE arg, `draft`, holding every part: {"draft":{"name":…,"description":…,"request":…,"responseType":…,"output":…,"sample":…}}.',
   '   name: snake_case. description: one sentence. request: the program giving the api/HttpRequest. responseType and output: only when the result is not the whole response body. sample: a value for every required arg.',
   '   It is checked at once. A GET is sent with the sample args and you see the real response; other methods are only prepared, never sent. If it lists problems, each names what is wrong: fix only that and call set again with the whole draft. Never send the same draft twice.',
   '   Map each output field from the response field that really holds it (by name), not one that only happens to have the same sample value.',
-  '5. When it is clean, test {"args":{…}} other args if it matters, then call return ({}). Answer in one line.',
+  `5. When it is clean, test {"args":{…}} other args if it matters, then call return ${show('return', {})}. Answer in one line.`,
   'If the checks keep failing or the response shows the service can\'t do what is asked, stop and answer in one line saying why.',
   '',
-  `Example. For "the open issues of a repository (owner, repo): number and title of each", with the service chosen: signature ${JSON.stringify(API_EXAMPLES.openIssues.signature)};`,
-  `set ${JSON.stringify(SET_EXAMPLE)};`,
-  'then return {}.',
+  `Example. For "the open issues of a repository (owner, repo): number and title of each", with the service chosen: signature ${show('signature', API_EXAMPLES.openIssues.signature)};`,
+  `set ${show('set', SET_EXAMPLE)};`,
+  `then return ${show('return', {})}.`,
 ].join('\n');
 
 /** The fn's call as the chat model writes it. */

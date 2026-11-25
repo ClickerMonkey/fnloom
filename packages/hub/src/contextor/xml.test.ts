@@ -25,7 +25,7 @@ describe('the one XML', () => {
     expect(fnElement({ name: 'fs/read', label: 'Read', mode: 'read', description: 'Read a file.' }).toString()).toBe('<fn name="fs/read" label="Read" mode="read" available="yes">Read a file.</fn>');
     expect(fnElement({ name: 'db/drop', label: 'Drop', mode: 'delete', blocked: 'waits for an admin to approve it', description: 'Drop a table.' }).toString())
       .toBe('<fn name="db/drop" label="Drop" mode="delete" available="no" reason="waits for an admin to approve it">Drop a table.</fn>');
-    expect(fnElement({ name: 'x/y', label: 'Y', description: 'Why.', examples: [{ args: { a: '<1>' }, result: 2, note: 'a "note"' }], moreExamples: 0 }).toString())
+    expect(fnElement({ name: 'x/y', label: 'Y', description: 'Why.', examples: [{ args: JSON.stringify({ a: '<1>' }), result: '2', note: 'a "note"' }], moreExamples: 0 }).toString())
       .toBe('<fn name="x/y" label="Y" available="yes">\nWhy.\n<example note="a &quot;note&quot;">{"a":"&lt;1&gt;"} → 2</example>\n</fn>');
   });
 

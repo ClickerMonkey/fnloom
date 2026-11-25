@@ -164,7 +164,11 @@ class HarnessProvider implements Provider<HarnessProviderConfig> {
   * stand-in becomes the role's model), else none (`hub/auto`: the hub picks).
   */
   choiceFor(metadata: unknown): ModelChoice | undefined;
-  /** Stream one request through the hub. */
+  /**
+  * Stream one request through the hub. The hub's provider plans it for the real model, so values its templates show
+  * (`{{encode}}`, `{{schema}}`, an encoder in a function-form instruction or input) go deferred (`deferRequest`) and
+  * are written through the plan the hub makes, never this side's lenient one.
+  */
   forward(request: Request, model: ModelChoice | undefined, signal?: AbortSignal): AsyncGenerator<Chunk, Response>;
   createStreamer(): <C, M>(request: Request, _context: C, metadata?: M, signal?: AbortSignal) => AsyncGenerator<Chunk, Response>;
   createExecutor(): <C, M>(request: Request, _context: C, metadata?: M, signal?: AbortSignal) => Promise<Response>;

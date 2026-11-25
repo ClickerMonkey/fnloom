@@ -5,6 +5,7 @@
 import { mintId, type HubModelInfo, type LlmForward, type LlmForwardChunk, type ModelForward, type ModelForwardResult } from '@harness/core';
 import type { ContentTransfer } from './content.ts';
 import { hubAiOf, type HarnessAi, type ModelLink } from './llm.ts';
+import { filledWire } from './llm-wire.ts';
 
 /** What a fake answers one chat forward with: the text of the reply, or the chunks themselves. */
 export type FakeReply = string | readonly LlmForwardChunk[];
@@ -41,8 +42,13 @@ function embedLengths(forward: ModelForward): ModelForwardResult {
 
 /** A `ModelLink` answering from scripts, recording what it was sent. */
 export class FakeModelLink implements ModelLink {
-  /** Every chat forward, in order. */
+  /**
+   * Every chat forward, in order, as the hub's provider would send it (its deferred values, the examples its prompt
+   * shows, written through a lenient plan: `filledWire`).
+   */
   readonly forwards: LlmForward[] = [];
+  /** The same forwards as the system sent them, deferred values and all (`deferredProblems` checks them per model). */
+  readonly sent: LlmForward[] = [];
   /** Every non-chat call, in order. */
   readonly calls: ModelForward[] = [];
   readonly #options: FakeModelOptions;
@@ -51,7 +57,9 @@ export class FakeModelLink implements ModelLink {
     this.#options = options;
   }
 
-  llm(forward: LlmForward): AsyncIterable<LlmForwardChunk> {
+  llm(given: LlmForward): AsyncIterable<LlmForwardChunk> {
+    this.sent.push(given);
+    const forward = { ...given, request: filledWire(given.request) };
     this.forwards.push(forward);
     const reply = this.#options.reply?.(forward) ?? 'ok';
     return streamOf(typeof reply === 'string' ? replyChunks(reply) : reply);

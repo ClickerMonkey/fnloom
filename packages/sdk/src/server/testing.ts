@@ -23,6 +23,7 @@ import type { z } from 'zod';
 import { g, parseValue } from '../gin.ts';
 import type { AdminNotices, AiSource, Decisions, Fleets, FnSearch, InstanceConnects, OwnerRuns, Proposals, RunNotices, SystemPlace } from '../ctx.ts';
 import { fakeHubAi, streamOf } from './fake-models.ts';
+import { filledWire } from './llm-wire.ts';
 import { FakeHubFns } from './fake-hub-fns.ts';
 import { FakeHubWidgets } from './fake-hub-widgets.ts';
 import { FakeRecords, type StoredTypeDecl } from './fake-records.ts';
@@ -241,7 +242,13 @@ export class FakeHub {
   /** Whether a run's person may use a fn of its system (`usableFns`); every fn by default. */
   usable: (run: HubBody<'usableFns'>['run'], fn: string) => boolean = () => true;
   readonly changes: Array<HubBody<'resourcesChanged'>['changes'][number]> = [];
+  /**
+   * Every chat call forwarded, as the hub's provider sends it on (its deferred values, the examples its prompt shows,
+   * written through a lenient plan: `filledWire`).
+   */
   readonly forwards: LlmForward[] = [];
+  /** The same calls as the system sent them, deferred values and all (`examplesChecked` checks them per model). */
+  readonly sent: LlmForward[] = [];
   /** Every non-chat model call forwarded (`model`). */
   readonly models: ModelForward[] = [];
   /** What waiting systems said for the pairing page (`pairingInfo`). */
@@ -741,8 +748,10 @@ export class FakeHub {
         fnShape: ({ data }) => this.onFnShape(data.name),
         resourcesChanged: ({ data }) => { this.changes.push(...data.changes); },
         llm: ({ data }) => {
-          this.forwards.push(data);
-          return this.onLlm(data);
+          this.sent.push(data);
+          const forward = { ...data, request: filledWire(data.request) };
+          this.forwards.push(forward);
+          return this.onLlm(forward);
         },
         resource: ({ data }) => this.onResource(data),
         content: ({ data }) => {

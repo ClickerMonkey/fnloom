@@ -6,7 +6,7 @@
  */
 import type { Json, LlmForward, LlmForwardChunk, OutcomeWire } from '@harness/core';
 import { streamOf } from '@harness/sdk/server/testing';
-import { replyChunks, toolCall as callTool } from '@harness/sdk/testing';
+import { examplesChecked, replyChunks, toolCall as callTool } from '@harness/sdk/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { QueryAgentAnswer } from '../shared/shapes.ts';
 import { serveDatabase, shopFile, type ServedDatabase } from './fixture.ts';
@@ -74,6 +74,10 @@ describe('the query authoring fns', () => {
     // the missing param was a problem the model fixed; the clean draft showed its first rows
     expect(JSON.stringify(hub.forwards[3]?.request.messages)).toContain('status');
     expect(JSON.stringify(hub.forwards[4]?.request.messages)).toContain('Preview');
+    // every example call the prompts showed reads back through the tool it shows, written for each schema dialect
+    const examples = examplesChecked(hub.sent);
+    expect(examples.problems).toEqual([]);
+    expect(examples.values).toBeGreaterThan(0);
   });
 
   it('reuses a saved query with this request\'s args, and edits it into version 2', async () => {

@@ -191,7 +191,8 @@ function examplesTool<S extends ProgramAuthoring, D>(): AuthoringTool<S, D> {
 
 /** `signature`'s args: the new fn's args (an obj type) and result type, in the session's grammar. */
 const SignatureArgs = HarnessGrammar.result<ProgramSignature>(a.object({
-  args: a.ref('TypeDef').describe('An obj type: {"name":"obj","props":{"amount":{"type":{"name":"num"}}}}.'),
+  // its example is the schema's own, written as each model writes this field (props as pairs on a strict dialect)
+  args: a.ref('TypeDef').describe('An obj type.').example({ name: 'obj', props: { amount: { type: { name: 'num' } } } }),
   returns: a.ref('TypeDef').describe('The result type.'),
 }));
 

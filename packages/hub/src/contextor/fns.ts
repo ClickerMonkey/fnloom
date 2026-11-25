@@ -13,7 +13,8 @@ import { InvalidArgs, type HubFnCtx, type HubFns } from '../execution/executors.
 import type { Search } from '../index/index.ts';
 import type { HubStore } from '../store/index.ts';
 import { contextDetailAtMost, contextText, unique, visible } from './contextors.ts';
-import type { ContextorServices, FnViewSource } from './index.ts';
+import type { ExampleWriter } from './examples.ts';
+import type { ContextorServices, FnViewSource, PromptPlanner } from './index.ts';
 import { limitsFor } from './limits.ts';
 import type { McpScope } from '../mcp/index.ts';
 import type { AccessScope } from '../access/index.ts';
@@ -36,6 +37,8 @@ export interface ContextorFnDeps {
   readonly mcpScope: (caller: ActorId) => Promise<FnScope | undefined>;
   /** What the run's person may see and use. */
   readonly access: (actor: ActorId) => Promise<AccessScope>;
+  /** How the prompt a run was called from writes fn examples (`PromptPlanner.writerForRun`); none outside a prompt. */
+  readonly writer?: (run: Parameters<PromptPlanner['writerForRun']>[0]) => Promise<ExampleWriter | undefined>;
 }
 
 /** The session a run is in, if any. */
@@ -66,7 +69,9 @@ export function registerContextorFns(fns: HubFns, deps: ContextorFnDeps): void {
     if (view !== undefined) {
       const blocked = fnRefusal(view.record, session, access);
       if (blocked !== undefined) throw new InvalidArgs([{ path: 'name', message: blockedLine(name.data, blocked) }]);
-      return { name: name.data, kind: 'fn' as const, detail, text: fnCard(view, detail) };
+      // its examples as the model that asked would send them (the code shape outside a prompt)
+      const writer = await deps.writer?.(ctx.request.run);
+      return { name: name.data, kind: 'fn' as const, detail, text: fnCard(view, detail, undefined, undefined, undefined, writer) };
     }
     const found = await deps.catalog().context(name.data);
     const user = ctx.request.run.user;

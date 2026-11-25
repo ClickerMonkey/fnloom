@@ -12,9 +12,10 @@
  * contextor and their fns among the agent's starting tools. At each new turn it is worked out again, and the session's
  * `FixedRegionStamp` rewritten, only when the region's text changed (a system off, an approval, an admin's switch).
  */
+import { plainDeferred } from '@aeye/schema';
 import type { Logger } from '@ayepi/log';
 import {
-  ChatModeConfig, compositeKey, ContextorConfig, DEFAULT_CHAT_MODE, DEFAULT_CONTEXTOR, flow, mapConcurrent, ModelChoice, namesModel, QualifiedName, type ActorId, type AnnouncedSystem, type Exposure, type InjectedReport, type FnBlock, type FnRecord, type FnRefusal, type LlmMessage, type ModelFnNames, type ModelInfo,
+  ChatModeConfig, compositeKey, ContextorConfig, DEFAULT_CHAT_MODE, DEFAULT_CONTEXTOR, flow, mapConcurrent, ModelChoice, namesModel, QualifiedName, type ActorId, type RunId, type AnnouncedSystem, type Exposure, type InjectedReport, type FnBlock, type FnRecord, type FnRefusal, type LlmMessage, type ModelFnNames, type ModelInfo,
   type Json, type Session, type SessionId, type SelectionReport, type Turn, type TurnId,
 } from '@harness/core';
 import { LlmPayloadType, parseValue, type LlmPayload } from '@harness/sdk';
@@ -28,11 +29,12 @@ import { budgetPlan } from './budget.ts';
 import { CONTEXTORS } from './contextors.ts';
 import { exchanges, isPersonMessage, namedIn, personWords, shorten, textOf } from './history.ts';
 import type {
-  BudgetPlan, CallPlan, ChatMode, ChosenContext, ChosenFn, Contextor, ContextorDeps, ContextorInput, DraftInput, ExposedTo, ModeChoice, ModeContext, ModelCallOut, ModelLimitsService, Overflow,
+  BudgetPlan, CallPlan, CallProtocol, ChatMode, ChosenContext, ChosenFn, Contextor, ContextorDeps, ContextorInput, DraftInput, ExposedTo, ModeChoice, ModeContext, ModelCallOut, ModelLimitsService, Overflow,
   ModeTool, PlanInput, PlannedPrompt, PromptPlanner, RenderedIteration, Selection, TokenEstimates, TokenEstimator,
 } from './index.ts';
 import { AUTO_MODEL } from './limits.ts';
 import { fitInjected, fixedHash, gatherInjected, injectedFns, injectedShown, injectedTemplate, placeInjected, type InjectedGather } from './injected.ts';
+import { PLAIN_EXAMPLES, promptExamples, spelled, type ExampleWriter, type ExamplesMode } from './examples.ts';
 import { CHAT_MODES, modeNames } from './modes.ts';
 import { broughtWords, contextBlock, earlierBlock, moreContext, type BroughtFnLines, type BroughtWords } from './render.ts';
 import { MESSAGE_FRAMING } from './tokens.ts';
@@ -56,6 +58,11 @@ export function modeChoice(session: Pick<Session, 'mode' | 'contextor'> | undefi
     mode: ChatModeConfig.parse(session?.mode ?? payload.mode ?? DEFAULT_CHAT_MODE),
     contextor: ContextorConfig.parse(session?.contextor ?? payload.contextor ?? DEFAULT_CONTEXTOR),
   };
+}
+
+/** How a prompt in a chat mode, speaking a protocol, shows fns' examples (`promptExamples`). */
+export function examplesMode(mode: 'tools' | 'static', protocol: CallProtocol): ExamplesMode {
+  return mode === 'tools' ? 'tools' : protocol === 'text' ? 'text' : 'static';
 }
 
 /** Build the mode of a config. */
@@ -216,16 +223,49 @@ export class HubPromptPlanner implements PromptPlanner {
   }
 
   /** The mode a session's agent uses with a model, and what it renders with. */
-  async #mode(session: Session | undefined, agent: FnRecord, model: string): Promise<{ mode: ChatMode; ctx: ModeContext; payload: LlmPayload; choice: ModeChoice }> {
+  async #mode(session: Session | undefined, agent: FnRecord, model: string): Promise<{ mode: ChatMode; ctx: ModeContext; payload: LlmPayload; choice: ModeChoice; info: ModelInfo | undefined }> {
     const payload = parseValue(LlmPayloadType, agent.decl.payload);
     const choice = modeChoice(session, payload);
     const mode = chatModeOf(choice.mode, this.#deps);
-    const nativeTools = (await this.#deps.models()).find((m) => namesModel(model, m))?.capabilities.includes('tools') ?? true;
+    const info = (await this.#deps.models()).find((m) => namesModel(model, m));
+    const nativeTools = info?.capabilities.includes('tools') ?? true;
     // the one fn name: every fn this prompt names is spelled as the model calls it in this mode
     const names = modeNames(mode.type, await this.#deps.catalog.modelNames());
+    const protocol = mode.protocol(nativeTools);
+    // examples that aren't a tool's own: as the model would send them here (static `run`, or the fn's tool once loaded)
+    const writer = promptExamples(examplesMode(mode.type, protocol), names, info);
     // an agent that takes its injected section at summary (a small window) takes the systems list and static tools brief too
     const brief = payload.injected !== undefined && payload.injected !== 'none' && payload.injected.detail === 'summary';
-    return { mode, ctx: { estimator: await this.#deps.tokens.forModel(model), protocol: mode.protocol(nativeTools), names, ...(brief ? { brief } : {}) }, payload, choice };
+    return { mode, ctx: { estimator: await this.#deps.tokens.forModel(model), protocol, names, writer, ...(brief ? { brief } : {}) }, payload, choice, info };
+  }
+
+  async writeArgs(to: ExposedTo, calls: ReadonlyArray<{ readonly fn: QualifiedName; readonly args: Json }>): Promise<string[]> {
+    const { ctx } = await this.#mode(to.session, to.agent, to.model);
+    const writer = ctx.writer ?? PLAIN_EXAMPLES;
+    const views = await mapConcurrent(calls, (call) => this.#deps.views.view(call.fn));
+    return calls.map((call, index) => { const view = views[index]; return view === undefined ? JSON.stringify(call.args) : writer.args(view, call.args); });
+  }
+
+  async writerForRun(run: { readonly parent?: RunId | undefined; readonly user: { readonly id: ActorId } }): Promise<ExampleWriter | undefined> {
+    if (run.parent === undefined) return undefined;
+    const parent = await this.#deps.store.table('runs').get(run.parent);
+    const agent = parent === undefined ? undefined : await this.#deps.catalog.fn(parent.fn);
+    if (parent === undefined || agent === undefined) return undefined;
+    let payload: LlmPayload;
+    try {
+      payload = parseValue(LlmPayloadType, agent.decl.payload);
+    } catch {
+      // not an agent: a hub fn called from code
+      return undefined;
+    }
+    const session = parent.session === undefined ? undefined : await this.#deps.store.table('sessions').get(parent.session);
+    const metadata = await this.#deps.resolver.resolve(session?.model ?? ModelChoice.optional().parse(payload.model));
+    return this.writer({ session, agent, model: metadata.model ?? AUTO_MODEL, access: await this.#deps.access(run.user.id) }, false);
+  }
+
+  async writer(to: ExposedTo, protect = true): Promise<ExampleWriter> {
+    const { mode, ctx, info } = await this.#mode(to.session, to.agent, to.model);
+    return protect ? ctx.writer ?? PLAIN_EXAMPLES : promptExamples(examplesMode(mode.type, ctx.protocol), ctx.names ?? modeNames(mode.type), info, false);
   }
 
   async names(to: ExposedTo): Promise<ModelFnNames> {
@@ -373,8 +413,9 @@ export class HubPromptPlanner implements PromptPlanner {
     const { names } = rendered;
     const region = contextRegion(guide, selection, rendered.systemEnd, held, broughtWords(mode.type, rendered.protocol));
     await names.learn([instructions, region, ...selection.linear.flatMap(messageTexts)]);
-    const context = names.text(region);
-    const messages: LlmMessage[] = [...selection.linear.map((message) => spokenMessage(message, names)), ...(rendered.tail === undefined ? [] : [{ role: 'system' as const, content: rendered.tail }])];
+    // its fns spelled, then its examples (kept from the speller) written as they are
+    const context = spelled(names, region);
+    const messages: LlmMessage[] = [...selection.linear.map((message) => spokenMessage(message, names)), ...(rendered.tail === undefined ? [] : [{ role: 'system' as const, content: plainDeferred(rendered.tail) }])];
     const system = context === '' ? instructions : `${instructions}\n\n${context}`;
     const estimate = estimator.message({ role: 'system', content: system }) + rendered.tools.reduce((sum, t) => sum + estimator.tool(t.spec), 0) + estimator.messages(messages);
     return { context, messages, estimate };
@@ -568,8 +609,8 @@ function messageTexts(message: LlmMessage): string[] {
 /** A message with every fn its text names spelled as the model calls it here (after `learn` over `messageTexts`). */
 function spokenMessage(message: LlmMessage, names: ModelFnNames): LlmMessage {
   if (message.role === 'assistant') return message;
-  if (typeof message.content === 'string') return { ...message, content: names.text(message.content) };
-  return { ...message, content: message.content.map((part) => (part.type === 'text' ? { ...part, content: names.text(part.content) } : part)) };
+  if (typeof message.content === 'string') return { ...message, content: spelled(names, message.content) };
+  return { ...message, content: message.content.map((part) => (part.type === 'text' ? { ...part, content: spelled(names, part.content) } : part)) };
 }
 
 /** A message with its text shortened to `max` characters (string content only). */

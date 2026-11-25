@@ -15,7 +15,7 @@ import { a, type Bound } from '@aeye/schema';
 import { CODE_KIND, CodeFnSpec, HarnessGrammar, type Json, QualifiedName, splitName } from '@harness/core';
 import { encodeValue, type Infer, type StoredFn } from '@harness/sdk';
 import { checkProgram, previewText, ProgramAuthoring, ProgramError, programTools, runProgram, testTool, type ProgramCheck, type ProgramHost, type ProgramSession } from '@harness/sdk/program';
-import { authoringAgent, type AuthoredFn } from '@harness/sdk/server';
+import { authoringAgent, type AuthoredFn, type ShowArgs } from '@harness/sdk/server';
 import { CodePayload } from '../shared/index.ts';
 
 /** A draft as the agent writes it. */
@@ -118,24 +118,24 @@ export const CODE_GUIDE = [
 /** The `set` call the instructions show, whole: its one arg `draft` holds every part. */
 export const SET_EXAMPLE = { draft: { name: 'price_with_tax', description: 'The amount with tax at a percentage rate, and a note.', program: CODE_EXAMPLES.priceWithTax.program, sample: { amount: 100, rate: 8.25 } } };
 
-/** The agent's job, step by step. */
-const INSTRUCTIONS = [
+/** The agent's job, step by step; every example call is written as the model writes that tool's args (`ShowArgs`). */
+const INSTRUCTIONS = (show: ShowArgs): string => [
   'You write one code fn for the request below: a small program over its args that may call other fns, saved so a person can run it again. Programs are written in gin, a JSON expression language: you see how with the examples tool. You work only through your tools, in order; each step unlocks the next, and you finish by calling return (or reuse).',
   '',
-  '1. search {"text":"<what the fn needs, in a few words>"}: it lists fns the program may call and code fns that may already do it. If a code fn already does the whole request, call reuse {"fn":"<its name>"} and stop.',
-  '2. load {"fns":["<system/name>",…]} for each fn the program will call (only loaded fns can be called), and {"types":[…]} only for named types a load or search listed. Call examples ({}) once to see how programs are written.',
+  `1. search ${show('search', { text: '<what the fn needs, in a few words>' })}: it lists fns the program may call and code fns that may already do it. If a code fn already does the whole request, call reuse ${show('reuse', { fn: '<its name>' })} and stop.`,
+  `2. load ${show('load', { fns: ['<system/name>'] })} with each fn the program will call (only loaded fns can be called), and ${show('load', { types: ['<type name>'] })} only for named types a load or search listed. Call examples ${show('examples', {})} once to see how programs are written.`,
   '3. signature {"args":<an obj type>,"returns":<a type>}: each arg a prop of the obj (an optional arg wrapped as {"name":"optional","generic":{"T":…}}). Keep it minimal: only the args the calculation needs, and a small result (a num or text is often enough).',
   '4. set the whole draft. The set tool takes ONE arg, `draft`, holding all four parts: {"draft":{"name":…,"description":…,"program":…,"sample":…}}.',
   '   name: snake_case, after what it does. description: one sentence, what it gives and what its args are for. program: one gin expression. sample: a value for every required arg, by name.',
   '   The draft is checked at once (and run with the sample when it calls no fn). If it lists problems, each names a path: fix only that part and call set again with the whole draft. Never send the same draft twice.',
   '   A wrong result type means the program or the signature is wrong: fix the one that is (declare the signature again if it changes).',
-  '5. When it is clean, test {"args":{…}} other args if an edge case matters (a missing optional arg), then call return ({}). Answer in one line.',
+  `5. When it is clean, test {"args":{…}} other args if an edge case matters (a missing optional arg), then call return ${show('return', {})}. Answer in one line.`,
   'If the request asks for something a program can\'t be (a page, a game, a screen, stored data) or the checks keep failing, stop and answer in one line saying what could not be written and why.',
   '',
-  'Example. For "a price with tax: amount and rate (a percentage), 100 at 8.25 gives 108.25": search {"text":"price with tax"} finds nothing that fits; examples {};',
-  `signature ${JSON.stringify(CODE_EXAMPLES.priceWithTax.signature)};`,
-  `set ${JSON.stringify(SET_EXAMPLE)};`,
-  'then return {}.',
+  `Example. For "a price with tax: amount and rate (a percentage), 100 at 8.25 gives 108.25": search ${show('search', { text: 'price with tax' })} finds nothing that fits; examples ${show('examples', {})};`,
+  `signature ${show('signature', CODE_EXAMPLES.priceWithTax.signature)};`,
+  `set ${show('set', SET_EXAMPLE)};`,
+  `then return ${show('return', {})}.`,
 ].join('\n');
 
 /** The fn's call as the chat model writes it. */

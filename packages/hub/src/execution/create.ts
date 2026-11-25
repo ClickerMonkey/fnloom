@@ -183,6 +183,7 @@ export function contextorPorts(hub: Pick<HubServices, 'contextor'>): Pick<Execut
       interpret: (call, prompt) => hub.contextor.planner.interpret(call, prompt),
       exposed: (exposures, to) => hub.contextor.planner.exposed(exposures, to),
       names: (to) => hub.contextor.planner.names(to),
+      writeArgs: (to, calls) => hub.contextor.planner.writeArgs(to, calls),
       settled: (input) => hub.contextor.planner.settled(input),
     },
   };
@@ -207,7 +208,7 @@ export function chatPorts(hub: Pick<HubServices, 'chat'>): ChatPorts {
       suggested: (message, record) => hub.chat.turns.suggested(message, record),
       followUp: (input) => hub.chat.turns.followUp(input),
     },
-    enrich: { render: (message) => hub.chat.enrich.render(message) },
+    enrich: { render: (message, examples) => hub.chat.enrich.render(message, examples) },
     approvers: { approvers: (approver, turnUser) => hub.chat.approvers.approvers(approver, turnUser) },
   };
 }

@@ -123,7 +123,7 @@ describe('chatPorts', () => {
       ['turns.settle', [turn, 'done']],
       ['turns.track', [message.id, runs]],
       ['turns.followUp', [{ turn, agent }]],
-      ['enrich.render', [message]],
+      ['enrich.render', [message, undefined]],
       ['approvers.approvers', [{ by: 'turn-user' }, agent]],
     ]);
   });

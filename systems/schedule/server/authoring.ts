@@ -17,7 +17,7 @@ import type { ExprDef } from '@aeye/gin';
 import { a, type Bound } from '@aeye/schema';
 import { HarnessGrammar, Json, type QualifiedName } from '@harness/core';
 import { ProgramAuthoring, previewText, programTools, type ProgramHost, type ProgramLookups, type ProgramSession } from '@harness/sdk/program';
-import { authoringAgent, type AuthoredFn } from '@harness/sdk/server';
+import { authoringAgent, type AuthoredFn, type ShowArgs } from '@harness/sdk/server';
 import { schedule } from '../shared/index.ts';
 import type { Fire, PreviousFiring } from '../shared/types.ts';
 import { clockWords, dayWords } from '../shared/when.ts';
@@ -99,13 +99,13 @@ export const ARGS_GUIDE = [
   `Example 2, args obj{title: text}, "title: Notes for and the run's day": ${JSON.stringify(ARGS_EXAMPLES.titled.program)}`,
 ].join('\n');
 
-/** The agent's job, step by step. */
-const INSTRUCTIONS = [
+/** The agent's job, step by step; every example call is written as the model writes that tool's args (`ShowArgs`). */
+const INSTRUCTIONS = (show: ShowArgs): string => [
   'You write one args program for a scheduled run of a fn: the args it is called with each time it runs, worked out from that run. The request names the fn and its args, says in plain words how the args that change from run to run are worked out, and gives the fixed values. Programs are written in gin, a JSON expression language: the examples tool shows how. You work only through your tools, in order, and finish by calling return.',
   '',
-  '1. examples {} once, to see how args programs are written.',
+  `1. examples ${show('examples', {})} once, to see how args programs are written.`,
   '2. set {"draft":{"program":<one gin expression>}}: the whole args object. It is checked against the fn\'s args at once and run for the next three runs; the answer lists the problems, or each run\'s args. Fix only what a problem names and call set again with the whole program. Never send the same draft twice.',
-  '3. When each run\'s args are what the request says, call return {}. Answer in one line.',
+  `3. When each run's args are what the request says, call return ${show('return', {})}. Answer in one line.`,
   'If the words ask for something the program can\'t know (data from another fn, anything but the run and the last run), stop and answer in one line saying what can\'t be worked out and why.',
 ].join('\n');
 

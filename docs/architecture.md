@@ -138,6 +138,49 @@ markers, "did you mean").
   LENIENT JSON Schema; the hub rebuilds it (`a.fromJSONSchema`, cached by JSON), its provider plans for the real model,
   and the hub decodes each finished call (and a structured output) through that plan before streaming it back: the
   code shape, or the raw args with `invalid` (the model-facing message, which the system's prompt answers with).
+- **Examples** (Phil 2026-11-25: "make sure that's used everywhere"): every example a model reads is written by
+  `@aeye/schema`'s encoder for the schema it illustrates, for the plan it is sent with, never as hand-written JSON and
+  never through the fn-name guess (`ModelFnNames.text` skips them; it stays for prose). The tool: deferred values
+  (`deferEncode`: the code-shape value and the schema that writes it), which core's `prepareRequest` fills once the
+  provider has planned the request for its model (`fillRequest`), so they follow the exact plan, adjustments and the
+  `run_tool` dispatcher included. Before a plan (estimates, previews, records with no pinned plan) a value reads as its
+  fallback, the code shape with the prompt's fn names (`plainDeferred`); token estimates count that. Where each comes
+  from (`hub/src/contextor/examples.ts`):
+  - a tool's own examples (a fn's native tool, each static tool, `run`'s): deferred values of that tool's args;
+  - static mode's fn cards (in the prompt, a result's exposed cards, a suggestion, a page of `hub/fns_examples`):
+    `run`'s args for the fn, a deferred value of `run` written whole and its `args` picked (on a strict dialect a fn
+    `run` doesn't decode takes pairs of JSON text, one it does its own args); the text protocol's: the code shape with
+    the prompt's fn names, as the hub reads a `<run>` block back;
+  - tools mode, a fn that isn't a tool of this request (a suggestion, a page of `hub/fns_examples`): as its tool would
+    take them once loaded, planned alone for the model, kept from the speller (`verbatim`);
+  - a hub fn's own output (static `inspect`'s card, kept on its run) and anything outside a prompt (an MCP, the web):
+    the code shape with the calling prompt's fn names (`writerForRun`), or plain;
+  - an example's result: as results reach the model (`ModelFnNames.value` by the fn's result type);
+  - a schema's own `.example()` (the program tools' `signature` args): written per profile by `@aeye/schema`.
+
+  Every value must read back as itself through its schema, or it shows its fallback (a stale example; an optional
+  nullable field a strict dialect can only write as `null`, where leaving it out is the example's meaning).
+  `scripts/examples-encoded.test.ts` writes every fn's examples (hub and systems, plus one with a record, an optional
+  field and a fn's name) for OpenAI strict, Anthropic strict, Gemini and a lenient model, in tools mode (a few tools a
+  request and all at once, past the dispatcher), static mode (the static tools, `run`, the cards as `run`'s args) and
+  for fns that aren't tools here, and reads each back through the schema it was sent with.
+- **Systems' prompts: the system sends the code-shape example, the hub's plan writes it.** A system's prompt is
+  rendered in the system, but planned on the hub (the gateway rebuilds the request; its provider plans for the real
+  model), so a system can't encode for that plan itself. Decision: the system's `HarnessProvider` forwards each request
+  through core's `deferRequest`, which renders its templates (`{{encode}}`, `{{schema}}`, an encoder in a
+  function-form instruction or input) for a stand-in plan whose encoders write deferred values; they cross the link as
+  plain text and the hub's provider fills them through the plan it makes (`prepareRequest`), messages and tool results
+  included, every round. No new link field: the values are self-contained text. Authoring prompts write their example
+  calls with the SDK's `ShowArgs` (`AuthoringAgentInput.instructions` and `AuthoringToolInput.instructions` may be
+  `(show) => text`): `show(tool, args, path?)` is a deferred value of that tool, carrying the tool's lenient schema when
+  it isn't offered this round (stage-gated), so it is written as that tool would be sent to this model; a tool that is
+  never strict needs none (its dialect writes the code shape). A worked example for another instance than the
+  session's (widgets' proposal for another source) can't be written by the session's typed schema and stays as written.
+  A hub provider a system serves (`RemoteProvider`) gets the hub's prompts with their deferred values already written,
+  through a plan for the declared model (the system re-plans the lenient schemas, which lack the hub's fn-name codec).
+  The test kit's fake hub fills them through a lenient plan as the hub would (`filledWire`), keeps what the system
+  sent (`sent`), and `examplesChecked(sent)` reads every example call back for each dialect (`DIALECT_MODELS`): the
+  code, api, database, input and schedule authoring tests assert it.
 - **What stays zod and why**: `zod-gin.ts` (`ginOf` / `ginAs` / `toolArgsOf`) turns ayepi's zod API types into gin
   wire types (a fn's args travel as a gin `TypeDef`; the model sees them through `ginBundle`); `@harness/core`'s
   contracts (`llm.ts`, `link.ts`, records, `AgentState`), env slices, and `@ayepi/mcp`'s `define({ args })`.

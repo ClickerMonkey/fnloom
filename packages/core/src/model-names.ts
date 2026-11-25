@@ -12,6 +12,7 @@
  * names and values back in, after one `learn` per prompt), and the build's check of names in authored text
  * (`unresolvedNamesIn`). Nothing else spells a model name.
  */
+import { DEFERRED_SPAN, hasDeferred } from '@aeye/schema';
 import { z } from 'zod';
 import type { GinTypeDef } from './gin.ts';
 import { type Json, QualifiedName, SYSTEM_NAME_PATTERN, SystemName, splitName, Timestamp } from './primitives.ts';
@@ -469,7 +470,10 @@ export function modelFnNames(input: ModelFnNamesInput): ModelFnNames {
     if (qualified.success) return qualified.data;
     return fnOfModelNameByRule(given);
   };
-  const text = (source: string): string => source.replace(NAME_IN_TEXT, (whole, ref: string | undefined, found: string, at: number) => {
+  // a deferred value (`deferEncode`: an example written through the request's plan once it exists) is the encoder's,
+  // whose `FnName` fields spell their fns: only the text around it is spelled here
+  const text = (source: string): string => (hasDeferred(source) ? source.split(DEFERRED_SPAN).map((part, i) => (i % 2 === 1 ? part : spell(part))).join('') : spell(source));
+  const spell = (source: string): string => source.replace(NAME_IN_TEXT, (whole, ref: string | undefined, found: string, at: number) => {
     if (ref === 'context:') return found;
     const given = trimmed(found);
     let { name: candidate, rest } = given;

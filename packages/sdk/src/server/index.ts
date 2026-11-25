@@ -180,7 +180,7 @@ export {
   type HarnessAi, type HarnessMetadata, type HarnessProviderConfig, type ModelLink,
 } from './llm.ts';
 export {
-  LlmWire, UNSENDABLE_CONTENT, messageFromWire, requestFromWire, schemaFromWire, lenientJson, plannedOf, isObjectSchema, AnswerDecoder, usageToWire, usageFromWire, chunkToWire,
+  LlmWire, UNSENDABLE_CONTENT, deferredProblems, filledWire, messageFromWire, requestFromWire, schemaFromWire, lenientJson, plannedOf, isObjectSchema, AnswerDecoder, usageToWire, usageFromWire, chunkToWire,
   ChunkWriter, ChunkReader, chunkFromWire, responseToWire, decisionInputToWire, decisionInputFromWire, type LlmWireOptions,
 } from './llm-wire.ts';
 export { ProviderServer, providerErrorKind, type ProviderServerParts } from './providers.ts';
@@ -216,5 +216,5 @@ export {
 export { rendererFolder, type RendererPlace } from './renderers.ts';
 export {
   AUTHORING_STAGES, AuthoringError, AuthoringSession, Disclosure, authoredFn, authoringAgent, authoringEnv, authoringTool,
-  type AuthoredFn, type AuthoringAgent, type AuthoringAgentInput, type AuthoringStage, type AuthoringTool, type AuthoringToolInput, type DraftCheck, type ToolStage, type SkippableStage,
+  type AuthoredFn, type AuthoringAgent, type AuthoringText, type ShowArgs, type AuthoringAgentInput, type AuthoringStage, type AuthoringTool, type AuthoringToolInput, type DraftCheck, type ToolStage, type SkippableStage,
 } from '../authoring.ts';

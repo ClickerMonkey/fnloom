@@ -151,14 +151,21 @@ export interface SuggestionDecider {
 }
 
 /** What is added to a user message before the LLM sees it: what changed in its systems, local time and suggestions (the hub's), then system hooks. */
+/** Suggested fns' example args as the model would send them, as JSON text, by fn (`suggestedExamples`). */
+export type SuggestedExamples = ReadonlyMap<string, string>;
+
 export interface MessageEnricher {
   /**
    * The parts to add, the record of what was suggested and what was not (none when nothing was a candidate), and what
    * the model knows about the systems after this message (none when that stays as it was).
    */
   enrich(input: { session: Session; turn: TurnId; text: string; user: UserInfo }): Promise<{ parts: MessagePart[]; suggestions?: SuggestionRecord; announcedSystems?: AnnouncedSystems }>;
-  /** The text the LLM gets for a message: mentions as `<mention …>` blocks, extras and hooks as tagged blocks. */
-  render(message: ChatMessage): string;
+  /**
+   * The text the LLM gets for a message: mentions as `<mention …>` blocks, extras and hooks as tagged blocks. `examples`:
+   * each suggested fn's example args as the model would send them (`suggestedExamples`, written by the agent loop); the
+   * code shape without.
+   */
+  render(message: ChatMessage, examples?: SuggestedExamples): string;
   /** Hook blocks as the LLM text block they become. */
   block(tag: string, blocks: readonly HookBlock[]): string;
 }

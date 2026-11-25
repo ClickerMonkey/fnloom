@@ -5,7 +5,8 @@
  * always clear where one thing ends and the next begins. An element's text comes first, then its parts as child
  * elements. Attribute values and text are escaped; only elements made here go into a body as they are.
  */
-import type { FnExample, FnMode } from '@harness/core';
+import type { FnMode } from '@harness/core';
+import type { ShownExample } from './examples.ts';
 import { escapeAttribute, escapeBody } from '../chat/support.ts';
 
 /** An element made here: a body takes it as it is, where a plain string is text and is escaped. */
@@ -75,9 +76,12 @@ export interface FnCardParts {
   readonly args?: string | undefined;
   readonly returns?: string | undefined;
   readonly instructions?: string | undefined;
-  readonly examples?: readonly FnExample[] | undefined;
+  /** Its examples as the model writes them here (`shownExamples`). */
+  readonly examples?: readonly ShownExample[] | undefined;
   /** How many more examples it has than it shows. */
   readonly moreExamples?: number | undefined;
+  /** The args of the `hub/fns_examples` call that reads them, as the model writes them here (the code shape when absent). */
+  readonly moreExamplesArgs?: string | undefined;
   /** The definitions of the named types it uses that the prompt hasn't shown yet. */
   readonly types?: ReadonlyArray<readonly [name: string, definition: string]>;
 }
@@ -85,16 +89,21 @@ export interface FnCardParts {
 /** The `available` attribute's value: `yes`, or `no` with the reason beside it. */
 export const AVAILABLE = { yes: 'yes', no: 'no' } as const;
 
-/** An example as a card shows it: its args as JSON, then its result. */
-function exampleElement(example: FnExample): Markup {
-  const result = example.result === undefined ? '' : ` → ${JSON.stringify(example.result)}`;
-  return element('example', { note: example.note }, [`${JSON.stringify(example.args)}${result}`]);
+/** An example as a card shows it: its args as the model writes them, then its result. */
+function exampleElement(example: ShownExample): Markup {
+  const result = example.result === undefined ? '' : ` → ${example.result}`;
+  return element('example', { note: example.note }, [`${example.args}${result}`]);
+}
+
+/** The `hub/fns_examples` args a card's more-examples line shows, in the code shape. */
+export function moreExamplesQuery(fn: string): { readonly fn: string; readonly query: string } {
+  return { fn, query: 'what you are about to do' };
 }
 
 /** A fn's card. */
 export function fnElement(card: FnCardParts): Markup {
   const moreExamples = card.moreExamples === undefined || card.moreExamples < 1 ? undefined
-    : element('more_examples', { count: card.moreExamples }, [`Read them with hub/fns_examples ${JSON.stringify({ fn: card.name, query: 'what you are about to do' })}`]);
+    : element('more_examples', { count: card.moreExamples }, [`Read them with hub/fns_examples ${card.moreExamplesArgs ?? JSON.stringify(moreExamplesQuery(card.name))}`]);
   return element('fn', {
     name: card.name, label: card.label, mode: card.mode, available: card.blocked === undefined ? AVAILABLE.yes : AVAILABLE.no, reason: card.blocked,
   }, [

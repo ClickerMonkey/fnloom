@@ -128,7 +128,11 @@ const EXAMPLE = {
   },
 };
 
-/** The agent's job, step by step, with worked examples. */
+/**
+ * The agent's job, step by step, with worked examples. The worked proposal is for another source than the session's,
+ * so the session's `propose` schema (typed by its own source's visuals, columns and args) can't write it: it is shown
+ * as written, the code shape, which is how `propose` (never strict) takes a proposal on every dialect.
+ */
 const INSTRUCTIONS = [
   'You design one widget: a saved view of the source fn\'s table that the person will open again. You propose it; the person sees a preview and presses Save. You never save.',
   '',

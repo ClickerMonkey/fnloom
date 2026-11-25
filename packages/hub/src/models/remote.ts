@@ -14,7 +14,7 @@ import type {
   DecisionAnswer, DecisionQuestion, DecisionRequest, DecisionResponse, EmbeddingInput, EmbeddingRequest, EmbeddingResponse, ModelCapability, ModelInfo, Provider, Providers,
 } from '@aeye/ai';
 import { embeddingImageURL, embeddingInputs, isEmbeddingImage } from '@aeye/ai';
-import { getResponseFromChunks, type Chunk, type Request, type Response } from '@aeye/core';
+import { fillRequest, getResponseFromChunks, planRequest, type Chunk, type Request, type Response } from '@aeye/core';
 import {
   qualify, type Compact, type DecisionAnswer as WireDecisionAnswer, type EmbedInput as WireEmbedInput, type DecisionQuestion as WireDecisionQuestion, type LiveProviderModel, type ProviderChat, type ProviderModelDecl,
   type InstanceName, type Same, type SystemName, type SystemProviderDecl,
@@ -198,12 +198,29 @@ export class RemoteProvider implements Provider<SystemProviderDecl> {
     return { answers: result.answers, model: id, ...(result.tokens === undefined ? {} : { usage: { text: { input: result.tokens } } }) };
   }
 
+  /**
+   * A request with its deferred values (examples written through the plan, `deferEncode`) written here: the schemas
+   * cross the link lenient and the system's provider plans them again, but only the hub's schemas carry the hub's
+   * codecs (a fn's name as the model spells it). Planned for the declared model on copies, so the request keeps no plan
+   * and the prompt decodes what the system sends back as it comes (the code shape).
+   */
+  #filled(request: Request, model: string): Request {
+    const declared = this.config.models.find((decl) => decl.id === model);
+    const format = request.responseFormat;
+    const plan = planRequest({
+      ...(request.tools === undefined ? {} : { tools: request.tools.map((tool) => ({ ...tool })) }),
+      ...(format === undefined ? {} : { responseFormat: typeof format === 'object' ? { ...format } : format }),
+      ...(request.errorFormat === undefined ? {} : { errorFormat: request.errorFormat }),
+    }, declared === undefined ? undefined : remoteModelInfo(this.name, declared));
+    return { ...request, ...fillRequest(request, plan) };
+  }
+
   /** Stream one chat call through the system. */
   async *#chat(request: Request, metadata: unknown, signal: AbortSignal | undefined): AsyncGenerator<Chunk, Response> {
     const model = modelIdOf(metadata);
     if (model === undefined) throw new RemoteProviderError(`${this.name} needs a model to chat with`, 'model');
     const connection = this.#connection();
-    const body: ProviderChat = { provider: this.config.name, model, request: wireRequest(request), stream: true };
+    const body: ProviderChat = { provider: this.config.name, model, request: wireRequest(this.#filled(request, model)), stream: true };
     const chunks: Chunk[] = [];
     const reader = new ChunkReader();
     for await (const item of connection.peer.call('providerChat', body, this.#options(connection, signal))) {

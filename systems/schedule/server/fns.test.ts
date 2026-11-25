@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Json, QualifiedName, type KindFnWire, type LlmForward, type RunSettled } from '@harness/core';
 import { hub, wireType, type Infer } from '@harness/sdk';
-import { mockModel, TEST_USER, testHub, toolCall, type ScriptStep, type TestSystem } from '@harness/sdk/testing';
+import { examplesChecked, mockModel, TEST_USER, testHub, toolCall, type ScriptStep, type TestSystem } from '@harness/sdk/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { SchedulePayload, schedule, type AddArgs, type ChangeArgs, type ScheduleConfigInput } from '../shared/index.ts';
@@ -185,6 +185,10 @@ describe('schedule/add', () => {
     expect(payload.argsAsked).toBe('day: the run\'s day minus 7 days');
     expect(fixedOf(payload)).toBeUndefined();
     const forwards = s.kit.hub.forwards;
+    // every example call the prompts showed reads back through the tool it shows, written for each schema dialect
+    const examples = examplesChecked(s.kit.hub.sent);
+    expect(examples.problems).toEqual([]);
+    expect(examples.values).toBeGreaterThan(0);
     // examples first and alone; set after it; return only after a clean check
     expect(offered(forwards[0])).toEqual(['examples']);
     expect(offered(forwards[1])).toContain('set');

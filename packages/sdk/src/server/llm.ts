@@ -22,7 +22,7 @@ import {
   type ModelInfo, type Provider,
   type SpeechRequest, type SpeechResponse, type TranscriptionRequest, type TranscriptionResponse,
 } from '@aeye/ai';
-import { a, getResponseFromChunks, LENIENT, schemaRejection, toFile, type AudioFormat, type Chunk, type Message, type Request, type Response } from '@aeye/core';
+import { a, deferRequest, getResponseFromChunks, LENIENT, schemaRejection, toFile, type AudioFormat, type Chunk, type Message, type Request, type Response } from '@aeye/core';
 import { ginA, HarnessGrammar, ModelChoice, type HubModelInfo, type LlmForward, type LlmForwardChunk, type LlmRequest, type ModelForward, type ModelForwardResult, type RunId } from '@harness/core';
 import { z } from 'zod';
 import type { ForwardModality, Llm, ModelInput, ModelOutput } from '../ctx.ts';
@@ -266,10 +266,14 @@ export class HarnessProvider implements Provider<HarnessProviderConfig> {
     return { model: this.#names.get(selected.id) ?? selected.id };
   }
 
-  /** Stream one request through the hub. */
+  /**
+   * Stream one request through the hub. The hub's provider plans it for the real model, so values its templates show
+   * (`{{encode}}`, `{{schema}}`, an encoder in a function-form instruction or input) go deferred (`deferRequest`) and
+   * are written through the plan the hub makes, never this side's lenient one.
+   */
   async *forward(request: Request, model: ModelChoice | undefined, signal?: AbortSignal): AsyncGenerator<Chunk, Response> {
     const forward = {
-      request: wireRequest(request),
+      request: wireRequest(await deferRequest(request)),
       stream: true,
       ...(this.config.run === undefined ? {} : { run: this.config.run }),
       ...(model === undefined ? {} : { model }),

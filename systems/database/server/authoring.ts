@@ -15,7 +15,7 @@
 import { describeExprs, describeFunctions, describeQueryExamples, describeTypes, QueryGrammar, type BuildSchemasOptions, type QueryDef, type Registry, type Type } from '@aeye/query';
 import { a, type Bound, type Bundle } from '@aeye/schema';
 import { Json, type FnSearchPage, type FnSearchQuery } from '@harness/core';
-import { authoringAgent, authoringTool, type AuthoredFn, type AuthoringSession } from '@harness/sdk/server';
+import { authoringAgent, authoringTool, type AuthoredFn, type AuthoringSession, type ShowArgs } from '@harness/sdk/server';
 import { QueryDraft, QueryPayload, type QueryHow } from '../shared/shapes.ts';
 import { QUERY_KIND } from '../shared/index.ts';
 import { argsTypeOf, signatureOf } from './compile.ts';
@@ -149,8 +149,8 @@ export const EXAMPLE_RANGE_DRAFT = {
   args: { from: '2026-10-01', to: '2026-10-31' },
 };
 
-/** The agent's job, step by step, with a worked example. */
-const INSTRUCTIONS = [
+/** The agent's job, step by step, with worked examples, each written as the model writes the draft tool's args (`ShowArgs`). */
+const INSTRUCTIONS = (show: ShowArgs): string => [
   'You write one saved database query for the request below, and nothing else. Work through the tools in order; each step unlocks the next.',
   '',
   '1. find_queries with the request in plain words. It lists saved queries of this database that may fit, and the database\'s tables.',
@@ -170,11 +170,11 @@ const INSTRUCTIONS = [
   '5. Once it is clean, call save. Then answer in one line.',
   '',
   'Example. For "orders with a given status (paid now), biggest first, with the customer\'s name", after loading orders and customers, the draft is:',
-  JSON.stringify(EXAMPLE_DRAFT),
+  show('draft', EXAMPLE_DRAFT, 'draft'),
   'Example. For "add a customer with a name and an email (Dee, dee@example.com)", after loading customers, the draft is:',
-  JSON.stringify(EXAMPLE_INSERT_DRAFT),
+  show('draft', EXAMPLE_INSERT_DRAFT, 'draft'),
   'Example. For "orders placed in October 2026, newest first", after loading orders, the draft is:',
-  JSON.stringify(EXAMPLE_RANGE_DRAFT),
+  show('draft', EXAMPLE_RANGE_DRAFT, 'draft'),
 ].join('\n');
 
 /** `find_queries`: the saved queries of this database that may fit, and its tables by name. */

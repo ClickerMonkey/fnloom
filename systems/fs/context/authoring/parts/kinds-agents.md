@@ -265,6 +265,10 @@ try {
   // find first; the field guide and draft only after; save only after a clean draft
   expect(offered(forwards[0])).toEqual(['find_forms']);
   expect(offered(forwards[1])).toEqual(['field_types', 'find_forms']);
+  // every example call the prompts showed reads back through the tool it shows, written for each schema dialect
+  const examples = examplesChecked(kit.hub.sent);
+  expect(examples.problems).toEqual([]);
+  expect(examples.values).toBeGreaterThan(0);
   expect(offered(forwards[2])).toEqual(['draft', 'find_forms']);
   expect(offered(forwards[3])).not.toContain('save');
   expect(JSON.stringify(forwards[3]?.request.messages)).toContain('at most 3');

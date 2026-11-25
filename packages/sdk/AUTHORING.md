@@ -3989,6 +3989,10 @@ try {
   // find first; the field guide and draft only after; save only after a clean draft
   expect(offered(forwards[0])).toEqual(['find_forms']);
   expect(offered(forwards[1])).toEqual(['field_types', 'find_forms']);
+  // every example call the prompts showed reads back through the tool it shows, written for each schema dialect
+  const examples = examplesChecked(kit.hub.sent);
+  expect(examples.problems).toEqual([]);
+  expect(examples.values).toBeGreaterThan(0);
   expect(offered(forwards[2])).toEqual(['draft', 'find_forms']);
   expect(offered(forwards[3])).not.toContain('save');
   expect(JSON.stringify(forwards[3]?.request.messages)).toContain('at most 3');
@@ -4384,9 +4388,10 @@ interface AuthoringAgentInput<S, D> {
   readonly description: string;
   /**
    * The agent's job, step by step, with worked examples. Write it for the model. The current stage, the request and
-   * the stage guide are added after it each round.
+   * the stage guide are added after it each round. Its example calls go through `ShowArgs` (a function of it), so each
+   * is written as the model the hub sends the request to writes that tool's args.
    */
-  readonly instructions: string;
+  readonly instructions: AuthoringText;
   /** Find and inspect tools (search, load, examples, …). */
   readonly tools: ReadonlyArray<AuthoringTool<S, D>>;
   /**
@@ -4435,7 +4440,13 @@ An authoring tool with its args type erased: it makes its aeye tool for a sessio
 interface AuthoringTool<S, D> {
   readonly name: string;
   readonly stage: ToolStage;
-  make(ai: HarnessAi, session: AuthoringSession<S, D>): AeyeTool;
+  /** Its strictness (`ShowArgs` writes an example of a tool not offered as the tool would be sent). */
+  readonly strict?: boolean | number;
+  /** Its args for this session, as their lenient JSON Schema (the code shape). */
+  argsJson(session: AuthoringSession<S, D>): JsonSchema;
+  /** Whether it is offered this round. */
+  offered(session: AuthoringSession<S, D>): boolean;
+  make(ai: HarnessAi, session: AuthoringSession<S, D>, show?: ShowArgs): AeyeTool;
 }
 ```
 
@@ -4450,8 +4461,8 @@ interface AuthoringToolInput<S, D, I extends object> {
   readonly name: string;
   /** What it does, for the model. */
   readonly description: string;
-  /** How and when to use it, for the model (added to the prompt's tools section). */
-  readonly instructions?: string;
+  /** How and when to use it, for the model (added to the prompt's tools section); example calls through `ShowArgs`. */
+  readonly instructions?: AuthoringText;
   readonly stage: ToolStage;
   /** Its args (`AuthoringSchema`): an `a` schema, or one bound from the session (a typed schema per instance). */
   readonly schema: AuthoringSchema<S, D, I>;
@@ -4521,6 +4532,31 @@ The fixed workflow, in order. `fix` is entered when a check fails and left when 
 
 ```ts
 const AUTHORING_STAGES: readonly ["find", "inspect", "draft", "check", "fix", "save"];
+```
+
+#### `ShowArgs`
+
+type · `import { ShowArgs } from '@harness/sdk/server'`
+
+A call's args as the model will write them: `show('set', { draft: … })` is a deferred value (`@aeye/schema`'s
+`deferEncode`), written through the plan the hub's provider makes for the model the request goes to (records as
+pairs and absent optionals as `null` on a strict dialect, …). A tool of the agent that isn't offered this round goes
+with its schema, so it is written as that tool would be sent to this model. `path`: the value is that part of the
+args (`'draft'`: a draft alone). Every example call an authoring prompt shows goes through it, never as JSON written
+by hand.
+
+```ts
+type ShowArgs = (tool: string, args: unknown, path?: string) => string;
+```
+
+#### `AuthoringText`
+
+type · `import { AuthoringText } from '@harness/sdk/server'`
+
+Text for the model that may show example calls: as it is, or made with `ShowArgs` each round.
+
+```ts
+type AuthoringText = string | ((show: ShowArgs) => string);
 ```
 
 #### `ToolStage`
@@ -9068,7 +9104,11 @@ class HarnessProvider implements Provider<HarnessProviderConfig> {
   * stand-in becomes the role's model), else none (`hub/auto`: the hub picks).
   */
   choiceFor(metadata: unknown): ModelChoice | undefined;
-  /** Stream one request through the hub. */
+  /**
+  * Stream one request through the hub. The hub's provider plans it for the real model, so values its templates show
+  * (`{{encode}}`, `{{schema}}`, an encoder in a function-form instruction or input) go deferred (`deferRequest`) and
+  * are written through the plan the hub makes, never this side's lenient one.
+  */
   forward(request: Request, model: ModelChoice | undefined, signal?: AbortSignal): AsyncGenerator<Chunk, Response>;
   createStreamer(): <C, M>(request: Request, _context: C, metadata?: M, signal?: AbortSignal) => AsyncGenerator<Chunk, Response>;
   createExecutor(): <C, M>(request: Request, _context: C, metadata?: M, signal?: AbortSignal) => Promise<Response>;
@@ -13021,7 +13061,13 @@ class FakeHub {
   /** Whether a run's person may use a fn of its system (`usableFns`); every fn by default. */
   usable: (run: HubBody<'usableFns'>['run'], fn: string) => boolean;
   readonly changes: Array<HubBody<'resourcesChanged'>['changes'][number]>;
+  /**
+  * Every chat call forwarded, as the hub's provider sends it on (its deferred values, the examples its prompt shows,
+  * written through a lenient plan: `filledWire`).
+  */
   readonly forwards: LlmForward[];
+  /** The same calls as the system sent them, deferred values and all (`examplesChecked` checks them per model). */
+  readonly sent: LlmForward[];
   /** Every non-chat model call forwarded (`model`). */
   readonly models: ModelForward[];
   /** What waiting systems said for the pairing page (`pairingInfo`). */
@@ -13474,12 +13520,17 @@ A `ModelLink` answering from scripts, recording what it was sent.
 
 ```ts
 class FakeModelLink implements ModelLink {
-  /** Every chat forward, in order. */
+  /**
+  * Every chat forward, in order, as the hub's provider would send it (its deferred values, the examples its prompt
+  * shows, written through a lenient plan: `filledWire`).
+  */
   readonly forwards: LlmForward[];
+  /** The same forwards as the system sent them, deferred values and all (`deferredProblems` checks them per model). */
+  readonly sent: LlmForward[];
   /** Every non-chat call, in order. */
   readonly calls: ModelForward[];
   constructor(options: FakeModelOptions = {});
-  llm(forward: LlmForward): AsyncIterable<LlmForwardChunk>;
+  llm(given: LlmForward): AsyncIterable<LlmForwardChunk>;
   model(forward: ModelForward): Promise<ModelForwardResult>;
   models(): Promise<HubModelInfo[]>;
   connected(): boolean;
@@ -13906,6 +13957,33 @@ type ScriptStep = FakeReply | ((forward: LlmForward) => FakeReply);
 ```
 
 Refers to: [`LlmForward`](#core-llmforward).
+
+#### `examplesChecked`
+
+function · `import { examplesChecked } from '@harness/sdk/testing'`
+
+What a system's prompts showed the model as example calls, checked per dialect: every deferred value (an example
+written through the plan the hub makes, `ShowArgs` / `{{encode}}`) of the forwards a fake model link was sent
+(`FakeModelLink.sent`), written for each of `models` and read back through the very schema it was written for.
+`values` counts the examples seen (so a test knows it checked some); `problems` lists each that didn't read back.
+
+```ts
+function examplesChecked(forwards: readonly LlmForward[], models?: readonly ModelLike[]): { values: number; problems: string[]; };
+```
+
+Refers to: [`LlmForward`](#core-llmforward).
+
+#### `DIALECT_MODELS`
+
+const · `import { DIALECT_MODELS } from '@harness/sdk/testing'`
+
+One model of each schema dialect a request may be planned for: OpenAI strict (records as `[{key, value}]` pairs,
+absent optionals as `null`), Anthropic strict (pairs, optionals left out, no recursion), Gemini (open records) and a
+model with no strict dialect (the code shape).
+
+```ts
+const DIALECT_MODELS: readonly ModelLike[];
+```
 
 #### `ModelRecording`
 
@@ -17680,7 +17758,7 @@ class LlmWire {
   * An aeye request as JSON: each schema as its lenient JSON schema (or as sent, `schemas: 'sent'`); an empty tool
   * list is left out.
   */
-  request(request: Request): LlmRequest;
+  request(given: Request): LlmRequest;
 }
 ```
 
@@ -17736,6 +17814,36 @@ A request from the wire rebuilt as an aeye request: tool and output schemas as b
 
 ```ts
 function requestFromWire(request: LlmRequest): Request;
+```
+
+Refers to: [`LlmRequest`](#core-llmrequest).
+
+#### `filledWire`
+
+function · `import { filledWire } from '@harness/sdk/server'`
+
+A forwarded request as the hub's provider plans it for `model` (lenient without one: the code shape), its deferred
+values (examples written through the plan, `deferEncode`) written through that plan: what a hub that answers in a
+test sends the model.
+
+```ts
+function filledWire(request: LlmRequest, model?: ModelLike): LlmRequest;
+```
+
+Refers to: [`LlmRequest`](#core-llmrequest).
+
+#### `deferredProblems`
+
+function · `import { deferredProblems } from '@harness/sdk/server'`
+
+The deferred values of a forwarded request that don't read back through the schema they were written for, once
+the request is planned for `model`: each example call a system's prompt shows, written as that model writes the
+tool's args (`fillDeferred`), must decode through that very tool's schema (its plan entry; for a tool the request
+doesn't have, the schema the value carries, planned alone) to the value given. Each problem names the model, the
+tool and what was wrong. Values with no tool (written as they are) aren't checked.
+
+```ts
+function deferredProblems(request: LlmRequest, model: ModelLike | undefined, label?: string): string[];
 ```
 
 Refers to: [`LlmRequest`](#core-llmrequest).

@@ -29,7 +29,7 @@
  * implementation. Tunables are the `contextorEnv` slice (`env.ts`).
  */
 import type {
-  ActorId, BudgetReport, ChatModeConfig, ChatModeType, ContextLink, ContextorConfig, ContextorType, ContextRecord, DeclarableRelation, Detail, Exposure, FnExample, FnRecord,
+  ActorId, RunId, BudgetReport, ChatModeConfig, ChatModeType, ContextLink, ContextorConfig, ContextorType, ContextRecord, DeclarableRelation, Detail, Exposure, FnExample, FnRecord,
   InstanceName, InvalidInput, Json, LinkTarget, LlmMessage, LlmToolSpec, ModelFnNames, ModelLimits, ModelLimitsView, QualifiedName, ResolvedModelLimits, SelectionReport,
   Session, SuggestionRecord, SessionId, Turn, TurnId, UserInfo,
 } from '@harness/core';
@@ -42,6 +42,7 @@ import type { AccessScope } from '../access/index.ts';
 import type { Search } from '../index/index.ts';
 import type { InstanceRouter } from '../link/index.ts';
 import type { ContextorEnv } from './env.ts';
+import type { ExampleWriter } from './examples.ts';
 import type { SizedChoice } from './brought.ts';
 import type { Exchange } from './history.ts';
 import type { RunBlock } from './render.ts';
@@ -226,6 +227,11 @@ export interface ModeContext {
    * one line a system and the static tools carry their short descriptions (Phil 2026-11-22).
    */
   readonly brief?: boolean;
+  /**
+   * How fn examples that aren't a tool's own are written for this prompt (`examples.ts`): static mode's cards, the
+   * cards a result exposes. The planner always sets it; without, the code shape.
+   */
+  readonly writer?: ExampleWriter;
 }
 
 /** Who a call is checked for: the session (its systems) and the person. */
@@ -442,6 +448,22 @@ export interface PromptPlanner {
   draft(input: DraftInput): Promise<PlannedPrompt>;
   /** The fn names a run's results are written in for this session's mode and model (its tool replies go through them). */
   names(to: ExposedTo): Promise<ModelFnNames>;
+  /**
+   * How fn examples are written for this session's mode and model where they aren't a tool's own (`examples.ts`): a
+   * card a result shows, a page of examples, a suggestion. `protect` (default): each as a value kept from the fn-name
+   * speller, for text the hub spells afterwards (`spelled`); `false`: plain JSON text, for a hub fn's own output.
+   */
+  writer(to: ExposedTo, protect?: boolean): Promise<ExampleWriter>;
+  /**
+   * The writer (`protect: false`) of the prompt a hub fn's run was called from: its parent run, when that is an agent
+   * (a static `inspect` shows its card's examples as the calling model would send them). Undefined outside a prompt.
+   */
+  writerForRun(run: { readonly parent?: RunId | undefined; readonly user: { readonly id: ActorId } }): Promise<ExampleWriter | undefined>;
+  /**
+   * Fns' args (examples, in the code shape) as the model would write them here (`writer`'s `args`: JSON, or a deferred
+   * value of `run` in static mode, written when the request is planned); a fn it can't see, as given.
+   */
+  writeArgs(to: ExposedTo, calls: ReadonlyArray<{ readonly fn: QualifiedName; readonly args: Json }>): Promise<string[]>;
 }
 
 /** Who a run's exposed fns are shown to: the session, its agent and the model. */

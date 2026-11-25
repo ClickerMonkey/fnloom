@@ -11,7 +11,7 @@
  * `unrepresentable` option; whether a record keeps the schemas as sent to the model is its `schemas` option.
  */
 import {
-  a, extractJSONObject, LENIENT, requestPlan, sentTools,
+  a, extractJSONObject, fillRequest, LENIENT, planRequest, requestPlan, sentTools, type ModelLike,
   type Bound, type Chunk, type ErrorFormatInput, type RequestPlan, type Message, type MessageContent, type Request, type Resource, type Response, type ToolCall, type ToolChoice, type ToolDefinition, type Usage,
 } from '@aeye/core';
 import {
@@ -19,7 +19,7 @@ import {
   type DecisionInput, type FinishReason, type LlmChunk, type LlmContentPart, type LlmErrorFormat, type LlmMessage, type LlmRequest, type LlmResponse, type LlmToolCall,
   type LlmToolSpec, type LlmUsage,
 } from '@harness/core';
-import type { AnySchema } from '@aeye/schema';
+import { DEFERRED_SPAN, fillDeferred, hasDeferred, plainDeferred, type AnySchema, type DeferredSpec } from '@aeye/schema';
 import { env } from '@ayepi/env';
 import { z } from 'zod';
 import { LinkGap } from './wire.ts';
@@ -133,10 +133,13 @@ export class LlmWire {
    * An aeye request as JSON: each schema as its lenient JSON schema (or as sent, `schemas: 'sent'`); an empty tool
    * list is left out.
    */
-  request(request: Request): LlmRequest {
-    const toolChoice = toolChoiceToWire(request.toolChoice);
-    const stop = request.stop === undefined ? undefined : typeof request.stop === 'string' ? [request.stop] : request.stop;
-    const plan = this.#options.schemas === 'sent' ? plannedOf(request) : undefined;
+  request(given: Request): LlmRequest {
+    const toolChoice = toolChoiceToWire(given.toolChoice);
+    const stop = given.stop === undefined ? undefined : typeof given.stop === 'string' ? [given.stop] : given.stop;
+    const plan = this.#options.schemas === 'sent' ? plannedOf(given) : undefined;
+    // a record shows what the model read: deferred values (examples written through the plan, `deferEncode`) written
+    // through the plan the provider pinned, else in the code shape; a forwarded request keeps them for the planner
+    const request = this.#options.schemas !== 'sent' ? given : { ...given, ...(plan === undefined ? plainRequest(given) : fillRequest(given, plan)) };
     const tools = request.tools === undefined || request.tools.length === 0 ? undefined
       : plan === undefined ? request.tools.map(toolToWire) : sentTools(request).map((tool): LlmToolSpec => ({
         name: tool.name,
@@ -199,6 +202,16 @@ function formatToWire(format: Extract<Request['responseFormat'], object>): Extra
     strict: format.strict,
     ...(format.errorFormat === undefined ? {} : { errorFormat: format.errorFormat }),
     ...(format.schemaDelivery === undefined ? {} : { schemaDelivery: format.schemaDelivery }),
+  };
+}
+
+/** A request's messages and tool descriptions with every deferred value in the code shape (no plan to write them through). */
+function plainRequest(request: Request): Pick<Request, 'messages' | 'tools'> {
+  const plain = (text: string): string => (hasDeferred(text) ? plainDeferred(text) : text);
+  return {
+    messages: request.messages.map((message) => (typeof message.content === 'string' ? { ...message, content: plain(message.content) }
+      : { ...message, content: message.content.map((part) => (part.type === 'text' && typeof part.content === 'string' ? { ...part, content: plain(part.content) } : part)) })),
+    ...(request.tools === undefined ? {} : { tools: request.tools.map((tool) => (tool.description === undefined ? tool : { ...tool, description: plain(tool.description) })) }),
   };
 }
 
@@ -321,6 +334,81 @@ export function requestFromWire(request: LlmRequest): Request {
     }),
     ...(request.errorFormat === undefined ? {} : { errorFormat: errorFormatFromWire(request.errorFormat) }),
   };
+}
+
+/** Every text a forwarded request holds that may carry deferred values: its messages' text and its tools' descriptions. */
+function wireTexts(request: LlmRequest): string[] {
+  return [
+    ...request.messages.flatMap((message) => (typeof message.content === 'string' ? [message.content] : message.content.flatMap((part) => (part.type === 'text' ? [part.content] : [])))),
+    ...(request.tools ?? []).flatMap((tool) => (tool.description === undefined ? [] : [tool.description])),
+  ];
+}
+
+/**
+ * A forwarded request as the hub's provider plans it for `model` (lenient without one: the code shape), its deferred
+ * values (examples written through the plan, `deferEncode`) written through that plan: what a hub that answers in a
+ * test sends the model.
+ */
+export function filledWire(request: LlmRequest, model?: ModelLike): LlmRequest {
+  if (!wireTexts(request).some(hasDeferred)) { return request; }
+  const plan = planRequest(requestFromWire(request), model);
+  const fill = (text: string): string => fillDeferred(text, plan);
+  return {
+    ...request,
+    messages: request.messages.map((message) => (typeof message.content === 'string' ? { ...message, content: fill(message.content) }
+      : { ...message, content: message.content.map((part) => (part.type === 'text' ? { ...part, content: fill(part.content) } : part)) })),
+    ...(request.tools === undefined ? {} : { tools: request.tools.map((tool) => (tool.description === undefined ? tool : { ...tool, description: fill(tool.description) })) }),
+  };
+}
+
+/**
+ * The deferred values of a forwarded request that don't read back through the schema they were written for, once
+ * the request is planned for `model`: each example call a system's prompt shows, written as that model writes the
+ * tool's args (`fillDeferred`), must decode through that very tool's schema (its plan entry; for a tool the request
+ * doesn't have, the schema the value carries, planned alone) to the value given. Each problem names the model, the
+ * tool and what was wrong. Values with no tool (written as they are) aren't checked.
+ */
+export function deferredProblems(request: LlmRequest, model: ModelLike | undefined, label = model?.id ?? 'lenient'): string[] {
+  const values = wireTexts(request).flatMap((text) => text.split(DEFERRED_SPAN).filter((_part, index) => index % 2 === 1));
+  if (values.length === 0) { return []; }
+  const plan = planRequest(requestFromWire(request), model);
+  return values.flatMap((value): string[] => {
+    const spec = deferredSpecOf(value);
+    if (spec?.tool === undefined || spec.type === true) { return []; }
+    const entry = plan.has(spec.tool) ? plan.get(spec.tool) : spec.schema === undefined ? undefined
+      : plan.target.request([{ kind: 'tool', name: spec.tool, schema: schemaFromWire(Json.parse(spec.schema)), strict: spec.strict ?? 1 }]).get(spec.tool);
+    if (entry === undefined) { return []; }
+    const written: unknown = JSON.parse(fillDeferred(value, plan));
+    // a part of the args (`path`) is read back inside the args it belongs to
+    const path = typeof spec.path === 'string' && spec.path !== '' ? spec.path.split('.') : [];
+    const whole = path.reduceRight<unknown>((inner, key) => ({ [key]: inner }), written);
+    const decoded = entry.parse(whole, { inPlace: false, repair: false });
+    if (!decoded.ok) { return [`${label} ${spec.tool}: ${decoded.message}`]; }
+    const back = path.reduce<unknown>((at, key) => (typeof at === 'object' && at !== null ? Reflect.get(at, key) : undefined), decoded.value);
+    return sameJson(back, spec.value) ? [] : [`${label} ${spec.tool}: ${JSON.stringify(spec.value)} reads back as ${JSON.stringify(back)}`];
+  });
+}
+
+/** A deferred value's spec, read from its text. */
+function deferredSpecOf(value: string): DeferredSpec | undefined {
+  const json = /^⟦(?:encode|schema) (.*)⟧$/s.exec(value)?.[1];
+  if (json === undefined) { return undefined; }
+  try {
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `deferEncode` wrote it
+    return JSON.parse(json) as DeferredSpec;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whether two JSON values are the same, object key order aside. */
+function sameJson(x: unknown, y: unknown): boolean {
+  if (x === y) { return true; }
+  if (typeof x !== 'object' || typeof y !== 'object' || x === null || y === null || Array.isArray(x) !== Array.isArray(y)) { return false; }
+  if (Array.isArray(x) && Array.isArray(y)) { return x.length === y.length && x.every((item, index) => sameJson(item, y[index])); }
+  const xs = Object.entries(x).filter(([, item]) => item !== undefined);
+  const ys = Object.entries(y).filter(([, item]) => item !== undefined);
+  return xs.length === ys.length && xs.every(([key, item]) => sameJson(item, Reflect.get(y, key)));
 }
 
 /** A structured answer's text as JSON, as aeye's prompt reads it: the whole text, else the JSON object in it. */

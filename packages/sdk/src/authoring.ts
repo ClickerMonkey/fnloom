@@ -20,7 +20,7 @@
  */
 import type { AI, AIContextRequired, AIMetadataRequired } from '@aeye/ai';
 import type { ToolCompatible } from '@aeye/core';
-import { a, Bound, type Bindable, type ErrorFormatInput } from '@aeye/schema';
+import { a, Bound, deferEncode, LENIENT, type Bindable, type ErrorFormatInput, type JsonSchema } from '@aeye/schema';
 import { env } from '@ayepi/env';
 import { z } from 'zod';
 import { g, json, type Infer } from './gin.ts';
@@ -228,13 +228,31 @@ export class AuthoringSession<S, D> {
   }
 }
 
+/**
+ * A call's args as the model will write them: `show('set', { draft: … })` is a deferred value (`@aeye/schema`'s
+ * `deferEncode`), written through the plan the hub's provider makes for the model the request goes to (records as
+ * pairs and absent optionals as `null` on a strict dialect, …). A tool of the agent that isn't offered this round goes
+ * with its schema, so it is written as that tool would be sent to this model. `path`: the value is that part of the
+ * args (`'draft'`: a draft alone). Every example call an authoring prompt shows goes through it, never as JSON written
+ * by hand.
+ */
+export type ShowArgs = (tool: string, args: unknown, path?: string) => string;
+
+/** Text for the model that may show example calls: as it is, or made with `ShowArgs` each round. */
+export type AuthoringText = string | ((show: ShowArgs) => string);
+
+/** An authoring text for this round. */
+function textOf(text: AuthoringText, show: ShowArgs): string {
+  return typeof text === 'string' ? text : text(show);
+}
+
 /** One tool of an authoring agent, typed by its args; `authoringTool` erases the args for the agent's list. */
 export interface AuthoringToolInput<S, D, I extends object> {
   readonly name: string;
   /** What it does, for the model. */
   readonly description: string;
-  /** How and when to use it, for the model (added to the prompt's tools section). */
-  readonly instructions?: string;
+  /** How and when to use it, for the model (added to the prompt's tools section); example calls through `ShowArgs`. */
+  readonly instructions?: AuthoringText;
   readonly stage: ToolStage;
   /** Its args (`AuthoringSchema`): an `a` schema, or one bound from the session (a typed schema per instance). */
   readonly schema: AuthoringSchema<S, D, I>;
@@ -252,7 +270,13 @@ export interface AuthoringToolInput<S, D, I extends object> {
 export interface AuthoringTool<S, D> {
   readonly name: string;
   readonly stage: ToolStage;
-  make(ai: HarnessAi, session: AuthoringSession<S, D>): AeyeTool;
+  /** Its strictness (`ShowArgs` writes an example of a tool not offered as the tool would be sent). */
+  readonly strict?: boolean | number;
+  /** Its args for this session, as their lenient JSON Schema (the code shape). */
+  argsJson(session: AuthoringSession<S, D>): JsonSchema;
+  /** Whether it is offered this round. */
+  offered(session: AuthoringSession<S, D>): boolean;
+  make(ai: HarnessAi, session: AuthoringSession<S, D>, show?: ShowArgs): AeyeTool;
 }
 
 /** An aeye tool as `ai.tool()` makes it. */
@@ -290,19 +314,24 @@ function wrapDraft<D>(draft: Bound<D>): Bound<{ draft: D }> {
 
 /** Declare an authoring tool. */
 export function authoringTool<S, D, I extends object>(def: AuthoringToolInput<S, D, I>): AuthoringTool<S, D> {
+  const offered = (session: AuthoringSession<S, D>): boolean => session.open(def.stage) && (def.when?.(session) ?? true);
+  const instructions = def.instructions;
   return {
     name: def.name,
     stage: def.stage,
-    make: (ai, session) => ai.tool({
+    ...(def.strict === undefined ? {} : { strict: def.strict }),
+    argsJson: (session) => (typeof def.schema === 'function' ? def.schema(session) : def.schema.bind()).render(LENIENT).jsonSchema,
+    offered,
+    make: (ai, session, show = (tool, args, path) => deferEncode({ tool, value: args, ...(path === undefined ? {} : { path }) })) => ai.tool({
       name: def.name,
       description: def.description,
-      ...(def.instructions === undefined ? {} : { instructions: def.instructions }),
+      ...(instructions === undefined ? {} : typeof instructions === 'string' ? { instructions } : { instructionsFn: () => instructions(show) }),
       ...(def.strict === undefined ? {} : { strict: def.strict }),
       ...(def.errorFormat === undefined ? {} : { errorFormat: def.errorFormat }),
       // aeye decodes the args (a container sent as JSON text is repaired) and answers args that don't fit with the
       // model's own JSON, marked where it is wrong, then lets it call again
       schema: sessionSchema(def.schema, session),
-      applicable: () => session.open(def.stage) && (def.when?.(session) ?? true),
+      applicable: () => offered(session),
       call: async (input: I) => {
         const text = await def.call(input, session);
         session.done(def.stage, def.name);
@@ -318,9 +347,10 @@ export interface AuthoringAgentInput<S, D> {
   readonly description: string;
   /**
    * The agent's job, step by step, with worked examples. Write it for the model. The current stage, the request and
-   * the stage guide are added after it each round.
+   * the stage guide are added after it each round. Its example calls go through `ShowArgs` (a function of it), so each
+   * is written as the model the hub sends the request to writes that tool's args.
    */
-  readonly instructions: string;
+  readonly instructions: AuthoringText;
   /** Find and inspect tools (search, load, examples, …). */
   readonly tools: ReadonlyArray<AuthoringTool<S, D>>;
   /**
@@ -416,10 +446,34 @@ export function authoringAgent<S, D>(def: AuthoringAgentInput<S, D>): AuthoringA
           return [`Problems (${check.problems.length}); fix them and call ${names.draft} again with the whole draft:`, ...check.problems.map((p) => `- ${p}`), check.note ?? ''].filter((line) => line !== '').join('\n');
         },
       });
+      const SAVE_ARGS = a.object({});
+      const REUSE_ARGS = a.object({ fn: a.string().min(1) });
+      const reuseDef = skip.length === 0 ? def.reuse?.bind(def) : undefined;
+      // every tool of the agent by name, so an example of one (`ShowArgs`) is written as that tool is (or would be) sent
+      const known = new Map<string, Pick<AuthoringTool<S, D>, 'argsJson' | 'offered' | 'strict'>>([
+        [names.draft, draftTool],
+        [names.save, { argsJson: () => SAVE_ARGS.render(LENIENT).jsonSchema, offered: (s) => s.going && s.stage === 'save' }],
+        ...def.tools.map((tool): [string, AuthoringTool<S, D>] => [tool.name, tool]),
+        ...(reuseDef === undefined ? [] : [['reuse', { argsJson: () => REUSE_ARGS.render(LENIENT).jsonSchema, offered: (s: AuthoringSession<S, D>) => s.going && s.disclosure.searched('fn') }] as const]),
+      ]);
+      const show: ShowArgs = (tool, args, path) => {
+        const it = known.get(tool);
+        const at = path === undefined ? {} : { path };
+        // a tool offered now is in the request; one that isn't goes with its schema, unless it is never strict (its
+        // dialect then writes the code shape) or its schema can't be made yet (a draft over what isn't loaded)
+        if (it === undefined || it.offered(session) || it.strict === false) return deferEncode({ tool, value: args, ...at });
+        let schema: JsonSchema;
+        try {
+          schema = it.argsJson(session);
+        } catch {
+          return deferEncode({ tool, value: args, ...at });
+        }
+        return deferEncode({ tool, value: args, ...at, schema, strict: it.strict ?? 1 });
+      };
       const save = ai.tool({
         name: names.save,
         description: 'Save the draft that checked clean as a fn. Answer after this with one line saying what you saved.',
-        schema: a.object({}),
+        schema: SAVE_ARGS,
         applicable: () => session.going && session.stage === 'save',
         call: async () => {
           const draft = session.draft;
@@ -430,15 +484,14 @@ export function authoringAgent<S, D>(def: AuthoringAgentInput<S, D>): AuthoringA
           return `Saved ${result.fn} (version ${result.version}). Now answer in one line.`;
         },
       });
-      const reuseDef = skip.length === 0 ? def.reuse?.bind(def) : undefined;
       const tools: [AeyeTool, ...AeyeTool[]] = [
-        draftTool.make(ai, session),
+        draftTool.make(ai, session, show),
         save,
-        ...def.tools.map((tool) => tool.make(ai, session)),
+        ...def.tools.map((tool) => tool.make(ai, session, show)),
         ...(reuseDef === undefined ? [] : [ai.tool({
           name: 'reuse',
           description: 'Answer with an existing fn that already does what was asked, instead of writing a new one.',
-          schema: a.object({ fn: a.string().min(1) }),
+          schema: REUSE_ARGS,
           applicable: () => session.going && session.disclosure.searched('fn'),
           call: async (input: { fn: string }) => {
             const answer = await reuseDef(input.fn, session);
@@ -452,8 +505,9 @@ export function authoringAgent<S, D>(def: AuthoringAgentInput<S, D>): AuthoringA
       const prompt = ai.prompt({
         name: def.name,
         description: def.description,
-        content: `${def.instructions}\n\n<request>\n{{request}}\n</request>\n\nYou are in the {{stage}} stage. {{guide}}`,
-        input: () => ({ request: session.request, stage: session.stage, guide: guide[session.stage] }),
+        // the instructions are a variable, never a template: their example calls are deferred values (`ShowArgs`)
+        content: '{{{instructions}}}\n\n<request>\n{{request}}\n</request>\n\nYou are in the {{stage}} stage. {{guide}}',
+        input: () => ({ instructions: textOf(def.instructions, show), request: session.request, stage: session.stage, guide: guide[session.stage] }),
         tools,
         dynamic: true,
         // until something is saved (or reused) every round must call a tool: a model that answers in words mid-way (a

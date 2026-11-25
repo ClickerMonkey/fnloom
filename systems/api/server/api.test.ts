@@ -10,7 +10,7 @@
 import { API_KIND, API_SERVICE_TYPE, ApiService, ConnectKey, mintId, QualifiedName, type ApiFnSpec, type DataRecord, type Json, type LlmForward, type RunConnection } from '@harness/core';
 import { encodeValue, sampleArgs } from '@harness/sdk';
 import type { HostLookup } from '@harness/sdk/server';
-import { mockModel, testHub, toolCall, type ScriptStep, type TestSystem } from '@harness/sdk/testing';
+import { examplesChecked, mockModel, testHub, toolCall, type ScriptStep, type TestSystem } from '@harness/sdk/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { api, ApiPayload, HttpRequest } from '../shared/index.ts';
 import { API_EXAMPLES } from './authoring.ts';
@@ -114,6 +114,10 @@ describe('make_api', () => {
     expect(offered(fake.forwards[1])).toEqual(expect.arrayContaining(['operations', 'signature', 'examples']));
     expect(JSON.stringify(fake.forwards[2]?.request.messages)).toContain('issues/create');
     expect(JSON.stringify(fake.forwards[5]?.request.messages)).toContain('exactly one body slot');
+    // every example call the prompts showed reads back through the tool it shows, written for each schema dialect
+    const examples = examplesChecked(fake.sent);
+    expect(examples.problems).toEqual([]);
+    expect(examples.values).toBeGreaterThan(0);
     // only the GET (and the OpenAPI document) went out while writing, signed with the run's connection to the service
     expect(sent.map((request) => `${request.method} ${request.url}`)).toEqual(['GET https://tracker.test/openapi.json', 'GET https://tracker.test/v1/repos/acme/web']);
     expect(sent[1]?.auth).toBe('Bearer secret-token');

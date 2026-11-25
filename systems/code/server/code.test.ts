@@ -6,7 +6,7 @@
  */
 import { CODE_KIND, Json, QualifiedName, mintId, type CodeFnSpec, type LlmForward, type RunSettled } from '@harness/core';
 import { encodeValue, hub, sampleArgs } from '@harness/sdk';
-import { mockModel, testHub, toolCall, type ScriptStep, type TestSystem } from '@harness/sdk/testing';
+import { examplesChecked, mockModel, testHub, toolCall, type ScriptStep, type TestSystem } from '@harness/sdk/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import { code, CodePayload } from '../shared/index.ts';
 import { CODE_EXAMPLES } from './authoring.ts';
@@ -72,6 +72,10 @@ describe('make_code', () => {
     // the wrong result type was a problem the model read; the clean draft showed its preview
     expect(JSON.stringify(fake.forwards[4]?.request.messages)).toContain('is expected');
     expect(JSON.stringify(fake.forwards[5]?.request.messages)).toContain('Preview');
+    // every example call the prompts showed reads back through the tool it shows, written for each schema dialect
+    const examples = examplesChecked(fake.sent);
+    expect(examples.problems).toEqual([]);
+    expect(examples.values).toBeGreaterThan(0);
   });
 
   it('reuses a code fn that already does it, and changes it into version 2', async () => {

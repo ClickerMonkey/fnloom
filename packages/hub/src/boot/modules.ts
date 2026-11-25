@@ -230,6 +230,7 @@ export function registerHubContract(
   registerContextorFns(module.hubFns, {
     store: () => hub.store, catalog: () => hub.catalog, search: () => hub.index.search, sessions: () => hub.chat.sessions,
     contextor: () => hub.contextor, views: () => hub.contextor.views, mcpScope, access: (actor) => hub.access.scope(actor),
+    writer: (run) => hub.contextor.planner.writerForRun(run),
   });
 }
 

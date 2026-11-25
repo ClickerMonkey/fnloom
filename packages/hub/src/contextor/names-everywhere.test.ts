@@ -7,6 +7,7 @@
  */
 import { agent, g, hub, manifestOf, type AnyFnDef } from '@harness/sdk';
 import { IDS, isFnShaped, SystemName, mintId, modelFnName, QualifiedName, type ChatMessage, type LlmMessage, type Session, type Turn } from '@harness/core';
+import { fillDeferred, LENIENT, ModelProfile, type RenderedRequest } from '@aeye/schema';
 import { describe, expect, it } from 'vitest';
 import { ALICE, ALICE_INFO, OPEN_LIMITS } from '../execution/testing.ts';
 import { chatWorld } from '../chat/testing.ts';
@@ -83,16 +84,22 @@ async function planning(agentName: 'hub/chat' | 'hub/chat_small', instructions: 
 
 /** Every text of a planned prompt the model reads. */
 function promptTexts(planned: Awaited<ReturnType<typeof planning>>): string[] {
+  // the examples (the tools' own, static cards as `run`'s args) are written through the request's plan (here a
+  // lenient one, as core plans without a model)
+  const plan = ModelProfile.of(LENIENT).request(planned.tools.map((tool) => ({ kind: 'tool' as const, name: tool.name, schema: tool.schema })));
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- a request of object-args tools
+  const sent = (text: string): string => fillDeferred(text, plan as unknown as RenderedRequest);
   return [
-    planned.instructions, planned.context, planned.injectedContext,
-    ...planned.messages.flatMap((m) => (typeof m.content === 'string' ? [m.content] : m.content.map((part) => part.content))),
-    ...planned.tools.flatMap((tool) => [tool.name, tool.description, tool.instructions ?? '', tool.spec.description ?? '', JSON.stringify(tool.spec.parameters)]),
+    planned.instructions, sent(planned.context), planned.injectedContext,
+    ...planned.messages.flatMap((m) => (typeof m.content === 'string' ? [sent(m.content)] : m.content.map((part) => sent(part.content)))),
+    ...planned.tools.flatMap((tool) => [tool.name, sent(tool.description), sent(tool.instructions ?? ''), sent(tool.spec.description ?? ''), JSON.stringify(tool.spec.parameters)]),
   ];
 }
 
 /** The systems the rig has installed, and the context keys, kinds and hook and mention names, which keep their `/`. */
 const SYSTEMS = new Set(['hub', 'fs', 'database', 'input', 'widgets']);
-const RESERVED = ['database/guide', 'fs/guide', 'fs/plan', 'hub/llm', 'database/query', 'input/form', 'widgets/widget'];
+// `fs/authoring.kinds` is a context key in `hub/ctx_load`'s example: a text field, written by the encoder as it is
+const RESERVED = ['database/guide', 'fs/guide', 'fs/plan', 'hub/llm', 'database/query', 'input/form', 'widgets/widget', 'fs/authoring.kinds'];
 
 /** A `system/name` token standing alone (as `ModelFnNames.text` reads them). */
 const SLASH_NAME = /(?<![A-Za-z0-9_./:-])([a-z][a-z0-9-]*\/[A-Za-z0-9_][A-Za-z0-9_.-]*)/g;
