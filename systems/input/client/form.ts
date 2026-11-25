@@ -3,7 +3,7 @@
  * checking the answers with the form's own gin type, and the answer that is sent (its `key: value` text included).
  */
 import type { TypeDef } from '@aeye/gin';
-import { Json, type RunId } from '@harness/core';
+import { checkGinValue, Json, type RunId } from '@harness/core';
 import { g, parseValue } from '@harness/sdk';
 import { Asked, type AskedValue } from '../shared/index.ts';
 import { answerText, fieldsOf, type FormField } from '../shared/forms.ts';
@@ -80,9 +80,16 @@ export function checkAnswers(def: TypeDef, values: FormValues): { value: Json } 
     const value = values[field.key];
     return value === undefined || isEmpty(value) ? [] : [[field.key, value]];
   }));
+  const type = g.parse(def);
   try {
-    return { value: Json.parse(g.parse(def).parse(kept).encodeLogical()) };
+    return { value: Json.parse(type.parse(kept).encodeLogical()) };
   } catch (error) {
+    // gin's parse says what failed but not where (`num.parse: not a number — undefined at `); the value check names
+    // the field, and a near key ("amount" for "monthlyAmount")
+    const checked = checkGinValue(type, kept, { unknownKeys: 'refuse' });
+    if (!checked.ok && checked.problems.length > 0) {
+      return { problem: checked.problems.slice(0, 3).map((problem) => (problem.path === '' ? problem.message : `${problem.path}: ${problem.message}`)).join(' ') };
+    }
     return { problem: error instanceof Error ? error.message.replace(/^[a-z.]+:\s*/i, '') : String(error) };
   }
 }

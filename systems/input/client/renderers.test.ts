@@ -3,7 +3,7 @@
  * fields), showing "Answered" with the values, the chat's value editor when given, and saving the form.
  */
 import { mintId, type RunId, type ShareRule } from '@harness/core';
-import type { SystemClient } from '@harness/sdk';
+import { g, wireType, type SystemClient } from '@harness/sdk';
 import { flushPromises, mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import { defineComponent, h } from 'vue';
@@ -132,5 +132,15 @@ describe('form logic', () => {
     expect(checkAnswers(form.type, { answer: 2 })).toEqual({ value: { answer: 2 } });
     expect(checkAnswers(form.type, { answer: 9 })).toHaveProperty('problem');
     expect(checkAnswers(quickForms.date({ question: 'When?' }).type, { answer: '2026-11-08' })).toEqual({ value: { answer: '2026-11-08' } });
+  });
+
+  it('says which field inside a list item is wrong, and the key it likely meant', () => {
+    const type = wireType(g.obj({ items: g.list(g.obj({ category: g.text(), monthlyAmount: g.num({ min: 0 }) })) }));
+    expect(checkAnswers(type, { items: [{ category: 'Food', monthlyAmount: '800' }] })).toEqual({ value: { items: [{ category: 'Food', monthlyAmount: 800 }] } });
+    const wrong = checkAnswers(type, { items: [{ category: 'Food', amount: 800 }] });
+    expect(wrong).toHaveProperty('problem');
+    const problem = (wrong as { problem: string }).problem;
+    expect(problem).toContain('items');
+    expect(problem).toContain('monthlyAmount');
   });
 });
