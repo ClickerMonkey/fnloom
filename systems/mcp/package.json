@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@aeye/gin": "file:../../../aits/packages/gin",
+    "@aeye/schema": "file:../../../aits/packages/schema",
     "@ayepi/env": "file:../../../ayepi/packages/env",
     "@ayepi/mcp": "file:../../../ayepi/packages/mcp",
     "@harness/core": "*",

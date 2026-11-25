@@ -7,16 +7,16 @@
  *   name; `use_saved` answers with a saved query that already does it.
  * - **inspect (progressive disclosure):** `load_tables` shows only the tables asked for, `load_query` one saved
  *   query's JSON, and `query_syntax` the expressions, functions and worked examples for the loaded tables.
- * - **draft → check → fix:** the draft's `query` arg is `@aeye/query`'s typed schema (`buildSchemas`) over the loaded
+ * - **draft → check → fix:** the draft's `query` arg is `@aeye/query`'s grammar (`QueryGrammar`) bound over the loaded
  *   tables, so the model writes against the real types; each draft is checked (it compiles, a write only where writes
  *   are allowed, the args for this request fit its signature) and a clean read shows its first rows.
  * - **save:** the clean draft is kept in the hub as a `database/query` fn of this instance (a new version when editing).
  */
-import { buildSchemas, describeExprs, describeFunctions, describeQueryExamples, describeTypes, type Type } from '@aeye/query';
+import { describeExprs, describeFunctions, describeQueryExamples, describeTypes, QueryGrammar, type BuildSchemasOptions, type QueryDef, type Registry, type Type } from '@aeye/query';
+import { a, type Bound, type Bundle } from '@aeye/schema';
 import { Json, type FnSearchPage, type FnSearchQuery } from '@harness/core';
 import { authoringAgent, authoringTool, type AuthoredFn, type AuthoringSession } from '@harness/sdk/server';
-import { z } from 'zod';
-import { ParamValues, QueryDraft, QueryPayload, type QueryHow } from '../shared/shapes.ts';
+import { QueryDraft, QueryPayload, type QueryHow } from '../shared/shapes.ts';
 import { QUERY_KIND } from '../shared/index.ts';
 import { argsTypeOf, signatureOf } from './compile.ts';
 import type { DatabaseInstance } from './instance.ts';
@@ -27,9 +27,9 @@ export interface AuthoringDraft {
   readonly name: string;
   readonly title: string;
   readonly description: string;
-  readonly query: unknown;
-  readonly sorters?: string[] | undefined;
-  readonly args?: Record<string, Json> | undefined;
+  readonly query: QueryDef;
+  readonly sorters?: string[];
+  readonly args?: Record<string, Json>;
 }
 
 /** A saved query being changed (`edit_query`). */
@@ -90,6 +90,9 @@ export class QueryAuthoring {
 
 type Session = AuthoringSession<QueryAuthoring, AuthoringDraft>;
 
+/** A query's param values, by name, as the model writes them. */
+const ParamArgs = a.record(a.json());
+
 /** A call written the way the chat model writes one. */
 export function callText(fn: string, args: Readonly<Record<string, Json>>): string {
   return `${fn}(${JSON.stringify(args)})`;
@@ -97,7 +100,7 @@ export function callText(fn: string, args: Readonly<Record<string, Json>>): stri
 
 /** The draft as the instance checks and keeps it (`QueryService.check` / `save`). */
 function asDraft(draft: AuthoringDraft): QueryDraft {
-  return QueryDraft.parse({ name: draft.name, title: draft.title, description: draft.description, query: Json.parse(draft.query), ...(draft.sorters === undefined ? {} : { sorters: draft.sorters }) });
+  return { name: draft.name, title: draft.title, description: draft.description, query: Json.parse(draft.query), ...(draft.sorters === undefined ? {} : { sorters: draft.sorters }) };
 }
 
 /** The query draft the examples write: orders with a status and their customer, biggest first. */
@@ -180,7 +183,7 @@ const findQueries = authoringTool<QueryAuthoring, AuthoringDraft, { text: string
   stage: 'find',
   description: 'Search the saved queries of this database by what the request wants, and list the database\'s tables.',
   instructions: 'Call it first, with the request in a few plain words.',
-  schema: z.object({ text: z.string().min(1).describe('What the request wants, in plain words.') }),
+  schema: a.object({ text: a.string().min(1).describe('What the request wants, in plain words.') }),
   async call({ text }, session) {
     const state = session.state;
     const page = await state.search({ text, kinds: [QUERY_KIND], instance: state.here.instance, items: ['fn'], available: false, limit: 6 });
@@ -201,11 +204,11 @@ const findQueries = authoringTool<QueryAuthoring, AuthoringDraft, { text: string
 });
 
 /** `use_saved`: a saved query already does it; it runs with this request's args. */
-const useSaved = authoringTool<QueryAuthoring, AuthoringDraft, { fn: string; args?: Record<string, Json> | undefined }>({
+const useSaved = authoringTool<QueryAuthoring, AuthoringDraft, { fn: string; args?: Record<string, Json> }>({
   name: 'use_saved',
   stage: 'find',
   description: 'Answer with a saved query find_queries listed that returns what was asked, run with this request\'s args.',
-  schema: z.object({ fn: z.string().min(1), args: ParamValues.optional().describe('The values for its params, by name.') }),
+  schema: a.object({ fn: a.string().min(1), args: ParamArgs.optional().describe('The values for its params, by name.') }),
   when: (session) => session.disclosure.searched('fn') && session.state.editing === undefined,
   async call({ fn, args }, session) {
     const state = session.state;
@@ -229,7 +232,7 @@ const loadTables = authoringTool<QueryAuthoring, AuthoringDraft, { names: string
   name: 'load_tables',
   stage: 'inspect',
   description: 'Show tables in full: their fields with types, choices and ranges, and their relations. Load only the tables the query needs.',
-  schema: z.object({ names: z.array(z.string().min(1)).min(1).describe('Table names as find_queries listed them.') }),
+  schema: a.object({ names: a.array(a.string().min(1)).min(1).describe('Table names as find_queries listed them.') }),
   when: (session) => session.disclosure.awareUnloaded('table').length > 0,
   call({ names }, session) {
     const known = session.state.tableNames();
@@ -245,7 +248,7 @@ const loadQuery = authoringTool<QueryAuthoring, AuthoringDraft, { fn: string }>(
   name: 'load_query',
   stage: 'inspect',
   description: 'Show a saved query find_queries listed: its description, sorters and its query JSON.',
-  schema: z.object({ fn: z.string().min(1) }),
+  schema: a.object({ fn: a.string().min(1) }),
   when: (session) => session.disclosure.awareUnloaded('fn').length > 0,
   async call({ fn }, session) {
     const state = session.state;
@@ -261,7 +264,7 @@ const querySyntax = authoringTool<QueryAuthoring, AuthoringDraft, Record<string,
   name: 'query_syntax',
   stage: 'inspect',
   description: 'Show the query language for the loaded tables: every expression kind, the functions, and worked example queries.',
-  schema: z.object({}),
+  schema: a.object({}),
   when: (session) => session.disclosure.loaded('table').length > 0 && !session.disclosure.isLoaded('docs', 'syntax'),
   call(_input, session) {
     const engine = session.state.here.catalog.engine;
@@ -271,14 +274,16 @@ const querySyntax = authoringTool<QueryAuthoring, AuthoringDraft, Record<string,
   },
 });
 
-/** The draft's args: a saved query's draft whose `query` is the typed schema over the loaded tables. */
-function draftSchema(session: Session): z.ZodType<AuthoringDraft> {
+/** The draft: a saved query's draft whose `query` is in the query grammar, and this request's args. */
+export const AuthoringDraftSchema: Bundle<AuthoringDraft, [Registry, BuildSchemasOptions?]> = QueryGrammar.result(QueryDraft.extend({
+  query: a.ref('Query').describe('The query, typed by the loaded tables.'),
+  args: ParamArgs.optional().describe('This request\'s values for the query\'s params, by name.'),
+}));
+
+/** The draft's schema for this session: the query grammar bound over the loaded tables. */
+function draftSchema(session: Session): Bound<AuthoringDraft> {
   const state = session.state;
-  const schemas = buildSchemas(state.here.catalog.engine, { types: state.types(session.disclosure.loaded('table')) });
-  return QueryDraft.omit({ query: true }).extend({
-    query: schemas.Query.describe('The query, typed by the loaded tables.'),
-    args: ParamValues.optional().describe('This request\'s values for the query\'s params, by name.'),
-  });
+  return AuthoringDraftSchema.bind(state.here.catalog.engine.registry, { types: state.types(session.disclosure.loaded('table')) });
 }
 
 /** The query authoring agent. Run it with the run's `ctx.ai()` and a `QueryAuthoring`. */

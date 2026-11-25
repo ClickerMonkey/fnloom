@@ -219,11 +219,12 @@ function localDateTime(iso: string): string {
 /** A packed rgb colour as `#rrggbb`. */
 export const hex = (color: number): string => `#${(color & 0xffffff).toString(16).padStart(6, '0')}`;
 
-/** One entry of a map value: gin's logical JSON writes a map as `[{ key, value }]`. */
+/** One entry of a map value: gin's logical JSON writes a map as `[{ key, value }]`, a text-keyed one as an object of values by key. */
 const MapPair = z.object({ key: Json, value: Json });
 
-/** A map value's entries; entries that aren't `{ key, value }` (or a value that isn't a list) are left out. */
+/** A map value's entries (an object's by key); entries that aren't `{ key, value }` (or a value that isn't a list or object) are left out. */
 export function mapPairs(value: Json | undefined): { readonly key: Json; readonly value: Json }[] {
+  if (isJsonObject(value)) return Object.entries(value).map(([key, item]) => ({ key, value: item }));
   return Array.isArray(value) ? value.flatMap((pair) => {
     const parsed = MapPair.safeParse(pair);
     return parsed.success ? [parsed.data] : [];
@@ -274,7 +275,8 @@ export function fits(node: FormNode, value: Json | undefined): boolean {
     case 'text': case 'date': case 'timestamp': return typeof value === 'string';
     case 'num': case 'duration': case 'color': return typeof value === 'number';
     case 'bool': return typeof value === 'boolean';
-    case 'list': case 'tuple': case 'map': return Array.isArray(value);
+    case 'list': case 'tuple': return Array.isArray(value);
+    case 'map': return Array.isArray(value) || (node.key.kind === 'text' && isJsonObject(value));
     // an object fits when its literal fields (a discriminated union's `kind`) hold their values
     case 'obj': return isJsonObject(value) && node.fields.every((field) => field.node.kind !== 'literal' || value[field.name] === field.node.value);
     case 'enum': return node.choices.some((c) => c.value === value);
@@ -380,7 +382,9 @@ function walk(node: FormNode, draft: Draft, path: string, problems: FormProblem[
         const value = walk(node.value, entry.value, join(join(path, i), 'value'), problems);
         return key === undefined || value === undefined ? undefined : { key, value };
       });
-      return present(out);
+      const done = present(out);
+      // a text-keyed map's logical JSON is an object of values by key
+      return node.key.kind === 'text' && Array.isArray(done) ? Object.fromEntries(done.flatMap((pair) => (isJsonObject(pair) ? [[String(pair['key']), pair['value'] ?? null]] : []))) : done;
     }
     case 'obj': {
       if (draft.kind !== 'fields') { return fail('Required.'); }
@@ -421,27 +425,35 @@ export function problemAt(problems: readonly FormProblem[], path: string): strin
   return problems.find((p) => p.path === path)?.message ?? '';
 }
 
-const count = (n: number | bigint | undefined): string => (n === undefined ? '' : String(n));
+/**
+ * gin's checks in a person's words, by what `@aeye/schema` said (its rule messages): a length, a count, a bound, a
+ * format, a whole number. Anything else is its own message.
+ */
+const PEOPLE_WORDS: ReadonlyArray<readonly [RegExp, (n: string) => string]> = [
+  [/^Must be at least (\d+) characters?\.$/, (n) => (Number(n) <= 1 ? 'Required.' : `At least ${n} characters.`)],
+  [/^Must be at most (\d+) characters?\.$/, (n) => `At most ${n} characters.`],
+  [/^Must have at least (\d+) items?\.$/, (n) => `Add at least ${n}.`],
+  [/^Must have at most (\d+) items?\.$/, (n) => `At most ${n}.`],
+  [/^Must be (?:at least|greater than or equal to) (\S+)\.$/, (n) => `At least ${n}.`],
+  [/^Must be (?:at most|less than or equal to) (\S+)\.$/, (n) => `At most ${n}.`],
+  [/^Must (?:be a valid|match) /, () => 'Check the format.'],
+  [/^Expected a whole number/, () => 'Enter a whole number.'],
+];
 
-/** One gin issue in plain words, by what it is about: "Required.", "At most 10 characters.", "Enter a whole number.". */
+/** One gin problem in plain words, by what it is about: "Required.", "At most 10 characters.", "Enter a whole number.". */
 export function issueText(issue: Issue): string {
-  const { code, origin } = issue;
-  if (code === 'too_small') {
-    if (origin === 'string') { return issue.minimum !== undefined && Number(issue.minimum) <= 1 ? 'Required.' : `At least ${count(issue.minimum)} characters.`; }
-    if (origin === 'array' || origin === 'set') { return `Add at least ${count(issue.minimum)}.`; }
-    return `At least ${count(issue.minimum)}.`;
+  for (const [pattern, words] of PEOPLE_WORDS) {
+    const found = pattern.exec(issue.message);
+    if (found !== null) { return words(found[1] ?? ''); }
   }
-  if (code === 'too_big') { return origin === 'string' ? `At most ${count(issue.maximum)} characters.` : `At most ${count(issue.maximum)}.`; }
-  if (code === 'invalid_format') { return 'Check the format.'; }
-  if ((code === 'invalid_type' && issue.expected === 'int') || code === 'not_multiple_of') { return 'Enter a whole number.'; }
   const message = issue.message.trim();
   if (message === '') { return 'This value does not fit.'; }
   return `${message.charAt(0).toUpperCase()}${message.slice(1)}${/[.!?]$/.test(message) ? '' : '.'}`;
 }
 
-/** gin's issues as form problems, each at its field's path (`files.0.path`; '' for the value as a whole). */
+/** gin's problems as form problems, each at its field's path (`files.0.path`; '' for the value as a whole). */
 export function issueProblems(issues: readonly Issue[]): FormProblem[] {
-  return issues.map((issue) => ({ path: issue.path.flatMap((key) => (typeof key === 'symbol' ? [] : [String(key)])).join('.'), message: issueText(issue) }));
+  return issues.map((issue) => ({ path: issue.path, message: issueText(issue) }));
 }
 
 /** A hint line for a node from its constraints: "1 to 10, whole numbers", "Up to 200 characters". */

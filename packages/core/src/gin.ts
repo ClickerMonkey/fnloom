@@ -2,24 +2,34 @@
  * Gin types and expressions on the wire. A gin type travels as its JSON definition (gin's `TypeDef`) and an expression
  * as gin's `ExprDef`; the receiving side rebuilds the real thing with the registry (`registry.parse` for types, the
  * engine for expressions), which checks every key. These schemas only check the outer shape, because gin itself is the
- * full check. In the API documents (and MCP tool inputs) each one is gin's own strict JSON Schema for it.
+ * full check. In the API documents (and MCP tool inputs) each one is gin's own JSON Schema for it: gin's `a` grammar,
+ * rendered as code holds it (`LENIENT`).
  */
-import { buildSchemas, type ExprDef, type Registry, type SchemaOptions, type TypeDef } from '@aeye/gin';
-import { jsonSchema, withJsonSchema, type JsonSchemaObject } from '@ayepi/core';
+import { type ExprDef, type Registry, type TypeDef } from '@aeye/gin';
+import { LENIENT, type Bound } from '@aeye/schema';
+import { withJsonSchema, type JsonSchemaObject } from '@ayepi/core';
 import { z } from 'zod';
 import { harnessRegistry } from './gin-record.ts';
+import { ginBundle, HarnessGrammar } from './gin-a.ts';
 
-/** A registry of gin's built-in types and the strict TypeDef / ExprDef schemas over it, made on first use. */
-let ginSchemas: { readonly registry: Registry; readonly bag: SchemaOptions } | undefined;
+/** A registry of gin's built-in types and the harness's (`record`), made on first use. */
+let ginRegistry: Registry | undefined;
+function registryOf(): Registry {
+  ginRegistry ??= harnessRegistry();
+  return ginRegistry;
+}
 
-/** gin's JSON Schema for one of its zod schemas, built over the built-in registry (named types travel by name). */
-function ginJsonSchema(pick: (registry: Registry, bag: SchemaOptions) => z.ZodType): () => JsonSchemaObject {
+/** The grammar's TypeDef and Expr, bound over the built-in registry (named types accepted by name). */
+const TypeDefA = HarnessGrammar.result('TypeDef');
+const ExprA = HarnessGrammar.result('Expr');
+
+/** gin's JSON Schema for one of its `a` schemas, over the built-in registry. */
+function ginJsonSchema(pick: (registry: Registry) => Bound<unknown>): () => JsonSchemaObject {
   return () => {
-    if (ginSchemas === undefined) {
-      const registry = harnessRegistry();
-      ginSchemas = { registry, bag: buildSchemas(registry, { namedRefs: true }) };
-    }
-    return jsonSchema(pick(ginSchemas.registry, ginSchemas.bag));
+    // its own description gives way to the field's (`.describe()` on the zod schema that carries it)
+    const { description: _own, ...schema }: Record<string, unknown> = pick(registryOf()).render(LENIENT).jsonSchema;
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- a rendered schema is a JSON Schema object
+    return schema as JsonSchemaObject;
   };
 }
 
@@ -36,16 +46,13 @@ export function isGinTypeDef(value: unknown): value is TypeDef {
 /**
  * What gin itself says is wrong with a type definition (`registry.parse` over the built-in registry), or undefined when
  * it parses, or when its only fault is a name the built-in registry doesn't know (a stored type, a row type), which a
- * hub with that type would accept. A short, exact problem for the model where a zod schema's union says little.
+ * hub with that type would accept. A short, exact problem for the model where a schema's union says little.
  */
 export function ginTypeProblem(def: TypeDef): string | undefined {
-  if (ginSchemas === undefined) {
-    const registry = harnessRegistry();
-    ginSchemas = { registry, bag: buildSchemas(registry, { namedRefs: true }) };
-  }
+  const registry = registryOf();
   const problem = (candidate: unknown): string | undefined => {
     try {
-      ginSchemas?.registry.parse(candidate);
+      registry.parse(candidate);
       return undefined;
     } catch (error) {
       return error instanceof Error ? error.message : String(error);
@@ -63,7 +70,7 @@ export function ginTypeProblem(def: TypeDef): string | undefined {
 /** A gin type in its JSON wire form. `registry.parse` turns it back into a gin type and checks it fully. */
 export const GinTypeDef = withJsonSchema(
   z.custom<TypeDef>(isGinTypeDef, { message: 'Expected a gin type definition ({ name, ... }).' }),
-  ginJsonSchema((_registry, bag) => bag.Type),
+  ginJsonSchema((registry) => TypeDefA.bind(registry, undefined, { namedRefs: true })),
 );
 export type GinTypeDef = z.infer<typeof GinTypeDef>;
 
@@ -74,11 +81,11 @@ export function isGinObjTypeDef(value: unknown): value is TypeDef {
 
 /**
  * A gin object type in its JSON wire form (`{ name: 'obj', props }`, or a named type or extension of one): a row, a
- * form's answers. In a fn's args it is gin's `typ<obj>`, so a model is sent the strict obj TypeDef schema.
+ * form's answers. In a fn's args it is gin's `typ<obj>`, so a model is sent the obj TypeDef schema.
  */
 export const GinObjTypeDef = withJsonSchema(
   z.custom<TypeDef>(isGinObjTypeDef, { message: 'Expected a gin object type definition ({ name: "obj", props: { ... } }).' }),
-  ginJsonSchema((registry) => registry.typ(registry.obj({})).toValueSchema()),
+  ginJsonSchema((registry) => ginBundle(registry.typ(registry.obj({}))).bind(registry, undefined, { namedRefs: true })),
 );
 
 /** True when `value` has the outer shape of a gin expression: an object with a string `kind`. */
@@ -92,6 +99,6 @@ export function isGinExprDef(value: unknown): value is ExprDef {
  */
 export const GinExprDef = withJsonSchema(
   z.custom<ExprDef>(isGinExprDef, { message: 'Expected a gin expression ({ kind, ... }).' }),
-  ginJsonSchema((_registry, bag) => bag.Expr),
+  ginJsonSchema((registry) => ExprA.bind(registry, undefined, { namedRefs: true })),
 );
 export type GinExprDef = z.infer<typeof GinExprDef>;

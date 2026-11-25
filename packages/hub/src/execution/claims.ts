@@ -16,7 +16,6 @@ import type { Logger } from '@ayepi/log';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
 import type { Catalog } from '../catalog/index.ts';
 import type { LinkService } from '../link/index.ts';
-import { repairArgs } from './arg-repair.ts';
 import { messageOf } from './errors.ts';
 
 /** What working out claims uses. */
@@ -65,16 +64,15 @@ export async function stepWaits(deps: ClaimsDeps, step: ClaimingStep, calls: rea
 
 /**
  * The fn of a call that takes part in claims, with the args its run will have: one that exists and whose args fit it,
- * once repaired as its run repairs them (`repairArgs`); anything else settles at once.
+ * read as its run reads them (its signature's `check`); anything else settles at once.
  */
 async function takingPart(deps: ClaimsDeps, call: ClaimingCall): Promise<{ fn: FnRecord; args: Json } | undefined> {
   if (call.fn === undefined) return undefined;
   const fn = await deps.catalog.fn(call.fn);
   if (fn === undefined) return undefined;
   try {
-    const { argsSchema } = await deps.catalog.signature(fn.name);
-    const { args } = repairArgs(argsSchema, call.args);
-    return argsSchema.safeParse(args).success ? { fn, args } : undefined;
+    const checked = (await deps.catalog.signature(fn.name)).check(call.args);
+    return checked.ok ? { fn, args: checked.value } : undefined;
   } catch {
     // a fn whose signature doesn't resolve (its kind gone) is refused when it starts
     return undefined;

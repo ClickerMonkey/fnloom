@@ -2,31 +2,21 @@
  * The browser's named gin types, so forms check values with gin itself. A fn's args or a handler's answer often name
  * a system's types (`fs/Entry`) or the hub's (`hub/LongText`); the hub serves their definitions with every named type
  * they reference, dependencies first (the `types` endpoint, gin `typeClosure`). `TypeLibrary` loads what a definition
- * needs, binds it into a gin scope, and gives the form gin's value schema (`toValueSchema`), whose issues name the
+ * needs, binds it into a gin scope, and gives the form gin's value check (`checkGinValue`), whose problems name the
  * field that is wrong. Types built into this process (the hub contract registered in `g`) need no fetch.
  */
 import { typeClosure, type LocalScope, type Type, type TypeDef } from '@aeye/gin';
-import { isGinTypeDef, QualifiedName, type GinTypeDef, type TypeDefinitions } from '@harness/core';
+import { checkGinValue, isGinTypeDef, QualifiedName, type GinTypeDef, type TypeDefinitions, type ValueProblem } from '@harness/core';
 import { g } from '@harness/sdk';
 import type { InjectionKey } from 'vue';
-import { z } from 'zod';
 
 /** Fetch named type definitions and everything they reference from the hub. */
 export type FetchTypes = (names: readonly QualifiedName[]) => Promise<TypeDefinitions>;
 
-/** One issue of gin's value schema, as the form reads it (zod's issue, read through this schema, not trusted). */
-const Issue = z.object({
-  code: z.string(),
-  path: z.array(z.union([z.string(), z.number(), z.symbol()])),
-  message: z.string(),
-  origin: z.string().optional(),
-  expected: z.string().optional(),
-  minimum: z.union([z.number(), z.bigint()]).optional(),
-  maximum: z.union([z.number(), z.bigint()]).optional(),
-});
-export type Issue = z.infer<typeof Issue>;
+/** One problem gin's value check found: where (a dotted path, `''` for the whole value) and what. */
+export type Issue = ValueProblem;
 
-/** What a value schema answers: the issues, empty when the value fits. */
+/** What a value check answers: the problems, empty when the value fits. */
 export type ValueCheck = (value: unknown) => readonly Issue[];
 
 /** Where a form finds named types and gin's check of a value. */
@@ -86,10 +76,10 @@ export class TypeLibrary implements TypeSource {
     const parsed = this.#parse(def);
     if (parsed === undefined || !parsed.complete) { return undefined; }
     try {
-      const schema = parsed.type.toValueSchema({ scope: parsed.scope });
+      const { type, scope } = parsed;
       return (value) => {
-        const result = schema.safeParse(value);
-        return result.success ? [] : z.array(Issue).catch([]).parse(result.error.issues);
+        const checked = checkGinValue(type, value, { scope });
+        return checked.ok ? [] : checked.problems;
       };
     } catch (error) {
       console.warn('chat.form.unchecked', { error });

@@ -12,6 +12,15 @@
  *   measures the fixed part, asks the contextor for a selection, renders it with the mode and reports the budget.
  *   Nothing it plans is ever more than `window − output − reasoning − margin` tokens.
  *
+ * **Tools and core's request planning.** The planner decides which fns a prompt offers (within the token budget); the
+ * provider then plans the request with `@aeye/core`'s `prepareRequest`: each tool's `@aeye/schema` args rendered for
+ * the model (strict where it takes it, degraded where the provider's limits run out). The two never both dispatch:
+ * the hub's own `fns_search` / `fns_load` (static mode's `find` / `load`) bring fns into a LATER prompt, while core's
+ * `run_tool({ tool, args })` dispatcher is only a way to SEND this prompt's tools to a provider with a tool cap
+ * (OpenAI's 128): it can only appear in tools mode, when more fns are selected at `signature` than the provider takes
+ * (static mode sends six tools). A dispatched call is decoded by core back to the tool it names, whose `call` records
+ * it under that tool's name (`execution/tools.ts`), so the hub maps it to its fn as any other call (`rendered.fns`).
+ *
  * Pure parts live in their own files so tests need no store: `tokens.ts` (estimates, calibration), `budget.ts`
  * (`B = W − O − M`, water-filling), `score.ts` (`rbf`, base score, spread), `choose.ts` (units, greedy detail
  * upgrades), `history.ts` (exchanges, contiguous tail, summaries), `render.ts` (context blocks, `fnCard`,
@@ -26,7 +35,7 @@ import type {
 } from '@harness/core';
 import type { Logger } from '@ayepi/log';
 import type { LlmPayload } from '@harness/sdk';
-import type { z } from 'zod';
+import type { Bindable } from '@aeye/schema';
 import type { Catalog, FnSignature } from '../catalog/index.ts';
 import type { FnsForPrompt } from '../fns/index.ts';
 import type { AccessScope } from '../access/index.ts';
@@ -150,14 +159,15 @@ export interface Selection {
 }
 
 /**
- * A native tool a mode sends: its zod schema (the args aeye checks a call against) and the definition as the provider
- * sees it (`spec`, for estimates and records).
+ * A native tool a mode sends: its `@aeye/schema` args, bound for the prompt (its fn-name fields spelled by the prompt's
+ * names), which `@aeye/core` plans for the model, checks and decodes each call with; and the definition in the code
+ * shape (`spec`, its parameters the `LENIENT` JSON schema, for estimates and records).
  */
 export interface ModeTool {
   readonly name: string;
   readonly description: string;
   readonly instructions?: string | undefined;
-  readonly schema: z.ZodType<object>;
+  readonly schema: Bindable<object>;
   readonly spec: LlmToolSpec;
 }
 
@@ -172,11 +182,19 @@ export interface RenderedIteration {
   readonly fns: ReadonlyMap<string, QualifiedName>;
   /** Tools whose args carry an `on` choice (a fleet's fn in tools mode), taken out before the fn's args are checked. */
   readonly fleet: ReadonlySet<string>;
+  /**
+   * Static mode: the fns whose args a native `run` call is decoded with (the fns the prompt shows, and the toolset's
+   * own), so core has checked them already; any other fn's args come as any JSON and are checked hub-side.
+   */
+  readonly decoded?: ReadonlySet<QualifiedName>;
   /** The fn names this prompt speaks (`ModeContext.names`): its calls are read back, and its results written, through them. */
   readonly names: ModelFnNames;
 }
 
-/** A call the model made: a native tool call, or a `<run fn="…">{…}</run>` block from its text. */
+/**
+ * A call the model made: a native tool call, its args decoded by `@aeye/core` through the tool's schema (the code
+ * shape: its fn-name fields qualified names), or a `<run fn="…">{…}</run>` block from its text, as the model wrote it.
+ */
 export type ModelCallOut =
   | { readonly type: 'tool'; readonly id: string; readonly name: string; readonly args: Json }
   | ({ readonly type: 'block'; readonly id: string } & RunBlock);

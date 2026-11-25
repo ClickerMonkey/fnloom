@@ -56,7 +56,8 @@
     "mock:serve": "tsx scripts/mock-serve.ts",
     "test:stack": "tsx scripts/test-stack.ts",
     "scenarios": "tsx scripts/scenarios/run.ts",
-    "prompt:render": "tsx scripts/prompt-render.ts"
+    "prompt:render": "tsx scripts/prompt-render.ts",
+    "prompt:memory": "tsx scripts/prompt-memory.ts"
   },
   "devDependencies": {
     "@ayepi/context": "file:../ayepi/packages/context",

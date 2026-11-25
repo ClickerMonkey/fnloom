@@ -14,11 +14,12 @@
  * - **return:** the clean draft is kept with `hub/fns_save` as an `api/request` fn of its service (`<service>.<name>`).
  */
 import type { ExprDef, TypeDef } from '@aeye/gin';
-import { API_KIND, ApiFnSpec, GinExprDef, GinTypeDef, Json, QualifiedName, type ApiService } from '@harness/core';
-import { encodeValue, type Infer, type StoredFn } from '@harness/sdk';
+import { a, type Bound } from '@aeye/schema';
+import type { z } from 'zod';
+import { API_KIND, ApiFnSpec, HarnessGrammar, type Json, QualifiedName, type ApiService } from '@harness/core';
+import { encodeValue, modelArgsOf, type Infer, type StoredFn } from '@harness/sdk';
 import { previewText, ProgramAuthoring, ProgramError, programTools, testTool, type ProgramHost, type ProgramSession } from '@harness/sdk/program';
 import { authoringAgent, authoringTool, type AuthoredFn } from '@harness/sdk/server';
-import { z } from 'zod';
 import { ApiPayload, HTTP_TYPES, type OperationsPage, type ServicesPage } from '../shared/index.ts';
 import { NoCredential, RequestRefused, ResponseFailed, type SendCtx } from './http.ts';
 import { checkApi, runApi, type ApiCheck } from './program.ts';
@@ -212,11 +213,11 @@ function serviceLine(service: ApiService): string {
 }
 
 /** `services`: the services there are, by words of their name, label, description or base URL. */
-const servicesTool = authoringTool<ApiAuthoring, ApiDraft, { text?: string | undefined }>({
+const servicesTool = authoringTool<ApiAuthoring, ApiDraft, { text?: string }>({
   name: 'services',
   stage: 'find',
   description: 'List the web API services api fns are sent to, narrowed by words of their name, label, description or base URL.',
-  schema: z.object({ text: z.string().optional().describe('Words of the service\'s name, label or base URL.') }),
+  schema: a.object({ text: a.string().optional().describe('Words of the service\'s name, label or base URL.') }),
   when: (session) => session.state.service === undefined,
   async call({ text }, session) {
     const page = await session.state.deps.services.find({ text, limit: 10 });
@@ -229,7 +230,7 @@ const useServiceTool = authoringTool<ApiAuthoring, ApiDraft, { name: string }>({
   name: 'use_service',
   stage: 'find',
   description: 'Write the fn for this service (one services listed).',
-  schema: z.object({ name: z.string().min(1).describe('The service\'s name, as services listed it.') }),
+  schema: a.object({ name: a.string().min(1).describe('The service\'s name, as services listed it.') }),
   when: (session) => session.state.service === undefined,
   async call({ name }, session) {
     const service = await session.state.deps.services.get(name);
@@ -240,12 +241,15 @@ const useServiceTool = authoringTool<ApiAuthoring, ApiDraft, { name: string }>({
 });
 
 /** `add_service`: add the service the request is for, from its base URL; it holds no secret. */
-const addServiceTool = authoringTool<ApiAuthoring, ApiDraft, z.infer<typeof NewService>>({
+/** `add_service`'s args: a new service, as the model writes one (`NewService`'s input; `Services.add` parses it). */
+const NewServiceArgs = modelArgsOf(NewService);
+
+const addServiceTool = authoringTool<ApiAuthoring, ApiDraft, z.input<typeof NewService>>({
   name: 'add_service',
   stage: 'find',
   description: 'Add the web API service the request is for, when services lists none: its name, label, base URL, how it signs in, and its OpenAPI document when the request gives one.',
   instructions: 'Only for a service there is none of. Never put a token in it: people connect their own (per: person), or an admin sets a shared one (per: shared), on the Connections page. It is the person\'s own until an admin shares it. A private or local address (localhost, 10.x, 192.168.x, 169.254.x) is refused.',
-  schema: NewService,
+  schema: () => NewServiceArgs,
   when: (session) => session.state.service === undefined,
   async call(input, session) {
     const { service } = await session.state.deps.services.add(input);
@@ -256,11 +260,11 @@ const addServiceTool = authoringTool<ApiAuthoring, ApiDraft, z.infer<typeof NewS
 });
 
 /** `operations`: the service's OpenAPI operations, narrowed by words, a page at a time. */
-const operationsTool = authoringTool<ApiAuthoring, ApiDraft, { text?: string | undefined; offset?: number | undefined }>({
+const operationsTool = authoringTool<ApiAuthoring, ApiDraft, { text?: string; offset?: number }>({
   name: 'operations',
   stage: 'inspect',
   description: 'List the service\'s operations (method, path, summary) from its OpenAPI document, narrowed by words of the path or summary.',
-  schema: z.object({ text: z.string().optional().describe('Words of the path or summary.'), offset: z.number().int().min(0).optional().describe('`next` of the last page.') }),
+  schema: a.object({ text: a.string().optional().describe('Words of the path or summary.'), offset: a.int().min(0).optional().describe('`next` of the last page.') }),
   when: (session) => session.state.service?.openapi !== undefined,
   async call(query, session) {
     const service = session.state.service;
@@ -281,17 +285,19 @@ const apiTest = testTool<ApiAuthoring, ApiDraft>(async (draft, args, session) =>
   return [...notes, result === undefined ? '' : `It gives: ${previewText(result)}`].filter((line) => line !== '').join('\n');
 });
 
-/** The draft's args, typed by gin's schemas over the types this session offers. */
-function draftSchema(session: Session): z.ZodType<ApiDraft> {
-  const { Expr, Type } = session.state.program.schemas();
-  return z.object({
-    name: z.string().regex(/^[a-z][a-z0-9_]*$/).describe('snake_case, after what it does.'),
-    description: z.string().min(1).describe('One sentence: what it gives and what its args are for.'),
-    request: Expr.pipe(GinExprDef).describe('The program giving the api/HttpRequest.'),
-    responseType: Type.pipe(GinTypeDef).optional().describe('The type of response.body, when output reads it.'),
-    output: Expr.pipe(GinExprDef).optional().describe('The program mapping `response` to the result.'),
-    sample: z.record(z.string(), Json).describe('Sample args: a value for every required arg.'),
-  });
+/** The draft, in gin's grammar over the types the session offers. */
+export const ApiDraftSchema = HarnessGrammar.result<ApiDraft>(a.object({
+  name: a.string().pattern(/^[a-z][a-z0-9_]*$/).describe('snake_case, after what it does.'),
+  description: a.string().min(1).describe('One sentence: what it gives and what its args are for.'),
+  request: a.ref('Expr').describe('The program giving the api/HttpRequest.'),
+  responseType: a.ref('TypeDef').optional().describe('The type of response.body, when output reads it.'),
+  output: a.ref('Expr').optional().describe('The program mapping `response` to the result.'),
+  sample: a.record(a.json()).describe('Sample args: a value for every required arg.'),
+}));
+
+/** The draft's schema for this session: the grammar bound over the types it has loaded. */
+function draftSchema(session: Session): Bound<ApiDraft> {
+  return ApiDraftSchema.bind(...session.state.program.grammar());
 }
 
 /** The api authoring agent. Run it with the run's `ctx.ai()` and an `ApiAuthoring`. */

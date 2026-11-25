@@ -100,86 +100,35 @@ The strict schema of one call and how to read a parsed draft as a spec.
 
 ```ts
 interface WidgetProposalSchema {
-  /**
-   * The agent's tool input, its output typed by `WidgetDraftInput`: its input side is this call's strict schema, so
-   * take its JSON Schema with `io: 'input'` (as the SDK's LLM wire does) to keep every enum.
-   */
-  readonly schema: z.ZodType<WidgetDraftInput>;
-  /** A draft the schema accepts, as the fn name, description and spec. Throws when `value` doesn't parse. */
+  /** The agent's tool input: this call's strict schema, bound (its arg values typed in gin's grammar). */
+  readonly schema: Bound<WidgetDraftInput>;
+  /** A draft the schema accepts, as the fn name, description and spec. Throws (with the schema's message) when `value` doesn't fit. */
   read(value: unknown): WidgetDraft;
 }
 ```
 
 #### `WidgetDraftInput`
 
-const, type · `import { WidgetDraftInput } from '@harness/sdk'`
+interface · `import { WidgetDraftInput } from '@harness/sdk'`
 
 What the agent writes, as every call's schema shares it (the per-call schema narrows each part): the fn's name and
 description, the title, the visual shown first (its style, label, and bindings replacing the default ones), the
 other visuals the switcher offers (each with its default binding and first style), a plan per arg, presets, and the
-optional actions, drill and live flag.
+optional actions, drill and live flag. Its parts are core's widget types.
 
 ```ts
-type WidgetDraftInput = {
-  name: string;
-  description: string;
-  title: string;
-  choice: {
-    visual: string;
-    style: string;
-    label?: string | undefined;
-    bind?: Record<string, string[] | undefined> | undefined;
-  };
-  more: string[];
-  args: Record<string, {
-    show: "control";
-    label?: string | undefined;
-    choices?: {
-      label: string;
-      value?: {
-        literal: z.core.util.JSONType;
-      } | {
-        relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
-      } | undefined;
-    }[] | undefined;
-    custom?: boolean | undefined;
-    default?: {
-      literal: z.core.util.JSONType;
-    } | {
-      relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
-    } | undefined;
-  } | {
-    show: "pinned";
-    value: {
-      literal: z.core.util.JSONType;
-    } | {
-      relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
-    };
-  } | {
-    show: "hidden";
-  }>;
-  presets: {
-    label: string;
-    sets: Record<string, {
-      literal: z.core.util.JSONType;
-    } | {
-      relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
-    } | undefined>;
-  }[];
-  actions?: {
-    fn: `${string}/${string}`;
-    bind: Record<string, string>;
-    label?: string | undefined;
-    confirm?: true | undefined;
-    then?: "status" | "open" | "refresh" | undefined;
-  }[] | undefined;
-  drill?: {
-    fn: `${string}/${string}`;
-    label: string;
-    bind: Record<string, string>;
-  } | undefined;
-  live?: boolean | undefined;
-};
+interface WidgetDraftInput {
+  readonly name: string;
+  readonly description: string;
+  readonly title: string;
+  readonly choice: { readonly visual: string; readonly style: string; readonly label?: string; readonly bind?: Readonly<Record<string, readonly string[] | undefined>> };
+  readonly more: readonly string[];
+  readonly args: Readonly<Record<string, ArgPlan>>;
+  readonly presets: ReadonlyArray<{ readonly label: string; readonly sets: Readonly<Record<string, ArgValue | undefined>> }>;
+  readonly actions?: readonly WidgetAction[];
+  readonly drill?: WidgetDrill;
+  readonly live?: boolean;
+}
 ```
 
 Refers to: [`ArgPlan`](context:fs/authoring.core-types.widgets-ts#core-argplan), [`ArgValue`](context:fs/authoring.core-types.widgets-ts#core-argvalue), [`WidgetAction`](context:fs/authoring.core-types.widgets-ts#core-widgetaction), [`WidgetDrill`](context:fs/authoring.core-types.widgets-ts#core-widgetdrill).
@@ -192,7 +141,7 @@ A proposal's saved parts: the fn's name and description and the widget spec.
 
 ```ts
 interface WidgetDraft {
-  readonly name: z.infer<typeof LocalName>;
+  readonly name: string;
   readonly description: string;
   readonly spec: WidgetSpec;
 }

@@ -167,7 +167,7 @@ type ResultColumn = {
   kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
   nullable: boolean;
   label?: string | undefined;
-  type?: TypeDef<any> | undefined;
+  type?: TypeDef$1<any> | undefined;
   ref?: `${string}/${string}` | undefined;
   role?: "group" | "measure" | "attribute" | undefined;
   key?: boolean | undefined;
@@ -202,7 +202,7 @@ type ResultTable = {
     kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
     nullable: boolean;
     label?: string | undefined;
-    type?: TypeDef<any> | undefined;
+    type?: TypeDef$1<any> | undefined;
     ref?: `${string}/${string}` | undefined;
     role?: "group" | "measure" | "attribute" | undefined;
     key?: boolean | undefined;

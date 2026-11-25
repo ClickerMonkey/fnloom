@@ -15,10 +15,10 @@ import {
   WIDGETS_SYSTEM, qualify, type FnLive, type GinTypeDef, type Json, type QualifiedName, type ResultTable, type VisualRank, type WidgetActionOption, type WidgetResult, type WidgetSpec,
 } from '@harness/core';
 import {
-  argsOf, pagingOf, rangeOf, rankedVisuals, resultFacts, sourceCompatible, widgetProposalSchema, type VisualContribution, type WidgetDraft, type WidgetProposalSchema,
+  argsOf, pagingOf, rangeOf, rankedVisuals, resultFacts, sourceCompatible, widgetProposalSchema, type VisualContribution, type WidgetDraft, type WidgetDraftInput, type WidgetProposalSchema,
 } from '@harness/sdk';
 import { authoringAgent, authoringTool, type AuthoredFn, type AuthoringSession } from '@harness/sdk/server';
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 
 /** The source fn as the hub declares it. */
 export interface SourceDecl {
@@ -155,7 +155,7 @@ const INSTRUCTIONS = [
   'Example. Request: "my open tasks by stage" over hub/records_table(type: text, query?: …, limit?, offset?). It gives one row per task (its fields and id) and never counts, so there is no count to chart. Pin the type ({"type": {"show": "pinned", "value": {"literal": "tasks/Task"}}}), pin the query to open tasks, choose the table visual in its cards style (or table), and answer that a count by stage needs a query that aggregates (stage, count); over that query the category visual with x = stage, y = count fits.',
 ].join('\n');
 
-type Session = AuthoringSession<WidgetAuthoring, unknown>;
+type Session = AuthoringSession<WidgetAuthoring, WidgetDraftInput>;
 
 /** One column's facts in a line: `stage (text, group, 4 distinct)`. */
 function columnLine(column: ReturnType<typeof resultFacts>['columns'][number]): string {
@@ -177,12 +177,12 @@ function rowTypes(table: ResultTable): QualifiedName[] {
 }
 
 /** `source`: the source fn, a real sample, the visuals that draw it, row actions and drills; builds the proposal schema. */
-const sourceTool = authoringTool<WidgetAuthoring, unknown, Record<string, never>>({
+const sourceTool = authoringTool<WidgetAuthoring, WidgetDraftInput, Record<string, never>>({
   name: 'source',
   stage: 'inspect',
   description: 'Show the source fn\'s args, real sample rows with each column\'s facts, the visuals that draw them (best first), the row actions and drills, and the widget being changed.',
   instructions: 'Call it once, first.',
-  schema: z.object({}),
+  schema: a.object({}),
   when: (session) => !session.disclosure.isLoaded('fn', session.state.asked.source),
   async call(_input, session) {
     const { deps, asked } = session.state;
@@ -224,7 +224,7 @@ function authored(draft: WidgetDraft): AuthoredFn {
 }
 
 /** The widget authoring agent. Run it with the run's `ctx.ai()` and a `WidgetAuthoring`. */
-export const widgetAuthoring = authoringAgent<WidgetAuthoring, unknown>({
+export const widgetAuthoring = authoringAgent<WidgetAuthoring, WidgetDraftInput>({
   name: 'widget_author',
   description: 'Design one widget over a source fn\'s table and propose it for the person to save.',
   instructions: INSTRUCTIONS,

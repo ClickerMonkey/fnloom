@@ -4,14 +4,15 @@
  * (`PromptSuspend`), and the agent loop asks the mode what each recorded call means (a run of a fn, or invalid input
  * answered at once) and turns the runs into queued runs.
  *
- * The call is recorded from the tool's own `call`, which aeye hands the tool call id (`ctx.toolCallId`). The schema
- * is what the model is shown; aeye only checks that the args are a JSON object (`acceptObject`), so args that don't
- * fit reach the hub, which checks them against the fn's type and settles the run `invalid-input` (a run the chat
- * shows as retried), instead of aeye retrying them where nothing records it. Args that aren't JSON at all are still
- * aeye's to retry.
+ * The call is recorded from the tool's own `call`, which aeye hands the tool call id (`ctx.toolCallId`) and the args
+ * it decoded: `@aeye/core` plans each tool's `@aeye/schema` args for the model, decodes the model's call through that
+ * plan into the code shape (fn-name fields as qualified names, a field sent as a string of its JSON repaired) and
+ * answers args that don't fit itself, in `@aeye/schema`'s words (`AGENT_TOOL_ERRORS`), retrying in the same job; the
+ * agent loop records each such answer as an invalid-input run (`toolError`), so the chat shows it as retried.
  */
 import { PromptSuspend, Tool } from '@aeye/core';
-import { Json, JsonObject } from '@harness/core';
+import type { ErrorFormatInput } from '@aeye/schema';
+import { CONCISE_LIMITS, Json } from '@harness/core';
 import type { ModeTool } from '../contextor/index.ts';
 import type { HubCallContext, HubCallMetadata } from './scope.ts';
 
@@ -20,6 +21,7 @@ export interface ToolCallIntent {
   readonly toolCallId: string;
   /** The tool's name as the model called it. */
   readonly name: string;
+  /** Its args as core decoded them (the code shape). */
   readonly args: Json;
 }
 
@@ -44,35 +46,28 @@ export class PendingCalls {
   }
 }
 
-/** A value with every `undefined` object field left out, at any depth (aeye hands strict-schema `null`s back as `undefined`). */
-function withoutUndefined(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(withoutUndefined);
-  if (value === null || typeof value !== 'object') return value;
-  return Object.fromEntries(Object.entries(value).filter(([, field]) => field !== undefined).map(([key, field]) => [key, withoutUndefined(field)]));
-}
-
-/** Any JSON object, else the error aeye feeds back to the model. A field left `undefined` counts as left out. */
-export function acceptObject(raw: unknown): object | Error {
-  const parsed = JsonObject.safeParse(withoutUndefined(raw));
-  return parsed.success ? parsed.data : new Error('The args must be one JSON object.');
-}
+/**
+ * How args that don't fit a tool are told to the model: one line a problem (with "did you mean" for a misspelt name),
+ * a few at most, within a small window's means.
+ */
+export const AGENT_TOOL_ERRORS: ErrorFormatInput = { detail: 'list', maxErrors: CONCISE_LIMITS.max, maxChars: 1_000 };
 
 /** An agent tool. */
-export type AgentTool = Tool<HubCallContext, HubCallMetadata, string, object, never, [], object>;
+export type AgentTool = Tool<HubCallContext, HubCallMetadata, string, object, never, []>;
 
 /**
  * The aeye tool for a mode's tool: it records its calls and suspends. Its description is the whole of what the model
  * reads about the tool (`spec.description`: the fn's description, then its instructions and examples), because the
  * agent's prompt has no `{{tools}}` section for aeye to put tool instructions in: an `instructions` given to aeye
- * apart would never reach the model. The schema is sent as aeye's default strictness (strict where the model takes
- * it, adapted per model).
+ * apart would never reach the model. The schema is planned per model by core (strict where the model takes it,
+ * adapted to the provider's limits), and a call is decoded through that plan.
  */
 export function agentTool(tool: ModeTool, calls: PendingCalls): AgentTool {
-  return new Tool<HubCallContext, HubCallMetadata, string, object, never, [], object>({
+  return new Tool<HubCallContext, HubCallMetadata, string, object, never, []>({
     name: tool.name,
     description: tool.spec.description ?? tool.description,
     schema: tool.schema,
-    parse: acceptObject,
+    errorFormat: AGENT_TOOL_ERRORS,
     call: (input, _refs, ctx) => {
       const toolCallId = ctx.toolCallId;
       if (toolCallId === undefined) throw new Error(`tool ${tool.name} was called without a tool call id`);

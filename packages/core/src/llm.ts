@@ -1,7 +1,9 @@
 /**
  * LLM traffic on the wire: a system's LLM request forwarded to the hub (the hub is an aeye provider for systems),
- * and what streams back. These are JSON projections of aeye's `Request` / `Chunk` / `Usage`: zod schemas can't
- * cross the wire, so tool and output schemas travel as JSON schema.
+ * and what streams back. These are JSON projections of aeye's `Request` / `Chunk` / `Usage`. Tool and output schemas
+ * travel as their lenient JSON schema (the code shape, `@aeye/schema`'s `LENIENT`); the hub rebuilds them as `a`
+ * schemas, plans them for the model it picks and decodes the model's answers back to the code shape. (zod stays here:
+ * this is the link's own wire validation.)
  */
 import { z } from 'zod';
 import { Json, LlmInteractionId, RunId, Usd } from './primitives.ts';
@@ -22,8 +24,12 @@ export function namesModel(name: string, model: { readonly id: string; readonly 
   return model.id === name || `${model.provider}/${model.id}` === name;
 }
 
-/** A tool call the model asked for. `arguments` is the JSON text the model wrote. */
-export const LlmToolCall = z.object({ id: z.string(), name: z.string(), arguments: z.string() });
+/**
+ * A tool call the model asked for. `arguments` is JSON text: as the model writes it while it streams; once complete
+ * (`LlmChunk.toolCall` from the hub) decoded to the code shape under the tool's own name, or as written with `invalid`
+ * saying (to the model) why it doesn't fit.
+ */
+export const LlmToolCall = z.object({ id: z.string(), name: z.string(), arguments: z.string(), invalid: z.string().optional() });
 export type LlmToolCall = z.infer<typeof LlmToolCall>;
 
 /** One part of a multi-part message. `content` is text, a URL or a data URL. */
@@ -89,12 +95,40 @@ export type LlmChunk = z.infer<typeof LlmChunk>;
 export const LlmStrict = z.union([z.boolean(), z.number().positive()]);
 export type LlmStrict = z.infer<typeof LlmStrict>;
 
-/** A tool offered to the model, with its input as JSON schema. */
-export const LlmToolSpec = z.object({ name: z.string(), description: z.string().optional(), parameters: Json, strict: LlmStrict.optional() });
+const ErrorDetail = z.enum(['summary', 'list', 'markers', 'full']);
+
+/** How a bad answer is told to the model (`@aeye/schema`'s `ErrorFormatInput`): a detail level, or the whole format. */
+export const LlmErrorFormat = z.union([
+  ErrorDetail,
+  z.object({
+    detail: ErrorDetail.optional(),
+    maxErrors: z.number().int().min(0).optional(),
+    maxChars: z.number().int().min(0).optional(),
+    suggestions: z.boolean().optional(),
+    expected: z.boolean().optional(),
+    context: z.number().int().min(0).optional(),
+    depth: z.number().int().min(0).optional(),
+    header: z.boolean().optional(),
+  }),
+]);
+export type LlmErrorFormat = z.infer<typeof LlmErrorFormat>;
+
+/** A tool offered to the model, with its input as (lenient) JSON schema. */
+export const LlmToolSpec = z.object({
+  name: z.string(), description: z.string().optional(), parameters: Json, strict: LlmStrict.optional(), errorFormat: LlmErrorFormat.optional(),
+});
 export type LlmToolSpec = z.infer<typeof LlmToolSpec>;
 
-/** What the model should produce: text, any JSON, or JSON matching a schema. */
-export const LlmResponseFormat = z.union([z.literal('text'), z.literal('json'), z.object({ schema: Json, strict: LlmStrict })]);
+/**
+ * What the model should produce: text, any JSON, or JSON matching a (lenient JSON) schema, sent as structured output
+ * or as prompt text (`schemaDelivery`, aeye's `SchemaDelivery`).
+ */
+export const LlmResponseFormat = z.union([z.literal('text'), z.literal('json'), z.object({
+  schema: Json,
+  strict: LlmStrict,
+  errorFormat: LlmErrorFormat.optional(),
+  schemaDelivery: z.enum(['auto', 'structured', 'json', 'prompt']).optional(),
+})]);
 export type LlmResponseFormat = z.infer<typeof LlmResponseFormat>;
 
 /** An LLM request as it crosses the wire. */
@@ -106,6 +140,8 @@ export const LlmRequest = z.object({
   tools: z.array(LlmToolSpec).optional(),
   toolChoice: z.union([z.enum(['auto', 'none', 'required']), z.object({ tool: z.string() })]).optional(),
   responseFormat: LlmResponseFormat.optional(),
+  /** How bad answers are told to the model, for every schema of the request (a tool's or the output's own wins). */
+  errorFormat: LlmErrorFormat.optional(),
 });
 export type LlmRequest = z.infer<typeof LlmRequest>;
 
@@ -118,10 +154,13 @@ export const LlmForward = z.object({
 });
 export type LlmForward = z.infer<typeof LlmForward>;
 
-/** What streams back: chunks, the schema descriptors the provider used (so strict output decodes), then the cost. */
+/**
+ * What streams back: chunks, then the cost. The hub decodes what the model wrote through the plan it sent the request
+ * with: a finished tool call comes in the code shape under the tool's own name (or with `invalid`), a structured answer
+ * as one content chunk of its code shape, so the system decodes both with its own (lenient) schemas.
+ */
 export const LlmForwardChunk = z.discriminatedUnion('type', [
   z.object({ type: z.literal('chunk'), chunk: LlmChunk }),
-  z.object({ type: z.literal('descriptors'), tools: z.record(z.string(), z.string()), output: z.string().optional() }),
   z.object({ type: z.literal('done'), usage: LlmUsage, cost: Usd, interaction: LlmInteractionId, model: z.string() }),
   z.object({ type: z.literal('error'), message: z.string(), kind: z.enum(['model', 'tool', 'limit', 'provider']) }),
 ]);

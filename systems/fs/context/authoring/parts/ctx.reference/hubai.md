@@ -228,6 +228,11 @@ class HubLlm implements Llm {
   /** `ctx.ai()`: an aeye `AI` on the same hub, run and budget, with the hub's models listed. */
   listed(): Promise<HarnessAi>;
   text(input: { prompt: string; system?: string; model?: ModelChoice; }): Promise<string>;
+  /**
+  * An answer of a gin type: asked for as `{ value }` of the type's value schema (`ginA`, docs shown) in the harness
+  * grammar, and decoded through that same bound schema (the hub sends the answer back in the code shape), then read
+  * as the gin type's value (a timestamp's text as a `Date`).
+  */
   object<T>(input: { prompt: string; output: GinType<T>; system?: string; model?: ModelChoice; }): Promise<T>;
   stream(input: { prompt: string; system?: string; model?: ModelChoice; }): AsyncIterable<string>;
   embed(texts: string[]): Promise<number[][]>;
@@ -280,8 +285,8 @@ Refers to: [`ModelForward`](context:fs/authoring.core-types.model-calls-ts#core-
 const · `import { HUB_MODEL } from '@harness/sdk/server'`
 
 The system-side stand-in for whatever model the hub picks: every chat capability and parameter (strict tools
-included), so the system's registry never filters; no price; and no strict dialect, because the hub strictifies for
-the model it picks and sends back the descriptors it used.
+included), so the system's registry never filters; no price; and no strict dialect, because the hub plans the
+schemas for the model it picks and sends back the answers decoded (the prompt here decodes the code shape).
 
 ```ts
 const HUB_MODEL: ModelInfo;

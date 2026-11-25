@@ -101,6 +101,7 @@ type ModelForward = ({
       id: string;
       name: string;
       arguments: string;
+      invalid?: string | undefined;
     }[] | undefined;
     refusal?: string | undefined;
     tokens?: number | undefined;

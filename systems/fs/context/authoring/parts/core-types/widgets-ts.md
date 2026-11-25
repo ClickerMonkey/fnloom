@@ -115,7 +115,7 @@ type WidgetActionOption = {
   confirm: boolean;
   bind: Record<string, string>;
   then: "status" | "open" | "refresh";
-  form?: TypeDef<any> | undefined;
+  form?: TypeDef$1<any> | undefined;
 };
 ```
 
@@ -187,7 +187,7 @@ A chip in the control row: the argument, its words and type, what it offers and 
 type WidgetShownControl = {
   arg: string;
   label: string;
-  argType: TypeDef<any>;
+  argType: TypeDef$1<any>;
   optional: boolean;
   custom: boolean;
   relative: boolean;

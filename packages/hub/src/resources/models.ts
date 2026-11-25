@@ -99,7 +99,6 @@ export class HubFormModels implements FormModels {
         case 'chunk': text += chunk.chunk.content ?? ''; break;
         case 'done': served = chunk.model; break;
         case 'error': throw reject(502, 'FORM_MODEL_FAILED', `${model} could not read ${input.name}: ${chunk.message}`);
-        case 'descriptors': break;
       }
     }
     return { text: text.trim(), model: served };

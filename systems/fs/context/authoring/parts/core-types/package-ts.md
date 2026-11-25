@@ -46,7 +46,7 @@ type PairingInfo = {
   pairing: string;
   description: string;
   instance: InstanceName;
-  configType?: TypeDef<any> | undefined;
+  configType?: TypeDef$1<any> | undefined;
   configSecrets?: string[] | undefined;
 };
 ```

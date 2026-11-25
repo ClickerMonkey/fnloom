@@ -15,7 +15,7 @@ export type TypeLookup = (name: string) => GinTypeDef | undefined;
 export interface ParsedTypes {
   /** The parsed types, in the order given. */
   readonly types: readonly Type[];
-  /** The scope they were parsed in: pass it to `toValueSchema` and `compatible`. */
+  /** The scope they were parsed in: pass it to `fnSignature` (`ginA`) and `compatible`. */
   readonly scope: LocalScope;
   /** Named types the definitions refer to that `lookup` did not know. */
   readonly missing: readonly string[];

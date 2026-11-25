@@ -30,7 +30,7 @@ import {
   type FnSearchPage, type FnSearchQuery, type LlmMessage, type ModelCallId, type MessagePart, type RunId, type SearchDecisionsView, type SearchDecisionView,
   type SearchFiltered, type SearchItemKind, type SessionId, type Timestamp,
 } from '@harness/core';
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { plainText } from '../chat/turns.ts';
 import type { LlmGateway } from '../execution/index.ts';
 import type { Decider, DecisionModel } from '../models/index.ts';
@@ -69,15 +69,15 @@ interface Judged {
 }
 
 /** One hit kept or dropped by the LLM, by its name. */
-const JudgedItem = z.object({
-  name: z.string().describe('The hit\'s name, exactly as given.'),
-  reason: z.string().optional().describe('Why, in under 12 words.'),
+const JudgedItem = a.object({
+  name: a.string().describe('The hit\'s name, exactly as given.'),
+  reason: a.string().optional().describe('Why, in under 12 words.'),
 });
 
 /** What the LLM answers: the hits it keeps, and those it drops with a reason worth keeping. */
-const FilterAnswer = structuredAnswer(z.object({
-  keep: z.array(JudgedItem).describe('The hits that fit what the search is for.'),
-  dropped: z.array(JudgedItem).optional().describe('Hits left out, when there is a reason worth keeping.'),
+const FilterAnswer = structuredAnswer(a.object({
+  keep: a.array(JudgedItem).describe('The hits that fit what the search is for.'),
+  dropped: a.array(JudgedItem).optional().describe('Hits left out, when there is a reason worth keeping.'),
 }));
 
 /** A probability in words, for a decision model's note: "82% likely". */

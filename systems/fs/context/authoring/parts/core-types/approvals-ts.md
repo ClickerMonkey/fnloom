@@ -39,7 +39,7 @@ type ApprovalPreview = {
         kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
         nullable: boolean;
         label?: string | undefined;
-        type?: TypeDef<any> | undefined;
+        type?: TypeDef$1<any> | undefined;
         ref?: `${string}/${string}` | undefined;
         role?: "group" | "measure" | "attribute" | undefined;
         key?: boolean | undefined;
@@ -75,8 +75,8 @@ type ApprovalPreview = {
       fn: string;
       why: string;
     }[];
-    before?: TypeDef<any> | undefined;
-    after?: TypeDef<any> | undefined;
+    before?: TypeDef$1<any> | undefined;
+    after?: TypeDef$1<any> | undefined;
   } | {
     type: "flags";
     flags: {
@@ -216,7 +216,7 @@ type ApprovedRun = {
           kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
           nullable: boolean;
           label?: string | undefined;
-          type?: TypeDef<any> | undefined;
+          type?: TypeDef$1<any> | undefined;
           ref?: `${string}/${string}` | undefined;
           role?: "group" | "measure" | "attribute" | undefined;
           key?: boolean | undefined;
@@ -252,8 +252,8 @@ type ApprovedRun = {
         fn: string;
         why: string;
       }[];
-      before?: TypeDef<any> | undefined;
-      after?: TypeDef<any> | undefined;
+      before?: TypeDef$1<any> | undefined;
+      after?: TypeDef$1<any> | undefined;
     } | {
       type: "flags";
       flags: {
@@ -474,7 +474,7 @@ Build 9: a form an approver fills before approving; its value, checked against `
 
 ```ts
 type ProposalAsk = {
-  type: TypeDef<any>;
+  type: TypeDef$1<any>;
   into: string;
   label?: string | undefined;
 };

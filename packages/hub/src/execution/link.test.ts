@@ -1,3 +1,4 @@
+import { LENIENT } from '@aeye/core';
 import { agent, fn, g, handler, hub, system } from '@harness/sdk';
 import { ActorId, HandlerCallId, LinkSession, hubLinkSpec, type RunId, type LlmForwardChunk, type LlmRequest, type QualifiedName, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -239,13 +240,12 @@ describe('the LLM forward', () => {
     r.provider.script(says('forwarded!', 0.002));
     const request: LlmRequest = { messages: [{ role: 'user', content: 'hi' }], tools: [{ name: 'lookup', parameters: { type: 'object', properties: { q: { type: 'string' } } } }] };
     const chunks = await collect(r.module.linkHandlers.llm(payload({ run, request, stream: true })));
-    expect(chunks[0]).toEqual({ type: 'descriptors', tools: {} });
     expect(chunks.flatMap((c) => (c.type === 'chunk' ? [c.chunk.content ?? ''] : [])).join('')).toBe('forwarded!');
     const done = chunks.at(-1);
     expect(done).toMatchObject({ type: 'done', cost: 0.002, model: 'test-model', usage: { input: 10, output: 5 } });
     const saved = (await r.store.table('llmInteractions').find({ where: { run }, limit: 5 })).items[0];
     expect(saved).toMatchObject({ system: 'fs', status: 'done', request: { tools: [{ name: 'lookup' }] } });
-    expect(r.provider.requests[0]?.tools?.[0]?.parameters.safeParse({ q: 'x' }).success).toBe(true);
+    expect(r.provider.requests[0]?.tools?.[0]?.parameters.render(LENIENT).parse({ q: 'x' }).ok).toBe(true);
     expect((await r.module.runs.get(run))?.cost).toBeCloseTo(0.002);
   });
 

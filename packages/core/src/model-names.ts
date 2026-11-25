@@ -263,13 +263,13 @@ export const RULE_ONLY_NAMES: ModelFnNameRegistry = { fnsAmong: () => Promise.re
 // ─── A fn's name as a value ───────────────────────────────────────────────────
 
 /**
- * The text pattern that marks a gin text as a fn's name (`g.fnName()` in the SDK): the boundary converts such fields
- * both ways. It takes a model name, a static tool's name and a qualified name alike (any text with no spaces that starts
- * with a letter: `hub/inspect` also takes a resource's URI), since the model writes the first, code and people the last.
+ * The text pattern that marks a gin text as a fn's name (`g.fnName()` in the SDK), and what such a field tells the
+ * model (`gin-a.ts`, where a prompt's tools read it as its `FnName` codec). It takes a model name, a static tool's name
+ * and a qualified name alike (any text with no spaces that starts with a letter: `hub/inspect` also takes a resource's
+ * URI), since the model writes the first, code and people the last.
  */
-export const FN_NAME_PATTERN = '^[a-z]\\S*$';
-/** What a fn-name field tells the model, in its tool's JSON schema. */
-export const FN_NAME_DESCRIPTION = 'A fn\'s name, as your tools spell it.';
+export { FN_NAME_DESCRIPTION, FN_NAME_PATTERN } from './gin-a.ts';
+import { FN_NAME_DESCRIPTION, FN_NAME_PATTERN } from './gin-a.ts';
 
 /**
  * A fn's name as a value in core's zod schemas (a hub fn's args or result): a qualified name in code, the model name to

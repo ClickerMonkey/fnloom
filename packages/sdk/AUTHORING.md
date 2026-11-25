@@ -1206,6 +1206,19 @@ schema's type, pinned with an `Equal` test.
 function ginAs<S extends z.ZodType>(schema: S): GinType<z.input<S>>;
 ```
 
+#### `modelArgsOf`
+
+function · `import { modelArgsOf } from '@harness/sdk'`
+
+A zod shape as a model writes it, for an agent tool whose args a core zod schema already defines (a record the tool
+adds): its gin type (`ginAs`) as an `a` schema with the field docs, bound in gin's grammar. Build it once, at module
+scope. The value decoded is the schema's input: parse it with the schema before trusting it (that fills in the
+defaults and checks what gin can't say, a URL's form).
+
+```ts
+function modelArgsOf<S extends z.ZodType>(schema: S): Bound<z.input<S>>;
+```
+
 #### `toolArgsOf`
 
 function · `import { toolArgsOf } from '@harness/sdk'`
@@ -1240,6 +1253,31 @@ A union of objects as one object: every member's fields, each one optional (the 
 
 ```ts
 type FlatArgs<U> = { [K in KeysOf<U>]?: FieldOf<U, K> };
+```
+
+#### `ginOfA`
+
+function · `import { ginOfA } from '@harness/sdk'`
+
+The gin type of an `a` schema, refs resolved in `defs`. Never throws: what gin can't say is any JSON.
+
+```ts
+const read = a.fromJSONSchema(tool.inputSchema);
+const type = ginOfA(read.root, read.defs);
+```
+
+```ts
+function ginOfA(schema: AnySchema, defs?: ANamedTypes, reading?: ReadonlySet<string>): GinType;
+```
+
+#### `ANamedTypes`
+
+type · `import { ANamedTypes } from '@harness/sdk'`
+
+The named types refs resolve in (a bundle's `defs`).
+
+```ts
+type ANamedTypes = Readonly<Record<string, AnySchema>>;
 ```
 
 #### `sampleOf`
@@ -1485,7 +1523,7 @@ interface FieldOptions {
     /** Shown to authors and models wherever the field is described. */
     docs?: string;
     /** The value a `new` fills in when its payload omits the field. */
-    default?: Expr | ExprDef;
+    default?: Expr | ExprDef$1;
 }
 ```
 
@@ -3835,8 +3873,11 @@ schema), **check** (your `check`, run on every draft: each problem on its own li
 once a draft checked clean; your `save` keeps it as a fn). A tool of a stage is offered only once every stage before
 it is done, so the model can't draft before it has searched, and until something is saved or reused every round must
 call a tool (`toolChoice: 'required'`), so a model can't stop in words with a clean draft unsaved.
-`authoringTool({ name, stage, description, schema, when?, strict?, call })` declares a find or inspect tool; `when`
-narrows it further. aeye sends tool args as strict tool calls when the model can take them; `strict` is aeye's setting
+`authoringTool({ name, stage, description, schema, when?, strict?, errorFormat?, call })` declares a find or inspect tool;
+`when` narrows it further. `schema` is an `@aeye/schema` (`a`) schema, or `(session) => Bundle.bind(…)` for one typed by
+what the session has loaded (the draft's `schema` likewise; the draft tool's args are `{ draft }`). aeye decodes the args
+(a list or object sent as its JSON text is repaired) and answers args that don't fit with the model's own JSON, marked
+where it is wrong (`errorFormat` picks a terser level). aeye sends tool args as strict tool calls when the model can take them; `strict` is aeye's setting
 for one tool (`true` requires strict, a number is how much it is wanted, `false` sends it non-strict). The built-in
 `draft` tool is sent non-strict: strict decoding of a whole program or query (a recursive grammar, optional fields at
 every level) made models fill every absent optional with null and pick wrong branches, so the schema guides the draft
@@ -3847,8 +3888,9 @@ what it chose) is `session.state`, the `AuthoringSession`'s second type paramete
 by step, with a worked example of a good draft.
 
 **Programs.** The `code` and `api` systems author gin programs with `@harness/sdk/program` (`ProgramScope`,
-`programTools`, `testTool`, `ProgramAuthoring` on `authoringAgent`). A program's schemas are gin's strict ones
-(`buildSchemas(registry, { newStrict: true })`): a `{ kind: 'new', type, value }` is typed by the type it names. In its
+`programTools`, `testTool`, `ProgramAuthoring` on `authoringAgent`). A program's schemas are gin's grammar over the session's
+registry (`HarnessGrammar.result(a.object({ program: a.ref('Expr') })).bind(...program.grammar())`, `newStrict`): a
+`{ kind: 'new', type, value }` is typed by the type it names. In its
 value a plain field (text, a number, a bool, an enum or literal, a date) takes its value as is (`"GET"`) or an
 expression; every other field (a list, an object, a body, any JSON) takes an expression, usually a `new` of its type.
 A type also accepts a named extension of a type it accepts (`list<obj{ key, value }>` takes `list<api/HttpParam>`).
@@ -3870,7 +3912,7 @@ const findForms = authoringTool<FormAuthoring, FormDraft, { text: string }>({
   stage: 'find',
   description: 'Search the saved forms the person may use by what the request asks for.',
   instructions: 'Call it first, with what is asked in a few plain words.',
-  schema: z.object({ text: z.string().min(1).describe('What the form asks for, in plain words.') }),
+  schema: a.object({ text: a.string().min(1).describe('What the form asks for, in plain words.') }),
   async call({ text }, session) {
     const page = await session.state.deps.search({ text, kinds: [FORM_KIND], items: ['fn'], limit: 6 });
     session.disclosure.markSearched('fn');
@@ -4347,8 +4389,11 @@ interface AuthoringAgentInput<S, D> {
   readonly instructions: string;
   /** Find and inspect tools (search, load, examples, …). */
   readonly tools: ReadonlyArray<AuthoringTool<S, D>>;
-  /** The draft's args: the typed authoring schema (`buildQueryTool`'s for queries, gin's `buildSchemas` for types). */
-  readonly draft: { readonly description: string; readonly schema: z.ZodType<D> | ((session: AuthoringSession<S, D>) => z.ZodType<D>) };
+  /**
+   * The draft: the typed authoring schema, bound per session (`QueryGrammar` over the loaded tables for queries,
+   * `HarnessGrammar` over the session's registry for programs). The draft tool's args are `{ draft: <it> }`.
+   */
+  readonly draft: { readonly description: string; readonly schema: AuthoringSchema<S, D, D> };
   /** Check a draft: every problem, one per line, in words the model can act on; a preview when it is clean. */
   check(draft: D, session: AuthoringSession<S, D>): Promise<DraftCheck>;
   /** Save a clean draft as a fn. */
@@ -4408,12 +4453,14 @@ interface AuthoringToolInput<S, D, I extends object> {
   /** How and when to use it, for the model (added to the prompt's tools section). */
   readonly instructions?: string;
   readonly stage: ToolStage;
-  /** Its args: a zod schema, or one built from the session (a typed schema per instance). */
-  readonly schema: z.ZodType<I> | ((session: AuthoringSession<S, D>) => z.ZodType<I>);
+  /** Its args (`AuthoringSchema`): an `a` schema, or one bound from the session (a typed schema per instance). */
+  readonly schema: AuthoringSchema<S, D, I>;
   /** Offered only while this also holds (a load tool while something is aware but not loaded). */
   readonly when?: (session: AuthoringSession<S, D>) => boolean;
   /** aeye's strictness for its args (default: prefer strict). */
   readonly strict?: boolean | number;
+  /** How args that don't fit are told back to the model (aeye's default when absent: its JSON, marked where it is wrong). */
+  readonly errorFormat?: ErrorFormatInput;
   /** Do it; the text is what the model reads. A thrown error is shown to the model as the tool's failure. */
   call(input: I, session: AuthoringSession<S, D>): Promise<string> | string;
 }
@@ -9085,6 +9132,11 @@ class HubLlm implements Llm {
   /** `ctx.ai()`: an aeye `AI` on the same hub, run and budget, with the hub's models listed. */
   listed(): Promise<HarnessAi>;
   text(input: { prompt: string; system?: string; model?: ModelChoice; }): Promise<string>;
+  /**
+  * An answer of a gin type: asked for as `{ value }` of the type's value schema (`ginA`, docs shown) in the harness
+  * grammar, and decoded through that same bound schema (the hub sends the answer back in the code shape), then read
+  * as the gin type's value (a timestamp's text as a `Date`).
+  */
   object<T>(input: { prompt: string; output: GinType<T>; system?: string; model?: ModelChoice; }): Promise<T>;
   stream(input: { prompt: string; system?: string; model?: ModelChoice; }): AsyncIterable<string>;
   embed(texts: string[]): Promise<number[][]>;
@@ -9137,8 +9189,8 @@ Refers to: [`ModelForward`](#core-modelforward), [`ModelForwardResult`](#core-mo
 const · `import { HUB_MODEL } from '@harness/sdk/server'`
 
 The system-side stand-in for whatever model the hub picks: every chat capability and parameter (strict tools
-included), so the system's registry never filters; no price; and no strict dialect, because the hub strictifies for
-the model it picks and sends back the descriptors it used.
+included), so the system's registry never filters; no price; and no strict dialect, because the hub plans the
+schemas for the model it picks and sends back the answers decoded (the prompt here decodes the code shape).
 
 ```ts
 const HUB_MODEL: ModelInfo;
@@ -12368,86 +12420,35 @@ The strict schema of one call and how to read a parsed draft as a spec.
 
 ```ts
 interface WidgetProposalSchema {
-  /**
-   * The agent's tool input, its output typed by `WidgetDraftInput`: its input side is this call's strict schema, so
-   * take its JSON Schema with `io: 'input'` (as the SDK's LLM wire does) to keep every enum.
-   */
-  readonly schema: z.ZodType<WidgetDraftInput>;
-  /** A draft the schema accepts, as the fn name, description and spec. Throws when `value` doesn't parse. */
+  /** The agent's tool input: this call's strict schema, bound (its arg values typed in gin's grammar). */
+  readonly schema: Bound<WidgetDraftInput>;
+  /** A draft the schema accepts, as the fn name, description and spec. Throws (with the schema's message) when `value` doesn't fit. */
   read(value: unknown): WidgetDraft;
 }
 ```
 
 #### `WidgetDraftInput`
 
-const, type · `import { WidgetDraftInput } from '@harness/sdk'`
+interface · `import { WidgetDraftInput } from '@harness/sdk'`
 
 What the agent writes, as every call's schema shares it (the per-call schema narrows each part): the fn's name and
 description, the title, the visual shown first (its style, label, and bindings replacing the default ones), the
 other visuals the switcher offers (each with its default binding and first style), a plan per arg, presets, and the
-optional actions, drill and live flag.
+optional actions, drill and live flag. Its parts are core's widget types.
 
 ```ts
-type WidgetDraftInput = {
-  name: string;
-  description: string;
-  title: string;
-  choice: {
-    visual: string;
-    style: string;
-    label?: string | undefined;
-    bind?: Record<string, string[] | undefined> | undefined;
-  };
-  more: string[];
-  args: Record<string, {
-    show: "control";
-    label?: string | undefined;
-    choices?: {
-      label: string;
-      value?: {
-        literal: z.core.util.JSONType;
-      } | {
-        relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
-      } | undefined;
-    }[] | undefined;
-    custom?: boolean | undefined;
-    default?: {
-      literal: z.core.util.JSONType;
-    } | {
-      relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
-    } | undefined;
-  } | {
-    show: "pinned";
-    value: {
-      literal: z.core.util.JSONType;
-    } | {
-      relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
-    };
-  } | {
-    show: "hidden";
-  }>;
-  presets: {
-    label: string;
-    sets: Record<string, {
-      literal: z.core.util.JSONType;
-    } | {
-      relative: "now" | "today" | "today-1d" | "today+1d" | "today-7d" | "today-30d" | "today+7d" | "startOf(week)" | "endOf(week)" | "startOf(month)" | "endOf(month)" | "startOf(month,today-1mo)" | "startOf(quarter)" | "startOf(year)" | "now-1h" | "now-24h";
-    } | undefined>;
-  }[];
-  actions?: {
-    fn: `${string}/${string}`;
-    bind: Record<string, string>;
-    label?: string | undefined;
-    confirm?: true | undefined;
-    then?: "status" | "open" | "refresh" | undefined;
-  }[] | undefined;
-  drill?: {
-    fn: `${string}/${string}`;
-    label: string;
-    bind: Record<string, string>;
-  } | undefined;
-  live?: boolean | undefined;
-};
+interface WidgetDraftInput {
+  readonly name: string;
+  readonly description: string;
+  readonly title: string;
+  readonly choice: { readonly visual: string; readonly style: string; readonly label?: string; readonly bind?: Readonly<Record<string, readonly string[] | undefined>> };
+  readonly more: readonly string[];
+  readonly args: Readonly<Record<string, ArgPlan>>;
+  readonly presets: ReadonlyArray<{ readonly label: string; readonly sets: Readonly<Record<string, ArgValue | undefined>> }>;
+  readonly actions?: readonly WidgetAction[];
+  readonly drill?: WidgetDrill;
+  readonly live?: boolean;
+}
 ```
 
 Refers to: [`ArgPlan`](#core-argplan), [`ArgValue`](#core-argvalue), [`WidgetAction`](#core-widgetaction), [`WidgetDrill`](#core-widgetdrill).
@@ -12460,7 +12461,7 @@ A proposal's saved parts: the fn's name and description and the widget spec.
 
 ```ts
 interface WidgetDraft {
-  readonly name: z.infer<typeof LocalName>;
+  readonly name: string;
   readonly description: string;
   readonly spec: WidgetSpec;
 }
@@ -13160,7 +13161,7 @@ class FakeHub {
   /** Run a fn on the connected system and wait for its outcome. */
   run(fn: QualifiedName, args: Json, extra?: Partial<Omit<RunRequest, "fn" | "args">>): Promise<OutcomeWire>;
   /** How the instance last said people connect to it (`instanceConnect`); `undefined` when it never said. */
-  get instanceConnect(): { share: boolean; title: string; flow?: { flow: "oauth"; } | { flow: "form"; form: TypeDef<any>; } | undefined; } | undefined;
+  get instanceConnect(): { share: boolean; title: string; flow?: { flow: "oauth"; } | { flow: "form"; form: TypeDef$1<any>; } | undefined; } | undefined;
   /** An open proposal by its key, approval id or run id. */
   openProposal(which: string): HubBody<"propose"> & ProposedRun;
   /**
@@ -13923,21 +13924,25 @@ type ModelRecording = {
         id: string;
         name: string;
         arguments: string;
+        invalid?: string | undefined;
       } | undefined;
       toolCallArguments?: {
         id: string;
         name: string;
         arguments: string;
+        invalid?: string | undefined;
       } | undefined;
       toolCallMore?: {
         id: string;
         name: string;
         arguments: string;
+        invalid?: string | undefined;
       } | undefined;
       toolCall?: {
         id: string;
         name: string;
         arguments: string;
+        invalid?: string | undefined;
       } | undefined;
       finishReason?: "refusal" | "length" | "stop" | "tool_calls" | "content_filter" | undefined;
       refusal?: string | undefined;
@@ -13948,10 +13953,6 @@ type ModelRecording = {
         reasoning?: number | undefined;
       } | undefined;
     };
-  } | {
-    type: "descriptors";
-    tools: Record<string, string>;
-    output?: string | undefined;
   } | {
     type: "done";
     usage: {
@@ -16643,7 +16644,11 @@ Serves `providerChat`, `providerEmbed`, `providerDecide` and `providerModels` wi
 ```ts
 class ProviderServer {
   constructor(parts: ProviderServerParts);
-  /** Stream a chat call: the provider's chunks, then the usage it reported. */
+  /**
+  * Stream a chat call: the provider's chunks, then the usage it reported. The provider plans the request for its model,
+  * so its answers are decoded here through that plan (`AnswerDecoder`): the hub gets tool calls and a structured
+  * answer in the code shape, as from any provider it plans for itself.
+  */
   chat(data: ProviderChat, signal: AbortSignal): AsyncGenerator<ProviderChunk>;
   /**
   * Embed inputs with an embedding model of a provider: aeye's one `inputs` list when it has images, else its `texts`
@@ -17671,14 +17676,15 @@ class LlmWire {
   constructor(options: LlmWireOptions);
   /** An aeye message as it crosses the wire or is saved. Provider caches and reasoning details stay behind. */
   message(message: Message): LlmMessage;
-  /** An aeye request as JSON: zod schemas become JSON schema; an empty tool list is left out. */
+  /**
+  * An aeye request as JSON: each schema as its lenient JSON schema (or as sent, `schemas: 'sent'`); an empty tool
+  * list is left out.
+  */
   request(request: Request): LlmRequest;
-  /** A zod schema as JSON schema (its input side). */
-  jsonSchema(schema: z.ZodType): Json;
 }
 ```
 
-Refers to: [`Json`](#core-json), [`LlmRequest`](#core-llmrequest).
+Refers to: [`LlmRequest`](#core-llmrequest).
 
 #### `LlmWireOptions`
 
@@ -17690,24 +17696,17 @@ How `LlmWire` treats what the wire can't carry.
 interface LlmWireOptions {
   /**
    * `refuse` throws a `LinkGap`, for requests that will be sent on (a lossy request would reach the model changed).
-   * `placeholder` keeps going, for records: a schema part becomes `{}` (any value) and an unsendable part's content
-   * becomes `[binary content]`.
+   * `placeholder` keeps going, for records: an unsendable part's content becomes `[binary content]`.
    */
   readonly unrepresentable: 'refuse' | 'placeholder';
+  /**
+   * `lenient` (default) writes each schema as its lenient JSON schema, the code shape: what a forwarded request carries.
+   * `sent`, for records: a request a provider planned is written as the model was sent it (its tools in the model's
+   * dialect, the dispatcher in place of the tools behind it, the output as rendered for it); one not planned, lenient.
+   */
+  readonly schemas?: 'lenient' | 'sent';
 }
 ```
-
-#### `LlmDescriptors`
-
-type · `import { LlmDescriptors } from '@harness/sdk/server'`
-
-The strict-mode descriptors the provider chose while building a request, as they travel back to the system.
-
-```ts
-type LlmDescriptors = Omit<Extract<LlmForwardChunk, { type: 'descriptors' }>, 'type'>;
-```
-
-Refers to: [`LlmForwardChunk`](#core-llmforwardchunk).
 
 #### `UNSENDABLE_CONTENT`
 
@@ -17733,7 +17732,7 @@ function messageFromWire(message: LlmMessage): Message;
 
 function · `import { requestFromWire } from '@harness/sdk/server'`
 
-A request from the wire rebuilt as an aeye request: tool and output schemas back to zod.
+A request from the wire rebuilt as an aeye request: tool and output schemas as bound `a` schemas.
 
 ```ts
 function requestFromWire(request: LlmRequest): Request;
@@ -17745,31 +17744,81 @@ Refers to: [`LlmRequest`](#core-llmrequest).
 
 function · `import { isObjectSchema } from '@harness/sdk/server'`
 
-Whether a zod schema describes objects. It reads the schema's definition rather than using `instanceof`, so it
-holds for schemas made by another copy of zod (gin's).
+Whether a schema describes objects, as a tool's parameters must: an `a` bound whose root (through its refs) is an
+object, a record or an intersection (of objects).
 
 ```ts
-function isObjectSchema(schema: z.ZodType): schema is z.ZodType<object, object>;
+function isObjectSchema(schema: Bound<any>): schema is Bound<object>;
 ```
 
-#### `descriptorsOf`
+#### `schemaFromWire`
 
-function · `import { descriptorsOf } from '@harness/sdk/server'`
+function · `import { schemaFromWire } from '@harness/sdk/server'`
 
-The strict-mode descriptor ids the provider chose while building a request, so the system decodes the same way.
+A (lenient) JSON schema from the wire rebuilt as a bound `a` schema (`a.fromJSONSchema`), for the provider to plan
+for its model. The same JSON gives the same bound (kept, `HARNESS_WIRE_SCHEMA_CACHE`), so a schema sent every round
+is rebuilt once and rendered once per model dialect (a bound memoizes its renderings).
 
 ```ts
-function descriptorsOf(request: Request): LlmDescriptors;
+function schemaFromWire(schema: Json): Bound<unknown>;
 ```
 
-#### `applyDescriptors`
+Refers to: [`Json`](#core-json).
 
-function · `import { applyDescriptors } from '@harness/sdk/server'`
+#### `lenientJson`
 
-Write the descriptors the hub chose into the request a prompt holds, so it decodes the strict wire shape.
+function · `import { lenientJson } from '@harness/sdk/server'`
+
+A bound schema's lenient JSON schema (the code shape), as it crosses the wire.
 
 ```ts
-function applyDescriptors(request: Request, descriptors: LlmDescriptors): void;
+function lenientJson(schema: Bound<any>): Json;
+```
+
+Refers to: [`Json`](#core-json).
+
+#### `plannedOf`
+
+function · `import { plannedOf } from '@harness/sdk/server'`
+
+The plan a provider pinned on a request, if one did (`requestPlan` would make a lenient one).
+
+```ts
+function plannedOf(request: Request): RequestPlan | undefined;
+```
+
+#### `AnswerDecoder`
+
+class · `import { AnswerDecoder } from '@harness/sdk/server'`
+
+Decodes what a model wrote through the plan its request was sent with (the one the provider pinned, else a lenient
+one) as the stream passes, so a system reads every answer in the code shape and decodes it with its own schemas:
+
+- a finished tool call (`toolCall`) is decoded (`plan.decodeCall`: strict `null`s back to absent, pairs back to
+  records, JSON text parsed): its arguments become the decoded value's JSON, under the tool's own name. One that
+  doesn't fit keeps the model's arguments and says why in `invalid`, the message the model is told; arguments that
+  aren't JSON at all go as they are (the system's prompt reports them). A call that already has `invalid` (decoded
+  by a provider further along) goes as it is.
+- a call to the dispatcher (more tools than the provider takes) names its tool only in its arguments, so it is held
+  back until it's complete and goes as one chunk, named and finished, under the tool it reached.
+- a structured answer's text is held until the answer ends (its `finishReason`, or the stream's end) and goes as one
+  chunk of its decoded value's JSON, or as the model wrote it when it doesn't decode.
+
+Partial arguments (`toolCallArguments`) of other calls stream as they come, in the model's shape. One decoder per
+stream; its first chunk is read after the provider planned the request.
+
+```ts
+class AnswerDecoder {
+  constructor(request: Request);
+  /** What to send for one chunk the model streamed: nothing, the chunk (decoded), or at the answer's end the answer first. */
+  chunk(chunk: Chunk): Chunk[];
+  /** What is still held when the stream ends: the structured answer, decoded. */
+  end(): Chunk[];
+  /** A finished tool call, decoded (see the class). */
+  call(call: ToolCall): ToolCall;
+  /** A structured answer's text, decoded: its value's JSON, or the text as it is when it doesn't decode. */
+  answer(text: string): string;
+}
 ```
 
 #### `usageToWire`
@@ -18131,7 +18180,7 @@ type ApprovalPreview = {
         kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
         nullable: boolean;
         label?: string | undefined;
-        type?: TypeDef<any> | undefined;
+        type?: TypeDef$1<any> | undefined;
         ref?: `${string}/${string}` | undefined;
         role?: "group" | "measure" | "attribute" | undefined;
         key?: boolean | undefined;
@@ -18167,8 +18216,8 @@ type ApprovalPreview = {
       fn: string;
       why: string;
     }[];
-    before?: TypeDef<any> | undefined;
-    after?: TypeDef<any> | undefined;
+    before?: TypeDef$1<any> | undefined;
+    after?: TypeDef$1<any> | undefined;
   } | {
     type: "flags";
     flags: {
@@ -18308,7 +18357,7 @@ type ApprovedRun = {
           kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
           nullable: boolean;
           label?: string | undefined;
-          type?: TypeDef<any> | undefined;
+          type?: TypeDef$1<any> | undefined;
           ref?: `${string}/${string}` | undefined;
           role?: "group" | "measure" | "attribute" | undefined;
           key?: boolean | undefined;
@@ -18344,8 +18393,8 @@ type ApprovedRun = {
         fn: string;
         why: string;
       }[];
-      before?: TypeDef<any> | undefined;
-      after?: TypeDef<any> | undefined;
+      before?: TypeDef$1<any> | undefined;
+      after?: TypeDef$1<any> | undefined;
     } | {
       type: "flags";
       flags: {
@@ -18566,7 +18615,7 @@ Build 9: a form an approver fills before approving; its value, checked against `
 
 ```ts
 type ProposalAsk = {
-  type: TypeDef<any>;
+  type: TypeDef$1<any>;
   into: string;
   label?: string | undefined;
 };
@@ -18673,9 +18722,9 @@ type ConnectDecl = {
     flow: "oauth";
   } | {
     flow: "form";
-    form: TypeDef<any>;
+    form: TypeDef$1<any>;
   };
-  settings: TypeDef<any>;
+  settings: TypeDef$1<any>;
   fns: Record<string, {
     on: boolean;
     ask: boolean;
@@ -18803,7 +18852,7 @@ type InstanceConnect = {
     flow: "oauth";
   } | {
     flow: "form";
-    form: TypeDef<any>;
+    form: TypeDef$1<any>;
   } | undefined;
 };
 ```
@@ -19530,7 +19579,7 @@ type PreviewAnswer = {
           kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
           nullable: boolean;
           label?: string | undefined;
-          type?: TypeDef<any> | undefined;
+          type?: TypeDef$1<any> | undefined;
           ref?: `${string}/${string}` | undefined;
           role?: "group" | "measure" | "attribute" | undefined;
           key?: boolean | undefined;
@@ -19566,8 +19615,8 @@ type PreviewAnswer = {
         fn: string;
         why: string;
       }[];
-      before?: TypeDef<any> | undefined;
-      after?: TypeDef<any> | undefined;
+      before?: TypeDef$1<any> | undefined;
+      after?: TypeDef$1<any> | undefined;
     } | {
       type: "flags";
       flags: {
@@ -19680,12 +19729,12 @@ type PreviewAnswer = {
   contract?: {
     events: ("message" | "run" | "system" | "fns" | "resources")[];
     resources: boolean;
-    config: TypeDef<any>;
+    config: TypeDef$1<any>;
     requires: SystemName[];
     types: {
       name: string;
       description: string;
-      def: TypeDef<any>;
+      def: TypeDef$1<any>;
       display: {
         label: string;
         plural?: string | undefined;
@@ -19714,7 +19763,7 @@ type PreviewAnswer = {
     settings: {
       name: string;
       description: string;
-      type: TypeDef<any>;
+      type: TypeDef$1<any>;
       appliesTo: ("user" | "mcp" | "system" | "group" | "agent")[];
       merge: "union" | "user-wins" | "intersect" | "most-restrictive";
       editableBy: ("self" | "fns")[];
@@ -19722,13 +19771,13 @@ type PreviewAnswer = {
     attachments: {
       name: string;
       description: string;
-      data: TypeDef<any>;
+      data: TypeDef$1<any>;
     }[];
     kinds: {
       name: string;
       description: string;
       applicability: string;
-      payload: TypeDef<any>;
+      payload: TypeDef$1<any>;
       approveChanges: boolean;
       status?: {
         active: {
@@ -19759,13 +19808,13 @@ type PreviewAnswer = {
       name: string;
       description: string;
       kind: `${string}/${string}` | "native";
-      args: TypeDef<any>;
-      returns: TypeDef<any>;
+      args: TypeDef$1<any>;
+      returns: TypeDef$1<any>;
       deps: `${string}/${string}`[];
       handlers: Record<string, {
         description: string;
-        args: TypeDef<any>;
-        returns: TypeDef<any>;
+        args: TypeDef$1<any>;
+        returns: TypeDef$1<any>;
         required: boolean;
       }>;
       progress: {
@@ -19814,10 +19863,10 @@ type PreviewAnswer = {
           many: string;
         };
       } | undefined;
-      undo?: TypeDef<any> | undefined;
-      resume?: TypeDef<any> | undefined;
-      state?: TypeDef<any> | undefined;
-      form?: TypeDef<any> | undefined;
+      undo?: TypeDef$1<any> | undefined;
+      resume?: TypeDef$1<any> | undefined;
+      state?: TypeDef$1<any> | undefined;
+      form?: TypeDef$1<any> | undefined;
       niche?: "admin" | "developer" | "reference" | undefined;
       examples?: {
         args: z.core.util.JSONType;
@@ -19932,7 +19981,7 @@ type PreviewAnswer = {
       name: string;
       title: string;
       description: string;
-      target: TypeDef<any>;
+      target: TypeDef$1<any>;
       of?: `${string}/${string}` | undefined;
     }[];
     sectioners: {
@@ -19948,9 +19997,9 @@ type PreviewAnswer = {
     actions: {
       name: string;
       description: string;
-      input: TypeDef<any>;
-      returns: TypeDef<any>;
-      state?: TypeDef<any> | undefined;
+      input: TypeDef$1<any>;
+      returns: TypeDef$1<any>;
+      state?: TypeDef$1<any> | undefined;
       expires?: number | undefined;
     }[];
     name: SystemName;
@@ -19997,9 +20046,9 @@ type PreviewAnswer = {
         flow: "oauth";
       } | {
         flow: "form";
-        form: TypeDef<any>;
+        form: TypeDef$1<any>;
       };
-      settings: TypeDef<any>;
+      settings: TypeDef$1<any>;
       fns: Record<string, {
         on: boolean;
         ask: boolean;
@@ -20017,7 +20066,7 @@ type PreviewAnswer = {
     registries?: {
       name: string;
       description: string;
-      data: TypeDef<any>;
+      data: TypeDef$1<any>;
     }[] | undefined;
     contributes?: {
       registry: `${string}/${string}`;
@@ -20115,7 +20164,7 @@ type PreviewAnswer = {
     about?: string | undefined;
   } | undefined;
   ask?: {
-    type: TypeDef<any>;
+    type: TypeDef$1<any>;
     into: string;
     label?: string | undefined;
   } | undefined;
@@ -20339,7 +20388,7 @@ type RunRequest = {
             kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
             nullable: boolean;
             label?: string | undefined;
-            type?: TypeDef<any> | undefined;
+            type?: TypeDef$1<any> | undefined;
             ref?: `${string}/${string}` | undefined;
             role?: "group" | "measure" | "attribute" | undefined;
             key?: boolean | undefined;
@@ -20375,8 +20424,8 @@ type RunRequest = {
           fn: string;
           why: string;
         }[];
-        before?: TypeDef<any> | undefined;
-        after?: TypeDef<any> | undefined;
+        before?: TypeDef$1<any> | undefined;
+        after?: TypeDef$1<any> | undefined;
       } | {
         type: "flags";
         flags: {
@@ -20547,6 +20596,7 @@ type LlmForward = {
         id: string;
         name: string;
         arguments: string;
+        invalid?: string | undefined;
       }[] | undefined;
       refusal?: string | undefined;
       tokens?: number | undefined;
@@ -20559,6 +20609,16 @@ type LlmForward = {
       parameters: z.core.util.JSONType;
       description?: string | undefined;
       strict?: number | boolean | undefined;
+      errorFormat?: "full" | "list" | "summary" | "markers" | {
+        detail?: "full" | "list" | "summary" | "markers" | undefined;
+        maxErrors?: number | undefined;
+        maxChars?: number | undefined;
+        suggestions?: boolean | undefined;
+        expected?: boolean | undefined;
+        context?: number | undefined;
+        depth?: number | undefined;
+        header?: boolean | undefined;
+      } | undefined;
     }[] | undefined;
     toolChoice?: "none" | "required" | "auto" | {
       tool: string;
@@ -20566,6 +20626,27 @@ type LlmForward = {
     responseFormat?: "text" | "json" | {
       schema: z.core.util.JSONType;
       strict: number | boolean;
+      errorFormat?: "full" | "list" | "summary" | "markers" | {
+        detail?: "full" | "list" | "summary" | "markers" | undefined;
+        maxErrors?: number | undefined;
+        maxChars?: number | undefined;
+        suggestions?: boolean | undefined;
+        expected?: boolean | undefined;
+        context?: number | undefined;
+        depth?: number | undefined;
+        header?: boolean | undefined;
+      } | undefined;
+      schemaDelivery?: "auto" | "json" | "prompt" | "structured" | undefined;
+    } | undefined;
+    errorFormat?: "full" | "list" | "summary" | "markers" | {
+      detail?: "full" | "list" | "summary" | "markers" | undefined;
+      maxErrors?: number | undefined;
+      maxChars?: number | undefined;
+      suggestions?: boolean | undefined;
+      expected?: boolean | undefined;
+      context?: number | undefined;
+      depth?: number | undefined;
+      header?: boolean | undefined;
     } | undefined;
   };
   stream: boolean;
@@ -20588,7 +20669,9 @@ type LlmForward = {
 
 const, type · declared in `packages/core/src/llm.ts`
 
-What streams back: chunks, the schema descriptors the provider used (so strict output decodes), then the cost.
+What streams back: chunks, then the cost. The hub decodes what the model wrote through the plan it sent the request
+with: a finished tool call comes in the code shape under the tool's own name (or with `invalid`), a structured answer
+as one content chunk of its code shape, so the system decodes both with its own (lenient) schemas.
 
 ```ts
 type LlmForwardChunk = {
@@ -20600,21 +20683,25 @@ type LlmForwardChunk = {
       id: string;
       name: string;
       arguments: string;
+      invalid?: string | undefined;
     } | undefined;
     toolCallArguments?: {
       id: string;
       name: string;
       arguments: string;
+      invalid?: string | undefined;
     } | undefined;
     toolCallMore?: {
       id: string;
       name: string;
       arguments: string;
+      invalid?: string | undefined;
     } | undefined;
     toolCall?: {
       id: string;
       name: string;
       arguments: string;
+      invalid?: string | undefined;
     } | undefined;
     finishReason?: "refusal" | "length" | "stop" | "tool_calls" | "content_filter" | undefined;
     refusal?: string | undefined;
@@ -20625,10 +20712,6 @@ type LlmForwardChunk = {
       reasoning?: number | undefined;
     } | undefined;
   };
-} | {
-  type: "descriptors";
-  tools: Record<string, string>;
-  output?: string | undefined;
 } | {
   type: "done";
   usage: {
@@ -20669,6 +20752,7 @@ type LlmRequest = {
       id: string;
       name: string;
       arguments: string;
+      invalid?: string | undefined;
     }[] | undefined;
     refusal?: string | undefined;
     tokens?: number | undefined;
@@ -20681,6 +20765,16 @@ type LlmRequest = {
     parameters: z.core.util.JSONType;
     description?: string | undefined;
     strict?: number | boolean | undefined;
+    errorFormat?: "full" | "list" | "summary" | "markers" | {
+      detail?: "full" | "list" | "summary" | "markers" | undefined;
+      maxErrors?: number | undefined;
+      maxChars?: number | undefined;
+      suggestions?: boolean | undefined;
+      expected?: boolean | undefined;
+      context?: number | undefined;
+      depth?: number | undefined;
+      header?: boolean | undefined;
+    } | undefined;
   }[] | undefined;
   toolChoice?: "none" | "required" | "auto" | {
     tool: string;
@@ -20688,6 +20782,27 @@ type LlmRequest = {
   responseFormat?: "text" | "json" | {
     schema: z.core.util.JSONType;
     strict: number | boolean;
+    errorFormat?: "full" | "list" | "summary" | "markers" | {
+      detail?: "full" | "list" | "summary" | "markers" | undefined;
+      maxErrors?: number | undefined;
+      maxChars?: number | undefined;
+      suggestions?: boolean | undefined;
+      expected?: boolean | undefined;
+      context?: number | undefined;
+      depth?: number | undefined;
+      header?: boolean | undefined;
+    } | undefined;
+    schemaDelivery?: "auto" | "json" | "prompt" | "structured" | undefined;
+  } | undefined;
+  errorFormat?: "full" | "list" | "summary" | "markers" | {
+    detail?: "full" | "list" | "summary" | "markers" | undefined;
+    maxErrors?: number | undefined;
+    maxChars?: number | undefined;
+    suggestions?: boolean | undefined;
+    expected?: boolean | undefined;
+    context?: number | undefined;
+    depth?: number | undefined;
+    header?: boolean | undefined;
   } | undefined;
 };
 ```
@@ -20790,13 +20905,13 @@ type FnDecl = {
   name: string;
   description: string;
   kind: `${string}/${string}` | "native";
-  args: TypeDef<any>;
-  returns: TypeDef<any>;
+  args: TypeDef$1<any>;
+  returns: TypeDef$1<any>;
   deps: `${string}/${string}`[];
   handlers: Record<string, {
     description: string;
-    args: TypeDef<any>;
-    returns: TypeDef<any>;
+    args: TypeDef$1<any>;
+    returns: TypeDef$1<any>;
     required: boolean;
   }>;
   progress: {
@@ -20845,10 +20960,10 @@ type FnDecl = {
       many: string;
     };
   } | undefined;
-  undo?: TypeDef<any> | undefined;
-  resume?: TypeDef<any> | undefined;
-  state?: TypeDef<any> | undefined;
-  form?: TypeDef<any> | undefined;
+  undo?: TypeDef$1<any> | undefined;
+  resume?: TypeDef$1<any> | undefined;
+  state?: TypeDef$1<any> | undefined;
+  form?: TypeDef$1<any> | undefined;
   niche?: "admin" | "developer" | "reference" | undefined;
   examples?: {
     args: z.core.util.JSONType;
@@ -21081,8 +21196,8 @@ stores this with the fn and recomputes it whenever the payload, or anything it r
 
 ```ts
 type KindDescription = {
-  args: TypeDef<any>;
-  returns: TypeDef<any>;
+  args: TypeDef$1<any>;
+  returns: TypeDef$1<any>;
   deps: `${string}/${string}`[];
   operations: {
     cancel: boolean;
@@ -21099,8 +21214,8 @@ type KindDescription = {
   refs?: string[] | undefined;
   handlers?: Record<string, {
     description: string;
-    args: TypeDef<any>;
-    returns: TypeDef<any>;
+    args: TypeDef$1<any>;
+    returns: TypeDef$1<any>;
     required: boolean;
   }> | undefined;
   progress?: {
@@ -21170,8 +21285,8 @@ A fn as a kind's check sees it (sdk `KindCheckCtx.fn`, hub link `fnShape`): its 
 
 ```ts
 type KindFnShape = {
-  args: TypeDef<any>;
-  returns: TypeDef<any>;
+  args: TypeDef$1<any>;
+  returns: TypeDef$1<any>;
   description: string;
   mode: "read" | "write" | "delete";
 };
@@ -21187,12 +21302,12 @@ A system's whole contract as JSON.
 type Manifest = {
   events: ("message" | "run" | "system" | "fns" | "resources")[];
   resources: boolean;
-  config: TypeDef<any>;
+  config: TypeDef$1<any>;
   requires: SystemName[];
   types: {
     name: string;
     description: string;
-    def: TypeDef<any>;
+    def: TypeDef$1<any>;
     display: {
       label: string;
       plural?: string | undefined;
@@ -21221,7 +21336,7 @@ type Manifest = {
   settings: {
     name: string;
     description: string;
-    type: TypeDef<any>;
+    type: TypeDef$1<any>;
     appliesTo: ("user" | "mcp" | "system" | "group" | "agent")[];
     merge: "union" | "user-wins" | "intersect" | "most-restrictive";
     editableBy: ("self" | "fns")[];
@@ -21229,13 +21344,13 @@ type Manifest = {
   attachments: {
     name: string;
     description: string;
-    data: TypeDef<any>;
+    data: TypeDef$1<any>;
   }[];
   kinds: {
     name: string;
     description: string;
     applicability: string;
-    payload: TypeDef<any>;
+    payload: TypeDef$1<any>;
     approveChanges: boolean;
     status?: {
       active: {
@@ -21266,13 +21381,13 @@ type Manifest = {
     name: string;
     description: string;
     kind: `${string}/${string}` | "native";
-    args: TypeDef<any>;
-    returns: TypeDef<any>;
+    args: TypeDef$1<any>;
+    returns: TypeDef$1<any>;
     deps: `${string}/${string}`[];
     handlers: Record<string, {
       description: string;
-      args: TypeDef<any>;
-      returns: TypeDef<any>;
+      args: TypeDef$1<any>;
+      returns: TypeDef$1<any>;
       required: boolean;
     }>;
     progress: {
@@ -21321,10 +21436,10 @@ type Manifest = {
         many: string;
       };
     } | undefined;
-    undo?: TypeDef<any> | undefined;
-    resume?: TypeDef<any> | undefined;
-    state?: TypeDef<any> | undefined;
-    form?: TypeDef<any> | undefined;
+    undo?: TypeDef$1<any> | undefined;
+    resume?: TypeDef$1<any> | undefined;
+    state?: TypeDef$1<any> | undefined;
+    form?: TypeDef$1<any> | undefined;
     niche?: "admin" | "developer" | "reference" | undefined;
     examples?: {
       args: z.core.util.JSONType;
@@ -21439,7 +21554,7 @@ type Manifest = {
     name: string;
     title: string;
     description: string;
-    target: TypeDef<any>;
+    target: TypeDef$1<any>;
     of?: `${string}/${string}` | undefined;
   }[];
   sectioners: {
@@ -21455,9 +21570,9 @@ type Manifest = {
   actions: {
     name: string;
     description: string;
-    input: TypeDef<any>;
-    returns: TypeDef<any>;
-    state?: TypeDef<any> | undefined;
+    input: TypeDef$1<any>;
+    returns: TypeDef$1<any>;
+    state?: TypeDef$1<any> | undefined;
     expires?: number | undefined;
   }[];
   name: SystemName;
@@ -21504,9 +21619,9 @@ type Manifest = {
       flow: "oauth";
     } | {
       flow: "form";
-      form: TypeDef<any>;
+      form: TypeDef$1<any>;
     };
-    settings: TypeDef<any>;
+    settings: TypeDef$1<any>;
     fns: Record<string, {
       on: boolean;
       ask: boolean;
@@ -21524,7 +21639,7 @@ type Manifest = {
   registries?: {
     name: string;
     description: string;
-    data: TypeDef<any>;
+    data: TypeDef$1<any>;
   }[] | undefined;
   contributes?: {
     registry: `${string}/${string}`;
@@ -21636,7 +21751,7 @@ type ManifestPatch = {
     types?: {
       name: string;
       description: string;
-      def: TypeDef<any>;
+      def: TypeDef$1<any>;
       display: {
         label: string;
         plural?: string | undefined;
@@ -21665,7 +21780,7 @@ type ManifestPatch = {
     settings?: {
       name: string;
       description: string;
-      type: TypeDef<any>;
+      type: TypeDef$1<any>;
       appliesTo: ("user" | "mcp" | "system" | "group" | "agent")[];
       merge: "union" | "user-wins" | "intersect" | "most-restrictive";
       editableBy: ("self" | "fns")[];
@@ -21673,13 +21788,13 @@ type ManifestPatch = {
     attachments?: {
       name: string;
       description: string;
-      data: TypeDef<any>;
+      data: TypeDef$1<any>;
     }[] | undefined;
     kinds?: {
       name: string;
       description: string;
       applicability: string;
-      payload: TypeDef<any>;
+      payload: TypeDef$1<any>;
       approveChanges: boolean;
       status?: {
         active: {
@@ -21710,13 +21825,13 @@ type ManifestPatch = {
       name: string;
       description: string;
       kind: `${string}/${string}` | "native";
-      args: TypeDef<any>;
-      returns: TypeDef<any>;
+      args: TypeDef$1<any>;
+      returns: TypeDef$1<any>;
       deps: `${string}/${string}`[];
       handlers: Record<string, {
         description: string;
-        args: TypeDef<any>;
-        returns: TypeDef<any>;
+        args: TypeDef$1<any>;
+        returns: TypeDef$1<any>;
         required: boolean;
       }>;
       progress: {
@@ -21765,10 +21880,10 @@ type ManifestPatch = {
           many: string;
         };
       } | undefined;
-      undo?: TypeDef<any> | undefined;
-      resume?: TypeDef<any> | undefined;
-      state?: TypeDef<any> | undefined;
-      form?: TypeDef<any> | undefined;
+      undo?: TypeDef$1<any> | undefined;
+      resume?: TypeDef$1<any> | undefined;
+      state?: TypeDef$1<any> | undefined;
+      form?: TypeDef$1<any> | undefined;
       niche?: "admin" | "developer" | "reference" | undefined;
       examples?: {
         args: z.core.util.JSONType;
@@ -21883,7 +21998,7 @@ type ManifestPatch = {
       name: string;
       title: string;
       description: string;
-      target: TypeDef<any>;
+      target: TypeDef$1<any>;
       of?: `${string}/${string}` | undefined;
     }[] | undefined;
     sectioners?: {
@@ -21899,9 +22014,9 @@ type ManifestPatch = {
     actions?: {
       name: string;
       description: string;
-      input: TypeDef<any>;
-      returns: TypeDef<any>;
-      state?: TypeDef<any> | undefined;
+      input: TypeDef$1<any>;
+      returns: TypeDef$1<any>;
+      state?: TypeDef$1<any> | undefined;
       expires?: number | undefined;
     }[] | undefined;
   };
@@ -21934,7 +22049,7 @@ type ManifestPatch = {
     registries?: {
       name: string;
       description: string;
-      data: TypeDef<any>;
+      data: TypeDef$1<any>;
     }[] | undefined;
     contributes?: {
       registry: `${string}/${string}`;
@@ -22083,7 +22198,7 @@ A named type. Its methods are sent as fns named `Type.method` whose args hold th
 type TypeDecl = {
   name: string;
   description: string;
-  def: TypeDef<any>;
+  def: TypeDef$1<any>;
   display: {
     label: string;
     plural?: string | undefined;
@@ -22235,6 +22350,7 @@ type ModelForward = ({
       id: string;
       name: string;
       arguments: string;
+      invalid?: string | undefined;
     }[] | undefined;
     refusal?: string | undefined;
     tokens?: number | undefined;
@@ -22498,7 +22614,7 @@ type PairingInfo = {
   pairing: string;
   description: string;
   instance: InstanceName;
-  configType?: TypeDef<any> | undefined;
+  configType?: TypeDef$1<any> | undefined;
   configSecrets?: string[] | undefined;
 };
 ```
@@ -22789,7 +22905,7 @@ type Approval = {
           kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
           nullable: boolean;
           label?: string | undefined;
-          type?: TypeDef<any> | undefined;
+          type?: TypeDef$1<any> | undefined;
           ref?: `${string}/${string}` | undefined;
           role?: "group" | "measure" | "attribute" | undefined;
           key?: boolean | undefined;
@@ -22825,8 +22941,8 @@ type Approval = {
         fn: string;
         why: string;
       }[];
-      before?: TypeDef<any> | undefined;
-      after?: TypeDef<any> | undefined;
+      before?: TypeDef$1<any> | undefined;
+      after?: TypeDef$1<any> | undefined;
     } | {
       type: "flags";
       flags: {
@@ -22938,7 +23054,7 @@ type Approval = {
   } | undefined;
   proposed?: boolean | undefined;
   ask?: {
-    type: TypeDef<any>;
+    type: TypeDef$1<any>;
     into: string;
     label?: string | undefined;
   } | undefined;
@@ -23227,7 +23343,7 @@ Named type definitions, dependencies first, with the names asked for (or referre
 ```ts
 type TypeDefinitions = {
   types: {
-    def: TypeDef<any>;
+    def: TypeDef$1<any>;
     display: {
       label: string;
       plural?: string | undefined;
@@ -23419,7 +23535,7 @@ type ResultColumn = {
   kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
   nullable: boolean;
   label?: string | undefined;
-  type?: TypeDef<any> | undefined;
+  type?: TypeDef$1<any> | undefined;
   ref?: `${string}/${string}` | undefined;
   role?: "group" | "measure" | "attribute" | undefined;
   key?: boolean | undefined;
@@ -23454,7 +23570,7 @@ type ResultTable = {
     kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
     nullable: boolean;
     label?: string | undefined;
-    type?: TypeDef<any> | undefined;
+    type?: TypeDef$1<any> | undefined;
     ref?: `${string}/${string}` | undefined;
     role?: "group" | "measure" | "attribute" | undefined;
     key?: boolean | undefined;
@@ -24759,7 +24875,7 @@ type WidgetActionOption = {
   confirm: boolean;
   bind: Record<string, string>;
   then: "status" | "open" | "refresh";
-  form?: TypeDef<any> | undefined;
+  form?: TypeDef$1<any> | undefined;
 };
 ```
 
@@ -24831,7 +24947,7 @@ A chip in the control row: the argument, its words and type, what it offers and 
 type WidgetShownControl = {
   arg: string;
   label: string;
-  argType: TypeDef<any>;
+  argType: TypeDef$1<any>;
   optional: boolean;
   custom: boolean;
   relative: boolean;

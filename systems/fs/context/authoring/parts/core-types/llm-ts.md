@@ -36,6 +36,7 @@ type LlmForward = {
         id: string;
         name: string;
         arguments: string;
+        invalid?: string | undefined;
       }[] | undefined;
       refusal?: string | undefined;
       tokens?: number | undefined;
@@ -48,6 +49,16 @@ type LlmForward = {
       parameters: z.core.util.JSONType;
       description?: string | undefined;
       strict?: number | boolean | undefined;
+      errorFormat?: "full" | "list" | "summary" | "markers" | {
+        detail?: "full" | "list" | "summary" | "markers" | undefined;
+        maxErrors?: number | undefined;
+        maxChars?: number | undefined;
+        suggestions?: boolean | undefined;
+        expected?: boolean | undefined;
+        context?: number | undefined;
+        depth?: number | undefined;
+        header?: boolean | undefined;
+      } | undefined;
     }[] | undefined;
     toolChoice?: "none" | "required" | "auto" | {
       tool: string;
@@ -55,6 +66,27 @@ type LlmForward = {
     responseFormat?: "text" | "json" | {
       schema: z.core.util.JSONType;
       strict: number | boolean;
+      errorFormat?: "full" | "list" | "summary" | "markers" | {
+        detail?: "full" | "list" | "summary" | "markers" | undefined;
+        maxErrors?: number | undefined;
+        maxChars?: number | undefined;
+        suggestions?: boolean | undefined;
+        expected?: boolean | undefined;
+        context?: number | undefined;
+        depth?: number | undefined;
+        header?: boolean | undefined;
+      } | undefined;
+      schemaDelivery?: "auto" | "json" | "prompt" | "structured" | undefined;
+    } | undefined;
+    errorFormat?: "full" | "list" | "summary" | "markers" | {
+      detail?: "full" | "list" | "summary" | "markers" | undefined;
+      maxErrors?: number | undefined;
+      maxChars?: number | undefined;
+      suggestions?: boolean | undefined;
+      expected?: boolean | undefined;
+      context?: number | undefined;
+      depth?: number | undefined;
+      header?: boolean | undefined;
     } | undefined;
   };
   stream: boolean;
@@ -77,7 +109,9 @@ type LlmForward = {
 
 const, type · declared in `packages/core/src/llm.ts`
 
-What streams back: chunks, the schema descriptors the provider used (so strict output decodes), then the cost.
+What streams back: chunks, then the cost. The hub decodes what the model wrote through the plan it sent the request
+with: a finished tool call comes in the code shape under the tool's own name (or with `invalid`), a structured answer
+as one content chunk of its code shape, so the system decodes both with its own (lenient) schemas.
 
 ```ts
 type LlmForwardChunk = {
@@ -89,21 +123,25 @@ type LlmForwardChunk = {
       id: string;
       name: string;
       arguments: string;
+      invalid?: string | undefined;
     } | undefined;
     toolCallArguments?: {
       id: string;
       name: string;
       arguments: string;
+      invalid?: string | undefined;
     } | undefined;
     toolCallMore?: {
       id: string;
       name: string;
       arguments: string;
+      invalid?: string | undefined;
     } | undefined;
     toolCall?: {
       id: string;
       name: string;
       arguments: string;
+      invalid?: string | undefined;
     } | undefined;
     finishReason?: "refusal" | "length" | "stop" | "tool_calls" | "content_filter" | undefined;
     refusal?: string | undefined;
@@ -114,10 +152,6 @@ type LlmForwardChunk = {
       reasoning?: number | undefined;
     } | undefined;
   };
-} | {
-  type: "descriptors";
-  tools: Record<string, string>;
-  output?: string | undefined;
 } | {
   type: "done";
   usage: {
@@ -158,6 +192,7 @@ type LlmRequest = {
       id: string;
       name: string;
       arguments: string;
+      invalid?: string | undefined;
     }[] | undefined;
     refusal?: string | undefined;
     tokens?: number | undefined;
@@ -170,6 +205,16 @@ type LlmRequest = {
     parameters: z.core.util.JSONType;
     description?: string | undefined;
     strict?: number | boolean | undefined;
+    errorFormat?: "full" | "list" | "summary" | "markers" | {
+      detail?: "full" | "list" | "summary" | "markers" | undefined;
+      maxErrors?: number | undefined;
+      maxChars?: number | undefined;
+      suggestions?: boolean | undefined;
+      expected?: boolean | undefined;
+      context?: number | undefined;
+      depth?: number | undefined;
+      header?: boolean | undefined;
+    } | undefined;
   }[] | undefined;
   toolChoice?: "none" | "required" | "auto" | {
     tool: string;
@@ -177,6 +222,27 @@ type LlmRequest = {
   responseFormat?: "text" | "json" | {
     schema: z.core.util.JSONType;
     strict: number | boolean;
+    errorFormat?: "full" | "list" | "summary" | "markers" | {
+      detail?: "full" | "list" | "summary" | "markers" | undefined;
+      maxErrors?: number | undefined;
+      maxChars?: number | undefined;
+      suggestions?: boolean | undefined;
+      expected?: boolean | undefined;
+      context?: number | undefined;
+      depth?: number | undefined;
+      header?: boolean | undefined;
+    } | undefined;
+    schemaDelivery?: "auto" | "json" | "prompt" | "structured" | undefined;
+  } | undefined;
+  errorFormat?: "full" | "list" | "summary" | "markers" | {
+    detail?: "full" | "list" | "summary" | "markers" | undefined;
+    maxErrors?: number | undefined;
+    maxChars?: number | undefined;
+    suggestions?: boolean | undefined;
+    expected?: boolean | undefined;
+    context?: number | undefined;
+    depth?: number | undefined;
+    header?: boolean | undefined;
   } | undefined;
 };
 ```

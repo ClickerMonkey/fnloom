@@ -14,9 +14,9 @@
 import { errorResult, McpToolSet, type McpCaller, type McpToolResult, type McpToolSource } from '@ayepi/mcp';
 import type { Logger } from '@ayepi/log';
 import { type InstanceName, Json, modelFnName, READ_TAG, type FnRecord, type HubMcp, type HubMcpId, type ModelFnNames, type QualifiedName } from '@harness/core';
-import { z } from 'zod';
 import type { AccessService } from '../access/index.ts';
 import type { Catalog } from '../catalog/index.ts';
+import { jsonSchemaOf } from '../catalog/signature.ts';
 import { modeNames, RunArgs, STATIC_HUB_FNS, staticToolOf } from '../contextor/modes.ts';
 import type { McpRunner } from './calls.ts';
 import type { McpRegistry, McpScopes } from './index.ts';
@@ -78,7 +78,7 @@ export class HubMcpTools implements McpToolSource {
     const fns = await this.#exposed();
     const defined = await Promise.all(fns.map(async (fn) => {
       const signature = await this.#deps.catalog().signature(fn.name);
-      return { fn, inputSchema: z.toJSONSchema(signature.argsSchema, { io: 'input', unrepresentable: 'any' }) };
+      return { fn, inputSchema: signature.argsJsonSchema };
     }));
     const listed = JSON.stringify(defined.map(({ fn, inputSchema }) => [fn.name, fn.version, inputSchema]));
     if (listed === this.#listed) return;
@@ -106,7 +106,7 @@ export class HubMcpTools implements McpToolSource {
         const { ref, def } = STATIC_HUB_FNS[name];
         const tool = staticToolOf(name);
         set.define({
-          name, description: def.description, inputSchema: z.toJSONSchema(tool.schema, { io: 'input', unrepresentable: 'any' }), validate: false, annotations: { readOnlyHint: true },
+          name, description: def.description, inputSchema: jsonSchemaOf(tool.schema.bind()), validate: false, annotations: { readOnlyHint: true },
           run: (args, { signal, caller }) => this.#hubFn(ref.name, args, signal, caller),
         });
       }

@@ -1,14 +1,14 @@
 /**
  * Live (risk 4): a system-side aeye prompt with a tool, then a structured answer, through the forwarding provider and
  * the link, to a hub that runs it on a free OpenRouter model. The hub side (the kit's `OpenRouterModelLink`) does what the hub's LLM gateway does:
- * rebuild the forwarded JSON schemas as zod, stream from the provider, send back the descriptors it used, then the
- * chunks and the cost. One prompt; a rate-limited model is skipped for the next. Run with `npm run test:live`.
+ * rebuild the forwarded JSON schemas as `a` schemas, stream from a provider that plans them for its model, decode the
+ * answers through that plan, then the cost. One prompt; a rate-limited model is skipped for the next. Run with `npm run test:live`.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { fn } from '../fn.ts';
 import { g } from '../gin.ts';
 import { system } from '../system.ts';
-import { z } from 'zod';
+import { a } from '@aeye/core';
 import { harnessAiOf, serve, type RunningSystem } from './index.ts';
 import { FakeHub, liveEnv, liveModels } from './testing.ts';
 import { OpenRouterModelLink } from '../testing/openrouter.ts';
@@ -48,7 +48,7 @@ describe('the forwarding provider (live)', () => {
                 name: 'lookup',
                 description: 'The current temperature in a city, in degrees Celsius.',
                 instructions: 'Always call lookup before answering; never guess a temperature.',
-                schema: z.object({ city: z.string() }),
+                schema: a.object({ city: a.string() }),
                 call: (input: { city: string }) => { lookups.push(input.city); return { city: input.city, celsius: -3 }; },
               });
               // a tool round trip: some models skip tools when an output schema is also set (aeye sends it from the

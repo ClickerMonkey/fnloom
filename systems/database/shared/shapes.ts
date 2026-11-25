@@ -5,6 +5,7 @@
  */
 import { FnNameValue, GinObjTypeDef, Json, ResultTable, ShareRule } from '@harness/core';
 import { ResultBlock, ResultFn } from '@harness/sdk';
+import { a } from '@aeye/schema';
 import { z } from 'zod';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
@@ -162,15 +163,18 @@ export type QueryRun = z.infer<typeof QueryRun>;
 
 // ─── The query agent's tools ─────────────────────────────────────────────────
 
-/** A query the agent wrote, before it is checked and saved. */
-export const QueryDraft = z.object({
-  name: z.string().regex(/^[a-z][a-z0-9_]{0,47}$/).describe('A snake_case name (`overdue_invoices`); it is saved as a fn of the database (`database/main.overdue_invoices`).'),
-  title: z.string().min(1).describe('A short title (`Overdue invoices`).'),
-  description: z.string().min(1).describe('One sentence: what it returns (or changes) and what its params are for. Later requests are matched against it.'),
-  query: Json.describe('The query as `@aeye/query` JSON (`{ "kind": "select", … }`).'),
-  sorters: z.array(z.string().min(1)).optional().describe('Output columns a caller may sort by.'),
+/**
+ * A query the agent wrote, before it is checked and saved, as the model writes it (the authoring agent's draft extends
+ * it with `query` typed by the loaded tables and this request's `args`).
+ */
+export const QueryDraft = a.object({
+  name: a.string().pattern(/^[a-z][a-z0-9_]{0,47}$/).describe('A snake_case name (`overdue_invoices`); it is saved as a fn of the database (`database/main.overdue_invoices`).'),
+  title: a.string().min(1).describe('A short title (`Overdue invoices`).'),
+  description: a.string().min(1).describe('One sentence: what it returns (or changes) and what its params are for. Later requests are matched against it.'),
+  query: a.json().describe('The query as `@aeye/query` JSON (`{ "kind": "select", … }`).'),
+  sorters: a.array(a.string().min(1)).optional().describe('Output columns a caller may sort by.'),
 });
-export type QueryDraft = z.infer<typeof QueryDraft>;
+export type QueryDraft = a.infer<typeof QueryDraft>;
 
 /** What the draft check says about a draft: whether it runs here, its SQL and signature, or what to fix. */
 export const QueryCheck = z.object({

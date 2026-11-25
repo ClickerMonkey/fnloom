@@ -1,18 +1,18 @@
 /**
- * The harness's own gin type `record<V>`: a JSON object with any text keys, each value a `V` (zod's `z.record` over open
+ * The harness's own gin type `record<V>`: a JSON object with any text keys, each value a `V` (an object over open
  * keys, such as a saved query's params by name). gin has no such type: its `map` is a list of `{key, value}` pairs, and
  * an open record used to become `any`, so a model was told nothing about its shape and the hub couldn't tell an
- * object was wanted there. A `record` value schema is `z.record(text, V)`, whose JSON schema is an object with
- * `additionalProperties` of `V`, and its values stay plain JSON objects (as `any`'s do): a fn gets what was sent.
+ * object was wanted there. A `record` value schema is `a.record(V)` (`valueA`), whose JSON schema is an object with
+ * `additionalProperties` of `V` (pairs for a model that can't write open objects), and its values stay plain JSON objects (as `any`'s do): a fn gets what was sent.
  *
  * Every registry the harness parses types with defines it (`harnessRegistry`, or `defineHarnessTypes` on one made
  * elsewhere). A registry without it can't read a type that uses it, so make registries here.
  */
-import { createRegistry, Type, TypeError as GinTypeError, Value, type CodeOptions, type Registry, type Rnd, type SchemaOptions, type TypeDef, type TypeScope } from '@aeye/gin';
-import { z } from 'zod';
+import { createRegistry, Type, TypeError as GinTypeError, Value, type CodeOptions, type Registry, type Rnd, type TypeDef, type TypeScope } from '@aeye/gin';
+import { a, type AnySchema } from '@aeye/schema';
 
-/** What a gin type's value schema takes (gin doesn't export the name). */
-type ValueSchemaOptions = Parameters<Type['toValueSchema']>[0];
+/** What a gin type's value schema takes. */
+type ValueSchemaOptions = Parameters<Type['toA']>[0];
 
 /**
  * A record's logical value, as gin types it: like `any`'s, whatever JSON was sent (gin's runtime forms are typed by
@@ -40,12 +40,9 @@ export class RecordType extends Type<Plain, Record<string, never>> {
     return new RecordType(scope, value === undefined ? scope.registry.any() : scope.parse(value));
   }
 
-  static toSchema(opts: SchemaOptions): z.ZodType {
-    return z.object({ name: z.literal(RecordType.NAME), generic: z.object({ V: opts.Type }).optional() }).meta({ aid: 'Type_record' });
-  }
-
-  static toNewSchema(opts: SchemaOptions): z.ZodType {
-    return z.record(z.string(), opts.Expr);
+  /** Its TypeDef in gin's `a` grammar: `{ name: 'record', generic: { V } }`. */
+  static toA(): AnySchema {
+    return a.object({ name: a.literal(RecordType.NAME), generic: a.object({ V: a.ref('TypeDef') }).optional() }).describe('A record: an object with any text keys, each value a V.');
   }
 
   constructor(scope: TypeScope, value: Type) {
@@ -122,12 +119,14 @@ export class RecordType extends Type<Plain, Record<string, never>> {
     return `${this.docsPrefix(options)}record<${this.value.toCode(undefined, options)}>`;
   }
 
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodType {
-    return this.describeType(z.record(z.string(), this.value.toValueSchema(opts)), opts);
+  /** A value: an object of `V`s by key (a model that can't write open objects is shown pairs, decoded back). */
+  override valueA(opts?: ValueSchemaOptions): AnySchema {
+    return a.record(this.value.toA(opts));
   }
 
-  override toInstanceSchema(): z.ZodType {
-    return z.looseObject({ name: z.literal(RecordType.NAME) });
+  /** The value slot of a `new`: an expression per key. */
+  override toNewA(): AnySchema {
+    return a.record(a.ref('Expr'));
   }
 }
 

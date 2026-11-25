@@ -4,7 +4,7 @@
  */
 import { fn, fnDecl, g, type AnyFnDef } from '@harness/sdk';
 import { FnNameIndex, noFnStats, SystemName, type ManifestSection, type ContextDecl, type ContextRecord, type FnRecord, type ModelInfo, type QualifiedName, type SearchHit } from '@harness/core';
-import { z } from 'zod';
+import { fnSignature } from '../catalog/signature.ts';
 import type { Catalog, CatalogEntry, FnSignature } from '../catalog/index.ts';
 import type { SessionService } from '../chat/index.ts';
 import type { SearchQuery } from '../index/index.ts';
@@ -100,11 +100,7 @@ export class ContextCatalog implements Pick<Catalog, 'fn' | 'fns' | 'context' | 
   signature(name: QualifiedName): Promise<FnSignature> {
     const def = this.#defs.get(name);
     if (def === undefined) return Promise.reject(new Error(`no fn ${name}`));
-    const argsSchema = def.args.toValueSchema();
-    return Promise.resolve({
-      fn: name, args: def.args, returns: def.returns, argsSchema, returnsSchema: def.returns.toValueSchema(),
-      argsJsonSchema: z.record(z.string(), z.unknown()).parse(z.toJSONSchema(argsSchema, { unrepresentable: 'any' })),
-    });
+    return Promise.resolve(fnSignature(name, def.args, def.returns, undefined, 'strip'));
   }
 
   typeClosure(names: readonly QualifiedName[]): ReturnType<Catalog['typeClosure']> {

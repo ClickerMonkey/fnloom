@@ -15,7 +15,7 @@ import {
 } from '@harness/core';
 import type { SystemCtx } from '../ctx.ts';
 import type { ProviderDef } from '../providers.ts';
-import { ChunkWriter, chunkToWire, decisionInputFromWire, requestFromWire, usageToWire } from './llm-wire.ts';
+import { AnswerDecoder, ChunkWriter, chunkToWire, decisionInputFromWire, requestFromWire, usageToWire } from './llm-wire.ts';
 import { messageOf } from './wire.ts';
 
 /** What the provider server needs. */
@@ -49,7 +49,11 @@ export class ProviderServer {
     this.#parts = parts;
   }
 
-  /** Stream a chat call: the provider's chunks, then the usage it reported. */
+  /**
+   * Stream a chat call: the provider's chunks, then the usage it reported. The provider plans the request for its model,
+   * so its answers are decoded here through that plan (`AnswerDecoder`): the hub gets tool calls and a structured
+   * answer in the code shape, as from any provider it plans for itself.
+   */
   async *chat(data: ProviderChat, signal: AbortSignal): AsyncGenerator<ProviderChunk> {
     let provider: Provider;
     try {
@@ -65,22 +69,30 @@ export class ProviderServer {
       if (streamer !== undefined) {
         const stream: AsyncGenerator<Chunk, Response> = streamer(request, {}, metadata, signal);
         const writer = new ChunkWriter();
+        const decoder = new AnswerDecoder(request);
         let usage: Chunk['usage'];
         for (;;) {
           const next = await stream.next();
           if (next.done === true) {
+            for (const chunk of decoder.end()) { yield { type: 'chunk', chunk: writer.write(chunk) }; }
             yield { type: 'done', usage: usageToWire(next.value.usage ?? usage) };
             return;
           }
           if (next.value.usage !== undefined) { usage = next.value.usage; }
-          yield { type: 'chunk', chunk: writer.write(next.value) };
+          for (const chunk of decoder.chunk(next.value)) { yield { type: 'chunk', chunk: writer.write(chunk) }; }
         }
       }
       const executor = provider.createExecutor?.();
       if (executor === undefined) { throw new Error(`provider ${data.provider} can't chat`); }
       const response: Response = await executor(request, {}, metadata, signal);
-      yield { type: 'chunk', chunk: chunkToWire({ content: response.content, finishReason: response.finishReason }) };
-      for (const call of response.toolCalls ?? []) { yield { type: 'chunk', chunk: chunkToWire({ toolCall: call }) }; }
+      const decoder = new AnswerDecoder(request);
+      const content = typeof request.responseFormat === 'object' && response.content !== '' ? decoder.answer(response.content) : response.content;
+      yield { type: 'chunk', chunk: chunkToWire({ content, finishReason: response.finishReason }) };
+      for (const call of response.toolCalls ?? []) {
+        // named and finished at once, as aeye gives a whole response's calls as chunks
+        const decoded = decoder.call(call);
+        yield { type: 'chunk', chunk: chunkToWire({ toolCallNamed: decoded, toolCall: decoded }) };
+      }
       yield { type: 'done', usage: usageToWire(response.usage) };
     } catch (error) {
       yield { type: 'error', message: messageOf(error), kind: providerErrorKind(error) };

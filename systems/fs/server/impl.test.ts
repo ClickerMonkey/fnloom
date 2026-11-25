@@ -1,9 +1,9 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createDefaultResourceRegistry } from '@aeye/resources/default';
-import { mintId, type ApprovalPreview, type HookInput } from '@harness/core';
+import { ginBundle, mintId, type ApprovalPreview, type HookInput } from '@harness/core';
 import type { TypesOf } from '@harness/sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { z } from 'zod';
+import { LENIENT } from '@aeye/schema';
 import { COMMAND_TIMEOUT_MIN, fs } from '../shared/index.ts';
 import { AeyeDocuments } from './documents.ts';
 import { fsEnv } from './env.ts';
@@ -242,7 +242,7 @@ describe('the fs implementation', () => {
       expect(shell.calls).toHaveLength(0);
       await server.impl.fns.bash.run({ command: 'ls', timeout: COMMAND_TIMEOUT_MIN }, bashCtx(memoryState<Cwd>()).ctx);
       expect(shell.calls[0]).toMatchObject({ timeout: COMMAND_TIMEOUT_MIN });
-      const schema = JSON.stringify(z.toJSONSchema(fs.fns.bash.args.toValueSchema({ includeDocs: 'all' })));
+      const schema = JSON.stringify(ginBundle(fs.fns.bash.args, { includeDocs: 'all' }).bind(fs.fns.bash.args.registry).render(LENIENT).jsonSchema);
       expect(schema).toContain('in milliseconds');
     });
 

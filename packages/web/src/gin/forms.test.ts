@@ -76,7 +76,7 @@ describe('drafts', () => {
   it('encodes a filled draft to JSON that gin accepts', () => {
     const value = {
       path: 'a.txt', count: 3, force: true, mode: 'careful', level: 'three', day: '2026-11-07', at: '2026-11-07T10:30:00.000Z', wait: 2_000, tint: 0xff0000,
-      tags: ['x', 'y'], weights: [{ key: 'a', value: 1 }], pair: ['p', 2], target: { line: 4 }, kind: 'edit', note: null, extra: { any: [1] },
+      tags: ['x', 'y'], weights: { a: 1 }, pair: ['p', 2], target: { line: 4 }, kind: 'edit', note: null, extra: { any: [1] },
     };
     const encoded = encode(node, draftOf(node, value));
     expect(encoded.ok).toBe(true);
@@ -111,8 +111,8 @@ describe('drafts', () => {
     const items = (n: number): Draft => ({ kind: 'items', items: Array.from({ length: n }, (_, i): Draft => ({ kind: 'text', text: String(i) })) });
     expect(problems(g.list(g.text(), { maxLength: 3 }), items(4))).toEqual(['value: At most 3.']);
     expect(problems(g.list(g.text({ minLength: 1 })), { kind: 'items', items: [{ kind: 'text', text: 'a' }, { kind: 'text', text: '' }] })).toEqual(['value.1: Required.']);
-    expect(issueText({ code: 'custom', path: [], message: 'not a hash' })).toBe('Not a hash.');
-    expect(issueProblems([{ code: 'too_small', origin: 'array', minimum: 2, path: ['files'], message: '' }])).toEqual([{ path: 'files', message: 'Add at least 2.' }]);
+    expect(issueText({ path: '', message: 'not a hash' })).toBe('Not a hash.');
+    expect(issueProblems([{ path: 'files', message: 'Must have at least 2 items.' }])).toEqual([{ path: 'files', message: 'Add at least 2.' }]);
   });
 
   it('leaves absent optional fields out, and reads durations with units', () => {

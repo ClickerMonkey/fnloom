@@ -6,7 +6,7 @@
  */
 export { programEnv, type ProgramSettings } from './env.ts';
 export {
-  ARGS_SCOPE, FNS_SCOPE, ProgramError, ProgramScope, checkProgram, fnCallText, fnCandidates, storedProgramScope, typeClosure, fnPath, programFacts, programLocals, runProgram, typeNamesIn,
+  ARGS_SCOPE, FNS_SCOPE, PROGRAM_GRAMMAR, ProgramError, ProgramScope, checkProgram, fnCallText, fnCandidates, storedProgramScope, typeClosure, fnPath, programFacts, programLocals, runProgram, typeNamesIn,
   type NamedTypeDef, type ProgramCheck, type ProgramLookups, type ProgramExpectations, type ProgramFacts, type ProgramFn, type ProgramLocals, type ProgramRun,
 } from './runtime.ts';
 export { ProgramAuthoring, modeOf, previewText, programTools, testTool, type ProgramHost, type ProgramSession, type ProgramSignature } from './tools.ts';

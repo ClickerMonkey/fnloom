@@ -63,7 +63,7 @@ type PreviewAnswer = {
           kind: "number" | "boolean" | "date" | "text" | "integer" | "datetime" | "time" | "uuid" | "json" | "binary";
           nullable: boolean;
           label?: string | undefined;
-          type?: TypeDef<any> | undefined;
+          type?: TypeDef$1<any> | undefined;
           ref?: `${string}/${string}` | undefined;
           role?: "group" | "measure" | "attribute" | undefined;
           key?: boolean | undefined;
@@ -99,8 +99,8 @@ type PreviewAnswer = {
         fn: string;
         why: string;
       }[];
-      before?: TypeDef<any> | undefined;
-      after?: TypeDef<any> | undefined;
+      before?: TypeDef$1<any> | undefined;
+      after?: TypeDef$1<any> | undefined;
     } | {
       type: "flags";
       flags: {
@@ -213,12 +213,12 @@ type PreviewAnswer = {
   contract?: {
     events: ("message" | "run" | "system" | "fns" | "resources")[];
     resources: boolean;
-    config: TypeDef<any>;
+    config: TypeDef$1<any>;
     requires: SystemName[];
     types: {
       name: string;
       description: string;
-      def: TypeDef<any>;
+      def: TypeDef$1<any>;
       display: {
         label: string;
         plural?: string | undefined;
@@ -247,7 +247,7 @@ type PreviewAnswer = {
     settings: {
       name: string;
       description: string;
-      type: TypeDef<any>;
+      type: TypeDef$1<any>;
       appliesTo: ("user" | "mcp" | "system" | "group" | "agent")[];
       merge: "union" | "user-wins" | "intersect" | "most-restrictive";
       editableBy: ("self" | "fns")[];
@@ -255,13 +255,13 @@ type PreviewAnswer = {
     attachments: {
       name: string;
       description: string;
-      data: TypeDef<any>;
+      data: TypeDef$1<any>;
     }[];
     kinds: {
       name: string;
       description: string;
       applicability: string;
-      payload: TypeDef<any>;
+      payload: TypeDef$1<any>;
       approveChanges: boolean;
       status?: {
         active: {
@@ -292,13 +292,13 @@ type PreviewAnswer = {
       name: string;
       description: string;
       kind: `${string}/${string}` | "native";
-      args: TypeDef<any>;
-      returns: TypeDef<any>;
+      args: TypeDef$1<any>;
+      returns: TypeDef$1<any>;
       deps: `${string}/${string}`[];
       handlers: Record<string, {
         description: string;
-        args: TypeDef<any>;
-        returns: TypeDef<any>;
+        args: TypeDef$1<any>;
+        returns: TypeDef$1<any>;
         required: boolean;
       }>;
       progress: {
@@ -347,10 +347,10 @@ type PreviewAnswer = {
           many: string;
         };
       } | undefined;
-      undo?: TypeDef<any> | undefined;
-      resume?: TypeDef<any> | undefined;
-      state?: TypeDef<any> | undefined;
-      form?: TypeDef<any> | undefined;
+      undo?: TypeDef$1<any> | undefined;
+      resume?: TypeDef$1<any> | undefined;
+      state?: TypeDef$1<any> | undefined;
+      form?: TypeDef$1<any> | undefined;
       niche?: "admin" | "developer" | "reference" | undefined;
       examples?: {
         args: z.core.util.JSONType;
@@ -465,7 +465,7 @@ type PreviewAnswer = {
       name: string;
       title: string;
       description: string;
-      target: TypeDef<any>;
+      target: TypeDef$1<any>;
       of?: `${string}/${string}` | undefined;
     }[];
     sectioners: {
@@ -481,9 +481,9 @@ type PreviewAnswer = {
     actions: {
       name: string;
       description: string;
-      input: TypeDef<any>;
-      returns: TypeDef<any>;
-      state?: TypeDef<any> | undefined;
+      input: TypeDef$1<any>;
+      returns: TypeDef$1<any>;
+      state?: TypeDef$1<any> | undefined;
       expires?: number | undefined;
     }[];
     name: SystemName;
@@ -530,9 +530,9 @@ type PreviewAnswer = {
         flow: "oauth";
       } | {
         flow: "form";
-        form: TypeDef<any>;
+        form: TypeDef$1<any>;
       };
-      settings: TypeDef<any>;
+      settings: TypeDef$1<any>;
       fns: Record<string, {
         on: boolean;
         ask: boolean;
@@ -550,7 +550,7 @@ type PreviewAnswer = {
     registries?: {
       name: string;
       description: string;
-      data: TypeDef<any>;
+      data: TypeDef$1<any>;
     }[] | undefined;
     contributes?: {
       registry: `${string}/${string}`;
@@ -648,7 +648,7 @@ type PreviewAnswer = {
     about?: string | undefined;
   } | undefined;
   ask?: {
-    type: TypeDef<any>;
+    type: TypeDef$1<any>;
     into: string;
     label?: string | undefined;
   } | undefined;

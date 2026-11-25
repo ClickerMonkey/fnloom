@@ -11,11 +11,11 @@
  * - **return:** the clean draft is kept with `hub/fns_save` as a `code/program` fn (a new version when changing one).
  */
 import type { ExprDef } from '@aeye/gin';
-import { CODE_KIND, CodeFnSpec, GinExprDef, Json, QualifiedName, splitName } from '@harness/core';
+import { a, type Bound } from '@aeye/schema';
+import { CODE_KIND, CodeFnSpec, HarnessGrammar, type Json, QualifiedName, splitName } from '@harness/core';
 import { encodeValue, type Infer, type StoredFn } from '@harness/sdk';
 import { checkProgram, previewText, ProgramAuthoring, ProgramError, programTools, runProgram, testTool, type ProgramCheck, type ProgramHost, type ProgramSession } from '@harness/sdk/program';
 import { authoringAgent, type AuthoredFn } from '@harness/sdk/server';
-import { z } from 'zod';
 import { CodePayload } from '../shared/index.ts';
 
 /** A draft as the agent writes it. */
@@ -170,14 +170,17 @@ const codeTest = testTool<CodeAuthoring, CodeDraft>(async (draft, args, session)
   return `It gives: ${result === undefined ? 'nothing' : previewText(result)}`;
 });
 
-/** The draft's args: the name, description, the program as gin's typed expression, and sample args. */
-function draftSchema(session: Session): z.ZodType<CodeDraft> {
-  return z.object({
-    name: z.string().regex(/^[a-z][a-z0-9_]*$/).describe('snake_case, after what it does.'),
-    description: z.string().min(1).describe('One sentence: what it gives and what its args are for.'),
-    program: session.state.program.schemas().Expr.pipe(GinExprDef).describe('The program: one gin expression whose value is the result.'),
-    sample: z.record(z.string(), Json).describe('Sample args to check it with: a value for every required arg.'),
-  });
+/** The draft: the name, description, the program in gin's grammar over the session's types, and sample args. */
+export const CodeDraftSchema = HarnessGrammar.result<CodeDraft>(a.object({
+  name: a.string().pattern(/^[a-z][a-z0-9_]*$/).describe('snake_case, after what it does.'),
+  description: a.string().min(1).describe('One sentence: what it gives and what its args are for.'),
+  program: a.ref('Expr').describe('The program: one gin expression whose value is the result.'),
+  sample: a.record(a.json()).describe('Sample args to check it with: a value for every required arg.'),
+}));
+
+/** The draft's schema for this session: the grammar bound over the types it has loaded. */
+function draftSchema(session: Session): Bound<CodeDraft> {
+  return CodeDraftSchema.bind(...session.state.program.grammar());
 }
 
 /** The saved or reused fn, as `make_code` answers. */

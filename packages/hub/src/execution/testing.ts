@@ -19,7 +19,7 @@ import {
   type ProviderModelsResult, type ValidateAnswer, type ValidateRequest,
   type ConnectFinish, type ContextDecl, type ConnectResult, type ConnectStart, type RunConnection, type PreviewAnswer, type PreviewRequest, type FlagsAnswer, type ClaimsAnswer, type ClaimsRequest, type ArgsCheckAnswer, type ArgsCheckRequest,
 } from '@harness/core';
-import { z } from 'zod';
+import { fnSignature } from '../catalog/signature.ts';
 import { RecordingBus, testStore, memoryLog, settle } from '../testing.ts';
 import type { Catalog, FnFilter, FnSignature } from '../catalog/index.ts';
 import type { SystemConnection } from '../link/index.ts';
@@ -149,11 +149,7 @@ export class TestCatalog implements Catalog {
       stats: noFnStats(), updatedAt: 0, ...extra,
     };
     this.records.set(qualified, record);
-    const argsSchema = def.args.toValueSchema();
-    this.signatures.set(qualified, {
-      fn: qualified, args: def.args, returns: def.returns, argsSchema, returnsSchema: def.returns.toValueSchema(),
-      argsJsonSchema: z.record(z.string(), z.unknown()).parse(z.toJSONSchema(argsSchema, { unrepresentable: 'any' })),
-    });
+    this.signatures.set(qualified, fnSignature(qualified, def.args, def.returns, undefined, 'strip'));
     return record;
   }
 

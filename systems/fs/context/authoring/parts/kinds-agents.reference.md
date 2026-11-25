@@ -404,8 +404,11 @@ interface AuthoringAgentInput<S, D> {
   readonly instructions: string;
   /** Find and inspect tools (search, load, examples, …). */
   readonly tools: ReadonlyArray<AuthoringTool<S, D>>;
-  /** The draft's args: the typed authoring schema (`buildQueryTool`'s for queries, gin's `buildSchemas` for types). */
-  readonly draft: { readonly description: string; readonly schema: z.ZodType<D> | ((session: AuthoringSession<S, D>) => z.ZodType<D>) };
+  /**
+   * The draft: the typed authoring schema, bound per session (`QueryGrammar` over the loaded tables for queries,
+   * `HarnessGrammar` over the session's registry for programs). The draft tool's args are `{ draft: <it> }`.
+   */
+  readonly draft: { readonly description: string; readonly schema: AuthoringSchema<S, D, D> };
   /** Check a draft: every problem, one per line, in words the model can act on; a preview when it is clean. */
   check(draft: D, session: AuthoringSession<S, D>): Promise<DraftCheck>;
   /** Save a clean draft as a fn. */
@@ -465,12 +468,14 @@ interface AuthoringToolInput<S, D, I extends object> {
   /** How and when to use it, for the model (added to the prompt's tools section). */
   readonly instructions?: string;
   readonly stage: ToolStage;
-  /** Its args: a zod schema, or one built from the session (a typed schema per instance). */
-  readonly schema: z.ZodType<I> | ((session: AuthoringSession<S, D>) => z.ZodType<I>);
+  /** Its args (`AuthoringSchema`): an `a` schema, or one bound from the session (a typed schema per instance). */
+  readonly schema: AuthoringSchema<S, D, I>;
   /** Offered only while this also holds (a load tool while something is aware but not loaded). */
   readonly when?: (session: AuthoringSession<S, D>) => boolean;
   /** aeye's strictness for its args (default: prefer strict). */
   readonly strict?: boolean | number;
+  /** How args that don't fit are told back to the model (aeye's default when absent: its JSON, marked where it is wrong). */
+  readonly errorFormat?: ErrorFormatInput;
   /** Do it; the text is what the model reads. A thrown error is shown to the model as the tool's failure. */
   call(input: I, session: AuthoringSession<S, D>): Promise<string> | string;
 }

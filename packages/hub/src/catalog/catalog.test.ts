@@ -169,8 +169,8 @@ describe('changes other systems depend on', () => {
   it('parses a fn that names another system’s type', async () => {
     const { catalog } = await both();
     const signature = await catalog.signature(q('orders/place'));
-    expect(signature.argsSchema.safeParse({ product: { sku: 'a', price: 1 }, count: 2 }).success).toBe(true);
-    expect(signature.argsSchema.safeParse({ product: { sku: 'a', price: -1 }, count: 2, extra: 1 }).success).toBe(false);
+    expect(signature.check({ product: { sku: 'a', price: 1 }, count: 2 }).ok).toBe(true);
+    expect(signature.check({ product: { sku: 'a', price: -1 }, count: 2, extra: 1 }).ok).toBe(false);
   });
 });
 
@@ -288,8 +288,8 @@ describe('when a type changes', () => {
     expect(describer.calls).toHaveLength(2);
     const after = await catalog.signature(q('orders/check'));
     expect(after).not.toBe(before);
-    expect(after.argsSchema.safeParse({ sku: 'a', price: 1, stock: 2 }).success).toBe(true);
-    expect(before.argsSchema.safeParse({ sku: 'a', price: 1, stock: 2 }).success).toBe(false);
+    expect(after.check({ sku: 'a', price: 1, stock: 2 }).ok).toBe(true);
+    expect(before.check({ sku: 'a', price: 1, stock: 2 }).ok).toBe(false);
   });
 });
 

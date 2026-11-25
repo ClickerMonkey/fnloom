@@ -172,11 +172,12 @@ describe('an agent whose calls claim the same things', () => {
 
     await until(() => fs.started.length === 1, 'the first write');
     const pending = stateOf(await agentRun(r, run)).pending;
-    // the two refused calls were runs settled invalid-input at once; only the clashing write waits, for the first
-    expect(pending.map((call) => [call.toolCallId, call.held?.after ?? null])).toEqual([['call_1', null], ['call_2', null], ['call_3', null], ['call_4', ['call_1']]]);
+    // the two refused calls were answered by core (their args don't fit) and recorded as runs settled invalid-input at
+    // once, so they wait for nothing; only the clashing write waits, for the first
+    expect(pending.map((call) => [call.toolCallId, call.held?.after ?? null])).toEqual([['call_1', null], ['call_4', ['call_1']]]);
     const kids = await children(r, run);
-    expect(kids.get('0:call_2')?.status).toBe('invalid-input');
-    expect(kids.get('0:call_3')?.status).toBe('invalid-input');
+    expect(kids.get('0:call_2:refused:0')?.status).toBe('invalid-input');
+    expect(kids.get('0:call_3:refused:0')?.status).toBe('invalid-input');
     // a refused call's fn is never asked for its claims
     expect(system.claimed).toEqual([]);
     fs.finish('first');

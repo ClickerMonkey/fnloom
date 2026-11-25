@@ -1,8 +1,7 @@
-import { PromptSuspend, type Request } from '@aeye/core';
+import { a, LENIENT, prepareRequest, PromptSuspend, type Request } from '@aeye/core';
 import { fn, g } from '@harness/sdk';
 import { modelFnName, type LlmMessage, type TableReading } from '@harness/core';
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
 import { Channel } from './channel.ts';
 import { localTime, timeInfo } from './time.ts';
 import { fnModeTool } from '../contextor/modes.ts';
@@ -10,7 +9,7 @@ import { CatalogFnViews } from '../contextor/views.ts';
 import { agentTools, PendingCalls } from './tools.ts';
 import { TestCatalog } from './testing.ts';
 import {
-  chunkFromWire, chunkToWire, descriptorsOf, isObjectSchema, messageFromWire, messageToWire, replyText, requestFromWire, requestToWire, responseToWire, tokensOf,
+  chunkFromWire, chunkToWire, isObjectSchema, messageFromWire, messageToWire, replyText, requestFromWire, requestToWire, responseToWire, tokensOf,
   usageToWire,
 } from './wire.ts';
 
@@ -96,12 +95,12 @@ describe('requests', () => {
     messages: [{ role: 'system', content: 'be kind' }, { role: 'user', content: 'hi' }],
     temperature: 0.2,
     stop: 'END',
-    tools: [{ name: 'fs__read', description: 'Read.', parameters: z.object({ path: z.string() }), strict: 1 }],
+    tools: [{ name: 'fs__read', description: 'Read.', parameters: a.object({ path: a.string(), from: a.number().optional() }).bind(), strict: 1 }],
     toolChoice: { allowed: ['fs__read'], required: true },
-    responseFormat: { type: z.object({ answer: z.string() }), strict: false },
+    responseFormat: { type: a.object({ answer: a.string() }).bind(), strict: false },
   };
 
-  it('save tool and output schemas as JSON schema', () => {
+  it('save tool and output schemas as JSON schema, in the code shape before a provider planned them', () => {
     const wire = requestToWire(request);
     expect(wire.stop).toEqual(['END']);
     expect(wire.toolChoice).toBe('required');
@@ -109,23 +108,23 @@ describe('requests', () => {
     expect(wire.responseFormat).toMatchObject({ strict: false, schema: { type: 'object' } });
   });
 
-  it('come back from the wire with working zod schemas', () => {
+  it('save a planned request\'s schemas as the model was sent them', async () => {
+    const planned: Request = { messages: [], tools: [{ name: 'fs__read', parameters: a.object({ path: a.string(), from: a.number().optional() }).bind() }] };
+    await prepareRequest(planned, { id: 'gpt-4o', provider: 'openai', capabilities: ['tools', 'toolsStrict'] });
+    expect(requestToWire(planned).tools?.[0]).toMatchObject({ strict: true, parameters: { required: ['path', 'from'] } });
+  });
+
+  it('come back from the wire with working bound schemas', () => {
     const rebuilt = requestFromWire(requestToWire(request));
-    expect(rebuilt.tools?.[0]?.parameters.safeParse({ path: 'a' }).success).toBe(true);
-    expect(rebuilt.tools?.[0]?.parameters.safeParse({ path: 1 }).success).toBe(false);
+    expect(rebuilt.tools?.[0]?.parameters.render(LENIENT).parse({ path: 'a' }).ok).toBe(true);
+    expect(rebuilt.tools?.[0]?.parameters.render(LENIENT).parse({ path: 1 }).ok).toBe(false);
     const format = rebuilt.responseFormat;
     if (format === undefined || typeof format === 'string') throw new Error('expected a schema');
-    expect(format.type.safeParse({ answer: 'x' }).success).toBe(true);
+    expect(format.type.render(LENIENT).parse({ answer: 'x' }).ok).toBe(true);
   });
 
   it('refuse tool schemas that are not objects', () => {
     expect(() => requestFromWire({ messages: [], tools: [{ name: 't', parameters: { type: 'string' } }] })).toThrow(/object/);
-  });
-
-  it('report the descriptors a provider chose', () => {
-    const built: Request = { messages: [], tools: [{ name: 'a', parameters: z.object({}), descriptor: 'openai' }, { name: 'b', parameters: z.object({}) }], responseFormat: { type: z.object({}), strict: true, descriptor: 'openai' } };
-    expect(descriptorsOf(built)).toEqual({ tools: { a: 'openai' }, output: 'openai' });
-    expect(descriptorsOf({ messages: [] })).toEqual({ tools: {} });
   });
 });
 
@@ -147,10 +146,9 @@ describe('chunks and usage', () => {
     expect(responseToWire({ content: 'a', finishReason: 'length', model: 'm' }, false).finishReason).toBe('stop');
   });
 
-  it('tell object schemas apart, across zod copies', () => {
-    expect(isObjectSchema(z.object({}))).toBe(true);
-    expect(isObjectSchema(z.string())).toBe(false);
-    expect(isObjectSchema(g.obj({ a: g.text() }).toValueSchema())).toBe(true);
+  it('tell object schemas apart', () => {
+    expect(isObjectSchema(a.object({}).bind())).toBe(true);
+    expect(isObjectSchema(a.string().bind())).toBe(false);
   });
 });
 

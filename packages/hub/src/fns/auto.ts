@@ -7,7 +7,7 @@
  */
 import { AutoClassifier, flagLine, type ActorId, type AutoClassifierView, type LlmMessage } from '@harness/core';
 import type { Logger } from '@ayepi/log';
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { structuredAnswer } from '../models/structured.ts';
 import { plainText } from '../chat/turns.ts';
 import { messageOf } from '../execution/errors.ts';
@@ -21,9 +21,9 @@ import type { AutoModeClassifier, ClassifyInput } from './index.ts';
 export const AUTO_CLASSIFIER_PURPOSE = 'auto-mode';
 
 /** What the classifier answers. */
-const Verdict = structuredAnswer(z.object({
-  allow: z.boolean().describe('Whether it may go ahead without asking.'),
-  reason: z.string().describe('One short sentence the person will read.'),
+const Verdict = structuredAnswer(a.object({
+  allow: a.boolean().describe('Whether it may go ahead without asking.'),
+  reason: a.string().describe('One short sentence the person will read.'),
 }));
 
 /** What the classifier reads. */

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { LENIENT } from '@aeye/schema';
 import { z } from 'zod';
 import { parseValue } from './gin.ts';
-import { ApiServiceConfig, forModels, harnessRegistry, isPeopleOnly, McpServerConfig, peopleOnly, UpdateMemoryArgs } from '@harness/core';
+import { ApiServiceConfig, forModels, ginValueCheck, harnessRegistry, isPeopleOnly, McpServerConfig, peopleOnly, UpdateMemoryArgs } from '@harness/core';
 import { g } from './gin.ts';
 import { hub } from './hub.ts';
 import { ginOf, toolArgsOf } from './zod-gin.ts';
@@ -142,7 +143,7 @@ describe('records', () => {
     expect(parseValue(g.obj({ args: type }), { args: { a: [3] } })).toEqual({ args: { a: [3] } });
     // it travels as its definition and reads back the same through the registry
     expect(g.parse(type.toJSON()).toJSON()).toEqual(type.toJSON());
-    expect(z.toJSONSchema(type.toValueSchema())).toMatchObject({ type: 'object', additionalProperties: { type: 'array', items: { type: 'number' } } });
+    expect(ginValueCheck(type).render(LENIENT).jsonSchema).toMatchObject({ type: 'object', additionalProperties: { type: 'array', items: { type: 'number' } } });
     // the hub's registry knows it too (core's), as does a fresh harness registry
     expect(harnessRegistry().parse(type.toJSON()).toCode()).toBe('record<list<num>>');
   });

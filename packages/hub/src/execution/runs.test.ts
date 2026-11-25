@@ -1,10 +1,9 @@
 import { fn, g, handler, hub, system } from '@harness/sdk';
-import { ApprovalId, InstanceName, INVALID_INPUT_CODE, PolicyId, RunId, SystemName, type InvalidInput, type Json, QualifiedName, type Turn } from '@harness/core';
+import { ApprovalId, checkGinValue, InstanceName, INVALID_INPUT_CODE, PolicyId, RunId, SystemName, type InvalidInput, type Json, QualifiedName, type Turn } from '@harness/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { RunRefused } from './errors.ts';
 import type { RunInput } from './index.ts';
-import { invalidArgs, mergeProgress, settledOf } from './runs.ts';
-import { z } from 'zod';
+import { invalidArgs, mergeProgress, repairsOf, settledOf } from './runs.ts';
 import { AGENT, ALICE, executionRig, settle, until, type ExecutionRig } from './testing.ts';
 import { systemRow } from '../catalog/fixtures.ts';
 
@@ -602,17 +601,25 @@ describe('refused input', () => {
   });
 
   it('reads problems off a schema check', () => {
-    expect(invalidArgs(z.object({ a: z.string() }).safeParse({ a: 'x' }))).toBeUndefined();
-    expect(invalidArgs(z.object({ a: z.object({ b: z.number() }) }).safeParse({ a: { b: 'x' } }))).toMatchObject({ source: 'schema', problems: [{ path: 'a.b' }] });
+    expect(invalidArgs(checkGinValue(g.obj({ a: g.text() }), { a: 'x' }))).toBeUndefined();
+    expect(invalidArgs(checkGinValue(g.obj({ a: g.obj({ b: g.num() }) }), { a: { b: 'x' } }))).toMatchObject({ source: 'schema', problems: [{ path: 'a.b' }] });
   });
 
-  it('keeps the problems short: the branch of a union the args got furthest into, a few at most (iteration 2)', () => {
-    const step = z.union([z.object({ kind: z.literal('get'), path: z.array(z.string()) }).strict(), z.object({ kind: z.literal('set'), value: z.number() }).strict()]);
-    const args = { steps: [{ kind: 'set', value: 'x' }] };
-    expect(invalidArgs(z.object({ steps: z.array(step) }).safeParse(args), args)).toEqual({
-      source: 'schema', problems: [{ path: 'steps.0.value', message: 'Invalid input: expected number, received string' }],
-    });
-    const wide = z.object(Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`f${i}`, z.string()])));
-    expect(invalidArgs(wide.safeParse({}), {})?.problems).toHaveLength(6);
+  it('keeps the problems short: a few at most, each clipped', () => {
+    const wide = g.obj(Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`f${i}`, g.text()])));
+    const problems = invalidArgs(checkGinValue(wide, {}))?.problems ?? [];
+    expect(problems.length).toBeGreaterThan(0);
+    expect(problems.length).toBeLessThanOrEqual(5);
+  });
+
+  it('finds what a check repaired: an object or list sent as a string holding its JSON, at its dotted path', () => {
+    const type = g.obj({ filter: g.obj({ status: g.text() }), tags: g.list(g.text()), note: g.text() });
+    const sent = { filter: '{"status":"paid"}', tags: '["a"]', note: '{"kept":"as text"}' };
+    const checked = checkGinValue(type, sent);
+    expect(checked.ok).toBe(true);
+    if (!checked.ok) return;
+    expect(checked.value).toEqual({ filter: { status: 'paid' }, tags: ['a'], note: '{"kept":"as text"}' });
+    expect(repairsOf(sent, checked.value)).toEqual([{ path: 'filter', repair: 'json-string' }, { path: 'tags', repair: 'json-string' }]);
+    expect(repairsOf({ note: 'x' }, { note: 'x' })).toEqual([]);
   });
 });

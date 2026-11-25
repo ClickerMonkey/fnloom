@@ -32,7 +32,7 @@ Named type definitions, dependencies first, with the names asked for (or referre
 ```ts
 type TypeDefinitions = {
   types: {
-    def: TypeDef<any>;
+    def: TypeDef$1<any>;
     display: {
       label: string;
       plural?: string | undefined;

@@ -13,7 +13,8 @@
  * expression: any JSON would refuse a program whose root is a `new` (gin reads that as a misplaced expression).
  */
 import type { FieldsInput } from '@aeye/gin';
-import { FN_NAME_DESCRIPTION, GinExprDef, GinObjTypeDef, GinTypeDef, isPeopleOnly, MODEL_FACING } from '@harness/core';
+import type { Bound } from '@aeye/schema';
+import { FN_NAME_DESCRIPTION, GinExprDef, GinObjTypeDef, GinTypeDef, ginBundle, isPeopleOnly, MODEL_FACING } from '@harness/core';
 import { z } from 'zod';
 import { g, json, type GinType } from './gin.ts';
 
@@ -94,6 +95,17 @@ export function ginOf(schema: z.core.$ZodType): GinType {
  */
 export function ginAs<S extends z.ZodType>(schema: S): GinType<z.input<S>> {
   return typedAs<z.input<S>>(ginOf(schema));
+}
+
+/**
+ * A zod shape as a model writes it, for an agent tool whose args a core zod schema already defines (a record the tool
+ * adds): its gin type (`ginAs`) as an `a` schema with the field docs, bound in gin's grammar. Build it once, at module
+ * scope. The value decoded is the schema's input: parse it with the schema before trusting it (that fills in the
+ * defaults and checks what gin can't say, a URL's form).
+ */
+export function modelArgsOf<S extends z.ZodType>(schema: S): Bound<z.input<S>> {
+  const type = ginAs(schema);
+  return ginBundle<z.input<S>>(type, { includeDocs: 'all' }).bind(type.registry);
 }
 
 /**

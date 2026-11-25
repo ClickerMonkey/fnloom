@@ -6,22 +6,34 @@
  *
  * Owner: the link lane (catalog and link are one lane). `StoreCatalog` (`catalog/catalog.ts`) implements `Catalog`.
  */
-import type { Type } from '@aeye/gin';
+import type { Type, TypeScope } from '@aeye/gin';
+import type { Bound } from '@aeye/schema';
 import type {
-  ActorId, Availability, InstanceName, ContextRecord, GinTypeDef, Json, FnDecl, FnRecord, ImportReport, KindDescription, KindRecord, Manifest, ManifestPatch, ManifestSection,
+  ActorId, Availability, InstanceName, ContextRecord, FnNameSpelling, GinCheck, GinTypeDef, Json, FnDecl, FnRecord, ImportReport, KindDescription, KindRecord, Manifest, ManifestPatch, ManifestSection,
   ModelFnNameRegistry, ModelRole, QualifiedName, SectionDecl, SystemName, TypeRecord,
 } from '@harness/core';
-import type { z } from 'zod';
 
-/** A fn's signature rebuilt as real gin types, with the zod and JSON schemas the LLM tool and the input form use. */
+/**
+ * A fn's signature rebuilt as real gin types, with the `@aeye/schema` forms of them (`catalog/signature.ts`
+ * `fnSignature`): the args' one value check, the schema a model is shown (bound per prompt), the JSON schema forms read.
+ */
 export interface FnSignature {
   readonly fn: QualifiedName;
   readonly args: Type;
   readonly returns: Type;
-  /** `args.toValueSchema` with docs, unknown keys refused (an agent's call is authored against it). */
-  readonly argsSchema: z.ZodType;
-  readonly returnsSchema: z.ZodType;
-  /** JSON schema of the args, for tool definitions and `!` forms. */
+  /** The scope its named types resolve in (the catalog's stored types); absent when it names none. */
+  readonly scope?: TypeScope;
+  /**
+   * The args check every caller uses (a run's, a policy's, a claim's, static `run`'s): the code shape (`LENIENT`),
+   * unknown keys refused, an object or list sent as a string of its JSON repaired; its problems by dotted path and
+   * `@aeye/schema`'s message.
+   */
+  check(args: unknown): GinCheck<Json>;
+  /** The args as a model is shown them, with every doc and unknown keys refused, fn-name fields spelled by `names`. */
+  argsFor(names?: FnNameSpelling): Bound<object>;
+  /** The returns as a model answers them (an agent's structured answer), fn-name fields spelled by `names`; typed by the caller. */
+  returnsFor<T = unknown>(names?: FnNameSpelling): Bound<T>;
+  /** JSON schema of the args as code writes them (`LENIENT`), for `!` forms, estimates and MCP clients. */
   readonly argsJsonSchema: Record<string, unknown>;
 }
 

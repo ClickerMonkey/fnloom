@@ -14,8 +14,8 @@ choices:
     when: "Pick this for manifestOf, manifestBody, fnDecl, validationOf, providerDecl, canonicalJson, contractHash, sha256, ManifestOptions, ProviderServer, ProviderServerParts, providerErrorKind, KeyStore,…"
   - to: "fs/authoring.internals.permissionargs"
     when: "Pick this for permissionArgs, ProcessGrants, CrashPolicy, CrashPolicyOptions, ExitDecision, STATUS_LOG, statusOfLine, AccessDeniedReader, AccessDenied, AllowlistProxy, AllowlistProxyOptions,…"
-  - to: "fs/authoring.internals.systemlookup"
-    when: "Pick this for systemLookup, REDIRECT_STATUSES, AddressRefusal, AddressRules, AddressVerdict, FollowedResponse, HostLookup, RedirectOptions, RedirectProblems."
+  - to: "fs/authoring.internals.chunkreader"
+    when: "Pick this for ChunkReader, responseToWire, decisionInputToWire, decisionInputFromWire, addressVerdict, followRedirects, isLocalName, isPrivateAddress, systemLookup, REDIRECT_STATUSES,…"
   - to: "fs/authoring.core-types"
     when: "Pick this to go on in order: Core types."
 ---
@@ -35,5 +35,5 @@ back (`refusedOfLine`) and reports to the hub; `setAllowed` changes what a runni
 This part is in 3 pieces; load the one you need:
 
 - [manifestOf … SHARED_ENV](context:fs/authoring.internals.manifestof)
-- [permissionArgs … isPrivateAddress](context:fs/authoring.internals.permissionargs)
-- [systemLookup … RedirectProblems](context:fs/authoring.internals.systemlookup)
+- [permissionArgs … ChunkWriter](context:fs/authoring.internals.permissionargs)
+- [ChunkReader … RedirectProblems](context:fs/authoring.internals.chunkreader)

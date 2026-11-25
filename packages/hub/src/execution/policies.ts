@@ -268,7 +268,7 @@ export class HubPolicyEngine implements PolicyEngine {
     const current = run.args;
     if (current === null || typeof current !== 'object' || Array.isArray(current)) throw reject(409, 'ARGS_NOT_AN_OBJECT', `${run.fn}'s args take no answer`);
     const args: Json = { ...current, [ask.into]: answer };
-    const invalid = invalidArgs((await this.#deps.catalog.signature(run.fn)).argsSchema.safeParse(args), args);
+    const invalid = invalidArgs((await this.#deps.catalog.signature(run.fn)).check(args));
     if (invalid !== undefined) throw reject(422, 'ANSWER_INVALID', invalid.problems.map(problemLine).join('; '));
     await this.#deps.store.table('runs').update(run.id, { args });
   }

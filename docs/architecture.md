@@ -116,6 +116,40 @@ Dependencies point one way: `core` ← `sdk` ← `hub`, `systems/*`, `web`. `cor
 The web app gets the zod-free manifest of `hubWebSpec` from `packages/web/src/api/manifest.gen.ts`, written by
 `npm run web:manifest`. `npm run check` fails when it is stale.
 
+### What a model sees: `@aeye/schema`
+
+zod is ayepi's: the API and link wire, config, stored records. Everything a model is shown or answers in is an
+`@aeye/schema` (`a`) schema, rendered per model by aeye's request planning (`prepareRequest`: strict where the model
+takes it, records as pairs, recursion as JSON text, past the provider's tool cap a `run_tool` dispatcher) and decoded
+back through the same plan, with mistakes told to the model in `@aeye/schema`'s error format (the model's JSON with
+markers, "did you mean").
+
+- **gin types → `a`** (`core/src/gin-a.ts`): `ginBundle(type, opts)` is a gin type's value schema over
+  `HarnessGrammar` (gin's grammar plus `FnName`), bound per prompt with `(registry, names)`. A fn-name field
+  (`g.fnName()`) is `FnName`: a codec over the prompt's `ModelFnNames` (the model writes `fs__read`, code gets
+  `fs/read`); the prompt `learn`s cut names before core decodes (the agent's streamer waits on each finished call).
+  `checkGinValue(type, value)` is the value check every caller uses (a run's args, a form, a system's value): the
+  code shape (`LENIENT`), problems by dotted path. gin has no zod any more (`toValueSchema` is gone).
+- **Hub agents**: a fn's signature (`catalog/signature.ts`) has `check(args)`, the model bundle `argsFor(names)` and
+  the LENIENT `argsJsonSchema`; tools are `a` bindables, static `run` decodes `args` by the named fn (`.dependent`).
+  Core answers bad args itself (`errorFormat` `list`, at most 1,000 characters) and retries in the job; the hub
+  records each refused call as an invalid-input run ("Thinking harder") and the repairs core made on the run.
+- **Systems' calls** (`sdk/src/server/llm-wire.ts`, hub `execution/gateway.ts`): a system sends each schema as its
+  LENIENT JSON Schema; the hub rebuilds it (`a.fromJSONSchema`, cached by JSON), its provider plans for the real model,
+  and the hub decodes each finished call (and a structured output) through that plan before streaming it back: the
+  code shape, or the raw args with `invalid` (the model-facing message, which the system's prompt answers with).
+- **What stays zod and why**: `zod-gin.ts` (`ginOf` / `ginAs` / `toolArgsOf`) turns ayepi's zod API types into gin
+  wire types (a fn's args travel as a gin `TypeDef`; the model sees them through `ginBundle`); `@harness/core`'s
+  contracts (`llm.ts`, `link.ts`, records, `AgentState`), env slices, and `@ayepi/mcp`'s `define({ args })`.
+
+**Memory** (`npm run prompt:memory`: the prompt-render stack on :4362, 150 planned prompts of `hub/chat` and
+`hub/chat_small`, the hub's working set every 10). After the move: 351 MB at start, ~390 ms per planned prompt; the
+working set climbs ~6 MB a prompt until V8 collects (round 80–90, ~770 MB) and then ~1.5 MB a prompt, which is the
+collector's pace, not the schemas: in process, binding and planning all 135 hub fns' args for a fresh prompt on
+OpenAI / Claude / Ollama in turn keeps the heap flat at +35 MB after 150 prompts (4 cached binds per tool × 3
+dialects), 25 ms a plan. The old path rebuilt zod per forwarded call (~130 ms) and, on Anthropic, grew the heap per
+`toJSONSchema` call (aits `packages/schema/PERFORMANCE.md`, "Step 3").
+
 ## The SDK (`@harness/sdk`)
 
 Pure builders, implemented now: `g` (gin's registry; `json()` for untyped JSON), `system().with()`, `fn`, `handler`,

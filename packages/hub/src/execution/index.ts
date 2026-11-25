@@ -11,7 +11,7 @@
  * (create.ts) build them all, and `testing.ts` is the rig the tests run them in.
  */
 import type {
-  ActorId, Approval, FnError, Json, LlmForward, LlmForwardChunk, LlmInteractionId, Priority, QualifiedName, ResolvedLimits, Run, RunId, RunSettled,
+  ActorId, Approval, ArgRepair, FnError, Json, LlmForward, LlmForwardChunk, LlmInteractionId, Priority, QualifiedName, ResolvedLimits, Run, RunId, RunSettled,
   SessionId, TurnId, UndoOutcome, UserInfo, Usd, ApprovalId, Remember, ProgressReport, AllowedOperations, LedgerEntry, BudgetId, ReservationId,
   ModelCallId, InvalidInput, InstanceName, LlmRequest, ModelChoice, Approver, ApprovalPreview, ProposalAsk, ProposedRun, ProposeRun, SystemName, OutcomeWire, CompareFork, PromptPreview, Session,
 } from '@harness/core';
@@ -53,6 +53,11 @@ export interface RunInput {
    * run is made and settles `invalid-input` with these problems at once, so the caller hears them and may try again.
    */
   invalid?: InvalidInput;
+  /**
+   * What the caller already repaired in the args before it gave them (a model's tool call, which `@aeye/core` decoded:
+   * a field sent as a string of its JSON read as that JSON); the run records them with what its own check repairs.
+   */
+  repairs?: readonly ArgRepair[];
   /** The instance of a fleet to run on (`on=laptop`); without it the hub picks one (`InstanceRouter`). */
   on?: InstanceName;
   /** Build 7: an admin's test call (`testCall`): it runs although its system is installed and not yet live. */

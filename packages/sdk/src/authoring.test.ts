@@ -5,7 +5,7 @@
  */
 import { mintId, type LlmForward, type LlmForwardChunk } from '@harness/core';
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { AuthoringError, authoringAgent, authoringTool, Disclosure, type AuthoredFn } from './authoring.ts';
 import { FakeModelLink, fakeHubAi, replyChunks } from './server/fake-models.ts';
 
@@ -26,17 +26,17 @@ const SAVED: AuthoredFn = { fn: 'notes/by_tag', version: 1, signature: 'notes/by
 /** A small authoring agent over notes: search, load a note type, draft a filter, check that its tag is known. */
 function notesAgent(fixes = 2) {
   const search = authoringTool<{ tags: string[] }, { tag: string }, { text: string }>({
-    name: 'search', stage: 'find', description: 'Search the saved fns.', schema: z.object({ text: z.string() }),
+    name: 'search', stage: 'find', description: 'Search the saved fns.', schema: a.object({ text: a.string() }),
     call: (_input, session) => { session.disclosure.markSearched('fn'); session.disclosure.markAware('type', ['Note']); return 'Nothing saved fits. The Note type has a tag.'; },
   });
   const load = authoringTool<{ tags: string[] }, { tag: string }, { name: string }>({
-    name: 'load', stage: 'inspect', description: 'Load a type.', schema: z.object({ name: z.string() }),
+    name: 'load', stage: 'inspect', description: 'Load a type.', schema: a.object({ name: a.string() }),
     when: (session) => session.disclosure.awareUnloaded('type').length > 0,
     call: (input, session) => { session.disclosure.markLoaded('type', [input.name]); return 'Note { tag: text, text: text }'; },
   });
   return authoringAgent<{ tags: string[] }, { tag: string }>({
     name: 'notes_query', description: 'Write a notes query.', instructions: 'Find, inspect, draft, then save.', tools: [search, load], fixes,
-    draft: { description: 'The tag to filter by.', schema: z.object({ tag: z.string() }) },
+    draft: { description: 'The tag to filter by.', schema: a.object({ tag: a.string() }) },
     check: (draft, session) => Promise.resolve(session.state.tags.includes(draft.tag) ? { problems: [], preview: [{ text: 'hi' }] } : { problems: [`There is no tag ${draft.tag}.`] }),
     save: () => Promise.resolve(SAVED),
   });
@@ -69,7 +69,7 @@ describe('the authoring agent', () => {
     await expect(failed).rejects.toMatchObject({ stage: 'fix', problems: ['There is no tag b.'] });
   });
 
-  it('answers args that don\'t fit with the first problems at their paths, and reads a field sent as a JSON string', async () => {
+  it('answers args that don\'t fit with its own JSON marked where it is wrong, and reads a field sent as a JSON string', async () => {
     const script = [
       callTool('search', { text: 'x' }), callTool('load', { name: 'Note' }), callTool('draft', { draft: { tag: 5 } }),
       callTool('draft', { draft: JSON.stringify({ tag: 'work' }) }), callTool('save', {}), replyChunks('Saved.'),
@@ -77,8 +77,9 @@ describe('the authoring agent', () => {
     const link = new FakeModelLink({ reply: () => script.shift() ?? replyChunks('done') });
     const { session } = await notesAgent().run(await fakeHubAi(link), 'Notes', { tags: ['work'] });
     const told = JSON.stringify(link.forwards[3]?.request.messages);
-    expect(told).toContain("the args don't fit; fix these and send the whole call again:");
-    expect(told).toContain('- draft.tag: Invalid input: expected string, received number');
+    // aeye's answer: the model's own args, marked at the problem
+    expect(told).toContain('1 problem in the arguments of draft');
+    expect(told).toContain('draft.tag: Expected a string, got number.');
     // the double-encoded draft was read as its JSON, checked clean and saved
     expect(session.log.map((step) => step.tool)).toEqual(['search', 'load', 'draft', 'save']);
   });
@@ -110,11 +111,11 @@ describe('Disclosure', () => {
 });
 
 describe('an authoring agent handed what it builds on', () => {
-  const Draft = z.object({ title: z.string().min(1) });
-  type Draft = z.infer<typeof Draft>;
+  const Draft = a.object({ title: a.string().min(1) });
+  type Draft = a.infer<typeof Draft>;
 
   it('skips find, drafts and saves with the tool names it gives', async () => {
-    const source = authoringTool<object, Draft, object>({ name: 'source', stage: 'inspect', description: 'The source.', schema: z.object({}), call: () => 'owner: text, open: integer' });
+    const source = authoringTool<object, Draft, object>({ name: 'source', stage: 'inspect', description: 'The source.', schema: a.object({}), call: () => 'owner: text, open: integer' });
     const agent = authoringAgent<object, Draft>({
       name: 'make_report', description: 'Make a report.', instructions: 'Inspect the source, draft, check, save.', tools: [source],
       stages: { find: false }, toolNames: { draft: 'report_check', save: 'report_save' },
@@ -131,7 +132,7 @@ describe('an authoring agent handed what it builds on', () => {
   });
 
   it('refuses find tools when it skips find', () => {
-    const search = authoringTool<object, Draft, object>({ name: 'search', stage: 'find', description: 'x', schema: z.object({}), call: () => '' });
+    const search = authoringTool<object, Draft, object>({ name: 'search', stage: 'find', description: 'x', schema: a.object({}), call: () => '' });
     expect(() => authoringAgent<object, Draft>({
       name: 'w', description: 'w', instructions: 'w', tools: [search], stages: { find: false },
       draft: { description: 'x', schema: Draft }, check: () => Promise.resolve({ problems: [] }), save: () => Promise.reject(new Error('no')),

@@ -1,3 +1,4 @@
+import { LENIENT } from '@aeye/schema';
 import { InstanceName, mintId, QualifiedName, SystemName, type Json } from '@harness/core';
 import { openScope } from '../access/index.ts';
 import { describe, expect, it } from 'vitest';
@@ -46,8 +47,8 @@ describe('fleet choices in the chat modes', () => {
     expect(plain?.spec.parameters).not.toHaveProperty(['properties', 'on']);
     expect(fleet?.spec.parameters).toMatchObject({ properties: { path: { type: 'string' }, on: { type: 'string', enum: ['laptop', 'desk'] } } });
     // the model may leave it out; when given it must be one of them
-    expect(fleet?.schema.safeParse({ path: 'a' }).success).toBe(true);
-    expect(fleet?.schema.safeParse({ path: 'a', on: 'attic' }).success).toBe(false);
+    expect(fleet?.schema.bind().render(LENIENT).parse({ path: 'a' }).ok).toBe(true);
+    expect(fleet?.schema.bind().render(LENIENT).parse({ path: 'a', on: 'attic' }).ok).toBe(false);
   });
 
   it('take `on` out of the args before the fn sees them, and refuse an `on` that is no instance name', () => {

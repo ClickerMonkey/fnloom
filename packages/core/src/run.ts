@@ -173,7 +173,7 @@ export const InputProblem = z.object({ path: z.string(), message: z.string() });
 export type InputProblem = z.infer<typeof InputProblem>;
 
 /**
- * A part of a run's args the hub read other than as it was sent, so the call fits its fn (`repairArgs` in the hub):
+ * A part of a run's args the hub read other than as it was sent, so the call fits its fn (the args check's repairs, `repairsOf` in the hub):
  * `json-string`, an object or list sent as a string holding its JSON (some models double-encode a nested arg). Where
  * (a dotted path into the args) and how.
  */

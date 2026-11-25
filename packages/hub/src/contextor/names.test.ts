@@ -2,15 +2,16 @@
  * The one fn name at the hub's three boundaries: prompt text and tools out, results out, calls in (plan
  * `injected-context-2026-11-22`, section 1).
  */
-import { FN_NAME_DESCRIPTION, FnNameIndex, modelFnName, mintId, QualifiedName, type Json } from '@harness/core';
+import { FN_NAME_DESCRIPTION, FnNameIndex, Json, modelFnName, mintId, QualifiedName } from '@harness/core';
 import { fn, g, hub } from '@harness/sdk';
 import { describe, expect, it } from 'vitest';
 import { openScope } from '../access/index.ts';
 import { replyText } from '../execution/wire.ts';
 import { contextorEnv } from './env.ts';
 import type { ContextorDeps, FnView, Selection } from './index.ts';
-import { modeNames, modeTool, StaticChatMode, ToolsChatMode, withFnNameDocs } from './modes.ts';
-import { z } from 'zod';
+import { LENIENT } from '@aeye/schema';
+import { bindable, fnSignature } from '../catalog/signature.ts';
+import { modeNames, modeTool, StaticChatMode, ToolsChatMode } from './modes.ts';
 import { spoken } from './planner.ts';
 import { contextorRig } from './testing.ts';
 
@@ -58,11 +59,15 @@ describe('calls in', () => {
     expect(rendered.tools.map((tool) => tool.name)).toEqual(['fs__Entry__reveal', modelFnName(LONG), 'tools__examples_of']);
     expect(await mode.interpret({ type: 'tool', id: 'c1', name: 'fs__Entry__reveal', args: { path: 'a' } }, rendered, SCOPE)).toEqual({ type: 'run', fn: METHOD, args: { path: 'a' } });
     expect(await mode.interpret({ type: 'tool', id: 'c2', name: modelFnName(LONG), args: { path: 'a' } }, rendered, SCOPE)).toMatchObject({ type: 'run', fn: LONG });
-    expect(await mode.interpret({ type: 'tool', id: 'c3', name: 'tools__examples_of', args: { fn: 'database__main__expenses_create', note: 'fs__x stays' } }, rendered, SCOPE))
+    // core decodes a call through the tool's schema, bound with the prompt's names: its fn-name fields come back qualified
+    const tool = rendered.tools.find((t) => t.name === 'tools__examples_of');
+    const decoded = tool?.schema.bind().render(LENIENT).parse({ fn: 'database__main__expenses_create', note: 'fs__x stays' });
+    expect(decoded?.ok).toBe(true);
+    const args = Json.parse(decoded?.ok === true ? decoded.value : null);
+    expect(await mode.interpret({ type: 'tool', id: 'c3', name: 'tools__examples_of', args }, rendered, SCOPE))
       .toEqual({ type: 'run', fn: EXAMPLES, args: { fn: SAVED, note: 'fs__x stays' } });
     // the tool's JSON schema says what a fn-name field holds
-    const tool = rendered.tools.find((t) => t.name === 'tools__examples_of');
-    expect(tool?.spec.parameters).toMatchObject({ properties: { fn: { description: FN_NAME_DESCRIPTION } } });
+    expect(JSON.stringify(tool?.spec.parameters)).toContain(FN_NAME_DESCRIPTION);
   });
 
   it('in static mode, run the fn `run` names by its model name (a cut one through the registry), a qualified one tolerated', async () => {
@@ -80,6 +85,27 @@ describe('calls in', () => {
     // static tools are their hub fns
     expect(await mode.interpret({ type: 'tool', id: 'c2', name: 'find', args: { text: 'x' } }, rendered, SCOPE)).toMatchObject({ type: 'run', fn: hub.fns.fns_search.name });
   });
+
+  it('in static mode, decode `run` with the args of a fn the prompt shows, and take any other fn\'s args as written', async () => {
+    const { deps, registry, view, r } = await rig();
+    const mode = new StaticChatMode({ type: 'static', protocol: 'native', placement: 'system-end', loadDetail: 'signature' }, deps);
+    const names = modeNames('static', registry);
+    const rendered = await mode.render(selected([await view(EXAMPLES)]), { estimator: await r.tokens.forModel('small'), protocol: 'native', names });
+    expect(rendered.decoded?.has(EXAMPLES)).toBe(true);
+    const run = rendered.tools.find((tool) => tool.name === 'run')?.schema.bind().render(LENIENT);
+    // a shown fn's args are checked and read back by core: its fn-name field comes back qualified
+    const shown = run?.parse({ fn: 'tools__examples_of', args: { fn: 'fs__Entry__reveal', note: 'n' } });
+    expect(shown).toMatchObject({ ok: true, value: { fn: EXAMPLES, args: { fn: METHOD, note: 'n' } } });
+    expect(run?.parse({ fn: 'tools__examples_of', args: { fn: 3 } }).ok).toBe(false);
+    if (shown?.ok !== true) return;
+    expect(await mode.interpret({ type: 'tool', id: 'c1', name: 'run', args: Json.parse(shown.value) }, rendered, SCOPE)).toEqual({ type: 'run', fn: EXAMPLES, args: { fn: METHOD, note: 'n' } });
+    // another fn's args come as written (any JSON object), read back and checked by the hub
+    expect(run?.parse({ fn: 'fs__Entry__reveal', args: { path: 'a' } })).toMatchObject({ ok: true, value: { fn: METHOD, args: { path: 'a' } } });
+    // a fn that takes nothing may be run without args
+    expect(run?.parse({ fn: 'fs__Entry__reveal' })).toMatchObject({ ok: true, value: { fn: METHOD } });
+    // and checked by the hub with the fn's own check, in @aeye/schema's words
+    expect(await mode.interpret({ type: 'tool', id: 'c2', name: 'run', args: { fn: METHOD } }, rendered, SCOPE)).toMatchObject({ type: 'invalid', fn: METHOD, invalid: { source: 'schema', problems: [{ path: 'path' }] } });
+  });
 });
 
 describe('prompt text and tools out', () => {
@@ -93,7 +119,7 @@ describe('prompt text and tools out', () => {
     await statics.learn(['Find with hub/fns_search, load with hub/ctx_load, then fs/Entry.reveal.']);
     expect(tools.text('Find with hub/fns_search, then call fs/Entry.reveal.')).toBe('Find with hub__fns_search, then call fs__Entry__reveal.');
     expect(statics.text('Find with hub/fns_search, load with hub/ctx_load, then fs/Entry.reveal.')).toBe('Find with find, load with load, then fs__Entry__reveal.');
-    const tool = modeTool('x', 'Use fs/Entry.reveal.', z.object({ a: z.string().describe('A name, like fs/Entry.reveal.') }), { type: 'object', properties: { a: { type: 'string', description: 'A name, like fs/Entry.reveal.', pattern: 'fs/Entry.reveal' } } });
+    const tool = modeTool('x', 'Use fs/Entry.reveal.', bindable(fnSignature(q('x/z'), g.obj({ a: g.field(g.text(), { docs: 'A name, like fs/Entry.reveal.' }) }), g.text()).argsFor()), { type: 'object', properties: { a: { type: 'string', description: 'A name, like fs/Entry.reveal.', pattern: 'fs/Entry.reveal' } } });
     const out = await spoken({ tools: [tool], systemEnd: '', tail: 'Then fs/Entry.reveal.', protocol: 'native', fns: new Map(), fleet: new Set(), names: tools });
     expect(out.tools[0]?.description).toBe('Use fs__Entry__reveal.');
     expect(out.tools[0]?.spec.description).toBe('Use fs__Entry__reveal.');
@@ -102,9 +128,10 @@ describe('prompt text and tools out', () => {
     expect(out.tools[0]?.spec.parameters).toMatchObject({ properties: { a: { description: 'A name, like fs__Entry__reveal.', pattern: 'fs/Entry.reveal' } } });
   });
 
-  it('describes a fn-name field in a JSON schema only where its author said nothing', () => {
-    const pattern = { type: 'string', pattern: '^[a-z]\\S*$' };
-    expect(withFnNameDocs({ properties: { a: pattern, b: { ...pattern, description: 'mine' } } })).toEqual({ properties: { a: { ...pattern, description: FN_NAME_DESCRIPTION }, b: { ...pattern, description: 'mine' } } });
+  it('describes a fn-name field in a tool\'s schema only where its author said nothing', () => {
+    const signature = fnSignature(q('x/y'), g.obj({ a: g.fnName(), b: g.field(g.fnName(), { docs: 'mine' }) }), g.text());
+    // a fn-name field is the named type `FnName`, which carries the words; a field's own docs are kept on it
+    expect(signature.argsJsonSchema).toMatchObject({ properties: { a: { $ref: '#/$defs/FnName' }, b: { description: 'mine' } }, $defs: { FnName: { type: 'string', description: FN_NAME_DESCRIPTION } } });
   });
 });
 

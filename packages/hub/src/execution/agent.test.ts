@@ -180,6 +180,41 @@ describe('a session agent', () => {
     expect(transcript.filter((m) => m.role === 'tool')).toHaveLength(2);
   });
 
+  it('lets core answer args that don\'t fit and ask again in the same job, and records the refusal as an invalid-input run', async () => {
+    const r = await started();
+    const fs = r.connect('fs');
+    fs.behaviour.run = () => Promise.resolve({ status: 'done', result: 'hello' });
+    await r.session();
+    const turn = await r.turn({ session: SESSION, text: 'go' });
+    r.provider.script(calls([['fs__read', { path: 3 }]]), calls([['fs__read', { path: 'a.txt' }]]), says('It says hello.'));
+    const { run } = await r.module.agents.start(agentInput(turn));
+    expect((await runTo(r, run)).settled).toEqual({ status: 'done', result: 'It says hello.' });
+    // core told the model in @aeye/schema's words, in the same job: the second call is still the first iteration's
+    expect(JSON.stringify(r.provider.requests[1]?.messages)).toContain('Error parsing tool arguments');
+    const kids = (await r.store.table('runs').find({ where: { parent: run }, limit: 10 })).items;
+    expect(kids.map((kid) => [kid.key, kid.status]).sort()).toEqual([['0:call_1', 'done'], ['0:call_1:refused:0', 'invalid-input']]);
+    expect(fs.requests).toHaveLength(1);
+  });
+
+  it('records on the run what core repaired in a call (a field sent as a string of its JSON)', async () => {
+    const find = fn({ description: 'Find files.', args: g.obj({ filter: g.obj({ ext: g.text() }) }), returns: g.text(), tags: ['read'] });
+    const finding = system('fs', { description: 'Files.' }).with({ fns: { find } });
+    rig = await executionRig();
+    rig.catalog.add('fs', 'find', find);
+    rig.catalog.add('tools', 'finder', agent({ description: 'Finds.', args: g.obj({}), returns: g.text(), instructions: 'Find.', tools: [finding.fns.find], maxIterations: 4 }));
+    await rig.module.start();
+    const r = rig;
+    const fs = r.connect('fs');
+    fs.behaviour.run = () => Promise.resolve({ status: 'done', result: 'a.md' });
+    await r.session();
+    const turn = await r.turn({ session: SESSION, text: 'go' });
+    r.provider.script(calls([['fs__find', { filter: '{"ext":"md"}' }]]), says('Found a.md.'));
+    const { run } = await r.module.agents.start(agentInput(turn, 'tools/finder'));
+    expect((await runTo(r, run)).settled).toEqual({ status: 'done', result: 'Found a.md.' });
+    const kid = (await r.store.table('runs').find({ where: { parent: run }, limit: 5 })).items[0];
+    expect(kid).toMatchObject({ fn: 'fs/find', args: { filter: { ext: 'md' } }, repairs: [{ path: 'filter', repair: 'json-string' }] });
+  });
+
   it('stops a tool call whose arguments run blank (the stream guard) and the model recovers on the next iteration', async () => {
     const r = await started();
     const fs = r.connect('fs');

@@ -14,10 +14,10 @@
  * There is no `find` stage: the step is handed the fn it writes args for.
  */
 import type { ExprDef } from '@aeye/gin';
-import { GinExprDef, Json, type QualifiedName } from '@harness/core';
+import { a, type Bound } from '@aeye/schema';
+import { HarnessGrammar, Json, type QualifiedName } from '@harness/core';
 import { ProgramAuthoring, previewText, programTools, type ProgramHost, type ProgramLookups, type ProgramSession } from '@harness/sdk/program';
 import { authoringAgent, type AuthoredFn } from '@harness/sdk/server';
-import { z } from 'zod';
 import { schedule } from '../shared/index.ts';
 import type { Fire, PreviousFiring } from '../shared/types.ts';
 import { clockWords, dayWords } from '../shared/when.ts';
@@ -156,11 +156,14 @@ export async function checkCompute(program: ExprDef, state: ArgsAuthoring): Prom
   return { problems: [...new Set(problems)], previews, code: checked.code };
 }
 
-/** The draft's args: the program as gin's typed expression. */
-function draftSchema(session: Session): z.ZodType<ArgsDraft> {
-  return z.object({
-    program: session.state.program.schemas().Expr.pipe(GinExprDef).describe('The args program: one gin expression whose value is the fn\'s whole args object.'),
-  });
+/** The draft: the args program, in gin's grammar over the session's types. */
+const ArgsDraftSchema = HarnessGrammar.result<ArgsDraft>(a.object({
+  program: a.ref('Expr').describe('The args program: one gin expression whose value is the fn\'s whole args object.'),
+}));
+
+/** The draft's schema for this session: the grammar bound over the types it has loaded. */
+function draftSchema(session: Session): Bound<ArgsDraft> {
+  return ArgsDraftSchema.bind(...session.state.program.grammar());
 }
 
 /** The program kept, as the step answers: what it is for and the first run's args. The schedule is saved by the caller. */

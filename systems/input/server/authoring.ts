@@ -14,7 +14,8 @@
 import type { Json, FnSearchPage, FnSearchQuery } from '@harness/core';
 import { expectType, type Equal } from '@harness/sdk';
 import { authoringAgent, authoringTool, type AuthoredFn, type AuthoringSession } from '@harness/sdk/server';
-import { z } from 'zod';
+import { a } from '@aeye/schema';
+import type { z } from 'zod';
 import { InputFormSchema, FIELD_GUIDE, FORM_KIND, PROJECT_FORM, type InputFormValue } from '../shared/index.ts';
 import { fieldsOf, formProblems, type FIELD_TYPES } from '../shared/forms.ts';
 
@@ -91,7 +92,7 @@ const findForms = authoringTool<FormAuthoring, FormDraft, { text: string }>({
   stage: 'find',
   description: 'Search the saved forms the person may use by what the request asks for.',
   instructions: 'Call it first, with what is asked in a few plain words.',
-  schema: z.object({ text: z.string().min(1).describe('What the form asks for, in plain words.') }),
+  schema: a.object({ text: a.string().min(1).describe('What the form asks for, in plain words.') }),
   async call({ text }, session) {
     const page = await session.state.deps.search({ text, kinds: [FORM_KIND], items: ['fn'], limit: 6 });
     session.disclosure.markSearched('fn');
@@ -109,7 +110,7 @@ const useSaved = authoringTool<FormAuthoring, FormDraft, { fn: string }>({
   name: 'use_saved',
   stage: 'find',
   description: 'Answer with a saved form find_forms listed that asks for the same things.',
-  schema: z.object({ fn: z.string().min(1) }),
+  schema: a.object({ fn: a.string().min(1) }),
   when: (session) => session.disclosure.searched('fn') && (session.disclosure.awareUnloaded('fn').length > 0 || session.disclosure.loaded('fn').length > 0),
   async call({ fn }, session) {
     const deps = session.state.deps;
@@ -129,7 +130,7 @@ const fieldTypes = authoringTool<FormAuthoring, FormDraft, Record<string, never>
   name: 'field_types',
   stage: 'inspect',
   description: 'Show how a form is written: its shape, every field type the chat draws, the rules, and an example.',
-  schema: z.object({}),
+  schema: a.object({}),
   when: (session) => !session.disclosure.isLoaded('guide', 'fields'),
   call(_input, session) {
     session.disclosure.markLoaded('guide', ['fields']);
@@ -142,7 +143,7 @@ const loadForm = authoringTool<FormAuthoring, FormDraft, { fn: string }>({
   name: 'load_form',
   stage: 'inspect',
   description: 'Show a saved form find_forms listed, to adapt it.',
-  schema: z.object({ fn: z.string().min(1) }),
+  schema: a.object({ fn: a.string().min(1) }),
   when: (session) => session.disclosure.awareUnloaded('fn').length > 0,
   async call({ fn }, session) {
     const deps = session.state.deps;
@@ -155,38 +156,48 @@ const loadForm = authoringTool<FormAuthoring, FormDraft, { fn: string }>({
 
 /** A field type as the agent drafts it: one of the gin types the chat draws (`FIELD_TYPES`), nested by list, optional and obj. */
 export type FieldTypeDraft =
-  | { name: 'text'; options?: { minLength?: number | undefined; maxLength?: number | undefined } | undefined }
-  | { name: 'num'; options?: { min?: number | undefined; max?: number | undefined; whole?: boolean | undefined } | undefined }
+  | { name: 'text'; options?: { minLength?: number; maxLength?: number } }
+  | { name: 'num'; options?: { min?: number; max?: number; whole?: boolean } }
   | { name: 'bool' | 'date' | 'timestamp' | 'duration' }
   | { name: 'enum'; generic: { V: { name: 'text' } }; options: { values: Record<string, string> } }
-  | { name: 'list'; generic: { V: FieldTypeDraft }; options?: { minLength?: number | undefined; maxLength?: number | undefined } | undefined }
+  | { name: 'list'; generic: { V: FieldTypeDraft }; options?: { minLength?: number; maxLength?: number } }
   | { name: 'optional'; generic: { T: FieldTypeDraft } }
-  | { name: 'obj'; props: Record<string, { docs?: string | undefined; type: FieldTypeDraft }> };
+  | { name: 'obj'; props: Record<string, { docs?: string; type: FieldTypeDraft }> };
 
-const lengths = z.object({ minLength: z.number().int().min(0).optional(), maxLength: z.number().int().min(1).optional() }).optional();
+const lengths = a.object({ minLength: a.int().min(0).optional(), maxLength: a.int().min(1).optional() }).optional();
 
 /**
- * The typed schema of a form field's gin type. It is written here rather than taken from gin's `buildSchemas`, whose
- * lazy schemas are rebuilt on every visit, so the SDK wire's zod JSON Schema never ends (see the report's LIBRARY GAP).
+ * A form field's gin type, as a named type that refers to itself: the subset of gin's TypeDefs the chat draws (not
+ * gin's whole grammar, so a model is never offered a type no form can show).
  */
-const FieldType: z.ZodType<FieldTypeDraft> = z.lazy(() => z.union([
-  z.object({ name: z.literal('text'), options: lengths }),
-  z.object({ name: z.literal('num'), options: z.object({ min: z.number().optional(), max: z.number().optional(), whole: z.boolean().optional() }).optional() }),
-  z.object({ name: z.enum(['bool', 'date', 'timestamp', 'duration']) }),
-  z.object({ name: z.literal('enum'), generic: z.object({ V: z.object({ name: z.literal('text') }) }), options: z.object({ values: z.record(z.string(), z.string()).describe('Each choice: its key and the words the person reads.') }) }),
-  z.object({ name: z.literal('list'), generic: z.object({ V: FieldType }), options: lengths }),
-  z.object({ name: z.literal('optional'), generic: z.object({ T: FieldType }) }),
-  z.object({ name: z.literal('obj'), props: z.record(z.string(), z.object({ docs: z.string().optional().describe('The question the person reads.'), type: FieldType })) }),
-]));
-
-/** The draft's args: a form whose type is an obj of typed fields. */
-export const FormDraftSchema = InputFormSchema.omit({ type: true }).extend({
-  type: z.object({ name: z.literal('obj'), props: z.record(z.string(), z.object({ docs: z.string().min(1).describe('The question the person reads.'), type: FieldType })) })
-    .describe('The gin type of the answers: an obj whose props are the questions.'),
+const FieldTypes = a.define({
+  FieldType: a.union([
+    a.object({ name: a.literal('text'), options: lengths }),
+    a.object({ name: a.literal('num'), options: a.object({ min: a.number().optional(), max: a.number().optional(), whole: a.boolean().optional() }).optional() }),
+    a.object({ name: a.enum(['bool', 'date', 'timestamp', 'duration']) }),
+    a.object({ name: a.literal('enum'), generic: a.object({ V: a.object({ name: a.literal('text') }) }), options: a.object({ values: a.record(a.string()).describe('Each choice: its key and the words the person reads.') }) }),
+    a.object({ name: a.literal('list'), generic: a.object({ V: a.ref('FieldType') }), options: lengths }),
+    a.object({ name: a.literal('optional'), generic: a.object({ T: a.ref('FieldType') }) }),
+    a.object({ name: a.literal('obj'), props: a.record(a.object({ docs: a.string().optional().describe('The question the person reads.'), type: a.ref('FieldType') })) }),
+  ]),
 });
 
+/** The draft: a form (`InputFormSchema`'s title, description and submit) whose type is an obj of typed fields. */
+export const FormDraftSchema = FieldTypes.result(a.object({
+  title: a.string().min(1),
+  description: a.string(),
+  type: a.object({ name: a.literal('obj'), props: a.record(a.object({ docs: a.string().min(1).describe('The question the person reads.'), type: a.ref('FieldType') })) })
+    .describe('The gin type of the answers: an obj whose props are the questions.'),
+  submit: a.string().min(1).optional().describe('The submit button\'s words ("Send" when absent).'),
+}));
+
 /** A form as the agent drafts it (its draft tool's args): read as a form once checked. */
-export type FormDraft = z.infer<typeof FormDraftSchema>;
+export type FormDraft = a.infer<typeof FormDraftSchema>;
+
+// the inferred field type is the hand-written one, and the draft's other parts are the form's own
+type DraftedField = FormDraft['type']['props'][string]['type'];
+expectType<Equal<DraftedField, FieldTypeDraft>>(true);
+expectType<Equal<Omit<FormDraft, 'type'>, Omit<z.input<typeof InputFormSchema>, 'type'>>>(true);
 
 // the drafted field types are exactly the ones the chat draws
 expectType<Equal<FieldTypeDraft['name'], (typeof FIELD_TYPES)[number]>>(true);

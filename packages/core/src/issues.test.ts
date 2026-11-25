@@ -6,6 +6,8 @@
 import { createRegistry } from '@aeye/gin';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { checkGinValue } from './gin-a.ts';
+import { GinTypeDef, ginTypeProblem } from './gin.ts';
 import { conciseIssues, issueLines, OBJ_TYPE_SHAPE } from './issues.ts';
 
 const Expr: z.ZodType = z.lazy(() => z.union([
@@ -40,20 +42,18 @@ describe('conciseIssues', () => {
     ]);
   });
 
-  it('lets gin say what is wrong with a gin type (iteration 1: create_table with each column\'s type not wrapped in "type")', () => {
+  it('says what is wrong with a gin type at its path (iteration 1: create_table with each column\'s type not wrapped in "type")', () => {
     const registry = createRegistry();
-    const schema = registry.obj({ table: { type: registry.text() }, type: { type: registry.typ(registry.obj({})) } }).toValueSchema({ includeDocs: 'all', unknownKeys: 'refuse' });
-    const plain = check(schema, { table: 't', type: { name: 'obj', props: { id: { name: 'num' }, store: { name: 'text' } } } });
-    expect(plain).toHaveLength(1);
-    expect(plain[0]?.path).toBe('type');
-    expect(plain[0]?.message).toContain("prop 'id' has unknown key 'name'");
-    expect(plain[0]?.message).toContain(OBJ_TYPE_SHAPE);
-    // a row type named like its table: the name is wrong, and so are its props
-    const named = check(schema, { table: 't', type: { name: 'grocery_purchases', extends: 'obj', props: { id: { name: 'num' } } } });
-    expect(named[0]?.message).toContain("prop 'id' has unknown key 'name'");
-    // only the name is wrong: gin says so instead of "Unrecognized key: props"
-    const misnamed = check(schema, { table: 't', type: { name: 'grocery_purchases', props: { id: { type: { name: 'num' } } } } });
-    expect(misnamed[0]?.message).toContain('"grocery_purchases" is not a type; an object type is named "obj"');
+    const type = registry.obj({ table: { type: registry.text() }, type: { type: registry.typ(registry.obj({})) } });
+    const paths = (value: unknown): string[] => { const checked = checkGinValue(type, value, { unknownKeys: 'refuse' }); return checked.ok ? [] : checked.problems.map((problem) => problem.path); };
+    expect(paths({ table: 't', type: { name: 'obj', props: { id: { name: 'num' }, store: { name: 'text' } } } })).toEqual(['type.props.id.type', 'type.props.store.type']);
+    // a row type named like its table, as an extension of obj: its props are still checked
+    expect(paths({ table: 't', type: { name: 'grocery_purchases', extends: 'obj', props: { id: { name: 'num' } } } })).toEqual(['type.props.id.type']);
+    // only the name is wrong: the type itself doesn't fit (gin's own word for it, `ginTypeProblem`, below)
+    expect(paths({ table: 't', type: { name: 'grocery_purchases', props: { id: { type: { name: 'num' } } } } })).toEqual(['type']);
+    expect(ginTypeProblem({ name: 'grocery_purchases', props: { id: { type: { name: 'num' } } } })).toContain('"grocery_purchases" is not a type; an object type is named "obj"');
+    expect(ginTypeProblem(GinTypeDef.parse({ name: 'obj', props: { id: { name: 'num' } } }))).toContain("prop 'id' has unknown key 'name'");
+    expect(OBJ_TYPE_SHAPE).toContain('obj');
   });
 
   it('keeps to a few problems, each a bounded line, and says how many more', () => {

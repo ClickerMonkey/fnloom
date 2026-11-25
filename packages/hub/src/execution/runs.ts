@@ -11,16 +11,14 @@
  * resume go as far as the run allows (`allowed`). Undo hands the run's undo payload back to its executor.
  */
 import {
-  ARGS_CHECK_KEY_PREFIX, clip, compact, CONCISE_LIMITS, conciseIssues, FN_MODES, INVALID_INPUT_CODE, isSettled, isUnsettled, MAIN_INSTANCE, mintId, problemLine, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
+  ARGS_CHECK_KEY_PREFIX, clip, compact, CONCISE_LIMITS, FN_MODES, type ArgRepair, type GinCheck, INVALID_INPUT_CODE, isSettled, isUnsettled, MAIN_INSTANCE, mintId, problemLine, splitName, SystemName, type ActorId, type AllowedOperations, type FnRecord, type Json, type OutcomeWire, type ProgressReport,
   type ProgressWire, type ResumeWire, type Run, type RunId, type RunInfo, type RunRequest, type RunSettled, type RunStatus, type RunText, type RunUpdate,
   type Turn, type UndoOutcome, type Usd, type RunControlAction, type FnError, type InputProblem, type InvalidInput, type Compact,
   flagsVerdict, proposalSubjectOf, type CompareFork, type SessionId, type ApprovalPreview, type ProposalAsk, type Approver, type PreviewPart, type SensitivityFlag, type InstanceName, type ProposedRun, type ProposeRun, type UserInfo, type QualifiedName, qualify,
 } from '@harness/core';
-import { z } from 'zod';
 import { HUB_SYSTEM, systemAvailability } from '../catalog/availability.ts';
 import { installCard } from '../link/install.ts';
 import { agentNames } from '../catalog/injections.ts';
-import { repairArgs } from './arg-repair.ts';
 import { DeadlineTimers, deadlineError, runDeadline, type RunDeadline } from './deadlines.ts';
 import { fnError, HubStopping, messageOf, notConnected, RunRefused, RunStopped, RunTimedOut } from './errors.ts';
 import { rows } from '../store/rows.ts';
@@ -62,14 +60,37 @@ function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
 }
 
 /**
- * The problems of args that don't fit a fn's args schema, as refused input (`schema`), each at its full dotted path
- * with what was expected there, a few at most (`conciseIssues`: unions followed into the branch the args got furthest
- * into, a gin type checked by gin); none when they fit. `args` is what was checked.
+ * The problems of args that don't fit a fn's args (its signature's `check`), as refused input (`schema`), each at its
+ * dotted path with `@aeye/schema`'s words for it, a few at most; none when they fit.
  */
-export function invalidArgs(checked: z.ZodSafeParseResult<unknown>, args?: unknown): InvalidInput | undefined {
-  if (checked.success) return undefined;
-  const [first, ...rest] = conciseIssues(checked.error, args).map((issue): InputProblem => ({ path: issue.path, message: issue.message }));
-  return first === undefined ? { source: 'schema', problems: [{ path: '', message: clip(z.prettifyError(checked.error), CONCISE_LIMITS.chars) }] } : { source: 'schema', problems: [first, ...rest] };
+export function invalidArgs(checked: GinCheck<unknown>): InvalidInput | undefined {
+  if (checked.ok) return undefined;
+  const [first, ...rest] = checked.problems.slice(0, CONCISE_LIMITS.max).map((problem): InputProblem => ({ path: problem.path, message: clip(problem.message, CONCISE_LIMITS.chars) }));
+  return { source: 'schema', problems: first === undefined ? [{ path: '', message: clip(checked.message, CONCISE_LIMITS.chars) }] : [first, ...rest] };
+}
+
+/**
+ * What a check repaired in args, found by comparing them as sent with the value it decoded: a string where the decoded
+ * value has an object or a list is an object or list sent as a string holding its JSON (`json-string`), at its dotted
+ * path. None when the args were taken as sent.
+ */
+export function repairsOf(sent: unknown, decoded: unknown, path: readonly string[] = []): ArgRepair[] {
+  if (sent === decoded) return [];
+  if (typeof sent === 'string' && typeof decoded === 'object' && decoded !== null) return [{ path: path.join('.'), repair: 'json-string' }];
+  if (Array.isArray(sent) && Array.isArray(decoded)) return sent.flatMap((item: unknown, at) => repairsOf(item, decoded[at], [...path, String(at)]));
+  if (isRecord(sent) && isRecord(decoded)) return Object.entries(sent).flatMap(([key, value]) => (key in decoded ? repairsOf(value, decoded[key], [...path, key]) : []));
+  return [];
+}
+
+/** Whether a value is a JSON object (not null, not a list). */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Repairs at the same path as one already noted are noted once. */
+function mergedRepairs(...lists: ReadonlyArray<readonly ArgRepair[]>): ArgRepair[] {
+  const seen = new Set<string>();
+  return lists.flat().filter((repair) => !seen.has(repair.path) && (seen.add(repair.path), true));
 }
 
 /** Which executor runs a run. */
@@ -250,11 +271,14 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     // a fn the turn's person may not see is as good as missing to them; a per-person fn needs a connection to act as
     const access = await this.#deps.access.scope(turn.user.id);
     if (!access.seesFn(fn)) throw new RunRefused(fnError('caller', `There is no fn ${input.fn}.`, 'not-found'));
-    // an object or list sent as a string holding its JSON is read as that JSON, and the run says so (`repairArgs`);
-    // input already refused is not read (a blocked fn's signature may not even resolve, its kind gone)
-    const { args: repairedArgs, repairs } = input.invalid === undefined ? repairArgs((await catalog.signature(fn.name)).argsSchema, input.args) : { args: input.args, repairs: [] };
+    // the args checked against the fn's (its signature's `check`, every caller's): an object or list sent as a string
+    // holding its JSON is read as that JSON, and the run says so, with what the caller repaired already (a model's call
+    // core decoded); input already refused is not checked (a blocked fn's signature may not even resolve, its kind gone)
+    const argsCheck = input.invalid === undefined ? (await catalog.signature(fn.name)).check(input.args) : undefined;
+    const found = argsCheck?.ok === true ? repairsOf(input.args, argsCheck.value) : [];
+    const repairs = mergedRepairs(input.repairs ?? [], found);
+    if (argsCheck?.ok === true && found.length > 0) input = { ...input, args: argsCheck.value };
     if (repairs.length > 0) {
-      input = { ...input, args: repairedArgs };
       this.#deps.log.info('run.args-repaired', { fn: fn.name, turn: input.turn, repairs: repairs.map((repair) => `${repair.path || '(args)'}: ${repair.repair}`) });
     }
     const connection = access.connection(fn, input.args);
@@ -281,7 +305,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const missing = Object.entries(fn.decl.handlers).filter(([name, decl]) => decl.required && !handlers.includes(name)).map(([name]) => name);
     if (missing.length > 0) throw new RunRefused(fnError('fatal', `${fn.name} needs its caller to answer ${missing.join(', ')}, which this caller can't.`, 'needs-handlers'));
     // input already refused is not checked again (a blocked fn's signature may not even resolve, its kind gone)
-    const checked = input.invalid ?? invalidArgs((await catalog.signature(fn.name)).argsSchema.safeParse(input.args), input.args);
+    const checked = input.invalid ?? (argsCheck === undefined ? undefined : invalidArgs(argsCheck));
     const system = SystemName.parse(executingSystem(fn));
     // the one place a system's run is given its instance: a fleet with no clear pick is refused input the caller can fix
     const routed = checked === undefined && executorKind(fn) === 'system'
@@ -557,7 +581,7 @@ export class HubRunService implements RunService, RunSettler, RunEvents, RunCost
     const key = `${PROPOSED_KEY}${input.key}`;
     const existing = parent === undefined ? await this.#proposedBefore(name, key) : await this.#child(parent.id, key);
     if (existing !== undefined) return this.#proposal(existing);
-    const invalid = invalidArgs((await catalog.signature(name)).argsSchema.safeParse(input.args), input.args);
+    const invalid = invalidArgs((await catalog.signature(name)).check(input.args));
     if (invalid !== undefined) throw new RunRefused(fnError('caller', `The args don't fit ${name}: ${invalid.problems.map(problemLine).join('; ')}`, INVALID_INPUT_CODE));
     // build 9: outside a run, a proposal may wait for a person (a Claude session's owner) instead of the admins
     const person = parent === undefined && input.for !== undefined ? await this.#waitsFor(input, input.for) : undefined;

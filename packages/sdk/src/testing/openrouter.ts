@@ -1,61 +1,26 @@
 /**
  * A real model for tests: what the hub's LLM gateway does with a forwarded chat request (rebuild its JSON schemas as
- * zod, stream it from a provider, send back the descriptors it used, then the chunks and the cost), done here on a
+ * `a` schemas, stream it from a provider that plans them for its model, decode the answers through that plan, then
+ * the cost), done here on a
  * free OpenRouter model. `OpenRouterModelLink` is a `ModelLink`, so `ctx.ai()` in a test hub and `hubAiOf` both run
  * on it. The free models are tried in order; one that fails before its first chunk (busy, rate limited) gives way to
  * the next.
  */
 import { AI } from '@aeye/ai';
-import type { Chunk, Message, Request } from '@aeye/core';
+import type { Request } from '@aeye/core';
 import { models, strictSupport } from '@aeye/models';
 import { OpenRouterProvider } from '@aeye/openrouter';
-import { mintId, type HubModelInfo, type Json, type LlmChunk, type LlmForward, type LlmForwardChunk, type ModelForward, type ModelForwardResult } from '@harness/core';
-import { z } from 'zod';
+import { mintId, type HubModelInfo, type LlmForward, type LlmForwardChunk, type ModelForward, type ModelForwardResult } from '@harness/core';
 import type { ModelLink } from '../server/llm.ts';
-import { schemaFromWire } from '../server/llm-wire.ts';
+import { AnswerDecoder, chunkToWire, requestFromWire } from '../server/llm-wire.ts';
 
-/** A forwarded JSON schema as zod again, wrapped when it isn't an object (tool parameters must be). */
-function objectSchema(json: Json): z.ZodType<object, object> {
-  // the gateway's own rebuild, so a test model gets exactly the schema the hub sends
-  const schema = schemaFromWire(typeof json === 'object' && json !== null && !Array.isArray(json) ? json : {});
-  return schema instanceof z.ZodObject ? schema : z.object({ value: schema });
-}
-
-/** A forwarded message as aeye's. */
-function aeyeMessage(message: LlmForward['request']['messages'][number]): Message {
-  return {
-    role: message.role,
-    content: typeof message.content === 'string' ? message.content : message.content.map((p) => ({ type: p.type, content: p.content })),
-    ...(message.toolCalls === undefined ? {} : { toolCalls: message.toolCalls }),
-    ...(message.toolCallId === undefined ? {} : { toolCallId: message.toolCallId }),
-  };
-}
-
-/** An aeye chunk as the link's. */
-function wireChunk(chunk: Chunk): LlmChunk {
-  return {
-    ...(chunk.content === undefined ? {} : { content: chunk.content }),
-    ...(chunk.toolCallNamed === undefined ? {} : { toolCallNamed: chunk.toolCallNamed }),
-    ...(chunk.toolCallArguments === undefined ? {} : { toolCallArguments: chunk.toolCallArguments }),
-    ...(chunk.toolCall === undefined ? {} : { toolCall: chunk.toolCall }),
-    ...(chunk.finishReason === undefined ? {} : { finishReason: chunk.finishReason }),
-  };
-}
-
-/** A forwarded request as an aeye request. */
+/** A forwarded request as an aeye request: the gateway's own rebuild, so a test model gets exactly the schemas the hub sends. */
 function aeyeRequest(forward: LlmForward, maxTokens: number | undefined): Request {
-  const format = forward.request.responseFormat;
+  const request = requestFromWire(forward.request);
   // as the hub's gateway: the request's own cap, else this link's, else none (a reasoning model spends output tokens
   // thinking, so a fixed small cap cut authoring replies off mid-draft)
   const cap = forward.request.maxTokens ?? maxTokens;
-  return {
-    messages: forward.request.messages.map(aeyeMessage),
-    ...(cap === undefined ? {} : { maxTokens: cap }),
-    ...(forward.request.tools === undefined ? {} : {
-      tools: forward.request.tools.map((t) => ({ name: t.name, parameters: objectSchema(t.parameters), ...(t.description === undefined ? {} : { description: t.description }), ...(t.strict === undefined ? {} : { strict: t.strict }) })),
-    }),
-    ...(format === undefined || typeof format === 'string' ? {} : { responseFormat: { type: objectSchema(format.schema), strict: format.strict } }),
-  };
+  return cap === undefined ? request : { ...request, maxTokens: cap };
 }
 
 /** How an `OpenRouterModelLink` calls. */
@@ -90,22 +55,19 @@ export class OpenRouterModelLink implements ModelLink {
     const failures: string[] = [];
     for (const model of this.#options.models) {
       let started = false;
+      const decoder = new AnswerDecoder(request);
       try {
         let usage = { input: 0, output: 0 };
         let cost = 0;
         for await (const chunk of this.#ai.chat.stream(request, { metadata: { model: `openrouter/${model}` }, ...(signal === undefined ? {} : { signal }) })) {
-          if (!started) {
-            started = true;
-            const tools = Object.fromEntries((request.tools ?? []).flatMap((t) => (t.descriptor === undefined ? [] : [[t.name, t.descriptor]])));
-            const output = typeof request.responseFormat === 'object' ? request.responseFormat.descriptor : undefined;
-            yield { type: 'descriptors', tools, ...(output === undefined ? {} : { output }) };
-          }
+          started = true;
           if (chunk.usage !== undefined) {
             usage = { input: chunk.usage.text?.input ?? usage.input, output: chunk.usage.text?.output ?? usage.output };
             cost = chunk.usage.cost ?? cost;
           }
-          yield { type: 'chunk', chunk: wireChunk(chunk) };
+          for (const out of decoder.chunk(chunk)) { yield { type: 'chunk', chunk: chunkToWire(out) }; }
         }
+        for (const out of decoder.end()) { yield { type: 'chunk', chunk: chunkToWire(out) }; }
         this.answeredBy.push(model);
         yield { type: 'done', usage, cost, interaction: mintId('llmInteraction'), model };
         return;

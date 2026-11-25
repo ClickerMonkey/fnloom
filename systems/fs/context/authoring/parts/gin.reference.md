@@ -161,6 +161,19 @@ schema's type, pinned with an `Equal` test.
 function ginAs<S extends z.ZodType>(schema: S): GinType<z.input<S>>;
 ```
 
+#### `modelArgsOf`
+
+function · `import { modelArgsOf } from '@harness/sdk'`
+
+A zod shape as a model writes it, for an agent tool whose args a core zod schema already defines (a record the tool
+adds): its gin type (`ginAs`) as an `a` schema with the field docs, bound in gin's grammar. Build it once, at module
+scope. The value decoded is the schema's input: parse it with the schema before trusting it (that fills in the
+defaults and checks what gin can't say, a URL's form).
+
+```ts
+function modelArgsOf<S extends z.ZodType>(schema: S): Bound<z.input<S>>;
+```
+
 #### `toolArgsOf`
 
 function · `import { toolArgsOf } from '@harness/sdk'`
@@ -195,6 +208,31 @@ A union of objects as one object: every member's fields, each one optional (the 
 
 ```ts
 type FlatArgs<U> = { [K in KeysOf<U>]?: FieldOf<U, K> };
+```
+
+#### `ginOfA`
+
+function · `import { ginOfA } from '@harness/sdk'`
+
+The gin type of an `a` schema, refs resolved in `defs`. Never throws: what gin can't say is any JSON.
+
+```ts
+const read = a.fromJSONSchema(tool.inputSchema);
+const type = ginOfA(read.root, read.defs);
+```
+
+```ts
+function ginOfA(schema: AnySchema, defs?: ANamedTypes, reading?: ReadonlySet<string>): GinType;
+```
+
+#### `ANamedTypes`
+
+type · `import { ANamedTypes } from '@harness/sdk'`
+
+The named types refs resolve in (a bundle's `defs`).
+
+```ts
+type ANamedTypes = Readonly<Record<string, AnySchema>>;
 ```
 
 #### `sampleOf`
@@ -440,6 +478,6 @@ interface FieldOptions {
     /** Shown to authors and models wherever the field is described. */
     docs?: string;
     /** The value a `new` fills in when its payload omits the field. */
-    default?: Expr | ExprDef;
+    default?: Expr | ExprDef$1;
 }
 ```

@@ -187,7 +187,7 @@ class FakeHub {
   /** Run a fn on the connected system and wait for its outcome. */
   run(fn: QualifiedName, args: Json, extra?: Partial<Omit<RunRequest, "fn" | "args">>): Promise<OutcomeWire>;
   /** How the instance last said people connect to it (`instanceConnect`); `undefined` when it never said. */
-  get instanceConnect(): { share: boolean; title: string; flow?: { flow: "oauth"; } | { flow: "form"; form: TypeDef<any>; } | undefined; } | undefined;
+  get instanceConnect(): { share: boolean; title: string; flow?: { flow: "oauth"; } | { flow: "form"; form: TypeDef$1<any>; } | undefined; } | undefined;
   /** An open proposal by its key, approval id or run id. */
   openProposal(which: string): HubBody<"propose"> & ProposedRun;
   /**

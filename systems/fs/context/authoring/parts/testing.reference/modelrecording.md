@@ -29,21 +29,25 @@ type ModelRecording = {
         id: string;
         name: string;
         arguments: string;
+        invalid?: string | undefined;
       } | undefined;
       toolCallArguments?: {
         id: string;
         name: string;
         arguments: string;
+        invalid?: string | undefined;
       } | undefined;
       toolCallMore?: {
         id: string;
         name: string;
         arguments: string;
+        invalid?: string | undefined;
       } | undefined;
       toolCall?: {
         id: string;
         name: string;
         arguments: string;
+        invalid?: string | undefined;
       } | undefined;
       finishReason?: "refusal" | "length" | "stop" | "tool_calls" | "content_filter" | undefined;
       refusal?: string | undefined;
@@ -54,10 +58,6 @@ type ModelRecording = {
         reasoning?: number | undefined;
       } | undefined;
     };
-  } | {
-    type: "descriptors";
-    tools: Record<string, string>;
-    output?: string | undefined;
   } | {
     type: "done";
     usage: {

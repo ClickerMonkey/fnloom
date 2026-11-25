@@ -57,9 +57,10 @@ const ANY_JSON: Readonly<Record<string, string>> = {
 
 /**
  * Inside gin's TypeDef schema (an arg that holds a gin type), a literal's value, an enum's values and a class's options
- * in an inline extension are any JSON by gin's design: gin parses the definition, which checks them.
+ * in an inline extension are any JSON by gin's design: gin parses the definition, which checks them. So is a `new`
+ * expression's value in gin's Expr grammar (a default's or a get's), checked against the type it names.
  */
-const GIN_TYPEDEF_INSIDE = [/\.options\.(\*|value|values\.\*)$/, /^\$defs\.__schema\d+\|\d+\.value$/];
+const GIN_TYPEDEF_INSIDE = [/\.options\.(\*|value|values\.\*)$/, /^\$defs\.__schema\d+\|\d+\.value$/, /^\$defs\.Expr_new\.value$/];
 
 /** A JSON schema node. */
 type Node = Readonly<Record<string, unknown>>;
@@ -143,17 +144,17 @@ describe('tool schemas', () => {
     const { catalog } = await catalogOfEverything();
     const signature = await catalog.signature(QualifiedName.parse('database/create_table'));
     const text = JSON.stringify(signature.argsJsonSchema);
-    expect(text).toContain('"const":"obj"');
+    expect(text).toContain('"enum":["obj"]');
     const row = { name: 'obj', props: { id: { type: { name: 'num', options: { whole: true } } }, title: { type: { name: 'text' } } } };
-    expect(signature.argsSchema.safeParse({ table: 'Todo', type: row }).success).toBe(true);
+    expect(signature.check({ table: 'Todo', type: row }).ok).toBe(true);
     for (const type of ['{"id":"string"}', [{ key: 'id', value: 'integer' }], null, { id: 'integer' }, { name: 'obj', props: { id: { type: { name: 'integer' } } } }]) {
-      expect(signature.argsSchema.safeParse({ table: 'Todo', type }).success, JSON.stringify(type)).toBe(false);
+      expect(signature.check({ table: 'Todo', type }).ok, JSON.stringify(type)).toBe(false);
     }
   });
 
   it("refuses, in the hub's own check of a chat call, query JSON sent to the query fns and wrong row types sent to alter_table", async () => {
     const { catalog } = await catalogOfEverything();
-    const check = async (fn: string, args: unknown) => (await catalog.signature(QualifiedName.parse(fn))).argsSchema.safeParse(args).success;
+    const check = async (fn: string, args: unknown) => (await catalog.signature(QualifiedName.parse(fn))).check(args).ok;
     const query = { kind: 'select', fields: [{ expr: { kind: 'field-ref', source: 'orders', field: 'id' } }], from: { kind: 'type', type: 'orders' } };
     expect(await check('database/get_query', { detailedDescription: 'paid orders' })).toBe(true);
     expect(await check('database/get_query', { detailedDescription: 'paid orders', query })).toBe(false);
@@ -162,7 +163,9 @@ describe('tool schemas', () => {
     expect(await check('database/edit_query', { name: 'database/main.orders', instructions: 'Add the date.', query })).toBe(false);
     const row = { name: 'obj', props: { id: { type: { name: 'num', options: { whole: true } } }, done: { type: { name: 'bool' } } } };
     expect(await check('database/alter_table', { table: 'Todo', type: row })).toBe(true);
-    for (const type of [{ done: 'boolean' }, [{ name: 'done', type: 'bool' }], JSON.stringify(row), { name: 'obj', props: { done: { type: 'bool' } } }]) {
+    // a row type sent as a string holding its JSON is read as that JSON (the check repairs it, and the run records it)
+    expect(await check('database/alter_table', { table: 'Todo', type: JSON.stringify(row) })).toBe(true);
+    for (const type of [{ done: 'boolean' }, [{ name: 'done', type: 'bool' }], { name: 'obj', props: { done: { type: 'bool' } } }]) {
       expect(await check('database/alter_table', { table: 'Todo', type }), JSON.stringify(type)).toBe(false);
     }
   });

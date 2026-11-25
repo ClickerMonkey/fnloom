@@ -1173,7 +1173,8 @@ what a system keeps of its fns.
 - **Forwarded calls cost the loop little** (iteration 1, rep 3, where the hub shed load). A system's call carries its
   tool schemas as JSON schema; the hub rebuilt a code authoring step's 54 KB program schema every round (12 to 21 ms)
   and converted it back to JSON schema to save the interaction (about 110 ms), all on the event loop. Rebuilt schemas
-  are kept by their JSON (`HARNESS_WIRE_SCHEMA_CACHE`, 64) and each zod schema's JSON schema is made once, so a step
+  are kept by their JSON (`HARNESS_WIRE_SCHEMA_CACHE`, 64; a rebuilt `a` bound also keeps its rendering per model
+  dialect) and each bound schema's lenient JSON schema is made once, so a step
   costs under 1 ms after the first (measured on rep 3's own recorded requests).
 
 ### Every model call is recorded
@@ -1858,7 +1859,7 @@ types derived from it**. See [Library map](#g/library-map) for the exact mapping
 | UI work before systems exist | `@ayepi/mock` | Fake data from the spec. |
 | LLM loop | `@aeye/core` | Each `hub/llm` run is an aeye `Prompt`. Its tools are built from fn signatures; `onToolIntercept` turns each call into a queued run and throws `PromptSuspend`; when the runs settle, the next LLM job re-runs the prompt with the tool results appended. aeye keeps doing argument repair, retries, schema fallbacks and context trimming. |
 | Providers, selection, cost | `@aeye/ai` + providers + `@aeye/models` | One `AI` on the hub. `beforeRequest` reserves budget; `afterRequest` settles it and saves the `LlmInteraction`. |
-| The hub as a provider | `@aeye/ai` `Provider` | `HarnessProvider` on systems forwards over the link: tool and output schemas go as JSON schema, and the hub returns chunks, the schema descriptors it used and the real cost. |
+| The hub as a provider | `@aeye/ai` `Provider` | `HarnessProvider` on systems forwards over the link: tool and output schemas go as their lenient JSON schema (the code shape); the hub rebuilds them as `a` schemas, its provider plans them for the model, and the hub decodes the answers through that plan (a call that doesn't fit comes with `invalid`, what the model is told) and returns them in the code shape, then the real cost. |
 | Types and signatures | `@aeye/gin` | Wire `TypeDef`s stored by the hub; `registry.parse` in a per-system scope; `toValueSchema` → zod → aeye `toJSONSchema` for tool schemas; `compatible` checks re-declared fns and types. |
 | Typed authoring | harness SDK over gin | gin has no static inference, so the SDK's `g` builder keeps the TS type (`GinType<T>`). |
 | Reading and cutting resources | `@aeye/resources` | Parsers (pdf, docx, html, code…), link extraction and the graph builder. Sections are keyed by structure in the harness, because aeye's slice ids are ordinals. |

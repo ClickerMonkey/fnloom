@@ -3,16 +3,23 @@
  * JSON projections in core (`LlmMessage`, `LlmRequest`, `LlmChunk`, `LlmUsage`, `LlmResponse`). A system forwarding a
  * request to the hub, the hub rebuilding it, and the hub saving transcripts and interactions all go through here.
  *
- * Zod schemas can't cross the wire: tool and output schemas travel as JSON schema and are rebuilt with zod's
- * `fromJSONSchema`. The one real difference between callers is what happens to something the wire can't carry (a
- * schema part JSON schema can't express, a streamed or `Blob` message part): `LlmWire`'s `unrepresentable` option.
+ * Tool and output schemas (`@aeye/schema` bounds) travel as their lenient JSON schema, the code shape, and the hub rebuilds
+ * them with `a.fromJSONSchema` (`requestFromWire`). The hub's provider plans the rebuilt request for the real model, and
+ * `AnswerDecoder` decodes what the model wrote through that plan back to the code shape (a dispatched call under its
+ * tool's own name, a call that doesn't fit with `invalid`), which the system's prompt decodes with its own schemas as
+ * they are. What a caller does with what the wire can't carry (a streamed or `Blob` message part) is `LlmWire`'s
+ * `unrepresentable` option; whether a record keeps the schemas as sent to the model is its `schemas` option.
  */
-import type { Chunk, Message, MessageContent, Request, Resource, Response, ToolCall, ToolChoice, ToolDefinition, Usage } from '@aeye/core';
+import {
+  a, extractJSONObject, LENIENT, requestPlan, sentTools,
+  type Bound, type Chunk, type ErrorFormatInput, type RequestPlan, type Message, type MessageContent, type Request, type Resource, type Response, type ToolCall, type ToolChoice, type ToolDefinition, type Usage,
+} from '@aeye/core';
 import {
   Json,
-  type DecisionInput, type FinishReason, type LlmChunk, type LlmContentPart, type LlmForwardChunk, type LlmMessage, type LlmRequest, type LlmResponse, type LlmToolCall,
+  type DecisionInput, type FinishReason, type LlmChunk, type LlmContentPart, type LlmErrorFormat, type LlmMessage, type LlmRequest, type LlmResponse, type LlmToolCall,
   type LlmToolSpec, type LlmUsage,
 } from '@harness/core';
+import type { AnySchema } from '@aeye/schema';
 import { env } from '@ayepi/env';
 import { z } from 'zod';
 import { LinkGap } from './wire.ts';
@@ -22,7 +29,8 @@ export const llmWireEnv = env({
   /**
    * How many tool and output schemas rebuilt from the wire are kept, by their JSON (`schemaFromWire`). An authoring
    * agent sends the same few large schemas (a gin program's, 50 KB of JSON schema) every round, and rebuilding one
-   * took 10 to 20 ms of the hub's event loop each time (iteration 1, rep 3); the rebuilt zod schema is kept instead.
+   * took 10 to 20 ms of the hub's event loop each time (iteration 1, rep 3); the rebuilt bound schema is kept instead
+   * (and with it the renderings it memoizes per model dialect).
    */
   HARNESS_WIRE_SCHEMA_CACHE: z.coerce.number().int().min(0).default(64),
 });
@@ -31,14 +39,16 @@ export const llmWireEnv = env({
 export interface LlmWireOptions {
   /**
    * `refuse` throws a `LinkGap`, for requests that will be sent on (a lossy request would reach the model changed).
-   * `placeholder` keeps going, for records: a schema part becomes `{}` (any value) and an unsendable part's content
-   * becomes `[binary content]`.
+   * `placeholder` keeps going, for records: an unsendable part's content becomes `[binary content]`.
    */
   readonly unrepresentable: 'refuse' | 'placeholder';
+  /**
+   * `lenient` (default) writes each schema as its lenient JSON schema, the code shape: what a forwarded request carries.
+   * `sent`, for records: a request a provider planned is written as the model was sent it (its tools in the model's
+   * dialect, the dispatcher in place of the tools behind it, the output as rendered for it); one not planned, lenient.
+   */
+  readonly schemas?: 'lenient' | 'sent';
 }
-
-/** The strict-mode descriptors the provider chose while building a request, as they travel back to the system. */
-export type LlmDescriptors = Omit<Extract<LlmForwardChunk, { type: 'descriptors' }>, 'type'>;
 
 /** What stands in for message content the wire can't carry, when placeholders are allowed. */
 export const UNSENDABLE_CONTENT = '[binary content]';
@@ -61,8 +71,25 @@ function bytesOf(resource: Exclude<Resource, string | URL>): Uint8Array | undefi
   return undefined;
 }
 
-function callToWire(call: ToolCall): LlmToolCall {
-  return { id: call.id, name: call.name, arguments: call.arguments };
+/** A tool call copied either way (aeye's `ToolCall`, the wire's `LlmToolCall`). */
+function callToWire(call: Pick<ToolCall, 'id' | 'name' | 'arguments'> & { readonly invalid?: string | undefined }): ToolCall & LlmToolCall {
+  return { id: call.id, name: call.name, arguments: call.arguments, ...(call.invalid === undefined ? {} : { invalid: call.invalid }) };
+}
+
+/** A JSON schema `@aeye/schema` rendered, as the wire's JSON (checked once per schema object). */
+const jsonOf = new WeakMap<object, Json>();
+function schemaJson(schema: object): Json {
+  const known = jsonOf.get(schema);
+  if (known !== undefined) { return known; }
+  const made = Json.parse(schema);
+  jsonOf.set(schema, made);
+  return made;
+}
+
+/** A bound schema's lenient JSON schema (the code shape), as it crosses the wire. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- any bound (a bound is invariant in its value type)
+export function lenientJson(schema: Bound<any>): Json {
+  return schemaJson(schema.render(LENIENT).jsonSchema);
 }
 
 function partFromWire(part: LlmContentPart): MessageContent {
@@ -89,11 +116,6 @@ function messageFields(message: Message | LlmMessage): Pick<Message, 'role' | 'n
 /** aeye → wire for the parts where callers differ in what the wire can't carry. */
 export class LlmWire {
   readonly #options: LlmWireOptions;
-  /**
-   * Each zod schema's JSON schema, made once per schema object: saving a forwarded authoring call converted its tools
-   * back to JSON schema every round, 110 ms of the hub's event loop each (iteration 1, rep 3).
-   */
-  readonly #json = new WeakMap<z.ZodType, Json>();
 
   constructor(options: LlmWireOptions) {
     this.#options = options;
@@ -107,37 +129,35 @@ export class LlmWire {
     };
   }
 
-  /** An aeye request as JSON: zod schemas become JSON schema; an empty tool list is left out. */
+  /**
+   * An aeye request as JSON: each schema as its lenient JSON schema (or as sent, `schemas: 'sent'`); an empty tool
+   * list is left out.
+   */
   request(request: Request): LlmRequest {
     const toolChoice = toolChoiceToWire(request.toolChoice);
-    const format = request.responseFormat;
     const stop = request.stop === undefined ? undefined : typeof request.stop === 'string' ? [request.stop] : request.stop;
+    const plan = this.#options.schemas === 'sent' ? plannedOf(request) : undefined;
+    const tools = request.tools === undefined || request.tools.length === 0 ? undefined
+      : plan === undefined ? request.tools.map(toolToWire) : sentTools(request).map((tool): LlmToolSpec => ({
+        name: tool.name,
+        ...(tool.description === undefined ? {} : { description: tool.description }),
+        parameters: schemaJson(tool.parameters),
+        strict: tool.strict,
+      }));
+    const format = request.responseFormat;
+    const sent = plan === undefined ? undefined : plan.output;
+    const responseFormat: LlmRequest['responseFormat'] = format === undefined || typeof format === 'string' ? format
+      : sent === undefined ? formatToWire(format)
+      : { schema: schemaJson(sent.rendered.jsonSchema), strict: sent.strict, schemaDelivery: sent.delivery === 'prompt' ? 'prompt' : 'structured' };
     return {
       messages: request.messages.map((message) => this.message(message)),
       ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
       ...(request.maxTokens === undefined ? {} : { maxTokens: request.maxTokens }),
       ...(stop === undefined ? {} : { stop }),
-      ...(request.tools === undefined || request.tools.length === 0 ? {} : { tools: request.tools.map((tool) => this.#tool(tool)) }),
+      ...(tools === undefined ? {} : { tools }),
       ...(toolChoice === undefined ? {} : { toolChoice }),
-      ...(format === undefined ? {} : { responseFormat: typeof format === 'string' ? format : { schema: this.jsonSchema(format.type), strict: format.strict } }),
-    };
-  }
-
-  /** A zod schema as JSON schema (its input side). */
-  jsonSchema(schema: z.ZodType): Json {
-    const known = this.#json.get(schema);
-    if (known !== undefined) { return known; }
-    const made = Json.parse(z.toJSONSchema(schema, { io: 'input', unrepresentable: this.#options.unrepresentable === 'refuse' ? 'throw' : 'any' }));
-    this.#json.set(schema, made);
-    return made;
-  }
-
-  #tool(tool: ToolDefinition): LlmToolSpec {
-    return {
-      name: tool.name,
-      ...(tool.description === undefined ? {} : { description: tool.description }),
-      parameters: this.jsonSchema(tool.parameters),
-      ...(tool.strict === undefined ? {} : { strict: tool.strict }),
+      ...(responseFormat === undefined ? {} : { responseFormat }),
+      ...(request.errorFormat === undefined ? {} : { errorFormat: request.errorFormat }),
     };
   }
 
@@ -159,6 +179,33 @@ export class LlmWire {
     if (this.#options.unrepresentable === 'refuse') { throw new LinkGap('Only text, URL and in-memory byte message parts can cross the wire.'); }
     return UNSENDABLE_CONTENT;
   }
+}
+
+/** A tool as a forwarded request carries it: its schema lenient (the code shape). */
+function toolToWire(tool: ToolDefinition): LlmToolSpec {
+  return {
+    name: tool.name,
+    ...(tool.description === undefined ? {} : { description: tool.description }),
+    parameters: lenientJson(tool.parameters),
+    ...(tool.strict === undefined ? {} : { strict: tool.strict }),
+    ...(tool.errorFormat === undefined ? {} : { errorFormat: tool.errorFormat }),
+  };
+}
+
+/** A structured output as a forwarded request carries it: its schema lenient (the code shape). */
+function formatToWire(format: Extract<Request['responseFormat'], object>): Extract<LlmRequest['responseFormat'], object> {
+  return {
+    schema: lenientJson(format.type),
+    strict: format.strict,
+    ...(format.errorFormat === undefined ? {} : { errorFormat: format.errorFormat }),
+    ...(format.schemaDelivery === undefined ? {} : { schemaDelivery: format.schemaDelivery }),
+  };
+}
+
+/** The plan a provider pinned on a request, if one did (`requestPlan` would make a lenient one). */
+export function plannedOf(request: Request): RequestPlan | undefined {
+  const format = request.responseFormat;
+  return request.plan ?? request.tools?.find((tool) => tool.plan !== undefined)?.plan ?? (typeof format === 'object' ? format.plan : undefined);
 }
 
 /** aeye's tool choice on the wire. The wire has no "only these" choice yet: the model picks among all, or must pick one. */
@@ -191,50 +238,29 @@ export function decisionInputFromWire(input: DecisionInput): string | Message[] 
 /** What a decision input's conversation can't carry is refused, so the model never reads something else. */
 const decisionWire = new LlmWire({ unrepresentable: 'refuse' });
 
-/** The outer shape of a JSON schema object; zod's `fromJSONSchema` checks the rest. */
-const JsonSchemaObject = z.custom<z.core.JSONSchema.JSONSchema>((value) => typeof value === 'object' && value !== null && !Array.isArray(value), {
-  message: 'Expected a JSON schema object.',
-});
-
 /**
- * Whether a zod schema describes objects. It reads the schema's definition rather than using `instanceof`, so it
- * holds for schemas made by another copy of zod (gin's).
+ * Whether a schema describes objects, as a tool's parameters must: an `a` bound whose root (through its refs) is an
+ * object, a record or an intersection (of objects).
  */
-export function isObjectSchema(schema: z.ZodType): schema is z.ZodType<object, object> {
-  return schema._zod.def.type === 'object';
-}
-
-/**
- * A JSON schema without `propertyNames: { type: 'string' }`, which every JSON object's keys already meet: zod writes it
- * for each record, and `fromJSONSchema` reads it back as a key check piped after the object, which hides the record from
- * the provider's strict dialect (it then reaches the model as an object it can only fill with `{}`). Other key rules
- * (a pattern, an enum) are kept.
- */
-function withoutStringKeys(schema: Json): Json {
-  if (Array.isArray(schema)) { return schema.map(withoutStringKeys); }
-  if (schema === null || typeof schema !== 'object') { return schema; }
-  const out: Record<string, Json> = {};
-  for (const [key, value] of Object.entries(schema)) {
-    if (key === 'propertyNames' && isStringOnly(value)) { continue; }
-    out[key] = withoutStringKeys(value);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- any bound (a bound is invariant in its value type)
+export function isObjectSchema(schema: Bound<any>): schema is Bound<object> {
+  let node: AnySchema | undefined = schema.root;
+  for (let hops = 0; node !== undefined && node.kind === 'ref' && hops < 32; hops += 1) {
+    const name: unknown = 'name' in node ? node.name : undefined;
+    node = typeof name === 'string' ? schema.env.get(name) : undefined;
   }
-  return out;
-}
-
-/** Whether a key schema says only "a string". */
-function isStringOnly(value: Json): boolean {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 1 && value['type'] === 'string';
+  return node !== undefined && (node.kind === 'object' || node.kind === 'record' || node.kind === 'intersection');
 }
 
 /** Schemas rebuilt from the wire by their JSON, least recently used first (`HARNESS_WIRE_SCHEMA_CACHE`). */
-const rebuilt = new Map<string, z.ZodType>();
+const rebuilt = new Map<string, Bound<unknown>>();
 
 /**
- * A JSON schema from the wire rebuilt as zod, its records kept records for the provider's strict dialect. The same
- * JSON gives the same zod schema (kept, `HARNESS_WIRE_SCHEMA_CACHE`), so a schema sent every round is rebuilt once,
- * and what keys on the schema (aeye's strict-mode rewrite, `LlmWire.jsonSchema`) is reused with it.
+ * A (lenient) JSON schema from the wire rebuilt as a bound `a` schema (`a.fromJSONSchema`), for the provider to plan
+ * for its model. The same JSON gives the same bound (kept, `HARNESS_WIRE_SCHEMA_CACHE`), so a schema sent every round
+ * is rebuilt once and rendered once per model dialect (a bound memoizes its renderings).
  */
-export function schemaFromWire(schema: Json): z.ZodType {
+export function schemaFromWire(schema: Json): Bound<unknown> {
   const size = llmWireEnv.get('HARNESS_WIRE_SCHEMA_CACHE');
   const key = size === 0 ? undefined : JSON.stringify(schema);
   const known = key === undefined ? undefined : rebuilt.get(key);
@@ -243,7 +269,8 @@ export function schemaFromWire(schema: Json): z.ZodType {
     rebuilt.set(key, known);
     return known;
   }
-  const made = z.fromJSONSchema(JsonSchemaObject.parse(withoutStringKeys(schema)));
+  if (typeof schema !== 'object' || schema === null || Array.isArray(schema)) { throw new Error('Expected a JSON schema object.'); }
+  const made = a.fromJSONSchema(schema).bind();
   if (key !== undefined) {
     rebuilt.set(key, made);
     while (rebuilt.size > size) { const oldest = rebuilt.keys().next().value; if (oldest === undefined) break; rebuilt.delete(oldest); }
@@ -251,14 +278,22 @@ export function schemaFromWire(schema: Json): z.ZodType {
   return made;
 }
 
-/** A JSON schema rebuilt as a zod schema of objects; refused when it doesn't describe an object. */
-function objectSchemaFromWire(schema: Json, what: string): z.ZodType<object, object> {
-  const rebuilt = schemaFromWire(schema);
-  if (!isObjectSchema(rebuilt)) { throw new Error(`${what} must be a JSON schema of an object`); }
-  return rebuilt;
+/** A JSON schema rebuilt as a bound schema of objects; refused when it doesn't describe an object. */
+function objectSchemaFromWire(schema: Json, what: string): Bound<object> {
+  const bound = schemaFromWire(schema);
+  if (!isObjectSchema(bound)) { throw new Error(`${what} must be a JSON schema of an object`); }
+  return bound;
 }
 
-/** A request from the wire rebuilt as an aeye request: tool and output schemas back to zod. */
+/** An error format from the wire as aeye's (the wire's parse leaves no `undefined` fields). */
+function errorFormatFromWire(format: LlmErrorFormat): ErrorFormatInput {
+  if (typeof format === 'string') { return format; }
+  const defined = Object.entries(format).filter(([, value]) => value !== undefined);
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the same fields, those left out absent
+  return Object.fromEntries(defined) as ErrorFormatInput;
+}
+
+/** A request from the wire rebuilt as an aeye request: tool and output schemas as bound `a` schemas. */
 export function requestFromWire(request: LlmRequest): Request {
   const format = request.responseFormat;
   return {
@@ -272,34 +307,140 @@ export function requestFromWire(request: LlmRequest): Request {
         parameters: objectSchemaFromWire(tool.parameters, `the parameters of tool ${tool.name}`),
         ...(tool.description === undefined ? {} : { description: tool.description }),
         ...(tool.strict === undefined ? {} : { strict: tool.strict }),
+        ...(tool.errorFormat === undefined ? {} : { errorFormat: errorFormatFromWire(tool.errorFormat) }),
       })),
     }),
     ...(request.toolChoice === undefined ? {} : { toolChoice: request.toolChoice }),
     ...(format === undefined ? {} : {
-      responseFormat: typeof format === 'string' ? format : { type: objectSchemaFromWire(format.schema, 'the response format'), strict: format.strict },
+      responseFormat: typeof format === 'string' ? format : {
+        type: objectSchemaFromWire(format.schema, 'the response format'),
+        strict: format.strict,
+        ...(format.errorFormat === undefined ? {} : { errorFormat: errorFormatFromWire(format.errorFormat) }),
+        ...(format.schemaDelivery === undefined ? {} : { schemaDelivery: format.schemaDelivery }),
+      },
     }),
+    ...(request.errorFormat === undefined ? {} : { errorFormat: errorFormatFromWire(request.errorFormat) }),
   };
 }
 
-/** The strict-mode descriptor ids the provider chose while building a request, so the system decodes the same way. */
-export function descriptorsOf(request: Request): LlmDescriptors {
-  const tools: Record<string, string> = {};
-  for (const tool of request.tools ?? []) {
-    if (tool.descriptor !== undefined) { tools[tool.name] = tool.descriptor; }
+/** A structured answer's text as JSON, as aeye's prompt reads it: the whole text, else the JSON object in it. */
+function answerJson(text: string): unknown {
+  const trimmed = text.trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch (error) {
+    const extracted = extractJSONObject(text);
+    if (extracted === '' || extracted === trimmed) { throw error; }
+    return JSON.parse(extracted);
   }
-  const format = request.responseFormat;
-  const output = format === undefined || typeof format === 'string' ? undefined : format.descriptor;
-  return output === undefined ? { tools } : { tools, output };
 }
 
-/** Write the descriptors the hub chose into the request a prompt holds, so it decodes the strict wire shape. */
-export function applyDescriptors(request: Request, descriptors: LlmDescriptors): void {
-  for (const tool of request.tools ?? []) {
-    const id = descriptors.tools[tool.name];
-    if (id !== undefined) { tool.descriptor = id; }
+/** A chunk without some of its parts; `undefined` when nothing is left. */
+function without(chunk: Chunk, ...keys: ReadonlyArray<keyof Chunk>): Chunk | undefined {
+  const rest: Chunk = { ...chunk };
+  for (const key of keys) { delete rest[key]; }
+  return Object.keys(rest).length === 0 ? undefined : rest;
+}
+
+/** An error's message. */
+function messageOfError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Decodes what a model wrote through the plan its request was sent with (the one the provider pinned, else a lenient
+ * one) as the stream passes, so a system reads every answer in the code shape and decodes it with its own schemas:
+ *
+ * - a finished tool call (`toolCall`) is decoded (`plan.decodeCall`: strict `null`s back to absent, pairs back to
+ *   records, JSON text parsed): its arguments become the decoded value's JSON, under the tool's own name. One that
+ *   doesn't fit keeps the model's arguments and says why in `invalid`, the message the model is told; arguments that
+ *   aren't JSON at all go as they are (the system's prompt reports them). A call that already has `invalid` (decoded
+ *   by a provider further along) goes as it is.
+ * - a call to the dispatcher (more tools than the provider takes) names its tool only in its arguments, so it is held
+ *   back until it's complete and goes as one chunk, named and finished, under the tool it reached.
+ * - a structured answer's text is held until the answer ends (its `finishReason`, or the stream's end) and goes as one
+ *   chunk of its decoded value's JSON, or as the model wrote it when it doesn't decode.
+ *
+ * Partial arguments (`toolCallArguments`) of other calls stream as they come, in the model's shape. One decoder per
+ * stream; its first chunk is read after the provider planned the request.
+ */
+export class AnswerDecoder {
+  readonly #request: Request;
+  /** The structured answer's text so far; `undefined` when the request asks for none, or it already went. */
+  #held: string | undefined;
+  /** The dispatcher calls being held back, by id. */
+  readonly #dispatched = new Set<string>();
+
+  constructor(request: Request) {
+    this.#request = request;
+    const format = request.responseFormat;
+    this.#held = typeof format === 'object' && format.type.root.kind !== 'string' ? '' : undefined;
   }
-  if (descriptors.output !== undefined && typeof request.responseFormat === 'object') {
-    request.responseFormat.descriptor = descriptors.output;
+
+  /** What to send for one chunk the model streamed: nothing, the chunk (decoded), or at the answer's end the answer first. */
+  chunk(chunk: Chunk): Chunk[] {
+    let out: Chunk | undefined = chunk;
+    const named = chunk.toolCallNamed;
+    if (named !== undefined && named.name === requestPlan(this.#request).dispatcher?.name) {
+      this.#dispatched.add(named.id);
+      out = without(out, 'toolCallNamed');
+    }
+    if (out?.toolCallArguments !== undefined && this.#dispatched.has(out.toolCallArguments.id)) { out = without(out, 'toolCallArguments'); }
+    if (out?.toolCall !== undefined) {
+      const call = this.call(out.toolCall);
+      const held = this.#dispatched.delete(call.id);
+      out = { ...out, toolCall: call, ...(held ? { toolCallNamed: call } : {}) };
+    }
+    if (this.#held !== undefined && out?.content !== undefined) {
+      this.#held += out.content;
+      out = without(out, 'content');
+    }
+    const answer = out?.finishReason === undefined ? [] : this.end();
+    return out === undefined ? answer : [...answer, out];
+  }
+
+  /** What is still held when the stream ends: the structured answer, decoded. */
+  end(): Chunk[] {
+    const held = this.#held;
+    this.#held = undefined;
+    return held === undefined || held === '' ? [] : [{ content: this.answer(held) }];
+  }
+
+  /** A finished tool call, decoded (see the class). */
+  call(call: ToolCall): ToolCall {
+    if (call.invalid !== undefined) { return call; }
+    let raw: unknown;
+    try {
+      raw = JSON.parse(call.arguments.trim() === '' ? '{}' : call.arguments);
+    } catch {
+      return call;
+    }
+    const plan = requestPlan(this.#request);
+    const decoded = plan.decodeCall(call.name, raw);
+    if (decoded.ok) {
+      try {
+        return { id: call.id, name: decoded.tool, arguments: JSON.stringify(decoded.value) ?? '{}' };
+      } catch (error) {
+        return { ...call, invalid: messageOfError(error) };
+      }
+    }
+    // a dispatcher call to no tool goes by the name it gave, so the system's prompt says which tools there are
+    const asked: unknown = plan.dispatcher?.name === call.name && typeof raw === 'object' && raw !== null && 'tool' in raw ? raw.tool : undefined;
+    return { id: call.id, name: decoded.tool ?? (typeof asked === 'string' ? asked : call.name), arguments: call.arguments, invalid: decoded.message };
+  }
+
+  /** A structured answer's text, decoded: its value's JSON, or the text as it is when it doesn't decode. */
+  answer(text: string): string {
+    const output = requestPlan(this.#request).output;
+    if (output === undefined) { return text; }
+    let raw: unknown;
+    try {
+      raw = answerJson(text);
+    } catch {
+      return text;
+    }
+    const decoded = output.parse(raw);
+    return decoded.ok ? JSON.stringify(decoded.value) ?? text : text;
   }
 }
 
@@ -344,9 +485,9 @@ export function chunkFromWire(chunk: LlmChunk): Chunk {
   return {
     ...(chunk.content === undefined ? {} : { content: chunk.content }),
     ...(chunk.reasoning === undefined ? {} : { reasoning: { content: chunk.reasoning } }),
-    ...(chunk.toolCallNamed === undefined ? {} : { toolCallNamed: chunk.toolCallNamed }),
-    ...(chunk.toolCallArguments === undefined ? {} : { toolCallArguments: chunk.toolCallArguments }),
-    ...(chunk.toolCall === undefined ? {} : { toolCall: chunk.toolCall }),
+    ...(chunk.toolCallNamed === undefined ? {} : { toolCallNamed: callToWire(chunk.toolCallNamed) }),
+    ...(chunk.toolCallArguments === undefined ? {} : { toolCallArguments: callToWire(chunk.toolCallArguments) }),
+    ...(chunk.toolCall === undefined ? {} : { toolCall: callToWire(chunk.toolCall) }),
     ...(chunk.finishReason === undefined ? {} : { finishReason: chunk.finishReason }),
     ...(chunk.refusal === undefined ? {} : { refusal: chunk.refusal }),
     ...(chunk.usage === undefined ? {} : { usage: usageFromWire(chunk.usage) }),

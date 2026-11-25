@@ -4,7 +4,8 @@
  * value that does not fit becomes a `FnError` the hub and the LLM can act on, never a crash.
  */
 import { ApiError, DISCONNECTED_STATUS } from '@ayepi/core';
-import { FnError, InvalidInput, messageOf, problemLine, type ErrorClass, type InputProblem, type Json, type RunSettled } from '@harness/core';
+import { LENIENT } from '@aeye/schema';
+import { dottedPath, FnError, ginValueCheck, InvalidInput, messageOf, problemLine, type ErrorClass, type InputProblem, type Json, type RunSettled } from '@harness/core';
 import { CallFailed, HandlerFailed, Suspended, type Settled } from '../ctx.ts';
 import { encodeValue, parseValue, type GinType } from '../gin.ts';
 
@@ -39,12 +40,13 @@ export function encode<T>(type: GinType<T>, value: T, what: string): Checked<Jso
 
 /**
  * What is wrong with a value that does not fit its gin type, by path (dotted, `''` for the whole), so a model can fix
- * just those fields. The value schema's issues give the paths; when it finds none, gin's own message is the problem.
+ * just those fields. The value check (`ginValueCheck`, as gin read it: no repair of a list or object sent as its JSON
+ * text, which gin refused) gives the paths; when it finds none, gin's own message is the problem.
  */
 export function inputProblems(type: GinType, value: unknown, fallback: string): InputProblem[] {
-  const checked = type.toValueSchema().safeParse(value);
-  if (checked.success || checked.error.issues.length === 0) { return [{ path: '', message: fallback }]; }
-  return checked.error.issues.map((issue) => ({ path: issue.path.map(String).join('.'), message: issue.message }));
+  const checked = ginValueCheck(type).render(LENIENT).parse(value, { inPlace: false, repair: false });
+  if (checked.ok || checked.issues.length === 0) { return [{ path: '', message: fallback }]; }
+  return checked.issues.map((issue) => ({ path: dottedPath(issue.codePath), message: issue.message }));
 }
 
 /** A fn's args, checked against its args type: the plain value, or why the caller's input was refused. */

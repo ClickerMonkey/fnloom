@@ -11,15 +11,17 @@
  * agent keeps its conversation on its run. The run's `resume` holds the loop's state (`AgentState`), so a pause, a
  * cancel or a restart picks up exactly where it was.
  */
-import { Prompt, type Context, type Message, type PromptInput, type Request, type Usage } from '@aeye/core';
+import { Prompt, ToolInputError, type Context, type Message, type PromptInput, type Request, type Streamer, type Usage } from '@aeye/core';
+import { a, type Bindable, type Bundle } from '@aeye/schema';
 import { LlmPayloadType, parseValue } from '@harness/sdk';
 import {
-  InstanceName, isSettled, Json, LlmInteractionId, LlmMessage, MessageId, ModelChoice, modelFnName, QualifiedName, RunId, SelectionReport, type PromptPreview, splitName, type ActorId, type FnError, type FnRecord, type InvalidInput,
+  ArgRepair, HarnessGrammar, InstanceName, isSettled, Json, JsonObject, LlmInteractionId, type FnNameSpelling, type HarnessGrammarArgs, type ModelFnNames, LlmMessage, MessageId, ModelChoice, modelFnName, QualifiedName, RunId, SelectionReport, type PromptPreview, splitName, type ActorId, type FnError, type FnRecord, type InvalidInput,
   type OutcomeWire, type Run, type RunSettled, type Session, type RunControlAction, type TableReading, type UserInfo,
 } from '@harness/core';
 import { z } from 'zod';
 import { HUB_SYSTEM } from '../catalog/availability.ts';
 import type { FnSignature } from '../catalog/index.ts';
+import { bindable, isObjectBound, jsonSchemaOf } from '../catalog/signature.ts';
 import type { MessageEnricher } from '../chat/index.ts';
 import { ensureAgentActor } from '../chat/support.ts';
 import { citationsNotice, withCiteId } from '../chat/cite-rule.ts';
@@ -38,8 +40,8 @@ import { transientDelay, type ExecutionQueues } from './queues.ts';
 import { DECLINED_CODE, PROPOSED_KEY, settledOf, type HubRunService } from './runs.ts';
 import { LlmCallScope, type HubCallContext, type HubCallMetadata } from './scope.ts';
 import { stepWaits } from './claims.ts';
-import { agentTools, PendingCalls } from './tools.ts';
-import { isObjectSchema, messageFromWire, messageToWire, replyText } from './wire.ts';
+import { agentTools, PendingCalls, type AgentTool } from './tools.ts';
+import { messageFromWire, messageToWire, replyText } from './wire.ts';
 
 /**
  * A call held back until earlier calls of its iteration have settled, since they claim the same things (`claims.ts`):
@@ -53,6 +55,8 @@ export const HeldCall = z.object({
   on: InstanceName.optional(),
   /** The model call that made it. */
   llmCall: LlmInteractionId.optional(),
+  /** What core repaired in the args it decoded (a field sent as a string of its JSON), recorded on the run. */
+  repairs: z.array(ArgRepair).optional(),
 });
 export type HeldCall = z.infer<typeof HeldCall>;
 
@@ -204,11 +208,14 @@ export interface AgentLoopDeps extends ExecutionDeps {
   readonly planner: Pick<PromptPlanner, 'plan' | 'interpret' | 'exposed' | 'settled' | 'names' | 'draft'>;
 }
 
+/** An agent prompt's tools (given each iteration by `retool`), typed so the prompt's events name them. */
+type AgentTools = [AgentTool, ...AgentTool[]];
+
 /** An agent's prompt; it logs when aeye's `forget` drops messages, which the planner's budget should never let happen. */
-class AgentPrompt extends Prompt<HubCallContext, HubCallMetadata, 'agent', AgentInput, AgentOutput, [], AgentOutput> {
+class AgentPrompt extends Prompt<HubCallContext, HubCallMetadata, 'agent', AgentInput, AgentOutput, AgentTools> {
   readonly #forgot: (dropped: number) => void;
 
-  constructor(input: PromptInput<HubCallContext, HubCallMetadata, 'agent', AgentInput, AgentOutput, [], AgentOutput>, forgot: (dropped: number) => void) {
+  constructor(input: PromptInput<HubCallContext, HubCallMetadata, 'agent', AgentInput, AgentOutput, AgentTools>, forgot: (dropped: number) => void) {
     super(input);
     this.#forgot = forgot;
   }
@@ -324,11 +331,11 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     });
     const own = modelFnName(fn.name);
     const tools = agentTools(planned.tools.filter((tool) => tool.name !== own), new PendingCalls());
-    const output = outputOf(await catalog.signature(fn.name));
+    const output = outputOf(await catalog.signature(fn.name), planned.rendered.names);
     const prompt = new AgentPrompt({
       name: 'agent', description: fn.decl.description, content: `${planned.instructions}{{#if context}}\n\n{{{context}}}{{/if}}`,
       input: (given) => ({ args: given?.args ?? null, context: given?.context ?? '', injectedContext: given?.injectedContext ?? '', maxIterations: given?.maxIterations ?? payload.maxIterations }),
-      schema: output.schema, schemaDelivery: tools.length > 0 ? 'prompt' : 'auto', config: { maxTokens: planned.maxTokens }, retool: () => tools, toolExecution: payload.toolExecution, metadata,
+      ...(output.schema === undefined ? {} : { schema: output.schema }), schemaDelivery: tools.length > 0 ? 'prompt' : 'auto', config: { maxTokens: planned.maxTokens }, retool: () => tools, toolExecution: payload.toolExecution, metadata,
     }, () => undefined);
     let caught: Request | undefined;
     const stop = new AbortController();
@@ -354,13 +361,14 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     // the instructions as rendered: the system message without what follows them and without the injected section
     let instructionsText = planned.context !== '' && system.endsWith(planned.context) ? system.slice(0, system.length - planned.context.length).trimEnd() : system;
     if (planned.injectedContext !== '') instructionsText = instructionsText.replace(planned.injectedContext, '').replace(/\n{3,}/g, '\n\n').trim();
+    // the tools as the request carries them (what core plans for the model), their parameters in the code shape
     const specs = new Map(planned.tools.map((tool) => [tool.name, tool.spec]));
     const guide = planned.rendered.names.text(planned.mode.guide(planned.ctx));
     return {
       agent: fn.name, model, window: planned.contextWindow, maxTokens: planned.maxTokens, estimate: planned.estimate, system,
       tools: (request.tools ?? []).map((tool) => {
         const spec = specs.get(tool.name);
-        return { name: tool.name, description: tool.description ?? '', parameters: Json.parse(spec?.parameters ?? z.toJSONSchema(tool.parameters)), tokens: spec === undefined ? 0 : estimator.tool(spec) };
+        return { name: tool.name, description: tool.description ?? '', parameters: Json.parse(jsonSchemaOf(tool.parameters)), tokens: spec === undefined ? 0 : estimator.tool(spec) };
       }),
       messages: request.messages.filter((m) => m.role !== 'system').map((m) => ({ role: m.role, content: textOf(m.content), tokens: estimator.text(textOf(m.content)) })),
       parts: {
@@ -433,7 +441,7 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     const tools = agentTools(planned.tools.filter((tool) => tool.name !== own), calls);
     const blocks = planned.rendered.protocol === 'text' ? new RunBlockFilter() : undefined;
     const signature = await catalog.signature(fn.name);
-    const output = outputOf(signature);
+    const output = outputOf(signature, planned.rendered.names);
     const message = session === undefined ? undefined : await this.#message(run, state, turn.message);
     if (message !== undefined && state.message !== message) {
       state = { ...state, message };
@@ -448,7 +456,7 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       // the injected section is the hub's own text, filled in raw where the instructions say (never read as a template)
       content: `${planned.instructions}{{#if context}}\n\n{{{context}}}{{/if}}`,
       input: (input) => ({ args: input?.args ?? null, context: input?.context ?? '', injectedContext: input?.injectedContext ?? '', maxIterations: input?.maxIterations ?? payload.maxIterations }),
-      schema: output.schema,
+      ...(output.schema === undefined ? {} : { schema: output.schema }),
       // with tools, the answer's schema goes in the prompt: a wire schema makes many models answer at once instead of calling them
       schemaDelivery: tools.length > 0 ? 'prompt' : 'auto',
       config: { maxTokens: planned.maxTokens },
@@ -469,8 +477,13 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       stream(blocks === undefined ? split.text : blocks.push(split.text));
     };
     const ctx = {
-      call: scope, messages: planned.messages.map(messageFromWire), signal, stream: this.#deps.llm.streamer, contextWindow: planned.contextWindow, maxOutputTokens: planned.maxTokens,
+      // a cut model name in a call reads back only once learned: each finished call is learned before core decodes it
+      call: scope, messages: planned.messages.map(messageFromWire), signal, stream: learning(this.#deps.llm.streamer, planned.rendered.names), contextWindow: planned.contextWindow,
+      maxOutputTokens: planned.maxTokens,
     };
+    // calls core answered itself (args that don't fit their tool), and what it repaired in the calls it decoded
+    const refusedCalls: RefusedCall[] = [];
+    const repaired = new Map<string, ArgRepair[]>();
     for await (const event of prompt.get('stream', { args: run.args, context: planned.context, injectedContext: planned.injectedContext, maxIterations: payload.maxIterations }, ctx)) {
       switch (event.type) {
         case 'textPartial':
@@ -500,7 +513,14 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
         case 'text': case 'textReset': case 'textComplete': case 'reason': case 'audioPartial': case 'images': case 'citations':
         case 'refusal': case 'moderation': case 'request': case 'requestUsage': case 'responseTokens': case 'usage':
         case 'reviewStart': case 'reviewPass': case 'reviewFeedback': case 'schemaFallback':
-        case 'toolArgRepairAttempt': case 'toolParseArguments':
+        case 'toolParseArguments': case 'toolStart': case 'toolOutput': case 'toolInterrupt': case 'toolSuspend':
+          break;
+        case 'toolArgRepairAttempt':
+          if (event.success) repaired.set(event.toolCallId, repairsOfFields(event.tool.name, event.fields));
+          break;
+        case 'toolError':
+          // core answered it (the tool reply is in the conversation already); the hub records it as a run
+          if (event.failure instanceof ToolInputError) refusedCalls.push({ toolCallId: event.toolCallId, tool: toolNameOf(event.tool, event.failure.tool), error: event.error, ...(event.rawArgs === undefined ? {} : { rawArgs: event.rawArgs }) });
           break;
       }
     }
@@ -511,11 +531,12 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     const last = scope.last;
     // every call of the iteration (its retries and repairs too) was made from the same selection
     for (const call of scope.calls) { await store.table('llmInteractions').update(call.interaction, { selection: planned.report }); }
+    await this.#recordRefused(run, state.iteration, refusedCalls, planned.rendered.names, planned.rendered.fns, last?.interaction, message);
 
     const made = suspended ? this.#toolCalls(collected, calls) : this.#blockCalls(collected, answer, state.iteration);
     if (made !== undefined) {
       const interpreted = await Promise.all(made.calls.map(async (call) => ({ ...call, plan: await this.#deps.planner.interpret(call.out, planned) })));
-      const pending = await this.#startCalls(run, state.iteration, interpreted, last?.interaction, { user: turn.user, sequential: payload.toolExecution === 'sequential' });
+      const pending = await this.#startCalls(run, state.iteration, interpreted, last?.interaction, { user: turn.user, sequential: payload.toolExecution === 'sequential' }, repaired);
       const used = pending.flatMap((call) => ((call.run === undefined && call.held === undefined) || call.invalid !== undefined ? [] : [QualifiedName.parse(call.fn)]));
       await this.#deps.planner.settled({ model, estimate: planned.estimate, actual: last?.usage.input, used });
       if (message !== undefined) await this.#deps.turns.track(message, pending.flatMap((call) => {
@@ -746,6 +767,41 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     }));
   }
 
+  /**
+   * Record the calls core refused (args that don't fit their tool's schema) as runs settled invalid-input at once, so
+   * the chat shows each calmly, as retried, and the fn's metrics count it ("Thinking harder"). Core already answered
+   * each in the conversation and asked the model again in the same job, so nothing is answered here. A call that names
+   * no fn (a garbled name) is answered by core alone. Keyed by iteration and call id, like every call's run.
+   */
+  async #recordRefused(
+    run: Run, iteration: number, refused: readonly RefusedCall[], names: ModelFnNames, fns: ReadonlyMap<string, QualifiedName>, llmCall: Run['llmCall'], message: MessageId | undefined,
+  ): Promise<void> {
+    if (refused.length === 0) return;
+    const caller = await this.#agentActor(run);
+    const tracked: Array<{ run: RunId; fn: QualifiedName }> = [];
+    const seen = new Map<string, number>();
+    for (const call of refused) {
+      // core asks again in the same job, where a model may reuse a call's id: each refusal is its own run, and never
+      // the run of the call that finally fits
+      const attempt = seen.get(call.toolCallId) ?? 0;
+      seen.set(call.toolCallId, attempt + 1);
+      const { fn, args } = refusedFn(call, names, fns);
+      if (fn === undefined || (await this.#deps.catalog.fn(fn)) === undefined) continue;
+      const problem = call.error.replace(/^Error parsing tool arguments: /, '');
+      try {
+        const started = await this.#deps.runs.start({
+          fn, args, invalid: { source: 'schema', problems: [{ path: '', message: problem }] }, turn: run.turn, parent: run.id, key: `${toolCallKey(iteration, call.toolCallId)}${REFUSED_KEY}${attempt}`, actor: run.actor, caller,
+          priority: run.priority, background: false, handlers: [], toolCallId: call.toolCallId, ...(run.session === undefined ? {} : { session: run.session }), ...(llmCall === undefined ? {} : { llmCall }),
+        });
+        tracked.push({ run: started.run, fn });
+        this.#deps.log.info('agent.invalid-input', { run: run.id, iteration, fn, source: 'schema' });
+      } catch (error) {
+        this.#deps.log.warn('agent.invalid-input.unrecorded', { run: run.id, fn, error: messageOf(error) });
+      }
+    }
+    if (message !== undefined && tracked.length > 0) await this.#deps.turns.track(message, tracked);
+  }
+
   /** The native tool calls of an iteration that suspended, in the order the model made them, with the message holding them. */
   #toolCalls(collected: readonly LlmMessage[], calls: PendingCalls): { calls: ModelCalls; index: number } {
     const index = lastToolCallsIndex(collected);
@@ -777,6 +833,7 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
    */
   async #startCalls(
     run: Run, iteration: number, calls: ReadonlyArray<ModelCalls[number] & { plan: CallPlan }>, llmCall: Run['llmCall'], step: { user: UserInfo; sequential: boolean },
+    repaired: ReadonlyMap<string, readonly ArgRepair[]> = new Map(),
   ): Promise<PendingCall[]> {
     const caller = await this.#agentActor(run);
     const waits = await stepWaits(this.#deps, { ...step, caller: run.id, session: run.session }, calls.map(({ toolCallId, plan }) => ({
@@ -799,7 +856,10 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
         this.#deps.log.info('agent.invalid-input', { run: run.id, iteration, fn: plan.fn ?? null, source: plan.invalid.source });
         continue;
       }
-      const held: HeldCall = { after: waits[index] ?? [], args: plan.args, ...(plan.on === undefined ? {} : { on: plan.on }), ...(llmCall === undefined ? {} : { llmCall }) };
+      const repairs = repaired.get(toolCallId) ?? [];
+      const held: HeldCall = {
+        after: waits[index] ?? [], args: plan.args, ...(plan.on === undefined ? {} : { on: plan.on }), ...(llmCall === undefined ? {} : { llmCall }), ...(repairs.length === 0 ? {} : { repairs: [...repairs] }),
+      };
       if (held.after.length > 0) {
         pending.push({ toolCallId, fn: plan.fn, held, ...marker });
         this.#deps.log.info('agent.call-held', { run: run.id, iteration, fn: plan.fn, after: held.after });
@@ -817,7 +877,7 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       const started = await this.#deps.runs.start({
         fn: QualifiedName.parse(call.fn), args: held.args, turn: run.turn, parent: run.id, key: toolCallKey(iteration, call.toolCallId), actor: run.actor, caller, priority: run.priority,
         background: false, handlers: [], toolCallId: call.toolCallId, ...(held.on === undefined ? {} : { on: held.on }), ...(run.session === undefined ? {} : { session: run.session }),
-        ...(held.llmCall === undefined ? {} : { llmCall: held.llmCall }),
+        ...(held.llmCall === undefined ? {} : { llmCall: held.llmCall }), ...(held.repairs === undefined ? {} : { repairs: held.repairs }),
       });
       return { ...rest, run: started.run };
     } catch (error) {
@@ -1089,13 +1149,95 @@ function lastToolCallsIndex(messages: readonly LlmMessage[]): number {
   return -1;
 }
 
-/** How an agent's answer is asked for and read back: text as text, objects as they are, anything else wrapped. */
-function outputOf(signature: FnSignature): { schema: z.ZodType<object> | false; result: (output: AgentOutput) => Json } {
-  if (signature.returns.name === 'text') return { schema: false, result: (output) => (typeof output === 'string' ? output : JSON.stringify(output)) };
-  const returns = signature.returnsSchema;
-  if (isObjectSchema(returns)) return { schema: returns, result: (output) => Json.parse(output) };
-  const wrapped = z.object({ result: returns });
-  return { schema: wrapped, result: (output) => Json.parse(wrapped.parse(output).result) };
+/** The answers of agents whose returns aren't objects, asked for as `{ result }`, made once per signature. */
+const wrappedReturns = new WeakMap<FnSignature, Bundle<AgentOutput, HarnessGrammarArgs>>();
+
+/**
+ * How an agent's answer is asked for and read back: text as text, objects as they are, anything else wrapped. Its
+ * schema is the fn's returns bound with the prompt's names, so a fn-name field in the answer comes back qualified.
+ */
+function outputOf(signature: FnSignature, names: FnNameSpelling): { schema?: Bindable<AgentOutput>; result: (output: AgentOutput) => Json } {
+  if (signature.returns.name === 'text') return { result: (output) => (typeof output === 'string' ? output : JSON.stringify(output)) };
+  const returns = signature.returnsFor<AgentOutput>(names);
+  if (isObjectBound(signature.returnsFor())) return { schema: bindable(returns), result: (output) => Json.parse(output) };
+  let wrapped = wrappedReturns.get(signature);
+  if (wrapped === undefined) wrappedReturns.set(signature, (wrapped = HarnessGrammar.result<AgentOutput>(a.object({ result: returns.root }))));
+  return { schema: bindable(wrapped.bind(signature.returns.registry, names)), result: (output) => Json.parse(JsonObject.parse(output)['result'] ?? null) };
+}
+
+/** A call core refused before it ran: which call, the tool the model called, what it was told, and its args as written. */
+interface RefusedCall {
+  readonly toolCallId: string;
+  readonly tool: string;
+  readonly error: string;
+  readonly rawArgs?: string;
+}
+
+/** A tool's name, from the tool an event names (absent for a tool the request didn't have) or the name the model called. */
+function toolNameOf(tool: { readonly name: string } | undefined, called: string): string {
+  return tool?.name ?? called;
+}
+
+/** A string's JSON, or undefined when it holds none. */
+function jsonOf(text: string | undefined): Json | undefined {
+  if (text === undefined) return undefined;
+  try {
+    return Json.parse(JSON.parse(text));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The fn a refused call was for, and its args as the model wrote them: a fn's own tool (by the prompt's tools, or its
+ * name read back), or the fn a static `run` names. A call through core's dispatcher (`run_tool`) carries `{ tool, args }`.
+ */
+function refusedFn(call: RefusedCall, names: ModelFnNames, fns: ReadonlyMap<string, QualifiedName>): { fn?: QualifiedName; args: Json } {
+  const written = jsonOf(call.rawArgs);
+  const object = JsonObject.safeParse(written).data;
+  const args = object !== undefined && object['tool'] === call.tool && 'args' in object ? object['args'] ?? {} : written ?? {};
+  if (call.tool !== 'run') {
+    const fn = fns.get(call.tool) ?? names.fn(call.tool);
+    return { ...(fn === undefined ? {} : { fn }), args };
+  }
+  const run = JsonObject.safeParse(args).data;
+  const named = typeof run?.['fn'] === 'string' ? names.fn(run['fn']) : undefined;
+  return { ...(named === undefined ? {} : { fn: named }), args: run?.['args'] ?? {} };
+}
+
+/**
+ * The repairs core made in a call it decoded (`toolArgRepairAttempt`: top-level fields sent as a string of their JSON),
+ * as paths in the fn's args: a fn tool's field is that arg; static `run`'s `args` is the whole of the fn's args.
+ */
+function repairsOfFields(tool: string, fields: readonly string[]): ArgRepair[] {
+  if (tool !== 'run') return fields.map((path) => ({ path, repair: 'json-string' }));
+  return fields.includes('args') ? [{ path: '', repair: 'json-string' }] : [];
+}
+
+/**
+ * The streamer the agent's prompt calls, with every finished tool call's names learned before it is yielded: core
+ * decodes a call as soon as it has it, and a cut model name (`ModelFnNames`) reads back only once learned.
+ */
+function learning(streamer: Streamer<HubCallContext, HubCallMetadata>, names: ModelFnNames): Streamer<HubCallContext, HubCallMetadata> {
+  return async function* learned(request, context, metadata, signal) {
+    const inner = streamer(request, context, metadata, signal);
+    let finished = false;
+    try {
+      for (let next = await inner.next(); ; next = await inner.next()) {
+        if (next.done === true) {
+          finished = true;
+          return next.value;
+        }
+        const call = next.value.toolCall;
+        if (call !== undefined) await names.learn([jsonOf(call.arguments)]);
+        yield next.value;
+      }
+    } finally {
+      // the prompt stopped reading early (an abort, a suspend): the provider's stream is closed too; its value is unused
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- a closed stream's return value is never read
+      if (!finished) await inner.return(undefined as never);
+    }
+  };
 }
 
 /** Whether a call is held: it waits for earlier calls and has neither started nor been skipped. */
@@ -1115,6 +1257,9 @@ export function heldReply(call: PendingCall & { held: HeldCall }, pending: reado
   return `Not run: it works on the same things as an earlier call (${earlier.join(', ')}), so it waited for that to finish, and it had not when `
     + 'this reply was written. Call it again once that call is done, if it is still needed.';
 }
+
+/** What follows a refused call's key (`toolCallKey`) on its run, with the refusal's number in the job. */
+export const REFUSED_KEY = ':refused:';
 
 /** The key of a tool call's run within its agent run. */
 export function toolCallKey(iteration: number, toolCallId: string): string {

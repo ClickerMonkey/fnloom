@@ -4,8 +4,10 @@
  * models the system may use, with their capabilities, prices and limits), plus one per hub role (`role/chat`), so
  * aeye's own selection, capability checks, tools, structured output and agents work unchanged. The model aeye picks
  * (or the one a call names) goes to the hub, which still decides access and budgets, records the interaction and
- * streams chunks back, with the schema descriptors it chose (so strict tool arguments and outputs decode here) and the
- * real cost. `hub/auto` (`HUB_MODEL`) leaves the choice to the hub.
+ * streams chunks back with the real cost. Schemas go as their lenient JSON schema (the code shape); the hub plans them
+ * for the model it picks and decodes the answers back to the code shape (a call that doesn't fit comes with `invalid`,
+ * which the prompt tells the model), so the prompt here decodes them with its own schemas as they are. `hub/auto`
+ * (`HUB_MODEL`) leaves the choice to the hub.
  *
  * Every other modality (embeddings, images, transcription, speech, decisions) goes over the link's `model` endpoint through
  * `HubModels`, which the provider's aeye methods and `ctx.llm` share: the hub records each call as one `ModelCall`
@@ -20,15 +22,15 @@ import {
   type ModelInfo, type Provider,
   type SpeechRequest, type SpeechResponse, type TranscriptionRequest, type TranscriptionResponse,
 } from '@aeye/ai';
-import { getResponseFromChunks, schemaRejection, toFile, type AudioFormat, type Chunk, type Message, type Request, type Response } from '@aeye/core';
-import { ModelChoice, type HubModelInfo, type LlmForward, type LlmForwardChunk, type LlmRequest, type ModelForward, type ModelForwardResult, type RunId } from '@harness/core';
+import { a, getResponseFromChunks, LENIENT, schemaRejection, toFile, type AudioFormat, type Chunk, type Message, type Request, type Response } from '@aeye/core';
+import { ginA, HarnessGrammar, ModelChoice, type HubModelInfo, type LlmForward, type LlmForwardChunk, type LlmRequest, type ModelForward, type ModelForwardResult, type RunId } from '@harness/core';
 import { z } from 'zod';
 import type { ForwardModality, Llm, ModelInput, ModelOutput } from '../ctx.ts';
 import type { GinType } from '../gin.ts';
 import { HubContent, type ContentTransfer } from './content.ts';
 import type { HubAccess } from './link.ts';
-import { applyDescriptors, ChunkReader, decisionInputToWire, LlmWire, usageFromWire } from './llm-wire.ts';
-import { decodeOrThrow } from './wire.ts';
+import { ChunkReader, decisionInputToWire, LlmWire, usageFromWire } from './llm-wire.ts';
+import { decodeOrThrow, fnError, InvalidValue } from './wire.ts';
 import { expectType, type Equal } from '../util.ts';
 
 /** The provider key and the one model the system-side registry knows. */
@@ -37,8 +39,8 @@ export const HUB_MODEL_ID = 'auto';
 
 /**
  * The system-side stand-in for whatever model the hub picks: every chat capability and parameter (strict tools
- * included), so the system's registry never filters; no price; and no strict dialect, because the hub strictifies for
- * the model it picks and sends back the descriptors it used.
+ * included), so the system's registry never filters; no price; and no strict dialect, because the hub plans the
+ * schemas for the model it picks and sends back the answers decoded (the prompt here decodes the code shape).
  */
 export const HUB_MODEL: ModelInfo = {
   id: HUB_MODEL_ID,
@@ -277,7 +279,6 @@ export class HarnessProvider implements Provider<HarnessProviderConfig> {
     let served = 'hub';
     for await (const item of this.#link.llm(forward, signal)) {
       switch (item.type) {
-        case 'descriptors': applyDescriptors(request, item); break;
         case 'chunk': {
           const chunk = reader.read(item.chunk);
           chunks.push(chunk);
@@ -505,14 +506,20 @@ export class HubLlm implements Llm {
     return response.content;
   }
 
+  /**
+   * An answer of a gin type: asked for as `{ value }` of the type's value schema (`ginA`, docs shown) in the harness
+   * grammar, and decoded through that same bound schema (the hub sends the answer back in the code shape), then read
+   * as the gin type's value (a timestamp's text as a `Date`).
+   */
   async object<T>(input: { prompt: string; output: GinType<T>; system?: string; model?: ModelChoice }): Promise<T> {
-    const schema = input.output.toValueSchema();
+    const output = HarnessGrammar.result<{ value: unknown }>(a.object({ value: ginA(input.output, { includeDocs: 'all' }) })).bind(input.output.registry);
     const response = await this.#ai.chat.get(
-      { messages: conversation(input), responseFormat: { type: z.object({ value: schema }), strict: true } },
+      { messages: conversation(input), responseFormat: { type: output, strict: true } },
       { ...metadataFor(input.model), ...this.#signalOption() },
     );
-    const parsed = z.object({ value: z.unknown() }).parse(JSON.parse(response.content));
-    return decodeOrThrow(input.output, parsed.value, 'The model\'s answer');
+    const parsed = output.render(LENIENT).parseText(response.content, { label: 'the model\'s answer' });
+    if (!parsed.ok) { throw new InvalidValue(fnError('caller', `The model's answer does not fit its type: ${parsed.message}`, { code: 'bad-value' })); }
+    return decodeOrThrow(input.output, parsed.value.value, 'The model\'s answer');
   }
 
   async *stream(input: { prompt: string; system?: string; model?: ModelChoice }): AsyncIterable<string> {

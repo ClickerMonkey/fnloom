@@ -4,7 +4,8 @@
  */
 import { createRegistry, type Type } from '@aeye/gin';
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
+import { checkGinValue, ginBundle } from '@harness/core';
+import { LENIENT, OPENAI_STRICT } from '@aeye/schema';
 import { encodeValue, g, json, parseValue, partialOf, referencesOf, wireType } from './gin.ts';
 import { system } from './system.ts';
 import { type } from './declare.ts';
@@ -47,16 +48,16 @@ describe('gin types as the SDK uses them', () => {
       if (sample.value !== undefined) { expect(parseValue(fresh, sample.value)).toEqual(parseValue(sample.type, sample.value)); }
     });
 
-    it(`${sample.name}: makes a value schema that converts to JSON schema and accepts the value`, () => {
-      const schema = sample.type.toValueSchema({ includeDocs: 'all' });
-      if (sample.value !== undefined) { expect(schema.safeParse(encodeValue(sample.type, parseValue(sample.type, sample.value))).success).toBe(true); }
-      expect(() => z.toJSONSchema(schema, { unrepresentable: 'any' })).not.toThrow();
+    it(`${sample.name}: makes a value schema that renders for a strict model and accepts the value`, () => {
+      const bound = ginBundle(sample.type, { includeDocs: 'all' }).bind(sample.type.registry);
+      if (sample.value !== undefined) { expect(checkGinValue(sample.type, encodeValue(sample.type, parseValue(sample.type, sample.value))).ok).toBe(true); }
+      expect(() => bound.render(OPENAI_STRICT).jsonSchema).not.toThrow();
     });
   }
 
   it('writes field docs into the tool schema only when asked for all docs', () => {
     const documented = g.obj({ path: g.field(g.text(), { docs: 'Where the file is.' }) });
-    expect(z.toJSONSchema(documented.toValueSchema({ includeDocs: 'all' }))).toMatchObject({ properties: { path: { description: 'Where the file is.' } } });
+    expect(ginBundle(documented, { includeDocs: 'all' }).bind(documented.registry).render(LENIENT).jsonSchema).toMatchObject({ properties: { path: { description: 'Where the file is.' } } });
   });
 
   it('fills a field default and round-trips dates and timestamps as Date', () => {

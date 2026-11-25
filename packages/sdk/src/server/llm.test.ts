@@ -1,6 +1,6 @@
 import { LinkLimits, mintId, ModelForward, type ContentRef, type HubModelInfo, type LlmForward, type LlmForwardChunk, type ModelForwardResult } from '@harness/core';
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
+import { a } from '@aeye/core';
 import { g } from '../gin.ts';
 import { contentHash, type ContentTransfer } from './content.ts';
 import type { HubAccess, HubLink } from './link.ts';
@@ -60,7 +60,7 @@ function scriptedHub(script: Array<(forward: LlmForward) => LlmForwardChunk[]>, 
 const done = (cost = 0.002): LlmForwardChunk => ({ type: 'done', usage: { input: 10, output: 5 }, cost, interaction: mintId('llmInteraction'), model: 'vendor/model' });
 
 describe('wireRequest', () => {
-  it('turns zod tool and output schemas into JSON schema and keeps the conversation', () => {
+  it('turns tool and output schemas into their lenient JSON schema and keeps the conversation', () => {
     const wire = wireRequest({
       messages: [
         { role: 'system', content: 'Be brief.' },
@@ -68,9 +68,9 @@ describe('wireRequest', () => {
         { role: 'assistant', content: '', toolCalls: [{ id: 'c1', name: 'find', arguments: '{"q":"a"}' }] },
         { role: 'tool', content: 'found', toolCallId: 'c1' },
       ],
-      tools: [{ name: 'find', description: 'Find.', parameters: z.object({ q: z.string() }), strict: true }, { name: 'loose', parameters: z.object({}), strict: 1 }],
+      tools: [{ name: 'find', description: 'Find.', parameters: a.object({ q: a.string() }).bind(), strict: true }, { name: 'loose', parameters: a.object({}).bind(), strict: 1 }],
       toolChoice: { allowed: ['find'], required: true },
-      responseFormat: { type: z.object({ answer: z.string() }), strict: 1 },
+      responseFormat: { type: a.object({ answer: a.string() }).bind(), strict: 1 },
       stop: 'END',
       temperature: 0.2,
     });
@@ -85,10 +85,6 @@ describe('wireRequest', () => {
     expect(wire.messages[2]?.toolCalls).toEqual([{ id: 'c1', name: 'find', arguments: '{"q":"a"}' }]);
   });
 
-  it('refuses a schema JSON schema cannot express, which would not survive the trip', () => {
-    expect(() => wireRequest({ messages: [], tools: [{ name: 't', parameters: z.object({ a: z.bigint() }) }] })).toThrow();
-  });
-
   it('maps wire chunks to aeye chunks', () => {
     expect(chunkFromWire({ content: 'a', reasoning: 'r', usage: { input: 1, output: 2, cached: 3, reasoning: 4 } })).toEqual({
       content: 'a', reasoning: { content: 'r' }, usage: { text: { input: 1, output: 2, cached: 3 }, reasoning: { output: 4 } },
@@ -97,10 +93,9 @@ describe('wireRequest', () => {
 });
 
 describe('HarnessProvider', () => {
-  it('runs an aeye prompt with a tool and a structured answer through the hub, with descriptors and real cost', async () => {
+  it('runs an aeye prompt with a tool and a structured answer through the hub, with the real cost', async () => {
     const { access, forwards } = scriptedHub([
       () => [
-        { type: 'descriptors', tools: { lookup: 'openai' } },
         { type: 'chunk', chunk: { toolCallNamed: { id: 't1', name: 'lookup', arguments: '' } } },
         { type: 'chunk', chunk: { toolCall: { id: 't1', name: 'lookup', arguments: '{"city":"Oslo"}' } } },
         { type: 'chunk', chunk: { finishReason: 'tool_calls' } },
@@ -118,7 +113,7 @@ describe('HarnessProvider', () => {
       name: 'lookup',
       description: 'Weather for a city.',
       instructions: 'Use lookup to get the weather.',
-      schema: z.object({ city: z.string() }),
+      schema: a.object({ city: a.string() }),
       call: (input: { city: string }) => { lookups.push(input.city); return 'cold'; },
     });
     const prompt = ai.prompt({
@@ -127,7 +122,7 @@ describe('HarnessProvider', () => {
       content: 'What is the weather in {{city}}?',
       input: (input: { city: string }) => ({ city: input.city }),
       tools: [lookup],
-      schema: z.object({ answer: z.string() }),
+      schema: a.object({ answer: a.string() }),
     });
     const result = await prompt.get('result', { city: 'Oslo' });
     expect(result).toEqual({ answer: 'cold in Oslo' });
@@ -138,17 +133,28 @@ describe('HarnessProvider', () => {
     expect(forwards[1]?.request.messages.some((m) => m.role === 'tool')).toBe(true);
   });
 
-  it('writes the descriptors the hub chose into the request, so strict tool args and output decode here', async () => {
-    const { access } = scriptedHub([() => [{ type: 'descriptors', tools: { find: 'openai' }, output: 'openai' }, { type: 'chunk', chunk: { finishReason: 'stop' } }, done()]]);
-    const request = {
-      messages: [{ role: 'user' as const, content: 'x' }],
-      tools: [{ name: 'find', parameters: z.object({ q: z.string() }) }],
-      responseFormat: { type: z.object({ a: z.string() }), strict: true },
-    };
-    const stream = new HarnessProvider({ hub: access, content: new MemoryContent() }).forward(request, undefined);
-    while ((await stream.next()).done !== true) { /* drain */ }
-    expect(request.tools[0]).toHaveProperty('descriptor', 'openai');
-    expect(request.responseFormat).toHaveProperty('descriptor', 'openai');
+  it('answers a call the hub found invalid with the hub\'s message, without running the tool', async () => {
+    const said = 'At "city": expected a string, got 3.';
+    const { access, forwards } = scriptedHub([
+      () => [
+        { type: 'chunk', chunk: { toolCallNamed: { id: 't1', name: 'lookup', arguments: '' } } },
+        { type: 'chunk', chunk: { toolCall: { id: 't1', name: 'lookup', arguments: '{"city":3}', invalid: said } } },
+        { type: 'chunk', chunk: { finishReason: 'tool_calls' } },
+        done(),
+      ],
+      () => [{ type: 'chunk', chunk: { content: 'sorry' } }, { type: 'chunk', chunk: { finishReason: 'stop' } }, done()],
+    ]);
+    const ai = await hubAiOf({ hub: access, content: new MemoryContent(), run: mintId('run') });
+    const lookups: string[] = [];
+    const lookup = ai.tool({
+      name: 'lookup', description: 'Weather for a city.', schema: a.object({ city: a.string() }),
+      call: (input: { city: string }) => { lookups.push(input.city); return 'cold'; },
+    });
+    const prompt = ai.prompt({ name: 'weather', description: 'Answers about weather.', content: 'Weather?', tools: [lookup] });
+    expect(await prompt.get('result', {})).toBe('sorry');
+    expect(lookups).toEqual([]);
+    const reply = forwards[1]?.request.messages.find((m) => m.role === 'tool');
+    expect(reply?.content).toContain(`Error parsing tool arguments: ${said}`);
   });
 
   it('answers as an executor too, and reports the hub as healthy only while connected', async () => {
@@ -170,7 +176,7 @@ describe('HarnessProvider', () => {
   it('turns a provider\'s refusal of a tool schema into aeye\'s schema rejection, so the prompt can fall back', async () => {
     const message = 'Invalid schema for function \'signature\': In context=(\'properties\', \'props\', \'anyOf\', \'0\'), \'propertyNames\' is not permitted.';
     const { access } = scriptedHub([() => [{ type: 'error', message, kind: 'provider' }]]);
-    const request = { messages: [{ role: 'user' as const, content: 'x' }], tools: [{ name: 'signature', parameters: z.object({ q: z.string() }) }] };
+    const request = { messages: [{ role: 'user' as const, content: 'x' }], tools: [{ name: 'signature', parameters: a.object({ q: a.string() }).bind() }] };
     const stream = new HarnessProvider({ hub: access, content: new MemoryContent() }).forward(request, undefined);
     await expect(stream.next()).rejects.toMatchObject({ name: 'SchemaRejectedError', target: { kind: 'tool', name: 'signature' } });
   });

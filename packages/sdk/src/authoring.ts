@@ -20,7 +20,7 @@
  */
 import type { AI, AIContextRequired, AIMetadataRequired } from '@aeye/ai';
 import type { ToolCompatible } from '@aeye/core';
-import { conciseIssues, issueLines } from '@harness/core';
+import { a, Bound, type Bindable, type ErrorFormatInput } from '@aeye/schema';
 import { env } from '@ayepi/env';
 import { z } from 'zod';
 import { g, json, type Infer } from './gin.ts';
@@ -236,12 +236,14 @@ export interface AuthoringToolInput<S, D, I extends object> {
   /** How and when to use it, for the model (added to the prompt's tools section). */
   readonly instructions?: string;
   readonly stage: ToolStage;
-  /** Its args: a zod schema, or one built from the session (a typed schema per instance). */
-  readonly schema: z.ZodType<I> | ((session: AuthoringSession<S, D>) => z.ZodType<I>);
+  /** Its args (`AuthoringSchema`): an `a` schema, or one bound from the session (a typed schema per instance). */
+  readonly schema: AuthoringSchema<S, D, I>;
   /** Offered only while this also holds (a load tool while something is aware but not loaded). */
   readonly when?: (session: AuthoringSession<S, D>) => boolean;
   /** aeye's strictness for its args (default: prefer strict). */
   readonly strict?: boolean | number;
+  /** How args that don't fit are told back to the model (aeye's default when absent: its JSON, marked where it is wrong). */
+  readonly errorFormat?: ErrorFormatInput;
   /** Do it; the text is what the model reads. A thrown error is shown to the model as the tool's failure. */
   call(input: I, session: AuthoringSession<S, D>): Promise<string> | string;
 }
@@ -259,59 +261,55 @@ export type AeyeTool = ToolCompatible<AIContextRequired<HarnessAiTypes>, AIMetad
 /** The aeye types of `ctx.ai()`. */
 type HarnessAiTypes = HarnessAi extends AI<infer T> ? T : never;
 
+/**
+ * An authoring tool's (or draft's) args: an `a` schema or a bundle with nothing left to bind, or the bound schema of
+ * this session (`(session) => Bundle.bind(…)`: a typed schema over what the session has loaded). The function is
+ * called each round (aeye's `dynamic` prompt re-resolves the tools), so it sees the session as it is now; a bundle's
+ * key keeps the bind (and its rendering) until what it reads changes.
+ */
+export type AuthoringSchema<S, D, I> = Bindable<I> | ((session: AuthoringSession<S, D>) => Bound<I>);
+
+/** A schema as aeye's tools take it: the static one, or a bindable whose bind reads the session. */
+function sessionSchema<S, D, I>(schema: AuthoringSchema<S, D, I>, session: AuthoringSession<S, D>): Bindable<I> {
+  if (typeof schema !== 'function') return schema;
+  // the phantom fields only carry the type; aeye calls `bind` (with the call's ctx, which this one has no use for)
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `_out` / `_refs` are type-only
+  return { bind: () => schema(session) } as unknown as Bindable<I>;
+}
+
+/** The bound `{ draft: <draft> }` of a draft's bound schema, kept per bound (so its rendering is kept with it). */
+const draftArgs = new WeakMap<object, unknown>();
+function wrapDraft<D>(draft: Bound<D>): Bound<{ draft: D }> {
+  const kept = draftArgs.get(draft);
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- kept for this very bound, below
+  if (kept !== undefined) return kept as Bound<{ draft: D }>;
+  const made = new Bound<{ draft: D }>(draft.env, a.object({ draft: draft.root }));
+  draftArgs.set(draft, made);
+  return made;
+}
+
 /** Declare an authoring tool. */
 export function authoringTool<S, D, I extends object>(def: AuthoringToolInput<S, D, I>): AuthoringTool<S, D> {
   return {
     name: def.name,
     stage: def.stage,
-    make: (ai, session) => {
-      const schemaOf = (): z.ZodType<I> => (typeof def.schema === 'function' ? def.schema(session) : def.schema);
-      return ai.tool({
-        name: def.name,
-        description: def.description,
-        ...(def.instructions === undefined ? {} : { instructions: def.instructions }),
-        ...(def.strict === undefined ? {} : { strict: def.strict }),
-        schema: () => schemaOf(),
-        // args that don't fit come back short: the first few problems at their paths, not zod's whole union tree
-        parse: (raw: unknown) => parseArgs(schemaOf(), raw),
-        applicable: () => session.open(def.stage) && (def.when?.(session) ?? true),
-        call: async (input: I) => {
-          const text = await def.call(input, session);
-          session.done(def.stage, def.name);
-          return text;
-        },
-      });
-    },
+    make: (ai, session) => ai.tool({
+      name: def.name,
+      description: def.description,
+      ...(def.instructions === undefined ? {} : { instructions: def.instructions }),
+      ...(def.strict === undefined ? {} : { strict: def.strict }),
+      ...(def.errorFormat === undefined ? {} : { errorFormat: def.errorFormat }),
+      // aeye decodes the args (a container sent as JSON text is repaired) and answers args that don't fit with the
+      // model's own JSON, marked where it is wrong, then lets it call again
+      schema: sessionSchema(def.schema, session),
+      applicable: () => session.open(def.stage) && (def.when?.(session) ?? true),
+      call: async (input: I) => {
+        const text = await def.call(input, session);
+        session.done(def.stage, def.name);
+        return text;
+      },
+    }),
   };
-}
-
-/**
- * An authoring tool's args, checked against its schema: the value, or an error naming the first few problems at their
- * paths (`conciseIssues`). A field the model sent as a string holding JSON (some providers double-encode large args)
- * is read as that JSON before giving up.
- */
-export function parseArgs<I>(schema: z.ZodType<I>, raw: unknown): I | Error {
-  const checked = schema.safeParse(raw);
-  if (checked.success) return checked.data;
-  const decoded = decodeStringFields(raw);
-  if (decoded !== undefined) {
-    const again = schema.safeParse(decoded);
-    if (again.success) return again.data;
-  }
-  return new Error(`the args don't fit; fix these and send the whole call again:\n${issueLines(conciseIssues(checked.error, raw))}`);
-}
-
-/** `raw` with its top-level string fields that hold a JSON object or list read as that JSON; undefined when none do. */
-function decodeStringFields(raw: unknown): Record<string, unknown> | undefined {
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined;
-  let changed = false;
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(raw)) {
-    out[key] = value;
-    if (typeof value !== 'string' || !/^\s*[[{]/.test(value)) continue;
-    try { out[key] = JSON.parse(value); changed = true; } catch { /* not JSON: kept as it is */ }
-  }
-  return changed ? out : undefined;
 }
 
 /** What `authoringAgent` takes. */
@@ -325,8 +323,11 @@ export interface AuthoringAgentInput<S, D> {
   readonly instructions: string;
   /** Find and inspect tools (search, load, examples, …). */
   readonly tools: ReadonlyArray<AuthoringTool<S, D>>;
-  /** The draft's args: the typed authoring schema (`buildQueryTool`'s for queries, gin's `buildSchemas` for types). */
-  readonly draft: { readonly description: string; readonly schema: z.ZodType<D> | ((session: AuthoringSession<S, D>) => z.ZodType<D>) };
+  /**
+   * The draft: the typed authoring schema, bound per session (`QueryGrammar` over the loaded tables for queries,
+   * `HarnessGrammar` over the session's registry for programs). The draft tool's args are `{ draft: <it> }`.
+   */
+  readonly draft: { readonly description: string; readonly schema: AuthoringSchema<S, D, D> };
   /** Check a draft: every problem, one per line, in words the model can act on; a preview when it is clean. */
   check(draft: D, session: AuthoringSession<S, D>): Promise<DraftCheck>;
   /** Save a clean draft as a fn. */
@@ -401,7 +402,7 @@ export function authoringAgent<S, D>(def: AuthoringAgentInput<S, D>): AuthoringA
         // (measured on GPT-6 Luna). The schema still guides the model, and the check names every problem by path.
         strict: false,
         description: `Write (or rewrite) the whole draft: ${def.draft.description} It is checked at once; the answer lists every problem, or says it is clean.`,
-        schema: (s) => z.object({ draft: typeof def.draft.schema === 'function' ? def.draft.schema(s) : def.draft.schema }),
+        schema: (s) => wrapDraft(typeof def.draft.schema === 'function' ? def.draft.schema(s) : def.draft.schema.bind()),
         call: async ({ draft }, s) => {
           const check = await def.check(draft, s);
           s.checked(draft, check);
@@ -418,7 +419,7 @@ export function authoringAgent<S, D>(def: AuthoringAgentInput<S, D>): AuthoringA
       const save = ai.tool({
         name: names.save,
         description: 'Save the draft that checked clean as a fn. Answer after this with one line saying what you saved.',
-        schema: z.object({}),
+        schema: a.object({}),
         applicable: () => session.going && session.stage === 'save',
         call: async () => {
           const draft = session.draft;
@@ -437,7 +438,7 @@ export function authoringAgent<S, D>(def: AuthoringAgentInput<S, D>): AuthoringA
         ...(reuseDef === undefined ? [] : [ai.tool({
           name: 'reuse',
           description: 'Answer with an existing fn that already does what was asked, instead of writing a new one.',
-          schema: z.object({ fn: z.string().min(1) }),
+          schema: a.object({ fn: a.string().min(1) }),
           applicable: () => session.going && session.disclosure.searched('fn'),
           call: async (input: { fn: string }) => {
             const answer = await reuseDef(input.fn, session);

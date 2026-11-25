@@ -1,7 +1,7 @@
 /**
  * Gin in the SDK. `g` is gin's own type builder (a gin `Registry`): every type made with it is a real, in-memory gin
  * type that carries the TypeScript type of its values, so `Infer<typeof t>` is exact. From a gin type you get its
- * JSON definition (`toJSON`), value parsing (`parse`), a zod value schema (`toValueSchema`) and the named types it
+ * JSON definition (`toJSON`), value parsing (`parse`), its `@aeye/schema` value schema (`toA`; core's `ginA`, `checkGinValue`) and the named types it
  * references (`references`). Named types a contract declares are registered in `g`, so they serialize by name.
  */
 import { OptionalType, Type, type FieldSpec, type FieldsInput, type Infer, type Registry } from '@aeye/gin';

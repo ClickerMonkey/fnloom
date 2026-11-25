@@ -42,7 +42,7 @@ watch(() => props.target, async (target) => {
 function validate(value: Json): readonly string[] {
   const check = types.checker(props.type);
   if (check === undefined) { return []; }
-  return check(value).map((issue) => (issue.path.length === 0 ? issue.message : `${issue.path.map(String).join('.')}: ${issue.message}`));
+  return check(value).map((issue) => (issue.path === '' ? issue.message : `${issue.path}: ${issue.message}`));
 }
 
 const viewProps = computed<ConfigViewProps>(() => ({ config: draft.value, type: props.type, validate, client: props.loader.client(props.target.system) }));

@@ -9,14 +9,15 @@ import { ChangeSet, LoadCards, ResultTable, rowsLine, tableModelView, WidgetProp
 import { LlmWire } from '@harness/sdk/server';
 
 export {
-  ChunkReader, ChunkWriter, chunkFromWire, chunkToWire, descriptorsOf, isObjectSchema, messageFromWire, requestFromWire, responseToWire, usageToWire,
+  AnswerDecoder, ChunkReader, ChunkWriter, chunkFromWire, chunkToWire, isObjectSchema, messageFromWire, requestFromWire, responseToWire, usageToWire,
 } from '@harness/sdk/server';
 
 /**
- * What the hub saves: a record never fails over something the wire can't carry; the part is kept as a placeholder
- * (a schema part JSON schema can't express as `{}`, a streamed part as `[binary content]`).
+ * What the hub saves: a record never fails over something the wire can't carry (a streamed part is kept as
+ * `[binary content]`), and a request a provider planned keeps its schemas as the model was sent them (its dialect, the
+ * dispatcher in place of the tools behind it); one not planned yet, lenient.
  */
-const recorded = new LlmWire({ unrepresentable: 'placeholder' });
+const recorded = new LlmWire({ unrepresentable: 'placeholder', schemas: 'sent' });
 
 /** An aeye message as it is saved. Provider caches and reasoning details stay behind. */
 export function messageToWire(message: Message): LlmMessage {

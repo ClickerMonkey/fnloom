@@ -338,7 +338,7 @@ describe('the database system over the link', () => {
     for (const type of guessed) {
       const refused = await hub.run('database/create_table', { table: 'later', database: 'main', type });
       expect(refused.status, JSON.stringify(type)).toBe('invalid-input');
-      expect(refused.status === 'invalid-input' ? refused.invalid.problems.map((problem) => problem.path) : []).toContain('type');
+      expect(refused.status === 'invalid-input' ? refused.invalid.problems.map((problem) => problem.path) : []).toContainEqual(expect.stringMatching(/^type(\.|$)/));
     }
     // the right shape with no columns: refused when asked, before any approval
     expect(JSON.stringify(await hub.preview({ run: mintId('run'), fn: 'create_table', args: { table: 'empty', database: 'main', type: { name: 'obj' } }, user: TEST_USER }))).toContain('no columns');
@@ -402,7 +402,7 @@ describe('the database system over the link', () => {
     for (const type of guessed) {
       const refused = await hub.run('database/alter_table', { table: 'Todo', database: 'main', type });
       expect(refused.status, JSON.stringify(type)).toBe('invalid-input');
-      expect(refused.status === 'invalid-input' ? refused.invalid.problems.map((problem) => problem.path) : []).toContain('type');
+      expect(refused.status === 'invalid-input' ? refused.invalid.problems.map((problem) => problem.path) : []).toContainEqual(expect.stringMatching(/^type(\.|$)/));
     }
   });
 

@@ -27,9 +27,9 @@ type ConnectDecl = {
     flow: "oauth";
   } | {
     flow: "form";
-    form: TypeDef<any>;
+    form: TypeDef$1<any>;
   };
-  settings: TypeDef<any>;
+  settings: TypeDef$1<any>;
   fns: Record<string, {
     on: boolean;
     ask: boolean;
@@ -157,7 +157,7 @@ type InstanceConnect = {
     flow: "oauth";
   } | {
     flow: "form";
-    form: TypeDef<any>;
+    form: TypeDef$1<any>;
   } | undefined;
 };
 ```

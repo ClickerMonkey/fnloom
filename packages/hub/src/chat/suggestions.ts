@@ -27,7 +27,7 @@ import {
   type DecisionQuestions, type LlmMessage, type ModelCallId, type ModelChoice, type RoleModel, type SessionId, type SkipReason, type Suggestion,
   type SuggestDecision, type SuggestDecisionView, type SuggestionOutcome, type SuggestionRecord,
 } from '@harness/core';
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import type { AccessScope } from '../access/index.ts';
 import { mayOffer } from '../access/hits.ts';
 import type { DecisionModel } from '../models/index.ts';
@@ -44,15 +44,15 @@ export const SUGGESTION_PURPOSE = 'suggestions';
 type ModelPicking = Exclude<SuggestDecision, { by: 'none' }>;
 
 /** A pick or a decline, by the candidate's key, with why. */
-const DecisionItem = z.object({
-  name: z.string().describe('The candidate\'s key (kind:name), exactly as given.'),
-  reason: z.string().optional().describe('Why, in under 12 words.'),
+const DecisionItem = a.object({
+  name: a.string().describe('The candidate\'s key (kind:name), exactly as given.'),
+  reason: a.string().optional().describe('Why, in under 12 words.'),
 });
 
 /** What the LLM answers: the names it picks and those it declines, each with a reason. */
-const DecisionAnswerJson = structuredAnswer(z.object({
-  picks: z.array(DecisionItem).describe('The candidates that clearly help with the latest message.'),
-  declined: z.array(DecisionItem).optional().describe('Candidates left out, when there is a reason worth keeping.'),
+const DecisionAnswerJson = structuredAnswer(a.object({
+  picks: a.array(DecisionItem).describe('The candidates that clearly help with the latest message.'),
+  declined: a.array(DecisionItem).optional().describe('Candidates left out, when there is a reason worth keeping.'),
 }));
 
 /** One candidate left out. */
@@ -147,7 +147,7 @@ export class HubSuggestions implements SuggestionDecider {
     const access = await this.#deps.access.scope(input.actor);
     const sees = await this.#seen(access, [...found.offered, ...found.hidden], input.session);
     const hidden = found.hidden.filter((item) => sees.has(item.name)).map((item) => skipped(item, 'rule'));
-    const offered = found.offered.filter((item) => sees.has(item.name)).sort((a, b) => b.score - a.score);
+    const offered = found.offered.filter((item) => sees.has(item.name)).sort((x, y) => y.score - x.score);
     return setting.by === 'none' ? this.#byScore(offered, hidden, limit) : this.#byModel(input, setting, offered, hidden);
   }
 
@@ -340,19 +340,19 @@ export function systemQuestions(request: DecideRequest): DecisionQuestions {
 export function rankedYes<T>(items: readonly T[], answers: Readonly<Record<string, DecisionAnswer>>, threshold: number): Array<{ item: T; probability: number }> {
   return items.map((item, i) => ({ item, probability: yesProbability(answers[questionKey(i)]) }))
     .filter((entry) => entry.probability >= threshold)
-    .sort((a, b) => b.probability - a.probability);
+    .sort((x, y) => y.probability - x.probability);
 }
 
 /** The purpose a system's decision calls are recorded under. */
 export const SYSTEM_DECISION_PURPOSE = 'decide';
 
 /** What the LLM answers a system: the ids it picks, best first, and why it picked none. */
-const SystemDecisionAnswer = structuredAnswer(z.object({
-  picked: z.array(z.object({
-    id: z.string().describe('The candidate\'s id, exactly as given.'),
-    why: z.string().optional().describe('Why it answers what is wanted, in under 15 words.'),
+const SystemDecisionAnswer = structuredAnswer(a.object({
+  picked: a.array(a.object({
+    id: a.string().describe('The candidate\'s id, exactly as given.'),
+    why: a.string().optional().describe('Why it answers what is wanted, in under 15 words.'),
   })).describe('The candidates that fully answer what is wanted, best first; none when none does.'),
-  note: z.string().optional().describe('When none is picked, why.'),
+  note: a.string().optional().describe('When none is picked, why.'),
 }));
 
 /** The LLM's prompt for a system's question: the candidates by id with their scores, and the JSON to answer with. */

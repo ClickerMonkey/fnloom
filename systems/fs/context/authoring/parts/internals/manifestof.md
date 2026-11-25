@@ -141,7 +141,11 @@ Serves `providerChat`, `providerEmbed`, `providerDecide` and `providerModels` wi
 ```ts
 class ProviderServer {
   constructor(parts: ProviderServerParts);
-  /** Stream a chat call: the provider's chunks, then the usage it reported. */
+  /**
+  * Stream a chat call: the provider's chunks, then the usage it reported. The provider plans the request for its model,
+  * so its answers are decoded here through that plan (`AnswerDecoder`): the hub gets tool calls and a structured
+  * answer in the code shape, as from any provider it plans for itself.
+  */
   chat(data: ProviderChat, signal: AbortSignal): AsyncGenerator<ProviderChunk>;
   /**
   * Embed inputs with an embedding model of a provider: aeye's one `inputs` list when it has images, else its `texts`

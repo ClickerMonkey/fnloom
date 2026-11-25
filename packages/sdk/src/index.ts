@@ -11,7 +11,8 @@ export type { StatusInput, CheckedStatus, CheckedTemplate, OneTokens, ManyTokens
 export { fillClaims, type ClaimsRequest } from '@harness/core';
 export type { ClaimsInput, CheckedClaim, ClaimTokens, ToolClaims } from './claims.ts';
 export { g, json, partialOf, type OptionalField, wireType, parseValue, encodeValue, referencesOf, loadTypes, sampleOf, sampleArgs, type GinType, type Infer, type LoadedTypes } from './gin.ts';
-export { ginOf, ginAs, toolArgsOf, type FlatArgs, type ToolArgs } from './zod-gin.ts';
+export { ginOf, ginAs, modelArgsOf, toolArgsOf, type FlatArgs, type ToolArgs } from './zod-gin.ts';
+export { ginOfA, type ANamedTypes } from './a-gin.ts';
 export {
   accountLabel, connectForm, credentialHeaders, credentialsFromForm, instanceConnectOf, keyConnectOf, type FormFor, maskHeaders, readCredentials, secretHeaderNames, sharedHeaders, usesConnections,
 } from './remote-auth.ts';
@@ -81,6 +82,6 @@ export {
   type ChannelOptions, type VisualInput, type VisualContribution, type RankedVisual, type ArgInfo, type WidgetRunOptions, type RowFn,
 } from './widgets.ts';
 export { checkWidget, sourceCompatible, type WidgetCheckInput, type WidgetCheckResult, type SourceCompatibleOptions } from './widget-check.ts';
-export { widgetProposalSchema, WidgetDraftInput, type WidgetProposalSchemaInput, type WidgetProposalSchema, type WidgetDraft } from './widget-schema.ts';
+export { widgetProposalSchema, type WidgetDraftInput, type WidgetProposalSchemaInput, type WidgetProposalSchema, type WidgetDraft } from './widget-schema.ts';
 export { resolveRelative, resolveArgValue, relativeDatesFor } from './relative-dates.ts';
 export { expectType, type Equal, type Simplify } from './util.ts';

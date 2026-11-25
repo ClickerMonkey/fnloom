@@ -5,7 +5,7 @@
  */
 import { BUILT_IN_VISUALS, HUB_VISUALS, ResultTable, type ContributionDecl, type GinTypeDef, type WidgetSpec } from '@harness/core';
 import { describe, expect, it } from 'vitest';
-import { z } from 'zod';
+import { LENIENT, OPENAI_STRICT } from '@aeye/schema';
 import { g, wireType } from './gin.ts';
 import { checkWidget, sourceCompatible } from './widget-check.ts';
 import { widgetProposalSchema } from './widget-schema.ts';
@@ -238,13 +238,16 @@ describe('the strict authoring schema', () => {
   });
 
   it('can\'t spell a broken widget', () => {
-    const refused = (patch: object): string[] => (proposal.schema.safeParse({ ...draft, ...patch }).error?.issues ?? []).map((issue) => issue.path.join('.') || issue.message);
+    const refused = (patch: object): string[] => {
+      const parsed = proposal.schema.render(LENIENT).parse({ ...draft, ...patch }, { inPlace: false });
+      return parsed.ok ? [] : parsed.issues.map((issue) => issue.codePath.join('.') || issue.message);
+    };
     expect(refused({ choice: { visual: 'category', style: 'river' } })).toEqual(['choice.style']);
     expect(refused({ choice: { visual: 'time', style: 'line' } })).toEqual(['choice.visual']);
     expect(refused({ choice: { visual: 'category', style: 'bar', bind: { x: ['open'] } } })).toEqual(['choice.bind.x.0']);
     expect(refused({ args: { status: { show: 'pinned', value: { literal: 'later' } } } })).toContain('args.status.value.literal');
     expect(refused({ args: { ...draft.args, status: { show: 'hidden' } } })).toEqual(['args.status.show']);
-    expect(refused({ args: { ...draft.args, offset: { show: 'hidden' } } })).toEqual(['args']);
+    expect(refused({ args: { ...draft.args, offset: { show: 'hidden' } } })).toEqual(['args.offset']);
     expect(refused({ args: { ...draft.args, status: { show: 'control', choices: [{ label: 'Any' }] } } })).toEqual(['args.status.choices.0.value']);
     expect(refused({ drill: { fn: 'tasks/other', label: 'x', bind: {} } })).toEqual(['drill.fn']);
     // a rule only the refinement sees: a pinned arg set by a preset
@@ -252,12 +255,12 @@ describe('the strict authoring schema', () => {
   });
 
   it('keeps every enum in the tool\'s JSON Schema', () => {
-    const text = JSON.stringify(z.toJSONSchema(proposal.schema, { io: 'input', unrepresentable: 'any' }));
+    const text = JSON.stringify(proposal.schema.render(OPENAI_STRICT).jsonSchema);
     for (const word of ['"horizontal"', '"done"', '"owner"', '"tasks/by_owner"']) { expect(text).toContain(word); }
     expect(text).not.toContain('"time"');
     // a date arg the range doesn't claim offers the relative dates for days
     const dated = widgetProposalSchema({ source: SPEC.source, args: wireType(g.obj({ day: g.date() })), facts: FACTS, ranked, entries: ENTRIES });
-    const datedText = JSON.stringify(z.toJSONSchema(dated.schema, { io: 'input', unrepresentable: 'any' }));
+    const datedText = JSON.stringify(dated.schema.render(OPENAI_STRICT).jsonSchema);
     expect(datedText).toContain('"startOf(week)"');
     expect(datedText).not.toContain('"now-1h"');
   });

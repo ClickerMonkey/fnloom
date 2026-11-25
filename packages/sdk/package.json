@@ -19,6 +19,7 @@
     "@aeye/ai": "file:../../../aits/packages/ai",
     "@aeye/core": "file:../../../aits/packages/core",
     "@aeye/gin": "file:../../../aits/packages/gin",
+    "@aeye/schema": "file:../../../aits/packages/schema",
     "@aeye/models": "file:../../../aits/packages/models",
     "@aeye/openrouter": "file:../../../aits/packages/openrouter",
     "@aeye/resources": "file:../../../aits/packages/resources",

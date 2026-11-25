@@ -9,8 +9,8 @@
  *   `test` runs the clean draft with other args (a draft that calls fns is checked, not run).
  */
 import type { ExprDef, TypeDef } from '@aeye/gin';
-import { FnMode, GinTypeDef, Json, QualifiedName, type FnSearchPage, type FnSearchQuery, type TypeDefinitions } from '@harness/core';
-import { z } from 'zod';
+import { a } from '@aeye/schema';
+import { FnMode, HarnessGrammar, type Json, QualifiedName, type FnSearchPage, type FnSearchQuery, type TypeDefinitions } from '@harness/core';
 import { authoringTool, type AuthoringSession, type AuthoringTool } from '../authoring.ts';
 import { programEnv } from './env.ts';
 import { fnCallText, ProgramScope, storedProgramScope, type ProgramFn } from './runtime.ts';
@@ -105,7 +105,7 @@ function searchTool<S extends ProgramAuthoring, D>(): AuthoringTool<S, D> {
     stage: 'find',
     description: 'Search the fns a program may call (and fns of this kind that may already do it) by what they do, in plain words.',
     instructions: 'Call it first with what the program needs, in a few words; call it again for each other piece. A fn of this kind that already does the whole request can be reused.',
-    schema: z.object({ text: z.string().min(1).describe('What the fn should do, in plain words.') }),
+    schema: a.object({ text: a.string().min(1).describe('What the fn should do, in plain words.') }),
     async call({ text }, session) {
       const state = session.state;
       const page = await state.host.search({ text, items: ['fn'], limit: programEnv.get('HARNESS_PROGRAM_SEARCH_LIMIT') });
@@ -125,14 +125,14 @@ function searchTool<S extends ProgramAuthoring, D>(): AuthoringTool<S, D> {
 
 /** `load`: fns found (their signatures, as the program calls them) and named types, only what is asked, never twice. */
 function loadTool<S extends ProgramAuthoring, D>(): AuthoringTool<S, D> {
-  return authoringTool<S, D, { fns?: string[] | undefined; types?: string[] | undefined }>({
+  return authoringTool<S, D, { fns?: string[]; types?: string[] }>({
     name: 'load',
     stage: 'inspect',
     description: 'Show fns search listed (how a program calls each, its args and result) and named types in full. Load only what the program uses.',
     instructions: 'Load each fn the program will call before you write it: only loaded fns can be called. Load a type when you build a value of it.',
-    schema: z.object({
-      fns: z.array(z.string().min(1)).optional().describe('Fns as search listed them (`system/name`).'),
-      types: z.array(z.string().min(1)).optional().describe('Named types as a load or search listed them.'),
+    schema: a.object({
+      fns: a.array(a.string().min(1)).optional().describe('Fns as search listed them (`system/name`).'),
+      types: a.array(a.string().min(1)).optional().describe('Named types as a load or search listed them.'),
     }),
     when: (session) => session.disclosure.awareUnloaded(FN).length > 0 || session.disclosure.awareUnloaded(TYPE).length > 0,
     async call({ fns = [], types = [] }, session) {
@@ -180,7 +180,7 @@ function examplesTool<S extends ProgramAuthoring, D>(): AuthoringTool<S, D> {
     stage: 'inspect',
     description: 'Show how a program is written (the expression kinds, reading args, calling a loaded fn) with worked examples.',
     instructions: 'Call it once before your first draft.',
-    schema: z.object({}),
+    schema: a.object({}),
     when: (session) => !session.disclosure.isLoaded('docs', 'examples'),
     call(_input, session) {
       session.disclosure.markLoaded('docs', ['examples']);
@@ -189,6 +189,12 @@ function examplesTool<S extends ProgramAuthoring, D>(): AuthoringTool<S, D> {
   });
 }
 
+/** `signature`'s args: the new fn's args (an obj type) and result type, in the session's grammar. */
+const SignatureArgs = HarnessGrammar.result<ProgramSignature>(a.object({
+  args: a.ref('TypeDef').describe('An obj type: {"name":"obj","props":{"amount":{"type":{"name":"num"}}}}.'),
+  returns: a.ref('TypeDef').describe('The result type.'),
+}));
+
 /** `signature`: the new fn's args (an obj type) and result type; the scope its program will see. */
 function signatureTool<S extends ProgramAuthoring, D>(): AuthoringTool<S, D> {
   return authoringTool<S, D, { args: TypeDef; returns: TypeDef }>({
@@ -196,10 +202,7 @@ function signatureTool<S extends ProgramAuthoring, D>(): AuthoringTool<S, D> {
     stage: 'inspect',
     description: 'Declare the new fn\'s args (an obj type: each arg a prop, an optional arg wrapped in optional) and what it returns. The draft is checked against it.',
     instructions: 'Declare it before the draft, and again whenever the args or the result change. Use only built-in types and loaded ones.',
-    schema: (session) => {
-      const { Type } = session.state.program.schemas();
-      return z.object({ args: Type.pipe(GinTypeDef).describe('An obj type: {"name":"obj","props":{"amount":{"type":{"name":"num"}}}}.'), returns: Type.pipe(GinTypeDef).describe('The result type.') });
-    },
+    schema: (session) => SignatureArgs.bind(...session.state.program.grammar()),
     async call({ args, returns }, session) {
       const state = session.state;
       if (args.name !== 'obj') { throw new Error('args must be an obj type: {"name":"obj","props":{…}}, with {} for none.'); }
@@ -227,6 +230,9 @@ export function programTools<S extends ProgramAuthoring, D>(): Array<AuthoringTo
   return [searchTool<S, D>(), loadTool<S, D>(), examplesTool<S, D>(), signatureTool<S, D>()];
 }
 
+/** `test`'s args: a value for each arg of the draft, by name. */
+const TestArgs = a.object({ args: a.record(a.json()).describe('A value for each arg, by name.') });
+
 /**
  * `test`: run the clean draft with other args and show what it gives, offered once a draft checked clean. `run` is
  * the kind's own test run (a code program; an api request materialized, sent only when it is a GET).
@@ -237,7 +243,7 @@ export function testTool<S extends ProgramAuthoring, D>(run: (draft: D, args: Re
     stage: 'draft',
     description: 'Run the draft that checked clean with these args and show what it gives.',
     instructions: 'Use it to try edge cases (an empty list, a missing optional arg) before you save.',
-    schema: z.object({ args: z.record(z.string(), Json).describe('A value for each arg, by name.') }),
+    schema: TestArgs,
     when: (session) => session.lastCheck !== undefined && session.lastCheck.problems.length === 0,
     async call({ args }, session) {
       const draft = session.draft;

@@ -21,7 +21,7 @@ export const OUTLINE: readonly Topic[] = [
   {
     id: 'gin',
     title: 'Types with gin',
-    exports: ['g', 'GinType', 'Infer', 'json', 'parseValue', 'encodeValue', 'wireType', 'referencesOf', 'loadTypes', 'LoadedTypes', 'ginOf', 'ginAs', 'toolArgsOf', 'ToolArgs', 'FlatArgs', 'sampleOf', 'sampleArgs', 'partialOf', 'OptionalField'],
+    exports: ['g', 'GinType', 'Infer', 'json', 'parseValue', 'encodeValue', 'wireType', 'referencesOf', 'loadTypes', 'LoadedTypes', 'ginOf', 'ginAs', 'modelArgsOf', 'toolArgsOf', 'ToolArgs', 'FlatArgs', 'ginOfA', 'ANamedTypes', 'sampleOf', 'sampleArgs', 'partialOf', 'OptionalField'],
     external: GIN_EXTERNALS,
   },
   {
@@ -184,7 +184,7 @@ export const OUTLINE: readonly Topic[] = [
       'NodeStarter', 'NodeStarterOptions', 'ProcessStarter', 'ProcessCommand', 'ProcessExit', 'SupervisedProcess', 'scrubbedEnv', 'BASIC_ENV', 'SHARED_ENV', 'permissionArgs', 'ProcessGrants', 'CrashPolicy', 'CrashPolicyOptions', 'ExitDecision', 'STATUS_LOG', 'statusOfLine',
       'AccessDeniedReader', 'AccessDenied', 'AllowlistProxy', 'AllowlistProxyOptions', 'ProxyRefusal', 'hostAllowed', 'proxyEnv', 'NETWORK_GUARD', 'NETWORK_GUARD_FILES', 'guardedEnv', 'NetworkGate', 'NETWORK_ALLOW_VAR', 'endpointOf', 'endpointText', 'endpointsText', 'guardNetwork', 'hostKey', 'networkRefusedLine', 'parseEndpoints', 'refusedOfLine', 'Endpoint', 'GuardOptions', 'Refused',
       'McpFace', 'McpLimits', 'readClientBundle', 'CLIENT_ENTRY', 'ClientBundle',
-      'LlmWire', 'LlmWireOptions', 'LlmDescriptors', 'UNSENDABLE_CONTENT', 'messageFromWire', 'requestFromWire', 'isObjectSchema', 'descriptorsOf', 'applyDescriptors',
+      'LlmWire', 'LlmWireOptions', 'UNSENDABLE_CONTENT', 'messageFromWire', 'requestFromWire', 'isObjectSchema', 'schemaFromWire', 'lenientJson', 'plannedOf', 'AnswerDecoder',
       'usageToWire', 'usageFromWire', 'chunkToWire', 'chunkFromWire', 'ChunkWriter', 'ChunkReader', 'responseToWire', 'decisionInputToWire', 'decisionInputFromWire',
       'addressVerdict', 'followRedirects', 'isLocalName', 'isPrivateAddress', 'systemLookup', 'REDIRECT_STATUSES', 'AddressRefusal', 'AddressRules', 'AddressVerdict',
       'FollowedResponse', 'HostLookup', 'RedirectOptions', 'RedirectProblems',

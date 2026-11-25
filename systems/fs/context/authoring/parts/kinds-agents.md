@@ -149,8 +149,11 @@ schema), **check** (your `check`, run on every draft: each problem on its own li
 once a draft checked clean; your `save` keeps it as a fn). A tool of a stage is offered only once every stage before
 it is done, so the model can't draft before it has searched, and until something is saved or reused every round must
 call a tool (`toolChoice: 'required'`), so a model can't stop in words with a clean draft unsaved.
-`authoringTool({ name, stage, description, schema, when?, strict?, call })` declares a find or inspect tool; `when`
-narrows it further. aeye sends tool args as strict tool calls when the model can take them; `strict` is aeye's setting
+`authoringTool({ name, stage, description, schema, when?, strict?, errorFormat?, call })` declares a find or inspect tool;
+`when` narrows it further. `schema` is an `@aeye/schema` (`a`) schema, or `(session) => Bundle.bind(…)` for one typed by
+what the session has loaded (the draft's `schema` likewise; the draft tool's args are `{ draft }`). aeye decodes the args
+(a list or object sent as its JSON text is repaired) and answers args that don't fit with the model's own JSON, marked
+where it is wrong (`errorFormat` picks a terser level). aeye sends tool args as strict tool calls when the model can take them; `strict` is aeye's setting
 for one tool (`true` requires strict, a number is how much it is wanted, `false` sends it non-strict). The built-in
 `draft` tool is sent non-strict: strict decoding of a whole program or query (a recursive grammar, optional fields at
 every level) made models fill every absent optional with null and pick wrong branches, so the schema guides the draft
@@ -161,8 +164,9 @@ what it chose) is `session.state`, the `AuthoringSession`'s second type paramete
 by step, with a worked example of a good draft.
 
 **Programs.** The `code` and `api` systems author gin programs with `@harness/sdk/program` (`ProgramScope`,
-`programTools`, `testTool`, `ProgramAuthoring` on `authoringAgent`). A program's schemas are gin's strict ones
-(`buildSchemas(registry, { newStrict: true })`): a `{ kind: 'new', type, value }` is typed by the type it names. In its
+`programTools`, `testTool`, `ProgramAuthoring` on `authoringAgent`). A program's schemas are gin's grammar over the session's
+registry (`HarnessGrammar.result(a.object({ program: a.ref('Expr') })).bind(...program.grammar())`, `newStrict`): a
+`{ kind: 'new', type, value }` is typed by the type it names. In its
 value a plain field (text, a number, a bool, an enum or literal, a date) takes its value as is (`"GET"`) or an
 expression; every other field (a list, an object, a body, any JSON) takes an expression, usually a `new` of its type.
 A type also accepts a named extension of a type it accepts (`list<obj{ key, value }>` takes `list<api/HttpParam>`).
@@ -184,7 +188,7 @@ const findForms = authoringTool<FormAuthoring, FormDraft, { text: string }>({
   stage: 'find',
   description: 'Search the saved forms the person may use by what the request asks for.',
   instructions: 'Call it first, with what is asked in a few plain words.',
-  schema: z.object({ text: z.string().min(1).describe('What the form asks for, in plain words.') }),
+  schema: a.object({ text: a.string().min(1).describe('What the form asks for, in plain words.') }),
   async call({ text }, session) {
     const page = await session.state.deps.search({ text, kinds: [FORM_KIND], items: ['fn'], limit: 6 });
     session.disclosure.markSearched('fn');

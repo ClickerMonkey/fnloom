@@ -16,10 +16,9 @@
  * programs plain: no while-loops (a loop over a `bool`, re-evaluated each round), no loop over a value of unknown type,
  * no `recurse`, a complexity cap; and at run time a cap on fn calls.
  */
-import { buildSchemas, createEngine, typeReferences, val, type Engine, type SchemaOptions, type Expr, type ExprDef, type LocalScope, type Type, type TypeDef, type Value } from '@aeye/gin';
-import { harnessRegistry, Json, QualifiedName, isGinExprDef, isGinTypeDef, type FnMode } from '@harness/core';
+import { createEngine, typeReferences, val, type BuildSchemasOverrides, type Engine, type Expr, type ExprDef, type LocalScope, type Registry, type Type, type TypeDef, type Value } from '@aeye/gin';
+import { harnessRegistry, Json, QualifiedName, isGinExprDef, isGinTypeDef, type FnMode, type HarnessGrammarArgs } from '@harness/core';
 import { g } from '../gin.ts';
-import { z } from 'zod';
 import { programEnv } from './env.ts';
 
 /** The name a program reads its args by. */
@@ -64,12 +63,12 @@ export function fnCallText(name: QualifiedName): string {
   return [FNS_SCOPE, ...fnPath(name)].join('.');
 }
 
-/** A lazy schema whose getter runs once: the same schema every time zod walks into it. */
-function keptLazy(schema: z.ZodType, aid: string): z.ZodType {
-  if (!(schema instanceof z.ZodLazy)) return schema;
-  let inner: z.core.$ZodType | undefined;
-  return z.lazy(() => inner ??= schema.unwrap()).meta({ aid });
-}
+/**
+ * How an authored program's grammar is bound: `newStrict`, so a `new` expression's value is typed by the type it names
+ * (plain fields take their value, composite fields an Expr) and a strict tool call is told each value's shape rather
+ * than "any JSON".
+ */
+export const PROGRAM_GRAMMAR: BuildSchemasOverrides = { newStrict: true };
 
 /** A named type's definition, as the hub sends it (`TypeDefinitions.types`) or `typeClosure` gathers it. */
 export interface NamedTypeDef {
@@ -92,9 +91,9 @@ export class ProgramScope {
   readonly engine: Engine;
   readonly #types = new Map<string, TypeDef>();
   readonly #fns = new Map<QualifiedName, ProgramFn>();
-  /** Every named type an authored program may spell, in the order bound (dependencies first), for `schemas`. */
+  /** Every named type an authored program may spell, in the order bound (dependencies first), for `registry`. */
   readonly #named: NamedTypeDef[] = [];
-  #schemas: { readonly count: number; readonly schemas: SchemaOptions } | undefined;
+  #registry: Registry | undefined;
 
   constructor() {
     this.scope = g.scope();
@@ -127,27 +126,26 @@ export class ProgramScope {
   }
 
   /**
-   * gin's typed schemas (`buildSchemas`) for programs and types over the built-ins and the named types this scope
-   * offers, in a registry of their own: an authored program may spell only those. Built again only when more are bound.
+   * The registry an authored program is typed by: the built-ins and the named types this scope offers, in a registry
+   * of their own, so a program may spell only those. Registering a newly bound type bumps its version, which is what
+   * the grammar's binds are keyed by.
    */
-  schemas(): SchemaOptions {
-    const kept = this.#schemas;
-    if (kept !== undefined && kept.count === this.#named.length) return kept.schemas;
-    const registry = harnessRegistry();
+  registry(): Registry {
+    const registry = this.#registry ??= harnessRegistry();
     for (const { name, def } of this.#named) {
+      if (registry.lookup(name) !== undefined) continue;
       const type = registry.parse(def);
       registry.register(type.name === name ? type : registry.extend(type, { name }));
     }
-    // `newStrict`: a `new` expression's value is typed by the type it names (gin's strict new schema: plain fields take their
-    // value, composite fields an Expr), so a strict tool call is told each value's shape rather than "any JSON"
-    const schemas = buildSchemas(registry, { newStrict: true });
-    // LIBRARY GAP (gin): buildSchemas' lazy getters build fresh schemas on every call, so zod's input-side JSON schema
-    // (what a tool's parameters are sent as) never meets the same schema twice and recurses until the stack runs out;
-    // each getter is kept once here, and the classes' schemas read these slots when they are first built
-    schemas.Expr = keptLazy(schemas.Expr, 'Expr');
-    schemas.Type = keptLazy(schemas.Type, 'Type');
-    this.#schemas = { count: this.#named.length, schemas };
-    return schemas;
+    return registry;
+  }
+
+  /**
+   * `HarnessGrammar`'s bind args for a program of this scope (`Bundle.bind(...program.grammar())`): its registry, and
+   * `PROGRAM_GRAMMAR`. Fn names stay plain (a program calls fns by path, not by a fn-name text).
+   */
+  grammar(): HarnessGrammarArgs {
+    return [this.registry(), undefined, PROGRAM_GRAMMAR];
   }
 
   /** Whether a type name resolves here (a built-in, a type registered in `g`, or one loaded). */

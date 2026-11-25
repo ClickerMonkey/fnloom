@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { defineComponent, h } from 'vue';
-import { z } from 'zod';
+import { a } from '@aeye/schema';
 import { kind } from '../declare.ts';
 import { fn, linear } from '../fn.ts';
 import { g } from '../gin.ts';
@@ -34,7 +34,7 @@ const impl: SystemImpl<Defs> = {
     title: {
       async run(args, ctx) {
         const ai = await ctx.ai();
-        const shorten = ai.tool({ name: 'shorten', description: 'Shorten a text.', schema: z.object({ text: z.string() }), call: (input: { text: string }) => input.text.slice(0, 5) });
+        const shorten = ai.tool({ name: 'shorten', description: 'Shorten a text.', schema: a.object({ text: a.string() }), call: (input: { text: string }) => input.text.slice(0, 5) });
         const prompt = ai.prompt({ name: 'title', description: 'Titles a note.', content: 'Title this note: {{note}}', input: (input: { note: string }) => input, tools: [shorten] });
         return ctx.done((await prompt.get('result', { note: args.note })) ?? '');
       },

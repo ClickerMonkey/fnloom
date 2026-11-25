@@ -6,20 +6,20 @@
  * cards at the end of the system prompt or in a trailing system message. For a model without native tools the static
  * mode speaks the text protocol instead: no tools at all, `<run fn="…">{…}</run>` blocks in its answer.
  */
+import type { Registry } from '@aeye/gin';
+import { a, ObjectType, type AnySchema, type Bindable, type Bundle } from '@aeye/schema';
 import { hub, type AnyFnRef } from '@harness/sdk';
 import {
-  FN_NAME_DESCRIPTION, FN_NAME_PATTERN, InstanceName, Json, RunArgs, JsonObject, modelFnName, modelFnNames, RULE_ONLY_NAMES, type ModelFnNames, type StaticToolFns, messageOf, problemLine, QualifiedName, STATIC_TOOLS, SystemName, type Detail, type FnBlock, type FnExample, type InputProblem, type InvalidInput, type StaticMode, type StaticTool,
+  ginBundle, HarnessGrammar, InstanceName, Json, JsonObject, modelFnName, modelFnNames, RULE_ONLY_NAMES, SYSTEM_NAME_PATTERN, type FnNameSpelling, type HarnessGrammarArgs, type ModelFnNames, type StaticToolFns, messageOf, problemLine, QualifiedName, STATIC_TOOLS, SystemName, type Detail, type FnBlock, type FnExample, type InputProblem, type InvalidInput, type StaticMode, type StaticTool,
 } from '@harness/core';
-import { z } from 'zod';
-import { repairArgs } from '../execution/arg-repair.ts';
 import { executingSystem } from '../execution/runs.ts';
-import { isObjectSchema } from '../execution/wire.ts';
 import type { CatalogFnNames } from '../catalog/index.ts';
+import { bindable, isObjectBound, jsonSchemaOf } from '../catalog/signature.ts';
 import { searchSystems } from '../chat/support.ts';
 import type {
   CallPlan, CallProtocol, CallScope, ChatMode, ChatModeFactories, ChosenFn, ContextorDeps, FnView, ModeContext, ModelCallOut, ModeTool, RenderedIteration, Selection,
 } from './index.ts';
-import { blockedLine, cardsSection, describedWithEffects, fnCard, toolExampleLines, moreFns, problemLines, summaryHint, tableInstruction, textProtocolInstructions } from './render.ts';
+import { blockedLine, cardsSection, describedWithEffects, fnCard, toolExampleLines, moreFns, summaryHint, tableInstruction, textProtocolInstructions } from './render.ts';
 import { fnRefusal, readsAsMissing } from './views.ts';
 
 /** The static toolset's hub fns, by tool name, with their declarations. `run` is not among them: it runs the fn it names. */
@@ -69,18 +69,7 @@ export function modeNames(type: 'tools' | 'static', registry?: CatalogFnNames): 
   });
 }
 
-/**
- * A tool's JSON schema with every fn-name field (`g.fnName()`, a text of core's `FN_NAME_PATTERN`) described as one,
- * where its author said nothing, so the model writes the name its tools spell.
- */
-export function withFnNameDocs(schema: Json): Json {
-  if (Array.isArray(schema)) return schema.map(withFnNameDocs);
-  if (schema === null || typeof schema !== 'object') return schema;
-  const out = Object.fromEntries(Object.entries(schema).map(([key, value]) => [key, withFnNameDocs(value)]));
-  return out['pattern'] === FN_NAME_PATTERN && out['description'] === undefined ? { ...out, description: FN_NAME_DESCRIPTION } : out;
-}
-
-/** The `run` tool's args (core's, so the web reads a call's fn the same way). */
+/** The `run` tool's args as the web and MCP read them (core's). */
 export { RunArgs } from '@harness/core';
 
 /** What the static `run` tool says of itself: it is not a fn, it runs the fn it names. */
@@ -90,9 +79,12 @@ const RUN_TOOL_INSTRUCTIONS = `Example args: {"fn":"${modelFnName(hub.fns.fns_ex
 /** How many near names an unknown fn's reply offers. */
 const NEAR_NAMES = 3;
 
-/** A native tool from a zod schema of objects. */
-export function modeTool(name: string, description: string, schema: z.ZodType<object>, parameters: Record<string, unknown>, instructions?: string): ModeTool {
-  return { name, description, ...(instructions === undefined ? {} : { instructions }), schema, spec: { name, description: instructions === undefined ? description : `${description}\n\n${instructions}`, parameters: withFnNameDocs(Json.parse(parameters)) } };
+/**
+ * A native tool: its args bound for the prompt (`@aeye/core` plans, checks and decodes calls with them) and its
+ * parameters in the code shape (`LENIENT`, for estimates and records).
+ */
+export function modeTool(name: string, description: string, schema: Bindable<object>, parameters: Record<string, unknown>, instructions?: string): ModeTool {
+  return { name, description, ...(instructions === undefined ? {} : { instructions }), schema, spec: { name, description: instructions === undefined ? description : `${description}\n\n${instructions}`, parameters: Json.parse(parameters) } };
 }
 
 /** What a fleet's `on` choice tells the model. */
@@ -105,23 +97,24 @@ export function machinesOf(view: FnView, instances: ContextorDeps['instances']):
 }
 
 /**
- * A fn's native tool (build 1's `fnTool` definition), or none when its args aren't an object. Given a fleet's
- * machines, its args gain an optional `on` naming one (`fleetArgs` takes it out again).
+ * A fn's native tool (build 1's `fnTool` definition), or none when its args aren't an object. Its args are its
+ * signature's model schema bound with the prompt's `names` (none: fn-name fields are plain text, for estimates). Given
+ * a fleet's machines, its args gain an optional `on`, one of them (`fleetArgs` takes it out again).
  */
-export function fnModeTool(view: FnView, machines: readonly InstanceName[] = [], examples?: readonly FnExample[]): ModeTool | undefined {
-  const schema = view.signature.argsSchema;
-  if (!isObjectSchema(schema)) return undefined;
+export function fnModeTool(view: FnView, machines: readonly InstanceName[] = [], examples?: readonly FnExample[], names?: FnNameSpelling): ModeTool | undefined {
+  const { signature } = view;
+  if (!isObjectBound(signature.argsFor())) return undefined;
+  const args = signature.argsFor(names);
   // a fn's tool is named by its model name, the one name the model knows it by
   const name = modelFnName(view.record.name);
   const [first, ...rest] = machines;
   const shown = toolExampleLines(view.record, examples);
   const instructions = [view.record.decl.instructions, ...shown].filter((line) => line !== undefined && line.trim() !== '').join('\n') || undefined;
   const description = describedWithEffects(view);
-  if (first === undefined || !(schema instanceof z.ZodObject)) return modeTool(name, description, schema, view.signature.argsJsonSchema, instructions);
-  const on = z.enum([first, ...rest]).describe(ON_DESCRIPTION);
-  const parameters = JsonObject.parse(view.signature.argsJsonSchema);
-  const properties = JsonObject.safeParse(parameters['properties']).data ?? {};
-  return modeTool(name, description, schema.extend({ on: on.optional() }), { ...parameters, properties: { ...properties, on: Json.parse(z.toJSONSchema(on)) } }, instructions);
+  if (first === undefined || !(args.root instanceof ObjectType)) return modeTool(name, description, bindable(args), signature.argsJsonSchema, instructions);
+  // the machines are runtime (the instances connected now), so a fleet fn's schema is made for the prompt
+  const fleet = HarnessGrammar.result<object>(args.root.extend({ on: a.enum([first, ...rest]).optional().describe(ON_DESCRIPTION) })).bind(signature.args.registry, names);
+  return modeTool(name, description, bindable(fleet), jsonSchemaOf(fleet), instructions);
 }
 
 /** A fleet call's args without its `on`, and the instance it names; an `on` that names no instance is refused. */
@@ -133,16 +126,25 @@ export function fleetArgs(args: Json): { args: Json; on?: InstanceName } | { pro
   return named.success ? { args: rest, on: named.data } : { problem: { path: 'on', message: 'on must name one of the machines the tool lists' } };
 }
 
+/** The static toolset's hub fns' args as a model is shown them (their gin types, as code takes them), made once each. */
+const contractArgs = new Map<string, Bundle<object, HarnessGrammarArgs>>();
+function contractBundle(ref: AnyFnRef): Bundle<object, HarnessGrammarArgs> {
+  let bundle = contractArgs.get(ref.name);
+  if (bundle === undefined) contractArgs.set(ref.name, (bundle = ginBundle<object>(ref.args)));
+  return bundle;
+}
+
 /**
  * A tool from a contract fn (the static toolset's hub fns): its description and its first example. The static toolset
  * is for small windows, so its fixed tools stay short: the fns' longer instructions are left to the mode's guide.
  */
-function contractTool(name: string, ref: AnyFnRef, def: StaticToolDef, description = def.description): ModeTool {
-  const schema = ref.args.toValueSchema();
-  if (!isObjectSchema(schema)) throw new Error(`${ref.name} takes no object, so it can't be a tool`);
+function contractTool(name: string, ref: AnyFnRef, def: StaticToolDef, description: string, names: FnNameSpelling | undefined): ModeTool {
+  const bundle = contractBundle(ref);
+  if (!isObjectBound(bundle.bind(ref.args.registry))) throw new Error(`${ref.name} takes no object, so it can't be a tool`);
   const [first] = def.examples ?? [];
   const example = first === undefined ? undefined : `Example args: ${JSON.stringify(first.args)}`;
-  return modeTool(name, description, schema, z.toJSONSchema(schema, { unrepresentable: 'any' }), example);
+  // its parameters are the code shape's, the same for every prompt
+  return modeTool(name, description, bindable(bundle.bind(ref.args.registry, names)), jsonSchemaOf(bundle.bind(ref.args.registry)), example);
 }
 
 /**
@@ -160,16 +162,49 @@ export const STATIC_TOOL_BRIEF: Readonly<Record<StaticTool, string>> = {
 
 /**
  * A static tool that is a hub fn, as a native tool: its args are the hub fn's gin type (the one shape a chat and an
- * MCP share). `brief`: its short description.
+ * MCP share), fn-name fields spelled by `names`. `brief`: its short description.
  */
-export function staticToolOf(name: keyof typeof STATIC_HUB_FNS, brief = false): ModeTool {
+export function staticToolOf(name: keyof typeof STATIC_HUB_FNS, brief = false, names?: FnNameSpelling): ModeTool {
   const { ref, def } = STATIC_HUB_FNS[name];
-  return contractTool(name, ref, def, brief ? STATIC_TOOL_BRIEF[name] : def.description);
+  return contractTool(name, ref, def, brief ? STATIC_TOOL_BRIEF[name] : def.description, names);
 }
 
-/** The problems of a zod failure, by dotted path. */
-export function problemsOf(error: z.ZodError): InputProblem[] {
-  return error.issues.map((issue) => ({ path: issue.path.map(String).join('.'), message: issue.message }));
+/** A run call's args for a fn whose args the prompt doesn't decode: any JSON object, checked hub-side (`#run`). */
+const ANY_ARGS = a.record(a.json()).describe('Its args, as its card shows them: one JSON object.');
+
+/** The registry the static tools are made in (the hub contract's). */
+const STATIC_REGISTRY = (): Registry => STATIC_HUB_FNS.inspect.ref.args.registry;
+
+/**
+ * The static `run` tool for one prompt: `fn` is a fn's name as the prompt spells it (read back to the qualified name),
+ * `args` that fn's args as its own schema takes them when the prompt decodes it (`decoded`: the fns it shows and the
+ * toolset's own, so core checks them and says what was wrong in its own words), any JSON object otherwise (checked
+ * hub-side, `#run`), and `on` a machine's name.
+ */
+export function runTool(brief: boolean, names?: FnNameSpelling, decoded: ReadonlyMap<QualifiedName, AnySchema> = ownArgs(), registry: Registry = STATIC_REGISTRY()): ModeTool {
+  const call = a.object({ fn: a.ref('FnName').describe('The fn to run, as its card names it.') })
+    .dependent('args', 'fn', (fn) => (typeof fn === 'string' ? decoded.get(QualifiedName.parse(fn)) : undefined), ANY_ARGS);
+  // a fn that takes nothing may be run without args
+  const root = call.extend({
+    args: call.shape.args.default({}),
+    on: a.string().pattern(SYSTEM_NAME_PATTERN).optional().describe('For a system with several machines connected, which one runs it (laptop).'),
+  });
+  const bundle = HarnessGrammar.result<object>(root);
+  return modeTool('run', brief ? STATIC_TOOL_BRIEF.run : RUN_TOOL_DESCRIPTION, bindable(bundle.bind(registry, names)), jsonSchemaOf(bundle.bind(registry)), RUN_TOOL_INSTRUCTIONS);
+}
+
+/** The args schemas of the toolset's own fns, by fn (what a `run` naming one of them is decoded with). */
+function ownArgs(): Map<QualifiedName, AnySchema> {
+  return new Map(Object.values(STATIC_HUB_FNS).map(({ ref }): [QualifiedName, AnySchema] => [ref.name, contractBundle(ref).bind(ref.args.registry).root]));
+}
+
+/** A static `run` call as core decoded it: the fn's qualified name, its args, and the machine it names. */
+function runCallOf(args: Json): { fn: string; args: Json; on?: string } | undefined {
+  const call = JsonObject.safeParse(args);
+  if (!call.success) return undefined;
+  const { fn, args: given, on } = call.data;
+  if (typeof fn !== 'string') return undefined;
+  return { fn, args: given ?? {}, ...(typeof on === 'string' ? { on } : {}) };
 }
 
 /** An invalid-input plan. */
@@ -229,17 +264,18 @@ export class ToolsChatMode implements ChatMode {
     const fns = new Map<string, QualifiedName>();
     const fleet = new Set<string>();
     const listed: FnView[] = [];
+    const names = ctx?.names ?? modeNames('tools');
     for (const chosen of selection.fns) {
       if (chosen.detail === 'listed') { listed.push(chosen.view); continue; }
       const machines = machinesOf(chosen.view, this.#deps.instances);
-      const tool = fnModeTool(chosen.view, machines, chosen.examples);
+      const tool = fnModeTool(chosen.view, machines, chosen.examples, names);
       if (tool === undefined || fns.has(tool.name)) continue;
       tools.push(tool);
       fns.set(tool.name, chosen.view.record.name);
       if (machines.length > 0) fleet.add(tool.name);
     }
     const systemEnd = [moreFns(listed), tableInstruction(selection.fns.map((chosen) => chosen.view))].filter((part) => part !== '').join('\n\n');
-    return Promise.resolve({ tools, systemEnd, tail: undefined, protocol: 'native', fns, fleet, names: ctx?.names ?? modeNames('tools') });
+    return Promise.resolve({ tools, systemEnd, tail: undefined, protocol: 'native', fns, fleet, names });
   }
 
   async interpret(call: ModelCallOut, rendered: RenderedIteration, scope: CallScope): Promise<CallPlan> {
@@ -252,8 +288,8 @@ export class ToolsChatMode implements ChatMode {
       const blocked = meant === undefined ? undefined : blockedCall(await this.#deps.views.view(meant), scope);
       return blocked ?? invalid(undefined, 'schema', [{ path: '', message: `no tool named ${name}` }], `There is no tool named ${name}.`);
     }
-    // its args' fn-name fields come back as qualified names
-    const args = await readArgs(call.args, fn, rendered, this.#deps.views);
+    // its args came decoded (core checked them against the tool's schema): fn-name fields are qualified names already
+    const { args } = call;
     if (!rendered.fleet.has(name)) return { type: 'run', fn, args };
     const split = fleetArgs(args);
     if ('problem' in split) return invalid(fn, 'validation', [split.problem], problemLine(split.problem), { args: call.args });
@@ -297,12 +333,10 @@ export class StaticChatMode implements ChatMode {
     ].join('\n');
   }
 
-  fixedTools(ctx: ModeContext): Promise<readonly ModeTool[]> {
+  fixedTools(ctx: ModeContext, decoded?: ReadonlyMap<QualifiedName, AnySchema>): Promise<readonly ModeTool[]> {
     if (ctx.protocol === 'text') return Promise.resolve([]);
-    const tools = STATIC_TOOLS.map((name): ModeTool => {
-      if (name === 'run') return modeTool('run', ctx.brief === true ? STATIC_TOOL_BRIEF.run : RUN_TOOL_DESCRIPTION, RunArgs, z.toJSONSchema(RunArgs, { io: 'input' }), RUN_TOOL_INSTRUCTIONS);
-      return staticToolOf(name, ctx.brief === true);
-    });
+    const brief = ctx.brief === true;
+    const tools = STATIC_TOOLS.map((name): ModeTool => (name === 'run' ? runTool(brief, ctx.names, decoded) : staticToolOf(name, brief, ctx.names)));
     return Promise.resolve(tools);
   }
 
@@ -314,21 +348,31 @@ export class StaticChatMode implements ChatMode {
     const shown = new Set<QualifiedName>();
     const cards = selection.fns.map((chosen) => fnCard(chosen.view, chosen.detail, shown, chosen.examples));
     const section = [cardsSection(cards, ctx.protocol), tableInstruction(selection.fns.map((chosen) => chosen.view))].filter((part) => part !== '').join('\n\n');
-    const tools = await this.fixedTools(ctx);
+    // a `run` of a fn the prompt shows (or one of the toolset's own) is decoded with that fn's args, so core checks them
+    const decoded = ownArgs();
+    for (const chosen of selection.fns) decoded.set(chosen.view.record.name, chosen.view.signature.argsFor().root);
+    const tools = await this.fixedTools(ctx, decoded);
     const fns = new Map<string, QualifiedName>(Object.entries(STATIC_HUB_FNS).map(([tool, { ref }]) => [tool, ref.name]));
     const tail = this.#config.placement === 'tail' && section !== '' ? section : undefined;
-    return { tools, systemEnd: tail === undefined ? section : '', tail, protocol: ctx.protocol, fns, fleet: new Set(), names: ctx.names ?? modeNames('static') };
+    return {
+      tools, systemEnd: tail === undefined ? section : '', tail, protocol: ctx.protocol, fns, fleet: new Set(), names: ctx.names ?? modeNames('static'),
+      ...(ctx.protocol === 'native' ? { decoded: new Set(decoded.keys()) } : {}),
+    };
   }
 
   async interpret(call: ModelCallOut, rendered: RenderedIteration, scope: CallScope): Promise<CallPlan> {
     if (call.type === 'tool') {
       if (call.name !== 'run') {
         const fn = rendered.fns.get(call.name);
-        return fn === undefined ? invalid(undefined, 'schema', [{ path: '', message: `no tool named ${call.name}` }], `There is no tool named ${call.name}; use one of ${STATIC_TOOLS.join(', ')}.`) : { type: 'run', fn, args: await readArgs(call.args, fn, rendered, this.#deps.views) };
+        // its args came decoded through its own schema: fn-name fields are qualified names already
+        return fn === undefined ? invalid(undefined, 'schema', [{ path: '', message: `no tool named ${call.name}` }], `There is no tool named ${call.name}; use one of ${STATIC_TOOLS.join(', ')}.`) : { type: 'run', fn, args: call.args };
       }
-      const parsed = RunArgs.safeParse(call.args);
-      if (!parsed.success) return invalid(undefined, 'schema', problemsOf(parsed.error), `run needs { fn, args }:\n${problemLines(problemsOf(parsed.error))}`);
-      return this.#run(parsed.data.fn, parsed.data.args, rendered, scope, parsed.data.on);
+      const run = runCallOf(call.args);
+      if (run === undefined) return invalid(undefined, 'schema', [{ path: 'fn', message: 'run names no fn' }], 'run needs { fn, args }: the fn to run, by its name, and its args as one JSON object.');
+      const on = run.on === undefined ? undefined : InstanceName.safeParse(run.on);
+      const fn = QualifiedName.safeParse(run.fn).data;
+      if (on?.success === false) return invalid(fn, 'schema', [{ path: 'on', message: 'on must name a machine, like laptop' }], `on "${run.on}" names no machine: write a machine's name, like laptop.`);
+      return this.#run(run.fn, run.args, rendered, scope, on?.data, fn !== undefined && rendered.decoded?.has(fn) === true);
     }
     if (call.fn === undefined) return invalid(undefined, 'schema', [{ path: 'fn', message: 'the block has no fn attribute' }], `That block names no fn: write <run fn="${modelFnName(hub.fns.fns_get.name)}">{ args }</run>.`, { raw: call.json });
     let args: Json;
@@ -349,12 +393,17 @@ export class StaticChatMode implements ChatMode {
     return views.map((chosen) => fnCard(chosen.view, chosen.detail, shown, chosen.examples)).join('\n\n');
   }
 
-  /** A run of a fn by name: one of the toolset's own, or any fn the session may use, its args checked first. */
-  async #run(name: string, args: Json, rendered: RenderedIteration, scope: CallScope, on?: InstanceName): Promise<CallPlan> {
-    const own = rendered.fns.get(name);
-    if (own !== undefined) return { type: 'run', fn: own, args: await readArgs(args, own, rendered, this.#deps.views), ...(on === undefined ? {} : { on }) };
+  /**
+   * A run of a fn by name: one of the toolset's own, or any fn the session may use, its args checked first. `decoded`:
+   * a native `run` whose args core decoded and checked with the fn's own schema (the name is the qualified name then);
+   * otherwise the args are as the model wrote them (a `<run>` block, a fn the prompt doesn't show), read back and
+   * checked here with the same check, told in `@aeye/schema`'s words.
+   */
+  async #run(name: string, args: Json, rendered: RenderedIteration, scope: CallScope, on?: InstanceName, decoded = false): Promise<CallPlan> {
+    const own = rendered.fns.get(name) ?? [...rendered.fns.values()].find((fn) => fn === name);
+    if (own !== undefined) return { type: 'run', fn: own, args: decoded ? args : await readArgs(args, own, rendered, this.#deps.views), ...(on === undefined ? {} : { on }) };
     // the name as the model wrote it (its model name; a qualified name is tolerated), read back through the registry
-    await rendered.names.learn([name, args]);
+    if (!decoded) await rendered.names.learn([name, args]);
     const qualified = QualifiedName.safeParse(rendered.names.fn(name));
     // a fn that exists but can't run says what blocks it, in the hub's words; a missing one (or one not for the model) gets the nearest names
     const view = qualified.success ? await this.#deps.views.view(qualified.data) : undefined;
@@ -365,16 +414,13 @@ export class StaticChatMode implements ChatMode {
       const hint = near.length === 0 ? 'Use find to look for one.' : `The nearest: ${near.join(', ')}.`;
       return invalid(qualified.success ? qualified.data : undefined, 'schema', [{ path: 'fn', message: `no fn named ${name} can run here` }], `There is no fn ${name} you can run here. ${hint}`);
     }
+    if (decoded) return { type: 'run', fn: view.record.name, args, ...(on === undefined ? {} : { on }) };
     const read = rendered.names.read(args, view.record.decl.args);
-    // an object or list sent as a string holding its JSON fits once read as that JSON (`repairArgs`)
-    const repaired = repairArgs(view.signature.argsSchema, read);
-    const checked = view.signature.argsSchema.safeParse(repaired.args);
-    if (!checked.success) {
-      const problems = problemsOf(checked.error);
-      return invalid(view.record.name, 'schema', problems, `The args don't fit ${view.record.name}:\n${problemLines(problems)}\n\n${fnCard(view, 'full')}`, { args });
-    }
-    // repaired args go to the run as sent, so the run repairs them again and records what it repaired
-    return { type: 'run', fn: view.record.name, args: repaired.repairs.length === 0 ? Json.parse(checked.data) : read, ...(on === undefined ? {} : { on }) };
+    // the fn's own check: an object or list sent as a string holding its JSON fits once read as that JSON
+    const checked = view.signature.check(read);
+    if (!checked.ok) return invalid(view.record.name, 'schema', checked.problems, `The args don't fit ${view.record.name}:\n${checked.message}\n\n${fnCard(view, 'full')}`, { args });
+    // the args go to the run as read, so the run checks them again and records what it repaired
+    return { type: 'run', fn: view.record.name, args: read, ...(on === undefined ? {} : { on }) };
   }
 
   /** The fns whose names or descriptions are nearest an unknown name. */

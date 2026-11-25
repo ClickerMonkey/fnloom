@@ -55,6 +55,7 @@ export * from './objects.ts';
 export * from './ports.ts';
 export * from './gin.ts';
 export * from './gin-record.ts';
+export * from './gin-a.ts';
 export * from './issues.ts';
 export * from './partial.ts';
 export * from './run.ts';

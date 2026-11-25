@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { FORM_KIND, HEADLESS_ASKED, WAIT_FOR_ANSWERS, input } from '../shared/index.ts';
 import { inputEnv } from './env.ts';
 import { createInputImpl } from './impl.ts';
+import { LENIENT } from '@aeye/schema';
 import { FormDraftSchema } from './authoring.ts';
 import { PROJECT_FORM } from '../shared/index.ts';
 
@@ -73,6 +74,6 @@ describe('the form kind', () => {
 
 describe('the draft call the instructions show', () => {
   it('is a form the draft tool takes as is', () => {
-    expect(FormDraftSchema.safeParse(PROJECT_FORM).success).toBe(true);
+    expect(FormDraftSchema.bind().render(LENIENT).parse(PROJECT_FORM, { inPlace: false }).ok).toBe(true);
   });
 });

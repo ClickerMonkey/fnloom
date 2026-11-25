@@ -89,13 +89,13 @@ type FnDecl = {
   name: string;
   description: string;
   kind: `${string}/${string}` | "native";
-  args: TypeDef<any>;
-  returns: TypeDef<any>;
+  args: TypeDef$1<any>;
+  returns: TypeDef$1<any>;
   deps: `${string}/${string}`[];
   handlers: Record<string, {
     description: string;
-    args: TypeDef<any>;
-    returns: TypeDef<any>;
+    args: TypeDef$1<any>;
+    returns: TypeDef$1<any>;
     required: boolean;
   }>;
   progress: {
@@ -144,10 +144,10 @@ type FnDecl = {
       many: string;
     };
   } | undefined;
-  undo?: TypeDef<any> | undefined;
-  resume?: TypeDef<any> | undefined;
-  state?: TypeDef<any> | undefined;
-  form?: TypeDef<any> | undefined;
+  undo?: TypeDef$1<any> | undefined;
+  resume?: TypeDef$1<any> | undefined;
+  state?: TypeDef$1<any> | undefined;
+  form?: TypeDef$1<any> | undefined;
   niche?: "admin" | "developer" | "reference" | undefined;
   examples?: {
     args: z.core.util.JSONType;
@@ -380,8 +380,8 @@ stores this with the fn and recomputes it whenever the payload, or anything it r
 
 ```ts
 type KindDescription = {
-  args: TypeDef<any>;
-  returns: TypeDef<any>;
+  args: TypeDef$1<any>;
+  returns: TypeDef$1<any>;
   deps: `${string}/${string}`[];
   operations: {
     cancel: boolean;
@@ -398,8 +398,8 @@ type KindDescription = {
   refs?: string[] | undefined;
   handlers?: Record<string, {
     description: string;
-    args: TypeDef<any>;
-    returns: TypeDef<any>;
+    args: TypeDef$1<any>;
+    returns: TypeDef$1<any>;
     required: boolean;
   }> | undefined;
   progress?: {
@@ -469,8 +469,8 @@ A fn as a kind's check sees it (sdk `KindCheckCtx.fn`, hub link `fnShape`): its 
 
 ```ts
 type KindFnShape = {
-  args: TypeDef<any>;
-  returns: TypeDef<any>;
+  args: TypeDef$1<any>;
+  returns: TypeDef$1<any>;
   description: string;
   mode: "read" | "write" | "delete";
 };

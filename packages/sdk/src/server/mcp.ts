@@ -19,8 +19,8 @@ import {
   errorResult, mcpHttp, mcpSourceServer, serveStdio, textResult,
   type McpHttpHandler, type McpServer, type McpTool, type McpToolResult, type McpToolSource,
 } from '@ayepi/mcp';
-import { Json, MAIN_INSTANCE, mintId, modelFnName, qualify, type RunRequest } from '@harness/core';
-import { z } from 'zod';
+import { LENIENT } from '@aeye/schema';
+import { ginBundle, Json, MAIN_INSTANCE, mintId, modelFnName, qualify, type RunRequest } from '@harness/core';
 import type { AnyFnDef } from '../fn.ts';
 import type { McpServe } from './index.ts';
 import { MCP_ACTOR, mcpAsker } from './mcp-caller.ts';
@@ -130,7 +130,8 @@ export class McpFace implements McpToolSource {
     const byTool = new Map(fns.map(([local, def]): [string, Offered] => {
       // the one fn name: an MCP client sees the name a chat model does
       const name = modelFnName(qualify(this.#table.contract.name, local));
-      const inputSchema = z.toJSONSchema(def.args.toValueSchema({ includeDocs: 'all' }), { io: 'input', unrepresentable: 'any' });
+      // the args as code holds them (`LENIENT`): MCP clients send plain JSON, decoded by the fn's own type when called
+      const inputSchema = ginBundle(def.args, { includeDocs: 'all' }).bind(def.args.registry).render(LENIENT).jsonSchema;
       return [name, { local, tool: { name, description: def.description, inputSchema } }];
     }));
     this.#offered = { fns, byTool };

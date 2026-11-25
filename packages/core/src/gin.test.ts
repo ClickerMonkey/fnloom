@@ -37,7 +37,7 @@ describe('gin wire schemas in the API documents', () => {
       expect(Object.keys(json).length).toBeGreaterThan(2);
       expect(danglingRefs(json)).toEqual([]);
     }
-    expect(JSON.stringify(jsonSchema(GinObjTypeDef))).toContain('"const":"obj"');
+    expect(JSON.stringify(jsonSchema(GinObjTypeDef))).toContain('"enum":["obj"]');
   });
 
   it('merge into shared components across endpoints, every ref resolving', () => {

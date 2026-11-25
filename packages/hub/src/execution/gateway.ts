@@ -2,8 +2,10 @@
  * The LLM gateway: how systems call an LLM. A system's aeye `AI` forwards every request to the hub over its link
  * (the hub is an aeye provider for systems), and the hub runs it like its own calls: on the LLM queue at the run's
  * priority, through the hub AI's hooks (rate limits, budget reservation and settlement, the saved interaction), and
- * against the model the hub picks. What streams back is the schema descriptors the provider chose (so the system's
- * aeye decodes strict-mode output with its own schemas), the chunks, and the real cost.
+ * against the model the hub picks. The request's schemas come as lenient JSON schema (the code shape) and are rebuilt as
+ * `a` schemas; the provider plans them for its model, and what the model wrote is decoded through that plan before it
+ * streams back (`AnswerDecoder`): finished tool calls in the code shape under their tool's own name (or with
+ * `invalid`, what the model is told), a structured answer as one chunk of its decoded JSON. Then the real cost.
  *
  * The other modalities (embeddings, images, transcription, speech, decisions) go through the same AI as calls, for a system's
  * run or the hub's own work, each answered with its `ModelCall` and cost (the models module's `ModelGateway` is the
@@ -22,7 +24,7 @@ import type { ModelResolver } from './models.ts';
 import type { EngineModel, ExecutionDeps, LlmEngine } from './ports.ts';
 import { transientDelay, type ExecutionQueues } from './queues.ts';
 import { CallReceipts, LlmCallScope, type HubCallContext } from './scope.ts';
-import { ChunkWriter, descriptorsOf, requestFromWire } from './wire.ts';
+import { AnswerDecoder, ChunkWriter, requestFromWire } from './wire.ts';
 
 /** What the gateway uses. */
 export interface GatewayDeps extends Pick<ExecutionDeps, 'store' | 'clock' | 'log' | 'settings'> {
@@ -84,12 +86,14 @@ export class HubLlmGateway implements LlmGateway {
     let sent = false;
     /** One attempt, holding an LLM slot only while it calls. */
     const attempt = () => this.#deps.queues.llm(scope.priority, async () => {
+      // made per attempt: nothing is held over from one that failed before a chunk went out
+      const decoder = new AnswerDecoder(request);
       for await (const chunk of this.#deps.llm.streamer(request, { call: scope }, metadata, signal)) {
-        if (!sent) channel.push({ type: 'descriptors', ...descriptorsOf(request) });
         sent = true;
         scope.markFirstToken(this.#deps.clock());
-        channel.push({ type: 'chunk', chunk: writer.write(chunk) });
+        for (const out of decoder.chunk(chunk)) channel.push({ type: 'chunk', chunk: writer.write(out) });
       }
+      for (const out of decoder.end()) channel.push({ type: 'chunk', chunk: writer.write(out) });
       const last = scope.last;
       if (last === undefined) throw new Error('the call finished without being recorded');
       channel.push({ type: 'done', usage: last.usage, cost: scope.cost, interaction: last.interaction, model: last.model });
@@ -136,8 +140,13 @@ export class HubLlmGateway implements LlmGateway {
     const resolved = await this.#deps.models.resolve(input.model);
     const metadata = input.provider === undefined ? resolved : { ...resolved, provider: input.provider };
     return this.#call(site, signal, async (ctx) => {
+      // a structured answer comes back decoded through the plan the provider sent it with (the code shape)
+      const decoder = new AnswerDecoder(request);
       let text = '';
-      for await (const chunk of this.#deps.llm.streamer(request, ctx, metadata, signal)) { text += chunk.content ?? ''; }
+      for await (const chunk of this.#deps.llm.streamer(request, ctx, metadata, signal)) {
+        for (const out of decoder.chunk(chunk)) text += out.content ?? '';
+      }
+      for (const out of decoder.end()) text += out.content ?? '';
       return text;
     }, input.priority);
   }

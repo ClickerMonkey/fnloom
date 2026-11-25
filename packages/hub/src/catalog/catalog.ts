@@ -6,13 +6,13 @@
 import type { Type } from '@aeye/gin';
 import type { Logger } from '@ayepi/log';
 import {
-  apiContextName, injectTargetProblems, Json, MANIFEST_SECTION_NAMES, noFnStats, QualifiedName, qualify, roleLinkTo, runtimeNames, splitName, type ModelRole,
+  apiContextName, dottedPath, ginValueCheck, injectTargetProblems, Json, MANIFEST_SECTION_NAMES, noFnStats, QualifiedName, qualify, roleLinkTo, runtimeNames, splitName, type ModelRole,
   type ActorId, type Availability, type ContextDecl, type ContextRecord, type FnDecl, type FnRecord, type GinTypeDef, type ImportReport,
   type KindDecl, type KindRecord, type Manifest, type ManifestPatch, type ManifestSection, type SectionDecl,
   type InstanceName, SystemName, type SystemProviderDecl, type TypeDecl, type TypeRecord, type DeclaredBy, type FnLink, type ApiGroupDecl,
 } from '@harness/core';
+import { LENIENT } from '@aeye/schema';
 import { canonicalJson, sha256 } from '@harness/sdk';
-import { z } from 'zod';
 import type { EventBus } from '../bus.ts';
 import { removeLinksFrom, writeDerivedLinks } from '../contextor/graph.ts';
 import { contextTokens } from '../contextor/tokens.ts';
@@ -23,6 +23,7 @@ import { StoreFnNames } from './fn-names.ts';
 import { allRows, rows } from '../store/rows.ts';
 import { GinScopes, messageOf, type TypeLookup } from './scope.ts';
 import { Serial } from './serial.ts';
+import { fnSignature } from './signature.ts';
 import { itemChanges, latestItemVersion, writeItemVersions } from './versions.ts';
 import { apiIndexDecls, isApiIndexName } from './api-index.ts';
 import { AGENT_KIND, agentNames } from './injections.ts';
@@ -257,15 +258,7 @@ export class StoreCatalog implements Catalog {
     if (cached?.version === fn.version) { return cached.signature; }
     const { types: [args, returns], scope } = this.#scopes.parse([fn.decl.args, fn.decl.returns], this.#storedLookup);
     if (args === undefined || returns === undefined) { throw new Error(`${name}: its signature did not parse`); }
-    const argsSchema = args.toValueSchema({ scope, includeDocs: 'all', unknownKeys: 'refuse' });
-    const signature: FnSignature = {
-      fn: name,
-      args,
-      returns,
-      argsSchema,
-      returnsSchema: returns.toValueSchema({ scope, includeDocs: 'all' }),
-      argsJsonSchema: z.toJSONSchema(argsSchema, { unrepresentable: 'any' }),
-    };
+    const signature = fnSignature(name, args, returns, scope);
     this.#signatures.set(name, { version: fn.version, signature });
     return signature;
   }
@@ -964,8 +957,9 @@ export class StoreCatalog implements Catalog {
       return [`the type is invalid: ${messageOf(error)}`];
     }
     if (parsed.missing.length > 0) { return parsed.missing.map((name) => `the type refers to the unknown type ${name}`); }
-    const shape = parsed.type.toValueSchema({ scope: parsed.scope, unknownKeys: 'refuse' }).safeParse(value);
-    if (!shape.success) { return shape.error.issues.map((issue) => (issue.path.length > 0 ? `${issue.path.join('.')}: ${issue.message}` : issue.message)); }
+    // the value as its caller will keep it: nothing repaired (a record sent as a string of its JSON is no record)
+    const shape = ginValueCheck(parsed.type, { scope: parsed.scope, unknownKeys: 'refuse' }).render(LENIENT).parse(value, { inPlace: false, repair: false });
+    if (!shape.ok) { return shape.issues.map((issue) => (issue.codePath.length === 0 ? issue.message : `${dottedPath(issue.codePath)}: ${issue.message}`)); }
     try {
       parsed.type.parse(value);
       return [];

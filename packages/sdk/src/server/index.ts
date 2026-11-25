@@ -180,8 +180,8 @@ export {
   type HarnessAi, type HarnessMetadata, type HarnessProviderConfig, type ModelLink,
 } from './llm.ts';
 export {
-  LlmWire, UNSENDABLE_CONTENT, messageFromWire, requestFromWire, isObjectSchema, descriptorsOf, applyDescriptors, usageToWire, usageFromWire, chunkToWire, ChunkWriter, ChunkReader,
-  chunkFromWire, responseToWire, decisionInputToWire, decisionInputFromWire, type LlmWireOptions, type LlmDescriptors,
+  LlmWire, UNSENDABLE_CONTENT, messageFromWire, requestFromWire, schemaFromWire, lenientJson, plannedOf, isObjectSchema, AnswerDecoder, usageToWire, usageFromWire, chunkToWire,
+  ChunkWriter, ChunkReader, chunkFromWire, responseToWire, decisionInputToWire, decisionInputFromWire, type LlmWireOptions,
 } from './llm-wire.ts';
 export { ProviderServer, providerErrorKind, type ProviderServerParts } from './providers.ts';
 export { NodeFiles, fileUri, uriInstance, mimeOf, type FilesFactory, type FilesScope } from './files.ts';

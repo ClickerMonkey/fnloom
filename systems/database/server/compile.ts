@@ -8,7 +8,7 @@ import {
   FieldRefExpr, SelectQuery, asFieldType, autoPaginate, canAutoPaginate, drillDown, parseQueryRequest,
   type FieldTypeDef, type ParamInfo, type Query, type QueryDef, type QueryEngine, type SelectDef, type SqlParamValue,
 } from '@aeye/query';
-import { GinTypeDef, type ColumnKind, type Json, type ResultColumn, type ResultSort } from '@harness/core';
+import { checkGinValue, GinTypeDef, type ColumnKind, type Json, type ResultColumn, type ResultSort } from '@harness/core';
 import type { Dialect } from '@aeye/query';
 import type { SortArg } from '../shared/shapes.ts';
 import { enumValuesOf } from './types.ts';
@@ -231,8 +231,8 @@ export function argProblems(type: GinTypeDef, args: Json): string[] {
   const missing = missingArgs(type, args);
   if (missing.length > 0) { return missing.map((name) => `${name} is required: give a value for it.`); }
   const parsed = ARGS_REGISTRY.parse(type);
-  const shape = parsed.toValueSchema({ unknownKeys: 'refuse' }).safeParse(args);
-  if (!shape.success) { return shape.error.issues.map((issue) => (issue.path.length > 0 ? `${issue.path.join('.')}: ${issue.message}` : issue.message)); }
+  const shape = checkGinValue(parsed, args, { unknownKeys: 'refuse' });
+  if (!shape.ok) { return shape.problems.map((problem) => (problem.path === '' ? problem.message : `${problem.path}: ${problem.message}`)); }
   try {
     parsed.parse(args);
     return [];
