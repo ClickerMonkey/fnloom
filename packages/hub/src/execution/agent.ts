@@ -519,7 +519,9 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
           if (event.success) repaired.set(event.toolCallId, repairsOfFields(event.tool.name, event.fields));
           break;
         case 'toolError':
-          // core answered it (the tool reply is in the conversation already); the hub records it as a run
+          // core answered it (the tool reply is in the conversation already); the hub records it as a run. What was
+          // repaired in it goes with it: a retry may reuse the call id, and its own repairs (if any) come again.
+          if (event.failure instanceof ToolInputError) repaired.delete(event.toolCallId);
           if (event.failure instanceof ToolInputError) refusedCalls.push({ toolCallId: event.toolCallId, tool: toolNameOf(event.tool, event.failure.tool), error: event.error, ...(event.rawArgs === undefined ? {} : { rawArgs: event.rawArgs }) });
           break;
       }

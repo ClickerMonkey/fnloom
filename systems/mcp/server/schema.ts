@@ -45,9 +45,10 @@ export function ginOfJsonSchema(schema: Json, options: { readonly object: boolea
     if (report.unsupported.length > 0) { return fallback(`the schema uses what can't be read: ${[...new Set(report.unsupported)].join(', ')}`); }
     const kind = rootKind(read.root, read.defs);
     if (options.object && kind !== 'object' && kind !== 'record') { return fallback(`the schema is a ${kind}, not an object`); }
-    // a bare `{ "type": "object" }` reads as a record of any JSON: as args it is an object of no declared fields
+    // a bare `{ "type": "object" }` (or one with `additionalProperties: true` and no properties) is any object: a
+    // record of any JSON, so the tool gets whatever keys it is called with (an empty obj would refuse every key)
     const open = read.root instanceof RecordType && read.root.key === undefined && read.root.value instanceof AnyType;
-    const type = open ? g.obj({}) : ginOfA(read.root, read.defs);
+    const type = open ? g.record(json()) : ginOfA(read.root, read.defs);
     return { type, def: wireType(type) };
   } catch (error) {
     return fallback(reasonOf(error));
