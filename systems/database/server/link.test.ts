@@ -185,6 +185,18 @@ describe('the database system over the link', () => {
     expect(await hub.run('database/main.orders_by_status', { limit: 1 }, { kind: 'database/query', payload })).toMatchObject({ status: 'invalid-input' });
   });
 
+  it('keeps a query in a database of more than five tables (iteration 4: every draft past five read as prose)', async () => {
+    dir = shopFile().dir;
+    const db = new BetterSqlite3(join(dir, 'shop.db'));
+    for (const table of ['accounts', 'bills', 'chores', 'meals']) { db.exec(`CREATE TABLE ${table} (id INTEGER PRIMARY KEY, name TEXT NOT NULL)`); }
+    db.close();
+    await start();
+    expect((done(await hub.run('database/databases', {})) as Array<{ tables: string[] }>)[0]?.tables.length).toBeGreaterThan(5);
+    const saved = await keep(ORDERS_BY_STATUS, { args: { status: 'paid' } });
+    expect(saved.fn).toMatchObject({ name: 'database/main.orders_by_status', version: 1, how: 'created' });
+    expect(JSON.stringify(hub.forwards.map((forward) => forward.request.messages))).not.toContain('prose query');
+  });
+
   it('drills into a saved grouped read: its result says so, and drill_down reads the rows behind one group as the person', async () => {
     dir = shopFile().dir;
     await start();

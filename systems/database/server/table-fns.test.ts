@@ -91,4 +91,18 @@ describe('generated table fns', () => {
     expect(refused).toContain('can only be read');
     expect(refused).toContain('rows can\'t be added');
   });
+  it('generates fns in a database of more than five tables (iteration 4: every query read as prose past five)', async () => {
+    const dir = testFolder('table-fns-many');
+    const db = new BetterSqlite3(join(dir, 'shop.db'));
+    db.exec(PROJECTS_SQL);
+    for (const table of ['accounts', 'bills', 'chores', 'meals', 'monthly_budget']) {
+      db.exec(`CREATE TABLE ${table} (id INTEGER PRIMARY KEY, name TEXT NOT NULL, amount REAL)`);
+    }
+    db.close();
+    served = await serveDatabase({ dir, config: shopConfig({ label: 'Household' }) });
+    const { hub } = served;
+    const made = TableFnsGenerated.parse(done(await hub.run('database/table_fns_generate', { table: 'monthly_budget', names: ['create', 'update', 'remove', 'selectPage'] })));
+    expect(made.fns.map((fn) => fn.status)).toEqual(['created', 'created', 'created', 'created']);
+    expect(done(await hub.run('database/run_query', { fn: 'database/main.monthly_budget_selectPage', args: {} }))).toMatchObject({ result: { total: 0 } });
+  });
 });
