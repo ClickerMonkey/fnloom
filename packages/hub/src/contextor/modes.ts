@@ -7,7 +7,7 @@
  * mode speaks the text protocol instead: no tools at all, `<run fn="…">{…}</run>` blocks in its answer.
  */
 import type { Registry } from '@aeye/gin';
-import { a, deferEncode, LENIENT, ObjectType, type AnySchema, type Bindable, type Bundle } from '@aeye/schema';
+import { a, deferEncode, LENIENT, ObjectType, Schema, type AnySchema, type Bindable, type Bundle, type Compiler, type Node, type Printer } from '@aeye/schema';
 import { hub, type AnyFnRef } from '@harness/sdk';
 import {
   ginBundle, HarnessGrammar, InstanceName, Json, JsonObject, modelFnName, modelFnNames, RULE_ONLY_NAMES, SYSTEM_NAME_PATTERN, type FnNameSpelling, type HarnessGrammarArgs, type ModelFnNames, type StaticToolFns, messageOf, problemLine, QualifiedName, STATIC_TOOLS, SystemName, type Detail, type FnBlock, type FnExample, type InputProblem, type InvalidInput, type StaticMode, type StaticTool,
@@ -180,8 +180,46 @@ export function staticToolOf(name: keyof typeof STATIC_HUB_FNS, brief = false, n
   return contractTool(name, ref, def, brief ? STATIC_TOOL_BRIEF[name] : def.description, names);
 }
 
+/** A JSON object written as JSON text: decoded to the object when it reads as one, else kept as the text (`#run` says what is wrong). */
+const OBJECT_TEXT = a.codec(a.string(), {
+  decode: (text: string): unknown => {
+    try {
+      const value: unknown = JSON.parse(text);
+      return typeof value === 'object' && value !== null && !Array.isArray(value) ? value : text;
+    } catch {
+      return text;
+    }
+  },
+  encode: (value: unknown): string => (typeof value === 'string' ? value : JSON.stringify(value)),
+});
+/** A JSON object as an open object. */
+const OPEN_OBJECT = a.record(a.json());
+
+/**
+ * `run`'s args for a fn: one JSON object. Where the dialect writes records as `[{key, value}]` pairs (OpenAI strict,
+ * Anthropic strict, Gemini's OpenAPI subset), an open object would be pairs of JSON text, which models write badly, so
+ * the object goes as ONE string of JSON text (decoded when it parses; a text that doesn't is left for `#run` to say so);
+ * elsewhere a plain open object.
+ */
+class RunArgsType extends Schema<unknown> {
+  readonly kind = 'codec' as const;
+  children(): AnySchema[] { return [OBJECT_TEXT, OPEN_OBJECT]; }
+  print(p: Printer): string { return p.print(OPEN_OBJECT); }
+  compile(c: Compiler): Node {
+    const inner = c.compile(c.profile.records === 'pairs' ? OBJECT_TEXT : OPEN_OBJECT);
+    return c.node({
+      deps: [inner],
+      emit: () => inner.json(),
+      run: (value, cx) => inner.run(value, cx),
+      encode: (value, stats) => inner.encode(value, stats),
+    });
+  }
+}
+
 /** A run call's args for a fn whose args the prompt doesn't decode: any JSON object, checked hub-side (`#run`). */
-const ANY_ARGS = a.record(a.json()).describe('Its args, as its card shows them: one JSON object.');
+const ANY_ARGS = new RunArgsType().describe((view) => (view.records === 'pairs'
+  ? 'Its args, as its card shows them: one JSON object, written as a string of JSON text.'
+  : 'Its args, as its card shows them: one JSON object.'));
 
 /** The registry the static tools are made in (the hub contract's). */
 const STATIC_REGISTRY = (): Registry => STATIC_HUB_FNS.inspect.ref.args.registry;
@@ -408,9 +446,13 @@ export class StaticChatMode implements ChatMode {
    * A run of a fn by name: one of the toolset's own, or any fn the session may use, its args checked first. `decoded`:
    * a native `run` whose args core decoded and checked with the fn's own schema (the name is the qualified name then);
    * otherwise the args are as the model wrote them (a `<run>` block, a fn the prompt doesn't show), read back and
-   * checked here with the same check, told in `@aeye/schema`'s words.
+   * checked here with the same check, told in `@aeye/schema`'s words. Args written as one string of JSON text (`run` on
+   * a dialect of pairs) are parsed first; text that doesn't parse is the model's slip, told as such.
    */
-  async #run(name: string, args: Json, rendered: RenderedIteration, scope: CallScope, on?: InstanceName, decoded = false): Promise<CallPlan> {
+  async #run(name: string, given: Json, rendered: RenderedIteration, scope: CallScope, on?: InstanceName, decoded = false): Promise<CallPlan> {
+    // args the model wrote as JSON text (`run` on a dialect of pairs, for a fn the prompt doesn't decode) are read here
+    const text = decoded ? undefined : argsText(given);
+    const args = text === undefined || 'problem' in text ? given : text.args;
     const own = rendered.fns.get(name) ?? [...rendered.fns.values()].find((fn) => fn === name);
     if (own !== undefined) return { type: 'run', fn: own, args: decoded ? args : await readArgs(args, own, rendered, this.#deps.views), ...(on === undefined ? {} : { on }) };
     // the name as the model wrote it (its model name; a qualified name is tolerated), read back through the registry
@@ -426,6 +468,9 @@ export class StaticChatMode implements ChatMode {
       return invalid(qualified.success ? qualified.data : undefined, 'schema', [{ path: 'fn', message: `no fn named ${name} can run here` }], `There is no fn ${name} you can run here. ${hint}`);
     }
     if (decoded) return { type: 'run', fn: view.record.name, args, ...(on === undefined ? {} : { on }) };
+    if (text !== undefined && 'problem' in text) {
+      return invalid(view.record.name, 'json', [{ path: 'args', message: text.problem }], `The args of that ${view.record.name} run are not JSON (${text.problem}). Write them as one JSON object.\n\n${fnCard(view, 'full')}`, { raw: text.raw });
+    }
     const read = rendered.names.read(args, view.record.decl.args);
     // the fn's own check: an object or list sent as a string holding its JSON fits once read as that JSON
     const checked = view.signature.check(read);
@@ -443,6 +488,19 @@ export class StaticChatMode implements ChatMode {
       this.#deps.log.warn('contextor.near-failed', { name, error: messageOf(error) });
       return [];
     }
+  }
+}
+
+/**
+ * A run's args written as JSON text (a string where the args go): the JSON value it holds, or what is wrong with it.
+ * Args that aren't a string are none of this (undefined).
+ */
+function argsText(args: Json): { args: Json } | { problem: string; raw: string } | undefined {
+  if (typeof args !== 'string') return undefined;
+  try {
+    return { args: Json.parse(JSON.parse(args)) };
+  } catch (error) {
+    return { problem: error instanceof Error ? error.message : String(error), raw: args };
   }
 }
 

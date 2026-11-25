@@ -148,9 +148,12 @@ markers, "did you mean").
   from (`hub/src/contextor/examples.ts`):
   - a tool's own examples (a fn's native tool, each static tool, `run`'s): deferred values of that tool's args;
   - static mode's fn cards (in the prompt, a result's exposed cards, a suggestion, a page of `hub/fns_examples`):
-    `run`'s args for the fn, a deferred value of `run` written whole and its `args` picked (on a strict dialect a fn
-    `run` doesn't decode takes pairs of JSON text, one it does its own args); the text protocol's: the code shape with
-    the prompt's fn names, as the hub reads a `<run>` block back;
+    `run`'s args for the fn, a deferred value of that part of `run` (`path: 'args'`) with its fn-name fields as the
+    model's tools spell them: where the dialect writes records as pairs (OpenAI strict, Anthropic strict, Gemini's
+    OpenAPI subset) `run` takes args as ONE string of JSON text, elsewhere as an open object; a fn the prompt decodes
+    is read back by core with its own args, any other by the hub (`StaticChatMode#run`: the text parsed, its fn names
+    read back, the fn's own check); the text protocol's: the code shape with the prompt's fn names, as the hub reads a
+    `<run>` block back;
   - tools mode, a fn that isn't a tool of this request (a suggestion, a page of `hub/fns_examples`): as its tool would
     take them once loaded, planned alone for the model, kept from the speller (`verbatim`);
   - a hub fn's own output (static `inspect`'s card, kept on its run) and anything outside a prompt (an MCP, the web):

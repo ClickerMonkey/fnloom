@@ -10,10 +10,11 @@
  *   the request for its model, so the example is the shape of the schema sent with it, plan adjustments included
  *   (optionals as `null` past Anthropic's budget, a tool behind the dispatcher).
  * - **Static mode's fn cards** (in the prompt, a result's exposed cards, a suggestion, a page of `hub/fns_examples`):
- *   the fn is run through `run`, so its example is `run`'s `args` for that fn, a deferred value of `run` written whole
- *   and its `args` picked (`pick`): on a strict dialect the args of a fn the prompt doesn't decode are pairs of JSON
- *   text, of one it does its own args. The text protocol has no tools: there the hub reads a block's args back itself,
- *   in the code shape with its fn names as the model spells them (`LENIENT` with the prompt's names).
+ *   the fn is run through `run`, so its example is `run`'s `args` for that fn, a deferred value of that part of `run`
+ *   (`path`), its fn names as the model's tools spell them: on a dialect of pairs (OpenAI strict, Anthropic strict,
+ *   Gemini's OpenAPI subset) one string of JSON text, elsewhere an open object. The text protocol has no tools: there
+ *   the hub reads a block's args back itself, in the code shape with its fn names as the model spells them (`LENIENT`
+ *   with the prompt's names).
  * - **Tools mode, a fn that isn't a tool here** (a suggestion, a page of `hub/fns_examples`): as its tool takes them
  *   once loaded, the fn's args planned alone for the model (`profileFor(model)`), kept from the fn-name speller as a
  *   value already written (`verbatim`).
@@ -110,18 +111,21 @@ export function loneToolExamples(names: ModelFnNames, target: ModelProfile, prot
 }
 
 /**
- * Static mode's cards with native tools: a fn's example is `run`'s args for it, a deferred value of `run` (`{ fn, args }`
- * written whole through the request's plan, its `args` picked). Its fallback, before a plan or where the request has no
- * `run`, is the code shape with the prompt's fn names.
+ * Static mode's cards with native tools: a fn's example is `run`'s args for it, a deferred value of `run`'s `args`
+ * (`path`) written through the request's plan: one string of JSON text on a dialect of pairs, an open object elsewhere.
+ * Its fn-name fields are spelled as the model's tools spell them (the code shape of the fn's args bound with the
+ * prompt's names: `g.fnName()` fields only, so `run` reads every one back, through the fn's own args where the prompt
+ * decodes them, hub-side by `ModelFnNames.read` where it doesn't; other text is left as it is). Its fallback, before a
+ * plan or where the request has no `run`, is that same code shape as JSON.
  */
 export function runExamples(names: ModelFnNames, protect = true): ExampleWriter {
-  const fallback = (value: unknown): string => JSON.stringify(value);
-  const run = (fn: string, args: Json, plain: unknown): string => (protect
-    ? deferEncode({ tool: 'run', value: { fn, args }, pick: 'args', fallback: fallback(plain) })
-    : fallback(plain));
+  const run = (args: unknown): string => {
+    const plain = JSON.stringify(args);
+    return protect ? deferEncode({ tool: 'run', path: 'args', value: args, fallback: plain }) : plain;
+  };
   return {
-    args: (view, args) => run(view.record.name, args, named(names, args, view.record)),
-    contract: (ref, args) => run(ref.name, args, writeAlone(contractArgs(ref, names), ModelProfile.of(LENIENT), args, () => args)),
+    args: (view, args) => run(writeAlone(view.signature.argsFor(names), ModelProfile.of(LENIENT), args, () => named(names, args, view.record))),
+    contract: (ref, args) => run(writeAlone(contractArgs(ref, names), ModelProfile.of(LENIENT), args, () => args)),
     result: (record, result) => (protect ? verbatim(names.value(result, record.decl.returns)) : JSON.stringify(names.value(result, record.decl.returns))),
   };
 }

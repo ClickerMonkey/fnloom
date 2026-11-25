@@ -1,10 +1,11 @@
-import { LENIENT } from '@aeye/schema';
-import { InstanceName, mintId, QualifiedName, SystemName, type Json } from '@harness/core';
+import { LENIENT, profileFor, type ModelLike } from '@aeye/schema';
+import { fn, g } from '@harness/sdk';
+import { InstanceName, Json, JsonObject, mintId, QualifiedName, SystemName } from '@harness/core';
 import { openScope } from '../access/index.ts';
 import { describe, expect, it } from 'vitest';
 import { contextorEnv } from './env.ts';
 import type { ContextorDeps, FnView, RenderedIteration, Selection } from './index.ts';
-import { fleetArgs, fnModeTool, machinesOf, modeNames, StaticChatMode, ToolsChatMode } from './modes.ts';
+import { fleetArgs, fnModeTool, machinesOf, modeNames, ownArgs, runTool, StaticChatMode, ToolsChatMode } from './modes.ts';
 import { contextorRig } from './testing.ts';
 
 const READ = QualifiedName.parse('fs/read');
@@ -101,5 +102,60 @@ describe('fleet choices in the chat modes', () => {
     const rendered: RenderedIteration = { tools: [], systemEnd: '', tail: undefined, protocol: 'native', fns: new Map(), fleet: new Set(), names: modeNames('static') };
     const plan = await mode.interpret({ type: 'tool', id: 'c1', name: 'run', args: { fn: 'fs/read', args: { path: 'a' }, on: 'laptop' } }, rendered, { session: undefined, access: openScope(mintId('actor')) });
     expect(plan).toEqual({ type: 'run', fn: READ, args: { path: 'a' }, on: LAPTOP });
+  });
+});
+
+describe('static run of a fn the prompt doesn\'t decode', () => {
+  const PICK = QualifiedName.parse('fs/pick');
+  const OPENAI = { id: 'openai/gpt-5.1', provider: 'openrouter', capabilities: ['chat', 'tools', 'toolsStrict', 'structured', 'json'] } as const;
+  const LLAMA = { id: 'meta-llama/llama-3.3-70b-instruct', provider: 'openrouter', capabilities: ['chat', 'tools', 'json'] } as const;
+
+  /** A rig with fs/read and fs/pick (a fn-name field), static mode, and `run` as the prompt sends it (neither fn decoded). */
+  async function staticRig() {
+    const { deps } = await rig([]);
+    const catalog = deps.catalog as Awaited<ReturnType<typeof contextorRig>>['catalog'];
+    catalog.addFn(PICK, fn({ description: 'Picks a fn.', args: g.obj({ target: g.fnName(), path: g.text() }), returns: g.text() }));
+    const mode = new StaticChatMode({ type: 'static', protocol: 'native', placement: 'system-end', loadDetail: 'signature' }, deps);
+    const names = modeNames('static', await catalog.modelNames());
+    const rendered: RenderedIteration = { tools: [], systemEnd: '', tail: undefined, protocol: 'native', fns: new Map(), fleet: new Set(), names, decoded: new Set(ownArgs().keys()) };
+    const run = runTool(false, names);
+    const scope = { session: undefined, access: openScope(mintId('actor')) };
+    /** A `run` call as the model sends it on this model's dialect, decoded as core decodes it, then interpreted. */
+    const sent = async (model: ModelLike, wire: Record<string, unknown>) => {
+      const entry = profileFor(model).request([{ kind: 'tool', name: 'run', schema: run.schema.bind() }]).get('run');
+      const decoded = entry.parse(wire, { inPlace: false, repair: false });
+      if (!decoded.ok) throw new Error(decoded.message);
+      return mode.interpret({ type: 'tool', id: 'c1', name: 'run', args: Json.parse(decoded.value) }, rendered, scope);
+    };
+    return { mode, run, sent, rendered, scope };
+  }
+
+  it('takes the args as one string of JSON text where records are pairs, a plain open object elsewhere', async () => {
+    const { run } = await staticRig();
+    const argsOf = (model: ModelLike): unknown => JsonObject.parse(JsonObject.parse(profileFor(model).request([{ kind: 'tool', name: 'run', schema: run.schema.bind() }]).get('run').rendered.jsonSchema['properties'])['args']);
+    // (nullable: an absent args is `null` on OpenAI strict, and runs with none)
+    expect(argsOf(OPENAI)).toMatchObject({ anyOf: [{ type: 'string' }, { type: 'null' }] });
+    expect(JSON.stringify(argsOf(OPENAI))).toContain('written as a string of JSON text');
+    expect(argsOf(LLAMA)).toMatchObject({ type: 'object' });
+    expect(JSON.stringify(argsOf(LLAMA))).not.toContain('JSON text');
+  });
+
+  it('reads JSON-text args back, checks them against the fn\'s own args, and reads its fn-name fields from model names', async () => {
+    const { sent } = await staticRig();
+    expect(await sent(OPENAI, { fn: 'fs__pick', args: '{"target":"fs__read","path":"a"}', on: null })).toEqual({ type: 'run', fn: PICK, args: { target: READ, path: 'a' } });
+    // the open object of a lenient dialect reads the same way
+    expect(await sent(LLAMA, { fn: 'fs__pick', args: { target: 'fs__read', path: 'a' } })).toEqual({ type: 'run', fn: PICK, args: { target: READ, path: 'a' } });
+  });
+
+  it('answers JSON text that doesn\'t parse, and args that don\'t fit, as the model\'s slip (invalid input), never an error', async () => {
+    const { sent } = await staticRig();
+    const broken = await sent(OPENAI, { fn: 'fs__read', args: '{"path": "a"', on: null });
+    expect(broken).toMatchObject({ type: 'invalid', fn: READ, invalid: { source: 'json', problems: [{ path: 'args' }], raw: '{"path": "a"' } });
+    expect(broken.type === 'invalid' ? broken.reply : '').toMatch(/^The args of that fs\/read run are not JSON \(/);
+    const wrong = await sent(OPENAI, { fn: 'fs__read', args: '{"path": 3}', on: null });
+    expect(wrong).toMatchObject({ type: 'invalid', fn: READ, invalid: { source: 'schema' }, args: { path: 3 } });
+    expect(wrong.type === 'invalid' ? wrong.reply : '').toContain('The args don\'t fit fs/read');
+    // JSON text of something other than an object is checked as it reads: not an object
+    expect(await sent(OPENAI, { fn: 'fs__read', args: '[1]', on: null })).toMatchObject({ type: 'invalid', fn: READ, invalid: { source: 'schema' } });
   });
 });

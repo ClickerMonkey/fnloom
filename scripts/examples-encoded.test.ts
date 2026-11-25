@@ -159,6 +159,7 @@ describe('every example a model is shown reads back through the schema sent with
       for (const example of view.record.decl.examples ?? []) {
         // the card shows run's args for the fn as this plan writes them
         const shown: unknown = JSON.parse(fillDeferred(writer.args(view, example.args), plan));
+        if ((run.profile.records === 'pairs') !== (typeof shown === 'string')) { cards.push(`${label(model)} ${view.record.name}: args written as ${JSON.stringify(shown)}`); continue; }
         const sent = { fn: names.static.name(view.record.name), args: shown, ...(run.profile.optional === 'null' ? { on: null } : {}) };
         const back = run.parse(sent, { inPlace: false, repair: false });
         if (!back.ok) { cards.push(`${label(model)} ${view.record.name}: ${JSON.stringify(sent)}\n${back.message}`); continue; }
@@ -167,6 +168,41 @@ describe('every example a model is shown reads back through the schema sent with
       }
     }
     expect(cards).toEqual([]);
+  });
+
+  it.each(DIALECT_MODELS.map((model) => [label(model), model] as const))('static mode, %s: run\'s examples for fns the prompt doesn\'t decode, read back hub-side', async (_name, model) => {
+    const { views, names } = await everything();
+    // only the toolset's own fns are decoded: every other fn's args go as run's fallback, read back by the hub
+    const tools: ModeTool[] = [...(['find', 'find_ctx', 'inspect', 'load', 'unload'] as const).map((name) => staticToolOf(name, false, names.static)), runTool(false, names.static, ownArgs())];
+    const plan = await planned(tools, model);
+    // run's own example (hub/fns_examples, not decoded here) reads back through the plan as itself
+    const { problems, checked } = toolProblems(tools, plan, label(model));
+    expect(problems).toEqual([]);
+    expect(checked).toBe(tools.length);
+    const pairs = profileFor(model).tool.records === 'pairs';
+    const writer = promptExamples('static', names.static, model);
+    const run = entryOf(plan, 'run');
+    const own = ownArgs();
+    const cards: string[] = [];
+    let spelled = 0;
+    for (const view of views.filter((one) => !REPLACED_BY_STATIC.has(one.record.name) && !own.has(one.record.name))) {
+      for (const example of view.record.decl.examples ?? []) {
+        const shown: unknown = JSON.parse(fillDeferred(writer.args(view, example.args), plan));
+        // one string of JSON text where records would be pairs, an open object elsewhere
+        if (pairs !== (typeof shown === 'string')) { cards.push(`${label(model)} ${view.record.name}: args written as ${JSON.stringify(shown)}`); continue; }
+        const sent = { fn: names.static.name(view.record.name), args: shown, ...(run.profile.optional === 'null' ? { on: null } : {}) };
+        const back = run.parse(sent, { inPlace: false, repair: false });
+        if (!back.ok) { cards.push(`${label(model)} ${view.record.name}: ${JSON.stringify(sent)}\n${back.message}`); continue; }
+        const value = JsonObject.parse(back.value);
+        // as the hub reads them (`#run`): its fn-name fields from the model's names
+        const args = names.static.read(JsonObject.parse(value['args']), view.record.decl.args);
+        if (view.record.name === 'rich/plan' && JSON.stringify(value['args']).includes('"fs__read"')) spelled += 1;
+        if (value['fn'] !== view.record.name || !same(args, example.args)) cards.push(`${label(model)} ${view.record.name}: ${JSON.stringify(example.args)} reads back as ${JSON.stringify(args)}`);
+      }
+    }
+    expect(cards).toEqual([]);
+    // fn names inside are the model's spelling, not the qualified name
+    expect(spelled).toBe(1);
   });
 
   it.each(DIALECT_MODELS.map((model) => [label(model), model] as const))('a fn that isn\'t a tool here, %s: its args as its tool would take them once loaded', async (_name, model) => {
