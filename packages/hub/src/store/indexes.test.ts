@@ -127,6 +127,17 @@ describe('vector index', () => {
     expect((await store.vectors.nearest(TEST_EMBEDDER, [1, 0, 0], 3, { kinds, prefix: 'x' })).map((h) => h.key)).toEqual(['x', 'x-other-0', 'x-other-1']);
   });
 
+  // regression (iteration 4): with long keys in the table, sqlite-vec refused any key range inside a KNN ("Could not
+  // filter metadata fields"), so every prefix search (memory recall) failed
+  it('keeps to a prefix when the table holds long keys', async () => {
+    const long = Array.from({ length: 40 }, (_, i) => ({ kind: 'context' as const, key: `fs/authoring/${'deep/'.repeat(60)}part-${i}`, vector: [1, 0.01 * (i + 1), 0] }));
+    await store.vectors.upsert(TEST_EMBEDDER, [...long, { kind: 'context', key: 'memory/home-area-1', vector: [0.2, 1, 0] }, { kind: 'context', key: 'memory/reading-goal-2', vector: [0, 1, 1] }]);
+    const hits = await store.vectors.nearest(TEST_EMBEDDER, [1, 0, 0], 3, { kinds: ['context'], prefix: 'memory/' });
+    expect(hits.map((h) => h.key)).toEqual(['memory/home-area-1', 'memory/reading-goal-2']);
+    expect(await store.vectors.nearest(TEST_EMBEDDER, [1, 0, 0], 3, { kinds: ['context'], prefix: 'nothing/' })).toEqual([]);
+    expect((await store.vectors.nearest(TEST_EMBEDDER, [1, 0, 0], 3, { kinds: ['context'], prefix: 'memory/', excludeKeys: ['memory/home-area-1'] })).map((h) => h.key)).toEqual(['memory/reading-goal-2']);
+  });
+
   it('leaves excluded keys out inside the search, of any kind, so they never use up the limit', async () => {
     // the nearest two are x and xy; excluded, the next two come in their place
     expect((await store.vectors.nearest(TEST_EMBEDDER, [1, 0.1, 0], 2, { kinds, excludeKeys: ['x', 'xy'] })).map((h) => h.key)).toEqual(['y', 'minus-x']);

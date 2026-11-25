@@ -199,14 +199,23 @@ export class SqliteVectorIndex implements VectorIndex {
           with listed(id) as (values ${sql.join(ids.map((id) => sql`(${id})`))})
           select v.kind, v.key, vec_distance_cosine(v.embedding, ${vectorBlob(vector)}) as distance
           from listed cross join ${sql.table(table)} as v on v.id = listed.id
-          where true ${byKind} ${byPrefix} ${byExclude('v.key')}
+          where true ${byKind} ${byExclude('v.key')}
           order by distance limit ${k}`.execute(this.#scope.db);
-      return result.rows.map((row) => Nearest.parse(row));
+      const rows = result.rows.map((row) => Nearest.parse(row));
+      // the range is checked here for listed ids (a range on the vec0 table fails, see below)
+      return ids === undefined || range === undefined ? rows : rows.filter((row) => row.key >= range.from && (range.below === undefined || row.key < range.below));
     };
-    // a long `within` list is searched in pieces; each piece's nearest are the database's, the best of them are kept
-    const found = within === undefined
+    // A key range inside the KNN fails once the table holds long keys (sqlite-vec 0.1.9: "Could not filter metadata
+    // fields" for any `<`/`>` on a text metadata column, while `=` works), so a prefix without `within` lists its ids with
+    // a plain query (which can) and measures those directly, like `within`.
+    const listed = within !== undefined ? within.map((item) => compositeKey(item.kind, item.key))
+      : range === undefined ? undefined
+      : (await sql<{ id: string }>`select id from ${sql.table(table)} where key >= ${range.from} ${range.below === undefined ? sql`` : sql`and key < ${range.below}`} ${byKind}`.execute(this.#scope.db)).rows.map((row) => row.id);
+    if (listed?.length === 0) return [];
+    // a long list is searched in pieces; each piece's nearest are the database's, the best of them are kept
+    const found = listed === undefined
       ? await search(undefined)
-      : (await Promise.all(chunks(within.map((item) => compositeKey(item.kind, item.key)), WITHIN_CHUNK).map(search))).flat().sort((a, b) => a.distance - b.distance).slice(0, k);
+      : (await Promise.all(chunks(listed, WITHIN_CHUNK).map(search))).flat().sort((a, b) => a.distance - b.distance).slice(0, k);
     return found.map((hit) => ({ kind: hit.kind, key: hit.key, score: similarity(hit.distance) }));
   }
 
