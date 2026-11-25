@@ -198,7 +198,7 @@ type MessagePart = {
   }[];
 } | {
   type: "loaded-for-you";
-  by: "llm" | "decision";
+  by: "llm" | "decision" | "recall";
   fns: {
     fn: `${string}/${string}`;
     label: string;

@@ -966,6 +966,16 @@ Before the LLM sees a user message, two things may add to it:
   is too weak a sign to put things in the prompt unasked. When the model fails, the score's picks are suggested, not
   loaded.
 
+  **Memory recall** is the one exception, whoever picks (iteration 4, docs/plans/iteration-4-2026-11-25.md): with each
+  message the hub brings the person's memories closest to it in meaning into the message as their text, in a
+  `<loaded_for_you>` block whose first line says they are memories (`by: 'recall'`): at most `HARNESS_RECALL_MEMORIES`
+  (3), each at or over `HARNESS_RECALL_THRESHOLD` (0.2, under the suggestion threshold: a memory is one short sentence,
+  and the request it bears on rarely restates it), each once a chat (it counts as suggested), only those the person
+  may see in this chat (a session memory only in its own chat). A memory is a few words about the person, so a wrong
+  one costs little and a missed one (something they must avoid) costs a lot: in iteration 3 a kept fact scored 0.24 to
+  0.27 to the later request it bore on, under the 0.3 threshold, and the model never searched for it. The text is in
+  the message, not the system prompt, so a model-written memory never lands in every later prompt (`guardReach`).
+
   The **fn and context search decisions** (who filters `hub/fns_search` and `hub/ctx_search` hits: the fn decision
   judges `fns_search`'s, the context decision `ctx_search`'s) take the same action. With load, either search in a chat
   also loads the best kept hits it may use, up to

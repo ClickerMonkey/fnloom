@@ -235,6 +235,8 @@ export const widgetAuthoring = authoringAgent<WidgetAuthoring, WidgetDraftInput>
   tools: [sourceTool],
   stages: { find: false },
   toolNames: { draft: 'propose', save: 'offer' },
+  // the offer keeps nothing: the person's Save does
+  savedLine: (result) => `Offered ${result.fn} to the person: nothing is saved until they press Save on its preview. Now answer in one line.`,
   draft: {
     description: 'the widget: name, description, title, the visual shown first, the others, a plan per arg, presets, and optional actions, drill and live.',
     schema: (session: Session) => session.state.read.schema.schema,

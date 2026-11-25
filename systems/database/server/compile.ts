@@ -52,11 +52,20 @@ function columnKindOf(def: FieldTypeDef | undefined): ColumnKind {
   }
 }
 
-/** Check a query's JSON against the engine: the compiled query, or why not. */
+/** What a refusal says when the parser read no query and named no error (never an empty list: that reads as clean). */
+export const NO_QUERY_PROBLEM = 'The query could not be read as a query, and the parser named no reason: check its `kind` and that every field it names is one the kind takes.';
+
+/**
+ * Check a query's JSON against the engine: the compiled query, or why not. A refusal always names a problem: the
+ * errors, else the parser's other notes, else `NO_QUERY_PROBLEM` (iteration 3: a draft with no query and no error read
+ * as "Clean." to the authoring agent, and its save then failed with no reason, again and again).
+ */
 export function compileQuery(engine: QueryEngine, json: unknown): CompiledQuery | Refusal {
   const parsed = parseQueryRequest(engine, { query: json });
   if (parsed.query === null || parsed.problems.hasErrors) {
-    return { problems: parsed.problems.list.filter((problem) => problem.severity === 'error').map((problem) => problem.message), report: parsed.report };
+    const errors = parsed.problems.list.filter((problem) => problem.severity === 'error').map((problem) => problem.message);
+    const notes = parsed.problems.list.map((problem) => problem.message);
+    return { problems: errors.length > 0 ? errors : notes.length > 0 ? notes : [NO_QUERY_PROBLEM], report: parsed.report };
   }
   const query = parsed.query;
   const def = query.toJSON();

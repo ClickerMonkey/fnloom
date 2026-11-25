@@ -52,8 +52,11 @@ export function fetchSettings(config: WebConfig, settings: WebSettings, render: 
   };
 }
 
-/** What a failed page read adds to its error: nothing from the page is confirmed, and what to do instead. */
-export const READ_FAILED_NOTE = 'The page was not read, so nothing it says is confirmed (a search snippet of it is not either): try the next result, or render: "always" for a page built by scripts.';
+/**
+ * What a failed page read adds to its error: nothing from the page is confirmed, and what to do instead. A refusal or a
+ * missing page is never helped by rendering (iteration 3: the note offered render: "always" after a 403).
+ */
+export const READ_FAILED_NOTE = 'The page was not read, so nothing it says is confirmed (a search snippet of it is not either). When the site refused it (401, 403, 406, 451) or has no such page (404, 410), don\'t read it again or render it: use the next result. Otherwise try the next result, or render: "always" for a page built by scripts.';
 
 /** What a page that read empty says. */
 export const READ_EMPTY_NOTE = 'The page read empty, so nothing it says is confirmed: it may be built by scripts (read it again with render: "always") or have no text; try the next result.';

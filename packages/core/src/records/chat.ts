@@ -118,10 +118,14 @@ export const INPUT_ANSWER_TAG = 'input-answer';
  * its imports, and the fns it brings, which joined the tools too). `by`: who picked them; each item's `why` is the
  * chooser's reason. The model reads it as `<loaded_for_you>`; the chat hides the part and shows the items as loaded
  * suggestions. Undoing the turn takes the fns out of the tools again.
+ *
+ * `by: 'recall'` is the hub's own memory recall (iteration 4, `chat/enrich.ts`): the person's memories whose meaning is
+ * closest to the message, at or over `HARNESS_RECALL_THRESHOLD`, brought in as their text (no fns), each once a chat,
+ * whatever picks suggestions. A memory is not otherwise in front of the model in a new chat.
  */
 export const LoadedForYouPart = z.object({
   type: z.literal('loaded-for-you'),
-  by: z.enum(['decision', 'llm']),
+  by: z.enum(['decision', 'llm', 'recall']),
   toolset: ChatModeType.optional(),
   fns: z.array(z.object({ fn: QualifiedName, label: z.string(), why: z.string().optional(), broughtBy: QualifiedName.optional() })),
   context: z.array(z.object({ context: QualifiedName, title: z.string().optional(), why: z.string().optional(), text: z.string(), fns: z.array(QualifiedName).optional() })),

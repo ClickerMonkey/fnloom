@@ -27,9 +27,14 @@ const SCENARIO_WORDS: readonly string[] = [
   'snacks?', 'mortgage', 'netflix', 'spouse', 'wife', 'husband', 'daughter', 'my son', 'kids?', 'dinosaurs?',
   'kroger', 'aldi', 'columbus', 'ohio', 'clintonville', 'alex parker', 'sara', 'emma', 'leo', 'linda',
   'expenses?', 'subscriptions? (?:to cancel|I pay)', 'diet',
+  // added in iteration 4 (2026-11-25): more of the cases' subjects and data
+  '(?<!third[- ])part(?:y|ies)', 'class party', 'neighbou?r', 'dogs?', 'favou?rite band', 'mom', 'thanksgiving', 'turkey',
+  'tacos?', 'pasta', 'mushrooms?', 'spicy', 'gym', 'peloton', '(?<![0-9])5k', 'jog(?:ging)?', 'fitness', 'shoes?', 'heating', 'dentist appointment',
+  'pwned', 'breach(?:es)?', 'photos? of the', 'classroom',
 ];
 
-const PATTERN = new RegExp(`\\b(?:${SCENARIO_WORDS.join('|')})\\b`, 'i');
+// whole words, also inside a snake_case or dotted name (iteration 4: `database/main.expenses_create` hid behind `\b`)
+const PATTERN = new RegExp(`(?<![A-Za-z])(?:${SCENARIO_WORDS.join('|')})(?![A-Za-z])`, 'i');
 
 /** Every file under a folder (or the file itself) whose name passes the test. */
 function files(path: string, keep: (name: string) => boolean): string[] {
@@ -51,6 +56,12 @@ const MODEL_FACING: readonly string[] = [
   ...files('packages/sdk/src/ctx.ts', source),
   ...files('packages/core/src/fn-facts.ts', source),
   ...files('packages/hub/src/chat/suggestions.ts', source),
+  // the lines the hub adds to messages and results (iteration 4: these were not read before)
+  ...files('packages/hub/src/chat/enrich.ts', source),
+  ...files('packages/hub/src/chat/announce.ts', source),
+  ...files('packages/hub/src/chat/cite-rule.ts', source),
+  ...files('packages/hub/src/contextor', source),
+  ...files('packages/hub/src/boot/hub-fns.ts', source),
   ...files('packages/hub/context', source),
   ...systems.flatMap((name) => [
     ...files(`systems/${name}/shared`, source),

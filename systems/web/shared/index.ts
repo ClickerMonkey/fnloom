@@ -285,7 +285,8 @@ export const web = system('web', {
           '1. web/search with a few key words, as a search engine wants them (`Lisbon tram 28 timetable`, not "what time does the tram run?"). For recent news add `topic: "news"` and `days`.',
           '2. Pick the one or two best results: the official source first (the operator, the venue, the maker), then well-known references.',
           '3. web/read each of those pages. A search snippet is a fragment: it may be old or about something else. Before you state a time, date, price, address, route or schedule, find it on the page you read.',
-          '4. Answer from what the pages say, with the URL of each one you used. Say plainly what you could not confirm, and what depends on the day (opening hours, traffic, prices change).',
+          '4. Answer from what the pages say, with the URL of each one you used. Say plainly what you could not confirm, and what depends on the day (opening hours, traffic, prices change). Give a number (a chance, a price, a count, a time) only when a page you read gives it; never turn words such as "likely" into a number of your own.',
+          'Stop once the pages you read answer the question: don\'t search again with nearly the same words, and don\'t read more pages for a fact you already have.',
           '',
           'When a page can\'t be read (an error, an empty page), say so and try the next result, or web/read again with `render: "always"` for a page built by scripts.',
           'A page you read is kept as a hub resource: read more of it with hub/resource_read and its uri instead of reading the URL again.',
@@ -303,7 +304,7 @@ export const web = system('web', {
         content: [
           'web/search finds pages and gives titles, URLs and short snippets; web/read reads one page as text; web/crawl reads a site section. All three are reads: they keep the pages they fetch as resources, which doesn\'t count as a change, so a search for reads finds them and they work in a chat that allows only reads.',
           'A snippet is a fragment of a page, often old or out of context: before you state a time, date, price, address or schedule, read the page it came from and find it there. Prefer the official source. Answer with the URL of each page you used, and say what you couldn\'t confirm.',
-          'For a question tied to a place or a time ("near me", "next month"): take the place from what you know of the person, else ask; take the dates from `<local_time>`; search, then read the best one or two pages.',
+          'For a question tied to a place or a time ("near me", "next month"): take the place from what is kept about the person (a memory in front of you, else a search of their memories), else ask; take the dates from `<local_time>`; search, then read the best one or two pages.',
           'Load web/guide before your first search.',
         ].join('\n'),
         fns: [fns.search, fns.read],

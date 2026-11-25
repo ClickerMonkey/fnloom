@@ -85,12 +85,15 @@ function textOf(content: unknown): string {
   return JSON.stringify(content);
 }
 
-/** Middle-cut a long text, keeping its start and end. */
+/**
+ * Middle-cut a long text, keeping its start and end. The mark says the cut is the diagnosis view's own (iteration 3: a
+ * diagnostician read a cut page as one the chat model never saw whole, and filed details it had read as invented).
+ */
 function cut(text: string, max: number): string {
   if (text.length <= max) { return text; }
   const head = Math.floor(max * 0.75);
   const tail = max - head;
-  return `${text.slice(0, head)}\n[… ${text.length - max} characters cut …]\n${text.slice(-tail)}`;
+  return `${text.slice(0, head)}\n[… ${text.length - max} characters cut from this view only: the model was shown them …]\n${text.slice(-tail)}`;
 }
 
 /**

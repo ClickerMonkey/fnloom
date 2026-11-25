@@ -1,6 +1,6 @@
-import { ChatModeConfig, IDS, QualifiedName, READ_TAG, SuggestDecision, SystemName, type ChatMessage, type HookDecl, type Session, type UserInfo } from '@harness/core';
+import { ChatModeConfig, IDS, QualifiedName, READ_TAG, SuggestDecision, SystemName, type ChatMessage, type ContextRecord, type HookDecl, type Session, type UserInfo } from '@harness/core';
 import { describe, expect, it } from 'vitest';
-import { hookTag, HubMessageEnricher, loadedFnsIn, LOADED_FOR_YOU_LINES, SUGGESTED_CONTEXT_LINES, SUGGESTED_FNS_LINES, suggestedAfter, suggestedIn } from './enrich.ts';
+import { hookTag, HubMessageEnricher, loadedFnsIn, LOADED_FOR_YOU_LINES, RECALLED_LINE, SUGGESTED_CONTEXT_LINES, SUGGESTED_FNS_LINES, suggestedAfter, suggestedIn } from './enrich.ts';
 import { hiddenMessage } from './turns.ts';
 import { chatWorld, CLIENT, gin } from './testing.ts';
 
@@ -55,6 +55,55 @@ describe('what the hub adds to a message', () => {
     expect(parts.map((p) => p.type === 'extra' ? p.extra : p.type)).toEqual(['local-time']);
     const { parts: plain } = await w.chat.enrich.enrich({ session: { ...w.session, contextor: { type: 'plain' } }, turn, text: 'read the readme', user: w.user });
     expect(plain.map((p) => p.type === 'extra' ? p.extra : p.type)).toEqual(['local-time', 'suggested-fns']);
+  });
+
+  it('recalls the person\'s memories closest to the message as their text, once a chat, only those they may see over the threshold (iteration 4)', async () => {
+    const w = await world();
+    const bo = IDS.actor.parse('act_bo');
+    const memory = (name: string, content: string, scope: Extract<NonNullable<ContextRecord['origin']>, { type: 'memory' }>['scope'], author = w.admin.id): ContextRecord => {
+      const record = w.catalog.addContext('memory', { name, description: name.replace(/-/g, ' '), content });
+      const kept: ContextRecord = { ...record, system: SystemName.parse('hub'), origin: { type: 'memory', author, scope } };
+      w.catalog.contexts.set(record.name, kept);
+      return kept;
+    };
+    const tea = memory('prefers-tea', 'Ada prefers tea to coffee.', { to: 'user', user: w.admin.id });
+    memory('bo-s-note', 'Bo keeps a note.', { to: 'user', user: bo }, bo);
+    memory('other-chat', 'Said in another chat.', { to: 'session', session: IDS.session.parse('ses_other') });
+    memory('far-off', 'Something else entirely.', { to: 'everyone' });
+    w.catalog.addContext('fs', { name: 'guide', description: 'How files work.', content: 'Files.' });
+    w.index.hits = [
+      { kind: 'context', key: 'memory/prefers-tea', rank: 1, similarity: 0.26, text: 'prefers tea' },
+      { kind: 'context', key: 'memory/bo-s-note', rank: 0.9, similarity: 0.5, text: 'note' },
+      { kind: 'context', key: 'memory/other-chat', rank: 0.8, similarity: 0.5, text: 'other' },
+      { kind: 'context', key: 'fs/guide', rank: 0.7, similarity: 0.5, text: 'guide' },
+      { kind: 'context', key: 'memory/far-off', rank: 0.6, similarity: 0.1, text: 'far' },
+    ];
+    const first = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, parts: [{ type: 'text', text: 'what should I drink?' }], client: CLIENT });
+    const recalled = first.message.parts.filter((p) => p.type === 'loaded-for-you');
+    expect(recalled).toEqual([{ type: 'loaded-for-you', by: 'recall', toolset: 'tools', fns: [], context: [{ context: tea.name, title: 'prefers tea', text: 'Ada prefers tea to coffee.' }] }]);
+    expect(w.index.searched.at(-1)).toMatchObject({ kinds: ['context'], prefix: 'memory/', meaning: true, limit: 3 });
+    const text = w.chat.enrich.render(first.message);
+    expect(text).toContain(RECALLED_LINE);
+    expect(text).toContain('<ctx key="memory/prefers-tea" title="prefers tea">');
+    expect(text).toContain('Ada prefers tea to coffee.');
+    // kept with the session as said once: never recalled (nor suggested) again in this chat
+    expect((await w.store.table('sessions').get(w.session.id))?.suggested).toContain(tea.name);
+    const second = await w.chat.turns.send({ session: w.session.id, author: w.admin.id, parts: [{ type: 'text', text: 'and tomorrow?' }], client: CLIENT });
+    expect(second.message.parts.some((p) => p.type === 'loaded-for-you')).toBe(false);
+    expect(w.index.searched.at(-1)?.excludeKeys).toContain(tea.name);
+  });
+
+  it('recalls nothing when it is off, and goes on without it when the search fails', async () => {
+    const w = await world();
+    const record = w.catalog.addContext('memory', { name: 'prefers-tea', description: 'prefers tea', content: 'Ada prefers tea.' });
+    w.catalog.contexts.set(record.name, { ...record, system: SystemName.parse('hub'), origin: { type: 'memory', author: w.admin.id, scope: { to: 'user', user: w.admin.id } } });
+    w.index.hits = [{ kind: 'context', key: 'memory/prefers-tea', rank: 1, similarity: 0.9, text: 'prefers tea' }];
+    const off = new HubMessageEnricher({ ...w.deps, settings: { ...w.deps.settings, chat: { ...w.deps.settings.chat, HARNESS_RECALL_MEMORIES: 0 } } }, w.chat.suggestions);
+    expect((await off.enrich({ session: w.session, turn, text: 'a drink', user: w.user })).parts.some((p) => p.type === 'loaded-for-you')).toBe(false);
+    const failing = new HubMessageEnricher({ ...w.deps, search: { search: async () => Promise.reject(new Error('index down')) } }, w.chat.suggestions);
+    const { parts } = await failing.enrich({ session: w.session, turn, text: 'a drink', user: w.user });
+    expect(parts.some((p) => p.type === 'loaded-for-you')).toBe(false);
+    expect(w.logs.some((l) => l.msg === 'chat.recall.failed')).toBe(true);
   });
 
   it('skips suggestions when the index fails, and says so in the log', async () => {

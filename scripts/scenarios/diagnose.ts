@@ -197,7 +197,7 @@ It is a capable general model. It knows how to call tools (functions with JSON a
 - the tool list: each tool's name, description and JSON schema,
 - the messages, including blocks the app adds to the person's message (such as <local_time>),
 - the results of its own earlier tool calls (search results, loaded guides, errors).
-If a fact is not on that page, the model does not know it. Judge each step only by what was on the page at that step.
+If a fact is not on that page, the model does not know it. Judge each step only by what was on the page at that step. One exception: a long tool result or message is cut in the middle in your trace for length, marked "[… N characters cut from this view only: the model was shown them …]". The model saw that text whole, so never say it used details a result did not show when the result was cut there: say the cut part could not be checked.
 
 ## What you have that it didn't
 

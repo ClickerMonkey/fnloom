@@ -376,6 +376,12 @@ export interface AuthoringAgentInput<S, D> {
   readonly stages?: { readonly find?: boolean };
   /** Names for the built-in tools when the job wants its own words (default `draft` and `save`). */
   readonly toolNames?: { readonly draft?: string; readonly save?: string };
+  /**
+   * What the save tool answers the agent once `save` returns, when the job's save keeps nothing itself (a widget is only
+   * offered to the person; iteration 3: "Saved widgets/… (version 1)" read as kept, beside a result saying it was not).
+   * Default: `Saved <fn> (version <n>). Now answer in one line.`
+   */
+  readonly savedLine?: (result: AuthoredFn) => string;
 }
 
 /** Why an authoring run stopped without a fn. */
@@ -481,7 +487,7 @@ export function authoringAgent<S, D>(def: AuthoringAgentInput<S, D>): AuthoringA
           const result = await def.save(draft, session);
           session.finish(result);
           session.done('save', names.save);
-          return `Saved ${result.fn} (version ${result.version}). Now answer in one line.`;
+          return def.savedLine?.(result) ?? `Saved ${result.fn} (version ${result.version}). Now answer in one line.`;
         },
       });
       const tools: [AeyeTool, ...AeyeTool[]] = [
