@@ -145,6 +145,15 @@ describe('actions and drill', () => {
 });
 
 describe('checks', () => {
+  it('takes a list or object literal as JSON, and still refuses one that does not fit', () => {
+    const args = wireType(g.obj({ sort: g.optional(g.list(g.obj({ column: g.enum(['owner', 'open']), dir: g.enum(['asc', 'desc']) }))) }));
+    const { paging: _paging, range: _range, ...plain } = SPEC;
+    const sorted = (literal: unknown): WidgetSpec => ({ ...plain, args: { sort: { show: 'pinned', value: { literal: literal as never } } }, presets: [] });
+    expect(checkWidget(sorted([{ column: 'open', dir: 'desc' }, { column: 'owner', dir: 'asc' }]), { args, facts: FACTS, entries: ENTRIES, table: TABLE }).problems).toEqual([]);
+    expect(checkWidget(sorted([{ column: 'nope', dir: 'desc' }]), { args, facts: FACTS, entries: ENTRIES, table: TABLE }).problems)
+      .toEqual(['Arg sort: [{"column":"nope","dir":"desc"}] is not a valid list.']);
+  });
+
   it('passes a good spec and lists every problem with a bad one, keeping the visuals that draw', () => {
     expect(checkWidget(SPEC, { args: SOURCE_ARGS, facts: FACTS, entries: ENTRIES, table: TABLE })).toEqual({ visuals: SPEC.visuals, problems: [] });
     const bad: WidgetSpec = {

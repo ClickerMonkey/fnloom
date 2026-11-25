@@ -33,7 +33,15 @@ function valueProblem(arg: ArgInfo, value: ArgValue, scope: TypeScope | undefine
   if ('relative' in value) {
     return relativeDatesFor(arg.type.name).includes(value.relative) ? undefined : `${value.relative} is not a relative date for a ${arg.type.name} argument.`;
   }
-  return ginTypeOf(arg.type, scope).valid(value.literal, scope) ? undefined : `${JSON.stringify(value.literal)} is not a valid ${arg.type.name}.`;
+  // a literal is JSON: gin reads it into a value first (`valid` takes gin's runtime form, where a list's or an object's
+  // cells are gin values, so plain JSON for one never passed)
+  const type = ginTypeOf(arg.type, scope);
+  try {
+    if (type.valid(type.parse(value.literal).raw, scope)) return undefined;
+  } catch {
+    // not readable as the arg's type
+  }
+  return `${JSON.stringify(value.literal)} is not a valid ${arg.type.name}.`;
 }
 
 /** The spec's arg names that it plans, presets or claims. */
