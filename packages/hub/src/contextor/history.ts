@@ -104,6 +104,46 @@ function runTarget(json: string): string | undefined {
   }
 }
 
+/** What a request says for a tool call the transcript holds no reply to. */
+export const NO_RESULT_REPLY = 'Error: this call has no result — the turn stopped before it came back.';
+
+/**
+ * A transcript every provider takes: each assistant message's tool calls are followed by a `tool` reply to each, before
+ * the next assistant or user message. A call with no reply (its turn stopped before it came back) gets one saying so,
+ * placed after that group's own replies; a `tool` message answering no open call (no earlier call has its id, or that
+ * call was answered or closed already) is dropped. A well-formed transcript comes back as it is (the same array). For
+ * the request only: the stored transcript is never rewritten (its indexes are turns' starts and undo's cut points).
+ */
+export function closeOpenCalls(transcript: readonly LlmMessage[]): readonly LlmMessage[] {
+  const out: LlmMessage[] = [];
+  let changed = false;
+  /** The calls of the newest assistant message with calls that have no reply yet, in call order. */
+  let open: string[] = [];
+  const close = (): void => {
+    if (open.length === 0) return;
+    changed = true;
+    for (const id of open) out.push({ role: 'tool', toolCallId: id, content: NO_RESULT_REPLY });
+    open = [];
+  };
+  for (const message of transcript) {
+    if (message.role === 'tool') {
+      const at = message.toolCallId === undefined ? -1 : open.indexOf(message.toolCallId);
+      if (at < 0) {
+        changed = true;
+        continue;
+      }
+      open.splice(at, 1);
+      out.push(message);
+      continue;
+    }
+    if (message.role === 'assistant' || message.role === 'user') close();
+    out.push(message);
+    if (message.role === 'assistant') open = [...new Set((message.toolCalls ?? []).map((call) => call.id))];
+  }
+  close();
+  return changed ? out : transcript;
+}
+
 /** Cut a transcript into exchanges. Messages before the first person message join the first exchange. */
 export function exchanges(transcript: readonly LlmMessage[]): Exchange[] {
   const groups: LlmMessage[][] = [];

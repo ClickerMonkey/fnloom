@@ -170,6 +170,29 @@ describe('the graph contextor', () => {
     }
   });
 
+  it('pairs every tool call in the request, even one the transcript left without a reply (a stopped turn)', async () => {
+    const transcript: LlmMessage[] = [
+      { role: 'user', content: 'Read zeta0 please.' },
+      { role: 'assistant', content: '', toolCalls: [{ id: 'dangling', name: 'run', arguments: '{"fn":"fs/read","args":{"path":"zeta0.md"}}' }, { id: 'answered', name: 'run', arguments: '{"fn":"fs/read","args":{"path":"zeta1.md"}}' }] },
+      { role: 'tool', toolCallId: 'answered', content: 'Notes on zeta1.' },
+      { role: 'user', content: 'Hello?' },
+      { role: 'tool', toolCallId: 'orphan', content: 'A reply to no call.' },
+      { role: 'assistant', content: 'Sorry, here I am.' },
+    ];
+    const { plan } = await planning(transcript, {}, { models: [chatModel('small', { contextWindow: ROOMY })] });
+    const planned = await plan('and zeta2?');
+    const calls = planned.messages.flatMap((m, i) => (m.toolCalls ?? []).map((call) => ({ id: call.id, at: i })));
+    expect(calls.map((call) => call.id)).toEqual(['dangling', 'answered']);
+    for (const call of calls) {
+      const replies = planned.messages.flatMap((m, i) => (m.role === 'tool' && m.toolCallId === call.id ? [i] : []));
+      expect(replies).toHaveLength(1);
+      // right after its call's group, before the next assistant or user message
+      const between = planned.messages.slice(call.at + 1, replies[0]);
+      expect(between.every((m) => m.role === 'tool')).toBe(true);
+    }
+    expect(planned.messages.some((m) => m.role === 'tool' && m.toolCallId === 'orphan')).toBe(false);
+  });
+
   it('chooses the same for a retried job, and keeps its choice on the session', async () => {
     const { r, plan, session } = await planning(talk(10));
     r.catalog.addContext(contextRecord('fs/guide', { content: 'g'.repeat(400) }));

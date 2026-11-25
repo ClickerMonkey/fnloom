@@ -394,11 +394,6 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     const fn = await catalog.fn(run.fn);
     if (fn === undefined) throw new Error(`${run.fn} no longer exists`);
     const payload = parseValue(LlmPayloadType, fn.decl.payload);
-    if (state.iteration - (state.from ?? 0) >= payload.maxIterations) {
-      const failed = fnError('fatal', `${run.fn} stopped after ${payload.maxIterations} iterations without an answer.`, MAX_ITERATIONS);
-      await this.#fail(run, state, failed);
-      return { failed };
-    }
     const session = await this.#session(run);
     const conversation = this.#conversation(session, state);
     const turn = await store.table('turns').get(run.turn);
@@ -428,6 +423,13 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
         await this.#fail(run, state, failed);
         return { failed };
       }
+    }
+    // checked once the last iteration's calls are answered, so their real results are in the transcript (and no call is
+    // left without a reply) when the run stops; Continue carries on from there
+    if (state.iteration - (state.from ?? 0) >= payload.maxIterations) {
+      const failed = fnError('fatal', `${run.fn} stopped after ${payload.maxIterations} iterations without an answer.`, MAX_ITERATIONS);
+      await this.#fail(run, state, failed);
+      return { failed };
     }
     const planned = await this.#deps.planner.plan({
       session, turn, agent: fn, model, instructions, cached: state.selection,
@@ -684,6 +686,8 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
       // held calls never start once it is cancelled, Continue included; a pause keeps them held
       await this.#skipHeld(run.id);
       for (const call of state.pending) if (call.run !== undefined) await this.#deps.runs.cancel(call.run, run.actor);
+      // read again: skipping held calls saved them
+      await this.#closeOpen(run, stateOf((await this.#deps.runs.get(run.id)) ?? run), 'cancelled');
       if (state.message !== undefined) await this.#deps.turns.finish(state.message, [{ type: 'text', text: 'Cancelled.' }], 'failed');
       await this.#deps.runs.settle(run.id, { status: 'cancelled' });
     } else {
@@ -701,6 +705,7 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     const state = stateOf((await this.#deps.runs.get(run.id)) ?? run);
     await this.#skipHeld(run.id);
     for (const call of state.pending) if (call.run !== undefined) await this.#deps.runs.cancel(call.run, run.actor);
+    await this.#closeOpen(run, stateOf((await this.#deps.runs.get(run.id)) ?? run), 'stopped');
     if (state.message !== undefined) await this.#deps.turns.finish(state.message, [{ type: 'text', text: failureText(error) }], 'failed');
     this.#deps.log.info('agent.stopped', { run: run.id, code: error.code });
   }
@@ -1110,7 +1115,70 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     return conversation instanceof RunConversation ? { messages: conversation.saved } : {};
   }
 
-  async #fail(run: Run, state: AgentState, failed: FnError): Promise<void> {
+  /**
+   * A run that stops (fails, is cancelled, or runs out of time) while its native tool calls wait for replies: each call
+   * still without a `tool` reply in the session's transcript gets one (how its run stands, or that it has no result), so
+   * the chat never holds a call with no reply (providers refuse every later request over one). Idempotent: calls
+   * already answered are left alone. `<run>` block calls need no reply and stay pending (Continue answers them); a
+   * conversation that isn't a session's is kept on the run and answered on Continue. Never throws (logged instead).
+   */
+  async #closeOpen(run: Run, state: AgentState, reason: 'failed' | 'cancelled' | 'stopped'): Promise<AgentState> {
+    const native = state.pending.filter((call) => call.block !== true);
+    if (native.length === 0) return state;
+    try {
+      const session = await this.#session(run);
+      if (session === undefined) return state;
+      const conversation = this.#conversation(session, state);
+      const after = (await conversation.messages()).slice(state.anchor + 1);
+      const answered = new Set(after.flatMap((message) => (message.role === 'tool' && message.toolCallId !== undefined ? [message.toolCallId] : [])));
+      const open = native.filter((call) => !answered.has(call.toolCallId));
+      if (open.length > 0) {
+        const fallback = (toolCallId: string): LlmMessage => ({ role: 'tool', toolCallId, content: `Error: this call has no result — the turn stopped (${reason}) before it came back.` });
+        // a call whose run is still going says it has no result: the run is being stopped with this one, and nothing
+        // posts its result later (only a run the agent let go on in the background has that)
+        const going = new Set<string>();
+        for (const call of open) {
+          const child = call.run === undefined ? undefined : await this.#deps.runs.get(call.run);
+          if (child !== undefined && !isSettled(child.status)) going.add(call.toolCallId);
+        }
+        let replies: LlmMessage[];
+        try {
+          const made = (await this.#replies(open, await this.#exposedTo(run, session))).messages;
+          replies = made.map((message) => (message.role === 'tool' && message.toolCallId !== undefined && going.has(message.toolCallId) ? { ...message, content: fallback(message.toolCallId).content } : message));
+        } catch (error) {
+          this.#deps.log.warn('agent.close-replies-failed', { run: run.id, reason, error: messageOf(error) });
+          replies = [];
+        }
+        // every open call answered, whatever the replies hold
+        const replied = new Set(replies.flatMap((message) => (message.role === 'tool' && message.toolCallId !== undefined ? [message.toolCallId] : [])));
+        await conversation.answer(state.anchor, [...replies, ...open.flatMap((call) => (replied.has(call.toolCallId) ? [] : [fallback(call.toolCallId)]))]);
+      }
+      const next: AgentState = { ...state, pending: state.pending.filter((call) => call.block === true) };
+      await this.#deps.store.table('runs').update(run.id, { resume: Json.parse(next) });
+      this.#deps.log.info('agent.closed-open', { run: run.id, reason, closed: open.length });
+      return next;
+    } catch (error) {
+      this.#deps.log.warn('agent.close-failed', { run: run.id, reason, error: messageOf(error) });
+      return state;
+    }
+  }
+
+  /** Who a session agent's replies are written for (fn names spelled as its model calls them); undefined when that can't be worked out. */
+  async #exposedTo(run: Run, session: Session): Promise<ExposedTo | undefined> {
+    try {
+      const fn = await this.#deps.catalog.fn(run.fn);
+      const turn = await this.#deps.store.table('turns').get(run.turn);
+      if (fn === undefined || turn === undefined) return undefined;
+      const payload = parseValue(LlmPayloadType, fn.decl.payload);
+      const metadata = await this.#deps.models.resolve(session.model ?? ModelChoice.optional().parse(payload.model));
+      return { session, agent: fn, model: metadata.model ?? AUTO_MODEL, access: await this.#deps.access.scope(turn.user.id) };
+    } catch {
+      return undefined;
+    }
+  }
+
+  async #fail(run: Run, given: AgentState, failed: FnError): Promise<void> {
+    const state = await this.#closeOpen(run, given, 'failed');
     await this.#deps.store.table('runs').update(run.id, { resume: Json.parse(state) });
     if (state.message !== undefined) await this.#deps.turns.finish(state.message, [{ type: 'text', text: failureText(failed) }], 'failed');
     const outcome: OutcomeWire = { status: 'failed', error: failed };

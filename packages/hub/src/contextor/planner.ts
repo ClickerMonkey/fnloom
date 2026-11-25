@@ -27,7 +27,7 @@ import { MODE_RANK } from '../fns/index.ts';
 import type { HubStore } from '../store/index.ts';
 import { budgetPlan } from './budget.ts';
 import { CONTEXTORS } from './contextors.ts';
-import { exchanges, isPersonMessage, namedIn, personWords, shorten, textOf } from './history.ts';
+import { closeOpenCalls, exchanges, isPersonMessage, namedIn, personWords, shorten, textOf } from './history.ts';
 import type {
   BudgetPlan, CallPlan, CallProtocol, ChatMode, ChosenContext, ChosenFn, Contextor, ContextorDeps, ContextorInput, DraftInput, ExposedTo, ModeChoice, ModeContext, ModelCallOut, ModelLimitsService, Overflow,
   ModeTool, PlanInput, PlannedPrompt, PromptPlanner, RenderedIteration, Selection, TokenEstimates, TokenEstimator,
@@ -298,7 +298,9 @@ export class HubPromptPlanner implements PromptPlanner {
 
   async #plan(planning: Planning): Promise<PlannedPrompt> {
     const { session, agent, model } = planning;
-    const all = exchanges(planning.transcript);
+    // a call left without a reply (its turn stopped before it came back) gets one in the request: providers refuse a
+    // conversation holding an unanswered call, which would otherwise stop the chat for good
+    const all = exchanges(closeOpenCalls(planning.transcript));
     const currentExchange = all.at(-1);
     const history = all.slice(0, -1);
     // what the prompt is built from, each read as soon as what it needs is known

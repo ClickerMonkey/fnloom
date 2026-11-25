@@ -321,9 +321,13 @@ describe('held calls and the agent run around them', () => {
     expect((await r.module.runs.wait(run)).status).toBe('cancelled');
     await until(async () => (await children(r, run)).get('0:call_1')?.status === 'cancelled', 'the first write to cancel');
     await pause();
+    // the cancel answered both calls (none is left without a reply), so nothing is pending for Continue to start
     const state = stateOf(await agentRun(r, run));
-    expect(state.pending.find((call) => call.toolCallId === 'call_2')).toMatchObject({ skipped: true, held: { after: ['call_1'] } });
+    expect(state.pending).toEqual([]);
     expect((await children(r, run)).has('0:call_2')).toBe(false);
+    const cancelled = await replies(r);
+    expect(cancelled.get('call_1')).toMatch(/cancelled/);
+    expect(cancelled.get('call_2')).toMatch(/^Not run: it works on the same things as an earlier call \(fs__write\)/);
 
     await r.module.agents.continue(run, ALICE);
     expect(await r.module.runs.wait(run)).toEqual({ status: 'done', result: 'Carried on.' });
@@ -331,6 +335,8 @@ describe('held calls and the agent run around them', () => {
     expect((await children(r, run)).has('0:call_2')).toBe(false);
     const said = await replies(r);
     expect(said.get('call_2')).toMatch(/^Not run: it works on the same things as an earlier call \(fs__write\)/);
+    const transcript = (await r.store.table('sessions').get(SESSION))?.transcript ?? [];
+    expect(transcript.filter((m) => m.role === 'tool')).toHaveLength(2);
   });
 
   it('skips its held calls when the person is there and the tools take too long, and answers with what it has', async () => {

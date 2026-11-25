@@ -8,7 +8,7 @@
  * transaction left open across `await`s never interleaves with other statements; the ayepi ports, which drive the
  * connection synchronously, go through the same gate (`Scope.exclusive`).
  */
-import { type ControlledTransaction, Kysely, SqliteDialect } from 'kysely';
+import { CompiledQuery, type ControlledTransaction, type DatabaseConnection, type Driver, Kysely, SqliteDialect, SqliteDriver } from 'kysely';
 import type BetterSqlite3 from 'better-sqlite3';
 import { z } from 'zod';
 import type { AuxDb } from './auxTables.ts';
@@ -32,9 +32,36 @@ export type Db = Kysely<StoredDb>;
 /** Parses a raw cell read with `sql` (Kysely types raw rows by assertion, so they are checked here instead). */
 export const CellSchema = z.union([z.string(), z.number(), z.bigint(), z.instanceof(Uint8Array), z.null()]);
 
-/** Open Kysely on a better-sqlite3 connection. Closing Kysely closes the connection. */
+/**
+ * Kysely's SQLite driver, but transactions take the write lock when they begin (`begin immediate`). A deferred
+ * `begin` reads under a snapshot and only asks for the lock at its first write; if another connection (another process,
+ * a script writing the file) committed in between, SQLite can't upgrade the stale snapshot and fails the write at once
+ * with SQLITE_BUSY ("database is locked") — `busy_timeout` never applies. Taking the lock up front means a busy
+ * database is waited for (up to `busy_timeout`) before the transaction reads anything. Savepoints are unchanged.
+ */
+export class ImmediateSqliteDriver extends SqliteDriver {
+  override async beginTransaction(connection: DatabaseConnection): Promise<void> {
+    await connection.executeQuery(CompiledQuery.raw('begin immediate'));
+  }
+}
+
+/** Kysely's SQLite dialect with the immediate-transaction driver. */
+class ImmediateSqliteDialect extends SqliteDialect {
+  readonly #database: BetterSqlite3.Database;
+
+  constructor(database: BetterSqlite3.Database) {
+    super({ database });
+    this.#database = database;
+  }
+
+  override createDriver(): Driver {
+    return new ImmediateSqliteDriver({ database: this.#database });
+  }
+}
+
+/** Open Kysely on a better-sqlite3 connection (transactions begin immediate). Closing Kysely closes the connection. */
 export function openKysely(database: BetterSqlite3.Database): Db {
-  return new Kysely<StoredDb>({ dialect: new SqliteDialect({ database }) });
+  return new Kysely<StoredDb>({ dialect: new ImmediateSqliteDialect(database) });
 }
 
 /** Where a piece of store work runs: the whole store, or inside one transaction. */

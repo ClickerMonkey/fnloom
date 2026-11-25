@@ -1,6 +1,6 @@
 import { agent, fn, g, system } from '@harness/sdk';
-import { MAIN_INSTANCE, RunId, SystemName, type ProposedRun, type Run, type RunSettled, type TableReading, type Turn } from '@harness/core';
-import { afterEach, describe, expect, it } from 'vitest';
+import { MAIN_INSTANCE, RunId, type LlmMessage, SystemName, type ProposedRun, type Run, type RunSettled, type TableReading, type Turn } from '@harness/core';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { backgroundReply, backgroundResult, INTERRUPTED, RunConversation, settledReply, stateOf } from './agent.ts';
 import { AGENT_KIND, type AgentKind, type RunInput } from './index.ts';
 import { agentActorId } from '../chat/support.ts';
@@ -440,7 +440,7 @@ describe('a session agent', () => {
     await r.module.agents.continue(run, ALICE);
     const { settled, row } = await runTo(r, run);
     expect(settled).toEqual({ status: 'done', result: 'found it' });
-    // the call left from the last iteration is answered first, and the model reads the whole conversation so far
+    // the last iteration's call was answered before it stopped, and the model reads the whole conversation so far
     expect(r.provider.requests).toHaveLength(5);
     expect(r.provider.requests[4]?.messages.filter((m) => m.role === 'tool')).toHaveLength(4);
     expect(stateOf(row)).toMatchObject({ iteration: 4, from: 4, failures: 0 });
@@ -622,6 +622,132 @@ describe('agent loop pieces', () => {
     await conversation.append([{ role: 'user', content: 'b' }]);
     await conversation.answer(1, [{ role: 'tool', toolCallId: '1', content: 'r' }]);
     expect((await conversation.messages()).map((m) => m.content)).toEqual(['a', '', 'r', 'b']);
+  });
+});
+
+/** The tool replies in the session's transcript (call ids repeat across iterations: one entry per reply). */
+async function toolReplies(r: ExecutionRig): Promise<Array<{ id: string | undefined; content: LlmMessage['content'] }>> {
+  const transcript = (await r.store.table('sessions').get(SESSION))?.transcript ?? [];
+  return transcript.filter((m) => m.role === 'tool').map((m) => ({ id: m.toolCallId, content: m.content }));
+}
+
+/** Every assistant message's calls answered right after it, before the next assistant or user message. */
+async function noOpenCalls(r: ExecutionRig): Promise<boolean> {
+  const transcript = (await r.store.table('sessions').get(SESSION))?.transcript ?? [];
+  let open = new Set<string>();
+  for (const message of transcript) {
+    if (message.role === 'tool') {
+      if (message.toolCallId === undefined || !open.delete(message.toolCallId)) return false;
+      continue;
+    }
+    if (open.size > 0) return false;
+    if (message.role === 'assistant') open = new Set((message.toolCalls ?? []).map((call) => call.id));
+  }
+  return open.size === 0;
+}
+
+describe('an agent run that stops while its calls wait (no call is left without a reply)', () => {
+  it("at its iteration limit: the last calls' real results are written first, nothing stays pending, and Continue carries on", async () => {
+    const r = await started();
+    const fs = r.connect('fs');
+    fs.behaviour.run = (request) => Promise.resolve({ status: 'done', result: `text of ${JSON.stringify(request.args)}` });
+    await r.session();
+    const turn = await r.turn({ session: SESSION, text: 'loop' });
+    r.provider.script(...[1, 2, 3, 4].map((i) => calls([['fs__read', { path: `f${i}` }]])), says('found it'));
+    const { run } = await r.module.agents.start(agentInput(turn));
+    const { settled, row } = await runTo(r, run);
+    expect(settled).toMatchObject({ status: 'failed', error: { code: 'max-iterations' } });
+    expect(fs.requests).toHaveLength(4);
+    expect((await toolReplies(r)).map((reply) => reply.content)).toEqual([1, 2, 3, 4].map((i) => `text of {"path":"f${i}"}`));
+    expect(await noOpenCalls(r)).toBe(true);
+    expect(stateOf(row)).toMatchObject({ iteration: 4, pending: [] });
+    await r.module.agents.continue(run, ALICE);
+    expect((await runTo(r, run)).settled).toEqual({ status: 'done', result: 'found it' });
+    expect(r.provider.requests).toHaveLength(5);
+    expect(r.provider.requests[4]?.messages.filter((m) => m.role === 'tool')).toHaveLength(4);
+    expect(await toolReplies(r)).toHaveLength(4);
+  });
+
+  it('when the store fails while writing a reply: the turn fails, and the call is answered once, with its real result', async () => {
+    const r = await started();
+    r.connect('fs').behaviour.run = () => Promise.resolve({ status: 'done', result: 'hello' });
+    // an earlier exchange: undo of the failed turn cuts the transcript back to here (`Turn.start`)
+    const earlier: LlmMessage[] = [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'hello there' }];
+    await r.session({ transcript: earlier });
+    const turn = await r.turn({ session: SESSION, text: 'read a' });
+    r.provider.script(calls([['fs__read', { path: 'a' }]]), says('never asked'));
+    // the first transcript write that holds a tool reply fails, as "database is locked" did
+    let failed = false;
+    const tx = r.store.tx.bind(r.store);
+    const bound = (target: object, prop: string | symbol): unknown => {
+      const value: unknown = Reflect.get(target, prop);
+      return typeof value === 'function' ? value.bind(target) : value;
+    };
+    vi.spyOn(r.store, 'tx').mockImplementation((fn) => tx((inner) => fn(new Proxy(inner, {
+      get(target, prop) {
+        if (prop !== 'table') return bound(target, prop);
+        return (name: Parameters<typeof target.table>[0]) => {
+          const table = target.table(name);
+          if (name !== 'sessions') return table;
+          return new Proxy(table, {
+            get(t, p) {
+              if (p !== 'update') return bound(t, p);
+              const update = bound(t, p) as (id: unknown, patch: { transcript?: LlmMessage[] }) => Promise<unknown>;
+              return (id: unknown, patch: { transcript?: LlmMessage[] }) => {
+                if (!failed && patch.transcript?.some((m) => m.role === 'tool') === true) {
+                  failed = true;
+                  return Promise.reject(new Error('database is locked'));
+                }
+                return update(id, patch);
+              };
+            },
+          });
+        };
+      },
+    }))));
+    const { run } = await r.module.agents.start(agentInput(turn));
+    const { settled, row } = await runTo(r, run);
+    expect(failed).toBe(true);
+    expect(settled).toMatchObject({ status: 'failed', error: { message: expect.stringContaining('database is locked') as unknown } });
+    expect(await toolReplies(r)).toEqual([{ id: 'call_1', content: 'hello' }]);
+    expect(await noOpenCalls(r)).toBe(true);
+    expect(stateOf(row).pending).toEqual([]);
+    expect(r.provider.requests).toHaveLength(1);
+    // the reply went in among the turn's own messages, so undo (back to the turn's start) takes it out with them
+    const transcript = (await r.store.table('sessions').get(SESSION))?.transcript ?? [];
+    expect(transcript.slice(0, earlier.length)).toEqual(earlier);
+    expect(transcript.slice(earlier.length).map((m) => m.role)).toEqual(['user', 'assistant', 'tool']);
+  });
+
+  it('when cancelled: the cancelled call gets its reply', async () => {
+    const r = await started();
+    const fs = r.connect('fs');
+    let release: (o: { status: 'cancelled' }) => void = () => undefined;
+    fs.behaviour.run = () => new Promise((resolve) => { release = resolve; });
+    fs.behaviour.control = () => { release({ status: 'cancelled' }); return { accepted: true }; };
+    await r.session();
+    const turn = await r.turn({ session: SESSION, text: 'go' });
+    r.provider.script(calls([['fs__read', { path: 'big' }]]));
+    const { run } = await r.module.agents.start(agentInput(turn));
+    await until(async () => (await r.module.runs.get(run))?.status === 'waiting' && fs.requests.length === 1, 'the agent to wait on its tool');
+    await r.module.runs.cancel(run, ALICE);
+    const { row } = await runTo(r, run);
+    expect(await toolReplies(r)).toEqual([{ id: 'call_1', content: expect.stringMatching(/cancelled/) as unknown }]);
+    expect(await noOpenCalls(r)).toBe(true);
+    expect(stateOf(row).pending).toEqual([]);
+  });
+
+  it('when its turn runs out of time: the call still running gets a reply saying it has no result', async () => {
+    const r = await started();
+    r.connect('fs').behaviour.run = () => new Promise(() => undefined);
+    await r.session();
+    const turn = await r.turn({ session: SESSION, text: 'read it', limits: { ...OPEN_LIMITS, turn: { cost: 1, time: 150 } } });
+    r.provider.script(calls([['fs__read', { path: 'big' }]]));
+    const { run } = await r.module.agents.start(agentInput(turn));
+    expect((await runTo(r, run)).settled).toMatchObject({ status: 'failed', error: { code: 'timeout' } });
+    await until(async () => (await toolReplies(r)).length > 0, 'the call to be answered');
+    expect(await toolReplies(r)).toEqual([{ id: 'call_1', content: expect.stringMatching(/no result/) as unknown }]);
+    expect(await noOpenCalls(r)).toBe(true);
   });
 });
 
