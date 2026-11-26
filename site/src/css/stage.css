@@ -475,3 +475,15 @@
 .mx-float .feat, .mx-float .us { position: relative; z-index: 2; }
 .mx-float .feat, .mx-float .us { left: 0; }
 .app .term { color: inherit; }
+
+/* a run card with its body open (make_code's result: the saved fn, its signature, a sample) */
+.run.with-body { display: block; padding: 0; }
+.run-line { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px; }
+.run .rstat.pre { display: none; }
+.run-body { border-top: 1px solid var(--app-line); padding: 8px 12px 9px 26px; display: grid; gap: 2px; font: 11.5px/1.5 var(--mono); color: var(--app-ink-2); }
+.run-body.pre { display: none; }
+.run-body .k { color: var(--app-ink-3); display: inline-block; min-width: 9ch; }
+.chev.up { transform: rotate(-135deg) translateY(-1px); }
+.tick-clock::after { content: "0:04"; animation: clock 4s steps(1) infinite; }
+@keyframes clock { 0% { content: "0:04"; } 25% { content: "0:13"; } 50% { content: "0:24"; } 75% { content: "0:35"; } }
+@media (max-width: 640px) { .run-body .k { min-width: 0; margin-right: 6px; } }

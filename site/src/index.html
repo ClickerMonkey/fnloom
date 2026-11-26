@@ -214,27 +214,30 @@
         </div>
       </div>
 
-      <!-- 03: it writes a small program, checks it, saves it as a tool, and reuses it -->
-      <div class="t-panel" role="tabpanel" id="p-tools" aria-labelledby="tab-tools" data-demo data-pace="950" hidden>
+      <!-- 03: code/make_code: another agent writes a program, checks it and saves it as a fn; then it's called by name -->
+      <div class="t-panel" role="tabpanel" id="p-tools" aria-labelledby="tab-tools" data-demo data-pace="1050" hidden>
         <div class="t-copy">
-          <h3>Needs a {{fn}}? It builds one, and keeps it.</h3>
-          <p>Ask something no {{fn}} answers and it writes one: a small program over its other {{fns}}, checked and saved with a plain name. Next time it runs as code, with no model call: instant, predictable and nearly free. Keep it private or share it.</p>
+          <h3>Needs a {{fn}}? It writes one, and keeps it.</h3>
+          <p>Ask for a calculation you’ll repeat and a second agent writes it as a small program over typed inputs, checks it on a sample, and saves it as a {{fn}} with a plain name. The program can call your other {{fns}} too. From then on it runs as code: the same answer every time, in milliseconds, with no model inside it.</p>
           <ol class="t-steps">
-            <li><button data-goto="0" aria-pressed="false">Ask anything</button></li>
-            <li><button data-goto="1" aria-pressed="false">It writes the fn</button></li>
-            <li><button data-goto="3" aria-pressed="false">Saved for next time</button></li>
-            <li><button data-goto="5" aria-pressed="false">Reused instantly</button></li>
+            <li><button data-goto="0" aria-pressed="false">Ask for a calculation</button></li>
+            <li><button data-goto="1" aria-pressed="false">Another agent writes it</button></li>
+            <li><button data-goto="2" aria-pressed="false">Checked and saved as a fn</button></li>
+            <li><button data-goto="6" aria-pressed="false">Called by name next time</button></li>
           </ol>
         </div>
         <div class="t-screen app" aria-hidden="true">
           <div class="chat">
-            <p class="m-user" data-beat="0" data-type>How many business days from Dec 1 to Jan 15, skipping our holidays?</p>
-            <div class="run working" data-beat="1"><i class="rdot"></i><b>Make code</b><code>business days between two dates, skipping holidays</code><span class="rmeta" data-beat="1" data-until="2">writing…</span><span class="rmeta" data-beat="2" data-until="3">checking…</span><span class="rmeta done" data-beat="3">3.1s · $0.0042</span><i class="chev"></i></div>
-            <div class="saved" data-beat="3"><span class="fn-chip">Business days</span> saved as a {{fn}} <small>yours · share it any time</small></div>
-            <p class="m-reply" data-beat="4"><b data-count="29" data-beat="4">29</b> business days, after 3 holidays.</p>
-            <p class="m-user" data-beat="5" data-type>And from today to the launch date?</p>
-            <div class="run" data-beat="6"><i class="rdot"></i><b>Business days</b><code>Nov 27 → Feb 12</code><span class="rmeta">9 ms · $0 · no model</span><i class="chev"></i></div>
-            <p class="m-reply" data-beat="7"><b>41</b> business days.</p>
+            <p class="m-user" data-beat="0" data-type>Split our $2,340 team dinner: 8.25% tax, 18% tip, 6 people. Keep it, we do this monthly.</p>
+            <div class="run working with-body" data-beat="1"><div class="run-line"><i class="rdot"></i><b class="rstat" data-beat="1" data-until="2">Writing code…</b><b class="rstat" data-beat="2">Wrote code/split_bill</b><code>Split a bill: total, people, tax %, tip %…</code><span class="rmeta" data-beat="1" data-until="2"><span class="tick-clock"></span></span><span class="rmeta done" data-beat="2">41s · $0.0118</span><i class="chev up"></i></div>
+              <div class="run-body" data-beat="2"><p><span class="k">fn</span> code/split_bill</p><p><span class="k">signature</span> (total: num, people: num, taxPercent: num, tipPercent: num) → num</p><p><span class="k">sample</span> 100, 4, 8.25, 18 → 31.56</p></div>
+            </div>
+            <div class="run" data-beat="3"><i class="rdot"></i><b>Fns load</b><code>code/split_bill</code><span class="rmeta">0.0s</span><i class="chev"></i></div>
+            <div class="run" data-beat="4"><i class="rdot"></i><b>Split bill</b><code>total: 2340, people: 6, taxPercent: 8.25, tipPercent: 18</code><span class="rmeta">11 ms</span><i class="chev"></i></div>
+            <p class="m-reply" data-beat="5"><b data-count="492.38" data-prefix="$" data-beat="5">$492.38</b> each. It’s saved as <span class="fn-chip">Split bill</span> for next month.</p>
+            <p class="m-user" data-beat="6" data-type>Same again: $1,880, 5 people</p>
+            <div class="run" data-beat="7"><i class="rdot"></i><b>Split bill</b><code>total: 1880, people: 5, taxPercent: 8.25, tipPercent: 18</code><span class="rmeta">9 ms</span><i class="chev"></i></div>
+            <p class="m-reply" data-beat="8"><b>$474.70</b> each. <small>No new code this time: your saved {{fn}} ran as is.</small></p>
           </div>
         </div>
       </div>

@@ -52,7 +52,7 @@
       el.classList.toggle('pre', !on);
       el.classList.toggle('pressed', el.hasAttribute('data-press') && b <= n);
       if (self.texts.has(el)) { el.textContent = self.texts.get(el); }
-      if (el.dataset.count !== undefined) { el.textContent = el.dataset.count; }
+      if (el.dataset.count !== undefined) { el.textContent = (el.dataset.prefix || '') + el.dataset.count; }
     });
     // anything shown "until" a beat that has started is hidden again
     this.at = n;
