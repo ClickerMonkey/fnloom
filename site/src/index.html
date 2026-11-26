@@ -67,8 +67,8 @@
               <div class="chat">
                 <p class="m-user" data-beat="0" data-type>Which orders failed this week? Have Claude Code find out why.</p>
                 <p class="m-think" data-beat="1" data-until="3"><i></i><i></i><i></i> Thinking</p>
-                <div class="m-agent" data-beat="2"><span class="ag" aria-hidden="true"></span><span class="tool"><b>Database</b> Ask orders · 12 failed</span></div>
-                <div class="m-agent" data-beat="3"><span class="ag" aria-hidden="true"></span><span class="tool"><b>Claude Code</b> Start a session · ~/work/billing</span></div>
+                <div class="run" data-beat="2"><i class="rdot"></i><b>Get query</b><code>orders that failed this week</code><span class="rmeta">0.8s · $0.0012</span><i class="chev"></i></div>
+                <div class="run" data-beat="3"><i class="rdot"></i><b>Start session</b><code>~/work/billing</code><span class="rmeta">working</span><i class="chev"></i></div>
                 <div class="card-ok" data-beat="4" data-until="6">
                   <p class="ok-title"><span class="shield" aria-hidden="true"></span>Claude Code asks: allow <b class="pill">npm test</b>?</p>
                   <p class="ok-btns"><span class="b-deny">Deny</span><span class="b-ok">Approve</span></p>
@@ -88,8 +88,8 @@
               <div class="chat">
                 <p class="m-user" data-beat="0" data-type>Which orders failed this week? Have Claude Code find out why.</p>
                 <p class="m-think" data-beat="1" data-until="3"><i></i><i></i><i></i> Thinking</p>
-                <div class="m-agent" data-beat="2"><span class="ag"></span><span class="tool"><b>Database</b> Ask orders · 12 failed</span></div>
-                <div class="m-agent" data-beat="3"><span class="ag"></span><span class="tool"><b>Claude Code</b> Start a session · ~/work/billing</span></div>
+                <div class="run" data-beat="2"><i class="rdot"></i><b>Get query</b><code>failed this week</code><span class="rmeta">0.8s</span><i class="chev"></i></div>
+                <div class="run" data-beat="3"><i class="rdot"></i><b>Start session</b><code>~/work/billing</code><span class="rmeta">working</span><i class="chev"></i></div>
                 <div class="card-ok" data-beat="4" data-until="6">
                   <p class="ok-title"><span class="shield"></span>Claude Code asks: allow <b class="pill">npm test</b>?</p>
                   <p class="ok-btns"><span class="b-deny">Deny</span><span class="b-ok">Approve</span></p>
@@ -108,8 +108,8 @@
               <div class="chat">
                 <p class="m-user" data-beat="0" data-type>Which orders failed this week? Have Claude Code find out why.</p>
                 <p class="m-think" data-beat="1" data-until="3"><i></i><i></i><i></i> Thinking</p>
-                <div class="m-agent" data-beat="2"><span class="ag"></span><span class="tool"><b>Database</b> Ask orders</span></div>
-                <div class="m-agent" data-beat="3"><span class="ag"></span><span class="tool"><b>Claude Code</b> Session</span></div>
+                <div class="run" data-beat="2"><i class="rdot"></i><b>Get query</b><code>failed orders</code><span class="rmeta"></span><i class="chev"></i></div>
+                <div class="run" data-beat="3"><i class="rdot"></i><b>Start session</b><code>billing</code><span class="rmeta"></span><i class="chev"></i></div>
                 <div class="card-ok" data-beat="4" data-until="6">
                   <p class="ok-title"><span class="shield"></span>Claude Code asks: allow <b class="pill">npm test</b>?</p>
                   <p class="ok-btns"><span class="b-deny">Deny</span><span class="b-ok" data-beat="5" data-press>Approve<i class="tap"></i></span></p>
@@ -171,7 +171,7 @@
         <div class="t-screen app" aria-hidden="true">
           <div class="chat">
             <p class="m-user" data-beat="0" data-type>Chart sign-ups per day this month</p>
-            <div class="m-agent" data-beat="1"><span class="ag"></span><span class="tool"><b>Database</b> Ask signups · 30 rows</span></div>
+            <div class="run" data-beat="1"><i class="rdot"></i><b>Get query</b><code>sign-ups per day this month</code><span class="rmeta">0.6s · $0.0009</span><i class="chev"></i></div>
             <figure class="chart" data-beat="2">
               <figcaption>Sign-ups per day <small>November</small></figcaption>
               <svg viewBox="0 0 320 120" preserveAspectRatio="none"><path class="grid" d="M0 30H320M0 60H320M0 90H320"/><path class="line" pathLength="1" d="M0 96 L23 80 L46 88 L69 52 L92 70 L115 64 L138 40 L161 58 L184 34 L207 46 L230 24 L253 38 L276 20 L299 28 L320 14"/><path class="area" d="M0 96 L23 80 L46 88 L69 52 L92 70 L115 64 L138 40 L161 58 L184 34 L207 46 L230 24 L253 38 L276 20 L299 28 L320 14 V120 H0Z"/></svg>
@@ -186,7 +186,7 @@
       <div class="t-panel" role="tabpanel" id="p-claude" aria-labelledby="tab-claude" data-demo data-pace="1000" hidden>
         <div class="t-copy">
           <h3>Claude Code, from anywhere.</h3>
-          <p>Start a Claude Code session on your own computer from the web app, follow it from your phone, and answer its questions as approval cards. Your harness, its coding agent.</p>
+          <p>Start a Claude Code session on your own computer from the web app, follow it from your phone, and answer its questions as cards: the exact edit, the exact command. Your harness, its coding agent.</p>
           <ol class="t-steps">
             <li><button data-goto="0" aria-pressed="false">Hand it a job</button></li>
             <li><button data-goto="2" aria-pressed="false">It asks, you answer</button></li>
@@ -196,17 +196,19 @@
         <div class="t-screen app" aria-hidden="true">
           <div class="chat">
             <p class="m-user" data-beat="0" data-type>Have Claude Code fix the failing date test in the billing service</p>
+            <div class="run" data-beat="1"><i class="rdot"></i><b>Start session</b><code>~/work/billing</code><span class="rmeta">working</span><i class="chev"></i></div>
             <div class="session" data-beat="1">
-              <p class="s-head"><span class="cc"></span>Claude Code <small>~/work/billing · working</small></p>
-              <p class="s-line">Reading src/dates.ts</p>
+              <p class="s-head"><span class="cc"></span>Claude Code <small>~/work/billing</small></p>
+              <p class="s-line">Read src/dates.ts</p>
               <p class="s-line" data-beat="2">Found it: months counted from 1, not 0</p>
             </div>
-            <div class="card-ok" data-beat="2">
-              <p class="ok-title"><span class="shield"></span>Claude Code asks: allow <b class="pill">npm test</b>?</p>
+            <div class="card-ok" data-beat="2" data-until="4">
+              <p class="ok-title"><span class="shield"></span>Claude Code asks: allow <b class="pill">Edit</b> src/dates.ts?</p>
+              <pre class="code diff flush"><code><span class="del">- const month = date.getMonth();</span>
+<span class="add">+ const month = date.getMonth() + 1;</span></code></pre>
               <p class="ok-btns"><span class="b-deny">Deny</span><span class="b-ok" data-beat="3" data-press>Approve</span></p>
             </div>
-            <pre class="code diff" data-beat="4"><code><span class="del">- const month = date.getMonth();</span>
-<span class="add">+ const month = date.getMonth() + 1;</span></code></pre>
+            <p class="s-line solo" data-beat="4">Ran npm test</p>
             <p class="m-done" data-beat="5"><span class="tick"></span>42 tests pass <small>session kept, pick it up any time</small></p>
           </div>
         </div>
@@ -219,23 +221,20 @@
           <p>Ask something no {{fn}} answers and it writes one: a small program over its other {{fns}}, checked and saved with a plain name. Next time it runs as code, with no model call: instant, predictable and nearly free. Keep it private or share it.</p>
           <ol class="t-steps">
             <li><button data-goto="0" aria-pressed="false">Ask anything</button></li>
-            <li><button data-goto="2" aria-pressed="false">It writes the fn</button></li>
-            <li><button data-goto="4" aria-pressed="false">Saved for next time</button></li>
-            <li><button data-goto="6" aria-pressed="false">Reused instantly</button></li>
+            <li><button data-goto="1" aria-pressed="false">It writes the fn</button></li>
+            <li><button data-goto="3" aria-pressed="false">Saved for next time</button></li>
+            <li><button data-goto="5" aria-pressed="false">Reused instantly</button></li>
           </ol>
         </div>
         <div class="t-screen app" aria-hidden="true">
           <div class="chat">
             <p class="m-user" data-beat="0" data-type>How many business days from Dec 1 to Jan 15, skipping our holidays?</p>
-            <div class="m-agent" data-beat="1"><span class="ag"></span><span class="tool"><b>Code</b> Make a fn · Business days</span></div>
-            <pre class="code" data-beat="2"><code><span class="k">for</span> (<span class="k">let</span> d = from; d &lt;= to; d = nextDay(d))
-  <span class="k">if</span> (!isWeekend(d) &amp;&amp; !holidays.has(day(d))) count++;
-<span class="k">return</span> { businessDays: count };</code></pre>
-            <p class="m-test" data-beat="3"><span class="tick"></span>Checked, and it works</p>
-            <div class="saved" data-beat="4"><span class="tool-chip">Business days</span> saved as a {{fn}} <small>yours · share it any time</small></div>
-            <p class="m-reply" data-beat="5"><b data-count="29" data-beat="5">29</b> business days, after 3 holidays.</p>
-            <p class="m-user" data-beat="6" data-type>And from today to the launch date?</p>
-            <p class="m-reply" data-beat="7"><span class="tool-chip">Business days</span> <b>41</b> business days. <small>(your saved fn ran as code: no model, 9 ms)</small></p>
+            <div class="run working" data-beat="1"><i class="rdot"></i><b>Make code</b><code>business days between two dates, skipping holidays</code><span class="rmeta" data-beat="1" data-until="2">writing…</span><span class="rmeta" data-beat="2" data-until="3">checking…</span><span class="rmeta done" data-beat="3">3.1s · $0.0042</span><i class="chev"></i></div>
+            <div class="saved" data-beat="3"><span class="fn-chip">Business days</span> saved as a {{fn}} <small>yours · share it any time</small></div>
+            <p class="m-reply" data-beat="4"><b data-count="29" data-beat="4">29</b> business days, after 3 holidays.</p>
+            <p class="m-user" data-beat="5" data-type>And from today to the launch date?</p>
+            <div class="run" data-beat="6"><i class="rdot"></i><b>Business days</b><code>Nov 27 → Feb 12</code><span class="rmeta">9 ms · $0 · no model</span><i class="chev"></i></div>
+            <p class="m-reply" data-beat="7"><b>41</b> business days.</p>
           </div>
         </div>
       </div>
@@ -308,7 +307,7 @@
             <p class="pane-who"><span class="av a">A</span> Alex’s chat</p>
             <div class="chat">
               <p class="m-user" data-beat="0" data-type>Remember: the Northwind renewal is due in March</p>
-              <div class="m-agent" data-beat="1"><span class="ag"></span><span class="tool"><b>Memory</b> Remember · Northwind renews in March</span></div>
+              <div class="run" data-beat="1"><i class="rdot"></i><b>Remember</b><code>Northwind renews in March</code><span class="rmeta">$0.0003</span><i class="chev"></i></div>
               <p class="m-user" data-beat="2" data-type>Draft a check-in email to Northwind</p>
               <p class="m-loaded note" data-beat="3"><span class="mem-dot"></span>Came along by itself: “Northwind renews in March”</p>
               <p class="m-reply" data-beat="4">“Hi Dana, with your renewal coming up in March, could we set up a quick review…”</p>
@@ -340,7 +339,7 @@
         <div class="t-screen app" aria-hidden="true">
           <div class="chat">
             <p class="m-user" data-beat="0" data-type>Point the deploy notes at the new staging server</p>
-            <div class="m-agent" data-beat="1"><span class="ag"></span><span class="tool"><b>Files</b> Read · docs/deploy.md</span></div>
+            <div class="run" data-beat="1"><i class="rdot"></i><b>Read file</b><code>docs/deploy.md</code><span class="rmeta">0.1s</span><i class="chev"></i></div>
             <div class="card-ok wide" data-beat="2">
               <p class="ok-title"><span class="shield"></span>Allow <b class="pill">Edit</b> docs/deploy.md?</p>
               <pre class="code diff flush"><code>  ## Staging
@@ -452,12 +451,12 @@
       <p class="cta" data-reveal><a class="btn" href="marketplace/">Browse the preview</a></p>
     </div>
     <ul class="mt-cards" aria-hidden="true">
-      <li style="--hue:205;--i:0" data-reveal><span>▦</span>Databases<small>built in</small></li>
-      <li style="--hue:20;--i:1" data-reveal><span>✳</span>Claude Code<small>built in</small></li>
-      <li style="--hue:120;--i:2" data-reveal><span>☀</span>Weather<small>example</small></li>
-      <li style="--hue:280;--i:3" data-reveal><span>⌁</span>Issue tracker<small>example</small></li>
-      <li style="--hue:35;--i:4" data-reveal><span>✉</span>Team chat<small>example</small></li>
-      <li style="--hue:330;--i:5" data-reveal><span>◎</span>Uptime checks<small>example</small></li>
+      <li style="--hue:205;--i:0" data-reveal><span>▦</span><b>Databases</b><em>SQLite, Postgres, SQL Server</em><small class="b">built in</small></li>
+      <li style="--hue:20;--i:1" data-reveal><span>✳</span><b>Claude Code</b><em>Run and steer sessions</em><small class="b">built in</small></li>
+      <li style="--hue:250;--i:2" data-reveal><span>⧉</span><b>MCP servers</b><em>Any server, with approvals</em><small class="b">built in</small></li>
+      <li style="--hue:280;--i:3" data-reveal><span>⌁</span><b>Issue tracker</b><em>Find, file and update issues</em><small>example</small></li>
+      <li style="--hue:150;--i:4" data-reveal><span>◎</span><b>Uptime checks</b><em>Know first when it’s down</em><small>example</small></li>
+      <li style="--hue:35;--i:5" data-reveal><span>✉</span><b>Team chat</b><em>Post updates to channels</em><small>example</small></li>
     </ul>
   </div>
 </section>

@@ -424,3 +424,54 @@
 .inhale { display: inline-block; font: italic 400 .8em var(--serif); color: var(--brass); padding: 0 .15em; animation: inhale 4.5s ease-in-out infinite; transform-origin: 50% 70%; }
 @keyframes inhale { 0%, 55%, 100% { transform: scale(1); opacity: .75; } 70% { transform: scale(1.14); opacity: 1; } 85% { transform: scale(1.06); } }
 @media (prefers-reduced-motion: reduce) { .inhale { animation: none; } }
+
+/* ---------- run cards, as RunCard.vue draws them: dot · label · mono args · time and cost · chevron ---------- */
+.m-user { background: #7f9cf5; color: #0c1530; border-radius: 12px; }
+.run {
+  display: flex; align-items: center; gap: 8px; min-width: 0; margin-left: 26px;
+  border: 1px solid var(--app-line); border-radius: 10px; padding: 8px 10px; background: var(--app-bg);
+  font-size: 12.5px;
+}
+.run b { font-weight: 600; white-space: nowrap; color: var(--app-ink); }
+.run code { font: 12px var(--mono); color: var(--app-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+.rdot { width: 8px; height: 8px; border-radius: 50%; background: var(--app-green); flex: none; }
+.run.working .rdot { background: var(--app-amber); animation: rpulse 1s ease-in-out infinite; }
+.run.working:has(.rmeta.done.on) .rdot { background: var(--app-green); animation: none; }
+@keyframes rpulse { 50% { opacity: .35; } }
+.rmeta { font-size: 11.5px; color: var(--app-ink-3); white-space: nowrap; flex: none; }
+.run .rmeta.pre { display: none; }
+.chev { width: 7px; height: 7px; border: solid var(--app-ink-3); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg) translateY(-2px); flex: none; margin: 0 2px 0 4px; }
+.fn-chip { display: inline-flex; align-items: center; gap: 5px; background: var(--app-blue-soft); color: #c7d5ff; border-radius: 999px; padding: 2px 10px; font-weight: 600; font-size: 12px; }
+.fn-chip::before { content: "{ }"; font: 600 10px var(--mono); color: var(--app-blue); }
+.s-line.solo { margin-left: 26px; }
+.app-tab .run, .app-phone .run, .t-screen.two .run { margin-left: 0; }
+.app-phone .run { padding: 5px 7px; gap: 5px; font-size: 10.5px; }
+.app-phone .run code { font-size: 10px; }
+.app-phone .chev, .app-tab .chev { display: none; }
+.app-tab .run { font-size: 11px; padding: 6px 8px; }
+.app-tab .run code { font-size: 10.5px; }
+@media (max-width: 640px) { .run { margin-left: 0; } .run .rmeta { display: none; } .s-line.solo { margin-left: 0; } }
+
+/* ---------- marketplace teaser: real listing rows, not tiles ---------- */
+.mt-cards { grid-template-columns: 1fr; gap: 8px; }
+@media (min-width: 560px) { .mt-cards { grid-template-columns: 1fr 1fr; } }
+.mt-cards li, .mt-cards li:nth-child(even), .mt-cards li:nth-child(even).in {
+  transform: none; display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 2px 12px;
+  text-align: left; justify-items: start; padding: 12px 14px; font-size: 15px;
+}
+.js .mt-cards li[data-reveal]:not(.in) { transform: translateY(14px); }
+.mt-cards li span { grid-row: span 2; }
+.mt-cards li em { font-style: normal; font-size: 13px; color: var(--ink-3); font-weight: 400; grid-column: 2; line-height: 1.3; }
+.mt-cards li small { grid-row: 1 / span 2; grid-column: 3; align-self: center; padding: 4px 8px; border-radius: 999px; border: 1px dashed var(--line-2); }
+.mt-cards li small.b { border: 0; background: var(--brass-soft); color: var(--brass); }
+.mt-cards li b { grid-column: 2; align-self: end; font-size: 15.5px; }
+.mt-cards li em { align-self: start; }
+
+/* ---------- the comparison's header, kept under the page header while the table scrolls by (site.js) ---------- */
+.mx-float { position: fixed; top: 60px; z-index: 15; overflow: hidden; pointer-events: none; visibility: hidden; border-radius: 0 0 10px 10px; box-shadow: 0 12px 24px -18px rgba(0, 0, 0, .45); }
+.mx-float.on { visibility: visible; pointer-events: auto; }
+.mx-float table { margin: 0; }
+.mx-float thead th { position: static; }
+.mx-float .feat, .mx-float .us { position: relative; z-index: 2; }
+.mx-float .feat, .mx-float .us { left: 0; }
+.app .term { color: inherit; }

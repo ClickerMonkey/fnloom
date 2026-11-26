@@ -157,8 +157,58 @@
     };
     boxes.forEach(function (box) {
       if (saved.indexOf(box.getAttribute('data-toggle')) !== -1) { box.checked = false; }
-      box.addEventListener('change', apply);
+      box.addEventListener('change', function () { apply(); floatHead(); });
     });
     apply();
+
+    // ---- the header row stays under the page header while the table scrolls by. The table's own sticky header
+    // can't (its sideways-scrolling box is its sticky container), so a copy of it floats, sized and scrolled to match.
+    var wrap = table.closest('.table-scroll');
+    var float = document.createElement('div');
+    float.className = 'mx-float';
+    float.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(float);
+    var copy = null;
+    var pinnedCells = [];
+    function topBar() { var t = document.querySelector('[data-top]'); return t ? t.getBoundingClientRect().bottom : 0; }
+    function floatHead() {
+      var head = table.tHead;
+      var clone = table.cloneNode(false);
+      clone.removeAttribute('id');
+      clone.appendChild(head.cloneNode(true));
+      var src = head.querySelectorAll('th');
+      var dst = clone.querySelectorAll('th');
+      src.forEach(function (th, i) {
+        var w = th.getBoundingClientRect().width;
+        dst[i].style.width = dst[i].style.minWidth = dst[i].style.maxWidth = w + 'px';
+        dst[i].querySelectorAll('a').forEach(function (a) { a.tabIndex = -1; });
+      });
+      clone.style.width = table.getBoundingClientRect().width + 'px';
+      clone.style.minWidth = '0';
+      float.innerHTML = '';
+      float.appendChild(clone);
+      copy = clone;
+      pinnedCells = Array.prototype.slice.call(clone.querySelectorAll('.feat, .us'));
+      sync();
+    }
+    function sync() {
+      if (!copy) { return; }
+      var r = wrap.getBoundingClientRect();
+      var bar = topBar();
+      var headH = table.tHead.getBoundingClientRect().height;
+      var show = r.top < bar && r.bottom > bar + headH + 40;
+      float.classList.toggle('on', show);
+      if (!show) { return; }
+      float.style.top = bar + 'px';
+      float.style.left = (r.left + wrap.clientLeft) + 'px';
+      float.style.width = wrap.clientWidth + 'px';
+      var x = wrap.scrollLeft;
+      copy.style.transform = 'translateX(' + (-x) + 'px)';
+      pinnedCells.forEach(function (th) { th.style.transform = 'translateX(' + x + 'px)'; });
+    }
+    floatHead();
+    window.addEventListener('scroll', sync, { passive: true });
+    wrap.addEventListener('scroll', sync, { passive: true });
+    window.addEventListener('resize', floatHead);
   }
 })();
