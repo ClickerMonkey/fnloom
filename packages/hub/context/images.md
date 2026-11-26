@@ -20,3 +20,5 @@ Before saving anything you read this way, show it and ask the person to confirm.
 
 A block with no `id`, or one that says no model is set up to look at images, can't be asked about: tell the person
 you can't see it, and ask them what it shows if it matters.
+
+A pdf whose pages are pictures (a scan) is asked about the same way: its uri as `image` and the page number as `page`.

@@ -81,6 +81,8 @@ export const fsEnv = env({
   FS_READ_PARALLEL: z.number().int().min(1).default(8),
   /** Largest text a resource read returns inline, in characters. */
   FS_RESOURCE_TEXT_MAX: z.number().int().min(1).default(2_000_000),
+  /** Largest file a resource read sends as its bytes (a picture, a pdf, a recording), in bytes. */
+  FS_RESOURCE_BYTES_MAX: z.number().int().min(1).default(25_000_000),
   /** How long file changes are gathered before they are reported. */
   FS_WATCH_DEBOUNCE: z.number().int().min(0).default(300),
   /** How long the git hook waits for git. */

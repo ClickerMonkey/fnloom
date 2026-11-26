@@ -2,7 +2,7 @@
  * File operations behind the fns: reading text, writing, exact-text edits, removing, listing, and putting a file
  * back for undo. Paths arrive already resolved by the guard; problems a caller can fix are thrown as `FsProblem`.
  */
-import { lstat, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, open, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { partialNote, type ContentRef, type UndoOutcome } from '@harness/core';
 import { lineCount } from '../shared/format.ts';
 import type { PreviousValue } from '../shared/index.ts';
@@ -181,6 +181,23 @@ export class FileService {
     await mkdir(parentOf(at.path), { recursive: true });
     await writeFile(at.path, bytes);
     return { status: 'undone', summary: `Restored ${at.path}.` };
+  }
+
+  /** A file's first `length` bytes (fewer for a shorter file), for telling what kind of file it is. */
+  async head(path: string, length: number): Promise<Uint8Array> {
+    const handle = await open(path, 'r');
+    try {
+      const buffer = new Uint8Array(length);
+      const { bytesRead } = await handle.read(buffer, 0, length, 0);
+      return buffer.subarray(0, bytesRead);
+    } finally {
+      await handle.close();
+    }
+  }
+
+  /** A whole file's bytes, whatever they are (the caller has checked its size). */
+  async raw(path: string): Promise<Uint8Array> {
+    return new Uint8Array(await readFile(path));
   }
 
   private async bytes(at: At): Promise<Uint8Array> {

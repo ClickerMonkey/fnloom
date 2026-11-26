@@ -91,6 +91,11 @@ export interface Case {
   readonly canSend?: readonly FixtureFile[];
   /** Systems the household runs only for cases that need them (the schedule system: reminders and timed runs). */
   readonly needs?: readonly OptionalSystem[];
+  /**
+   * It changes the household's accounts, rules or budgets (or reads them, where an agent has changed them unasked):
+   * it plays alone, and the household is put back after it (`household.ts`).
+   */
+  readonly household?: boolean;
 }
 
 /** A system a rep starts only when one of its cases needs it. */
@@ -409,7 +414,7 @@ export const FIRST_CASES: readonly Case[] = [
   },
   // ── Family, accounts and money ──
   {
-    id: 35, group: 'Family, accounts and money', title: 'Set it up for my wife',
+    id: 35, group: 'Family, accounts and money', title: 'Set it up for my wife', household: true,
     steps: [{ say: 'My wife wants to use this too. Can you set it up for her?' }],
     good: 'Explains what it will do, needs approval, adds her.',
     notes: 'admin by asking, people',
@@ -417,7 +422,7 @@ export const FIRST_CASES: readonly Case[] = [
     wants: 'Sara able to sign in and use it.',
   },
   {
-    id: 36, group: 'Family, accounts and money', title: 'Kids can\'t spend or delete',
+    id: 36, group: 'Family, accounts and money', title: 'Kids can\'t spend or delete', household: true,
     steps: [{ say: 'Don\'t let the kids do anything that costs money or deletes stuff.' }],
     good: 'Says what it will change, asks to confirm, then the kids are actually stopped.',
     notes: 'policies, budgets, approvals. The stack seeds two member accounts for the kids, Emma and Leo.',

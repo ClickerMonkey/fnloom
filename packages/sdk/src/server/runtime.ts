@@ -16,6 +16,7 @@ import { CallSet, CHECK_KEY_PREFIX } from './calls.ts';
 import { hookBlock, type KindCheckCtx, type MentionCtx } from '../declare.ts';
 import { g, wireType, type GinType } from '../gin.ts';
 import type { ConfigOf, ContractShape } from '../system.ts';
+import type { ProvidedRead } from '../resources.ts';
 import type { LocalContent } from './content.ts';
 import { HubLlm } from './llm.ts';
 import type { ScopedLog } from './log.ts';
@@ -489,8 +490,13 @@ export class SystemRuntime<C extends ContractShape> {
     return resources;
   }
 
-  /** Long text goes by ref, held here for the hub to fetch, so the frame stays small. */
-  #inline(read: ResourceRead): ResourceRead {
+  /**
+   * Long text goes by ref, held here for the hub to fetch, so the frame stays small; bytes a provider handed over
+   * themselves are held the same way and go by ref too.
+   */
+  #inline(provided: ProvidedRead): ResourceRead {
+    const { bytes: given, ...rest } = provided;
+    const read: ResourceRead = given === undefined ? rest : { ...rest, bytes: 'data' in given ? this.#parts.content.put(given.data, given.mime) : given };
     const text = read.text;
     if (text === undefined || !('inline' in text)) { return read; }
     const bytes = new TextEncoder().encode(text.inline);

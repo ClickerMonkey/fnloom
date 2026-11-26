@@ -25,7 +25,7 @@ import { bindable, isObjectBound, jsonSchemaOf } from '../catalog/signature.ts';
 import type { MessageEnricher } from '../chat/index.ts';
 import { ensureAgentActor } from '../chat/support.ts';
 import { citationsNotice, withCiteId } from '../chat/cite-rule.ts';
-import { SEND_FN, shownMessage, type ConversationMedia } from '../chat/shown.ts';
+import { pictureParts, SEND_FN, shownMessage, type ConversationMedia } from '../chat/shown.ts';
 import type { Asking } from '../resources/index.ts';
 import type { CallPlan, ExposedTo, ModelCallOut, PromptPlanner } from '../contextor/index.ts';
 import { inlineDeferred, spelled } from '../contextor/examples.ts';
@@ -1068,14 +1068,17 @@ export class HubAgentLoop implements AgentLoop, RunExecutor {
     return inlineDeferred(JSON.stringify(shown));
   }
 
-  /** A conversation as the model takes it (`AgentLoopDeps.media`); as kept when there is no media service or it fails. */
+  /**
+   * A conversation as the model takes it (`AgentLoopDeps.media`); as kept when there is no media service or it fails.
+   * Either way no image part that isn't a real picture goes out (`pictureParts`): one would fail every turn after it.
+   */
   async #media(messages: readonly LlmMessage[], model: string, who: Asking): Promise<LlmMessage[]> {
-    if (this.#deps.media === undefined) return [...messages];
+    if (this.#deps.media === undefined) return pictureParts([...messages]);
     try {
       return await this.#deps.media.expand(messages, model, who);
     } catch (error) {
       this.#deps.log.warn('agent.media-failed', { model, error: messageOf(error) });
-      return [...messages];
+      return pictureParts([...messages]);
     }
   }
 

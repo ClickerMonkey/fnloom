@@ -5913,14 +5913,43 @@ interface ResourceProvider {
   roots(): Promise<ResourceRoot[]>;
   list(uri: ResourceUri, cursor?: string): Promise<Page<ResourceStat>>;
   stat(uri: ResourceUri): Promise<ResourceStat | undefined>;
-  /** A read. It may include more than was asked for if it had it anyway. */
-  read(uri: ResourceUri, want: ReadWant[]): Promise<ResourceRead>;
+  /**
+   * A read. It may include more than was asked for if it had it anyway. Content that isn't text (a picture, a pdf, a
+   * recording) goes as its bytes, so the hub reads it the way its kind needs; text goes as text.
+   */
+  read(uri: ResourceUri, want: ReadWant[]): Promise<ProvidedRead>;
   /** Report changes until the returned function is called. */
   watch?(uris: ResourceUri[], onChange: (changes: ResourceChange[]) => void): () => void;
 }
 ```
 
-Refers to: [`Page`](#core-page), [`ReadWant`](#core-readwant), [`ResourceChange`](#core-resourcechange), [`ResourceRead`](#core-resourceread), [`ResourceRoot`](#core-resourceroot), [`ResourceStat`](#core-resourcestat), [`ResourceUri`](#core-resourceuri).
+Refers to: [`Page`](#core-page), [`ReadWant`](#core-readwant), [`ResourceChange`](#core-resourcechange), [`ResourceRoot`](#core-resourceroot), [`ResourceStat`](#core-resourcestat), [`ResourceUri`](#core-resourceuri).
+
+#### `ProvidedRead`
+
+type · `import { ProvidedRead } from '@harness/sdk'`
+
+A read as a provider makes it: a `ResourceRead`, except that its bytes may be the bytes themselves (`data` and their
+`mime`). The SDK holds those for the hub to fetch and sends their ref, so a provider never handles content refs.
+
+```ts
+type ProvidedRead = Omit<ResourceRead, 'bytes'> & { readonly bytes?: ContentRef | ProvidedBytes | undefined };
+```
+
+Refers to: [`ContentRef`](#core-contentref), [`ResourceRead`](#core-resourceread).
+
+#### `ProvidedBytes`
+
+interface · `import { ProvidedBytes } from '@harness/sdk'`
+
+A file's bytes as a provider hands them over, with their media type.
+
+```ts
+interface ProvidedBytes {
+  readonly data: Uint8Array;
+  readonly mime: string;
+}
+```
 
 #### `sectioner`
 
@@ -6217,7 +6246,8 @@ This is the hub contract as the SDK declares it now:
   ```text
   (obj{
     image: text,
-    question: text{minLength=1, maxLength=2000}
+    question: text{minLength=1, maxLength=2000},
+    page?: num{whole=true, min=1}
   }) => obj{answer: text, model: text, image: obj{id: text, name: text}}
   ```
 - `hub/system_calls`: Holds the model calls a system makes outside its own runs (hooks, timers, start-up, its own aeye), so they are charged to its budgets and show as its.
@@ -16494,8 +16524,8 @@ export const fs = system('fs', {
         content: [
           'The fs system works only inside the folders an admin chose (its roots). Paths are relative to the first root (`notes/todo.md`), or start with a root\'s name when there are several; `/` is outside the roots and is refused. Start with fs/list on `.` to see the first root.',
           '',
-          'To find something: fs/glob finds files by name (`*.md`, `notes/**`), fs/grep finds lines inside files by a regular expression (case-sensitive; write `[Rr]eport` for either case, never `(?i)`), fs/list shows one folder. Don\'t guess a path: look first.',
-          'To read: fs/read, a window at a time for long files (`offset`, `limit`). Say only what you read.',
+          'To find something: fs/glob finds files by name (`*.md`, `notes/**`), fs/grep finds lines inside files by a regular expression (case-sensitive; write `[Rr]eport` for either case, never `(?i)`), fs/list shows one folder. Don\'t guess a path: look first. When the request is about when files are from ("this year\'s", "the newest"), list the folder: fs/list gives every file with its modified time, which a search by meaning doesn\'t.',
+          'To read: fs/read, a window at a time for long files (`offset`, `limit`). Say only what you read. fs/read reads text only: read a pdf or other document with hub/resource_read, and look at a picture (or a pdf page with no text) with hub/resource_send, each by the file\'s `file://` uri (as fs/list gives its path).',
           'To change: fs/edit replaces exact text (copy `find` from what fs/read gave, spaces included); fs/write writes a whole new file; fs/remove deletes one file. Each may ask the person first, and each can be undone with the turn.',
           'To keep a document for the person (a list, a summary, notes from this chat): write a markdown file, for example fs/write with {"path":"notes/ideas.md","text":"# Ideas\\n\\n- First idea\\n- Second idea\\n"}, then tell them the path. Check the result (`created`) before saying it is saved.',
           'To run a program, a build, tests or git: fs/bash runs a bash command (not PowerShell); set the folder once with fs/cd. Check `exitCode`: anything but 0 means the command failed. A command your shell setting does not mark safe asks the person first, and what it changes can\'t be undone.',
@@ -24024,7 +24054,7 @@ type ResourceRead = {
   stat: {
     uri: `${string}://${string}`;
     name: string;
-    type: "record" | "file" | "folder" | "other" | "page";
+    type: "record" | "file" | "page" | "folder" | "other";
     version: string;
     mime?: string | undefined;
     format?: string | undefined;
@@ -24081,7 +24111,7 @@ What is known about a resource without reading it. Folders, files and pages are 
 type ResourceStat = {
   uri: `${string}://${string}`;
   name: string;
-  type: "record" | "file" | "folder" | "other" | "page";
+  type: "record" | "file" | "page" | "folder" | "other";
   version: string;
   mime?: string | undefined;
   format?: string | undefined;

@@ -2,7 +2,7 @@ import { ResourceUri, SectionKey } from '@harness/core';
 import { describe, expect, it } from 'vitest';
 import { FormMessageContent } from './content.ts';
 import type { ContentModel } from './index.ts';
-import { ALICE, bytes, resourcesRig, statOf } from './testing.ts';
+import { ALICE, bytes, madePdf, resourcesRig, statOf } from './testing.ts';
 
 const who = { actor: ALICE };
 /** A PNG's signature and IHDR chunk: 640 by 480. */
@@ -32,6 +32,22 @@ describe('resources as message content', () => {
     expect(r.models.calls).toHaveLength(0);
   });
 
+  it('tells an image by its bytes, whatever its name or the system said, and never sends what isn\'t one as a picture', async () => {
+    const r = await rig();
+    const shouting = ResourceUri.parse('file://main/IMG_2890.JPG');
+    r.raw.serve({ stat: statOf(shouting, { format: 'image', mime: 'text/plain' }), bytes: PNG });
+    const [real] = await r.content.parts(shouting, model(['chat', 'vision']), who);
+    expect(real).toMatchObject({ type: 'image', format: 'image/png' });
+    // a picture a system sent as its own (empty) text: a provider refuses such a part, and every turn after it
+    const empty = ResourceUri.parse('file://main/IMG_3000.JPG');
+    r.raw.serve({ stat: statOf(empty, { format: 'image', mime: 'image/jpeg' }), text: '' });
+    const [note, ...rest] = await r.content.parts(empty, model(['chat', 'vision']), who);
+    expect(rest).toHaveLength(0);
+    expect(note?.type).toBe('text');
+    expect(note?.content).toContain("IMG_3000.JPG (file://main/IMG_3000.JPG) can't be shown to you as a picture: it is empty");
+    expect(note?.content).toContain('hub/resource_read');
+  });
+
   it('sends a model that can\'t see an <image> block with its id, facts and how to ask about it, and makes no model call', async () => {
     const r = await rig();
     const [part, ...rest] = await r.content.parts(r.image, model(['chat']), who, { source: 'attached to a message' });
@@ -57,6 +73,56 @@ describe('resources as message content', () => {
     expect((await r.content.parts(r.pdf, model(['chat', 'files']), who))[0]?.type).toBe('text');
     const [text] = await r.content.parts(r.pdf, model(['chat']), who);
     expect(text?.content).toContain('Page one text');
+  });
+
+  it('sends a pdf with no text (a scan) as its pages\' pictures to a model that sees, a page or the first few', async () => {
+    const r = await rig();
+    const uri = ResourceUri.parse('file://main/scan.pdf');
+    const page = { kind: 'bitmap', width: 2, height: 2, channels: 1, samples: new Uint8Array([0, 255, 255, 0]) } as const;
+    r.raw.serve({ stat: statOf(uri, { format: 'pdf', mime: 'application/pdf' }), bytes: madePdf([page, { kind: 'text', text: '' }, page]) });
+    const sees = model(['chat', 'vision']);
+    const whole = await r.content.parts(uri, sees, who);
+    expect(whole.map((part) => part.type)).toEqual(['text', 'image', 'image', 'text']);
+    expect(whole[0]?.content).toContain('scan.pdf (file://main/scan.pdf) has no text in it: its pages are pictures');
+    expect(whole[1]).toMatchObject({ format: 'image/png', name: 'scan.pdf, page 1' });
+    expect(whole[1]?.content.startsWith('data:image/png;base64,')).toBe(true);
+    expect(whole[2]).toMatchObject({ name: 'scan.pdf, page 3' });
+    // the page with neither text nor a picture says so, never pretends it was shown
+    expect(whole[3]?.content).toBe("Page 2 of scan.pdf has no picture that can be shown here, so what it says can't be read: tell the person, and don't guess.");
+    const one = await r.content.parts(uri, sees, who, { section: SectionKey.parse('Page 3') });
+    expect(one.map((part) => part.type)).toEqual(['text', 'image']);
+    expect(one[0]?.content).toContain('Page 3 of scan.pdf (file://main/scan.pdf) has no text: it is a picture of the page');
+    expect(one[0]?.content).toContain('Here is the picture of page 3');
+    expect(one[0]?.content).toContain('This is page 3 of its 3: see another with hub/resource_send');
+    // a model that can't see is told how to ask about a page
+    const [blind, ...rest] = await r.content.parts(uri, model(['chat']), who, { section: SectionKey.parse('Page 1') });
+    expect(rest).toHaveLength(0);
+    expect(blind?.content).toContain('call hub/image_read with {"image": "file://main/scan.pdf", "page": 1, "question": ');
+  });
+
+  it('sends a pdf with text as its text, a page of it as that page\'s text', async () => {
+    const r = await rig();
+    const uri = ResourceUri.parse('file://main/rules.pdf');
+    r.raw.serve({ stat: statOf(uri, { format: 'pdf', mime: 'application/pdf' }), bytes: madePdf([{ kind: 'text', text: 'Rule one' }, { kind: 'text', text: 'Rule two' }]) });
+    const [whole] = await r.content.parts(uri, model(['chat', 'vision']), who);
+    expect(whole?.content).toContain('Rule one');
+    expect(whole?.content).toContain('Rule two');
+    const [page] = await r.content.parts(uri, model(['chat', 'vision']), who, { section: SectionKey.parse('Page 2') });
+    expect(page?.content).toContain('Rule two');
+    expect(page?.content).not.toContain('Rule one');
+    const read = await r.reader.read({ uri }, who);
+    expect(read.note).toBeUndefined();
+  });
+
+  it('says on a read of a pdf with no text that its pages are pictures, and how to look at them', async () => {
+    const r = await rig();
+    const uri = ResourceUri.parse('file://main/scan.pdf');
+    r.raw.serve({ stat: statOf(uri, { format: 'pdf', mime: 'application/pdf' }), bytes: madePdf([{ kind: 'bitmap', width: 1, height: 1, channels: 1, samples: new Uint8Array([9]) }]) });
+    const read = await r.reader.read({ uri }, who);
+    expect(read.form).toBe('pages');
+    expect(read.note).toContain('This pdf has no text in it: its page is a picture');
+    expect(read.note).toContain('hub/resource_send');
+    expect(read.note).toContain('hub/image_read');
   });
 
   it('sends a page as its markdown', async () => {

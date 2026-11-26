@@ -14,3 +14,7 @@ again. Editing an earlier message of the person's undoes it and every later one,
 
 You can't undo an earlier message yourself (hub/turn_undo works only on the newest message, and that is the one you are
 answering): to reverse one change, call the fn that changes it back. Don't promise an undo a result doesn't offer.
+
+When the person asks to undo or take something back, work out the end state they want from what they say, not just the
+reverse of the last change: taking back something they no longer need wants it gone, not an earlier version of it put
+back. Keep anything they say to keep, and ask first when the end state is unclear.

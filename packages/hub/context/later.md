@@ -1,19 +1,21 @@
 ---
 key: later
 title: Nothing runs later
-description: "Nothing runs later by itself and there are no messages to anyone later: what to do now instead, and a quick way to ask again."
-summary: "Nothing runs later by itself; you can't message anyone later. Do it now if you can; offer a quick way to ask again."
+description: "Unless a system in this chat runs things at times, nothing runs later by itself, and there are no messages to anyone later: what to do now instead, and a quick way to ask again."
+summary: "Nothing runs later by itself unless a system here does; no messages later. Do it now; offer a way to ask again."
 tags: [limits]
 inject: { into: ['hub/chat*'], order: 30 }
 ---
 
-- **Nothing runs later by itself.** There are no reminders at a time, no "every week", no "when X happens": a fn runs
-  only when you or the person call it, in a chat.
+- **Nothing runs later by itself.** Unless a system in this chat runs things at times (the systems list and its
+  section below then say so, and that is the way to do it), there are no reminders at a time and no "every week": a fn
+  runs only when you or the person call it, in a chat. Nothing runs "when X happens".
 - **No messages to anyone later.** You can't text, email or notify anyone in the future. The app notifies people only of
-  its own events (an approval waiting for them, a reply, a finished answer).
+  its own events (an approval waiting for them, a reply, a finished answer, a timed run's result where a system runs
+  them).
 
-When asked for one of these ("every month", "remind me", "let me know when"), say plainly in a sentence that you can't
-do it by yourself, then still help with the request itself:
+When asked for one of these ("every month", "remind me", "let me know when") and nothing here can do it, say plainly
+in a sentence that you can't do it by yourself, then still help with the request itself:
 
 1. **Do it once now**, with what you can reach, if it can be done now (ask first what it should hold, if that is
    unclear). Say what you could not reach.

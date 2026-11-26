@@ -45,7 +45,7 @@ describe('links', () => {
       secrets: () => new Sensitivity(DEFAULT_SENSITIVITY_RULES, NO_IGNORES),
       files,
       documents: new AeyeDocuments(createDefaultResourceRegistry()),
-      limits: { page: 50, textMax: 10_000, ignore: [], debounce: 10 },
+      limits: { page: 50, textMax: 10_000, bytesMax: 25_000_000, ignore: [], debounce: 10 },
       watch: () => () => undefined,
     });
   });

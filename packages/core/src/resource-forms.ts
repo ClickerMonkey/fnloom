@@ -165,9 +165,14 @@ export const IMAGE_QUESTION_MAX = 2_000;
 
 /**
  * `hub/image_read`: a question about an image a model can't see. `image` is the id of an `<image id="…">` block (the
- * image's resource uri, so an attached file's `uri` works too).
+ * image's resource uri, so an attached file's `uri` works too), or a pdf whose pages are pictures (a scan).
  */
-export const ImageReadArgs = z.object({ image: ResourceUri, question: z.string().trim().min(1).max(IMAGE_QUESTION_MAX) });
+export const ImageReadArgs = z.object({
+  image: ResourceUri,
+  question: z.string().trim().min(1).max(IMAGE_QUESTION_MAX),
+  /** For a pdf whose pages are pictures (a scan): the page to look at, from 1. Left out, the first few pages are. */
+  page: z.number().int().min(1).optional(),
+});
 export type ImageReadArgs = z.infer<typeof ImageReadArgs>;
 
 /** What `hub/image_read` answers: the vision model's answer, the model that gave it, and the image it looked at. */

@@ -6,12 +6,18 @@
  * In place of the picture such a model reads an `<image>` block: its id (the image's resource uri), its name, type,
  * size and, when the bytes say, its width and height, where it came from, and one line on how to ask about it with
  * `hub/image_read`, which sends the image and the question to the `describe` role's vision model. With no such model
- * set up, the line says so instead.
+ * set up, the line says so instead. A pdf whose pages are pictures (a scan) is asked about the same way, a page at a
+ * time: its page pictures are read out of the file (`pdf-pages.ts`).
  */
 import { reject } from '@ayepi/core';
 import type { ResourceUri } from '@harness/core';
 import type { ContentStore } from '../api/index.ts';
+import type { Snapshot } from './forms.ts';
 import type { Asking, FormModels, FormService, ImageAnswer, ImageQuestions } from './index.ts';
+import { pdfPictures } from './pdf-pages.ts';
+
+/** The most pages of a pdf one question looks at when it names no page. */
+export const PAGES_ASKED = 4;
 
 /** Text made safe for an XML attribute. */
 function escapeAttribute(text: string): string {
@@ -136,13 +142,41 @@ export class HubImageQuestions implements ImageQuestions {
     this.#o = options;
   }
 
-  async ask(uri: ResourceUri, question: string, who: Asking, signal?: AbortSignal): Promise<ImageAnswer> {
+  async ask(uri: ResourceUri, question: string, who: Asking, signal?: AbortSignal, page?: number): Promise<ImageAnswer> {
     const record = await this.#o.forms.snapshot(uri, who);
+    if (record.raw.mime === 'application/pdf') { return this.#pages(record, question, who, signal, page); }
     if (!record.raw.mime.startsWith('image/')) {
       throw reject(422, 'NOT_AN_IMAGE', `${uri} is ${record.raw.mime}, not an image: read it with hub/resource_read instead`);
     }
     const bytes = await this.#o.content.read(record.raw, 0, record.raw.size);
     const made = await this.#o.models.ask(question, { raw: record.raw, bytes, name: record.stat.name }, who, signal);
     return { image: { id: record.uri, name: record.stat.name }, answer: made.text, model: made.model };
+  }
+
+  /** A question about the pictures a pdf's pages are (a scan): one page, or each of the first few, asked in turn. */
+  async #pages(record: Snapshot, question: string, who: Asking, signal: AbortSignal | undefined, page: number | undefined): Promise<ImageAnswer> {
+    const pictures = pdfPictures(await this.#o.content.read(record.raw, 0, record.raw.size));
+    const name = record.stat.name;
+    if (page !== undefined && pictures.images[page - 1] === undefined) {
+      const why = page > pictures.pages ? `it has ${pictures.pages} page${pictures.pages === 1 ? '' : 's'}` : `page ${page} has no picture that can be read out of the file`;
+      throw reject(422, 'NO_PAGE_PICTURE', `${record.uri}: ${why}. Read its text with hub/resource_read.`);
+    }
+    const found = pictures.images.filter((picture) => picture !== undefined);
+    const asked = page === undefined ? found.slice(0, PAGES_ASKED) : found.filter((picture) => picture.page === page);
+    if (asked.length === 0) {
+      throw reject(422, 'NO_PAGE_PICTURE', `${record.uri} is a pdf with no page pictures that can be read out of the file: read its text with hub/resource_read.`);
+    }
+    const answers: string[] = [];
+    let model = '';
+    for (const picture of asked) {
+      const raw = { ...record.raw, mime: picture.mime, size: picture.bytes.length };
+      const made = await this.#o.models.ask(question, { raw, bytes: picture.bytes, name: `${name}, page ${picture.page}` }, who, signal);
+      answers.push(asked.length === 1 ? made.text : `Page ${picture.page}: ${made.text}`);
+      model = made.model;
+    }
+    const others = page === undefined && pictures.pages > asked.length
+      ? [`(That is pages ${asked.map((picture) => picture.page).join(', ')} of ${pictures.pages}: ask about another with page set to its number.)`]
+      : [];
+    return { image: { id: record.uri, name: page === undefined ? name : `${name}, page ${page}` }, answer: [...answers, ...others].join('\n\n'), model };
   }
 }

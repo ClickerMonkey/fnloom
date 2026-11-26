@@ -23,14 +23,43 @@ interface ResourceProvider {
   roots(): Promise<ResourceRoot[]>;
   list(uri: ResourceUri, cursor?: string): Promise<Page<ResourceStat>>;
   stat(uri: ResourceUri): Promise<ResourceStat | undefined>;
-  /** A read. It may include more than was asked for if it had it anyway. */
-  read(uri: ResourceUri, want: ReadWant[]): Promise<ResourceRead>;
+  /**
+   * A read. It may include more than was asked for if it had it anyway. Content that isn't text (a picture, a pdf, a
+   * recording) goes as its bytes, so the hub reads it the way its kind needs; text goes as text.
+   */
+  read(uri: ResourceUri, want: ReadWant[]): Promise<ProvidedRead>;
   /** Report changes until the returned function is called. */
   watch?(uris: ResourceUri[], onChange: (changes: ResourceChange[]) => void): () => void;
 }
 ```
 
-Refers to: [`Page`](context:fs/authoring.core-types.primitives-ts#core-page), [`ReadWant`](context:fs/authoring.core-types.resources-ts#core-readwant), [`ResourceChange`](context:fs/authoring.core-types.resources-ts#core-resourcechange), [`ResourceRead`](context:fs/authoring.core-types.resources-ts#core-resourceread), [`ResourceRoot`](context:fs/authoring.core-types.resources-ts#core-resourceroot), [`ResourceStat`](context:fs/authoring.core-types.resources-ts#core-resourcestat), [`ResourceUri`](context:fs/authoring.core-types.resources-ts#core-resourceuri).
+Refers to: [`Page`](context:fs/authoring.core-types.primitives-ts#core-page), [`ReadWant`](context:fs/authoring.core-types.resources-ts#core-readwant), [`ResourceChange`](context:fs/authoring.core-types.resources-ts#core-resourcechange), [`ResourceRoot`](context:fs/authoring.core-types.resources-ts#core-resourceroot), [`ResourceStat`](context:fs/authoring.core-types.resources-ts#core-resourcestat), [`ResourceUri`](context:fs/authoring.core-types.resources-ts#core-resourceuri).
+
+#### `ProvidedRead`
+
+type · `import { ProvidedRead } from '@harness/sdk'`
+
+A read as a provider makes it: a `ResourceRead`, except that its bytes may be the bytes themselves (`data` and their
+`mime`). The SDK holds those for the hub to fetch and sends their ref, so a provider never handles content refs.
+
+```ts
+type ProvidedRead = Omit<ResourceRead, 'bytes'> & { readonly bytes?: ContentRef | ProvidedBytes | undefined };
+```
+
+Refers to: [`ContentRef`](context:fs/authoring.core-types.resources-ts#core-contentref), [`ResourceRead`](context:fs/authoring.core-types.resources-ts#core-resourceread).
+
+#### `ProvidedBytes`
+
+interface · `import { ProvidedBytes } from '@harness/sdk'`
+
+A file's bytes as a provider hands them over, with their media type.
+
+```ts
+interface ProvidedBytes {
+  readonly data: Uint8Array;
+  readonly mime: string;
+}
+```
 
 #### `sectioner`
 

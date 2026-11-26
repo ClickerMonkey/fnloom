@@ -18,7 +18,7 @@ import { doWith, priorityDoer, type Doer } from '@ayepi/core/doer';
 import type { Logger } from '@ayepi/log';
 import { versionText } from '@aeye/resources/versions';
 import {
-  CONVERTED_VERSION_MIME, ConvertedVersion, isConvertedKind, messageOf, type ContentRef, type FormKind, type FormOffer, type FormRecord, type MadeFormKind,
+  CONVERTED_VERSION_MIME, ConvertedVersion, isConvertedKind, messageOf, mimeOfName, sniffMime, UNKNOWN_MIME, type ContentRef, type FormKind, type FormOffer, type FormRecord, type MadeFormKind,
   type ResourceForms, type ResourceRecord, type ResourceUri,
 } from '@harness/core';
 import type { ContentStore } from '../api/index.ts';
@@ -92,7 +92,9 @@ export class StoreFormService implements FormService {
     if (record?.raw !== undefined) {
       const raw = record.raw;
       const stat = await this.#o.raw.stat(uri);
-      if (stat?.version === record.stat.version && await this.#o.content.has(raw)) { return { ...record, raw }; }
+      // a snapshot is current while its version is the same and the system still says the same of what the file is
+      // (one kept before the system told pictures by their bytes says nothing of it, and is fetched again)
+      if (stat?.version === record.stat.version && stat.mime === record.stat.mime && await this.#o.content.has(raw)) { return { ...record, raw }; }
     }
     return this.#once(this.#fetching, uri, 'interactive', () => this.#fetch(uri));
   }
@@ -161,7 +163,9 @@ export class StoreFormService implements FormService {
     const bytes = raw.bytes ?? (raw.text === undefined ? undefined : utf8(raw.text));
     if (bytes === undefined) { throw reject(422, NO_CONTENT, `${raw.system} sent no content for ${uri}`); }
     if (bytes.length > settings.HARNESS_IMPORT_MAX) { throw reject(413, 'TOO_LARGE', `${uri} is ${bytes.length} bytes, over the hub's ${settings.HARNESS_IMPORT_MAX}`); }
-    const ref = await content.put(bytes, served === 'bytes' ? raw.stat.mime ?? 'application/octet-stream' : TEXT_MIME);
+    // bytes are what their first bytes say, then what the system said, then what their name says
+    const mime = served === 'bytes' ? sniffMime(bytes) ?? raw.stat.mime ?? mimeOfName(raw.stat.name) ?? UNKNOWN_MIME : TEXT_MIME;
+    const ref = await content.put(bytes, mime);
     const latest = await store.table('resources').get(uri);
     const kinds = kindsOf(await allRows(store.table('forms'), { where: { hash: ref.hash } }));
     const primary = primaryOf(familyOfStat(raw.stat), kinds);

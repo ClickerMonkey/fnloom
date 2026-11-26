@@ -32,7 +32,7 @@ describe('FsResources', () => {
       secrets: () => new Sensitivity(DEFAULT_SENSITIVITY_RULES, NO_IGNORES),
       files,
       documents: new AeyeDocuments(createDefaultResourceRegistry()),
-      limits: { page: 2, textMax: 1_000, ignore: ['node_modules'], debounce: 50 },
+      limits: { page: 2, textMax: 1_000, bytesMax: 25_000_000, ignore: ['node_modules'], debounce: 50 },
       watch: (folder, listener) => { listeners.set(folder, listener); return () => { listeners.delete(folder); }; },
     });
   });
@@ -63,6 +63,29 @@ describe('FsResources', () => {
     expect(await resources.stat(fileUri(`${tmp.path}/missing`))).toBeUndefined();
     expect(await resources.stat('https://example.com/x')).toBeUndefined();
     expect(versionOf(new Date(5), 3)).toBe('5-3');
+  });
+
+  it('tells what a file is from its bytes, then its name in any case, and sends pictures and pdfs as their bytes', async () => {
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0, 0, 0, 0]);
+    await writeFile(`${tmp.path}/IMG_2890.JPG`, jpeg);
+    await writeFile(`${tmp.path}/really a photo.txt`, jpeg);
+    await writeFile(`${tmp.path}/scan.pdf`, '%PDF-1.4\n%âã\n1 0 obj\n<<>>\nendobj\n');
+    await writeFile(`${tmp.path}/not a photo.jpg`, 'just text');
+    const stat = await resources.stat(fileUri(`${tmp.path}/IMG_2890.JPG`));
+    expect(stat).toMatchObject({ mime: 'image/jpeg', format: 'image' });
+    expect(await resources.stat(fileUri(`${tmp.path}/really a photo.txt`))).toMatchObject({ mime: 'image/jpeg', format: 'image' });
+    expect(await resources.stat(fileUri(`${tmp.path}/not a photo.jpg`))).toMatchObject({ mime: 'text/plain; charset=utf-8', format: 'text' });
+    expect(await resources.stat(fileUri(`${tmp.path}/docs/guide.md`))).toMatchObject({ mime: 'text/markdown', format: 'markdown' });
+    // what the hub asks for: the bytes, never this system's (empty) text of a picture
+    const read = await resources.read(fileUri(`${tmp.path}/IMG_2890.JPG`), ['bytes', 'text', 'links']);
+    expect(read.text).toBeUndefined();
+    expect(read.bytes).toEqual({ data: jpeg, mime: 'image/jpeg' });
+    const pdf = await resources.read(fileUri(`${tmp.path}/scan.pdf`), ['bytes', 'text', 'links']);
+    expect(pdf.bytes).toMatchObject({ mime: 'application/pdf' });
+    // text still goes as text
+    const text = await resources.read(fileUri(`${tmp.path}/not a photo.jpg`), ['bytes', 'text', 'links']);
+    expect(text.bytes).toBeUndefined();
+    expect(text.text).toEqual({ inline: 'just text' });
   });
 
   it('reads a folder as its children', async () => {
@@ -130,7 +153,7 @@ describe('FsResources', () => {
       secrets: () => new Sensitivity(DEFAULT_SENSITIVITY_RULES, ignoring([`${tmp.path}/docs/local.json`])),
       files: new FileService(new DiskSnapshots(`${tmp.path}/../.s`), { readLines: 100, fileMax: 10_000, listLimit: 100, ignore: ['node_modules'] }),
       documents: new AeyeDocuments(createDefaultResourceRegistry()),
-      limits: { page: 10, textMax: 1_000, ignore: ['node_modules'], debounce: 50 },
+      limits: { page: 10, textMax: 1_000, bytesMax: 25_000_000, ignore: ['node_modules'], debounce: 50 },
       watch: (folder, listener) => { listeners.set(folder, listener); return () => { listeners.delete(folder); }; },
     });
     expect((await strict.list(fileUri(`${tmp.path}/src`))).items.map((item) => item.name)).toEqual(['a.ts']);

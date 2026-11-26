@@ -130,7 +130,7 @@ type ResourceRead = {
   stat: {
     uri: `${string}://${string}`;
     name: string;
-    type: "record" | "file" | "folder" | "other" | "page";
+    type: "record" | "file" | "page" | "folder" | "other";
     version: string;
     mime?: string | undefined;
     format?: string | undefined;
@@ -187,7 +187,7 @@ What is known about a resource without reading it. Folders, files and pages are 
 type ResourceStat = {
   uri: `${string}://${string}`;
   name: string;
-  type: "record" | "file" | "folder" | "other" | "page";
+  type: "record" | "file" | "page" | "folder" | "other";
   version: string;
   mime?: string | undefined;
   format?: string | undefined;

@@ -6,9 +6,9 @@
  * (or anything under it) changes.
  */
 import type { McpResource, McpResourceContents, McpResourcePage, McpResourceSource, McpResourceTemplate } from '@ayepi/mcp';
-import { ResourceUri, type ResourceRead, type ResourceRoot, type ResourceStat } from '@harness/core';
+import { ResourceUri, type ResourceRoot, type ResourceStat } from '@harness/core';
 import { z } from 'zod';
-import type { ResourceProvider } from '../resources.ts';
+import type { ProvidedRead, ResourceProvider } from '../resources.ts';
 import type { ContentTransfer } from './content.ts';
 
 /** Where a listing is up to: which root's children, and the cursor within them. */
@@ -93,14 +93,15 @@ export class McpResources implements McpResourceSource {
     return this.#contents(await this.#provider.read(parsed.data, ['text', 'bytes']), signal);
   }
 
-  async #contents(read: ResourceRead, signal: AbortSignal): Promise<McpResourceContents[]> {
+  async #contents(read: ProvidedRead, signal: AbortSignal): Promise<McpResourceContents[]> {
     const { stat, text, bytes } = read;
     if (text !== undefined) {
       const inline = 'inline' in text ? text.inline : new TextDecoder().decode(await this.#content.download(text.ref, signal));
       return [{ uri: stat.uri, mimeType: textMime(stat), text: inline }];
     }
     if (bytes !== undefined) {
-      return [{ uri: stat.uri, mimeType: bytes.mime, blob: Buffer.from(await this.#content.download(bytes, signal)).toString('base64') }];
+      const data = 'data' in bytes ? bytes.data : await this.#content.download(bytes, signal);
+      return [{ uri: stat.uri, mimeType: bytes.mime, blob: Buffer.from(data).toString('base64') }];
     }
     return [];
   }

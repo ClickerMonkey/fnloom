@@ -9,7 +9,8 @@
  * password so the case can sign in as it and Phil can open its chats later (`--view`). A case step sent as another
  * person of the household signs in as them (`member`): Emma is the kids' account given a password then, Sara a member
  * made for the case. The schedule system runs only when a case of the rep needs it (`StartOptions.needs`). Then the rep's variant is
- * applied (`variants.ts`). Every hub call the rep makes is patient with a busy hub (`busy.ts`), and every client it
+ * applied (`variants.ts`), and the household as it is then is what every case finds: `restore` puts it back between
+ * cases (`household.ts`), and a case's person that can't sign in is turned back on, or made again under a new address. Every hub call the rep makes is patient with a busy hub (`busy.ts`), and every client it
  * signs in is closed when it stops, so the runner exits once its last rep is done.
  *
  * The web API can add a person but not give them a password (people sign in with SSO, or are the bootstrap admin),
@@ -22,6 +23,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { hashPassword } from '@ayepi/auth/server';
 import type { ActorId, IndexStatus } from '@harness/core';
+import { HouseholdKeeper, type HouseholdAdmin, type Restored } from './household.ts';
 import BetterSqlite3 from 'better-sqlite3';
 import { signIn, type Credentials, type SignedIn } from '../hub-client.ts';
 import { lanAddresses, ROOT, startStack, type ComponentName, type Stack } from '../stack.ts';
@@ -187,6 +189,11 @@ export interface Rep {
   person(caseId: number): Promise<{ client: SignedIn; credentials: Credentials; shed: () => number }>;
   /** Sign in as another person of the household for a case's step (`Step.as`): Emma's kid account, or a Sara made for the case. */
   member(caseId: number, who: Member, onShed?: () => void): Promise<{ client: SignedIn; credentials: Credentials }>;
+  /**
+   * Put the household back as the rep set it up (`household.ts`): its accounts on with their roles, the sign-in policy,
+   * no rules added since. The members of the cases still `playing` are left to them.
+   */
+  restore(playing: ReadonlySet<number>): Promise<Restored>;
   stop(): Promise<void>;
 }
 
@@ -207,6 +214,32 @@ export interface StartOptions {
 
 /** The kids' member accounts every rep makes (no password until a case signs in as one). */
 const KIDS = [{ key: 'emma', name: 'Emma Parker', email: 'emma@example.com' }, { key: 'leo', name: 'Leo Parker', email: 'leo@example.com' }] as const;
+
+/** The rep's admin client as the household keeper calls it. */
+function householdAdmin(admin: SignedIn): HouseholdAdmin {
+  return {
+    async people() {
+      const all = [];
+      let cursor: string | undefined;
+      do {
+        const page = await admin.hub.call('people', { limit: 200, ...(cursor === undefined ? {} : { cursor }) });
+        all.push(...page.items);
+        cursor = page.cursor;
+      } while (cursor !== undefined);
+      return all;
+    },
+    async rules() {
+      const [policies, budgets, priorities, categories] = await Promise.all([
+        admin.hub.call('policies', {}), admin.hub.call('budgets', {}), admin.hub.call('priorityRules', {}), admin.hub.call('modelCategories', {}),
+      ]);
+      return { policies, budgets, priorities, categories };
+    },
+    signInPolicy: async () => (await admin.hub.call('signInSettings', {})).policy,
+    updateUser: async (change) => { await admin.hub.call('updateUser', change); },
+    removeRule: async (rule) => { await admin.hub.call('removeRule', rule); },
+    setSignInPolicy: async (policy) => { await admin.hub.call('setSignInPolicy', policy); },
+  };
+}
 
 /** Boot a repetition on a clean slate. */
 export async function startRep(settings: ScenariosSettings, iteration: string, rep: number, log: (line: string) => void, options: StartOptions = {}): Promise<Rep> {
@@ -272,6 +305,7 @@ export async function startRep(settings: ScenariosSettings, iteration: string, r
   let variant: VariantRecord;
   let index: IndexWait | undefined;
   const kidIds = new Map<string, ActorId>();
+  let keeper: HouseholdKeeper;
   try {
     admin = await signInPatient(ADMIN);
     await goLiveAll(admin);
@@ -290,6 +324,13 @@ export async function startRep(settings: ScenariosSettings, iteration: string, r
     if (index !== undefined && !index.caughtUp) { log(`rep ${rep}: the index did not catch up in ${Math.round(index.waitedMs / 1000)}s (${index.pending} of ${index.items} waiting); playing anyway`); }
     // after the index, so the `on` variant's suggestions preview has candidates to decide on
     variant = await applyVariant(admin, options.variant ?? 'off', settings.HARNESS_SCENARIOS_DECISION_MODEL, (line) => { log(`rep ${rep}: ${line}`); });
+    // the household as it is now is what every case finds: put back after each case (`household.ts`)
+    keeper = new HouseholdKeeper(householdAdmin(admin));
+    for (const kid of KIDS) {
+      const id = kidIds.get(kid.key);
+      if (id !== undefined) { keeper.keep({ id, email: kid.email, role: 'member' }); }
+    }
+    await keeper.snapshot();
   } catch (error) {
     // a rep that fails to set up stops its stack, so the port is free and nothing keeps the process alive
     closeAll();
@@ -316,11 +357,33 @@ export async function startRep(settings: ScenariosSettings, iteration: string, r
     folder, home, variant, shedding, stack,
     patient: (what, call) => patient(what, call, policy, sink), admin, systems, skipped, index, problems,
     async person(caseId) {
-      const credentials = { email: `case-${String(caseId).padStart(2, '0')}@parker.family`, password: PERSON_PASSWORD };
-      const { id } = await admin.hub.call('addUser', { email: credentials.email, name: 'Alex Parker', role: 'admin' });
-      await setPassword(id, credentials.password);
+      const base = `case-${String(caseId).padStart(2, '0')}`;
       let shed = 0;
-      return { client: await signInPatient(credentials, () => { shed++; }), credentials, shed: () => shed };
+      const onShed = (): void => { shed++; };
+      /** A new admin account for the case under an address, kept between cases. */
+      const make = async (email: string): Promise<{ id: ActorId; credentials: Credentials }> => {
+        const credentials = { email, password: PERSON_PASSWORD };
+        const { id } = await admin.hub.call('addUser', { email, name: 'Alex Parker', role: 'admin' });
+        await setPassword(id, PERSON_PASSWORD);
+        keeper.keep({ id, email, role: 'admin', owner: caseId, person: true });
+        return { id, credentials };
+      };
+      let made = await make(`${base}@parker.family`);
+      try {
+        return { client: await signInPatient(made.credentials, onShed), credentials: made.credentials, shed: () => shed };
+      } catch (first) {
+        // another case's agent may have turned it off or changed it: put it back and try again
+        await admin.hub.call('updateUser', { user: made.id, disabled: false, role: 'admin' }).catch(() => undefined);
+        try {
+          return { client: await signInPatient(made.credentials, onShed), credentials: made.credentials, shed: () => shed };
+        } catch {
+          // still not: a new account for the case rather than a failed case
+          log(`rep ${rep}: case ${caseId}'s person couldn't sign in (${first instanceof Error ? first.message : String(first)}); made again`);
+          keeper.forget(made.id);
+          made = await make(`${base}-again-${Date.now().toString(36)}@parker.family`);
+          return { client: await signInPatient(made.credentials, onShed), credentials: made.credentials, shed: () => shed };
+        }
+      }
     },
     async member(caseId, who, onShed) {
       const kid = KIDS.find((k) => k.key === who);
@@ -336,8 +399,26 @@ export async function startRep(settings: ScenariosSettings, iteration: string, r
         credentials = { email: `case-${String(caseId).padStart(2, '0')}-${who}@parker.family`, password: PERSON_PASSWORD };
         const { id } = await admin.hub.call('addUser', { email: credentials.email, name: MEMBERS[who].name, role: 'member' });
         await setPassword(id, credentials.password);
+        keeper.keep({ id, email: credentials.email, role: 'member', owner: caseId });
       }
       return { client: await signInPatient(credentials, onShed), credentials };
+    },
+    async restore(playing) {
+      const restored = await keeper.restore(playing);
+      // a kid's login that is gone is made again (a new account: its password is set when a case next signs in as it)
+      for (const kid of KIDS.filter((k) => restored.missing.includes(k.email))) {
+        const old = kidIds.get(kid.key);
+        if (old !== undefined) { keeper.forget(old); }
+        try {
+          const { id } = await admin.hub.call('addUser', { name: kid.name, email: kid.email, role: 'member' });
+          kidIds.set(kid.key, id);
+          kidPasswords.delete(kid.key);
+          keeper.keep({ id, email: kid.email, role: 'member' });
+        } catch (error) {
+          log(`rep ${rep}: ${kid.name}'s login is gone and couldn't be made again: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      return restored;
     },
     async stop() {
       closeAll();

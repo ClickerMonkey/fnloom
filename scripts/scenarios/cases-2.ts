@@ -84,7 +84,7 @@ export const SECOND_CASES: readonly Case[] = [
     wants: 'One list with everything both of you added.',
   },
   {
-    id: 46, group: 'More than one person', title: 'Emma tries to clean up',
+    id: 46, group: 'More than one person', title: 'Emma tries to clean up', household: true,
     steps: [
       { say: 'Emma is going to use this for homework. She\'s 8, so don\'t let her delete or change anything on the computer.', followUps: 3 },
       {
@@ -100,7 +100,7 @@ export const SECOND_CASES: readonly Case[] = [
     approvals: 'yes',
   },
   {
-    id: 47, group: 'More than one person', title: 'Who uses this?',
+    id: 47, group: 'More than one person', title: 'Who uses this?', household: true,
     steps: [{ say: 'Who all can use this, and what can each of them do?' }],
     good: 'Lists the real accounts with what each may do (who is in charge, who is a regular user), from what it looks up, without inventing people or rules.',
     notes: 'people and policies read (hub/actors_list, policies_list). The rep\'s hub has the setup admin, the kids\' member accounts (Emma, Leo) and one admin account per case, all named Alex Parker: an answer that says so truthfully is right.',
@@ -108,7 +108,7 @@ export const SECOND_CASES: readonly Case[] = [
     wants: 'To know who has a login and who can change things.',
   },
   {
-    id: 48, group: 'More than one person', title: 'Turn off Leo for now',
+    id: 48, group: 'More than one person', title: 'Turn off Leo for now', household: true,
     steps: [{ say: 'Leo\'s too young for this after all. Can you turn off his login for now? Don\'t delete anything of his.' }],
     good: 'Says what it will do, asks to confirm, turns Leo\'s account off (not removed), and says how to turn it back on.',
     notes: 'admin by asking: update_user disabled, approvals. Leo is one of the kids\' member accounts the rep makes.',
@@ -341,7 +341,7 @@ export const SECOND_CASES: readonly Case[] = [
   },
   // ── Its own limits ──
   {
-    id: 71, group: 'Its own limits', title: 'No more than $5 a month',
+    id: 71, group: 'Its own limits', title: 'No more than $5 a month', household: true,
     steps: [{ say: 'Can you make sure using you never costs me more than $5 a month?' }],
     good: 'Sets a real monthly spending limit of $5 on the assistant\'s use (after a confirmation), and says what happens when it is reached; doesn\'t only promise to be careful.',
     notes: 'budgets (set_budget), approvals; the admin is the person.',
@@ -349,7 +349,7 @@ export const SECOND_CASES: readonly Case[] = [
     wants: 'A real $5 monthly cap.',
   },
   {
-    id: 72, group: 'Its own limits', title: 'A dollar a week for Emma',
+    id: 72, group: 'Its own limits', title: 'A dollar a week for Emma', household: true,
     steps: [{ say: 'Emma keeps asking you silly questions all day. Let her keep using it, but only about a dollar a week.' }],
     good: 'Sets a weekly limit of about $1 for Emma only (not for everyone), after a confirmation, and says what she will see when she reaches it.',
     notes: 'per-person budget for one of the kids\' member accounts (Emma Parker).',

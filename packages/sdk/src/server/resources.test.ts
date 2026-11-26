@@ -68,7 +68,10 @@ async function start(hub: FakeHub): Promise<void> {
       async roots() { return []; },
       async list(uri) { return { items: [{ uri, name: 'child', type: 'file', version: '1' }], cursor: 'next' }; },
       async stat() { return undefined; },
-      async read(uri) { return { stat: { uri, name: 'big', type: 'file', version: '1' }, text: { inline: 'é'.repeat(800) } }; },
+      async read(uri) {
+        if (uri === 'doc://photo') { return { stat: { uri, name: 'photo.jpg', type: 'file', mime: 'image/jpeg', version: '1' }, bytes: { data: new Uint8Array([0xff, 0xd8, 0xff, 0xe0]), mime: 'image/jpeg' } }; }
+        return { stat: { uri, name: 'big', type: 'file', version: '1' }, text: { inline: 'é'.repeat(800) } };
+      },
     },
     events: {
       message: async (event) => { events.push(`message:${event.message.text}`); },
@@ -134,6 +137,16 @@ describe('serving the hub', () => {
     expect(Buffer.from(chunk, 'base64').toString('utf8')).toBe('é'.repeat(800));
     await expect(hub.peer().call('content', { ref: { ...read.text.ref, hash: '0'.repeat(64) }, offset: 0, length: 1 })).rejects.toThrow();
     expect(await hub.peer().call('list', { uri: 'doc://' })).toEqual({ items: [{ uri: 'doc://', name: 'child', type: 'file', version: '1' }], cursor: 'next' });
+  });
+
+  it('holds bytes a provider handed over and sends them by ref the hub can fetch', async () => {
+    const hub = new FakeHub();
+    await start(hub);
+    const read = await hub.peer().call('read', { uri: 'doc://photo', want: ['bytes', 'text'] });
+    if (read.bytes === undefined) { throw new Error('expected bytes by ref'); }
+    expect(read.bytes).toMatchObject({ size: 4, mime: 'image/jpeg' });
+    const { chunk } = await hub.peer().call('content', { ref: read.bytes, offset: 0, length: read.bytes.size });
+    expect([...Buffer.from(chunk, 'base64')]).toEqual([0xff, 0xd8, 0xff, 0xe0]);
   });
 
   it('cuts a resource into sections with its sectioner, reading it through the hub', async () => {

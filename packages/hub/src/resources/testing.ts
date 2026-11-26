@@ -3,6 +3,7 @@
  * map of system resources, model-made forms that count their calls, a context graph and an indexer that keep what
  * they were told, and `resourcesRig`, which puts the real services together over them. Tests only.
  */
+import { deflateSync } from 'node:zlib';
 import type { Presigner } from '@ayepi/files';
 import {
   ActorId, linkTargetKey, ResourceStat, SessionId, SystemName, type ContextLink, type ContextRecord, type IndexedKind, type MadeFormKind, type QualifiedName,
@@ -216,4 +217,76 @@ export async function resourcesRig(options: { pieceTokens?: number; maxRows?: nu
 /** UTF-8 bytes of a text. */
 export function bytes(text: string): Uint8Array {
   return new TextEncoder().encode(text);
+}
+
+/** One page of a made pdf: a bitmap (grey or RGB samples, optionally with a soft mask), a JPEG's bytes, or text. */
+export type MadePage =
+  | { readonly kind: 'bitmap'; readonly width: number; readonly height: number; readonly channels: 1 | 3; readonly samples: Uint8Array; readonly alpha?: Uint8Array }
+  | { readonly kind: 'jpeg'; readonly width: number; readonly height: number; readonly bytes: Uint8Array }
+  | { readonly kind: 'text'; readonly text: string };
+
+/**
+ * A small real pdf: a catalog, a page tree and one page per entry, each picture as an image object (Flate or DCT) or
+ * a line of text in Helvetica, with a correct xref table so pdf readers take it as it is. Tests only.
+ */
+export function madePdf(pages: readonly MadePage[]): Uint8Array {
+  const parts: Uint8Array[] = [];
+  const offsets: number[] = [];
+  let size = 0;
+  const push = (chunk: Uint8Array | string): void => {
+    const data = typeof chunk === 'string' ? new Uint8Array(Buffer.from(chunk, 'latin1')) : chunk;
+    parts.push(data);
+    size += data.length;
+  };
+  const object = (number: number, dict: string, stream?: Uint8Array): void => {
+    offsets[number] = size;
+    push(`${number} 0 obj\n${dict}\n`);
+    if (stream !== undefined) { push('stream\n'); push(stream); push('\nendstream\n'); }
+    push('endobj\n');
+  };
+  push('%PDF-1.4\n%âãÏÓ\n');
+  const font = 3;
+  let next = 4;
+  const kids: number[] = [];
+  const bodies: Array<() => void> = [];
+  for (const page of pages) {
+    const pageNumber = next++;
+    const contents = next++;
+    kids.push(pageNumber);
+    if (page.kind === 'text') {
+      const text = `BT /F1 18 Tf 72 720 Td (${page.text.replace(/[()\\]/g, (c) => `\\${c}`)}) Tj ET`;
+      bodies.push(() => {
+        object(pageNumber, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${font} 0 R >> >> /Contents ${contents} 0 R >>`);
+        object(contents, `<< /Length ${text.length} >>`, new Uint8Array(Buffer.from(text, 'latin1')));
+      });
+      continue;
+    }
+    const image = next++;
+    const mask = page.kind === 'bitmap' && page.alpha !== undefined ? next++ : undefined;
+    const draw = `q 612 0 0 792 0 0 cm /Im1 Do Q`;
+    bodies.push(() => {
+      object(pageNumber, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /XObject << /Im1 ${image} 0 R >> >> /Contents ${contents} 0 R >>`);
+      object(contents, `<< /Length ${draw.length} >>`, new Uint8Array(Buffer.from(draw, 'latin1')));
+      if (page.kind === 'jpeg') {
+        object(image, `<< /Type /XObject /Subtype /Image /Width ${page.width} /Height ${page.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${page.bytes.length} >>`, page.bytes);
+        return;
+      }
+      const packed = new Uint8Array(deflateSync(page.samples));
+      const space = page.channels === 3 ? '/DeviceRGB' : '/DeviceGray';
+      object(image, `<< /Type /XObject /Subtype /Image /Width ${page.width} /Height ${page.height} /ColorSpace ${space} /BitsPerComponent 8${mask === undefined ? '' : ` /SMask ${mask} 0 R`} /Filter /FlateDecode /Length ${packed.length} >>`, packed);
+      if (mask !== undefined && page.alpha !== undefined) {
+        const alpha = new Uint8Array(deflateSync(page.alpha));
+        object(mask, `<< /Type /XObject /Subtype /Image /Width ${page.width} /Height ${page.height} /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /Length ${alpha.length} >>`, alpha);
+      }
+    });
+  }
+  object(1, '<< /Type /Catalog /Pages 2 0 R >>');
+  object(2, `<< /Type /Pages /Kids [${kids.map((kid) => `${kid} 0 R`).join(' ')}] /Count ${kids.length} >>`);
+  object(font, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+  for (const body of bodies) { body(); }
+  const xref = size;
+  const count = next;
+  const rows = Array.from({ length: count }, (_, i) => (i === 0 ? '0000000000 65535 f \n' : `${String(offsets[i] ?? 0).padStart(10, '0')} 00000 n \n`));
+  push(`xref\n0 ${count}\n${rows.join('')}trailer\n<< /Size ${count} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+  return new Uint8Array(Buffer.concat(parts));
 }

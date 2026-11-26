@@ -147,9 +147,9 @@ export function registerResourceFns(fns: HubFns, deps: ResourceFnDeps): void {
     return { parts: parts.map((part) => ({ type: part.type, chars: part.content.length, ...(part.name === undefined ? {} : { name: part.name }) })) };
   });
   fns.register(refs.image_read, async (args, ctx) => {
-    const { image, question } = ImageReadArgs.parse(args);
+    const { image, question, page } = ImageReadArgs.parse(args);
     (await reachOf(deps, ctx)).needResource(image);
-    return deps.resources().images.ask(image, question, askingOf(ctx), ctx.signal);
+    return deps.resources().images.ask(image, question, askingOf(ctx), ctx.signal, page);
   });
 
   fns.register(refs.resource_convert, async (args, ctx) => {

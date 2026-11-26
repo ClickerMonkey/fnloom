@@ -149,8 +149,11 @@ export interface ImageAnswer {
 
 /** Questions about images, for a model that can't see them (`hub/image_read`), answered by the `describe` role's model. */
 export interface ImageQuestions {
-  /** Ask about an image. Refused when it isn't an image, or no image model is set up. The model call is charged to `who.run`. */
-  ask(uri: ResourceUri, question: string, who: Asking, signal?: AbortSignal): Promise<ImageAnswer>;
+  /**
+   * Ask about an image, or a page of a pdf whose pages are pictures (`page`, from 1; the first few when absent).
+   * Refused when it is neither, or no image model is set up. The model call is charged to `who.run`.
+   */
+  ask(uri: ResourceUri, question: string, who: Asking, signal?: AbortSignal, page?: number): Promise<ImageAnswer>;
 }
 
 /** Context made from resources, memory, and the context list as people browse it. */

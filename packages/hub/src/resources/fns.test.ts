@@ -8,7 +8,7 @@ import { ALICE, executionRig, SESSION, type ExecutionRig } from '../execution/te
 import { registerResourceFns, type ReachScope } from './fns.ts';
 import { HubImageQuestions } from './images.ts';
 import type { ResourceServices } from './index.ts';
-import { bytes, resourcesRig, statOf } from './testing.ts';
+import { bytes, madePdf, resourcesRig, statOf } from './testing.ts';
 
 /** The resource fns this module implements. */
 const NAMES = [
@@ -95,6 +95,20 @@ describe('asking about an image (hub/image_read)', () => {
     const asked = await call(r, turn, 'image_read', { image: uri, question: 'What does it say?' });
     expect(asked).toEqual({ status: 'done', result: { image: { id: uri, name: 'sign.png' }, answer: 'answer about sign.png: What does it say?', model: 'test/vision' } });
     expect(resources.models.asked).toMatchObject([{ question: 'What does it say?', name: 'sign.png', who: { actor: ALICE } }]);
+  });
+
+  it('asks about a page of a pdf whose pages are pictures (a scan), one page or the first few', async () => {
+    const { r, resources, turn } = await started();
+    const uri = ResourceUri.parse('file://main/scan.pdf');
+    const page = { kind: 'bitmap', width: 2, height: 2, channels: 1, samples: new Uint8Array([0, 255, 255, 0]) } as const;
+    resources.raw.serve({ stat: statOf(uri, { format: 'pdf', mime: 'application/pdf' }), bytes: madePdf([page, page]) });
+    const one = await call(r, turn, 'image_read', { image: uri, page: 2, question: 'What is it?' });
+    expect(one).toEqual({ status: 'done', result: { image: { id: uri, name: 'scan.pdf, page 2' }, answer: 'answer about scan.pdf, page 2: What is it?', model: 'test/vision' } });
+    const all = await call(r, turn, 'image_read', { image: uri, question: 'What is it?' });
+    expect(all).toMatchObject({ status: 'done', result: { answer: 'Page 1: answer about scan.pdf, page 1: What is it?\n\nPage 2: answer about scan.pdf, page 2: What is it?' } });
+    const past = await call(r, turn, 'image_read', { image: uri, page: 3, question: 'What is it?' });
+    expect(past.status).not.toBe('done');
+    expect(JSON.stringify(past)).toContain('it has 2 pages');
   });
 
   it('refuses an id that is not an image, one it cannot reach, and any call while no image model is set up', async () => {

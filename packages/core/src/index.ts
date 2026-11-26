@@ -17,7 +17,7 @@
  * - `web`: the web API spec (`hubWebSpec`) and its events.
  * - `modes`: chat modes, contextors, model limits and what a prompt held.
  * - `context-graph`: context origins and weighted links; `people-only`: fields only a person sets, by hand.
- * - `resource-forms`: raw content, converted and made forms, sources, families.
+ * - `resource-forms`: raw content, converted and made forms, sources, families; `media-types`: what content is, from its bytes then its name.
  * - `model-calls`: every model call of every modality, and model roles.
  * - `metrics`: fn metrics.
  * - `package`: system packages, instances, pairing info, data exports.
@@ -63,6 +63,7 @@ export * from './labels.ts';
 export * from './status.ts';
 export * from './resources.ts';
 export * from './resource-forms.ts';
+export * from './media-types.ts';
 export * from './llm.ts';
 export * from './model-calls.ts';
 export * from './metrics.ts';

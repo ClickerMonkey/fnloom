@@ -124,7 +124,7 @@ export function createFsImpl(deps: FsDeps): FsServer {
     secrets: () => sensitivity(current),
     files,
     documents: deps.documents,
-    limits: { page: s.FS_RESOURCE_PAGE, textMax: s.FS_RESOURCE_TEXT_MAX, ignore: s.FS_IGNORE, debounce: s.FS_WATCH_DEBOUNCE },
+    limits: { page: s.FS_RESOURCE_PAGE, textMax: s.FS_RESOURCE_TEXT_MAX, bytesMax: s.FS_RESOURCE_BYTES_MAX, ignore: s.FS_IGNORE, debounce: s.FS_WATCH_DEBOUNCE },
     watch: deps.watch,
   });
 

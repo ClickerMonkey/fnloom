@@ -45,7 +45,7 @@ export {
 } from './ctx.ts';
 export { ResultBlock, ResultBlockType, ResultColumnInfo, ResultFn, NextPage } from './results.ts';
 export type { CheckImpl, FnImpl } from './impl.ts';
-export type { ResourceProvider } from './resources.ts';
+export type { ProvidedBytes, ProvidedRead, ResourceProvider } from './resources.ts';
 export { provider, providerDecl, type ProviderDef, type ProviderInput, type ProviderImpl } from './providers.ts';
 export {
   system, isSystemContract, CONTRACT_SECTIONS,

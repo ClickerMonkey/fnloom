@@ -6,6 +6,15 @@
  * (a new data folder, hub database, scratch database and fake home folder); within it each case runs as its own new
  * person, a few at a time. Results stay in `.harness-test/scenarios/<iteration>/` (kept, so `--view` can open them).
  *
+ * Cases share their rep's hub, so one case never changes another's world (`household.ts`): the household (the kids'
+ * logins, every case's own person, the members made for a case, the sign-in policy, policies, budgets, priorities and
+ * model categories) is snapshotted when the rep is set up and put back before and after every case, the accounts on
+ * again with their roles and every rule added since removed; a case marked `household` (it turns a login off, sets a
+ * budget or a restriction, or reads the accounts where an agent has changed them unasked) plays alone, no other case
+ * playing while it does; and a case's person that can't sign in is turned back on, or made again under a new address,
+ * rather than the case failing (iteration 6: case 47's agent turned off every account it saw, and case 49 failed in
+ * the runner with "user not found").
+ *
  * A hub that stops answering never takes the run down: the cases it was playing are saved as `harness-crash` (with
  * the end of the stack's log), what finished stays, the crash goes in `rep.json` and the report's header, and the
  * rep's unplayed cases go on on a fresh stack in `rep-<n>/restart-<k>/` (at most two restarts a rep; past that they
@@ -49,6 +58,7 @@ import { OpenRouter } from './openrouter.ts';
 import { playCase, type PlayContext } from './play.ts';
 import { publish } from './publish.ts';
 import { RepPeople, type Ending, type JudgedCase } from './records.ts';
+import { CaseGate, restoredAnything, restoredLine } from './household.ts';
 import { iterationFolder, loadIteration, savedVariants, writeReport, type RepCrash, type RepMeta } from './report.ts';
 import { ADMIN, FIXTURES_DIR, PERSON_PASSWORD, portTaken, repFolder, startRep, tailscaleBase, viewBase, viewRep, type Rep } from './rep.ts';
 import { caseMarkdown, usd } from './transcript.ts';
@@ -252,13 +262,35 @@ async function runRep(settings: ScenariosSettings, router: OpenRouter, place: Re
         keep(unplayed(place, played, { by: 'harness-crash', reason: `the hub stopped answering: ${error}`.slice(0, 400) }, logTail(stackFolder), stackName), undefined);
         log(`rep ${rep}: case ${played.id} lost to a harness crash (${error.slice(0, 200)})`);
       };
+      /** Who plays now (a household case alone), and the cases playing. */
+      const gate = new CaseGate();
+      const playing = new Set<number>();
+      /** Put the household back for the cases to come (never fails a case: a failed restore is logged). */
+      const putBack = async (why: string): Promise<void> => {
+        try {
+          const restored = await handle.restore(playing);
+          if (restoredAnything(restored)) { log(`rep ${rep}: ${why}, put back ${restoredLine(restored)}`); }
+        } catch (error) {
+          log(`rep ${rep}: ${why}, couldn't put the household back: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      };
       await pool(remaining, concurrency, async (played) => {
         if (crash !== undefined) { return; }
-        if (!(await hubAnswers(url))) { crash = { at: new Date().toISOString(), error: 'the hub stopped answering between cases' }; return; }
-        log(`rep ${rep}: case ${played.id} (${played.title}) starts`);
+        // a case that changes the household plays alone; every case starts on the household as the rep set it up
+        const release = await gate.enter(played.household === true);
         let record;
         try {
-          record = await playCase(context, played);
+          if (crash !== undefined) { return; }
+          if (!(await hubAnswers(url))) { crash = { at: new Date().toISOString(), error: 'the hub stopped answering between cases' }; return; }
+          await putBack(`before case ${played.id}`);
+          playing.add(played.id);
+          log(`rep ${rep}: case ${played.id} (${played.title}) starts${played.household === true ? ' (alone: it changes the household)' : ''}`);
+          try {
+            record = await playCase(context, played);
+          } finally {
+            playing.delete(played.id);
+            if (await hubAnswers(url)) { await putBack(`after case ${played.id}`); }
+          }
         } catch (error) {
           const text = error instanceof Error ? error.message : String(error);
           if (!(await hubAnswers(url))) { lost(played, text); return; }
@@ -268,7 +300,10 @@ async function runRep(settings: ScenariosSettings, router: OpenRouter, place: Re
           keep(unplayed(place, played, { by: 'error', reason: `${busy ? 'the hub stayed busy (HTTP 503) past the runner\'s patience' : 'the runner failed'}: ${text}`.slice(0, 400) }, [], stackName), undefined);
           log(`rep ${rep}: case ${played.id} failed in the runner${busy ? ' (the hub stayed busy)' : ''}: ${text.slice(0, 200)}`);
           return;
+        } finally {
+          release();
         }
+        if (record === undefined) { return; }
         // a case that ended badly because the hub died is the crash's, not the agent's
         if ((record.ending.by === 'error' || record.ending.by === 'timeout') && !(await hubAnswers(url))) { lost(played, record.ending.reason); return; }
         const placed = stackName === undefined ? record : { ...record, stack: stackName };

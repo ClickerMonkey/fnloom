@@ -227,7 +227,8 @@ niche: "developer"
   ```text
   (obj{
     image: text,
-    question: text{minLength=1, maxLength=2000}
+    question: text{minLength=1, maxLength=2000},
+    page?: num{whole=true, min=1}
   }) => obj{answer: text, model: text, image: obj{id: text, name: text}}
   ```
 - `hub/system_calls`: Holds the model calls a system makes outside its own runs (hooks, timers, start-up, its own aeye), so they are charged to its budgets and show as its.

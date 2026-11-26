@@ -11,7 +11,7 @@ import { AUTO_MODEL } from '../contextor/limits.ts';
 import { FormMessageContent } from '../resources/content.ts';
 import { ALICE, bytes, resourcesRig, statOf } from '../resources/testing.ts';
 import { fileTag } from './files.ts';
-import { ConversationMedia, parseShown, shownMessage } from './shown.ts';
+import { ConversationMedia, parseShown, pictureParts, shownMessage } from './shown.ts';
 
 /** A PNG's signature and IHDR chunk: 32 by 16. */
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 32, 0, 0, 0, 16]);
@@ -97,12 +97,32 @@ describe('a shown resource', () => {
 
   it('turns an image part already in a message into a block for a model that can\'t see, and leaves it for one that sees', async () => {
     const w = await world();
-    const kept: LlmMessage[] = [{ role: 'user', content: [{ type: 'text', content: 'look' }, { type: 'image', content: 'data:image/png;base64,AAAA', format: 'image/png', name: 'x.png' }] }];
+    const kept: LlmMessage[] = [{ role: 'user', content: [{ type: 'text', content: 'look' }, { type: 'image', content: `data:image/png;base64,${Buffer.from(PNG).toString('base64')}`, format: 'image/png', name: 'x.png' }] }];
     expect(await w.media.expand(kept, 'sees', who)).toEqual(kept);
     const [blind] = await w.media.expand(kept, 'blind', who);
     const parts = Array.isArray(blind?.content) ? blind.content : [];
     expect(parts.map((part) => part.type)).toEqual(['text', 'text']);
     expect(parts[1]?.content).toContain('<image name="x.png" mime="image/png"');
+  });
+
+  it('never sends a part that isn\'t a real picture: it becomes a note, so a bad picture can\'t stop every later turn', async () => {
+    const w = await world();
+    // what a JPEG the system served as its own (empty) text became, kept in a message
+    const bad: LlmMessage = { role: 'user', content: [{ type: 'text', content: 'look' }, { type: 'image', content: 'data:text/plain; charset=utf-8;base64,', format: 'text/plain', name: 'IMG_2890.JPG' }] };
+    const good: LlmMessage = { role: 'user', content: 'and then?' };
+    const sent = await w.media.expand([bad, good], 'sees', who);
+    const parts = Array.isArray(sent[0]?.content) ? sent[0].content : [];
+    expect(parts.map((part) => part.type)).toEqual(['text', 'text']);
+    expect(parts[1]?.content).toBe("[IMG_2890.JPG can't be shown to you as a picture: it is empty (it says text/plain). It was left out; don't guess what it shows.]");
+    expect(sent[1]).toBe(good);
+    // a shown file that says it is a picture but isn't one is a note too, every turn, for the request only
+    const fake = ResourceUri.parse('file://main/fake.png');
+    w.raw.serve({ stat: statOf(fake, { format: 'image', mime: 'image/png' }), text: '' });
+    const shown = await w.media.expand([shownMessage(fake)], 'sees', who);
+    expect(JSON.stringify(shown)).not.toContain('data:');
+    expect(JSON.stringify(shown)).toContain("[fake.png (file://main/fake.png) can't b");
+    const kept = [good];
+    expect(pictureParts(kept)).toBe(kept);
   });
 
   it('keeps a shown document\'s text to the limit, saying how to read on', async () => {

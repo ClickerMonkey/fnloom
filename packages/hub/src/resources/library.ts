@@ -10,7 +10,7 @@
 import { reject } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import {
-  HUB_RESOURCE_ROOT, ResourceStat, type ActorId, type ContentRef, type QualifiedName, type ResourceImportArgs, type ResourcePage, type ResourceQuery,
+  HUB_RESOURCE_ROOT, ResourceStat, SNIFF_HEAD, sniffMime, type ActorId, type ContentRef, type QualifiedName, type ResourceImportArgs, type ResourcePage, type ResourceQuery,
   type ResourceRecord, type ResourceSource, type ResourceUri, type RunId,
 } from '@harness/core';
 import type { ContentStore } from '../api/index.ts';
@@ -172,7 +172,10 @@ export class HubResourceLibrary implements ResourceLibrary {
    */
   async #keepAt(place: Place, who: Asking): Promise<ResourceRecord> {
     const { store, clock, converters, log } = this.#o;
-    const { path, segment, name, content, source, type } = place;
+    const { path, segment, name, source, type } = place;
+    // what the content is comes from its bytes first: a picture uploaded as text, or named .JPG, is still a picture
+    const sniffed = sniffMime(await this.#o.content.read(place.content, 0, Math.min(place.content.size, SNIFF_HEAD)));
+    const content: ContentRef = sniffed === undefined || sniffed === place.content.mime ? place.content : { ...place.content, mime: sniffed };
     let uri = hubUri(path, segment);
     const taken = await store.table('resources').get(uri);
     if (taken?.raw !== undefined && taken.raw.hash !== content.hash && place.replace !== true) { uri = hubUri(path, suffixed(segment, content.hash)); }

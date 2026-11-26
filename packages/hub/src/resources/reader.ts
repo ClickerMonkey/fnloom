@@ -71,6 +71,18 @@ function cappedRows(chosen: FormText): string | undefined {
   return cut.length === 0 ? undefined : `Partial: the hub keeps only the first rows of ${cut.join(', ')}; the rest can't be read here (the raw file has them all). Don't state what the left-out rows say.`;
 }
 
+/**
+ * What to say of a pdf whose pages hold no text at all (a scan, or a photo of paper): that its text is empty because
+ * its pages are pictures, and how to look at them, so an empty read is never taken as an empty document.
+ */
+function scanNote(uri: ResourceUri, chosen: FormText): string | undefined {
+  const version = chosen.version;
+  if (version?.kind !== 'pages' || version.pages.length === 0 || version.pages.some((page) => page.trim() !== '')) { return undefined; }
+  const count = version.pages.length;
+  return `This pdf has no text in it: its ${count === 1 ? 'page is a picture' : `${count} pages are pictures`} (a scan or a photo of paper), so there is nothing to read here. `
+    + `See a page with hub/resource_send, uri ${JSON.stringify(uri)} and section "Page 1"; or, if you can't see pictures, ask about it with hub/image_read, image ${JSON.stringify(uri)}, page 1 and your question. Don't guess what it says.`;
+}
+
 /** Reading over the forms service. */
 export class FormReader implements ResourceReader {
   readonly #o: FormReaderOptions;
@@ -83,7 +95,9 @@ export class FormReader implements ResourceReader {
   async read(args: ResourceReadArgs, who: Asking): Promise<ResourceReadResult> {
     const { record, forms, offers } = await this.#o.forms.forms(args.uri, who);
     const picked = this.#formFor(record, args.form, forms, offers);
-    const { chosen, note } = await this.#readable(record, picked, args.form, forms, offers, who);
+    const readable = await this.#readable(record, picked, args.form, forms, offers, who);
+    const { chosen } = readable;
+    const note = [readable.note, scanNote(args.uri, chosen)].filter((line) => line !== undefined).join(' ') || undefined;
     const base = { uri: args.uri, form: chosen.form, forms: kindsOf(forms), offers, ...(note === undefined ? {} : { note }) };
     if (args.rows !== undefined) { return { ...base, ...this.#rows(args.uri, chosen, args.rows) }; }
     let text = chosen.text;

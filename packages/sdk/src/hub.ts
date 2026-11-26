@@ -913,7 +913,7 @@ const hubContract = system('hub', {
       }),
       resource_send: fn({
         description: 'Show yourself a resource (or one section of it) as it is, at your next step: an image you can see, audio, a PDF page or text.',
-        instructions: 'Use it to look at a photo, a screenshot, a chart or a scanned page the person attached, or any resource whose text form is not enough. You see it yourself at your next step: describe what you see then, with no other tool. If the model you run on can\'t see images, an image comes as an `<image id="…">` block instead: ask about it with hub/image_read. It costs prompt room, so send one section (a page) of a long document when you can.',
+        instructions: 'Use it to look at a photo, a screenshot, a chart or a scanned page the person attached, or any resource whose text form is not enough. You see it yourself at your next step: describe what you see then, with no other tool. If the model you run on can\'t see images, an image comes as an `<image id="…">` block instead: ask about it with hub/image_read. It costs prompt room, so send one section (a page) of a long document when you can. A pdf with no text in it (a scan, or a photo of paper) comes as the pictures of its pages: send section "Page 2" to see page 2.',
         examples: [{ args: { uri: 'hub://resources/uploads/2026-11-22/photo.jpg' }, note: 'Look at a photo the person attached.' }],
         args: ginAs(ResourceSendArgs),
         returns: g.obj({ parts: g.list(SentPart) }),
@@ -922,10 +922,11 @@ const hubContract = system('hub', {
       }),
       image_read: fn({
         description: 'Ask a question about an image you can\'t see: another model that can see images looks at it and answers.',
-        instructions: 'Use it when an image comes to you as an `<image id="…">` block instead of the picture itself (the model you run on can\'t see images). Pass the block\'s id as `image` and ask one clear question, saying exactly what you need: "What does the text in it say, word for word?", "List every item it shows with its number", "What is in the top left corner?". Ask for the exact words or numbers you need rather than a summary, and ask again with a sharper question if the answer leaves something out. The answer is only what that model saw: say so if it is unsure, and confirm anything important with the person before you act on it. Don\'t use it on an image you can see.',
+        instructions: 'Use it when an image comes to you as an `<image id="…">` block instead of the picture itself (the model you run on can\'t see images). Pass the block\'s id as `image` and ask one clear question, saying exactly what you need: "What does the text in it say, word for word?", "List every item it shows with its number", "What is in the top left corner?". Ask for the exact words or numbers you need rather than a summary, and ask again with a sharper question if the answer leaves something out. The answer is only what that model saw: say so if it is unsure, and confirm anything important with the person before you act on it. It reads a pdf whose pages are pictures (a scan) too: pass the pdf\'s uri as `image` and the page number as `page` (from 1). Don\'t use it on an image you can see.',
         examples: [
           { args: { image: 'hub://resources/uploads/2026-11-22/photo.jpg', question: 'Write out all of the text in this image exactly, line by line.' }, note: 'The words in an attached picture.' },
           { args: { image: 'file:///docs/diagram.png', question: 'What are the labelled parts, and how are they connected?' }, note: 'What a diagram shows.' },
+          { args: { image: 'file:///docs/signed-contract.pdf', page: 2, question: 'What is this page about, and which names and dates does it show?' }, note: 'Page 2 of a scanned pdf, which has no text.' },
         ],
         args: ginAs(ImageReadArgs),
         returns: ginAs(ImageReadResult),

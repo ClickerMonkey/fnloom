@@ -9,8 +9,13 @@
  * block too, and an image part already in a message becomes a short block saying it can't be shown. Since only the
  * references are kept, undo cuts them with the rest of a turn, and a chat that changes model reads every earlier image
  * the way its new model takes them.
+ *
+ * Every image part goes through one last check before a call (`pictureParts`): one that isn't a real picture of a
+ * kind providers take (an empty data URL, text marked as a picture) becomes a short text note saying so. A provider
+ * refuses the whole request over one bad picture, and the conversation is sent again every turn, so a bad part left
+ * in would stop the chat for good.
  */
-import { namesModel, type LlmContentPart, type LlmMessage, type ModelInfo, type ResourceUri, type SectionKey } from '@harness/core';
+import { imagePartProblem, namesModel, type LlmContentPart, type LlmMessage, type ModelInfo, type ResourceUri, type SectionKey } from '@harness/core';
 import { AUTO_MODEL } from '../contextor/limits.ts';
 import { SHOWN_TAG } from '../contextor/render.ts';
 import type { Asking, ContentModel, MessageContent } from '../resources/index.ts';
@@ -80,7 +85,7 @@ export class ConversationMedia {
     if (!messages.some((message) => message.role === 'user' || message.role === 'tool')) return [...messages];
     const chosen = await this.model(model);
     const sees = chosen.capabilities.includes('vision');
-    return Promise.all(messages.map(async (message) => {
+    return pictureParts(await Promise.all(messages.map(async (message) => {
       if (message.role !== 'user' && message.role !== 'tool') return message;
       if (typeof message.content === 'string') {
         const shown = message.role === 'user' ? parseShown(message.content) : undefined;
@@ -89,7 +94,7 @@ export class ConversationMedia {
       }
       if (sees) return message;
       return { ...message, content: message.content.map((part) => (part.type === 'image' ? unseenPart(part) : part)) };
-    }));
+    })));
   }
 
   /** A shown resource's parts for the model, its text kept to `maxChars`. */
@@ -118,6 +123,31 @@ export class ConversationMedia {
     }
     return out + text.slice(at);
   }
+}
+
+/**
+ * Messages with every image part that can't go to a provider as a picture (`imagePartProblem`) replaced by a short
+ * text note the model can read. For the request only: what is stored is never rewritten. Unchanged messages are the
+ * same objects, and a conversation with nothing to replace comes back as the same array.
+ */
+export function pictureParts<M extends LlmMessage>(messages: M[]): M[] {
+  let changed = false;
+  const out = messages.map((message) => {
+    if (typeof message.content === 'string' || !message.content.some((part) => part.type === 'image')) return message;
+    let replaced = false;
+    const content = message.content.map((part) => {
+      if (part.type !== 'image') return part;
+      const problem = imagePartProblem(part.content);
+      if (problem === undefined) return part;
+      replaced = true;
+      const name = part.name ?? 'a picture';
+      return { type: 'text' as const, content: `[${name} can't be shown to you as a picture: ${problem}. It was left out; don't guess what it shows.]`, ...(part.name === undefined ? {} : { name: part.name }) };
+    });
+    if (!replaced) return message;
+    changed = true;
+    return { ...message, content };
+  });
+  return changed ? out : messages;
 }
 
 /** An image part a model that can't see would get, as a short block: it has no id, so nothing can be asked about it. */
