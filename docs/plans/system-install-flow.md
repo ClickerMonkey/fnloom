@@ -11,6 +11,11 @@ session below. Times are the owner's (UTC-5).
 
 > For system install: use tsx. Execute this bulk of work after the current workflow finishes
 
+**Changed (Phil, 2026-11-26, verbatim):** "It's okay if they run node. Tsx was just because of the aeye dep thing you
+reported." An installed system now runs its built bundle on plain `node` under `--permission` (tsx's worker was refused
+by the permission model, so `fs/install_system` could never start what it built; commit 7602a2a,
+docs/plans/scenarios-3-2026-11-26.md). The runtime line below is kept as history.
+
 - **Runtime:** systems and the `harness` CLI run under tsx. The plain-Node import problem in aeye (`export * from './types'`) is not worked around, and not fixed in aeye for this. The CLI bin starts through tsx. fs's install supervisor starts the system with tsx: the source entry when developing, and the bundled self-contained JS for the scanned artifact.
 - **When:** build 6, straight after build 5 finishes, together with whatever build 5 leaves open (its audit items included).
 
