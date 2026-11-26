@@ -15,7 +15,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import { CASES, FAMILY } from './cases.ts';
+import { CASES, FAMILY, stepNotes } from './cases.ts';
 import { argMistakes, argMistakesLine, caseRuns } from './checks.ts';
 import { inventory, LIMIT_STEPS, modelView, openHubDb } from './modelview.ts';
 import type { OpenRouter } from './openrouter.ts';
@@ -167,7 +167,7 @@ const COMMON = new Set([...textStems(COMMON_WORDS), ...textStems(MECHANISMS)]);
 /** The words only one case has: its request, title, facts and wants, and the family every case's person belongs to. */
 export function caseWords(caseId: number): Set<string> {
   const played = CASES.find((c) => c.id === caseId);
-  const text = [...FAMILY, played?.title ?? '', ...(played?.steps.map((step) => step.say) ?? []), ...(played?.facts ?? []), played?.wants ?? ''].join('\n');
+  const text = [...FAMILY, played?.title ?? '', ...(played?.steps.flatMap((step) => [step.say, ...(step.facts ?? []), step.wants ?? '']) ?? []), ...(played?.facts ?? []), played?.wants ?? ''].join('\n');
   return new Set([...textStems(text)].filter((word) => !COMMON.has(word)));
 }
 
@@ -265,7 +265,7 @@ function caseBrief(judged: JudgedCase): string {
   const j = judged.judgement;
   return [
     `# Case ${judged.case}: ${judged.title} (rep ${judged.rep})`,
-    `Request, as the person typed it: ${played?.steps.map((step, i) => `${i + 1}. "${step.say}"${step.newChat === true ? ' (in a new chat)' : ''}${step.whileRunning === true ? ' (sent while the previous turn still ran)' : ''}${step.files === undefined ? '' : ` [attached: ${step.files.join(', ')}]`}`).join(' ') ?? judged.title}`,
+    `Request, as the person typed it: ${played?.steps.map((step, i) => `${i + 1}. "${step.say}"${stepNotes(step, 'attached')}`).join(' ') ?? judged.title}`,
     `Good (what a strong result looks like): ${judged.good}`,
     `What it should end up using: ${played?.notes ?? '—'}`,
     `What the person privately knew (said only when asked): ${played?.facts.join(' ') || 'nothing special'} They were after: ${played?.wants ?? '—'}`,

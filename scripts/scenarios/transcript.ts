@@ -33,7 +33,7 @@ export function runLine(run: ToolRun, detail: 'short' | 'full'): string {
 
 function entryText(entry: Entry, detail: 'short' | 'full'): string {
   switch (entry.type) {
-    case 'chat': return `**— chat ${entry.session} —** (${entry.url})`;
+    case 'chat': return `**— chat ${entry.session}${entry.as === undefined ? '' : `, as ${entry.as} on their own login`} —** (${entry.url})`;
     case 'person': return `**Person**${entry.scripted ? '' : ' (follow-up)'}:${entry.files.length === 0 ? '' : ` _[attached ${entry.files.join(', ')}]_`}\n${quoted(entry.text)}`;
     case 'form-answer': return `**Person fills "${entry.title}"**:\n${quoted(entry.text)}`;
     case 'agent': return `**Agent**${entry.status === 'done' ? '' : ` (${entry.status})`}:\n${quoted(entry.text)}`;
@@ -70,7 +70,7 @@ export function caseMarkdown(judged: JudgedCase): string {
     j === null ? '' : `Went well:\n${j.wentWell.map((w) => `- ${w}`).join('\n') || '- —'}\n\nWent wrong:\n${j.wentWrong.map((w) => `- ${w}`).join('\n') || '- —'}`,
     `**Checks:** ${judged.checks.map((c) => `${c.ok ? 'ok' : 'FAILED'} ${c.name} (${c.detail})`).join('; ')}`,
     `**Numbers:** ${statsLine(judged)}`,
-    `**Open it:** ${judged.sessions.map((s) => s.url).join(' , ')} — sign in as ${judged.person.email} / ${judged.person.password} (\`npm run scenarios -- --view ${judged.iteration} --rep ${judged.rep}\`)`,
+    `**Open it:** ${judged.sessions.map((s) => `${s.url}${s.as === undefined ? '' : ` (${s.as}'s)`}`).join(' , ')} — sign in as ${judged.person.email} / ${judged.person.password}${(judged.others ?? []).map((o) => `; ${o.name} as ${o.email} / ${o.password}`).join('')} (\`npm run scenarios -- --view ${judged.iteration} --rep ${judged.rep}\`)`,
     judged.errors.length === 0 ? '' : `**Runner errors:**\n${judged.errors.map((e) => `- ${e}`).join('\n')}`,
     judged.stackErrors.length === 0 ? '' : `**Stack warnings/errors while it ran** (shared stack):\n${judged.stackErrors.slice(0, 15).map((e) => `- \`${e.slice(0, 240)}\``).join('\n')}`,
     '## Transcript',

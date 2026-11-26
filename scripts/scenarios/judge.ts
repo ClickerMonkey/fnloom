@@ -4,7 +4,7 @@
  * verdict: pass / weak / fail, a score, what went well and wrong, the main cause (from a fixed list) and the layer to
  * fix. A judge that fails leaves the case unjudged, with why.
  */
-import { CASES } from './cases.ts';
+import { CASES, MEMBERS, stepNotes } from './cases.ts';
 import { argMistakes, argMistakesLine, caseRuns } from './checks.ts';
 import type { OpenRouter } from './openrouter.ts';
 import { CAUSES, Judgement, LAYERS, type CaseRecord, type JudgedCase } from './records.ts';
@@ -15,7 +15,7 @@ const MAX_TRANSCRIPT = 60_000;
 
 const RUBRIC = `You judge how well an AI assistant app (a "harness": a chat agent with fns, i.e. tools, from systems such as files, a database, web search, forms, widgets, code and API fns, memory and approvals) handled a vague, everyday request from a non-technical person. The person was simulated.
 
-Grade against the Good line: it says what a strong result looks like. Several requests ask for things the app can't do yet (it can't act on a schedule or message people by itself): there, good means it says so plainly, builds the closest thing it can and doesn't pretend.
+Grade against the Good line: it says what a strong result looks like. Several requests ask for things the app can't do yet (in most households it can't act on a schedule or message people by itself): there, good means it says so plainly, builds the closest thing it can and doesn't pretend. When the request's notes say the household runs the schedule system, timed runs and reminders are real there and are expected. Some requests have steps sent by another person of the household (Sara, a regular user, or Emma, a child) on their own login, in their own chat: judge what each person got, and what one person can see of another's.
 
 - pass (7-10): did what the Good line describes, or close to it, honestly.
 - weak (4-6): partly there: missed a key part, asked badly (too much or not at all), or was clumsy, slow or confusing.
@@ -42,14 +42,19 @@ function bounded(text: string): string {
   return `${text.slice(0, half)}\n\n[… ${text.length - MAX_TRANSCRIPT} characters cut …]\n\n${text.slice(-half)}`;
 }
 
+/** What the other people of a case's steps knew and were after. */
+export function othersOf(played: (typeof CASES)[number] | undefined): string {
+  return (played?.steps ?? []).flatMap((step) => (step.as === undefined ? [] : [` ${MEMBERS[step.as].name} (step "${step.say}") knew: ${step.facts?.join(' ') || 'nothing special'}; was after: ${step.wants ?? '—'}.`])).join('');
+}
+
 /** Judge one played case. */
 export async function judgeCase(router: OpenRouter, model: string, record: CaseRecord): Promise<JudgedCase> {
   const played = CASES.find((c) => c.id === record.case);
   const prompt = [
-    `Request ${record.case} ("${record.title}"), as typed: ${played?.steps.map((step, i) => `${i + 1}. "${step.say}"${step.newChat === true ? ' (in a new chat)' : ''}${step.whileRunning === true ? ' (sent while the previous turn was still running)' : ''}${step.files === undefined ? '' : ` [files: ${step.files.join(', ')}]`}`).join(' ') ?? record.title}`,
+    `Request ${record.case} ("${record.title}"), as typed: ${played?.steps.map((step, i) => `${i + 1}. "${step.say}"${stepNotes(step)}`).join(' ') ?? record.title}`,
     `Good: ${record.good}`,
     `What it should end up using (for you only): ${played?.notes ?? '—'}`,
-    `The person's private facts (only the person knew these; the assistant starts knowing none of them unless the transcript shows it was told or found them, so asking for one is right): ${played?.facts.join(' ') || 'none'} They were after: ${played?.wants ?? '—'}`,
+    `The person's private facts (only the person knew these; the assistant starts knowing none of them unless the transcript shows it was told or found them, so asking for one is right): ${played?.facts.join(' ') || 'none'} They were after: ${played?.wants ?? '—'}${othersOf(played)}`,
     `How it ended: ${record.ending.by} — ${record.ending.reason}`,
     `Hard checks: ${record.checks.map((c) => `${c.ok ? 'ok' : 'FAILED'} ${c.name}: ${c.detail}`).join(' | ')}`,
     `Model arg mistakes: ${argMistakesLine(argMistakes(caseRuns(record)))}.`,

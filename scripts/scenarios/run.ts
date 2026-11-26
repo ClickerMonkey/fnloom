@@ -1,5 +1,7 @@
 /**
- * `npm run scenarios`: plays the 40 everyday requests (docs/plans/scenarios-2026-11-21.md) against a fresh harness,
+ * `npm run scenarios`: plays everyday requests against a fresh harness: by default the first 40
+ * (docs/plans/scenarios-2026-11-21.md, cases 1-40); the second 40 (docs/plans/scenarios-2-2026-11-26.md, cases 41-80)
+ * only when asked (`--cases 41-80` or `--cases second`). It
  * judges and diagnoses each, and writes the iteration's report. Each repetition boots its own stack on a clean slate
  * (a new data folder, hub database, scratch database and fake home folder); within it each case runs as its own new
  * person, a few at a time. Results stay in `.harness-test/scenarios/<iteration>/` (kept, so `--view` can open them).
@@ -9,7 +11,9 @@
  * rep's unplayed cases go on on a fresh stack in `rep-<n>/restart-<k>/` (at most two restarts a rep; past that they
  * are marked `harness-crash` too and the next rep starts).
  *
- *   --cases 1,5,12        which cases (default: all 40)
+ *   --cases 1,5,12        which cases: ids, ranges and sets, comma separated (`41-80`, `1-40,45`, `first`, `second`, `all`);
+ *                         default: the first set (1-40), so a plain run is the original 40. A run of one whole set is
+ *                         published by default. A rep runs the schedule system only when one of its cases needs it (59-62)
  *   --variants off,on     the household variants (`variants.ts`: off, on, load; default `off`): with more than one, each rep of each
  *                         variant gets its own fresh stack, in `<iteration>/<variant>/rep-<n>/`, reps interleaved
  *                         (rep 1 off, rep 1 on, rep 2 off, …), and the report compares them case by case
@@ -36,7 +40,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { z } from 'zod';
-import { CASES, pickCases, type Case } from './cases.ts';
+import { CASES, neededSystems, parseCaseIds, pickCases, wholeSet, type Case } from './cases.ts';
 import { aggregate, diagnoseCase, diagnosisMarkdown, loadDiagnoses, loadDiagnosis, type CaseDiagnosis } from './diagnose.ts';
 import { loadSettings, type ScenariosSettings } from './env.ts';
 import { fixturesReady, makeFixtures } from './fixtures/make.ts';
@@ -54,7 +58,7 @@ import { checkVariantSupport, parseVariants, proveDecisionModel, VARIANT_LABELS,
 const Flags = z.object({
   variants: z.string().optional(),
   variant: VariantName.optional(),
-  cases: z.string().optional().transform((list) => (list === undefined ? undefined : list.split(',').map((id) => z.coerce.number().int().min(1).parse(id.trim())))),
+  cases: z.string().optional().transform((list) => (list === undefined ? undefined : parseCaseIds(list))),
   reps: z.coerce.number().int().min(1).max(10).default(3),
   iteration: z.string().regex(/^[\w.-]+$/, 'letters, digits, dots, dashes and underscores').optional(),
   concurrency: z.coerce.number().int().min(1).max(8).default(3),
@@ -189,7 +193,11 @@ async function runRep(settings: ScenariosSettings, router: OpenRouter, place: Re
   };
   const keep = (judged: JudgedCase, diagnosis: CaseDiagnosis | undefined): void => {
     saveCase(folder, judged, diagnosis);
-    people.cases.push({ case: judged.case, email: judged.person.email, password: judged.person.password, sessions: judged.sessions.map((s) => s.id), ...(judged.stack === undefined ? {} : { stack: judged.stack }) });
+    const others = (judged.others ?? []).map((o) => ({ ...o, sessions: judged.sessions.filter((s) => s.as === o.name).map((s) => s.id) }));
+    people.cases.push({
+      case: judged.case, email: judged.person.email, password: judged.person.password, sessions: judged.sessions.filter((s) => s.as === undefined).map((s) => s.id),
+      ...(judged.stack === undefined ? {} : { stack: judged.stack }), ...(others.length === 0 ? {} : { others }),
+    });
     writeFileSync(join(folder, 'people.json'), `${JSON.stringify(people, null, 2)}\n`);
   };
   let remaining = [...cases];
@@ -202,7 +210,7 @@ async function runRep(settings: ScenariosSettings, router: OpenRouter, place: Re
     }
     let handle: Rep;
     try {
-      handle = await startRep(settings, iteration, rep, log, { variant: place.variant, variantFolder: place.variantFolder, ...(stackName === undefined ? {} : { stack: stackName }) });
+      handle = await startRep(settings, iteration, rep, log, { variant: place.variant, variantFolder: place.variantFolder, needs: neededSystems(remaining), ...(stackName === undefined ? {} : { stack: stackName }) });
     } catch (error) {
       const reason = `the stack didn't start: ${error instanceof Error ? error.message : String(error)}`;
       log(`rep ${rep}: ${reason}`);
@@ -305,6 +313,7 @@ async function view(settings: ScenariosSettings, iteration: string, rep: number,
     const title = CASES.find((c) => c.id === person.case)?.title ?? '';
     if (person.stack !== undefined) { console.log(`case ${person.case}. ${title}: ran on the stack in ${person.stack} after a crash, not served here`); continue; }
     console.log(`case ${person.case}. ${title}: sign in as ${person.email} / ${person.password}\n  ${person.sessions.map((s) => `${base}/chat/${s}`).join('\n  ')}`);
+    for (const other of person.others ?? []) { console.log(`  ${other.name}: sign in as ${other.email} / ${other.password}\n    ${other.sessions.map((s) => `${base}/chat/${s}`).join('\n    ')}`); }
   }
   console.log(`\nadmin: ${people.admin.email} / ${people.admin.password}. Ctrl+C to stop.`);
   const shutdown = (): void => { void stack.stop().finally(() => process.exit(0)); };
@@ -376,7 +385,7 @@ async function main(): Promise<void> {
   }
   if (options.fixtures || !fixturesReady(FIXTURES_DIR)) {
     log(`making fixtures in ${FIXTURES_DIR}`);
-    await makeFixtures(FIXTURES_DIR);
+    await makeFixtures(FIXTURES_DIR, options.fixtures);
   }
   const cases = pickCases(options.cases);
   const iteration = options.iteration ?? new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
@@ -398,7 +407,7 @@ async function main(): Promise<void> {
   const { path, report } = writeReport(iteration);
   log(`report: ${path}`);
   log(`cost: ${usd(report.cost.total)} (hub ${usd(report.cost.hub)}, person ${usd(report.cost.person)}, judge ${usd(report.cost.judge)})`);
-  const full = cases.length === CASES.length;
+  const full = wholeSet(cases);
   if (!options['no-publish'] && (options.publish === true || full)) {
     const { file, links } = publish(iteration);
     log(`hitl review: ${file}\n  ${links.join('\n  ')}`);

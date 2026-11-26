@@ -39,7 +39,7 @@ export type ToolRun = z.infer<typeof ToolRun>;
 /** One line of a case's transcript, in order. */
 export const Entry = z.discriminatedUnion('type', [
   /** A new chat (session) started: the first one, or a step that opens another (case 28's "later, in a new chat"). */
-  z.object({ type: z.literal('chat'), session: z.string(), url: z.string() }),
+  z.object({ type: z.literal('chat'), session: z.string(), url: z.string(), /** Whose chat, when not the case's own person's (a step sent `as` a member). */ as: z.string().optional() }),
   z.object({ type: z.literal('person'), text: z.string(), files: z.array(z.string()), scripted: z.boolean() }),
   z.object({ type: z.literal('form-answer'), title: z.string(), text: z.string() }),
   z.object({ type: z.literal('agent'), text: z.string(), status: z.string() }),
@@ -74,7 +74,9 @@ export const CaseRecord = z.object({
   title: z.string(),
   good: z.string(),
   person: z.object({ email: z.string(), password: z.string() }),
-  sessions: z.array(z.object({ id: z.string(), url: z.string() })),
+  /** The other people of the household the case's steps were sent as (`Step.as`), with their sign-ins. */
+  others: z.array(z.object({ name: z.string(), email: z.string(), password: z.string() })).optional(),
+  sessions: z.array(z.object({ id: z.string(), url: z.string(), /** Whose chat, when not the case's own person's. */ as: z.string().optional() })),
   /** The folder of the stack it ran on, from the rep's folder (absent: the rep's own; `restart-1` after a crash). */
   stack: z.string().optional(),
   entries: z.array(Entry),
@@ -123,6 +125,10 @@ export type JudgedCase = z.infer<typeof JudgedCase>;
 /** The people a repetition made, for `--view`. */
 export const RepPeople = z.object({
   admin: z.object({ email: z.string(), password: z.string() }),
-  cases: z.array(z.object({ case: z.number().int(), email: z.string(), password: z.string(), sessions: z.array(z.string()), stack: z.string().optional() })),
+  cases: z.array(z.object({
+    case: z.number().int(), email: z.string(), password: z.string(), sessions: z.array(z.string()), stack: z.string().optional(),
+    /** The household members its steps were sent as, with their sign-ins and their chats (left out of `sessions`). */
+    others: z.array(z.object({ name: z.string(), email: z.string(), password: z.string(), sessions: z.array(z.string()) })).optional(),
+  })),
 });
 export type RepPeople = z.infer<typeof RepPeople>;

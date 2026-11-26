@@ -1,7 +1,9 @@
 /**
  * The scenario fixtures, made once into `.harness-test/scenarios/fixtures/` (and again with `--fixtures`): the files a
- * person attaches (a receipt photo, a school letter, three car insurance quotes, a bank statement as PDF and CSV), and
- * a fake home folder (Documents, Pictures with photos, a cluttered Downloads, a few old files) that each repetition
+ * person attaches (a receipt photo, a school letter, three car insurance quotes, a bank statement as PDF and CSV; for
+ * the second set an electric usage CSV, the neighborhood rules PDF, meeting notes, a whiteboard photo and a card
+ * address list), and a fake home folder (Documents with two budget spreadsheets, four badly named scans and a
+ * dishwasher manual, Pictures with photos, a cluttered Downloads, a Desktop, a few old files) that each repetition
  * copies as the fs system's root. Pictures and PDFs are drawn as HTML and rendered with Puppeteer.
  */
 import { existsSync, mkdirSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
@@ -9,7 +11,10 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import puppeteer, { type Browser } from 'puppeteer';
 import type { FixtureFile } from '../cases.ts';
-import { HOUSE, PHOTOS, RECEIPT, SCHOOL_LETTER, QUOTES, STATEMENT, statementCsv, type Quote } from './content.ts';
+import {
+  cardListCsv, DISHWASHER_MANUAL, electricCsv, HOA_GUIDELINES, HOUSE, HOUSE_2, PHOTOS, PTO_NOTES, RECEIPT, SCANS, SCHOOL_LETTER, QUOTES, STATEMENT, statementCsv, WHITEBOARD,
+  type Quote, type Scan,
+} from './content.ts';
 
 /** One attachable file: where it is under the fixtures folder and its type. */
 export interface FixtureEntry {
@@ -26,7 +31,16 @@ export const FIXTURES: Readonly<Record<FixtureFile, FixtureEntry>> = {
   'quote-c': { path: 'files/Erie-Insurance-quote.pdf', mime: 'application/pdf' },
   'bank-statement-pdf': { path: 'files/BCB-statement-2026-10.pdf', mime: 'application/pdf' },
   'bank-statement-csv': { path: 'files/BCB-transactions-2026-10.csv', mime: 'text/csv' },
+  // the second set's (41-80)
+  'electric-bills': { path: 'files/AEP-usage-history.csv', mime: 'text/csv' },
+  'hoa-guidelines': { path: 'files/Glen-Echo-Ravine-HOA-guidelines.pdf', mime: 'application/pdf' },
+  'pto-notes': { path: 'files/PTO meeting notes Nov 17.txt', mime: 'text/plain' },
+  whiteboard: { path: 'files/IMG_3561.jpg', mime: 'image/jpeg' },
+  'card-list': { path: 'files/holiday card addresses.csv', mime: 'text/csv' },
 };
+
+/** The fake home's PDFs of the second set, under the home folder: the scans and the dishwasher manual. */
+const HOME_PDFS: readonly string[] = [...SCANS.map((scan) => `Documents/Scans/${scan.name}`), 'Documents/House/Bosch dishwasher manual.pdf'];
 
 /** The fake home folder, under the fixtures folder. */
 export const HOME_TEMPLATE = 'home';
@@ -116,6 +130,31 @@ function photoHtml(photo: (typeof PHOTOS)[number]): string {
     .ground { position: absolute; left: -10%; right: -10%; bottom: -120px; height: 420px; border-radius: 50% 50% 0 0; } .what { position: absolute; left: 40px; bottom: 40px; color: #fff; font-size: 44px; text-shadow: 0 2px 6px #000; }`);
 }
 
+/** A document of blocks (`# ` a heading, `- ` lines a list, else a paragraph) under a plain letterhead. */
+function blocksHtml(blocks: readonly string[], color: string): string {
+  return page(blocks.map((block) => (block.startsWith('# ') ? `<h2>${esc(block.slice(2))}</h2>` : block.startsWith('- ') ? `<ul>${block.split('\n').map((line) => `<li>${esc(line.slice(2))}</li>`).join('')}</ul>` : `<p>${esc(block)}</p>`)).join(''), `
+    h2 { color: ${color}; font-size: 17px; margin: 20px 0 6px; border-bottom: 1px solid ${color}; padding-bottom: 3px; } h2:first-child { font-size: 22px; border-bottom-width: 3px; }
+    p, li { font-size: 13.5px; line-height: 1.55; }`);
+}
+
+/** A scanned page: an off-white sheet, a little grey, a heading and its lines. */
+function scanHtml(scan: Scan): string {
+  return page(`<div class="sheet"><h1>${esc(scan.heading)}</h1>${scan.lines.map((line) => `<p>${esc(line)}</p>`).join('')}</div>`, `
+    body { background: #f4f2ec; } .sheet { padding: 10px 4px; filter: grayscale(0.4) contrast(0.95); } h1 { font-size: 20px; border-bottom: 2px solid #333; padding-bottom: 6px; }
+    p { font-size: 14px; line-height: 1.6; margin: 6px 0; }`);
+}
+
+/** The fridge whiteboard as a phone photo: marker handwriting, one line crossed out, a magnet or two. */
+function whiteboardHtml(): string {
+  const colors = ['#1b3a8c', '#1b3a8c', '#b3261e', '#1b3a8c', '#14692f', '#1b3a8c', '#b3261e', '#14692f'];
+  const lines = WHITEBOARD.map((item, i) => `<div class="line" style="color:${colors[i % colors.length]};transform:rotate(${((i % 3) - 1) * 0.8}deg)">${item.done === true ? `<s>${esc(item.text)}</s>` : esc(item.text)}</div>`).join('');
+  return page(`<div class="fridge"><div class="board"><div class="title">TO DO!!</div>${lines}<div class="magnet m1"></div><div class="magnet m2"></div></div></div>`, `
+    .fridge { width: 900px; height: 1200px; background: linear-gradient(90deg, #d9dde2, #f3f5f7 40%, #c9ced4); display: flex; align-items: center; justify-content: center; }
+    .board { position: relative; width: 640px; padding: 40px 46px 60px; background: #fdfdfb; border: 14px solid #b9bec5; border-radius: 8px; transform: rotate(-2deg); box-shadow: 6px 10px 26px rgba(0,0,0,.35); font-family: 'Segoe Print', 'Comic Sans MS', 'Bradley Hand', cursive; }
+    .title { font-size: 46px; color: #b3261e; margin-bottom: 18px; } .line { font-size: 34px; margin: 14px 0; } s { text-decoration-thickness: 4px; }
+    .magnet { position: absolute; width: 46px; height: 46px; border-radius: 50%; } .m1 { background: #f2b705; top: -22px; left: 60px; } .m2 { background: #2a9d8f; top: -22px; right: 80px; }`);
+}
+
 /** Write a file of the home folder with its modified time. */
 function homeFile(root: string, path: string, content: string | Uint8Array, modified: string): void {
   const file = join(root, path);
@@ -127,7 +166,9 @@ function homeFile(root: string, path: string, content: string | Uint8Array, modi
 
 /** Whether the fixtures are there already. */
 export function fixturesReady(folder: string): boolean {
-  return Object.values(FIXTURES).every((entry) => existsSync(join(folder, entry.path))) && existsSync(join(folder, HOME_TEMPLATE, 'Pictures'));
+  const home = [...HOUSE, ...HOUSE_2].map((entry) => entry.path).concat(HOME_PDFS);
+  return Object.values(FIXTURES).every((entry) => existsSync(join(folder, entry.path))) && existsSync(join(folder, HOME_TEMPLATE, 'Pictures'))
+    && home.every((path) => existsSync(join(folder, HOME_TEMPLATE, path)));
 }
 
 /**
@@ -141,9 +182,13 @@ async function chrome(): Promise<string | undefined> {
   return found;
 }
 
-/** Make every fixture into `folder`, replacing what is there. */
-export async function makeFixtures(folder: string): Promise<void> {
-  rmSync(folder, { recursive: true, force: true });
+/**
+ * Make every fixture into `folder`. With `fresh` (the runner's `--fixtures`) the folder is emptied first; without it
+ * (fixtures missing, such as after new ones were added) every fixture is written over what is there, so a run that is
+ * reading the folder meanwhile never finds it gone.
+ */
+export async function makeFixtures(folder: string, fresh = false): Promise<void> {
+  if (fresh) { rmSync(folder, { recursive: true, force: true }); }
   const executablePath = await chrome();
   const browser = await puppeteer.launch({ headless: true, ...(executablePath === undefined ? {} : { executablePath }) });
   try {
@@ -170,6 +215,24 @@ export async function makeFixtures(folder: string): Promise<void> {
     // the statement and a quote also sit in Downloads, where a browser saves them
     await pdf(browser, statementHtml(), join(home, 'Downloads', 'BCB-statement-2026-09.pdf'));
     await pdf(browser, quoteHtml(a), join(home, 'Downloads', 'Progressive-quote (2).pdf'));
+
+    // the second set's (41-80): files to attach, and more of the home (budgets, scans, a manual, Desktop files)
+    mkdirSync(join(folder, 'files'), { recursive: true });
+    writeFileSync(join(folder, FIXTURES['electric-bills'].path), electricCsv());
+    await pdf(browser, blocksHtml(HOA_GUIDELINES, '#2f5d3a'), join(folder, FIXTURES['hoa-guidelines'].path));
+    writeFileSync(join(folder, FIXTURES['pto-notes'].path), PTO_NOTES);
+    await jpeg(browser, whiteboardHtml(), join(folder, FIXTURES.whiteboard.path), { width: 900, height: 1200 });
+    writeFileSync(join(folder, FIXTURES['card-list'].path), cardListCsv());
+    for (const entry of HOUSE_2) { homeFile(home, entry.path, entry.content, entry.modified); }
+    for (const scan of SCANS) {
+      const file = join(home, 'Documents', 'Scans', scan.name);
+      await pdf(browser, scanHtml(scan), file);
+      const at = new Date(scan.modified);
+      utimesSync(file, at, at);
+    }
+    const manual = join(home, 'Documents', 'House', 'Bosch dishwasher manual.pdf');
+    await pdf(browser, blocksHtml(DISHWASHER_MANUAL, '#20385c'), manual);
+    utimesSync(manual, new Date('2023-05-12T10:00:00'), new Date('2023-05-12T10:00:00'));
   } finally {
     await browser.close();
   }

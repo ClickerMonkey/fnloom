@@ -133,7 +133,7 @@ export const PHOTOS = [
 ] as const;
 
 /** A file of the home folder other than the pictures: its path, content and modified time. */
-interface HouseFile {
+export interface HouseFile {
   readonly path: string;
   readonly content: string | Uint8Array;
   readonly modified: string;
@@ -161,4 +161,153 @@ export const HOUSE: readonly HouseFile[] = [
   { path: 'Downloads/Untitled document.txt', content: '', modified: '2025-07-02T13:00:00' },
   { path: 'Desktop/New folder/notes.txt', content: 'call about the gutters\n', modified: '2022-10-01T10:00:00' },
   { path: 'Desktop/old printer driver.exe', content: installer('HP printer driver'), modified: '2020-01-15T09:00:00' },
+];
+
+// ── The second set's fixtures (cases 41-80) ──
+
+/** The power company's usage history, 24 months: about the same use, a higher price per kWh from June 2026. */
+export const ELECTRIC_BILLS: ReadonlyArray<readonly [string, string, number, number]> = [
+  ['2024-11-21', 'Oct 22 - Nov 20, 2024', 720, 112.4], ['2024-12-20', 'Nov 21 - Dec 19, 2024', 910, 138.95], ['2025-01-22', 'Dec 20 - Jan 21, 2025', 1040, 157.3],
+  ['2025-02-20', 'Jan 22 - Feb 19, 2025', 930, 141.1], ['2025-03-21', 'Feb 20 - Mar 20, 2025', 780, 119.85], ['2025-04-21', 'Mar 21 - Apr 20, 2025', 640, 100.2],
+  ['2025-05-21', 'Apr 21 - May 20, 2025', 690, 107.15], ['2025-06-20', 'May 21 - Jun 19, 2025', 1010, 151.6], ['2025-07-22', 'Jun 20 - Jul 21, 2025', 1240, 183.9],
+  ['2025-08-21', 'Jul 22 - Aug 20, 2025', 1190, 177.05], ['2025-09-19', 'Aug 21 - Sep 18, 2025', 880, 134.2], ['2025-10-21', 'Sep 19 - Oct 20, 2025', 700, 109.6],
+  ['2025-11-20', 'Oct 21 - Nov 19, 2025', 735, 115.1], ['2025-12-19', 'Nov 20 - Dec 18, 2025', 925, 142.3], ['2026-01-21', 'Dec 19 - Jan 20, 2026', 1065, 162.75],
+  ['2026-02-19', 'Jan 21 - Feb 18, 2026', 950, 146.2], ['2026-03-20', 'Feb 19 - Mar 19, 2026', 770, 120.4], ['2026-04-21', 'Mar 20 - Apr 20, 2026', 655, 104.1],
+  ['2026-05-20', 'Apr 21 - May 19, 2026', 700, 110.9], ['2026-06-19', 'May 20 - Jun 18, 2026', 1030, 171.45], ['2026-07-21', 'Jun 19 - Jul 20, 2026', 1265, 209.8],
+  ['2026-08-20', 'Jul 21 - Aug 19, 2026', 1210, 201.35], ['2026-09-18', 'Aug 20 - Sep 17, 2026', 895, 150.6], ['2026-10-20', 'Sep 18 - Oct 19, 2026', 715, 121.95],
+];
+
+/** The usage history as the power company's CSV download. */
+export function electricCsv(): string {
+  return ['Bill Date,Service Period,kWh Used,Amount Due', ...ELECTRIC_BILLS.map(([date, period, kwh, amount]) => `${date},"${period}",${kwh},${amount.toFixed(2)}`)].join('\n') + '\n';
+}
+
+/** The neighborhood guidelines, as blocks: `# ` a heading, else a paragraph. Three pages or so. */
+export const HOA_GUIDELINES = [
+  '# Glen Echo Ravine Homeowners Association — Community Guidelines',
+  'Adopted by the Board of Trustees, March 2019; amended January 2024. These guidelines apply to every lot in the Glen Echo Ravine subdivision. Where they are stricter than the City of Columbus code, these guidelines apply.',
+  '# Section 1. Architectural Review',
+  '1.1 Any new structure, addition, fence, shed, deck, pool or change of exterior color needs written approval from the Architectural Review Committee (ARC) before work begins.',
+  '1.2 Submit the ARC Request Form (on the association website or from the secretary) with a site sketch showing the structure and its distance from each lot line, at least 30 days before work is to start. The ARC answers within 30 days; no answer is not an approval.',
+  '1.3 Work started without approval may have to be removed at the owner\'s cost.',
+  '# Section 2. Fences',
+  '2.1 Backyard fences may be up to 6 feet tall. Fences in front of the house may be up to 4 feet tall and must be at least 50% open (picket or rail).',
+  '2.2 Chain-link fences are not allowed in front yards. The finished side faces out.',
+  '# Section 3. Sheds and Accessory Buildings',
+  '3.1 One shed or accessory building is allowed per lot, in the rear yard only.',
+  '3.2 A shed may be no larger than 120 square feet in floor area and no taller than 10 feet at its highest point.',
+  '3.3 A shed must be set back at least 5 feet from every lot line, and may not sit in a utility easement.',
+  '3.4 Siding and roof colors must match or complement the house. Metal sheds must be screened from the street by plantings or a fence.',
+  '3.5 Sheds need ARC approval under Section 1 even when no city permit is needed.',
+  '# Section 4. Trash and Recycling',
+  '4.1 Containers must be kept out of view from the street except on collection day. They may be put at the curb after 6:00 PM the evening before and must be put away by 8:00 PM on collection day.',
+  '# Section 5. Holiday Decorations',
+  '5.1 Holiday lights and decorations may be displayed from November 15 to January 15.',
+  '# Section 6. Vehicles and Parking',
+  '6.1 Boats, campers, trailers and RVs may be parked in a driveway for no more than 48 hours in a row. Vehicles may not be parked on lawns.',
+  '# Section 7. Lawns and Landscaping',
+  '7.1 Lawns must be kept under 8 inches. Dead trees must be removed within 60 days of notice.',
+  '7.2 Vegetable gardens are allowed in rear yards only.',
+  '# Section 8. Pets',
+  '8.1 Dogs must be on a leash outside the owner\'s lot. Owners must pick up after their pets.',
+  '# Section 9. Dues',
+  '9.1 Annual dues are $240 per lot, due March 1. A $25 late fee applies after April 1.',
+  '# Section 10. Violations',
+  '10.1 After a written notice, an owner has 30 days to correct a violation. Continued violations may be fined $50 per month.',
+  'Questions: Glen Echo Ravine HOA, P.O. Box 14213, Columbus, OH 43214 · secretary@glenechoravine.org',
+] as const;
+
+/** The PTO meeting notes, as someone typed them during the meeting. */
+export const PTO_NOTES = `Indianola PTO - general meeting - Tues Nov 17 2026, 7pm, library
+present: Jen K (pres), Marcus (treas), Mrs. Okafor, ~14 parents
+
+- Treasurer: balance $3,412.18. fall festival made $1,960 after costs!!
+- VOTE: $600 for new playground balls + jump ropes -> approved (12 yes, 1 no)
+- Book fair Dec 7-11 in the library. need volunteers for 2-hr shifts, sign-up on ParentSquare
+- Bake sale Fri Dec 5 at pickup (3:30). sign ups so far:
+    Priya M - brownies 2 doz
+    Alex P - cookies 2 doz (drop at front office by 8am that day)
+    Dana R - rice krispie treats
+    still need someone for gluten free stuff
+- Spirit wear orders due Dec 1 (hoodies $28, tees $15)
+- Mrs Okafor: COSI trip Dec 11 still needs 2 more chaperones
+- new idea: winter family movie night in Jan? Jen to check w/ principal
+- next meeting Tues Jan 12, 7pm, library
+`;
+
+/** The fridge whiteboard: what is written, in order; `done` lines are crossed out. */
+export const WHITEBOARD: ReadonlyArray<{ readonly text: string; readonly done?: boolean }> = [
+  { text: 'call plumber - kitchen drip' }, { text: 'Emma field trip $8 + slip' }, { text: 'cat litter' }, { text: 'dish soap', done: true },
+  { text: 'return library books' }, { text: 'oil change CR-V' }, { text: 'wrapping paper' }, { text: 'Leo haircut Sat' },
+];
+
+/** The holiday card address list (with duplicates written a little differently, and one name at two addresses). */
+export const CARD_LIST: ReadonlyArray<readonly [string, string, string, string, string]> = [
+  ['Bob & Karen Miller', '1220 Oakland Park Ave', 'Columbus', 'OH', '43224'],
+  ['Linda Parker', '45 Elm St', 'Dayton', 'OH', '45402'],
+  ['Joan Whitaker', '312 Maple Ave', 'Zanesville', 'OH', '43701'],
+  ['The Hendersons', '88 Weisheimer Rd', 'Columbus', 'OH', '43214'],
+  ['Tom & Jess Riley', '2750 Neil Ave', 'Columbus', 'OH', '43202'],
+  ['Mike & Dana Parker', '9 Brookside Ct', 'Cincinnati', 'OH', '45208'],
+  ['Robert and Karen Miller', '1220 Oakland Park Avenue', 'Columbus', 'OH', '43224'],
+  ['Rachel & Steve Burke', '4410 Shawnee Trl', 'Toledo', 'OH', '43615'],
+  ['Sam Chen', '600 W 5th Ave Apt 3B', 'Columbus', 'OH', '43201'],
+  ['Linda Parker', '45 Elm Street', 'Dayton', 'OH', '45402'],
+  ['The Nguyen Family', '127 Glencoe Rd', 'Columbus', 'OH', '43214'],
+  ['Joan Whitaker', '1906 Lakeview Dr', 'Sarasota', 'FL', '34231'],
+  ['Tom and Jessica Riley', '2750 Neil Avenue', 'Columbus', 'OH', '43202'],
+  ['Dave & Priya Kowalski', '3519 Olentangy Blvd', 'Columbus', 'OH', '43214'],
+];
+
+/** The card list as a CSV. */
+export function cardListCsv(): string {
+  return ['Name,Street,City,State,ZIP', ...CARD_LIST.map((row) => row.map((cell) => (cell.includes(',') ? `"${cell}"` : cell)).join(','))].join('\n') + '\n';
+}
+
+/** The two budget spreadsheets in Documents/Budget: Alex's and Sara's edit of it. */
+const BUDGET_ROWS: ReadonlyArray<readonly [string, number]> = [
+  ['Mortgage', 1650], ['Car payment', 380], ['Groceries', 800], ['Utilities', 300], ['Gas for cars', 200], ['Kids activities', 150],
+  ['Subscriptions', 100], ['Eating out', 200], ['Savings', 500], ['Vacation fund', 250],
+];
+const SARA_CHANGES: Readonly<Record<string, number>> = { Groceries: 900, Subscriptions: 60, 'Eating out': 150 };
+const budgetCsv = (rows: ReadonlyArray<readonly [string, number]>): string => ['Category,Monthly', ...rows.map(([what, amount]) => `${what},${amount}`), `Total,${rows.reduce((sum, [, amount]) => sum + amount, 0)}`].join('\n') + '\n';
+export const BUDGET_ALEX = budgetCsv(BUDGET_ROWS);
+export const BUDGET_SARA = budgetCsv([...BUDGET_ROWS.map(([what, amount]): readonly [string, number] => [what, SARA_CHANGES[what] ?? amount]), ['Christmas gifts', 150]]);
+
+/** A scanned page: its file in Documents/Scans, its heading and its lines. */
+export interface Scan {
+  readonly name: string;
+  readonly heading: string;
+  readonly lines: readonly string[];
+  readonly modified: string;
+}
+
+export const SCANS: readonly Scan[] = [
+  { name: 'scan0001.pdf', heading: 'Clintonville Animal Hospital — Invoice', modified: '2026-10-14T17:20:00', lines: ['Invoice #CAH-55102 · October 14, 2026', 'Client: Alex Parker · Patient: Biscuit (cat, 7 yrs)', 'Annual exam — $62.00', 'FVRCP vaccine — $34.50', 'Rabies vaccine (3 yr) — $38.00', 'Thyroid blood panel — $52.00', 'Total: $186.50 · Paid VISA ****4417'] },
+  { name: 'scan0002.pdf', heading: 'Ohio Bureau of Motor Vehicles — Registration', modified: '2026-03-25T12:05:00', lines: ['Vehicle registration certificate', 'Owner: Alex Parker, Columbus OH 43214', '2019 Honda CR-V EX', 'Plate: JKT 4821', 'Valid through: 03/22/2027'] },
+  { name: 'scan0003.pdf', heading: 'Indianola Informal K-8 — Progress Report', modified: '2026-11-06T20:40:00', lines: ['Student: Emma Parker · Grade 3 · Quarter 1, 2026-27', 'Reading: Meets expectations', 'Math: Exceeds expectations', 'Science: Meets expectations', 'Teacher comment: Emma is a kind classmate and a careful reader. Keep up the nightly reading! — Mrs. Okafor'] },
+  { name: 'scan0004.pdf', heading: 'Lowe\'s Protection Plan — Certificate', modified: '2024-06-02T15:10:00', lines: ['Plan #LPP-7718230 · Purchased June 2, 2024', 'Product: Samsung washer WF45T6000AW', 'Coverage: 5 years parts and labor, ends June 1, 2029', 'To file a claim call 1-866-217-5550'] },
+];
+
+/** The dishwasher manual in Documents/House, as blocks (the model number is on its first page). */
+export const DISHWASHER_MANUAL = [
+  '# Bosch 500 Series Dishwasher — Use and Care Manual',
+  'Model: SHPM65Z55N · Serial: FD 9907 00123',
+  'Please write the model and serial numbers above in this manual and keep it with your receipt. You will need them when you order parts or call for service.',
+  '# Safety',
+  'Read all instructions before using the dishwasher. Use only detergents and rinse agents made for household dishwashers. Do not wash plastic items unless they are marked dishwasher safe.',
+  '# Loading',
+  'Load glasses and cups in the upper rack, plates and pots in the lower rack, and silverware handles down in the basket. Make sure the spray arms can turn freely.',
+  '# Cleaning the filter',
+  'Twist the cylindrical filter at the bottom of the tub counterclockwise, lift it out, rinse it under running water and put it back. Clean it once a month.',
+  '# Parts and service',
+  'Order genuine parts at 1-800-944-2904. Have your model number (on this page and on the label at the top edge of the door) ready.',
+] as const;
+
+/** Text files added to the fake home for the second set (beside `HOUSE`); the scans and the manual are PDFs drawn in make.ts. */
+export const HOUSE_2: readonly HouseFile[] = [
+  { path: 'Documents/Budget/budget 2026.csv', content: BUDGET_ALEX, modified: '2026-01-04T19:30:00' },
+  { path: 'Documents/Budget/budget 2026 - Sara.csv', content: BUDGET_SARA, modified: '2026-11-15T21:10:00' },
+  { path: 'Desktop/Passport renewal - confirmation.txt', content: 'U.S. Department of State - online passport renewal\nApplicant: Alex Parker\nApplication number: OPR-2026-1183-4471\nSubmitted November 3, 2026. Keep this number to check your status.\n', modified: '2026-11-03T21:45:00' },
+  { path: 'Desktop/funny cat video link.txt', content: 'the one where the cat falls off the counter lol\n', modified: '2025-02-14T20:00:00' },
 ];

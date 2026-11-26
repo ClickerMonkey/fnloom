@@ -1,5 +1,7 @@
 /**
- * The 40 everyday requests Phil approved (docs/plans/scenarios-2026-11-21.md), as cases the runner plays. Each is
+ * The everyday requests the runner plays: the 40 Phil approved (docs/plans/scenarios-2026-11-21.md, ids 1-40, below)
+ * and the second set of 40 (docs/plans/scenarios-2-2026-11-26.md, ids 41-80, `cases-2.ts`). A plain run plays the
+ * first set; `--cases 41-80` (or any list and ranges of ids) picks others. Each is
  * typed as written by someone who doesn't know what a fn or a system is. A case has ordered steps (most have one);
  * a step may open a new chat (case 28's "later, in a new chat"), carry files, or be sent while the previous turn is
  * still running (case 31's "stop"). Cases that follow another (6 after 2, 30 and 31 after some action, 29 after a
@@ -10,15 +12,54 @@
  * (they read the card and decide, following their facts).
  */
 import { z } from 'zod';
+import { SECOND_CASES } from './cases-2.ts';
 
 /** The files the runner can attach (`fixtures/make.ts` makes them). */
-export const FIXTURE_FILES = ['receipt', 'school-letter', 'quote-a', 'quote-b', 'quote-c', 'bank-statement-pdf', 'bank-statement-csv'] as const;
+export const FIXTURE_FILES = [
+  'receipt', 'school-letter', 'quote-a', 'quote-b', 'quote-c', 'bank-statement-pdf', 'bank-statement-csv',
+  // the second set's (41-80)
+  'electric-bills', 'hoa-guidelines', 'pto-notes', 'whiteboard', 'card-list',
+] as const;
 export const FixtureFile = z.enum(FIXTURE_FILES);
 export type FixtureFile = z.infer<typeof FixtureFile>;
+
+/**
+ * Another person of the household a step can be sent as (a case's person is always Alex, the owner): Sara, a regular
+ * member with her own login made for the case, or Emma, the household's kid account (a member) signed in for the
+ * case. Each plays from what `MEMBERS` says of them plus the step's own facts and wants.
+ */
+export const MEMBER_NAMES = ['sara', 'emma'] as const;
+export type Member = (typeof MEMBER_NAMES)[number];
+
+/** Who each member is, for the simulated person (as `FAMILY` is for Alex). */
+export const MEMBERS: Readonly<Record<Member, { readonly name: string; readonly who: readonly string[] }>> = {
+  sara: {
+    name: 'Sara Parker',
+    who: [
+      'You are Sara Parker, 39, a teacher, and you use this assistant app at home on your own login. You are not technical: you don\'t know words like fn, system, database, table, API or schema, and you never use them.',
+      'Your husband Alex set the app up and is in charge of it; you are a regular user. Your kids are Emma (8) and Leo (6).',
+      'You live in the Clintonville neighborhood of Columbus, Ohio.',
+    ],
+  },
+  emma: {
+    name: 'Emma Parker',
+    who: [
+      'You are Emma Parker, 8 years old, in 3rd grade. Your dad Alex set up this assistant app and gave you your own login.',
+      'You type like an 8-year-old: short, mostly lowercase, a few spelling mistakes, no technical words. You are polite but you want things done now.',
+      'Your little brother is Leo (6). Your mom is Sara.',
+    ],
+  },
+};
 
 /** One message the person sends as written. */
 export interface Step {
   readonly say: string;
+  /** Send it as another person of the household, in their own chat (a new one, unless their previous step's chat is the current one). */
+  readonly as?: Member;
+  /** What that person knows (with `as`; Alex's are the case's `facts`). */
+  readonly facts?: readonly string[];
+  /** What that person is after (with `as`; Alex's is the case's `wants`). */
+  readonly wants?: string;
   readonly files?: readonly FixtureFile[];
   /** Send it in a new chat instead of the case's current one. */
   readonly newChat?: boolean;
@@ -48,7 +89,12 @@ export interface Case {
   readonly approvals?: ApprovalStance;
   /** Files the person has and can send if the agent asks for them. */
   readonly canSend?: readonly FixtureFile[];
+  /** Systems the household runs only for cases that need them (the schedule system: reminders and timed runs). */
+  readonly needs?: readonly OptionalSystem[];
 }
+
+/** A system a rep starts only when one of its cases needs it. */
+export type OptionalSystem = 'schedule';
 
 /** The family every case's person belongs to. */
 export const FAMILY = [
@@ -61,7 +107,8 @@ export const FAMILY = [
 
 const PARKER_EMAIL = 'Your email is alex@example.com.';
 
-export const CASES: readonly Case[] = [
+/** The first set: the 40 Phil approved on 2026-11-21. */
+export const FIRST_CASES: readonly Case[] = [
   // ── Keeping track of things ──
   {
     id: 1, group: 'Keeping track of things', title: 'Weather heads-up',
@@ -413,12 +460,57 @@ export const CASES: readonly Case[] = [
   },
 ];
 
-/** The cases with these ids, in order; every id must exist. */
+/** Every case, both sets, by id. */
+export const CASES: readonly Case[] = [...FIRST_CASES, ...SECOND_CASES];
+
+/** The sets a run can name (`--cases first` / `second`), and the one a plain run plays. */
+export const CASE_SETS = { first: FIRST_CASES, second: SECOND_CASES } as const;
+export const DEFAULT_SET = 'first' satisfies keyof typeof CASE_SETS;
+
+/**
+ * The ids a `--cases` value names: ids, ranges (`41-80`) and set names (`first`, `second`, `all`), comma separated,
+ * in order, each once.
+ */
+export function parseCaseIds(list: string): number[] {
+  const ids: number[] = [];
+  for (const raw of list.split(',').map((part) => part.trim()).filter((part) => part !== '')) {
+    const named = raw === 'all' ? CASES : raw === 'first' || raw === 'second' ? CASE_SETS[raw] : undefined;
+    const range = /^(\d+)\s*-\s*(\d+)$/.exec(raw);
+    const some = named !== undefined ? named.map((c) => c.id)
+      : range !== null ? Array.from({ length: Math.max(0, Number(range[2]) - Number(range[1]) + 1) }, (_, i) => Number(range[1]) + i)
+      : /^\d+$/.test(raw) ? [Number(raw)] : undefined;
+    if (some === undefined || some.length === 0 || some.some((id) => id < 1)) { throw new Error(`"${raw}" in --cases is not an id, a range like 41-80, or one of first, second, all`); }
+    for (const id of some) { if (!ids.includes(id)) { ids.push(id); } }
+  }
+  return ids;
+}
+
+/** The cases with these ids, in order; every id must exist. No ids: the default set (the first 40). */
 export function pickCases(ids: readonly number[] | undefined): Case[] {
-  if (ids === undefined) { return [...CASES]; }
+  if (ids === undefined) { return [...CASE_SETS[DEFAULT_SET]]; }
   return ids.map((id) => {
     const found = CASES.find((c) => c.id === id);
     if (found === undefined) { throw new Error(`there is no case ${id} (cases are 1 to ${CASES.length})`); }
     return found;
   });
+}
+
+/** Whether a list of cases is one whole set (the first 40, or the second): a run of one is published by default. */
+export function wholeSet(cases: readonly Case[]): boolean {
+  return Object.values(CASE_SETS).some((set) => set.length === cases.length && set.every((c, i) => cases[i]?.id === c.id));
+}
+
+/** How a step was sent, after its quoted words, for the judge, the diagnosis and the review. */
+export function stepNotes(step: Step, attached = 'files'): string {
+  return [
+    step.as === undefined ? '' : ` (as ${MEMBERS[step.as].name}, in their own chat on their own login)`,
+    step.newChat === true ? ' (in a new chat)' : '',
+    step.whileRunning === true ? ' (sent while the previous turn was still running)' : '',
+    step.files === undefined ? '' : ` [${attached}: ${step.files.join(', ')}]`,
+  ].join('');
+}
+
+/** The systems a list of cases needs beyond the household's usual ones. */
+export function neededSystems(cases: readonly Case[]): OptionalSystem[] {
+  return [...new Set(cases.flatMap((c) => c.needs ?? []))];
 }

@@ -13,7 +13,7 @@ import { clientInfo, SessionWatch, uploadBytes } from '../session.ts';
 import { answerFor, askedOf, checkAnswers, controlOf } from '../../systems/input/client/form.ts';
 import { fieldsOf } from '../../systems/input/shared/forms.ts';
 import type { AskedValue } from '../../systems/input/shared/index.ts';
-import type { Case, FixtureFile, Step } from './cases.ts';
+import { MEMBERS, type Case, type FixtureFile, type Member, type Step } from './cases.ts';
 import { hardChecks, toolReplyFailed } from './checks.ts';
 import { FIXTURES } from './fixtures/make.ts';
 import type { OpenRouter } from './openrouter.ts';
@@ -65,10 +65,23 @@ function fieldAsks(form: AskedValue['form']): FieldAsk[] {
   });
 }
 
-/** One chat the case opened, with its live recorder. */
+/** Who sends in a chat: Alex (the case's own person) or a member of the household (`Step.as`). */
+interface Party {
+  readonly who: Member | undefined;
+  readonly client: SignedIn;
+  readonly credentials: { email: string; password: string };
+  readonly person: Person;
+  /** What this person has seen, in all their chats, oldest first. */
+  readonly seen: Seen[];
+}
+
+/** One chat the case opened, with its live recorder, and whose it is. */
 interface Chat {
   readonly id: SessionId;
   readonly watch: SessionWatch;
+  readonly party: Party;
+  /** The turns of this chat, in order. */
+  readonly turns: TurnId[];
 }
 
 /** Play one case; never throws (what went wrong goes in the record). */
@@ -76,8 +89,19 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
   const started = Date.now();
   const errors: string[] = [];
   const { client, credentials, shed } = await ctx.rep.person(played.id);
-  const person = new Person(ctx.router, ctx.personModel, played);
-  const seen: Seen[] = [];
+  let memberShed = 0;
+  const alex: Party = { who: undefined, client, credentials, person: new Person(ctx.router, ctx.personModel, played), seen: [] };
+  const members = new Map<Member, Party>();
+  /** The party a step is sent by, signing in as a member the first time one sends. */
+  const partyOf = async (step: Step): Promise<Party> => {
+    if (step.as === undefined) { return alex; }
+    const known = members.get(step.as);
+    if (known !== undefined) { return known; }
+    const signed = await ctx.rep.member(played.id, step.as, () => { memberShed++; });
+    const party: Party = { who: step.as, client: signed.client, credentials: signed.credentials, person: new Person(ctx.router, ctx.personModel, played, { who: step.as, step }), seen: [] };
+    members.set(step.as, party);
+    return party;
+  };
   const chats: Chat[] = [];
   const turns: TurnId[] = [];
   /** Approvals answered, by run: what the person said. */
@@ -89,7 +113,8 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
   let ending: Ending | undefined;
   const state = { live: true };
 
-  const decideApproval = async (approval: Approval): Promise<void> => {
+  const decideApproval = async (chat: Chat, approval: Approval): Promise<void> => {
+    const { person, seen } = chat.party;
     const card = cardText(approval);
     const stance = played.approvals ?? 'yes';
     const decided = stance === 'person' ? await person.decide(seen, card) : { approve: stance === 'yes', reason: stance === 'yes' ? 'says yes to every card' : 'says no to every card' };
@@ -100,12 +125,13 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
       const checked = checkAnswers(approval.ask.type, jsonValues(values));
       if ('value' in checked) { answer = checked.value; }
     }
-    await client.hub.call('approve', { approval: approval.id, approve: decided.approve, remember: 'once', ...(decided.approve ? {} : { reason: decided.reason }), ...(answer === undefined ? {} : { answer }) });
+    await chat.party.client.hub.call('approve', { approval: approval.id, approve: decided.approve, remember: 'once', ...(decided.approve ? {} : { reason: decided.reason }), ...(answer === undefined ? {} : { answer }) });
     decisions.set(approval.run, { title: approval.preview?.title ?? approval.fn, decision: decided.approve ? 'approved' : 'denied', reason: decided.reason });
     seen.push({ who: 'card', text: `${card}\n→ You said ${decided.approve ? 'yes' : 'no'}.` });
   };
 
-  const answerQuestion = async (call: HandlerCall): Promise<void> => {
+  const answerQuestion = async (chat: Chat, call: HandlerCall): Promise<void> => {
+    const { person, seen } = chat.party;
     const question = call.decl.description === '' ? call.handler : call.decl.description;
     const stance = played.approvals ?? 'yes';
     let value: unknown;
@@ -123,36 +149,39 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
       value = await person.answer(seen, `${question}\n${clip(JSON.stringify(call.args), 800)}`, clip(JSON.stringify(call.decl.returns), 1_500));
     }
     const parsed = Json.safeParse(value);
-    await client.hub.call('answer', { call: call.id, value: parsed.success ? parsed.data : String(value) });
+    await chat.party.client.hub.call('answer', { call: call.id, value: parsed.success ? parsed.data : String(value) });
     questions.push({ type: 'question', run: call.run, question: clip(question, 400), answer: clip(JSON.stringify(value), 400) });
     seen.push({ who: 'card', text: `${question}\n→ You answered ${clip(JSON.stringify(value), 200)}.` });
   };
 
-  /** Answer the approvals and direct questions of every chat while the case runs. */
+  /** Answer the approvals and direct questions of every chat while the case runs, as the chat's own person. */
   const responder = (async () => {
     while (state.live) {
       for (const chat of chats) {
         for (const { approval } of chat.watch.of('approval')) {
           if (approval.status !== 'pending' || handled.has(approval.id)) { continue; }
           handled.add(approval.id);
-          try { await decideApproval(approval); } catch (error) { errors.push(`approval ${approval.fn}: ${message(error)}`); }
+          try { await decideApproval(chat, approval); } catch (error) { errors.push(`approval ${approval.fn}: ${message(error)}`); }
         }
         for (const { call } of chat.watch.of('handler')) {
           if (call.status !== 'pending' || !('user' in call.answerer) || handled.has(call.id)) { continue; }
           handled.add(call.id);
-          try { await answerQuestion(call); } catch (error) { errors.push(`question from ${call.handler}: ${message(error)}`); }
+          try { await answerQuestion(chat, call); } catch (error) { errors.push(`question from ${call.handler}: ${message(error)}`); }
         }
       }
       await new Promise((done) => setTimeout(done, 400));
     }
   })();
 
-  const openChat = async (): Promise<Chat> => {
-    const session = await client.hub.call('createSession', {});
-    const chat = { id: session.id, watch: new SessionWatch(client, session.id) };
+  const openChat = async (party: Party): Promise<Chat> => {
+    const session = await party.client.hub.call('createSession', {});
+    const chat: Chat = { id: session.id, watch: new SessionWatch(party.client, session.id), party, turns: [] };
     chats.push(chat);
     return chat;
   };
+
+  /** A turn that started in a chat, kept for the chat and the case. */
+  const keepTurn = (chat: Chat, turn: TurnId): void => { turns.push(turn); chat.turns.push(turn); };
 
   /** Upload the files and send a message; gives its turn. */
   const send = async (chat: Chat, text: string, files: readonly FixtureFile[]): Promise<TurnId> => {
@@ -161,35 +190,38 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
       const entry = FIXTURES[file];
       const name = basename(entry.path);
       // the presigned PUT is plain fetch, so a shed upload (HTTP 503) is tried again here
-      const ref = await ctx.rep.patient(`upload ${name}`, () => uploadBytes(client, ctx.rep.stack.url, { name, mime: entry.mime, bytes: readFileSync(join(FIXTURES_DIR, entry.path)) }));
+      const ref = await ctx.rep.patient(`upload ${name}`, () => uploadBytes(chat.party.client, ctx.rep.stack.url, { name, mime: entry.mime, bytes: readFileSync(join(FIXTURES_DIR, entry.path)) }));
       parts.push({ type: 'file', ref, name });
     }
-    const sent = await client.hub.call('send', { session: chat.id, parts, client: clientInfo() });
-    turns.push(sent.turn);
-    seen.push({ who: 'me', text: `${text}${files.length === 0 ? '' : ` [attached: ${files.map((f) => basename(FIXTURES[f].path)).join(', ')}]`}` });
+    const sent = await chat.party.client.hub.call('send', { session: chat.id, parts, client: clientInfo() });
+    keepTurn(chat, sent.turn);
+    chat.party.seen.push({ who: 'me', text: `${text}${files.length === 0 ? '' : ` [attached: ${files.map((f) => basename(FIXTURES[f].path)).join(', ')}]`}` });
     return sent.turn;
   };
 
   /** A turn's tree, once it exists. */
-  const treeOf = (turn: TurnId): Promise<TreeNode> => waitFor(`turn ${turn}'s tree`, () => client.hub.call('tree', { turn }), { timeout: 30_000, every: 500 });
+  const treeOf = (chat: Chat, turn: TurnId): Promise<TreeNode> => waitFor(`turn ${turn}'s tree`, () => chat.party.client.hub.call('tree', { turn }), { timeout: 30_000, every: 500 });
 
   /** Wait for a turn to settle, then for any turn that started by itself meanwhile (a background run reporting back). */
   const settleTurn = async (chat: Chat, turn: TurnId): Promise<void> => {
+    const hub = chat.party.client.hub;
     const pending: TurnId[] = [turn];
     for (let next = pending.shift(); next !== undefined; next = pending.shift()) {
       const waited = next;
-      await waitFor(`turn ${waited} to settle`, async () => (isSettled((await client.hub.call('tree', { turn: waited })).run.status) ? true : undefined), { timeout: ctx.turnTimeout, every: 1_000 });
+      await waitFor(`turn ${waited} to settle`, async () => (isSettled((await hub.call('tree', { turn: waited })).run.status) ? true : undefined), { timeout: ctx.turnTimeout, every: 1_000 });
       await new Promise((done) => setTimeout(done, 2_500));
-      for (const m of (await client.hub.call('messages', { session: chat.id, limit: 5 })).items) {
-        if (!turns.includes(m.turn)) { turns.push(m.turn); pending.push(m.turn); }
+      for (const m of (await hub.call('messages', { session: chat.id, limit: 5 })).items) {
+        if (!turns.includes(m.turn)) { keepTurn(chat, m.turn); pending.push(m.turn); }
       }
     }
   };
 
   const shownMessages = new Set<string>();
-  /** What appeared since last time: the agent's words, and the forms it showed and nobody answered yet. */
+  /** What appeared in a chat since last time: the agent's words, and the forms it showed and nobody answered yet. */
   const observe = async (chat: Chat): Promise<Array<{ run: RunId; asked: AskedValue }>> => {
-    const page = await client.hub.call('messages', { session: chat.id, limit: 50 });
+    const hub = chat.party.client.hub;
+    const seen = chat.party.seen;
+    const page = await hub.call('messages', { session: chat.id, limit: 50 });
     for (const m of [...page.items].reverse()) {
       if (shownMessages.has(m.id)) { continue; }
       shownMessages.add(m.id);
@@ -200,11 +232,11 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
       for (const part of m.parts) { if (part.type === 'input-answer') { answeredForms.add(part.run); } }
     }
     const forms: Array<{ run: RunId; asked: AskedValue }> = [];
-    for (const turn of turns) {
-      const tree = await client.hub.call('tree', { turn }).catch(() => undefined);
+    for (const turn of chat.turns) {
+      const tree = await hub.call('tree', { turn }).catch(() => undefined);
       for (const { node } of tree === undefined ? [] : nodesOf(tree)) {
         if (!node.run.fn.startsWith('input/') || node.run.status !== 'done' || answeredForms.has(node.run.id) || forms.some((f) => f.run === node.run.id)) { continue; }
-        const run = await client.hub.call('run', { run: node.run.id });
+        const run = await hub.call('run', { run: node.run.id });
         const asked = askedOf(run.outcome?.status === 'done' ? run.outcome.result : undefined);
         if (asked !== undefined) { forms.push({ run: node.run.id, asked }); }
       }
@@ -218,6 +250,7 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
 
   /** Fill and send the newest unanswered form; gives the turn its answer started. */
   const answerForm = async (chat: Chat, form: { run: RunId; asked: AskedValue }): Promise<TurnId> => {
+    const { person, seen } = chat.party;
     const fields = fieldAsks(form.asked.form);
     let values = await person.fill(seen, form.asked.form.title, fields);
     let checked = checkAnswers(form.asked.form.type, jsonValues(values));
@@ -228,8 +261,8 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
     if ('problem' in checked) { throw new Error(`the person couldn't fill "${form.asked.form.title}": ${checked.problem}`); }
     const answer = answerFor(form.run, form.asked, checked.value);
     answeredForms.add(form.run);
-    const sent = await client.hub.call('send', { session: chat.id, parts: [{ type: 'input-answer', ...answer }], client: clientInfo() });
-    turns.push(sent.turn);
+    const sent = await chat.party.client.hub.call('send', { session: chat.id, parts: [{ type: 'input-answer', ...answer }], client: clientInfo() });
+    keepTurn(chat, sent.turn);
     seen.push({ who: 'me', text: `(filled in "${answer.title}")\n${answer.text}` });
     return sent.turn;
   };
@@ -238,7 +271,7 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
   const playStep = async (chat: Chat, step: Step, last: boolean, previous: TurnId | undefined): Promise<TurnId | undefined> => {
     if (step.whileRunning === true && previous !== undefined) {
       // wait until the earlier turn has started a fn (or a while has passed), then interrupt it
-      await waitFor('the earlier turn to start a fn', async () => ((await treeOf(previous)).children.length > 0 ? true : undefined), { timeout: 60_000, every: 500 }).catch(() => undefined);
+      await waitFor('the earlier turn to start a fn', async () => ((await treeOf(chat, previous)).children.length > 0 ? true : undefined), { timeout: 60_000, every: 500 }).catch(() => undefined);
     } else if (previous !== undefined) {
       await settleTurn(chat, previous);
       await observe(chat);
@@ -260,7 +293,7 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
       if (form !== undefined) {
         current = await answerForm(chat, form);
       } else {
-        const move = await person.next(seen, allowance);
+        const move = await chat.party.person.next(chat.party.seen, allowance);
         if (move.action !== 'reply') {
           if (last) { ending = { by: move.action === 'done' ? 'satisfied' : 'gave-up', reason: move.reason }; }
           return undefined;
@@ -274,13 +307,17 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
 
   try {
     await settle(client);
-    let chat = await openChat();
+    let chat = await openChat(alex);
     let previous: TurnId | undefined;
     for (const [index, step] of played.steps.entries()) {
-      if (step.newChat === true && index > 0) {
-        if (previous !== undefined) { await settleTurn(chat, previous); previous = undefined; }
-        chat = await openChat();
-        seen.push({ who: 'me', text: '(later, in a new chat)' });
+      const party = await partyOf(step);
+      // another person sends in their own chat (their last one, if they had one); the same person's newChat opens another
+      const another = party !== chat.party;
+      if (index > 0 && (another || step.newChat === true)) {
+        if (previous !== undefined) { await settleTurn(chat, previous); await observe(chat); previous = undefined; }
+        const theirs = another && step.newChat !== true ? chats.findLast((c) => c.party === party) : undefined;
+        chat = theirs ?? await openChat(party);
+        if (theirs !== undefined || !another) { party.seen.push({ who: 'me', text: theirs === undefined ? '(later, in a new chat)' : '(later, back in this chat)' }); }
       }
       previous = await playStep(chat, step, index === played.steps.length - 1, previous);
     }
@@ -294,15 +331,16 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
   state.live = false;
   await responder;
 
+  const parties = [alex, ...members.values()];
   try {
-    return await readBack(ctx, client, played, {
-      chats, turns, decisions, questions, errors, credentials, started, personTurns, personCost: person.cost, shed: shed(),
+    return await readBack(ctx, played, {
+      chats, turns, decisions, questions, errors, credentials, started, personTurns, personCost: parties.reduce((sum, p) => sum + p.person.cost, 0), shed: shed() + memberShed,
       ending: ending ?? { by: 'satisfied', reason: 'the steps ran out' },
     });
   } finally {
-    // whatever happened, the case's watches and its signed-in client end with it
+    // whatever happened, the case's watches and its signed-in clients end with it
     for (const chat of chats) { chat.watch.stop(); }
-    client.close();
+    for (const party of parties) { party.client.close(); }
   }
 }
 
@@ -387,13 +425,13 @@ async function allMessages(client: SignedIn, session: SessionId): Promise<ChatMe
 }
 
 /** Read the case back from the hub: the transcript in order, the numbers, the checks. */
-async function readBack(ctx: PlayContext, client: SignedIn, played: Case, data: Played): Promise<CaseRecord> {
+async function readBack(ctx: PlayContext, played: Case, data: Played): Promise<CaseRecord> {
   const entries: Entry[] = [];
   const allRuns: ToolRun[] = [];
   const turnsSeen = new Set<string>();
   const base = viewBase(ctx.viewPort);
   /** A turn's runs (the chat agent's own run left out) and the forms it showed. */
-  const turnEntries = async (turn: TurnId): Promise<Entry[]> => {
+  const turnEntries = async (client: SignedIn, turn: TurnId): Promise<Entry[]> => {
     const tree = await client.hub.call('tree', { turn }).catch(() => undefined);
     if (tree === undefined) { return []; }
     const runs: ToolRun[] = [];
@@ -413,14 +451,19 @@ async function readBack(ctx: PlayContext, client: SignedIn, played: Case, data: 
     return [...(runs.length === 0 ? [] : [{ type: 'tools' as const, turn, runs }]), ...forms, ...asked];
   };
   const sessions: CaseRecord['sessions'] = [];
+  const others: NonNullable<CaseRecord['others']> = [];
   for (const chat of data.chats) {
     const url = `${base}/chat/${chat.id}`;
-    sessions.push({ id: chat.id, url });
-    entries.push({ type: 'chat', session: chat.id, url });
+    const who = chat.party.who;
+    const as = who === undefined ? {} : { as: MEMBERS[who].name };
+    if (who !== undefined && !others.some((o) => o.email === chat.party.credentials.email)) { others.push({ name: MEMBERS[who].name, ...chat.party.credentials }); }
+    sessions.push({ id: chat.id, url, ...as });
+    entries.push({ type: 'chat', session: chat.id, url, ...as });
+    const client = chat.party.client;
     for (const m of await allMessages(client, chat.id)) {
       const fresh = !turnsSeen.has(m.turn);
       turnsSeen.add(m.turn);
-      const runs = fresh ? await turnEntries(m.turn) : [];
+      const runs = fresh ? await turnEntries(client, m.turn) : [];
       if (m.role !== 'user') { entries.push(...runs); }
       if (m.role === 'user') {
         const answer = m.parts.find((part) => part.type === 'input-answer');
@@ -457,7 +500,7 @@ async function readBack(ctx: PlayContext, client: SignedIn, played: Case, data: 
   const stackErrors = ctx.rep.problems.filter((p) => p.at >= data.started && p.at <= ended).map((p) => p.line);
   const record: CaseRecord = {
     iteration: ctx.iteration, rep: ctx.repNumber, ...(ctx.variant === undefined ? {} : { variant: ctx.variant }), case: played.id, title: played.title, good: played.good,
-    person: data.credentials, sessions, entries, ending: data.ending,
+    person: data.credentials, ...(others.length === 0 ? {} : { others }), sessions, entries, ending: data.ending,
     stats: { personTurns: data.personTurns, turns: turnIds.size, toolRuns: allRuns.length, modelCalls, hubCost, personCost: data.personCost, wallMs: ended - data.started, shed: data.shed },
     errors: data.errors, stackErrors: stackErrors.slice(0, 60), checks: [],
     startedAt: new Date(data.started).toISOString(), endedAt: new Date(ended).toISOString(),

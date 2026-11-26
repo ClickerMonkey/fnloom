@@ -31,6 +31,14 @@ const SCENARIO_WORDS: readonly string[] = [
   '(?<!third[- ])part(?:y|ies)', 'class party', 'neighbou?r', 'dogs?', 'favou?rite band', 'mom', 'thanksgiving', 'turkey',
   'tacos?', 'pasta', 'mushrooms?', 'spicy', 'gym', 'peloton', '(?<![0-9])5k', 'jog(?:ging)?', 'fitness', 'shoes?', 'heating', 'dentist appointment',
   'pwned', 'breach(?:es)?', 'photos? of the', 'classroom',
+  // the second set's subjects and data (cases 41-80, scripts/scenarios/cases-2.ts, docs/plans/scenarios-2-2026-11-26.md)
+  'fill(?:[- ])?ups?', 'gallons?', 'library books?', 'cookie swap', 'dozen cookies', 'baking', 'surprise', 'chicago', 'hardware store',
+  'porch light', 'wood glue', 'picture hooks', 'homework', 'taxes', 'tax documents?', 'electric bills?', 'power company',
+  'kwh', 'a shed', 'sheds', 'backyard', 'hoa', 'homeowners association', 'pto', 'bake sale', 'whiteboard', 'holiday cards?', 'address list',
+  'scanner', 'dishwasher', 'model number', 'recycling', 'curb', 'cat medicine', 'vet', 'piano', 'winter break', 'biking', 'bike',
+  'paint', '8-foot ceilings', 'worthington', 'cilantro', 'mother-in-law', 'coffee', 'lunch(?:es|box(?:es)?)', 'garage sale',
+  'hendersons?', 'packing list', 'grandma', 'dayton', 'thank-you notes?', 'rachael?', 'passport', 'doctor\'s note', 'skip school',
+  'eating out', 'zoo', 'soccer', 'camping', 'cabin', 'tents?', 'biscuit', 'okafor', 'joan', 'sarasota', 'bosch', 'glen echo',
 ];
 
 // whole words, also inside a snake_case or dotted name (iteration 4: `database/main.expenses_create` hid behind `\b`)

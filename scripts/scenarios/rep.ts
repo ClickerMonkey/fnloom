@@ -6,7 +6,9 @@
  * running, the rep then waits for the hub's index to be embedded (`indexStatus`), so suggestions and search by
  * meaning work from the first case; when it doesn't catch up in time the cases run anyway and the rep says so. People are added here:
  * the kids' member accounts (case 36 needs someone to restrict) and one admin account per case, each with a known
- * password so the case can sign in as it and Phil can open its chats later (`--view`). Then the rep's variant is
+ * password so the case can sign in as it and Phil can open its chats later (`--view`). A case step sent as another
+ * person of the household signs in as them (`member`): Emma is the kids' account given a password then, Sara a member
+ * made for the case. The schedule system runs only when a case of the rep needs it (`StartOptions.needs`). Then the rep's variant is
  * applied (`variants.ts`). Every hub call the rep makes is patient with a busy hub (`busy.ts`), and every client it
  * signs in is closed when it stops, so the runner exits once its last rep is done.
  *
@@ -28,6 +30,7 @@ import { busyPolicy, noShedding, patient, patientClient, type Shedding } from '.
 import type { ScenariosSettings } from './env.ts';
 import { applyVariant, type VariantName, type VariantRecord } from './variants.ts';
 import { HOME_TEMPLATE } from './fixtures/make.ts';
+import { MEMBERS, type Member, type OptionalSystem } from './cases.ts';
 import type { DatabaseConfig } from '../../systems/database/shared/shapes.ts';
 
 /** Where every iteration's results go. */
@@ -182,6 +185,8 @@ export interface Rep {
   readonly problems: readonly LoggedProblem[];
   /** Add a person for a case (an admin: the household's owner) and sign in as them. */
   person(caseId: number): Promise<{ client: SignedIn; credentials: Credentials; shed: () => number }>;
+  /** Sign in as another person of the household for a case's step (`Step.as`): Emma's kid account, or a Sara made for the case. */
+  member(caseId: number, who: Member, onShed?: () => void): Promise<{ client: SignedIn; credentials: Credentials }>;
   stop(): Promise<void>;
 }
 
@@ -196,7 +201,12 @@ export interface StartOptions {
   readonly variant?: VariantName;
   /** Whether the rep lives in its variant's folder (`<iteration>/<variant>/rep-<n>/`: the run has several variants). */
   readonly variantFolder?: boolean;
+  /** Systems to run beyond the usual ones, because a case of the rep needs them (`Case.needs`). */
+  readonly needs?: readonly OptionalSystem[];
 }
+
+/** The kids' member accounts every rep makes (no password until a case signs in as one). */
+const KIDS = [{ key: 'emma', name: 'Emma Parker', email: 'emma@example.com' }, { key: 'leo', name: 'Leo Parker', email: 'leo@example.com' }] as const;
 
 /** Boot a repetition on a clean slate. */
 export async function startRep(settings: ScenariosSettings, iteration: string, rep: number, log: (line: string) => void, options: StartOptions = {}): Promise<Rep> {
@@ -217,9 +227,11 @@ export async function startRep(settings: ScenariosSettings, iteration: string, r
   skipped.push('mcp: each MCP instance is one outside MCP server a person adds; the household has none');
   skipped.push('claude: Claude Code sessions on this machine are not part of a household\'s harness');
 
+  const schedule = options.needs?.includes('schedule') === true;
+  if (!schedule) { skipped.push('schedule: runs only for cases that need reminders or timed runs (the second set, 59-62)'); }
   const systems: ComponentName[] = [
     'hub', 'fs', 'database', 'input', 'widgets', 'code', 'api',
-    ...(embedder ? ['embedder' as const] : []), ...(settings.TAVILY_API_KEY === undefined ? [] : ['web-system' as const]), ...(google === undefined ? [] : ['calendar' as const]),
+    ...(embedder ? ['embedder' as const] : []), ...(schedule ? ['schedule' as const] : []), ...(settings.TAVILY_API_KEY === undefined ? [] : ['web-system' as const]), ...(google === undefined ? [] : ['calendar' as const]),
   ];
   const problems: LoggedProblem[] = [];
   const stackLog = join(folder, 'stack.log');
@@ -259,6 +271,7 @@ export async function startRep(settings: ScenariosSettings, iteration: string, r
   let admin: SignedIn;
   let variant: VariantRecord;
   let index: IndexWait | undefined;
+  const kidIds = new Map<string, ActorId>();
   try {
     admin = await signInPatient(ADMIN);
     await goLiveAll(admin);
@@ -269,8 +282,9 @@ export async function startRep(settings: ScenariosSettings, iteration: string, r
     }
     log(`rep ${rep}: image model (describe role) ${image.resolved.model}`);
     // the kids' own logins, members with no password (nobody signs in as them; case 36 restricts them)
-    for (const kid of [{ name: 'Emma Parker', email: 'emma@example.com' }, { name: 'Leo Parker', email: 'leo@example.com' }]) {
-      await admin.hub.call('addUser', { ...kid, role: 'member' });
+    for (const kid of KIDS) {
+      const { id } = await admin.hub.call('addUser', { name: kid.name, email: kid.email, role: 'member' });
+      kidIds.set(kid.key, id);
     }
     index = systems.includes('embedder') ? await waitForIndex(admin, settings, (line) => { log(`rep ${rep}: ${line}`); }) : undefined;
     if (index !== undefined && !index.caughtUp) { log(`rep ${rep}: the index did not catch up in ${Math.round(index.waitedMs / 1000)}s (${index.pending} of ${index.items} waiting); playing anyway`); }
@@ -295,6 +309,9 @@ export async function startRep(settings: ScenariosSettings, iteration: string, r
     }
   };
 
+  /** A kid's password, set once, the first time a case signs in as them. */
+  const kidPasswords = new Map<string, Promise<void>>();
+
   return {
     folder, home, variant, shedding, stack,
     patient: (what, call) => patient(what, call, policy, sink), admin, systems, skipped, index, problems,
@@ -304,6 +321,23 @@ export async function startRep(settings: ScenariosSettings, iteration: string, r
       await setPassword(id, credentials.password);
       let shed = 0;
       return { client: await signInPatient(credentials, () => { shed++; }), credentials, shed: () => shed };
+    },
+    async member(caseId, who, onShed) {
+      const kid = KIDS.find((k) => k.key === who);
+      let credentials: Credentials;
+      if (kid !== undefined) {
+        const id = kidIds.get(kid.key);
+        if (id === undefined) { throw new Error(`the rep has no account for ${kid.name}`); }
+        let ready = kidPasswords.get(kid.key);
+        if (ready === undefined) { ready = setPassword(id, PERSON_PASSWORD); kidPasswords.set(kid.key, ready); }
+        await ready;
+        credentials = { email: kid.email, password: PERSON_PASSWORD };
+      } else {
+        credentials = { email: `case-${String(caseId).padStart(2, '0')}-${who}@parker.family`, password: PERSON_PASSWORD };
+        const { id } = await admin.hub.call('addUser', { email: credentials.email, name: MEMBERS[who].name, role: 'member' });
+        await setPassword(id, credentials.password);
+      }
+      return { client: await signInPatient(credentials, onShed), credentials };
     },
     async stop() {
       closeAll();

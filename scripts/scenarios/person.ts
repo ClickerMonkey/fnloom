@@ -1,11 +1,11 @@
 /**
  * The simulated person: a cheaper LLM than the chat's, from another family (HARNESS_SCENARIOS_PERSON_MODEL, called on OpenRouter, not through the hub) playing Alex Parker, a non-technical
- * parent. It sees what a person sees in the chat (the agent's words, the forms it shows, the cards asking for a yes
+ * parent (or, for steps sent as another person of the household, Sara or Emma from `MEMBERS`). It sees what a person sees in the chat (the agent's words, the forms it shows, the cards asking for a yes
  * or no), never the tool calls. It answers briefly and plainly, says what it knows only when asked, says when it is
  * done or would give up, fills forms, and decides approval cards when its case says to. It keeps its own cost.
  */
 import { z } from 'zod';
-import { FAMILY, FixtureFile, type Case } from './cases.ts';
+import { FAMILY, FixtureFile, MEMBERS, type Case, type Member, type Step } from './cases.ts';
 import type { ChatTurn, OpenRouter } from './openrouter.ts';
 
 /** What the person sees of the chat, oldest first. */
@@ -37,25 +37,43 @@ export interface FieldAsk {
   readonly options?: readonly string[];
 }
 
-const ROLE = [
-  ...FAMILY,
-  'Write like a busy parent typing on a phone: short, plain, friendly, sometimes a bit vague. One to three sentences.',
+/** How everyone writes, after who they are. */
+const MANNER = [
   'Answer what you are asked using what you know. Never volunteer facts you weren\'t asked for, and never use technical words.',
   'If you are asked something you don\'t know, say so or guess the way a normal person would.',
   'You can\'t see how the app works inside; you only see its answers, its forms and its yes/no cards.',
-].join('\n');
+] as const;
 
-/** The person of one case. */
+/** Who the person is: Alex (the family lines and how a busy parent types), or a member of the household. */
+function roleOf(member: Member | undefined): string {
+  if (member === undefined) { return [...FAMILY, 'Write like a busy parent typing on a phone: short, plain, friendly, sometimes a bit vague. One to three sentences.', ...MANNER].join('\n'); }
+  return [...MEMBERS[member].who, 'Keep each message short: one to three sentences.', ...MANNER].join('\n');
+}
+
+/** A step's person when it is sent as a member: who, and the step (their facts and wants). */
+export interface MemberPart {
+  readonly who: Member;
+  readonly step: Step;
+}
+
+/** The person of one case (Alex), or of the case's steps sent as one member. */
 export class Person {
   #cost = 0;
   readonly #router: OpenRouter;
   readonly #model: string;
   readonly #case: Case;
+  readonly #member: MemberPart | undefined;
 
-  constructor(router: OpenRouter, model: string, played: Case) {
+  constructor(router: OpenRouter, model: string, played: Case, member?: MemberPart) {
     this.#router = router;
     this.#model = model;
     this.#case = played;
+    this.#member = member;
+  }
+
+  /** Files this person has (a member has none). */
+  #files(): readonly FixtureFile[] {
+    return this.#member === undefined ? this.#case.canSend ?? [] : [];
   }
 
   /** What the person's model calls have cost so far (USD). */
@@ -64,11 +82,13 @@ export class Person {
   }
 
   #system(): string {
-    const files = this.#case.canSend ?? [];
+    const files = this.#files();
+    const wants = this.#member === undefined ? this.#case.wants : this.#member.step.wants ?? this.#member.step.say;
+    const facts = this.#member === undefined ? this.#case.facts : this.#member.step.facts ?? [];
     return [
-      ROLE,
-      `What you are after this time: ${this.#case.wants}`,
-      this.#case.facts.length === 0 ? 'Nothing else in particular.' : `What you know (say it only when asked):\n${this.#case.facts.map((fact) => `- ${fact}`).join('\n')}`,
+      roleOf(this.#member?.who),
+      `What you are after this time: ${wants}`,
+      facts.length === 0 ? 'Nothing else in particular.' : `What you know (say it only when asked):\n${facts.map((fact) => `- ${fact}`).join('\n')}`,
       files.length === 0 ? 'You have no files to send.' : `Files you have and can attach if the assistant asks for them: ${files.join(', ')}.`,
     ].join('\n\n');
   }
@@ -85,7 +105,7 @@ export class Person {
 
   /** The next move after the agent answered; `left` is how many more messages the person will send. */
   async next(seen: readonly Seen[], left: number): Promise<NextMove & { attach: FixtureFile[] }> {
-    const files = this.#case.canSend ?? [];
+    const files = this.#files();
     const move = await this.#ask(NextMove, [
       'Decide your next move. Answer with a JSON object: {"action": "reply" | "done" | "give-up", "message": "what you type (for reply)", "attach": [file names, only if asked for a file]' + (files.length === 0 ? '' : ` from ${files.join(', ')}`) + ', "reason": "why, in a sentence"}.',
       '"done": you got what you were after, or it plainly can\'t be done and the assistant was honest about it. "give-up": it keeps missing the point or you\'ve lost patience. Otherwise "reply": answer its questions, or nudge it toward what you want.',

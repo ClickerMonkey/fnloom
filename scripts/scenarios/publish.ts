@@ -10,7 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { CASES } from './cases.ts';
+import { CASES, stepNotes } from './cases.ts';
 import type { JudgedCase } from './records.ts';
 import { loadDiagnosis } from './diagnose.ts';
 import { buildReport, comparisonMarkdown, iterationFolder, loadIteration, variantLabel, type CaseSummary, type Report } from './report.ts';
@@ -115,7 +115,7 @@ export function publish(iteration: string): { file: string; links: string[] } {
       title: `${summary.case}. ${summary.title} — ${verdictTitle(summary)}`,
       ask: 'Is the judge right? What should it have done?',
       md: [
-        `**Request:** ${played?.steps.map((s) => `"${s.say}"${s.newChat === true ? ' _(new chat)_' : ''}${s.whileRunning === true ? ' _(while running)_' : ''}${s.files === undefined ? '' : ` _[${s.files.join(', ')}]_`}`).join(' → ') ?? summary.title}`,
+        `**Request:** ${played?.steps.map((s) => `"${s.say}"${stepNotes(s) === '' ? '' : ` _${stepNotes(s).trim()}_`}`).join(' → ') ?? summary.title}`,
         `**Good:** ${summary.good}`,
         `Mean ${summary.meanScore === null ? '—' : summary.meanScore.toFixed(1)}/10 · ${summary.consistent ? 'same verdict every rep' : 'verdicts differ'} · ${usd(summary.cost)}`,
         ...reps.map(repSection),
