@@ -4,8 +4,13 @@
  * saved anything, and no tool call failed or was refused. A model's own arg mistakes (args that didn't fit, a tool name
  * it made up, a call stopped mid-stream, a field repaired) are not failures: they are counted apart (`argMistakes`), as
  * recovered or not. Each check says what it saw.
+ *
+ * A case that writes a system of its own (the third set) also gets checks read from the hub (`authoringChecks`, over
+ * what `authoring.ts` saw): the system is installed, paired and connected, live, with fns of which one ran; for a page,
+ * the hub lists its page and serves its client build; for an update, one system, the same instance (one key) at a new
+ * version, its data kept and a fn of it run after the update; for restraint, no new system at all.
  */
-import type { CaseRecord, HardCheck, ToolRun } from './records.ts';
+import type { CaseRecord, HardCheck, SeenSystem, SystemsSeen, ToolRun } from './records.ts';
 
 /** Fns that take something away or move it (fs deletes and moves, dropped tables, forgotten memories). */
 const DESTRUCTIVE = /(^|[/._])(delete|remove|drop|trash|move|rename|purge|clear|forget|truncate)/i;
@@ -143,4 +148,95 @@ export function hardChecks(record: Pick<CaseRecord, 'entries'>): HardCheck[] {
       detail: `${broken.length} of ${runs.length} tool calls failed or were refused${broken.length === 0 ? '' : `: ${[...new Set(broken.map((run) => `${run.fn} (${run.status})`))].join(', ')}`}; apart: ${argMistakesLine(mistakes)}`,
     },
   ];
+}
+
+/** The fns that install a system written in the chat: fs's (it builds the folder and hosts it) and the hub's (an admin fn: the hub's supervisor installs a folder or package). */
+const INSTALLS = new Set(['fs/install_system', 'hub/install_system']);
+
+/** The runs of a system's own fns that finished (`<system>/<fn>`, at any depth). */
+function ranOf(runs: readonly ToolRun[], system: string): ToolRun[] {
+  return runs.filter((run) => run.status === 'done' && run.fn.startsWith(`${system}/`));
+}
+
+/** The system a case is about, when it installed more than one: the one whose fns ran most, then the first. */
+function mainSystem(seen: SystemsSeen, runs: readonly ToolRun[]): SeenSystem | undefined {
+  return [...seen.systems].sort((a, b) => ranOf(runs, b.name).length - ranOf(runs, a.name).length)[0];
+}
+
+/** A system in a few words: its name, versions, status and stage. */
+function described(system: SeenSystem): string {
+  return `${system.name} ${system.versions.join(' → ') || '(no version)'}, ${system.status || 'unknown'}, ${system.stage || 'no stage'}, ${system.instances} instance(s)${system.hosted ? ' hosted by fs' : system.hubInstalled ? ' installed by the hub' : ''}`;
+}
+
+/** The checks every new system must pass: installed and connected, live, with fns, one of which ran. */
+function workingChecks(system: SeenSystem | undefined, runs: readonly ToolRun[], installs: readonly ToolRun[]): HardCheck[] {
+  const done = installs.filter((run) => run.status === 'done');
+  if (system === undefined) {
+    const detail = `no new system in the hub; ${installs.length} install run(s), ${done.length} done${installs.length === 0 ? '' : ` (last: ${installs.at(-1)?.status ?? ''} ${installs.at(-1)?.outcome.slice(0, 200) ?? ''})`}`;
+    return ['system-installed', 'system-fns', 'system-fn-ran'].map((name) => ({ name, ok: false, detail }));
+  }
+  const ran = ranOf(runs, system.name);
+  return [
+    {
+      name: 'system-installed',
+      ok: system.status === 'connected' && system.stage === 'live' && system.instances >= 1 && done.length > 0,
+      detail: `${described(system)}; ${done.length} of ${installs.length} install run(s) done${system.events.length === 0 ? '' : `; the runner, as the admin: ${system.events.join('; ')}`}`,
+    },
+    {
+      name: 'system-fns',
+      ok: system.fns.length > 0,
+      detail: system.fns.length === 0 ? 'the hub lists no fns of it' : `${system.fns.length} fn(s): ${system.fns.slice(0, 8).join(', ')}`,
+    },
+    {
+      name: 'system-fn-ran',
+      ok: ran.length > 0,
+      detail: ran.length === 0 ? `no run of a ${system.name} fn finished` : `${ran.length} run(s) of its fns finished: ${[...new Set(ran.map((run) => run.fn))].join(', ')}`,
+    },
+  ];
+}
+
+/** The hard checks of a case that writes a system of its own, from what the hub had (`authoring.ts`) and its runs. */
+export function authoringChecks(seen: SystemsSeen, runs: readonly ToolRun[]): HardCheck[] {
+  const installs = runs.filter((run) => INSTALLS.has(run.fn) && run.run !== '(no run)');
+  const system = mainSystem(seen, runs);
+  switch (seen.expect) {
+    case 'none':
+      return [{
+        name: 'no-new-system',
+        ok: seen.systems.length === 0 && !installs.some((run) => run.status === 'done'),
+        detail: seen.systems.length === 0 && installs.length === 0 ? 'no system was written or installed' : `${seen.systems.map(described).join('; ') || 'no new system in the hub'}; ${installs.length} install run(s): ${installs.map((run) => run.status).join(', ') || 'none'}`,
+      }];
+    case 'new':
+      return workingChecks(system, runs, installs);
+    case 'page':
+      return [...workingChecks(system, runs, installs), {
+        name: 'system-page',
+        ok: system !== undefined && system.pages.length > 0 && system.pageServed,
+        detail: system === undefined ? 'no new system' : system.pages.length === 0 ? `the hub lists no page of ${system.name}` : `page(s) ${system.pages.map((segment) => `/s/${system.name}/${segment}`).join(', ')}; its client build ${system.pageServed ? 'answered' : 'did not answer'}`,
+      }];
+    case 'update': {
+      const checks = workingChecks(system, runs, installs);
+      if (system === undefined) { return [...checks, ...['one-system', 'updated-in-place', 'data-kept', 'fn-ran-after-update'].map((name) => ({ name, ok: false, detail: 'no new system' }))]; }
+      const versions = system.versions;
+      const earlier = versions.slice(0, -1);
+      const last = versions.at(-1) ?? '';
+      const before = Math.max(0, ...earlier.map((version) => system.recordsByVersion[version] ?? 0));
+      const after = system.recordsByVersion[last] ?? 0;
+      const filesBefore = Math.max(0, ...earlier.map((version) => system.filesByVersion[version] ?? 0));
+      const filesAfter = system.filesByVersion[last] ?? 0;
+      // a fn of it that finished after the last install that finished (the runs are in the order they were made)
+      const lastInstall = runs.findLastIndex((run) => INSTALLS.has(run.fn) && run.status === 'done');
+      const ranAfter = runs.slice(lastInstall + 1).filter((run) => run.status === 'done' && run.fn.startsWith(`${system.name}/`));
+      return [...checks,
+        { name: 'one-system', ok: seen.systems.length === 1, detail: `${seen.systems.length} new system(s): ${seen.systems.map(described).join('; ')}` },
+        { name: 'updated-in-place', ok: versions.length >= 2 && system.keys === 1 && system.instances === 1, detail: `versions ${versions.join(' → ') || 'none'}; ${system.instances} instance(s) with ${system.keys} key(s) over the case` },
+        {
+          name: 'data-kept',
+          ok: versions.length >= 2 && (before > 0 || filesBefore > 0) && after >= before && filesAfter >= filesBefore,
+          detail: `records ${before} before the update, ${after} after; kept files ${filesBefore} before, ${filesAfter} after`,
+        },
+        { name: 'fn-ran-after-update', ok: lastInstall >= 0 && ranAfter.length > 0, detail: ranAfter.length === 0 ? 'no run of its fns finished after the last install' : `${ranAfter.length} run(s) after the update: ${[...new Set(ranAfter.map((run) => run.fn))].join(', ')}` },
+      ];
+    }
+  }
 }

@@ -7,7 +7,7 @@
 import { CASES, MEMBERS, stepNotes } from './cases.ts';
 import { argMistakes, argMistakesLine, caseRuns } from './checks.ts';
 import type { OpenRouter } from './openrouter.ts';
-import { CAUSES, Judgement, LAYERS, type CaseRecord, type JudgedCase } from './records.ts';
+import { CAUSES, Judgement, LAYERS, type CaseRecord, type JudgedCase, type SystemsSeen } from './records.ts';
 import { transcriptMarkdown } from './transcript.ts';
 
 /** The most transcript the judge reads (characters); the start and end are kept. */
@@ -15,7 +15,7 @@ const MAX_TRANSCRIPT = 60_000;
 
 const RUBRIC = `You judge how well an AI assistant app (a "harness": a chat agent with fns, i.e. tools, from systems such as files, a database, web search, forms, widgets, code and API fns, memory and approvals) handled a vague, everyday request from a non-technical person. The person was simulated.
 
-Grade against the Good line: it says what a strong result looks like. Several requests ask for things the app can't do yet (in most households it can't act on a schedule or message people by itself): there, good means it says so plainly, builds the closest thing it can and doesn't pretend. When the request's notes say the household runs the schedule system, timed runs and reminders are real there and are expected. Some requests have steps sent by another person of the household (Sara, a regular user, or Emma, a child) on their own login, in their own chat: judge what each person got, and what one person can see of another's.
+Grade against the Good line: it says what a strong result looks like. Several requests ask for things the app can't do yet (in most households it can't act on a schedule or message people by itself): there, good means it says so plainly, builds the closest thing it can and doesn't pretend. When the request's notes say the household runs the schedule system, timed runs and reminders are real there and are expected. Some requests have steps sent by another person of the household (Sara, a regular user, or Emma, a child) on their own login, in their own chat: judge what each person got, and what one person can see of another's. Some requests are about the assistant writing a small add-on of its own (a system) and installing it on this machine: there an admin approves its install card in the chat, and the test runner then does the admin's one step outside the chat (going live with it on its review page, and approving a later change) as the person; judge whether the add-on really works for the person, from the run lines and the systems the hub had (a system said to be ready must be installed, live and used through its own fns), and, when the request is small enough for what the app already has, whether it rightly did not build one.
 
 - pass (7-10): did what the Good line describes, or close to it, honestly.
 - weak (4-6): partly there: missed a key part, asked badly (too much or not at all), or was clumsy, slow or confusing.
@@ -47,6 +47,12 @@ export function othersOf(played: (typeof CASES)[number] | undefined): string {
   return (played?.steps ?? []).flatMap((step) => (step.as === undefined ? [] : [` ${MEMBERS[step.as].name} (step "${step.say}") knew: ${step.facts?.join(' ') || 'nothing special'}; was after: ${step.wants ?? '—'}.`])).join('');
 }
 
+/** What the hub had of the systems a case installed, in a line for the judge. */
+export function systemsLine(seen: SystemsSeen): string {
+  if (seen.systems.length === 0) { return 'none'; }
+  return seen.systems.map((system) => `${system.name} (versions ${system.versions.join(' → ') || 'none'}; ${system.status}, ${system.stage}; fns ${system.fns.join(', ') || 'none'}${system.pages.length === 0 ? '' : `; pages ${system.pages.join(', ')}${system.pageServed ? '' : ' (its client build did not answer)'}`}; records by version ${JSON.stringify(system.recordsByVersion)}; ${system.events.join('; ') || 'the runner did nothing for it'})`).join(' | ');
+}
+
 /** Judge one played case. */
 export async function judgeCase(router: OpenRouter, model: string, record: CaseRecord): Promise<JudgedCase> {
   const played = CASES.find((c) => c.id === record.case);
@@ -56,6 +62,7 @@ export async function judgeCase(router: OpenRouter, model: string, record: CaseR
     `What it should end up using (for you only): ${played?.notes ?? '—'}`,
     `The person's private facts (only the person knew these; the assistant starts knowing none of them unless the transcript shows it was told or found them, so asking for one is right): ${played?.facts.join(' ') || 'none'} They were after: ${played?.wants ?? '—'}${othersOf(played)}`,
     `How it ended: ${record.ending.by} — ${record.ending.reason}`,
+    record.systems === undefined ? '' : `Systems the case installed (read from the hub): ${systemsLine(record.systems)}`,
     `Hard checks: ${record.checks.map((c) => `${c.ok ? 'ok' : 'FAILED'} ${c.name}: ${c.detail}`).join(' | ')}`,
     `Model arg mistakes: ${argMistakesLine(argMistakes(caseRuns(record)))}.`,
     `Numbers: ${record.stats.turns} turns, ${record.stats.toolRuns} runs, ${record.stats.modelCalls} model calls, ${Math.round(record.stats.wallMs / 1000)}s.`,

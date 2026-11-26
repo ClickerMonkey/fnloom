@@ -1,7 +1,7 @@
 /**
  * Guidance stays general purpose: no text a model reads (the chat prompt, the hub's fns and context items, every
  * system's contract and authoring prompts, the authoring docs, the design doc and the diagnostician's ground truth)
- * names a subject of the scenario test cases (scripts/scenarios/cases.ts, docs/plans/scenarios-2026-11-21.md) or their
+ * names a subject of the scenario test cases (scripts/scenarios/cases*.ts, docs/plans/scenarios-*.md) or their
  * data. Phil, 2026-11-23: "I want to be careful to not update any prompts, examples, instructions, etc that talk
  * explicitly about any of the use cases. Like no llm guidance on groceries as an example because I don't want false
  * positives and to pollute that stuff with these test cases. This system is meant to be general purpose."
@@ -39,6 +39,9 @@ const SCENARIO_WORDS: readonly string[] = [
   'paint', '8-foot ceilings', 'worthington', 'cilantro', 'mother-in-law', 'coffee', 'lunch(?:es|box(?:es)?)', 'garage sale',
   'hendersons?', 'packing list', 'grandma', 'dayton', 'thank-you notes?', 'rachael?', 'passport', 'doctor\'s note', 'skip school',
   'eating out', 'zoo', 'soccer', 'camping', 'cabin', 'tents?', 'biscuit', 'okafor', 'joan', 'sarasota', 'bosch', 'glen echo',
+  // the third set's subjects and data (cases 81-84, scripts/scenarios/cases-3.ts, docs/plans/scenarios-3-2026-11-26.md)
+  'blood pressure', 'pulse', 'birds?', 'bird ?feeders?', 'feeders?', 'cardinals?', 'blue jays?', 'woodpeckers?', 'goldfinch(?:es)?',
+  'raked? leaves', 'weekend chores?', 'counts? double', 'movie night', 'movies?', 'paddington', 'moana', 'inside out', 'whose turn (?:is it|to pick)',
 ];
 
 // whole words, also inside a snake_case or dotted name (iteration 4: `database/main.expenses_create` hid behind `\b`)

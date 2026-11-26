@@ -1,7 +1,8 @@
 /**
- * The everyday requests the runner plays: the 40 Phil approved (docs/plans/scenarios-2026-11-21.md, ids 1-40, below)
- * and the second set of 40 (docs/plans/scenarios-2-2026-11-26.md, ids 41-80, `cases-2.ts`). A plain run plays the
- * first set; `--cases 41-80` (or any list and ranges of ids) picks others. Each is
+ * The everyday requests the runner plays: the 40 Phil approved (docs/plans/scenarios-2026-11-21.md, ids 1-40, below),
+ * the second set of 40 (docs/plans/scenarios-2-2026-11-26.md, ids 41-80, `cases-2.ts`) and the third set, a chat
+ * writing and installing a system of its own (docs/plans/scenarios-3-2026-11-26.md, ids 81-84, `cases-3.ts`). A plain
+ * run plays the first set; `--cases 41-80` (or any list and ranges of ids, or a set's name) picks others. Each is
  * typed as written by someone who doesn't know what a fn or a system is. A case has ordered steps (most have one);
  * a step may open a new chat (case 28's "later, in a new chat"), carry files, or be sent while the previous turn is
  * still running (case 31's "stop"). Cases that follow another (6 after 2, 30 and 31 after some action, 29 after a
@@ -13,6 +14,7 @@
  */
 import { z } from 'zod';
 import { SECOND_CASES } from './cases-2.ts';
+import { THIRD_CASES } from './cases-3.ts';
 
 /** The files the runner can attach (`fixtures/make.ts` makes them). */
 export const FIXTURE_FILES = [
@@ -96,10 +98,38 @@ export interface Case {
    * it plays alone, and the household is put back after it (`household.ts`).
    */
   readonly household?: boolean;
+  /**
+   * What the hard checks expect of the hub's systems after it (the third set, `checks.ts` `authoringChecks`): `new` a
+   * system the chat wrote, installed, connected and live, with fns of which one ran; `page` the same with a page the hub
+   * lists; `update` one system updated in place (the same instance at a new version, its data kept, a fn run after);
+   * `none` no new system installed.
+   */
+  readonly authoring?: AuthoringExpectation;
+  /** Limits of its own, for a case that takes far longer than a plain request (building a system). */
+  readonly limits?: CaseLimits;
 }
 
-/** A system a rep starts only when one of its cases needs it. */
-export type OptionalSystem = 'schedule';
+/** What a case expects of the systems a chat writes and installs (`Case.authoring`). */
+export type AuthoringExpectation = 'new' | 'page' | 'update' | 'none';
+
+/** A case's own limits; each left out is the run's (`HARNESS_SCENARIOS_TURN_TIMEOUT`, `MAX_PERSON_TURNS`, none). */
+export interface CaseLimits {
+  /** How long one turn may take to settle, in ms. */
+  readonly turnTimeout?: number;
+  /** The most messages the person sends after the scripted steps (form answers count). */
+  readonly personTurns?: number;
+  /** How long the whole case may take, in ms: past it, the person sends nothing more and the case ends as a timeout. */
+  readonly caseTimeout?: number;
+  /** The most the case's hub model calls may cost, in dollars: past it, its turns are cancelled and it ends. */
+  readonly costCap?: number;
+}
+
+/**
+ * A part of the stack a rep sets up only when one of its cases needs it: the schedule system (reminders and timed
+ * runs), or the authoring workspace (an fs folder inside the harness checkout where a chat's own system builds and
+ * installs, `rep.ts`).
+ */
+export type OptionalSystem = 'schedule' | 'authoring';
 
 /** The family every case's person belongs to. */
 export const FAMILY = [
@@ -465,26 +495,26 @@ export const FIRST_CASES: readonly Case[] = [
   },
 ];
 
-/** Every case, both sets, by id. */
-export const CASES: readonly Case[] = [...FIRST_CASES, ...SECOND_CASES];
+/** Every case, every set, by id. */
+export const CASES: readonly Case[] = [...FIRST_CASES, ...SECOND_CASES, ...THIRD_CASES];
 
-/** The sets a run can name (`--cases first` / `second`), and the one a plain run plays. */
-export const CASE_SETS = { first: FIRST_CASES, second: SECOND_CASES } as const;
+/** The sets a run can name (`--cases first` / `second` / `third`), and the one a plain run plays. */
+export const CASE_SETS = { first: FIRST_CASES, second: SECOND_CASES, third: THIRD_CASES } as const;
 export const DEFAULT_SET = 'first' satisfies keyof typeof CASE_SETS;
 
 /**
- * The ids a `--cases` value names: ids, ranges (`41-80`) and set names (`first`, `second`, `all`), comma separated,
+ * The ids a `--cases` value names: ids, ranges (`41-80`) and set names (`first`, `second`, `third`, `all`), comma separated,
  * in order, each once.
  */
 export function parseCaseIds(list: string): number[] {
   const ids: number[] = [];
   for (const raw of list.split(',').map((part) => part.trim()).filter((part) => part !== '')) {
-    const named = raw === 'all' ? CASES : raw === 'first' || raw === 'second' ? CASE_SETS[raw] : undefined;
+    const named = raw === 'all' ? CASES : raw === 'first' || raw === 'second' || raw === 'third' ? CASE_SETS[raw] : undefined;
     const range = /^(\d+)\s*-\s*(\d+)$/.exec(raw);
     const some = named !== undefined ? named.map((c) => c.id)
       : range !== null ? Array.from({ length: Math.max(0, Number(range[2]) - Number(range[1]) + 1) }, (_, i) => Number(range[1]) + i)
       : /^\d+$/.test(raw) ? [Number(raw)] : undefined;
-    if (some === undefined || some.length === 0 || some.some((id) => id < 1)) { throw new Error(`"${raw}" in --cases is not an id, a range like 41-80, or one of first, second, all`); }
+    if (some === undefined || some.length === 0 || some.some((id) => id < 1)) { throw new Error(`"${raw}" in --cases is not an id, a range like 41-80, or one of first, second, third, all`); }
     for (const id of some) { if (!ids.includes(id)) { ids.push(id); } }
   }
   return ids;
@@ -500,7 +530,7 @@ export function pickCases(ids: readonly number[] | undefined): Case[] {
   });
 }
 
-/** Whether a list of cases is one whole set (the first 40, or the second): a run of one is published by default. */
+/** Whether a list of cases is one whole set (the first 40, the second, or the third): a run of one is published by default. */
 export function wholeSet(cases: readonly Case[]): boolean {
   return Object.values(CASE_SETS).some((set) => set.length === cases.length && set.every((c, i) => cases[i]?.id === c.id));
 }

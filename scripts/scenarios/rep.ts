@@ -8,7 +8,9 @@
  * the kids' member accounts (case 36 needs someone to restrict) and one admin account per case, each with a known
  * password so the case can sign in as it and Phil can open its chats later (`--view`). A case step sent as another
  * person of the household signs in as them (`member`): Emma is the kids' account given a password then, Sara a member
- * made for the case. The schedule system runs only when a case of the rep needs it (`StartOptions.needs`). Then the rep's variant is
+ * made for the case. The schedule system runs only when a case of the rep needs it (`StartOptions.needs`), and so does the
+ * authoring workspace (the third set: a second fs root inside the checkout where a chat's own system builds,
+ * `authoring.ts`); after such a rep's stack stops, any hosted process it left is killed. Then the rep's variant is
  * applied (`variants.ts`), and the household as it is then is what every case finds: `restore` puts it back between
  * cases (`household.ts`), and a case's person that can't sign in is turned back on, or made again under a new address. Every hub call the rep makes is patient with a busy hub (`busy.ts`), and every client it
  * signs in is closed when it stops, so the runner exits once its last rep is done.
@@ -34,6 +36,7 @@ import { applyVariant, type VariantName, type VariantRecord } from './variants.t
 import { HOME_TEMPLATE } from './fixtures/make.ts';
 import { MEMBERS, type Member, type OptionalSystem } from './cases.ts';
 import type { DatabaseConfig } from '../../systems/database/shared/shapes.ts';
+import { killLeftovers, makeWorkspace, systemNames, WORKSPACE_ROOT } from './authoring.ts';
 
 /** Where every iteration's results go. */
 export const SCENARIOS_DIR = join(ROOT, '.harness-test', 'scenarios');
@@ -180,6 +183,10 @@ export interface Rep {
   readonly admin: SignedIn;
   /** What it runs, for the report. */
   readonly systems: readonly ComponentName[];
+  /** The authoring workspace fs serves as `projects` (absent: no case of the rep writes a system). */
+  readonly workspace: string | undefined;
+  /** The systems the hub had once the rep was set up: any other is one a case installed. */
+  readonly baseline: ReadonlySet<string>;
   readonly skipped: readonly string[];
   /** How the wait for the index went (absent: no embedder ran, so there was nothing to wait for). */
   readonly index: IndexWait | undefined;
@@ -210,6 +217,11 @@ export interface StartOptions {
   readonly variantFolder?: boolean;
   /** Systems to run beyond the usual ones, because a case of the rep needs them (`Case.needs`). */
   readonly needs?: readonly OptionalSystem[];
+  /**
+   * With the authoring workspace: serve it as fs's first root (paths relative to it, as the authoring guide writes
+   * them: `systems/<name>`), when every case of the rep writes a system; else it is the second, after the home folder.
+   */
+  readonly workspaceFirst?: boolean;
 }
 
 /** The kids' member accounts every rep makes (no password until a case signs in as one). */
@@ -262,6 +274,12 @@ export async function startRep(settings: ScenariosSettings, iteration: string, r
 
   const schedule = options.needs?.includes('schedule') === true;
   if (!schedule) { skipped.push('schedule: runs only for cases that need reminders or timed runs (the second set, 59-62)'); }
+  const workspace = options.needs?.includes('authoring') === true ? makeWorkspace(folder) : undefined;
+  if (workspace === undefined) { skipped.push('authoring workspace: set up only for cases that write and install a system of their own (the third set, 81-84)'); }
+  const homeRoot = { name: 'home', path: home, writable: true, index: 'all' as const };
+  const roots = workspace === undefined ? [homeRoot]
+    : options.workspaceFirst === true ? [{ name: WORKSPACE_ROOT, path: workspace, writable: true, index: 'none' as const }, homeRoot]
+    : [homeRoot, { name: WORKSPACE_ROOT, path: workspace, writable: true, index: 'none' as const }];
   const systems: ComponentName[] = [
     'hub', 'fs', 'database', 'input', 'widgets', 'code', 'api',
     ...(embedder ? ['embedder' as const] : []), ...(schedule ? ['schedule' as const] : []), ...(settings.TAVILY_API_KEY === undefined ? [] : ['web-system' as const]), ...(google === undefined ? [] : ['calendar' as const]),
@@ -272,7 +290,7 @@ export async function startRep(settings: ScenariosSettings, iteration: string, r
     port: settings.HARNESS_SCENARIOS_PORT, data: folder, admin: ADMIN, build: false, watch: false, timeout: settings.HARNESS_SCENARIOS_START_TIMEOUT,
     only: new Set(systems),
     systems: {
-      fs: { roots: [{ name: 'home', path: home, writable: true, index: 'all' }], self: join(ROOT, 'systems', 'fs') },
+      fs: { roots, self: join(ROOT, 'systems', 'fs') },
       embedder: { url: settings.HARNESS_SCENARIOS_EMBEDDER },
       ...(google === undefined ? {} : { calendar: { ...google, hubUrl: `http://127.0.0.1:${settings.HARNESS_SCENARIOS_PORT}` } }),
       databases: { main: SCRATCH },
@@ -283,7 +301,7 @@ export async function startRep(settings: ScenariosSettings, iteration: string, r
       if (stream === 'err' || PROBLEM.test(line)) { problems.push({ at: Date.now(), line: `${component}: ${line}`.slice(0, 600) }); }
     },
   });
-  log(`rep ${rep}: stack up at ${stack.url} (${systems.join(', ')}); home ${home}`);
+  log(`rep ${rep}: stack up at ${stack.url} (${systems.join(', ')}); home ${home}${workspace === undefined ? '' : `; authoring workspace ${workspace}`}`);
   const shedding = noShedding();
   const policy = busyPolicy(settings);
   const sink = { tally: shedding, log: (line: string) => { log(`rep ${rep}: ${line}`); } };
@@ -304,6 +322,7 @@ export async function startRep(settings: ScenariosSettings, iteration: string, r
   let admin: SignedIn;
   let variant: VariantRecord;
   let index: IndexWait | undefined;
+  let baseline: ReadonlySet<string>;
   const kidIds = new Map<string, ActorId>();
   let keeper: HouseholdKeeper;
   try {
@@ -331,6 +350,7 @@ export async function startRep(settings: ScenariosSettings, iteration: string, r
       if (id !== undefined) { keeper.keep({ id, email: kid.email, role: 'member' }); }
     }
     await keeper.snapshot();
+    baseline = await systemNames(admin);
   } catch (error) {
     // a rep that fails to set up stops its stack, so the port is free and nothing keeps the process alive
     closeAll();
@@ -354,7 +374,7 @@ export async function startRep(settings: ScenariosSettings, iteration: string, r
   const kidPasswords = new Map<string, Promise<void>>();
 
   return {
-    folder, home, variant, shedding, stack,
+    folder, home, variant, shedding, stack, workspace, baseline,
     patient: (what, call) => patient(what, call, policy, sink), admin, systems, skipped, index, problems,
     async person(caseId) {
       const base = `case-${String(caseId).padStart(2, '0')}`;
@@ -423,6 +443,11 @@ export async function startRep(settings: ScenariosSettings, iteration: string, r
     async stop() {
       closeAll();
       await stack.stop();
+      // a system a case installed runs under fs: one still running its bundle once fs is gone is killed
+      if (workspace !== undefined) {
+        const killed = killLeftovers(folder);
+        if (killed.length > 0) { log(`rep ${rep}: killed ${killed.length} hosted process(es) left running (${killed.join(', ')})`); }
+      }
     },
   };
 }

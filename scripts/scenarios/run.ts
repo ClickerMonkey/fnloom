@@ -1,7 +1,8 @@
 /**
  * `npm run scenarios`: plays everyday requests against a fresh harness: by default the first 40
  * (docs/plans/scenarios-2026-11-21.md, cases 1-40); the second 40 (docs/plans/scenarios-2-2026-11-26.md, cases 41-80)
- * only when asked (`--cases 41-80` or `--cases second`). It
+ * only when asked (`--cases 41-80` or `--cases second`), and so is the third set, a chat writing and installing a system
+ * of its own (docs/plans/scenarios-3-2026-11-26.md, cases 81-84, `--cases third`). It
  * judges and diagnoses each, and writes the iteration's report. Each repetition boots its own stack on a clean slate
  * (a new data folder, hub database, scratch database and fake home folder); within it each case runs as its own new
  * person, a few at a time. Results stay in `.harness-test/scenarios/<iteration>/` (kept, so `--view` can open them).
@@ -20,9 +21,11 @@
  * rep's unplayed cases go on on a fresh stack in `rep-<n>/restart-<k>/` (at most two restarts a rep; past that they
  * are marked `harness-crash` too and the next rep starts).
  *
- *   --cases 1,5,12        which cases: ids, ranges and sets, comma separated (`41-80`, `1-40,45`, `first`, `second`, `all`);
+ *   --cases 1,5,12        which cases: ids, ranges and sets, comma separated (`41-80`, `1-40,45`, `first`, `second`, `third`, `all`);
  *                         default: the first set (1-40), so a plain run is the original 40. A run of one whole set is
- *                         published by default. A rep runs the schedule system only when one of its cases needs it (59-62)
+ *                         published by default. A rep runs the schedule system only when one of its cases needs it (59-62),
+ *                         and sets up the authoring workspace only for the third set (81-84: `authoring.ts`); every system
+ *                         a case of the third set installed is removed after it
  *   --variants off,on     the household variants (`variants.ts`: off, on, load; default `off`): with more than one, each rep of each
  *                         variant gets its own fresh stack, in `<iteration>/<variant>/rep-<n>/`, reps interleaved
  *                         (rep 1 off, rep 1 on, rep 2 off, …), and the report compares them case by case
@@ -59,6 +62,7 @@ import { playCase, type PlayContext } from './play.ts';
 import { publish } from './publish.ts';
 import { RepPeople, type Ending, type JudgedCase } from './records.ts';
 import { CaseGate, restoredAnything, restoredLine } from './household.ts';
+import { removeInstalled } from './authoring.ts';
 import { iterationFolder, loadIteration, savedVariants, writeReport, type RepCrash, type RepMeta } from './report.ts';
 import { ADMIN, FIXTURES_DIR, PERSON_PASSWORD, portTaken, repFolder, startRep, tailscaleBase, viewBase, viewRep, type Rep } from './rep.ts';
 import { caseMarkdown, usd } from './transcript.ts';
@@ -220,7 +224,7 @@ async function runRep(settings: ScenariosSettings, router: OpenRouter, place: Re
     }
     let handle: Rep;
     try {
-      handle = await startRep(settings, iteration, rep, log, { variant: place.variant, variantFolder: place.variantFolder, needs: neededSystems(remaining), ...(stackName === undefined ? {} : { stack: stackName }) });
+      handle = await startRep(settings, iteration, rep, log, { variant: place.variant, variantFolder: place.variantFolder, needs: neededSystems(remaining), workspaceFirst: remaining.every((c) => c.needs?.includes('authoring') === true), ...(stackName === undefined ? {} : { stack: stackName }) });
     } catch (error) {
       const reason = `the stack didn't start: ${error instanceof Error ? error.message : String(error)}`;
       log(`rep ${rep}: ${reason}`);
@@ -289,7 +293,14 @@ async function runRep(settings: ScenariosSettings, router: OpenRouter, place: Re
             record = await playCase(context, played);
           } finally {
             playing.delete(played.id);
-            if (await hubAnswers(url)) { await putBack(`after case ${played.id}`); }
+            if (await hubAnswers(url)) {
+              await putBack(`after case ${played.id}`);
+              // the systems a case installed go, so the next case starts with the rep's own (it played alone)
+              if (handle.workspace !== undefined && played.authoring !== undefined) {
+                const removed = await removeInstalled(handle.admin, handle.baseline, handle.workspace, (line) => { log(`rep ${rep}: ${line}`); });
+                if (removed.length > 0) { log(`rep ${rep}: after case ${played.id}, removed ${removed.join(', ')}`); }
+              }
+            }
           }
         } catch (error) {
           const text = error instanceof Error ? error.message : String(error);

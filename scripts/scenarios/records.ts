@@ -64,6 +64,44 @@ export type Ending = z.infer<typeof Ending>;
 export const HardCheck = z.object({ name: z.string(), ok: z.boolean(), detail: z.string() });
 export type HardCheck = z.infer<typeof HardCheck>;
 
+/**
+ * A system the hub had after a case that it didn't have before (the third set, `authoring.ts`): as the runner watched
+ * it while the case played and read it at the end.
+ */
+export const SeenSystem = z.object({
+  name: z.string(),
+  /** Its status and stage at the end (`connected`, `live`). */
+  status: z.string(),
+  stage: z.string(),
+  /** Every version it ran during the case, in the order seen. */
+  versions: z.array(z.string()),
+  /** Its instances that weren't removed, and how many keys they had over the case (one: the same instance throughout). */
+  instances: z.number().int().min(0),
+  keys: z.number().int().min(0),
+  /** Whether a host (fs) runs it (fs/install_system), or the hub's own supervisor does (hub/install_system). */
+  hosted: z.boolean(),
+  hubInstalled: z.boolean().default(false),
+  fns: z.array(z.string()),
+  /** The pages the hub lists for it (segments), and whether its client build answered. */
+  pages: z.array(z.string()),
+  pageServed: z.boolean(),
+  /** The most records of its stored types, and files in its hosted data folders, seen while each version ran. */
+  recordsByVersion: z.record(z.string(), z.number().int().min(0)),
+  filesByVersion: z.record(z.string(), z.number().int().min(0)),
+  /** What the runner did for it as the admin (went live, approved a review), in order. */
+  events: z.array(z.string()),
+});
+export type SeenSystem = z.infer<typeof SeenSystem>;
+
+/** The systems a case installed, as the hub had them (`Case.authoring`). */
+export const SystemsSeen = z.object({
+  expect: z.enum(['new', 'page', 'update', 'none']),
+  systems: z.array(SeenSystem),
+  /** What went wrong watching them (a call the hub refused). */
+  errors: z.array(z.string()),
+});
+export type SystemsSeen = z.infer<typeof SystemsSeen>;
+
 /** A played case, before judging. */
 export const CaseRecord = z.object({
   iteration: z.string(),
@@ -97,6 +135,8 @@ export const CaseRecord = z.object({
   /** Warning and error lines the stack logged while the case ran (the stack is shared, so some may be another case's). */
   stackErrors: z.array(z.string()),
   checks: z.array(HardCheck),
+  /** The systems it installed (absent: a case that doesn't write one). */
+  systems: SystemsSeen.optional(),
   startedAt: z.string(),
   endedAt: z.string(),
 });

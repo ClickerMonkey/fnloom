@@ -4,6 +4,11 @@
  * carry on: fill the forms the agent shows, answer its questions, decide its approval cards, until they're done, give
  * up, or run out of messages. Then the whole case is read back from the hub (messages, each turn's run tree, every
  * run's args and outcome, the model calls) into a `CaseRecord`.
+ *
+ * A case may have limits of its own (`Case.limits`: a longer turn, more follow-ups, a time and a cost limit for the
+ * whole case). A case that writes a system of its own (`Case.authoring`) is watched while it plays (`authoring.ts`
+ * `SystemWatch`: the admin's review step done as its person, what each new system ran as), and its record gets the
+ * systems it installed and the hard checks on them (`checks.ts` `authoringChecks`).
  */
 import { readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
@@ -14,11 +19,12 @@ import { answerFor, askedOf, checkAnswers, controlOf } from '../../systems/input
 import { fieldsOf } from '../../systems/input/shared/forms.ts';
 import type { AskedValue } from '../../systems/input/shared/index.ts';
 import { MEMBERS, type Case, type FixtureFile, type Member, type Step } from './cases.ts';
-import { hardChecks, toolReplyFailed } from './checks.ts';
+import { authoringChecks, hardChecks, toolReplyFailed } from './checks.ts';
+import { SystemWatch, systemNames } from './authoring.ts';
 import { FIXTURES } from './fixtures/make.ts';
 import type { OpenRouter } from './openrouter.ts';
 import { Person, type FieldAsk, type Seen } from './person.ts';
-import type { CaseRecord, Ending, Entry, ToolRun } from './records.ts';
+import type { CaseRecord, Ending, Entry, SystemsSeen, ToolRun } from './records.ts';
 import { FIXTURES_DIR, viewBase, type Rep } from './rep.ts';
 import { clip } from './transcript.ts';
 
@@ -84,10 +90,36 @@ interface Chat {
   readonly turns: TurnId[];
 }
 
+/** The model calls of a case's chats and turns since it started: how many, and what they cost. */
+async function hubCost(admin: SignedIn, sessions: ReadonlySet<string>, turns: ReadonlySet<string>, started: number): Promise<{ calls: number; cost: number }> {
+  let calls = 0;
+  let cost = 0;
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await admin.hub.call('modelCalls', { limit: 200, ...(cursor === undefined ? {} : { cursor }) });
+    for (const call of page.items) {
+      if ((call.session !== undefined && sessions.has(call.session)) || (call.turn !== undefined && turns.has(call.turn))) { calls++; cost += call.cost; }
+    }
+    const oldest = page.items.at(-1);
+    cursor = page.cursor;
+    if (cursor === undefined || oldest === undefined || oldest.startedAt < started) { break; }
+  }
+  return { calls, cost };
+}
+
 /** Play one case; never throws (what went wrong goes in the record). */
 export async function playCase(ctx: PlayContext, played: Case): Promise<CaseRecord> {
   const started = Date.now();
   const errors: string[] = [];
+  const maxPersonTurns = played.limits?.personTurns ?? MAX_PERSON_TURNS;
+  const turnTimeout = played.limits?.turnTimeout ?? ctx.turnTimeout;
+  /** Why the case must stop before its next message (its time or cost limit), once it must. */
+  const stop: { why?: string } = {};
+  const caseTimeout = played.limits?.caseTimeout;
+  const checkStop = (): void => {
+    if (stop.why === undefined && caseTimeout !== undefined && Date.now() - started > caseTimeout) { stop.why = `the case timed out: it passed its limit of ${Math.round(caseTimeout / 60_000)} minutes`; }
+    if (stop.why !== undefined) { throw new Error(stop.why); }
+  };
   const { client, credentials, shed } = await ctx.rep.person(played.id);
   let memberShed = 0;
   const alex: Party = { who: undefined, client, credentials, person: new Person(ctx.router, ctx.personModel, played), seen: [] };
@@ -208,7 +240,7 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
     const pending: TurnId[] = [turn];
     for (let next = pending.shift(); next !== undefined; next = pending.shift()) {
       const waited = next;
-      await waitFor(`turn ${waited} to settle`, async () => (isSettled((await hub.call('tree', { turn: waited })).run.status) ? true : undefined), { timeout: ctx.turnTimeout, every: 1_000 });
+      await waitFor(`turn ${waited} to settle`, async () => (isSettled((await hub.call('tree', { turn: waited })).run.status) ? true : undefined), { timeout: turnTimeout, every: 1_000 });
       await new Promise((done) => setTimeout(done, 2_500));
       for (const m of (await hub.call('messages', { session: chat.id, limit: 5 })).items) {
         if (!turns.includes(m.turn)) { keepTurn(chat, m.turn); pending.push(m.turn); }
@@ -276,8 +308,9 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
       await settleTurn(chat, previous);
       await observe(chat);
     }
+    checkStop();
     const turn = await send(chat, step.say, step.files ?? []);
-    let allowance = Math.min(step.followUps ?? MAX_PERSON_TURNS, MAX_PERSON_TURNS - personTurns);
+    let allowance = Math.min(step.followUps ?? maxPersonTurns, maxPersonTurns - personTurns);
     // a step with no follow-ups hands its running turn to the next step (case 31 interrupts it)
     if (allowance === 0 && !last) { return turn; }
     let current = turn;
@@ -289,6 +322,7 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
         if (last) { ending = { by: 'turn-limit', reason: `the person had sent ${personTurns} follow-ups, the most allowed` }; }
         return undefined;
       }
+      checkStop();
       const form = forms.at(-1);
       if (form !== undefined) {
         current = await answerForm(chat, form);
@@ -305,6 +339,18 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
     }
   };
 
+  /** A case that writes a system: watched while it plays, the admin's review step done as its person (`authoring.ts`). */
+  const watch = played.authoring === undefined ? undefined : new SystemWatch({
+    client, baseline: await systemNames(ctx.rep.admin).catch(() => new Set(ctx.rep.baseline)), expect: played.authoring, repFolder: ctx.rep.folder, url: ctx.rep.stack.url,
+    cost: async () => (await hubCost(ctx.rep.admin, new Set(chats.map((c) => c.id)), new Set(turns), started)).cost,
+    ...(played.limits?.costCap === undefined ? {} : { costCap: played.limits.costCap }),
+    onCap: (cost) => {
+      stop.why = `the case stopped: its model cost reached $${cost.toFixed(2)}, past its cap of $${(played.limits?.costCap ?? 0).toFixed(2)}`;
+      for (const chat of chats) { void chat.party.client.hub.call('control', { session: chat.id, action: 'cancel' }).catch(() => undefined); }
+    },
+    log: (line) => { ctx.log(`rep ${ctx.repNumber}: case ${played.id}: ${line}`); },
+  });
+  watch?.start();
   try {
     await settle(client);
     let chat = await openChat(alex);
@@ -330,11 +376,12 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
   await new Promise((done) => setTimeout(done, 1_000));
   state.live = false;
   await responder;
+  const systems = watch === undefined ? undefined : await watch.finish().catch((error: unknown): SystemsSeen | undefined => { errors.push(`watching the systems: ${message(error)}`); return undefined; });
 
   const parties = [alex, ...members.values()];
   try {
     return await readBack(ctx, played, {
-      chats, turns, decisions, questions, errors, credentials, started, personTurns, personCost: parties.reduce((sum, p) => sum + p.person.cost, 0), shed: shed() + memberShed,
+      chats, turns, decisions, questions, errors, credentials, started, personTurns, personCost: parties.reduce((sum, p) => sum + p.person.cost, 0), shed: shed() + memberShed, systems,
       ending: ending ?? { by: 'satisfied', reason: 'the steps ran out' },
     });
   } finally {
@@ -410,6 +457,8 @@ interface Played {
   /** Calls of the case's client the hub shed before taking them. */
   readonly shed: number;
   readonly ending: Ending;
+  /** The systems the case installed (a case that writes one). */
+  readonly systems: SystemsSeen | undefined;
 }
 
 /** Every message of a chat, oldest first. */
@@ -484,26 +533,15 @@ async function readBack(ctx: PlayContext, played: Case, data: Played): Promise<C
   // the hub's model calls for the case's chats and turns (every model, every modality)
   const sessionIds = new Set<string>(data.chats.map((c) => c.id));
   const turnIds = new Set<string>(turnsSeen);
-  let modelCalls = 0;
-  let hubCost = 0;
-  let cursor: string | undefined;
-  for (;;) {
-    const page = await ctx.rep.admin.hub.call('modelCalls', { limit: 200, ...(cursor === undefined ? {} : { cursor }) });
-    for (const call of page.items) {
-      if ((call.session !== undefined && sessionIds.has(call.session)) || (call.turn !== undefined && turnIds.has(call.turn))) { modelCalls++; hubCost += call.cost; }
-    }
-    const oldest = page.items.at(-1);
-    cursor = page.cursor;
-    if (cursor === undefined || oldest === undefined || oldest.startedAt < data.started) { break; }
-  }
+  const { calls: modelCalls, cost: caseHubCost } = await hubCost(ctx.rep.admin, sessionIds, turnIds, data.started);
   const ended = Date.now();
   const stackErrors = ctx.rep.problems.filter((p) => p.at >= data.started && p.at <= ended).map((p) => p.line);
   const record: CaseRecord = {
     iteration: ctx.iteration, rep: ctx.repNumber, ...(ctx.variant === undefined ? {} : { variant: ctx.variant }), case: played.id, title: played.title, good: played.good,
     person: data.credentials, ...(others.length === 0 ? {} : { others }), sessions, entries, ending: data.ending,
-    stats: { personTurns: data.personTurns, turns: turnIds.size, toolRuns: allRuns.length, modelCalls, hubCost, personCost: data.personCost, wallMs: ended - data.started, shed: data.shed },
-    errors: data.errors, stackErrors: stackErrors.slice(0, 60), checks: [],
+    stats: { personTurns: data.personTurns, turns: turnIds.size, toolRuns: allRuns.length, modelCalls, hubCost: caseHubCost, personCost: data.personCost, wallMs: ended - data.started, shed: data.shed },
+    errors: data.errors, stackErrors: stackErrors.slice(0, 60), checks: [], ...(data.systems === undefined ? {} : { systems: data.systems }),
     startedAt: new Date(data.started).toISOString(), endedAt: new Date(ended).toISOString(),
   };
-  return { ...record, checks: hardChecks(record) };
+  return { ...record, checks: [...hardChecks(record), ...(data.systems === undefined ? [] : authoringChecks(data.systems, allRuns))] };
 }
