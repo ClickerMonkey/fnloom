@@ -39,10 +39,43 @@ function numberOption(options: unknown, key: string): number | undefined {
   return typeof value === 'number' ? value : undefined;
 }
 
-function enumOptions(type: TypeDef): string[] | undefined {
+/** An enum's `{ key: member }` constants (gin's `options.values`), or `undefined` when the type isn't an enum. */
+function enumValues(type: TypeDef): Record<string, unknown> | undefined {
   if (type.name !== 'enum') { return undefined; }
   const values = option(type.options, 'values');
-  return typeof values === 'object' && values !== null ? Object.keys(values) : [];
+  return typeof values === 'object' && values !== null ? { ...values } : {};
+}
+
+/**
+ * An enum's choices: its members, the values gin accepts (`{ key: member }`: the member, such as `'Emma'` of
+ * `{ emma: 'Emma' }`, is what a form sends and the words the person reads; the key only names it).
+ */
+function enumOptions(type: TypeDef): string[] | undefined {
+  const values = enumValues(type);
+  return values === undefined ? undefined : Object.values(values).flatMap((member) => (typeof member === 'string' ? [member] : []));
+}
+
+/** Text compared as a person means it: without case, spaces at its ends, or a run of spaces inside counting. */
+function loose(text: string): string {
+  return text.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/**
+ * One choice answer as the enum's member: the member itself; else the member whose words, or whose key, match it
+ * without case or spacing counting (`'emma'` → `'Emma'` of `{ emma: 'Emma' }`); else the answer as it was, for the
+ * check to refuse. A list of choices maps each item.
+ */
+export function choiceAnswer(type: TypeDef, answer: Json | undefined): Json | undefined {
+  if (type.name === 'list') {
+    const item = type.generic?.['V'];
+    return item === undefined || !Array.isArray(answer) ? answer : answer.map((one) => choiceAnswer(item, one) ?? one);
+  }
+  const values = enumValues(type);
+  if (values === undefined || typeof answer !== 'string') { return answer; }
+  const members = Object.entries(values).flatMap(([key, member]) => (typeof member === 'string' ? [{ key, member }] : []));
+  if (members.some(({ member }) => member === answer)) { return answer; }
+  const wanted = loose(answer);
+  return (members.find(({ member }) => loose(member) === wanted) ?? members.find(({ key }) => loose(key) === wanted))?.member ?? answer;
 }
 
 /** The input a field is drawn with. */
@@ -71,9 +104,14 @@ export function controlOf(type: TypeDef): FieldControl {
 /** The values being edited, by field key. */
 export type FormValues = Record<string, Json | undefined>;
 
-/** The answers checked by the form's gin type: the value to send, or what to fix (missing required fields first). */
-export function checkAnswers(def: TypeDef, values: FormValues): { value: Json } | { problem: string } {
+/**
+ * The answers checked by the form's gin type: the value to send, or what to fix (missing required fields first). A
+ * choice typed in its own words (another case, a key) is read as the choice it names first (`choiceAnswer`).
+ */
+export function checkAnswers(def: TypeDef, given: FormValues): { value: Json } | { problem: string } {
   const fields = fieldsOf(def);
+  const values: FormValues = { ...given };
+  for (const field of fields) { if (values[field.key] !== undefined) { values[field.key] = choiceAnswer(field.type, values[field.key]); } }
   const missing = fields.filter((field) => field.required && isEmpty(values[field.key]));
   if (missing.length > 0) { return { problem: `Fill in ${missing.map((field) => field.label).join(', ')}.` }; }
   const kept = Object.fromEntries(fields.flatMap((field) => {

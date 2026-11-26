@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { NodeFiles, ViteBuilder } from '@harness/build';
 import { SystemName } from '@harness/core';
 import { createDefaultResourceRegistry } from '@aeye/resources/default';
-import { AllowlistProxy, CrashPolicy, NodeStarter, RESTART_CODE, endpointOf, loggedHost, placeFolders, rendererFolder, scrubbedEnv, serve, type RunningSystem } from '@harness/sdk/server';
+import { AllowlistProxy, CrashPolicy, RESTART_CODE, endpointOf, loggedHost, placeFolders, rendererFolder, scrubbedEnv, serve, type RunningSystem } from '@harness/sdk/server';
 import { SNAPSHOT_DEFAULTS, fs } from '../shared/index.ts';
 import { CommandChanges } from './changes.ts';
 import { AeyeDocuments } from './documents.ts';
@@ -25,7 +25,7 @@ import { createFsImpl } from './impl.ts';
 import type { Restarter, WatchFolder } from './index.ts';
 import { PlatformOpener } from './reveal.ts';
 import { GitIgnores } from './sensitive.ts';
-import { SupervisedRunner } from './runner.ts';
+import { SupervisedRunner, hostedStarter } from './runner.ts';
 import { platformProbe } from './stale.ts';
 import { ProcessSystemTests } from './tests.ts';
 import { NodeExec, NodeShell, chooseShell } from './shell.ts';
@@ -53,15 +53,16 @@ const watchFolder: WatchFolder = (folder, listener) => {
   return () => { watcher.close(); };
 };
 
-// the hosted systems run under the loader fs runs under (tsx), whose packages they may read
+// a folder's own tests run under the loader fs runs under (tsx), whose packages they may read; a hosted system's
+// built bundle runs on plain node (`hostedStarter`: a loader's worker is refused under the permission model)
 const loader = tsxLoader(import.meta.url);
 const hosting = new Hosting({
   builds: new HarnessBuilds({ builder: new ViteBuilder({ probeTimeout: settings.FS_HOSTED_PROBE_TIMEOUT, probeEnv: scrubbedEnv(process.env) }), files: new NodeFiles(), readParallel: settings.FS_READ_PARALLEL }),
   runner: new SupervisedRunner({
-    starter: new NodeStarter({ baseEnv: process.env, nodeArgs: loader.nodeArgs, outputTail: settings.FS_HOSTED_OUTPUT_TAIL }),
+    starter: hostedStarter(process.env, settings.FS_HOSTED_OUTPUT_TAIL),
     policy: new CrashPolicy({ maxWait: settings.FS_HOSTED_BACKOFF_MAX, restartCode: RESTART_CODE }),
     restart: { policy: 'on-failure', backoff: settings.FS_HOSTED_BACKOFF, maxPerHour: settings.FS_HOSTED_CRASHES_PER_HOUR },
-    reads: loader.reads,
+    reads: [],
     every: settings.FS_HOSTED_CHECK_EVERY,
     wait: (ms) => new Promise((done) => { setTimeout(done, ms); }),
     now: () => Date.now(),

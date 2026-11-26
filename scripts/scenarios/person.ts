@@ -34,7 +34,10 @@ export interface FieldAsk {
   readonly label: string;
   readonly kind: string;
   readonly required: boolean;
+  /** The choices it takes, exactly as the form shows them (a choice field). */
   readonly options?: readonly string[];
+  /** Whether several of `options` may be picked (a list of choices: a JSON array). */
+  readonly multiple?: boolean;
 }
 
 /** How everyone writes, after who they are. */
@@ -120,11 +123,11 @@ export class Person {
 
   /** Fill a form the agent showed: a value per field key. `problem` is what the form said was wrong last time. */
   async fill(seen: readonly Seen[], title: string, fields: readonly FieldAsk[], problem?: string): Promise<Record<string, unknown>> {
-    const shape = fields.map((field) => `- "${field.key}" (${field.label}; ${field.kind}${field.options === undefined ? '' : `: one of ${field.options.map((o) => JSON.stringify(o)).join(', ')}`}${field.required ? '' : '; optional'})`).join('\n');
+    const shape = fields.map((field) => `- "${field.key}" (${field.label}; ${field.kind}${field.options === undefined ? '' : `: ${field.multiple === true ? 'a JSON array of one or more of' : 'exactly one of'} ${field.options.map((o) => JSON.stringify(o)).join(', ')}`}${field.required ? '' : '; optional'})`).join('\n');
     const answer = await this.#ask(z.object({ values: z.record(z.string(), z.unknown()) }), [
       `The assistant shows you a form, "${title}", with these fields:\n${shape}`,
       problem === undefined ? '' : `Last time the form said: ${problem}`,
-      'Fill it in as you would. Dates are YYYY-MM-DD, numbers plain numbers, yes/no true or false, lists JSON arrays. Leave out optional fields you have nothing for.',
+      'Fill it in as you would. Dates are YYYY-MM-DD, numbers plain numbers, yes/no true or false, lists JSON arrays, a choice one of its options written as shown. Leave out optional fields you have nothing for.',
       'Answer with a JSON object: {"values": {"<field key>": <value>, ...}}.',
     ].join('\n'), seen);
     return answer.values;

@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { defineComponent, h } from 'vue';
 import type { AskedValue, InputContract } from '../shared/index.ts';
 import { quickForms } from '../shared/forms.ts';
-import { checkAnswers, controlOf } from './form.ts';
+import { checkAnswers, choiceAnswer, controlOf } from './form.ts';
 import FormCard from './FormCard.vue';
 import { ACCESS_INFO, INPUT_ANSWERS, SHARE_EDITOR, VALUE_EDITOR, type InputAnswer, type InputAnswers } from './host.ts';
 
@@ -125,6 +125,19 @@ describe('form logic', () => {
     expect(controlOf({ name: 'list', generic: { V: { name: 'text' } } })).toEqual({ control: 'lines' });
     expect(controlOf({ name: 'date' })).toEqual({ control: 'date' });
     expect(controlOf({ name: 'obj' })).toEqual({ control: 'json' });
+  });
+
+  it('offers an authored enum\'s members, the words it accepts, not its keys, and reads a choice typed loosely as its member', () => {
+    // as an agent authors a form: { key: words the person reads }; gin's member is the words
+    const child = { name: 'enum', generic: { V: { name: 'text' } }, options: { values: { emma: 'Emma', leo: 'Leo' } } };
+    const chore = { name: 'enum', generic: { V: { name: 'text' } }, options: { values: { bed: 'Make bed — 2 points', dog: 'Feed the dog — 2 points' } } };
+    const type = { name: 'obj', props: { child: { type: child }, chores: { type: { name: 'list', generic: { V: chore } } }, note: { type: { name: 'optional', generic: { T: child } } } } };
+    expect(controlOf(child)).toEqual({ control: 'choice', options: ['Emma', 'Leo'], multiple: false });
+    // the members as shown, a key, another case and stray spaces all name the same choice
+    expect(checkAnswers(type, { child: 'Emma', chores: ['Make bed — 2 points'] })).toEqual({ value: { child: 'Emma', chores: ['Make bed — 2 points'] } });
+    expect(checkAnswers(type, { child: 'leo', chores: ['dog', ' feed the  dog — 2 POINTS '], note: 'EMMA' })).toEqual({ value: { child: 'Leo', chores: ['Feed the dog — 2 points', 'Feed the dog — 2 points'], note: 'Emma' } });
+    expect(checkAnswers(type, { child: 'Sam', chores: ['bed'] })).toHaveProperty('problem');
+    expect(choiceAnswer(child, 'nobody')).toBe('nobody');
   });
 
   it('checks answers with the form\'s gin type', () => {

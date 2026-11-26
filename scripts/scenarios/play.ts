@@ -1,8 +1,9 @@
 /**
  * Playing one case on a repetition's stack, as its own freshly made person: open a chat, send each step as written
  * (with its files, uploaded as the composer does), wait for the agent's turn to settle, and let the simulated person
- * carry on: fill the forms the agent shows, answer its questions, decide its approval cards, until they're done, give
- * up, or run out of messages. Then the whole case is read back from the hub (messages, each turn's run tree, every
+ * carry on: fill the forms the agent shows, answer its questions, decide its approval cards, press Save on the widget
+ * previews it offers (as the card's button does: `widgets/save_widget` run in the chat as the person, `invoke`), until
+ * they're done, give up, or run out of messages. Then the whole case is read back from the hub (messages, each turn's run tree, every
  * run's args and outcome, the model calls) into a `CaseRecord`.
  *
  * A case may have limits of its own (`Case.limits`: a longer turn, more follow-ups, a time and a cost limit for the
@@ -12,11 +13,12 @@
  */
 import { readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { isSettled, Json, type Approval, type ChatMessage, type HandlerCall, type OutgoingPart, type Run, type RunId, type SessionId, type TreeNode, type TurnId } from '@harness/core';
+import { isSettled, Json, QualifiedName, WidgetProposal, type Approval, type ChatMessage, type HandlerCall, type OutgoingPart, type Run, type RunId, type SessionId, type TreeNode, type TurnId } from '@harness/core';
 import { settle, waitFor, type SignedIn } from '../hub-client.ts';
 import { clientInfo, SessionWatch, uploadBytes } from '../session.ts';
 import { answerFor, askedOf, checkAnswers, controlOf } from '../../systems/input/client/form.ts';
 import { fieldsOf } from '../../systems/input/shared/forms.ts';
+import { saveArgs, savedName } from '../../systems/widgets/client/proposal.ts';
 import type { AskedValue } from '../../systems/input/shared/index.ts';
 import { MEMBERS, type Case, type FixtureFile, type Member, type Step } from './cases.ts';
 import { authoringChecks, hardChecks, toolReplyFailed } from './checks.ts';
@@ -67,8 +69,23 @@ function fieldAsks(form: AskedValue['form']): FieldAsk[] {
   return fieldsOf(form.type).map((field) => {
     const control = controlOf(field.type);
     const kind = control.control === 'number' ? `number${control.min === undefined ? '' : ` from ${control.min}`}${control.max === undefined ? '' : ` up to ${control.max}`}` : control.control;
-    return { key: field.key, label: field.label, kind, required: field.required, ...(control.control === 'choice' ? { options: control.options } : {}) };
+    // a choice's options are the words the form shows (its members); the answer is read back to the member it names (`checkAnswers`)
+    return { key: field.key, label: field.label, kind, required: field.required, ...(control.control === 'choice' ? { options: control.options, multiple: control.multiple } : {}) };
   });
+}
+
+/** The fn whose result is a widget preview with a Save button, and the fn that button runs as the person. */
+const MAKE_WIDGET = QualifiedName.parse('widgets/make_widget');
+const SAVE_WIDGET = QualifiedName.parse('widgets/save_widget');
+
+/** A widget preview card as the person reads it: its title, what it shows, the widget it changes, its buttons. */
+function widgetCard(proposal: WidgetProposal): string {
+  return [
+    `A widget preview: "${proposal.spec.title}"${proposal.replaces === undefined ? '' : ` (changes ${proposal.replaces})`}`,
+    proposal.description,
+    `Preview: ${clip(JSON.stringify(proposal.preview), 600)}`,
+    'Buttons: Save (keeps it as a widget you can open again) · Change (asks for changes). Nothing is kept until Save.',
+  ].join('\n');
 }
 
 /** Who sends in a chat: Alex (the case's own person) or a member of the household (`Step.as`). */
@@ -141,6 +158,10 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
   const questions: Array<Extract<Entry, { type: 'question' }>> = [];
   const answeredForms = new Set<RunId>();
   const handled = new Set<string>();
+  /** Widget previews seen (the make_widget runs), what the person did with each, and the turns their Save started. */
+  const offered = new Set<RunId>();
+  const widgets: Array<Extract<Entry, { type: 'widget' }>> = [];
+  const saveTurns = new Map<TurnId, string>();
   let personTurns = 0;
   let ending: Ending | undefined;
   const state = { live: true };
@@ -299,6 +320,51 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
     return sent.turn;
   };
 
+  /**
+   * The widget previews shown in a chat since last time, offered to its person as their card's Save: the newest one is
+   * decided as an approval card is (the case's stance; `person` asks the person), and a yes runs `widgets/save_widget`
+   * with the card's own args (`saveArgs`) in the chat as the person (`invoke`, as the card's button does), then waits
+   * for that turn. Older previews shown with it are passed over. Saving is a press, not a message: no follow-up used.
+   */
+  const offerWidgets = async (chat: Chat): Promise<void> => {
+    const hub = chat.party.client.hub;
+    const found: Array<{ run: RunId; proposal: WidgetProposal }> = [];
+    for (const turn of chat.turns) {
+      const tree = await hub.call('tree', { turn }).catch(() => undefined);
+      for (const { node } of tree === undefined ? [] : nodesOf(tree)) {
+        if (node.run.fn !== MAKE_WIDGET || node.run.status !== 'done' || offered.has(node.run.id)) { continue; }
+        offered.add(node.run.id);
+        const run = await hub.call('run', { run: node.run.id });
+        const parsed = WidgetProposal.safeParse(run.outcome?.status === 'done' ? run.outcome.result : undefined);
+        if (parsed.success) { found.push({ run: node.run.id, proposal: parsed.data }); } else { errors.push(`widget preview ${node.run.id}: its result isn't a proposal: ${parsed.error.issues[0]?.message ?? ''}`); }
+      }
+    }
+    const newest = found.at(-1);
+    for (const older of found.slice(0, -1)) { widgets.push({ type: 'widget', run: older.run, title: older.proposal.spec.title, decision: 'passed-over', detail: '' }); }
+    if (newest === undefined) { return; }
+    const { person, seen } = chat.party;
+    const card = widgetCard(newest.proposal);
+    const stance = played.approvals ?? 'yes';
+    const decided = stance === 'person'
+      ? await person.decide(seen, `${card}\n(Yes: press Save. No: leave it unsaved.)`)
+      : { approve: stance === 'yes', reason: stance === 'yes' ? 'says yes to every card' : 'says no to every card' };
+    const title = newest.proposal.spec.title;
+    if (!decided.approve) {
+      widgets.push({ type: 'widget', run: newest.run, title, decision: 'declined', detail: decided.reason });
+      seen.push({ who: 'card', text: `${card}\n→ You left it unsaved.` });
+      return;
+    }
+    const started = await hub.call('invoke', { session: chat.id, fn: SAVE_WIDGET, args: Json.parse(saveArgs(newest.proposal)), client: clientInfo() });
+    keepTurn(chat, started.turn);
+    saveTurns.set(started.turn, title);
+    await settleTurn(chat, started.turn);
+    const run = await hub.call('run', { run: started.run });
+    const name = savedName(newest.proposal);
+    const ok = run.status === 'done';
+    widgets.push({ type: 'widget', run: newest.run, title, decision: ok ? 'saved' : 'save-failed', detail: ok ? `kept as ${name}` : outcomeOf(run) });
+    seen.push({ who: 'card', text: `${card}\n→ You pressed Save. ${ok ? `It was saved as ${name}.` : `Saving failed: ${outcomeOf(run)}`}` });
+  };
+
   /** Play one step: send it, then let the person follow up within its allowance. */
   const playStep = async (chat: Chat, step: Step, last: boolean, previous: TurnId | undefined): Promise<TurnId | undefined> => {
     if (step.whileRunning === true && previous !== undefined) {
@@ -307,6 +373,7 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
     } else if (previous !== undefined) {
       await settleTurn(chat, previous);
       await observe(chat);
+      await offerWidgets(chat);
     }
     checkStop();
     const turn = await send(chat, step.say, step.files ?? []);
@@ -318,6 +385,8 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
     for (;;) {
       await settleTurn(chat, current);
       const forms = await observe(chat);
+      // a widget preview's Save is pressed before anything else (a press, not a message)
+      await offerWidgets(chat);
       if (allowance <= 0) {
         if (last) { ending = { by: 'turn-limit', reason: `the person had sent ${personTurns} follow-ups, the most allowed` }; }
         return undefined;
@@ -360,14 +429,14 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
       // another person sends in their own chat (their last one, if they had one); the same person's newChat opens another
       const another = party !== chat.party;
       if (index > 0 && (another || step.newChat === true)) {
-        if (previous !== undefined) { await settleTurn(chat, previous); await observe(chat); previous = undefined; }
+        if (previous !== undefined) { await settleTurn(chat, previous); await observe(chat); await offerWidgets(chat); previous = undefined; }
         const theirs = another && step.newChat !== true ? chats.findLast((c) => c.party === party) : undefined;
         chat = theirs ?? await openChat(party);
         if (theirs !== undefined || !another) { party.seen.push({ who: 'me', text: theirs === undefined ? '(later, in a new chat)' : '(later, back in this chat)' }); }
       }
       previous = await playStep(chat, step, index === played.steps.length - 1, previous);
     }
-    if (previous !== undefined) { await settleTurn(chat, previous); }
+    if (previous !== undefined) { await settleTurn(chat, previous); await offerWidgets(chat); }
   } catch (error) {
     errors.push(message(error));
     ending = { by: /timed out/.test(message(error)) ? 'timeout' : 'error', reason: clip(message(error), 400) };
@@ -381,7 +450,7 @@ export async function playCase(ctx: PlayContext, played: Case): Promise<CaseReco
   const parties = [alex, ...members.values()];
   try {
     return await readBack(ctx, played, {
-      chats, turns, decisions, questions, errors, credentials, started, personTurns, personCost: parties.reduce((sum, p) => sum + p.person.cost, 0), shed: shed() + memberShed, systems,
+      chats, turns, decisions, questions, widgets, saveTurns, errors, credentials, started, personTurns, personCost: parties.reduce((sum, p) => sum + p.person.cost, 0), shed: shed() + memberShed, systems,
       ending: ending ?? { by: 'satisfied', reason: 'the steps ran out' },
     });
   } finally {
@@ -449,6 +518,9 @@ interface Played {
   readonly turns: readonly TurnId[];
   readonly decisions: ReadonlyMap<RunId, NonNullable<ToolRun['approval']>>;
   readonly questions: ReadonlyArray<Extract<Entry, { type: 'question' }>>;
+  /** The widget previews offered and what the person did with each; the turns their Save started, with the preview's title. */
+  readonly widgets: ReadonlyArray<Extract<Entry, { type: 'widget' }>>;
+  readonly saveTurns: ReadonlyMap<TurnId, string>;
   readonly errors: string[];
   readonly credentials: { email: string; password: string };
   readonly started: number;
@@ -497,7 +569,8 @@ async function readBack(ctx: PlayContext, played: Case, data: Played): Promise<C
     runs.push(...await strayCalls(client, tree, toolCalls));
     allRuns.push(...runs);
     const asked = data.questions.filter((q) => runs.some((r) => r.run === q.run));
-    return [...(runs.length === 0 ? [] : [{ type: 'tools' as const, turn, runs }]), ...forms, ...asked];
+    const offers = data.widgets.filter((w) => runs.some((r) => r.run === w.run));
+    return [...(runs.length === 0 ? [] : [{ type: 'tools' as const, turn, runs }]), ...forms, ...asked, ...offers];
   };
   const sessions: CaseRecord['sessions'] = [];
   const others: NonNullable<CaseRecord['others']> = [];
@@ -516,7 +589,10 @@ async function readBack(ctx: PlayContext, played: Case, data: Played): Promise<C
       if (m.role !== 'user') { entries.push(...runs); }
       if (m.role === 'user') {
         const answer = m.parts.find((part) => part.type === 'input-answer');
-        if (answer?.type === 'input-answer') {
+        const pressed = data.saveTurns.get(m.turn);
+        if (pressed !== undefined) {
+          entries.push({ type: 'note', text: `The person pressed Save on the widget preview "${pressed}" (widgets/save_widget, run as them from the card).` });
+        } else if (answer?.type === 'input-answer') {
           entries.push({ type: 'form-answer', title: answer.title, text: answer.text });
         } else {
           const text = textOf(m);

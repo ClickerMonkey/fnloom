@@ -1,7 +1,7 @@
 /**
  * `HostedRunner` over the SDK's shared supervision (`@harness/sdk/server` `supervise.ts`): each hosted system runs as a
- * child of fs, started by a `ProcessStarter` (the scrubbed environment, fs's tsx loader first) under Node's permission
- * model (`permissionArgs`: read its bundle and the loader, write its own folders, child processes and workers only when
+ * child of fs, started by a `ProcessStarter` (`hostedStarter`: plain `node` on its built bundle, the scrubbed environment,
+ * no TypeScript loader) under Node's permission model (`permissionArgs`: read its bundle, write its own folders, child processes and workers only when
  * `system.json` asks, plus the paths its contract's `grants.files` names), its network through an allowlist proxy of the
  * hosts its `grants.network` names (`proxyEnv`; the hub link goes direct) with its sockets held to that proxy and the hub
  * (the SDK's `NETWORK_GUARD`, preloaded, so a raw socket or a client with its own agent can't go around the proxy; the
@@ -13,7 +13,7 @@
  * hub as that instance's refusals.
  */
 import {
-  AccessDeniedReader, NETWORK_GUARD, NETWORK_GUARD_FILES, guardedEnv, permissionArgs, refusedOfLine, statusOfLine,
+  AccessDeniedReader, NETWORK_GUARD, NETWORK_GUARD_FILES, NodeStarter, guardedEnv, permissionArgs, refusedOfLine, statusOfLine,
   type CrashPolicy, type Endpoint, type NetworkGate as SdkNetworkGate, type ProcessStarter, type ProxyRefusal, type SupervisedProcess,
 } from '@harness/sdk/server';
 import type { HostRefusal, RestartPolicy } from '@harness/core';
@@ -22,6 +22,17 @@ import type { HostedLaunch, HostedRunner, RunnerStatus, StartOutcome } from './h
 
 /** An hour, the window restarts are counted in. */
 const HOUR = 3_600_000;
+
+/**
+ * What fs starts its hosted systems with: plain `node`, no loader put first. A hosted bundle is one built JavaScript file
+ * (`@harness/build`), and the socket guard preloaded before it is TypeScript Node strips itself (Node 22.18+). A loader
+ * such as tsx can't be used: it registers its hooks on a worker thread, which the permission model refuses
+ * (`ERR_ACCESS_DENIED`), and with `--allow-worker` its synchronous resolve isn't supported there
+ * (`ERR_METHOD_NOT_IMPLEMENTED: resolveSync`), so the child exited before it connected.
+ */
+export function hostedStarter(baseEnv: Readonly<Record<string, string | undefined>>, outputTail: number): ProcessStarter {
+  return new NodeStarter({ baseEnv, outputTail });
+}
 
 /** A child's network gate (the SDK's `AllowlistProxy`): listens, and is closed when the child is stopped for good. */
 export type NetworkGate = Pick<SdkNetworkGate, 'start' | 'close'>;
@@ -37,7 +48,7 @@ export interface RunnerDeps {
   readonly starter: ProcessStarter;
   readonly policy: CrashPolicy;
   readonly restart: RestartPolicy;
-  /** Folders every child may read besides its own (the loader it runs under). */
+  /** Folders every child may read besides its own and the socket guard's files (none in fs: no loader). */
   readonly reads: readonly string[];
   /** How often a start looks at what the process said. */
   readonly every: number;

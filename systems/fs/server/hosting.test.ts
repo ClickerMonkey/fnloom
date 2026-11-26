@@ -2,9 +2,14 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { InstanceName, SystemName, type InstallSubject, type Manifest, type PreviewPart, type SystemGrants, type SystemTestReport } from '@harness/core';
+import { ViteBuilder } from '@harness/build';
 import { manifestOf } from '@harness/sdk';
+import { AllowlistProxy, CrashPolicy, endpointOf, scrubbedEnv } from '@harness/sdk/server';
+import { FakeHub } from '@harness/sdk/server/testing';
+import { serve as listen } from '@ayepi/node';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { fs } from '../shared/index.ts';
+import { SupervisedRunner, hostedStarter } from './runner.ts';
 import type { ProcessProbe } from './stale.ts';
 import { Hosting, InstallRefused, capped, renameRetrying, grantsReview, fnsDiff, type BuiltSystem, type HostedLaunch, type HostedRunner, type RunnerStatus, type StartOutcome, type SystemBuilds, type SystemTests } from './hosting.ts';
 
@@ -400,4 +405,59 @@ describe('renameRetrying', () => {
     await expect(renameRetrying('a', 'b', { tries: 6, wait: 10 }, missing.move, missing.sleep)).rejects.toThrow('ENOENT');
     expect(missing.tries).toHaveLength(1);
   });
+});
+
+/**
+ * The real thing, as far as a test goes: the template system's server bundled as fs's build bundles it (one ES module,
+ * `ViteBuilder.bundleServer`), started by the runner fs uses (`hostedStarter`: plain node) under Node's permission
+ * model with the socket guard preloaded, its network through a real allowlist proxy, against a fake hub on a real
+ * socket. On Node 22.20 the tsx loader fs used to put first made the child exit before it connected: its hooks run on a
+ * worker the permission model refuses (`ERR_ACCESS_DENIED`), and with `--allow-worker` its `resolveSync` isn't there.
+ */
+describe('a hosted bundle, really spawned', () => {
+  it('runs a built bundle on plain node under the permission model and connects to the hub', { timeout: 120_000 }, async () => {
+    const work = resolve(import.meta.dirname, '../../../.harness-test/fs-hosted-spawn');
+    rmSync(work, { recursive: true, force: true });
+    folders.push(work);
+    const version = join(work, 'versions', 'b1');
+    const own = join(work, 'main');
+    for (const dir of ['state', 'data', 'cache']) { mkdirSync(join(own, dir), { recursive: true }); }
+    await new ViteBuilder({ probeTimeout: 60_000, probeEnv: scrubbedEnv(process.env) }).bundleServer({
+      entry: resolve(import.meta.dirname, '../../template/server/main.ts'), outDir: join(version, 'server'), fileName: 'main.js', external: [],
+    });
+    writeFileSync(join(version, 'package.json'), JSON.stringify({ name: 'template', version: '0.1.0', private: true, type: 'module' }));
+
+    const hub = new FakeHub();
+    const port = await new Promise<number>((done) => { closeHub = listen(hub.app, { port: 0, hostname: '127.0.0.1', path: '/link', onListen: (at) => { done(at.port); } }); });
+    const hubUrl = `ws://127.0.0.1:${String(port)}/link`;
+    const refusals: unknown[] = [];
+    runner = new SupervisedRunner({
+      starter: hostedStarter(process.env, 4_000),
+      policy: new CrashPolicy({ maxWait: 1_000, restartCode: 75 }), restart: { policy: 'never', backoff: 100, maxPerHour: 1 },
+      reads: [], every: 50, wait: (ms) => new Promise((done) => { setTimeout(done, ms); }), now: () => Date.now(), log: () => undefined,
+      gate: (allow, refused) => new AllowlistProxy({ allow, onRefused: refused }),
+      direct: [endpointOf(hubUrl)], refused: (refusal) => { refusals.push(refusal); },
+    });
+    const launch: HostedLaunch = {
+      ref: { system: SystemName.parse('template'), instance: InstanceName.parse('main') }, entry: join(version, 'server', 'main.js'), cwd: version,
+      writes: [join(own, 'state'), join(own, 'data'), join(own, 'cache')], permissions: undefined, files: { read: [], write: [] }, network: [], spawned: () => undefined,
+      env: {
+        HARNESS_HUB: hubUrl, HARNESS_INSTANCE: 'main', HARNESS_SYSTEM_NAME: 'template', HARNESS_SYSTEM_STATE: join(own, 'state'), HARNESS_SYSTEM_DATA: join(own, 'data'),
+        HARNESS_SYSTEM_CACHE: join(own, 'cache'), HARNESS_SUPERVISED: '1', HARNESS_LOG_JSON: 'true', HARNESS_LOG_LEVEL: 'info',
+      },
+    };
+    const outcome = await runner.start('template/main', launch, 60_000);
+    expect(outcome, JSON.stringify(outcome)).toEqual({ state: 'connected' });
+    expect(hub.manifests.map((manifest) => manifest.name)).toEqual(['template']);
+    expect(refusals).toEqual([]);
+  });
+});
+
+let runner: SupervisedRunner | undefined;
+let closeHub: (() => Promise<void>) | undefined;
+afterEach(async () => {
+  await runner?.stop('template/main');
+  await closeHub?.();
+  runner = undefined;
+  closeHub = undefined;
 });

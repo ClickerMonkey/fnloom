@@ -54,7 +54,11 @@ follow light and dark themes, and keep them responsive (`min-width: 0`, wrapping
 **Building.** `buildClient({ entry, outDir })` (from `@harness/sdk/build`) bundles `client/index.ts` with Vite, `.vue`
 files and CSS included, keeping `vue` and `@harness/sdk` external so renderers share the chat's copies. Pass `outDir`
 as `serve`'s `client` option and the system uploads the bundle when it connects; `harness system build` does the same
-for a packaged system.
+for a packaged system. Before bundling, `harness system build` and `fs/install_system` typecheck the folder with `tsc -b`,
+which can't read a `.vue` file: `import Page from './Page.vue'` fails there with TS2307 unless the folder declares what
+a `.vue` module is. The template has that declaration, `client/vue-shim.d.ts` (`declare module '*.vue'` as a Vue
+`DefineComponent`), and a folder made from it (`harness system new`, or a copy of `systems/template`) keeps it; a folder
+without it needs the same file in `client/` before its first `.vue` import.
 
 **Visuals for a registry.** A system adds components to a registry (its own or another system's, such as
 `hub/visuals`) with `client(contract, { visuals: { 'hub/visuals': { bullet: { component, veto } } } })` (`VisualEntry`).

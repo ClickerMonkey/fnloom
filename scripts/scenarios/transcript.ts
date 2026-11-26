@@ -31,6 +31,14 @@ export function runLine(run: ToolRun, detail: 'short' | 'full'): string {
   return `${indent}- \`${run.fn}\` ${run.status}${troubleNote(run)}${args}${outcome}${approval}`;
 }
 
+/** What the person did with a widget preview's Save, as the transcript says it. */
+const WIDGET_DECISIONS = {
+  saved: 'the person pressed Save and it was kept',
+  'save-failed': 'the person pressed Save but saving failed',
+  declined: 'the person left it unsaved',
+  'passed-over': 'passed over: a newer preview came with it',
+} as const;
+
 function entryText(entry: Entry, detail: 'short' | 'full'): string {
   switch (entry.type) {
     case 'chat': return `**— chat ${entry.session}${entry.as === undefined ? '' : `, as ${entry.as} on their own login`} —** (${entry.url})`;
@@ -41,6 +49,7 @@ function entryText(entry: Entry, detail: 'short' | 'full'): string {
     case 'tools': return `_Runs:_\n${entry.runs.map((run) => runLine(run, detail)).join('\n')}`;
     case 'form': return `_Form shown: "${entry.title}" — ${entry.fields.join(' · ')}_`;
     case 'question': return `_Asked directly: ${entry.question} → ${entry.answer}_`;
+    case 'widget': return `_Widget preview shown: "${entry.title}" — ${WIDGET_DECISIONS[entry.decision]}${entry.detail === '' ? '' : ` (${entry.detail})`}_`;
   }
 }
 

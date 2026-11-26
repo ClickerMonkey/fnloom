@@ -49,6 +49,12 @@ export const Entry = z.discriminatedUnion('type', [
   z.object({ type: z.literal('form'), run: z.string(), title: z.string(), fields: z.array(z.string()) }),
   /** A question a run asked the person directly (a handler), and the answer given. */
   z.object({ type: z.literal('question'), run: z.string(), question: z.string(), answer: z.string() }),
+  /**
+   * A widget preview the agent offered (`widgets/make_widget`'s proposal card), and what the person did with its Save:
+   * pressed it (`saved`, or `save-failed` when `widgets/save_widget` didn't finish), left it (`declined`), or passed it
+   * over for a newer preview shown with it. `detail` is the saved widget's name, the reason or the failure.
+   */
+  z.object({ type: z.literal('widget'), run: z.string(), title: z.string(), decision: z.enum(['saved', 'save-failed', 'declined', 'passed-over']), detail: z.string() }),
 ]);
 export type Entry = z.infer<typeof Entry>;
 

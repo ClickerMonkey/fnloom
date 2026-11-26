@@ -107,12 +107,15 @@ describe('system new', () => {
     const from = join(WORK, 'tpl');
     putFolder(io.memory, from, {
       'system.json': '{ "name": "template" }', 'shared/index.ts': "system('template', {})", 'node_modules/x/index.js': 'x', 'dist/server/main.js': 'x', 'logo.png': 'binary-template',
+      'client/vue-shim.d.ts': "declare module '*.vue' { const component: unknown; export default component; }",
     });
     expect(await runCli(['system', 'new', 'notes', '--from', 'tpl', '--dir', '.'], io)).toBe(0);
     // its system.json says how many instances it runs, even when the template didn't
     expect(JSON.parse(io.memory.text(join(NOTES, 'system.json')))).toEqual({ name: 'notes', instances: 'one' });
     expect(io.memory.text(join(NOTES, 'shared', 'index.ts'))).toBe("system('notes', {})");
     expect(io.memory.text(join(NOTES, 'logo.png'))).toBe('binary-template');
+    // the declaration that lets tsc -b read a .vue import comes along as it is
+    expect(io.memory.text(join(NOTES, 'client', 'vue-shim.d.ts'))).toBe("declare module '*.vue' { const component: unknown; export default component; }");
     expect([...io.memory.files.keys()].some((p) => p.includes(`notes${sep}node_modules`) || p.includes(`notes${sep}dist`))).toBe(false);
     expect(await runCli(['system', 'new', 'notes', '--from', 'tpl', '--dir', '.'], io)).toBe(1);
     expect(await runCli(['system', 'new', 'template', '--from', 'tpl'], io)).toBe(1);

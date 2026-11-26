@@ -156,7 +156,7 @@ export function grantsReview(grants: SystemGrants | undefined, places: GrantPlac
   return { lines, refused: `Its grants.files name ${never.join(', ')}: a filesystem root, or a folder holding fs's data (every hosted system's code and keys), is never granted. Name only the folders it needs.` };
 }
 
-/** What the runner starts: a bundle under tsx, in its folders, with only the environment given. */
+/** What the runner starts: a built bundle on plain node, in its folders, with only the environment given. */
 export interface HostedLaunch {
   /** The instance it runs, for the refusals reported to the hub. */
   readonly ref: InstanceRef;
