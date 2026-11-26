@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{name}}: {{tagline}}</title>
-<meta name="description" content="{{name}} is a self-hosted, next-generation agent harness: it shows you exactly what will change before it acts, fits every tool to the model in use, builds its own tools, and works the same on every phone, tablet and computer.">
+<meta name="description" content="{{name}} is a self-hosted, next-generation agent harness: systems for databases, Claude Code, web APIs, MCP servers, research and your files out of the box; it builds the tools it’s missing; any model, with every tool fitted to it; the same on every phone, tablet and computer.">
 <meta property="og:title" content="{{name}}: {{tagline}}">
-<meta property="og:description" content="The next-generation agent harness. It shows you the change before it makes it, fits every tool to your model, and builds the tools it needs.">
+<meta property="og:description" content="The next-generation agent harness. Systems for databases, Claude Code, APIs and MCP; it builds the tools it’s missing; any model; the same on every device.">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="img/mark.svg" type="image/svg+xml">
 <link rel="stylesheet" href="css/site.css">
@@ -46,40 +46,41 @@
   <div class="wrap hero-in">
     <div class="hero-copy">
       <p class="eyebrow" data-reveal>The next-generation agent harness · self-hosted</p>
-      <h1 id="hero-title" data-reveal style="--i:1">The agent harness that shows its work. <em>It asks before it acts.</em></h1>
-      <p class="lede" data-reveal style="--i:2">{{name}} runs on your own computer with any AI model. It comes with systems for databases, Claude Code, APIs, MCP servers, research and your files; it builds the tools it’s missing; and before anything changes it shows you exactly what will happen. Start on the laptop, approve from your phone: it’s the same app everywhere.</p>
+      <h1 id="hero-title" data-reveal style="--i:1">Every system you use. Any model. <em>One agent on every device.</em></h1>
+      <p class="lede" data-reveal style="--i:2">{{name}} is a self-hosted agent harness that comes with systems for databases, Claude Code, web APIs, MCP servers, research and the files on every computer you own, and it builds the tools it’s missing. Pick any model, cloud or local; every tool is fitted to it. Then use it the same way on your phone, tablet and desktop.</p>
       <ul class="proof" data-reveal style="--i:3">
-        <li><span class="stud" aria-hidden="true"></span><strong>Shows before it acts</strong><span>The exact change, then your OK</span></li>
+        <li><span class="stud" aria-hidden="true"></span><strong>Systems for everything</strong><span>Databases, Claude Code, APIs, MCP</span></li>
+        <li><span class="stud" aria-hidden="true"></span><strong>Builds what’s missing</strong><span>New tools, checked and saved</span></li>
+        <li><span class="stud" aria-hidden="true"></span><strong>Any model, fitted</strong><span>Cloud or local</span></li>
         <li><span class="stud" aria-hidden="true"></span><strong>Same on every device</strong><span>Phone, tablet, desktop</span></li>
-        <li><span class="stud" aria-hidden="true"></span><strong>Builds its own tools</strong><span>Checked, saved, reused</span></li>
       </ul>
       <p class="cta" data-reveal style="--i:4">
         <a class="btn" href="#watch">Watch it work</a>
-        <a class="btn ghost" href="#compare">Compare it</a>
+        <a class="btn ghost" href="#systems">See the systems</a>
       </p>
     </div>
 
     <!-- the same chat on three devices, playing together -->
-    <figure class="devices" data-demo data-hold="5200" data-tilt aria-label="The same chat on a laptop, a tablet and a phone: a weekly reminder is asked for, approved from the phone, and every device updates.">
+    <figure class="devices" data-demo data-hold="5600" data-tilt aria-label="The same chat on a laptop, a tablet and a phone: one request uses the database and Claude Code, Claude Code's question is approved from the phone, and every screen updates.">
       <div class="dev dev-laptop">
         <div class="dev-screen">
           <div class="app">
             <aside class="app-side" aria-hidden="true">
               <span class="app-logo">{{name}}</span>
-              <span class="app-nav on">Chat</span><span class="app-nav">Inbox</span><span class="app-nav">Schedule</span><span class="app-nav">Data</span><span class="app-nav">Widgets</span>
+              <span class="app-nav on">Chat</span><span class="app-nav">Inbox</span><span class="app-nav">Data</span><span class="app-nav">Claude Code</span><span class="app-nav">Schedule</span>
             </aside>
             <div class="app-main" data-chat>
               <div class="chat">
-                <p class="m-user" data-beat="0" data-type>Every Friday at 4, remind me to send the weekly report</p>
+                <p class="m-user" data-beat="0" data-type>Which orders failed this week? Have Claude Code find out why.</p>
                 <p class="m-think" data-beat="1" data-until="3"><i></i><i></i><i></i> Thinking</p>
-                <div class="m-agent" data-beat="2"><span class="ag" aria-hidden="true"></span><span class="tool"><b>Schedule</b> Add a reminder</span></div>
-                <div class="card-ok" data-beat="3" data-until="5">
-                  <p class="ok-title"><span class="shield" aria-hidden="true"></span>Allow <b class="pill">Add a reminder</b>?</p>
-                  <dl class="ok-fields"><dt>When</dt><dd>Every Friday, 4:00 PM</dd><dt>Say</dt><dd>Send the weekly report</dd><dt>Tell</dt><dd>Alex, on every device</dd></dl>
+                <div class="m-agent" data-beat="2"><span class="ag" aria-hidden="true"></span><span class="tool"><b>Database</b> Ask orders · 12 failed</span></div>
+                <div class="m-agent" data-beat="3"><span class="ag" aria-hidden="true"></span><span class="tool"><b>Claude Code</b> Start a session · ~/work/billing</span></div>
+                <div class="card-ok" data-beat="4" data-until="6">
+                  <p class="ok-title"><span class="shield" aria-hidden="true"></span>Claude Code asks: allow <b class="pill">npm test</b>?</p>
                   <p class="ok-btns"><span class="b-deny">Deny</span><span class="b-ok">Approve</span></p>
                 </div>
-                <p class="m-done" data-beat="5"><span class="tick" aria-hidden="true"></span>Approved by Alex</p>
-                <p class="m-reply" data-beat="6">Done. It’s on your schedule for Friday at 4:00 PM, every week.</p>
+                <p class="m-done" data-beat="6"><span class="tick" aria-hidden="true"></span>42 tests pass</p>
+                <p class="m-reply" data-beat="7">12 orders failed on a card-expiry check that counted months from 0. Claude Code has a fix ready for you to review.</p>
               </div>
             </div>
           </div>
@@ -91,16 +92,16 @@
           <div class="app app-tab">
             <div class="app-main">
               <div class="chat">
-                <p class="m-user" data-beat="0" data-type>Every Friday at 4, remind me to send the weekly report</p>
+                <p class="m-user" data-beat="0" data-type>Which orders failed this week? Have Claude Code find out why.</p>
                 <p class="m-think" data-beat="1" data-until="3"><i></i><i></i><i></i> Thinking</p>
-                <div class="m-agent" data-beat="2"><span class="ag"></span><span class="tool"><b>Schedule</b> Add a reminder</span></div>
-                <div class="card-ok" data-beat="3" data-until="5">
-                  <p class="ok-title"><span class="shield"></span>Allow <b class="pill">Add a reminder</b>?</p>
-                  <dl class="ok-fields"><dt>When</dt><dd>Every Friday, 4:00 PM</dd><dt>Say</dt><dd>Send the weekly report</dd></dl>
+                <div class="m-agent" data-beat="2"><span class="ag"></span><span class="tool"><b>Database</b> Ask orders · 12 failed</span></div>
+                <div class="m-agent" data-beat="3"><span class="ag"></span><span class="tool"><b>Claude Code</b> Start a session · ~/work/billing</span></div>
+                <div class="card-ok" data-beat="4" data-until="6">
+                  <p class="ok-title"><span class="shield"></span>Claude Code asks: allow <b class="pill">npm test</b>?</p>
                   <p class="ok-btns"><span class="b-deny">Deny</span><span class="b-ok">Approve</span></p>
                 </div>
-                <p class="m-done" data-beat="5"><span class="tick"></span>Approved by Alex</p>
-                <p class="m-reply" data-beat="6">Done. It’s on your schedule for Friday at 4:00 PM, every week.</p>
+                <p class="m-done" data-beat="6"><span class="tick"></span>42 tests pass</p>
+                <p class="m-reply" data-beat="7">12 orders failed on a card-expiry bug. Claude Code has a fix ready to review.</p>
               </div>
             </div>
           </div>
@@ -111,24 +112,24 @@
           <div class="app app-phone">
             <div class="app-main">
               <div class="chat">
-                <p class="m-user" data-beat="0" data-type>Every Friday at 4, remind me to send the weekly report</p>
+                <p class="m-user" data-beat="0" data-type>Which orders failed this week? Have Claude Code find out why.</p>
                 <p class="m-think" data-beat="1" data-until="3"><i></i><i></i><i></i> Thinking</p>
-                <div class="m-agent" data-beat="2"><span class="ag"></span><span class="tool"><b>Schedule</b> Add a reminder</span></div>
-                <div class="card-ok" data-beat="3" data-until="5">
-                  <p class="ok-title"><span class="shield"></span>Allow <b class="pill">Add a reminder</b>?</p>
-                  <dl class="ok-fields"><dt>When</dt><dd>Fri, 4:00 PM</dd><dt>Say</dt><dd>Weekly report</dd></dl>
-                  <p class="ok-btns"><span class="b-deny">Deny</span><span class="b-ok" data-beat="4" data-press>Approve<i class="tap"></i></span></p>
+                <div class="m-agent" data-beat="2"><span class="ag"></span><span class="tool"><b>Database</b> Ask orders</span></div>
+                <div class="m-agent" data-beat="3"><span class="ag"></span><span class="tool"><b>Claude Code</b> Session</span></div>
+                <div class="card-ok" data-beat="4" data-until="6">
+                  <p class="ok-title"><span class="shield"></span>Claude Code asks: allow <b class="pill">npm test</b>?</p>
+                  <p class="ok-btns"><span class="b-deny">Deny</span><span class="b-ok" data-beat="5" data-press>Approve<i class="tap"></i></span></p>
                 </div>
-                <p class="m-done" data-beat="5"><span class="tick"></span>Approved</p>
-                <p class="m-reply" data-beat="6">Done. Fridays at 4:00 PM.</p>
+                <p class="m-done" data-beat="6"><span class="tick"></span>Approved</p>
+                <p class="m-reply" data-beat="7">12 failed on a card-expiry bug. A fix is ready.</p>
               </div>
             </div>
           </div>
-          <p class="notif" data-beat="3"><b>{{name}}</b> Alex, a reminder needs your OK</p>
+          <p class="notif" data-beat="4"><b>{{name}}</b> Claude Code needs your OK</p>
         </div>
       </div>
-      <p class="float f1" data-beat="3">Waiting for your OK <small>on all 3 devices</small></p>
-      <p class="float f2" data-beat="5">Approved on the phone <small>the laptop already knows</small></p>
+      <p class="float f1" data-beat="3">Two systems, one request <small>database · Claude Code</small></p>
+      <p class="float f2" data-beat="6">Answered from the phone <small>every screen updates live</small></p>
       <figcaption class="vh">A drawn replay of the real web app.</figcaption>
     </figure>
   </div>
@@ -153,47 +154,71 @@
 
     <div class="theatre" data-tabs>
       <div class="t-tabs" role="tablist" aria-label="Stories">
-        <button role="tab" id="tab-preview" aria-controls="p-preview" aria-selected="true"><b>01</b> See it first</button>
-        <button role="tab" id="tab-tools" aria-controls="p-tools" aria-selected="false" tabindex="-1"><b>02</b> Builds its tools</button>
-        <button role="tab" id="tab-memory" aria-controls="p-memory" aria-selected="false" tabindex="-1"><b>03</b> Private memory</button>
-        <button role="tab" id="tab-data" aria-controls="p-data" aria-selected="false" tabindex="-1"><b>04</b> Your data, charted</button>
-        <button role="tab" id="tab-claude" aria-controls="p-claude" aria-selected="false" tabindex="-1"><b>05</b> Claude Code</button>
-        <button role="tab" id="tab-schedule" aria-controls="p-schedule" aria-selected="false" tabindex="-1"><b>06</b> Runs on its own</button>
-        <button role="tab" id="tab-compare" aria-controls="p-compare" aria-selected="false" tabindex="-1"><b>07</b> Two models</button>
+        <button role="tab" id="tab-data" aria-controls="p-data" aria-selected="true"><b>01</b> Your data, charted</button>
+        <button role="tab" id="tab-claude" aria-controls="p-claude" aria-selected="false" tabindex="-1"><b>02</b> Claude Code</button>
+        <button role="tab" id="tab-tools" aria-controls="p-tools" aria-selected="false" tabindex="-1"><b>03</b> Builds its tools</button>
+        <button role="tab" id="tab-schedule" aria-controls="p-schedule" aria-selected="false" tabindex="-1"><b>04</b> Runs on its own</button>
+        <button role="tab" id="tab-compare" aria-controls="p-compare" aria-selected="false" tabindex="-1"><b>05</b> Two models</button>
+        <button role="tab" id="tab-memory" aria-controls="p-memory" aria-selected="false" tabindex="-1"><b>06</b> Private memory</button>
+        <button role="tab" id="tab-preview" aria-controls="p-preview" aria-selected="false" tabindex="-1"><b>07</b> See the change</button>
       </div>
 
-      <!-- 01: the approval card previews the exact change, and undo reports honestly -->
-      <div class="t-panel" role="tabpanel" id="p-preview" aria-labelledby="tab-preview" data-demo data-pace="1000">
+      <!-- 01: a question about your own records becomes a chart you can keep -->
+      <div class="t-panel" role="tabpanel" id="p-data" aria-labelledby="tab-data" data-demo data-pace="950">
         <div class="t-copy">
-          <h3>See exactly what will change. Then say yes.</h3>
-          <p>Most agents ask “may I run this tool?”. {{name}} shows the change itself: the lines in the file, the rows in the table, the exact command. Approve once, for this chat, or always. Changed your mind? Undo tells you plainly what it put back.</p>
+          <h3>Ask about your own records. Get a chart.</h3>
+          <p>Connect a database, or keep track of anything in tables it makes for you, then ask in plain words. Charts come back live, and one tap keeps them on your Widgets page.</p>
           <ol class="t-steps">
-            <li><button data-goto="0" aria-pressed="false">Ask in plain words</button></li>
-            <li><button data-goto="2" aria-pressed="false">See the exact change</button></li>
-            <li><button data-goto="4" aria-pressed="false">Approve it</button></li>
-            <li><button data-goto="6" aria-pressed="false">Undo, honestly</button></li>
+            <li><button data-goto="0" aria-pressed="false">Ask a question</button></li>
+            <li><button data-goto="2" aria-pressed="false">Chart from your data</button></li>
+            <li><button data-goto="4" aria-pressed="false">Keep it</button></li>
           </ol>
         </div>
         <div class="t-screen app" aria-hidden="true">
           <div class="chat">
-            <p class="m-user" data-beat="0" data-type>Point the deploy notes at the new staging server</p>
-            <div class="m-agent" data-beat="1"><span class="ag"></span><span class="tool"><b>Files</b> Read · docs/deploy.md</span></div>
-            <div class="card-ok wide" data-beat="2">
-              <p class="ok-title"><span class="shield"></span>Allow <b class="pill">Edit</b> docs/deploy.md?</p>
-              <pre class="code diff flush"><code>  ## Staging
-  Branch: main, deployed on every merge
-<span class="del">- Host: staging-old.internal (retired)</span>
-<span class="add" data-beat="3">+ Host: staging-2.internal (since November)</span></code></pre>
-              <p class="ok-scope"><span class="on">Once</span><span>This chat</span><span>Always</span></p>
-              <p class="ok-btns"><span class="b-deny">Deny</span><span class="b-ok" data-beat="4" data-press>Approve</span></p>
-            </div>
-            <p class="m-reply" data-beat="5">Updated: the deploy notes point at staging-2. <span class="undo" data-beat="6" data-press>Undo</span></p>
-            <div class="m-report" data-beat="7"><b>Undone.</b> Put back: docs/deploy.md. Couldn’t put back: nothing.</div>
+            <p class="m-user" data-beat="0" data-type>Chart sign-ups per day this month</p>
+            <div class="m-agent" data-beat="1"><span class="ag"></span><span class="tool"><b>Database</b> Ask signups · 30 rows</span></div>
+            <figure class="chart" data-beat="2">
+              <figcaption>Sign-ups per day <small>November</small></figcaption>
+              <svg viewBox="0 0 320 120" preserveAspectRatio="none"><path class="grid" d="M0 30H320M0 60H320M0 90H320"/><path class="line" pathLength="1" d="M0 96 L23 80 L46 88 L69 52 L92 70 L115 64 L138 40 L161 58 L184 34 L207 46 L230 24 L253 38 L276 20 L299 28 L320 14"/><path class="area" d="M0 96 L23 80 L46 88 L69 52 L92 70 L115 64 L138 40 L161 58 L184 34 L207 46 L230 24 L253 38 L276 20 L299 28 L320 14 V120 H0Z"/></svg>
+              <p class="chart-foot"><span>Total <b data-count="1864" data-beat="3">1864</b></span><span class="b-save" data-beat="4" data-press>Save</span></p>
+            </figure>
+            <p class="m-done" data-beat="5"><span class="tick"></span>Kept on your Widgets page <small>live, from your data</small></p>
           </div>
         </div>
       </div>
 
-      <!-- 02: it writes a small program, checks it, saves it as a tool, and reuses it -->
+      <!-- 02: Claude Code, started and steered from the web app; its prompts become approval cards -->
+      <div class="t-panel" role="tabpanel" id="p-claude" aria-labelledby="tab-claude" data-demo data-pace="1000" hidden>
+        <div class="t-copy">
+          <h3>Claude Code, from anywhere.</h3>
+          <p>Start a Claude Code session on your own computer from the web app, follow it from your phone, and answer its questions as approval cards. Your harness, its coding agent.</p>
+          <ol class="t-steps">
+            <li><button data-goto="0" aria-pressed="false">Hand it a job</button></li>
+            <li><button data-goto="2" aria-pressed="false">It asks, you answer</button></li>
+            <li><button data-goto="4" aria-pressed="false">Done, with the diff</button></li>
+          </ol>
+        </div>
+        <div class="t-screen app" aria-hidden="true">
+          <div class="chat">
+            <p class="m-user" data-beat="0" data-type>Have Claude Code fix the failing date test in the billing service</p>
+            <div class="session" data-beat="1">
+              <p class="s-head"><span class="cc"></span>Claude Code <small>~/work/billing · working</small></p>
+              <p class="s-line">Reading src/dates.ts</p>
+              <p class="s-line" data-beat="2">Found it: months counted from 1, not 0</p>
+            </div>
+            <div class="card-ok" data-beat="2">
+              <p class="ok-title"><span class="shield"></span>Claude Code asks: allow <b class="pill">npm test</b>?</p>
+              <p class="ok-btns"><span class="b-deny">Deny</span><span class="b-ok" data-beat="3" data-press>Approve</span></p>
+            </div>
+            <pre class="code diff" data-beat="4"><code><span class="del">- const month = date.getMonth();</span>
+<span class="add">+ const month = date.getMonth() + 1;</span></code></pre>
+            <p class="m-done" data-beat="5"><span class="tick"></span>42 tests pass <small>session kept, pick it up any time</small></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 03: it writes a small program, checks it, saves it as a tool, and reuses it -->
       <div class="t-panel" role="tabpanel" id="p-tools" aria-labelledby="tab-tools" data-demo data-pace="950" hidden>
         <div class="t-copy">
           <h3>Needs a tool? It builds one, and keeps it.</h3>
@@ -221,7 +246,59 @@
         </div>
       </div>
 
-      <!-- 03: memories come along by themselves, and one user's never reach another's chat -->
+      <!-- 04: a calendar of everything that runs; runs missed while the computer was off are caught up -->
+      <div class="t-panel" role="tabpanel" id="p-schedule" aria-labelledby="tab-schedule" data-demo data-pace="1100" hidden>
+        <div class="t-copy">
+          <h3>A calendar of everything it does on its own.</h3>
+          <p>Reminders and repeating jobs sit on one calendar, each with its own approvals. If the computer was off, missed runs are caught up, or skipped, as you choose.</p>
+          <ol class="t-steps">
+            <li><button data-goto="0" aria-pressed="false">Everything on one calendar</button></li>
+            <li><button data-goto="2" aria-pressed="false">The computer was off</button></li>
+            <li><button data-goto="3" aria-pressed="false">Caught up</button></li>
+          </ol>
+        </div>
+        <div class="t-screen app cal-screen" aria-hidden="true">
+          <p class="cal-head">November <small>Schedule</small></p>
+          <ol class="cal">
+            <li><i>9</i></li><li><i>10</i><span class="ev a" data-beat="0">Daily digest</span></li><li><i>11</i></li><li><i>12</i><span class="ev b" data-beat="0">Sync invoices</span></li><li><i>13</i></li><li><i>14</i><span class="ev c" data-beat="0">Weekly report</span></li><li><i>15</i></li>
+            <li><i>16</i><span class="ev d" data-beat="1">Dependency check</span></li><li><i>17</i><span class="ev a" data-beat="1">Daily digest</span></li><li class="off"><i>18</i><span class="ev miss" data-beat="2">Database backup</span></li><li class="off"><i>19</i><span class="ev b miss" data-beat="2">Sync invoices</span></li><li><i>20</i></li><li><i>21</i><span class="ev c" data-beat="1">Weekly report</span></li><li><i>22</i></li>
+            <li><i>23</i><span class="ev d" data-beat="1">Dependency check</span></li><li><i>24</i><span class="ev a" data-beat="1">Daily digest</span></li><li><i>25</i></li><li><i>26</i><span class="ev b" data-beat="1">Sync invoices</span></li><li><i>27</i></li><li><i>28</i><span class="ev c" data-beat="1">Weekly report</span></li><li><i>29</i></li>
+          </ol>
+          <p class="cal-off" data-beat="2" data-until="3">Computer off · Tue 18 – Wed 19</p>
+          <p class="m-done" data-beat="3"><span class="tick"></span>Back on: caught up 2 missed runs <small>database backup, sync invoices</small></p>
+        </div>
+      </div>
+
+      <!-- 05: one message, two models, side by side -->
+      <div class="t-panel" role="tabpanel" id="p-compare" aria-labelledby="tab-compare" data-demo data-pace="900" hidden>
+        <div class="t-copy">
+          <h3>Not sure which model? Ask two.</h3>
+          <p>Send the same message to two models side by side, watch both work, and keep the better answer. Then set spending limits per user, chat or message.</p>
+          <ol class="t-steps">
+            <li><button data-goto="0" aria-pressed="false">One message</button></li>
+            <li><button data-goto="1" aria-pressed="false">Two answers</button></li>
+            <li><button data-goto="3" aria-pressed="false">Keep the better one</button></li>
+          </ol>
+        </div>
+        <div class="t-screen two" aria-hidden="true">
+          <div class="app pane">
+            <p class="pane-who"><span class="av m1">A</span> A big cloud model <small class="cost" data-beat="2">$0.021</small></p>
+            <div class="chat">
+              <p class="m-user" data-beat="0">Plan moving our orders table from MySQL to Postgres</p>
+              <p class="m-reply" data-beat="1">1. Dual-write behind a flag. 2. Backfill in batches of 50k, checking row counts. 3. Switch reads…</p>
+              <p class="m-done keep" data-beat="3" data-press><span class="tick"></span>Kept this one</p>
+            </div>
+          </div>
+          <div class="app pane">
+            <p class="pane-who"><span class="av m2">B</span> A small local model <small class="cost" data-beat="2">$0.000</small></p>
+            <div class="chat">
+              <p class="m-user" data-beat="0">Plan moving our orders table from MySQL to Postgres</p>
+              <p class="m-reply" data-beat="1">1. Export with mysqldump. 2. Convert the schema. 3. Import, then switch over…</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- 06: memories come along by themselves, and one user's never reach another's chat -->
       <div class="t-panel" role="tabpanel" id="p-memory" aria-labelledby="tab-memory" data-demo data-pace="1000" hidden>
         <div class="t-copy">
           <h3>It remembers. Per user, privately.</h3>
@@ -254,113 +331,37 @@
         </div>
       </div>
 
-      <!-- 04: a question about your own records becomes a chart you can keep -->
-      <div class="t-panel" role="tabpanel" id="p-data" aria-labelledby="tab-data" data-demo data-pace="950" hidden>
+      <!-- 07: the approval card previews the exact change, and undo reports honestly -->
+      <div class="t-panel" role="tabpanel" id="p-preview" aria-labelledby="tab-preview" data-demo data-pace="1000" hidden>
         <div class="t-copy">
-          <h3>Ask about your own records. Get a chart.</h3>
-          <p>Connect a database, or keep track of anything in tables it makes for you, then ask in plain words. Charts come back live, and one tap keeps them on your Widgets page.</p>
+          <h3>See exactly what will change. Then say yes.</h3>
+          <p>Most agents ask “may I run this tool?”. {{name}} shows the change itself: the lines in the file, the rows in the table, the exact command. Approve once, for this chat, or always. Changed your mind? Undo tells you plainly what it put back.</p>
           <ol class="t-steps">
-            <li><button data-goto="0" aria-pressed="false">Ask a question</button></li>
-            <li><button data-goto="2" aria-pressed="false">Chart from your data</button></li>
-            <li><button data-goto="4" aria-pressed="false">Keep it</button></li>
+            <li><button data-goto="0" aria-pressed="false">Ask in plain words</button></li>
+            <li><button data-goto="2" aria-pressed="false">See the exact change</button></li>
+            <li><button data-goto="4" aria-pressed="false">Approve it</button></li>
+            <li><button data-goto="6" aria-pressed="false">Undo, honestly</button></li>
           </ol>
         </div>
         <div class="t-screen app" aria-hidden="true">
           <div class="chat">
-            <p class="m-user" data-beat="0" data-type>Chart sign-ups per day this month</p>
-            <div class="m-agent" data-beat="1"><span class="ag"></span><span class="tool"><b>Database</b> Ask signups · 30 rows</span></div>
-            <figure class="chart" data-beat="2">
-              <figcaption>Sign-ups per day <small>November</small></figcaption>
-              <svg viewBox="0 0 320 120" preserveAspectRatio="none"><path class="grid" d="M0 30H320M0 60H320M0 90H320"/><path class="line" pathLength="1" d="M0 96 L23 80 L46 88 L69 52 L92 70 L115 64 L138 40 L161 58 L184 34 L207 46 L230 24 L253 38 L276 20 L299 28 L320 14"/><path class="area" d="M0 96 L23 80 L46 88 L69 52 L92 70 L115 64 L138 40 L161 58 L184 34 L207 46 L230 24 L253 38 L276 20 L299 28 L320 14 V120 H0Z"/></svg>
-              <p class="chart-foot"><span>Total <b data-count="1864" data-beat="3">1864</b></span><span class="b-save" data-beat="4" data-press>Save</span></p>
-            </figure>
-            <p class="m-done" data-beat="5"><span class="tick"></span>Kept on your Widgets page <small>live, from your data</small></p>
+            <p class="m-user" data-beat="0" data-type>Point the deploy notes at the new staging server</p>
+            <div class="m-agent" data-beat="1"><span class="ag"></span><span class="tool"><b>Files</b> Read · docs/deploy.md</span></div>
+            <div class="card-ok wide" data-beat="2">
+              <p class="ok-title"><span class="shield"></span>Allow <b class="pill">Edit</b> docs/deploy.md?</p>
+              <pre class="code diff flush"><code>  ## Staging
+  Branch: main, deployed on every merge
+<span class="del">- Host: staging-old.internal (retired)</span>
+<span class="add" data-beat="3">+ Host: staging-2.internal (since November)</span></code></pre>
+              <p class="ok-scope"><span class="on">Once</span><span>This chat</span><span>Always</span></p>
+              <p class="ok-btns"><span class="b-deny">Deny</span><span class="b-ok" data-beat="4" data-press>Approve</span></p>
+            </div>
+            <p class="m-reply" data-beat="5">Updated: the deploy notes point at staging-2. <span class="undo" data-beat="6" data-press>Undo</span></p>
+            <div class="m-report" data-beat="7"><b>Undone.</b> Put back: docs/deploy.md. Couldn’t put back: nothing.</div>
           </div>
         </div>
       </div>
 
-      <!-- 05: Claude Code, started and steered from the web app; its prompts become approval cards -->
-      <div class="t-panel" role="tabpanel" id="p-claude" aria-labelledby="tab-claude" data-demo data-pace="1000" hidden>
-        <div class="t-copy">
-          <h3>Claude Code, from anywhere.</h3>
-          <p>Start a Claude Code session on your own computer from the web app, follow it from your phone, and answer its questions as approval cards. Your harness, its coding agent.</p>
-          <ol class="t-steps">
-            <li><button data-goto="0" aria-pressed="false">Hand it a job</button></li>
-            <li><button data-goto="2" aria-pressed="false">It asks, you answer</button></li>
-            <li><button data-goto="4" aria-pressed="false">Done, with the diff</button></li>
-          </ol>
-        </div>
-        <div class="t-screen app" aria-hidden="true">
-          <div class="chat">
-            <p class="m-user" data-beat="0" data-type>Have Claude Code fix the failing date test in the billing service</p>
-            <div class="session" data-beat="1">
-              <p class="s-head"><span class="cc"></span>Claude Code <small>~/work/billing · working</small></p>
-              <p class="s-line">Reading src/dates.ts</p>
-              <p class="s-line" data-beat="2">Found it: months counted from 1, not 0</p>
-            </div>
-            <div class="card-ok" data-beat="2">
-              <p class="ok-title"><span class="shield"></span>Claude Code asks: allow <b class="pill">npm test</b>?</p>
-              <p class="ok-btns"><span class="b-deny">Deny</span><span class="b-ok" data-beat="3" data-press>Approve</span></p>
-            </div>
-            <pre class="code diff" data-beat="4"><code><span class="del">- const month = date.getMonth();</span>
-<span class="add">+ const month = date.getMonth() + 1;</span></code></pre>
-            <p class="m-done" data-beat="5"><span class="tick"></span>42 tests pass <small>session kept, pick it up any time</small></p>
-          </div>
-        </div>
-      </div>
-
-      <!-- 06: a calendar of everything that runs; runs missed while the computer was off are caught up -->
-      <div class="t-panel" role="tabpanel" id="p-schedule" aria-labelledby="tab-schedule" data-demo data-pace="1100" hidden>
-        <div class="t-copy">
-          <h3>A calendar of everything it does on its own.</h3>
-          <p>Reminders and repeating jobs sit on one calendar, each with its own approvals. If the computer was off, missed runs are caught up, or skipped, as you choose.</p>
-          <ol class="t-steps">
-            <li><button data-goto="0" aria-pressed="false">Everything on one calendar</button></li>
-            <li><button data-goto="2" aria-pressed="false">The computer was off</button></li>
-            <li><button data-goto="3" aria-pressed="false">Caught up</button></li>
-          </ol>
-        </div>
-        <div class="t-screen app cal-screen" aria-hidden="true">
-          <p class="cal-head">November <small>Schedule</small></p>
-          <ol class="cal">
-            <li><i>9</i></li><li><i>10</i><span class="ev a" data-beat="0">Daily digest</span></li><li><i>11</i></li><li><i>12</i><span class="ev b" data-beat="0">Sync invoices</span></li><li><i>13</i></li><li><i>14</i><span class="ev c" data-beat="0">Weekly report</span></li><li><i>15</i></li>
-            <li><i>16</i><span class="ev d" data-beat="1">Dependency check</span></li><li><i>17</i><span class="ev a" data-beat="1">Daily digest</span></li><li class="off"><i>18</i><span class="ev miss" data-beat="2">Database backup</span></li><li class="off"><i>19</i><span class="ev b miss" data-beat="2">Sync invoices</span></li><li><i>20</i></li><li><i>21</i><span class="ev c" data-beat="1">Weekly report</span></li><li><i>22</i></li>
-            <li><i>23</i><span class="ev d" data-beat="1">Dependency check</span></li><li><i>24</i><span class="ev a" data-beat="1">Daily digest</span></li><li><i>25</i></li><li><i>26</i><span class="ev b" data-beat="1">Sync invoices</span></li><li><i>27</i></li><li><i>28</i><span class="ev c" data-beat="1">Weekly report</span></li><li><i>29</i></li>
-          </ol>
-          <p class="cal-off" data-beat="2" data-until="3">Computer off · Tue 18 – Wed 19</p>
-          <p class="m-done" data-beat="3"><span class="tick"></span>Back on: caught up 2 missed runs <small>database backup, sync invoices</small></p>
-        </div>
-      </div>
-
-      <!-- 07: one message, two models, side by side -->
-      <div class="t-panel" role="tabpanel" id="p-compare" aria-labelledby="tab-compare" data-demo data-pace="900" hidden>
-        <div class="t-copy">
-          <h3>Not sure which model? Ask two.</h3>
-          <p>Send the same message to two models side by side, watch both work, and keep the better answer. Then set spending limits per user, chat or message.</p>
-          <ol class="t-steps">
-            <li><button data-goto="0" aria-pressed="false">One message</button></li>
-            <li><button data-goto="1" aria-pressed="false">Two answers</button></li>
-            <li><button data-goto="3" aria-pressed="false">Keep the better one</button></li>
-          </ol>
-        </div>
-        <div class="t-screen two" aria-hidden="true">
-          <div class="app pane">
-            <p class="pane-who"><span class="av m1">A</span> A big cloud model <small class="cost" data-beat="2">$0.021</small></p>
-            <div class="chat">
-              <p class="m-user" data-beat="0">Plan moving our orders table from MySQL to Postgres</p>
-              <p class="m-reply" data-beat="1">1. Dual-write behind a flag. 2. Backfill in batches of 50k, checking row counts. 3. Switch reads…</p>
-              <p class="m-done keep" data-beat="3" data-press><span class="tick"></span>Kept this one</p>
-            </div>
-          </div>
-          <div class="app pane">
-            <p class="pane-who"><span class="av m2">B</span> A small local model <small class="cost" data-beat="2">$0.000</small></p>
-            <div class="chat">
-              <p class="m-user" data-beat="0">Plan moving our orders table from MySQL to Postgres</p>
-              <p class="m-reply" data-beat="1">1. Export with mysqldump. 2. Convert the schema. 3. Import, then switch over…</p>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
 </section>

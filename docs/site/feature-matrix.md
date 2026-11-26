@@ -10,7 +10,7 @@ after " — " in a heading is the category's one-line lede.
 **Legend:** ● yes · ◐ partly · ○ no · – doesn't apply / not found in their docs · ◇ coming soon
 
 **Order (Phil: "order the feature categories by what's unique or strongest"):** ranked by how few competitors match the
-harness's ● rows in each category, with the approval preview (the signature) pulled up. "Where you use it" (no desktop
+harness's ● rows in each category, with the systems out of the box first. Approval previews sit after memory (Phil: "Shows it's work and asks before it acts is not the selling point of this"). "Where you use it" (no desktop
 app) is last.
 
 ## Ready out of the box — Systems for real work, built in
@@ -32,15 +32,6 @@ app) is last.
 | Catches up missed runs | ● | – | ◐ | – | ● | ● | – | – | – | ● | – |
 | Runs on a schedule | ● | ◐ | ● | ◐ | ● | ● | ● | ● | ● | ● | – |
 | Several tasks at once | ● | ● | ● | ● | ● | ● | ● | – | ● | ◐ | ○ |
-
-## See it before it happens — Every change previewed, then approved
-
-| | Harness | OpenCode | Claude | herdr | OpenClaw | Hermes | Codex | Open WebUI | goose | n8n | pi |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| Shows exactly what will change | ● rows, files, commands | – | ◐ code edits | – | – | – | – | – | – | – | ○ |
-| Asks before acting | ● | ● | ● | ◐ | ● | ● | ● | – | ● | ● | ○ |
-| Undo a step | ◐ last step | ● | ◐ | – | ◐ | ● | ◐ | – | – | – | ◐ |
-| Tools kept in a sandbox | ◐ | ○ | ● | ○ | ◐ | ● | ● | ◐ | ◐ | – | ◐ |
 
 ## Your data, forms and charts — Ask about your own records
 
@@ -65,6 +56,15 @@ app) is last.
 | Private memories per user | ● | – | ● | – | ◐ | – | ● | ● | – | – | – |
 | Brings up memories by itself | ● | ○ | ● | – | ● | ● | ● | ● | ● | – | ○ |
 | Remembers you across chats | ● | ◐ | ● | – | ● | ● | ● | ● | ● | ◐ | ◐ |
+
+## See it before it happens — Every change previewed, then approved
+
+| | Harness | OpenCode | Claude | herdr | OpenClaw | Hermes | Codex | Open WebUI | goose | n8n | pi |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Shows exactly what will change | ● rows, files, commands | – | ◐ code edits | – | – | – | – | – | – | – | ○ |
+| Asks before acting | ● | ● | ● | ◐ | ● | ● | ● | – | ● | ● | ○ |
+| Undo a step | ◐ last step | ● | ◐ | – | ◐ | ● | ◐ | – | – | – | ◐ |
+| Tools kept in a sandbox | ◐ | ○ | ● | ○ | ◐ | ● | ● | ◐ | ◐ | – | ◐ |
 
 ## Users and permissions — Multiple users, with permission controls
 
@@ -108,12 +108,12 @@ WebUI), recalls memories by itself and private memories (Claude, ChatGPT, Open W
 
 | | |
 |---|---|
-| Previews every kind of change | Rows in a table, lines in a file, the exact command, a new system's skills: shown on the card before you approve. |
 | Calendar of what runs | Every reminder and repeating job on one calendar, each with its own approvals. |
 | Many computers, one assistant | Attach the files of several machines; it picks the right one. |
 | Spending limits at every level | The whole hub, a group, a user, a chat, or a single message. |
 | Tools shaped for each model | Every tool's format is fitted to the model in use, so cheaper models make fewer mistakes. |
 | Pictures for blind models | A model that can't see gets a description and can ask questions about the image. |
+| Previews every kind of change | Rows in a table, lines in a file, the exact command, a new system's skills: shown on the card before you approve. |
 | Honest undo report | Undo says what it put back and what it couldn't. |
 | Tested end to end by simulated users | Everyday requests played by simulated users and judged on the result. |
 
