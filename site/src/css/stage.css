@@ -487,3 +487,5 @@
 .tick-clock::after { content: "0:04"; animation: clock 4s steps(1) infinite; }
 @keyframes clock { 0% { content: "0:04"; } 25% { content: "0:13"; } 50% { content: "0:24"; } 75% { content: "0:35"; } }
 @media (max-width: 640px) { .run-body .k { min-width: 0; margin-right: 6px; } }
+/* with script, only the floating copy sticks to the top; the table's own header row stays in the table */
+.js .matrix thead th { top: auto; }

@@ -210,5 +210,7 @@
     window.addEventListener('scroll', sync, { passive: true });
     wrap.addEventListener('scroll', sync, { passive: true });
     window.addEventListener('resize', floatHead);
+    window.addEventListener('load', floatHead);
+    if (document.fonts && document.fonts.ready) { document.fonts.ready.then(floatHead); }
   }
 })();
