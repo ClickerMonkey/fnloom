@@ -2,6 +2,7 @@
   "name": "@harness/system-mcp",
   "private": true,
   "version": "0.0.0",
+  "license": "Apache-2.0",
   "type": "module",
   "description": "Development only: system.json holds this system's name, version and entries. Build 9 skeleton (mcp lane).",
   "exports": {

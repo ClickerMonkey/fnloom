@@ -2,6 +2,7 @@
   "name": "@harness/system-embedder",
   "private": true,
   "version": "0.0.0",
+  "license": "Apache-2.0",
   "type": "module",
   "description": "The embedder system: product's EmbeddingGemma service (768 dimensions) as a harness embedder.",
   "exports": {

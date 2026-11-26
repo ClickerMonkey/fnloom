@@ -96,7 +96,7 @@ app) is last.
 | In the browser | ● | ● | ● | ○ | ● | ● | ● | ● | – | ● | – |
 | Runs on your machine | ● | ● | ◐ | ● | ● | ● | ◐ | ● | ● | ● | ● |
 | Desktop app | ○ | ● | ● | ● | ● | ● | ● | ● | ● | – | – |
-| Open source | ● licence soon | ● MIT | ○ | ● Apache | ● MIT | ● MIT | ◐ | ◐ | ● Apache | ◐ | ● MIT |
+| Open source | ● Apache | ● MIT | ○ | ● Apache | ● MIT | ● MIT | ◐ | ◐ | ● Apache | ◐ | ● MIT |
 | Price | free + your model | free / $10+ | $0–200/mo | free | free | free | free / $8+ | free | free | free / €20+ | free + your model |
 
 ## Only here, as far as we found
@@ -128,7 +128,7 @@ WebUI), recalls memories by itself and private memories (Claude, ChatGPT, Open W
 - **Web research** needs a paid search key (Do not claim 4), hence the note.
 - **Undo** ◐: only the last message; database changes, commands and outside sends can't be undone.
 - **On your phone** is now ● (installable web app with push alerts; `systems-out-of-box.md` § 4).
-- **Open source:** Phil, 2026-11-26: "It will be open source"; the licence is still to choose.
+- **Open source:** Phil, 2026-11-26: "It will be open source", then "Yeah apache 2 is good": Apache-2.0 (LICENSE, NOTICE).
 - **No household framing** (Phil, 2026-11-26: "I don't like the home angle … It does support multiple users and
   permission controls, that's the extent of what should be said in that topic"): the people category is "Users and
   permissions"; the "elsewhere" list says "simulated users".

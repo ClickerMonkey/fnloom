@@ -2,6 +2,7 @@
   "name": "@harness/cli",
   "private": true,
   "version": "0.0.0",
+  "license": "Apache-2.0",
   "type": "module",
   "description": "The harness CLI: make, build, pack and install systems, export their data, and bridge a hub MCP to stdio.",
   "bin": {

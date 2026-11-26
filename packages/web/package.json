@@ -2,6 +2,7 @@
   "name": "@harness/web",
   "private": true,
   "version": "0.0.0",
+  "license": "Apache-2.0",
   "type": "module",
   "description": "The chat and admin web app: Vue 3, vue-router, ayepi client callers.",
   "scripts": {

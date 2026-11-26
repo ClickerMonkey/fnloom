@@ -2,6 +2,7 @@
   "name": "@harness/core",
   "private": true,
   "version": "0.0.0",
+  "license": "Apache-2.0",
   "type": "module",
   "description": "Wire contracts: zod schemas and ayepi specs for the system link (both directions), the web API and events. Every record and wire type is derived from them.",
   "exports": {

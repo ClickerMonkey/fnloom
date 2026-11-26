@@ -2,6 +2,7 @@
   "name": "@harness/hub",
   "private": true,
   "version": "0.0.0",
+  "license": "Apache-2.0",
   "type": "module",
   "description": "The hub: store, catalog, system links, execution, chat, index and the web API.",
   "exports": {

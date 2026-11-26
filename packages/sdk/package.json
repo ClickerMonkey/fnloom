@@ -2,6 +2,7 @@
   "name": "@harness/sdk",
   "private": true,
   "version": "0.0.0",
+  "license": "Apache-2.0",
   "type": "module",
   "description": "The system author SDK: contracts (system, fn, type, ...), the serve runtime and client renderers.",
   "exports": {

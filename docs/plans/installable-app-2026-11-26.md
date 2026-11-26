@@ -48,4 +48,4 @@ feature list say so (and the site's "Desktop app" and "On your phone" rows chang
 ## For Phil
 
 - Native store apps (Tauri / Capacitor) later, or the installable web app is enough?
-- The licence for open-sourcing (MIT or Apache-2.0).
+- ~~The licence~~ Decided (Phil, verbatim): "Yeah apache 2 is good". Apache-2.0: `LICENSE`, `NOTICE`, `"license"` in every package.json.
