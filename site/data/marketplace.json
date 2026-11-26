@@ -1,0 +1,775 @@
+{
+  "note": "Mock data for the marketplace preview (docs/plans/marketplace-2026-11-26.md, phase M0). Built-in listings describe the real first-party systems (docs/site/research/systems-out-of-box.md); every listing with \"example\": true is made up to show the layout and says so on the page.",
+  "badges": {
+    "builtin": "Built in",
+    "verified": "Verified publisher",
+    "builds": "Builds cleanly"
+  },
+  "categories": [
+    {
+      "id": "data",
+      "name": "Data & records"
+    },
+    {
+      "id": "code",
+      "name": "Code & tools"
+    },
+    {
+      "id": "knowledge",
+      "name": "Knowledge & research"
+    },
+    {
+      "id": "files",
+      "name": "Files & devices"
+    },
+    {
+      "id": "models",
+      "name": "Models"
+    },
+    {
+      "id": "time",
+      "name": "Time & schedules"
+    },
+    {
+      "id": "ops",
+      "name": "Ops & monitoring"
+    },
+    {
+      "id": "business",
+      "name": "Business"
+    }
+  ],
+  "featured": [
+    "database",
+    "claude",
+    "mcp",
+    "web",
+    "issues",
+    "uptime"
+  ],
+  "systems": [
+    {
+      "id": "database",
+      "title": "Databases",
+      "publisher": "{{name}}",
+      "glyph": "▦",
+      "hue": 205,
+      "categories": [
+        "data"
+      ],
+      "badges": [
+        "builtin",
+        "builds"
+      ],
+      "version": "0.1.0",
+      "summary": "Ask SQLite, Postgres or SQL Server questions in plain words; every query is saved as a tool.",
+      "pitch": "Plain-words questions for SQLite, Postgres and SQL Server.",
+      "fns": [
+        {
+          "label": "Ask a question",
+          "mode": "read"
+        },
+        {
+          "label": "Change rows",
+          "mode": "write",
+          "asks": true
+        },
+        {
+          "label": "Change a table",
+          "mode": "write",
+          "asks": true
+        }
+      ],
+      "needs": [
+        "A database connection, added by an admin"
+      ]
+    },
+    {
+      "id": "claude",
+      "title": "Claude Code",
+      "publisher": "{{name}}",
+      "glyph": "✳",
+      "hue": 20,
+      "categories": [
+        "code"
+      ],
+      "badges": [
+        "builtin",
+        "builds"
+      ],
+      "version": "0.1.0",
+      "summary": "Start, watch and steer Claude Code sessions on your computers; its questions arrive as approval cards.",
+      "pitch": "Run and steer Claude Code from any device.",
+      "fns": [
+        {
+          "label": "Start a session",
+          "mode": "write",
+          "asks": true
+        },
+        {
+          "label": "Send a message",
+          "mode": "write"
+        },
+        {
+          "label": "Answer its prompts",
+          "mode": "write",
+          "asks": true
+        }
+      ],
+      "needs": [
+        "Claude Code signed in on that computer"
+      ]
+    },
+    {
+      "id": "mcp",
+      "title": "MCP servers",
+      "publisher": "{{name}}",
+      "glyph": "⧉",
+      "hue": 250,
+      "categories": [
+        "code"
+      ],
+      "badges": [
+        "builtin",
+        "builds"
+      ],
+      "version": "0.1.0",
+      "summary": "Plug in any MCP tool server, local or remote, with sign-in: its tools, prompts and files appear, with approvals.",
+      "pitch": "Every MCP tool server, with approvals.",
+      "fns": [
+        {
+          "label": "The server's tools",
+          "mode": "write",
+          "asks": true
+        },
+        {
+          "label": "The server's prompts",
+          "mode": "read"
+        }
+      ],
+      "needs": [
+        "An admin adds each server"
+      ]
+    },
+    {
+      "id": "api",
+      "title": "Web APIs",
+      "publisher": "{{name}}",
+      "glyph": "⇄",
+      "hue": 190,
+      "categories": [
+        "code"
+      ],
+      "badges": [
+        "builtin",
+        "builds"
+      ],
+      "version": "0.1.0",
+      "summary": "Point it at a service's API description and it makes a tool for each request; everyone connects their own key.",
+      "fns": [
+        {
+          "label": "Add a service",
+          "mode": "write",
+          "asks": true
+        },
+        {
+          "label": "Call a request",
+          "mode": "write",
+          "asks": true
+        }
+      ],
+      "needs": [
+        "The service's API description (OpenAPI)"
+      ]
+    },
+    {
+      "id": "code",
+      "title": "Builds its own tools",
+      "publisher": "{{name}}",
+      "glyph": "{ }",
+      "hue": 120,
+      "categories": [
+        "code"
+      ],
+      "badges": [
+        "builtin",
+        "builds"
+      ],
+      "version": "0.1.0",
+      "summary": "Writes small, checked programs over its other tools and saves them as new tools you can reuse and share.",
+      "fns": [
+        {
+          "label": "Make a tool",
+          "mode": "write"
+        },
+        {
+          "label": "Run a saved tool",
+          "mode": "read"
+        }
+      ],
+      "needs": []
+    },
+    {
+      "id": "web",
+      "title": "Web research",
+      "publisher": "{{name}}",
+      "glyph": "⌕",
+      "hue": 175,
+      "categories": [
+        "knowledge"
+      ],
+      "badges": [
+        "builtin",
+        "builds"
+      ],
+      "version": "0.1.0",
+      "summary": "Searches the web, reads pages as clean text, crawls a site section, and keeps every page it read.",
+      "pitch": "Search, read and crawl, with sources kept.",
+      "fns": [
+        {
+          "label": "Search",
+          "mode": "read"
+        },
+        {
+          "label": "Read a page",
+          "mode": "read"
+        },
+        {
+          "label": "Crawl a site",
+          "mode": "read"
+        }
+      ],
+      "needs": [
+        "A search service key"
+      ]
+    },
+    {
+      "id": "embedder",
+      "title": "Search by meaning",
+      "publisher": "{{name}}",
+      "glyph": "≈",
+      "hue": 95,
+      "categories": [
+        "knowledge"
+      ],
+      "badges": [
+        "builtin",
+        "builds"
+      ],
+      "version": "0.1.0",
+      "summary": "Lets search, suggestions and memory recall find things by what they mean, with a local embedding model.",
+      "fns": [
+        {
+          "label": "Embed text",
+          "mode": "read"
+        }
+      ],
+      "needs": [
+        "The local embedding service"
+      ]
+    },
+    {
+      "id": "fs",
+      "title": "Files and folders",
+      "publisher": "{{name}}",
+      "glyph": "▢",
+      "hue": 215,
+      "categories": [
+        "files"
+      ],
+      "badges": [
+        "builtin",
+        "builds"
+      ],
+      "version": "0.1.0",
+      "summary": "Reads, searches, writes and edits files in the folders you choose, on any computer, with undo for every write.",
+      "fns": [
+        {
+          "label": "Read and search",
+          "mode": "read"
+        },
+        {
+          "label": "Write and edit",
+          "mode": "write",
+          "asks": true
+        },
+        {
+          "label": "Run a command",
+          "mode": "write",
+          "asks": true
+        }
+      ],
+      "needs": [
+        "The folders it may use"
+      ]
+    },
+    {
+      "id": "input",
+      "title": "Forms",
+      "publisher": "{{name}}",
+      "glyph": "☰",
+      "hue": 280,
+      "categories": [
+        "data"
+      ],
+      "badges": [
+        "builtin",
+        "builds"
+      ],
+      "version": "0.1.0",
+      "summary": "Asks with a proper form in the chat (text, choices, numbers, dates) and can keep the form for next time.",
+      "fns": [
+        {
+          "label": "Ask with a form",
+          "mode": "read"
+        },
+        {
+          "label": "Save a form",
+          "mode": "write"
+        }
+      ],
+      "needs": []
+    },
+    {
+      "id": "widgets",
+      "title": "Charts and widgets",
+      "publisher": "{{name}}",
+      "glyph": "◔",
+      "hue": 35,
+      "categories": [
+        "data"
+      ],
+      "badges": [
+        "builtin",
+        "builds"
+      ],
+      "version": "0.1.0",
+      "summary": "Turns any result into a live chart or table with filters, proposed with a preview; press Save to keep it.",
+      "fns": [
+        {
+          "label": "Make a chart",
+          "mode": "read"
+        },
+        {
+          "label": "Save a chart",
+          "mode": "write"
+        }
+      ],
+      "needs": []
+    },
+    {
+      "id": "schedule",
+      "title": "Schedules",
+      "publisher": "{{name}}",
+      "glyph": "◷",
+      "hue": 60,
+      "categories": [
+        "time"
+      ],
+      "badges": [
+        "builtin",
+        "builds"
+      ],
+      "version": "0.1.0",
+      "summary": "Runs any saved tool later, once or repeating, shows it all on a calendar, and catches up runs it missed.",
+      "fns": [
+        {
+          "label": "Add a schedule",
+          "mode": "write",
+          "asks": true
+        },
+        {
+          "label": "Pause or skip",
+          "mode": "write"
+        },
+        {
+          "label": "Calendar",
+          "mode": "read"
+        }
+      ],
+      "needs": []
+    },
+    {
+      "id": "google-calendar",
+      "title": "Google Calendar",
+      "publisher": "{{name}}",
+      "glyph": "▣",
+      "hue": 0,
+      "categories": [
+        "time"
+      ],
+      "badges": [
+        "builtin",
+        "builds"
+      ],
+      "version": "0.1.0",
+      "summary": "Each person connects their own calendar; it sees events and, as each person allows, adds and changes them.",
+      "fns": [
+        {
+          "label": "See events",
+          "mode": "read"
+        },
+        {
+          "label": "Add or change events",
+          "mode": "write",
+          "asks": true
+        }
+      ],
+      "needs": [
+        "A Google sign-in for each person"
+      ]
+    },
+    {
+      "id": "ollama",
+      "title": "Local models",
+      "publisher": "{{name}}",
+      "glyph": "◍",
+      "hue": 140,
+      "categories": [
+        "models"
+      ],
+      "badges": [
+        "builtin",
+        "builds"
+      ],
+      "version": "0.1.0",
+      "summary": "Installs and runs Ollama for you, pulls the models an admin picks, and offers them in the model picker.",
+      "fns": [
+        {
+          "label": "Install and start",
+          "mode": "write",
+          "asks": true
+        },
+        {
+          "label": "Pull a model",
+          "mode": "write",
+          "asks": true
+        }
+      ],
+      "needs": []
+    },
+    {
+      "publisher": "example-publisher",
+      "example": true,
+      "badges": [
+        "builds",
+        "verified"
+      ],
+      "id": "issues",
+      "title": "Issue tracker",
+      "glyph": "⌁",
+      "hue": 280,
+      "categories": [
+        "code",
+        "business"
+      ],
+      "version": "0.4.2",
+      "summary": "Find, file and update issues in your tracker from any chat; new issues wait for your OK.",
+      "pitch": "Find, file and update issues by asking.",
+      "fns": [
+        {
+          "label": "Search issues",
+          "mode": "read"
+        },
+        {
+          "label": "File an issue",
+          "mode": "write",
+          "asks": true
+        },
+        {
+          "label": "Comment or close",
+          "mode": "write",
+          "asks": true
+        }
+      ],
+      "needs": [
+        "A token for your tracker"
+      ]
+    },
+    {
+      "publisher": "example-publisher",
+      "example": true,
+      "badges": [
+        "builds"
+      ],
+      "id": "uptime",
+      "title": "Uptime checks",
+      "glyph": "◎",
+      "hue": 150,
+      "categories": [
+        "ops",
+        "time"
+      ],
+      "version": "1.1.0",
+      "summary": "Checks your sites and endpoints on a schedule and tells the right user when one goes down.",
+      "pitch": "Know first when something goes down.",
+      "fns": [
+        {
+          "label": "Check now",
+          "mode": "read"
+        },
+        {
+          "label": "Add a check",
+          "mode": "write"
+        }
+      ],
+      "needs": []
+    },
+    {
+      "publisher": "example-publisher",
+      "example": true,
+      "badges": [
+        "builds"
+      ],
+      "id": "team-chat",
+      "title": "Team chat",
+      "glyph": "✉",
+      "hue": 35,
+      "categories": [
+        "business"
+      ],
+      "version": "0.3.1",
+      "summary": "Posts updates and reports to your team chat channels, and reads a channel when you ask.",
+      "fns": [
+        {
+          "label": "Read a channel",
+          "mode": "read"
+        },
+        {
+          "label": "Post a message",
+          "mode": "write",
+          "asks": true
+        }
+      ],
+      "needs": [
+        "A bot token"
+      ]
+    },
+    {
+      "publisher": "example-publisher",
+      "example": true,
+      "badges": [
+        "builds"
+      ],
+      "id": "weather",
+      "title": "Weather",
+      "glyph": "☀",
+      "hue": 45,
+      "categories": [
+        "knowledge"
+      ],
+      "version": "0.2.0",
+      "summary": "Forecasts and warnings for any place, from a public weather service.",
+      "fns": [
+        {
+          "label": "Forecast",
+          "mode": "read"
+        }
+      ],
+      "needs": []
+    },
+    {
+      "publisher": "example-publisher",
+      "example": true,
+      "badges": [
+        "builds"
+      ],
+      "id": "invoices",
+      "title": "Invoices",
+      "glyph": "$",
+      "hue": 120,
+      "categories": [
+        "business",
+        "data"
+      ],
+      "version": "0.6.1",
+      "summary": "Drafts, sends and tracks invoices, and reminds you a few days before one is overdue.",
+      "fns": [
+        {
+          "label": "What’s outstanding",
+          "mode": "read"
+        },
+        {
+          "label": "Send an invoice",
+          "mode": "write",
+          "asks": true
+        }
+      ],
+      "needs": []
+    },
+    {
+      "publisher": "example-publisher",
+      "example": true,
+      "badges": [
+        "builds"
+      ],
+      "id": "logs",
+      "title": "Log search",
+      "glyph": "≡",
+      "hue": 200,
+      "categories": [
+        "ops"
+      ],
+      "version": "0.2.4",
+      "summary": "Searches your services’ logs in plain words and charts errors over time.",
+      "fns": [
+        {
+          "label": "Search logs",
+          "mode": "read"
+        },
+        {
+          "label": "Error chart",
+          "mode": "read"
+        }
+      ],
+      "needs": [
+        "Read access to your logs"
+      ]
+    },
+    {
+      "publisher": "example-publisher",
+      "example": true,
+      "badges": [
+        "builds"
+      ],
+      "id": "cloud-costs",
+      "title": "Cloud costs",
+      "glyph": "☁",
+      "hue": 220,
+      "categories": [
+        "ops",
+        "business"
+      ],
+      "version": "0.5.0",
+      "summary": "Pulls your cloud bill by service and project, and flags anything that jumped this week.",
+      "fns": [
+        {
+          "label": "Costs by service",
+          "mode": "read"
+        },
+        {
+          "label": "Weekly change",
+          "mode": "read"
+        }
+      ],
+      "needs": [
+        "A read-only billing key"
+      ]
+    },
+    {
+      "publisher": "example-publisher",
+      "example": true,
+      "badges": [
+        "builds",
+        "verified"
+      ],
+      "id": "crm",
+      "title": "Contacts and deals",
+      "glyph": "◈",
+      "hue": 330,
+      "categories": [
+        "business",
+        "data"
+      ],
+      "version": "0.3.0",
+      "summary": "Keeps contacts, companies and deals, with reminders to follow up.",
+      "fns": [
+        {
+          "label": "Find a contact",
+          "mode": "read"
+        },
+        {
+          "label": "Log a deal",
+          "mode": "write"
+        }
+      ],
+      "needs": []
+    },
+    {
+      "publisher": "example-publisher",
+      "example": true,
+      "badges": [
+        "builds"
+      ],
+      "id": "docs-search",
+      "title": "Docs search",
+      "glyph": "▤",
+      "hue": 75,
+      "categories": [
+        "knowledge",
+        "files"
+      ],
+      "version": "0.1.0",
+      "summary": "Reads a folder of PDFs and documents, and answers questions with the page it found it on.",
+      "fns": [
+        {
+          "label": "Ask the docs",
+          "mode": "read"
+        }
+      ],
+      "needs": [
+        "A folder of documents"
+      ]
+    },
+    {
+      "publisher": "example-publisher",
+      "example": true,
+      "badges": [
+        "builds"
+      ],
+      "id": "images",
+      "title": "Image library",
+      "glyph": "◩",
+      "hue": 300,
+      "categories": [
+        "files"
+      ],
+      "version": "0.5.0",
+      "summary": "Finds images by what’s in them, and tags and sorts them by asking.",
+      "fns": [
+        {
+          "label": "Find images",
+          "mode": "read"
+        },
+        {
+          "label": "Tag and sort",
+          "mode": "write",
+          "asks": true
+        }
+      ],
+      "needs": [
+        "The folders your images are in"
+      ]
+    },
+    {
+      "publisher": "example-publisher",
+      "example": true,
+      "badges": [
+        "builds"
+      ],
+      "id": "dns",
+      "title": "DNS records",
+      "glyph": "⌬",
+      "hue": 190,
+      "categories": [
+        "ops"
+      ],
+      "version": "0.2.2",
+      "summary": "Lists and changes DNS records, with the exact record change shown before you approve.",
+      "fns": [
+        {
+          "label": "List records",
+          "mode": "read"
+        },
+        {
+          "label": "Change a record",
+          "mode": "write",
+          "asks": true
+        }
+      ],
+      "needs": [
+        "A DNS provider token"
+      ]
+    }
+  ]
+}

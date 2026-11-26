@@ -16,3 +16,7 @@ ui-tests/gallery*/
 .harness-test/
 # npm run live: pinned builds of the hub and web app, one folder per commit
 .live/
+
+# the marketing site: built output and preview shots
+site/dist/
+site/preview/

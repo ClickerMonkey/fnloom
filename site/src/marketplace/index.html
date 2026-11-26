@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{name}} Systems</title>
+<meta name="description" content="The {{name}} system marketplace (preview): skills for your agent harness, published in public repositories, built and checked, installed with one approval.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../img/mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../css/site.css">
+<link rel="stylesheet" href="../css/stage.css">
+<link rel="stylesheet" href="../css/market.css">
+<script>try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;}catch(e){}document.documentElement.classList.add('js');</script>
+</head>
+<body class="market">
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top" data-top>
+  <div class="wrap top-in">
+    <a class="brand" href="../" aria-label="{{name}}, home">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="5.5"/><path d="M16 2.5v8M16 21.5v8M2.5 16h8M21.5 16h8" /><circle cx="16" cy="2.5" r="2"/><circle cx="16" cy="29.5" r="2"/><circle cx="2.5" cy="16" r="2"/><circle cx="29.5" cy="16" r="2"/></svg>
+      <span>{{name}} <span class="brand-sub">Systems</span></span>
+    </a>
+    <nav aria-label="Sections">
+      <ul>
+        <li><a href="#browse">Browse</a></li>
+        <li><a href="#install">Installing</a></li>
+        <li><a href="#publish">Publish yours</a></li>
+        <li><a href="../">About {{name}}</a></li>
+      </ul>
+    </nav>
+    <button class="theme" type="button" aria-label="Switch to dark theme" data-theme-toggle>
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="i-moon"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="i-sun"><circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1"/></svg>
+    </button>
+  </div>
+</header>
+
+<p class="preview-bar">A preview of the marketplace. The built-in systems are real; listings marked <span class="ex">example</span> are made up to show the layout.</p>
+
+<main id="main">
+<section class="m-hero" aria-labelledby="m-title">
+  <div class="wrap">
+    <p class="kicker" data-reveal>The system marketplace</p>
+    <h1 id="m-title" data-reveal style="--i:1">New skills for your assistant. <em>Checked before they’re listed.</em></h1>
+    <p class="lede" data-reveal style="--i:2">Systems are plug-in skills: a database, an issue tracker, uptime checks. People publish them in their own public repositories; we build and check each one at an exact version, and your admin approves it before it goes live.</p>
+    <form class="m-search" role="search" data-reveal style="--i:3" onsubmit="return false">
+      <label class="vh" for="m-q">Search systems</label>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>
+      <input id="m-q" type="search" placeholder="Search: issues, calendar, databases…" autocomplete="off">
+      <kbd aria-hidden="true">/</kbd>
+    </form>
+    <ul class="f-row" aria-label="Featured">
+<!-- build:market-featured -->
+    </ul>
+  </div>
+</section>
+
+<section class="m-browse" id="browse" aria-labelledby="browse-title">
+  <div class="wrap">
+    <div class="m-bar">
+      <h2 id="browse-title">Browse</h2>
+      <p class="m-count" aria-live="polite" id="m-count"></p>
+    </div>
+    <div class="m-chips" role="group" aria-label="Categories">
+<!-- build:market-chips -->
+    </div>
+<!-- build:market-grid -->
+    <p class="m-empty" id="m-empty" hidden>Nothing matches yet. Ask {{name}} to build it: it can write systems too.</p>
+  </div>
+</section>
+
+<section class="band m-how" id="install" aria-labelledby="install-title">
+  <div class="wrap">
+    <p class="kicker" data-reveal>Installing</p>
+    <h2 id="install-title" data-reveal>One approval card. Nothing hidden.</h2>
+    <ol class="m-steps">
+      <li data-reveal><b>Pick a system</b><p>Each listing shows what it can do, what it reads and what it changes, and what it needs from you.</p></li>
+      <li data-reveal style="--i:1"><b>Your admin approves</b><p>Your hub builds that exact version, checks it, and shows the admin every skill it adds before anything runs.</p></li>
+      <li data-reveal style="--i:2"><b>It runs on your computer</b><p>The system runs on a machine you choose, with only the access it declared, and anything that changes things still asks.</p></li>
+    </ol>
+  </div>
+</section>
+
+<section class="m-publish" id="publish" aria-labelledby="publish-title">
+  <div class="wrap pub-in">
+    <div>
+      <p class="kicker" data-reveal>Publish yours</p>
+      <h2 id="publish-title" data-reveal>Put it in a public repository. That’s it.</h2>
+      <p class="section-lede" data-reveal>There’s nothing to upload. Put your system in a public repository, under <code>systems/&lt;name&gt;/</code> or at its root, add the repository topic <code>{{topic}}</code>, and the marketplace finds it, builds it, checks it and lists it at that exact version. Push a new tag to publish an update.</p>
+      <p class="section-lede" data-reveal>Don’t want to write code? Ask {{name}} to build the system with you; it writes the folder, checks it and installs it on your own hub first.</p>
+    </div>
+    <pre class="tree" data-reveal aria-label="An example repository layout"><code><b>your-repo/</b>
+└─ systems/
+   └─ <b>uptime-checks/</b>
+      ├─ system.json      <i>name, version, what it does</i>
+      ├─ server/main.ts   <i>its skills</i>
+      ├─ client/          <i>optional: its own screens</i>
+      └─ marketplace/     <i>optional: icon, screenshots</i></code></pre>
+  </div>
+</section>
+</main>
+
+<div class="m-detail" id="m-detail" hidden>
+  <div class="m-scrim" data-close></div>
+  <article class="m-sheet" role="dialog" aria-modal="true" aria-labelledby="d-title" tabindex="-1">
+    <button class="m-x" type="button" data-close aria-label="Close">×</button>
+    <div id="d-body"></div>
+  </article>
+</div>
+
+<footer class="foot">
+  <div class="wrap">
+    <p class="colophon">{{name}} Systems · a preview with example listings · <a href="../">{{name}}</a></p>
+  </div>
+</footer>
+
+<!-- build:market-json -->
+<script src="../js/site.js" defer></script>
+<script src="../js/market.js" defer></script>
+</body>
+</html>
