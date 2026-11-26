@@ -83,6 +83,36 @@
     });
   });
 
+  // ---- defined terms: keep each tip on screen; tap opens one on touch screens; Escape closes
+  var terms = Array.prototype.slice.call(document.querySelectorAll('.term'));
+  function place(term) {
+    var tip = term.querySelector('.tip');
+    if (!tip) { return; }
+    tip.style.setProperty('--dx', '0px');
+    tip.classList.remove('below');
+    var r = tip.getBoundingClientRect();
+    var pad = 12;
+    var dx = r.left < pad ? pad - r.left : r.right > window.innerWidth - pad ? window.innerWidth - pad - r.right : 0;
+    tip.style.setProperty('--dx', dx + 'px');
+    if (r.top < 70) { tip.classList.add('below'); }
+  }
+  function closeAll(except) { terms.forEach(function (t) { if (t !== except) { t.classList.remove('open'); } }); }
+  terms.forEach(function (term) {
+    term.addEventListener('pointerenter', function () { place(term); });
+    term.addEventListener('focus', function () { place(term); });
+    term.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var open = !term.classList.contains('open');
+      closeAll(term);
+      term.classList.toggle('open', open);
+      if (open) { place(term); }
+    });
+  });
+  document.addEventListener('click', function () { closeAll(null); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { closeAll(null); if (document.activeElement && document.activeElement.classList.contains('term')) { document.activeElement.blur(); } }
+  });
+
   // ---- comparison: show or hide competitor columns
   var table = document.getElementById('matrix-table');
   var boxes = document.querySelectorAll('[data-toggle]');
