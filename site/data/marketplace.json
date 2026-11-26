@@ -12,7 +12,7 @@
     },
     {
       "id": "code",
-      "name": "Code & tools"
+      "name": "Code & fns"
     },
     {
       "id": "knowledge",
@@ -62,7 +62,7 @@
         "builds"
       ],
       "version": "0.1.0",
-      "summary": "Ask SQLite, Postgres or SQL Server questions in plain words; every query is saved as a tool.",
+      "summary": "Ask SQLite, Postgres or SQL Server questions in plain words; every query is saved as a fn.",
       "pitch": "Plain-words questions for SQLite, Postgres and SQL Server.",
       "fns": [
         {
@@ -134,11 +134,11 @@
         "builds"
       ],
       "version": "0.1.0",
-      "summary": "Plug in any MCP tool server, local or remote, with sign-in: its tools, prompts and files appear, with approvals.",
-      "pitch": "Every MCP tool server, with approvals.",
+      "summary": "Plug in any MCP server, local or remote, with sign-in: what it offers becomes fns and prompts, with approvals.",
+      "pitch": "Every MCP server, with approvals.",
       "fns": [
         {
-          "label": "The server's tools",
+          "label": "The server's fns",
           "mode": "write",
           "asks": true
         },
@@ -165,7 +165,7 @@
         "builds"
       ],
       "version": "0.1.0",
-      "summary": "Point it at a service's API description and it makes a tool for each request; everyone connects their own key.",
+      "summary": "Point it at a service's API description and every request becomes a fn; each user connects their own key.",
       "fns": [
         {
           "label": "Add a service",
@@ -184,7 +184,7 @@
     },
     {
       "id": "code",
-      "title": "Builds its own tools",
+      "title": "Builds its own fns",
       "publisher": "{{name}}",
       "glyph": "{ }",
       "hue": 120,
@@ -196,14 +196,14 @@
         "builds"
       ],
       "version": "0.1.0",
-      "summary": "Writes small, checked programs over its other tools and saves them as new tools you can reuse and share.",
+      "summary": "Writes small, checked programs over its other fns and saves them as new fns you can reuse and share.",
       "fns": [
         {
-          "label": "Make a tool",
+          "label": "Make a fn",
           "mode": "write"
         },
         {
-          "label": "Run a saved tool",
+          "label": "Run a saved fn",
           "mode": "read"
         }
       ],
@@ -371,7 +371,7 @@
         "builds"
       ],
       "version": "0.1.0",
-      "summary": "Runs any saved tool later, once or repeating, shows it all on a calendar, and catches up runs it missed.",
+      "summary": "Runs any saved fn later, once or repeating, shows it all on a calendar, and catches up runs it missed.",
       "fns": [
         {
           "label": "Add a schedule",

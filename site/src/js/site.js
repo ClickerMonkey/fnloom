@@ -83,34 +83,61 @@
     });
   });
 
-  // ---- defined terms: keep each tip on screen; tap opens one on touch screens; Escape closes
-  var terms = Array.prototype.slice.call(document.querySelectorAll('.term'));
-  function place(term) {
+  // ---- defined terms: one floating layer shows the definition of the term under the pointer, in focus, or tapped,
+  // above everything (sticky table headers, scrolling tables, cards). Delegated, so terms added later work too.
+  var layer = document.createElement('div');
+  layer.className = 'tip-layer';
+  layer.setAttribute('aria-hidden', 'true'); // the term's own tooltip (aria-describedby) is what assistive tech reads
+  document.body.appendChild(layer);
+  var active = null;
+  var pinned = null;
+  function show(term) {
     var tip = term.querySelector('.tip');
     if (!tip) { return; }
-    tip.style.setProperty('--dx', '0px');
-    tip.classList.remove('below');
-    var r = tip.getBoundingClientRect();
+    active = term;
+    if (layer.dataset.for !== tip.id) { layer.innerHTML = tip.innerHTML; layer.dataset.for = tip.id; }
+    layer.classList.add('on');
+    layer.classList.remove('below');
+    var r = term.getBoundingClientRect();
+    var w = layer.offsetWidth;
+    var h = layer.offsetHeight;
     var pad = 12;
-    var dx = r.left < pad ? pad - r.left : r.right > window.innerWidth - pad ? window.innerWidth - pad - r.right : 0;
-    tip.style.setProperty('--dx', dx + 'px');
-    if (r.top < 70) { tip.classList.add('below'); }
+    var cx = r.left + r.width / 2;
+    var left = Math.max(pad, Math.min(window.innerWidth - pad - w, cx - w / 2));
+    var top = r.top - h - 10;
+    if (top < 64) { top = r.bottom + 10; layer.classList.add('below'); }
+    layer.style.left = left + 'px';
+    layer.style.top = top + 'px';
+    layer.style.setProperty('--ax', Math.max(14, Math.min(w - 14, cx - left)) + 'px');
   }
-  function closeAll(except) { terms.forEach(function (t) { if (t !== except) { t.classList.remove('open'); } }); }
-  terms.forEach(function (term) {
-    term.addEventListener('pointerenter', function () { place(term); });
-    term.addEventListener('focus', function () { place(term); });
-    term.addEventListener('click', function (e) {
-      e.stopPropagation();
-      var open = !term.classList.contains('open');
-      closeAll(term);
-      term.classList.toggle('open', open);
-      if (open) { place(term); }
-    });
+  function hide() {
+    if (pinned) { show(pinned); return; }
+    active = null;
+    layer.classList.remove('on');
+  }
+  var termOf = function (el) { return el && el.closest ? el.closest('.term') : null; };
+  window.addEventListener('scroll', function () { if (active) { show(active); } }, { passive: true });
+  window.addEventListener('resize', function () { if (active) { show(active); } });
+  document.addEventListener('pointerover', function (e) { var t = termOf(e.target); if (t && e.pointerType !== 'touch') { show(t); } });
+  document.addEventListener('pointerout', function (e) {
+    var t = termOf(e.target);
+    if (t && !t.contains(e.relatedTarget) && e.pointerType !== 'touch' && document.activeElement !== t) { hide(); }
   });
-  document.addEventListener('click', function () { closeAll(null); });
+  document.addEventListener('focusin', function (e) { var t = termOf(e.target); if (t) { show(t); } });
+  document.addEventListener('focusout', function (e) { if (termOf(e.target)) { hide(); } });
+  document.addEventListener('click', function (e) {
+    var t = termOf(e.target);
+    if (!t) { if (pinned) { pinned.classList.remove('open'); pinned = null; hide(); } return; }
+    if (pinned === t) { t.classList.remove('open'); pinned = null; hide(); return; }
+    if (pinned) { pinned.classList.remove('open'); }
+    pinned = t;
+    t.classList.add('open');
+    show(t);
+  });
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') { closeAll(null); if (document.activeElement && document.activeElement.classList.contains('term')) { document.activeElement.blur(); } }
+    if (e.key !== 'Escape') { return; }
+    if (pinned) { pinned.classList.remove('open'); pinned = null; }
+    hide();
   });
 
   // ---- comparison: show or hide competitor columns

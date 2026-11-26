@@ -19,10 +19,10 @@ app) is last.
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | Files on several computers | ● | – | – | ◐ | ◐ | ◐ | – | – | – | – | – |
 | Works with databases | ● | – | ◐ | ○ | ◐ | – | – | ◐ | – | ● | – |
-| Saved web API calls | ● | – | – | – | – | – | – | ● | – | ● | – |
+| Web APIs as fns | ● | – | – | – | – | – | – | ● | – | ● | – |
 | Drives Claude Code | ● | – | – is Claude Code | ● | ● | ● | – | ◐ | ◐ | – | – |
 | Web research | ● with a search key | ● | ● | – | ● | ● | ● | ● | ◐ | ◐ | – |
-| MCP tool servers | ● | ● | ● | – | ● | ● | ● | ● | ● | ● | ● |
+| MCP servers | ● | ● | ● | – | ● | ● | ● | ● | ● | ● | ● |
 
 ## Runs on its own — Schedules you can see and trust
 
@@ -64,7 +64,7 @@ app) is last.
 | Shows exactly what will change | ● rows, files, commands | – | ◐ code edits | – | – | – | – | – | – | – | ○ |
 | Asks before acting | ● | ● | ● | ◐ | ● | ● | ● | – | ● | ● | ○ |
 | Undo a step | ◐ last step | ● | ◐ | – | ◐ | ● | ◐ | – | – | – | ◐ |
-| Tools kept in a sandbox | ◐ | ○ | ● | ○ | ◐ | ● | ● | ◐ | ◐ | – | ◐ |
+| Fns kept in a sandbox | ◐ | ○ | ● | ○ | ◐ | ● | ● | ◐ | ◐ | – | ◐ |
 
 ## Users and permissions — Multiple users, with permission controls
 
@@ -83,8 +83,8 @@ app) is last.
 
 | | Harness | OpenCode | Claude | herdr | OpenClaw | Hermes | Codex | Open WebUI | goose | n8n | pi |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| Makes its own tools | ● | ◐ | ● | ● | ● | ● | ● | – | – | ◐ | ● |
-| Plugs into other tools | ● | ● | ● | ◐ | ● | ● | ● | ● | ● | ● | ● |
+| Makes its own fns | ● | ◐ | ● | ● | ● | ● | ● | – | – | ◐ | ● |
+| Plugs into other apps | ● | ● | ● | ◐ | ● | ● | ● | ● | ● | ● | ● |
 | Add-on marketplace | ◇ coming | ◐ | ● | ● | ● | ● | ● | ● | ● | ● | ● |
 
 ## Where you use it — The same app on every screen
@@ -111,7 +111,7 @@ WebUI), recalls memories by itself and private memories (Claude, ChatGPT, Open W
 | Calendar of what runs | Every reminder and repeating job on one calendar, each with its own approvals. |
 | Many computers, one assistant | Attach the files of several machines; it picks the right one. |
 | Spending limits at every level | The whole hub, a group, a user, a chat, or a single message. |
-| Tools shaped for each model | Every tool's format is fitted to the model in use, so cheaper models make fewer mistakes. |
+| Fns shaped for each model | Every fn's format is fitted to the model in use, so cheaper models make fewer mistakes. |
 | Pictures for blind models | A model that can't see gets a description and can ask questions about the image. |
 | Previews every kind of change | Rows in a table, lines in a file, the exact command, a new system's skills: shown on the card before you approve. |
 | Honest undo report | Undo says what it put back and what it couldn't. |
@@ -132,3 +132,5 @@ WebUI), recalls memories by itself and private memories (Claude, ChatGPT, Open W
 - **No household framing** (Phil, 2026-11-26: "I don't like the home angle … It does support multiple users and
   permission controls, that's the extent of what should be said in that topic"): the people category is "Users and
   permissions"; the "elsewhere" list says "simulated users".
+- **fn, not tool** (Phil, 2026-11-26: "Use fn and fns not the spelled out word … don't call anything tools"): row labels
+  say fn/fns; the site underlines every fn and defines it on hover (`site/tools/build.mjs` DEFS).

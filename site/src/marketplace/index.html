@@ -43,7 +43,7 @@
   <div class="wrap">
     <p class="kicker" data-reveal>The system marketplace</p>
     <h1 id="m-title" data-reveal style="--i:1">New skills for your assistant. <em>Checked before they’re listed.</em></h1>
-    <p class="lede" data-reveal style="--i:2">Systems are plug-in skills: a database, an issue tracker, uptime checks. People publish them in their own public repositories; we build and check each one at an exact version, and your admin approves it before it goes live.</p>
+    <p class="lede" data-reveal style="--i:2">{{systems}} are plug-ins that bring new {{fns}}: a database, an issue tracker, uptime checks. People publish them in their own public repositories; we build and check each one at an exact version, and your admin approves it before it goes live.</p>
     <form class="m-search" role="search" data-reveal style="--i:3" onsubmit="return false">
       <label class="vh" for="m-q">Search systems</label>
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>
@@ -75,8 +75,8 @@
     <p class="kicker" data-reveal>Installing</p>
     <h2 id="install-title" data-reveal>One approval card. Nothing hidden.</h2>
     <ol class="m-steps">
-      <li data-reveal><b>Pick a system</b><p>Each listing shows what it can do, what it reads and what it changes, and what it needs from you.</p></li>
-      <li data-reveal style="--i:1"><b>Your admin approves</b><p>Your hub builds that exact version, checks it, and shows the admin every skill it adds before anything runs.</p></li>
+      <li data-reveal><b>Pick a system</b><p>Each listing shows its {{fns}}: what each reads, what it changes, which ones ask first, and what the system needs from you.</p></li>
+      <li data-reveal style="--i:1"><b>Your admin approves</b><p>Your hub builds that exact version, checks it, and shows the admin every {{fn}} and {{kind}} it adds before anything runs.</p></li>
       <li data-reveal style="--i:2"><b>It runs on your computer</b><p>The system runs on a machine you choose, with only the access it declared, and anything that changes things still asks.</p></li>
     </ol>
   </div>
@@ -94,7 +94,7 @@
 └─ systems/
    └─ <b>uptime-checks/</b>
       ├─ system.json      <i>name, version, what it does</i>
-      ├─ server/main.ts   <i>its skills</i>
+      ├─ server/main.ts   <i>its fns</i>
       ├─ client/          <i>optional: its own screens</i>
       └─ marketplace/     <i>optional: icon, screenshots</i></code></pre>
   </div>

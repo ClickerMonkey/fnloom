@@ -33,7 +33,39 @@ const TOKENS = {
   topic: `${slug(config.name)}-system`,
   contact: config.contact || '',
 };
+// The harness's own words, always underlined and defined on hover, focus or tap ({{fn}}, {{fns}}, {{system}} …, in
+// HTML only). Phil: "Use fn and fns not the spelled out word so they learn about it … always have a hover. And separate
+// systems and functions they are separate things that need separate descriptions."
+const list = (items) => `<span class="tip-list">${items.map((i) => `<span>${i}</span>`).join('')}</span>`;
+const DEFS = {
+  fn: `<b class="tip-head">fn <i>(fns)</i></b>What ${esc(config.name)} acts with. Like a tool, but every fn also:${list([
+    'has typed inputs and results',
+    'shows its status live, with steps and progress',
+    'can be cancelled, paused, resumed or undone',
+    'says whether it reads or changes things; changes can ask first',
+    'calls only the fns it declares',
+    'keeps every version, and is private or shared',
+    'comes in kinds; a saved fn runs without a model',
+  ])}`,
+  system: `<b class="tip-head">system <i>(systems)</i></b>A plug-in that connects to the hub from any computer you own. Each one brings:${list([
+    'fns, and kinds to make more fns',
+    'context: guides and rules it can load',
+    'its own screens in the app',
+    'its own settings and keys',
+  ])}An admin reviews every system before it goes live.`,
+  kind: `<b class="tip-head">kind <i>(kinds)</i></b>A recipe for making fns: code programs, saved database queries, API requests, schedules, forms and charts are kinds. Any system can add a kind; it works out a new fn’s inputs, permissions and progress, so making one takes only a name and a description.`,
+};
+const TERMS = { fn: ['fn', 'fn'], fns: ['fn', 'fns'], system: ['system', 'system'], systems: ['system', 'systems'], kind: ['kind', 'kind'], kinds: ['kind', 'kinds'] };
+let termId = 0;
+const term = (def, word) => {
+  termId++;
+  return `<span class="term w-${def}" tabindex="0" aria-describedby="d${termId}">${word}<span class="tip" role="tooltip" id="d${termId}">${DEFS[def]}</span></span>`;
+};
+/** Wraps the words fn and fns in already-built HTML text (matrix labels, the "elsewhere" list). */
+const termify = (html) => html.replace(/\b(fns?)\b/g, (w) => term('fn', w));
+
 const fill = (text, escape) => text.replace(/\{\{(\w+)\}\}/g, (all, key) => {
+  if (escape && key in TERMS) { return term(...TERMS[key]); }
   if (!(key in TOKENS)) { throw new Error(`unknown token ${all}`); }
   return escape ? esc(TOKENS[key]) : TOKENS[key];
 });
@@ -114,13 +146,13 @@ function comparison() {
   }).join('');
 
   let matrix = `<table class="matrix" id="matrix-table">
-<caption class="vh">Features of ${esc(config.name)} and ${columns.length - 1} other AI agent tools, grouped by category, strongest first. Each cell says yes, partly, no, or not found.</caption>
+<caption class="vh">Features of ${esc(config.name)} and ${columns.length - 1} other AI agent harnesses and apps, grouped by category, strongest first. Each cell says yes, partly, no, or not found.</caption>
 <thead><tr><th scope="col" class="feat">Feature</th>${colHead}</tr></thead>\n`;
   sections.forEach((s, i) => {
     const lede = s.lede === '' ? '' : `<small>${esc(s.lede)}</small>`;
     matrix += `<tbody id="cat-${slug(s.title)}"><tr class="cat"><th scope="colgroup" colspan="${columns.length + 1}"><span><b>${String(i + 1).padStart(2, '0')}</b> ${esc(s.title)}${lede}</span></th></tr>\n`;
     for (const r of s.rows) {
-      matrix += `<tr><th scope="row" class="feat">${esc(r[0])}</th>${r.slice(1).map((c, j) => cell(c, columns[j])).join('')}</tr>\n`;
+      matrix += `<tr><th scope="row" class="feat">${termify(esc(r[0]))}</th>${r.slice(1).map((c, j) => cell(c, columns[j])).join('')}</tr>\n`;
     }
     matrix += '</tbody>\n';
   });
@@ -128,7 +160,7 @@ function comparison() {
 
   const chips = columns.filter((c) => c.key !== 'us')
     .map((c) => `<label class="chip"><input type="checkbox" data-toggle="${c.key}" checked> ${esc(c.label)}</label>`).join('\n');
-  const onlyHtml = `<ul class="only-list">\n${only.map(([t, d], i) => `<li data-reveal style="--i:${i}"><h3>${esc(t)}</h3><p>${esc(d)}</p></li>`).join('\n')}\n</ul>`;
+  const onlyHtml = `<ul class="only-list">\n${only.map(([t, d], i) => `<li data-reveal style="--i:${i}"><h3>${termify(esc(t))}</h3><p>${termify(esc(d))}</p></li>`).join('\n')}\n</ul>`;
   const rowCount = sections.reduce((n, s) => n + s.rows.length, 0);
   return { matrix, chips, only: onlyHtml, columns, summary: `${sections.length} categories, ${rowCount} rows, ${columns.length} columns, ${only.length} "elsewhere" items` };
 }
@@ -168,7 +200,7 @@ function marketplace() {
   <span class="m-icon" style="--hue:${s.hue}" aria-hidden="true">${esc(s.glyph)}</span>
   <h3>${esc(s.title)}</h3>
   <p class="m-pub">${esc(s.publisher)}${s.example ? ' <span class="ex">example</span>' : ''}</p>
-  <p class="m-sum">${esc(s.summary)}</p>
+  <p class="m-sum">${termify(esc(s.summary))}</p>
   <p class="m-meta">${s.badges.map(badge).join('')}<span class="m-cat">${esc(catName[s.categories[0]])}</span></p>
 </li>`;
   const grid = `<ul class="m-grid" id="m-grid">\n${data.systems.map(card).join('\n')}\n</ul>`;
@@ -177,7 +209,8 @@ function marketplace() {
   const featured = data.featured.map((id) => data.systems.find((s) => s.id === id)).map((s, i) => `<li class="f-card" style="--hue:${s.hue};--i:${i}" data-reveal>
   <a href="#s/${esc(s.id)}"><span class="m-icon" aria-hidden="true">${esc(s.glyph)}</span><span class="f-text"><strong>${esc(s.title)}</strong><span>${esc(s.pitch ?? s.summary)}</span></span></a>
 </li>`).join('\n');
-  const json = `<script type="application/json" id="m-data">${JSON.stringify(data).replace(/</g, '\\u003c')}</script>`;
+  const fnTerm = `<template id="t-fns">${term('fn', 'fns')}</template>`;
+  const json = fnTerm + `<script type="application/json" id="m-data">${JSON.stringify(data).replace(/</g, '\\u003c')}</script>`;
   return { grid, chips, featured, json, summary: `${data.systems.length} listings` };
 }
 

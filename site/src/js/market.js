@@ -48,6 +48,7 @@
   var sheet = detail.querySelector('.m-sheet');
   var opener = null;
   var badgeText = data.badges;
+  function fnsTerm() { var t = document.getElementById('t-fns'); return t ? t.innerHTML : 'fns'; }
   function open(s) {
     var fns = (s.fns || []).map(function (f) {
       return '<li><span class="mode ' + f.mode + '">' + (f.mode === 'write' ? 'changes' : 'reads') + '</span>' + esc(f.label) +
@@ -59,7 +60,7 @@
       '<p>' + esc(s.publisher) + ' · version ' + esc(s.version) + (s.example ? ' · <span class="ex">example</span>' : '') + '</p></div></div>' +
       '<p class="d-sum">' + esc(s.summary) + '</p>' +
       '<p class="m-meta">' + s.badges.map(function (b) { return '<span class="badge b-' + b + '">' + esc(badgeText[b]) + '</span>'; }).join('') + '</p>' +
-      '<div class="d-sec"><h3>What it can do</h3><ul class="d-fns">' + fns + '</ul></div>' +
+      '<div class="d-sec"><h3>Its ' + fnsTerm() + '</h3><ul class="d-fns">' + fns + '</ul></div>' +
       '<div class="d-sec"><h3>What it needs from you</h3>' + needs + '</div>' +
       '<p class="d-install"><a class="btn" aria-disabled="true" role="link">' + (s.badges.indexOf('builtin') !== -1 ? 'Comes with your hub' : 'Install on my hub') + '</a>' +
       '<small>A preview: installing from the marketplace is coming. Today, systems install from your hub’s Admin page or by asking in chat.</small></p>';
