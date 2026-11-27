@@ -60,7 +60,9 @@ type Manifest = z.infer<typeof Manifest>;
 const Lock = z.object({ packages: z.record(z.string(), z.object({ version: z.string().optional() }).loose()) });
 
 /** What `npm pack --json` says it wrote. */
-const Packed = z.array(z.object({ filename: z.string(), size: z.number(), unpackedSize: z.number(), entryCount: z.number() }).loose());
+const PackResult = z.object({ filename: z.string(), size: z.number(), unpackedSize: z.number(), entryCount: z.number() }).loose();
+/** `npm pack --json`: a list up to npm 11, an object keyed by package name from npm 12 (either way, one entry here). */
+const Packed = z.union([z.array(PackResult), z.record(z.string(), PackResult)]).transform((value) => (Array.isArray(value) ? value : Object.values(value)));
 
 const readManifest = (path: string): Manifest => Manifest.parse(JSON.parse(readFileSync(path, 'utf8')));
 const writeJson = (path: string, value: unknown): void => { writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`); };
