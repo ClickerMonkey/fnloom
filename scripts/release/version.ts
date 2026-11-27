@@ -5,6 +5,7 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { z } from 'zod';
 import { REPO, releaseConfig } from './config.ts';
 
 const version = process.argv[2];
@@ -25,7 +26,8 @@ const before = releaseConfig().version;
 setVersion(join(REPO, 'package.json'), 1);
 // the lockfile names the root's version twice: at its top and as `packages[""]`
 setVersion(join(REPO, 'package-lock.json'), 2);
-const lock = JSON.parse(readFileSync(join(REPO, 'package-lock.json'), 'utf8')) as { version?: string; packages?: Record<string, { version?: string }> };
+const lock = z.object({ version: z.string().optional(), packages: z.record(z.string(), z.object({ version: z.string().optional() }).loose()).optional() })
+  .parse(JSON.parse(readFileSync(join(REPO, 'package-lock.json'), 'utf8')));
 if (lock.version !== version || lock.packages?.['']?.version !== version) { throw new Error('package-lock.json did not take the version: run npm install'); }
 console.info(`${releaseConfig().release.name}: ${before} -> ${version}`);
 console.info(`Release it: git commit -am "Release ${version}" && git tag v${version} && git push && git push origin v${version}`);

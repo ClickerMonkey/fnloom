@@ -48,7 +48,7 @@ export async function bundledSystem(io: Pick<CliIo, 'files'>, name: string, dir:
 
 export const availableCommand = command({
   path: ['system', 'available'],
-  summary: 'List the premade systems this harness carries, which ones harness start runs, and how to install the others.',
+  summary: 'List the premade systems this harness carries, which ones start runs, and how to install the others.',
   usage: '',
   args: z.object({ positionals: z.tuple([]), values: z.object({}) }),
   async run(_args, io) {

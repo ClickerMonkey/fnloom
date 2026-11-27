@@ -1172,7 +1172,9 @@ plus web, google-calendar and embedder when their keys or service are set. On a 
 `HARNESS_ADMIN_EMAIL`/`HARNESS_ADMIN_PASSWORD` it makes `admin@harness.local` with a random password, saves it in
 `<data>/admin.json` (owner-only) and prints it with the addresses to open. Every other premade system is installed on
 demand: `fnloom system install <name>` (a bare premade name means that folder in `systems/`; the hub runs it as an
-installed system from there and starts it with itself), signing in with that saved account. The step-by-step guide,
+installed system from there and starts it with itself), signing in with that saved account. Every system, the
+default ones included, then waits as "installed, not live" until an admin reviews it and puts it live (Admin ›
+Systems › Review and go live), as any newly connected system does. The step-by-step guide,
 with each system's config, is [`docs/install.md`](install.md); the release is `scripts/release/pack.ts` and
 `.github/workflows/release.yml` (README § Releasing).
 

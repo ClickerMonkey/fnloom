@@ -23,6 +23,7 @@ import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import { z } from 'zod';
 import { REPO, releaseConfig } from './config.ts';
 
 /** The workspaces whose source ships (the web app ships only its build). */
@@ -46,19 +47,22 @@ const SECRET_CONTENT = [
   /npm_[A-Za-z0-9]{36}/, /tvly-[A-Za-z0-9-]{20,}/, /-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----\r?\n[A-Za-z0-9+/]/,
 ];
 
-interface Manifest {
-  name?: string;
-  version?: string;
-  private?: boolean;
-  dependencies?: Record<string, string>;
-  devDependencies?: Record<string, string>;
-  peerDependencies?: Record<string, string>;
-  peerDependenciesMeta?: Record<string, unknown>;
-  scripts?: Record<string, string>;
-  workspaces?: string[];
-}
+/** A package.json, as far as packing reads it; every other field is kept as it is. */
+const Manifest = z.looseObject({
+  dependencies: z.record(z.string(), z.string()).optional(),
+  devDependencies: z.record(z.string(), z.string()).optional(),
+  scripts: z.record(z.string(), z.string()).optional(),
+  workspaces: z.array(z.string()).optional(),
+});
+type Manifest = z.infer<typeof Manifest>;
 
-const readJson = <T>(path: string): T => JSON.parse(readFileSync(path, 'utf8')) as T;
+/** The lockfile's installed packages, by path. */
+const Lock = z.object({ packages: z.record(z.string(), z.object({ version: z.string().optional() }).loose()) });
+
+/** What `npm pack --json` says it wrote. */
+const Packed = z.array(z.object({ filename: z.string(), size: z.number(), unpackedSize: z.number(), entryCount: z.number() }).loose());
+
+const readManifest = (path: string): Manifest => Manifest.parse(JSON.parse(readFileSync(path, 'utf8')));
 const writeJson = (path: string, value: unknown): void => { writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`); };
 
 /** `git ls-files` under some paths, as forward-slash paths from the repository root. */
@@ -74,13 +78,14 @@ function copy(stage: string, path: string): void {
 }
 
 /** A workspace's `package.json` as it ships: no dev dependencies or scripts. */
-function shippedManifest(manifest: Manifest): Manifest {
+function shippedManifest(manifest: Manifest, version: string): Manifest {
   const { devDependencies: _dev, scripts: _scripts, ...rest } = manifest;
-  return rest;
+  // the workspaces are 0.0.0 here; shipped, they carry the release's version (the hub shows its own)
+  return { ...rest, version };
 }
 
 /** The version of a package the lockfile installed at the top of `node_modules`. */
-function lockedVersion(lock: { packages: Record<string, { version?: string; link?: boolean }> }, name: string): string {
+function lockedVersion(lock: z.infer<typeof Lock>, name: string): string {
   const entry = lock.packages[`node_modules/${name}`];
   if (entry?.version === undefined) { throw new Error(`${name} is not in package-lock.json: run npm install`); }
   return entry.version;
@@ -88,12 +93,12 @@ function lockedVersion(lock: { packages: Record<string, { version?: string; link
 
 /** Every workspace's third-party runtime dependencies (and the runtime peers), at the lockfile's versions. */
 function runtimeDependencies(workspaces: readonly string[]): Record<string, string> {
-  const lock = readJson<{ packages: Record<string, { version?: string }> }>(join(REPO, 'package-lock.json'));
+  const lock = Lock.parse(JSON.parse(readFileSync(join(REPO, 'package-lock.json'), 'utf8')));
   const names = new Set<string>(RUNTIME_PEERS);
-  for (const name of Object.keys(readJson<Manifest>(join(REPO, 'package.json')).dependencies ?? {})) { names.add(name); }
+  for (const name of Object.keys(readManifest(join(REPO, 'package.json')).dependencies ?? {})) { names.add(name); }
   for (const workspace of workspaces) {
     if (BUILD_ONLY_WORKSPACES.has(workspace)) { continue; }
-    for (const name of Object.keys(readJson<Manifest>(join(REPO, workspace, 'package.json')).dependencies ?? {})) {
+    for (const name of Object.keys(readManifest(join(REPO, workspace, 'package.json')).dependencies ?? {})) {
       if (!name.startsWith('@harness/')) { names.add(name); }
     }
   }
@@ -131,7 +136,7 @@ const { values } = parseArgs({ options: { 'skip-build': { type: 'boolean', defau
 const config = releaseConfig();
 const out = resolve(values.out ?? join(REPO, '.release'));
 const stage = join(out, 'stage');
-const root = readJson<Manifest>(join(REPO, 'package.json'));
+const root = readManifest(join(REPO, 'package.json'));
 const workspaces = root.workspaces ?? [];
 const systems = workspaces.filter((w) => w.startsWith('systems/'));
 
@@ -154,7 +159,7 @@ cpSync(join(REPO, 'packages', 'web', 'dist'), join(stage, 'packages', 'web', 'di
 cpSync(join(REPO, 'docs', 'install.md'), join(stage, 'README.md'));
 for (const workspace of [...PACKAGES, 'packages/web', ...systems]) {
   const path = join(stage, workspace, 'package.json');
-  writeJson(path, shippedManifest(readJson<Manifest>(path)));
+  writeJson(path, shippedManifest(readManifest(path), config.version));
 }
 
 const shipped = [...PACKAGES, ...systems];
@@ -180,7 +185,7 @@ if (secrets.length > 0) {
 }
 
 const files = walk(stage);
-const packed = JSON.parse(execFileSync('npm', ['pack', '--json', '--pack-destination', out], { cwd: stage, encoding: 'utf8', shell: process.platform === 'win32', maxBuffer: 64 * 1024 * 1024 })) as Array<{ filename: string; size: number; unpackedSize: number; entryCount: number }>;
+const packed = Packed.parse(JSON.parse(execFileSync('npm', ['pack', '--json', '--pack-destination', out], { cwd: stage, encoding: 'utf8', shell: process.platform === 'win32', maxBuffer: 64 * 1024 * 1024 })));
 const result = packed[0];
 if (result === undefined) { throw new Error('npm pack wrote nothing'); }
 if (result.entryCount !== files.length) { console.warn('release.pack.dropped', { staged: files.length, packed: result.entryCount }); }

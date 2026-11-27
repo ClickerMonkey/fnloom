@@ -19,9 +19,8 @@ export const HARNESS_ROOT = fileURLToPath(new URL('../../../', import.meta.url))
  */
 export const CLI_NAME: string = (() => {
   try {
-    const bin = (JSON.parse(readFileSync(join(HARNESS_ROOT, 'package.json'), 'utf8')) as { bin?: unknown }).bin;
-    const first = typeof bin === 'object' && bin !== null ? Object.keys(bin)[0] : undefined;
-    return first ?? 'harness';
+    const parsed = z.object({ bin: z.record(z.string(), z.string()).optional() }).safeParse(JSON.parse(readFileSync(join(HARNESS_ROOT, 'package.json'), 'utf8')));
+    return (parsed.success ? Object.keys(parsed.data.bin ?? {})[0] : undefined) ?? 'harness';
   } catch {
     return 'harness';
   }
@@ -87,4 +86,9 @@ export interface StartOptions {
 /** What `scripts/start.ts` exports. */
 export interface StartScript {
   startHarness(options: StartOptions): Promise<number>;
+}
+
+/** Whether a loaded module is the start script (it is loaded by path, so nothing types it). */
+export function isStartScript(module: unknown): module is StartScript {
+  return typeof module === 'object' && module !== null && 'startHarness' in module && typeof module.startHarness === 'function';
 }
