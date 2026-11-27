@@ -117,8 +117,9 @@ function walk(dir: string, base = dir): string[] {
 /** Secrets in the staged tree: files that must not ship, content that looks like a credential, and values from `.env`. */
 function secretsIn(stage: string): string[] {
   const envValues = existsSync(join(REPO, '.env'))
-    // the values of settings named like secrets (keys, tokens, passwords), not addresses or emails
-    ? readFileSync(join(REPO, '.env'), 'utf8').split(/\r?\n/).map((line) => /^\s*[A-Z0-9_]*(KEY|SECRET|TOKEN|PASSWORD)[A-Z0-9_]*\s*=\s*"?([^"#\s]{8,})"?/.exec(line)?.[2]).filter((v): v is string => v !== undefined)
+    // the values of settings named like secrets (keys, tokens, passwords), not addresses or emails; 16+ characters, so
+    // a short development password such as "password" is not mistaken for one
+    ? readFileSync(join(REPO, '.env'), 'utf8').split(/\r?\n/).map((line) => /^\s*[A-Z0-9_]*(KEY|SECRET|TOKEN|PASSWORD)[A-Z0-9_]*\s*=\s*"?([^"#\s]{16,})"?/.exec(line)?.[2]).filter((v): v is string => v !== undefined)
     : [];
   const found: string[] = [];
   for (const path of walk(stage)) {
