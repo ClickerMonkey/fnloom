@@ -46,10 +46,11 @@ Open the address, sign in with that email and password, and add a model provider
 set `OPENROUTER_API_KEY` before the first start, and the hub configures OpenRouter itself). Ctrl+C stops everything;
 `fnloom start` again picks up where it left off.
 
-**Put the systems live.** A system that connects for the first time is *installed, not live*: it is connected, but
-nothing it offers reaches the chat until an admin has looked at what it adds. Open **Admin › Systems**, open each one
-marked "Installed, not live", choose **Review and go live**, then **Go live**. You do this once per system (and again
-only when a new version changes what it offers).
+**The systems are live.** A system that connects for the first time is normally *installed, not live*: nothing it
+offers reaches the chat until an admin has looked at what it adds (Admin › Systems › Review and go live). The premade
+systems `fnloom start` runs, and the ones you install by name with `fnloom system install <name>`, are put live for
+you, since you just asked for them. Systems from anywhere else (a folder, a zip, npm, or one the chat wrote) still wait
+for your review.
 
 | Option | Setting | Default | What it is |
 |---|---|---|---|
@@ -109,8 +110,8 @@ fnloom system install <name> [--config <file.json>]
 `<name>` is a premade system's name from the table. The hub installs it from the copy that came with the harness,
 pairs it, gives it the config, starts it, and starts it again every time the hub starts. The command waits until it
 has connected and says so. If the hub runs on another port or keeps its data somewhere else, say so:
-`--hub http://127.0.0.1:4620` and `HARNESS_DATA=<the data folder>` (that is where it finds `admin.json`). Then put
-it live, as above: **Admin › Systems › <name> › Review and go live**.
+`--hub http://127.0.0.1:4620` and `HARNESS_DATA=<the data folder>` (that is where it finds `admin.json`). It then
+puts the system live and says so.
 
 A system that needs config and was installed without it connects and waits: fill its config on its page in the app
 (**Admin › Systems › <name>**) instead. Manage installed systems with `fnloom system list`, `fnloom system stop <name>`,

@@ -1,4 +1,45 @@
-# harness
+# fnloom
+
+**The self-building agent harness.** A self-hosted hub for AI agents: multi-user with permission controls, spending
+limits at every level, any model provider (OpenRouter, OpenAI-compatible servers, Amazon Bedrock, local Ollama), and
+context picked per message. It controls **systems** (plug-ins running on any computer you own) that connect it to
+databases, Claude Code, web APIs, MCP servers, the web, files, schedules and more, and it writes new **fns** and
+systems itself, moving work toward saved, deterministic fns that run without a model. The same app on every device:
+it installs from the browser on computers and phones, with HTTPS set up for you.
+
+Website: **[fnloom.com](https://fnloom.com)** · Licence: [Apache 2.0](LICENSE)
+
+## Get started
+
+You need Node.js 22.18 or newer.
+
+```sh
+npm install -g fnloom
+fnloom start                     # in the folder the agent should work in
+```
+
+It starts the hub and the built-in systems, keeps its data in `~/.harness`, and prints the address to open and the
+admin sign-in it made. Add a model provider under **Models › Providers** (or set `OPENROUTER_API_KEY` before the first
+start).
+
+<a id="installing-systems"></a>**Installing the premade systems:**
+
+```sh
+fnloom system available          # what ships with it, and which ones start by default
+fnloom system install database --config database.json
+fnloom system install claude
+```
+
+The full guide, with what each system needs, is [`docs/install.md`](docs/install.md).
+
+---
+
+## Developing it
+
+The rest of this README is for working on fnloom itself (its code still calls itself "the harness": the `@harness/*`
+workspaces, `npx harness` from a clone).
+
+### Overview
 
 A web-based agent harness: one **hub** that owns every LLM call, user, permission and record, and **systems**
 that connect over WebSocket to add fns, kinds, types, resources, context and UI renderers.
@@ -26,7 +67,7 @@ every web operation. Build 7 adds staged authoring agents (`authoringAgent`: fin
   are the zod schemas in `packages/core` and the generated `packages/sdk/AUTHORING.md`). `explorer/explorer.html` (`npm run explorer`) lets
   you read the guide and click through every type, with notes (**Export notes** saves them for `review/notes.json`).
 
-## Installing it (not developing it)
+### Installing it from npm
 
 The harness is published on npm as **`fnloom`**: `npm install -g fnloom`, then `fnloom start` in the folder the
 agent should work in. It prints the address to open and the admin sign-in it made. `fnloom system available` lists

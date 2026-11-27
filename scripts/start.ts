@@ -20,7 +20,8 @@ import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { loadEnv } from '@ayepi/env/load';
-import { ADMIN_FILE, CLI_NAME, dataFolder, readAdminFile, type AdminFile, type StartOptions } from '@harness/cli';
+import { ADMIN_FILE, CLI_NAME, connectHub, dataFolder, goLiveWhenPaired, liveApi, readAdminFile, type AdminFile, type StartOptions } from '@harness/cli';
+import { SystemName } from '@harness/core';
 import { runStack, stackSettings } from './run-stack.ts';
 
 /** The account `harness start` makes on a first start with none given. */
@@ -28,6 +29,9 @@ export const DEFAULT_ADMIN_EMAIL = 'admin@harness.local';
 
 /** What `harness start` runs when nothing says otherwise (`web-system`, `calendar` drop out without their keys). */
 export const START_SYSTEMS = ['hub', 'fs', 'input', 'widgets', 'code', 'web-system', 'calendar'] as const;
+
+/** Stack component names that differ from their system's name. */
+const STACK_TO_SYSTEM: Readonly<Record<string, string>> = { 'web-system': 'web', calendar: 'google-calendar' };
 
 /** Fill `process.env` from `.env` in the folder, without replacing what is set, so the hub and systems see it too. */
 function loadDotEnv(cwd: string): void {
@@ -78,6 +82,19 @@ export async function startHarness(options: StartOptions): Promise<number> {
 
   out.line(`Starting the harness on port ${port} (data in ${data}) ...`);
   const stack = await runStack({ name: 'start', watch: false }, stackSettings());
+  // the premade systems it started go live as the admin would put them (they wait for review otherwise)
+  const started = systems.split(',').map((name) => name.trim()).filter((name) => !['hub', 'web'].includes(name))
+    // the stack leaves these out without their keys (run-stack.ts)
+    .filter((name) => name !== 'web-system' || process.env['TAVILY_API_KEY'] !== undefined)
+    .filter((name) => name !== 'calendar' || (process.env['GOOGLE_CLIENT_ID'] !== undefined && process.env['GOOGLE_CLIENT_SECRET'] !== undefined))
+    .map((name) => SystemName.parse(STACK_TO_SYSTEM[name] ?? name));
+  const hub = await connectHub({ url: local, admin: { email, password } });
+  try {
+    const unpaired = await goLiveWhenPaired(liveApi(hub.api), started, 60_000);
+    if (unpaired.length > 0) { out.warn(`Not paired yet, so not live: ${unpaired.join(', ')} (Admin > Systems once they connect)`); }
+  } finally {
+    hub.close();
+  }
   const https = (url: string): string => url.replace(/^http:/, 'https:');
   out.line('');
   out.line('The harness is running.');

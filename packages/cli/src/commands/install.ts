@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { HUB_OPTIONS, command, type CliIo } from '../command.ts';
 import type { HubSession } from '../hub.ts';
 import { bundledSystem } from './available.ts';
+import { goLiveIfInstalled, liveApi } from '../live.ts';
 
 /** The mime type of the zips the CLI uploads. */
 const ZIP = 'application/zip';
@@ -92,7 +93,10 @@ export const installCommand = command({
       }
       if (!autoStart) { return 0; }
       const wait = values.wait === undefined ? io.settings.HARNESS_CLI_WAIT : Number(values.wait);
-      return await waitForSystem(io, hub, installed, wait) ? 0 : 1;
+      if (!await waitForSystem(io, hub, installed, wait)) { return 1; }
+      // a premade system the admin just asked for by name goes live as they would put it (nothing switched off)
+      if (premade !== undefined && await goLiveIfInstalled(liveApi(hub.api), installed.system) === 'live') { io.out.line(`${installed.system} is live`); }
+      return 0;
     } finally {
       hub.close();
     }
