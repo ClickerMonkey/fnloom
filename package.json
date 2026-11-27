@@ -60,7 +60,9 @@
     "test:stack": "tsx scripts/test-stack.ts",
     "scenarios": "tsx scripts/scenarios/run.ts",
     "prompt:render": "tsx scripts/prompt-render.ts",
-    "prompt:memory": "tsx scripts/prompt-memory.ts"
+    "prompt:memory": "tsx scripts/prompt-memory.ts",
+    "site:build": "node site/tools/build.mjs",
+    "site:publish": "node site/tools/publish-pages.mjs"
   },
   "devDependencies": {
     "@ayepi/context": "file:../ayepi/packages/context",
