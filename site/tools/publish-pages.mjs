@@ -23,7 +23,8 @@ const out = mkdtempSync(join(tmpdir(), 'site-pages-'));
 try {
   cpSync(join(site, 'dist'), out, { recursive: true });
   writeFileSync(join(out, '.nojekyll'), '');
-  git(['init', '-q', '-b', 'gh-pages'], out);
+  git(['init', '-q'], out);
+  git(['checkout', '-q', '-b', 'gh-pages'], out);
   git(['add', '-A'], out);
   git(['-c', 'user.name=site', '-c', 'user.email=site@users.noreply.github.com', 'commit', '-q', '-m', `Site from ${head}`], out);
   if (dryRun) {
