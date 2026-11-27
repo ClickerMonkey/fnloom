@@ -6,7 +6,9 @@
   "protocol": 1,
   "server": {
     "entry": "server/main.ts",
-    "external": {}
+    "external": {
+      "puppeteer": "^25.16.0"
+    }
   },
   "client": {
     "entry": "client/index.ts"

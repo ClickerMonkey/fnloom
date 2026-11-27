@@ -1165,14 +1165,23 @@ what a system keeps of its fns.
 
 The harness is published as one npm package, **`fnloom`** (its name and command are `release.name` and
 `release.bin` in the root `package.json`): `npm install -g fnloom`, then `fnloom start`. The package keeps the
-repository's layout (`packages/*` as source, the web app's build, every premade system in `systems/`, the stack
-scripts), so `fnloom start` is `runStack` with no build and nothing watched: the hub on 4300 (`--port`), data in
-`~/.harness` (`--data`, `HARNESS_DATA`), fs serving the folder it starts in (`--root`), and input, widgets and code,
-plus web, google-calendar and embedder when their keys or service are set. On a first start with no
+repository's layout (`packages/*` as source, the web app's build, the lightweight premade systems in `systems/`, the
+stack scripts), so `fnloom start` is `runStack` with no build and nothing watched: the hub on 4300 (`--port`), data in
+`~/.harness` (`--data`, `HARNESS_DATA`), and the lightweight premade systems: fs serving the folder it starts in
+(`--root`), input, code, schedule and api, plus google-calendar and embedder when their keys or service are set
+(`--systems` gives the list instead). One table says which premade systems start, which ship as source and which as
+package zips: `PREMADE` in `packages/cli/src/premade.ts`. The heavy ones (database, web, claude) are not in the base
+package or its dependencies: the release packs each with `harness system pack` into `premade/<name>.zip`, its server
+bundled (the Postgres and SQL Server drivers included) and the npm packages made for the machine that its
+`system.json` lists in `server.external` (better-sqlite3, puppeteer and the Chrome its install fetches, the Claude
+Agent SDK) left out; installing one uploads that zip and the hub `npm install`s those packages into the
+system's own folder in its data (`NodeInstaller`), so only a machine that asked for web gets puppeteer and its
+Chrome. On a first start with no
 `HARNESS_ADMIN_EMAIL`/`HARNESS_ADMIN_PASSWORD` it makes `admin@harness.local` with a random password, saves it in
 `<data>/admin.json` (owner-only) and prints it with the addresses to open. Every other premade system is installed on
-demand: `fnloom system install <name>` (a bare premade name means that folder in `systems/`; the hub runs it as an
-installed system from there and starts it with itself), signing in with that saved account. Both put the premade
+demand: `fnloom system install <name>` (a bare premade name means that folder in `systems/`, which the hub runs as an
+installed system from there, or else its zip in `premade/`; either way the hub starts it with itself from then on),
+signing in with that saved account; database brings widgets, which draws over its queries. Both put the premade
 systems they start or install live as the admin would (nothing switched off; `packages/cli/src/live.ts`), since the
 admin just asked for them; any other newly connected system waits as "installed, not live" for review. The step-by-step guide,
 with each system's config, is [`docs/install.md`](install.md); the release is `scripts/release/pack.ts` and

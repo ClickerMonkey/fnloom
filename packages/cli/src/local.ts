@@ -29,6 +29,12 @@ export const CLI_NAME: string = (() => {
 /** The premade systems this copy of the harness carries. */
 export const BUNDLED_SYSTEMS_DIR = join(HARNESS_ROOT, 'systems');
 
+/**
+ * The heavy premade systems as package zips (`premade/<name>.zip`), in the published package only: `harness system
+ * install <name>` installs one and the hub fetches the npm packages it left out into its own folder (`premade.ts`).
+ */
+export const PREMADE_DIR = join(HARNESS_ROOT, 'premade');
+
 /** Folders in `systems/` that are not systems to install: the template `harness system new` copies. */
 export const NOT_INSTALLABLE = new Set(['template']);
 

@@ -9,10 +9,13 @@
  *   the folder it starts in); else the one this command made before, kept in `<data>/admin.json` (readable by its
  *   owner only); else, on the first start, it makes one (`admin@harness.local` and a random password), saves it there
  *   and prints it. The hub makes that account on its first start, as it does from `.env` in the repository.
- * - **Systems:** fs (serving `--root`, else `HARNESS_DEV_ROOT`, else the folder it starts in), input, widgets and code
- *   always; web when `TAVILY_API_KEY` is set; google-calendar when `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are;
- *   embedder when `HARNESS_EMBEDDER_URL` names an EmbeddingGemma service. `--systems` (or `HARNESS_DEV_ONLY`) gives
- *   the list instead. Every other premade system is installed on demand: `harness system install <name>`.
+ * - **Systems:** the lightweight premade systems `PREMADE` (packages/cli/src/premade.ts) marks to start: fs (serving
+ *   `--root`, else `HARNESS_DEV_ROOT`, else the folder it starts in), input, code, schedule and api always;
+ *   google-calendar when `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set; embedder when `HARNESS_EMBEDDER_URL`
+ *   names an EmbeddingGemma service. `--systems` (or `HARNESS_DEV_ONLY`) gives the list instead. Every other premade
+ *   system is installed on demand (`harness system install <name>`), and the heavy ones (database, web, claude) bring
+ *   their own dependencies when they are: the published package carries only their package zips, so a heavy one
+ *   listed in `--systems` is left out here with a word on how to install it.
  *
  * Values in `.env` in the starting folder reach the hub and the systems as if they were in the environment.
  */
@@ -20,18 +23,15 @@ import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { loadEnv } from '@ayepi/env/load';
-import { ADMIN_FILE, CLI_NAME, connectHub, dataFolder, goLiveWhenPaired, liveApi, readAdminFile, type AdminFile, type StartOptions } from '@harness/cli';
+import {
+  ADMIN_FILE, BUNDLED_SYSTEMS_DIR, CLI_NAME, PREMADE, connectHub, dataFolder, goLiveWhenPaired, liveApi, readAdminFile, startComponents, systemOfComponent,
+  type AdminFile, type StartOptions,
+} from '@harness/cli';
 import { SystemName } from '@harness/core';
 import { runStack, stackSettings } from './run-stack.ts';
 
 /** The account `harness start` makes on a first start with none given. */
 export const DEFAULT_ADMIN_EMAIL = 'admin@harness.local';
-
-/** What `harness start` runs when nothing says otherwise (`web-system`, `calendar` drop out without their keys). */
-export const START_SYSTEMS = ['hub', 'fs', 'input', 'widgets', 'code', 'web-system', 'calendar'] as const;
-
-/** Stack component names that differ from their system's name. */
-const STACK_TO_SYSTEM: Readonly<Record<string, string>> = { 'web-system': 'web', calendar: 'google-calendar' };
 
 /** Fill `process.env` from `.env` in the folder, without replacing what is set, so the hub and systems see it too. */
 function loadDotEnv(cwd: string): void {
@@ -73,8 +73,15 @@ export async function startHarness(options: StartOptions): Promise<number> {
     chmodSync(adminFile, 0o600);
   }
 
-  const systems = options.systems ?? environment['HARNESS_DEV_ONLY']
-    ?? [...START_SYSTEMS, ...(environment['HARNESS_EMBEDDER_URL'] === undefined ? [] : ['embedder'])].join(',');
+  const asked = (options.systems ?? environment['HARNESS_DEV_ONLY'] ?? startComponents(environment).join(','))
+    .split(',').map((name) => name.trim()).filter((name) => name !== '');
+  // a heavy premade system's folder is not in the published package (its package zip is): it runs once installed
+  // (`hub` and `web`, the app's build, are no systems)
+  const notHere = asked.filter((name) => !['hub', 'web'].includes(name) && PREMADE[systemOfComponent(name)] !== undefined && !existsSync(join(BUNDLED_SYSTEMS_DIR, systemOfComponent(name), 'system.json')));
+  for (const name of notHere) {
+    out.warn(`${systemOfComponent(name)} is not started by ${CLI_NAME} start here: ${CLI_NAME} system install ${systemOfComponent(name)} installs it, and it starts with the hub after that`);
+  }
+  const systems = asked.filter((name) => !notHere.includes(name)).join(',');
   Object.assign(process.env, {
     HARNESS_PORT: port, HARNESS_DATA: data, HARNESS_ADMIN_EMAIL: email, HARNESS_ADMIN_PASSWORD: password, HARNESS_DEV_ONLY: systems,
     HARNESS_DEV_ROOT: resolve(cwd, options.root ?? environment['HARNESS_DEV_ROOT'] ?? '.'),
@@ -83,11 +90,12 @@ export async function startHarness(options: StartOptions): Promise<number> {
   out.line(`Starting the harness on port ${port} (data in ${data}) ...`);
   const stack = await runStack({ name: 'start', watch: false }, stackSettings());
   // the premade systems it started go live as the admin would put them (they wait for review otherwise)
-  const started = systems.split(',').map((name) => name.trim()).filter((name) => !['hub', 'web'].includes(name))
+  const started = systems.split(',').filter((name) => name !== '' && !['hub', 'web'].includes(name))
     // the stack leaves these out without their keys (run-stack.ts)
     .filter((name) => name !== 'web-system' || process.env['TAVILY_API_KEY'] !== undefined)
     .filter((name) => name !== 'calendar' || (process.env['GOOGLE_CLIENT_ID'] !== undefined && process.env['GOOGLE_CLIENT_SECRET'] !== undefined))
-    .map((name) => SystemName.parse(STACK_TO_SYSTEM[name] ?? name));
+    .filter((name) => name !== 'ollama' || process.env['HARNESS_DEV_OLLAMA'] !== undefined)
+    .map((name) => SystemName.parse(systemOfComponent(name)));
   const hub = await connectHub({ url: local, admin: { email, password } });
   try {
     const unpaired = await goLiveWhenPaired(liveApi(hub.api), started, 60_000);
@@ -105,6 +113,8 @@ export async function startHarness(options: StartOptions): Promise<number> {
   out.line(`  fs serves: ${process.env['HARNESS_DEV_ROOT']}`);
   out.line('');
   out.line('Add a model provider under Models > Providers (or set OPENROUTER_API_KEY before the first start).');
-  out.line(`More systems: ${CLI_NAME} system available, then ${CLI_NAME} system install <name>. Ctrl+C stops everything.`);
+  out.line(`Systems running: ${started.join(', ') || 'none'}.`);
+  out.line(`More: ${CLI_NAME} system available lists them all; ${CLI_NAME} system install <name> adds one (database, with widgets, for`);
+  out.line('  your own tables and charts; web for search and page reading; claude for Claude Code sessions). Ctrl+C stops everything.');
   return 0;
 }

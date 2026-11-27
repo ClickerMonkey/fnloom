@@ -152,7 +152,8 @@ export const web = system('web', {
     { name: 'pages', title: 'Pages', description: 'Read one page, crawl a site, or fetch a page raw; every page is kept as a hub resource.' },
   ],
   // pages it reads are uploaded and kept as hub resources
-  grants: { hub: ['resources', 'fns'], calls: ['hub/resource_import', 'hub/resource_read'] },
+  // any host: it searches (Tavily) and reads whatever page it is given; the supervisor enforces this once it is installed
+  grants: { hub: ['resources', 'fns'], calls: ['hub/resource_import', 'hub/resource_read'], network: ['*'] },
 })
   .with({
     // every field is optional: an absent one takes the system's own setting (its environment)

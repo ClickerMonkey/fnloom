@@ -11,22 +11,17 @@ import { mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { networkInterfaces } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { InstanceName, SystemName, type Json, type SystemView } from '@harness/core';
+import { Type } from '@aeye/gin';
 import { encodeValue, type ConfigOf } from '@harness/sdk';
 import { SYSTEM_ENV } from '@harness/sdk/server';
-import { database, type DatabaseContract } from '../systems/database/shared/index.ts';
-import { embedderSystem, type EmbedderContract } from '../systems/embedder/shared/index.ts';
-import { fs } from '../systems/fs/shared/index.ts';
-import { googleCalendar, type CalendarContract } from '../systems/google-calendar/shared/index.ts';
-import { input } from '../systems/input/shared/index.ts';
-import { widgets } from '../systems/widgets/shared/index.ts';
-import { claude } from '../systems/claude/shared/index.ts';
-import { ollama, type OllamaConfigInput } from '../systems/ollama/shared/index.ts';
-import { code } from '../systems/code/shared/index.ts';
-import { schedule } from '../systems/schedule/shared/index.ts';
-import { api } from '../systems/api/shared/index.ts';
-import { web, type WebContract } from '../systems/web/shared/index.ts';
+import type { DatabaseContract } from '../systems/database/shared/index.ts';
+import type { EmbedderContract } from '../systems/embedder/shared/index.ts';
+import type { fs } from '../systems/fs/shared/index.ts';
+import type { CalendarContract } from '../systems/google-calendar/shared/index.ts';
+import type { OllamaConfigInput } from '../systems/ollama/shared/index.ts';
+import type { WebContract } from '../systems/web/shared/index.ts';
 import { Supervisor, type SuperviseOptions } from './supervise.ts';
 import { signIn, waitFor, type Credentials, type SignedIn } from './hub-client.ts';
 
@@ -178,6 +173,15 @@ async function systemOf(admin: SignedIn, name: SystemName, timeout: number): Pro
   return (await whileBusy(() => admin.hub.call('systems'), timeout)).find((s) => s.name === name);
 }
 
+/** The config type of a system contract a module exports (`<contract>.defs.config`), or undefined. */
+function configTypeOf(contract: unknown): Type | undefined {
+  if (typeof contract !== 'object' || contract === null || !('defs' in contract)) { return undefined; }
+  const { defs } = contract;
+  if (typeof defs !== 'object' || defs === null || !('config' in defs)) { return undefined; }
+  // a gin type, as every contract's config is (`system({ config })`)
+  return defs.config instanceof Type ? defs.config : undefined;
+}
+
 /** Boot the stack. */
 export async function startStack(options: StackOptions): Promise<Stack> {
   const timeout = options.timeout ?? 60_000;
@@ -236,28 +240,38 @@ export async function startStack(options: StackOptions): Promise<Stack> {
     const admin = await signIn(url, options.admin);
 
     const link = `ws://127.0.0.1:${options.port}/link`;
+    // each system's contract is loaded only when it runs, so a copy of the harness without a system's folder (the
+    // published package leaves the heavy ones out: they install as package zips) runs the others
+    const configOf = (folder: string, exported: string, value: unknown) => async (): Promise<Json> => {
+      const loaded: unknown = await import(pathToFileURL(join(ROOT, 'systems', folder, 'shared', 'index.ts')).href);
+      const found: unknown = typeof loaded === 'object' && loaded !== null ? Reflect.get(loaded, exported) : undefined;
+      const config = configTypeOf(found);
+      if (config === undefined) { throw new Error(`systems/${folder}/shared/index.ts exports no ${exported} contract`); }
+      return encodeValue(config, value);
+    };
+    const entryOf = (folder: string): string => join(ROOT, 'systems', folder, 'server', 'main.ts');
     const systems = [
-      { name: 'fs', entry: join(ROOT, 'systems', 'fs', 'server', 'main.ts'), config: encodeValue(fs.defs.config, options.systems.fs) },
-      { name: 'embedder', entry: join(ROOT, 'systems', 'embedder', 'server', 'main.ts'), config: encodeValue(embedderSystem.defs.config, options.systems.embedder) },
-      { name: 'web', entry: join(ROOT, 'systems', 'web', 'server', 'main.ts'), config: encodeValue(web.defs.config, options.systems.web ?? {}) },
-      { name: 'input', system: input.name, entry: join(ROOT, 'systems', 'input', 'server', 'main.ts'), config: encodeValue(input.defs.config, {}) },
-      { name: 'widgets', system: widgets.name, entry: join(ROOT, 'systems', 'widgets', 'server', 'main.ts'), config: encodeValue(widgets.defs.config, {}) },
-      { name: 'code', system: code.name, entry: join(ROOT, 'systems', 'code', 'server', 'main.ts'), config: encodeValue(code.defs.config, {}) },
-      { name: 'api', system: api.name, entry: join(ROOT, 'systems', 'api', 'server', 'main.ts'), config: encodeValue(api.defs.config, {}) },
+      { name: 'fs', entry: entryOf('fs'), config: configOf('fs', 'fs', options.systems.fs) },
+      { name: 'embedder', entry: entryOf('embedder'), config: configOf('embedder', 'embedderSystem', options.systems.embedder) },
+      { name: 'web', entry: entryOf('web'), config: configOf('web', 'web', options.systems.web ?? {}) },
+      { name: 'input', entry: entryOf('input'), config: configOf('input', 'input', {}) },
+      { name: 'widgets', entry: entryOf('widgets'), config: configOf('widgets', 'widgets', {}) },
+      { name: 'code', entry: entryOf('code'), config: configOf('code', 'code', {}) },
+      { name: 'api', entry: entryOf('api'), config: configOf('api', 'api', {}) },
       // Claude Code sessions may start in any folder beside this repository
-      { name: 'claude', system: claude.name, entry: join(ROOT, 'systems', 'claude', 'server', 'main.ts'), config: encodeValue(claude.defs.config, { folders: [{ path: dirname(ROOT), label: basename(dirname(ROOT)) }] }) },
+      { name: 'claude', entry: entryOf('claude'), config: configOf('claude', 'claude', { folders: [{ path: dirname(ROOT), label: basename(dirname(ROOT)) }] }) },
       // scheduled runs, with the default limits; it runs only when listed (`only`)
-      { name: 'schedule', system: schedule.name, entry: join(ROOT, 'systems', 'schedule', 'server', 'main.ts'), config: encodeValue(schedule.defs.config, {}) },
+      { name: 'schedule', entry: entryOf('schedule'), config: configOf('schedule', 'schedule', {}) },
       ...(options.systems.calendar === undefined ? [] : [{
-        name: 'calendar', system: googleCalendar.name, entry: join(ROOT, 'systems', 'google-calendar', 'server', 'main.ts'), config: encodeValue(googleCalendar.defs.config, options.systems.calendar),
+        name: 'calendar', system: 'google-calendar', entry: entryOf('google-calendar'), config: configOf('google-calendar', 'googleCalendar', options.systems.calendar),
       } as const]),
       ...(options.systems.ollama === undefined ? [] : [{
-        name: 'ollama', system: ollama.name, entry: join(ROOT, 'systems', 'ollama', 'server', 'main.ts'), config: encodeValue(ollama.defs.config, options.systems.ollama),
+        name: 'ollama', entry: entryOf('ollama'), config: configOf('ollama', 'ollama', options.systems.ollama),
       } as const]),
       ...Object.entries(options.systems.databases ?? {}).map(([instance, config]) => ({
-        name: 'database', system: database.name, instance: InstanceName.parse(instance), entry: join(ROOT, 'systems', 'database', 'server', 'main.ts'), config: encodeValue(database.defs.config, config),
+        name: 'database', instance: InstanceName.parse(instance), entry: entryOf('database'), config: configOf('database', 'database', config),
       } as const)),
-    ] as const satisfies ReadonlyArray<{ name: keyof typeof SYSTEM_COMPONENTS; system?: string; instance?: InstanceName; entry: string; config: Json }>;
+    ] as const satisfies ReadonlyArray<{ name: keyof typeof SYSTEM_COMPONENTS; system?: string; instance?: InstanceName; entry: string; config: () => Promise<Json> }>;
     for (const system of systems) {
       const component = SYSTEM_COMPONENTS[system.name];
       if (!options.only.has(component)) { continue; }
@@ -284,7 +298,8 @@ export async function startStack(options: StackOptions): Promise<Stack> {
       }, { timeout });
       // a new instance gets its config even when its defaults let it start without one (the embedder's service URL)
       if (seen.needsConfig || token !== undefined) {
-        const result = await whileBusy(() => admin.hub.call('configureSystem', { system: name, config: system.config, ...(instance === undefined ? {} : { instance }) }), timeout);
+        const config = await system.config();
+        const result =await whileBusy(() => admin.hub.call('configureSystem', { system: name, config, ...(instance === undefined ? {} : { instance }) }), timeout);
         if ('problems' in result) { throw new Error(`${label} config refused: ${result.problems.join('; ')}`); }
         await waitFor(`${label} to be configured`, async () => ((await instanceOf(admin, name, instance, timeout))?.status === 'connected' ? true : undefined), { timeout });
       }

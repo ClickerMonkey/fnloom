@@ -2,8 +2,10 @@
  * A built system is one self-contained JS file (`harness system build` inlines every JS dependency), so it runs
  * without installing others and can be scanned as one artifact. The only packages a system may leave out of its
  * bundle (`system.json` `server.external`) are the ones made for the machine: a native addon, which the installer
- * builds there (it ships a `binding.gyp`), or a package whose executables come per platform as optional dependencies
- * (the Claude Agent SDK and the Claude Code binary it runs).
+ * builds there (it ships a `binding.gyp`), a package whose executables come per platform as optional dependencies
+ * (the Claude Agent SDK and the Claude Code binary it runs), or one that fetches a program for the machine when it is
+ * installed (puppeteer's `postinstall` downloads the Chrome it drives, so the web system leaves it out and the hub's
+ * `npm install` of it into the system's folder brings that Chrome only where web is installed).
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -24,7 +26,10 @@ function manifests(): Array<{ name: string; dir: string; manifest: SystemPackage
 }
 
 /** The parts of a package.json this test reads. */
-const PackageJson = z.object({ name: z.string().optional(), optionalDependencies: z.record(z.string(), z.string()).optional() });
+const PackageJson = z.object({ name: z.string().optional(), optionalDependencies: z.record(z.string(), z.string()).optional(), scripts: z.record(z.string(), z.string()).optional() });
+
+/** Packages that fetch a program for the machine in their install script, and what it is. */
+const FETCHED_AT_INSTALL: Readonly<Record<string, string>> = { puppeteer: 'the Chrome it drives' };
 
 /** A package's folder, found from its entry (its `package.json` may not be exported). */
 function packageRoot(require: NodeJS.Require, name: string): string {
@@ -40,8 +45,10 @@ function packageRoot(require: NodeJS.Require, name: string): string {
 /** Whether a package is made for the machine: a native addon, or one with per-platform executables. */
 function machineMade(root: string, name: string): boolean {
   if (existsSync(join(root, 'binding.gyp'))) { return true; }
-  const optional = Object.keys(PackageJson.parse(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))).optionalDependencies ?? {});
-  return optional.some((dependency) => dependency.startsWith(`${name}-${process.platform}`));
+  const manifest = PackageJson.parse(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')));
+  // a known fetch-at-install package, and its install script is still there to do the fetching
+  if (FETCHED_AT_INSTALL[name] !== undefined && (manifest.scripts?.['postinstall'] ?? manifest.scripts?.['install']) !== undefined) { return true; }
+  return Object.keys(manifest.optionalDependencies ?? {}).some((dependency) => dependency.startsWith(`${name}-${process.platform}`));
 }
 
 describe('system bundles', () => {

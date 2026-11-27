@@ -18,17 +18,20 @@ npm install -g fnloom
 fnloom start                     # in the folder the agent should work in
 ```
 
-It starts the hub and the built-in systems, keeps its data in `~/.harness`, and prints the address to open and the
-admin sign-in it made. Add a model provider under **Models › Providers** (or set `OPENROUTER_API_KEY` before the first
-start).
+It starts the hub, the app and the built-in lightweight systems (fs, input, code, schedule, api), keeps its data in
+`~/.harness`, and prints the address to open and the admin sign-in it made. Add a model provider under **Models ›
+Providers** (or set `OPENROUTER_API_KEY` before the first start).
 
 <a id="installing-systems"></a>**Installing the premade systems:**
 
 ```sh
 fnloom system available          # what ships with it, and which ones start by default
-fnloom system install database --config database.json
+fnloom system install database --config database.json   # brings widgets with it
 fnloom system install claude
 ```
+
+The heavier ones (database, web, claude) are not in the base package: installing one fetches its own dependencies
+(the SQLite driver built for the machine, puppeteer and its Chrome, the Claude Agent SDK) into that system's folder in the hub's data.
 
 The full guide, with what each system needs, is [`docs/install.md`](docs/install.md).
 
@@ -224,10 +227,13 @@ the same name a version (`database@latest`).
 The harness is published as one npm package whose name and command are `release.name` and `release.bin` in the root
 `package.json` (`fnloom`); the version is the root `version`. `npm run release:pack` builds the web app and writes
 `.release/<name>-<version>.tgz` (`scripts/release/pack.ts`): the repository's layout with only git-tracked files and
-no tests (`packages/{core,sdk,hub,cli,build}`, the web app's `dist/`, every premade system, the stack scripts), one
-`dependencies` list (every workspace's third-party runtime dependencies at the lockfile's versions), and a
-`postinstall` (`scripts/release/link.cjs`, run again by the binary) that links `node_modules/@harness/*` to those
-folders as workspaces do here. It refuses to pack when anything looks like a secret. To release:
+no tests (`packages/{core,sdk,hub,cli,build}`, the web app's `dist/`, the lightweight premade systems as source, the
+stack scripts), the heavy premade systems as package zips in `premade/` (packed with `harness system pack`; the npm
+packages each leaves out are in its `system.json` `server.external`, and the hub installs them into that system's
+own folder when it is installed), one `dependencies` list (the third-party runtime dependencies of what ships as
+source, at the lockfile's versions), and a `postinstall` (`scripts/release/link.cjs`, run again by the binary) that
+links `node_modules/@harness/*` to those folders as workspaces do here. Which premade systems start, ship as source or
+ship as zips is one table, `PREMADE` in `packages/cli/src/premade.ts`. It refuses to pack when anything looks like a secret. To release:
 `npm run release:version 0.2.0`, commit, then push the tag `v0.2.0`; `.github/workflows/release.yml` checks the tag
 against the version, packs and publishes with npm trusted publishing and provenance (nothing happens when that version
 is already on npm). Run the workflow by hand with `dry_run` to pack without publishing.

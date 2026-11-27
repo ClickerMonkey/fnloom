@@ -1,16 +1,19 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
-import { SystemName } from '@harness/core';
+import { InstanceName, SystemName } from '@harness/core';
+import { zip } from '@harness/hub/package';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runCli } from './cli.ts';
 import { bundledSystem, bundledSystems } from './commands/available.ts';
 import { withSavedAdmin, type HubTarget } from './hub.ts';
-import { ADMIN_FILE, BUNDLED_SYSTEMS_DIR, dataFolder, readAdminFile, sameLocalHub } from './local.ts';
+import { ADMIN_FILE, BUNDLED_SYSTEMS_DIR, PREMADE_DIR, dataFolder, readAdminFile, sameLocalHub } from './local.ts';
+import { packagedSystems, startComponents, startedWhen, systemOfComponent } from './premade.ts';
 import { FakeHub, putFolder, testIo } from './testing.ts';
 
 const WORK = resolve(sep, 'work');
 const SYSTEMS = join(resolve(sep, 'harness'), 'systems');
+const PREMADE = join(resolve(sep, 'harness'), 'premade');
 
 /** Premade systems in memory: database (a fleet), schedule, and the template, which is not one to install. */
 function premade(io: ReturnType<typeof testIo>, dir = SYSTEMS): void {
@@ -45,9 +48,20 @@ describe('premade systems', () => {
     expect((await bundledSystems(io, SYSTEMS)).map((s) => [s.folder, s.instances])).toEqual([['database', 'many'], ['fs', 'one'], ['schedule', 'one']]);
     premade(io, BUNDLED_SYSTEMS_DIR);
     expect(await runCli(['system', 'available'], io)).toBe(0);
-    expect(io.lines).toContain('          harness system install database');
+    expect(io.lines).toContain('          harness system install database, which fetches its own dependencies (installs widgets with it)');
     expect(io.lines.some((line) => line.includes('started by harness start always'))).toBe(true);
     expect(io.lines.join('\n')).not.toContain('template');
+  });
+
+  it('lists a heavy one from its package zip when its folder is not here (the published package)', async () => {
+    const io = testIo();
+    putFolder(io.memory, join(SYSTEMS, 'fs'), { 'system.json': JSON.stringify({ format: 1, name: 'fs', version: '0.1.0', description: 'Files.', protocol: 1, server: { entry: 'server/main.ts', external: {} } }) });
+    const manifest = { format: 1, name: 'web', version: '0.1.0', description: 'The web.', protocol: 1, server: { entry: 'server/main.js', external: { puppeteer: '^25.0.0' } }, instances: 'one' };
+    await io.memory.write(join(PREMADE, 'web.zip'), zip([{ path: 'system.json', bytes: new TextEncoder().encode(JSON.stringify(manifest)) }]));
+    await io.memory.write(join(PREMADE, 'stray.zip'), zip([]));
+    expect((await bundledSystems(io, SYSTEMS, PREMADE)).map((s) => [s.folder, s.packaged, s.description])).toEqual([['fs', false, 'Files.'], ['web', true, 'The web.']]);
+    expect(await bundledSystem(io, 'web', SYSTEMS, PREMADE)).toBe(join(PREMADE, 'web.zip'));
+    expect(await bundledSystem(io, 'stray', SYSTEMS, PREMADE)).toBeUndefined();
   });
 
   it('finds one by its bare name only', async () => {
@@ -55,6 +69,18 @@ describe('premade systems', () => {
     premade(io);
     expect(await bundledSystem(io, 'database', SYSTEMS)).toBe(join(SYSTEMS, 'database'));
     for (const name of ['template', 'nothing', '@x/database', '../database', 'database@1.0.0']) { expect(await bundledSystem(io, name, SYSTEMS)).toBeUndefined(); }
+  });
+
+  it('starts the lightweight ones, and the ones that need settings once they are set', () => {
+    expect(startComponents({})).toEqual(['hub', 'fs', 'input', 'code', 'schedule', 'api']);
+    expect(startComponents({ GOOGLE_CLIENT_ID: 'id', GOOGLE_CLIENT_SECRET: 's', HARNESS_EMBEDDER_URL: 'http://e' })).toEqual(['hub', 'fs', 'input', 'code', 'schedule', 'api', 'calendar', 'embedder']);
+    expect(startComponents({ GOOGLE_CLIENT_ID: 'id' })).not.toContain('calendar');
+    // the heavy ones and widgets (which goes with database) are installed, never started
+    for (const name of ['database', 'web', 'claude', 'widgets']) { expect(startedWhen(name)).toBeUndefined(); }
+    expect(packagedSystems().sort()).toEqual(['claude', 'database', 'web']);
+    expect(systemOfComponent('calendar')).toBe('google-calendar');
+    expect(systemOfComponent('web-system')).toBe('web');
+    expect(systemOfComponent('fs')).toBe('fs');
   });
 
   it('installs one by its bare name from its folder; a folder of that name here, or a version, wins', async () => {
@@ -70,6 +96,59 @@ describe('premade systems', () => {
     putFolder(io.memory, join(WORK, 'database'), { 'system.json': '{}' });
     expect(await runCli(['system', 'install', 'database', '--no-start'], io)).toBe(0);
     expect(sources).toEqual([{ path: join(BUNDLED_SYSTEMS_DIR, 'database') }, { package: 'database', version: '1.0.0' }, { path: join(WORK, 'database') }]);
+  });
+
+  it('installs database with widgets when the hub has no widgets yet, and a heavy one from its package zip', async () => {
+    const sources: unknown[] = [];
+    const zips: unknown[] = [];
+    let widgets = false;
+    const hub = new FakeHub({
+      installSystem: (body) => { sources.push(body.source); widgets = true; return { name: SystemName.parse('widgets') }; },
+      installPackage: (body) => { zips.push(body.zip); return { system: SystemName.parse('database'), instance: InstanceName.parse('main') }; },
+      system: () => {
+        if (!widgets) { throw Object.assign(new Error('no such system'), { status: 404 }); }
+        return {
+          name: SystemName.parse('widgets'), description: 'Widgets.', status: 'connected', enabled: { functions: true, renderers: true }, version: '0.1.0', manifestHash: 'h',
+          actor: 'act_widgets', keyFingerprint: 'fp', counts: { fns: 1, context: 0, types: 0, parts: 0, instances: 1, pending: 0, refusals: 0 }, instanceMode: 'one', needsConfig: false, instances: [],
+        };
+      },
+    });
+    const io = testIo({ hub, cwd: WORK });
+    putFolder(io.memory, join(BUNDLED_SYSTEMS_DIR, 'widgets'), { 'system.json': JSON.stringify({ format: 1, name: 'widgets', version: '0.1.0', protocol: 1, server: { entry: 'server/main.ts', external: {} } }) });
+    await io.memory.write(join(PREMADE_DIR, 'database.zip'), zip([{ path: 'system.json', bytes: new TextEncoder().encode('{}') }]));
+    expect(await runCli(['system', 'install', 'database', '--no-start'], io)).toBe(0);
+    expect(zips).toHaveLength(1);
+    expect(sources).toEqual([{ path: join(BUNDLED_SYSTEMS_DIR, 'widgets') }]);
+    // widgets is there now: a second database instance doesn't install it again
+    expect(await runCli(['system', 'install', 'database', '--instance', 'shop', '--no-start'], io)).toBe(0);
+    expect(zips).toHaveLength(2);
+    expect(sources).toHaveLength(1);
+  });
+
+  it('leaves a system harness start runs alone when the hub already has it', async () => {
+    const hub = new FakeHub({
+      installSystem: () => { throw new Error('not asked'); },
+      system: () => ({
+        name: SystemName.parse('fs'), description: 'Files.', status: 'connected', enabled: { functions: true, renderers: true }, version: '0.2.0', manifestHash: 'h',
+        actor: 'act_fs', keyFingerprint: 'fp', counts: { fns: 1, context: 0, types: 0, parts: 0, instances: 1, pending: 0, refusals: 0 }, instanceMode: 'many', needsConfig: false, instances: [],
+      }),
+    });
+    const io = testIo({ hub, cwd: WORK });
+    premade(io, BUNDLED_SYSTEMS_DIR);
+    expect(await runCli(['system', 'install', 'fs'], io)).toBe(0);
+    expect(hub.called).not.toContain('installSystem');
+    expect(io.lines.some((line) => line.includes('fs is already on this hub'))).toBe(true);
+  });
+
+  it('says widgets wants database when it is installed alone', async () => {
+    const hub = new FakeHub({
+      installSystem: () => ({ name: SystemName.parse('widgets') }),
+      system: () => { throw Object.assign(new Error('no such system'), { status: 404 }); },
+    });
+    const io = testIo({ hub, cwd: WORK });
+    putFolder(io.memory, join(BUNDLED_SYSTEMS_DIR, 'widgets'), { 'system.json': '{}' });
+    expect(await runCli(['system', 'install', 'widgets', '--no-start'], io)).toBe(0);
+    expect(io.lines.some((line) => line.includes('install database too'))).toBe(true);
   });
 });
 

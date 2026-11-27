@@ -4,7 +4,7 @@
  * (`SystemPackageManifest`, the one source of a system's name, version and entries).
  */
 import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { LINK_PROTOCOL, PACKAGE_MANIFEST_FILE, type InstallSource, type InstalledSystem, type SystemPackageManifest } from '@harness/core';
@@ -84,6 +84,11 @@ export class NodeInstaller implements Installer {
     const entries = unzip(await this.#zips.bytes(hash), this.#maxBytes);
     const checked = readPackage(entries);
     await writeTree(entries, dir);
+    // a built server is an ES module (`server/main.js`): say so, or Node under the tsx loader reads it as CommonJS
+    // when the data folder has no `"type": "module"` package.json above it (only the repository's has one)
+    if (!entries.some((entry) => entry.path === 'package.json')) {
+      await writeFile(join(dir, 'package.json'), `${JSON.stringify({ private: true, type: 'module' }, null, 2)}\n`);
+    }
     const externals = Object.entries(checked.manifest.server.external).map(([name, range]) => `${name}@${range}`);
     if (externals.length > 0) {
       await run(this.#npm, ['install', '--prefix', dir, '--omit=dev', '--no-save', '--no-package-lock', ...externals], { shell: process.platform === 'win32' });
