@@ -3,13 +3,15 @@
  * a connection whose status a test sets, and a full set of stores built on them.
  */
 import type { CallArgs, CallReturn } from '@ayepi/core';
-import { ActorId, Notification, Tokens, type SystemPageView, type UserEvent } from '@harness/core';
+import { ActorId, Notification, Tokens, type HttpsView, type SystemPageView, type UserEvent } from '@harness/core';
 import type { HubWebSpec } from '@harness/core';
 import { createHub, type CallerOf, type Connection, type Endpoint } from '../api/client.ts';
 import { SessionKeeper, SignInForm } from '../state/auth.ts';
 import { AccountStore } from '../state/account.ts';
 import { ConnectionStore } from '../state/connection.ts';
 import { PushStore, type PushKeys, type PushPlatform } from '../state/push.ts';
+import { HttpsStore } from '../state/https.ts';
+import { InstallStore, type InstallPlatform, type InstallPrompt } from '../state/install.ts';
 import { InboxStore } from '../state/inbox.ts';
 import { LayoutStore } from '../state/layout.ts';
 import type { KeyValueStore } from '../state/persisted.ts';
@@ -158,6 +160,10 @@ export function fakeApi() {
       outsideImages: fakeCaller<'outsideImages'>(() => Promise.resolve({ value: 'ask' as const })),
       setOutsideImages: fakeCaller<'setOutsideImages'>(({ value }) => Promise.resolve({ value, setBy: tokens().user.id, updatedAt: 1 })),
     },
+    https: {
+      https: fakeCaller<'https'>(() => Promise.resolve(HTTPS_VIEW)),
+      setHttps: fakeCaller<'setHttps'>(({ on }) => Promise.resolve({ ...HTTPS_VIEW, on, links: on ? HTTPS_VIEW.links : [], setBy: tokens().user.id, updatedAt: 1 })),
+    },
     notifications: {
       list: fakeCaller<'notifications'>(() => Promise.resolve({ items: [] })),
       markRead: fakeCaller<'readNotifications'>(() => Promise.resolve()),
@@ -195,6 +201,34 @@ export function fakePush(options: { supported?: boolean; answer?: NotificationPe
   return platform;
 }
 
+/** What the fake hub says about its https: on, its own authority, two addresses. */
+export const HTTPS_VIEW: HttpsView = {
+  on: true, source: 'own', host: 'bagend', fingerprint: 'AB:CD', authorityName: 'Hub authority on bagend', links: ['https://192.168.50.113:4300/', 'https://100.114.88.91:4300/'],
+};
+
+/** A browser's install side, as a test sets it up: secure or not, an iPhone or not, installed or not, and its prompt. */
+export function fakeInstall(options: { secure?: boolean; ios?: boolean; standalone?: boolean } = {}) {
+  const prompts = new Set<(prompt: InstallPrompt) => void>();
+  const changes = new Set<() => void>();
+  const state: { standalone: boolean; prompted: number; answer: 'accepted' | 'dismissed' } = { standalone: options.standalone ?? false, prompted: 0, answer: 'accepted' };
+  const platform = {
+    state,
+    standalone: () => state.standalone,
+    secure: () => options.secure ?? true,
+    ios: () => options.ios ?? false,
+    onPrompt: (listener: (prompt: InstallPrompt) => void) => { prompts.add(listener); return () => { prompts.delete(listener); }; },
+    onChange: (listener: () => void) => { changes.add(listener); return () => { changes.delete(listener); }; },
+    /** The browser offers its prompt. */
+    offer: () => {
+      const prompt: InstallPrompt = { prompt: () => { state.prompted++; return Promise.resolve(); }, get userChoice() { return Promise.resolve({ outcome: state.answer }); } };
+      for (const listener of prompts) { listener(prompt); }
+    },
+    /** The app was installed and now runs standalone. */
+    installed: () => { state.standalone = true; for (const listener of changes) { listener(); } },
+  } satisfies InstallPlatform & Record<string, unknown>;
+  return platform;
+}
+
 /**
  * The system pages store on a fake list. Its hub client is a real one that is never called (its socket opens on the first
  * call), for pages that only pass it along.
@@ -207,7 +241,7 @@ export function fakePages(list: readonly SystemPageView[] = [], events = fakeUse
 }
 
 /** Every store, built on fakes. `signedIn` starts the session signed in. */
-export function fakeStores(options: { signedIn?: boolean; api?: ReturnType<typeof fakeApi>; admin?: ReturnType<typeof fakeAdmin>; pages?: readonly SystemPageView[] } = {}) {
+export function fakeStores(options: { signedIn?: boolean; api?: ReturnType<typeof fakeApi>; admin?: ReturnType<typeof fakeAdmin>; pages?: readonly SystemPageView[]; install?: InstallPlatform } = {}) {
   const store = memoryStore();
   const api = options.api ?? fakeApi();
   const events = fakeUserEvents();
@@ -247,6 +281,8 @@ export function fakeStores(options: { signedIn?: boolean; api?: ReturnType<typeo
     itemVersions: (query) => data.itemVersions.call(query),
     logs: new ClientLogs({ send: fakeCaller<'clientLogs'>(() => Promise.resolve({ uri: 'hub://logs/test.jsonl', written: 1 })), signedIn: () => false, page: () => '/' }),
     push: new PushStore(api.notifications, fakePush(), () => 'Test browser'),
+    install: new InstallStore(options.install ?? fakeInstall()),
+    https: new HttpsStore(api.https),
   };
   return { stores, api, events, connection, store, chat, admin, resources, context, fns, data, pages };
 }

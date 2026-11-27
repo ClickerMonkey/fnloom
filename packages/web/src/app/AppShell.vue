@@ -3,11 +3,16 @@
  * The app's frame. Wide screens: the sidebar (collapsible to icons) beside the page. Narrow screens: a top bar, with
  * the sidebar in a drawer. It wires the stores to the shell's parts: the bell and its inbox popover, the connection
  * banner, toasts, the tab title, keeping the session fresh, and sending you to sign-in when it ends.
+ *
+ * Installed on a desktop with its own title bar (`window-controls-overlay`), a thin bar with the hub's name runs
+ * along the top beside the window's buttons and drags the window; on phones the shell keeps clear of the notch and
+ * the rounded corners (the safe areas).
  */
 import type { Notification } from '@harness/core';
 import { computed, shallowRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import InboxPanel from '../components/inbox/InboxPanel.vue';
+import InstallSheet from '../components/InstallSheet.vue';
 import { COMPACT_QUERY } from '../state/layout.ts';
 import type { NoticeVia } from '../state/push-payload.ts';
 import { useStores } from '../state/stores.ts';
@@ -21,7 +26,7 @@ import { showFavicon } from './favicon.ts';
 import { tabTitle } from './title.ts';
 import { links, noticeTarget, ROUTES } from './routes.ts';
 
-const { session, identity, keeper, layout, toasts, inbox, connection, admin, chat, pages, outsideImages } = useStores();
+const { session, identity, keeper, layout, toasts, inbox, connection, admin, chat, pages, outsideImages, install } = useStores();
 const signOut = useSignOut();
 const route = useRoute();
 const router = useRouter();
@@ -98,6 +103,12 @@ async function openNotification(notification: Notification, via: NoticeVia = 'li
   await router.push(await noticeTarget(notification, (run) => chat.sessionOfRun(run), via));
 }
 
+/** **Install app** from the person's menu: the browser's prompt, or the iPhone sheet. */
+async function installApp(): Promise<void> {
+  layout.drawerOpen.value = false;
+  if (await install.install() === 'accepted') { toasts.ok('Installed'); }
+}
+
 async function readAll(): Promise<void> {
   if (await inbox.markAllRead()) { toasts.ok('All caught up'); }
 }
@@ -105,16 +116,17 @@ async function readAll(): Promise<void> {
 
 <template>
   <div class="shell" :class="{ bare, compact, 'no-bar': compact && !topBar, collapsed: !compact && layout.collapsed }">
+    <div class="titlebar" aria-hidden="true" data-testid="titlebar"><span class="titlebar-name">{{ identity.name.value }}</span></div>
     <template v-if="!bare">
       <AppSidebar
-        v-if="!compact" class="side" :brand="identity.name.value" :entries="entries" :user="session.user.value" :unread="inbox.unread.value" :collapsed="layout.collapsed"
-        @toggle="layout.toggleSidebar()" @inbox="openInbox" @settings="router.push(links.settings())" @sign-out="signOut"
+        v-if="!compact" class="side" :brand="identity.name.value" :entries="entries" :user="session.user.value" :unread="inbox.unread.value" :collapsed="layout.collapsed" :installable="install.offered"
+        @toggle="layout.toggleSidebar()" @inbox="openInbox" @settings="router.push(links.settings())" @sign-out="signOut" @install="installApp"
       />
       <AppTopBar v-else-if="topBar" :title="title" :unread="inbox.unread.value" @menu="layout.drawerOpen.value = true" @inbox="openInbox" />
       <UiModal v-if="compact" v-model:open="layout.drawerOpen.value" placement="left" label="Navigation" width="300px">
         <AppSidebar
-          :brand="identity.name.value" :entries="entries" :user="session.user.value" :unread="inbox.unread.value" :collapsible="false"
-          @inbox="openInbox" @settings="router.push(links.settings())" @sign-out="signOut" @navigate="layout.drawerOpen.value = false"
+          :brand="identity.name.value" :entries="entries" :user="session.user.value" :unread="inbox.unread.value" :collapsible="false" :installable="install.offered"
+          @inbox="openInbox" @settings="router.push(links.settings())" @sign-out="signOut" @navigate="layout.drawerOpen.value = false" @install="installApp"
         />
       </UiModal>
     </template>
@@ -139,6 +151,7 @@ async function readAll(): Promise<void> {
         @all="router.push(links.inbox())" @retry="inbox.load('all')"
       />
     </UiPopover>
+    <InstallSheet v-model:open="install.sheetOpen.value" :name="identity.name.value" />
     <UiToaster :toasts="toasts.items" @dismiss="toasts.dismiss($event)" @action="toasts.act($event)" @hold="toasts.hold($event)" @release="toasts.release($event)" />
   </div>
 </template>
@@ -147,6 +160,19 @@ async function readAll(): Promise<void> {
 .shell {
   display: grid; grid-template-columns: var(--sidebar) minmax(0, 1fr); height: 100vh; height: 100dvh;
   transition: grid-template-columns var(--slow) var(--ease);
+}
+/* the safe areas at the sides (a phone held sideways) */
+.shell { box-sizing: border-box; padding-left: var(--safe-left); padding-right: var(--safe-right); }
+/* installed with its own title bar: the bar drags the window, the shell starts below it */
+.titlebar { display: none; }
+@media (display-mode: window-controls-overlay) {
+  .shell { padding-top: env(titlebar-area-height, 0px); }
+  .titlebar {
+    position: fixed; z-index: var(--z-sticky); top: env(titlebar-area-y, 0px); left: env(titlebar-area-x, 0px); display: flex; align-items: center;
+    width: env(titlebar-area-width, 100%); height: env(titlebar-area-height, 0px); padding: 0 var(--space-3); background: var(--surface); border-bottom: 1px solid var(--border);
+    color: var(--text-dim); font-size: var(--text-xs); font-weight: var(--weight-medium); app-region: drag; -webkit-app-region: drag; user-select: none;
+  }
+  .titlebar-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 .shell.collapsed { grid-template-columns: var(--sidebar-collapsed) minmax(0, 1fr); }
 .shell.compact { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }

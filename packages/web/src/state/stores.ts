@@ -12,6 +12,8 @@ import type { InboxStore } from './inbox.ts';
 import type { OutsideImagesStore } from './outside-images.ts';
 import type { LayoutStore } from './layout.ts';
 import type { PushStore } from './push.ts';
+import type { HttpsStore } from './https.ts';
+import type { InstallStore } from './install.ts';
 import type { ResourcesStore } from '../resources/state/resources.ts';
 import type { ContextStore } from '../context/state/context.ts';
 import type { FnInfoStore } from '../fns/state/fn-info.ts';
@@ -51,6 +53,10 @@ export interface Stores {
   readonly account: AccountStore;
   /** Web push on this device. */
   readonly push: PushStore;
+  /** Installing the app on this device. */
+  readonly install: InstallStore;
+  /** The hub's https: its switch, and what a phone needs to use it. */
+  readonly https: HttpsStore;
   /** The resource browser and the resource viewers. */
   readonly resources: ResourcesStore;
   /** Every context item, one item with its links, memory and links drawn by people. */

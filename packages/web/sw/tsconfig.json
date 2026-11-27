@@ -7,6 +7,6 @@
     "lib": ["ES2023", "WebWorker"],
     "types": []
   },
-  "include": ["sw.ts", "../src/state/push-payload.ts"],
+  "include": ["sw.ts", "../src/state/push-payload.ts", "../src/state/offline.ts"],
   "references": [{ "path": "../../core" }]
 }

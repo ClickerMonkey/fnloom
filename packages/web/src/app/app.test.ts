@@ -5,7 +5,8 @@ import { defineComponent, h } from 'vue';
 import { createMemoryHistory, type Router } from 'vue-router';
 import { OFFLINE_AFTER } from '../state/connection.ts';
 import { STORES } from '../state/stores.ts';
-import { fakeStores, notification } from '../test/fakes.ts';
+import { fakeInstall, fakeStores, HTTPS_VIEW, notification } from '../test/fakes.ts';
+import type { InstallPlatform } from '../state/install.ts';
 import { INBOX_PAGE, InboxFilter } from '../state/inbox.ts';
 import { APP_COMPONENTS, RESULT_VIEW } from '@harness/sdk';
 import TableResult from '../components/widgets/TableResult.vue';
@@ -27,9 +28,9 @@ function screen(compact: boolean): void {
   Reflect.apply(setViewport, happyDOM, [{ width: compact ? 390 : 1440, height: 900 }]);
 }
 
-async function start(path: string, options: { signedIn?: boolean; compact?: boolean } = {}) {
+async function start(path: string, options: { signedIn?: boolean; compact?: boolean; install?: InstallPlatform } = {}) {
   screen(options.compact === true);
-  const fakes = fakeStores({ signedIn: options.signedIn ?? true });
+  const fakes = fakeStores({ signedIn: options.signedIn ?? true, ...(options.install === undefined ? {} : { install: options.install }) });
   const router = createAppRouter(fakes.stores.session, createMemoryHistory());
   await router.push(path);
   await router.isReady();
@@ -450,18 +451,79 @@ describe('pages', () => {
     await dark?.trigger('click');
     expect(stores.theme.choice.value).toBe('dark');
     expect(document.documentElement.dataset['theme']).toBe('dark');
-    await app.findAll('[role="tab"]')[1]?.trigger('click');
+    await app.findAll('[role="tab"]')[2]?.trigger('click');
     await flushPromises();
     expect(router.currentRoute.value.fullPath).toBe('/settings/notifications');
     expect(app.find('[data-testid=push-card]').text()).toContain('Notify this device');
     await app.get('[data-testid=push-switch] [role=switch]').trigger('click');
     await flushPromises();
     expect(stores.push.state.value).toBe('on');
-    await app.findAll('[role="tab"]')[2]?.trigger('click');
+    await app.findAll('[role="tab"]')[3]?.trigger('click');
     await flushPromises();
     expect(router.currentRoute.value.fullPath).toBe('/settings/account');
     expect(app.text()).toContain('ada@example.com');
     expect(app.text()).toContain('Your account on this hub.');
+    app.unmount();
+  });
+
+  it('offers Install app where the browser can, in the account menu and Settings › App, and the iPhone sheet', async () => {
+    const browser = fakeInstall();
+    const { app, stores, api } = await start('/settings/app', { install: browser });
+    expect(app.get('[data-testid=install-card]').attributes('data-state')).toBe('browser');
+    expect(app.find('[data-testid=install-app]').exists()).toBe(false);
+    // the person's menu doesn't offer it yet
+    await app.get('[data-testid=user-menu]').trigger('click');
+    await flushPromises();
+    const menu = (): string[] => [...document.body.querySelectorAll('[role=menuitem]')].map((item) => item.textContent.trim());
+    expect(menu()).toContain('Settings');
+    expect(menu()).not.toContain('Install app');
+
+    browser.offer();
+    await flushPromises();
+    expect(app.get('[data-testid=install-card]').attributes('data-state')).toBe('ready');
+    expect(stores.install.offered).toBe(true);
+    expect(menu()).toContain('Install app');
+    await app.get('[data-testid=install-app]').trigger('click');
+    await flushPromises();
+    expect(browser.state.prompted).toBe(1);
+    browser.installed();
+    await flushPromises();
+    expect(app.get('[data-testid=install-card]').attributes('data-state')).toBe('installed');
+    expect(app.get('[data-testid=install-card]').text()).toContain('Installed');
+    expect(app.find('[data-testid=insecure-banner]').exists()).toBe(false);
+
+    // using it on a phone: the authority to download (over http, on the hub's address), then the secure address
+    expect(api.https.https.calls.length).toBeGreaterThan(0);
+    const phone = app.get('[data-testid=phone-card]');
+    expect(phone.get('[data-testid=download-authority]').attributes('href')).toBe('/harness-ca.crt');
+    expect(phone.text()).toContain('Certificate Trust Settings');
+    expect(phone.text()).toContain('Hub authority on bagend');
+    expect(phone.findAll('[data-testid=https-link]').map((link) => link.text())).toEqual(HTTPS_VIEW.links);
+    app.unmount();
+  });
+
+  it('shows the iPhone sheet, and says why nothing can install on a page that isn’t secure', async () => {
+    const iphone = await start('/settings/app', { install: fakeInstall({ ios: true }) });
+    await iphone.app.get('[data-testid=install-app]').trigger('click');
+    await flushPromises();
+    expect(document.body.querySelector('[data-testid=install-sheet]')?.textContent).toContain('Add to Home Screen');
+    iphone.app.unmount();
+    document.body.innerHTML = '';
+
+    const insecure = await start('/settings/app', { install: fakeInstall({ secure: false }) });
+    expect(insecure.app.get('[data-testid=install-card]').attributes('data-state')).toBe('insecure');
+    expect(insecure.app.get('[data-testid=insecure-banner]').text()).toContain('can’t be installed');
+    insecure.app.unmount();
+  });
+
+  it('lets an admin switch the secure address in Settings › Hub', async () => {
+    const { app, api, stores } = await start('/settings/hub');
+    await flushPromises();
+    expect(app.get('[data-testid=https-card]').text()).toContain('http keeps working');
+    await app.get('[data-testid=https-switch] [role=switch]').trigger('click');
+    await flushPromises();
+    expect(api.https.setHttps.calls.at(-1)?.[0]).toEqual({ on: false });
+    expect(stores.https.view.value?.on).toBe(false);
     app.unmount();
   });
 

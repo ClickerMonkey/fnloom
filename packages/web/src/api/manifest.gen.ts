@@ -3173,6 +3173,44 @@ export const manifest = {
       "multi": false,
       "bodyEnc": "json"
     },
+    "https": {
+      "method": "POST",
+      "path": "/https",
+      "ws": "https",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
+    "setHttps": {
+      "method": "POST",
+      "path": "/setHttps",
+      "ws": "setHttps",
+      "httpOnly": false,
+      "streamIn": null,
+      "itemsIn": false,
+      "streamOut": null,
+      "items": false,
+      "p": [],
+      "q": [],
+      "b": [
+        "on"
+      ],
+      "f": [],
+      "hasBody": true,
+      "hasHeaders": false,
+      "multi": false,
+      "bodyEnc": "json"
+    },
     "accessInfo": {
       "method": "POST",
       "path": "/accessInfo",

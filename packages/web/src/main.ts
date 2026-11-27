@@ -14,6 +14,9 @@ import { ShikiHighlighter } from './ui/code/shiki.ts';
 import { DIAGRAMS } from './ui/markdown/diagram.ts';
 import { MermaidRenderer } from './ui/markdown/mermaid.ts';
 import { PDF_DOCUMENTS, PdfJsDocuments } from './resources/logic/pdf.ts';
+import { followThemeColour, openOutsideLinksInBrowser } from './app/standalone.ts';
+import { registerWorker } from './state/install.ts';
+import { SERVICE_WORKERS } from './state/push.ts';
 import './ui/styles/tokens.css';
 import './ui/styles/base.css';
 
@@ -31,3 +34,8 @@ app
   .provide(PDF_DOCUMENTS, new PdfJsDocuments())
   .use(createAppRouter(stores.session, createWebHistory()))
   .mount('#app');
+
+// the installed app: its service worker (push, and the offline page), outside links in the browser, the window's colour
+void registerWorker(window, import.meta.env.DEV ? SERVICE_WORKERS.source : SERVICE_WORKERS.built);
+openOutsideLinksInBrowser(window, () => stores.install.state.value === 'installed');
+followThemeColour(document, stores.theme.theme);

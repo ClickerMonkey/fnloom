@@ -5,11 +5,12 @@
  * given and reports what the person does.
  */
 import type { UserView } from '@harness/core';
+import { computed } from 'vue';
 import { UiAvatar, UiIcon, UiIconButton, UiMenu, countLabel, type MenuItem } from '../ui/index.ts';
 import AppBrand from './AppBrand.vue';
 import type { NavEntry } from './nav.ts';
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   /** The hub's display name, for the mark. */
   brand: string;
   entries: readonly NavEntry[];
@@ -18,24 +19,32 @@ withDefaults(defineProps<{
   collapsed?: boolean;
   /** Offer the collapse toggle (wide screens). */
   collapsible?: boolean;
-}>(), { collapsed: false, collapsible: true });
+  /** Offer **Install app** in the person's menu (the browser can install it in one step). */
+  installable?: boolean;
+}>(), { collapsed: false, collapsible: true, installable: false });
 
-const emit = defineEmits<{ toggle: []; inbox: [anchor: HTMLElement]; settings: []; signOut: []; navigate: [] }>();
+const emit = defineEmits<{ toggle: []; inbox: [anchor: HTMLElement]; settings: []; install: []; signOut: []; navigate: [] }>();
 const slots = defineSlots<{ default?: () => unknown }>();
 
-type UserAction = 'settings' | 'sign-out';
-const USER_MENU: readonly MenuItem<UserAction>[] = [
+type UserAction = 'settings' | 'install' | 'sign-out';
+/** The person's menu; **Install app** only while the browser can install the app. */
+const userMenu = computed<readonly MenuItem<UserAction>[]>(() => [
   { value: 'settings', label: 'Settings', icon: 'settings' },
+  ...(props.installable ? [{ value: 'install' as const, label: 'Install app', icon: 'download' as const }] : []),
   { kind: 'separator' },
   { value: 'sign-out', label: 'Sign out', icon: 'log-out', danger: true },
-];
+]);
 
 function openInbox(event: MouseEvent): void {
   if (event.currentTarget instanceof HTMLElement) { emit('inbox', event.currentTarget); }
 }
 
 function onUserAction(action: UserAction): void {
-  if (action === 'settings') { emit('settings'); } else { emit('signOut'); }
+  switch (action) {
+    case 'settings': emit('settings'); break;
+    case 'install': emit('install'); break;
+    case 'sign-out': emit('signOut'); break;
+  }
 }
 </script>
 
@@ -67,7 +76,7 @@ function onUserAction(action: UserAction): void {
     </div>
 
     <div v-if="user" class="foot">
-      <UiMenu :items="USER_MENU" label="Account" side="top" align="start" @select="onUserAction">
+      <UiMenu :items="userMenu" label="Account" side="top" align="start" @select="onUserAction">
         <template #trigger="{ toggle, attrs }">
           <button type="button" class="person" v-bind="attrs" :title="collapsed ? user.name : undefined" data-testid="user-menu" @click="toggle">
             <UiAvatar :name="user.name" :size="30" />

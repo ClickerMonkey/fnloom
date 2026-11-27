@@ -88,7 +88,7 @@ export const ROUTES = {
 export type RouteName = (typeof ROUTES)[keyof typeof ROUTES];
 
 /** The settings sections, each its own URL. */
-export const SettingsSection = z.enum(['appearance', 'notifications', 'account', 'hub']);
+export const SettingsSection = z.enum(['appearance', 'app', 'notifications', 'account', 'hub']);
 export type SettingsSection = z.infer<typeof SettingsSection>;
 
 /** The panels a chat can have open besides inspectors. */

@@ -1,7 +1,9 @@
 <script setup lang="ts">
 /**
- * Settings, one URL per section: how the app looks on this device, notifications on this device (web push), and the
- * signed-in account. Each section says where its settings apply.
+ * Settings, one URL per section: how the app looks on this device, installing it (and using it on a phone),
+ * notifications on this device (web push), and the signed-in account; admins also get the hub's own settings. Each
+ * section says where its settings apply. A page that isn't secure (http on another device) can't install the app
+ * or turn on notifications, and the sections that need it say so.
  */
 import { computed, onMounted, watch } from 'vue';
 import AppPage from '../app/AppPage.vue';
@@ -12,10 +14,12 @@ import { useStores } from '../state/stores.ts';
 import type { PushState } from '../state/push.ts';
 import HubNameCard from '../components/HubNameCard.vue';
 import ThemePicker from '../components/ThemePicker.vue';
+import InstallCard from '../components/InstallCard.vue';
+import PhoneCard from '../components/PhoneCard.vue';
 import { UiAvatar, UiBadge, UiBanner, UiButton, UiCard, UiSwitch, UiTabs, relativeTime, type TabItem } from '../ui/index.ts';
 import { useNow } from '../ui/now.ts';
 
-const { theme, layout, session, push, toasts, identity, account, outsideImages } = useStores();
+const { theme, layout, session, push, toasts, identity, account, outsideImages, install, https } = useStores();
 const signOut = useSignOut();
 const section = useParamChoice('section', SettingsSection, 'appearance');
 
@@ -23,6 +27,7 @@ const isAdmin = computed(() => session.user.value?.role === 'admin');
 /** The sections; the hub's own settings are for admins. */
 const tabs = computed<readonly TabItem<SettingsSection>[]>(() => [
   { value: 'appearance', label: 'Appearance' },
+  { value: 'app', label: 'App' },
   { value: 'notifications', label: 'Notifications' },
   { value: 'account', label: 'Account' },
   ...(isAdmin.value ? [{ value: 'hub' as const, label: 'Hub' }] : []),
@@ -31,10 +36,20 @@ const tabs = computed<readonly TabItem<SettingsSection>[]>(() => [
 /** Where each section's settings apply. */
 const WHERE = {
   appearance: 'These apply on this device.',
+  app: 'Install the app on this device, or use it on your phone.',
   notifications: 'These apply on this device.',
   account: 'Your account on this hub.',
   hub: 'These apply to everyone on this hub.',
 } as const satisfies Record<SettingsSection, string>;
+
+/** What a page that isn't secure can't do. */
+const INSECURE = 'This page isn’t on a secure address, so the app can’t be installed here and notifications can’t be turned on. Open the hub’s secure address (https) instead: Settings › App shows how.';
+
+/** What the admin's https switch says, by where the certificate comes from. */
+const HTTPS_TEXT = {
+  own: 'Other devices can open the hub at https on the same port, once they trust the hub’s own certificate (Settings › App shows how). Needed to install the app and get notifications on a phone. http keeps working.',
+  files: 'Other devices can open the hub at https on the same port, with the certificate this hub was started with. http keeps working.',
+} as const;
 
 /** What the push card says for each state. */
 const PUSH_TEXT = {
@@ -57,7 +72,23 @@ const now = useNow(60_000);
 const mine = computed(() => account.view.value.value);
 
 onMounted(() => { void push.check(); });
-watch(section, (current) => { if (current === 'account') void account.load(); }, { immediate: true });
+watch(section, (current) => {
+  if (current === 'account') { void account.load(); }
+  if (current === 'app' || current === 'hub') { void https.load(); }
+}, { immediate: true });
+
+/** Whether this page is secure (https, or this computer): installing and notifications need it. */
+const secure = install.secure;
+
+/** The admin's switch: https on the hub's port. */
+const httpsOn = computed({
+  get: () => https.view.value?.on ?? false,
+  set: (on: boolean) => { void https.set(on).then((outcome) => { if (outcome.ok) { toasts.ok(on ? 'Secure address on' : 'Secure address off'); } }); },
+});
+
+async function installApp(): Promise<void> {
+  if (await install.install() === 'accepted') { toasts.ok('Installed'); }
+}
 
 /** The admin's switch: outside images load at once (`always`) or wait for a click (`ask`, the default). */
 const loadOutside = computed({
@@ -89,7 +120,13 @@ async function rename(name: string | null): Promise<void> {
             />
           </UiCard>
         </div>
+        <div v-else-if="value === 'app'" class="stack">
+          <UiBanner v-if="!secure" tone="warn" icon="shield" data-testid="insecure-banner">{{ INSECURE }}</UiBanner>
+          <InstallCard :state="install.state.value" :name="identity.name.value" @install="installApp" />
+          <PhoneCard :view="https.view.value" :authority="https.authority.value" :loading="https.loading.busy.value" :problem="https.loading.problem.value" />
+        </div>
         <div v-else-if="value === 'notifications'" class="stack">
+          <UiBanner v-if="!secure" tone="warn" icon="shield">{{ INSECURE }}</UiBanner>
           <UiCard title="Notifications" data-testid="push-card">
             <UiSwitch
               v-model="pushOn" label="Notify this device" :description="PUSH_TEXT[push.state.value]"
@@ -102,6 +139,14 @@ async function rename(name: string | null): Promise<void> {
           <HubNameCard
             :name="identity.name.value" :source="identity.source.value" :busy="identity.saving.busy.value" :problem="identity.saving.problem.value" @save="rename"
           />
+          <UiCard title="Secure address (https)" data-testid="https-card">
+            <UiSwitch
+              v-model="httpsOn" label="Answer on a secure address" :disabled="https.saving.busy.value || https.view.value === undefined" data-testid="https-switch"
+              :description="https.view.value?.source === 'files' ? HTTPS_TEXT.files : HTTPS_TEXT.own"
+            />
+            <UiBanner v-if="!secure" tone="warn" icon="shield">{{ INSECURE }}</UiBanner>
+            <UiBanner v-if="https.saving.problem.value !== ''" tone="danger">{{ https.saving.problem.value }}</UiBanner>
+          </UiCard>
           <UiCard title="Images in chats" data-testid="outside-images-card">
             <UiSwitch
               v-model="loadOutside" label="Load outside images" :disabled="outsideImages.saving.busy.value" data-testid="outside-images-switch"

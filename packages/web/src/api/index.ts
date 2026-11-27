@@ -5,6 +5,7 @@ import { chatApi, sessionEvents, type ChatApi, type SessionEvents } from '../cha
 import { authApi, type AuthApi } from './auth.ts';
 import { identityApi, type IdentityApi } from './identity.ts';
 import { outsideImagesApi, type OutsideImagesApi } from './outside-images.ts';
+import { httpsApi, type HttpsApi } from './https.ts';
 import type { Connection, Hub } from './client.ts';
 import { notificationsApi, userEvents, type NotificationsApi, type UserEvents } from './notifications.ts';
 import { resourceEvents, resourcesApi, type ResourceEvents, type ResourcesApi } from '../resources/api/resources.ts';
@@ -23,6 +24,8 @@ export interface Api {
   readonly identity: IdentityApi;
   /** The admin's setting for markdown images from outside the hub. */
   readonly outsideImages: OutsideImagesApi;
+  /** https on the hub's port: its switch, and what a phone needs to use it. */
+  readonly https: HttpsApi;
   readonly notifications: NotificationsApi;
   readonly userEvents: UserEvents;
   readonly chat: ChatApi;
@@ -49,6 +52,7 @@ export function createApi(hub: Hub, me: () => ActorId | undefined): Api {
     auth: authApi(hub),
     identity: identityApi(hub),
     outsideImages: outsideImagesApi(hub),
+    https: httpsApi(hub),
     notifications: notificationsApi(hub),
     userEvents: events,
     chat: chatApi(hub),

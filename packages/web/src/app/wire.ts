@@ -17,6 +17,8 @@ import { ConnectionStore } from '../state/connection.ts';
 import { InboxStore } from '../state/inbox.ts';
 import { LayoutStore } from '../state/layout.ts';
 import { BrowserPush, PushStore, SERVICE_WORKERS } from '../state/push.ts';
+import { HttpsStore } from '../state/https.ts';
+import { BrowserInstall, InstallStore } from '../state/install.ts';
 import { windowStorageChanges } from '../state/persisted.ts';
 import { cookieMark, SessionStore } from '../state/session.ts';
 import { ResourcesStore } from '../resources/state/resources.ts';
@@ -109,5 +111,7 @@ export function createStores(win: Window): Stores {
     itemVersions: (query) => api.data.itemVersions.call(query),
     logs,
     push: new PushStore(api.notifications, new BrowserPush(win, import.meta.env.DEV ? SERVICE_WORKERS.source : SERVICE_WORKERS.built), () => win.navigator.userAgent),
+    install: new InstallStore(new BrowserInstall(win)),
+    https: new HttpsStore(api.https),
   };
 }
