@@ -219,7 +219,10 @@ Labels are 1-5 plain words for non-technical readers; the technical names are in
 | Label | What it means | Evidence | Status |
 |---|---|---|---|
 | Works great on phones | One web app that fits phones, tablets and desktops; no sideways scrolling at any size. | `AppShell.vue`, `AppTopBar.vue`; ui-test `responsive` | Built |
-| Add to home screen | Installable as an app, with its own name and icon. | `/manifest.webmanifest` (`boot/identity.ts`) | Partial: no offline mode (`sw/sw.ts` caches nothing) |
+| Installs as an app on phones | Add to Home Screen on iPhone and iPad, Install app on Android: its own name, icon and full-screen window; an Install app item where the browser allows, and a short how-to on iPhone. | `/manifest.webmanifest` (`api/serve.ts` `webManifest`, `serve.test.ts`), `state/install.ts` (`install.test.ts`), `InstallCard.vue`, `InstallSheet.vue`; browser test `e2e/installable.browser.test.ts` (Chrome: no installability errors over https) | Built (no offline use: see "Do not claim" 7) |
+| Installs as a desktop app | Install app in Chrome and Edge (Add to Dock in Safari): its own window and title bar, dock or Start-menu icon, shortcuts to a new chat and the inbox; links to other sites open in the browser. | `webManifest` (`display_override` window-controls-overlay, shortcuts, screenshots), `AppShell.vue` title bar, `app/standalone.ts` (`standalone.test.ts`); browser test `installable` | Built (a web app, not a store download) |
+| Secure address with no setup | The hub answers https as well as http on its port with a certificate it makes for itself; a phone trusts it once (a QR code, then a few taps), so the app installs and notifications work there. A real certificate (Tailscale, mkcert) can be used instead. | `api/tls.ts` (`tls.test.ts`), `api/dual.ts` (`dual.test.ts`), `api/https.ts` (`https.test.ts`), `/harness-ca.crt`, Settings › App `PhoneCard.vue`, Settings › Hub switch; browser test `installable` | Built |
+| A page when the hub is out of reach | The installed app shows "Can't reach your hub" with Try again instead of the browser's error. | `sw/sw.ts`, `public/offline.html`, `state/offline.ts` (`install.test.ts`); browser test `installable` | Built (a fallback page only) |
 | Phone notifications | Push notifications for approvals, replies, finished answers, budgets and schedule results. | `api/push.ts`, `push.test.ts`, `chat/notifications.ts`; `sw/sw.ts` | Built |
 | An inbox for everything | One inbox of what needs you; approvals answered right there. | `/inbox` (`InboxPage.vue`); ui-test `inbox` | Built |
 | Speak instead of type | Dictation in the composer (a transcription model or the browser's own). | Dictate button `Composer.vue`; dictation role | Built (shown only when configured) |
@@ -251,7 +254,7 @@ agents, Codex CLI / Gemini CLI, Open WebUI) to confirm or reject. It is not a cl
 | 9. Models and cost | Use any model; Runs local models for you; Small-model mode; Tools shaped for each model; Spending limits everywhere | Layered budgets (person, group, chat, message) and per-model schema shaping are likely rare |
 | 10. Files, pictures and documents | Reads PDFs, sheets and photos; Viewer for every file type; Pictures for blind models; Keeps the original and copies | A blind model asking a vision model about images is likely rare |
 | 11. See everything, test everything | Watch every step live; Every model call recorded; Tool health stats; Tested by a simulated family | Full recorded call trees and a simulated-household test bench are likely rare |
-| 12. Where you use it | Works great on phones; Phone notifications; An inbox for everything; Self-hosted, your data; Use it from other AI apps | Phone-first web app with push for approvals likely rare among CLIs; common for Open WebUI-style apps |
+| 12. Where you use it | Works great on phones; Installs as an app on phones and desktops; Secure address with no setup; Phone notifications; An inbox for everything; Self-hosted, your data; Use it from other AI apps | Phone-first web app with push for approvals likely rare among CLIs; common for Open WebUI-style apps |
 
 ---
 
@@ -273,7 +276,7 @@ Evidence for each is in `docs/plans/` and `.harness-test/scenarios/`.
    on admin pages; the agent answering the question is the weak part).
 6. **"Shareable forms / sign-up sheets."** Forms appear in the chat only (`iteration-7-2026-11-26.md:141`); scenario 64
    weak in every rep.
-7. **"Works offline" / full PWA.** The service worker caches nothing (`packages/web/sw/sw.ts`).
+7. **"Works offline."** The app installs on desktop and phones, but without the hub it shows only a "Can't reach your hub" page: the service worker caches that page and nothing else, by design (never stale data). Nothing can be read or done offline (`packages/web/sw/sw.ts`).
 8. **"Runs on a 2k-token local model."** `hub/chat_small` still doesn't fit a 2,048-token window
    (`scripts/chat-small-fit.test.ts` is an expected failure; `iteration-7-2026-11-26.md:179-180`). Say "local models"
    without the tiny-window claim.
