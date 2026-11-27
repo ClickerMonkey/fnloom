@@ -20,3 +20,6 @@ ui-tests/gallery*/
 # the marketing site: built output and preview shots
 site/dist/
 site/preview/
+
+# hitl answers, reviews and pictures stay on this computer
+.hitl/
