@@ -7,6 +7,7 @@ import { parseArgs } from 'node:util';
 import { z } from 'zod';
 import type { CliFiles } from './files.ts';
 import type { CliSettings, HubSession } from './hub.ts';
+import type { StartOptions } from './local.ts';
 import type { SystemBuilder, SystemTestRunner } from '@harness/build';
 
 /** Where a command's output goes. */
@@ -35,6 +36,8 @@ export interface CliIo {
   stdin(): AsyncIterable<string>;
   /** A signed-in connection to a hub (`--hub`, `--token` override the settings), made when a command needs it. */
   hub(options: HubOptions): Promise<HubSession>;
+  /** Start the hub and the default systems on this machine (`harness start`); resolves with the exit code once they are up. */
+  start(options: StartOptions): Promise<number>;
 }
 
 /** The options every command that talks to a hub takes. */

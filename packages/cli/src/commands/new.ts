@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { InstanceMode, PACKAGE_MANIFEST_FILE, SystemName } from '@harness/core';
 import { z } from 'zod';
 import { command } from '../command.ts';
+import { CLI_NAME } from '../local.ts';
 import { NOT_SOURCE } from '@harness/build';
 
 /** Where the template system is in this repository. */
@@ -132,7 +133,7 @@ export const newCommand = command({
     }
     io.out.line(`made ${relative(io.cwd, target) || target} (${sources.length} files) from ${relative(io.cwd, from) || from}`);
     io.out.line('next: fill in each TODO, add the folder to the root package.json workspaces and tsconfig.json references, run npm install,');
-    io.out.line(`then: harness system build ${relative(io.cwd, target)}`);
+    io.out.line(`then: ${CLI_NAME} system build ${relative(io.cwd, target)}`);
     return 0;
   },
 });
