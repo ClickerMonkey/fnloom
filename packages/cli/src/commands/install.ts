@@ -2,14 +2,17 @@
  * `harness system install <zip|dir|npm-spec> [--config <file.json>] [--instance <name>] [--data <export.zip>]`:
  * install a system on a running hub, which pairs it, configures it and starts it beside itself. A zip is uploaded and
  * installed as a package (a fleet package takes `--instance`; `--data` restores a data export into the new
- * instance); a folder is installed in place; anything else is an npm package (`name@version`). It then waits for
- * the system to connect and says where it got to.
+ * instance); a folder is installed in place; the bare name of a premade system this harness carries (`database`,
+ * `schedule`: `harness system available` lists them) installs that folder; anything else is an npm package
+ * (`name@version`; give a version, `database@latest`, for an npm package named like a premade system). It then waits
+ * for the system to connect and says where it got to.
  */
 import { basename, resolve } from 'node:path';
 import { InstanceName, Json, instanceLabel, type InstallSource, type SystemName, type SystemStatus } from '@harness/core';
 import { z } from 'zod';
 import { HUB_OPTIONS, command, type CliIo } from '../command.ts';
 import type { HubSession } from '../hub.ts';
+import { bundledSystem } from './available.ts';
 
 /** The mime type of the zips the CLI uploads. */
 const ZIP = 'application/zip';
@@ -46,8 +49,8 @@ export async function waitForSystem(io: CliIo, hub: HubSession, target: { system
 
 export const installCommand = command({
   path: ['system', 'install'],
-  summary: 'Install a package zip, a folder or an npm package on a hub, which pairs, configures and starts it.',
-  usage: '<zip | folder | npm-spec> [--config <file.json>] [--instance <name>] [--data <export.zip>] [--no-start] [--wait <ms>]',
+  summary: 'Install a package zip, a folder, a premade system by name or an npm package on a hub, which pairs, configures and starts it.',
+  usage: '<zip | folder | premade-name | npm-spec> [--config <file.json>] [--instance <name>] [--data <export.zip>] [--no-start] [--wait <ms>]',
   args: z.object({
     positionals: z.tuple([z.string().min(1)]),
     values: z.object({
@@ -60,8 +63,12 @@ export const installCommand = command({
     }),
   }),
   async run({ positionals: [target], values }, io) {
-    const path = resolve(io.cwd, target);
-    const found = await io.files.stat(path);
+    const given = resolve(io.cwd, target);
+    const stat = await io.files.stat(given);
+    // a bare name that is no file or folder here, but names a premade system: that system's folder
+    const premade = stat === undefined ? await bundledSystem(io, target) : undefined;
+    const path = premade ?? given;
+    const found = premade === undefined ? stat : await io.files.stat(premade);
     const config = values.config === undefined ? undefined : Json.parse(JSON.parse(await io.files.readText(resolve(io.cwd, values.config))));
     const { instance } = values;
     const autoStart = !values['no-start'];

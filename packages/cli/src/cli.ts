@@ -6,6 +6,7 @@
 import { ApiError } from '@ayepi/core';
 import { UsageError, parseCommand, type CliCommand, type CliIo } from './command.ts';
 import { secretOption } from './hub.ts';
+import { availableCommand } from './commands/available.ts';
 import { buildCommand } from './commands/build.ts';
 import { exportDataCommand } from './commands/data.ts';
 import { installCommand } from './commands/install.ts';
@@ -13,24 +14,26 @@ import { listCommand, startCommand, stopCommand, uninstallCommand, upgradeComman
 import { mcpCommand } from './commands/mcp.ts';
 import { newCommand } from './commands/new.ts';
 import { packCommand } from './commands/pack.ts';
+import { startHarnessCommand } from './commands/start.ts';
 import { testCommand } from './commands/test.ts';
+import { CLI_NAME } from './local.ts';
 
 /** Every command, in the order help lists them. */
 export const COMMANDS = [
-  newCommand, buildCommand, testCommand, packCommand, installCommand, exportDataCommand, listCommand, startCommand, stopCommand, upgradeCommand, uninstallCommand,
+  startHarnessCommand, availableCommand, newCommand, buildCommand, testCommand, packCommand, installCommand, exportDataCommand, listCommand, startCommand, stopCommand, upgradeCommand, uninstallCommand,
   mcpCommand,
 ] as const satisfies readonly CliCommand[];
 
 /** A command's call as people type it: `harness system build [dir] [--skip-typecheck]`. */
 export function usageOf(definition: Pick<CliCommand, 'path' | 'usage'>): string {
-  return ['harness', ...definition.path, definition.usage].filter((part) => part !== '').join(' ');
+  return [CLI_NAME, ...definition.path, definition.usage].filter((part) => part !== '').join(' ');
 }
 
 /** The help text: every command with its summary. */
 export function helpText(): string {
   const width = Math.max(...COMMANDS.map((c) => usageOf(c).length));
   return [
-    'harness: make, build, test, pack and install harness systems.',
+    `${CLI_NAME}: run the harness here (${CLI_NAME} start), and make, build, test, pack and install its systems.`,
     '',
     ...COMMANDS.map((c) => `  ${usageOf(c).padEnd(width)}  ${c.summary}`),
     '',

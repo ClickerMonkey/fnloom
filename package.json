@@ -1,12 +1,19 @@
 {
   "name": "harness",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "license": "Apache-2.0",
   "type": "module",
   "description": "A web-based agent harness: one hub that owns every LLM call, and systems that connect over WebSocket to add fns, types and resources.",
   "engines": {
     "node": ">=22.18"
+  },
+  "release": {
+    "name": "fnloom",
+    "bin": "fnloom",
+    "description": "A web-based agent harness you run yourself: one hub that owns every model call, person and permission, and systems that add fns, types, resources and screens.",
+    "keywords": ["agent", "harness", "llm", "ai", "mcp", "tools", "self-hosted"],
+    "repository": "https://github.com/ClickerMonkey/harness"
   },
   "workspaces": [
     "packages/core",
@@ -27,7 +34,8 @@
     "systems/code",
     "systems/api",
     "systems/claude",
-    "systems/schedule"
+    "systems/schedule",
+    "systems/ollama"
   ],
   "scripts": {
     "typecheck": "vue-tsc -b",
@@ -62,12 +70,14 @@
     "prompt:render": "tsx scripts/prompt-render.ts",
     "prompt:memory": "tsx scripts/prompt-memory.ts",
     "site:build": "node site/tools/build.mjs",
-    "site:publish": "node site/tools/publish-pages.mjs"
+    "site:publish": "node site/tools/publish-pages.mjs",
+    "release:pack": "npm run build && tsx scripts/release/pack.ts --skip-build",
+    "release:version": "tsx scripts/release/version.ts"
   },
   "devDependencies": {
-    "@ayepi/context": "file:../ayepi/packages/context",
-    "@ayepi/mock": "file:../ayepi/packages/mock",
-    "@ayepi/stress": "file:../ayepi/packages/stress",
+    "@ayepi/context": "^0.6.0",
+    "@ayepi/mock": "^0.6.0",
+    "@ayepi/stress": "^0.6.0",
     "@eslint/js": "^10.0.1",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.20.5",
@@ -87,7 +97,7 @@
     "xlsx": "^0.18.5"
   },
   "dependencies": {
-    "@ayepi/env": "file:../ayepi/packages/env",
+    "@ayepi/env": "^0.6.0",
     "zod": "^4.6.7"
   }
 }

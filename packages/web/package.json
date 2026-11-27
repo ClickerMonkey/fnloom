@@ -13,9 +13,9 @@
     "e2e:mock": "tsx e2e/withMock.ts"
   },
   "dependencies": {
-    "@aeye/resources": "file:../../../aits/packages/resources",
-    "@ayepi/core": "file:../../../ayepi/packages/core",
-    "@ayepi/env": "file:../../../ayepi/packages/env",
+    "@aeye/resources": "^0.10.1",
+    "@ayepi/core": "^0.6.0",
+    "@ayepi/env": "^0.6.0",
     "@harness/core": "*",
     "@harness/sdk": "*",
     "cytoscape": "3.34.4",

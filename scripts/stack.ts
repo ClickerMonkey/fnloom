@@ -8,6 +8,7 @@
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { networkInterfaces } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,8 +32,10 @@ import { signIn, waitFor, type Credentials, type SignedIn } from './hub-client.t
 
 /** The repository root. */
 export const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const TSX = join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
-const VITE = join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js');
+/** Resolved as packages are, so they are found where npm put them (beside an installed package, not inside it). */
+const resolvePackage = createRequire(import.meta.url).resolve;
+const TSX = resolvePackage('tsx/cli');
+const VITE = join(dirname(resolvePackage('vite/package.json')), 'bin', 'vite.js');
 
 /** The systems the stack runs, with the config each gets once it has connected. */
 export interface StackSystems {

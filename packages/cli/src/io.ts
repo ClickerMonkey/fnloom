@@ -1,10 +1,12 @@
 /** The io the `harness` binary runs commands over: the console, the disk, Vite, a hub over HTTP, and stdin. */
+import { pathToFileURL } from 'node:url';
 import type { CliIo } from './command.ts';
 import { ViteBuilder, VitestRunner } from '@harness/build';
 import { scrubbedEnv } from '@harness/sdk/server';
 import { linesOf } from './commands/mcp.ts';
 import { NodeFiles } from './files.ts';
-import { cliSettings, connectHub, hubTarget } from './hub.ts';
+import { cliSettings, connectHub, hubTarget, withSavedAdmin } from './hub.ts';
+import { dataFolder, isStartScript, readAdminFile, START_SCRIPT } from './local.ts';
 
 /** The process's io: lines to stdout, warnings to stderr, settings from `.env` in `cwd` and the environment. */
 export function nodeIo(cwd: string, environment: Readonly<Record<string, string | undefined>>): CliIo {
@@ -19,6 +21,12 @@ export function nodeIo(cwd: string, environment: Readonly<Record<string, string 
     settings,
     sleep: (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }),
     stdin: () => linesOf(process.stdin),
-    hub: (options) => connectHub(hubTarget(settings, options)),
+    hub: (options) => connectHub(withSavedAdmin(hubTarget(settings, options), readAdminFile(dataFolder(cwd, settings.HARNESS_DATA, {})))),
+    // loaded only when asked: the stack's script, beside the CLI in the repository and in the published package
+    start: async (options) => {
+      const script: unknown = await import(pathToFileURL(START_SCRIPT).href);
+      if (!isStartScript(script)) { throw new Error(`${START_SCRIPT} does not export startHarness`); }
+      return script.startHarness(options);
+    },
   };
 }

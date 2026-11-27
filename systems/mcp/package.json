@@ -10,10 +10,10 @@
     "./server": "./server/index.ts"
   },
   "dependencies": {
-    "@aeye/gin": "file:../../../aits/packages/gin",
-    "@aeye/schema": "file:../../../aits/packages/schema",
-    "@ayepi/env": "file:../../../ayepi/packages/env",
-    "@ayepi/mcp": "file:../../../ayepi/packages/mcp",
+    "@aeye/gin": "^0.10.1",
+    "@aeye/schema": "^0.10.1",
+    "@ayepi/env": "^0.6.0",
+    "@ayepi/mcp": "^0.6.0",
     "@harness/core": "*",
     "@harness/sdk": "*",
     "zod": "^4.6.7"

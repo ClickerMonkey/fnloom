@@ -9,13 +9,13 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@aeye/gin": "file:../../../aits/packages/gin",
-    "@aeye/schema": "file:../../../aits/packages/schema",
-    "@aeye/resources": "file:../../../aits/packages/resources",
-    "@ayepi/auth": "file:../../../ayepi/packages/auth",
-    "@ayepi/core": "file:../../../ayepi/packages/core",
-    "@ayepi/log": "file:../../../ayepi/packages/log",
-    "@ayepi/otel": "file:../../../ayepi/packages/otel",
+    "@aeye/gin": "^0.10.1",
+    "@aeye/schema": "^0.10.1",
+    "@aeye/resources": "^0.10.1",
+    "@ayepi/auth": "^0.6.0",
+    "@ayepi/core": "^0.6.0",
+    "@ayepi/log": "^0.6.0",
+    "@ayepi/otel": "^0.6.0",
     "zod": "^4.6.7"
   }
 }

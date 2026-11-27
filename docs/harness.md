@@ -1161,6 +1161,23 @@ again or removed since, so undoing a turn takes back what its saves did. The `fn
 `added`, `removed` and `changed` (saved again, or its availability moved), so an edit made anywhere re-plans
 what a system keeps of its fns.
 
+### Installing the harness from npm
+
+The harness is published as one npm package, **`fnloom`** (its name and command are `release.name` and
+`release.bin` in the root `package.json`): `npm install -g fnloom`, then `fnloom start`. The package keeps the
+repository's layout (`packages/*` as source, the web app's build, every premade system in `systems/`, the stack
+scripts), so `fnloom start` is `runStack` with no build and nothing watched: the hub on 4300 (`--port`), data in
+`~/.harness` (`--data`, `HARNESS_DATA`), fs serving the folder it starts in (`--root`), and input, widgets and code,
+plus web, google-calendar and embedder when their keys or service are set. On a first start with no
+`HARNESS_ADMIN_EMAIL`/`HARNESS_ADMIN_PASSWORD` it makes `admin@harness.local` with a random password, saves it in
+`<data>/admin.json` (owner-only) and prints it with the addresses to open. Every other premade system is installed on
+demand: `fnloom system install <name>` (a bare premade name means that folder in `systems/`; the hub runs it as an
+installed system from there and starts it with itself), signing in with that saved account. Every system, the
+default ones included, then waits as "installed, not live" until an admin reviews it and puts it live (Admin ›
+Systems › Review and go live), as any newly connected system does. The step-by-step guide,
+with each system's config, is [`docs/install.md`](install.md); the release is `scripts/release/pack.ts` and
+`.github/workflows/release.yml` (README § Releasing).
+
 ### Installing the app, and HTTPS
 
 The web app installs as an app (a PWA) on desktop (Chrome, Edge: **Install app**; Safari: Add to Dock) and on phones

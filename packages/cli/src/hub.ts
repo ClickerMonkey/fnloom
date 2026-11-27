@@ -2,8 +2,9 @@
  * Reaching a hub from the CLI: its web API signed in as an admin, with uploads and downloads of content. It signs in
  * with `HARNESS_TOKEN` (or `--token -`, read from stdin; `--token <token>` works but other programs can see it), else
  * with the admin account from the environment or `.env` (`HARNESS_ADMIN_EMAIL`, `HARNESS_ADMIN_PASSWORD`), as
- * `npm run dev` does. A hub address from the folder's `.env` is only signed in to with that same file's sign-in, so a
- * folder can't send the sign-in from the environment to a hub of its choosing.
+ * `npm run dev` does, else, for the hub `harness start` runs on this machine, with the admin account it saved in its data
+ * folder (`<HARNESS_DATA or ~/.harness>/admin.json`). A hub address from the folder's `.env` is only signed in to with
+ * that same file's sign-in, so a folder can't send the sign-in from the environment to a hub of its choosing.
  */
 import { env } from '@ayepi/env';
 import { loadEnv } from '@ayepi/env/load';
@@ -12,6 +13,7 @@ import { hubWebSpec, type ContentRef, type HubWebSpec } from '@harness/core';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { signIn, type HubClient } from './hub-client.ts';
+import { sameLocalHub, type AdminFile } from './local.ts';
 
 /** Where the CLI finds a hub and how it signs in. */
 export const cliEnv = env({
@@ -21,6 +23,8 @@ export const cliEnv = env({
   HARNESS_TOKEN: z.string().optional(),
   HARNESS_ADMIN_EMAIL: z.string().optional(),
   HARNESS_ADMIN_PASSWORD: z.string().optional(),
+  /** The data folder of the hub `harness start` runs here, where it saved its admin account (default `~/.harness`). */
+  HARNESS_DATA: z.string().optional(),
   /** A hub MCP's secret, for `harness mcp`. */
   HARNESS_MCP_SECRET: z.string().optional(),
   /** How long `install` waits for a system to connect, in ms. */
@@ -84,6 +88,15 @@ export function hubTarget(settings: CliSettings, options: { hub?: string | undef
   return { url: (options.hub ?? settings.HARNESS_URL).replace(/\/$/, ''), token, admin };
 }
 
+/**
+ * A target with no sign-in given, signed in with the admin account `harness start` saved, when that account is for this
+ * same hub on this machine; any other target as it is.
+ */
+export function withSavedAdmin(target: HubTarget, saved: AdminFile | undefined): HubTarget {
+  if (target.token !== undefined || target.admin !== undefined || saved === undefined || !sameLocalHub(saved.url, target.url)) { return target; }
+  return { ...target, admin: { email: saved.email, password: saved.password } };
+}
+
 /** Whether the sign-in a hub target uses came from the folder's `.env` (none at all counts: nothing is sent). */
 function signInFromFile(settings: CliSettings, options: { token?: string | undefined }, token: string | undefined, admin: HubTarget['admin'], secret: { readonly fromFile: boolean } | undefined): boolean {
   const { fromFile } = settings;
@@ -143,7 +156,7 @@ export async function connectHub(target: HubTarget, fetcher: typeof fetch = fetc
 /** Signed in as the admin account. */
 async function adminClient(target: HubTarget): Promise<{ api: HubClient; close: () => void }> {
   if (target.admin === undefined) {
-    throw new Error('Say how to sign in: set HARNESS_TOKEN (or pass --token - and give it on stdin), or HARNESS_ADMIN_EMAIL and HARNESS_ADMIN_PASSWORD in the environment or .env.');
+    throw new Error('Say how to sign in: set HARNESS_TOKEN (or pass --token - and give it on stdin), or HARNESS_ADMIN_EMAIL and HARNESS_ADMIN_PASSWORD in the environment or .env. For the hub the start command runs here, set HARNESS_DATA to its data folder when it is not ~/.harness.');
   }
   const signed = await signIn(target.url, target.admin);
   return { api: signed.hub, close: () => { signed.close(); } };

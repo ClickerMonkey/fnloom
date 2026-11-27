@@ -11,6 +11,7 @@ import { sha256 } from '@harness/hub/package';
 import type { CliIo } from './command.ts';
 import { summaryOfManifest, type ContractSummary, type SystemBuilder, type SystemTestRunner, type TestRunOptions } from '@harness/build';
 import type { CliFiles, FileStat } from './files.ts';
+import type { StartOptions } from './local.ts';
 import { linesOf } from './commands/mcp.ts';
 import { cliEnv, type HubSession } from './hub.ts';
 
@@ -171,6 +172,8 @@ export interface TestIo extends CliIo {
   readonly memory: MemoryFiles;
   readonly built: FakeBuilder;
   readonly tests: FakeTests;
+  /** What `harness start` was asked, in order. */
+  readonly started: Array<Omit<StartOptions, 'out'>>;
 }
 
 /** A test runner that answers with a set report and records each folder it was asked to test. */
@@ -193,8 +196,10 @@ export function testIo(options: { hub?: FakeHub; cwd?: string; stdin?: readonly 
   cliEnv.set({});
   const settings = { ...cliEnv.parse(), fromFile: new Set<never>() };
   const built = new FakeBuilder(memory);
+  const started: Array<Omit<StartOptions, 'out'>> = [];
   return {
-    lines, warnings, memory, built, builder: built, tests: new FakeTests(),
+    lines, warnings, memory, built, builder: built, tests: new FakeTests(), started,
+    start: ({ out: _out, ...options }) => { started.push(options); return Promise.resolve(0); },
     out: { line: (text) => { lines.push(text); }, warn: (text) => { warnings.push(text); } },
     files: memory,
     cwd,

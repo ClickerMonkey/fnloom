@@ -9,7 +9,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@aeye/gin": "file:../../../aits/packages/gin",
+    "@aeye/gin": "^0.10.1",
     "@harness/core": "*",
     "@harness/sdk": "*",
     "typescript": "~5.9",

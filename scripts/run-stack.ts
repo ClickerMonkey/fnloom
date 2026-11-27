@@ -8,7 +8,7 @@ import { loadEnv } from '@ayepi/env/load';
 import { HUB_PORT } from '@harness/core';
 import { z } from 'zod';
 import { COMPONENTS, devEnv } from './dev-env.ts';
-import { fsConfig, ROOT, startStack, type ComponentName, type StackOptions } from './stack.ts';
+import { fsConfig, ROOT, startStack, type ComponentName, type Stack, type StackOptions } from './stack.ts';
 
 /** What the stack needs of the hub's settings; the admin account is required here, since the script signs in as it. */
 const stackEnv = env({
@@ -39,17 +39,20 @@ const DEV_DATABASE = {
 const COLOURS = { web: 36, hub: 35, fs: 33, embedder: 32, 'web-system': 34, input: 94, widgets: 92, code: 93, api: 90, calendar: 95, database: 96, claude: 91, ollama: 97, schedule: 37 } as const satisfies Record<ComponentName, number>;
 const isComponent = (name: string): name is ComponentName => COMPONENTS.some((c) => c === name);
 
-/** How this run differs: dev builds the web app and watches the source; live runs a pinned build and watches nothing. */
+/**
+ * How this run differs: dev builds the web app and watches the source; live runs a pinned build and watches nothing;
+ * start (`harness start`, `scripts/start.ts`) runs the hub from source, unwatched, serving the web build already made.
+ */
 export interface RunMode {
-  /** The name its log lines start with (`dev.ready`, `live.ready`). */
-  readonly name: 'dev' | 'live';
+  /** The name its log lines start with (`dev.ready`, `live.ready`, `start.ready`). */
+  readonly name: 'dev' | 'live' | 'start';
   readonly watch: boolean;
   /** The bundled hub and built web app to run (live); absent: the web app is built and the hub runs from source. */
   readonly pinned?: StackOptions['pinned'];
 }
 
-/** Start the stack the settings describe, and stop it on Ctrl+C or SIGTERM. */
-export async function runStack(mode: RunMode, settings: StackSettings = stackSettings()): Promise<void> {
+/** Start the stack the settings describe, and stop it on Ctrl+C or SIGTERM; resolves with it once it is ready. */
+export async function runStack(mode: RunMode, settings: StackSettings = stackSettings()): Promise<Stack> {
   const only = new Set(settings.HARNESS_DEV_ONLY.split(',').map((s) => s.trim()).filter(isComponent));
   // the web system searches with Tavily; without a key every search would fail, so it isn't started
   if (settings.TAVILY_API_KEY === undefined && only.delete('web-system')) { console.info(`${mode.name}.web-system.skipped`, { reason: 'TAVILY_API_KEY is not set' }); }
@@ -91,4 +94,5 @@ export async function runStack(mode: RunMode, settings: StackSettings = stackSet
   };
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
+  return stack;
 }

@@ -14,9 +14,9 @@
     "./client": "./client/index.ts"
   },
   "dependencies": {
-    "@aeye/resources": "file:../../../aits/packages/resources",
-    "@aeye/schema": "file:../../../aits/packages/schema",
-    "@ayepi/env": "file:../../../ayepi/packages/env",
+    "@aeye/resources": "^0.10.1",
+    "@aeye/schema": "^0.10.1",
+    "@ayepi/env": "^0.6.0",
     "@harness/build": "*",
     "@harness/core": "*",
     "@harness/sdk": "*",
