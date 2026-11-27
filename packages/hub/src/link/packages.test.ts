@@ -68,6 +68,8 @@ describe('installing a package zip', () => {
       env: { [SYSTEM_ENV.data]: dirs.data, [SYSTEM_ENV.cache]: dirs.cache, [SYSTEM_ENV.state]: dirs.state, [SYSTEM_ENV.instance]: 'main' },
     });
     expect(await readFile(join(dir, 'vectors', 'versions', '1.0.0', 'server', 'main.js'), 'utf8')).toBe('// 1.0.0');
+    // the bundle is an ES module wherever the data folder is (no `"type": "module"` package.json above it there)
+    expect(JSON.parse(await readFile(join(dir, 'vectors', 'versions', '1.0.0', 'package.json'), 'utf8'))).toEqual({ private: true, type: 'module' });
     expect(await rig.instances.get(ref)).toMatchObject({ installed: { source: { file: 'vectors-1.0.0.zip' } }, dirs });
     const system = await connect(ref);
     expect((await rig.instances.get(ref))?.status).toBe('connected');
