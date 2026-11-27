@@ -32,6 +32,8 @@ const TOKENS = {
   year: String(new Date().getFullYear()),
   topic: `${slug(config.name)}-system`,
   contact: config.contact || '',
+  package: config.package || '',
+  repo: config.repo || '',
 };
 // The harness's own words, always underlined and defined on hover, focus or tap ({{fn}}, {{fns}}, {{system}} …, in
 // HTML only). Phil: "Use fn and fns not the spelled out word so they learn about it … always have a hover. And separate

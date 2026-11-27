@@ -1,6 +1,8 @@
 {
-  "name": "Harness",
+  "name": "fnloom",
   "tagline": "the next-generation agent harness",
-  "domain": "",
-  "contact": ""
+  "domain": "clickermonkey.github.io/fnloom",
+  "contact": "",
+  "package": "fnloom",
+  "repo": "https://github.com/ClickerMonkey/fnloom"
 }
