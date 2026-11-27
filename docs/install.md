@@ -9,7 +9,7 @@ the harness itself (from a clone of the repository), see the README in the [repo
 
 ## What you need
 
-- **Node.js 22.18 or later** (with npm). Check with `node -v`.
+- **Node.js 22.21 or later** (with npm; installed systems reach the network through the hub's proxy, which needs 22.21). Check with `node -v`.
 - **A model provider.** An [OpenRouter](https://openrouter.ai) key is the quickest (`OPENROUTER_API_KEY`); AWS
   Bedrock and a local [Ollama](https://ollama.com) work too. You can also add one after the first start.
 

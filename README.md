@@ -11,7 +11,7 @@ Website: **[fnloom.com](https://fnloom.com)** · Licence: [Apache 2.0](LICENSE)
 
 ## Get started
 
-You need Node.js 22.18 or newer.
+You need Node.js 22.21 or newer.
 
 ```sh
 npm install -g fnloom
@@ -79,7 +79,7 @@ the premade systems and `fnloom system install <name>` installs one. The whole g
 
 ## Prerequisites
 
-- **Node 22.18 or later.**
+- **Node 22.21 or later.**
 - **The @aeye and @ayepi libraries come from npm** (`^0.10.1` and `^0.6.0`), so `git clone` and `npm install` are
   enough. To work on them at the same time, build your checkouts of [aits](https://github.com/ClickerMonkey/aeye)
   and [ayepi](https://github.com/ClickerMonkey/ayepi) and link them over the installed copies, for example

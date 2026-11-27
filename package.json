@@ -1,12 +1,12 @@
 {
   "name": "harness",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "Apache-2.0",
   "type": "module",
   "description": "A web-based agent harness: one hub that owns every LLM call, and systems that connect over WebSocket to add fns, types and resources.",
   "engines": {
-    "node": ">=22.18"
+    "node": ">=22.21"
   },
   "release": {
     "name": "fnloom",
