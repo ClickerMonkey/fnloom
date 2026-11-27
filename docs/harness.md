@@ -1161,6 +1161,59 @@ again or removed since, so undoing a turn takes back what its saves did. The `fn
 `added`, `removed` and `changed` (saved again, or its availability moved), so an edit made anywhere re-plans
 what a system keeps of its fns.
 
+### Installing the app, and HTTPS
+
+The web app installs as an app (a PWA) on desktop (Chrome, Edge: **Install app**; Safari: Add to Dock) and on phones
+(Android Chrome: Install app; iPhone and iPad Safari: Share › Add to Home Screen). Installed, it opens in a window of
+its own with the hub's display name and icon; on desktop it draws its own title bar (`window-controls-overlay`: a thin
+bar with the hub's name that drags the window), keeps clear of the phone's notch and rounded corners, and opens links
+to other sites in the browser. The window's colour follows the theme.
+
+- **The manifest** (`serve.ts` `webManifest`, at `/manifest.webmanifest`, named after the hub on every request): a
+  stable `id`, start URL and scope `/`, `display: standalone` with `display_override: ["window-controls-overlay",
+  "standalone"]`, theme and background colours, PNG icons (192, 512, a maskable 512) and an Apple touch icon made from
+  the mark, wide and narrow screenshots for the richer install sheet, and shortcuts to a new chat and the inbox. The
+  pictures are committed under `packages/web/public/` and made by `npm run app:images` (headless Chrome: the icons
+  from `favicon.svg`, the screenshots on the mock hub).
+- **Install app** is in the person's menu and in Settings › App while the browser can install in one step (it offered
+  its `beforeinstallprompt`, which the app keeps), or on an iPhone or iPad (a short Add to Home Screen sheet).
+  Settings › App says what to do in every other case; nothing is offered once the app runs installed.
+- **The service worker** (`sw/sw.ts`, registered at start) shows web pushes and sends page loads to the network
+  first, always: the app and its data are never served from a cache. Only when the network fails does a page load get
+  the offline page ("Can't reach your hub", `public/offline.html`, the only thing it caches), instead of the browser's
+  error. This is a fallback, not offline use.
+
+**HTTPS.** Browsers install apps and allow web push only on a secure page: https, or `localhost` on the same
+computer. So the hub answers **http and https on the same port**: a small front looks at each connection's first byte
+(a TLS hello starts `0x16`) and hands it to the plain or the TLS side (`api/dual.ts`), so `http://` links keep
+working, and the live socket is `wss://` on https. Ported from hitloop's `dualServer` and certificate builder.
+
+- **No setup:** the hub makes its own certificate authority once (`api/tls.ts`, in `<HARNESS_DATA>/tls`: ECDSA, ten
+  years, name-constrained to private addresses, `localhost`, `.local` and this computer's name, so its key can't pass
+  as any real site) and, from it, a certificate for `localhost`, the computer's name and every LAN and Tailscale
+  address (397 days). It is made again when an address changes (checked each minute) or a month before it ends, and
+  picked up without a restart.
+- **A phone trusts the hub** by installing that authority once: Settings › App › **Use it on your phone** has a QR code
+  and a link to download it (`/harness-ca.crt`, also `/harness-ca.pem`; public, over plain http on the same port), the
+  iPhone steps (allow the download; Settings › Profile Downloaded › Install; then Settings › General › About ›
+  Certificate Trust Settings › full trust for it) and the Android ones (Settings › Security › Encryption & credentials
+  › Install a certificate › CA certificate), its fingerprint, and a QR code and link per network for the hub's https
+  address. Then the app installs from there and notifications work.
+- **On by default**, switched in Settings › Hub › Secure address (admins; the hub option `https`) or `HARNESS_HTTPS`
+  until an admin chooses, applied to the next connection without a restart. Off, TLS connections are dropped and
+  http stays.
+- **A real certificate instead:** `HARNESS_TLS_CERT` and `HARNESS_TLS_KEY` name PEM files to serve (read again when
+  they change), and the hub's own authority isn't offered. For example `tailscale cert <machine>.<tailnet>.ts.net`
+  (a Let's Encrypt certificate every device already trusts; set `HARNESS_URL` to that https address), or `mkcert`
+  for a LAN (`mkcert -install`, then `mkcert <lan-ip> <name> localhost`; each phone installs mkcert's root as above). A
+  reverse proxy in front (Caddy: `harness.example.com { reverse_proxy 127.0.0.1:4300 }`) works too; the hub then
+  needs no certificate at all.
+- When `HARNESS_URL` is https, systems the hub starts link over `wss://` to it, so Node has to trust its certificate:
+  a public one (Tailscale, a proxy) works as it is; for the hub's own authority or mkcert, set
+  `NODE_EXTRA_CA_CERTS` to the authority's file. Leaving `HARNESS_URL` as `http://localhost:<port>` avoids that.
+- A page that isn't secure (http on another device) can't install the app or turn on notifications; Settings › App,
+  Notifications and Hub say so and point at the secure address.
+
 ## LLM calls and budgets
 
 - **One place for LLM calls.** The hub's LLM queue is the only caller of real providers. Systems and
