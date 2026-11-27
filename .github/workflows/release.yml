@@ -1,0 +1,75 @@
+# Publishes the harness to npm when a version tag (v1.2.3) is pushed, with npm trusted publishing (OIDC: no token is
+# stored anywhere) and provenance. The package name is `release.name` in the root package.json; the version is the
+# root `version`, which the tag must match (`npm run release:version <x.y.z>` sets both the version and the files that
+# carry it). Run it by hand (workflow_dispatch) with dry_run to build and check the tarball without publishing.
+#
+# This is the one workflow that runs on a GitHub-hosted runner: npm trusted publishing only accepts OIDC tokens from
+# GitHub-hosted runners. It runs on tags and by hand only, never on pull requests.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build and pack only; publish nothing
+        type: boolean
+        default: true
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # trusted publishing needs npm 11.5.1 or later
+      - run: npm install -g npm@latest && npm --version
+
+      - run: npm ci
+
+      - name: Build (typecheck and the web app)
+        run: npm run build
+
+      - name: Pack
+        run: npx tsx scripts/release/pack.ts --skip-build
+
+      - name: Check the version and whether it is already published
+        id: check
+        run: |
+          name=$(node -p "require('./package.json').release.name")
+          version=$(node -p "require('./package.json').version")
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v$version" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version $version"
+            exit 1
+          fi
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "::notice::$name@$version is already on npm; nothing to publish"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+          tarball=$(ls .release/*.tgz | head -n 1)
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+          ls -l "$tarball"
+
+      - name: Publish
+        if: steps.check.outputs.published == 'false' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
+        run: npm publish "${{ steps.check.outputs.tarball }}" --access public --provenance

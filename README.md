@@ -26,13 +26,22 @@ every web operation. Build 7 adds staged authoring agents (`authoringAgent`: fin
   are the zod schemas in `packages/core` and the generated `packages/sdk/AUTHORING.md`). `explorer/explorer.html` (`npm run explorer`) lets
   you read the guide and click through every type, with notes (**Export notes** saves them for `review/notes.json`).
 
+## Installing it (not developing it)
+
+The harness is published on npm as **`fnloom`**: `npm install -g fnloom`, then `fnloom start` in the folder the
+agent should work in. It prints the address to open and the admin sign-in it made. `fnloom system available` lists
+the premade systems and `fnloom system install <name>` installs one. The whole guide, with each system's config, is
+[`docs/install.md`](docs/install.md) (also the package's README). From a clone, `npx harness start` does the same.
+
 ## Prerequisites
 
 - **Node 22.18 or later.**
-- **The aits and ayepi checkouts beside this one**, on their `harness` branches and built. The @aeye and @ayepi
-  packages are linked from them (`file:../aits/packages/*`, `file:../ayepi/packages/*`), so no publish is needed:
-  clone [aits](https://github.com/ClickerMonkey/aeye) and [ayepi](https://github.com/ClickerMonkey/ayepi) next to
-  this repo, then `npm install && npm run build` in aits and `pnpm install && pnpm build` in ayepi.
+- **The @aeye and @ayepi libraries come from npm** (`^0.10.1` and `^0.6.0`), so `git clone` and `npm install` are
+  enough. To work on them at the same time, build your checkouts of [aits](https://github.com/ClickerMonkey/aeye)
+  and [ayepi](https://github.com/ClickerMonkey/ayepi) and link them over the installed copies, for example
+  `npm link ../aits/packages/ai ../aits/packages/core …` (or put the `node_modules/@aeye/<name>` and
+  `node_modules/@ayepi/<name>` folders there yourself as links to the checkouts' packages). `npm install` puts the
+  published versions back, so link again after it, and publish the libraries before the harness release that needs them.
 - **`OPENROUTER_API_KEY`** in the environment or `.env`. It configures the openrouter provider on the hub's first
   start; the live tests and the e2e suite use a free model with it.
 - **`TAVILY_API_KEY`** (optional) for the web system's search; without it `npm run dev` and the e2e suite leave the
@@ -112,6 +121,8 @@ from `node_modules`. To take new code, stop `npm run live` and start it again. D
 | code | `systems/code` | bundled, one instance: the `code/program` kind (gin programs that call other fns) and `make_code`, its authoring agent |
 | api | `systems/api` | one instance that authors api fns (code that calls an external service), like code: services are `api/Service` records (Admin → API services, or added by the authoring agent); the `api/request` kind, `make_api` (from a service's OpenAPI document, `operations`), `services`, `test_request`; connections per service |
 | claude | `systems/claude` | a fleet, one instance per machine: Claude Code sessions on the Claude Agent SDK, mirrored as `claude/Session` records and managed at `/claude` (start, send, interrupt, stop, mode, transcript); permissions and questions become approval cards; imports skills, agents and MCP servers |
+| schedule | `systems/schedule` | fns that run on a schedule (once, or repeating), with per-person limits and a firing history |
+| ollama | `systems/ollama` | runs Ollama (or talks to one), lists, pulls and removes its models, and offers the ones an admin picks as a provider |
 | template | `systems/template` | what `harness system new` copies: `system.json`, `shared/`, `server/`, `client/`, placeholder comments only |
 
 Every installed system gets its own data and cache folders (`ctx.dataDir`, `ctx.cacheDir`) that survive upgrades; its
@@ -146,10 +157,12 @@ secret in `HARNESS_MCP_SECRET` in its environment (`--secret` works too, but oth
 `npx harness` (the `@harness/cli` workspace) makes, builds, packs and installs systems:
 
 ```sh
+harness start [--port <n>] [--data <dir>] [--root <dir>] [--systems <list>]   # the hub and default systems (docs/install.md)
+harness system available             # the premade systems this copy carries, and how to install each
 harness system new <name>            # a system folder from the template
 harness system build [dir]           # typecheck, check the contract and context/ folder, then bundle into dist/
 harness system pack [dir]            # zip dist/ with every file hashed: a package the hub installs
-harness system install <zip|folder|npm-spec> [--instance <name>] [--config <file.json>]
+harness system install <zip|folder|premade-name|npm-spec> [--instance <name>] [--config <file.json>]
 harness system list | start | stop | upgrade | uninstall <system>
 harness system export-data <system>  # an instance's data folder as a zip
 harness test [dir] [--previews]      # run a system's tests (vitest), optionally shooting the preview gallery
@@ -160,7 +173,23 @@ Commands that talk to a hub take `--hub <url>` (or `HARNESS_URL`) and sign in wi
 token read from stdin), or the admin account in `.env`. `--token <token>` works too, but other programs can see it. A hub
 address from the folder's `.env` is only used with a sign-in from that same file. A system started without a token asks to pair: on a terminal it prints a QR code of the
 hub's pairing link (`HARNESS_PAIRING_QR`: `auto`, always or never) that opens the `/pair` page on a phone, where an
-admin compares the code, fills its config and pairs it.
+admin compares the code, fills its config and pairs it. With none of those, they sign in to the hub `harness start`
+runs on this machine with the admin account it saved (`<HARNESS_DATA or ~/.harness>/admin.json`), and only to that hub.
+A bare premade name (`harness system install database`) installs that folder from `systems/`; give an npm package of
+the same name a version (`database@latest`).
+
+## Releasing
+
+The harness is published as one npm package whose name and command are `release.name` and `release.bin` in the root
+`package.json` (`fnloom`); the version is the root `version`. `npm run release:pack` builds the web app and writes
+`.release/<name>-<version>.tgz` (`scripts/release/pack.ts`): the repository's layout with only git-tracked files and
+no tests (`packages/{core,sdk,hub,cli,build}`, the web app's `dist/`, every premade system, the stack scripts), one
+`dependencies` list (every workspace's third-party runtime dependencies at the lockfile's versions), and a
+`postinstall` (`scripts/release/link.cjs`, run again by the binary) that links `node_modules/@harness/*` to those
+folders as workspaces do here. It refuses to pack when anything looks like a secret. To release:
+`npm run release:version 0.2.0`, commit, then push the tag `v0.2.0`; `.github/workflows/release.yml` checks the tag
+against the version, packs and publishes with npm trusted publishing and provenance (nothing happens when that version
+is already on npm). Run the workflow by hand with `dry_run` to pack without publishing.
 
 ## Checks
 

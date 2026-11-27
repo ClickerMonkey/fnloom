@@ -20,3 +20,4 @@ ui-tests/gallery*/
 # the marketing site: built output and preview shots
 site/dist/
 site/preview/
+.release/
