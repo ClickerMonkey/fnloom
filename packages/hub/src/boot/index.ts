@@ -12,6 +12,7 @@ import type { AnyPlugin } from '@ayepi/plugin';
 import type { ActorId, HandlerCallId, Json, SystemLinkSpec } from '@harness/core';
 import type { Authenticator, ContentStore, EventRelay, PushService, SecretVault } from '../api/index.ts';
 import type { HubIdentityService } from './identity.ts';
+import type { HubHttps } from '../api/https.ts';
 import type { SsoService } from '../api/sso.ts';
 import type { DataService } from '../data/index.ts';
 import type { EventBus } from '../bus.ts';
@@ -90,6 +91,8 @@ export interface HubServices {
     readonly identity: HubIdentityService;
     /** SSO: sign-in through OpenID Connect providers. */
     readonly sso: SsoService;
+    /** HTTPS on the hub's port: the switch and the certificate. */
+    readonly https: HubHttps;
   };
   // build 2
   readonly contextor: ContextorServices;

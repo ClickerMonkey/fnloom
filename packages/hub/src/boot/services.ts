@@ -12,6 +12,9 @@ import { BusEventRelay } from '../api/events.ts';
 import { FileContentStore } from '../api/files.ts';
 import { ScryptHasher } from '../api/hash.ts';
 import { WebPushService, type PushSender } from '../api/push.ts';
+import { HubHttps } from '../api/https.ts';
+import { TlsFolder } from '../api/tls.ts';
+import { join } from 'node:path';
 import { AesSecretVault, SecretBox } from '../api/secrets.ts';
 import type { EventBus } from '../bus.ts';
 import type { HubStore } from '../store/index.ts';
@@ -41,6 +44,8 @@ export interface ApiParts {
   readonly pushSender: PushSender;
   /** How SSO providers are reached (tests give a fake issuer); the global fetch when not given. */
   readonly oidcFetch?: typeof fetch;
+  /** Where the hub keeps its own certificate authority (tests give a folder of their own); `<HARNESS_DATA>/tls` when not given. */
+  readonly tls?: TlsFolder;
 }
 
 /** The api module's services, with the concrete classes boot also drives (making the admin, sweeping uploads). */
@@ -51,6 +56,8 @@ export function apiServices(base: BaseServices, parts: ApiParts): ApiServices {
   const { settings, store, clock, log, bus } = base;
   const identity = new StoreHubIdentity({ store, bus, clock, envName: settings.hubEnv.HARNESS_NAME, version: HUB_INFO.version, hub: HUB_SYSTEM });
   const providers = settings.authEnv.HARNESS_SSO_PROVIDERS;
+  const { HARNESS_TLS_CERT: tlsCert, HARNESS_TLS_KEY: tlsKey } = settings.httpEnv;
+  const tlsFiles = tlsCert !== undefined && tlsKey !== undefined ? { cert: tlsCert, key: tlsKey } : undefined;
   const auth = new HubAuthenticator({
     store, clock, identity, secret: parts.keys.jwtSecret, hasher: new ScryptHasher(settings.authEnv.HARNESS_PASSWORD_COST),
     accessTtl: settings.authEnv.HARNESS_ACCESS_TTL, refreshTtl: settings.authEnv.HARNESS_REFRESH_TTL, providers, bus,
@@ -71,6 +78,11 @@ export function apiServices(base: BaseServices, parts: ApiParts): ApiServices {
     }),
     relay: new BusEventRelay({ bus, store }),
     secrets: new AesSecretVault({ store, box: new SecretBox(parts.keys.secretKey), clock }),
+    https: new HubHttps({
+      store, clock, folder: parts.tls ?? new TlsFolder(join(settings.hubEnv.HARNESS_DATA, 'tls')), on: settings.httpEnv.HARNESS_HTTPS, hubUrl: settings.hubEnv.HARNESS_URL,
+      ...(tlsFiles === undefined ? {} : { files: tlsFiles }),
+      onError: (error) => { log.warn('https.certificate.failed', {}, error); },
+    }),
   };
 }
 

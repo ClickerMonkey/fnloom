@@ -15,6 +15,7 @@ import {
   ModelCallId, PageRequest, PairingId, Priority, QualifiedName, RunId, SessionId, SystemName, Timestamp, TurnId, page,
 } from './primitives.ts';
 import { HttpUrl, OutsideImages, OutsideImagesView } from './urls.ts';
+import { HttpsView } from './https.ts';
 import { ReadWant, ResourceRead, ResourceRoot, ResourceStat, ResourceUri, ContentRef } from './resources.ts';
 import { ClientInfo, RunUpdate } from './run.ts';
 import { CompareChoose, CompareStart, CompareView } from './compare.ts';
@@ -694,6 +695,20 @@ export const outsideImagesSlice = mergeSpecs(
   }),
 );
 
+/** HTTPS on the hub's port: everyone signed in reads it (Settings › App shows how to use it on a phone); admins switch it. */
+export const httpsSlice = mergeSpecs(
+  spec({
+    endpoints: use(tel, hubAuth).group({
+      https: { body: z.object({}), response: HttpsView, ws: 'https' },
+    }),
+  }),
+  spec({
+    endpoints: use(tel, hubAuth, adminOnly).group({
+      setHttps: { body: z.object({ on: z.boolean() }), response: HttpsView, ws: 'setHttps' },
+    }),
+  }),
+);
+
 /** Auto-pair secrets (admins): list them (no secret is ever shown) and revoke one. */
 export const autoPairSlice = spec({
   endpoints: use(tel, hubAuth, adminOnly).group({
@@ -940,7 +955,7 @@ export const exportSlice = spec({
 export const hubWebSpec = mergeSpecs(
   authSlice, chatSlice, runsSlice, findSlice, inboxSlice, contentSlice, systemsSlice, settingsSlice, adminSlice, eventsSlice,
   resourcesSlice, contextSlice, contextorSlice, modelsSlice, metricsSlice, mcpsSlice, packagingSlice,
-  querySlice, suggestionsSlice, autoPairSlice, imageEmbeddingSlice, outsideImagesSlice,
+  querySlice, suggestionsSlice, autoPairSlice, imageEmbeddingSlice, outsideImagesSlice, httpsSlice,
   accessSlice, connectionsSlice, pickerSlice,
   approvalsSlice, registriesSlice, fnsSlice,
   explorerSlice,

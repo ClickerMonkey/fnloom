@@ -10,6 +10,7 @@ import { ImageEmbedding } from './image-embeddings.ts';
 import { RoleModel } from './model-calls.ts';
 import { PROXY_TRUST_OPTION, ProxyTrust, SIGN_IN_LIMITS_OPTION, SIGN_IN_POLICY_OPTION, SignInLimits, SignInPolicy } from './sso.ts';
 import { OUTSIDE_IMAGES_OPTION, OutsideImages } from './urls.ts';
+import { HTTPS_OPTION } from './https.ts';
 import { ActorId, ModelCallId, QualifiedName, Timestamp } from './primitives.ts';
 
 /** Who chose: the score threshold (no model picks), the decision model (or an LLM), or the graph contextor's selection. */
@@ -221,5 +222,7 @@ export const HubOption = z.discriminatedUnion('key', [
   z.object({ key: z.literal(SIGN_IN_LIMITS_OPTION), value: SignInLimits, setBy: ActorId, updatedAt: Timestamp }),
   /** Whether proxies in front of the hub say where requests come from (`sso.ts`). */
   z.object({ key: z.literal(PROXY_TRUST_OPTION), value: ProxyTrust, setBy: ActorId, updatedAt: Timestamp }),
+  /** Whether the hub answers https on its port (`https.ts`). */
+  z.object({ key: z.literal(HTTPS_OPTION), value: z.boolean(), setBy: ActorId, updatedAt: Timestamp }),
 ]);
 export type HubOption = z.infer<typeof HubOption>;

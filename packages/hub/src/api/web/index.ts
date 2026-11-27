@@ -38,6 +38,7 @@ import { identityPlugin } from './identity.ts';
 import { peoplePlugin } from './people.ts';
 import { imageEmbeddingPlugin } from './images.ts';
 import { outsideImagesPlugin } from './outside-images.ts';
+import { httpsPlugin } from './https.ts';
 import { versionsPlugin } from './versions.ts';
 import { dataPlugin } from './data.ts';
 import { tablesPlugin } from './tables.ts';
@@ -125,6 +126,7 @@ export function webPlugins(hub: HubServices, options: WebPluginOptions): readonl
     peoplePlugin(hub, systems, reads),
     imageEmbeddingPlugin(hub, systems),
     outsideImagesPlugin(hub, systems),
+    httpsPlugin(hub, systems),
     versionsPlugin(auth, reads),
     dataPlugin(hub, auth),
     ...tablesPlugin(hub, auth),

@@ -48,6 +48,7 @@
 export * from './primitives.ts';
 export * from './model-names.ts';
 export * from './urls.ts';
+export * from './https.ts';
 export * from './modes.ts';
 export * from './context-graph.ts';
 export * from './people-only.ts';

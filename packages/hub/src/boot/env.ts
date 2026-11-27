@@ -39,6 +39,9 @@ export const hubEnv = env({
 export const httpEnv = env({
   HARNESS_WEB_DIST: z.string().default('').describe('The built web app the hub serves (`npm run build`). Empty: `packages/web/dist` beside the hub package.'),
   HARNESS_DOCS: z.boolean().default(false).describe('Serve the API docs (`/docs/swagger`, `/docs/redoc`, `/docs/asyncapi`).'),
+  HARNESS_HTTPS: z.boolean().default(true).describe('Answer https (and wss) on the hub\'s port as well as http, so the app installs and notifications work on other devices. Until an admin switches it in Settings › Hub. The certificate is the hub\'s own (its authority, in `<HARNESS_DATA>/tls`), unless HARNESS_TLS_CERT and HARNESS_TLS_KEY are set.'),
+  HARNESS_TLS_CERT: z.string().optional().describe('A certificate file (PEM, with its chain) to serve https with instead of the hub\'s own: from `tailscale cert`, mkcert or a real authority. Needs HARNESS_TLS_KEY. Read again when it changes.'),
+  HARNESS_TLS_KEY: z.string().optional().describe('The private key file (PEM) of HARNESS_TLS_CERT.'),
   HARNESS_MAX_UPLOAD: z.number().int().min(1).default(100 * 1024 * 1024).describe('The largest upload, in bytes.'),
   HARNESS_PRESIGN_TTL: z.number().int().min(1_000).default(600_000).describe('How long a presigned upload or download URL stays valid.'),
   HARNESS_WS_HEARTBEAT: z.number().int().min(1_000).default(30_000).describe('The WebSocket ping interval; a connection that misses a pong is dropped.'),

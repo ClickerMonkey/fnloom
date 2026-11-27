@@ -14,11 +14,12 @@ import { readFile, stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join, resolve, sep } from 'node:path';
 import { Readable } from 'node:stream';
-import { SystemName } from '@harness/core';
+import { AUTHORITY_PATHS, SystemName } from '@harness/core';
 import type { ContentStore } from './index.ts';
 import { mimeOf } from './mime.ts';
 import type { SystemLifecycle } from '../link/lifecycle.ts';
 import type { HubIdentityService } from '../boot/identity.ts';
+import type { Authority } from './tls.ts';
 
 /** Serves one kind of file; resolves true when it answered the request. */
 export interface FileRoute {
@@ -120,12 +121,64 @@ export function namedIndexHtml(html: string, name: string): string {
     .replace(/(<meta\s+name="apple-mobile-web-app-title"\s+content=")[^"]*(")/, (_match: string, before: string, after: string) => `${before}${safe}${after}`);
 }
 
-/** The install manifest for a hub with this display name. */
+/** The app's colours as the install manifest gives them: the page background (light) and the mark's accent. */
+export const APP_COLOURS = { background: '#f9fafb', theme: '#f9fafb', accent: '#5b5bd6' } as const;
+
+/**
+ * The install manifest for a hub with this display name: what a browser needs to offer Install (name, start URL,
+ * scope, standalone display, PNG icons at 192 and 512 and a maskable one, made from the mark by `npm run app:images`),
+ * a stable `id` so a rename is the same app, a title bar the app draws itself on desktop (`window-controls-overlay`),
+ * screenshots for the richer install sheet, and shortcuts to a new chat and the inbox.
+ */
 export function webManifest(name: string): string {
   return JSON.stringify({
-    name, short_name: name, start_url: '/', scope: '/', display: 'standalone',
-    icons: [{ src: '/favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }],
+    id: '/', name, short_name: name, description: `${name}: chat with your agents and the systems your hub connects, on any device.`,
+    start_url: '/', scope: '/', display: 'standalone', display_override: ['window-controls-overlay', 'standalone'],
+    theme_color: APP_COLOURS.theme, background_color: APP_COLOURS.background, categories: ['productivity', 'utilities'],
+    icons: [
+      { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: '/icons/maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      { src: '/favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+    ],
+    screenshots: [
+      { src: '/screenshots/wide.png', sizes: '1280x800', type: 'image/png', form_factor: 'wide', label: 'The chat on a computer' },
+      { src: '/screenshots/narrow.png', sizes: '780x1688', type: 'image/png', form_factor: 'narrow', label: 'The chat on a phone' },
+    ],
+    shortcuts: [
+      { name: 'New chat', url: '/chat', icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }] },
+      { name: 'Inbox', url: '/inbox', icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }] },
+    ],
   });
+}
+
+/**
+ * The hub's own certificate authority, for a phone or computer to install (`/harness-ca.crt` as DER, which iOS
+ * and Android open as a profile or certificate; `/harness-ca.pem` as PEM). Public: it is what a device installs to trust
+ * the hub. 404 when the hub has no authority of its own (https off before it was ever made, or certificate files given).
+ */
+export class AuthorityRoute implements FileRoute {
+  readonly #authority: () => Authority | undefined;
+  readonly #host: string;
+
+  constructor(authority: () => Authority | undefined, host: string) {
+    this.#authority = authority;
+    this.#host = host;
+  }
+
+  serve(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
+    if ((req.method !== 'GET' && req.method !== 'HEAD') || (path !== AUTHORITY_PATHS.der && path !== AUTHORITY_PATHS.pem)) { return Promise.resolve(false); }
+    const authority = this.#authority();
+    if (authority === undefined) { return Promise.resolve(notFound(res)); }
+    const der = path === AUTHORITY_PATHS.der;
+    const body = der ? authority.der : Buffer.from(authority.pem);
+    res.writeHead(200, {
+      'content-type': der ? 'application/x-x509-ca-cert' : 'application/x-pem-file', 'content-length': body.length, 'cache-control': 'no-store',
+      'content-disposition': `attachment; filename="harness-${this.#host}-ca.${der ? 'crt' : 'pem'}"`,
+    });
+    res.end(headOnly(req) ? undefined : body);
+    return Promise.resolve(true);
+  }
 }
 
 /**

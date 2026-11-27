@@ -19,7 +19,7 @@ import { mintId, systemLinkSpec, type ActorId, type SystemActor } from '@harness
 import { ACCESS_TOKEN, announceSetup, SETUP_FILE } from '../api/auth.ts';
 import { FILES_PATH, HttpFront } from '../api/http.ts';
 import { generateVapidKeys, webPushSender, type PushSender } from '../api/push.ts';
-import { ClientBuildRoute, WebAppRoute } from '../api/serve.ts';
+import { AuthorityRoute, ClientBuildRoute, WebAppRoute } from '../api/serve.ts';
 import { ConnectCallbackRoute } from '../api/connect.ts';
 import { SsoRoute } from '../api/sso-route.ts';
 import { NamedContentFiles } from '../api/files.ts';
@@ -40,6 +40,8 @@ import { COMPONENTS, type ComponentName, type ModuleBuild, type RunningHub, type
 
 /** The signals that stop the hub (`SIGBREAK` is Ctrl+Break on Windows). */
 const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGBREAK'] as const;
+/** How often the https certificate is checked against this computer's addresses. */
+const TLS_RECHECK = 60_000;
 
 /** What `startHub` can be given beyond `StartOptions`, for tests. */
 export interface StartSeams {
@@ -140,11 +142,17 @@ export async function startHub(options: StartOptions & StartSeams): Promise<Runn
       signals: options.signals === true ? SIGNALS : false, exit: options.signals === true, timeout: settings.httpEnv.HARNESS_SHUTDOWN_TIMEOUT,
       onError: (error, phase, component) => { log.error('lifecycle.failed', { phase, component }, error); },
     });
+    // https on the port follows the admin's switch, read before the first connection
+    await api.https.load();
     const front = new HttpFront({
       web, link, mcp: { fetch: (request) => hub.mcp.endpoints.handle(request) }, health: { live: () => lc.isLive(), ready: () => lc.isReady() }, heartbeat: settings.httpEnv.HARNESS_WS_HEARTBEAT,
       tokenMargin: settings.httpEnv.HARNESS_WS_TOKEN_MARGIN, clock, log,
       maxMessage: { browser: settings.httpEnv.HARNESS_WS_MAX_MESSAGE, link: settings.linkEnv.HARNESS_MAX_FRAME }, linkGate: hub.link.gate,
-      files: [new ConnectCallbackRoute(() => hub.connections), new SsoRoute(() => api.sso), new ClientBuildRoute({ content: api.content, lifecycle: () => hub.link.lifecycle }), new WebAppRoute(webDist(settings), api.identity, settings.hubEnv.HARNESS_URL)],
+      files: [
+        new ConnectCallbackRoute(() => hub.connections), new SsoRoute(() => api.sso), new ClientBuildRoute({ content: api.content, lifecycle: () => hub.link.lifecycle }),
+        new AuthorityRoute(() => api.https.authority(), api.https.host), new WebAppRoute(webDist(settings), api.identity, settings.hubEnv.HARNESS_URL),
+      ],
+      tls: api.https,
       tokenExpiry: (token) => accessTokenExpiry(token, keys.jwtSecret),
     });
     const onError = (error: unknown, phase: string, plugin: string): void => { log.warn('plugin.teardown.failed', { phase, plugin }, error); };
@@ -152,6 +160,7 @@ export async function startHub(options: StartOptions & StartSeams): Promise<Runn
     const linkHost = createPluginHost(link, { onError });
     let port = options.port ?? settings.hubEnv.HARNESS_PORT;
     let sweeper: NodeJS.Timeout | undefined;
+    let certCheck: NodeJS.Timeout | undefined;
     const work = moduleHooks(modules, 'work');
     const links = moduleHooks(modules, 'links');
     const installed = moduleHooks(modules, 'installed');
@@ -181,10 +190,15 @@ export async function startHub(options: StartOptions & StartSeams): Promise<Runn
             });
           }, settings.httpEnv.HARNESS_PRESIGN_TTL);
           sweeper.unref();
-          log.info('hub.listening', { port, host: settings.hubEnv.HARNESS_HOST, version: HUB_INFO.version });
+          api.https.listening(port);
+          // a new Wi-Fi or Tailscale address needs a certificate that names it
+          certCheck = setInterval(() => { front.refreshTls(); }, TLS_RECHECK);
+          certCheck.unref();
+          log.info('hub.listening', { port, host: settings.hubEnv.HARNESS_HOST, version: HUB_INFO.version, https: api.https.enabled() ? api.https.source : 'off' });
         },
         pre: () => {
           clearInterval(sweeper);
+          clearInterval(certCheck);
           front.stopAccepting();
         },
         post: () => front.close(),

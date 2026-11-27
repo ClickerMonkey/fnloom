@@ -1,11 +1,15 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { X509Certificate } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { SystemName, type Manifest } from '@harness/core';
 import { clientUrl } from './web/chat.ts';
-import { ClientBuildRoute, WebAppRoute, type FileRoute } from './serve.ts';
+import { APP_COLOURS, AuthorityRoute, ClientBuildRoute, WebAppRoute, webManifest, type FileRoute } from './serve.ts';
+import { makeAuthority, type Authority } from './tls.ts';
 import { testManifest } from './testing/rig.ts';
 
 /** Serve some routes on a free local port; 404 when none answers. */
@@ -81,6 +85,66 @@ describe('WebAppRoute', () => {
     expect(head.status).toBe(200);
     expect(head.headers.get('content-length')).toBe('14');
   });
+});
+
+describe('the install manifest', () => {
+  /** The web app's public folder, where the icons and screenshots the manifest names are committed. */
+  const PUBLIC = fileURLToPath(new URL('../../../web/public/', import.meta.url));
+  const manifest = WebManifest.parse(JSON.parse(webManifest('Family Desk')));
+
+  it('has what browsers need to offer Install, on desktop and phones', () => {
+    expect(manifest).toMatchObject({
+      id: '/', name: 'Family Desk', short_name: 'Family Desk', start_url: '/', scope: '/', display: 'standalone',
+      display_override: ['window-controls-overlay', 'standalone'], theme_color: APP_COLOURS.theme, background_color: APP_COLOURS.background,
+    });
+    expect(manifest.description).toContain('Family Desk');
+    const png = manifest.icons.filter((icon) => icon.type === 'image/png');
+    expect(png.map((icon) => `${icon.sizes} ${icon.purpose}`)).toEqual(['192x192 any', '512x512 any', '512x512 maskable']);
+    expect(manifest.screenshots.map((shot) => shot.form_factor)).toEqual(['wide', 'narrow']);
+    expect(manifest.shortcuts.map((shortcut) => [shortcut.name, shortcut.url])).toEqual([['New chat', '/chat'], ['Inbox', '/inbox']]);
+  });
+
+  it('names only pictures that are there, at the sizes it says', () => {
+    for (const image of [...manifest.icons, ...manifest.screenshots]) {
+      const file = join(PUBLIC, image.src);
+      expect(existsSync(file), image.src).toBe(true);
+      if (image.type !== 'image/png') { continue; }
+      // a PNG's width and height are the first two numbers of its IHDR chunk
+      const bytes = readFileSync(file);
+      expect(`${String(bytes.readUInt32BE(16))}x${String(bytes.readUInt32BE(20))}`, image.src).toBe(image.sizes);
+    }
+    expect(existsSync(join(PUBLIC, 'icons', 'apple-touch-icon.png'))).toBe(true);
+    expect(existsSync(join(PUBLIC, 'offline.html'))).toBe(true);
+  });
+});
+
+describe('AuthorityRoute', () => {
+  const ca = makeAuthority('bagend');
+  let authority: Authority | undefined;
+  let site: Awaited<ReturnType<typeof serveRoutes>>;
+  beforeAll(async () => { site = await serveRoutes([new AuthorityRoute(() => authority, 'bagend')]); });
+  afterAll(async () => { await site.close(); });
+
+  it('serves the hub\'s own authority to install, as DER and PEM, and 404 when there is none', async () => {
+    expect((await fetch(`${site.url}/harness-ca.crt`)).status).toBe(404);
+    const x = new X509Certificate(ca.cert);
+    authority = { name: 'Harness on bagend', pem: ca.cert, der: x.raw, fingerprint: x.fingerprint256 };
+    const der = await fetch(`${site.url}/harness-ca.crt`);
+    expect(der.headers.get('content-type')).toBe('application/x-x509-ca-cert');
+    expect(der.headers.get('content-disposition')).toContain('harness-bagend-ca.crt');
+    expect(new X509Certificate(Buffer.from(await der.arrayBuffer())).fingerprint256).toBe(x.fingerprint256);
+    expect(await (await fetch(`${site.url}/harness-ca.pem`)).text()).toBe(ca.cert);
+    expect((await fetch(`${site.url}/other.crt`)).status).toBe(404);
+    expect((await fetch(`${site.url}/harness-ca.crt`, { method: 'HEAD' })).headers.get('content-length')).toBe(String(x.raw.length));
+  });
+});
+
+/** The parts of the manifest checked here. */
+const Image = z.object({ src: z.string(), sizes: z.string(), type: z.string(), purpose: z.string().optional(), form_factor: z.string().optional() });
+const WebManifest = z.object({
+  id: z.string(), name: z.string(), short_name: z.string(), description: z.string(), start_url: z.string(), scope: z.string(), display: z.string(),
+  display_override: z.array(z.string()), theme_color: z.string(), background_color: z.string(),
+  icons: z.array(Image), screenshots: z.array(Image), shortcuts: z.array(z.object({ name: z.string(), url: z.string() })),
 });
 
 describe('ClientBuildRoute', () => {

@@ -5,11 +5,16 @@
  * web app. WebSocket: `/ws` for browsers and `/link` for systems, each
  * on its own ayepi server, routed by `@ayepi/node`'s `routeUpgrades`. A browser socket is closed shortly before its
  * access token expires (`closeAt`), so the browser reconnects with the fresh token it holds by then.
+ *
+ * The port answers http and https both (`dualServer`): https, and wss for the sockets, follow `tls` (the hub's switch
+ * and certificate), so turning it on or off, or a new certificate, needs no restart.
  */
-import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { Server as NetServer } from 'node:net';
 import type { AnySpec, Server, WsConn } from '@ayepi/core';
 import type { Logger } from '@ayepi/log';
 import { createRequestListener, routeUpgrades, upgradeHandler, type UpgradeHandler } from '@ayepi/node';
+import { dualServer, type DualServer, type TlsSource } from './dual.ts';
 import { secureFileResponse, secureResponse, type FileRoute } from './serve.ts';
 
 /** The prefix of the web API's HTTP paths. */
@@ -53,6 +58,8 @@ export interface HttpFrontOptions {
   readonly maxMessage: { readonly browser: number; readonly link: number };
   /** Which `/link` upgrades to take, and a way to close one of its sockets (`LinkGate`). */
   readonly linkGate?: { admit(req: Request): Promise<boolean>; bind(close: (conn: WsConn, code: number, reason: string) => void): void };
+  /** HTTPS on the same port: its switch and certificate (none: http only). */
+  readonly tls?: TlsSource;
   readonly clock: () => number;
   readonly log: Logger;
 }
@@ -60,7 +67,8 @@ export interface HttpFrontOptions {
 /** The HTTP and WebSocket front. */
 export class HttpFront {
   readonly #o: HttpFrontOptions;
-  readonly #server: HttpServer;
+  readonly #dual: DualServer;
+  readonly #server: NetServer;
   readonly #web: (req: IncomingMessage, res: ServerResponse) => void;
   readonly #mcp: (req: IncomingMessage, res: ServerResponse) => void;
   readonly #sockets: readonly UpgradeHandler[];
@@ -74,8 +82,10 @@ export class HttpFront {
     const systems = upgradeHandler(options.link, { heartbeat: options.heartbeat, maxPayload: options.maxMessage.link, ...(gate === undefined ? {} : { admit: (req: Request) => gate.admit(req) }) });
     gate?.bind((conn, code, reason) => { systems.close(conn, code, reason); });
     this.#sockets = [browser, systems];
-    this.#server = createServer((req, res) => { void this.#request(req, res); });
-    routeUpgrades(this.#server, { [WS_PATH]: browser, [LINK_PATH]: systems });
+    this.#dual = dualServer((req, res) => { void this.#request(req, res); }, options.tls, (side) => {
+      routeUpgrades(side, { [WS_PATH]: browser, [LINK_PATH]: systems });
+    }, options.clock);
+    this.#server = this.#dual.server;
   }
 
   /** Start listening; resolves with the real port. */
@@ -90,6 +100,11 @@ export class HttpFront {
     });
   }
 
+  /** Look at the certificate again on the next https connection (an address of this computer changed). */
+  refreshTls(): void {
+    this.#dual.refresh();
+  }
+
   /** Stop taking new connections; open ones carry on. */
   stopAccepting(): void {
     this.#server.close();
@@ -101,7 +116,7 @@ export class HttpFront {
       for (const client of sockets.clients) { client.terminate(); }
       await new Promise<void>((resolve) => { sockets.close(() => { resolve(); }); });
     }
-    this.#server.closeAllConnections();
+    this.#dual.closeAllConnections();
     await new Promise<void>((resolve) => {
       if (!this.#server.listening) { resolve(); return; }
       this.#server.close(() => { resolve(); });
