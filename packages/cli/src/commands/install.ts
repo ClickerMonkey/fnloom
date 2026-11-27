@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { HUB_OPTIONS, command, type CliIo } from '../command.ts';
 import type { HubSession } from '../hub.ts';
 import { bundledSystem } from './available.ts';
-import { goLiveIfInstalled, liveApi } from '../live.ts';
+import { goLiveWhenPaired, liveApi } from '../live.ts';
 
 /** The mime type of the zips the CLI uploads. */
 const ZIP = 'application/zip';
@@ -95,7 +95,12 @@ export const installCommand = command({
       const wait = values.wait === undefined ? io.settings.HARNESS_CLI_WAIT : Number(values.wait);
       if (!await waitForSystem(io, hub, installed, wait)) { return 1; }
       // a premade system the admin just asked for by name goes live as they would put it (nothing switched off)
-      if (premade !== undefined && await goLiveIfInstalled(liveApi(hub.api), installed.system) === 'live') { io.out.line(`${installed.system} is live`); }
+      // (it can say it is connected a moment before its contract reaches the hub, so this waits for that too)
+      if (premade !== undefined) {
+        const unpaired = await goLiveWhenPaired(liveApi(hub.api), [installed.system], wait);
+        if (unpaired.length > 0) { io.out.warn(`${installed.system} has not sent its contract yet, so it is not live: put it live under Admin > Systems once it does`); return 1; }
+        io.out.line(`${installed.system} is live`);
+      }
       return 0;
     } finally {
       hub.close();
