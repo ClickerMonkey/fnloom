@@ -92,10 +92,10 @@ app) is last.
 | | Harness | OpenCode | Claude | herdr | OpenClaw | Hermes | Codex | Open WebUI | goose | n8n | pi |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | Same app on every device | ● | ◐ | ● | ◐ | ◐ | ◐ | ● | ● | – | – | ○ |
-| On your phone | ● web app + alerts | ◐ | ● | ● | ● | ◐ | ● | ● | – | – | ◐ |
+| On your phone | ● installable app + alerts | ◐ | ● | ● | ● | ◐ | ● | ● | – | – | ◐ |
 | In the browser | ● | ● | ● | ○ | ● | ● | ● | ● | – | ● | – |
 | Runs on your machine | ● | ● | ◐ | ● | ● | ● | ◐ | ● | ● | ● | ● |
-| Desktop app | ○ | ● | ● | ● | ● | ● | ● | ● | ● | – | – |
+| Desktop app | ◐ installs from the browser | ● | ● | ● | ● | ● | ● | ● | ● | – | – |
 | Open source | ● Apache | ● MIT | ○ | ● Apache | ● MIT | ● MIT | ◐ | ◐ | ● Apache | ◐ | ● MIT |
 | Price | free + your model | free / $10+ | $0–200/mo | free | free | free | free / $8+ | free | free | free / €20+ | free + your model |
 
@@ -134,3 +134,5 @@ WebUI), recalls memories by itself and private memories (Claude, ChatGPT, Open W
   permissions"; the "elsewhere" list says "simulated users".
 - **fn, not tool** (Phil, 2026-11-26: "Use fn and fns not the spelled out word … don't call anything tools"): row labels
   say fn/fns; the site underlines every fn and defines it on hover (`site/tools/build.mjs` DEFS).
+- **Desktop app / On your phone** (2026-11-26, `docs/plans/installable-app-2026-11-26.md`): the web app installs from Chrome, Edge
+  and Safari and on phones (Home Screen), over the hub's own HTTPS; ◐ on desktop because it is not a native download.
