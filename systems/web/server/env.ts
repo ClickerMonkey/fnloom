@@ -32,7 +32,7 @@ export const webEnv = env({
   /** The most redirects one fetch follows. */
   WEB_REDIRECTS: z.number().int().min(0).max(30).default(10),
   /** The User-Agent pages are fetched with. */
-  WEB_USER_AGENT: z.string().default('Mozilla/5.0 (compatible; harness-web/1.0; +https://github.com/ClickerMonkey/harness)'),
+  WEB_USER_AGENT: z.string().default('Mozilla/5.0 (compatible; fnloom-web/1.0; +https://github.com/ClickerMonkey/fnloom)'),
   /** Characters `web/read` returns when the caller asks for no number. */
   WEB_READ_CHARS: z.number().int().min(1).max(READ_CHARS_MAX).default(12_000),
   /** Pages rendered at once; more wait their turn. */

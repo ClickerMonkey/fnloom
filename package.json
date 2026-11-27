@@ -13,7 +13,7 @@
     "bin": "fnloom",
     "description": "A web-based agent harness you run yourself: one hub that owns every model call, person and permission, and systems that add fns, types, resources and screens.",
     "keywords": ["agent", "harness", "llm", "ai", "mcp", "tools", "self-hosted"],
-    "repository": "https://github.com/ClickerMonkey/harness"
+    "repository": "https://github.com/ClickerMonkey/fnloom"
   },
   "workspaces": [
     "packages/core",

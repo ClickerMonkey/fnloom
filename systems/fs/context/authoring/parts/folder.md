@@ -150,6 +150,7 @@ declare module '*.vue' {
   "name": "@harness/system-template",
   "private": true,
   "version": "0.0.0",
+  "license": "Apache-2.0",
   "type": "module",
   "description": "Development only: system.json holds this system's name, version and entries.",
   "exports": {
@@ -158,7 +159,7 @@ declare module '*.vue' {
     "./client": "./client/index.ts"
   },
   "dependencies": {
-    "@ayepi/env": "file:../../../ayepi/packages/env",
+    "@ayepi/env": "^0.6.0",
     "@harness/core": "*",
     "@harness/sdk": "*",
     "vue": "^3.5.22",

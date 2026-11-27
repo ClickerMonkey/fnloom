@@ -5,7 +5,7 @@ fnloom is a web-based agent harness: one **hub** that owns every model call, per
 use it from a browser on that computer, or from a phone or another computer on the same network.
 
 This page covers installing it from npm, starting it, signing in and installing the premade systems. For working on
-the harness itself (from a clone of the repository), see the README in the [repository](https://github.com/ClickerMonkey/harness).
+the harness itself (from a clone of the repository), see the README in the [repository](https://github.com/ClickerMonkey/fnloom).
 
 ## What you need
 
@@ -76,7 +76,7 @@ its own small certificate authority. To install the app on a phone (and get noti
 Use it on your phone** on the computer: it shows a QR code to download that authority, the steps to trust it on
 iPhone or Android, and a QR code for the hub's https address. After that, open the address on the phone and choose
 **Install app** (Android) or **Share › Add to Home Screen** (iPhone). A real certificate (Tailscale, mkcert, a reverse
-proxy) works too: see "Installing the app, and HTTPS" in [`docs/harness.md`](https://github.com/ClickerMonkey/harness/blob/main/docs/harness.md).
+proxy) works too: see "Installing the app, and HTTPS" in [`docs/harness.md`](https://github.com/ClickerMonkey/fnloom/blob/main/docs/harness.md).
 
 ## Premade systems
 
