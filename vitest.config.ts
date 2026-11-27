@@ -5,6 +5,7 @@
  * - `live`: `*.live.test.ts`, which call real services (OpenRouter with `OPENROUTER_API_KEY`, GPT-6 Luna; the local
  *   embedder). They are skipped by `npm test`; run them with `npm run test:live`.
  * - `e2e`: `e2e/*.e2e.test.ts`, the whole stack booted by `e2e/global-setup.ts` with GPT-6 Luna; `npm run e2e`.
+ * - `browser`: `e2e/*.browser.test.ts`, a hub of its own and headless Chrome (the installable app); `npm run test:browser`.
  */
 import vue from '@vitejs/plugin-vue';
 import { defineConfig } from 'vitest/config';
@@ -45,6 +46,18 @@ export default defineConfig({
           // `.harness-test` holds scratch copies of the repo; their tests are not this checkout's
           exclude: ['**/node_modules/**', '.harness-test/**'],
           testTimeout: 120_000,
+        },
+      },
+      {
+        test: {
+          name: 'browser',
+          environment: 'node',
+          include: ['e2e/**/*.browser.test.ts'],
+          // one throwaway hub and one Chrome per file, its tests in order
+          fileParallelism: false,
+          sequence: { concurrent: false },
+          testTimeout: 120_000,
+          hookTimeout: 400_000,
         },
       },
       {
