@@ -243,7 +243,9 @@ const guide = (() => {
     const md = readFileSync(join(repo, 'docs', file), 'utf8').replace(/^# (.*)\r?\n/, (all, title) => `<!--title-->${title}\n`);
     const title = /<!--title-->(.*)/.exec(md)?.[1] ?? '';
     const body = new Marked.Marked({ renderer, gfm: true }).parse(md.replace(/<!--title-->.*\r?\n/, ''));
-    return `<h1>${esc(title)}</h1>\n${body}`;
+    // wide tables scroll sideways inside their own box instead of squeezing their columns
+    const tables = body.replace(/<table>/g, '<div class="table-wrap" tabindex="0"><table>').replace(/<\/table>/g, '</table></div>');
+    return `<h1>${esc(title)}</h1>\n${tables}`;
   };
   const install = render('install.md');
   const installToc = toc.splice(0);

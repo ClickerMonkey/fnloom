@@ -434,7 +434,18 @@ h2 { font-size: clamp(30px, 5.2vw, 52px); max-width: 20ch; }
 .prose code { font-family: var(--mono); font-size: .88em; background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 5px; overflow-wrap: anywhere; }
 .prose pre { margin: 14px 0; padding: 14px 16px; border-radius: 10px; background: #17181b; color: #f2ede3; overflow-x: auto; box-shadow: var(--shadow); }
 .prose pre code { background: none; border: 0; padding: 0; color: inherit; font-size: 14px; overflow-wrap: normal; white-space: pre; }
-.prose table { display: block; overflow-x: auto; border-collapse: collapse; margin: 16px 0; font-size: 15px; max-width: 100%; }
+/* shadows at the edges while there is more to scroll to (the covers move with the content, the shadows stay) */
+.prose .table-wrap { overflow-x: auto; margin: 16px 0; border: 1px solid var(--line); border-radius: 10px;
+  background: linear-gradient(to right, var(--bg) 30%, transparent) left / 32px 100% no-repeat local,
+    linear-gradient(to left, var(--bg) 30%, transparent) right / 32px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgba(0, 0, 0, .22), transparent) left / 12px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgba(0, 0, 0, .22), transparent) right / 12px 100% no-repeat scroll; }
+.prose table { border-collapse: collapse; font-size: 15px; width: 100%; min-width: 640px; }
+.prose .table-wrap th, .prose .table-wrap td { border-width: 0 1px 1px 0; }
+.prose .table-wrap tr > :last-child { border-right: 0; }
+.prose .table-wrap tbody tr:last-child > * { border-bottom: 0; }
+.prose td code, .prose th code { white-space: nowrap; overflow-wrap: normal; }
+.prose td:first-child { white-space: nowrap; }
 .prose th, .prose td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
 .prose th { background: var(--bg-2); color: var(--ink); }
 .prose hr { border: 0; border-top: 2px dashed var(--line-2); margin: 56px 0; }
