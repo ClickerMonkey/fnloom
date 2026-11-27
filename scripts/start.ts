@@ -76,7 +76,8 @@ export async function startHarness(options: StartOptions): Promise<number> {
   const asked = (options.systems ?? environment['HARNESS_DEV_ONLY'] ?? startComponents(environment).join(','))
     .split(',').map((name) => name.trim()).filter((name) => name !== '');
   // a heavy premade system's folder is not in the published package (its package zip is): it runs once installed
-  const notHere = asked.filter((name) => PREMADE[systemOfComponent(name)] !== undefined && !existsSync(join(BUNDLED_SYSTEMS_DIR, systemOfComponent(name), 'system.json')));
+  // (`hub` and `web`, the app's build, are no systems)
+  const notHere = asked.filter((name) => !['hub', 'web'].includes(name) && PREMADE[systemOfComponent(name)] !== undefined && !existsSync(join(BUNDLED_SYSTEMS_DIR, systemOfComponent(name), 'system.json')));
   for (const name of notHere) {
     out.warn(`${systemOfComponent(name)} is not started by ${CLI_NAME} start here: ${CLI_NAME} system install ${systemOfComponent(name)} installs it, and it starts with the hub after that`);
   }
