@@ -8,5 +8,6 @@ export { NodeFiles, type CliFiles, type FileStat } from './files.ts';
 export { cliEnv, cliSettings, connectHub, hubTarget, secretOption, withSavedAdmin, ENV_FILE_URL_REFUSED, type CliEnv, type CliSettings, type HubSession, type SecretFlag, type HubTarget } from './hub.ts';
 export { nodeIo } from './io.ts';
 export { goLiveIfInstalled, goLiveWhenPaired, liveApi, type GoLiveOutcome, type LiveApi } from './live.ts';
-export { ADMIN_FILE, AdminFile, BUNDLED_SYSTEMS_DIR, CLI_NAME, HARNESS_ROOT, START_SCRIPT, dataFolder, isStartScript, readAdminFile, sameLocalHub, type StartOptions, type StartScript } from './local.ts';
-export { bundledSystem, bundledSystems, STARTED_BY_DEFAULT, type BundledSystem } from './commands/available.ts';
+export { ADMIN_FILE, AdminFile, BUNDLED_SYSTEMS_DIR, CLI_NAME, HARNESS_ROOT, PREMADE_DIR, START_SCRIPT, dataFolder, isStartScript, readAdminFile, sameLocalHub, type StartOptions, type StartScript } from './local.ts';
+export { bundledSystem, bundledSystems, type BundledSystem } from './commands/available.ts';
+export { PREMADE, componentOf, packagedSystems, startComponents, startedWhen, systemOfComponent, type Premade } from './premade.ts';

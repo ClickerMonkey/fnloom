@@ -4,12 +4,18 @@
  * The package keeps the repository's layout, so every relative path in the code works as it does here:
  *
  *   package.json            the configured name and command (root package.json `release.name`, `release.bin`),
- *                           and every workspace's third-party runtime dependencies at the lockfile's versions
+ *                           and the third-party runtime dependencies of every workspace that ships as source, at
+ *                           the lockfile's versions
  *   README.md, LICENSE      docs/install.md as the README
  *   tsconfig.base.json      what system folders' tsconfig.json extend (`harness system new`, `build`)
  *   packages/{core,sdk,hub,cli,build}   their tracked source, without tests
  *   packages/web            its package.json and the built app (dist/) the hub serves
- *   systems/*               every premade system's tracked source, without tests
+ *   systems/*               the lightweight premade systems' tracked source, without tests: they run as they are
+ *   premade/<name>.zip      the heavy premade systems (`packagedSystems()` in packages/cli/src/premade.ts) as the
+ *                           package zips `harness system pack` makes: the server bundled, the npm packages its
+ *                           `system.json` lists in `server.external` left out. `harness system install <name>`
+ *                           installs the zip and the hub installs those packages into that system's own folder, so
+ *                           puppeteer, the Claude Agent SDK and the database drivers never reach the base package.
  *   scripts/                the stack (`harness start`) and `release/link.cjs`
  *
  * The internal `@harness/*` workspaces are not published on their own: `scripts/release/link.cjs` links
@@ -24,6 +30,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statS
 import { dirname, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { z } from 'zod';
+import { packagedSystems } from '../../packages/cli/src/premade.ts';
 import { REPO, releaseConfig } from './config.ts';
 
 /** The workspaces whose source ships (the web app ships only its build). */
@@ -141,7 +148,11 @@ const out = resolve(values.out ?? join(REPO, '.release'));
 const stage = join(out, 'stage');
 const root = readManifest(join(REPO, 'package.json'));
 const workspaces = root.workspaces ?? [];
-const systems = workspaces.filter((w) => w.startsWith('systems/'));
+/** The heavy premade systems, which ship as package zips in `premade/` (not as source, nor in the dependencies). */
+const packaged = packagedSystems().map((name) => `systems/${name}`);
+for (const workspace of packaged) { if (!workspaces.includes(workspace)) { throw new Error(`${workspace} is packaged in premade.ts but is no workspace`); } }
+/** The premade systems that ship as source. */
+const systems = workspaces.filter((w) => w.startsWith('systems/') && !packaged.includes(w));
 
 if (!values['skip-build']) {
   execFileSync(process.execPath, [join(REPO, 'node_modules', 'vite', 'bin', 'vite.js'), 'build'], { cwd: join(REPO, 'packages', 'web'), stdio: 'inherit' });
@@ -160,6 +171,12 @@ copy(stage, 'packages/web/package.json');
 // the built app without its source maps (most of its size, and of no use to someone running it)
 cpSync(join(REPO, 'packages', 'web', 'dist'), join(stage, 'packages', 'web', 'dist'), { recursive: true, filter: (source) => !source.endsWith('.map') });
 cpSync(join(REPO, 'docs', 'install.md'), join(stage, 'README.md'));
+// the heavy premade systems, each packed as `harness system pack` packs any system, built fresh (never a stale dist/)
+for (const workspace of packaged) {
+  rmSync(join(REPO, workspace, 'dist'), { recursive: true, force: true });
+  const zip = join(stage, 'premade', `${workspace.slice('systems/'.length)}.zip`);
+  execFileSync(process.execPath, [join(REPO, 'packages', 'cli', 'bin', 'harness.mjs'), 'system', 'pack', workspace, '--skip-typecheck', '--out', zip], { cwd: REPO, stdio: 'inherit' });
+}
 for (const workspace of [...PACKAGES, 'packages/web', ...systems]) {
   const path = join(stage, workspace, 'package.json');
   writeJson(path, shippedManifest(readManifest(path), config.version));
