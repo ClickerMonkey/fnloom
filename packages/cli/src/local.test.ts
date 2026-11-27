@@ -125,6 +125,21 @@ describe('premade systems', () => {
     expect(sources).toHaveLength(1);
   });
 
+  it('leaves a system harness start runs alone when the hub already has it', async () => {
+    const hub = new FakeHub({
+      installSystem: () => { throw new Error('not asked'); },
+      system: () => ({
+        name: SystemName.parse('fs'), description: 'Files.', status: 'connected', enabled: { functions: true, renderers: true }, version: '0.2.0', manifestHash: 'h',
+        actor: 'act_fs', keyFingerprint: 'fp', counts: { fns: 1, context: 0, types: 0, parts: 0, instances: 1, pending: 0, refusals: 0 }, instanceMode: 'many', needsConfig: false, instances: [],
+      }),
+    });
+    const io = testIo({ hub, cwd: WORK });
+    premade(io, BUNDLED_SYSTEMS_DIR);
+    expect(await runCli(['system', 'install', 'fs'], io)).toBe(0);
+    expect(hub.called).not.toContain('installSystem');
+    expect(io.lines.some((line) => line.includes('fs is already on this hub'))).toBe(true);
+  });
+
   it('says widgets wants database when it is installed alone', async () => {
     const hub = new FakeHub({
       installSystem: () => ({ name: SystemName.parse('widgets') }),

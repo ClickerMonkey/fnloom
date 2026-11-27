@@ -131,6 +131,11 @@ export const installCommand = command({
     try {
       const wait = values.wait === undefined ? io.settings.HARNESS_CLI_WAIT : Number(values.wait);
       const about = premade === undefined ? undefined : PREMADE[target];
+      // one that `harness start` runs and the hub already has: a second copy would take over its link
+      if (about?.start !== undefined && await isInstalled(hub, target)) {
+        io.out.line(`${target} is already on this hub (${CLI_NAME} start runs it), so there is nothing to install`);
+        return 0;
+      }
       // what goes along with a premade system, when the hub doesn't have it yet (database brings widgets)
       const along: string[] = [];
       for (const name of about?.with ?? []) {
