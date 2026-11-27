@@ -6,7 +6,7 @@
 //
 // The first time, turn Pages on for the branch: gh api -X POST repos/<owner>/<repo>/pages -f source[branch]=gh-pages
 import { execFileSync } from 'node:child_process';
-import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +23,9 @@ const out = mkdtempSync(join(tmpdir(), 'site-pages-'));
 try {
   cpSync(join(site, 'dist'), out, { recursive: true });
   writeFileSync(join(out, '.nojekyll'), '');
+  // the custom domain (site.config.json "domain"): GitHub Pages serves the site there
+  const domain = JSON.parse(readFileSync(join(site, 'site.config.json'), 'utf8')).domain;
+  if (domain && !domain.includes('/')) { writeFileSync(join(out, 'CNAME'), `${domain}\n`); }
   git(['init', '-q'], out);
   git(['checkout', '-q', '-b', 'gh-pages'], out);
   git(['add', '-A'], out);
