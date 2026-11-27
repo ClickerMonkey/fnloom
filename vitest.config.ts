@@ -12,6 +12,11 @@ import { defineConfig } from 'vitest/config';
 
 const live = '**/*.live.test.ts';
 const e2e = 'e2e/**/*.e2e.test.ts';
+/**
+ * aeye's published dist imports its own files without extensions, which Node's loader refuses (the hub and systems run
+ * under tsx, which allows it), so Vite transforms it instead of handing it to Node, as it did when it was linked.
+ */
+const server = { deps: { inline: [/[\\/]@aeye[\\/]/] } };
 
 export default defineConfig({
   test: {
@@ -20,6 +25,7 @@ export default defineConfig({
         test: {
           name: 'unit',
           environment: 'node',
+          server,
           include: ['packages/{core,sdk,hub,cli,build}/src/**/*.test.ts', 'systems/*/{shared,server}/**/*.test.ts', 'scripts/**/*.test.ts', 'mcp/**/*.test.ts'],
           exclude: [live, '**/node_modules/**'],
           // a file's first test pays for its imports' transform; under coverage on a full parallel run that can pass 5 s
@@ -31,6 +37,7 @@ export default defineConfig({
         test: {
           name: 'web',
           environment: 'happy-dom',
+          server,
           include: ['packages/web/src/**/*.test.ts', 'systems/*/client/**/*.test.ts'],
           exclude: [live, '**/node_modules/**'],
           // the first test in a file that mounts App.vue pays for vite's transform of a lazy route's whole tree (and
@@ -42,6 +49,7 @@ export default defineConfig({
         test: {
           name: 'live',
           environment: 'node',
+          server,
           include: [live],
           // `.harness-test` holds scratch copies of the repo; their tests are not this checkout's
           exclude: ['**/node_modules/**', '.harness-test/**'],
@@ -52,6 +60,7 @@ export default defineConfig({
         test: {
           name: 'browser',
           environment: 'node',
+          server,
           include: ['e2e/**/*.browser.test.ts'],
           // one throwaway hub and one Chrome per file, its tests in order
           fileParallelism: false,
@@ -64,6 +73,7 @@ export default defineConfig({
         test: {
           name: 'e2e',
           environment: 'node',
+          server,
           include: [e2e],
           globalSetup: ['e2e/global-setup.ts'],
           // one shared stack and session: files and tests run in order

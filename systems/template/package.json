@@ -11,7 +11,7 @@
     "./client": "./client/index.ts"
   },
   "dependencies": {
-    "@ayepi/env": "file:../../../ayepi/packages/env",
+    "@ayepi/env": "^0.6.0",
     "@harness/core": "*",
     "@harness/sdk": "*",
     "vue": "^3.5.22",

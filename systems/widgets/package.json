@@ -11,10 +11,10 @@
     "./client": "./client/index.ts"
   },
   "dependencies": {
-    "@aeye/gin": "file:../../../aits/packages/gin",
-    "@aeye/schema": "file:../../../aits/packages/schema",
-    "@ayepi/core": "file:../../../ayepi/packages/core",
-    "@ayepi/env": "file:../../../ayepi/packages/env",
+    "@aeye/gin": "^0.10.1",
+    "@aeye/schema": "^0.10.1",
+    "@ayepi/core": "^0.6.0",
+    "@ayepi/env": "^0.6.0",
     "@harness/core": "*",
     "@harness/sdk": "*",
     "vue": "^3.5.22",

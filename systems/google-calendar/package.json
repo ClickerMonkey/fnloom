@@ -10,7 +10,7 @@
     "./server": "./server/index.ts"
   },
   "dependencies": {
-    "@ayepi/env": "file:../../../ayepi/packages/env",
+    "@ayepi/env": "^0.6.0",
     "@harness/core": "*",
     "@harness/sdk": "*",
     "zod": "^4.6.7"

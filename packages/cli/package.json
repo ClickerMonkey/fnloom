@@ -13,9 +13,9 @@
     "./hub-client": "./src/hub-client.ts"
   },
   "dependencies": {
-    "@ayepi/core": "file:../../../ayepi/packages/core",
-    "@ayepi/env": "file:../../../ayepi/packages/env",
-    "@ayepi/mcp": "file:../../../ayepi/packages/mcp",
+    "@ayepi/core": "^0.6.0",
+    "@ayepi/env": "^0.6.0",
+    "@ayepi/mcp": "^0.6.0",
     "@harness/build": "*",
     "@harness/core": "*",
     "@harness/hub": "*",

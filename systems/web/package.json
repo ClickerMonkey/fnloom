@@ -11,8 +11,8 @@
     "./client": "./client/index.ts"
   },
   "dependencies": {
-    "@aeye/resources": "file:../../../aits/packages/resources",
-    "@ayepi/env": "file:../../../ayepi/packages/env",
+    "@aeye/resources": "^0.10.1",
+    "@ayepi/env": "^0.6.0",
     "@harness/core": "*",
     "@harness/sdk": "*",
     "puppeteer": "^25.16.0",

@@ -10,10 +10,10 @@
     "./server": "./server/index.ts"
   },
   "dependencies": {
-    "@aeye/gin": "file:../../../aits/packages/gin",
-    "@aeye/query": "file:../../../aits/packages/query",
-    "@aeye/schema": "file:../../../aits/packages/schema",
-    "@ayepi/env": "file:../../../ayepi/packages/env",
+    "@aeye/gin": "^0.10.1",
+    "@aeye/query": "^0.10.1",
+    "@aeye/schema": "^0.10.1",
+    "@ayepi/env": "^0.6.0",
     "@harness/core": "*",
     "@harness/sdk": "*",
     "better-sqlite3": "^12.4.1",

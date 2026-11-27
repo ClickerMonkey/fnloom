@@ -11,10 +11,10 @@
     "./client": "./client/index.ts"
   },
   "dependencies": {
-    "@aeye/gin": "file:../../../aits/packages/gin",
-    "@ayepi/core": "file:../../../ayepi/packages/core",
+    "@aeye/gin": "^0.10.1",
+    "@ayepi/core": "^0.6.0",
     "@anthropic-ai/claude-agent-sdk": "0.3.323",
-    "@ayepi/env": "file:../../../ayepi/packages/env",
+    "@ayepi/env": "^0.6.0",
     "@harness/core": "*",
     "@harness/sdk": "*",
     "vue": "^3.5.22",

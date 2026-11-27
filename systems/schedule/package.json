@@ -11,12 +11,12 @@
     "./client": "./client/index.ts"
   },
   "dependencies": {
-    "@aeye/gin": "file:../../../aits/packages/gin",
-    "@aeye/schema": "file:../../../aits/packages/schema",
-    "@ayepi/core": "file:../../../ayepi/packages/core",
-    "@ayepi/env": "file:../../../ayepi/packages/env",
-    "@ayepi/sqlite": "file:../../../ayepi/packages/sqlite",
-    "@ayepi/work": "file:../../../ayepi/packages/work",
+    "@aeye/gin": "^0.10.1",
+    "@aeye/schema": "^0.10.1",
+    "@ayepi/core": "^0.6.0",
+    "@ayepi/env": "^0.6.0",
+    "@ayepi/sqlite": "^0.6.0",
+    "@ayepi/work": "^0.6.0",
     "@harness/core": "*",
     "@harness/sdk": "*",
     "better-sqlite3": "^12.4.1",
