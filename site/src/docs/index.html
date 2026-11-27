@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{name}} Guide</title>
+<meta name="description" content="Install {{name}}, start it, sign in, put it on your phone, add systems, and the first things to do with it.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="../img/mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../css/site.css">
+<script>try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;}catch(e){}document.documentElement.classList.add('js');</script>
+</head>
+<body class="guide">
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top" data-top>
+  <div class="wrap top-in">
+    <a class="brand" href="../" aria-label="{{name}}, home">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="5.5"/><path d="M16 2.5v8M16 21.5v8M2.5 16h8M21.5 16h8" /><circle cx="16" cy="2.5" r="2"/><circle cx="16" cy="29.5" r="2"/><circle cx="2.5" cy="16" r="2"/><circle cx="29.5" cy="16" r="2"/></svg>
+      <span>{{name}} <span class="brand-sub">Guide</span></span>
+    </a>
+    <nav aria-label="Sections">
+      <ul>
+        <li><a href="#install-guide">Install</a></li>
+        <li><a href="#premade-systems">Systems</a></li>
+        <li><a href="#first-steps">First steps</a></li>
+        <li><a href="{{repo}}">GitHub</a></li>
+        <li><a href="../">About {{name}}</a></li>
+      </ul>
+    </nav>
+    <button class="theme" type="button" aria-label="Switch to dark theme" data-theme-toggle>
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="i-moon"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="i-sun"><circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1"/></svg>
+    </button>
+  </div>
+</header>
+
+<main id="main">
+<div class="wrap narrow prose">
+  <p class="kicker">The guide</p>
+  <nav class="toc" aria-label="On this page">
+<!-- build:guide-toc -->
+  </nav>
+  <article id="install-guide">
+<!-- build:guide-install -->
+  </article>
+  <hr>
+  <article id="first-steps">
+<!-- build:guide-using -->
+  </article>
+</div>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <p class="colophon">{{name}} · Apache 2.0 · <a href="{{repo}}">GitHub</a> · <a href="../">{{name}}</a> · This guide is <code>docs/install.md</code> and <code>docs/using.md</code> in the repository.</p>
+  </div>
+</footer>
+
+<script src="../js/site.js" defer></script>
+</body>
+</html>

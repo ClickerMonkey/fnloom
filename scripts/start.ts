@@ -112,7 +112,7 @@ export async function startHarness(options: StartOptions): Promise<number> {
   out.line(made ? `  Password:  ${password}   (saved in ${adminFile})` : existsSync(adminFile) ? `  Password:  in ${adminFile}` : '  Password:  HARNESS_ADMIN_PASSWORD');
   out.line(`  fs serves: ${process.env['HARNESS_DEV_ROOT']}`);
   out.line('');
-  out.line('Add a model provider under Models > Providers (or set OPENROUTER_API_KEY before the first start).');
+  out.line('Add a model provider under Admin > Models > Add provider (or set OPENROUTER_API_KEY before the first start).');
   out.line(`Systems running: ${started.join(', ') || 'none'}.`);
   out.line(`More: ${CLI_NAME} system available lists them all; ${CLI_NAME} system install <name> adds one (database, with widgets, for`);
   out.line('  your own tables and charts; web for search and page reading; claude for Claude Code sessions). Ctrl+C stops everything.');

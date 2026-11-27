@@ -419,3 +419,26 @@ h2 { font-size: clamp(30px, 5.2vw, 52px); max-width: 20ch; }
 .start-side .small { font-size: 14px; color: var(--ink-3); }
 .start-side code { font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
 @media (max-width: 480px) { .term-box { font-size: 13px; padding: 12px; } }
+
+/* ---- the guide (docs/) */
+.guide main { padding: 48px 0 72px; }
+.prose { color: var(--ink-2); font-size: 17px; line-height: 1.65; }
+.prose h1 { font-family: var(--serif); color: var(--ink); font-size: clamp(32px, 6vw, 48px); line-height: 1.1; margin: 8px 0 18px; }
+.prose h3 { font-family: var(--serif); color: var(--ink); font-size: 28px; margin: 48px 0 12px; scroll-margin-top: 80px; }
+.prose h4 { color: var(--ink); font-size: 19px; margin: 32px 0 8px; scroll-margin-top: 80px; }
+.prose p, .prose ul, .prose ol { margin: 12px 0; }
+.prose ul, .prose ol { padding-left: 22px; }
+.prose li { margin: 6px 0; }
+.prose strong { color: var(--ink); }
+.prose a { color: var(--brass); }
+.prose code { font-family: var(--mono); font-size: .88em; background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 5px; overflow-wrap: anywhere; }
+.prose pre { margin: 14px 0; padding: 14px 16px; border-radius: 10px; background: #17181b; color: #f2ede3; overflow-x: auto; box-shadow: var(--shadow); }
+.prose pre code { background: none; border: 0; padding: 0; color: inherit; font-size: 14px; overflow-wrap: normal; white-space: pre; }
+.prose table { display: block; overflow-x: auto; border-collapse: collapse; margin: 16px 0; font-size: 15px; max-width: 100%; }
+.prose th, .prose td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+.prose th { background: var(--bg-2); color: var(--ink); }
+.prose hr { border: 0; border-top: 2px dashed var(--line-2); margin: 56px 0; }
+.toc { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 20px; margin: 16px 0 32px; font-size: 15px; box-shadow: var(--shadow); }
+.toc p { margin: 6px 0 2px; }
+.toc ul { margin: 0 0 6px; padding-left: 18px; columns: 2 220px; }
+.toc li { margin: 2px 0; }

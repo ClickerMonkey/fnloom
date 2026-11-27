@@ -19,7 +19,7 @@ fnloom start                     # in the folder the agent should work in
 ```
 
 It starts the hub, the app and the built-in lightweight systems (fs, input, code, schedule, api), keeps its data in
-`~/.harness`, and prints the address to open and the admin sign-in it made. Add a model provider under **Models ›
+`~/.harness`, and prints the address to open and the admin sign-in it made. Add a model provider under **Admin › Models ›
 Providers** (or set `OPENROUTER_API_KEY` before the first start).
 
 <a id="installing-systems"></a>**Installing the premade systems:**

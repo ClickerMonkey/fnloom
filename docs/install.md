@@ -1,7 +1,7 @@
 # fnloom: installing and running it
 
 fnloom is a web-based agent harness: one **hub** that owns every model call, person, permission and record, and
-**systems** that connect to it to add fns (tools), types, resources and screens. It runs on your own computer; you
+**systems** that connect to it to add fns, types, resources and screens. It runs on your own computer; you
 use it from a browser on that computer, or from a phone or another computer on the same network.
 
 This page covers installing it from npm, starting it, signing in and installing the premade systems. For working on
@@ -48,7 +48,7 @@ The harness is running.
   fs serves: /home/you/projects
 ```
 
-Open the address, sign in with that email and password, and add a model provider under **Models › Providers** (or
+Open the address, sign in with that email and password, and add a model provider under **Admin › Models › Add provider** (or
 set `OPENROUTER_API_KEY` before the first start, and the hub configures OpenRouter itself). Ctrl+C stops everything;
 `fnloom start` again picks up where it left off.
 

@@ -9,11 +9,13 @@
 //   docs/site/feature-matrix.md          the comparison (matrix, column chips, "haven't found elsewhere")
 //   docs/site/research/competitors.md    the sources under "How we compared", by product
 //   site/data/marketplace.json           the mock marketplace's listings
+//   docs/install.md, docs/using.md       the guide (site/src/docs)
 //
 // dist/ is what gets hosted (DigitalOcean static site; see site/README.md). It is not checked in.
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, extname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as Marked from 'marked';
 
 const site = join(dirname(fileURLToPath(import.meta.url)), '..');
 const repo = join(site, '..');
@@ -218,12 +220,45 @@ function marketplace() {
 
 // ---------------------------------------------------------------- copy src → dist
 const TEXT = new Set(['.html', '.css', '.js', '.json', '.svg', '.txt', '.xml', '.webmanifest']);
+// ---------------------------------------------------------------- the guide (site/src/docs): docs/install.md and docs/using.md
+// Rendered with marked. Raw HTML in the markdown is shown as text (`<name>` placeholders), headings get ids, and links
+// between the two files become links within the page.
+const guide = (() => {
+  const toc = [];
+  const used = new Set();
+  const uniqueId = (text) => { const base = slug(text); let id = base; for (let n = 2; used.has(id); n++) { id = `${base}-${n}`; } used.add(id); return id; };
+  const renderer = new Marked.Renderer();
+  renderer.html = ({ text }) => esc(text);
+  renderer.heading = function ({ tokens, depth, text }) {
+    const id = uniqueId(text);
+    if (depth === 2) { toc.push(`<li><a href="#${id}">${esc(text)}</a></li>`); }
+    return `<h${depth + 1} id="${id}">${this.parser.parseInline(tokens)}</h${depth + 1}>\n`;
+  };
+  renderer.link = function ({ href, tokens }) {
+    const to = href === 'install.md' ? '#install-guide' : href === 'using.md' ? '#first-steps' : href;
+    const outside = /^https?:/.test(to) ? ' rel="noopener"' : '';
+    return `<a href="${esc(to)}"${outside}>${this.parser.parseInline(tokens)}</a>`;
+  };
+  const render = (file) => {
+    const md = readFileSync(join(repo, 'docs', file), 'utf8').replace(/^# (.*)\r?\n/, (all, title) => `<!--title-->${title}\n`);
+    const title = /<!--title-->(.*)/.exec(md)?.[1] ?? '';
+    const body = new Marked.Marked({ renderer, gfm: true }).parse(md.replace(/<!--title-->.*\r?\n/, ''));
+    return `<h1>${esc(title)}</h1>\n${body}`;
+  };
+  const install = render('install.md');
+  const installToc = toc.splice(0);
+  const using = render('using.md');
+  const tocHtml = `<p><b>Installing</b></p><ul>${installToc.join('')}</ul><p><b>First steps</b></p><ul>${toc.join('')}</ul>`;
+  return { 'guide-install': install, 'guide-using': using, 'guide-toc': tocHtml };
+})();
+
 const parts = (() => {
   const c = comparison();
   const m = marketplace();
   return {
     matrix: c.matrix, chips: c.chips, only: c.only, sources: sources(c.columns),
     'market-grid': m?.grid, 'market-chips': m?.chips, 'market-featured': m?.featured, 'market-json': m?.json,
+    ...guide,
     _summary: [c.summary, m?.summary].filter(Boolean).join('; '),
   };
 })();

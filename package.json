@@ -12,7 +12,15 @@
     "name": "fnloom",
     "bin": "fnloom",
     "description": "A web-based agent harness you run yourself: one hub that owns every model call, person and permission, and systems that add fns, types, resources and screens.",
-    "keywords": ["agent", "harness", "llm", "ai", "mcp", "tools", "self-hosted"],
+    "keywords": [
+      "agent",
+      "harness",
+      "llm",
+      "ai",
+      "mcp",
+      "tools",
+      "self-hosted"
+    ],
     "repository": "https://github.com/ClickerMonkey/fnloom"
   },
   "workspaces": [
@@ -87,6 +95,7 @@
     "eslint": "^10.14.0",
     "eslint-plugin-vue": "^10.12.0",
     "globals": "^17.14.0",
+    "marked": "^16.4.2",
     "puppeteer": "^25.16.0",
     "tsx": "^4.23.15",
     "typescript": "~5.9",

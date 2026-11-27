@@ -30,6 +30,7 @@
         <li><a href="#compare">Compare</a></li>
         <li><a href="marketplace/">Marketplace</a></li>
         <li><a href="#start">Get started</a></li>
+        <li><a href="docs/">Guide</a></li>
       </ul>
     </nav>
     <button class="theme" type="button" aria-label="Switch to dark theme" data-theme-toggle>
@@ -561,18 +562,20 @@
     <div class="start-grid">
       <ol class="start-steps" data-reveal>
         <li><b>Start it.</b>
-          <pre class="term-box"><code><span class="prompt">$</span> npx {{package}} start</code></pre>
+          <pre class="term-box"><code><span class="prompt">$</span> npm install -g {{package}}
+<span class="prompt">$</span> {{package}} start</code></pre>
           It starts the hub, the app and the built-in lightweight {{systems}} (files, forms, code, schedules, APIs), keeps its data in your home folder, and prints the address to open.</li>
-        <li><b>Open it and sign in.</b> The first start prints the admin sign-in. Add your model key under Settings, and invite other users when you’re ready.</li>
+        <li><b>Open it and sign in.</b> The first start prints the admin sign-in. Add your model key under Admin › Models › Add provider, and add other people under Admin › People when you’re ready. The <a href="docs/#first-steps">first steps</a> walk through the rest.</li>
         <li><b>Use it on your phone.</b> Settings › App › “Use it on your phone” shows a QR code and the two taps to trust the hub’s own HTTPS certificate, then install it as an app.</li>
         <li><b>Add more {{systems}}.</b>
-          <pre class="term-box"><code><span class="prompt">$</span> npx {{package}} system install claude</code></pre>
-          Databases and charts, web search, Claude Code, MCP servers, Google Calendar, local Ollama models: every premade {{system}} comes with the package, and the heavier ones fetch what they need only when you install them. The <a href="{{repo}}#installing-systems">install guide</a> lists what each one needs.</li>
+          <pre class="term-box"><code><span class="prompt">$</span> {{package}} system available
+<span class="prompt">$</span> {{package}} system install claude</code></pre>
+          Databases and charts, web search, Claude Code, MCP servers, Google Calendar, local Ollama models: every premade {{system}} comes with the package, and the heavier ones fetch what they need only when you install them. The <a href="docs/#premade-systems">guide</a> lists what each one needs.</li>
       </ol>
       <aside class="start-side" data-reveal>
         <h3>Open source</h3>
         <p>Apache 2.0. Read the code, file issues and send changes on GitHub.</p>
-        <p><a class="btn" href="{{repo}}">{{name}} on GitHub</a></p>
+        <p><a class="btn" href="docs/">Read the guide</a> <a class="btn ghost" href="{{repo}}">GitHub</a></p>
         <p class="small">Or from source: <code>git clone {{repo}}.git</code>, then <code>npm install</code> and <code>npm run live</code>.</p>
       </aside>
     </div>
