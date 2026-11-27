@@ -38,6 +38,9 @@ export interface DualServer {
 /** How often the certificate is looked at again. */
 const RECHECK = 60_000;
 
+/** How long a new connection may wait to send its first byte (after it, the http or https server's own timeouts apply). */
+export const FIRST_BYTE_TIMEOUT = 10_000;
+
 /** A server answering HTTP and HTTPS on one port; `setup` runs on each side when it is made (to route upgrades). */
 export function dualServer(handler: RequestListener, tls: TlsSource | undefined, setup: (server: HttpServer | HttpsServer) => void = () => undefined, clock: () => number = Date.now): DualServer {
   const plain = createHttpServer(handler);
@@ -69,7 +72,10 @@ export function dualServer(handler: RequestListener, tls: TlsSource | undefined,
     sockets.add(socket);
     socket.on('close', () => { sockets.delete(socket); });
     socket.on('error', () => { socket.destroy(); });
+    // until its first byte a connection belongs to neither server, so neither's timeouts apply: close a silent one
+    socket.setTimeout(FIRST_BYTE_TIMEOUT, () => { socket.destroy(); });
     socket.once('data', (first: Buffer) => {
+      socket.setTimeout(0);
       socket.pause();
       socket.unshift(first);
       const side = first[0] === 0x16 ? secureSide() : plain;

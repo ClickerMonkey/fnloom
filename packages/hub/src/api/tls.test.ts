@@ -3,7 +3,7 @@
  * certificate from it naming every address, kept until an address changes or it nears its end.
  */
 import { X509Certificate } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -94,5 +94,36 @@ describe('the folder', () => {
     folder.reset();
     expect(folder.authority()).toBeUndefined();
     expect(folder.ensure().fingerprint).not.toBe(first.fingerprint);
+  });
+
+  it('makes a new authority after the computer is renamed, since the old one may only sign for the old name', () => {
+    const dir = scratch();
+    const before = new TlsFolder(dir, { host: 'bagend', addresses: () => [], clock: () => NOW }).ensure();
+    const after = new TlsFolder(dir, { host: 'rivendell', addresses: () => [], clock: () => NOW }).ensure();
+    expect(after.fingerprint).not.toBe(before.fingerprint);
+    expect(new X509Certificate(after.ca).subject).toContain('rivendell');
+    expect(new X509Certificate(after.cert).checkHost('rivendell')).toBe('rivendell');
+  });
+
+  it('heals a damaged authority and clears temp files a crashed write left behind', () => {
+    const dir = scratch();
+    const folder = new TlsFolder(dir, { host: 'bagend', addresses: () => [], clock: () => NOW });
+    const first = folder.ensure();
+    writeFileSync(join(dir, 'ca.crt'), '-----BEGIN CERTIFICATE-----\ntruncated');
+    writeFileSync(join(dir, 'ca.key.123.abcd.tmp'), 'half a key');
+    const healed = folder.ensure();
+    expect(healed.fingerprint).not.toBe(first.fingerprint);
+    expect(readdirSync(dir).filter((n) => n.endsWith('.tmp'))).toEqual([]);
+  });
+
+  it('keeps the keys readable by their owner only', () => {
+    const dir = scratch();
+    new TlsFolder(dir, { host: 'bagend', addresses: () => [], clock: () => NOW }).ensure();
+    if (process.platform !== 'win32') {
+      expect(statSync(join(dir, 'ca.key')).mode & 0o077).toBe(0);
+      expect(statSync(join(dir, 'hub.key')).mode & 0o077).toBe(0);
+    } else {
+      expect(readFileSync(join(dir, 'ca.key'), 'utf8')).toContain('PRIVATE KEY');
+    }
   });
 });

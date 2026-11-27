@@ -14,7 +14,8 @@
  * made parameters so it can be tested. Only `node:crypto`: the DER below is just what certificates need.
  */
 import { createHash, createPrivateKey, generateKeyPairSync, randomBytes, sign, X509Certificate, type KeyObject } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { isIPv4, isIPv6 } from 'node:net';
 import { hostname, networkInterfaces } from 'node:os';
 import { join } from 'node:path';
@@ -259,11 +260,30 @@ const RENEW_BEFORE = 30 * 86_400_000;
 /** Write a file whole (a reader never sees half of it). */
 function writeWhole(file: string, text: string, secret: boolean): void {
   const tmp = `${file}.${String(process.pid)}.${randomBytes(4).toString('hex')}.tmp`;
-  writeFileSync(tmp, text);
-  if (secret) {
-    try { chmodSync(tmp, 0o600); } catch { /* Windows: the folder's own permissions */ }
+  try {
+    // a key is its owner's only from the moment it exists (POSIX); on Windows the file drops the folder's inherited
+    // access and keeps only the account running the hub
+    writeFileSync(tmp, text, { mode: secret ? 0o600 : 0o644 });
+    if (secret) { ownerOnly(tmp); }
+    renameSync(tmp, file);
+  } catch (error) {
+    rmSync(tmp, { force: true });
+    throw error;
   }
-  renameSync(tmp, file);
+}
+
+/** Only the account running the hub may read this file (chmod on POSIX, an ACL on Windows). */
+function ownerOnly(file: string): void {
+  if (process.platform !== 'win32') { chmodSync(file, 0o600); return; }
+  const user = process.env['USERNAME'];
+  if (user === undefined || user === '') { return; }
+  const domain = process.env['USERDOMAIN'];
+  const who = domain === undefined || domain === '' ? user : `${domain}\\${user}`;
+  try {
+    execFileSync('icacls', [file, '/inheritance:r', '/grant:r', `${who}:F`], { stdio: 'ignore', windowsHide: true });
+  } catch {
+    // icacls missing or refused: the folder's own permissions apply, as before
+  }
 }
 
 /** The authority and the hub's certificate in a folder of the hub's data. */
@@ -297,9 +317,11 @@ export class TlsFolder {
   /** The authority and the hub's certificate: made when missing, made again when an address changed or it nears its end. */
   ensure(): Tls {
     mkdirSync(this.#dir, { recursive: true });
+    // a write that crashed half-way leaves a temp file (maybe key material): never kept
+    for (const name of readdirSync(this.#dir)) { if (name.endsWith('.tmp')) { rmSync(this.#file(name), { force: true }); } }
     const now = this.#clock();
     let ca = this.#read('ca.key', 'ca.crt');
-    if (ca !== undefined && Date.parse(new X509Certificate(ca.cert).validTo) < now + RENEW_BEFORE) { ca = undefined; }
+    if (ca !== undefined && !this.#authorityGood(ca, now)) { ca = undefined; }
     const fresh = ca === undefined;
     if (ca === undefined) {
       ca = makeAuthority(this.#host, now);
@@ -316,6 +338,20 @@ export class TlsFolder {
       writeWhole(this.#file('hub.crt'), leaf.cert, false);
     }
     return { ...leaf, ca: ca.cert, ...want, expires: Date.parse(new X509Certificate(leaf.cert).validTo), fingerprint: caX.fingerprint256 };
+  }
+
+  /**
+   * Whether the stored authority can still sign for this computer: it parses, isn't near its end, and was made for this
+   * host name (its name constraints carry the host, so after a rename a certificate naming the new host would be refused).
+   */
+  #authorityGood(ca: KeyPair, now: number): boolean {
+    try {
+      const x = new X509Certificate(ca.cert);
+      createPrivateKey(ca.key);
+      return Date.parse(x.validTo) >= now + RENEW_BEFORE && commonName(x) === `Harness on ${this.#host}`;
+    } catch {
+      return false;
+    }
   }
 
   /** The authority, if made, without making anything. */
