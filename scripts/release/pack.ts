@@ -15,7 +15,7 @@
  *                           package zips `harness system pack` makes: the server bundled, the npm packages its
  *                           `system.json` lists in `server.external` left out. `harness system install <name>`
  *                           installs the zip and the hub installs those packages into that system's own folder, so
- *                           puppeteer, the Claude Agent SDK and the database drivers never reach the base package.
+ *                           puppeteer, the Claude Agent SDK and the database drivers never reach its dependencies.
  *   scripts/                the stack (`harness start`) and `release/link.cjs`
  *
  * The internal `@harness/*` workspaces are not published on their own: `scripts/release/link.cjs` links

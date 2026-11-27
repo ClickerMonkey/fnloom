@@ -23,8 +23,8 @@ This puts the `fnloom` command on your PATH. To keep it inside one folder instea
 `npm install fnloom` there and use `npx fnloom …` in place of `fnloom …`.
 
 The package carries the hub, the app, the command line and the lightweight premade systems. The heavier systems
-(database, web, claude) come as small packages inside it whose own dependencies (the database drivers, puppeteer and
-the Chrome it downloads, the Claude Agent SDK) are fetched only when you install that system (see
+(database, web, claude) come as small packages inside it whose own dependencies (the SQLite driver built for your
+machine, puppeteer and the Chrome it downloads, the Claude Agent SDK) are fetched only when you install that system (see
 [Premade systems](#premade-systems)).
 
 ## Start it
@@ -100,7 +100,7 @@ machine that never installs web never downloads puppeteer's Chrome. `fnloom syst
 | `api` | always | fns that call web APIs, written from a service's OpenAPI document |
 | `google-calendar` | when `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set | each person's own Google Calendar |
 | `embedder` | when `HARNESS_EMBEDDER_URL` is set | embeddings from an EmbeddingGemma service, for search and suggestions |
-| `database` | no: install it (brings `widgets`; fetches the SQLite, Postgres and SQL Server drivers, ~50 MB) | SQL databases (SQLite, Postgres, SQL Server): tables as types, kept queries as fns |
+| `database` | no: install it (brings `widgets`; fetches the SQLite driver built for your machine) | SQL databases (SQLite, Postgres, SQL Server): tables as types, kept queries as fns |
 | `widgets` | no: comes with `database` | charts and tables drawn from database queries, saved as widgets |
 | `web` | no: install it (fetches puppeteer and its Chrome) | web search ([Tavily](https://tavily.com)), page reading and site crawls |
 | `claude` | no: install it (fetches the Claude Agent SDK) | Claude Code sessions on this machine, managed from the harness |

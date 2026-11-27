@@ -31,7 +31,7 @@ fnloom system install claude
 ```
 
 The heavier ones (database, web, claude) are not in the base package: installing one fetches its own dependencies
-(the database drivers, puppeteer and its Chrome, the Claude Agent SDK) into that system's folder in the hub's data.
+(the SQLite driver built for the machine, puppeteer and its Chrome, the Claude Agent SDK) into that system's folder in the hub's data.
 
 The full guide, with what each system needs, is [`docs/install.md`](docs/install.md).
 

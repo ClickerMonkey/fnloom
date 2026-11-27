@@ -1172,8 +1172,9 @@ stack scripts), so `fnloom start` is `runStack` with no build and nothing watche
 (`--systems` gives the list instead). One table says which premade systems start, which ship as source and which as
 package zips: `PREMADE` in `packages/cli/src/premade.ts`. The heavy ones (database, web, claude) are not in the base
 package or its dependencies: the release packs each with `harness system pack` into `premade/<name>.zip`, its server
-bundled and the npm packages its `system.json` lists in `server.external` (the database drivers, puppeteer, the
-Claude Agent SDK) left out; installing one uploads that zip and the hub `npm install`s those packages into the
+bundled (the Postgres and SQL Server drivers included) and the npm packages made for the machine that its
+`system.json` lists in `server.external` (better-sqlite3, puppeteer and the Chrome its install fetches, the Claude
+Agent SDK) left out; installing one uploads that zip and the hub `npm install`s those packages into the
 system's own folder in its data (`NodeInstaller`), so only a machine that asked for web gets puppeteer and its
 Chrome. On a first start with no
 `HARNESS_ADMIN_EMAIL`/`HARNESS_ADMIN_PASSWORD` it makes `admin@harness.local` with a random password, saves it in

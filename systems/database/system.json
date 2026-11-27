@@ -7,9 +7,7 @@
   "server": {
     "entry": "server/main.ts",
     "external": {
-      "better-sqlite3": "^12.4.1",
-      "mssql": "^12.7.14",
-      "pg": "^8.23.1"
+      "better-sqlite3": "^12.4.1"
     }
   },
   "instances": "many"

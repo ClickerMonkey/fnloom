@@ -42,7 +42,7 @@ export const PREMADE: Readonly<Record<string, Premade>> = {
   ollama: {},
   mcp: {},
   widgets: { note: 'widgets draws charts and tables from database queries: install database too (harness system install database --config <file.json>)' },
-  // SQL Server and Postgres drivers, and better-sqlite3 built for the system's own folder
+  // @aeye/query and the Postgres and SQL Server drivers (bundled into its zip), and better-sqlite3 built for the machine
   database: { package: true, with: ['widgets'] },
   // puppeteer and the Chrome it downloads
   web: { package: true, component: 'web-system' },
